@@ -1,0 +1,1969 @@
+# grizzle
+
+Describe your data, its rules and who may see it, in TypeScript. grizzle compiles it into PostgreSQL.
+
+You declare your tables, the rules your data must always obey, what each kind of user may read and write, and the
+queries and writes your app runs. grizzle turns that into the database objects a PostgreSQL expert would set up by
+hand (constraints, triggers, roles, views, row-level security and indexes) and into SQL compiled ahead of time, with
+exact result types. PostgreSQL then enforces all of it, for your app and for anything else that connects. Every call is
+one SERIALIZABLE transaction in one round trip, and every failure is typed.
+
+[Agent guide](packages/grizzle/skills/grizzle/SKILL.md) · [Contributing](CONTRIBUTING.md) ·
+[npm](https://www.npmjs.com/package/@bjornpagen/grizzle)
+
+```ts
+import { closed, closedId, contained, on, pg, query, relation, schema, str, uuid, v } from "@bjornpagen/grizzle"
+
+const ClerkUser = str.regex("^user_[0-9A-Za-z]{1,64}$")
+const ClerkOrg = str.regex("^org_[0-9A-Za-z]{1,64}$")
+const Title = str.regex("^.{1,200}$", "su")
+const Prose = str.regex("^.*$", "su")
+
+export const Status = closed("Status", ["Draft", "Published"])
+export const Post = relation(
+	"Post",
+	{
+		id: uuid,
+		org: ClerkOrg,
+		author: ClerkUser,
+		title: Title,
+		body: Prose,
+		status: closedId(Status)
+	},
+	["id"]
+)
+export const Comment = relation(
+	"Comment",
+	{ id: uuid, post: uuid, author: ClerkUser, body: Prose },
+	["id"]
+)
+export const PostViews = relation("PostViews", { post: uuid, views: pg.bigint }, ["post"])
+
+export const Blog = schema("Blog", { Status, Post, Comment, PostViews }, [
+	contained(on(Comment, "post"), on(Post, "id")),
+	contained(on(PostViews, "post"), on(Post, "id"))
+])
+
+/** A published post by its id, with its comments nested inside it. */
+export const postPage = query(Blog)
+	.rule((r) => {
+		const { id, title, body } = v(Post)
+		return r
+			.match(Post, { id, title, body, status: "Published" })
+			.where(r.eq(id, r.param("id", uuid)))
+			.find({ id, title, body })
+	})
+	.attach(
+		"comments",
+		(post) =>
+			query(Blog).rule((r) => {
+				const { id, author, body } = v(Comment)
+				return r.match(Comment, { id, post: post.id, author, body }).find({ id, author, body })
+			}),
+		"array"
+	)
+```
+
+Three tables, a status enum and two foreign keys: `contained(on(Comment, "post"), on(Post, "id"))` reads "every
+comment's `post` is some post's `id`". A query is made of rules: `v(Post)` makes one variable per column, `r.match`
+binds them to a table's rows, `.where` filters, `.find` picks the columns, and `.attach` nests a child query in each
+row. `postPage` takes one parameter, `id: string`, and its rows are typed from the query itself, the nested comments
+included:
+
+```text
+{
+  readonly id: string
+  readonly title: string
+  readonly body: string
+  readonly comments: ReadonlyArray<{ readonly id: string; readonly author: string; readonly body: string }>
+}
+```
+
+Because `id` is the primary key, grizzle knows `postPage` returns at most one row, so `db.get(postPage, { id })`
+compiles and returns an `Option` of that row. On a query that can return several rows, `db.get` is a type error.
+Nothing here is annotated by hand, and there is no `` sql`…` `` to fall back to.
+
+## Coming from Drizzle
+
+Drizzle is a thin, typed layer over SQL, and that's its appeal: what you write is close to what runs. On a large app,
+that closeness turns into three recurring costs.
+
+1. **You still design the database by hand.** The tables are typed, but foreign keys, CHECKs, triggers, indexes and
+   row-level security policies are yours to write, in SQL or in a SQL-shaped API, and to keep in step with the code.
+2. **Type inference stops where queries get interesting.** Selects and joins infer well. Aggregates, subqueries,
+   unions and nested results often end up in `` sql`…` `` with a result type you write yourself, and nothing checks
+   that type against the query.
+3. **Business rules and permissions live in app code.** "A member sees only their organization's drafts" and "a show
+   never sells more tickets than it has seats" become `where` clauses and `if`s in handlers. Every code path has to
+   remember them, and so does every other writer: a script, a psql session, a second service.
+
+grizzle starts one level up. You say what the data is, what must stay true of it and who may see it; grizzle writes
+the SQL, and PostgreSQL enforces the result.
+
+|                         | With Drizzle                                                | With grizzle                                                                       |
+| ----------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Tables                  | `pgTable(...)`                                              | `relation(...)`, with no nullable columns                                          |
+| Rules beyond FK, unique | triggers you write in SQL, or checks in app code            | declared beside the tables, compiled to constraints and, where needed, triggers    |
+| Who sees which rows     | `where` clauses in app code, or RLS policies written in SQL | roles declared in TypeScript, compiled to views, grants and row-level security     |
+| Complex queries         | often `` sql`…` `` with a hand-written result type          | one query language, every result type inferred, nested results included            |
+| Indexes                 | declared by hand                                            | derived from your rules and from the queries your app runs                         |
+| Transactions            | interactive, at the isolation level you pick                | one SERIALIZABLE transaction per call, sent in one round trip                      |
+| Migrations              | drizzle-kit generates SQL from your schema changes          | `grizzle generate` drafts SQL from your schema changes; you review it and commit it |
+
+grizzle is opinionated in return: PostgreSQL 19 only, no nullable columns, no outer joins or window functions, no
+interactive transactions and no raw SQL at run time. Read [Limits](#limits) before you adopt it.
+
+<details>
+<summary>Drizzle → grizzle, API by API</summary>
+
+| Drizzle                                                | grizzle                                                                                         |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `pgTable("post", { ... })`                             | `relation("Post", { ... }, ["id"])`; the third argument is the primary key                      |
+| `.notNull()`                                           | every column; a value that may be missing is a row in a table of its own                        |
+| `text()`, `varchar()`                                  | `str.regex(pattern)`: text always carries a pattern                                             |
+| `integer()`, `bigint({ mode: "bigint" })`, `numeric()` | `pg.integer` (`number`), `pg.bigint` (`bigint`), `pg.numeric` (an exact `Decimal`)              |
+| `pgEnum("status", [...])`                              | `closed("Status", [...])`, with `closedId(Status)` for the column                               |
+| `.references(() => post.id)`                           | `contained(on(Comment, "post"), on(Post, "id"))`                                                |
+| `unique().on(t.show, t.holder)`                        | `key(Ticket, ["show", "holder"])`                                                               |
+| `` check("some_seats", sql`...`) ``                    | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`                                               |
+| `index().on(...)`                                      | nothing: `grizzle generate` derives indexes from your rules and your `workload(...)` queries    |
+| `pgPolicy(...)`, and `set_config` around each request  | `context(...)` and `role(...)`                                                                  |
+| `pgMaterializedView(...)`                              | `derived(...)`                                                                                  |
+| `db.select().from(post).where(eq(post.id, id))`        | `query(Blog).rule((r) => r.match(Post, { ... }).where(r.eq(...)).find({ ... }))`                |
+| `.innerJoin(comment, eq(comment.postId, post.id))`     | one variable in two matches                                                                     |
+| `notExists(...)`                                       | `r.not(Comment, { post: id })`                                                                  |
+| `count()`, `sum(...)`                                  | `r.count()`, a `bigint`; `r.sum(x)`, typed as PostgreSQL types it (a `Decimal` for a `bigint`)  |
+| `db.query.post.findMany({ with: { comments: true } })` | `.attach("comments", (post) => ..., "array")`                                                   |
+| `.orderBy(...).limit(10)`                              | `.orderBy([...]).take(10)`, or `db.page` for cursors                                            |
+| `db.insert(post).values(rows)`                         | `ChangeSet.empty(Blog).insert(Post, rows)`                                                      |
+| `.onConflictDoUpdate(...)`, `db.update(post).set(...)` | `.put(Post, rows)`: after the change, the row at each key is the one given                      |
+| `db.delete(post).where(...)`                           | `.delete(Post, rows)`, the rows given or read by a query                                        |
+| `.returning()`                                         | `.read(name, (delta) => query)`                                                                 |
+| `db.transaction(async (tx) => { ... })`                | one ChangeSet and `db.apply`; a read that decides a write is a query inside the ChangeSet       |
+| `` sql`...` ``                                         | none at run time                                                                                |
+| `drizzle-kit generate`, `migrate`, `check`             | `grizzle generate`, `grizzle migrate`, `grizzle check`                                          |
+| `drizzle-kit push`                                     | none: every change is a migration you review                                                    |
+
+</details>
+
+## Hard in Drizzle, one declaration here
+
+Eight things a large app needs, each in three parts: what it takes with Drizzle, the grizzle code, and what you get.
+The grizzle code typechecks in the test suite, like every `ts` block on this page, and each generated statement shown
+is `grizzle generate`'s output for that code, abridged where marked. Each showcase continues the opening block, with
+its `ClerkUser`, `ClerkOrg`, `Title` and `Prose`, and imports what it adds. Most come from an LLM API platform:
+organizations, API keys, metered calls, credits and invoices.
+
+1. [Every organization sees only its own rows](#1-every-organization-sees-only-its-own-rows)
+2. [Top three per group, with exact types](#2-top-three-per-group-with-exact-types)
+3. [A tree of any depth](#3-a-tree-of-any-depth)
+4. [No double booking](#4-no-double-booking)
+5. [A budget no burst of requests can overdraw](#5-a-budget-no-burst-of-requests-can-overdraw)
+6. [Books that always balance](#6-books-that-always-balance)
+7. [States that carry their own data](#7-states-that-carry-their-own-data)
+8. [A usage page: cursors, a rollup and their indexes](#8-a-usage-page-cursors-a-rollup-and-their-indexes)
+
+### 1. Every organization sees only its own rows
+
+**The task.** A dashboard where members manage their organization's API keys, and never see or create another
+organization's.
+
+**With Drizzle**, the usual answer is `where(eq(apiKey.orgId, orgId))` in every query and `orgId` in every insert, and
+one forgotten clause leaks. Moving the rule into PostgreSQL means writing it in SQL: `pgPolicy` declares a policy, but
+its condition is a `` sql`…` `` string, and every request has to set the claim inside the transaction its queries run
+in.
+
+```sql
+ALTER TABLE api_key ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, DELETE ON api_key TO app_user;
+CREATE POLICY api_key_by_org ON api_key TO app_user
+  USING (org_id = current_setting('app.org_id'))
+  WITH CHECK (org_id = current_setting('app.org_id'));
+
+-- and around every request, in db.transaction:
+SET LOCAL ROLE app_user;
+SELECT set_config('app.org_id', $1, true);
+```
+
+**With grizzle:**
+
+```ts
+import { context, login, role } from "@bjornpagen/grizzle"
+
+export const ApiKey = relation("ApiKey", { id: uuid, org: ClerkOrg, name: Title }, ["id"])
+export const Keys = schema("Keys", { ApiKey }, [])
+
+/** The caller's organization: the `org` claim of their verified session token. */
+export const Tenant = context("Tenant", { org: ClerkOrg })
+
+/** The keys of the caller's organization. An insert takes `org` from the token. */
+export const orgKeys = query(Keys).rule((r) => {
+	const { id, org, name } = v(ApiKey)
+	return r.match(ApiKey, { id, org, name }).match(Tenant, { org }).find({ id, name })
+})
+
+export const KeyAdmin = role(Keys, "key_admin", { ApiKey: orgKeys }, { write: ["ApiKey"] })
+export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
+```
+
+**What you get.** The app's queries and writes are written over `KeyAdmin`, where `ApiKey` already means "this
+organization's keys", with rows `{ id: string; name: string }`. There is no `where` to forget, and no `org` to pass:
+inserting `{ id, name }` stores the caller's organization, and deleting another organization's key does nothing.
+`Db.open(Dashboard.roles.key_admin, ...)` doesn't compile without a token. The rule lives in PostgreSQL, so psql meets
+it too:
+
+```sql
+-- psql, logged in as the login keys__dashboard
+SET ROLE keys__key_admin;
+BEGIN;
+SELECT set_config('grizzle.claims', '{"Tenant":{"org":"org_2abc"}}', true);
+SELECT id, name FROM keys__key_admin.api_key;                                     -- org_2abc's keys only
+INSERT INTO keys.api_key (id, org, name) VALUES (gen_random_uuid(), 'org_9xyz', 'x');  -- 42501
+```
+
+What `grizzle generate` installs for it, abridged; each `…` is generated SQL that reads the token's claims:
+
+```sql
+CREATE ROLE "keys__key_admin" NOLOGIN;
+CREATE SCHEMA "keys__key_admin";
+CREATE VIEW "keys__key_admin"."api_key" ("id", "name") WITH (security_barrier) AS …;
+CREATE POLICY "keys__key_admin" ON "keys"."api_key" AS PERMISSIVE FOR ALL TO "keys__key_admin"
+  USING (…)
+  WITH CHECK (…);
+ALTER TABLE "keys"."api_key" ENABLE ROW LEVEL SECURITY;
+GRANT SELECT ("id", "org", "name") ON TABLE "keys"."api_key" TO "keys__key_admin";
+GRANT INSERT ("id", "org", "name") ON TABLE "keys"."api_key" TO "keys__key_admin";
+GRANT DELETE ON TABLE "keys"."api_key" TO "keys__key_admin";
+```
+
+The [example](#example) walks through roles, logins and Clerk tokens in full.
+
+### 2. Top three per group, with exact types
+
+**The task.** A billing page: each workspace's spend, and its three costliest models with their call counts, leaving
+out refunded calls.
+
+**With Drizzle**, this is the kind of query that ends up in `` sql`…` ``: a LATERAL subquery (or a window function)
+for the top three per workspace, NOT EXISTS for the refunds, and `json_agg` to nest them.
+
+```sql
+SELECT w.workspace_id, w.spend, top.models
+FROM (
+  SELECT c.workspace_id, sum(c.cost) AS spend
+  FROM call c
+  WHERE NOT EXISTS (SELECT 1 FROM refund f WHERE f.call_id = c.id)
+  GROUP BY c.workspace_id
+) w
+CROSS JOIN LATERAL (
+  SELECT coalesce(json_agg(m ORDER BY m.spend DESC, m.model), '[]') AS models
+  FROM (
+    SELECT c.model, count(*) AS calls, sum(c.cost) AS spend
+    FROM call c
+    WHERE c.workspace_id = w.workspace_id
+      AND NOT EXISTS (SELECT 1 FROM refund f WHERE f.call_id = c.id)
+    GROUP BY c.model
+    ORDER BY spend DESC, c.model
+    LIMIT 3
+  ) m
+) top;
+```
+
+The row type is yours to write, and nothing checks it against the query. It is easy to get subtly wrong: node-postgres
+returns the outer `sum` as a string, while `json_agg` turns the inner `sum` and `count` into JSON numbers, which lose
+precision past 2^53.
+
+**With grizzle:**
+
+```ts
+import { contract } from "@bjornpagen/grizzle"
+
+/** Millionths of a dollar, never negative; and an instant, in milliseconds since the epoch. */
+const Micros = contract("Micros", pg.bigint, (m) => m.ge(0n))
+const Millis = contract("Millis", pg.bigint)
+
+/** One API call: its workspace, its model, when it ran and what it cost. */
+export const Call = relation(
+	"Call",
+	{ id: uuid, workspace: uuid, model: Title, at: Millis, cost: Micros },
+	["id"]
+)
+export const Refund = relation("Refund", { call: uuid }, ["call"])
+export const Usage = schema("Usage", { Call, Refund }, [
+	contained(on(Refund, "call"), on(Call, "id"))
+])
+
+/** Each workspace's spend, and its three costliest models, leaving out refunded calls. */
+export const topModels = query(Usage)
+	.rule((r) => {
+		const { id, workspace, cost } = v(Call)
+		return r
+			.match(Call, { id, workspace, cost })
+			.where(r.not(Refund, { call: id }))
+			.find({ workspace, spend: r.sum(cost) })
+	})
+	.attach(
+		"models",
+		(w) =>
+			query(Usage)
+				.rule((r) => {
+					const { id, model, cost } = v(Call)
+					return r
+						.match(Call, { id, workspace: w.workspace, model, cost })
+						.where(r.not(Refund, { call: id }))
+						.find({ model, calls: r.count(), spend: r.sum(cost) })
+				})
+				.orderBy(["spend", "desc"])
+				.take(3),
+		"array"
+	)
+```
+
+**What you get.** Rows typed from the query, with nothing written by hand:
+
+```text
+{
+  readonly workspace: string
+  readonly spend: Decimal
+  readonly models: ReadonlyArray<{ readonly model: string; readonly calls: bigint; readonly spend: Decimal }>
+}
+```
+
+PostgreSQL's `count` is a bigint, so `calls` is a `bigint`; its `sum` of a bigint is a numeric, so `spend` is an exact
+`Decimal`, at both levels. Each workspace's `models` arrive in order, ties broken by `model`, the child query's key,
+which grizzle adds to the order because it knows the key.
+
+### 3. A tree of any depth
+
+**The task.** Reseller billing: an account bills through its parent account, to any depth, and a reseller sees what
+every account under it spent.
+
+**With Drizzle**, the query builder has CTEs (`$with`) but no recursive ones yet, so this is `` db.execute(sql`…`) ``
+with a row type you write:
+
+```sql
+WITH RECURSIVE below(account_id) AS (
+  SELECT id FROM account WHERE id = $1
+  UNION
+  SELECT b.child_id FROM bills_through b JOIN below ON b.parent_id = below.account_id
+)
+SELECT c.account_id, sum(c.amount) AS spend
+FROM below JOIN charge c ON c.account_id = below.account_id
+GROUP BY c.account_id;
+```
+
+**With grizzle:**
+
+```ts
+export const Account = relation("Account", { id: uuid }, ["id"])
+/** Reseller billing: an account bills through at most one parent account. */
+export const BillsThrough = relation("BillsThrough", { child: uuid, parent: uuid }, ["child"])
+export const Charge = relation("Charge", { id: uuid, account: uuid, amount: Micros }, ["id"])
+export const Resellers = schema("Resellers", { Account, BillsThrough, Charge }, [
+	contained(on(BillsThrough, "child"), on(Account, "id")),
+	contained(on(BillsThrough, "parent"), on(Account, "id")),
+	contained(on(Charge, "account"), on(Account, "id"))
+])
+
+/** The root account and every account below it, at any depth. */
+const below = query(Resellers).recursive("Below", {
+	row: { account: uuid },
+	base: [
+		(r) => {
+			const { id } = v(Account)
+			return r
+				.match(Account, { id })
+				.where(r.eq(id, r.param("root", uuid)))
+				.find({ account: id })
+		}
+	],
+	rec: [
+		(r, self) => {
+			const { account } = v(self)
+			const { child } = v(BillsThrough)
+			return r
+				.match(self, { account })
+				.match(BillsThrough, { child, parent: account })
+				.find({ account: child })
+		}
+	]
+})
+
+/** What each account under a reseller spent. */
+export const treeSpend = query(Resellers).rule((r) => {
+	const tree = below.bind({ root: r.param("root", uuid) })
+	const { account } = v(tree)
+	const { id, amount } = v(Charge)
+	return r
+		.match(tree, { account })
+		.match(Charge, { id, account, amount })
+		.find({ account, spend: r.sum(amount) })
+})
+```
+
+**What you get.** `treeSpend` takes `{ root: string }`, and its rows are `{ account: string; spend: Decimal }`. A
+recursive query is used like a table: `below.bind(...)` passes it a parameter, and `r.match` joins it to `Charge` and
+feeds an aggregate. Its result is a set, so a cycle in `BillsThrough` ends the walk instead of looping forever.
+
+### 4. No double booking
+
+**The task.** Meeting rooms: two bookings of one room never overlap, and a room is booked only within its opening
+hours.
+
+**With Drizzle**, neither rule fits in the table builder. The first is an exclusion constraint, and the second a
+trigger function you write (or, on PostgreSQL 18 and later, a temporal key and a PERIOD foreign key over range
+columns), in a custom migration your TypeScript schema doesn't know about:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+ALTER TABLE booking ADD CONSTRAINT booking_no_overlap
+  EXCLUDE USING gist (room_id WITH =, tstzrange(starts_at, ends_at) WITH &&);
+-- and "within opening hours": a trigger function on booking, and another on opening_hours
+```
+
+A violation then reaches the app as an error whose constraint name you match on.
+
+**With grizzle:**
+
+```ts
+import { span } from "@bjornpagen/grizzle"
+
+const Minute = contract("Minute", pg.bigint)
+
+export const Room = relation("Room", { id: uuid, name: Title }, ["id"])
+export const Opening = relation("Opening", { room: uuid, hours: span(Minute) }, ["room", "hours"])
+export const Booking = relation("Booking", { room: uuid, during: span(Minute), by: ClerkUser }, [
+	"room",
+	"during"
+])
+
+export const Rooms = schema("Rooms", { Room, Opening, Booking }, [
+	contained(on(Opening, "room"), on(Room, "id")),
+	contained(on(Booking, "room", "during"), on(Opening, "room", "hours"))
+])
+```
+
+**What you get.** A `span` in a primary key makes it a no-overlap key: two bookings of one room never share a minute.
+`contained` between two spans says the room's opening hours cover each booking. `grizzle generate` compiles both to
+PostgreSQL's own constraints, a temporal primary key and a PERIOD foreign key:
+
+```sql
+CREATE TABLE "rooms"."booking" (
+  "room" uuid NOT NULL,
+  "during" int8range NOT NULL,
+  "by" "rooms"."__text_yicusjkvtp" NOT NULL,
+  CONSTRAINT "__booking_pk_tzyi2pgieq" PRIMARY KEY ("room", "during" WITHOUT OVERLAPS)
+);
+
+ALTER TABLE "rooms"."booking" ADD CONSTRAINT "__booking_fk_room_during_gd5yeuf3zf" FOREIGN KEY ("room", PERIOD "during") REFERENCES "rooms"."opening" ("room", PERIOD "hours") DEFERRABLE INITIALLY DEFERRED;
+```
+
+A booking that overlaps another comes back from `db.apply` as `invariant-rejected`, naming the rule,
+`{ kind: "primaryKey", relation: "Booking", fields: ["room", "during"] }`, and the room and span you submitted. A
+booking outside opening hours names the coverage rule. Two overlapping bookings sent at the same moment can't both
+commit either. There is no timestamp type: a `Minute` is a bigint contract, minutes since the epoch, and a span
+includes its start and excludes its end.
+
+### 5. A budget no burst of requests can overdraw
+
+**The task.** Prepaid credits: each API call debits a grant, and a grant's debits never add up to more than its
+amount, however many calls spend it at once.
+
+**With Drizzle**, this is an interactive transaction that locks the grant, sums its debits and checks in app code:
+
+```sql
+BEGIN;
+SELECT amount FROM credit_grant WHERE id = $1 FOR UPDATE;
+SELECT coalesce(sum(amount), 0) AS spent FROM debit WHERE grant_id = $1;
+-- in app code: if spent + $3 > amount, ROLLBACK
+INSERT INTO debit (call_id, grant_id, amount) VALUES ($2, $1, $3);
+COMMIT;
+```
+
+That is several round trips, and it holds only while every writer takes the same lock first: a backfill script or a
+second service that inserts a debit directly can overdraw the grant. A trigger that sums the debits doesn't close the
+gap under READ COMMITTED, PostgreSQL's default: two concurrent transactions each see their own new debit but not the
+other's, and both commit.
+
+**With grizzle:**
+
+```ts
+import { capacity, ChangeSet, Db, type Fact, ref, weigh, within } from "@bjornpagen/grizzle"
+import { Effect } from "effect"
+
+export const Grant = relation("Grant", { id: uuid, org: ClerkOrg, amount: Micros }, ["id"])
+export const Debit = relation("Debit", { call: uuid, grant: uuid, amount: Micros }, ["call"])
+
+export const Credits = schema("Credits", { Grant, Debit }, [
+	contained(on(Debit, "grant"), on(Grant, "id")),
+	capacity(on(Grant, "id"), {
+		from: on(Debit, "grant"),
+		weight: weigh("amount"),
+		within: within(0n, ref("amount"))
+	})
+])
+
+export const Metering = role(Credits, "metering", Credits.relations, { write: ["Debit"] })
+
+/** Debit a grant for one call. Your code decides the retry; grizzle never retries. */
+export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit>) =>
+	db
+		.apply(ChangeSet.empty(Credits).insert(Debit, [debit]), {})
+		.pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 3 }))
+```
+
+**What you get.** The rule holds at commit, for every writer. `grizzle generate` compiles it to a function behind
+deferred constraint triggers on both tables, and adds the index the check reads; abridged:
+
+```sql
+CREATE INDEX "__debit_ix_grant_lezu4zd4ln" ON "credits"."debit" USING btree ("grant");
+
+CREATE CONSTRAINT TRIGGER "__law_grant_capacity_debit_6kmbelifbg"
+  AFTER INSERT OR DELETE ON "credits"."debit"
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION "credits"."__law_grant_capacity_debit_7a6fjwtdy2"();
+```
+
+Every transaction is SERIALIZABLE, so two calls that each fit, but together overdraw, can't both commit. One fails
+with a `TransientFailure` that changed nothing; `spend` runs it again, it sees the other's debit, and it comes back as
+an outcome you match on, never a message to parse:
+
+```text
+{
+  kind: "invariant-rejected",
+  law: {
+    kind: "capacity",
+    target: { relation: "Grant", fields: ["id"], selection: [] },
+    from: { relation: "Debit", fields: ["grant"], selection: [] },
+    weight: { kind: "field", field: "amount" },
+    within: { low: 0n, high: { ref: "amount" } }
+  },
+  witness: { kind: "key", relation: "Grant", values: { id: "…" } }
+}
+```
+
+### 6. Books that always balance
+
+**The task.** Double-entry bookkeeping: every journal entry's postings add up to zero.
+
+**With Drizzle**, a CHECK can't see other rows, and an ordinary trigger runs at the end of each statement, so an entry
+written in several statements fails halfway. It takes a deferred constraint trigger you write in PL/pgSQL, in a custom
+migration:
+
+```sql
+CREATE FUNCTION entry_balances() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE e uuid;
+BEGIN
+  IF TG_OP = 'DELETE' THEN e := OLD.entry_id; ELSE e := NEW.entry_id; END IF;
+  IF (SELECT coalesce(sum(amount), 0) FROM posting WHERE entry_id = e) <> 0 THEN
+    RAISE EXCEPTION 'entry % does not balance', e;
+  END IF;
+  RETURN NULL;
+END $$;
+
+CREATE CONSTRAINT TRIGGER entry_balances AFTER INSERT OR UPDATE OR DELETE ON posting
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION entry_balances();
+-- and an UPDATE that moves a posting to another entry must check the old entry too
+```
+
+**With grizzle:**
+
+```ts
+const AccountCode = str.regex("^[a-z][a-z_]{0,63}$")
+
+export const Entry = relation("Entry", { id: uuid, memo: Prose }, ["id"])
+export const Posting = relation(
+	"Posting",
+	{ entry: uuid, account: AccountCode, amount: pg.bigint },
+	["entry", "account"]
+)
+
+export const Books = schema("Books", { Entry, Posting }, [
+	contained(on(Posting, "entry"), on(Entry, "id")),
+	capacity(on(Entry, "id"), {
+		from: on(Posting, "entry"),
+		weight: weigh("amount"),
+		within: within(0n, 0n)
+	})
+])
+```
+
+**What you get.** The rule is checked at commit, so an entry and its postings go in one ChangeSet, and one that leaves
+an entry unbalanced comes back `invariant-rejected`, naming the rule and the entry. It compiles like the grant's rule,
+to a function behind deferred constraint triggers on both tables, and every writer meets it, psql included.
+`within(0n, 0n)` is an exact total; `within(ref("amount"), ref("amount"))` makes a total equal a column instead, as
+in "an invoice's lines add up to its amount".
+
+### 7. States that carry their own data
+
+**The task.** An invoice is open, paid or void. A paid invoice has exactly one payment, with its charge id; a void one
+has a reason; an open one has neither.
+
+**With Drizzle**, the usual model is nullable columns and CHECKs:
+
+```sql
+CREATE TYPE invoice_state AS ENUM ('open', 'paid', 'void');
+CREATE TABLE invoice (
+  id uuid PRIMARY KEY,
+  org_id text NOT NULL,
+  state invoice_state NOT NULL,
+  paid_charge_id text,
+  void_reason text,
+  CHECK ((state = 'paid') = (paid_charge_id IS NOT NULL)),
+  CHECK ((state = 'void') = (void_reason IS NOT NULL))
+);
+```
+
+Drizzle can declare those CHECKs with `check()`, in `` sql`…` ``, but the row type stays
+`{ state: "open" | "paid" | "void"; paidChargeId: string | null; voidReason: string | null }` in every state, so every
+reader narrows by hand.
+
+**With grizzle:**
+
+```ts
+import { alternatives, arm } from "@bjornpagen/grizzle"
+
+export const InvoiceState = closed("InvoiceState", ["open", "paid", "void"])
+export const Invoice = relation(
+	"Invoice",
+	{ id: uuid, org: ClerkOrg, state: closedId(InvoiceState) },
+	["id"]
+)
+export const Payment = relation(
+	"Payment",
+	{ invoice: uuid, charge: str.regex("^ch_[0-9A-Za-z]{1,64}$") },
+	["invoice"]
+)
+export const Voiding = relation("Voiding", { invoice: uuid, reason: Prose }, ["invoice"])
+
+export const Invoices = schema("Invoices", { InvoiceState, Invoice, Payment, Voiding }, [
+	alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })
+])
+
+/** An invoice, with its payment when it is paid and its voiding when it is void. */
+export const invoiceCard = query(Invoices)
+	.rule((r) => {
+		const { id, state } = v(Invoice)
+		return r
+			.match(Invoice, { id, state })
+			.where(r.eq(id, r.param("id", uuid)))
+			.find({ id, state })
+	})
+	.attach(
+		"payment",
+		(i) =>
+			query(Invoices).rule((r) => {
+				const { charge } = v(Payment)
+				return r.match(Payment, { invoice: i.id, charge }).find({ charge })
+			}),
+		arm("state", "paid")
+	)
+	.attach(
+		"voiding",
+		(i) =>
+			query(Invoices).rule((r) => {
+				const { reason } = v(Voiding)
+				return r.match(Voiding, { invoice: i.id, reason }).find({ reason })
+			}),
+		arm("state", "void")
+	)
+
+/** Pay an open invoice: its state and its payment change together, in one transaction. */
+export const pay = ChangeSet.empty(Invoices)
+	.put(
+		Invoice,
+		query(Invoices).rule((r) => {
+			const { org } = v(Invoice)
+			return r
+				.match(Invoice, { id: r.param("invoice", uuid), org, state: "open" })
+				.find({ id: r.param("invoice", uuid), org, state: InvoiceState.handle("paid") })
+		})
+	)
+	.insert(
+		Payment,
+		query(Invoices).rule((r) =>
+			r.match(Invoice, { id: r.param("invoice", uuid), state: "open" }).find({
+				invoice: r.param("invoice", uuid),
+				charge: r.param("charge", Payment.fields.charge)
+			})
+		)
+	)
+```
+
+**What you get.** `alternatives` says each invoice has exactly the detail row its `state` names, and the types follow:
+`invoiceCard`'s row is a union on `state`, in which `payment` is an `Option.Some` exactly when the invoice is paid.
+
+```text
+  | { readonly id: string; readonly state: "open"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.None<{ readonly reason: string }> }
+  | { readonly id: string; readonly state: "paid"; readonly payment: Option.Some<{ readonly charge: string }>; readonly voiding: Option.None<{ readonly reason: string }> }
+  | { readonly id: string; readonly state: "void"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.Some<{ readonly reason: string }> }
+```
+
+`pay` takes `{ invoice: string; charge: string }`. It reads the invoice as it stood and, if it was open, marks it paid
+and inserts its payment, in one transaction; on an invoice that is no longer open both parts are empty, so a payment
+webhook delivered twice answers `no-change` the second time. A paid invoice without its payment is refused at commit,
+whoever writes it. In PostgreSQL, abridged from `grizzle generate`, a payment can only point at a paid invoice, and a
+function behind deferred constraint triggers checks the other direction:
+
+```sql
+CREATE TABLE "invoices"."invoice" (
+  "id" uuid NOT NULL,
+  "org" "invoices"."__text_mzl7g73bdv" NOT NULL,
+  "state" "invoices"."invoice_state" NOT NULL,
+  CONSTRAINT "__invoice_pk_6v4xjquwn3" PRIMARY KEY ("id"),
+  CONSTRAINT "__invoice_key_id_state_yoqqcdf5vz" UNIQUE ("id", "state")
+);
+
+ALTER TABLE "invoices"."payment" ADD COLUMN "__tag_state_paid_sxgzpsarlm" "invoices"."invoice_state" GENERATED ALWAYS AS ('paid'::"invoices"."invoice_state") STORED NOT NULL;
+
+ALTER TABLE "invoices"."payment" ADD CONSTRAINT "__payment_fk_invoice_tag_state_paid_sxgzpsarlm_slqsm36or6" FOREIGN KEY ("invoice", "__tag_state_paid_sxgzpsarlm") REFERENCES "invoices"."invoice" ("id", "state") DEFERRABLE INITIALLY DEFERRED;
+```
+
+### 8. A usage page: cursors, a rollup and their indexes
+
+**The task.** A usage page lists a workspace's calls newest first, 50 at a time, with next and previous links that
+stay correct while new calls arrive, and a chart reads spend per model without scanning every call. Both must be fast.
+
+**With Drizzle**, you write the keyset query and its cursor format, the rollup, and the indexes, and nothing ties them
+together:
+
+```sql
+-- the page after a cursor: the (at, id) of the last row shown, decoded from a string you encoded
+SELECT id, model, at, cost FROM call
+WHERE workspace_id = $1 AND (at, id) < ($2, $3)
+ORDER BY at DESC, id DESC
+LIMIT 51;  -- one extra row tells you whether there is a next page
+
+CREATE INDEX call_by_workspace ON call (workspace_id, at DESC, id DESC);
+
+CREATE MATERIALIZED VIEW model_spend AS
+  SELECT workspace_id, model, count(*) AS calls, sum(cost) AS spend FROM call GROUP BY workspace_id, model;
+CREATE UNIQUE INDEX ON model_spend (workspace_id, model);  -- REFRESH ... CONCURRENTLY needs it
+```
+
+Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` refreshes it. The cursor format, the
+backward page, and both indexes are yours.
+
+**With grizzle**, continuing the `Usage` schema of [showcase 2](#2-top-three-per-group-with-exact-types):
+
+```ts
+import { derived, type PageCursor, workload } from "@bjornpagen/grizzle"
+
+/** A workspace's calls, newest first. */
+export const callLog = query(Usage)
+	.rule((r) => {
+		const { id, model, at, cost } = v(Call)
+		return r
+			.match(Call, { id, workspace: r.param("workspace", uuid), model, at, cost })
+			.find({ id, model, at, cost })
+	})
+	.orderBy(["at", "desc"])
+
+/** Calls and spend per workspace and model, stored, and refreshed when the job says so. */
+export const ModelSpend = derived(
+	"ModelSpend",
+	query(Usage).rule((r) => {
+		const { id, workspace, model, cost } = v(Call)
+		return r
+			.match(Call, { id, workspace, model, cost })
+			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
+	})
+)
+export const Reporting = schema.extend(Usage, { ModelSpend }, [])
+
+export const Analyst = role(Reporting, "analyst", Reporting.relations, { refresh: ["ModelSpend"] })
+export const UsageApi = login(Reporting, "usage_api", [Analyst], {
+	workload: [workload(Analyst, { callLog })]
+})
+```
+
+and the reads:
+
+```ts
+/** The first 50 calls, and the 50 after a cursor the client sent back. */
+export const firstCalls = (db: Db<typeof Analyst, unknown>, workspace: string) =>
+	db.page(callLog, { workspace }, { first: 50 })
+export const moreCalls = (
+	db: Db<typeof Analyst, unknown>,
+	workspace: string,
+	after: PageCursor<typeof callLog>
+) => db.page(callLog, { workspace }, { first: 50, after })
+
+/** One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). */
+export const modelSpend = query(Reporting).rule((r) => {
+	const { calls, spend } = v(ModelSpend)
+	return r
+		.match(ModelSpend, {
+			workspace: r.param("workspace", uuid),
+			model: r.param("model", Title),
+			calls,
+			spend
+		})
+		.find({ calls, spend })
+})
+
+export const spendOn = (db: Db<typeof Analyst, unknown>, workspace: string, model: string) =>
+	db.get(modelSpend, { workspace, model })
+export const nightly = (db: Db<typeof Analyst, unknown>) => db.refresh(ModelSpend)
+```
+
+**What you get.**
+
+- **Pages.** `db.page` answers `{ edges, pageInfo }`. Each edge is a row, `{ id, model, at, cost }` with `at` and
+  `cost` the branded `bigint`s of their contracts, and its cursor, and `hasNextPage` and `hasPreviousPage` are exact.
+  A cursor is an opaque string typed to `callLog`, and checked against it when it comes back. Ties are broken by `id`,
+  the row's key, which grizzle adds to the order because it knows the key. `{ last: 50, before }` pages backward.
+- **The rollup.** `ModelSpend` is a materialized view whose key, `(workspace, model)`, grizzle proves from its query,
+  so `modelSpend` returns at most one row and `db.get` accepts it: `spendOn` gives an
+  `Option<{ calls: bigint; spend: Decimal }>`. `db.refresh(ModelSpend)` compiles only for a role whose `refresh` lists
+  it.
+- **The indexes.** `grizzle generate` derives one from the workload's `callLog` and one from the rollup's key, and
+  grants the refresh:
+
+```sql
+CREATE INDEX "__call_ix_workspace_at_id_txjpwdbrfr" ON "usage"."call" USING btree ("workspace", "at", "id" DESC);
+
+CREATE MATERIALIZED VIEW "usage"."model_spend" ("model", "workspace", "calls", "spend") AS … WITH NO DATA;
+CREATE UNIQUE INDEX "__model_spend_key_model_workspace_p5jkdouxat" ON "usage"."model_spend" USING btree ("model", "workspace");
+
+GRANT MAINTAIN ON TABLE "usage"."model_spend" TO "usage__analyst";
+```
+
+Change `callLog` so that it needs another index, and `grizzle check`, and `DbLayer.make` at startup, refuse until you
+run `grizzle generate` again.
+
+## What grizzle builds
+
+| You write                                   | PostgreSQL gets                                                                                                              |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `relation(...)`                             | a table, every column NOT NULL, with its primary key                                                                          |
+| `str.regex(...)`, `contract(...)`           | a domain whose CHECK every writer meets                                                                                      |
+| `closed(...)`                               | an enum                                                                                                                      |
+| a rule: `contained`, `key`, `check`, ...    | a foreign key, unique key, no-overlap key or CHECK; for a rule PostgreSQL has no constraint for, a function behind a deferred constraint trigger |
+| `role(...)`                                 | a PostgreSQL role with its own schema of views, its grants, and row-level security on the tables it writes                   |
+| `login(...)`                                | a login role that can switch to its roles and holds no table privilege of its own                                            |
+| `workload(...)`                             | the indexes and statistics its queries need; its queries compiled when the app starts and prepared on each connection        |
+| `derived(...)`                              | a materialized view, with a unique index on each key it provably has                                                         |
+| a query                                     | SQL, usually a single statement, and a decoder for its exact row type                                                        |
+
+Migrations are plain SQL files that `grizzle generate` drafts and you review, as with drizzle-kit.
+
+## Install
+
+```sh
+pnpm add @bjornpagen/grizzle effect
+pnpm exec grizzle skill
+```
+
+`grizzle skill` copies the agent guide into `.claude/skills/grizzle/SKILL.md` and `.agents/skills/grizzle/SKILL.md`.
+Rerun it after upgrading grizzle.
+
+You need:
+
+- **Node 24 or later** and **Effect 4.** `effect` is a peer dependency, so install one copy beside grizzle. grizzle
+  runs under `--disable-proto=delete` and `--disable-sigusr1`: it never touches `Object.prototype.__proto__`, the
+  `grizzle` command starts with both flags, and every test runs under both.
+- **PostgreSQL 19**, tested on 19rc1 with the two patches under [PostgreSQL known issues](#postgresql-known-issues).
+  The database must be UTF8 with the builtin `C.UTF-8` locale, and the server host needs the `C.UTF-8` operating-system
+  locale. `btree_gist` must be available; a migration creates it when a no-overlap key or a coverage rule needs it.
+  pgvector 0.8.7 is needed only for vector fields; it is not a trusted extension, so a superuser creates `vector`
+  first where the migration role cannot.
+- **A migration role that owns the database.** It owns the schema and the database, has CREATEROLE to create the
+  PostgreSQL roles of your logins and roles, and SET on `lc_messages`. It needs no superuser. Any other role fails
+  the first migration with 42501, because only the database's owner may set its default isolation level.
+- **A password for each login role**, which you set, or for an RDS IAM login, membership in `rds_iam`.
+- **TLS with verify-full.** It is the only mode; plaintext is refused.
+- **A direct connection.** PgBouncer is not supported.
+- **`max_pred_locks_per_transaction = 2048`** on the server, recommended (a server-start setting, about 115 MB of
+  shared memory at 200 connections).
+
+## Effect, briefly
+
+grizzle is built on [Effect](https://effect.website) 4. Opening a database, reading and writing return `Effect` values:
+lazy descriptions of work whose success and failure types are part of their type. Inside `Effect.gen(function* () {
+... })`, `yield*` runs one and gives you its result. At the edge of your app, a `ManagedRuntime` built from grizzle's
+layer runs them: `runtime.runPromise(effect)` returns a Promise. That is all the Effect the example below uses.
+
+## Example
+
+A blog behind Clerk: signed-out readers, signed-in members who write in their active organization, and a nightly job
+that loads view counts. It continues the schema at the top of this page. Each block below is the same module and
+imports only what it adds, and the test suite typechecks every line.
+
+### Who is asking
+
+```ts
+import { context } from "@bjornpagen/grizzle"
+
+/** Clerk's session token: the user in `sub`, the active organization's id in the nested object `o`. */
+export const Session = context("Session", { sub: ClerkUser })
+export const Org = context("Org", { id: ClerkOrg }, { claim: "o" })
+```
+
+A `context` is a claim of the verified session token, seen by queries as a table of at most one row. A signed-in user
+outside any organization has a `Session` row and no `Org` row; a signed-out visitor has neither.
+
+### What each kind of user sees
+
+```ts
+import { role } from "@bjornpagen/grizzle"
+
+export const published = query(Blog).rule((r) => {
+	const { id, title, body } = v(Post)
+	return r.match(Post, { id, title, body, status: "Published" }).find({ id, title, body })
+})
+
+/** A member reads every published post, and every post of their active organization. */
+export const memberPosts = query(Blog)
+	.rule((r) => {
+		const { id, title, body } = v(Post)
+		return r
+			.match(Post, { id, title, body, status: "Published" })
+			.find({ id, title, body, status: Status.handle("Published") })
+	})
+	.rule((r) => {
+		const { id, org, title, body, status } = v(Post)
+		return r
+			.match(Post, { id, org, title, body, status })
+			.match(Org, { id: org })
+			.find({ id, title, body, status })
+	})
+
+/** The member's own posts in their active organization; an insert fills `author` and `org` from the token. */
+export const myPosts = query(Blog).rule((r) => {
+	const { id, org, author, title, body, status } = v(Post)
+	return r
+		.match(Post, { id, org, author, title, body, status })
+		.match(Session, { sub: author })
+		.match(Org, { id: org })
+		.find({ id, title, body, status })
+})
+
+export const comments = query(Blog).rule((r) => {
+	const { id, post, author, body } = v(Comment)
+	return r
+		.match(Comment, { id, post, author, body })
+		.match(Post, { id: post, status: "Published" })
+		.find({ id, post, author, body })
+})
+
+export const myComments = query(Blog).rule((r) => {
+	const { id, post, author, body } = v(Comment)
+	return r
+		.match(Comment, { id, post, author, body })
+		.match(Session, { sub: author })
+		.match(Post, { id: post, status: "Published" })
+		.find({ id, post, body })
+})
+
+export const postIds = query(Blog).rule((r) => {
+	const { id } = v(Post)
+	return r.match(Post, { id }).find({ id })
+})
+
+export const AnonBlog = role(Blog, "anon", { Status, Post: published, Comment: comments })
+export const MemberBlog = role(
+	Blog,
+	"member",
+	{ Status, Post: memberPosts, MyPost: myPosts, Comment: comments, MyComment: myComments },
+	{ write: ["MyPost", "MyComment"] }
+)
+export const Etl = role(Blog, "etl", { Post: postIds, PostViews }, { write: ["PostViews"] })
+```
+
+A `role` is what one kind of user sees, laid out as tables. Each entry is either a table of `Blog`, whole (`Status`),
+or a query over `Blog` (`Post: published`). grizzle installs each role as a PostgreSQL role that reads through one
+view per entry and writes under row-level security, so a forgotten filter in app code cannot leak a row: PostgreSQL
+applies the role to every statement. `write` lists the entries the role may write.
+
+- `anon` reads published posts and their comments.
+- `member` reads published posts and every post of its active organization. `memberPosts` has two rules, and a query
+  with several rules returns the rows of all of them; `Status.handle("Published")` puts that constant in the first
+  rule's rows, so both rules return the same columns. `myPosts` matches `Session` and `Org`, so it keeps the posts
+  whose `author` is the signed-in user and whose `org` is the active organization. A member writes through `MyPost`
+  and `MyComment`: inserting into `MyPost` fills `author` and `org` from the token, and a post that `myPosts` would
+  not return is refused.
+- `etl` reads post ids, never a title or a body, and writes `PostViews`.
+
+### The app's queries and its logins
+
+```ts
+import { login, workload } from "@bjornpagen/grizzle"
+
+const { Post: AnonPost } = AnonBlog.relations
+const { Post: MemberPost, MyPost } = MemberBlog.relations
+
+/** The feed each kind of user reads; the rows of both are { readonly id: string; readonly title: string }. */
+export const anonFeed = query(AnonBlog).rule((r) => {
+	const { id, title } = v(AnonPost)
+	return r.match(AnonPost, { id, title }).find({ id, title })
+})
+
+export const memberFeed = query(MemberBlog).rule((r) => {
+	const { id, title } = v(MemberPost)
+	return r.match(MemberPost, { id, title }).find({ id, title })
+})
+
+export const anonReads = workload(AnonBlog, { anonFeed })
+export const memberReads = workload(MemberBlog, { memberFeed })
+
+export const Web = login(Blog, "web", [AnonBlog, MemberBlog], {
+	workload: [anonReads, memberReads]
+})
+export const EtlJob = login(Blog, "etl_job", [Etl])
+```
+
+A query for a role is written over the role and sees only what the role sees: `MemberPost` is already the member's
+filtered view of posts.
+
+A `workload` names the queries and writes your app runs on its hot paths. grizzle compiles them once, when the app
+starts, and `grizzle generate` derives the indexes they need and records them in the migration snapshot.
+
+A `login` is one PostgreSQL user, with its password and its own connection pool, that can act as the roles it lists.
+The login is the trust boundary: whoever holds its password can act as any of its roles, with any claims. So the web
+app and the nightly job get separate logins, and no token sent to the web app can make it write view counts.
+
+### Connecting
+
+```ts
+import { CredentialError, DbLayer, TokenError } from "@bjornpagen/grizzle"
+import { verifyToken } from "@clerk/backend"
+import { attachDatabasePool } from "@vercel/functions/db-connections"
+import { Config, Effect } from "effect"
+import snapshot from "./migrations/blog/snapshot.json" with { type: "json" }
+
+declare const caPem: string
+
+const clerkJwtKey = Config.String("CLERK_JWT_KEY")
+
+export const WebLayer = DbLayer.make({
+	login: Web,
+	snapshot,
+	host: "db.internal",
+	port: 5432,
+	database: "app",
+	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
+		Effect.mapError((cause) => CredentialError.make({ cause }))
+	),
+	tls: { ca: caPem },
+	attachPool: attachDatabasePool,
+	verify: (token) =>
+		clerkJwtKey.pipe(
+			Effect.mapError((cause) => TokenError.make({ cause })),
+			Effect.flatMap((jwtKey) =>
+				Effect.tryPromise({
+					try: () => verifyToken(token, { jwtKey, authorizedParties: ["https://blog.example"] }),
+					catch: (cause) => TokenError.make({ cause })
+				})
+			)
+		)
+})
+```
+
+`DbLayer.make` sets up one login's connection pool. It takes the `snapshot.json` that `grizzle generate` wrote,
+where to connect, and the password: a `Redacted`, or an Effect that yields one for each new connection. A login whose
+roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's
+`verifyToken`.
+`attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends. There is no pool
+size, isolation level, timeout or retry policy to set.
+
+### The route handler
+
+```ts
+import { ChangeSet, Db } from "@bjornpagen/grizzle"
+import { ManagedRuntime, Schema } from "effect"
+
+/** The client names a draft's id, so a POST sent twice inserts it once. */
+const Draft = Schema.Struct({ id: Schema.String, title: Schema.String, body: Schema.String })
+
+export const draft = (post: typeof Draft.Type) =>
+	ChangeSet.empty(MemberBlog).insert(MyPost, [{ ...post, status: "Draft" }])
+
+const web = ManagedRuntime.make(WebLayer)
+const bearer = (request: Request) =>
+	/^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1]
+
+/** app/posts/route.ts: one Db per request, as the role the request's session gets. */
+export const GET = (request: Request): Promise<Response> => {
+	const token = bearer(request)
+	const feed = Effect.gen(function* () {
+		if (token === undefined) {
+			const db = yield* Db.open(Web.roles.anon, {})
+			return yield* (yield* db.workload.anonFeed.execute({})).collect
+		}
+		const db = yield* Db.open(Web.roles.member, { token })
+		return yield* (yield* db.workload.memberFeed.execute({})).collect
+	})
+	return web.runPromise(Effect.map(feed, (rows) => Response.json(rows)))
+}
+
+export const POST = (request: Request): Promise<Response> => {
+	const token = bearer(request)
+	const posted = Effect.gen(function* () {
+		if (token === undefined) {
+			return 401
+		}
+		const post = yield* Schema.decodeUnknownEffect(Draft)(
+			yield* Effect.promise(() => request.json())
+		)
+		const db = yield* Db.open(Web.roles.member, { token })
+		const outcome = yield* db.apply(draft(post), {})
+		switch (outcome.kind) {
+			case "accepted":
+				return 201
+			case "no-change":
+				return 200
+			case "outside-world":
+				return 403
+			case "invariant-rejected":
+				return 409
+		}
+	})
+	return web.runPromise(Effect.map(posted, (status) => new Response(null, { status })))
+}
+```
+
+`Db.open(role, { token })` opens a database handle as one role, for one request. The types follow the roles:
+`Db.open(Web.roles.member, ...)` does not compile without a token, `Db.open(Web.roles.anon, {})` needs none, and each
+handle's `db.workload` holds exactly the programs of its login's workloads for its role, compiled when the layer was
+built. The draft is a ChangeSet built per request, so `db.apply` compiles it for the call. The handler meets Clerk's
+three states:
+
+- **Signed out.** No token: the handler opens `anon` and returns published posts.
+- **Signed in, no organization.** The token has `sub` and no `o`, so `Session` has a row and `Org` has none. The feed
+  is the published posts, and a draft comes back `outside-world`: there is no organization to fill `org` from, so the
+  post is not one `MyPost` can hold.
+- **In an organization.** The feed adds the organization's drafts, and a draft is inserted with the user and the
+  organization filled in.
+
+`db.apply` runs a write, called a ChangeSet, and answers with an outcome: `accepted`, `no-change` (here, the same draft
+posted again), `outside-world` (a row the role may not write) or `invariant-rejected` (a rule said no; the outcome names
+the rule and the key that broke it).
+
+### The nightly job
+
+```ts
+export const EtlLayer = DbLayer.make({
+	login: EtlJob,
+	snapshot,
+	host: "db.internal",
+	port: 5432,
+	database: "app",
+	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
+		Effect.mapError((cause) => CredentialError.make({ cause }))
+	),
+	tls: { ca: caPem }
+})
+
+const etl = ManagedRuntime.make(EtlLayer)
+
+/** No token and no claims: it writes view counts, and never reads a title. */
+export const loadViews = (
+	views: ReadonlyArray<{ readonly post: string; readonly views: bigint }>
+) =>
+	etl.runPromise(
+		Effect.gen(function* () {
+			const db = yield* Db.open(EtlJob.roles.etl, {})
+			return yield* db.apply(ChangeSet.empty(Etl).put(PostViews, views), {})
+		}).pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 4 }))
+	)
+```
+
+`put` writes rows by primary key: after the change, the row at each key is the one given. grizzle never retries on its
+own. A `TransientFailure`, such as a serialization failure, changed nothing, so this job runs the write again, up to
+four times.
+
+## Tables and types
+
+`relation(name, fields, primaryKey)` declares a table. A `schema` groups tables and the rules between them, and
+becomes one PostgreSQL schema.
+
+- **No nullable columns.** Every column is required. A value that may be missing is a row that may be missing, in a
+  table of its own, like `PostViews`.
+- **Tables are immutable by default.** Rows are inserted and deleted, never updated in place, and no role holds
+  UPDATE on them. List `mutable(Post)` among a schema's rules for a table whose rows are replaced often; it changes how
+  a `put` is carried out, never what it means.
+- **No timestamp type.** An instant is a `bigint` contract, such as milliseconds since the epoch, and the current time
+  is a parameter you pass in.
+
+| Field                                              | PostgreSQL                                    | TypeScript                                                          |
+| -------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------- |
+| `uuid`                                             | uuid                                          | `string`                                                            |
+| `pg.smallint`, `pg.integer`                        | smallint, integer                             | `number`                                                            |
+| `pg.bigint`                                        | bigint                                        | `bigint`                                                            |
+| `pg.numeric`, `pg.numeric(p, s)`                   | numeric                                       | `Decimal`, exact                                                    |
+| `pg.real`, `pg["double precision"]`, `pg.float(p)` | real, double precision                        | `number`                                                            |
+| `pg.money`                                         | money                                         | `Money`                                                             |
+| `pg.boolean`                                       | boolean                                       | `boolean`                                                           |
+| `pg.smallserial`, `pg.serial`, `pg.bigserial`      | an identity column                            | `number`, `number`, `bigint`                                        |
+| `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern | `string`; a finite pattern such as `^(yes\|no)$` is `"yes" \| "no"` |
+| `closedId(X)`, for `X = closed("X", [...])`        | an enum                                       | the union of its names                                              |
+| `contract(name, base, check?)`                     | a domain with that CHECK                      | the base type, branded with the name                                |
+| `span(pg.integer)`, over any integer type          | a range                                       | `{ start, end }`, start included, end excluded                      |
+| `pg.vector(n)`                                     | pgvector's vector(n)                          | `Vector`, a Float32Array                                            |
+
+Text always carries a pattern, with flags `"u"` (the default) or `"su"`. A `closed` enum can carry data for each name
+with `.with(fields, rows)`. A contract value is made with its constructor, `Cents(500n)`, which brands it without
+checking it: the database checks it on every write.
+
+## Rules
+
+Rules are declared beside the tables, in a schema's list. Here is a box office:
+
+```ts
+import { capacity, check, contract, key, ref, span, within } from "@bjornpagen/grizzle"
+
+const Cents = contract("Cents", pg.bigint, (c) => c.ge(0n))
+
+export const Show = relation("Show", { id: uuid, seats: pg.bigint, price: Cents }, ["id"])
+export const Ticket = relation("Ticket", { id: uuid, show: uuid, holder: ClerkUser }, ["id"])
+export const Stage = relation("Stage", { id: uuid, name: Title }, ["id"])
+export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show: uuid }, [
+	"stage",
+	"nights"
+])
+
+export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
+	contained(on(Ticket, "show"), on(Show, "id")),
+	contained(on(Run, "stage"), on(Stage, "id")),
+	contained(on(Run, "show"), on(Show, "id")),
+	key(Ticket, ["show", "holder"]),
+	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
+	capacity(on(Show, "id"), { from: on(Ticket, "show"), within: within(0n, ref("seats")) })
+])
+```
+
+A price is never negative. Every ticket's show exists, and so does every run's stage and show. One person holds at most
+one ticket per show. A show has at least one seat, and never more tickets than seats. And because `nights` is a span in
+`Run`'s primary key, two runs on one stage never share a night. The last two are the kind of rule an app usually checks
+in code, with a race between the check and the write; here they hold in the database, for every writer.
+
+| Rule           | Written as                                                | Holds when                                                                       |
+| -------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Primary key    | `relation`'s third argument                               | no two rows share it                                                             |
+| Unique key     | `key(Ticket, ["show", "holder"])`                         | no two rows share these fields                                                   |
+| No-overlap key | a key with a `span` field                                 | rows that agree on the key's other fields never share a point of the span        |
+| Foreign key    | `contained(on(Ticket, "show"), on(Show, "id"))`           | every ticket's `show` is a show's `id`; `select(T, { ... })` narrows either side |
+| Both ways      | `mirrors(on(A, "x"), on(B, "y"))`                         | `contained` in both directions                                                   |
+| Coverage       | `contained` between two `span` fields                     | the target's spans cover each source span                                        |
+| One of several | `alternatives(Task, "kind", Kind, { Automatic, Manual })` | each row has exactly one detail row, in the table its `kind` names               |
+| Row check      | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`         | the condition holds on every row                                                 |
+| Count or total | `capacity(on(Show, "id"), { from, weight?, within })`     | each target's count of rows, or exact total of a `weight` field, stays in bounds |
+
+Every rule holds at commit, for every writer. Where PostgreSQL has a constraint for a rule, grizzle uses it; otherwise
+it installs a function behind a deferred constraint trigger. A write that breaks a rule comes back as an outcome that
+names the rule and the offending key, never as a message to parse.
+
+## Permissions
+
+Three declarations, all in the [example](#example):
+
+- **`context(name, fields, { claim? })`** is a claim of the session token, read by queries as a table of at most one
+  row. Its fields come from the payload's top level, or from the nested object `claim` names. Fields are text, uuid,
+  boolean, the integer types, contracts over them, and enum names. Each `Db` decodes its contexts once, from what
+  `verify` returns. An absent claim object is no row, and a payload that is not an object has none; a context read
+  from the top level refuses such a payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
+- **`role(schema, name, entries, { write?, refresh? })`** is what one kind of user sees. An entry is a table of the
+  schema, whole, or a query over the schema. A query entry becomes a security-barrier view, so its filter runs before
+  anything that could fail on a row outside it. It has one flat set of columns, no parameters, no nested results and
+  no vector search; aggregates, negation, span comparisons, `take`, recursion and contexts are all allowed. Its
+  expressions must not be able to fail (no division, no integer arithmetic that can overflow, no failing cast, no sum
+  over numeric, float or money), because a view evaluates them on rows outside the role too; a query you run over the
+  role can compute those instead. Its keys are the ones its query provably has. A role declares no rules of its own:
+  the schema's rules hold, whoever writes.
+- **`login(schema, name, roles, { workload? })`** is one PostgreSQL user and one pool for some roles of one schema,
+  and owns their workloads, each over the schema or one of the login's roles. Every role is in exactly one login, and
+  is reached through it by name, `Web.roles.member`. Two programs of one name across a login's workloads are a type
+  error.
+
+`DbLayer.make({ login, snapshot, ... })` builds the login's pool and compiles its workloads, and it requires `verify`
+exactly when one of the login's roles reads a context. A layer without `verify` never reads a token, so a `Db` it opens
+has no context rows; a layer with `verify` runs it on every token it is handed, for a role that reads no context too.
+
+`Db.open(Web.roles.member, { token })` is the only way to open a `Db`, and only where the layer of the role's login is
+provided. It requires `token` exactly when the role reads a context, and runs `verify` once per `Db`, which keeps the
+claims it was opened with. A `Db` opened without a token has no context rows. A role that reads no context opens
+whatever the payload.
+
+**Queries for a role are written over the role.** `query(MemberBlog)` and `ChangeSet.empty(MemberBlog)` see and write
+only what `member` does, and may match only the contexts `member` reads: any other is a type error, and, for a caller
+the types don't reach, refused before any SQL. A role that holds every table of its schema whole,
+`role(Blog, "staff", Blog.relations)`, also runs every query and ChangeSet written over the schema itself, such as
+`postPage`. A ChangeSet can write only the entries in its role's `write` list; anything else is a type error.
+
+### Writing through a role
+
+A query entry in `write` is writable when it has one rule and all its columns come straight from one table, any
+column of that table the entry leaves out, a key column included, is fixed by the query to a constant or a claim, and
+every other match only filters. `myPosts` qualifies: its columns come from `Post`, and `author` and `org` are fixed
+by the token. A role whose `write` names any other entry is refused when you build it, with the reason.
+
+- An insert fills the fixed columns. A row the query could never return (a filter it fails, a claim that is absent)
+  is the outcome `outside-world`.
+- A delete of a row outside the entry does nothing: for this role, that row does not exist.
+- A put or insert that collides with a row outside the entry, on a key or an at-most-one limit, is
+  `invariant-rejected` on that rule, and the witness is the key you submitted, in the entry's fields, never the other
+  row. An error PostgreSQL still raises there is a typed failure, never an outcome.
+- A column fixed directly by a claim, like `author`, holds the claim's value in every row and is never updatable: no
+  role holds UPDATE on it, so a direct writer's `SET author = author` is refused with 42501. A column fixed by a claim
+  through a join stays updatable.
+- One step of a ChangeSet may not write a query entry and also a table that entry's filter reads, because the result
+  would depend on statement order; it is refused when it compiles. `ChangeSet.sequence` puts them in order.
+- When a ChangeSet both writes a row outside the entry and breaks a rule, which of the two it reports is not
+  promised.
+
+## Queries
+
+```ts
+/** Comments per author on published posts. */
+export const commentsPerAuthor = query(Blog).rule((r) => {
+	const { id, post, author } = v(Comment)
+	return r
+		.match(Comment, { id, post, author })
+		.match(Post, { id: post, status: "Published" })
+		.find({ author, comments: r.count() })
+})
+
+/** Published posts nobody has commented on. */
+export const unanswered = query(Blog).rule((r) => {
+	const { id, title } = v(Post)
+	return r
+		.match(Post, { id, title, status: "Published" })
+		.where(r.not(Comment, { post: id }))
+		.find({ id, title })
+})
+
+/** Total views per organization. */
+export const viewsPerOrg = query(Blog).rule((r) => {
+	const { post, views } = v(PostViews)
+	const { org } = v(Post)
+	return r
+		.match(PostViews, { post, views })
+		.match(Post, { id: post, org })
+		.find({ org, views: r.sum(views) })
+})
+
+/** An organization's posts by title, ready for paging. */
+export const orgPosts = query(Blog)
+	.rule((r) => {
+		const { id, title, org } = v(Post)
+		return r
+			.match(Post, { id, title, org })
+			.where(r.eq(org, r.param("org", ClerkOrg)))
+			.find({ id, title })
+	})
+	.orderBy(["title", "asc"])
+```
+
+A rule reads like a pattern. `v(Post)` makes one variable per column. `r.match(Post, { ... })` binds variables and
+constants to a table's columns, and a variable used in two matches joins them. `.where(...)` filters, and `.find(...)`
+picks the result columns: variables, aggregates, parameters, constants and computed values.
+
+The rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comments: bigint }`, and `viewsPerOrg`
+gives `{ org: string; views: Decimal }`, because PostgreSQL's `sum` of a bigint is a numeric. `orgPosts` takes the
+parameter `{ org: string }`.
+
+| To               | Write                                                                                                                  |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| join             | one variable in two matches                                                                                            |
+| filter           | `r.eq`, `r.ne`, `r.lt`, `r.le`, `r.gt`, `r.ge`, `r.between`, `r.inSet`, `r.and`, `r.or`                                |
+| exclude          | `r.not(Table, { ... })`: no matching row exists                                                                        |
+| take a parameter | `r.param("name", type)`; a query's parameter type is inferred from its uses                                           |
+| pass a row list  | `r.relation("name", fields)`: a parameter that is a list of rows, matched like a table                                 |
+| aggregate        | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`                   |
+| combine          | a second `.rule(...)`: the union of both rules' rows; rules of different columns need a constant that tells them apart |
+| nest             | `.attach(name, (parent) => child, delivery)`: `"array"`, `"option"`, `"one"`, or `arm(field, name)`                    |
+| order and limit  | `.orderBy(["title", "asc"])`, then `.take(10)` or `db.page`                                                            |
+| recurse          | `query(S).recursive(...)`                                                                                              |
+| compare spans    | `r.allen` with `ALLEN` masks, `r.pointIn`, and `r.intersection`, `r.difference`, `r.pack`                              |
+| compute          | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond` and the rest of `Compute`                                |
+| search vectors   | `.approximateNearest(...)`, with pgvector                                                                              |
+
+Four things work differently from SQL:
+
+- **A query returns a set.** Identical rows are one row, and `r.count()` counts distinct matches. Bind a key when
+  every record should count, as `commentsPerAuthor` binds the comment's `id`.
+- **grizzle knows each result's keys.** It works them out from primary keys, equalities and constants, and keeps a key
+  through `find` whenever the chosen columns still determine the row. `db.get` takes only a query that returns at most
+  one row, an `"option"` or `"one"` nested result needs the same proof, and a page is ordered by a key. A delivery the
+  schema does not prove is a type error. `.orderBy(...).take(k)` is a set again, and `take(1)` returns at most one row.
+- **Variables belong to their columns.** In one rule, two variables made from the same column of a table the rule
+  matches once are refused, and the error shows the rewrite: make the variable where it is bound, or match the table
+  again.
+- **Constants are typed by where they go.** A constant in a column takes that column's type, and
+  `Status.handle("Published")` is the enum's typed name. `r.literal(x)` anywhere else takes x's own type: a string is
+  text, a safe integer an integer, a bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean;
+  any other value is refused.
+
+There are no outer joins. Where SQL would LEFT JOIN and fill the gaps with NULL, a second rule covers the rows that
+have no match:
+
+```ts
+/** Tickets sold per show, zero included: the second rule covers the shows a LEFT JOIN would pad with NULL. */
+export const sold = query(BoxOffice)
+	.rule((r) => {
+		const { id } = v(Show)
+		const { id: ticket } = v(Ticket)
+		return r
+			.match(Show, { id })
+			.match(Ticket, { id: ticket, show: id })
+			.find({ show: id, sold: r.count() })
+	})
+	.rule((r) => {
+		const { id } = v(Show)
+		return r
+			.match(Show, { id })
+			.where(r.not(Ticket, { show: id }))
+			.find({ show: id, sold: r.literal(0n) })
+	})
+```
+
+Its rows are `{ show: string; sold: bigint }`, one per show, since `r.literal(0n)` is a bigint like the count.
+
+## Reading
+
+Every read takes a query and its parameters, and runs in one READ ONLY transaction, so a query's nested results and a
+page's rows see one snapshot.
+
+- **`db.execute(query, params)`** gives a result whose `collect` is the rows; each run of `collect` runs the query
+  again.
+- **`db.get(target, params)`** gives an `Option` of one row: of a table by its key, `db.get(Post, { id })`, or of a
+  query that returns at most one row.
+- **`db.page(orderedQuery, params, { first: 20 })`** pages by key, with opaque cursors: `{ first }`,
+  `{ first, after }`, `{ last }` or `{ last, before }`. There is no default page size.
+- **`db.explain(program, params)`** returns PostgreSQL's estimated plans as data, never EXPLAIN ANALYZE.
+
+A program in the login's workloads is `db.workload.<name>`, compiled when the layer was built, with exactly the
+operations it allows; its statements are prepared on each connection's first use and kept for the pool's life. Any
+other program, one built at run time included, still runs: `db.execute` and the others compile it for the call and
+send it as unnamed statements, with no index promised for it. `db.compile(program)` compiles a query, ordered query or
+ChangeSet once and returns a handle with exactly the operations it allows; its prepared statements close, and its
+compiled form drops, when the handle's `Scope` ends.
+
+## Writes
+
+A write is a ChangeSet: the rows to insert, delete and put, applied as one transaction.
+
+```text
+ChangeSet.empty(Blog)               a write over a schema, or over a role: ChangeSet.empty(MemberBlog)
+  .insert(Post, rows)               add these rows; a row already present is no change
+  .delete(Comment, rows)            remove these rows
+  .put(PostViews, rows)             after the change, the row at each key is the one given
+  .read("name", (delta) => query)   a query over the result, delivered in the outcome
+```
+
+- **Rows** are an array, an Effect `Stream`, or a query. A query reads the state before the change, in the same
+  transaction, which is how a write depends on a read: there are no interactive transactions.
+- **`read`** runs a query after the change and before COMMIT; `delta.added(T)` and `delta.removed(T)` are the rows
+  this change added and removed.
+- **`ChangeSet.union(a, b)`** applies both as one change; **`ChangeSet.sequence(a, b)`** applies `b` after `a`, in the
+  same transaction.
+- **`db.apply(changes, params)`** answers `accepted` (with each table's counts and the read-backs), `no-change`,
+  `invariant-rejected` or `outside-world`. One input holds at most 100,000 rows.
+
+Two writes over the blog, each one transaction and one round trip:
+
+```ts
+/** Publish a draft: the new row is read from the old one, in the same transaction. */
+export const publish = ChangeSet.empty(Blog).put(
+	Post,
+	query(Blog).rule((r) => {
+		const { id, org, author, title, body } = v(Post)
+		return r
+			.match(Post, { id, org, author, title, body, status: "Draft" })
+			.where(r.eq(id, r.param("id", uuid)))
+			.find({ id, org, author, title, body, status: Status.handle("Published") })
+	})
+)
+
+/** Delete every comment by one author, and read back how many went. */
+export const purge = ChangeSet.empty(Blog)
+	.delete(
+		Comment,
+		query(Blog).rule((r) => {
+			const { id, post, author, body } = v(Comment)
+			return r
+				.match(Comment, { id, post, author, body })
+				.where(r.eq(author, r.param("author", ClerkUser)))
+				.find({ id, post, author, body })
+		})
+	)
+	.read("removed", (delta) =>
+		query(Blog).rule((r) => {
+			const { id } = v(delta.removed(Comment))
+			return r.match(delta.removed(Comment), { id }).find({ comments: r.count() })
+		})
+	)
+```
+
+`publish` takes `{ id: string }`. Applied twice, the second answers `no-change`: the post is no longer a draft, so
+the query finds nothing to put. `purge` takes `{ author: string }`, and its `accepted` outcome carries
+`reads.removed`, typed `ReadonlyArray<{ comments: bigint }>`: what `RETURNING` would give you, as a query over what
+the change removed.
+
+## Derived tables
+
+`derived(name, query)` stores a query's rows as a materialized view, with a unique index on each key the query
+provably has. Columns the query makes equal count as one column of a key, so k equal pairs make one key rather than
+2^k; the index holds the first of them, and any of them stands for it in a `get`, a nested result or an order. Add a
+derived table to a schema with `schema.extend`. It changes only when you refresh it: `db.refresh(...tables)`, on a
+role whose `refresh` list names them, refreshes them in one transaction. `db.refresh()` with no table is a type error,
+so narrow a list built at run time with `Array.isReadonlyArrayNonEmpty` first. Rules are declared on stored tables,
+never on derived ones.
+
+## Migrations
+
+`grizzle.config.ts`:
+
+```ts
+import { defineConfig } from "@bjornpagen/grizzle"
+import { Blog, EtlJob, Web } from "./src/blog.ts"
+
+export default defineConfig({ schemas: [Blog], logins: [Web, EtlJob] })
+```
+
+```text
+grizzle generate [--name <name>] [--schema <schema>]            draft the next migration from the schemas' changes
+grizzle generate --custom [--name <name>] [--schema <schema>]   an empty migration for data steps
+grizzle check                                                   generated, resolved and untampered? (offline)
+grizzle migrate                                                 apply pending migrations
+grizzle drift                                                   does the database match the snapshot? (applies nothing)
+grizzle names                                                   each hashed object's PostgreSQL name and what it is
+grizzle skill                                                   install the agent skill
+```
+
+The loop: change the schema in code, run `grizzle generate`, read the SQL it drafts, resolve its markers, run
+`grizzle check`, commit, and run `grizzle migrate` from CI or the deploy.
+
+- **Drafted from a snapshot, never from a live database.** `generate` compares your schemas, their roles and logins,
+  and every login's workloads with the committed `migrations/<schema>/snapshot.json`, and writes a folder
+  `migrations/<schema>/<timestamp>_<name>/` of numbered SQL files with its `meta.json`, and the new snapshot. The
+  config refuses a login over a schema it doesn't list, and a login missing from `logins` is not installed, nor are
+  its roles.
+- **Plain SQL you may edit.** What the schema no longer has is dropped in the same migration; a rename or a type
+  change happens in place. Roles' views, policies and functions hold no data, so one that changes, or that reads
+  anything the migration changes, is dropped and created again in one transaction. Edit the SQL as you need: whatever
+  it does, the database must end where the snapshot says.
+- **No guessing.** A draft that needs a decision carries a marker: a value for a new column on a table with rows, or a
+  rename. grizzle never guesses a rename; it offers each candidate, a login's included (which keeps its password), for
+  you to choose or decline. A drop of stored data is drafted commented out, and `check` and `migrate` refuse the folder
+  until you decide it.
+- **`check` reads no database.** It refuses a schema change you haven't generated, a workload program whose index
+  needs differ from the snapshot's (naming it), an unresolved marker, an undecided data loss, and an edited
+  `snapshot.json` or `meta.json`.
+- **`migrate` connects with `DATABASE_URL`** as the role that owns the schema and the database, applies the pending
+  files, records each in the schema's ledger, and then refuses drift: a database that is not exactly the snapshot's.
+  It judges drift after its files, so on a database changed by hand it applies them, then refuses. `drift` runs that
+  check alone, for CI or a schedule. Both judge the database as it stands, not the statements that made it: a grant
+  already held or a revoke of a privilege never held changes nothing.
+- **Names come from your code.** `TaskNote` becomes `task_note` for the schema, tables, derived tables, enums,
+  contracts, columns, row checks and a role's views; a contract's CHECK is `check`; a login's or role's PostgreSQL
+  role, like a role's schema, is `<schema>__<name>`. Two names that become the same name are refused, as is a name
+  starting with `_`, one longer than 63 bytes once converted (a login's or role's with its schema's), and a schema
+  name starting with `pg_`. Everything else (keys, foreign keys, indexes, functions, triggers) is named
+  `__<readable part>_<digest>`, carries a COMMENT saying what it is, and is listed by `grizzle names`. PostgreSQL roles
+  are cluster-wide, so one schema name is one installation per cluster.
+- **Indexes follow the code.** Every index comes from a rule, from a workload program's queries through the roles they
+  read, or from a role's write filter. An edit to a workload program that needs no other index just takes effect; one
+  that does, or a program added, renamed or removed, is refused by `check` and by `DbLayer.make` until you run
+  `generate`.
+
+The [agent guide](packages/grizzle/skills/grizzle/SKILL.md) is the full workflow: markers, renames, legal edits,
+refusals and deploys.
+
+## Errors and outcomes
+
+A broken rule is an outcome, not an error. An error is something that went wrong, and lives in the Effect's error
+channel as a tagged class.
+
+**Outcomes** come from `db.apply` and a compiled ChangeSet's `apply`:
+
+- `invariant-rejected` carries `law`, the rule as your schema states it, and `witness`, which says what broke it. Match
+  on `law` directly: `{ kind: "key", relation: "User", fields: ["email"] }`.
+- The witness is `{ kind: "key", relation, values }`, the key values of one row that breaks the rule, never another
+  column; `{ kind: "withheld" }`, for a rule checked at COMMIT when your role does not hold that table whole; or
+  `{ kind: "unreported" }`, for a constraint PostgreSQL raises itself (a foreign key, a row check, a contract or a
+  pattern), whose key it states only in its message. A key or an at-most-one limit that grizzle's own write statement
+  finds broken, by two rows you submitted or by a stored row inside or outside your role's view, names the key you
+  submitted, in the fields you wrote it in.
+- `outside-world` names the role's table a row cannot belong to.
+
+A value its contract or pattern refuses passes the encoder, which checks only the base type, and is refused by its
+domain's CHECK as the statement casts it, before the row's constraints and row-level security: `invariant-rejected` on
+the contract's or pattern's rule, witness `unreported`.
+
+<details>
+<summary>Every rule an outcome can name</summary>
+
+| `law.kind`              | Its fields                                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| `primaryKey`, `key`     | `relation`, `fields`                                                                          |
+| `check`                 | `relation`, `name`                                                                            |
+| `contained`, `mirrors`  | `from`, `to`: each a `relation`, its `fields` and its constant `selection`; a mirrors as its two halves |
+| `coverage`              | a containment or mirrors half over spans: `statement`, `from`, `to`                           |
+| `alternatives`          | the parent `relation` and its discriminator `field`, for every arm's reverse obligation       |
+| `capacity`              | `target`, `from`, `weight`, `within`                                                          |
+| `contract`              | `contract`                                                                                    |
+| `pattern`               | `source`, `flags`: one rule for every spelling of the same language                           |
+
+</details>
+
+**Errors**, by operation:
+
+| Operation                 | Fails with                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `DbLayer.make`, `Db.open` | `OpenError`                                                                                                        |
+| a read                    | `ReadError`: `ReadFailure`, `TransientFailure` or `StaleSnapshot`; a page also `CursorError`                       |
+| a write or refresh        | `EncodingFailure`, `TransientFailure`, `TransportFailure`, `ExecutionFailure`, `CommitUnknown` or `StaleSnapshot` |
+| `db.compile`              | `CompileError`                                                                                                     |
+
+- Every error names what happened as its `reason`, a tagged value of its own, so `Effect.catchReason`, `catchReasons`
+  and `unwrapReason` reach it: `Effect.catchReason("TransientFailure", "PutTargetConflict", f)` handles one case and
+  keeps the rest. Its `stage` follows from the reason, and its `message` is a sentence naming it. Read details from the
+  reason, never from the message. Reasons are types only; the exported classes are the errors, plus
+  `CredentialError` and `TokenError`, which your `password` Effect and your `verify` fail with.
+- **`TransientFailure`** means the attempt changed nothing and may succeed if you run it again. Its reason is
+  `SerializationFailure` (40001), `Deadlock` (40P01), or a concurrent transaction's work the statement met
+  (`PutTargetConflict`, `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`,
+  `StaleStatement`), with the server's report as its `error`. grizzle never retries; use `Effect.retry` with your own
+  `Schedule`. `Db.open`'s retryable case is an `OpenError` whose reason is `AdmissionTransient`: open again.
+- **`CommitUnknown`** means COMMIT was sent and no answer came back. The change may have committed: read back before
+  you run it again.
+- **`StaleSnapshot`** means the database is not at the snapshot the `Db` was opened with, and the call ran nothing:
+  its reason is `Migrating` while a migration runs or one stopped part-way, and `Migrated` once a migration to another
+  snapshot completed. Running the call again on the same `Db` meets it again; open a `Db` with the snapshot the
+  database holds.
+- **`TransportFailure`** means the connection failed before the write could commit, and it changed nothing.
+  **`ExecutionFailure`** carries the server's error or a compile failure, and says what the transaction did.
+- A connection that can't be had (a failing `password` Effect, TLS, the server, the pool) fails a read with
+  `ReadFailure` at stage `acquire`, and a write with `TransportFailure`.
+- Every error PostgreSQL raised carries a `ServerError` with its `sqlstate`, its `message`, `detail` and `hint`
+  exactly as the server gave them, and the `constraint`, `schema`, `table`, `column` and `dataType` it named; an
+  error's `message` quotes the server's. These can quote the values a statement was given, though never a value
+  outside the role's view, so what you log is your choice: grizzle logs nothing.
+
+<details>
+<summary>Every error reason</summary>
+
+**`OpenError`**, by stage:
+
+| Stage                       | Reason                                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `credential`                | `CredentialError`                                                                                                                       |
+| `tls`                       | `TlsRefused`                                                                                                                            |
+| `authentication`, `connect` | `StartupRefused`, with the server's report (`authentication` for SQLSTATE class 28)                                                    |
+| `connect`                   | `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`                                                   |
+| `wait`, `released`          | the pool's `AcquisitionBudgetExceeded`, `LayerReleased`                                                                                 |
+| `config`                    | `DbConfigRefused`                                                                                                                       |
+| `role`                      | `RoleOutsideLayers`, `LoginNameRefused`                                                                                                 |
+| `token`                     | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts, or a claim PostgreSQL refused |
+| `schema`                    | `CompileError`; `WorkloadUngenerated`, a workload out of step with the snapshot                                                        |
+| `capability`                | `MissingCapability`, a workload program needing an extension the database lacks                                                        |
+| a check's stage             | `AdmissionRefused`, with every mismatch, at the first stage one is at                                                                  |
+| `admission`                 | `AdmissionTransient` (`SerializationFailure` or `Deadlock`, the server's report its `error`), retryable; `AdmissionFailed`, no verdict |
+
+**`ReadFailure`**, by stage: the server's `ServerError` (`execute`, or `resource` for 53200 and 54001); a connection's
+or the pool's refusal, as `OpenError` names them, or `HandleReleased`, a `db.compile` handle used after its `Scope`
+ended (`acquire`); `ConnectionLost` or `CommitLost` (`transport`); `DriverFailure` (`driver`); `UnreadableAnswer`, rows
+grizzle cannot read or rows its compiled proof says the query cannot deliver (`decode`); and before any SQL,
+`CompileError` (`compile`), `MissingCapability` (`capability`), `EncodingFailure` or `LawRejected` (`encode`),
+`InputTooLarge` (`resource`) and `PageRequestRefused` (`request`).
+
+**`TransportFailure`**: a connection's or the pool's refusal, `HandleReleased`, `ConnectionLost` or `DriverFailure`.
+**`ExecutionFailure`**: the server's `ServerError`, `CompileError`, `MissingCapability`, `InputTooLarge`, or
+`UnreadableAnswer`.
+
+**`CompileError`**'s reason holds where it refused, `at`, and its details: `MalformedDescription`, your schema or
+program breaking the rule `what`; `MalformedArtifact`, what grizzle reads back (the snapshot, a migration folder or
+its meta.json, the ledger's rows, a cursor) malformed at the path `at`; `UnsupportedOperation` and
+`UnsupportedLawFamily`, a `capability` grizzle doesn't have; `ResourceBound`, its `bound`; `OutsideRole`, the `role`
+and the `access` it doesn't hold; `DuplicateIdentity`, the `earlier` declaration; `IdentifierCollision`, the `other`
+declaration and the `identifier` both convert to; `LawOnDerived`, its `relation`; `UnrepresentableKey`, the key and
+its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefused`, `LoginRefused` and
+`ContextRefused`, the `rule` broken; `RoleNameTooLong`, the PostgreSQL `role` and its `limit`; and the remaining rules,
+a `capability` sentence.
+
+**`EncodingFailure`**'s reason is its codec's fault word, never the value, and its `place` the `Slot` the value fills,
+by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.
+
+</details>
+
+## Transactions and concurrency
+
+- **Every transaction is SERIALIZABLE.** The first migration makes it the database's default, so every session gets
+  it, psql included, and a write below it on a grizzle table is refused with 25000.
+- **One call, one transaction, one round trip.** A call sends BEGIN, its statements and COMMIT in one pipelined flight.
+  There are no interactive transactions: a read that decides a write is a query inside the ChangeSet, and reads that
+  must agree are one query with nested results.
+- **No retries.** A refusal from outside the call's inputs fails the call with `TransientFailure` and changes
+  nothing; a migration's is `StaleSnapshot` instead. A serialization failure can happen to any transaction, even with
+  no other transaction in sight, because PostgreSQL's SSI summarizes old committed transactions under load and then
+  judges conservatively, so treat it as retryable everywhere.
+- **No server-side timeouts.** grizzle sets no `statement_timeout` or `lock_timeout`. Interrupting the Effect is the
+  only cancellation; treat an interrupted write like `CommitUnknown`.
+- **Predicate locks are the operator's to size.** Set `max_pred_locks_per_transaction = 2048`. Without room,
+  PostgreSQL fails transactions with 53200, which is not retryable. Keep every transaction on the cluster short: a
+  committed write's predicate locks are kept until every older transaction ends.
+
+## Deploying
+
+Build each `DbLayer` once per process. Building it parses the snapshot, compiles the login's roles and every workload
+program for every role it runs on, and checks that the workloads' index needs are the ones the snapshot records. It
+fails with an `OpenError` at stage `schema` for a snapshot that does not parse or was edited by hand, a schema that is
+not the snapshot's, a role or program that does not compile, and a workload program added, renamed, removed or changed
+since `grizzle generate`: the error names the program and says to run `grizzle generate`.
+
+Open a `Db` per request or handler. `Db.open` checks the database in one round trip of a few catalog reads before it
+yields:
+
+- the server is PostgreSQL 19, and the database UTF8 with the builtin `C.UTF-8` locale;
+- the extensions the schema needs are installed;
+- no migration is running or stopped part-way, and the latest complete one reached the snapshot's fingerprint;
+- the login's and the role's settings and privileges are exactly what the snapshot installs;
+- the login is LOGIN NOINHERIT and the role NOLOGIN, neither with SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or
+  BYPASSRLS, and a role's members are its login and the migration role (any other membership of the login confers
+  nothing, and a membership fault refuses every role of the login);
+- row-level security is enabled, not forced, on every table the role writes through a query entry;
+- the database's default isolation is SERIALIZABLE.
+
+It does not compare view definitions, policies or the owner's default privileges: `grizzle migrate` and
+`grizzle drift` do. A value that is not a role reached through its login is refused at stage `schema`. Otherwise a
+refusal is an `OpenError` at the first stage that fails, in this order: `role` (no provided layer holds its login),
+`schema` (the token is not a string), `token` (`verify` refused or threw, or the payload does not decode through the
+role's contexts), the connection's `credential`, `tls`, `authentication`, `connect`, `wait` and `released`, then the
+checks' `version`, `locale`, `capability`, `ledger` (a migration running or stopped part-way, or a snapshot the ledger
+never reached), `settings` and `privileges`, or `admission` when the check reaches no verdict, and `token` again for a
+claim PostgreSQL refuses.
+
+**Migrations are downtime.** Each migration file takes the ledger's exclusive lock, which waits for the transactions
+in flight. From the first file until the last commits, and while a stopped run leaves a folder unfinished, every `Db`
+call fails at once with `StaleSnapshot` (reason `Migrating`), before any of its statements runs, and every `Db.open`
+is refused at stage `ledger`. Once the migration completes, a `Db` opened at the old snapshot fails with
+`StaleSnapshot` (reason `Migrated`): deploy the code that carries the new `snapshot.json`, and open new `Db`s with it.
+
+Every transaction a `Db` sends starts with two statements in the same round trip: one takes the ledger's lock without
+waiting, so a running migration refuses it at once and the app never waits, and one checks the snapshot and takes on
+the role and the claims for that transaction only. A pooled connection never carries one request's role or claims
+into the next. An apply with nothing to write still sends BEGIN, those two statements and COMMIT, so a stale `Db`
+never answers `no-change`.
+
+**Vercel.** `attachPool: attachDatabasePool` hands each pool to Vercel, as the example does, so it closes idle
+connections before an instance suspends. grizzle depends on no platform's package.
+
+**RDS with IAM authentication.** The password is an Effect that signs a token for each connection attempt;
+`@aws-sdk/rds-signer` signs locally, without a network call. Grant the login `rds_iam` with
+`GRANT rds_iam TO <login role> WITH INHERIT TRUE, SET FALSE`, the login role being `<schema>__<login>`. `Db.open` and
+`grizzle drift` judge what a login can do, not how its memberships are spelled: a membership beyond the login's roles
+is admitted when it carries SET FALSE and no ADMIN and the login's privileges on the installation stay exactly its own
+(USAGE on the schema, SELECT on the ledger). `rds_iam` holds nothing in the installation, so it is admitted; a
+membership that would hand the login any privilege or ownership there is refused. This has not been run against RDS.
+
+```ts
+import { Signer } from "@aws-sdk/rds-signer"
+import { Redacted } from "effect"
+
+/** The login's PostgreSQL role, `<schema>__<login>`. */
+const etlJobRole = Config.String("BLOG_ETL_ROLE")
+
+export const RdsEtlLayer = DbLayer.make({
+	login: EtlJob,
+	snapshot,
+	host: "db.internal",
+	port: 5432,
+	database: "app",
+	password: etlJobRole.pipe(
+		Effect.flatMap((username) =>
+			Effect.tryPromise(() =>
+				new Signer({
+					hostname: "db.internal",
+					port: 5432,
+					region: "us-east-1",
+					username
+				}).getAuthToken()
+			)
+		),
+		Effect.mapBoth({
+			onFailure: (cause) => CredentialError.make({ cause }),
+			onSuccess: Redacted.make
+		})
+	),
+	tls: { ca: caPem }
+})
+```
+
+## Direct SQL access
+
+psql, scripts and other services may write grizzle's tables directly, and they meet the same rules and roles as the
+app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the transaction for a role that reads them
+(`SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`), and write at SERIALIZABLE.
+`grizzle names` prints the PostgreSQL name of everything grizzle installs. PostgreSQL answers with these:
+
+| SQLSTATE            | When                                                                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 42501               | a table outside the role; a row its filter refuses; an UPDATE of an immutable table, or through a query entry of a column outside it, in a key or fixed by a claim |
+| 42501               | `SET ROLE` to another login's role or the owner; `SET SESSION AUTHORIZATION` to anyone but the login; a call of another role's filter or probe function, of the advance function of a table the role does not write, or of a rule's function |
+| 22023               | `SET ROLE` or `SET SESSION AUTHORIZATION` to a role that does not exist                                                                                      |
+| 428C9               | an UPDATE of a serial column, before any privilege check                                                                                                     |
+| 25000               | a write below SERIALIZABLE                                                                                                                                   |
+| 22P02, 22003, 23514 | a `grizzle.claims` setting PostgreSQL cannot read, where a statement reads it (below)                                                                         |
+| 23514               | a row check; a value its contract or pattern refuses, as the statement casts it, before row-level security and the row's constraints                          |
+| 23505               | at the statement: a duplicate key, an exact repeat included, or a second row under an at-most-one count limit with no selection, which is a unique index; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
+| 23P01               | an overlap under a no-overlap key, at the statement; or a span a concurrent transaction committed after this one's snapshot, which is retryable               |
+| 23503               | a foreign key: at COMMIT when it is deferred (one with a selection or over spans always, a plain one when its target has fields beyond the referenced ones or it lies on a cycle of foreign keys), at the statement otherwise |
+| 23000               | a rule PostgreSQL has no constraint for, at COMMIT, its constraint name the rule's                                                                           |
+| 40001, 40P01        | a serialization failure or a deadlock: run the transaction again                                                                                             |
+
+- **The claims setting** is readable exactly when it has the shape a `Db` writes: empty, or a JSON object with no key
+  repeated at any depth whose every member is an object of JSON strings. Anything else, text that is no JSON included,
+  is 22P02 with constraint `grizzle.claims` and DETAIL `c[]`. A context's member holding other keys than exactly its
+  fields is 22P02 with DETAIL `c["<Context>"]`; a member of a context the statement does not read is never judged.
+  Each claim is then cast to its field's type: one its type refuses (not a uuid, not an integer, not a boolean, an
+  unknown enum name) is 22P02, an integer out of range 22003, and a value its contract or pattern refuses 23514. No
+  DETAIL carries a claim's value. A plan that drops the row through a join or condition before it reads the claims
+  gives that judgment's own answer: 42501 for a write, no rows for a read, false from a function.
+- **COMMIT** of a transaction a refusal aborted rolls it back, without an error. A rule PostgreSQL has no constraint
+  for is judged as whoever the transaction acts as at COMMIT, the role it took on or else the login, and shows its
+  witness keys only to an identity that holds the witness table whole; a login after `RESET ROLE` holds nothing.
+- **Serial columns** draw their identity default with no sequence privilege. A writer that inserts explicit serial
+  values (`OVERRIDING SYSTEM VALUE`) calls the field's advance function,
+  `SELECT <schema>.<advance function>(<largest value inserted>)`, in the same transaction, as grizzle does, so a later
+  generated value never repeats a stored one.
+- **A login without `SET ROLE`** holds only USAGE on its schema, SELECT on the ledger, and EXECUTE on the snapshot
+  guard, the lock and the check that `Db.open` and every `Db` transaction take.
+- **The owner and superusers bypass** every rule and role, and the owner is reserved for migrations.
+
+## Security model
+
+- **The login is the boundary.** Whoever holds a login's password can open any of its roles with any claims: a claim
+  is what `verify` returned, and PostgreSQL cannot check a token's signature. The web login can be any user of the web
+  app, but it never reaches `PostViews`, which only another login's role writes. Give each trust domain its own login.
+- **Claims are verified once, then decoded.** `verify` decides the token. grizzle decodes the value it returns, never
+  the token's JSON text (so a key the token repeats is `verify`'s to refuse), through the contexts' fields, and
+  refuses a present claim object missing a field or holding a value its field's encoder refuses (a text holding NUL or
+  a lone surrogate among them) at stage `token`, before the database is checked. A claim's pattern or contract is
+  PostgreSQL's to judge: `Db.open`'s round trip asks, and a claim it refuses is refused at stage `token` once the
+  checks pass. The transaction's setting holds the decoded claims, one member per context that has a row,
+  `{"<Context>":{"<field>":"<text>"}}`, each holding exactly its context's fields as JSON strings. It never holds the
+  token, and it ends with the transaction.
+- **PostgreSQL enforces every role.** A role holds no privilege on a table it does not write. It reads through views
+  in its own schema, and writes through row-level security on the tables. A query entry's view is a security-barrier
+  view; a whole-table entry hides nothing, so its view is plain, and PostgreSQL plans through it onto the table's
+  indexes. Constraint messages omit row and key detail there, and rule functions show witness keys only when the
+  identity the transaction acts as at COMMIT holds the witness table whole.
+- **What a role can learn.** Rules hold across the whole database. A delete refused by a comment you cannot see, or a
+  limit that counts rows outside your view, tells you such rows exist; a collision at a key or an at-most-one limit
+  tells you a row exists at the key you submitted (one overlapping the span you submitted, for a no-overlap key), never
+  any of its other columns.
+- **Not offered.** A write-only role (an insert reads its rows back), a browser connecting straight to PostgreSQL
+  (which cannot verify an RS256 token), and a role in two logins.
+- **The owner bypasses every role.** The migration role owns the tables and bypasses row-level security. It is for
+  migrations, never for the app.
+
+<details>
+<summary>Exactly what a role holds</summary>
+
+- USAGE on the schema, on its own schema, on the vector extension's schema when a column it reads or writes is a
+  vector, and on exactly the enums and domains its columns use, including the domains a contract is built on.
+- SELECT on its views, and on no materialized view.
+- On a table it writes through a whole-table entry: SELECT, INSERT and DELETE, and UPDATE when the table is mutable.
+- On a table it writes through a query entry: column SELECT and INSERT on every column, column UPDATE (when the table
+  is mutable) on each of the entry's columns outside every key that no claim fixes directly, and DELETE; never
+  table-level SELECT, INSERT or UPDATE.
+- EXECUTE on one key probe (a function that looks a key up across the whole table) per key of such a table, and one
+  unique probe per at-most-one count limit whose collisions
+  no key or other probe finds, for each writable query entry; on the entry's filter function exactly when its filter
+  reads a table besides the written row; on the advance function of each serial column of a table it writes; and on
+  the refusal function when it writes or reads a context, which only raises, in the caller's own statement.
+- MAINTAIN on the materialized view of each derived table its `refresh` names.
+- Nothing else: no TRUNCATE, no sequence, no rule function, and no other role's view or function.
+
+</details>
+
+## Limits
+
+grizzle fits applications that own their data end to end, such as accounts, ledgers, billing, scheduling and
+workflows, whose rules are worth declaring and whose users see different slices of it.
+
+- **PostgreSQL 19 only**, tested on 19rc1 with the two patches below; **Node 24 or later**; **Effect 4**.
+- **grizzle owns the database.** Existing schemas, and tables created outside its migrations, are not supported.
+- **No nullable columns, outer joins, window functions, SKIP LOCKED or raw SQL at run time.** A query is written in
+  grizzle's query language or not at all.
+- **No timestamp type.** An instant is a bigint contract.
+- **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
+- **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
+- **No bulk loads.** One ChangeSet input holds at most 100,000 rows.
+- **No PgBouncer, and no LISTEN/NOTIFY.**
+- **No browser connections.** A browser cannot connect straight to PostgreSQL; a server runs `verify`.
+- **The login is the trust boundary.** Anyone with its password can act as any of its roles, with any claims.
+- **Derived tables are refreshed explicitly**, with `db.refresh`.
+- **Migrations are downtime.** No `Db` call runs while a migration is being applied.
+- **RDS IAM authentication** has not been run against RDS.
+
+## PostgreSQL known issues
+
+**Recursive queries on an unpatched 19rc1.** Upstream commit 8f29467c removed the hash_mem clamp on an executor hash
+table's initial size. On an unpatched 19rc1 server, a recursive query (`query(S).recursive(...)`) whose result the
+planner estimates to be large can stall at executor start while it zeroes a hash table of many gigabytes, plain EXPLAIN
+and `db.explain` included, and neither `statement_timeout` nor cancellation interrupts it. PostgreSQL restored the
+clamp for 19rc2 ([BUG #19759](https://postgr.es/m/19759-acd3f33402e54f36@postgresql.org), commit 747dbf30d1), and the
+repository's build applies that fix to 19rc1 as
+[scripts/pg/patches/19rc1-recursive-union-hash-mem.patch](scripts/pg/patches/19rc1-recursive-union-hash-mem.patch).
+Only recursive queries are affected. The patch goes with the repin to 19rc2.
+
+**Imprecise GiST indexes over multibyte text.** Through PostgreSQL 19, btree_gist prices a text key by the byte after
+the common prefix of a subtree's bounds, and ends that prefix at a character boundary under UTF8. Characters that
+share leading bytes, such as the CJK Unified Ideographs, then cost the same in every subtree, and a GiST index led by
+such a text column is imprecise: a point lookup takes 14 buffers for one row of 20,000 two-ideograph keys, where ASCII
+keys take 3. PostgreSQL's master branch fixed this in commit b82d69abf6; the repository's build applies it to 19rc1 as
+[scripts/pg/patches/19rc1-btree-gist-multibyte-penalty.patch](scripts/pg/patches/19rc1-btree-gist-multibyte-penalty.patch),
+and the lookup then takes 3 buffers. An unpatched server, managed PostgreSQL included, is affected only through GiST
+indexes led by such a text field, which grizzle builds for a no-overlap key or a span filter whose text field comes
+first. Such an index stays valid either way, and places its keys well once rebuilt on a patched server. The patch goes
+with the repin to PostgreSQL 20.
+
+## Status
+
+Beta. There are no stability guarantees: every release is a hard cutover, with no deprecations and no compatibility
+path for the API, snapshots or migration files. The test suite runs on macOS against the pinned PostgreSQL 19rc1
+build, patched as above.
+
+## Development
+
+Everything runs natively on macOS through Homebrew, with no Docker. Development has no build step: Node runs each
+package's `src/*.ts` directly, and the repository resolves the packages' names to their `src/` through the
+`grizzle-source` export condition. `pnpm build` emits each package's published `dist/`, and `npm publish` runs it
+first.
+
+```sh
+pnpm install
+pnpm pg:build                     # build the pinned PostgreSQL 19rc1 from source, with its patches and pgvector
+pnpm pg:init                      # create the local cluster on port 5433: TLS and SCRAM only
+pnpm pg:doctor                    # the go/no-go check of the cluster
+pnpm test                         # the unit and types tiers, which need no network
+pnpm test:network                 # the pg and schedules tiers, against the local cluster
+pnpm test <file>                  # some files
+pnpm check                        # the gate (turbo, cached): typecheck, superlint, oxlint, format, fallow, dedupe
+```
+
+Every generated suite draws from one seed, `TEST_SEED`, which a run prints first; setting it reproduces a run.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the code rules, how the tests use the testing library, and the oracles.
+
+## Repository
+
+- `packages/engine/`: `@bjornpagen/grizzle-engine`, the compiler: schemas, roles, rules, queries and ChangeSets to SQL,
+  the migration drafter and the snapshot.
+- `packages/grizzle/`: `@bjornpagen/grizzle`, which re-exports the engine's API and adds:
+    - `src/adapter/`: the runtime over node-postgres in pipeline mode: `Db.open`, reads, writes, pages, `migrate` and
+      `drift`.
+    - `src/cli/`: the `grizzle` command line.
+    - `skills/grizzle/`: the agent guide `grizzle skill` installs.
+- `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
+- `bench/`: performance gates.
+- `scripts/pg/`: the pinned PostgreSQL build, cluster, doctor and patches.
+- `scripts/dev/`: the mutation tester, the golden SQL capture, the profiler and the PL/pgSQL coverage map.
+- `packages/devtools/`: the lint tooling: the oxlint preset and plugin, superlint and the tsconfig base.
+- `packages/testing/`: `@grizzle/testing`, the choice-stream testing library every test runs on, and `pnpm fuzz`'s
+  script.
+
+## License
+
+[0BSD](LICENSE).

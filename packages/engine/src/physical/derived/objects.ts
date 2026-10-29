@@ -1,0 +1,374 @@
+import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
+import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
+import {
+	type CheckedSchema,
+	type DerivedAnalysis,
+	derivedAnalysis
+} from "#compiler/analysis/schema.ts"
+import type { Theory } from "#compiler/analysis/theory/theory.ts"
+import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import {
+	compareIdentities,
+	type Identity,
+	identifierOf,
+	identity
+} from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import * as Result from "#compiler/core/result.ts"
+import type { Premise } from "#compiler/ir/evidence.ts"
+import { fieldNames } from "#compiler/ir/law.ts"
+import type { InstallationManifest } from "#compiler/ir/products.ts"
+import { contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { storedKeyPremise } from "#compiler/logical/props.ts"
+import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
+import { structuralRegex, type TextColumnUse } from "#compiler/physical/ddl/domains.ts"
+import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
+import type { InstallOptions } from "#compiler/physical/install/compile.ts"
+import {
+	type InstallContribution,
+	type InstallExtension,
+	noContribution
+} from "#compiler/physical/install/extension.ts"
+
+import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
+import type {
+	CreateIndex,
+	CreateMaterializedView,
+	ObjectName,
+	Refresh,
+	Revoke,
+	SqlStatement
+} from "#compiler/sql/ast.ts"
+import { columnKey } from "#compiler/sql/build.ts"
+
+const unwrapResult = <A>(result: Result.Result<A, CompileError>): A => {
+	if (!result.ok) {
+		throw new Refusal(result.error)
+	}
+	return result.value
+}
+
+/** The enums and domains a column of type `t` names, down a contract's base chain, each with its object when the
+ * installation creates one. */
+interface TypeUse {
+	readonly enums: Map<string, Node<"setup"> | undefined>
+	readonly domains: Map<string, Node<"setup"> | undefined>
+}
+
+const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
+	const contract = contractOf(t)
+	if (contract !== undefined) {
+		const name = b.names.contractDomain(contract.name)
+		use.domains.set(name.name, b.typeNamed(name))
+		useType(b, contract.base, use)
+		return
+	}
+	if (t.carrier === "enum") {
+		const name = b.names.enumType(t.roster.closed)
+		use.enums.set(name.name, b.typeNamed(name))
+	}
+	const span = spanOf(t)
+	if (span !== undefined) {
+		useType(b, span.endpoint, use)
+	}
+	const regex = structuralRegex(t)
+	if (regex !== undefined) {
+		const name = b.names.textDomain(regex)
+		if (name !== undefined) {
+			use.domains.set(name.name, b.typeNamed(name))
+		}
+	}
+}
+
+const emptyUse = (): TypeUse => ({ enums: new Map(), domains: new Map() })
+
+/**
+ * The laws a derived key's proof rests on, by their identities and each once: a stored relation's key law for each declared key
+ * premise, the constraint the naming door names for it, and for a lower view's unique index the laws its own key's proof
+ * rests on. A key resting on no law (a group key, the whole heading of a set) rests on none. The snapshot records them,
+ * so dropping a law names the proofs it breaks.
+ */
+const premiseLaws = (
+	theory: Theory,
+	analysis: DerivedAnalysis,
+	premises: ReadonlyArray<Premise>
+): ReadonlyArray<LawId> => {
+	const laws = new Map<LawId, Identity<"law">>()
+	const visit = (ps: ReadonlyArray<Premise>): void => {
+		for (const p of ps) {
+			if (p.kind !== "constraint") {
+				continue
+			}
+			if (p.constraintKind === "uniqueIndex") {
+				const lower = Object.values(analysis.relations)
+					.flatMap((r) => r.keys)
+					.find((k) => k.index === p.constraint)
+				if (lower !== undefined) {
+					visit(lower.proof.premises)
+				}
+				continue
+			}
+			for (const law of theory.laws) {
+				if (law.detail.kind !== "key") {
+					continue
+				}
+				const premise = storedKeyPremise(
+					law.detail.relation,
+					fieldNames(law.detail.key.fields),
+					law.detail.key.primary
+				)
+				if (premise.kind === "constraint" && premise.constraint === p.constraint) {
+					laws.set(law.id, law.named)
+				}
+			}
+		}
+	}
+	visit(premises)
+	return [...laws].toSorted(([, a], [, b]) => compareIdentities(a, b)).map(([id]) => id)
+}
+
+/** The view and unique indexes of one derived relation. `lowerKeys` are the inherited keys of the lower levels, each
+ * the unique index already planned for it. */
+const viewObjects = (
+	b: InstallBuilder,
+	analysis: DerivedAnalysis,
+	a: DerivedRelationAnalysis,
+	lowerKeys: ReadonlyArray<CatalogKey>
+): ReadonlyArray<CatalogKey> => {
+	const name = a.name
+	const view = b.names.relation(name)
+	const columns: Array<string> = []
+	/** Each field an index or statistics object on the view may name. */
+	const fields: Array<readonly [string, TargetField]> = []
+	for (const c of a.heading) {
+		columns.push(b.name(identity.column(c.name)))
+		fields.push([c.name, { desc: c.desc, type: c.type }])
+	}
+
+	/** The schema's installed keys and containments, as every compilation sees them, with the
+	 * lower levels' inherited keys, the definition's only views. The definition's transaction evidence context admits
+	 * only the containments that hold at every statement: a deferred foreign key or a residual law proves nothing in
+	 * it. */
+	const catalog = evidenceCatalog({ laws: b.model, views: lowerKeys })
+	const lowered = unwrapResult(
+		lowerDefinition(name, a.query, {
+			names: b.names,
+			catalog
+		})
+	)
+	const create: CreateMaterializedView = {
+		kind: "createMaterializedView",
+		name: view,
+		columns,
+		query: lowered.query
+	}
+	const revoke: Revoke = {
+		kind: "revoke",
+		privileges: ["ALL"],
+		on: { kind: "TABLE", names: [view] },
+		from: [{ kind: "PUBLIC" }]
+	}
+	const use = emptyUse()
+	for (const c of a.heading) {
+		useType(b, c.type, use)
+	}
+	const viewObject = b.add(
+		{
+			kind: "materializedView",
+			ident: b.qualified("materializedView", b.names.relationNamed(name)),
+			ddl: [create, revoke],
+			reasons: [enforcement(`derived relation ${name}`)],
+			phase: "structure"
+		},
+		[
+			b.schemaNode,
+			...a.reads.flatMap((read) => {
+				const from = b.readObject(read)
+				return from === undefined ? [] : [from]
+			}),
+			...[...use.enums.values(), ...use.domains.values()].flatMap((t) =>
+				t === undefined ? [] : [t]
+			)
+		]
+	)
+
+	const keys: Array<{ readonly key: CatalogKey; readonly object: Node<"structure"> }> = []
+	for (const [i, k] of a.keys.entries()) {
+		/** The one name every evidence catalog gives the view's key (`derivedKeyConstraints`), which
+		 * the derived analysis names. */
+		const named = identity.derivedKey(name, k.fields)
+		const index = b.name(named)
+		const statement: CreateIndex = {
+			kind: "createIndex",
+			name: index,
+			table: view,
+			unique: true,
+			method: "btree",
+			keys: k.fields.map((f) => columnKey(b.names.column(name, f))),
+			concurrently: false,
+			include: [],
+			where: undefined
+		}
+		const object = b.add(
+			{
+				kind: "uniqueIndex",
+				ident: b.qualified("index", named),
+				ddl: [statement],
+				reasons: [
+					{ kind: "proof", premises: premiseLaws(b.model.theory, analysis, k.proof.premises) }
+				],
+				phase: "structure"
+			},
+			[viewObject]
+		)
+		keys.push({
+			key: { relation: name, fields: k.fields, spans: [], primary: i === 0, constraint: index },
+			object
+		})
+	}
+	b.addIndexedView({
+		relation: name,
+		object: viewObject,
+		fields: new Map(fields),
+		uniqueIndexes: keys.map((k) => ({
+			object: k.object,
+			name: k.key.constraint,
+			columns: k.key.fields
+		}))
+	})
+	return keys.map((k) => k.key)
+}
+
+/** Every view column a regex refinement types, as a use of its structural text domain: a
+ * literal or a min of refined text keeps its pattern, which may be one no stored column carries, and the view column
+ * is cast to that pattern's domain, so the domain must exist. */
+const textColumnUses = (analysis: DerivedAnalysis): ReadonlyArray<TextColumnUse> => {
+	const uses: Array<TextColumnUse> = []
+	for (const a of analysis.order) {
+		uses.push(
+			...a.heading.flatMap((c): ReadonlyArray<TextColumnUse> => {
+				const regex = structuralRegex(c.type)
+				if (regex === undefined) {
+					return []
+				}
+				return [{ regex, table: a.ident, column: identifierOf(identity.column(c.name)) }]
+			})
+		)
+	}
+	return uses
+}
+
+/** The installer extension that adds every derived relation's view and unique indexes to the obligation graph
+ * and claims the relation, so the installation does not report it deferred. Its view columns' patterns join the
+ * structural text domains before any name is chosen (textDomainUses), each over the installation's checked schema.
+ *
+ * Each derived relation lowers to exactly these objects of the one obligation graph, through the installer's
+ * extensions, so they share its install order, manifest and determinism with every native object:
+ *
+ * - the materialized view `materializedView:<schema>.<view>`, in Structure: `CREATE MATERIALIZED VIEW
+ *   <schema>.<view> (<columns>) AS <definition> WITH NO DATA`, the definition being the compiler's ordinary lowering
+ *   of the query (`lowerDefinition`), then `REVOKE ALL ON TABLE <view> FROM PUBLIC` at once, so PUBLIC never holds a
+ *   privilege on it. It is created after the tables, closed enums and lower views its definition reads
+ *   and after the enums and domains its columns are typed by; a lower view joins the graph with this extension's
+ *   contribution. WITH NO DATA makes creation cost nothing; the view is
+ *   unpopulated, and unreadable, until its first `db.refresh`;
+ * - one unique index per inherited key, in Structure beside its view: `CREATE UNIQUE INDEX <key> ON <schema>.<view>
+ *   USING btree (<cols>)`, plain columns, no expression and no predicate, the index REFRESH MATERIALIZED VIEW
+ *   CONCURRENTLY requires, over the full heading when no narrower key is proven, named at the naming door
+ *   (identity.derivedKey), as every evidence catalog names the view's key; the unique index compares a key's spans as values. The keys and their
+ *   representability are the derived analysis's;
+ * - the workload's indexes on the view, in Indexes like any relation's: the view registers its fields and unique indexes with the builder (addIndexedView), and the one index engine
+ *   plans the workload requests on it with every other request; its unique indexes serve a request as a table's key
+ *   indexes do.
+ *
+ * A role reads a derived relation it holds whole through its own view of it and refreshes one with MAINTAIN on the
+ * materialized view, both granted with the role's other privileges. No role holds INSERT,
+ * UPDATE, DELETE or TRUNCATE on a materialized view, and PostgreSQL runs the definition with the view owner's
+ * privileges.
+ *
+ * Each object's reason is the enforcement of its declaration: the derived relation or its inherited key. No law names
+ * a derived relation, so none carries a law reason. */
+export const derivedRelationExtension = (): InstallExtension => {
+	const extension = (b: InstallBuilder): Result.Result<InstallContribution, CompileError> =>
+		catchRefusal(() => {
+			const analysis = derivedAnalysis(b.checked)
+			const keys: Array<CatalogKey> = []
+			for (const a of analysis.order) {
+				keys.push(...viewObjects(b, analysis, a, keys))
+			}
+			const out: InstallContribution = {
+				...noContribution,
+				derivedRelations: analysis.order.map((a) => a.name)
+			}
+			return out
+		})
+	return {
+		contribute: extension,
+		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked)))
+	}
+}
+
+/** Installer options with the derived relation extension after any extension the caller already listed. */
+export const withDerivedRelations = (options: InstallOptions): InstallOptions => ({
+	...options,
+	extensions: [...options.extensions, derivedRelationExtension()]
+})
+
+/** One installed derived relation as the manifest records it: what admission compares with the catalog (the
+ * materialized view's definition and unique indexes) and what db.refresh names. */
+interface InstalledDerivedRelation {
+	readonly view: ObjectName
+	readonly create: CreateMaterializedView
+	readonly indexes: ReadonlyArray<CreateIndex>
+}
+
+const sameName = (a: ObjectName, b: ObjectName): boolean =>
+	a.schema === b.schema && a.name === b.name
+
+/** Every materialized view a manifest installs, in install order, each with its unique indexes in install order. */
+export const installedDerivedRelations = (
+	manifest: InstallationManifest<SqlStatement>
+): Result.Result<ReadonlyArray<InstalledDerivedRelation>, CompileError> => {
+	const views: Array<{ readonly view: ObjectName; readonly create: CreateMaterializedView }> = []
+	for (const o of manifest.objects) {
+		if (o.kind !== "materializedView") {
+			continue
+		}
+		const [create, revoke] = o.ddl
+		if (
+			o.ddl.length !== 2 ||
+			create?.kind !== "createMaterializedView" ||
+			revoke?.kind !== "revoke"
+		) {
+			return Result.err(
+				malformedDescription(
+					SourceLoc("the installation manifest", []),
+					`a materialized view and its PUBLIC revocation on ${o.ident}`
+				)
+			)
+		}
+		views.push({ view: create.name, create })
+	}
+	const indexes = manifest.objects.flatMap((o) =>
+		o.kind === "uniqueIndex" ? o.ddl.flatMap((s) => (s.kind === "createIndex" ? [s] : [])) : []
+	)
+	return Result.ok(
+		views.map((v): InstalledDerivedRelation => ({
+			...v,
+			indexes: indexes.filter((i) => sameName(i.table, v.view))
+		}))
+	)
+}
+
+/** REFRESH MATERIALIZED VIEW, plain for a view's first population and CONCURRENTLY after it, because the concurrent
+ * form needs a populated view; the runtime decides which from pg_class.relispopulated.
+ * Which views a db.refresh call refreshes, and in which order, is the runtime's: level of
+ * schema extension, then declared order, which the owned schema's canonical Description does not keep. */
+export const refreshStatement = (view: ObjectName, concurrently: boolean): Refresh => ({
+	kind: "refresh",
+	view,
+	concurrently
+})

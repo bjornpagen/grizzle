@@ -1,0 +1,440 @@
+import { describe, it, layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { features, noFeatures } from "@grizzle/testing/features"
+import { array, type Gen, int } from "@grizzle/testing/gen"
+import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { regex } from "arkregex"
+import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { AllenMask, type AllenRelation, allenRelations } from "#compiler/allen/mask.ts"
+import { decodeDesc } from "#compiler/ir/desc.ts"
+import type { OwnedKey, OwnedRelation } from "#compiler/schema/own.ts"
+import { keyLayout } from "#compiler/schema/representability.ts"
+import { col } from "#compiler/sql/build.ts"
+import { printExpr } from "#compiler/sql/print.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { maskSql } from "#test/support/oracle/allen-sql.ts"
+import {
+	classify,
+	type HalfOpen,
+	rangeLimits,
+	spanText,
+	windowSpans
+} from "#test/support/oracle/allen.ts"
+
+import {
+	defaultSpanCaseLimits,
+	endpointMaskPredicate,
+	type MaskPredicate,
+	overlaps,
+	printSpanCase,
+	type RawRow,
+	rangeTypeOf,
+	referenceRows,
+	referenceSql,
+	rowSet,
+	type SpanCase,
+	type SpanEndpointKind,
+	type SpanQueryKind,
+	spanCaseGen,
+	spanDifference,
+	spanInsert,
+	spanInstallStatements,
+	spanIntersection,
+	spanPack,
+	spanSetupStatements,
+	spanQueryDesc,
+	spanQueryKinds,
+	spanRelationNames,
+	spanSchemaDesc,
+	tickContract
+} from "#test/support/oracle/gen/spans.ts"
+import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
+import { ownedInput } from "#test/support/policy.ts"
+import { expectSqlstate } from "#test/support/substrate/expect.ts"
+import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+
+const points = (span: HalfOpen): ReadonlyArray<bigint> => {
+	const out: Array<bigint> = []
+	for (let p = span.lo; p < span.hi; p++) {
+		out.push(p)
+	}
+	return out
+}
+
+/** The maximal runs of consecutive points of a set. */
+const runs = (set: ReadonlySet<bigint>): ReadonlyArray<HalfOpen> => {
+	const sorted = Arr.sort(set, Order.BigInt)
+	const out: Array<HalfOpen> = []
+	for (const p of sorted) {
+		const last = out[out.length - 1]
+		if (last?.hi === p) {
+			out[out.length - 1] = { lo: last.lo, hi: p + 1n }
+		} else {
+			out.push({ lo: p, hi: p + 1n })
+		}
+	}
+	return out
+}
+
+const texts = (spans: ReadonlyArray<HalfOpen>): ReadonlyArray<string> => Arr.map(spans, spanText)
+
+const smallSpanGen: Gen<HalfOpen> = (source) => {
+	const lo = source.draw(int(-3, 7))
+	const length = source.draw(int(1, 6))
+	return { lo: BigInt(lo), hi: BigInt(Math.min(8, lo + length)) }
+}
+
+describe("the span reference on the host", () => {
+	it("computes intersection and binary difference as point sets do, over every pair of the [-3, 8] window", () => {
+		const spans = windowSpans()
+		let pairs = 0
+		for (const a of spans) {
+			for (const b of spans) {
+				pairs++
+				const pa = new Set(points(a))
+				const pb = new Set(points(b))
+				assert.deepEqual(
+					texts(spanIntersection(a, b)),
+					texts(runs(new Set(Arr.filter([...pa], (p) => pb.has(p)))))
+				)
+				assert.deepEqual(
+					texts(spanDifference(a, b)),
+					texts(runs(new Set(Arr.filter([...pa], (p) => !pb.has(p)))))
+				)
+				assert.ok(spanIntersection(a, b).length <= 1)
+				assert.ok(spanDifference(a, b).length <= 2)
+				assert.equal(spanIntersection(a, b).length === 1, overlaps(a, b))
+			}
+		}
+		assert.equal(pairs, 66 * 66)
+	})
+
+	it.effect("packs as point sets do", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "spans/coverage-host",
+					draw: drawn(array(smallSpanGen, { min: 0, max: 6 })),
+					literal: Formatter.format,
+					features: noFeatures,
+					kept: [],
+					runs: 2000,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					steering: { kind: "none" },
+					caseHang: Duration.minutes(2)
+				},
+				(spans) =>
+					Effect.sync(() => {
+						assert.deepEqual(
+							texts(spanPack(spans)),
+							texts(runs(new Set(Arr.flatMap(spans, points))))
+						)
+					})
+			)
+		)
+	)
+})
+
+const cases = 2000
+
+/** What one case exercises, for the coverage the suite requires. */
+type SpanCaseFeature =
+	| `query:${SpanQueryKind}`
+	| `endpoint:${SpanEndpointKind}`
+	| "span-keyed relation"
+	| "id-keyed relation"
+	| "span starting at the type minimum"
+	| "span ending at the type maximum"
+	| "touching neighbours in one group"
+	| "overlapping facts in one group"
+	| "one span under two identities"
+	| "overlap dropped from a span key"
+	| `window:${"param" | "literal"}`
+	| `point:${"param" | "literal"}`
+	| "nonempty result"
+	| `relation:${AllenRelation}`
+
+const caseFeatures = (c: SpanCase): ReadonlyArray<SpanCaseFeature> => {
+	const out = new Set<SpanCaseFeature>([`query:${c.query.kind}`, `endpoint:${c.schema.endpoint}`])
+	const { min, max } = rangeLimits[rangeTypeOf(c.schema.endpoint)]
+	for (const name of spanRelationNames) {
+		const facts = c.facts[name]
+		const keyed = c.schema.relations[name].spanKeyed
+		out.add(keyed ? "span-keyed relation" : "id-keyed relation")
+		for (const f of facts) {
+			if (f.during.lo === min) {
+				out.add("span starting at the type minimum")
+			}
+			if (f.during.hi === max) {
+				out.add("span ending at the type maximum")
+			}
+			for (const g of facts) {
+				if (f === g || f.group !== g.group) {
+					continue
+				}
+				if (f.during.hi === g.during.lo) {
+					out.add("touching neighbours in one group")
+				}
+				if (!keyed && overlaps(f.during, g.during)) {
+					out.add("overlapping facts in one group")
+				}
+				if (!keyed && spanText(f.during) === spanText(g.during)) {
+					out.add("one span under two identities")
+				}
+			}
+		}
+	}
+	if (c.dropped.length > 0) {
+		out.add("overlap dropped from a span key")
+	}
+	const q = c.query
+	if (q.kind === "allenFilter") {
+		out.add(`window:${q.window.kind}`)
+		for (const f of c.facts[q.relation]) {
+			out.add(`relation:${classify(f.during, q.window.span)}`)
+		}
+	}
+	if (q.kind === "allenJoin") {
+		for (const l of c.facts.Left) {
+			for (const r of c.facts.Right) {
+				if (l.group === r.group) {
+					out.add(`relation:${classify(l.during, r.during)}`)
+				}
+			}
+		}
+	}
+	if (q.kind === "pointIn") {
+		out.add(`point:${q.point.kind}`)
+	}
+	if (referenceRows(c).length > 0) {
+		out.add("nonempty result")
+	}
+	return [...out]
+}
+
+const required: ReadonlyArray<SpanCaseFeature> = [
+	...Arr.map(spanQueryKinds, (k): SpanCaseFeature => `query:${k}`),
+	"endpoint:integer",
+	"endpoint:bigint",
+	"endpoint:contract",
+	"span-keyed relation",
+	"id-keyed relation",
+	"span starting at the type minimum",
+	"span ending at the type maximum",
+	"touching neighbours in one group",
+	"overlapping facts in one group",
+	"one span under two identities",
+	"overlap dropped from a span key",
+	"window:param",
+	"window:literal",
+	"point:param",
+	"point:literal",
+	"nonempty result",
+	...Arr.map(allenRelations, (r): SpanCaseFeature => `relation:${r}`)
+]
+
+describe("the span generators", () => {
+	it.effect("generate admissible schemas, decodable queries and lawful facts", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "spans/generators",
+					draw: drawn(spanCaseGen(defaultSpanCaseLimits)),
+					literal: Formatter.format,
+					features: features<SpanCaseFeature>(required),
+					kept: [],
+					runs: 4 * cases,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					steering: { kind: "none" },
+					caseHang: Duration.minutes(2)
+				},
+				(c, noted) =>
+					Effect.sync(() => {
+						noted.noteAll(caseFeatures(c))
+						const schemaDesc = spanSchemaDesc(c.schema)
+						const owned = succeeded(ownedInput(schemaDesc), printSpanCase(c))
+						for (const name of spanRelationNames) {
+							const relation: OwnedRelation | undefined = owned.relations[name]
+							if (relation === undefined) {
+								return assert.fail(`${name} has a primary key`)
+							}
+							const primary = Arr.findFirst(relation.keys, (k) => k.primary)
+							if (Option.isNone(primary)) {
+								return assert.fail(`${name} has a primary key`)
+							}
+							const pk: OwnedKey = primary.value
+							const layout = keyLayout(
+								Arr.map(pk.fields, (field) => ({
+									field,
+									desc: defined(relation.fields[field]).desc
+								}))
+							)
+							if (!layout.ok) {
+								return assert.fail(layout.error.kind)
+							}
+							assert.equal(
+								layout.value.gist?.span,
+								c.schema.relations[name].spanKeyed ? "during" : undefined
+							)
+						}
+						const query = spanQueryDesc(c)
+						const decoded = decodeDesc("query", query)
+						if (!decoded.ok) {
+							throw new Error(`${printSpanCase(c)}\n${decoded.error.message}`)
+						}
+						const { min, max } = rangeLimits[rangeTypeOf(c.schema.endpoint)]
+						for (const name of spanRelationNames) {
+							assertLawful(c, name, min, max)
+						}
+						for (const d of c.dropped) {
+							assert.equal(d.fact.group, d.overlaps.group)
+							assert.equal(overlaps(d.fact.during, d.overlaps.during), true)
+						}
+						/** Set semantics: the reference is a set. */
+						const rows = referenceRows(c)
+						assert.deepEqual(rowSet(rows), rows)
+					})
+			)
+		)
+	)
+})
+
+/** The shipped table's formula for a mask, over the two span columns (test/support/oracle/allen-sql.ts). */
+const tableMaskPredicate: MaskPredicate = (mask, left, right) =>
+	maskSql(
+		AllenMask(mask),
+		printExpr(col(left.table, left.column)),
+		printExpr(col(right.table, right.column))
+	)
+
+const sameRowSet = multiset(ordered(exact))
+
+const sameRows = (
+	label: string,
+	expected: ReadonlyArray<RawRow>,
+	actual: ReadonlyArray<RawRow>
+): string | undefined => {
+	const got = rowSet(actual)
+	if (got.length !== actual.length) {
+		return `${label}: ${actual.length - got.length} repeated rows`
+	}
+	const difference = sameRowSet(expected, got)
+	return Option.isNone(difference)
+		? undefined
+		: `${label}: ${difference.value}\n  reference  ${JSON.stringify(expected)}\n  postgresql ${JSON.stringify(got)}`
+}
+
+/**
+ * The facts of one relation are lawful: nonempty, inside the endpoint type's range (and the contract's, over a
+ * contract endpoint), and, for a span-keyed relation, no two of one group overlapping.
+ */
+const assertLawful = (
+	c: SpanCase,
+	name: (typeof spanRelationNames)[number],
+	min: bigint,
+	max: bigint
+): void => {
+	const facts = c.facts[name]
+	for (const f of facts) {
+		assert.equal(f.during.lo < f.during.hi, true)
+		assert.equal(f.during.lo >= min && f.during.hi <= max, true)
+		assert.equal(c.schema.endpoint !== "contract" || f.during.lo >= tickContract.low, true)
+	}
+	const overlapping = Arr.some(facts, (f) =>
+		Arr.some(facts, (g) => f !== g && f.group === g.group && overlaps(f.during, g.during))
+	)
+	assert.equal(c.schema.relations[name].spanKeyed && overlapping, false)
+}
+
+layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
+	it.effect(
+		`agrees with handwritten SQL on ${cases} generated span cases`,
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const schema = yield* s.schema({ ...freshSchema, label: "spans" })
+					const db = yield* s.session(ownerSession())
+					for (const statement of spanSetupStatements(schema)) {
+						yield* db.query(statement, [])
+					}
+					/** btree_gist is installed and supplies the scalar components of a span key. */
+					const gist = yield* db.values(
+						"SELECT extversion::text FROM pg_catalog.pg_extension WHERE extname = 'btree_gist'",
+						[]
+					)
+					assert.equal(gist.length, 1)
+
+					return yield* oracleCheck(
+						drawn(spanCaseGen(defaultSpanCaseLimits)),
+						{
+							suite: "spans/reference",
+							literal: Formatter.format,
+							features: features<SpanCaseFeature>(required),
+							kept: [],
+							runs: cases,
+							shrink: completeShrink,
+							steering: { kind: "none" },
+							caseHang: Duration.minutes(2),
+							perturb: "none"
+						},
+						(sc, c) =>
+							Effect.gen(function* () {
+								c.noteAll(caseFeatures(sc))
+								const fail = (message: string) =>
+									Effect.fail(PropertyFailed.make({ report: `${printSpanCase(sc)}\n${message}` }))
+								for (const statement of spanInstallStatements(schema, sc)) {
+									yield* db.query(statement, [])
+								}
+								for (const name of spanRelationNames) {
+									if (sc.facts[name].length === 0) {
+										continue
+									}
+									const insert = spanInsert(schema, sc, name, sc.facts[name])
+									yield* db.query(insert.sql, insert.params)
+								}
+								for (const dropped of sc.dropped) {
+									const insert = spanInsert(schema, sc, dropped.relation, [dropped.fact])
+									yield* expectSqlstate(db.query(insert.sql, insert.params), "23P01")
+								}
+								const expected = referenceRows(sc)
+								const byClassifier = referenceSql(schema, sc, endpointMaskPredicate)
+								const classified = Arr.map(
+									yield* db.values(byClassifier.sql, byClassifier.params),
+									(row) => Arr.map(row, String)
+								)
+								const first = sameRows("endpoint classifier", expected, classified)
+								if (first !== undefined) {
+									return yield* fail(first)
+								}
+								if (sc.query.kind === "allenFilter" || sc.query.kind === "allenJoin") {
+									const byTable = referenceSql(schema, sc, tableMaskPredicate)
+									if (regex("\\b(lower|upper)\\(").test(byTable.sql)) {
+										return yield* fail(
+											`the shipped formula uses lower() or upper(): ${byTable.sql}`
+										)
+									}
+									const tabled = Arr.map(yield* db.values(byTable.sql, byTable.params), (row) =>
+										Arr.map(row, String)
+									)
+									const second = sameRows("shipped mask table", expected, tabled)
+									if (second !== undefined) {
+										return yield* fail(second)
+									}
+								}
+							})
+					)
+				})
+			),
+		900_000
+	)
+})

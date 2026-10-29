@@ -1,0 +1,613 @@
+import {
+	type CompileError,
+	isCompileError,
+	malformedArtifact,
+	malformedDescription,
+	resourceBound,
+	within
+} from "#compiler/core/errors.ts"
+import { defect } from "#compiler/core/invariant.ts"
+import { isSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { compareStrings } from "#compiler/core/order.ts"
+import { isRecord } from "#compiler/core/record.ts"
+import * as Result from "#compiler/core/result.ts"
+
+export const canonicalFormat = "grizzle-canonical"
+
+/** UTF-16 code-unit order: the order canonical text sorts object keys in, and every sorted list of names or keys. */
+export const compareText = (a: string, b: string): number => compareStrings(a, b)
+
+export const canonicalTag: unique symbol = Symbol.for("grizzle/canonical")
+
+/**
+ * The deepest nesting of arrays and objects any kernel traversal accepts: a value may sit inside at most this many
+ * containers. It is a fixed property of the format, not a policy threshold, because it decides which texts decode at
+ * all; it is far beyond any description grizzle writes and far below what exhausts the stack.
+ */
+export const maxNestingDepth = 512
+
+export interface TaggedValue {
+	/** Lowercase ASCII letters and digits, starting with a letter. "n" is reserved for bigint. */
+	readonly tag: string
+	readonly payload: string
+}
+
+export interface Canonicalizable {
+	readonly [canonicalTag]: () => TaggedValue
+}
+
+/** The JSON form: what JSON.stringify and JSON.parse carry. */
+export type Json =
+	| string
+	| number
+	| boolean
+	| ReadonlyArray<Json>
+	| { readonly [key: string]: Json }
+
+export type Path = ReadonlyArray<string | number>
+
+/**
+ * Whether an object property is left out of the canonical form, for presentation data excluded from semantic
+ * identity. A pure function of its arguments.
+ */
+export type OmitRule = (key: string, value: unknown, path: Path) => boolean
+
+export interface EncodeOptions {
+	readonly omit: OmitRule
+}
+
+/** SourceLocs are excluded from semantic identity. By convention they travel under the property "loc". */
+export const omitSourceLocs: OmitRule = (key, value) => key === "loc" && isSourceLoc(value)
+
+/** Every property in the canonical form: the text of the value as it is. */
+export const everyProperty: EncodeOptions = { omit: () => false }
+
+/** Every property but the SourceLocs: the text of the value's semantic identity. */
+export const withoutSourceLocs: EncodeOptions = { omit: omitSourceLocs }
+
+/** JSON text, admitted as an unknown value for the structural decode that follows; undefined for text that is not JSON. */
+const parseJsonText = (text: string): Result.Result<unknown, undefined> => {
+	try {
+		const parsed: unknown = JSON.parse(text)
+		return Result.ok(parsed)
+	} catch {
+		return Result.err(undefined)
+	}
+}
+
+/** What a protocol method returns, admitted: anyone can forge the registered symbol, so the result is checked. */
+const admitTaggedValue = (tagged: unknown): TaggedValue | undefined => {
+	if (!isRecord(tagged)) {
+		return undefined
+	}
+	const tag = tagged["tag"]
+	const payload = tagged["payload"]
+	return typeof tag === "string" && typeof payload === "string" ? { tag, payload } : undefined
+}
+
+/**
+ * The tagged value a value implementing the protocol encodes to; undefined for any other value, and for a value whose
+ * method returns anything but a tag and a payload.
+ */
+export const taggedValueOf = (value: unknown): TaggedValue | undefined => {
+	if (typeof value !== "object" || value === null || !(canonicalTag in value)) {
+		return undefined
+	}
+	const method: unknown = value[canonicalTag]
+	if (typeof method !== "function") {
+		return undefined
+	}
+	const tagged: unknown = Reflect.apply(method, value, [])
+	return admitTaggedValue(tagged)
+}
+
+/** A value implementing the protocol: its method returns a tag and a payload. */
+export const isCanonicalizable = (value: unknown): value is Canonicalizable =>
+	taggedValueOf(value) !== undefined
+
+const isTagName = (tag: string): boolean => {
+	if (tag.length === 0) {
+		return false
+	}
+	for (let i = 0; i < tag.length; i++) {
+		const ch = tag.charCodeAt(i)
+		const letter = ch >= 0x61 && ch <= 0x7a
+		const digit = ch >= 0x30 && ch <= 0x39
+		if (!(letter || (digit && i > 0))) {
+			return false
+		}
+	}
+	return true
+}
+
+/**
+ * Internal control flow of the kernel's traversals: thrown deep inside a traversal and caught at the exported
+ * boundary, which returns it as a Result failure. It never escapes a kernel function.
+ */
+export class Refusal extends Error {
+	readonly error: CompileError
+
+	constructor(error: CompileError) {
+		super()
+		this.error = error
+	}
+}
+
+/**
+ * The engine's one door from a thrown signal to a Result: runs `f`, and an instance of `signal` it throws is the
+ * failure; any other throw is a defect and propagates. A signal is internal control flow, thrown deep inside a
+ * traversal and caught at its boundary: the kernel's Refusal, a catalog recognizer's NoMatch, the regex parser's
+ * Failure.
+ */
+export const catchSignal = <A, S>(
+	signal: abstract new (...args: never) => S,
+	f: () => A
+): Result.Result<A, S> => {
+	try {
+		return Result.ok(f())
+	} catch (caught) {
+		if (caught instanceof signal) {
+			return Result.err(caught)
+		}
+		throw caught
+	}
+}
+
+/** Runs `f`, turning a thrown Refusal into a failure; any other throw is a defect and propagates. */
+export const catchRefusal = <A>(f: () => A): Result.Result<A, CompileError> =>
+	Result.mapError(catchSignal(Refusal, f), (refusal) => refusal.error)
+
+/**
+ * Runs a public builder, which throws its CompileError to the JavaScript caller (schema(...), relation(...), the
+ * query builder), turning that throw or a kernel Refusal into a failure; any other throw is a defect and propagates.
+ */
+export const catchCompileError = <A>(f: () => A): Result.Result<A, CompileError> => {
+	try {
+		return Result.ok(f())
+	} catch (caught) {
+		if (caught instanceof Refusal) {
+			return Result.err(caught.error)
+		}
+		if (isCompileError(caught)) {
+			return Result.err(caught)
+		}
+		throw caught
+	}
+}
+
+/** A value the caller built that has no canonical form: the caller's description is malformed at `path`. */
+const refuseValue = (path: Path, what: string): never => {
+	throw new Refusal(malformedDescription(SourceLoc("canonical value", path), what))
+}
+
+/** Canonical text read back that no encoding wrote: the artifact is malformed at `path`. */
+const refuseText = (path: Path, what: string): never => {
+	throw new Refusal(malformedArtifact("canonical", path, what))
+}
+
+/**
+ * A container nested inside `depth` others: past maxNestingDepth the traversal stops with ResourceBound.
+ * `what` names the value, so the location reads like the traversal's other refusals.
+ */
+const checkNestingDepth = (depth: number, path: Path, what: string): void => {
+	if (depth < maxNestingDepth) {
+		return
+	}
+	throw new Refusal(
+		resourceBound(SourceLoc(what, path), { kind: "nesting", limit: maxNestingDepth })
+	)
+}
+
+const escapeString = (value: string): string => (value.startsWith("~") ? `~${value}` : value)
+
+const wellFormedText = "well-formed Unicode text"
+
+/**
+ * Refuses a string or object key with a lone surrogate (RFC 8785 section 3.2.2.2). Checked in both directions, so a
+ * text that could not have been encoded never decodes.
+ */
+const checkText = (
+	text: string,
+	path: Path,
+	refusal: (path: Path, what: string) => never
+): void => {
+	if (!text.isWellFormed()) {
+		refusal(path, wellFormedText)
+	}
+}
+
+/** refuse, typed so that control flow analysis knows a call to it does not return. */
+const stop: (path: Path, capability: string) => never = refuseValue
+
+/**
+ * What one canonical traversal builds a value's form from, bottom up: a scalar's JSON value (a string already escaped,
+ * a finite number with no negative zero, a boolean), an array of its items' forms, and an object of its members' keys
+ * and forms in key order. Walk states every check once; a fold only assembles.
+ */
+interface Fold<R> {
+	scalar(value: string | number | boolean): R
+	array(items: ReadonlyArray<R>): R
+	object(members: ReadonlyArray<readonly [string, R]>): R
+}
+
+/**
+ * One canonical traversal: every check, in one order, with one refusal each, and the value's canonical form folded by
+ * its fold. Keys are visited in the order Object.keys() sorted gives, the UTF-16 code unit order canonical text sorts
+ * by, so no fold sorts again. A traversal is used once: a refusal ends it, so its path and ancestors are never read
+ * again after one.
+ */
+class Walk<R> {
+	readonly #path: Array<string | number> = []
+	readonly #ancestors = new Set<object>()
+	readonly #options: EncodeOptions
+	readonly #fold: Fold<R>
+
+	constructor(options: EncodeOptions, fold: Fold<R>) {
+		this.#options = options
+		this.#fold = fold
+	}
+
+	value(value: unknown, depth: number): R {
+		switch (typeof value) {
+			case "string":
+				checkText(value, this.#path, refuseValue)
+				return this.#fold.scalar(escapeString(value))
+			case "boolean":
+				return this.#fold.scalar(value)
+			case "number":
+				if (!Number.isFinite(value)) {
+					stop(this.#path, "a finite number")
+				}
+				return this.#fold.scalar(value === 0 ? 0 : value)
+			case "bigint":
+				return this.#fold.scalar(`~n:${value.toString()}`)
+			case "object":
+				return this.#object(value, depth)
+			case "undefined":
+			case "function":
+			case "symbol":
+				return stop(this.#path, `a canonical value, not ${typeof value}`)
+		}
+	}
+
+	#object(value: object | null, depth: number): R {
+		if (!isRecord(value)) {
+			stop(this.#path, "a value, not null")
+		}
+		const tagged = taggedValueOf(value)
+		if (
+			tagged === undefined &&
+			canonicalTag in value &&
+			typeof value[canonicalTag] === "function"
+		) {
+			stop(this.#path, "a canonical tag and payload")
+		}
+		if (tagged !== undefined) {
+			if (!isTagName(tagged.tag) || tagged.tag === "n") {
+				stop(this.#path, `a valid canonical tag, not "${tagged.tag}"`)
+			}
+			checkText(tagged.payload, this.#path, refuseValue)
+			return this.#fold.scalar(`~${tagged.tag}:${tagged.payload}`)
+		}
+		if (this.#ancestors.has(value)) {
+			stop(this.#path, "an acyclic value")
+		}
+		checkNestingDepth(depth, this.#path, "canonical value")
+		this.#ancestors.add(value)
+		const form = Array.isArray(value) ? this.#array(value, depth) : this.#record(value, depth)
+		this.#ancestors.delete(value)
+		return form
+	}
+
+	#array(value: ReadonlyArray<unknown>, depth: number): R {
+		const items: Array<R> = []
+		for (let i = 0; i < value.length; i++) {
+			const item: unknown = value[i]
+			if (!(i in value) || item === undefined) {
+				stop([...this.#path, i], "an array element, not a hole")
+			}
+			this.#path.push(i)
+			items.push(this.value(item, depth + 1))
+			this.#path.pop()
+		}
+		return this.#fold.array(items)
+	}
+
+	#record(value: Readonly<Record<string, unknown>>, depth: number): R {
+		const proto: unknown = Object.getPrototypeOf(value)
+		if (proto !== Object.prototype && proto !== null) {
+			stop(this.#path, "a plain object")
+		}
+		if (Object.getOwnPropertySymbols(value).length > 0) {
+			stop(this.#path, "an object without symbol keys")
+		}
+		const members: Array<readonly [string, R]> = []
+		for (const key of Object.keys(value).toSorted(compareStrings)) {
+			const child = value[key]
+			if (child === undefined || this.#options.omit(key, child, this.#path)) {
+				continue
+			}
+			this.#path.push(key)
+			checkText(key, this.#path, refuseValue)
+			members.push([key, this.value(child, depth + 1)])
+			this.#path.pop()
+		}
+		return this.#fold.object(members)
+	}
+}
+
+/**
+ * The fold that builds the JSON form. An object is built from its entries at once (Object.fromEntries), which defines
+ * each key as its own property, so "__proto__" stays an ordinary key and never reaches the prototype accessor.
+ */
+const jsonFold: Fold<Json> = {
+	scalar: (value) => value,
+	array: (items) => items,
+	object: (members) => Object.fromEntries(members)
+}
+
+/**
+ * The fold that writes the canonical text: the same bytes as writeCanonicalJson over the JSON form, without building
+ * that form.
+ */
+const textFold: Fold<string> = {
+	scalar: (value) => JSON.stringify(value),
+	array: (items) => `[${items.join(",")}]`,
+	object: (members) =>
+		`{${members.map(([key, form]) => `${JSON.stringify(key)}:${form}`).join(",")}}`
+}
+
+/** The JSON form of a canonical value. */
+export const toJson = (value: unknown, options: EncodeOptions): Result.Result<Json, CompileError> =>
+	catchRefusal(() =>
+		value === undefined
+			? refuseValue([], "a value, not undefined")
+			: new Walk(options, jsonFold).value(value, 0)
+	)
+
+/**
+ * Array.isArray narrows to a mutable array, which leaves ReadonlyArray<Json> in the other branch; on a Json value an
+ * array is a ReadonlyArray<Json>, so this is the same check with the narrowing the Json union needs.
+ */
+const isJsonArray = (value: Json): value is ReadonlyArray<Json> => Array.isArray(value)
+
+const writeJson = (value: Json): string => {
+	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+		return JSON.stringify(value)
+	}
+	if (isJsonArray(value)) {
+		return `[${value.map((item) => writeJson(item)).join(",")}]`
+	}
+	const members = Object.entries(value)
+		.toSorted(([a], [b]) => compareText(a, b))
+		.map(([key, item]) => `${JSON.stringify(key)}:${writeJson(item)}`)
+	return `{${members.join(",")}}`
+}
+
+/** The canonical text of a JSON form value. */
+export const writeCanonicalJson = (value: Json): string => writeJson(value)
+
+/** The canonical text of a value. */
+const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<string, CompileError> =>
+	catchRefusal(() =>
+		value === undefined
+			? refuseValue([], "a value, not undefined")
+			: new Walk(options, textFold).value(value, 0)
+	)
+
+/**
+ * The versioned canonical serializer.
+ *
+ * One canonical text per value, so identity, fingerprints, cache keys and the snapshot are byte-stable: equal content
+ * built in any key order, by any process, serializes to the same bytes. The value model is JSON without null (no NULL
+ * exists at any layer) plus two extensions that JSON cannot carry:
+ *
+ * - bigint, carried as the tagged string "~n:<integer>";
+ * - any value implementing the Canonicalizable protocol below, carried as "~<tag>:<payload>". Decimal (scalar/values)
+ *   uses it, so Decimal travels as a tagged string without the kernel importing it.
+ *
+ * A plain string beginning with "~" is escaped by doubling the "~", so tagged and plain strings never collide and the
+ * JSON form decodes back exactly. The text form is the JSON form written with object keys sorted by UTF-16 code
+ * units, numbers in ECMAScript shortest round-trip form, and strings in JSON.stringify's well-formed escaping, which is
+ * the JSON Canonicalization Scheme (RFC 8785) over that JSON form. -0 writes as 0, as in RFC 8785; a carrier whose
+ * sign of zero matters encodes it in its own tagged payload.
+ *
+ * Rejected as MalformedDescription, with the path of the offending value: null, undefined in an array or at the root,
+ * strings and object keys that are not well-formed Unicode text (a lone UTF-16 surrogate; RFC 8785 sections 3.1 and
+ * 3.2.2.2 require I-JSON input and an error on such strings, and no UTF8 database could store them), non-finite
+ * numbers, functions, symbols, cycles, Maps, Sets, Dates, and any other non-plain object that does not implement the
+ * protocol. Nesting deeper than maxNestingDepth is refused as ResourceBound, in both directions, so a
+ * hostile or runaway value is a Result failure and never a stack overflow.
+ *
+ * The canonical text: one string per value, whatever the key insertion order. It equals writeCanonicalJson over the
+ * value's JSON form (toJson), written in one pass.
+ */
+export const encode = (
+	value: unknown,
+	options: EncodeOptions
+): Result.Result<string, CompileError> => encodeWalk(value, options)
+
+/** Decoders for extension tags, for example `{ d: Decimal.fromCanonical }`. "n" (bigint) is built in. */
+export type Revivers = {
+	readonly [tag: string]: (payload: string) => Result.Result<unknown, CompileError>
+}
+
+/** No extension tag: a text that holds one is refused. */
+export const noRevivers: Revivers = {}
+
+const isCanonicalInteger = (text: string): boolean => {
+	const digits = text.startsWith("-") ? text.slice(1) : text
+	if (digits.length === 0) {
+		return false
+	}
+	for (const ch of digits) {
+		if (ch < "0" || ch > "9") {
+			return false
+		}
+	}
+	if (digits.length > 1 && digits.startsWith("0")) {
+		return false
+	}
+	return !(text.startsWith("-") && digits === "0")
+}
+
+/**
+ * One traversal restoring bigints and tagged values from the JSON form, refusing what canonical text never holds. A
+ * traversal is used once: a refusal ends it.
+ */
+class Revive {
+	readonly #path: Array<string | number> = []
+	readonly #revivers: Revivers
+
+	constructor(revivers: Revivers) {
+		this.#revivers = revivers
+	}
+
+	value(value: unknown, depth: number): unknown {
+		switch (typeof value) {
+			case "boolean":
+				return value
+			case "number":
+				return Number.isFinite(value) ? value : refuseText(this.#path, "a finite number")
+			case "string":
+				return this.#string(value)
+			case "object":
+				return this.#object(value, depth)
+			case "bigint":
+			case "undefined":
+			case "function":
+			case "symbol":
+				return refuseText(this.#path, `a JSON value, not ${typeof value}`)
+		}
+	}
+
+	#string(value: string): unknown {
+		checkText(value, this.#path, refuseText)
+		if (!value.startsWith("~")) {
+			return value
+		}
+		if (value.startsWith("~~")) {
+			return value.slice(1)
+		}
+		const colon = value.indexOf(":")
+		const tag = colon < 0 ? "" : value.slice(1, colon)
+		const payload = value.slice(colon + 1)
+		if (!isTagName(tag)) {
+			return refuseText(this.#path, `a tagged string, not ${JSON.stringify(value.slice(0, 16))}`)
+		}
+		if (tag === "n") {
+			return isCanonicalInteger(payload)
+				? BigInt(payload)
+				: refuseText(this.#path, "a canonical bigint")
+		}
+		/** Own properties only: an inherited one ("constructor", "toString", ...) is no reviver. */
+		const revive = Object.hasOwn(this.#revivers, tag) ? this.#revivers[tag] : undefined
+		if (revive === undefined) {
+			return refuseText(this.#path, `a reviver for canonical tag "${tag}"`)
+		}
+		const revived = revive(payload)
+		if (!revived.ok) {
+			throw new Refusal(revived.error)
+		}
+		return revived.value
+	}
+
+	#object(value: object | null, depth: number): unknown {
+		if (value === null) {
+			return refuseText(this.#path, "a value, not null")
+		}
+		checkNestingDepth(depth, this.#path, "canonical value")
+		if (Array.isArray(value)) {
+			return value.map((item: unknown, i) => this.#child(i, item, depth))
+		}
+		const members: ReadonlyArray<readonly [string, unknown]> = Object.entries(value)
+		return Object.fromEntries(
+			members.map(([key, child]) => [key, this.#child(key, child, depth)] as const)
+		)
+	}
+
+	#child(segment: string | number, child: unknown, depth: number): unknown {
+		this.#path.push(segment)
+		if (typeof segment === "string") {
+			checkText(segment, this.#path, refuseText)
+		}
+		const out = this.value(child, depth + 1)
+		this.#path.pop()
+		return out
+	}
+}
+
+/** Restores bigints and tagged values from the JSON form. */
+export const fromJson = (
+	value: unknown,
+	revivers: Revivers
+): Result.Result<unknown, CompileError> => catchRefusal(() => new Revive(revivers).value(value, 0))
+
+/** Parses canonical (or any JSON) text and restores tagged values. */
+export const decode = (text: string, revivers: Revivers): Result.Result<unknown, CompileError> => {
+	const parsed = parseJsonText(text)
+	if (!parsed.ok) {
+		return Result.err(malformedArtifact("canonical", [], "JSON text"))
+	}
+	return fromJson(parsed.value, revivers)
+}
+
+/**
+ * The canonical text under `options` of a value the compiler owns, which encodes by construction: a decoded or
+ * validated value, or a key built from one. The one site of the fact that such a value encodes: plain data with
+ * well-formed text, no cycle and at most maxNestingDepth deep, which no TypeScript type of a value carries, so a
+ * failure is a defect of the compiler, never a property of its input.
+ */
+export const ownedText = (value: unknown, options: EncodeOptions): string => {
+	const text = encode(value, options)
+	if (!text.ok) {
+		throw defect(`an owned value encodes: ${text.error.message}`)
+	}
+	return text.value
+}
+
+/** The canonical text of every property of a value the compiler owns (ownedText). */
+export const canonicalTextOf = (value: unknown): string => ownedText(value, everyProperty)
+
+/**
+ * Canonical equality: equal canonical text. Values that fail to encode are unequal to everything. A value is equal to
+ * itself when it encodes.
+ */
+export const canonicalEquals = (a: unknown, b: unknown, options: EncodeOptions): boolean => {
+	if (a === b) {
+		return encode(a, options).ok
+	}
+	const left = encode(a, options)
+	const right = encode(b, options)
+	return left.ok && right.ok && left.value === right.value
+}
+
+/**
+ * Sorts a set's members by canonical text, the canonical order of a declaration set. Stable for equal
+ * texts, which are equal members.
+ */
+export const canonicalSort = <A>(
+	items: ReadonlyArray<A>,
+	options: EncodeOptions
+): Result.Result<ReadonlyArray<A>, CompileError> =>
+	Result.map(canonicalSortKeyed(items, options), (keyed) => keyed.map((k) => k.item))
+
+/**
+ * canonicalSort, each member beside its canonical text, so a caller that also needs the texts (to drop repeats) does
+ * not encode the members again.
+ */
+export const canonicalSortKeyed = <A>(
+	items: ReadonlyArray<A>,
+	options: EncodeOptions
+): Result.Result<ReadonlyArray<{ readonly item: A; readonly text: string }>, CompileError> =>
+	catchRefusal(() => {
+		const keyed = items.map((item, i) => {
+			const text = encode(item, options)
+			if (!text.ok) {
+				throw new Refusal(within(text.error, [i]))
+			}
+			return { item, text: text.value }
+		})
+		keyed.sort((x, y) => (x.text < y.text ? -1 : x.text > y.text ? 1 : 0))
+		return keyed
+	})

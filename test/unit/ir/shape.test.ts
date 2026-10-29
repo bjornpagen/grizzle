@@ -1,0 +1,775 @@
+import { describe, it } from "@effect/vitest"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { features, noFeatures } from "@grizzle/testing/features"
+import {
+	array,
+	codePoint,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string,
+	uniqueArray,
+	weighted
+} from "@grizzle/testing/gen"
+import { type Drawn, passed, wild } from "@grizzle/testing/lsw"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { double } from "@grizzle/testing/values"
+import { searched } from "@grizzle/testing/vitest"
+import {
+	Array as Arr,
+	Data,
+	Duration,
+	Effect,
+	Formatter,
+	Option,
+	Record as Rec,
+	Result
+} from "effect"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { formatLoc, formatPath } from "#compiler/core/loc.ts"
+import * as S from "#compiler/ir/shape.ts"
+import {
+	assert,
+	nonEmpty,
+	refusalLoc,
+	refused,
+	succeeded,
+	unorderedEqual
+} from "#test/support/assert.ts"
+import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
+
+const point = S.structWith({ x: S.integer }, { label: S.nonEmptyString })
+const points = S.array(point)
+const shape = S.tagged("kind", { point, list: S.struct({ items: points }) })
+
+/** A live value of `shape`: a point, its label stated or not, or a list of them. */
+const integer = int(-(2 ** 31), 2 ** 31 - 1)
+
+const pointGen: Gen<{ readonly x: number; readonly label?: string }> = oneOf<{
+	readonly x: number
+	readonly label?: string
+}>([
+	(source) => ({ x: source.draw(integer) }),
+	(source) => ({
+		x: source.draw(integer),
+		label: source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 4 }))
+	})
+])
+
+const liveGen: Gen<unknown> = oneOf<unknown>([
+	map(pointGen, (p) => ({ kind: "point", ...p })),
+	map(array(pointGen, { min: 0, max: 4 }), (items) => ({ kind: "list", items }))
+])
+
+type Path = ReadonlyArray<string | number>
+
+const isObject = (v: unknown): v is Readonly<Record<string, unknown>> =>
+	typeof v === "object" && v !== null && !Arr.isArray(v)
+
+/** The own enumerable string keys of a plain object, as Object.keys lists them. */
+const keysOf = (fields: Readonly<Record<string, unknown>>): ReadonlyArray<string> =>
+	Rec.keys(fields)
+
+/** Every path of a plain value a member can be replaced at: the root first, then each member's, depth first. */
+const sitesOf = (value: unknown): readonly [Path, ...Array<Path>] => {
+	const below = (v: unknown, at: Path): ReadonlyArray<Path> =>
+		Arr.isArray(v)
+			? Arr.flatMap(v, (item: unknown, i) => [[...at, i], ...below(item, [...at, i])])
+			: isObject(v)
+				? Arr.flatMap(Rec.toEntries(v), ([key, member]) => [
+						[...at, key],
+						...below(member, [...at, key])
+					])
+				: []
+	return [[], ...below(value, [])]
+}
+
+/** The member of `value` at `path`. */
+const memberAt = (value: unknown, path: Path): unknown =>
+	Arr.reduce(path, value, (v: unknown, step) =>
+		Arr.isArray(v)
+			? v[Number(step)]
+			: isObject(v)
+				? new Map<string | number, unknown>(Rec.toEntries(v)).get(step)
+				: v
+	)
+
+/** `value` with its member at `path` replaced by `edit` of it, every container on the way a fresh copy. */
+const edited = (value: unknown, path: Path, edit: (member: unknown) => unknown): unknown => {
+	const [head, ...rest] = path
+	if (head === undefined) {
+		return edit(value)
+	}
+	if (Arr.isArray(value)) {
+		return Arr.map(value, (item: unknown, i) => (i === head ? edited(item, rest, edit) : item))
+	}
+	if (isObject(value)) {
+		return Rec.fromEntries(
+			Arr.map(
+				Rec.toEntries(value),
+				([key, member]) => [key, key === head ? edited(member, rest, edit) : member] as const
+			)
+		)
+	}
+	return value
+}
+
+/** The decode's location of a refusal at `path` of a value decoded as "v". */
+const locationOf = (path: Path): string => (path.length === 0 ? "v" : `v at ${formatPath(path)}`)
+
+/** A plain object's own fields in an instance of a class, whose prototype is no plain object's. */
+class Instance {
+	constructor(fields: object) {
+		Object.assign(this, fields)
+	}
+
+	/** Its prototype's own method, which no plain object has. */
+	label(): string {
+		return "a class instance"
+	}
+}
+
+/**
+ * One way to break a live value at one site, and what the decode must answer: a refusal at a path, or, for a symbol
+ * key on the tagged root, which a copy of its string keys drops, the live value's decode.
+ */
+type Break =
+	| "null"
+	| "unknown key"
+	| "symbol key refused"
+	| "symbol key passed over"
+	| "hole"
+	| "unknown tag"
+	| "missing member"
+	| "class instance"
+type Outcome = { readonly kind: "refused"; readonly at: Path } | { readonly kind: "passed over" }
+interface Broken {
+	readonly break: Break
+	readonly value: unknown
+	readonly outcome: Outcome
+}
+
+const refusedAt = (at: Path): Outcome => ({ kind: "refused", at })
+
+/** Every way to break `live` at one of its sites, by kind: only the kinds the value has a site for. */
+const breaksOf = (live: unknown): ReadonlyArray<Arr.NonEmptyReadonlyArray<Broken>> => {
+	const sites = sitesOf(live)
+	const objects = Arr.flatMap(sites, (path) => {
+		const member = memberAt(live, path)
+		return isObject(member) ? [{ path, member }] : []
+	})
+	const arrays = Arr.flatMap(sites, (path) => {
+		const member = memberAt(live, path)
+		return Arr.isArray(member) ? [{ path, member }] : []
+	})
+	const replaced = (path: Path, by: unknown) => edited(live, path, () => by)
+	const kinds: ReadonlyArray<ReadonlyArray<Broken>> = [
+		Arr.map(sites, (p) => ({ break: "null", value: replaced(p, null), outcome: refusedAt(p) })),
+		Arr.map(objects, ({ path, member }) => ({
+			break: "unknown key",
+			value: replaced(path, { ...member, y: 1 }),
+			outcome: refusedAt([...path, "y"])
+		})),
+		Arr.map(objects, ({ path, member }) => ({
+			break: path.length === 0 ? "symbol key passed over" : "symbol key refused",
+			value: replaced(path, { ...member, [Symbol("s")]: 1 }),
+			outcome: path.length === 0 ? { kind: "passed over" } : refusedAt(path)
+		})),
+		Arr.map(arrays, ({ path, member }) => {
+			const holed: Array<unknown> = [...member]
+			holed.length = member.length + 1
+			return {
+				break: "hole",
+				value: replaced(path, holed),
+				outcome: refusedAt([...path, member.length])
+			}
+		}),
+		[{ break: "unknown tag", value: replaced(["kind"], "circle"), outcome: refusedAt(["kind"]) }],
+		Arr.flatMap(objects, ({ path, member }) =>
+			Arr.map(
+				Arr.filter(keysOf(member), (key) => key !== "label"),
+				(key): Broken => ({
+					break: "missing member",
+					value: replaced(
+						path,
+						Rec.fromEntries(Arr.filter(Rec.toEntries(member), ([k]) => k !== key))
+					),
+					outcome: refusedAt([...path, key])
+				})
+			)
+		),
+		Arr.map(objects, ({ path, member }) => ({
+			break: "class instance",
+			value: replaced(path, new Instance(member)),
+			outcome: refusedAt(path)
+		}))
+	]
+	return Arr.filter(kinds, Arr.isReadonlyArrayNonEmpty)
+}
+
+type UnreadableFeature =
+	| "proxy at the root"
+	| "proxy nested"
+	| "throwing getter at the root"
+	| "throwing getter nested"
+
+/** A decoder's own throw: one decoder step that throws `defect`, and a value its base shape accepts. */
+class Defect extends Data.Error<{ readonly site: string }> {}
+type DefectKind = "normalize" | "refine" | "brand"
+type DefectSite =
+	| "the root"
+	| "an array item"
+	| "a struct field"
+	| "a union's first alternative"
+	| "a tagged case"
+
+const defective = (
+	kind: DefectKind,
+	defect: Defect
+): { readonly shape: S.Shape<unknown>; readonly value: unknown } => {
+	const thrown = (): never => {
+		throw defect
+	}
+	switch (kind) {
+		case "normalize":
+			return { shape: S.normalized(S.integer, thrown), value: 3 }
+		case "refine":
+			return { shape: S.refine(S.integer, thrown, "an integer its test passes"), value: 3 }
+		case "brand":
+			return { shape: S.branded(thrown, S.string), value: "s" }
+	}
+}
+
+/**
+ * The defective decoder placed at `site`, and a value that reaches it there. The union's second alternative accepts the
+ * value, so a defect taken for a mismatch would be repaired by it.
+ */
+const placed = (
+	site: DefectSite,
+	inner: { readonly shape: S.Shape<unknown>; readonly value: unknown }
+): { readonly shape: S.Shape<unknown>; readonly value: unknown } => {
+	switch (site) {
+		case "the root":
+			return inner
+		case "an array item":
+			return { shape: S.array(inner.shape), value: [inner.value] }
+		case "a struct field":
+			return { shape: S.struct({ n: inner.shape }), value: { n: inner.value } }
+		case "a union's first alternative":
+			return { shape: S.unionShape(inner.shape, S.integer, S.string), value: inner.value }
+		case "a tagged case":
+			return {
+				shape: S.tagged("kind", { a: S.struct({ n: inner.shape }) }),
+				value: { kind: "a", n: inner.value }
+			}
+	}
+}
+
+/**
+ * What conformWith gives for a value: the value it keeps or decodes, or the message of the defect it raises. The shape is
+ * read as the shape of any value, the value standing in for one a builder made exactly so.
+ */
+const anyShape: S.Shape<unknown> = shape
+const conformed = (
+	value: unknown
+): { readonly kind: "kept" | "copy"; readonly out: unknown } | string => {
+	const conformedValue = Result.try(() => S.conformWith(anyShape, value, "v"))
+	if (Result.isSuccess(conformedValue)) {
+		const out = conformedValue.success
+		return { kind: out === value ? "kept" : "copy", out }
+	}
+	if (Error.isError(conformedValue.failure)) {
+		return conformedValue.failure.message
+	}
+	throw conformedValue.failure
+}
+
+/** The defect conformWith raises for a value decodeWith refuses with `failure`. */
+const defectOf = (failure: CompileError): string =>
+	`grizzle internal invariant: a value this package built has its shape: ${failure.message}`
+
+/**
+ * One way a built value meets conformWith: in its decoded form, with an optional member stated undefined (which its
+ * decoded copy leaves out), or broken at one site as the decode's population breaks it.
+ */
+type ConformFeature = "kept" | "stated undefined" | `broken: ${Break}`
+
+/**
+ * Planted: every break of a list of one labelled point, which holds a site of every kind, its picks the break's group
+ * among the kinds and its first site there, since a drawn value and pick meet some breaks a few times a run.
+ */
+const plantedLive: unknown = { kind: "list", items: [{ x: 1, label: "a" }] }
+const breakNames: Arr.NonEmptyReadonlyArray<Break> = [
+	"null",
+	"unknown key",
+	"symbol key refused",
+	"symbol key passed over",
+	"hole",
+	"unknown tag",
+	"missing member",
+	"class instance"
+]
+
+const plantedBreak = (
+	name: Break
+): { readonly live: unknown; readonly kind: number; readonly site: number } => {
+	const groups = breaksOf(plantedLive)
+	for (const [g, group] of groups.entries()) {
+		const j = Arr.findFirstIndex(group, (b) => b.break === name)
+		if (Option.isSome(j)) {
+			return {
+				live: plantedLive,
+				kind: pickOf(g, groups.length),
+				site: pickOf(j.value, group.length)
+			}
+		}
+	}
+	throw new Error(`the planted value has no site for ${name}`)
+}
+
+describe("shapes", () => {
+	it.effect(
+		"decode a live value into an equal fresh copy, and refuse one broken at one site, naming that site",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/ir/shape-broken",
+						literal: Formatter.format,
+						draw: drawn((source) => ({
+							live: source.draw(liveGen),
+							kind: source.draw(pickGen),
+							site: source.draw(pickGen)
+						})),
+						kept: Arr.map(breakNames, (name) => ({
+							note: name,
+							sketch: plantedBreak(name),
+							draws: "",
+							reaches: [name]
+						})),
+						runs: 300,
+						shrink: completeShrink,
+						features: features<Break>(breakNames),
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					({ live, kind, site }, c) =>
+						Effect.sync(() => {
+							const decoded = succeeded(S.decodeWith(shape, live, "v"))
+							assert.deepEqual<unknown>(decoded, structuredClone(live))
+							const broken = pickFrom(
+								pickFrom(nonEmpty(breaksOf(live), "a live value's breaks"), kind),
+								site
+							)
+							c.note(broken.break)
+							const result = S.decodeWith(shape, broken.value, "v")
+							if (broken.outcome.kind === "passed over") {
+								assert.deepEqual(succeeded(result), decoded)
+							} else {
+								assert.equal(
+									formatLoc(refusalLoc(refused(result, "MalformedDescription"))),
+									locationOf(broken.outcome.at)
+								)
+							}
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"conform a built value as decode answers it: kept as it is when in decoded form, else decoded or the defect",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/ir/shape-conform",
+						literal: Formatter.format,
+						draw: drawn((source) => ({
+							live: source.draw(liveGen),
+							kind: source.draw(pickGen),
+							site: source.draw(pickGen),
+							way: source.draw(element([0, 1, 2] as const))
+						})),
+						kept: Arr.map(breakNames, (name) => ({
+							note: name,
+							sketch: { ...plantedBreak(name), way: 2 as const },
+							draws: "",
+							reaches: [`broken: ${name}` as const]
+						})),
+						runs: 300,
+						shrink: completeShrink,
+						features: features<ConformFeature>([
+							"kept",
+							"stated undefined",
+							"broken: null",
+							"broken: unknown key",
+							"broken: symbol key refused",
+							"broken: symbol key passed over",
+							"broken: hole",
+							"broken: unknown tag",
+							"broken: missing member",
+							"broken: class instance"
+						]),
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					({ live, kind, site, way }, c) =>
+						Effect.sync(() => {
+							const decoded = succeeded(S.decodeWith(shape, live, "v"))
+							if (way === 0) {
+								c.note("kept")
+								const fresh = structuredClone(live)
+								assert.deepEqual(conformed(fresh), { kind: "kept", out: fresh })
+								assert.ok(Object.isFrozen(fresh))
+								assert.deepEqual(succeeded(S.decodeWith(anyShape, fresh, "v")), fresh)
+								return
+							}
+							if (way === 1) {
+								/**
+								 * Every point's optional label stated undefined, which the decoded copy leaves out: conformWith gives that
+								 * copy, unless the value holds no point.
+								 */
+								const stated =
+									decoded.kind === "point"
+										? { ...decoded, label: undefined }
+										: {
+												...decoded,
+												items: Arr.map(decoded.items, (p) => ({ ...p, label: undefined }))
+											}
+								const copy = succeeded(S.decodeWith(shape, stated, "v"))
+								if (stated.kind === "list" && stated.items.length === 0) {
+									assert.deepEqual(conformed(stated), { kind: "kept", out: stated })
+									return
+								}
+								c.note("stated undefined")
+								assert.deepEqual(conformed(stated), { kind: "copy", out: copy })
+								return
+							}
+							const broken = pickFrom(
+								pickFrom(nonEmpty(breaksOf(live), "a live value's breaks"), kind),
+								site
+							)
+							c.note(`broken: ${broken.break}`)
+							const result = S.decodeWith(shape, broken.value, "v")
+							const answer = conformed(broken.value)
+							if (!result.ok) {
+								assert.equal(answer, defectOf(result.error))
+							} else {
+								assert.deepEqual(answer, { kind: "copy", out: result.value })
+							}
+						})
+				)
+			)
+	)
+
+	it.effect("decode a decoded value again into an equal fresh copy, key order included", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/ir/shape-idempotent",
+					literal: Formatter.format,
+					draw: drawn(liveGen),
+					runs: 100,
+					shrink: completeShrink,
+					features: features<"a list of points" | "a point">(["a list of points", "a point"]),
+					kept: [],
+					concurrency: 1,
+					steerEvery: 16,
+					steering: { kind: "none" },
+					caseHang: Duration.minutes(2)
+				},
+				(live, c) =>
+					Effect.sync(() => {
+						const out = succeeded(S.decodeWith(shape, live, "v"))
+						c.note(out.kind === "point" ? "a point" : "a list of points")
+						const again = succeeded(S.decodeWith(shape, out, "v"))
+						assert.notEqual(again, out)
+						assert.deepEqual(again, out)
+						assert.deepEqual(keysOf({ ...again }), keysOf({ ...out }))
+					})
+			)
+		)
+	)
+
+	it.effect("keep __proto__ an ordinary key of a record", (ctx) => {
+		const keyGen = oneOf([
+			constant("__proto__"),
+			element(["constructor", "toString", "a"]),
+			string(codePoint(0x20, 0x7e), { min: 1, max: 4 })
+		])
+		return searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/ir/shape-record-keys",
+					literal: Formatter.format,
+					draw: drawn(
+						uniqueArray(
+							(source) => [source.draw(keyGen), source.draw(integer)] as const,
+							([key]) => key,
+							{ min: 0, max: 5 },
+							10
+						)
+					),
+					runs: 100,
+					shrink: completeShrink,
+					features: features<"an own __proto__ key">(["an own __proto__ key"]),
+					kept: [],
+					concurrency: 1,
+					steerEvery: 16,
+					steering: { kind: "none" },
+					caseHang: Duration.minutes(2)
+				},
+				(entries, c) =>
+					Effect.sync(() => {
+						if (Arr.some(entries, ([key]) => key === "__proto__")) {
+							c.note("an own __proto__ key")
+						}
+						/** Record.fromEntries, which is Object.fromEntries, defines each key as an own property, as JSON.parse does. */
+						const input = Rec.fromEntries(entries)
+						const out = succeeded(
+							S.decodeWith(S.recordShape(S.integer, S.nonEmptyString), input, "v")
+						)
+						unorderedEqual(Rec.toEntries(out), Rec.toEntries(input))
+						assert.equal(Object.getPrototypeOf(out), Object.prototype)
+					})
+			)
+		)
+	})
+
+	it.effect("read a case field named like the discriminator as the discriminator", (ctx) => {
+		const clash = S.tagged("kind", {
+			a: S.structWith({}, { kind: S.integer }),
+			b: S.structWith({}, { kind: S.integer })
+		})
+		return searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/ir/shape-discriminator-field",
+					literal: Formatter.format,
+					generator: element<"a" | "b">(["a", "b"]),
+					limit: 2,
+					features: noFeatures,
+					caseHang: Duration.minutes(2)
+				},
+				(tag) =>
+					Effect.sync(() => {
+						assert.deepEqual<unknown>(succeeded(S.decodeWith(clash, { kind: tag }, "v")), {
+							kind: tag
+						})
+					})
+			)
+		)
+	})
+
+	it.effect("refuse a value whose reading throws, at its path", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/ir/shape-unreadable",
+					literal: Formatter.format,
+					draw: drawn((source) => ({
+						live: source.draw(liveGen),
+						site: source.draw(pickGen),
+						wild: source.draw(
+							map(wild(["proxy", "throwing-getter"]), (w): Drawn<never, never> => ({
+								kind: "wild",
+								wild: w
+							}))
+						)
+					})),
+					runs: 200,
+					shrink: completeShrink,
+					features: features<UnreadableFeature>([
+						"proxy at the root",
+						"proxy nested",
+						"throwing getter nested"
+					]),
+					kept: [],
+					concurrency: 1,
+					steerEvery: 16,
+					steering: { kind: "none" },
+					caseHang: Duration.minutes(2)
+				},
+				({ live, site, wild: drawnWild }, c) =>
+					Effect.sync(() => {
+						const path = pickFrom(sitesOf(live), site)
+						const kind =
+							drawnWild.kind === "wild" && drawnWild.wild.kind === "proxy"
+								? "proxy"
+								: "throwing getter"
+						c.note(`${kind} ${path.length === 0 ? "at the root" : "nested"}`)
+						const refusal = refused(
+							S.decodeWith(
+								shape,
+								edited(live, path, () => passed(drawnWild)),
+								"v"
+							),
+							"MalformedDescription"
+						)
+						assert.equal(formatLoc(refusalLoc(refusal)), locationOf(path))
+					})
+			)
+		)
+	)
+
+	it.effect("let a decoder's own defect escape", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/ir/shape-defect-escapes",
+					literal: Formatter.format,
+					generator: (source) =>
+						[
+							source.draw(element<DefectKind>(["normalize", "refine", "brand"])),
+							source.draw(
+								element<DefectSite>([
+									"the root",
+									"an array item",
+									"a struct field",
+									"a union's first alternative",
+									"a tagged case"
+								])
+							)
+						] as const,
+					limit: 15,
+					features: features<DefectSite>([
+						"the root",
+						"an array item",
+						"a struct field",
+						"a union's first alternative",
+						"a tagged case"
+					]),
+					caseHang: Duration.minutes(2)
+				},
+				([kind, site], c) =>
+					Effect.sync(() => {
+						c.note(site)
+						const defect = new Defect({ site: `a ${kind} defect in ${site}` })
+						const { shape: decoder, value } = placed(site, defective(kind, defect))
+						assert.throws(
+							() => S.decodeWith(decoder, value, "v"),
+							(e) => e === defect
+						)
+					})
+			)
+		)
+	)
+
+	it.effect(
+		"accept exactly the distinct nonempty names, the nonempty lists and the safe and positive integers",
+		(ctx) => {
+			const numberGen = oneOf([
+				element([
+					0,
+					-0,
+					1,
+					-1,
+					1.5,
+					Number.NaN,
+					Number.POSITIVE_INFINITY,
+					Number.NEGATIVE_INFINITY,
+					Number.MAX_SAFE_INTEGER,
+					Number.MAX_SAFE_INTEGER + 1,
+					-Number.MAX_SAFE_INTEGER - 1
+				]),
+				integer,
+				weighted([
+					[8, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+					[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
+				])
+			])
+			return searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/ir/shape-refinements",
+						literal: Formatter.format,
+						draw: drawn((source) => ({
+							names: source.draw(array(element(["", "a", "b", "c"]), { min: 0, max: 4 })),
+							list: source.draw(array(integer, { min: 0, max: 3 })),
+							n: source.draw(numberGen)
+						})),
+						runs: 200,
+						shrink: completeShrink,
+						features: features<
+							| "names accepted"
+							| "a repeated name refused"
+							| "an empty name refused"
+							| "an empty list refused"
+							| "an integer refused"
+							| "a positive integer refused"
+							| "a positive integer accepted"
+						>([
+							"names accepted",
+							"a repeated name refused",
+							"an empty name refused",
+							"an empty list refused",
+							"an integer refused",
+							"a positive integer refused",
+							"a positive integer accepted"
+						]),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					({ names, list, n }, c) =>
+						Effect.sync(() => {
+							const distinct = new Set(names).size === names.length
+							const nonempty = Arr.every(names, (name) => name.length > 0)
+							const decodedNames = S.decodeWith(
+								S.uniqueStrings("names", S.nonEmptyString),
+								names,
+								"v"
+							)
+							if (distinct && nonempty) {
+								c.note("names accepted")
+								assert.deepEqual(succeeded(decodedNames), names)
+							} else {
+								c.note(nonempty ? "a repeated name refused" : "an empty name refused")
+								refused(decodedNames, "MalformedDescription")
+							}
+							const decodedList = S.decodeWith(S.nonEmptyArray(S.integer), list, "v")
+							if (list.length > 0) {
+								assert.deepEqual<ReadonlyArray<number>>(succeeded(decodedList), list)
+							} else {
+								c.note("an empty list refused")
+								refused(decodedList, "MalformedDescription")
+							}
+							const safe = Number.isSafeInteger(n)
+							const integer = S.decodeWith(S.integer, n, "v")
+							if (safe) {
+								assert.equal(succeeded(integer), n)
+							} else {
+								c.note("an integer refused")
+								refused(integer, "MalformedDescription")
+							}
+							const positive = S.decodeWith(S.positiveInteger, n, "v")
+							if (safe && n > 0) {
+								c.note("a positive integer accepted")
+								assert.equal(succeeded(positive), n)
+							} else {
+								c.note("a positive integer refused")
+								refused(positive, "MalformedDescription")
+							}
+						})
+				)
+			)
+		}
+	)
+})

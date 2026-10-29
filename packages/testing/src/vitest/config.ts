@@ -1,0 +1,105 @@
+import { Array as Arr, Config, Effect, Option } from "effect"
+import { defineConfig } from "vitest/config"
+import { residualReporter } from "#vitest/reporter.ts"
+
+/** The flags every test process runs under: no `__proto__` accessor, and no debugger attach signal. */
+export const HARDENED_FLAGS: ReadonlyArray<string> = ["--disable-proto=delete", "--disable-sigusr1"]
+
+/**
+ * How long a test or a hook may take: without bound, or a number of milliseconds. A long search that keeps making
+ * progress must never fail on wall time; each case's hang guard is what catches a case that stops.
+ */
+export type Timeout =
+	| Readonly<{ kind: "unbounded" }>
+	| Readonly<{ kind: "bounded"; millis: number }>
+
+/** Vitest's form of a timeout, where zero means none. */
+const millisOf = (timeout: Timeout) => (timeout.kind === "unbounded" ? 0 : timeout.millis)
+
+/**
+ * What a package states about its tests: which files they are; which of them run alone, one at a time and after every
+ * other file, because they hold something the others share (a cluster-wide setting, a lock every test takes); which
+ * steer by V8's block coverage, so their processes count blocks from the start, before the code under test loads; its own
+ * global setup files, which run after the library's, beside the run seed; the export conditions its code resolves with;
+ * how long a test and a hook may take; and how many files may run at once, when something the files share (a pool of
+ * database connections, a set of worker databases) holds fewer than Vitest's default of one per core. A package with
+ * none of a list states it empty, and one with no such limit states none. The exclusive and guided lists are projects
+ * of their own, so each names its files outright: a glob there reaches every file it matches, inside `include` or not.
+ */
+export type TestConfig = Readonly<{
+	include: ReadonlyArray<string>
+	exclusive: ReadonlyArray<string>
+	guided: ReadonlyArray<string>
+	setup: ReadonlyArray<string>
+	conditions: ReadonlyArray<string>
+	timeouts: Readonly<{ test: Timeout; hook: Timeout }>
+	maxWorkers: Option.Option<number>
+}>
+
+/**
+ * A package's Vitest config. Tests run as Node runs the code: native ESM by type stripping, never through Vite's
+ * module runner or loader, so no transform changes what a module means; one process per file; the hardened flags;
+ * the run seed chosen once by global setup; and the residual table at the end. A fuzz run lifts every timeout: its
+ * budget is its own, and each case's hang guard still catches a case that stops.
+ */
+export const defineTestConfig = (config: TestConfig) => {
+	const fuzzing = Option.isSome(Effect.runSync(Config.option(Config.String("TEST_FUZZ"))))
+	const timeoutOf = (timeout: Timeout) => millisOf(fuzzing ? { kind: "unbounded" } : timeout)
+	return defineConfig({
+		test: {
+			pool: "forks",
+			isolate: true,
+			execArgv: [
+				...HARDENED_FLAGS,
+				...Arr.map(config.conditions, (condition) => `--conditions=${condition}`)
+			],
+			experimental: { viteModuleRunner: false, nodeLoader: false },
+			globalSetup: [`${import.meta.dirname}/global-setup.ts`, ...config.setup],
+			projects: [
+				{
+					extends: true,
+					test: {
+						name: "parallel",
+						include: Arr.copy(config.include),
+						exclude: [...config.exclusive, ...config.guided],
+						sequence: { groupOrder: 0 }
+					}
+				},
+				...(Arr.isReadonlyArrayNonEmpty(config.guided)
+					? [
+							{
+								extends: true,
+								test: {
+									name: "guided",
+									include: Arr.copy(config.guided),
+									setupFiles: [`${import.meta.dirname}/coverage.ts`],
+									sequence: { groupOrder: 0 }
+								}
+							}
+						]
+					: []),
+				...(Arr.isReadonlyArrayNonEmpty(config.exclusive)
+					? [
+							{
+								extends: true,
+								test: {
+									name: "exclusive",
+									include: Arr.copy(config.exclusive),
+									fileParallelism: false,
+									maxWorkers: 1,
+									sequence: { groupOrder: 1 }
+								}
+							}
+						]
+					: [])
+			],
+			...Option.match(config.maxWorkers, {
+				onNone: () => ({}),
+				onSome: (maxWorkers) => ({ maxWorkers })
+			}),
+			reporters: ["default", residualReporter()],
+			testTimeout: timeoutOf(config.timeouts.test),
+			hookTimeout: timeoutOf(config.timeouts.hook)
+		}
+	})
+}

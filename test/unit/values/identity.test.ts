@@ -1,0 +1,638 @@
+import { describe, it } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { features, noFeatures } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	shuffled,
+	weighted
+} from "@grizzle/testing/gen"
+import { lsw, passed, type WildKind } from "@grizzle/testing/lsw"
+import { completeShrink } from "@grizzle/testing/shrink"
+import type { Source } from "@grizzle/testing/source"
+import { bigint, double, uuid } from "@grizzle/testing/values"
+import { searched } from "@grizzle/testing/vitest"
+import {
+	Array as Arr,
+	Duration,
+	Effect,
+	Formatter,
+	Option,
+	Record as Rec,
+	String as Str
+} from "effect"
+import type { ValueFault } from "#compiler/core/errors.ts"
+import * as Result from "#compiler/core/result.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { isValueFault } from "#compiler/scalar/values/fault.ts"
+import {
+	admitValue,
+	type CarrierHost,
+	type CarrierSpec,
+	factIdentity,
+	type HeadingField
+} from "#compiler/scalar/values/identity.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
+import { Vector } from "#compiler/scalar/values/vector.ts"
+import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { plantedStringGen } from "#test/unit/values/support.ts"
+
+import { regex } from "arkregex"
+/**
+ * One carrier's admission, stated from its documented host type and range: what a value is stored as, the fault it
+ * meets, or, where the documentation leaves the fault open, only that it is one of the vocabulary.
+ */
+type Verdict =
+	| { readonly stored: CarrierHost[keyof CarrierHost] }
+	| { readonly fault: ValueFault }
+	| "a fault of the vocabulary"
+
+interface Carrier {
+	readonly spec: CarrierSpec
+	readonly live: Gen<unknown>
+	readonly judge: (value: unknown) => Verdict
+}
+
+const inRange = (value: number, bits: number): boolean =>
+	value >= -(2 ** (bits - 1)) && value <= 2 ** (bits - 1) - 1
+
+const smallInteger = (carrier: "int2" | "int4", bits: number): Carrier => ({
+	spec: { carrier },
+	live: oneOf<unknown>([
+		int(-(2 ** (bits - 1)), 2 ** (bits - 1) - 1),
+		element([
+			-(2 ** (bits - 1)),
+			2 ** (bits - 1) - 1,
+			-0,
+			2 ** (bits - 1),
+			-(2 ** (bits - 1)) - 1,
+			1.5
+		])
+	]),
+	judge: (value) =>
+		typeof value !== "number"
+			? { fault: "integerType" }
+			: !Number.isFinite(value)
+				? "a fault of the vocabulary"
+				: !Number.isInteger(value)
+					? { fault: "integerType" }
+					: !inRange(value, bits)
+						? { fault: "integerRange" }
+						: { stored: value === 0 ? 0 : value }
+})
+
+const hyphenated = regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "i")
+const handles: Arr.NonEmptyReadonlyArray<string> = ["draft", "paid", "Ünïcode"]
+
+/** Any double: finite ones, -0 and the subnormals among them, and now and then NaN or an infinity. */
+const anyDouble: Gen<number> = weighted([
+	[9, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+	[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
+])
+
+const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
+	smallInteger("int2", 16),
+	smallInteger("int4", 32),
+	{
+		spec: { carrier: "int8" },
+		live: oneOf<unknown>([
+			bigint(-(2n ** 63n), 2n ** 63n - 1n),
+			element([-(2n ** 63n), 2n ** 63n - 1n, 2n ** 63n, -(2n ** 63n) - 1n])
+		]),
+		judge: (value) =>
+			typeof value !== "bigint"
+				? { fault: "integerType" }
+				: value < -(2n ** 63n) || value > 2n ** 63n - 1n
+					? { fault: "integerRange" }
+					: { stored: value }
+	},
+	{
+		spec: { carrier: "float8" },
+		live: anyDouble,
+		judge: (value) =>
+			typeof value !== "number"
+				? { fault: "floatType" }
+				: { stored: Object.is(value, -0) ? 0 : value }
+	},
+	{
+		spec: { carrier: "bool" },
+		live: boolean,
+		judge: (value) => (typeof value === "boolean" ? { stored: value } : { fault: "boolType" })
+	},
+	{
+		spec: { carrier: "money" },
+		live: map(bigint(-(2n ** 63n), 2n ** 63n - 1n), (n) => Money.of(n)),
+		judge: (value) => (value instanceof Money ? { stored: value } : { fault: "moneyType" })
+	},
+	{
+		spec: { carrier: "text" },
+		live: map(plantedStringGen, (t) => t.value),
+		judge: (value) =>
+			typeof value !== "string"
+				? { fault: "textType" }
+				: Str.includes("\u0000")(value)
+					? { fault: "textNul" }
+					: !value.isWellFormed()
+						? { fault: "textSurrogate" }
+						: { stored: value }
+	},
+	{
+		spec: { carrier: "uuid" },
+		live: oneOf<unknown>([
+			uuid(7),
+			map(uuid(7), (u) => Str.toUpperCase(u)),
+			element([
+				"a0eebc999c0b4ef8bb6d6bb9bd380a11",
+				"{a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11}",
+				"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a1g",
+				"a0eebc99-9c0b4-ef8-bb6d-6bb9bd380a11",
+				" a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+			])
+		]),
+		judge: (value) =>
+			typeof value === "string" && hyphenated.test(value)
+				? { stored: Str.toLowerCase(value) }
+				: { fault: "uuidSyntax" }
+	},
+	{
+		spec: { carrier: "enum", handles },
+		live: element<unknown>(Arr.appendAll(handles, ["Draft", "draft ", ""])),
+		judge: (value) =>
+			typeof value !== "string"
+				? "a fault of the vocabulary"
+				: handles.includes(value)
+					? { stored: value }
+					: { fault: "enumHandle" }
+	},
+	{
+		spec: { carrier: "vector", dimensions: 2 },
+		live: map(array(element([0, 1, 2, -3, 0.5, 1e9, Number.NaN]), { min: 1, max: 3 }), (xs) =>
+			Float32Array.from(xs)
+		),
+		judge: (value) => {
+			if (!(value instanceof Float32Array)) {
+				return { fault: "vectorType" }
+			}
+			const finite = value.every((x) => Number.isFinite(x))
+			if (value.length !== 2) {
+				return finite ? { fault: "vectorDimensions" } : "a fault of the vocabulary"
+			}
+			if (!finite) {
+				return { fault: "vectorNonFinite" }
+			}
+			const norm = Math.hypot(...value)
+			if (norm === 0 || norm > 2 ** 17) {
+				return { fault: "vectorNorm" }
+			}
+			return norm >= 2 ** -15 && norm <= 2 ** 15
+				? { stored: Vector.make(value, 2) }
+				: "a fault of the vocabulary"
+		}
+	},
+	spanCarrier("range4"),
+	spanCarrier("range8")
+]
+
+/**
+ * A span's admission over its endpoint's host kind (values/span.ts): exactly a { start, end } object, each endpoint an
+ * integer of the endpoint type in range (int4 a JavaScript integer, int8 a bigint), and start < end; -0 is stored as 0.
+ * Its live values plant the endpoint types' limits, an empty or reversed span, and the near-miss shapes a JavaScript
+ * caller writes.
+ */
+function spanCarrier(carrier: "range4" | "range8"): Carrier {
+	const endpointOk = (x: unknown): boolean =>
+		carrier === "range4"
+			? typeof x === "number" && Number.isInteger(x) && inRange(x, 32)
+			: typeof x === "bigint" && x >= -(2n ** 63n) && x <= 2n ** 63n - 1n
+	const endpoint: Gen<unknown> =
+		carrier === "range4"
+			? oneOf<unknown>([
+					int(-(2 ** 31), 2 ** 31 - 1),
+					element([-(2 ** 31), 2 ** 31 - 1, -0, 2 ** 31, 0.5])
+				])
+			: oneOf<unknown>([
+					bigint(-(2n ** 63n), 2n ** 63n - 1n),
+					element([-(2n ** 63n), 2n ** 63n - 1n, 2n ** 63n])
+				])
+	return {
+		spec: { carrier, width: undefined },
+		live: weighted<unknown>([
+			[6, (source) => ({ start: source.draw(endpoint), end: source.draw(endpoint) })],
+			[
+				1,
+				element<unknown>([
+					null,
+					[1, 2],
+					{ start: 1 },
+					{ start: 1, end: 2, guest: 3 },
+					{ lower: 1, upper: 2 },
+					new Map([["start", 1]]),
+					"[1,2)"
+				])
+			]
+		]),
+		judge: (value) => {
+			if (
+				typeof value !== "object" ||
+				value === null ||
+				Arr.isArray(value) ||
+				value instanceof Date
+			) {
+				return { fault: "spanType" }
+			}
+			const keys = Rec.keys(value)
+			if (keys.length !== 2 || !("start" in value) || !("end" in value)) {
+				return { fault: "spanType" }
+			}
+			const { start, end } = value
+			if (!endpointOk(start) || !endpointOk(end)) {
+				return { fault: "spanEndpoint" }
+			}
+			if (typeof start === "number" && typeof end === "number") {
+				return start < end ? { stored: { start: start + 0, end: end + 0 } } : { fault: "spanOrder" }
+			}
+			if (typeof start === "bigint" && typeof end === "bigint") {
+				return start < end ? { stored: { start, end } } : { fault: "spanOrder" }
+			}
+			return { fault: "spanEndpoint" }
+		}
+	}
+}
+
+/**
+ * The values of every kind: every carrier's values, near misses included, under each other carrier, and every wild
+ * kind but a hostile proxy and a throwing getter, which a JavaScript caller cannot build by mistake. A wild value is
+ * read only by `passed`, inside the property.
+ */
+const hostWild: Arr.NonEmptyReadonlyArray<WildKind> = [
+	"null",
+	"undefined",
+	"negative-zero",
+	"nan",
+	"infinity",
+	"bigint-for-number",
+	"number-for-bigint",
+	"lone-surrogate",
+	"nul-character",
+	"symbol",
+	"function",
+	"anything"
+]
+
+const anyHostValue = lsw<unknown>({
+	live: oneOf(Arr.map(carriers, (c) => c.live)),
+	stale: Option.none(),
+	wild: hostWild
+})
+
+type AdmissionFeature = `${CarrierSpec["carrier"]} ${"stored" | "refused"}`
+
+describe("admitValue", () => {
+	it.effect(
+		"stores every value of each carrier as its host type and range say, and refuses every other by its fault, never throwing",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/values/admission",
+						draw: drawn(
+							oneOf(
+								Arr.map(
+									carriers,
+									(c) => (source) =>
+										[
+											c,
+											source.draw(
+												oneOf([
+													lsw<unknown>({
+														live: c.live,
+														stale: Option.none(),
+														wild: hostWild
+													}),
+													anyHostValue
+												])
+											)
+										] as const
+								)
+							)
+						),
+						literal: Formatter.format,
+						features: features<AdmissionFeature>(
+							Arr.flatMap(carriers, (c): ReadonlyArray<AdmissionFeature> => [
+								`${c.spec.carrier} stored`,
+								`${c.spec.carrier} refused`
+							])
+						),
+						kept: [],
+						runs: 3000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					([carrier, drawnValue], c) =>
+						Effect.sync(() => {
+							const value = passed(drawnValue)
+							const verdict = carrier.judge(value)
+							const result = admitValue(carrier.spec, value)
+							c.note(`${carrier.spec.carrier} ${result.ok ? "stored" : "refused"}`)
+							if (verdict === "a fault of the vocabulary") {
+								if (!result.ok) {
+									assert.ok(isValueFault(result.error))
+								}
+								return
+							}
+							if ("stored" in verdict) {
+								assert.deepEqual(succeeded(result), verdict.stored)
+							} else {
+								faulted(result, verdict.fault)
+							}
+						})
+				)
+			)
+	)
+})
+
+const factOf = (f: {
+	readonly id: string
+	readonly cents: bigint
+	readonly ratio: number
+	readonly start: bigint
+	readonly width: bigint
+}) => ({
+	id: f.id,
+	amount: Decimal.of(`${f.cents}e-2`),
+	ratio: f.ratio,
+	during: { start: f.start, end: f.start + f.width }
+})
+
+describe("factIdentity", () => {
+	const heading: ReadonlyArray<HeadingField> = [
+		{ name: "id", spec: { carrier: "uuid" } },
+		{ name: "amount", spec: { carrier: "numeric", typmod: { precision: 18, scale: 2 } } },
+		{ name: "ratio", spec: { carrier: "float4" } },
+		{ name: "during", spec: { carrier: "range8", width: undefined } }
+	]
+	const fact = {
+		id: "A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11",
+		amount: Decimal.of("10.004"),
+		ratio: 0.1,
+		during: { start: 0n, end: 30n }
+	}
+
+	/**
+	 * A fact rewritten as PostgreSQL's coercion reads it the same (a uuid's case, an amount's digits below its scale, a
+	 * real given as the binary64 it rounds from, a span's keys reordered) has the fact's identity; one value changed past
+	 * its coercion has another. The admitted fact is frozen and holds the coerced values.
+	 */
+	type FactRewrite =
+		| "uuid case"
+		| "digits below the scale"
+		| "a real's binary64"
+		| "span keys reordered"
+	type FactChange = "another amount" | "another span" | "another real"
+	const factRewrites: Arr.NonEmptyReadonlyArray<FactRewrite> = [
+		"uuid case",
+		"digits below the scale",
+		"a real's binary64",
+		"span keys reordered"
+	]
+	const factChanges: Arr.NonEmptyReadonlyArray<FactChange> = [
+		"another amount",
+		"another span",
+		"another real"
+	]
+	/** A double whose real is a normal value or zero: neither underflows nor overflows. */
+	const ratioGen: Gen<number> = weighted([
+		[1, element([0, -0])],
+		[
+			9,
+			(source) => {
+				const magnitude = source.draw(double(1e-30, 1e30))
+				return source.draw(boolean) ? -magnitude : magnitude
+			}
+		]
+	])
+	const factGen = (source: Source) => ({
+		id: source.draw(uuid(7)),
+		cents: source.draw(bigint(-(10n ** 12n), 10n ** 12n)),
+		ratio: source.draw(ratioGen),
+		start: source.draw(bigint(-(10n ** 9n), 10n ** 9n)),
+		width: source.draw(bigint(1n, 10n ** 6n))
+	})
+
+	it.effect(
+		"gives facts PostgreSQL's coercion reads alike one identity, and a changed fact another",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/values/fact-identity",
+						draw: drawn((source) => ({
+							fact: source.draw(factGen),
+							same: source.draw(boolean),
+							pick: source.draw(pickGen),
+							digit: source.draw(int(0, 4))
+						})),
+						literal: Formatter.format,
+						features: features<`same: ${FactRewrite}` | `changed: ${FactChange}`>([
+							...Arr.map(factRewrites, (r) => `same: ${r}` as const),
+							...Arr.map(factChanges, (r) => `changed: ${r}` as const)
+						]),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					({ fact: drawnFact, same, pick, digit }, c) =>
+						Effect.sync(() => {
+							const fact = factOf(drawnFact)
+							const admitted = succeeded(factIdentity(heading, fact))
+							assert.ok(Object.isFrozen(admitted.fact))
+							if (same) {
+								const rewrite = pickFrom(factRewrites, pick)
+								c.note(`same: ${rewrite}`)
+								const rewritten =
+									rewrite === "uuid case"
+										? { ...fact, id: Str.toUpperCase(fact.id) }
+										: rewrite === "digits below the scale"
+											? { ...fact, amount: Decimal.of(`${drawnFact.cents}${digit}e-3`) }
+											: rewrite === "a real's binary64"
+												? { ...fact, ratio: Math.fround(fact.ratio) }
+												: { ...fact, during: { end: fact.during.end, start: fact.during.start } }
+								if (rewrite === "digits below the scale" && digit >= 5) {
+									return
+								}
+								assert.equal(
+									succeeded(factIdentity(heading, rewritten)).identity,
+									admitted.identity,
+									rewrite
+								)
+							} else {
+								const change = pickFrom(factChanges, pick)
+								c.note(`changed: ${change}`)
+								const changedFact =
+									change === "another amount"
+										? { ...fact, amount: Decimal.of(`${drawnFact.cents + 1n}e-2`) }
+										: change === "another span"
+											? { ...fact, during: { start: fact.during.start, end: fact.during.end + 1n } }
+											: { ...fact, ratio: Math.fround(fact.ratio) === 0 ? 1 : -fact.ratio }
+								assert.notEqual(
+									succeeded(factIdentity(heading, changedFact)).identity,
+									admitted.identity,
+									change
+								)
+							}
+						})
+				)
+			)
+	)
+
+	it.effect("is independent of key insertion order", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const values = new Map(Rec.toEntries(fact))
+				return yield* explore(
+					{
+						suite: "unit/values/identity-1",
+						/** Every order of the fact's keys: a subarray of them all. */
+						draw: drawn(
+							shuffled(Rec.keys(fact), { min: Rec.keys(fact).length, max: Rec.keys(fact).length })
+						),
+						literal: Formatter.format,
+						features: noFeatures,
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(order) =>
+						Effect.sync(() => {
+							const shuffled: Record<string, unknown> = {}
+							for (const key of order) {
+								shuffled[key] = values.get(key)
+							}
+							assert.equal(
+								succeeded(factIdentity(heading, shuffled)).identity,
+								succeeded(factIdentity(heading, fact)).identity
+							)
+						})
+				)
+			})
+		)
+	)
+
+	/**
+	 * A fact that is not exactly the heading is refused as factShape, naming the field a misspelt key stands for; a
+	 * value its field cannot hold is refused by its fault, naming the field; a heading that names a field twice admits
+	 * no fact.
+	 */
+	type Malformed =
+		| "an extra key"
+		| "a missing key"
+		| "a misspelt key"
+		| "an array"
+		| "null"
+		| "a real past the range"
+		| "an amount past the precision"
+		| "a heading naming a field twice"
+	const malformations: Arr.NonEmptyReadonlyArray<Malformed> = [
+		"an extra key",
+		"a missing key",
+		"a misspelt key",
+		"an array",
+		"null",
+		"a real past the range",
+		"an amount past the precision",
+		"a heading naming a field twice"
+	]
+	it.effect(
+		"refuses facts that are not exactly the heading, naming the field when there is one",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/values/fact-refusals",
+						draw: drawn((source) => ({
+							fact: source.draw(factGen),
+							malformed: source.draw(element(malformations)),
+							extra: source.draw(boolean)
+						})),
+						literal: Formatter.format,
+						features: features<Malformed>(malformations),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					({ fact: drawnFact, malformed, extra }, c) =>
+						Effect.sync(() => {
+							c.note(malformed)
+							const fact = factOf(drawnFact)
+							const { ratio: _, ...missing } = fact
+							const duplicated = [...heading, { name: "id", spec: { carrier: "uuid" } } as const]
+							const [h, value, refusal]: readonly [
+								ReadonlyArray<HeadingField>,
+								unknown,
+								{ readonly fault: ValueFault; readonly field: string | undefined }
+							] =
+								malformed === "an extra key"
+									? [heading, { ...fact, extra: 1 }, { fault: "factShape", field: undefined }]
+									: malformed === "a missing key"
+										? [heading, missing, { fault: "factShape", field: undefined }]
+										: malformed === "a misspelt key"
+											? [
+													heading,
+													{ ...missing, ratoi: fact.ratio },
+													{ fault: "factShape", field: "ratio" }
+												]
+											: malformed === "an array"
+												? [heading, [fact], { fault: "factShape", field: undefined }]
+												: malformed === "null"
+													? [heading, null, { fault: "factShape", field: undefined }]
+													: malformed === "a real past the range"
+														? [
+																heading,
+																{ ...fact, ratio: 1e39 },
+																{ fault: "realOverflow", field: "ratio" }
+															]
+														: malformed === "an amount past the precision"
+															? [
+																	heading,
+																	{
+																		...fact,
+																		amount: Decimal.of(`1e${16 + Number(drawnFact.width % 5n)}`)
+																	},
+																	{ fault: "numericOverflow", field: "amount" }
+																]
+															: [
+																	duplicated,
+																	extra ? { ...fact, extra: 1 } : fact,
+																	{ fault: "factShape", field: undefined }
+																]
+							assert.deepEqual(factIdentity(h, value), Result.err(refusal))
+						})
+				)
+			)
+	)
+})

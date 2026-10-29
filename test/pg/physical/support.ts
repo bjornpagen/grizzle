@@ -1,0 +1,267 @@
+import { Array as Arr, Effect, type Scope } from "effect"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { identity } from "#compiler/core/identity.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import * as Result from "#compiler/core/result.ts"
+import { decodeDesc } from "#compiler/ir/desc.ts"
+import {
+	compileInstallation,
+	type Installation,
+	installOptions
+} from "#compiler/physical/install/compile.ts"
+
+import {
+	fullRoleDesc,
+	type OwnedLogin,
+	type OwnedRole,
+	ownLogin,
+	ownRole
+} from "#compiler/schema/own.ts"
+import { declaredErasure } from "#test/support/catalog/declared.ts"
+import {
+	type GrantKind,
+	type ProjectedCatalog,
+	type ProjectedGrant,
+	projectedGrants
+} from "#test/support/catalog/expected.ts"
+import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
+import type { ErasureExpectation } from "#test/support/catalog/verify.ts"
+import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
+import type { SqlError } from "#test/support/pg.ts"
+import { owning } from "#test/support/policy.ts"
+import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import type { SubstrateWorld } from "#test/support/substrate/session.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+
+/**
+ * The worlds a fixture description opens in, as values: the full role `writer`, holding every relation whole, writing
+ * every stored one and refreshing every derived one, and `reader`, holding every relation whole and writing and
+ * refreshing nothing, in the login `server`.
+ */
+export interface FixtureWorlds {
+	readonly login: OwnedLogin
+	readonly writer: OwnedRole
+	readonly reader: OwnedRole
+}
+
+/** A compile step's value: the fixture's worlds are well formed, so a refusal is the fixture's defect, thrown. */
+const accepted = <A>(r: Result.Result<A, CompileError>): A => {
+	if (!r.ok) {
+		throw r.error
+	}
+	return r.value
+}
+
+export const fixtureWorlds = (desc: SchemaDesc): FixtureWorlds => {
+	const loc = SourceLoc(`the fixture login of ${desc.name}`, [])
+	const base = accepted(decodeDesc("schema", desc))
+	const writer = accepted(fullRoleDesc(base, "writer", loc))
+	const reader = { ...writer, name: "reader", write: [], refresh: [] }
+	return {
+		login: accepted(
+			Result.flatMap(
+				decodeDesc("login", { name: "server", base, roles: [writer, reader], loc }),
+				ownLogin
+			)
+		),
+		writer: accepted(ownRole(writer)),
+		reader: accepted(ownRole(reader))
+	}
+}
+
+/** The fixture's login alone. */
+export const fixtureLogin = (desc: SchemaDesc): OwnedLogin => fixtureWorlds(desc).login
+
+/**
+ * A role value's PostgreSQL roles as the installation created them: its login's and its theory role. A role the
+ * installation does not hold is a defect of the test.
+ */
+export const installedRoleOf = (
+	installation: Installation,
+	role: OwnedRole
+): { readonly login: string; readonly role: string } => {
+	for (const login of installation.worlds) {
+		for (const r of login.roles) {
+			if (r.name === role.name) {
+				return { login: login.role, role: r.role }
+			}
+		}
+	}
+	throw new Error(`the installation holds no role ${role.name}`)
+}
+
+/**
+ * The fixture's two roles as sessions take them on: their one login, given a password once in the scope (a second
+ * password would void the first), and each one's theory role.
+ */
+export const fixtureSessions = (
+	installation: Installation,
+	worlds: FixtureWorlds
+): Effect.Effect<
+	{ readonly writer: SubstrateWorld; readonly reader: SubstrateWorld },
+	SqlError,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const writer = installedRoleOf(installation, worlds.writer)
+		const login = yield* substrate.login(writer.login)
+		return {
+			writer: { login, role: writer.role },
+			reader: { login, role: installedRoleOf(installation, worlds.reader).role }
+		}
+	})
+
+/**
+ * Installing a compiled schema in the substrate's database for the physical tests: each installation gets a unique
+ * schema name, because roles are cluster-wide, and the substrate's schema finalizer drops the schema and every
+ * `<schema>__*` role it created.
+ *
+ * Installs `desc` with `logins` under a fresh schema and reads its catalog.
+ */
+export const installed = (
+	desc: unknown,
+	label: string,
+	logins: ReadonlyArray<OwnedLogin>
+): Effect.Effect<InstalledFixture, SqlError | TransactionRolledBack, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const schema = yield* substrate.schema({ create: false, label })
+		const owned = owning(desc)
+		const compiled = compileInstallation(owned, {
+			...installOptions(owned, substrate.owner.role),
+			installation: identity.schema(parsedSchemaName(schema)),
+			logins
+		})
+		if (!compiled.ok) {
+			return yield* Effect.die(new Error(`compile: ${compiled.error.message}`))
+		}
+		const installation: Installation = compiled.value
+		yield* transaction(substrate.admin, installation.sql)
+		const read = yield* readCatalog(substrate.admin, schema)
+		if (read.kind === "absent") {
+			return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))
+		}
+		const catalog: Catalog = read.catalog
+		return { installation, catalog, schema }
+	})
+
+/** An installed fixture: its installation, the catalog read back from it, and the schema it is installed under. */
+interface InstalledFixture {
+	readonly installation: Installation
+	readonly catalog: Catalog
+	readonly schema: string
+}
+
+/**
+ * The expectation of a fixture installed with its worlds: the declaration's, the fixture's login with its two roles,
+ * and the writer refreshing every derived relation's materialized view.
+ */
+export const worldsExpectation = (
+	desc: SchemaDesc,
+	installation: Installation,
+	worlds: FixtureWorlds
+): ErasureExpectation => {
+	const writer = installedRoleOf(installation, worlds.writer)
+	const reader = installedRoleOf(installation, worlds.reader)
+	return {
+		...declaredErasure(desc),
+		logins: new Map([[writer.login, new Set([writer.role, reader.role])]]),
+		refreshes: new Map([
+			[
+				writer.role,
+				new Set(
+					Arr.map(
+						worlds.writer.refresh,
+						(relation) => identity.view(parsedName(relation)).identifier
+					)
+				)
+			],
+			[
+				reader.role,
+				new Set(
+					Arr.map(
+						worlds.reader.refresh,
+						(relation) => identity.view(parsedName(relation)).identifier
+					)
+				)
+			]
+		]),
+		/** Whole entries all: every view plain. */
+		barrierViews: new Set()
+	}
+}
+
+/**
+ * The grants of a fixture installed with its worlds, as ProjectedCatalog.grants holds them, derived from its
+ * declaration and the types the catalog holds, never from the installer: the writer and the reader hold every relation
+ * whole, so each holds USAGE on the schema and on every enum and domain of it (a full role reads every type a
+ * relation's heading uses, and the installer creates no other) and SELECT on its view of every stored and derived
+ * relation; the writer writes every stored relation, so it holds SELECT, INSERT and DELETE on its table, UPDATE too on a
+ * mutable one, and EXECUTE on the refusal function and on every serial field's advance function, and refreshes every
+ * derived one, so it holds MAINTAIN on its materialized view; the login holds USAGE on the schema and EXECUTE on the
+ * snapshot guard; each role's schema grants USAGE to its role alone.
+ *
+ * The writer refreshes every derived relation, which both read through their views.
+ */
+export const worldsGrants = (
+	desc: SchemaDesc,
+	installation: Installation,
+	worlds: FixtureWorlds,
+	catalog: ProjectedCatalog
+): ReadonlyArray<ProjectedGrant> => {
+	const declared = declaredErasure(desc)
+	const writer = installedRoleOf(installation, worlds.writer)
+	const reader = installedRoleOf(installation, worlds.reader).role
+	/** Each of `grantees` holding each of `privileges` on the object of `kind` named `name`. */
+	const on = (
+		kind: GrantKind,
+		name: string,
+		grantees: ReadonlyArray<string>,
+		privileges: ReadonlyArray<string>
+	): ReadonlyArray<ProjectedGrant> =>
+		Arr.flatMap(grantees, (grantee) =>
+			Arr.map(privileges, (privilege) => ({ kind, name, grantee, privilege }))
+		)
+	return projectedGrants([
+		...on("schema", installation.names.schema, [writer.login, writer.role, reader], ["USAGE"]),
+		...on("schema", writer.role, [writer.role], ["USAGE"]),
+		...on("schema", reader, [reader], ["USAGE"]),
+		...Arr.flatMap([...declared.tables], (table) => [
+			...on(
+				"table",
+				table,
+				[writer.role],
+				declared.mutable.has(table)
+					? ["SELECT", "INSERT", "DELETE", "UPDATE"]
+					: ["SELECT", "INSERT", "DELETE"]
+			),
+			...on("table", `${writer.role}.${table}`, [writer.role], ["SELECT"]),
+			...on("table", `${reader}.${table}`, [reader], ["SELECT"])
+		]),
+		...Arr.flatMap([...catalog.enums, ...catalog.domains], (type) =>
+			on("type", type.name, [writer.role, reader], ["USAGE"])
+		),
+		...Arr.flatMap([...declared.views], (view) => [
+			...on("table", view, [writer.role], ["MAINTAIN"]),
+			...on("table", `${writer.role}.${view}`, [writer.role], ["SELECT"]),
+			...on("table", `${reader}.${view}`, [reader], ["SELECT"])
+		]),
+		...Arr.flatMap([...declared.functions], ([name, fn]): ReadonlyArray<ProjectedGrant> => {
+			switch (fn.kind) {
+				case "refusal":
+					return declared.tables.size > 0 ? on("function", name, [writer.role], ["EXECUTE"]) : []
+				case "advance":
+					return on("function", name, [writer.role], ["EXECUTE"])
+				case "snapshotGuard":
+					return on("function", name, [writer.login], ["EXECUTE"])
+				case "world":
+				case "law":
+				case "isolationGuard":
+					return []
+			}
+		})
+	])
+}

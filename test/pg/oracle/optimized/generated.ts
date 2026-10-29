@@ -1,0 +1,406 @@
+import { layer } from "@effect/vitest"
+import { type Draw, type Kept, sketched } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import { constant, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Formatter, Record } from "effect"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
+import { type FinishedSketch, finishedDraw } from "#test/pg/oracle/frontier/finish.ts"
+import { exploreFrontier, type FrontierFeature } from "#test/pg/oracle/frontier/support.ts"
+import { plantedRewrites } from "#test/pg/oracle/optimized/planted.ts"
+import {
+	differential,
+	generatedRules,
+	type OptimizedFeature,
+	optimizedShrink,
+	rewriteFamilies
+} from "#test/pg/oracle/optimized/suite.ts"
+import { denseQueryCaseGen } from "#test/pg/oracle/support.ts"
+import type { QueryCase } from "#test/support/oracle/gen/case.ts"
+import {
+	defaultGenConfig,
+	optimizerFailingGenConfig,
+	optimizerGenConfig,
+	paramNameGenConfig,
+	perEvaluationGenConfig,
+	queryCaseGen
+} from "#test/support/oracle/gen/case.ts"
+import { int4 } from "#test/support/oracle/gen/domain.ts"
+import { aggregateOpId, aggregateResult } from "#test/support/oracle/gen/ops.ts"
+import { normalQuery } from "#test/support/oracle/gen/query.ts"
+import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
+import { literalOfValue } from "#test/support/oracle/reference/values.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	type AggregateSpec,
+	type OccurrenceSpec,
+	plainRegion,
+	Q
+} from "#test/unit/lower/conservative/fixtures.ts"
+
+const casesPerPopulation = 1250
+
+/**
+ * What the per-evaluation population must reach: a take correlated per outer row, a region reading an outer column, an
+ * attachment nested below another's child, and a per-parent take over an attachment.
+ */
+const perEvaluationRequired = [
+	"correlated take",
+	"correlated region",
+	"nested attachment",
+	"per-parent take over an attachment",
+	"nonempty"
+] as const satisfies ReadonlyArray<OptimizedFeature>
+
+/** Failing cases per part: each runs every form on PostgreSQL and the frontier reference's verdict. */
+const failingCasesPerPart = 400
+
+/**
+ * What the failing population must reach: a needed expression that must fail, one that only may, a case that delivers
+ * the reference's rows, and an optimized artifact that raises.
+ */
+const failingRequired = [
+	"forced failure",
+	"may fail",
+	"reference rows",
+	"optimized error",
+	"optimized rows"
+] as const satisfies ReadonlyArray<FrontierFeature>
+
+/** Schema labels are lowercase words (test/support/substrate/names.ts). */
+const partLetter = (part: number): string => String.fromCharCode(0x61 + part)
+
+/**
+ * The features the optimizer's population must reach, beyond the rules: fused attachments are unfused and compared,
+ * pipelined attachments and heading groups run, relation parameters also travel by VALUES, computed terms are
+ * evaluated, and cases deliver rows.
+ */
+const required = [
+	...generatedRules,
+	...rewriteFamilies,
+	"fused attachment",
+	"pipelined attachment",
+	"heading groups",
+	"form:optimized VALUES",
+	"computed term",
+	"nested attachment",
+	"per-parent take over an attachment",
+	"nonempty"
+] as const satisfies ReadonlyArray<OptimizedFeature>
+
+/**
+ * The per-evaluation population's escaped counterexamples, kept, each a hand-built query over relations keyed by k:
+ *
+ * - a region one of whose occurrences only tests that a fact exists while another occurrence's constant reads its
+ *   source (a lateral constant, the soundness shapes of gen/query.ts). Demand analysis counted no column a region's own
+ *   constants read of its sources as read laterally, so R02 moved the tested occurrence into a semi-join, out of the
+ *   constant's scope, and the optimized lowering refused the reference it left ("a column n#4.a of a node in scope"). The region reads R0 and R1 (k, a): R0 holds a = 1 and a = 2, R1 the facts
+ *   (1, 1) and (3, 2), and R1's occurrence binds a with its k fixed to R0's a, which keeps a = 1 and excludes a = 2.
+ *   The tested occurrence of R0 binds a variable R1's binds too, or binds nothing;
+ * - a semi-join of a group with itself on two of its grouping columns (a right side shared with another reader).
+ *   Demand analysis counted a node's readers, not its references, so the group read on both sides was the semi-join's
+ *   alone, and pushdown.semiGroup moved the semi-join below the group, which then read itself ("an acyclic DAG: the node reaches itself
+ *   through its inputs"). R0 (k, a, b) groups into (a, b) = (1, 2), (2, 3)
+ *   twice and (3, 5); the semi-join keeps the groups whose a is some group's b, all but (1, 2).
+ */
+const keyed = (name: string, columns: ReadonlyArray<string>): GenRelation => ({
+	name,
+	columns: Arr.map(columns, (c) => ({ name: c, type: int4 })),
+	primaryKey: ["k"],
+	keys: [],
+	mutable: false
+})
+
+const factsOf = (
+	rows: ReadonlyArray<ReadonlyArray<number>>
+): ReadonlyArray<ReadonlyArray<TypedLiteral>> =>
+	Arr.map(rows, (row) => Arr.map(row, (value) => literalOfValue(BigInt(value), int4)))
+
+/** The case of the query `build` makes over the stored relations, each with its facts; `base` reads a relation. */
+const keptCase = (
+	stored: ReadonlyArray<readonly [GenRelation, ReadonlyArray<ReadonlyArray<number>>]>,
+	build: (q: Q, base: (r: GenRelation) => RelNode) => RelNode
+): QueryCase => {
+	const q = new Q()
+	const root = build(q, (r) =>
+		q.base({ name: r.name, heading: r.columns, primaryKey: r.primaryKey }, conservativeMeta)
+	)
+	const dag = normalQuery(q.b.build(Arr.of(root)))
+	return {
+		schema: {
+			name: schemaName,
+			relations: Arr.map(stored, ([r]) => r),
+			closed: [],
+			containments: []
+		},
+		facts: Record.fromEntries(Arr.map(stored, ([r, rows]) => [r.name, factsOf(rows)])),
+		query: { dag, params: {} },
+		spelling: { mode: "perCase", choices: [], edge: false }
+	}
+}
+
+/** The region of R0's occurrence `tested` (built over R0's node) and R1's occurrence fixing k to R0's a. */
+const lateralConstantCase = (tested: (r0: RelNode) => OccurrenceSpec): QueryCase => {
+	const r0 = keyed("R0", ["k", "a"])
+	const r1 = keyed("R1", ["k", "a"])
+	return keptCase(
+		[
+			[
+				r0,
+				[
+					[1, 1],
+					[2, 2]
+				]
+			],
+			[
+				r1,
+				[
+					[1, 1],
+					[3, 2]
+				]
+			]
+		],
+		(q, base) => {
+			const s0 = base(r0)
+			return q.regionWith(
+				[tested(s0), { source: base(r1), bind: { a: "a" }, constants: { k: q.col(s0, "a") } }],
+				plainRegion
+			)
+		}
+	)
+}
+
+/** R0 grouped by (a, b), each group counted, semi-joined with itself on a = b. */
+const selfSemiJoinCase = (): QueryCase => {
+	const r0 = keyed("R0", ["k", "a", "b"])
+	const count: AggregateSpec = {
+		name: "n",
+		fn: "count",
+		op: aggregateOpId("count", undefined),
+		args: [],
+		type: aggregateResult("count", undefined)
+	}
+	return keptCase(
+		[
+			[
+				r0,
+				[
+					[1, 1, 2],
+					[2, 2, 3],
+					[3, 2, 3],
+					[4, 3, 5]
+				]
+			]
+		],
+		(q, base) => {
+			const groups = q.group(base(r0), ["k", "a", "b"], ["a", "b"], [count], conservativeMeta)
+			return q.semi(groups, groups, [["a", "b"]])
+		}
+	)
+}
+
+const perEvaluationKept: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> = [
+	{
+		note: "an occurrence binding a variable another binds too, whose source the other's constant reads",
+		reaches: ["nonempty"],
+		draws: "",
+		sketch: lateralConstantCase((s0) => ({ source: s0, bind: { a: "a" }, constants: {} }))
+	},
+	{
+		note: "an occurrence binding nothing, whose source another occurrence's constant reads",
+		reaches: ["nonempty"],
+		draws: "",
+		sketch: lateralConstantCase((s0) => ({ source: s0, bind: {}, constants: {} }))
+	},
+	{
+		note: "a semi-join of a group with itself on two of its grouping columns",
+		reaches: ["nonempty"],
+		draws: "",
+		sketch: selfSemiJoinCase()
+	}
+]
+
+/**
+ * A population of whole cases, each resolved as it is generated: the property's resolve draws nothing more, so a kept
+ * case replays with no draws.
+ */
+const resolved = (gen: Gen<QueryCase>): Draw<QueryCase, Gen<QueryCase>> => sketched(gen, constant)
+
+/** The optimizer's population with the per-evaluation shapes; its escaped counterexamples are kept before its streams. */
+const perEvaluationPopulation = resolved(queryCaseGen(perEvaluationGenConfig))
+
+/**
+ * The optimizer's population; the rewrite shapes it reaches too rarely are planted before its streams (planted.ts).
+ */
+const optimizerPopulation = resolved(queryCaseGen(optimizerGenConfig))
+
+/** The generator's own population with dense facts. */
+const densePopulation = resolved(denseQueryCaseGen(defaultGenConfig))
+
+/**
+ * The generated part of the optimized differential suite: at least 10,000 cases per CI run.
+ *
+ * The generated cases are split over four files whose suites run concurrently, each part a suite of its own, explored
+ * (@grizzle/testing/explore) in its floor stream, seeded from the suite's label, which runs every time, and the
+ * run's rotating stream: in the rotating stream 1,250 cases of the optimizer's population and 1,250 with dense facts
+ * (test/pg/oracle/support.ts denseQueryCaseGen), and in the floor stream a quarter as many, each case under a plan
+ * perturbation drawn with it (test/support/oracle/perturb.ts), so joins, fanout, groups, projected duplicates, unions
+ * and closures meet real rows.
+ *
+ * Both populations are the conservative suite's: one to four relations with composite and candidate keys, closed
+ * rosters, pure sets, containments and mutable relations, small-domain facts including NaN, -0, numeric display scales
+ * and supplementary-plane text, and queries over match, filter, project, semi- and anti-join, union, intersection,
+ * difference, group, take, attach and recursion, at the root as a plain set, with attachments, or as a heterogeneous
+ * union, with scalar and relation parameters. The optimizer's population (gen/case.ts optimizerGenConfig) draws what
+ * each rewrite family needs besides: containments to read through, wide payload under takes with stated orders, total
+ * computed terms, equations, filters read through regions and rooted closures. Each case runs under the optimized
+ * artifact compiled for the `snapshot` context against the installation's own evidence catalog, in every per-execution
+ * form, against the conservative lowering (support.ts), and each part's optimizer population must reach every rewrite
+ * family (its required features); the shapes it draws too rarely for that are kept cases replayed before its
+ * streams (planted.ts).
+ *
+ * A third population is the optimizer's with the per-evaluation shapes (gen/case.ts perEvaluationGenConfig): correlated
+ * takes, correlated variables and lateral constants reading an earlier source, shared right sides, beside the nested
+ * attachment chains every attach root may draw, each level under its own per-parent take. Its facts hold within one
+ * evaluation of a correlated subtree only. Its
+ * escaped counterexamples are kept cases replayed before its streams (perEvaluationKept).
+ *
+ * A fourth population is the optimizer's with failing terms (gen/case.ts optimizerFailingGenConfig): computed terms that
+ * divide by zero, overflow or cast out of range on the generated facts, and half its plain roots ending in the
+ * frontier's division by zero over the rows they deliver (frontier/finish.ts finishedDraw), so failures every lowering
+ * must raise meet every run. A failing case has no rows to compare, so it is judged by the frontier reference (test/pg/oracle/frontier/support.ts): where a needed expression must fail, the
+ * conservative artifact, the optimized one and every per-execution variant raise one of the query's own SQLSTATEs;
+ * where one may fail, each raises one of them or delivers the reference's rows; otherwise each delivers them. Every
+ * rewrite family the optimizer reaches is thereby searched for a failure it hides or invents.
+ *
+ * The optimizer's population with the per-evaluation shapes, against the conservative lowering.
+ *
+ * The optimizer's population with failing terms, judged by the frontier reference's verdict.
+ */
+export const generatedSuite = (part: number): void => {
+	layer(Substrate.layer)(
+		`the optimized lowering against the conservative lowering, generated part ${part}`,
+		(it) => {
+			it.effect(
+				`agrees on ${casesPerPopulation} cases of the optimizer's population, raw text multisets, with no repeated row`,
+				(ctx) =>
+					searched(
+						ctx,
+						differential(optimizerPopulation, `opt${partLetter(part)}`, {
+							suite: `optimized/generated-${part}`,
+							literal: Formatter.format,
+							features: features<OptimizedFeature>(required),
+							kept: plantedRewrites,
+							runs: casesPerPopulation,
+							shrink: optimizedShrink,
+							steering: { kind: "mutate", cases: casesPerPopulation, sense: notesOnly },
+							caseHang: Duration.minutes(2),
+							perturb: "all"
+						})
+					),
+				1_800_000
+			)
+
+			it.effect(
+				`agrees on ${casesPerPopulation} cases of the optimizer's population with per-evaluation shapes`,
+				(ctx) =>
+					searched(
+						ctx,
+						differential(perEvaluationPopulation, `opte${partLetter(part)}`, {
+							suite: `optimized/per-evaluation-${part}`,
+							literal: Formatter.format,
+							features: features<OptimizedFeature>(perEvaluationRequired),
+							kept: perEvaluationKept,
+							runs: casesPerPopulation,
+							shrink: optimizedShrink,
+							steering: { kind: "mutate", cases: casesPerPopulation, sense: notesOnly },
+							caseHang: Duration.minutes(2),
+							perturb: "all"
+						})
+					),
+				1_800_000
+			)
+
+			it.effect(
+				`keeps every failure on ${failingCasesPerPart} cases of the optimizer's population with failing terms`,
+				(ctx) =>
+					searched(
+						ctx,
+						exploreFrontier<FinishedSketch, never>(
+							finishedDraw(optimizerFailingGenConfig),
+							`optf${partLetter(part)}`,
+							{
+								suite: `optimized/failing-${part}`,
+								literal: Formatter.format,
+								features: features<FrontierFeature>(failingRequired),
+								kept: [],
+								runs: failingCasesPerPart,
+								shrink: { kind: "bounded", candidates: 150 },
+								steering: { kind: "mutate", cases: failingCasesPerPart, sense: notesOnly },
+								caseHang: Duration.minutes(2),
+								perturb: "all"
+							},
+							() => []
+						)
+					),
+				1_800_000
+			)
+
+			it.effect(
+				`agrees on ${casesPerPopulation} generated cases with dense facts`,
+				(ctx) =>
+					searched(
+						ctx,
+						differential(densePopulation, `dense${partLetter(part)}`, {
+							suite: `optimized/dense-${part}`,
+							literal: Formatter.format,
+							features: features<OptimizedFeature>(["nonempty"]),
+							kept: [],
+							runs: casesPerPopulation,
+							shrink: optimizedShrink,
+							steering: { kind: "mutate", cases: casesPerPopulation, sense: notesOnly },
+							caseHang: Duration.minutes(2),
+							perturb: "all"
+						})
+					),
+				1_800_000
+			)
+		}
+	)
+}
+
+/**
+ * The optimizer's population with its scalar and relation parameters named from the parameter-name dictionary
+ * (gen/case.ts paramNameGenConfig, kernel/dict.ts parameterNames): a relation parameter named like a page's own input
+ * ("pageSize", "page:limit") or a reserved word meets every optimized form, the VALUES transport included.
+ */
+export const paramNamesSuite = (): void => {
+	layer(Substrate.layer)(
+		"the optimized lowering against the conservative lowering, parameters named from the dictionary",
+		(it) => {
+			it.effect(
+				`agrees on ${casesPerPopulation} cases whose parameters are named from the dictionary`,
+				(ctx) =>
+					searched(
+						ctx,
+						differential(resolved(queryCaseGen(paramNameGenConfig)), "optp", {
+							suite: "optimized/param-names",
+							literal: Formatter.format,
+							features: features<OptimizedFeature>([
+								["form:optimized VALUES", "relation parameter named from the dictionary"]
+							]),
+							kept: [],
+							runs: casesPerPopulation,
+							shrink: optimizedShrink,
+							steering: { kind: "mutate", cases: casesPerPopulation, sense: notesOnly },
+							caseHang: Duration.minutes(2),
+							perturb: "all"
+						})
+					),
+				1_800_000
+			)
+		}
+	)
+}

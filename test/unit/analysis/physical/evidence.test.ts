@@ -1,0 +1,163 @@
+import { describe, it } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import { element, subarray } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
+import { strongestKey } from "#compiler/analysis/physical/props.ts"
+import { checkedSchema } from "#compiler/analysis/schema.ts"
+import { buildTheory, provisionalTheory } from "#compiler/analysis/theory/theory.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
+import type { TemplateContext } from "#compiler/ir/evidence.ts"
+import { conservativeMeta } from "#compiler/ir/rel.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { ownedFixture } from "#test/support/evidence.ts"
+import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
+import { contained, f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import {
+	keyColumns,
+	lossReasons,
+	physical,
+	propsOf,
+	multiplicityRecord,
+	snapshotOver
+} from "#test/unit/analysis/physical/support.ts"
+
+/**
+ * The evidence catalog: the theory resolves each declared key to its installed constraint, and a scan proves exactly the
+ * keys whose fields it reads, at every statement, judged over Crm's two Person keys and a scan of Person reading a
+ * drawn set of its columns in either execution context.
+ */
+
+const executions: Arr.NonEmptyReadonlyArray<TemplateContext> = ["snapshot", "transaction"]
+
+const Person = relation(
+	"Person",
+	{ id: f.uuid, email: f.regex("^[a-z]{1,20}$", "u"), city: f.wildcard },
+	["id"]
+)
+const Purchase = relation("Purchase", { id: f.uuid, person: f.uuid }, ["id"])
+const Crm: SchemaDesc = {
+	name: "Crm",
+	relations: [Person, Purchase],
+	statements: [
+		key("Person", ["email"]),
+		contained(on("Purchase", ["person"]), on("Person", ["id"]))
+	],
+	extends: undefined
+}
+const crm = ownedFixture(Crm)
+const theory = succeeded(buildTheory(succeeded(checkedSchema(crm.owned)), provisionalTheory))
+const personKeys = Arr.filter(theory.evidence.keys, (k) => k.relation === "Person")
+
+type CatalogFeature = "no key proves the scan" | "a key proves the scan" | "a key not read"
+
+describe("catalogs", () => {
+	it.effect(
+		"resolves each Person key to its constraint, and a scan proves exactly the keys it reads, immediately",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/analysis/physical/catalog-scan",
+						generator: (source) =>
+							[
+								source.draw(element(executions)),
+								source.draw(subarray(["id", "email", "city"]))
+							] as const,
+						literal: Formatter.format,
+						/** The space: 2 execution contexts, 8 sets of columns. */
+						limit: 16,
+						features: features<CatalogFeature>([
+							"no key proves the scan",
+							"a key proves the scan",
+							"a key not read"
+						]),
+						caseHang: Duration.minutes(2)
+					},
+					([context, read], c) =>
+						Effect.sync(() => {
+							if (read.length === 0) {
+								return
+							}
+							const catalog = theoryCatalog(theory.evidence, { containments: [] })
+							for (const k of personKeys) {
+								const resolved = catalog.keyConstraint("Person", k.fields, {
+									primary: k.primary,
+									derived: false
+								})
+								assert.deepEqual(resolved, {
+									relation: "Person",
+									columns: k.fields,
+									spans: k.spans,
+									constraint: k.constraint,
+									kind: k.primary ? "primaryKey" : "unique"
+								})
+							}
+							assert.equal(
+								catalog.keyConstraint("Person", ["city"], { primary: false, derived: false }),
+								undefined
+							)
+							/** The rules: every installed key holds at every statement; a scan proves the keys whose fields it reads. */
+							const proving = Arr.filter(personKeys, (k) =>
+								Arr.every(k.fields, (field) => read.includes(field))
+							)
+							if (proving.length < personKeys.length) {
+								c.note("a key not read")
+							}
+							const m = new Ir(new SchemaModel(crm, {}))
+							const scan = m.region(
+								[
+									{
+										source: m.base("Person"),
+										bind: Rec.fromEntries(Arr.map(read, (col) => [col, col])),
+										constants: {}
+									}
+								],
+								conservativeMeta
+							)
+							const a = physical(m.build(scan).dag, { ...snapshotOver(m), catalog, context })
+							unorderedEqual(
+								keyColumns(a, scan),
+								Arr.map(proving, (k) => k.fields)
+							)
+							const base = Option.getOrThrow(
+								Arr.findFirst(topoOrder(a.dag), (n) => n.kind === "Base")
+							)
+							assert.deepEqual(lossReasons(a, base), [])
+							const unique = strongestKey(propsOf(a, scan).keys)
+							if (proving.length === 0) {
+								c.note("no key proves the scan")
+								assert.equal(unique, undefined)
+								assert.deepEqual(multiplicityRecord(a, scan).owed, {
+									kind: "on",
+									heading: Arr.map(scan.heading, (col) => col.name)
+								})
+								return
+							}
+							c.note("a key proves the scan")
+							assert.deepEqual(multiplicityRecord(a, scan).owed, { kind: "none" })
+							const proof = defined(unique, "the strongest key of a scan a key proves").just
+							/** The proof rests on key constraints, one of them a key the scan reads, and holds at every statement. */
+							const premiseOf = (k: (typeof personKeys)[number]): boolean =>
+								Arr.some(
+									proof.premises,
+									(premise) =>
+										premise.kind === "constraint" &&
+										premise.constraint === k.constraint &&
+										premise.constraintKind === (k.primary ? "primaryKey" : "unique")
+								)
+							assert.equal(
+								proof.premises.length,
+								Arr.filter(personKeys, premiseOf).length,
+								"every premise is a key's constraint"
+							)
+							assert.ok(Arr.some(proving, premiseOf), "a key the scan reads is a premise")
+							assert.equal(proof.context, "immediate")
+						})
+				)
+			)
+	)
+})

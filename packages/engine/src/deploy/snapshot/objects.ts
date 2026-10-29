@@ -1,0 +1,874 @@
+import { canonicalTextOf, Refusal } from "#compiler/core/canonical.ts"
+import { malformedArtifact } from "#compiler/core/errors.ts"
+import type { LawId } from "#compiler/core/ids.ts"
+import { compareStrings } from "#compiler/core/order.ts"
+import { isList, isRecord } from "#compiler/core/record.ts"
+import type { PhysicalObject, PhysicalReason } from "#compiler/ir/products.ts"
+import { parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
+import {
+	type AlterTableAction,
+	type ColumnDef,
+	type CreateConstraintTrigger,
+	type CreateDomain,
+	type CreateEnum,
+	type CreateGuardTrigger,
+	type CreateIndex,
+	type CreateMaterializedView,
+	type CreatePolicy,
+	type CreateRole,
+	type CreateSchema,
+	type CreateStatistics,
+	type CreateTable,
+	type CreateView,
+	type DomainConstraint,
+	type ForeignKey,
+	type GrantRole,
+	type InlineConstraint,
+	type ObjectName,
+	type PlFunction,
+	type PrimaryKey,
+	type SqlFunction,
+	type SqlStatement,
+	type TableConstraint,
+	tableConstraints
+} from "#compiler/sql/ast.ts"
+
+import {
+	type AstHooks,
+	identityHooks,
+	transformStatement,
+	transformStatements
+} from "#compiler/sql/transform.ts"
+
+/** An object of an installation manifest, as the deployment passes read it. */
+export type ManifestObject = PhysicalObject<SqlStatement>
+
+/**
+ * A snapshot's installed object `ident` that is not the form `what` states, which grizzle wrote: a malformed snapshot.
+ * A function declaration, so that control flow knows a call never returns.
+ */
+export function refuse(ident: string, what: string): never {
+	throw new Refusal(malformedArtifact("snapshot", ["objects", ident], what))
+}
+
+/**
+ * A snapshot's record of the law `law` that is not the form `what` states: a malformed snapshot. A function declaration,
+ * so that control flow knows a call never returns.
+ */
+export function refuseLaw(law: string, what: string): never {
+	throw new Refusal(malformedArtifact("snapshot", ["laws", law], what))
+}
+
+export const same = (a: unknown, b: unknown): boolean => canonicalTextOf(a) === canonicalTextOf(b)
+
+/** A column's place in a heading: its name, type, collation and generation. */
+const headingKey = (c: ColumnDef): string =>
+	canonicalTextOf({ n: c.name, t: c.type, c: c.collation, g: c.generated?.kind })
+
+/** Whether two relations have one heading: the same fields, each of one name, type, collation and generation, in any
+ * order. */
+export const sameHeading = (a: CreateTable, b: CreateTable): boolean => {
+	if (a.columns.length !== b.columns.length) {
+		return false
+	}
+	const x = a.columns.map((c) => headingKey(c)).toSorted(compareStrings)
+	const y = b.columns.map((c) => headingKey(c)).toSorted(compareStrings)
+	return x.every((k, i) => k === y[i])
+}
+
+/** The single law an object reports, when it carries exactly one law reason. */
+export const lawOf = (reasons: ReadonlyArray<PhysicalReason>): LawId | undefined => {
+	const laws = [...new Set(reasons.flatMap((r) => (r.kind === "law" ? [r.law] : [])))]
+	return laws.length === 1 ? laws[0] : undefined
+}
+
+/** An installed object read once with the statement that defines it, by its kind: the diff reads each object through
+ * this view, so every object's form is checked here, once, and no rule probes a statement list again. An object whose
+ * statements are not its kind's form is a defect of the compiler that built the snapshot.
+ * A domain carries at most one CHECK. A `worldFunction` is a writable entry's filter function. A `role` is a login's
+ * or a theory role's CREATE ROLE, and a `membership` a theory role's membership in its login. A `roleSchema` is a
+ * role's schema, a `view` a role relation's view in it, a `policy` a role's policy on a table it writes, and a
+ * `rowSecurity` a table's row security. A `storedTag` is a stored tag's column: the table, the column's name, and the
+ * column as the object's one ALTER TABLE ... ADD COLUMN declares it. A key, check or foreign key is a constraint of a
+ * table, by its name: a key or check the table owns, where its definition stands, or a reference out of it with the
+ * definition its one ALTER TABLE ... ADD CONSTRAINT adds (a foreign key is never inline). The `ledger` is the
+ * migrations ledger, by the CREATE TABLE of its table. */
+export type Installed =
+	| { readonly kind: "table"; readonly object: ManifestObject; readonly create: CreateTable }
+	| { readonly kind: "enum"; readonly object: ManifestObject; readonly create: CreateEnum }
+	| {
+			readonly kind: "domain"
+			readonly object: ManifestObject
+			readonly create: CreateDomain
+			readonly constraint: DomainConstraint | undefined
+	  }
+	| {
+			readonly kind: "materializedView"
+			readonly object: ManifestObject
+			readonly create: CreateMaterializedView
+	  }
+	| {
+			readonly kind: "index" | "uniqueIndex"
+			readonly object: ManifestObject
+			readonly create: CreateIndex
+	  }
+	| {
+			readonly kind: "statistics"
+			readonly object: ManifestObject
+			readonly create: CreateStatistics
+	  }
+	| {
+			readonly kind: "lawTrigger"
+			readonly object: ManifestObject
+			readonly create: CreateConstraintTrigger
+	  }
+	| {
+			readonly kind: "isolationTrigger"
+			readonly object: ManifestObject
+			readonly create: CreateGuardTrigger
+	  }
+	| {
+			readonly kind:
+				| "lawFunction"
+				| "refusalFunction"
+				| "advanceFunction"
+				| "isolationFunction"
+				| "snapshotGuard"
+			readonly object: ManifestObject
+			readonly create: PlFunction
+	  }
+	| {
+			readonly kind: "worldFunction"
+			readonly object: ManifestObject
+			readonly create: SqlFunction
+	  }
+	| { readonly kind: "role"; readonly object: ManifestObject; readonly create: CreateRole }
+	| { readonly kind: "membership"; readonly object: ManifestObject; readonly grant: GrantRole }
+	| { readonly kind: "privileges"; readonly object: ManifestObject; readonly grantee: string }
+	| { readonly kind: "roleSchema"; readonly object: ManifestObject; readonly create: CreateSchema }
+	| { readonly kind: "view"; readonly object: ManifestObject; readonly create: CreateView }
+	| { readonly kind: "policy"; readonly object: ManifestObject; readonly create: CreatePolicy }
+	| { readonly kind: "rowSecurity"; readonly object: ManifestObject; readonly table: ObjectName }
+	| {
+			readonly kind: "storedTag"
+			readonly object: ManifestObject
+			readonly table: ObjectName
+			readonly column: string
+			readonly definition: ColumnDef
+	  }
+	| {
+			readonly kind: "primaryKey" | "unique" | "check"
+			readonly object: ManifestObject
+			readonly table: ObjectName
+			readonly name: string
+			readonly placement: Placement
+	  }
+	| {
+			readonly kind: "foreignKey"
+			readonly object: ManifestObject
+			readonly table: ObjectName
+			readonly name: string
+			readonly constraint: ForeignKey
+	  }
+	| { readonly kind: "ledger"; readonly object: ManifestObject; readonly create: CreateTable }
+	| {
+			readonly kind: "schema" | "extension" | "validation" | "databaseDefault"
+			readonly object: ManifestObject
+	  }
+
+/** The definition a key or CHECK object's kind admits: a primary key's, a candidate key's (a unique key, or a span key's
+ * exclusion constraint, which installs as a unique key's object), or a CHECK's. */
+export type KeyOrCheck = PrimaryKey | InlineConstraint
+
+/** Where a key's or CHECK's definition stands: inside its table's CREATE TABLE, or in its own ALTER TABLE ... ADD
+ * CONSTRAINT, as a span column's CHECK is. */
+export type Placement =
+	| { readonly kind: "inline" }
+	| { readonly kind: "own"; readonly constraint: KeyOrCheck }
+
+/** A constraint as the definition of an object of kind `kind`, none when that kind admits no such constraint. */
+const keyOrCheckOf = (
+	kind: "primaryKey" | "unique" | "check",
+	c: TableConstraint
+): KeyOrCheck | undefined => {
+	switch (c.kind) {
+		case "primaryKey":
+			return kind === "primaryKey" ? c : undefined
+		case "unique":
+		case "exclude":
+			return kind === "unique" ? c : undefined
+		case "check":
+			return kind === "check" ? c : undefined
+		case "foreignKey":
+			return undefined
+	}
+}
+
+/** The table and constraint of an object's one statement, an ALTER TABLE whose one action adds the constraint `name`. */
+const addedConstraint = (
+	o: ManifestObject,
+	name: string
+): { readonly table: ObjectName; readonly constraint: TableConstraint } | undefined => {
+	const [s, ...rest] = o.ddl
+	if (s?.kind !== "alterTable" || rest.length > 0) {
+		return undefined
+	}
+	const [action, ...more] = s.actions
+	return action.kind === "addConstraint" && more.length === 0 && action.constraint.name === name
+		? { table: s.table, constraint: action.constraint }
+		: undefined
+}
+
+/** The view of one object: its kind's statement, read from its DDL. */
+export const installed = (o: ManifestObject): Installed => {
+	const s = o.ddl[0]
+	const malformed = (form: string): never => refuse(o.ident, form)
+	switch (o.kind) {
+		case "table":
+			return s?.kind === "createTable"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE TABLE")
+		case "enum":
+			return s?.kind === "createEnum"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE TYPE ... AS ENUM")
+		case "domain": {
+			if (o.ddl.length !== 1 || s?.kind !== "createDomain") {
+				return malformed("exactly one CREATE DOMAIN")
+			}
+			const [constraint, ...more] = s.constraints
+			return more.length === 0
+				? { kind: o.kind, object: o, create: s, constraint }
+				: malformed("a CREATE DOMAIN with at most one constraint")
+		}
+		case "materializedView":
+			return s?.kind === "createMaterializedView"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a materialized view")
+		case "index":
+		case "uniqueIndex":
+			return s?.kind === "createIndex"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE INDEX")
+		case "statistics":
+			return s?.kind === "createStatistics"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE STATISTICS")
+		case "lawTrigger":
+			return s?.kind === "createConstraintTrigger"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a law trigger installed by its CREATE CONSTRAINT TRIGGER")
+		case "isolationTrigger":
+			return s?.kind === "createGuardTrigger"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a table's isolation trigger installed by its CREATE TRIGGER")
+		case "lawFunction":
+		case "refusalFunction":
+		case "advanceFunction":
+		case "isolationFunction":
+		case "snapshotGuard":
+			return s?.kind === "createFunction" && s.language === "plpgsql"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE FUNCTION ... LANGUAGE plpgsql")
+		case "worldFunction":
+			return s?.kind === "createFunction" && s.language === "sql"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE FUNCTION ... LANGUAGE sql")
+		case "role":
+			return s?.kind === "createRole"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE ROLE")
+		case "membership":
+			return o.ddl.length === 1 && s?.kind === "grantRole"
+				? { kind: o.kind, object: o, grant: s }
+				: malformed("exactly one GRANT of a role to its login")
+		case "roleSchema":
+			return o.ddl.length === 1 && s?.kind === "createSchema"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("exactly one CREATE SCHEMA")
+		case "view":
+			return o.ddl.length === 1 && s?.kind === "createView"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("exactly one CREATE VIEW")
+		case "policy":
+			return o.ddl.length === 1 && s?.kind === "createPolicy"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("exactly one CREATE POLICY")
+		case "rowSecurity": {
+			const [action, ...more] = s?.kind === "alterTable" && o.ddl.length === 1 ? s.actions : []
+			return s?.kind === "alterTable" && action?.kind === "enableRowSecurity" && more.length === 0
+				? { kind: o.kind, object: o, table: s.table }
+				: malformed("exactly one ALTER TABLE ... ENABLE ROW LEVEL SECURITY")
+		}
+		case "privileges": {
+			const grantee = o.ddl
+				.flatMap((g) => (g.kind === "grant" ? g.to : []))
+				.find((to) => to.kind === "role")
+			return grantee?.kind === "role"
+				? { kind: o.kind, object: o, grantee: grantee.name }
+				: malformed("a grant to a role")
+		}
+		case "storedTag": {
+			const ident = parseIdent(o.ident)
+			const [action, ...more] = s?.kind === "alterTable" && o.ddl.length === 1 ? s.actions : []
+			return ident.kind === "column" &&
+				s?.kind === "alterTable" &&
+				action?.kind === "addColumn" &&
+				more.length === 0 &&
+				action.column.name === ident.name
+				? { kind: o.kind, object: o, table: s.table, column: ident.name, definition: action.column }
+				: malformed("a column of a table its one ALTER TABLE ... ADD COLUMN adds")
+		}
+		case "primaryKey":
+		case "unique":
+		case "check": {
+			const ident = parseIdent(o.ident)
+			if (ident.kind !== "constraint") {
+				return malformed("a table constraint")
+			}
+			const name = ident.name
+			if (o.ddl.length === 0) {
+				return {
+					kind: o.kind,
+					object: o,
+					table: { schema: ident.schema, name: ident.relation },
+					name,
+					placement: { kind: "inline" }
+				}
+			}
+			const kind = o.kind
+			const added = addedConstraint(o, name)
+			const constraint = added === undefined ? undefined : keyOrCheckOf(kind, added.constraint)
+			return added !== undefined && constraint !== undefined
+				? {
+						kind,
+						object: o,
+						table: added.table,
+						name,
+						placement: { kind: "own", constraint }
+					}
+				: malformed(`a ${o.kind} its table declares or its one ALTER TABLE ... ADD CONSTRAINT adds`)
+		}
+		case "foreignKey": {
+			const ident = parseIdent(o.ident)
+			if (ident.kind !== "constraint") {
+				return malformed("a table constraint")
+			}
+			const added = addedConstraint(o, ident.name)
+			return added?.constraint.kind === "foreignKey"
+				? {
+						kind: o.kind,
+						object: o,
+						table: added.table,
+						name: ident.name,
+						constraint: added.constraint
+					}
+				: malformed("a foreign key its one ALTER TABLE ... ADD CONSTRAINT adds")
+		}
+		case "ledger":
+			return s?.kind === "createTable"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("the migrations ledger by its CREATE TABLE")
+		case "schema":
+		case "extension":
+		case "validation":
+		case "databaseDefault":
+			return { kind: o.kind, object: o }
+	}
+}
+
+/** The table or materialized view an object belongs to, read off its view: a relation's own, the table an index, a
+ * statistics object, a law or isolation trigger, a constraint or a stored tag is on, and the ledger's. Every other kind
+ * stands outside any table. */
+export const objectTable = (o: ManifestObject): ObjectName | undefined => {
+	const v = installed(o)
+	switch (v.kind) {
+		case "table":
+		case "ledger":
+			return v.create.table
+		case "materializedView":
+			return v.create.name
+		case "index":
+		case "uniqueIndex":
+		case "statistics":
+		case "lawTrigger":
+		case "isolationTrigger":
+			return v.create.table
+		case "primaryKey":
+		case "unique":
+		case "check":
+		case "foreignKey":
+		case "storedTag":
+		case "rowSecurity":
+			return v.table
+		case "policy":
+			return v.create.table
+		case "enum":
+		case "domain":
+		case "lawFunction":
+		case "refusalFunction":
+		case "advanceFunction":
+		case "isolationFunction":
+		case "snapshotGuard":
+		case "worldFunction":
+		case "role":
+		case "membership":
+		case "privileges":
+		case "roleSchema":
+		case "view":
+		case "schema":
+		case "extension":
+		case "validation":
+		case "databaseDefault":
+			return undefined
+	}
+}
+
+/** Every unqualified or qualified column name an expression or statement names. */
+const columnsOf = (value: unknown): ReadonlyArray<string> => {
+	const out = new Set<string>()
+	const walk = (v: unknown): void => {
+		if (isList(v)) {
+			for (const x of v) {
+				walk(x)
+			}
+			return
+		}
+		if (!isRecord(v)) {
+			return
+		}
+		const r: { readonly [key: string]: unknown } = v
+		if (r["kind"] === "column" && typeof r["column"] === "string") {
+			out.add(r["column"])
+		}
+		for (const child of Object.values(r)) {
+			walk(child)
+		}
+	}
+	walk(value)
+	return [...out]
+}
+
+/** Every column a constraint reads. */
+export const constraintColumns = (c: TableConstraint): ReadonlyArray<string> => {
+	switch (c.kind) {
+		case "primaryKey":
+		case "unique":
+			return c.columns.map((k) => k.column)
+		case "foreignKey":
+			return c.columns.map((k) => k.column)
+		case "exclude":
+			return c.elements.map((e) => e.column)
+		case "check":
+			return columnsOf(c.predicate)
+	}
+}
+
+/** Every column an index reads: its keys, its INCLUDE columns and its predicate's. */
+export const indexColumns = (s: CreateIndex): ReadonlyArray<string> =>
+	columnsOf(s.keys).concat(s.include, columnsOf(s.where ?? []))
+
+/** A key or CHECK object, read through its view. */
+export type KeyOrCheckView = Installed & { readonly kind: "primaryKey" | "unique" | "check" }
+
+/** The definition of a key or CHECK object: its own, or the one its table's CREATE TABLE among `objects` declares under
+ * its name, of its kind. An inline constraint its table does not declare is a defect of the compiler that built the
+ * snapshot. */
+export const keyOrCheckDefinition = (
+	c: KeyOrCheckView,
+	objects: ReadonlyMap<string, ManifestObject>
+): KeyOrCheck => {
+	if (c.placement.kind === "own") {
+		return c.placement.constraint
+	}
+	const table = objects.get(qualifiedIdent("table", c.table.schema, c.table.name))
+	const create = table === undefined ? undefined : installed(table)
+	const declared =
+		create?.kind === "table"
+			? tableConstraints(create.create).find((x) => x.name === c.name)
+			: undefined
+	const inline = declared === undefined ? undefined : keyOrCheckOf(c.kind, declared)
+	return inline ?? refuse(c.object.ident, `a ${c.kind} its table declares`)
+}
+
+/** A table and columns of it that an object's definition reads. */
+export interface BuiltOver {
+	readonly table: ObjectName
+	readonly columns: ReadonlyArray<string>
+}
+
+/** What an object is built over, read for every installed kind in this one place, so every rule asking what a change of
+ * a column reaches (a column converted in place by a type change, dropped and added again, or renamed by a chosen
+ * candidate) asks it here: an index reads its keys, INCLUDE columns and predicate; a statistics object its columns; a
+ * constraint its own, `constraint` giving the definition of one declared inside its table's CREATE TABLE; a law trigger
+ * the columns its UPDATE OF names. Nothing else is built over a table's columns: a table holds them, a stored tag is
+ * one, a table's isolation trigger reads none, and every other kind stands outside any table. */
+export const builtOver = (
+	v: Installed,
+	constraint: (c: KeyOrCheckView) => KeyOrCheck
+): BuiltOver | undefined => {
+	switch (v.kind) {
+		case "index":
+		case "uniqueIndex":
+			return { table: v.create.table, columns: indexColumns(v.create) }
+		case "statistics":
+			return { table: v.create.table, columns: v.create.columns }
+		case "primaryKey":
+		case "unique":
+		case "check":
+			return { table: v.table, columns: constraintColumns(constraint(v)) }
+		case "foreignKey":
+			return { table: v.table, columns: constraintColumns(v.constraint) }
+		case "lawTrigger":
+			return {
+				table: v.create.table,
+				columns: v.create.events.flatMap((e) => (e.kind === "UPDATE" ? e.of : []))
+			}
+		case "table":
+		case "enum":
+		case "domain":
+		case "materializedView":
+		case "lawFunction":
+		case "refusalFunction":
+		case "advanceFunction":
+		case "isolationFunction":
+		case "snapshotGuard":
+		case "isolationTrigger":
+		case "worldFunction":
+		case "role":
+		case "membership":
+		case "privileges":
+		case "roleSchema":
+		case "view":
+		case "policy":
+		case "rowSecurity":
+		case "storedTag":
+		case "schema":
+		case "extension":
+		case "ledger":
+		case "validation":
+		case "databaseDefault":
+			return undefined
+	}
+}
+
+/** The kinds of part a relation owns under a name of its own, in the order a relation's rename takes them
+ * (`renameCandidateTable`): its constraints, its indexes, its extended statistics objects, the columns it holds beside
+ * its declared fields (a stored tag's), the identity sequences of its serial fields, and the law triggers on it. A
+ * constraint's, a column's and a trigger's name lies in its table's namespace; an index's and a sequence's in its
+ * schema's relations and a statistics object's in its schema's statistics objects, but each is built over one table and
+ * stands or goes with it. */
+export const partKinds = [
+	"constraint",
+	"index",
+	"statistics",
+	"column",
+	"sequence",
+	"lawTrigger"
+] as const
+export type PartKind = (typeof partKinds)[number]
+
+/** A part of a relation: its kind, the table it belongs to, its name, and its definition. A constraint declared inside
+ * its table's CREATE TABLE is `inline`. */
+export type Part =
+	| {
+			readonly kind: "constraint"
+			readonly table: ObjectName
+			readonly name: string
+			readonly constraint: TableConstraint
+			readonly inline: boolean
+	  }
+	| {
+			readonly kind: "index"
+			readonly table: ObjectName
+			readonly name: string
+			readonly create: CreateIndex
+	  }
+	| {
+			readonly kind: "statistics"
+			readonly table: ObjectName
+			readonly name: string
+			readonly create: CreateStatistics
+	  }
+	| {
+			readonly kind: "column"
+			readonly table: ObjectName
+			readonly name: string
+			readonly definition: ColumnDef
+	  }
+	| {
+			readonly kind: "sequence"
+			readonly table: ObjectName
+			readonly name: string
+			readonly column: string
+			readonly sequence: ObjectName
+	  }
+	| {
+			readonly kind: "lawTrigger"
+			readonly table: ObjectName
+			readonly name: string
+			readonly create: CreateConstraintTrigger
+	  }
+
+export type PartOf<K extends PartKind> = Extract<Part, { readonly kind: K }>
+
+/** The parts of a relation an object is, read for every installed kind in this one place, so every rule that carries a
+ * relation's parts across a rename, or takes away what one leaves behind, reads one list and no kind of part can be
+ * left out of one of them: a key, check or foreign key, by its name, `constraint` giving the definition of one declared
+ * inside its table's CREATE TABLE; an index; a statistics object; a stored tag; a law trigger; and a table's identity
+ * sequences, one per serial field, in its field order. Nothing else is a part: the table itself is the relation, and
+ * every other kind stands outside any table. */
+export const objectParts = (
+	v: Installed,
+	constraint: (c: KeyOrCheckView) => KeyOrCheck
+): ReadonlyArray<Part> => {
+	switch (v.kind) {
+		case "primaryKey":
+		case "unique":
+		case "check": {
+			const c = constraint(v)
+			return [
+				{
+					kind: "constraint",
+					table: v.table,
+					name: c.name,
+					constraint: c,
+					inline: v.placement.kind === "inline"
+				}
+			]
+		}
+		case "foreignKey":
+			return [
+				{
+					kind: "constraint",
+					table: v.table,
+					name: v.name,
+					constraint: v.constraint,
+					inline: false
+				}
+			]
+		case "index":
+		case "uniqueIndex":
+			return [{ kind: "index", table: v.create.table, name: v.create.name, create: v.create }]
+		case "statistics":
+			return [
+				{
+					kind: "statistics",
+					table: v.create.table,
+					name: v.create.name.name,
+					create: v.create
+				}
+			]
+		case "storedTag":
+			return [{ kind: "column", table: v.table, name: v.column, definition: v.definition }]
+		case "lawTrigger":
+			return [{ kind: "lawTrigger", table: v.create.table, name: v.create.name, create: v.create }]
+		case "table": {
+			const table = v.create.table
+			return v.create.columns.flatMap((c): ReadonlyArray<Part> =>
+				c.generated?.kind === "identity"
+					? [
+							{
+								kind: "sequence",
+								table,
+								name: c.generated.sequence.name,
+								column: c.name,
+								sequence: c.generated.sequence
+							}
+						]
+					: []
+			)
+		}
+		case "isolationTrigger":
+		case "enum":
+		case "domain":
+		case "materializedView":
+		case "lawFunction":
+		case "refusalFunction":
+		case "advanceFunction":
+		case "isolationFunction":
+		case "snapshotGuard":
+		case "worldFunction":
+		case "role":
+		case "membership":
+		case "privileges":
+		case "roleSchema":
+		case "view":
+		case "policy":
+		case "rowSecurity":
+		case "schema":
+		case "extension":
+		case "ledger":
+		case "validation":
+		case "databaseDefault":
+			return []
+	}
+}
+
+/** The parts of a relation of each kind, by name, in the order of the objects that hold them. */
+export type Parts = { readonly [K in PartKind]: ReadonlyMap<string, PartOf<K>> }
+
+/** The parts of the relation `t` among `among`, of each kind by name, in their order (objectParts); a constraint
+ * declared inside its table's CREATE TABLE read from `objects`. */
+export const relationParts = (
+	t: ObjectName,
+	among: Iterable<ManifestObject>,
+	objects: ReadonlyMap<string, ManifestObject>
+): Parts => {
+	const parts = {
+		constraint: new Map<string, PartOf<"constraint">>(),
+		index: new Map<string, PartOf<"index">>(),
+		statistics: new Map<string, PartOf<"statistics">>(),
+		column: new Map<string, PartOf<"column">>(),
+		sequence: new Map<string, PartOf<"sequence">>(),
+		lawTrigger: new Map<string, PartOf<"lawTrigger">>()
+	}
+	for (const o of among) {
+		for (const part of objectParts(installed(o), (c) => keyOrCheckDefinition(c, objects))) {
+			if (nameKey(part.table) !== nameKey(t)) {
+				continue
+			}
+			switch (part.kind) {
+				case "constraint":
+					parts.constraint.set(part.name, part)
+					continue
+				case "index":
+					parts.index.set(part.name, part)
+					continue
+				case "statistics":
+					parts.statistics.set(part.name, part)
+					continue
+				case "column":
+					parts.column.set(part.name, part)
+					continue
+				case "sequence":
+					parts.sequence.set(part.name, part)
+					continue
+				case "lawTrigger":
+					parts.lawTrigger.set(part.name, part)
+					continue
+			}
+		}
+	}
+	return parts
+}
+
+/** The part of its table an ALTER TABLE action adds: a column, or a constraint, which ADD CONSTRAINT ... USING INDEX
+ * adds under its name too. Every other action adds none. */
+export const addedPart = (
+	a: AlterTableAction
+): { readonly kind: "constraint" | "column"; readonly name: string } | undefined => {
+	switch (a.kind) {
+		case "addColumn":
+			return { kind: "column", name: a.column.name }
+		case "addConstraint":
+			return { kind: "constraint", name: a.constraint.name }
+		case "addConstraintUsingIndex":
+			return { kind: "constraint", name: a.name }
+		case "dropColumn":
+		case "dropDefault":
+		case "alterColumnType":
+		case "addIdentity":
+		case "dropIdentity":
+		case "validateConstraint":
+		case "dropConstraint":
+		case "enableRowSecurity":
+		case "disableRowSecurity":
+			return undefined
+	}
+}
+
+/** The key of a name in a set or map: `<schema>.<name>`. */
+export const nameKey = (name: ObjectName): string => `${name.schema}.${name.name}`
+
+/** Renames of schema-qualified names of one catalog namespace (`NameSpace`): a relation's, with its indexes' and
+ * identity sequences', all in pg_class, a type's, or an extended statistics object's. */
+export interface QualifiedNames {
+	readonly namespace: "relation" | "type" | "statistics"
+	readonly names: ReadonlyMap<string, string>
+}
+
+/** Renames of the names that lie in a relation's own namespace, its constraints', by the relation's name in the schema:
+ * a key's constraint, whose index PostgreSQL renames with it. */
+export interface ConstraintNames {
+	readonly namespace: "constraint"
+	readonly names: ReadonlyMap<string, ReadonlyMap<string, string>>
+}
+
+/** Renames of the names of one namespace: a schema's catalog namespace, or each relation's own. */
+export type QualifiedRenames = QualifiedNames | ConstraintNames
+
+export const inRelations = (names: ReadonlyMap<string, string>): QualifiedNames => ({
+	namespace: "relation",
+	names
+})
+
+export const inTypes = (names: ReadonlyMap<string, string>): QualifiedNames => ({
+	namespace: "type",
+	names
+})
+
+export const inStatistics = (names: ReadonlyMap<string, string>): QualifiedNames => ({
+	namespace: "statistics",
+	names
+})
+
+export const inConstraints = (
+	names: ReadonlyMap<string, ReadonlyMap<string, string>>
+): ConstraintNames => ({ namespace: "constraint", names })
+
+/** The rewrite hooks that rename every name in `schema` that `renames` maps and that is looked up in its namespace, at
+ * once, so two names may swap: an object name of that namespace, and for types a named TypeRef; or, a relation's own
+ * namespace, a constraint name of a statement on that relation, by the relation's name the statement spells. Every
+ * other value is shared. A name of another namespace is never renamed. Across a migration one name may denote a removed
+ * relation and an added type, such as a closed relation renamed onto the name a relation left, and the relation's
+ * rename then leaves the type's references alone. */
+const renameHooks = (schema: string, renames: QualifiedRenames): AstHooks => {
+	switch (renames.namespace) {
+		case "constraint": {
+			const scoped = renames.names
+			return {
+				...identityHooks,
+				constraintName: (table, name) =>
+					(table.schema === schema ? scoped.get(table.name)?.get(name) : undefined) ?? name
+			}
+		}
+		case "relation":
+		case "type":
+		case "statistics": {
+			const { namespace, names } = renames
+			const renamed = <Q extends ObjectName>(q: Q): Q => {
+				if (q.schema !== schema) {
+					return q
+				}
+				const to = names.get(q.name)
+				return to === undefined ? q : { ...q, name: to }
+			}
+			return {
+				...identityHooks,
+				objectName: (q, space) => (space === namespace ? renamed(q) : q),
+				typeRef: (t) => (namespace === "type" && t.kind === "named" ? renamed(t) : t)
+			}
+		}
+	}
+}
+
+/** A list of statements with every schema-qualified name in `schema` that `renames` maps renamed: the same list when
+ * none is. */
+export const renameQualified = (
+	statements: ReadonlyArray<SqlStatement>,
+	schema: string,
+	renames: QualifiedRenames
+): ReadonlyArray<SqlStatement> =>
+	renames.names.size === 0
+		? statements
+		: transformStatements(statements, renameHooks(schema, renames))
+
+/** One statement with every schema-qualified name in `schema` that `renames` maps renamed: the same statement value
+ * when none is, so a caller tells a renamed statement by identity. */
+export const renameStatement = (
+	statement: SqlStatement,
+	schema: string,
+	renames: QualifiedRenames
+): SqlStatement =>
+	renames.names.size === 0 ? statement : transformStatement(statement, renameHooks(schema, renames))

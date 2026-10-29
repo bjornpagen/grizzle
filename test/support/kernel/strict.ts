@@ -1,0 +1,477 @@
+import { Option, Result, String as Str } from "effect"
+import { toResult } from "#adapter/engine.ts"
+import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import type { ValueFault } from "#compiler/core/errors.ts"
+import { validateText } from "#compiler/core/text.ts"
+import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { canonicalZero, decimalToBinary32 } from "#compiler/scalar/values/float.ts"
+import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
+import {
+	int2Max,
+	int2Min,
+	int4Max,
+	int4Min,
+	int8Max,
+	int8Min
+} from "#compiler/scalar/values/integer.ts"
+import { Money, moneyFractionDigits } from "#compiler/scalar/values/money.ts"
+import {
+	makeSpan,
+	type Span,
+	type SpanEndpoint,
+	type SpanEndpointHost
+} from "#compiler/scalar/values/span.ts"
+import { toUuid } from "#compiler/scalar/values/uuid.ts"
+import { Vector } from "#compiler/scalar/values/vector.ts"
+
+/**
+ * Why a text is no output text of the type: the words the library's decoders used before the conversions trusted their
+ * texts, and the value words of the carriers whose boundaries the strict reading shares (uuidSyntax, textNul,
+ * textSurrogate, integerRange, enumHandle, vectorDimensions).
+ */
+const strictFaults = [
+	"integerSyntax",
+	"numericSyntax",
+	"numericShape",
+	"floatSyntax",
+	"floatRange",
+	"boolSyntax",
+	"moneyShape",
+	"spanSyntax",
+	"vectorSyntax",
+	"vectorOverflow"
+] as const
+export type StrictFault = (typeof strictFaults)[number] | ValueFault
+
+const isDigit = (code: number): boolean => code >= 0x30 && code <= 0x39
+
+/** Whether `text` holds the UTF-16 code unit `code` at `at`; past its end it holds none. */
+const codeIs = (text: string, at: number, code: number): boolean =>
+	Option.contains(Str.charCodeAt(text, at), code)
+
+/** The UTF-16 code unit of `text` at `at`, as a string; past its end, the empty string. */
+const unitAt = (text: string, at: number): string =>
+	Option.getOrElse(Str.charAt(text, at), () => "")
+
+/** Whether `text` holds an ASCII digit at `at`; past its end it holds none. */
+const digitAt = (text: string, at: number): boolean =>
+	Option.exists(Str.charCodeAt(text, at), isDigit)
+
+/**
+ * Integer output: an optional minus sign and one to nineteen digits without leading zeros (int2out, int4out, int8out).
+ */
+const isIntegerText = (text: string): boolean => {
+	const start = codeIs(text, 0, 0x2d) ? 1 : 0
+	const digits = text.length - start
+	if (digits < 1 || digits > 19) {
+		return false
+	}
+	for (let i = start; i < text.length; i++) {
+		if (!digitAt(text, i)) {
+			return false
+		}
+	}
+	return digits === 1 || !codeIs(text, start, 0x30)
+}
+
+const readSmall =
+	(min: number, max: number) =>
+	(text: string): Result.Result<number, StrictFault> => {
+		if (!isIntegerText(text) || text === "-0") {
+			return Result.fail("integerSyntax")
+		}
+		const n = Number(text)
+		return n >= min && n <= max ? Result.succeed(n) : Result.fail("integerRange")
+	}
+
+const readInt8 = (text: string): Result.Result<bigint, StrictFault> => {
+	if (!isIntegerText(text) || text === "-0") {
+		return Result.fail("integerSyntax")
+	}
+	const n = BigInt(text)
+	return n >= int8Min && n <= int8Max ? Result.succeed(n) : Result.fail("integerRange")
+}
+
+/**
+ * numeric_out text: the Decimal Decimal.fromString reads writes the text back, so the text is in output form; at the
+ * declared precision and scale when there is one, so the value is one the column stores.
+ */
+const readNumeric =
+	(spec: SpecOf<"numeric">) =>
+	(text: string): Result.Result<Decimal, StrictFault> => {
+		const parsed = Decimal.fromString(text)
+		if (!parsed.ok || parsed.value.toString() !== text) {
+			return Result.fail("numericSyntax")
+		}
+		if (spec.typmod === undefined) {
+			return Result.succeed(parsed.value)
+		}
+		const normalized = normalizeNumeric(parsed.value, spec.typmod)
+		return normalized.ok && normalized.value.toString() === text
+			? Result.succeed(parsed.value)
+			: Result.fail("numericShape")
+	}
+
+/** money::numeric text: an exact amount of at most two fractional digits (cash_numeric), read without rounding. */
+const readMoney = (text: string): Result.Result<Money, StrictFault> => {
+	const parsed = Decimal.fromString(text)
+	if (!parsed.ok || parsed.value.toString() !== text) {
+		return Result.fail("numericSyntax")
+	}
+	const d = parsed.value
+	if (!d.isFinite() || d.scale > moneyFractionDigits) {
+		return Result.fail("moneyShape")
+	}
+	const money = Money.fromDecimal(d)
+	return money.ok ? Result.succeed(money.value) : Result.fail("moneyShape")
+}
+
+const readBool = (text: string): Result.Result<boolean, StrictFault> => {
+	if (text === "t" || text === "true") {
+		return Result.succeed(true)
+	}
+	if (text === "f" || text === "false") {
+		return Result.succeed(false)
+	}
+	return Result.fail("boolSyntax")
+}
+
+/**
+ * A decimal float text: an optional minus sign, digits, an optional fraction of at least one digit, and an optional
+ * exponent (e or E, an optional sign, one to six digits). Leading zeros are admitted, as strtod admits them.
+ */
+interface FloatParts {
+	readonly sign: "+" | "-"
+	readonly coefficient: bigint
+	readonly exponent: number
+}
+
+const parseParts = (text: string): FloatParts | undefined => {
+	const n = text.length
+	let i = 0
+	const negative = codeIs(text, 0, 0x2d)
+	if (negative) {
+		i = 1
+	}
+	const intStart = i
+	while (i < n && digitAt(text, i)) {
+		i++
+	}
+	if (i === intStart) {
+		return undefined
+	}
+	const int = Str.slice(intStart, i)(text)
+	let frac = ""
+	if (i < n && codeIs(text, i, 0x2e)) {
+		const fracStart = ++i
+		while (i < n && digitAt(text, i)) {
+			i++
+		}
+		if (i === fracStart) {
+			return undefined
+		}
+		frac = Str.slice(fracStart, i)(text)
+	}
+	let exponent = 0
+	if (i < n && (codeIs(text, i, 0x65) || codeIs(text, i, 0x45))) {
+		i++
+		let expNegative = false
+		if (i < n && (codeIs(text, i, 0x2b) || codeIs(text, i, 0x2d))) {
+			expNegative = codeIs(text, i, 0x2d)
+			i++
+		}
+		const expStart = i
+		while (i < n && digitAt(text, i)) {
+			i++
+		}
+		if (i === expStart || i - expStart > 6) {
+			return undefined
+		}
+		const magnitude = Number(Str.slice(expStart, i)(text))
+		exponent = expNegative ? -magnitude : magnitude
+	}
+	if (i !== n) {
+		return undefined
+	}
+	return {
+		sign: negative ? "-" : "+",
+		coefficient: BigInt(int + frac),
+		exponent: exponent - frac.length
+	}
+}
+
+const specials: ReadonlyMap<string, number> = new Map([
+	["NaN", Number.NaN],
+	["Infinity", Number.POSITIVE_INFINITY],
+	["-Infinity", Number.NEGATIVE_INFINITY]
+])
+
+/** A double precision output text: its binary64 value, -0 as +0. */
+export const strictDouble = (text: string): Result.Result<number, StrictFault> => {
+	const special = specials.get(text)
+	if (special !== undefined) {
+		return Result.succeed(special)
+	}
+	if (parseParts(text) === undefined) {
+		return Result.fail("floatSyntax")
+	}
+	const x = Number(text)
+	return Number.isFinite(x) ? Result.succeed(canonicalZero(x)) : Result.fail("floatRange")
+}
+
+/** A finite binary32 text, exactly rounded; a text that overflows or underflows a nonzero value is refused. */
+const finiteBinary32 = (text: string): Result.Result<number, StrictFault> => {
+	const parts = parseParts(text)
+	if (parts === undefined) {
+		return Result.fail("floatSyntax")
+	}
+	const magnitude = decimalToBinary32(parts.coefficient, parts.exponent)
+	if (!Number.isFinite(magnitude)) {
+		return Result.fail("floatRange")
+	}
+	if (magnitude === 0 && parts.coefficient !== 0n) {
+		return Result.fail("floatRange")
+	}
+	return Result.succeed(canonicalZero(parts.sign === "-" ? -magnitude : magnitude))
+}
+
+/** A real output text: its binary32 value exactly, -0 as +0. */
+export const strictReal = (text: string): Result.Result<number, StrictFault> => {
+	const special = specials.get(text)
+	return special !== undefined ? Result.succeed(special) : finiteBinary32(text)
+}
+
+/** A vector component text: finite only (pgvector refuses NaN and infinity). */
+export const strictComponent = (text: string): Result.Result<number, StrictFault> =>
+	finiteBinary32(text)
+
+/** range_out of a nonempty bounded half-open integer range, "[start,end)", each endpoint an integer output text. */
+const spanEndpoints = (text: string): readonly [string, string] | undefined => {
+	const n = text.length
+	if (n < 5 || !codeIs(text, 0, 0x5b) || !codeIs(text, n - 1, 0x29)) {
+		return undefined
+	}
+	const comma = Str.indexOf(",")(text)
+	if (Option.isNone(comma)) {
+		return undefined
+	}
+	const endpoint = (from: number, to: number): string | undefined => {
+		const start = codeIs(text, from, 0x2d) ? from + 1 : from
+		const digits = to - start
+		if (digits < 1 || digits > 19) {
+			return undefined
+		}
+		for (let i = start; i < to; i++) {
+			if (!digitAt(text, i)) {
+				return undefined
+			}
+		}
+		return Str.slice(from, to)(text)
+	}
+	const start = endpoint(1, comma.value)
+	const end = endpoint(comma.value + 1, n - 1)
+	return start === undefined || end === undefined ? undefined : [start, end]
+}
+
+const endpointReaders: {
+	readonly [P in SpanEndpoint]: (text: string) => Result.Result<SpanEndpointHost[P], StrictFault>
+} = {
+	int4: readSmall(int4Min, int4Max),
+	int8: readInt8
+}
+
+const readSpan =
+	<P extends SpanEndpoint>(endpoint: P) =>
+	(text: string): Result.Result<Span<SpanEndpointHost[P]>, StrictFault> => {
+		const endpoints = spanEndpoints(text)
+		if (endpoints === undefined) {
+			return Result.fail("spanSyntax")
+		}
+		const read: (text: string) => Result.Result<SpanEndpointHost[P], StrictFault> =
+			endpointReaders[endpoint]
+		const s = read(endpoints[0])
+		const e = read(endpoints[1])
+		if (Result.isFailure(s) || Result.isFailure(e)) {
+			return Result.fail("spanSyntax")
+		}
+		const span = makeSpan(endpoint, s.success, e.success)
+		return span.ok ? Result.succeed(span.value) : Result.fail("spanSyntax")
+	}
+
+/** vector_out text: "[c1,...,cn]" of exactly the column's dimensions, each component read exactly as binary32. */
+const readVector =
+	(spec: SpecOf<"vector">) =>
+	(text: string): Result.Result<Vector, StrictFault> => {
+		const last = text.length - 1
+		if (text.length < 3 || !codeIs(text, 0, 0x5b) || !codeIs(text, last, 0x5d)) {
+			return Result.fail("vectorSyntax")
+		}
+		const buffer = new Float32Array(spec.dimensions)
+		let i = 0
+		let start = 1
+		while (start <= last) {
+			const comma = Option.map(Str.indexOf(",")(Str.slice(start)(text)), (at) => start + at)
+			const end = Option.isNone(comma) || comma.value > last ? last : comma.value
+			if (i >= buffer.length) {
+				return Result.fail("vectorDimensions")
+			}
+			const c = strictComponent(Str.slice(start, end)(text))
+			if (Result.isFailure(c)) {
+				return Result.fail(c.failure === "floatSyntax" ? "vectorSyntax" : "vectorOverflow")
+			}
+			buffer[i] = c.success
+			i++
+			start = end + 1
+		}
+		if (i !== buffer.length) {
+			return Result.fail("vectorDimensions")
+		}
+		return toResult(Vector.admit(buffer, spec.dimensions))
+	}
+
+const readers: {
+	readonly [C in Carrier]: (
+		spec: SpecOf<C>
+	) => (text: string) => Result.Result<CarrierHost[C], StrictFault>
+} = {
+	int2: () => readSmall(int2Min, int2Max),
+	int4: () => readSmall(int4Min, int4Max),
+	int8: () => readInt8,
+	numeric: (spec) => readNumeric(spec),
+	float4: () => strictReal,
+	float8: () => strictDouble,
+	money: () => readMoney,
+	bool: () => readBool,
+	uuid: () => (text) => toResult(toUuid(text)),
+	text: () => (text) => toResult(validateText(text)),
+	enum: (spec) => (text) =>
+		spec.handles.includes(text) ? Result.succeed(text) : Result.fail("enumHandle"),
+	range4: () => readSpan("int4"),
+	range8: () => readSpan("int8"),
+	vector: (spec) => readVector(spec)
+}
+
+const readerOf = <C extends Carrier>(
+	spec: SpecOf<C> & CarrierSpec
+): ((text: string) => Result.Result<CarrierHost[Carrier], StrictFault>) => {
+	const own: SpecOf<C> = spec
+	const of: (spec: SpecOf<C>) => (text: string) => Result.Result<CarrierHost[C], StrictFault> =
+		readers[own.carrier]
+	return of(own)
+}
+
+/**
+ * The strict reader of a column type's output texts, built once per type.
+ *
+ * The strict readers of PostgreSQL's output texts, one per carrier: the test kernel's side of the trusting conversions.
+ *
+ * src converts a result text without a check (packages/engine/src/scalar/values/convert.ts): the text is PostgreSQL's own
+ * output of a value of the column's type, so the library reads it at its cheapest. The kernel keeps the strict reading
+ * of the same texts, which admits only the spellings PostgreSQL's output functions write for a value of the type, and
+ * refuses every other text with a named fault: the public-boundary differential (test/pg/oracle/public) reads every
+ * delivered cell's text through it and requires the trusting conversion to agree, so a converter that misreads a text
+ * PostgreSQL really writes fails there, and the codec tests pin each carrier's output grammar here.
+ *
+ * | Carrier | Admitted text |
+ * | --- | --- |
+ * | int2, int4, int8 | an optional minus sign and one to nineteen digits without a leading zero, no -0, in range |
+ * | numeric | numeric_out text (Decimal.fromString's value writes it back), at the declared typmod |
+ * | float4, float8 | a shortest round-trip decimal, NaN, Infinity or -Infinity; a real read exactly as binary32 |
+ * | money | money::numeric text: a finite amount with at most two fractional digits, within int64 |
+ * | bool | t, f, true, false |
+ * | uuid | a hyphenated uuid, read as its lowercase spelling |
+ * | text | well-formed text without NUL |
+ * | enum | a handle of the roster |
+ * | range4, range8 | [start,end) of in-range endpoints, start < end |
+ * | vector | [c1,...,cn] of exactly the dimensions, finite binary32 components |
+ */
+export const strictReader = (
+	type: ScalarType
+): ((text: string) => Result.Result<CarrierHost[Carrier], StrictFault>) =>
+	readerOf(carrierSpecOf(type))
+
+/** The value of PostgreSQL's output `text` of a value of `type`, or why it is no such text. */
+export const strictRead = (
+	type: ScalarType,
+	text: string
+): Result.Result<CarrierHost[Carrier], StrictFault> => strictReader(type)(text)
+
+/** An element of array_out's text: its value, `null` for a NULL element, and the index just past it. */
+interface ArrayElement {
+	readonly value: string | null
+	readonly next: number
+}
+
+/** A double-quoted element from its opening quote at `i`, each backslash escape undone; `end` is the closing brace. */
+const quoted = (text: string, i: number, end: number): Result.Result<ArrayElement, "syntax"> => {
+	let value = ""
+	let at = i + 1
+	while (at < end) {
+		const ch = unitAt(text, at)
+		if (ch === '"') {
+			return Result.succeed({ value, next: at + 1 })
+		}
+		const escaped = ch === "\\"
+		if (escaped && at + 1 >= end) {
+			return Result.fail("syntax")
+		}
+		value += escaped ? unitAt(text, at + 1) : ch
+		at += escaped ? 2 : 1
+	}
+	return Result.fail("syntax")
+}
+
+/** An unquoted element from `i` up to the next comma, NULL in any case spelling a NULL element; `end` is the closing brace. */
+const bare = (text: string, i: number, end: number): Result.Result<ArrayElement, "syntax"> => {
+	let at = i
+	while (at < end && text[at] !== ",") {
+		const ch = unitAt(text, at)
+		if (ch === '"' || ch === "{" || ch === "}" || ch === "\\") {
+			return Result.fail("syntax")
+		}
+		at += 1
+	}
+	const value = Str.slice(i, at)(text)
+	if (value.length === 0) {
+		return Result.fail("syntax")
+	}
+	return Result.succeed({ value: Str.toUpperCase(value) === "NULL" ? null : value, next: at })
+}
+
+/**
+ * The elements of a one-dimensional array's text output (array_out), read strictly: `{}` when empty, elements separated
+ * by commas, an element double-quoted when it is empty, holds a delimiter, brace, quote, backslash or whitespace, or
+ * spells NULL, with `\"` and `\\` escaped inside quotes; an unquoted NULL is a NULL element, `null` here. Any other
+ * text is a syntax fault. src reads a fused attachment's array without a check (lower/shapes/attach/decode.ts
+ * arrayElements), and must agree with this reading on every text PostgreSQL writes.
+ */
+export const strictArrayText = (
+	text: string
+): Result.Result<ReadonlyArray<string | null>, "syntax"> => {
+	if (text.length < 2 || !Str.startsWith("{")(text) || !Str.endsWith("}")(text)) {
+		return Result.fail("syntax")
+	}
+	const out: Array<string | null> = []
+	if (text.length === 2) {
+		return Result.succeed(out)
+	}
+	const end = text.length - 1
+	let i = 1
+	for (;;) {
+		const element =
+			i >= end ? Result.fail("syntax") : text[i] === '"' ? quoted(text, i, end) : bare(text, i, end)
+		if (Result.isFailure(element)) {
+			return Result.fail("syntax")
+		}
+		out.push(element.success.value)
+		i = element.success.next
+		if (i === end) {
+			return Result.succeed(out)
+		}
+		if (text[i] !== ",") {
+			return Result.fail("syntax")
+		}
+		i += 1
+	}
+}

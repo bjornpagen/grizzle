@@ -1,0 +1,991 @@
+import type { WildKind } from "@grizzle/testing/lsw"
+import type { Array as Arr } from "effect"
+import type { Identity } from "#compiler/core/identity.ts"
+import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import type {
+	HostBound,
+	HostFact,
+	HostSchema,
+	HostState,
+	HostValue,
+	HostWeight
+} from "#test/pg/laws/families/model.ts"
+
+/**
+ * The worlds model's shared vocabulary: what a base, an installation, a session, an action and an observation are, as
+ * the model, the real-system executor, the generators, the drivers, the feature map and the suites all name them.
+ *
+ * The model is independent of grizzle's source: it reads no compiler representation. Laws are judged by the host law
+ * model (test/pg/laws/families/model.ts). Facts and values are that model's `HostFact` and `Value`.
+ */
+export type { HostBound, HostFact, HostSchema, HostState, HostValue, HostWeight }
+
+/** The domain a field's values are drawn from, as the base declares it. */
+export type FieldDomain =
+	| { readonly kind: "uuid" }
+	| {
+			readonly kind: "text"
+			readonly pattern: string
+			readonly flags: "u" | "su"
+			/** Its pattern compiled, as the domain is built (text.ts textDomain). */
+			readonly matcher: RegExp
+			/** Its pool of values, drawn as the domain is built (text.ts textDomain). */
+			readonly pool: Arr.NonEmptyReadonlyArray<string>
+	  }
+	| { readonly kind: "integer"; readonly bits: 16 | 32 | 64 }
+	| { readonly kind: "serial"; readonly bits: 32 | 64 }
+	| { readonly kind: "boolean" }
+	| {
+			readonly kind: "handle"
+			readonly closed: string
+			readonly members: Arr.NonEmptyReadonlyArray<string>
+	  }
+	| { readonly kind: "span"; readonly bits: 32 | 64 }
+	| {
+			readonly kind: "contract"
+			readonly name: string
+			readonly bits: 16 | 32 | 64
+			readonly min: number
+			readonly max: number
+	  }
+
+export interface FieldSpec {
+	readonly name: string
+	readonly domain: FieldDomain
+}
+
+/** An ordinary relation of the base. Immutable relations add and delete facts; mutable ones also replace in place. */
+export interface RelationSpec {
+	readonly name: string
+	readonly fields: Arr.NonEmptyReadonlyArray<FieldSpec>
+	readonly key: Arr.NonEmptyReadonlyArray<string>
+	readonly mutability: "immutable" | "mutable"
+}
+
+/** A side of a law: a relation, its paired fields in pair order, and the field values its selector fixes. */
+export interface SideSpec {
+	readonly relation: string
+	readonly fields: Arr.NonEmptyReadonlyArray<string>
+	readonly where: Readonly<Record<string, HostValue>>
+}
+
+/** A row check the host can evaluate: comparisons of a field with an integer literal, conjoined. */
+export type RowPredicate =
+	| {
+			readonly kind: "compare"
+			readonly field: string
+			readonly op: ComparisonOp
+			readonly value: number
+	  }
+	| { readonly kind: "and"; readonly parts: Arr.NonEmptyReadonlyArray<RowPredicate> }
+
+export type ComparisonOp = "<" | "<=" | "=" | "<>" | ">=" | ">"
+
+/** A law as the base declares it, one arm per law family README "Rules" lists. */
+export type LawSpec =
+	| {
+			readonly kind: "key"
+			readonly relation: string
+			readonly fields: Arr.NonEmptyReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "spanKey"
+			readonly relation: string
+			readonly scalars: ReadonlyArray<string>
+			readonly span: string
+			/** Where key() lists the span among the key's fields: before its scalars or after them. */
+			readonly spanAt: "first" | "last"
+	  }
+	| {
+			readonly kind: "check"
+			readonly name: string
+			readonly relation: string
+			readonly predicate: RowPredicate
+	  }
+	| { readonly kind: "contained"; readonly source: SideSpec; readonly target: SideSpec }
+	| { readonly kind: "mirrors"; readonly left: SideSpec; readonly right: SideSpec }
+	| {
+			readonly kind: "covered"
+			readonly source: SideSpec
+			readonly target: SideSpec
+			readonly span: { readonly source: string; readonly target: string }
+	  }
+	| {
+			readonly kind: "alternatives"
+			readonly relation: string
+			readonly tag: string
+			readonly closed: string
+			readonly arms: Readonly<Record<string, string>>
+	  }
+	| {
+			readonly kind: "capacity"
+			readonly target: SideSpec
+			readonly source: SideSpec
+			readonly weight: HostWeight
+			readonly low: HostBound
+			readonly high: HostBound | "*"
+	  }
+
+/** Where a context reads its fields in the verified token's payload: the top level, or one named claim object. */
+export type ClaimSource =
+	| { readonly kind: "top-level" }
+	| { readonly kind: "object"; readonly key: string }
+
+/** A session context: at most one fact per Db, decoded from the verified token. */
+export interface ContextSpec {
+	readonly name: string
+	readonly claim: ClaimSource
+	readonly fields: Arr.NonEmptyReadonlyArray<FieldSpec>
+}
+
+/** A closed roster of the base. */
+export interface ClosedSpec {
+	readonly name: string
+	readonly members: Arr.NonEmptyReadonlyArray<string>
+}
+
+/** A stored query of the base, installed as a materialized view and brought up to date only by a refresh. */
+export interface DerivedSpec {
+	readonly name: string
+	readonly rules: Arr.NonEmptyReadonlyArray<Rule>
+}
+
+export interface BaseSpec {
+	readonly name: string
+	readonly closed: ReadonlyArray<ClosedSpec>
+	readonly relations: Arr.NonEmptyReadonlyArray<RelationSpec>
+	readonly laws: ReadonlyArray<LawSpec>
+	readonly contexts: ReadonlyArray<ContextSpec>
+	readonly derived: ReadonlyArray<DerivedSpec>
+}
+
+/** A term of a rule: a variable, a literal, or a field of a context's fact. */
+export type Term =
+	| { readonly kind: "var"; readonly name: string }
+	| { readonly kind: "literal"; readonly value: HostValue }
+	| { readonly kind: "context"; readonly context: string; readonly field: string }
+
+/**
+ * A roster's typed handle (`X.handle("Member")`): the member's literal at the roster's enum, its type carried by the
+ * value. Only a head holds one; a literal that meets a column, in a match or a comparison, keeps its plain spelling.
+ */
+export interface HandleTerm {
+	readonly kind: "handle"
+	readonly closed: string
+	readonly member: string
+}
+
+/** A head term: a term, or a typed handle. */
+export type HeadTerm = Term | HandleTerm
+
+/** What an occurrence matches: an ordinary, closed or derived relation of the base, or a context, each by its kind. */
+export type Source = {
+	readonly kind: "ordinary" | "closed" | "derived" | "context"
+	readonly name: string
+}
+
+/** One match of a rule: each named field bound to a term; unnamed fields are free. */
+export interface Occurrence {
+	readonly source: Source
+	readonly fields: Readonly<Record<string, Term>>
+}
+
+export interface Comparison {
+	readonly left: Term
+	readonly op: ComparisonOp
+	readonly right: Term
+}
+
+/**
+ * One rule with set semantics: every match holds, no negated conjunction holds, every comparison holds; the head maps
+ * each head field to a term. A shared variable is a join; a second rule of an entry is a union.
+ */
+export interface Rule {
+	readonly matches: Arr.NonEmptyReadonlyArray<Occurrence>
+	readonly negations: ReadonlyArray<Arr.NonEmptyReadonlyArray<Occurrence>>
+	readonly comparisons: ReadonlyArray<Comparison>
+	readonly head: Readonly<Record<string, HeadTerm>>
+}
+
+/** A role relation: a base relation held whole under its own name, or a query over the base installed as a view. */
+export type EntrySpec =
+	| { readonly kind: "whole"; readonly relation: string }
+	| { readonly kind: "query"; readonly rules: Arr.NonEmptyReadonlyArray<Rule> }
+
+export interface RoleSpec {
+	readonly name: string
+	readonly entries: Readonly<Record<string, EntrySpec>>
+	readonly write: ReadonlyArray<string>
+	readonly refresh: ReadonlyArray<string>
+}
+
+export interface LoginSpec {
+	readonly name: string
+	readonly roles: Arr.NonEmptyReadonlyArray<string>
+}
+
+/** A base with its worlds: every role in exactly one login. */
+export interface InstallSpec {
+	readonly base: BaseSpec
+	readonly roles: Arr.NonEmptyReadonlyArray<RoleSpec>
+	readonly logins: Arr.NonEmptyReadonlyArray<LoginSpec>
+}
+
+/** The law identities the compiler gave one declared law: one for most laws, a pair for mirrors, one per arm for alternatives. */
+export type LawIds =
+	| {
+			readonly kind: "key" | "spanKey" | "check" | "contained" | "covered" | "capacity"
+			readonly law: LawId
+	  }
+	| { readonly kind: "mirrors"; readonly leftToRight: LawId; readonly rightToLeft: LawId }
+	| {
+			readonly kind: "alternatives"
+			readonly head: LawId
+			/** Each armed handle's law, keyed by the handle. */
+			readonly arms: Readonly<Record<string, LawId>>
+			readonly reverse: LawId
+	  }
+
+/** The names the compiler gave an installation, read back from it by the executor: never spelled by a test. */
+export interface InstalledNames {
+	/** The identity of the installed schema, which the naming door mints every installation-scoped name under: each
+	 * role's schema, filter functions and key probes (core/identity.ts). */
+	readonly installation: Identity<"schema">
+	readonly schema: string
+	readonly tables: Readonly<Record<string, string>>
+	readonly columns: Readonly<Record<string, Readonly<Record<string, string>>>>
+	/** Each relation's primary-key law. A span primary key is a span-key law. */
+	readonly primaryKeys: Readonly<Record<string, LawId>>
+	/** The law identities of each `BaseSpec.laws` entry, aligned by index and of the same kind. */
+	readonly laws: ReadonlyArray<LawIds>
+	/**
+	 * The installed name of each at-most-one count capacity's unique index (host.ts atMostOne), by the capacity's law: a
+	 * query entry's unique probe is named by its role, its entry and that index (core/identity.ts uniqueProbe).
+	 */
+	readonly uniqueIndexes: Readonly<Record<string, ConstraintName>>
+	/**
+	 * The CHECK law of each contract and refined-text DOMAIN, by its domain's name: a written value outside a contract's
+	 * range or a text's pattern passes grizzle's encoder (it checks the base type) and is refused by the domain's CHECK
+	 * as its statement casts it, before row constraints and policies.
+	 */
+	readonly domains: Readonly<Record<string, LawId>>
+	/** The PostgreSQL role of each grizzle role and login. */
+	readonly roles: Readonly<Record<string, string>>
+	readonly logins: Readonly<Record<string, string>>
+}
+
+/**
+ * Why a query entry cannot be written, restating the writable-entry rule of README "Writing through a role" clause by clause: a field of the
+ * target outside the head and outside its primary key that is not fixed is `field-not-fixed`; a primary-key field
+ * neither in the head nor fixed is `key-not-determined`. Every other match, negation and comparison of a rule only
+ * filters under set semantics, so no refusal names it.
+ */
+export type WritableRefusal =
+	| "several-rules"
+	| "no-supplier"
+	| "head-term-not-own-field"
+	| "field-not-fixed"
+	| "key-not-determined"
+
+/** How an insert through a writable entry fills a field of its target that the head does not carry. */
+export type Fill =
+	| { readonly kind: "literal"; readonly value: HostValue }
+	| { readonly kind: "context"; readonly context: string; readonly field: string }
+
+/**
+ * A head field of a writable entry: the field of T it writes, and how an UPDATE in place of T's row stands toward it,
+ * as grizzle's analysis classifies it (schema/entry.ts HeadField). `keyed`: in a key of T, its primary key or a key or
+ * span key a law states, the identity an UPDATE matches by; it wins over the others. `claimFixed`: outside every key,
+ * its head variable bound by a field of a positive context match of the rule (a head context term such as
+ * `Session.sub`, or a variable a context match binds), so every fact of the world holds the claim's value there; one
+ * bound to the claim only through a join is not. `free`: any other. A role holds column UPDATE on a query entry's free
+ * head fields alone.
+ */
+export interface HeadField {
+	readonly field: string
+	readonly kind: "free" | "claimFixed" | "keyed"
+}
+
+export type EntryClass =
+	| {
+			readonly kind: "writable"
+			readonly target: string
+			/** Each head field, the target field it supplies and its standing. */
+			readonly head: Readonly<Record<string, HeadField>>
+			readonly fills: Readonly<Record<string, Fill>>
+	  }
+	| { readonly kind: "read-only"; readonly reason: WritableRefusal }
+
+/** The facts a session's claims hold, per context name; a context without a key has no fact. */
+export type ContextFacts = Readonly<Record<string, HostFact>>
+
+/** Where a stale value comes from. */
+export type StaleSource =
+	| "removed-user"
+	| "left-organization"
+	| "deleted-organization"
+	| "previous-request"
+
+/** Why a wild token payload is wild. */
+export type TokenWild =
+	| "not-json"
+	| "claim-object-missing"
+	| "claim-object-null"
+	| "claim-object-array"
+	| "field-missing"
+	| "field-wrong-type"
+	| "unsafe-integer"
+	| "int8-not-digits"
+	| "lone-surrogate"
+	| "nul-character"
+	| "proto-key"
+	| "huge-payload"
+	| "pattern-edge"
+	| "extra-fields"
+	| "verify-throws"
+	| "verify-not-object"
+
+/** A token handed to `Db.open`: none, a live payload, a stale one, or a wild one. */
+export type Token =
+	| { readonly kind: "none" }
+	| { readonly kind: "live"; readonly payload: Readonly<Record<string, unknown>> }
+	| {
+			readonly kind: "stale"
+			readonly payload: Readonly<Record<string, unknown>>
+			readonly source: StaleSource
+	  }
+	| { readonly kind: "wild"; readonly text: string; readonly wild: TokenWild }
+
+/** A PostgreSQL role a direct writer names. */
+export type RoleRef =
+	| { readonly kind: "own"; readonly role: string }
+	| { readonly kind: "other-login"; readonly role: string }
+	| { readonly kind: "dropped"; readonly role: string }
+	| { readonly kind: "nonexistent"; readonly name: string }
+	| { readonly kind: "owner" }
+
+export type SettingScope = "transaction" | "session"
+
+/** What a direct writer sets `grizzle.claims` to. */
+export type ClaimsSetting =
+	| { readonly kind: "facts"; readonly facts: ContextFacts; readonly scope: SettingScope }
+	| { readonly kind: "malformed"; readonly text: string; readonly scope: SettingScope }
+
+/** A function the installation defines that a direct writer may try to call. */
+export type WorldFunction =
+	| { readonly kind: "filter"; readonly role: string; readonly entry: string }
+	| {
+			readonly kind: "key-probe"
+			readonly role: string
+			readonly entry: string
+			readonly key: number
+	  }
+	| {
+			readonly kind: "unique-probe"
+			readonly role: string
+			readonly entry: string
+			readonly unique: number
+	  }
+	| { readonly kind: "advance"; readonly relation: string; readonly field: string }
+	| { readonly kind: "law"; readonly law: LawId }
+
+export type Isolation = "serializable" | "repeatable read" | "read committed" | "read uncommitted"
+
+/**
+ * How a direct read of a role's view filters: not at all, or with a predicate that raises on one value of one field, so
+ * a security-barrier view shows whether the world's filter runs before a caller's expression.
+ */
+export type ViewFilter =
+	| { readonly kind: "none" }
+	| { readonly kind: "raise-on"; readonly field: string; readonly value: HostValue }
+
+/** What a direct writer's prepared statement reads. */
+export type PreparedRead =
+	| { readonly kind: "view"; readonly role: string; readonly relation: string }
+	| { readonly kind: "table"; readonly relation: string }
+
+/** One statement of a direct SQL writer, inside a transaction it began. */
+export type DirectStatement =
+	| { readonly kind: "set-role"; readonly role: RoleRef }
+	| { readonly kind: "reset-role" }
+	| { readonly kind: "set-session-authorization"; readonly role: RoleRef }
+	| { readonly kind: "set-claims"; readonly setting: ClaimsSetting }
+	| {
+			readonly kind: "select-view"
+			readonly role: string
+			readonly relation: string
+			readonly filter: ViewFilter
+	  }
+	| { readonly kind: "select-table"; readonly relation: string; readonly filter: ViewFilter }
+	| { readonly kind: "insert"; readonly relation: string; readonly fact: HostFact }
+	| { readonly kind: "delete"; readonly relation: string; readonly key: HostFact }
+	| {
+			readonly kind: "update"
+			readonly relation: string
+			readonly key: HostFact
+			readonly set: HostFact
+	  }
+	| { readonly kind: "truncate"; readonly relation: string }
+	| { readonly kind: "call"; readonly fn: WorldFunction; readonly args: ReadonlyArray<HostValue> }
+	| {
+			readonly kind: "setval"
+			readonly relation: string
+			readonly field: string
+			readonly value: number
+	  }
+	| {
+			readonly kind: "insert-on-conflict"
+			readonly relation: string
+			readonly fact: HostFact
+			readonly onConflict: "nothing" | "select" | "update"
+	  }
+	| {
+			readonly kind: "merge-delete"
+			readonly relation: string
+			readonly keys: ReadonlyArray<HostFact>
+	  }
+	| { readonly kind: "prepare"; readonly name: string; readonly read: PreparedRead }
+	| { readonly kind: "execute-prepared"; readonly name: string }
+
+/** A write through a role relation. */
+export interface EntryOp {
+	readonly relation: string
+	readonly kind: "insert" | "delete" | "put"
+	readonly facts: ReadonlyArray<HostFact>
+}
+
+export type TablePrivilege = "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "TRUNCATE"
+
+/** A trigger the installation defines: a residual law's, or a table's below-SERIALIZABLE guard. */
+export type TriggerRef =
+	| { readonly kind: "law"; readonly law: LawId }
+	| { readonly kind: "isolation-guard"; readonly relation: string }
+
+/**
+ * A change to the installed catalog behind grizzle's back. `Db.open` judges what a login can do (memberships, settings,
+ * privileges, row security, the database's isolation); `grizzle drift` also judges catalog-only changes (defaults,
+ * nullability, indexes, tables, rules, triggers, view and policy definitions).
+ */
+export type CatalogPerturbation =
+	| { readonly kind: "membership-admin"; readonly login: string; readonly role: string }
+	| { readonly kind: "membership-inherit"; readonly login: string; readonly role: string }
+	| { readonly kind: "membership-revoked"; readonly login: string; readonly role: string }
+	| {
+			readonly kind: "membership-extra"
+			readonly login: string
+			readonly inherit: boolean
+			readonly set: boolean
+			readonly holds: "nothing" | "a-privilege"
+	  }
+	| { readonly kind: "member-extra"; readonly role: string; readonly set: boolean }
+	| {
+			readonly kind: "role-attribute"
+			readonly role: string
+			readonly attribute:
+				| "SUPERUSER"
+				| "BYPASSRLS"
+				| "CREATEROLE"
+				| "CREATEDB"
+				| "REPLICATION"
+				| "LOGIN"
+				| "INHERIT"
+	  }
+	| {
+			readonly kind: "role-setting"
+			readonly who:
+				| { readonly kind: "login"; readonly login: string }
+				| { readonly kind: "role"; readonly role: string }
+			readonly scope: "own" | "this-database"
+			readonly change: "default-reset" | "default-changed" | "extra"
+	  }
+	| {
+			readonly kind: "database-setting"
+			readonly change: "isolation-changed" | "isolation-reset" | "owner-setting"
+	  }
+	| {
+			readonly kind: "row-security"
+			readonly relation: string
+			readonly state: "disabled" | "forced" | "enabled"
+	  }
+	| {
+			readonly kind: "extra-grant"
+			readonly role: string
+			readonly relation: string
+			readonly privilege: TablePrivilege
+	  }
+	| {
+			readonly kind: "grant-revoked"
+			readonly role: string
+			readonly relation: string
+			readonly privilege: TablePrivilege
+	  }
+	| {
+			readonly kind: "extra-column-grant"
+			readonly role: string
+			readonly relation: string
+			readonly field: string
+			readonly privilege: "SELECT" | "INSERT" | "UPDATE"
+	  }
+	| {
+			readonly kind: "inherited-grant"
+			readonly role: string
+			readonly relation: string
+			readonly privilege: TablePrivilege
+	  }
+	| { readonly kind: "public-grant"; readonly relation: string }
+	| { readonly kind: "policy-dropped"; readonly role: string; readonly entry: string }
+	| { readonly kind: "policy-edited"; readonly role: string; readonly entry: string }
+	| { readonly kind: "view-redefined"; readonly role: string; readonly entry: string }
+	| { readonly kind: "function-redefined"; readonly fn: WorldFunction }
+	| { readonly kind: "search-path-altered"; readonly fn: WorldFunction }
+	| { readonly kind: "default-privileges"; readonly privilege: "EXECUTE" | "USAGE" }
+	| { readonly kind: "column-default"; readonly relation: string; readonly field: string }
+	| { readonly kind: "not-null-dropped"; readonly relation: string; readonly field: string }
+	| { readonly kind: "extra-index"; readonly relation: string; readonly field: string }
+	| { readonly kind: "extra-table" }
+	| { readonly kind: "rewrite-rule"; readonly relation: string }
+	| { readonly kind: "trigger-disabled"; readonly trigger: TriggerRef }
+
+/** How a Db reads a role relation: a program executed, `get` by a key, every page in turn, or a compiled program. */
+export type ReadVia =
+	| { readonly kind: "execute" }
+	| { readonly kind: "get"; readonly key: HostFact }
+	| { readonly kind: "page"; readonly size: number }
+	| { readonly kind: "compile" }
+
+/**
+ * The snapshot the opening role's login layer is given (DbConfig): the installation's own, an older version's, an
+ * edited one, another schema's, or the drafted snapshot of folders a run left pending (meaningful only while migrations
+ * are pending, and refused at stage `ledger` there: the latest complete migration is still the previous one).
+ */
+export type SnapshotRef = "current" | "stale" | "tampered" | "foreign" | "drafted"
+
+/** Where a JavaScript caller hands grizzle a value its types refuse. */
+export type WildSite =
+	| { readonly kind: "open-role" }
+	| { readonly kind: "open-token"; readonly role: string }
+	| {
+			readonly kind: "session"
+			readonly session: number
+			readonly call: "read" | "apply" | "refresh"
+	  }
+
+/**
+ * How a migration reaches the database: applied whole, a run stopped part-way (the runner's session ends after a file
+ * commits, leaving the folder pending), or edited by hand.
+ */
+export type MigrationHow = "complete" | "half-applied" | "hand-edited"
+
+/** One step of the world: the model predicts it, the executor performs it on the real system. */
+export type Action =
+	| {
+			readonly kind: "open-db"
+			readonly role: RoleRef
+			readonly token: Token
+			readonly snapshot: SnapshotRef
+	  }
+	| {
+			readonly kind: "read"
+			readonly session: number
+			readonly relation: string
+			readonly via: ReadVia
+	  }
+	| {
+			readonly kind: "apply"
+			readonly session: number
+			readonly strata: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<EntryOp>>
+			readonly reads: ReadonlyArray<string>
+	  }
+	| { readonly kind: "refresh"; readonly session: number; readonly relation: string }
+	| { readonly kind: "close"; readonly session: number }
+	| {
+			readonly kind: "direct-begin"
+			readonly login: string
+			readonly isolation: Isolation
+			readonly start: DirectStart
+	  }
+	| { readonly kind: "direct"; readonly session: number; readonly statement: DirectStatement }
+	| {
+			readonly kind: "direct-end"
+			readonly session: number
+			readonly end: "commit" | "rollback"
+	  }
+	| { readonly kind: "interrupt"; readonly session: number }
+	| { readonly kind: "migrate"; readonly to: InstallSpec; readonly how: MigrationHow }
+	| { readonly kind: "tamper"; readonly perturbation: CatalogPerturbation }
+	| { readonly kind: "drift" }
+	| { readonly kind: "wild"; readonly at: WildSite; readonly wild: WildKind }
+
+export type ActionKind = Action["kind"]
+
+/** The SQLSTATEs the README names for direct writers and for the laws; any other is `other`. */
+export type SqlState =
+	| "42501"
+	| "25000"
+	| "23505"
+	| "23503"
+	| "23514"
+	| "23000"
+	| "23P01"
+	| "40001"
+	| "40P01"
+	| "22P02"
+	| "22003"
+	| "428C9"
+	| "other"
+
+/** What refuses a token (README "Errors and outcomes"): verify, its refusal or throw a TokenError; or the claims, a ClaimRefused. */
+export type TokenRefuser = "verify" | "claims"
+
+/**
+ * The stage `Db.open` reports, as grizzle names it, in the order it checks them: the role, the role value and the
+ * snapshot its login layer was given (`schema`), the token, then admission's checks of the database; at stage token, with what refused it: `token:verify`
+ * a TokenError, `token:claims` a ClaimRefused (a payload that does not decode through the role's contexts, or a refined
+ * claim PostgreSQL refused). Connection stages are infrastructure and not modelled.
+ */
+export type ModelOpenStage =
+	| "role"
+	| "schema"
+	| `token:${TokenRefuser}`
+	| "version"
+	| "locale"
+	| "capability"
+	| "ledger"
+	| "settings"
+	| "privileges"
+	| "admission"
+
+/** Why a migration was refused before it changed anything: a hand-edited file, a ledger out of step, or drift after it. */
+export type MigrationRefusal = "edited" | "ledger" | "order" | "marker" | "decision" | "drift"
+
+/** Why a Db's call met a catalog its snapshot does not describe: a migration in progress, or one completed past it. */
+export type ModelStaleReason = "migrating" | "migrated"
+
+type TransientReason =
+	| "SerializationFailure"
+	| "Deadlock"
+	| "PutTargetConflict"
+	| "GeneratedSerialUnique"
+	| "SpanKeyChange"
+	| "UnseenOccupant"
+	| "ConcurrentRefresh"
+	| "StaleStatement"
+
+/** A read-back: a role relation over the post-change state, and the change's own delta on it. */
+export interface ReadBack {
+	readonly relation: string
+	readonly rows: ReadonlyArray<HostFact>
+	readonly delta: {
+		readonly inserted: ReadonlyArray<HostFact>
+		readonly deleted: ReadonlyArray<HostFact>
+	}
+}
+
+/** A refusal's witness: the violating facts' keys, shown only to a role holding the witness relation whole. */
+export type Witness =
+	| { readonly kind: "shown"; readonly keys: ReadonlyArray<HostFact> }
+	| { readonly kind: "withheld" }
+
+/** What one action did, as the model predicts it and the executor observes it. Rows and keys compare as sets. */
+export type Outcome =
+	| { readonly kind: "opened"; readonly session: number; readonly verifyCalls: 0 | 1 }
+	| { readonly kind: "open-refused"; readonly stage: ModelOpenStage; readonly verifyCalls: 0 | 1 }
+	| { readonly kind: "rows"; readonly rows: ReadonlyArray<HostFact> }
+	| {
+			readonly kind: "applied"
+			readonly outcome: "accepted" | "no-change"
+			readonly reads: ReadonlyArray<ReadBack>
+	  }
+	| { readonly kind: "invariant-rejected"; readonly law: LawId; readonly witness: Witness }
+	| {
+			readonly kind: "law-refused"
+			readonly sqlstate: SqlState
+			readonly law: LawId
+			readonly witness: Witness
+	  }
+	| { readonly kind: "encoding-refused" }
+	| { readonly kind: "outside-world"; readonly relation: string }
+	| { readonly kind: "compile-refused" }
+	| { readonly kind: "resource-bound" }
+	| { readonly kind: "transient"; readonly reason: TransientReason }
+	| { readonly kind: "commit-unknown" }
+	| { readonly kind: "interrupted" }
+	| { readonly kind: "refused"; readonly sqlstate: SqlState }
+	| { readonly kind: "migration-refused"; readonly stage: MigrationRefusal }
+	| { readonly kind: "handle-refused" }
+	| { readonly kind: "stale-snapshot"; readonly reason: ModelStaleReason }
+	| { readonly kind: "ok" }
+	| { readonly kind: "drift"; readonly objects: ReadonlyArray<string> }
+
+/**
+ * What only the real system can show and the model never predicts: a hidden value in an error, notice or witness, or
+ * the two artifacts of one read disagreeing. Either one is a failed run.
+ */
+export type Defect =
+	| {
+			readonly kind: "leak"
+			readonly field: "message" | "detail" | "hint" | "where" | "notice" | "witness"
+			readonly token: string
+	  }
+	| { readonly kind: "artifacts-disagree" }
+
+/** What one action did on the real system: an outcome the model can predict, or a defect it never allows. */
+export type Observation = Outcome | Defect
+
+/**
+ * What the executor reads from a session's connection to check the real system entered the state the model claims. An
+ * aborted transaction refuses every statement, so it shows nothing but that it is aborted. `claims` is "" when no claims
+ * are set: PostgreSQL spells an unset placeholder and an ended transaction-local setting alike.
+ */
+export type Probe =
+	| { readonly transaction: "aborted" }
+	| {
+			readonly transaction: "idle" | "in-transaction"
+			readonly currentUser: string
+			readonly claims: string
+	  }
+
+/**
+ * The installation a Db's snapshot describes, at its version, with its names and host schema: grizzle judges a call on
+ * the host by it, before any SQL, and the call's prologue refuses as `migrated` once the state's version moved past it.
+ */
+export interface Snapshotted {
+	readonly version: number
+	readonly install: InstallSpec
+	readonly names: InstalledNames
+	readonly host: HostSchema
+}
+
+/** A Db: its login and role, the facts its claims decode to, its pooled connection, and the snapshot it was opened with. */
+export interface DbSessionState {
+	readonly kind: "db"
+	readonly login: string
+	readonly role: string
+	readonly facts: ContextFacts
+	readonly connection: number
+	readonly snapshot: Snapshotted
+}
+
+/**
+ * Who a direct writer begins its transaction as and the claims it sets, the README's direct-writer shape in one move:
+ * its login or one of its login's roles (SET ROLE), and `grizzle.claims` or none, sent right after BEGIN
+ * (startStatements), so the facts inside, outside and hidden from a role's world, and a login's statements under claims
+ * it holds, are one statement away.
+ */
+export type DirectStart = Pick<DirectSessionState, "current" | "claims">
+
+/** A direct SQL writer inside the one transaction it began: who it acts as, the claims it set, and what it sees. */
+export interface DirectSessionState {
+	readonly kind: "direct"
+	readonly login: string
+	readonly current: { readonly kind: "login" } | { readonly kind: "role"; readonly role: string }
+	readonly claims:
+		| { readonly kind: "none" }
+		| { readonly kind: "set"; readonly setting: ClaimsSetting }
+	readonly isolation: Isolation
+	readonly transaction: "open" | "aborted"
+	/** The state the transaction sees: reality when it began, with its own statements applied; COMMIT makes it reality. */
+	readonly view: HostState
+	/** The reads this session prepared, by name; a direct session lives one transaction, and so do they. */
+	readonly prepared: Readonly<Record<string, PreparedRead>>
+	/**
+	 * Every statement its direct actions sent the transaction, in order (BEGIN's own take on a role and set claims, which
+	 * the session's world shows): what a refusal at COMMIT, which judges them, may quote (README "Errors and outcomes": the values a
+	 * statement was given).
+	 */
+	readonly sent: ReadonlyArray<DirectStatement>
+}
+
+/** A session as the model tracks it: a Db, a direct writer, or one closed. */
+export type SessionState =
+	| DbSessionState
+	| DirectSessionState
+	| { readonly kind: "closed"; readonly was: "db" | "direct" }
+
+/** What a pooled connection still carries between transactions: nothing, when grizzle is correct. */
+export interface ConnectionState {
+	readonly login: string
+	readonly leftover:
+		| { readonly kind: "clean" }
+		| { readonly kind: "role"; readonly role: string }
+		| { readonly kind: "claims"; readonly text: string }
+}
+
+/**
+ * Where the schema's ledger stands on the first pending folder: `unfinished` once it holds the folder's row, which the
+ * runner records with the folder's first committed file, or, when that first file runs outside a transaction (new enum
+ * labels, concurrent indexes), in a transaction of its own before the file's statements; `untouched` while it holds no
+ * row of it, a first file that runs in a transaction having failed or been killed before it committed, so the catalog
+ * is exactly the installation's. While a folder is unfinished every Db call and every Db.open is refused (README
+ * "Deploying").
+ */
+export type LedgerStanding = "untouched" | "unfinished"
+
+/**
+ * The migrations directory: every folder applied, or the last folders installing a drafted version that a run stopped
+ * part-way through (at a law statement its data breaks, or by a run that stopped). Each file is its own transaction, so
+ * the files before that point stay committed and recorded. The pending folders run oldest first: a later migrate or
+ * drift resumes them, landing each whose data holds and stopping at the first that breaks.
+ */
+export type MigrationsState =
+	| { readonly kind: "applied" }
+	| {
+			readonly kind: "pending"
+			readonly folders: Arr.NonEmptyReadonlyArray<InstallSpec>
+			readonly ledger: LedgerStanding
+	  }
+
+/** The whole world as the model sees it. */
+export interface ModelState {
+	readonly install: InstallSpec
+	readonly names: InstalledNames
+	readonly host: HostSchema
+	readonly reality: HostState
+	/** Each derived relation's facts as of its last refresh. */
+	readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
+	readonly sessions: ReadonlyArray<SessionState>
+	readonly connections: ReadonlyArray<ConnectionState>
+	readonly tampered: ReadonlyArray<CatalogPerturbation>
+	/**
+	 * The installation's version: it advances when a migration to another installation completes, and stays when one
+	 * lands the installation it replaces, whose snapshot is the same.
+	 */
+	readonly version: number
+	/**
+	 * The version whose migration created each installed login's PostgreSQL role, 0 for the first installation's: a
+	 * login a migration drops and a later one creates again is another role (a migration drops a removed login and
+	 * declines every rename, so it never carries one over), and a Db opened before holds a connection of no role.
+	 */
+	readonly loginsCreated: Readonly<Record<string, number>>
+	readonly migrations: MigrationsState
+}
+
+/** One allowed outcome of an action and the state it leads to; an action may allow several (nature's choices). */
+export interface Branch {
+	readonly observation: Outcome
+	readonly next: ModelState
+}
+
+/**
+ * What a landed migration's state follows from: the installation it landed, whose names are the compiler's to give, and
+ * the state it leads to under them (step.ts settle).
+ */
+export interface Landing {
+	readonly install: InstallSpec
+	readonly complete: (names: InstalledNames) => ModelState
+}
+
+/** One allowed outcome of a migration that lands an installation, the state it leads to awaiting that one's names. */
+export interface Landed {
+	readonly observation: Outcome
+	readonly landing: Landing
+}
+
+/** One allowed outcome of an action: a branch, or, for a run that lands an installation, a landing awaiting its names. */
+export type Allowed = Branch | Landed
+
+/** The invariants every state and every observation must keep. */
+export type InvariantName =
+	| "laws-hold"
+	| "no-hidden-value"
+	| "claims-end-with-transaction"
+	| "role-ends-with-transaction"
+	| "login-isolation"
+	| "deleted-means-gone"
+	| "least-privilege"
+
+export interface InvariantViolation {
+	readonly invariant: InvariantName
+	readonly detail: string
+}
+
+/** Every kind of invalid input, by name, so a suite can require that each was drawn. */
+export type InvalidKind =
+	| `token:${TokenWild}`
+	| `token:stale:${StaleSource}`
+	| `claims:${ClaimsSetting["kind"]}:${SettingScope}`
+	| `role:${Exclude<RoleRef["kind"], "own">}`
+	| "fact:law-broken"
+	| "fact:outside-world"
+	| "fact:hidden-key-collision"
+	| "fact:hidden-capacity-collision"
+	| "fact:hidden-reference"
+	| "fact:deleted-reference"
+	| "fact:duplicate-in-input"
+	| "fact:past-input-limit"
+	| "fact:domain-refused"
+	| "handle:closed-db"
+	| "handle:closed-direct"
+	| "handle:wrong-kind"
+	| "handle:other-role"
+	| "handle:other-login"
+	| "handle:stale-snapshot"
+	| "handle:tampered-snapshot"
+	| "handle:foreign-snapshot"
+	| "handle:drafted-snapshot"
+	| "handle:stale-db"
+	| "handle:wild-js-value"
+	| `catalog:${CatalogPerturbation["kind"]}`
+	| "migration:half-applied"
+	| "migration:hand-edited"
+	| "migration:law-over-violating-data"
+	| "install:unwritable-write"
+	| "install:two-writes-one-relation"
+	| `isolation:${Exclude<Isolation, "serializable">}`
+	| "session:interrupted"
+	| "session:after-refusal"
+
+/** Whether a fact is in the session's world, visible outside it, or hidden from it. */
+export type Membership = "inside" | "outside-visible" | "hidden"
+
+export type ClaimState = "absent" | "matching" | "not-matching" | "malformed"
+
+export type Writer = "db" | "direct-role" | "direct-login"
+
+export type ObjectKind =
+	| "view"
+	| "barrier-view"
+	| "policy"
+	| "filter-function"
+	| "key-probe"
+	| "unique-probe"
+	| "law-function"
+	| "advance-function"
+	| "grant"
+	| "revoke"
+	| "membership"
+
+/**
+ * The closed feature vocabulary of the worlds suites: an operation in a situation with its outcome, a world object and
+ * what was shown of it, an invalid input drawn, and an invariant checked.
+ */
+export type WorldFeature =
+	| `op:${ActionKind}:${Membership}:${ClaimState}:${Writer}:${Outcome["kind"]}`
+	| `object:${ObjectKind}:${"hidden-row-absent" | "raise-suppressed" | "accepted-inside" | "refused-outside" | "attempt-refused" | "witness-shown" | "witness-withheld"}`
+	| `invalid:${InvalidKind}`
+	| `invariant:${InvariantName}`
+	| `deletion:${"base-gone" | "world-gone" | "derived-kept" | "derived-refreshed"}`
+	| `via:${ReadVia["kind"]}`
+	| `readback:${"empty-delta" | "projected-delta" | "refused-delta"}`
+	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
+	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-transient" | "after-interrupted" | "after-stale-snapshot"}`
+
+/** The weights a run draws its actions with: swarm testing draws a fresh set per run. */
+export type ActionWeights = Readonly<Record<ActionKind, number>>
+
+/** Live, stale and wild shares of every drawn input, drawn per run. */
+export interface ValidityWeights {
+	readonly live: number
+	readonly stale: number
+	readonly wild: number
+}
+
+/** The bounds of the exhaustive box. */
+export interface SmallScope {
+	readonly relations: number
+	readonly rules: number
+	readonly contexts: number
+	readonly subjects: number
+	readonly facts: number
+	readonly depth: number
+}

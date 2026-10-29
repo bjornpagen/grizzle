@@ -1,0 +1,308 @@
+import { Array as Arr, Effect, type Scope } from "effect"
+import { type DbRuntime, dbRuntime } from "#adapter/db/db.ts"
+import type { OpenError } from "#adapter/errors/execution.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import type { LawId } from "#compiler/core/ids.ts"
+import type { AnySchema } from "#compiler/public/schema.ts"
+import {
+	Assignment,
+	alternativesFamily,
+	Crew,
+	type CrewsParams,
+	capacityFamily,
+	conditionalMirrors,
+	crews,
+	Deposit,
+	type DepositsParams,
+	Done,
+	Duty,
+	deposits,
+	depositsFamily,
+	Employment,
+	type Family,
+	installFamily,
+	Leased,
+	type LedgerParams,
+	Line,
+	ledger,
+	Member,
+	PayLine,
+	Payment,
+	type QueueParams,
+	queue,
+	queueFamily,
+	Reason,
+	Roster,
+	Rota,
+	Run,
+	type RunsParams,
+	rosterVisits,
+	runs,
+	Seat,
+	Shift,
+	type StaffingParams,
+	selectedSource,
+	sharedTablesFamily,
+	spanCoverage,
+	staffing,
+	Team,
+	type TeamsParams,
+	type TimekeepingParams,
+	Timesheet,
+	teams,
+	timekeeping,
+	timekeepingFamily,
+	Visit,
+	type VisitsParams,
+	Voiding,
+	visits,
+	Wanted,
+	Work,
+	Worker
+} from "#test/pg/laws/families/families.ts"
+import { type HostSchema, isResidual } from "#test/pg/laws/families/model.ts"
+import { type Domains, familyWriters, openWriter } from "#test/pg/laws/families/support.ts"
+import type { HistoryEnv } from "#test/support/history/run.ts"
+import type { Installed } from "#test/support/install-migrate.ts"
+import { type Names, namesOf } from "#test/support/kernel/naming.ts"
+import type { SqlError } from "#test/support/pg.ts"
+import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
+import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import type { SubstrateWorld } from "#test/support/substrate/session.ts"
+import type { Substrate } from "#test/support/substrate/substrate.ts"
+
+/** The grizzle writers: each a Db of `app` with a pool of its own, so its one session is its own backend. */
+const grizzleWriters = ["g", "h"] as const
+export type GrizzleWriter = (typeof grizzleWriters)[number]
+
+/** One installed family schema as the history writers drive it. */
+export interface HistoryRig {
+	readonly installed: Installed
+	/** The schema value under its installed name, which ChangeSets are built over. */
+	readonly schema: AnySchema
+	/** The relation values by name. */
+	readonly relations: Readonly<Record<string, unknown>>
+	/**
+	 * Per grizzle writer, the runtime its opened Db dispatches to, which takes a ChangeSet built at run time
+	 *, and its actor, the one session its Db's pool holds.
+	 */
+	readonly runtimes: Readonly<Record<GrizzleWriter, DbRuntime>>
+	readonly actors: Readonly<Record<GrizzleWriter, GrizzleActor>>
+	/** The role `direct`, as the psql writers take it on. */
+	readonly direct: SubstrateWorld
+}
+
+/** An installed family schema, holding no connection: the test's resource. */
+export interface HistoryInstall<P extends { readonly mutable: boolean }> {
+	/** The parameters it was drawn as, from which a connection rebuilds the schema value under the installed name. */
+	readonly params: P
+	readonly host: HostSchema
+	readonly domains: Domains
+	readonly isMutable: boolean
+	readonly installed: Installed
+	/** The installation's names, through the naming door. */
+	readonly names: Names
+}
+
+/**
+ * The law-family schemas the generated histories run over.
+ *
+ * Each history family is one of the law-bearing generated families: its drawn parameters, its schema, its host model
+ * and its field domains are that family's, imported as they are. Every family schema's writers (familyWriters) are the
+ * full role `app`, which two grizzle writers `g` and `h` open, each through a DbLayer of its own, so each holds one
+ * session of its own, and the full role `direct` the psql writers take on, as any direct SQL writer takes on a role
+ * through its login. What a history adds is the grizzle side it drives with several writers at once: the installation
+ * opened twice as `app`, each writer's actor resolved as it opens, and the relation values by name, over which a writer
+ * builds the ChangeSet of a list of host operations at run time. The host model states each law and how it is enforced,
+ * independently of the compiler; the suites check, before they run, that the installation agrees (enforcementProblem):
+ * its residual laws are exactly the host's, and each native law of the host is reported by an installed constraint.
+ *
+ * A family installs and connects in two steps, because the two have different lifetimes: an installation holds no
+ * connection and is costly to make, so a test installs each drawn schema once; its writers' connections are cheap to
+ * reopen, so each case opens them and closes them when it ends, and a test holds at most one case's connections
+ * whatever the number of schemas it draws.
+ *
+ * Every family draws `mutable` for all of its relations or for none.
+ */
+export interface HistoryFamily<P extends { readonly mutable: boolean }> {
+	readonly family: Family<P>
+	readonly install: (
+		p: P
+	) => Effect.Effect<
+		HistoryInstall<P>,
+		CompileError | SqlError | TransactionRolledBack,
+		Substrate | Scope.Scope
+	>
+	/** Opens the grizzle writers on an installation: the case's resources. */
+	readonly connect: (
+		install: HistoryInstall<P>
+	) => Effect.Effect<HistoryEnv, OpenError | SqlError, Substrate | Scope.Scope>
+}
+
+/**
+ * Why the installation does not enforce the host's laws as the host states them, or undefined: a residual law of one
+ * and not the other, or a native law of the host no installed constraint reports.
+ */
+export const enforcementProblem = (host: HostSchema, names: Names): string | undefined => {
+	const installedResiduals = new Set(Arr.map(names.model.residuals, (r) => r.lawId))
+	const hostResiduals = new Set(Arr.map(Arr.filter(host.laws, isResidual), (l) => l.law))
+	const reported = new Set<LawId>(Arr.map(names.model.constraints, (c) => c.law))
+	const problems = [
+		...Arr.map(
+			Arr.filter([...hostResiduals], (l) => !installedResiduals.has(l)),
+			(l) => `${l} is residual in the host only`
+		),
+		...Arr.map(
+			Arr.filter([...installedResiduals], (l) => !hostResiduals.has(l)),
+			(l) => `${l} is residual in the installation only`
+		),
+		...Arr.map(
+			Arr.filter(host.laws, (l) => !isResidual(l) && !reported.has(l.law)),
+			(l) => `the host's native law ${l.law} is reported by no installed constraint`
+		)
+	]
+	return problems.length === 0 ? undefined : Arr.join(problems, "; ")
+}
+
+/** The installation of the family schema drawn as `p`, with its names. */
+const historyInstall = <P extends { readonly mutable: boolean }>(
+	family: Family<P>,
+	p: P
+): Effect.Effect<
+	HistoryInstall<P>,
+	CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
+	Effect.map(installFamily(family, p), (installed) => ({
+		params: p,
+		host: family.host(p),
+		domains: family.domains,
+		isMutable: p.mutable,
+		installed,
+		names: namesOf(installed)
+	}))
+
+/**
+ * The history environment of an installation of `schema`: `app` opened as `g` and then as `h`, each writer's actor
+ * resolved right after its Db opens, as the one session of the login beside the writers opened before it.
+ */
+const historyEnv = <P extends { readonly mutable: boolean }>(
+	i: HistoryInstall<P>,
+	schema: AnySchema,
+	relations: Readonly<Record<string, unknown>>
+): Effect.Effect<HistoryEnv, OpenError, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const writers = familyWriters(schema)
+		const login = i.installed.as(writers.server).role
+		const first = yield* openWriter({ installed: i.installed, schema })
+		const g = yield* grizzleActor("g", login, [])
+		const second = yield* openWriter({ installed: i.installed, schema })
+		const h = yield* grizzleActor("h", login, [g.pid])
+		const runtimes = { g: dbRuntime(first.db), h: dbRuntime(second.db) }
+		if (runtimes.g === undefined || runtimes.h === undefined) {
+			return yield* Effect.die(new Error("Db.open registered no runtime"))
+		}
+		return {
+			host: i.host,
+			domains: i.domains,
+			isMutable: i.isMutable,
+			rig: {
+				installed: i.installed,
+				schema,
+				relations,
+				runtimes: { g: runtimes.g, h: runtimes.h },
+				actors: { g, h },
+				direct: i.installed.world(writers.direct)
+			},
+			names: i.names
+		}
+	})
+
+export const selectedSourceHistory: HistoryFamily<StaffingParams> = {
+	family: selectedSource,
+	install: (p) => historyInstall(selectedSource, p),
+	connect: (i) => {
+		const schema = staffing(i.params)(i.installed.declared)
+		return historyEnv(i, schema, { Worker, Assignment })
+	}
+}
+
+export const conditionalMirrorsHistory: HistoryFamily<LedgerParams> = {
+	family: conditionalMirrors,
+	install: (p) => historyInstall(conditionalMirrors, p),
+	connect: (i) => {
+		const schema = ledger(i.params)(i.installed.declared)
+		return historyEnv(i, schema, { Line, Reason })
+	}
+}
+
+export const alternativesHistory: HistoryFamily<RunsParams> = {
+	family: alternativesFamily,
+	install: (p) => historyInstall(alternativesFamily, p),
+	connect: (i) => {
+		const schema = runs(i.params)(i.installed.declared)
+		return historyEnv(i, schema, { Run, Payment, Voiding })
+	}
+}
+
+export const capacityHistory: HistoryFamily<TeamsParams> = {
+	family: capacityFamily,
+	install: (p) => historyInstall(capacityFamily, p),
+	connect: (i) => {
+		const schema = teams(i.params)(i.installed.declared)
+		return historyEnv(i, schema, { Team, Member })
+	}
+}
+
+export const sharedTablesHistory: HistoryFamily<CrewsParams> = {
+	family: sharedTablesFamily,
+	install: (p) => historyInstall(sharedTablesFamily, p),
+	connect: (i) => {
+		const schema = crews(i.params)(i.installed.declared)
+		return historyEnv(i, schema, { Crew, Duty })
+	}
+}
+
+export const spanCoverageHistory: HistoryFamily<VisitsParams> = {
+	family: spanCoverage,
+	install: (p) => historyInstall(spanCoverage, p),
+	connect: (i) => {
+		switch (i.params.target) {
+			case "rota": {
+				const schema = visits(i.params)(i.installed.declared)
+				return historyEnv(i, schema, { Rota, Visit })
+			}
+			case "roster": {
+				const schema = rosterVisits(i.params)(i.installed.declared)
+				return historyEnv(i, schema, { Roster, Visit })
+			}
+		}
+	}
+}
+
+export const queueHistory: HistoryFamily<QueueParams> = {
+	family: queueFamily,
+	install: (p) => historyInstall(queueFamily, p),
+	connect: (i) => {
+		const schema = queue(i.params)(i.installed.declared)
+		return historyEnv(i, schema, { Work, Wanted, Leased, Done, Seat })
+	}
+}
+
+export const timekeepingHistory: HistoryFamily<TimekeepingParams> = {
+	family: timekeepingFamily,
+	install: (p) => historyInstall(timekeepingFamily, p),
+	connect: (i) => {
+		const schema = timekeeping(i.params)(i.installed.declared)
+		return historyEnv(i, schema, { Employment, Timesheet, Shift })
+	}
+}
+
+export const depositsHistory: HistoryFamily<DepositsParams> = {
+	family: depositsFamily,
+	install: (p) => historyInstall(depositsFamily, p),
+	connect: (i) => {
+		const schema = deposits(i.params)(i.installed.declared)
+		return historyEnv(i, schema, { PayLine, Deposit })
+	}
+}

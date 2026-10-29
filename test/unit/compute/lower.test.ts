@@ -1,0 +1,879 @@
+import { describe, it } from "@effect/vitest"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import {
+	boolean,
+	constant,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	weighted
+} from "@grizzle/testing/gen"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { bigint, double } from "@grizzle/testing/values"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { NodeId, ParamId } from "#compiler/core/ids.ts"
+import type { CompareOp, ExprDesc, Spelled } from "#compiler/ir/desc.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import type { Heading } from "#compiler/ir/rel.ts"
+import {
+	contractOf,
+	numericTypmodOf,
+	type ScalarType,
+	sameScalarType,
+	textOf,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
+import type { Lowered } from "#compiler/scalar/compute/lower.ts"
+import type { LowerParams } from "#compiler/scalar/compute/lower.ts"
+import { commonType, widensTo } from "#compiler/scalar/compute/types.ts"
+import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import {
+	buildTerm,
+	type CompareSketch,
+	compareSketchGen,
+	type LowerHooks,
+	resolveCompare,
+	type TermScope,
+	type TermSketch,
+	termSketchGen
+} from "#test/support/oracle/gen/compute.ts"
+
+import {
+	compareParamType,
+	typedLiteralDesc,
+	resolveValue
+} from "#test/support/oracle/gen/domain.ts"
+import {
+	baseParams,
+	bindAsBase,
+	testContract,
+	field,
+	type LeafBinding,
+	lowerWith,
+	testPg,
+	sink,
+	testSpan,
+	type TestField
+} from "#test/unit/compute/support.ts"
+
+const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
+
+const col = (f: { readonly scalar: LeafBinding["type"] }): LeafBinding => ({
+	kind: "column",
+	type: f.scalar
+})
+
+const lowered = (expr: ExprDesc, vars: Readonly<Record<string, LeafBinding>>) =>
+	succeeded(lowerWith("query", expr, vars, false, baseParams))
+
+/**
+ * A parameter adopts the type of the term it meets (compute/lower.ts): in a comparison, that term's contract or regex
+ * refinement, and otherwise its carrier's bare type, a numeric typmod dropped. The term is a planted column of a refined or plain type, or a generated term; its type
+ * is read by lowering it alone, and the parameter's by the type the lowering asks the caller to bind it as.
+ */
+type MetTerm = "contract column" | "regex column" | "plain column" | "generated term"
+
+type ParamCase =
+	| { readonly kind: "column"; readonly column: readonly [string, MetTerm]; readonly op: CompareOp }
+	| { readonly kind: "generated"; readonly compare: CompareSketch; readonly op: CompareOp }
+
+/**
+ * What an untyped leaf of a description meets: a literal or a parameter never stands first; two untyped literal
+ * branches of a conditional follow the literal typing rule, a JavaScript number integer and a bigint bigint, and
+ * branches of the two are malformed; a numeric literal is a decimal, never a JavaScript fraction.
+ */
+type UntypedForm =
+	| "literal first"
+	| "parameter first"
+	| "two untyped branches"
+	| "fraction for numeric"
+
+type UntypedFeature =
+	| `form ${Exclude<UntypedForm, "two untyped branches">}`
+	| `branches ${UntypedLiteral["kind"]} and ${UntypedLiteral["kind"]}`
+
+type UntypedLiteral =
+	| { readonly kind: "number"; readonly value: number }
+	| { readonly kind: "bigint"; readonly value: bigint }
+
+describe("lowering in query mode", () => {
+	const Rate = testContract("Rate", testPg.numericOf(5, 2), (x) => x.ge("0"))
+	const fields: Readonly<Record<string, TestField>> = {
+		i: testPg.integer,
+		b: testPg.bigint,
+		n: testPg.numeric,
+		n52: testPg.numericOf(5, 2),
+		d: testPg.double,
+		t: testPg.text,
+		code: testPg.regex("^[a-z]+$", "u"),
+		f: testPg.boolean,
+		cents: Cents,
+		rate: Rate
+	}
+	const heading: Heading = Arr.map(Rec.toEntries(fields), ([name, described]) => ({
+		name,
+		type: described.scalar
+	}))
+	const vars: Readonly<Record<string, LeafBinding>> = Rec.fromEntries(
+		Arr.map(Rec.toEntries(fields), ([name, described]) => [name, col(described)])
+	)
+	const planted: Arr.NonEmptyReadonlyArray<readonly [string, MetTerm]> = [
+		["cents", "contract column"],
+		["rate", "contract column"],
+		["code", "regex column"],
+		["b", "plain column"],
+		["n52", "plain column"],
+		["t", "plain column"]
+	]
+	const compareOps: Arr.NonEmptyReadonlyArray<CompareOp> = ["eq", "ne", "lt", "le", "gt", "ge"]
+	const opGen = element(compareOps)
+	const scope: TermScope = {
+		heading,
+		params: false,
+		literal: (type, value) => ({
+			kind: "literal",
+			value: typedLiteralDesc(
+				resolveValue(type, value, { mode: "perCase", choices: [], edge: false }, "compare"),
+				type
+			),
+			type: undefined
+		}),
+		param: () => "unused"
+	}
+
+	/**
+	 * The term a case's parameter meets, and what it is: a planted column, or the first side of a generated comparison.
+	 */
+	const metTerm = (sketch: ParamCase): readonly [ExprDesc, MetTerm] | undefined => {
+		switch (sketch.kind) {
+			case "column": {
+				const [name, kind] = sketch.column
+				return [{ kind: "var", var: name }, kind]
+			}
+			case "generated": {
+				const compare = resolveCompare(scope, sketch.compare)
+				return compare?.kind === "compare" ? [compare.left, "generated term"] : undefined
+			}
+		}
+	}
+
+	it.effect(
+		"types a parameter as the term it meets in a comparison, its refinement included",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/compute/parameter-adopts",
+						draw: drawn(
+							oneOf<ParamCase>([
+								(source) => ({
+									kind: "column",
+									column: source.draw(element(planted)),
+									op: source.draw(opGen)
+								}),
+								(source) => ({
+									kind: "generated",
+									compare: source.draw(compareSketchGen(2)),
+									op: source.draw(opGen)
+								})
+							])
+						),
+						literal: Formatter.format,
+						features: features<`met ${MetTerm}`>([
+							"met contract column",
+							"met regex column",
+							"met plain column",
+							"met generated term"
+						]),
+						kept: [],
+						/**
+						 * The planted columns are half the cases, a contract one a third of those: 200 cases reach each kind of
+						 * term many times over.
+						 */
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(sketch: ParamCase, c) =>
+						Effect.sync(() => {
+							const met = metTerm(sketch)
+							if (met === undefined) {
+								return
+							}
+							const [term, kind] = met
+							/**
+							 * A generated term may be one this heading's lowering refuses, a literal it cannot adopt: no parameter meets it.
+							 */
+							const alone = lowerWith("query", term, vars, false, baseParams)
+							if (!alone.ok) {
+								return
+							}
+							const expected = alone.value.root.nominal
+							const asked: Array<ScalarType> = []
+							const params: LowerParams<Spelled> = {
+								kind: "scope",
+								lower: (param, type) => {
+									asked.push(type)
+									return bindAsBase(param, type)
+								}
+							}
+							const compare: ExprDesc = {
+								kind: "compare",
+								op: sketch.op,
+								left: term,
+								right: { kind: "param", name: "q" }
+							}
+							const result = lowerWith("query", compare, vars, true, params)
+							if (!result.ok) {
+								return
+							}
+							c.note(`met ${kind}`)
+							assert.equal(asked.length, 1, "the parameter is bound once")
+							const type = defined(asked[0], "the parameter's type")
+							const text = textOf(expected)
+							const refined =
+								contractOf(expected) !== undefined ||
+								(text !== undefined && text.regex !== "wildcard")
+							assert.ok(
+								refined
+									? sameScalarType(type, expected)
+									: type.carrier === expected.carrier &&
+											contractOf(type) === undefined &&
+											numericTypmodOf(type) === undefined,
+								`a parameter meeting ${typeLabel(expected)} is bound as ${typeLabel(type)}`
+							)
+						})
+				)
+			)
+	)
+
+	/** A literal of each kind the rule types, within a box both integer types hold. */
+	const untypedLiteralGen: Gen<UntypedLiteral> = oneOf([
+		map(int(-1000, 1000), (value): UntypedLiteral => ({ kind: "number", value })),
+		map(bigint(-1000n, 1000n), (value): UntypedLiteral => ({ kind: "bigint", value }))
+	])
+	const numberColumns: Arr.NonEmptyReadonlyArray<string> = ["i", "b", "n", "n52"]
+	const literalOf = (l: UntypedLiteral): ExprDesc => ({
+		kind: "literal",
+		value: l.value,
+		type: undefined
+	})
+
+	it.effect(
+		"refuses an untyped leaf standing first, types two untyped branches by the literal typing rule, and refuses a fraction for a numeric",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/compute/untyped-leaves",
+						draw: drawn((source) => ({
+							form: source.draw(
+								element<UntypedForm>([
+									"literal first",
+									"parameter first",
+									"two untyped branches",
+									"fraction for numeric"
+								])
+							),
+							column: source.draw(element(numberColumns)),
+							op: source.draw(opGen),
+							literals: source.draw(
+								(source) =>
+									[source.draw(untypedLiteralGen), source.draw(untypedLiteralGen)] as const
+							),
+							fraction: source.draw(filter(double(-1e6, 1e6), (x) => !Number.isInteger(x), 100))
+						})),
+						literal: Formatter.format,
+						features: features<UntypedFeature>([
+							"form literal first",
+							"form parameter first",
+							"form fraction for numeric",
+							"branches number and number",
+							"branches bigint and bigint",
+							"branches number and bigint",
+							"branches bigint and number"
+						]),
+						kept: [],
+						/**
+						 * Each form is a quarter of the cases and each pair of branch kinds a quarter of those: 300 cases reach
+						 * every feature many times over.
+						 */
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					({ form, column, op, literals: [a, b], fraction }, c) =>
+						Effect.sync(() => {
+							const term: ExprDesc = { kind: "var", var: column }
+							switch (form) {
+								case "literal first":
+									c.note(`form ${form}`)
+									refused(
+										lowerWith(
+											"query",
+											{ kind: "compare", op, left: literalOf(a), right: term },
+											vars,
+											true,
+											baseParams
+										),
+										"MalformedDescription"
+									)
+									return
+								case "parameter first":
+									c.note(`form ${form}`)
+									refused(
+										lowerWith(
+											"query",
+											{ kind: "compute", fn: "add", args: [{ kind: "param", name: "q" }, term] },
+											vars,
+											false,
+											baseParams
+										),
+										"MalformedDescription"
+									)
+									return
+								case "fraction for numeric":
+									c.note(`form ${form}`)
+									refused(
+										lowerWith(
+											"query",
+											{
+												kind: "compare",
+												op,
+												left: { kind: "var", var: "n" },
+												right: { kind: "literal", value: fraction, type: undefined }
+											},
+											vars,
+											true,
+											baseParams
+										),
+										"MalformedDescription"
+									)
+									return
+								case "two untyped branches": {
+									c.note(`branches ${a.kind} and ${b.kind}`)
+									const cond: ExprDesc = {
+										kind: "cond",
+										pred: { kind: "var", var: "f" },
+										onTrue: literalOf(a),
+										onFalse: literalOf(b)
+									}
+									const result = lowerWith("query", cond, vars, false, baseParams)
+									if (a.kind !== b.kind) {
+										refused(result, "MalformedDescription")
+										return
+									}
+									const expected = a.kind === "number" ? testPg.integer : testPg.bigint
+									const { nominal } = succeeded(result).root
+									assert.ok(
+										sameScalarType(nominal, expected.scalar),
+										`${a.kind} branches typed ${typeLabel(nominal)}`
+									)
+									return
+								}
+							}
+						})
+				)
+			)
+	)
+})
+
+/**
+ * A cast is classified by how it converts, never by a missing operation: a conversion into a contract's domain
+ * is checked and can fail, whether or not the domain has a CHECK, since PostgreSQL validates every coercion into a
+ * domain (a numeric base's typmod included), and every checked cast can fail (ir/expr.ts exprEffects). The planted cases are
+ * conditionals over a contract column whose other branch is the column itself, a parameter of it (cast into its domain
+ * where it is emitted), or the column cast into its own contract (the conditional converts it into the domain, the one
+ * path a checked schema reaches). The compute generator's terms (test/support/oracle/gen/compute.ts) read the heading's
+ * plain columns only, so they guard no conversion into a contract; they are drawn beside the planted cases as the
+ * population every other cast comes from.
+ */
+type CastFeature =
+	| "generated term"
+	| `${"cast" | "domain cast"} into ${"a checked" | "an unchecked"} contract`
+
+/**
+ * A conditional over a contract column whose other branch is the column, a parameter of it, or the column cast into
+ * its own contract, either branch first.
+ */
+/** A contract column of the heading: Cents, the checked Rate, or the unchecked Tag. */
+type ContractColumn = "cents" | "rate" | "tag"
+
+type CastCase =
+	| { readonly kind: "generated"; readonly term: TermSketch }
+	| {
+			readonly kind: "conditional"
+			readonly contract: ContractColumn
+			readonly other: "column" | "parameter" | "identity cast"
+			readonly contractFirst: boolean
+	  }
+
+/**
+ * Every checked cast of a lowered table can fail; every cast and domain cast whose target is a contract can fail,
+ * and such a cast is checked, whether or not the contract has a CHECK.
+ */
+const checkCasts = (exprs: ReadonlyArray<ScalarExpr>, c: Case<CastFeature>): void => {
+	for (const e of exprs) {
+		if (e.kind === "cast" && e.checked) {
+			assert.equal(e.failure, "canFail", `a checked cast into ${typeLabel(e.type)}`)
+		}
+		if (e.kind !== "cast" && e.kind !== "domainCast") {
+			continue
+		}
+		const info = contractOf(e.type)
+		if (info === undefined) {
+			continue
+		}
+		assert.notEqual(e.failure, "total", `a ${e.kind} into ${typeLabel(e.type)}`)
+		if (e.kind === "cast") {
+			assert.equal(e.checked, true, `a cast into ${typeLabel(e.type)}`)
+		}
+		c.note(
+			`${e.kind === "cast" ? "cast" : "domain cast"} into ${info.predicate === undefined ? "an unchecked" : "a checked"} contract`
+		)
+	}
+}
+
+describe("a conversion into a contract", () => {
+	const Rate = testContract("Rate", testPg.numericOf(5, 2), (x) => x.ge("0"))
+	const Tag = testContract("Tag", testPg.numericOf(5, 2), undefined)
+	const fields: Readonly<Record<string, TestField>> = {
+		i: testPg.integer,
+		b: testPg.bigint,
+		n: testPg.numeric,
+		d: testPg.double,
+		m: testPg.money,
+		f: testPg.boolean,
+		cents: Cents,
+		rate: Rate,
+		tag: Tag
+	}
+	const heading: Heading = Arr.map(Rec.toEntries(fields), ([name, described]) => ({
+		name,
+		type: described.scalar
+	}))
+	const vars: Readonly<Record<string, LeafBinding>> = Rec.fromEntries(
+		Arr.map(Rec.toEntries(fields), ([name, described]) => [name, col(described)])
+	)
+	const contracts: { readonly [C in ContractColumn]: TestField } = {
+		cents: Cents,
+		rate: Rate,
+		tag: Tag
+	}
+	const caseGen: Gen<CastCase> = oneOf<CastCase>([
+		map(termSketchGen(3), (term): CastCase => ({ kind: "generated", term })),
+		(source) => ({
+			kind: "conditional",
+			contract: source.draw(element<ContractColumn>(["cents", "rate", "tag"])),
+			other: source.draw(element(["column", "parameter", "identity cast"] as const)),
+			contractFirst: source.draw(boolean)
+		})
+	])
+
+	/**
+	 * The compute generator's term over the heading, lowered as the query generator lowers one: literals of the type
+	 * they meet, parameters bound as their compared base type.
+	 */
+	const generated = (term: TermSketch, c: Case<CastFeature>): void => {
+		const s = sink()
+		let params = 0
+		const scope: TermScope = {
+			heading,
+			params: true,
+			literal: (type, value) => ({
+				kind: "literal",
+				value: typedLiteralDesc(
+					resolveValue(type, value, { mode: "perCase", choices: [], edge: false }, "compare"),
+					type
+				),
+				type: undefined
+			}),
+			param: () => `t${++params}`
+		}
+		const hooks: LowerHooks = {
+			emit: s.emit,
+			column: (column) => {
+				const binding = defined(vars[column.name], "a heading column is a variable")
+				return {
+					kind: "column",
+					column: { node: NodeId("n0"), name: column.name },
+					args: [],
+					type: binding.type,
+					nonNull: "storage",
+					volatility: "immutable",
+					failure: "total"
+				}
+			},
+			param: (name, type) => ({
+				kind: "param",
+				param: ParamId(name),
+				role: "compare",
+				args: [],
+				type: compareParamType(type),
+				nonNull: "codec",
+				volatility: "immutable",
+				failure: "total"
+			})
+		}
+		if (buildTerm(scope, hooks, term) === undefined) {
+			return
+		}
+		c.note("generated term")
+		checkCasts(s.emitted, c)
+	}
+
+	it.effect("can fail wherever the contract has a CHECK, never total", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/compute/cast-into-contract",
+					/**
+					 * Planted: the conversions of one contract column each that the drawn conditionals reach about one case
+					 * in thirty-six: rate and tag cast into their own contracts (a cast into a checked and an unchecked
+					 * contract), and tag beside its parameter (a domain cast into an unchecked contract).
+					 */
+					draw: drawn(caseGen),
+					literal: Formatter.format,
+					features: features<CastFeature>([
+						"generated term",
+						"cast into a checked contract",
+						"cast into an unchecked contract",
+						"domain cast into a checked contract",
+						"domain cast into an unchecked contract"
+					]),
+					kept: [
+						{
+							note: "rate or rate cast into Rate",
+							sketch: {
+								kind: "conditional",
+								contract: "rate",
+								other: "identity cast",
+								contractFirst: false
+							},
+							draws: "",
+							reaches: ["cast into a checked contract"]
+						},
+						{
+							note: "tag cast into Tag or tag",
+							sketch: {
+								kind: "conditional",
+								contract: "tag",
+								other: "identity cast",
+								contractFirst: true
+							},
+							draws: "",
+							reaches: ["cast into an unchecked contract"]
+						},
+						{
+							note: "tag or its parameter",
+							sketch: {
+								kind: "conditional",
+								contract: "tag",
+								other: "parameter",
+								contractFirst: false
+							},
+							draws: "",
+							reaches: ["domain cast into an unchecked contract"]
+						}
+					],
+					/**
+					 * Each conversion arm is drawn in about one case in ten, the generated terms in one in two: 200 cases
+					 * reach every feature many times over.
+					 */
+					runs: 200,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					steering: { kind: "none" },
+					caseHang: Duration.minutes(2)
+				},
+				(sketch, c) =>
+					Effect.sync(() => {
+						if (sketch.kind === "generated") {
+							generated(sketch.term, c)
+							return
+						}
+						const name = sketch.contract
+						const chosen = contracts[name]
+						const column: ExprDesc = { kind: "var", var: name }
+						/**
+						 * Compute.cast of a contract column into its own contract: castTo leaves a numeric contract's value at its
+						 * base typmod, so the conditional converts it into the domain (CastHow "domain"), the one path a checked
+						 * schema reaches.
+						 */
+						const other: ExprDesc =
+							sketch.other === "column"
+								? column
+								: sketch.other === "parameter"
+									? { kind: "param", name: "q" }
+									: { kind: "cast", arg: column, to: chosen.desc }
+						const desc: ExprDesc = {
+							kind: "cond",
+							pred: { kind: "var", var: "f" },
+							onTrue: sketch.contractFirst ? column : other,
+							onFalse: sketch.contractFirst ? other : column
+						}
+						checkCasts(lowered(desc, vars).emitted, c)
+					})
+			)
+		)
+	)
+})
+
+/**
+ * A conditional, LEAST or GREATEST over two compatible terms combines them in their common type (compute/types.ts
+ * commonType), the same whichever comes first, and lowers to a value or a typed CompileError, never a defect: its
+ * result has the common type, and a branch of another type reaches it by a widening (widensTo), which drops only
+ * refinements PostgreSQL never checks. The terms are the compute generator's (test/support/oracle/gen/compute.ts), a
+ * comparison's two sides, and two planted shapes the generator draws too rarely: cond(p, sign(x), y) over numeric
+ * typmods, a negative scale among them (sign carries no typmod, so a typmod on its branch is a narrowing that rounds or
+ * overflows), and a plain span against Compute.base of a contract over a fixed-width span (a width only the operand
+ * order chose). Each pair is combined in both orders.
+ */
+type CombinedFeature =
+	| "generated cond"
+	| "generated least or greatest"
+	| `sign over ${"the other branch's typmod" | "another typmod" | "a negative scale"}, sign ${"first" | "second"}`
+	| `a plain span against a based fixed-width span, base ${"first" | "second"}`
+
+type CombinedCase =
+	| { readonly kind: "generated"; readonly compare: CompareSketch }
+	| { readonly kind: "sign"; readonly x: string; readonly y: string }
+	| { readonly kind: "span" }
+
+const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
+
+describe("a combination of two compatible terms", () => {
+	const fixedSpan = field({ kind: "span", endpoint: testPg.bigint.desc, width: 5n }, "range")
+	const Shift = testContract("Shift", fixedSpan, undefined)
+	const fields: Readonly<Record<string, TestField>> = {
+		f: testPg.boolean,
+		i: testPg.integer,
+		b: testPg.bigint,
+		n: testPg.numeric,
+		n52: testPg.numericOf(5, 2),
+		n22: testPg.numericOf(2, 2),
+		n3m2: testPg.numericOf(3, -2),
+		d: testPg.double,
+		r: testPg.real,
+		m: testPg.money,
+		t: testPg.text,
+		code: testPg.regex("^[a-z]+$", "u"),
+		s: testSpan(testPg.bigint),
+		sw: fixedSpan,
+		shift: Shift
+	}
+	const typmods: Arr.NonEmptyReadonlyArray<string> = ["n52", "n22", "n3m2"]
+	const heading: Heading = Arr.map(Rec.toEntries(fields), ([name, described]) => ({
+		name,
+		type: described.scalar
+	}))
+	const vars: Readonly<Record<string, LeafBinding>> = Rec.fromEntries(
+		Arr.map(Rec.toEntries(fields), ([name, described]) => [name, col(described)])
+	)
+	const scope: TermScope = {
+		heading,
+		params: false,
+		literal: (type, value) => ({
+			kind: "literal",
+			value: typedLiteralDesc(
+				resolveValue(type, value, { mode: "perCase", choices: [], edge: false }, "compare"),
+				type
+			),
+			type: undefined
+		}),
+		param: () => "unused"
+	}
+	const caseGen: Gen<CombinedCase> = weighted([
+		[
+			2,
+			map(compareSketchGen(2), (compare): CombinedCase => ({
+				kind: "generated",
+				compare
+			}))
+		],
+		[
+			1,
+			(source) => ({
+				kind: "sign",
+				x: source.draw(element(typmods)),
+				y: source.draw(element(typmods))
+			})
+		],
+		[1, constant<CombinedCase>({ kind: "span" })]
+	])
+
+	/**
+	 * The two terms a case combines: a generated comparison's two sides when both are terms (a side may be a literal
+	 * in the other's type, which is no term), or a planted pair.
+	 */
+	const pairOf = (c: CombinedCase): readonly [ExprDesc, ExprDesc] | undefined => {
+		switch (c.kind) {
+			case "generated": {
+				const compare = resolveCompare(scope, c.compare)
+				if (compare?.kind !== "compare" || compare.right.kind === "literal") {
+					return undefined
+				}
+				return [compare.left, compare.right]
+			}
+			case "sign":
+				return [{ kind: "compute", fn: "sign", args: [variable(c.x)] }, variable(c.y)]
+			case "span":
+				return [{ kind: "base", arg: variable("shift") }, variable("s")]
+		}
+	}
+
+	/** The features a combination's branches, in order, reach. */
+	const noteShape = (first: ExprDesc, second: ExprDesc, c: Case<CombinedFeature>): void => {
+		for (const [sign, other, order] of [
+			[first, second, "first"],
+			[second, first, "second"]
+		] as const) {
+			const [x] = sign.kind === "compute" && sign.fn === "sign" ? sign.args : []
+			if (
+				x?.kind === "var" &&
+				other.kind === "var" &&
+				typmods.includes(x.var) &&
+				typmods.includes(other.var)
+			) {
+				c.note(
+					`sign over ${x.var === other.var ? "the other branch's typmod" : "another typmod"}, sign ${order}`
+				)
+				if (x.var === "n3m2" || other.var === "n3m2") {
+					c.note(`sign over a negative scale, sign ${order}`)
+				}
+			}
+			if (sign.kind === "base" && other.kind === "var" && other.var === "s") {
+				c.note(`a plain span against a based fixed-width span, base ${order}`)
+			}
+		}
+	}
+
+	/** The combination of `first` and `second` in their common type, checked; whether it lowered to a value. */
+	const combined = (
+		combination: ExprDesc,
+		first: Lowered,
+		second: Lowered,
+		values: (node: ScalarExpr) => ReadonlyArray<ScalarExpr>
+	): boolean => {
+		const type = commonType(first.nominal, second.nominal)
+		assert.ok(
+			sameScalarType(type, commonType(second.nominal, first.nominal)),
+			`the common type of ${typeLabel(first.nominal)} and ${typeLabel(second.nominal)} depends on their order`
+		)
+		const result = lowerWith("query", combination, vars, false, baseParams)
+		if (!result.ok) {
+			return false
+		}
+		const node = result.value.root.expr
+		assert.ok(
+			sameScalarType(node.type, type),
+			`${typeLabel(node.type)}, not the common type ${typeLabel(type)}`
+		)
+		for (const [i, branch] of [first, second].entries()) {
+			const value = defined(values(node)[i], "a branch of the combination")
+			assert.ok(
+				sameScalarType(branch.actual, type) || widensTo(branch.actual, type),
+				`${typeLabel(branch.actual)} reaches ${typeLabel(type)} by no widening`
+			)
+			assert.ok(
+				sameScalarType(value.type, branch.actual) ||
+					(value.kind === "cast" && !value.checked && sameScalarType(value.type, type)),
+				`a branch of ${typeLabel(branch.actual)} enters as ${value.kind} of ${typeLabel(value.type)}`
+			)
+		}
+		return true
+	}
+
+	it.effect(
+		"combines in one common type whichever comes first, and widens each branch into it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/compute/common-type",
+						draw: drawn(caseGen),
+						literal: Formatter.format,
+						features: features<CombinedFeature>([
+							"generated cond",
+							"generated least or greatest",
+							"sign over the other branch's typmod, sign first",
+							"sign over the other branch's typmod, sign second",
+							"sign over another typmod, sign first",
+							"sign over another typmod, sign second",
+							"sign over a negative scale, sign first",
+							"sign over a negative scale, sign second",
+							"a plain span against a based fixed-width span, base first",
+							"a plain span against a based fixed-width span, base second"
+						]),
+						kept: [],
+						/**
+						 * The planted shapes are each a quarter of the cases, and a generated comparison yields a pair in most of
+						 * the rest: 400 cases reach every feature many times over.
+						 */
+						runs: 400,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(sketch, c) =>
+						Effect.sync(() => {
+							const pair = pairOf(sketch)
+							if (pair === undefined) {
+								return
+							}
+							const [term, other] = pair
+							const left = lowered(term, vars).root
+							const right = lowered(other, vars).root
+							for (const [first, second, a, b] of [
+								[term, other, left, right],
+								[other, term, right, left]
+							] as const) {
+								const cond: ExprDesc = {
+									kind: "cond",
+									pred: variable("f"),
+									onTrue: first,
+									onFalse: second
+								}
+								if (combined(cond, a, b, (node) => node.args.slice(1))) {
+									noteShape(first, second, c)
+									if (sketch.kind === "generated") {
+										c.note("generated cond")
+									}
+								}
+								for (const fn of ["least", "greatest"] as const) {
+									if (
+										combined(
+											{ kind: "compute", fn, args: [first, second] },
+											a,
+											b,
+											(node) => node.args
+										) &&
+										sketch.kind === "generated"
+									) {
+										c.note("generated least or greatest")
+									}
+								}
+							}
+						})
+				)
+			)
+	)
+})

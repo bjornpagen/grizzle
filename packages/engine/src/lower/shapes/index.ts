@@ -1,0 +1,1075 @@
+import { Refusal } from "#compiler/core/canonical.ts"
+import type { NodeId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { attachFuseMaxFields, lateralParentMax } from "#compiler/core/policy.ts"
+import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
+import {
+	columnIn,
+	columnType,
+	distinctSelect,
+	type Env,
+	emptyEnv,
+	headingTargets,
+	type LowerContext,
+	type NodeDispatch,
+	type NodeLowerer,
+	nodeLabel,
+	outputNames,
+	queryInputs,
+	refuse
+} from "#compiler/lower/conservative/context.ts"
+
+import {
+	attachmentRows,
+	checkedAttachment,
+	Delivery,
+	groupOrder,
+	groupTake,
+	type HeterogeneousPlan,
+	headingGroupsDelivery,
+	type Place,
+	parentColumnsOf,
+	positions,
+	statementRows
+} from "#compiler/lower/conservative/deliver.ts"
+import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
+import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import {
+	type AttachedTree,
+	type ConservativeParamSlot,
+	type ConservativeProgram,
+	type ConservativeStatement,
+	type DeclaredParamSlot,
+	mapTree,
+	type PageParamSlot,
+	type StatementPlacement,
+	type StatementRoots,
+	statementOutput
+} from "#compiler/lower/conservative/types.ts"
+import type { CtePlan, CteStrategy } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
+import { seededAttachment } from "#compiler/lower/shapes/attach-recursive/index.ts"
+import type { FusedAttachment } from "#compiler/lower/shapes/attach/decode.ts"
+import {
+	attachmentRowsIdentity,
+	boundTimes,
+	chooseAttachment,
+	type DeliveredRows,
+	fusedLayout,
+	type PipelinedAttachment,
+	pipelinedAttachment,
+	type RowsBound,
+	type RowsIdentity,
+	withFusedAttachments
+} from "#compiler/lower/shapes/attach/index.ts"
+import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
+import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
+import { refineDelivered } from "#compiler/lower/shapes/refined/index.ts"
+import { regionLowerer } from "#compiler/lower/shapes/region/index.ts"
+import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
+import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
+import { producerLowerer } from "#compiler/lower/shapes/spans/index.ts"
+import {
+	type ChoiceInput,
+	chooseTakeShape,
+	decorrelatedTake,
+	lateralTake,
+	outerCorrelations,
+	type ParentSet,
+	parentSetOf,
+	type RelationInput,
+	type TakeShape,
+	takeLowerer
+} from "#compiler/lower/shapes/take/index.ts"
+import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
+import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
+import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
+import type { Cte, OrderItem, Select } from "#compiler/sql/ast.ts"
+import { and, col, conjunction, core, cteRefAs, select, target } from "#compiler/sql/build.ts"
+import { emit, metered } from "#compiler/sql/emit.ts"
+import { renameToPublicHeading } from "#compiler/sql/naming.ts"
+
+/**
+ * Which form a per-execution take choice lowers to in one lowering of a statement: the LATERAL form for a small parent
+ * set, the whole-relation form for a large one.
+ */
+export type InputChoiceMode = "small" | "large"
+
+/**
+ * A per-execution choice one statement's shape made: the take, the input whose size decides (a relation parameter's
+ * distinct fact count, or a page's requested size), and the threshold at or below which the small form applies.
+ */
+export interface ShapeChoice<Source extends ChoiceInput = ChoiceInput> {
+	readonly take: NodeId
+	readonly source: Source
+	readonly threshold: number
+	readonly small: TakeShape
+	readonly large: TakeShape
+}
+
+/**
+ * A choice by a relation parameter's distinct fact count: every choice of a delivery that is no page's, since a page's
+ * requested size bounds only a page's own rows (page/compile.ts deliveredRowsOf), which no other delivery reads.
+ */
+export type RelationChoice = ShapeChoice<RelationInput>
+
+/**
+ * A statement the runtime sends, as its flight's `answer`th: its position among its program's sent statements in flight
+ * order (conservative/types.ts flight), the order the runtime sends them in.
+ */
+export interface Sent {
+	readonly kind: "sent"
+	readonly answer: number
+}
+
+/**
+ * How the runtime has a statement's rows: it sends the statement, or feeds it the rows of the earlier sent statement
+ * that computes the same sub-query (shapes/share arrivalsOf), whose arrival it holds.
+ */
+export type Arrival = Sent | { readonly kind: "fed"; readonly feeder: Sent }
+
+/** The arrival of the statement at `position` of a program the runtime sends whole. */
+export const sentAt = (position: number): Sent => ({ kind: "sent", answer: position })
+
+/**
+ * A statement of an optimized delivery: the conservative statement shape, with the attachments fused into it as output
+ * columns after the heading, in order (none when each is pipelined), as the runtime binds and decodes it.
+ */
+export type FusedStatement<Slot extends ConservativeParamSlot = DeclaredParamSlot> =
+	ConservativeStatement<Slot> & {
+		readonly fused: ReadonlyArray<FusedAttachment>
+	}
+
+/** A conservative statement as an optimized delivery places it: it fuses no attachment and has one form. */
+export const asDelivered = <C, Slot extends ConservativeParamSlot>(
+	s: ConservativeStatement<Slot>
+): DeliveredStatement<C, Slot> => ({
+	...s,
+	fused: [],
+	forms: oneForm
+})
+
+/** A delivered statement with how the runtime has its rows. */
+export const withArrival = <C, Slot extends ConservativeParamSlot>(
+	s: DeliveredStatement<C, Slot>,
+	arrival: Arrival
+): OptimizedStatement<C, FusedStatement<Slot>, Slot> => ({ ...s, arrival })
+
+/**
+ * A statement as one optimized delivery lowered it, its small form, with its forms by the per-execution choices of a
+ * delivery's choice kind C its shapes made in it: its large form is the same statement lowered in the large mode
+ * (OptimizedDelivery.formed).
+ */
+export type DeliveredStatement<
+	C,
+	Slot extends ConservativeParamSlot = DeclaredParamSlot
+> = FusedStatement<Slot> & { readonly forms: StatementForms<C, FusedStatement<Slot>> }
+
+/** One lowering of a statement in one per-execution mode: the statement, and the choices its lowering made. */
+interface Lowered<C, Slot extends ConservativeParamSlot> {
+	readonly statement: FusedStatement<Slot>
+	readonly choices: ReadonlyArray<C>
+}
+
+/** An optimized delivery's statements, each with its forms. */
+export interface DeliveredProgram<
+	C,
+	Slot extends ConservativeParamSlot = DeclaredParamSlot
+> extends ConservativeProgram<Slot> {
+	readonly roots: StatementRoots<DeliveredStatement<C, Slot>>
+}
+
+/**
+ * The forms of a statement: one; or, when per-execution choices of its shapes pick between two, the small form, the
+ * statement itself, and the large form L an execution sends when some choice's input exceeds its threshold
+ * (runsLargeForm): the same statement lowered in the large mode, of the same placement. Both forms deliver the same
+ * rows in the same heading, so the choice is cost only.
+ */
+export type StatementForms<C, L> =
+	| { readonly kind: "one" }
+	| { readonly kind: "chosen"; readonly choices: NonEmptyReadonlyArray<C>; readonly large: L }
+
+export const oneForm: { readonly kind: "one" } = Object.freeze({ kind: "one" })
+
+/**
+ * A statement of the optimized artifact: a delivered statement with its forms, by choices of kind C (a relation
+ * parameter's count, outside a page; a page's attachments also by its size) with large form L (the large mode's
+ * statement, or a template's with its spec), and how the runtime has its rows. A reader of neither names neither.
+ */
+export type OptimizedStatement<
+	C = unknown,
+	L = unknown,
+	Slot extends ConservativeParamSlot = DeclaredParamSlot
+> = FusedStatement<Slot> & {
+	readonly forms: StatementForms<C, L>
+	readonly arrival: Arrival
+}
+
+/**
+ * A conservative statement at `position` as the runtime reads an optimized one: it fuses no attachment, has one form
+ * and is sent.
+ */
+const asOptimizedStatement = <C, L, Slot extends ConservativeParamSlot>(
+	s: ConservativeStatement<Slot>,
+	position: number
+): OptimizedStatement<C, L, Slot> => ({
+	...s,
+	fused: [],
+	forms: oneForm,
+	arrival: sentAt(position)
+})
+
+/** The conservative artifact as the runtime reads an optimized one (asOptimizedStatement). */
+export const deliveredAsOptimized = <C, L, Slot extends ConservativeParamSlot>(
+	program: ConservativeProgram<Slot>
+): OptimizedDeliveryProgram<C, L, Slot> => ({
+	...program,
+	roots: mapTree(program.roots, (s, position) => asOptimizedStatement<C, L, Slot>(s, position))
+})
+
+export interface OptimizedDeliveryProgram<
+	C = unknown,
+	L = unknown,
+	Slot extends ConservativeParamSlot = DeclaredParamSlot
+> extends ConservativeProgram<Slot> {
+	readonly roots: StatementRoots<OptimizedStatement<C, L, Slot>>
+}
+
+/** The CTEs one statement defined while it was lowered: its WITH entries, and each shared node's CTE by node. */
+interface CteLog {
+	readonly ctes: Set<Cte>
+	readonly defined: Map<RelNode, { readonly name: string; readonly columns: ReadonlyArray<string> }>
+}
+
+/** What one statement accumulated while it was lowered: its WITH entries and its per-execution choices. */
+interface StatementLog<C> extends CteLog {
+	readonly choices: ReadonlyArray<C>
+}
+
+const freshLog = (): CteLog => ({ ctes: new Set(), defined: new Map() })
+
+/**
+ * The attachment whose child a take is lowered in: the nodes of its delivered rows, and the parents those rows are,
+ * the parent rows of a pipelined statement or one row for a fused attachment's correlated subquery per delivered parent
+ * row.
+ */
+interface AttachmentContext<I extends ChoiceInput> {
+	/** The labels of the delivered rows' nodes, which a correlation's column references name. */
+	readonly spine: ReadonlySet<NodeId>
+	readonly parents: ParentSet<I>
+}
+
+/**
+ * The parent set of a pipelined attachment's child: the parent rows' bound. A page's attachment chooses per execution
+ * by the requested size, which bounds the delivered page; any other count is known only once the parent statement has
+ * run, which shares the child's flight, so the facts' bound fixes the form, and without one the child is read for
+ * every group.
+ */
+const parentsOfRows = <I extends ChoiceInput>(bound: RowsBound<I>): ParentSet<I> => {
+	switch (bound.kind) {
+		case "count":
+			return { kind: "bounded", max: bound.max }
+		case "input":
+			return { kind: "input", source: bound.source, factor: bound.factor }
+		case "unbounded":
+			return { kind: "whole" }
+	}
+}
+
+/**
+ * What the lowerers of one optimized delivery read and record of its state: the per-execution mode the statement being
+ * lowered is lowered in, the CTE plan's strategy for a node, the CTEs that statement defined, and each per-execution
+ * choice its shapes make, by an input of `I`: a relation parameter's in any delivery, a page's requested size only in a
+ * page's.
+ */
+export interface ShapeLog<I extends ChoiceInput> {
+	readonly mode: InputChoiceMode
+	readonly log: CteLog
+	strategy(node: RelNode): CteStrategy | undefined
+	readonly record: (choice: ShapeChoice<I>) => void
+}
+
+/**
+ * The mutable state of one optimized delivery: the CTE plan, and the statement being lowered, with the per-execution
+ * mode it is lowered in and the choices it made by inputs of `I`.
+ *
+ * The optimized lowering's kind table and statement delivery.
+ *
+ * The kind table is written once and imports every shape plug-in from its fixed directory. Its type is a mapped type
+ * over the closed kind union, so a kind added to the IR fails to typecheck here until it has a plug-in, as the
+ * conservative table does (lower/conservative/dispatch.ts).
+ *
+ * Every node is lowered under the duplicate-elimination placement (lower/optimize/dedup), read through ShapeFacts
+ * (shapes/share/physical.ts), never through logical keys or node kinds:
+ *
+ * - the sources, filters, projections, regions, existence tests and feedback scans are the conservative plug-ins with
+ *   their outermost SELECT DISTINCT dropped where the placement realized the node `plain`; a semi-join over the
+ *   feedback of a recursion keeps it, because there its DISTINCT is the semi-join's own set semantics
+ *   (lower/conservative/semi-join/exists.ts); a region past PostgreSQL's collapse limit is the conservative region's
+ *   parts as an explicit JOIN chain in an evidence-chosen order, so its planning stays bounded (region/);
+ * - Union, Take, Group and InputSet are the set-boundary shapes (union, take with the R20 parent-set policy, aggregate
+ *   with R24, relparam), each discharging its own input's obligation unless the facts prove it unique;
+ * - Window and OrderedSetAggregate are the compile-target catalog's native targets (shapes/catalog);
+ * - Intersect and Difference keep their set forms and Recursive its recursive UNION (dedup/policy.ts pins them);
+ * - an attachment, an ordered result and a law lower as the rows they deliver.
+ *
+ * A node the CTE policy shares (lower/optimize/cte-policy) is spelled once per statement as a WITH entry,
+ * MATERIALIZED or NOT MATERIALIZED as the policy decided, and every use reads it under a fresh alias; every other node
+ * is inlined at each use.
+ *
+ * The delivery schedules a query's statements: the main statement, or one statement per heading group
+ * of a heterogeneous union delivered to the host (R21), and the attachments, fused into their parent statement as
+ * ARRAY(SELECT ...) where the R36 rule selects it and otherwise pipelined: a statement of their own in the same
+ * flight, which computes the parent's rows again (conservative/deliver.ts). A take correlated to a relation parameter,
+ * or in a page's attachment to the delivered page, chooses its form per execution by that input's size, known before
+ * the flight is sent: the delivery lowers each statement in the small mode and, when that lowering made
+ * choices, again in the large mode (OptimizedDelivery.formed). A take correlated to the parent rows of any other
+ * pipelined attachment takes the form the parent rows' bound fixes (parentsOf).
+ */
+export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
+	readonly cte: CtePlan
+	#mode: InputChoiceMode
+	#log: CteLog = freshLog()
+	#choices: Array<ShapeChoice<I>> = []
+
+	/** A state whose first statement is lowered in `mode`. */
+	constructor(mode: InputChoiceMode, cte: CtePlan) {
+		this.#mode = mode
+		this.cte = cte
+	}
+
+	get mode(): InputChoiceMode {
+		return this.#mode
+	}
+
+	/** The next statement, lowered in `mode`, with a fresh log. */
+	begin(mode: InputChoiceMode): void {
+		this.#mode = mode
+		this.#log = freshLog()
+		this.#choices = []
+	}
+
+	get log(): CteLog {
+		return this.#log
+	}
+
+	readonly record = (choice: ShapeChoice<I>): void => {
+		this.#choices.push(choice)
+	}
+
+	/** The statement's WITH entries and choices, and a fresh log for the next statement. */
+	drain(): StatementLog<ShapeChoice<I>> {
+		const log = { ...this.#log, choices: this.#choices }
+		this.#log = freshLog()
+		this.#choices = []
+		return log
+	}
+
+	strategy(node: RelNode): CteStrategy | undefined {
+		return this.cte.decisions[node.id]?.strategy
+	}
+}
+
+/**
+ * A query without its outermost set boundary: the plain realization of a conservative plug-in whose query is a SELECT
+ * DISTINCT. A set operation, DISTINCT ON, or a query without DISTINCT is returned unchanged.
+ */
+export const withoutBoundary = (query: Select): Select => {
+	const body = query.body
+	if (body.kind !== "core" || body.distinct !== true) {
+		return query
+	}
+	return { ...query, body: { ...body, distinct: false } }
+}
+
+/**
+ * Whether a query's outermost form eliminates repeats exactly: SELECT DISTINCT, UNION, INTERSECT, EXCEPT, or a
+ * recursive CTE under UNION.
+ */
+const exactBody = (body: Select["body"]): boolean =>
+	(body.kind === "core" && body.distinct === true) ||
+	(body.kind === "setOp" && body.op !== "UNION ALL") ||
+	(body.kind === "select" && exactBody(body.body))
+
+/**
+ * A query with an exact set boundary: unchanged when its outermost form already eliminates repeats, otherwise read as
+ * a derived table under SELECT DISTINCT.
+ */
+export const withBoundary = (cx: LowerContext, node: RelNode, query: Select): Select => {
+	if (exactBody(query.body) || query.with?.recursive === true) {
+		return query
+	}
+	const source = cx.wrap(query, node.heading, { kind: "node", node: node.id })
+	return distinctSelect(headingTargets(node.heading, source.map), [source.item], [])
+}
+
+/** A conservative plug-in realized as the placement decided. */
+const realized =
+	<K extends RelKind>(facts: ShapeFacts, lower: NodeLowerer<K>): NodeLowerer<K> =>
+	(node, cx, env) => {
+		const query = lower(node, cx, env)
+		return facts.realization(node) === "plain"
+			? withoutBoundary(query)
+			: withBoundary(cx, node, query)
+	}
+
+/**
+ * A plug-in that lowers a node as the rows it delivers (an attachment, an ordered result, a law): its input's query,
+ * whose boundary is its input's to keep or drop. Placement never realizes such a node `distinct` (rel.ts
+ * deliveredInput, dedup/policy.ts placementTarget); were one requested, the boundary is added.
+ */
+const delivering =
+	<K extends RelKind>(facts: ShapeFacts, lower: NodeLowerer<K>): NodeLowerer<K> =>
+	(node, cx, env) => {
+		const query = lower(node, cx, env)
+		return facts.realization(node) === "distinct" ? withBoundary(cx, node, query) : query
+	}
+
+/**
+ * The parents a take is evaluated for: the parent set of the attachment being lowered when it correlates to that
+ * attachment's delivered rows, the parent rows of a pipelined statement or one row of a fused attachment's per-parent
+ * subquery, and otherwise what the DAG and the facts say (take/index.ts parentSetOf).
+ */
+const parentsOf = <I extends ChoiceInput>(
+	cx: LowerContext,
+	take: NodeOf<"Take">,
+	facts: ShapeFacts,
+	context: AttachmentContext<I> | undefined
+): ParentSet<I | RelationInput> => {
+	if (context !== undefined) {
+		const reads = outerCorrelations(take).flatMap((c) => c.expr.deps.nodes)
+		if (reads.length > 0 && reads.every((n) => context.spine.has(n))) {
+			return context.parents
+		}
+	}
+	return parentSetOf(cx.dag, take, facts)
+}
+
+/**
+ * A correlated take lowered over every group: the per-group query read as a derived table, joined to
+ * its parents by its outer correlations. The wrapper is a simple subquery, so PostgreSQL pulls it up and evaluates the
+ * per-group query once for every parent rather than once per parent.
+ */
+const wholeRelationTake = (
+	node: NodeOf<"Take">,
+	cx: LowerContext,
+	env: Env,
+	facts: ShapeFacts,
+	shape: "distinctOn" | "rowNumber"
+): Select => {
+	const d = decorrelatedTake(node, cx, env, facts, shape)
+	const source = cx.wrap(d.query, node.heading, { kind: "node", node: node.id })
+	const joins = d.joins.map((j) =>
+		cx.equal(
+			columnType(node.heading, j.column),
+			columnIn(source.map, j.column),
+			lowerExpr(cx, j.expr, env)
+		)
+	)
+	return select(core(headingTargets(node.heading, source.map), [source.item], conjunction(joins)))
+}
+
+/** The R20 take: the fixed policy over the parent set, a per-execution choice lowered in the delivery's mode. */
+const takeShape =
+	<I extends ChoiceInput>(
+		facts: ShapeFacts,
+		state: ShapeLog<I | RelationInput>,
+		attachment: AttachmentContext<I> | undefined
+	): NodeLowerer<"Take"> =>
+	(node, cx, env) => {
+		const choice = chooseTakeShape(
+			node,
+			parentsOf(cx, node, facts, attachment),
+			facts,
+			lateralParentMax
+		)
+		if (choice.kind !== "fixed") {
+			state.record({
+				take: node.id,
+				source: choice.source,
+				threshold: choice.threshold,
+				small: choice.small,
+				large: choice.large
+			})
+		}
+		const shape: TakeShape =
+			choice.kind === "fixed" ? choice.shape : state.mode === "small" ? choice.small : choice.large
+		switch (shape) {
+			case "limit":
+				return takeLowerer(facts)(node, cx, env)
+			case "lateral":
+				return lateralTake(node, cx, env, facts)
+			case "distinctOn":
+			case "rowNumber":
+				return wholeRelationTake(node, cx, env, facts, shape)
+		}
+	}
+
+/** A semi-join keeps its DISTINCT over a recursion's feedback, where it lowers as a join (semi-join/exists.ts). */
+const semiJoinShape = (facts: ShapeFacts): NodeLowerer<"SemiJoin"> => {
+	const plain = realized(facts, conservativeLowerers.SemiJoin)
+	return (node, cx, env) =>
+		cx.readsFeedback(node.right)
+			? conservativeLowerers.SemiJoin(node, cx, env)
+			: plain(node, cx, env)
+}
+
+/** The kind table. */
+const optimizedLowerers = <I extends ChoiceInput>(
+	facts: ShapeFacts,
+	state: ShapeLog<I | RelationInput>,
+	attachment: AttachmentContext<I> | undefined
+): { readonly [K in RelKind]: NodeLowerer<K> } => ({
+	Base: realized(facts, conservativeLowerers.Base),
+	Closed: realized(facts, conservativeLowerers.Closed),
+	Context: realized(facts, conservativeLowerers.Context),
+	InputSet: inputSetLowerer(facts),
+	Delta: realized(facts, conservativeLowerers.Delta),
+	MatchRegion: realized(facts, regionLowerer(facts)),
+	Filter: realized(facts, conservativeLowerers.Filter),
+	ProjectSet: realized(facts, conservativeLowerers.ProjectSet),
+	SemiJoin: semiJoinShape(facts),
+	AntiJoin: realized(facts, conservativeLowerers.AntiJoin),
+	Union: unionLowerer(facts),
+	Intersect: conservativeLowerers.Intersect,
+	Difference: conservativeLowerers.Difference,
+	Take: takeShape(facts, state, attachment),
+	Group: aggregateLowerer(facts),
+	Produce: producerLowerer(facts),
+	Recursive: recursionLowerer(facts),
+	SelfRef: realized(facts, conservativeLowerers.SelfRef),
+	ApproximateNearest: approximateLowerer(facts),
+	OrderedResult: delivering(facts, conservativeLowerers.OrderedResult),
+	Attach: delivering(facts, conservativeLowerers.Attach),
+	Forbid: delivering(facts, conservativeLowerers.Forbid),
+	Window: catalogLowerers.Window,
+	OrderedSetAggregate: catalogLowerers.OrderedSetAggregate
+})
+
+const cteMaterialization = (strategy: CteStrategy): NonNullable<Cte["materialized"]> | undefined =>
+	strategy === "materialized"
+		? "MATERIALIZED"
+		: strategy === "notMaterialized"
+			? "NOT MATERIALIZED"
+			: undefined
+
+/**
+ * The one dispatch, in the child of `attachment` or outside any attachment: a node to its kind's plug-in, or, for a node
+ * the CTE policy shares, a read of its statement-level CTE, defined at its first use in the statement. The CTE policy
+ * shares only uncorrelated nodes off every recursion's feedback (cte-policy rule 3), so the body is lowered outside any
+ * outer scope: a reference to one would be refused rather than hoisted.
+ */
+const dispatchIn = <I extends ChoiceInput>(
+	facts: ShapeFacts,
+	state: ShapeLog<I | RelationInput>,
+	attachment: AttachmentContext<I> | undefined
+): NodeDispatch => {
+	const table = optimizedLowerers(facts, state, attachment)
+	/** The table is a mapped type over the kinds, so its entry at a node's kind takes that kind's node. */
+	const plugIn = <K extends RelKind>(node: NodeOf<K>, cx: LowerContext, env: Env): Select => {
+		const lower: NodeLowerer<K> = table[node.kind]
+		return lower(node, cx, env)
+	}
+	return (node, cx, env) => {
+		const strategy = state.strategy(node)
+		const materialized = strategy === undefined ? undefined : cteMaterialization(strategy)
+		if (materialized === undefined || cx.readsFeedback(node)) {
+			return plugIn(node, cx, env)
+		}
+		const origin = { kind: "node", node: node.id } as const
+		const log = state.log
+		let defined = log.defined.get(node)
+		if (defined === undefined) {
+			const query = plugIn(node, cx, emptyEnv)
+			const name = cx.relationAlias(origin)
+			const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
+			log.ctes.add({ name, columns, materialized, query })
+			defined = { name, columns }
+			log.defined.set(node, defined)
+		}
+		const alias = cx.relationAlias(origin)
+		const { columns } = defined
+		return select(
+			core(
+				columns.map((c) => target(col(alias, c))),
+				[cteRefAs(defined.name, alias)],
+				undefined
+			)
+		)
+	}
+}
+
+/**
+ * The dispatch of a delivery's statements, outside any attachment: its rows, and a parent's rows computed again inside
+ * an attachment's statement, are lowered as in their own statement.
+ */
+export const optimizedDispatch = (
+	facts: ShapeFacts,
+	state: ShapeLog<RelationInput>
+): NodeDispatch => dispatchIn<never>(facts, state, undefined)
+
+/**
+ * What one fused attachment column carries, as the runtime's decoder reads it: the parent columns it correlates on and
+ * its layout (attach/index.ts fusedLayout).
+ */
+const fusedDescription = (
+	cx: LowerContext,
+	attach: NodeOf<"Attach">,
+	spine: ReadonlyArray<RelNode>,
+	heading: Heading
+): FusedAttachment => ({
+	attach: attach.id,
+	name: attach.name,
+	parentColumns: parentColumnsOf(cx, attach, spine, heading).map((c) => c.name),
+	layout: fusedLayout(attach, attach.child.heading, attach.parent.heading)
+})
+
+/**
+ * The R36 rule (attach/index.ts chooseAttachment): every attachment it fuses is fused, a child whose correlated
+ * columns the parent row supplies included.
+ */
+const fusible = (attach: NodeOf<"Attach">, searches: boolean): boolean =>
+	chooseAttachment(attach, searches ? "approximate" : "exact", attachFuseMaxFields).form === "fused"
+
+/** Whether computing the rows of `node` reads an approximate search: an attachment's rows are its parent's. */
+const rowsReadSearch = (node: RelNode): boolean => {
+	const seen = new Set<RelNode>([node])
+	const queue = [node]
+	for (const queued of queue) {
+		if (queued.kind === "ApproximateNearest") {
+			return true
+		}
+		for (const input of queryInputs(queued)) {
+			if (!seen.has(input)) {
+				seen.add(input)
+				queue.push(input)
+			}
+		}
+	}
+	return false
+}
+
+/** The bound of a rows statement's rows over `node`: the facts' maximum cardinality. */
+const rowsBoundOf = (facts: ShapeFacts, node: RelNode): RowsBound<never> => {
+	const max = facts.maxCard(node)
+	return max.kind === "unbounded" ? { kind: "unbounded" } : { kind: "count", max: max.rows }
+}
+
+interface DeliveredAttachment {
+	readonly attach: NodeOf<"Attach">
+	/** The nodes whose rows are the delivered rows, under the delivered heading's column names. */
+	readonly spine: ReadonlyArray<RelNode>
+}
+
+interface RowsSpec<I extends ChoiceInput> {
+	/**
+	 * The rows, lowered in the statement being lowered: the statement's own, or a later statement's computing them
+	 * again.
+	 */
+	readonly rel: () => Select
+	readonly heading: Heading
+	/** The node whose rows the statement delivers, for the facts. */
+	readonly origin: RelNode
+	readonly attachments: ReadonlyArray<DeliveredAttachment>
+	readonly order: CompletedOrder | undefined
+	readonly statement: StatementPlacement
+	/** What identifies a delivered row: a row of `origin`, or nothing the facts know for a heading group. */
+	readonly identity: RowsIdentity
+	/** How many rows the statement delivers at most. */
+	readonly bound: RowsBound<I>
+}
+
+/**
+ * An optimized delivery whose delivered rows an input of `I` may bound (a page's requested size in a page, none
+ * elsewhere), so its statements make per-execution choices by those inputs and by relation parameters (ShapeState).
+ */
+export class OptimizedDelivery<
+	I extends ChoiceInput,
+	Own extends PageParamSlot = never
+> extends Delivery<Own> {
+	readonly facts: ShapeFacts
+	readonly state: ShapeState<I | RelationInput>
+
+	constructor(cx: LowerContext, facts: ShapeFacts, state: ShapeState<I | RelationInput>) {
+		super(cx)
+		this.facts = facts
+		this.state = state
+	}
+
+	/**
+	 * The statement at `position` delivering `query`, a relation of heading `rows`, after the columns its role puts
+	 * first, with the choices its lowering made: the refined output casts, the statement's WITH entries, the public names
+	 * (the output heading, then each fused attachment's column), printed by sql/emit. A zero-column relation delivers its
+	 * private unit column.
+	 */
+	#emitted(
+		query: Select,
+		rows: Heading,
+		statement: StatementPlacement,
+		fused: ReadonlyArray<FusedAttachment>,
+		position: number
+	): Lowered<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+		const output = statementOutput(statement.role, rows, fused)
+		const log = this.state.drain()
+		let shaped = refineDelivered(this.cx, query, output.heading)
+		if (log.ctes.size > 0) {
+			shaped = {
+				...shaped,
+				with:
+					shaped.with === undefined
+						? { ctes: [...log.ctes], recursive: false }
+						: { ...shaped.with, ctes: [...log.ctes, ...shaped.with.ctes] }
+			}
+		}
+		const renamed = renameToPublicHeading(shaped, output.names)
+		if (!renamed.ok) {
+			throw new Refusal(renamed.error)
+		}
+		const printed = emit(
+			renamed.value,
+			this.cx.supply.map(),
+			metered(
+				this.cx.options.meter,
+				SourceLoc("optimized delivery", ["statements", position, statement.role.kind])
+			)
+		)
+		if (!printed.ok) {
+			throw new Refusal(printed.error)
+		}
+		return {
+			statement: {
+				...statement,
+				ast: renamed.value,
+				sql: printed.value,
+				params: [...this.params.slots],
+				heading: rows,
+				fused
+			},
+			choices: log.choices
+		}
+	}
+
+	/** One lowering of a statement by `lower` in `mode`, with names, placeholders and WITH entries of its own. */
+	#lowered(
+		mode: InputChoiceMode,
+		lower: () => Select,
+		rows: Heading,
+		statement: StatementPlacement,
+		fused: ReadonlyArray<FusedAttachment>,
+		position: number
+	): Lowered<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+		this.state.begin(mode)
+		this.beginStatement()
+		return this.#emitted(lower(), rows, statement, fused, position)
+	}
+
+	/**
+	 * The statement at `position` in its forms: its query lowered by `lower` in the small mode, each per-execution take
+	 * in its small form, and, when that lowering made choices, lowered again in the large mode, each take in its large
+	 * form, as the statement's large form. Both forms are this placement's, so they share its role and heading; only
+	 * the query, its names and its placeholders differ.
+	 */
+	formed(
+		lower: () => Select,
+		rows: Heading,
+		statement: StatementPlacement,
+		fused: ReadonlyArray<FusedAttachment>,
+		position: number
+	): DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+		const small = this.#lowered("small", lower, rows, statement, fused, position)
+		const choices = small.choices
+		if (!isNonEmpty(choices)) {
+			return { ...small.statement, forms: oneForm }
+		}
+		const large = this.#lowered("large", lower, rows, statement, fused, position)
+		return { ...small.statement, forms: { kind: "chosen", choices, large: large.statement } }
+	}
+
+	/**
+	 * The delivered rows of a relation, ordered by its completed order with the heading appended only where the facts
+	 * do not prove the order total (take/order.ts).
+	 */
+	deliveredRows(
+		rel: Select,
+		heading: Heading,
+		origin: RelNode,
+		order: CompletedOrder | undefined
+	): Select {
+		const source = this.cx.wrap(rel, heading, { kind: "node", node: origin.id })
+		const orderBy: ReadonlyArray<OrderItem> =
+			order === undefined || heading.length === 0
+				? []
+				: orderItemsOf(order, heading, source.map, {
+						leading: [],
+						total: orderIsTotal(this.facts, origin, order, heading),
+						fixed: []
+					})
+		return {
+			...select(core(headingTargets(heading, source.map), [source.item], undefined)),
+			orderBy
+		}
+	}
+
+	override program(
+		root: RelNode
+	): DeliveredProgram<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+		const cx = this.cx
+		const plan = this.heterogeneousPlan(root)
+		if (plan !== undefined) {
+			return { roots: this.headingGroups(plan), delivery: headingGroupsDelivery(plan) }
+		}
+		const order = root.kind === "OrderedResult" ? root.order : undefined
+		const rows = root.kind === "OrderedResult" ? root.input : root
+		const spine = this.spine(rows)
+		const main = this.rowsStatement({
+			rel: () => cx.lower(rows, emptyEnv),
+			heading: rows.heading,
+			origin: rows,
+			attachments: spine.attachments.map((attach) => ({ attach, spine: spine.nodes })),
+			order,
+			statement: { role: { kind: "main" }, dependsOn: [] },
+			identity: { kind: "node", node: rows },
+			bound: rowsBoundOf(this.facts, rows)
+		})
+		const place = positions()
+		const statement = place(main.build)
+		return {
+			roots: [{ statement, attachments: main.attachments(place) }],
+			delivery: { kind: "rows" }
+		}
+	}
+
+	/**
+	 * The scope of the child of an attachment `context` describes. The delivery's own context lowers outside any
+	 * attachment (optimizedDispatch), so a parent's rows computed again inside an attachment's statement, through it,
+	 * are lowered as in their own statement.
+	 */
+	inAttachment(context: AttachmentContext<I>): LowerContext {
+		return this.cx.withDispatch(dispatchIn(this.facts, this.state, context))
+	}
+
+	/**
+	 * A rows statement and its attachments: the fusible ones as columns of the statement (R36), which `build` builds at
+	 * the position it is placed at, and each other one a pipelined statement under it, which `attachments` places once
+	 * the rows statement is placed.
+	 */
+	rowsStatement(spec: RowsSpec<I>): {
+		readonly build: (
+			position: number
+		) => DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>
+		readonly attachments: (
+			place: Place
+		) => ReadonlyArray<
+			AttachedTree<DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>>
+		>
+	} {
+		const cx = this.cx
+		const searches = rowsReadSearch(spec.origin)
+		const fused = spec.attachments.filter((a) => fusible(a.attach, searches))
+		const pipelined = spec.attachments.filter((a) => !fused.includes(a))
+		/** withFusedAttachments reads every fused child over one spine: the delivered rows' nodes. */
+		const spine = [...new Set(fused.flatMap((a) => a.spine))]
+		const lowered = (): Select => {
+			const rel = spec.rel()
+			return fused.length === 0
+				? this.deliveredRows(rel, spec.heading, spec.origin, spec.order)
+				: withFusedAttachments(
+						this.inAttachment({
+							spine: new Set(spine.map((n) => n.id)),
+							parents: { kind: "bounded", max: 1n }
+						}),
+						rel,
+						spec.rel,
+						spec.heading,
+						spec.origin,
+						spine,
+						fused.map((a) => a.attach),
+						this.facts,
+						spec.order
+					).query
+		}
+		const columns = fused.map((a) => fusedDescription(cx, a.attach, a.spine, spec.heading))
+		return {
+			build: (position) => this.formed(lowered, spec.heading, spec.statement, columns, position),
+			attachments: (place) => {
+				const rows: DeliveredRows<I> = {
+					...statementRows(spec.heading, spec.rel),
+					identity: spec.identity,
+					bound: spec.bound,
+					searches
+				}
+				return pipelined.map((a) => this.pipelined(place, a.attach, a.spine, rows))
+			}
+		}
+	}
+
+	/**
+	 * One pipelined attachment's statement in the statement being lowered, or its seeded recursive form (R37), with
+	 * its child lowered over the parent rows' bound and its parent key `parentKey`.
+	 */
+	pipelinedQuery(
+		attach: NodeOf<"Attach">,
+		spine: ReadonlyArray<RelNode>,
+		rows: DeliveredRows<I>,
+		parentKey: Heading
+	): PipelinedAttachment {
+		const child = this.inAttachment({
+			spine: new Set(spine.map((n) => n.id)),
+			parents: parentsOfRows(rows.bound)
+		})
+		return (
+			seededAttachment(child, attach, spine, rows, this.facts, parentKey) ??
+			pipelinedAttachment(child, attach, spine, rows, this.facts, parentKey)
+		)
+	}
+
+	/**
+	 * One pipelined attachment, a statement of its own in its parent's flight that computes the parent's rows again;
+	 * its child's own attachments are pipelined after it, over its rows.
+	 *
+	 * The checker refuses this (check/approximate/attach.ts pipelinedOverSearch); a rewrite that made it so is a
+	 * defect, refused rather than run with a second search.
+	 */
+	pipelined(
+		place: Place,
+		attach: NodeOf<"Attach">,
+		spine: ReadonlyArray<RelNode>,
+		rows: DeliveredRows<I>
+	): AttachedTree<DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>> {
+		const cx = this.cx
+		const at = nodeLabel(attach)
+		this.oneHeadingAttached(attach)
+		if (rows.searches) {
+			refuse(
+				"UnsupportedOperation",
+				at,
+				`approximateNearest: the attachment ${attach.name} is a statement of its own over rows that read an approximate search, which it would run a second time`
+			)
+		}
+		const child = attach.child
+		const parentKey = parentColumnsOf(cx, attach, spine, rows.heading)
+		const statement = place((position) =>
+			this.formed(
+				() =>
+					checkedAttachment(
+						cx,
+						attach,
+						this.pipelinedQuery(attach, spine, rows, parentKey).query,
+						parentKey,
+						child.heading,
+						rows
+					),
+				child.heading,
+				{ role: { kind: "attachment", parentKey }, dependsOn: [] },
+				[],
+				position
+			)
+		)
+		const childSpine = this.spine(attach.child)
+		const childRows: DeliveredRows<I> = {
+			...attachmentRows(
+				parentKey,
+				child.heading,
+				() => this.pipelinedQuery(attach, spine, rows, parentKey).rows
+			),
+			identity: attachmentRowsIdentity(cx, attach, spine),
+			bound: boundTimes(rows.bound, this.facts.maxCard(attach.child)),
+			searches: rows.searches || rowsReadSearch(attach.child)
+		}
+		const attachments = childSpine.attachments.map((nested) =>
+			this.pipelined(place, nested, childSpine.nodes, childRows)
+		)
+		return { statement, attach, attachments }
+	}
+
+	/** One statement per heading group (R21), each with its pipelined attachments' statements (groupSpec). */
+	headingGroups(
+		plan: HeterogeneousPlan
+	): StatementRoots<DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>> {
+		const place = positions()
+		return mapNonEmpty(plan.union.groups, (group, gi) => {
+			const built = this.rowsStatement(this.groupSpec(plan, gi, group))
+			const statement = place(built.build)
+			return { statement, attachments: built.attachments(place) }
+		})
+	}
+
+	/**
+	 * The rows of heading group `gi`, in the statement it begins: the group's rows, deduplicated unless proved unique
+	 * (union/index.ts groupRows), the plan's filters, the take's first k in the common completed order, the delivery
+	 * order, and the attachments above the union and those of a group's single arm.
+	 */
+	groupSpec(
+		plan: HeterogeneousPlan,
+		gi: number,
+		group: HeterogeneousPlan["union"]["groups"][number]
+	): RowsSpec<I> {
+		const cx = this.cx
+		const { union } = plan
+		const take = groupTake(plan)
+		const at = nodeLabel(union)
+		const scopeNodes = [...plan.spineNodes, union]
+		/** The group's rows, lowered in the statement being lowered: its own, or an attachment's computing them again. */
+		const lowered = (): Select => {
+			let rel = groupRows(cx, union, group, emptyEnv, this.facts)
+			const [innermost] = plan.filters.slice(-1)
+			if (innermost !== undefined) {
+				const input = cx.wrap(rel, group.heading, { kind: "node", node: innermost.id })
+				const scope: Env = new Map(scopeNodes.map((n) => [n.id, input.map]))
+				rel = select(
+					core(
+						headingTargets(group.heading, input.map),
+						[input.item],
+						and(...plan.filters.map((f) => lowerExpr(cx, f.pred, scope)))
+					)
+				)
+			}
+			if (take !== undefined) {
+				const bounded = cx.wrap(rel, group.heading, { kind: "node", node: take.id })
+				const orderBy = orderItemsOf(take.order, group.heading, bounded.map, {
+					leading: [],
+					total: orderIsTotal(this.facts, union, take.order, union.heading),
+					fixed: []
+				})
+				rel = {
+					...select(core(headingTargets(group.heading, bounded.map), [bounded.item], undefined)),
+					orderBy,
+					limit: cx.boundExpr(take.bound)
+				}
+			}
+			return rel
+		}
+		const rel = lowered
+		const attachments: Array<DeliveredAttachment> = plan.attachments.map((attach) => ({
+			attach,
+			spine: scopeNodes
+		}))
+		const [only, ...others] = group.arms
+		if (others.length === 0) {
+			const armSpine = this.spine(only)
+			for (const attach of armSpine.attachments) {
+				attachments.push({ attach, spine: armSpine.nodes })
+			}
+		} else {
+			const attached = group.arms.find((arm) => this.spine(arm).attachments.length > 0)
+			if (attached !== undefined) {
+				refuse(
+					"UnsupportedOperation",
+					at,
+					`attachments on the arm ${attached.id} of a heading group of several arms`
+				)
+			}
+		}
+		return {
+			rel,
+			heading: group.heading,
+			origin: union,
+			attachments,
+			order: groupOrder(plan),
+			statement: { role: { kind: "headingGroup", group: gi }, dependsOn: [] },
+			identity: { kind: "unkeyed" },
+			bound: rowsBoundOf(this.facts, union)
+		}
+	}
+}

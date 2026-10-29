@@ -1,0 +1,584 @@
+import { Array as Arr, Deferred, Effect, Fiber, Result, Schema } from "effect"
+import type { ApplyError } from "#adapter/errors/execution.ts"
+import {
+	type CaseRecord,
+	defineGate,
+	equivalence,
+	jsonText,
+	mechanism,
+	type VerdictInput
+} from "#bench/harness/gate.ts"
+import { type LoadMeasure, retryPolicy, runLoad, withRetries } from "#bench/harness/load.ts"
+import {
+	measureTransaction,
+	summarizeTransactions,
+	type TransactionMeasure
+} from "#bench/harness/transaction.ts"
+import { GateSetupError, settle } from "#bench/query/support/kit.ts"
+import {
+	attemptLabel,
+	decodeOne,
+	insertsOf,
+	installWrites,
+	loadedByOwner,
+	loginRoleOf,
+	type ObservedApply,
+	type ObservedStatement,
+	observedChange,
+	openFull,
+	owner,
+	plainStatement,
+	theStatement,
+	timedSamples,
+	transactionOf,
+	warmedOnce,
+	writeConditions,
+	writePhases,
+	writerSession
+} from "#bench/write/support/writes.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { query } from "#compiler/public/query.ts"
+import { key, mutable, relation as defineRelation, schema } from "#compiler/public/schema.ts"
+import type { Insert } from "#compiler/sql/ast.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import { indices } from "#test/support/oracle/pick.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+
+/**
+ * R33: settle inserts in one DO SELECT statement, for repeated inserts and conflicts.
+ *
+ * The gate states the protocol's statement forms: "an identical insert is settled by one INSERT … ON CONFLICT DO SELECT
+ * statement; exact repeats return no row". This file reads each form off the compiled program's audited AST (the DO
+ * SELECT of an immutable or a `mutable` relation, without a locking clause and ordered by the key, and DO NOTHING of a
+ * pure set), and runs the protocol with a grizzle writer (a Db opened through its own DbLayer,
+ * applying ChangeSets) beside a direct SQL writer that takes on the same role through its login:
+ * - an identical insert in flight waits, then after its commit meets 40001, a TransientFailure, and the caller's second
+ *   call is a repeat, an enumerated insert and a described one alike, since every write runs SERIALIZABLE, and after
+ *   its abort is inserted; a committed different payload is a conflict with the key law; exact repeats are
+ *   `no-change`. The insert in flight is reached by the substrate's lock-wait barrier: the grizzle writer's backend
+ *   observed blocked by the direct writer's, never a poll on a clock;
+ * - two concurrent overlapping additions to a relation whose only unique index is the primary key complete without
+ *   40P01, whatever order each writer's host supplied its facts in; on a relation with an additional key, whose unique
+ *   check waits in that index's order, a 40P01 is a TransientFailure, and the harness's caller-side retry reaches the
+ *   same final state and outcome (bench/harness/load.ts withRetries).
+ * The interleavings that need a step between two statements of one grizzle transaction are the schedules' contract
+ * (test/schedules/write), reached through lock waits inside the one flight.
+ *
+ * Measured: N new facts, N exact repeats and N conflicts through the Db, against the hand-written protocol statement
+ * (INSERT ... ON CONFLICT DO SELECT) and a plain INSERT ... ON CONFLICT DO NOTHING, which reports no conflict at all.
+ */
+const Item = defineRelation("Item", { id: pg.bigint, v: pg.integer }, ["id"])
+const Note = defineRelation("Note", { id: pg.bigint, v: pg.integer }, ["id"])
+const Tag = defineRelation("Tag", { id: pg.bigint }, ["id"])
+const Coded = defineRelation("Coded", { id: pg.bigint, code: pg.bigint }, ["id"])
+const Anchor = defineRelation("Anchor", { id: pg.integer }, ["id"])
+const build = (name: string) =>
+	schema(name, { Item, Note, Tag, Coded, Anchor }, [mutable(Note), key(Coded, ["code"])])
+
+interface Options extends Readonly<Record<string, unknown>> {
+	/** Facts per timed batch. */
+	readonly batch: number
+	readonly samples: number
+	/** Concurrent writers of the overlapping additions, rounds, and keys per round. */
+	readonly writers: number
+	readonly rounds: number
+	readonly keys: number
+}
+
+const modulus = 2n ** 32n
+
+/**
+ * A deterministic shuffle of 0..n-1 for writer `w`, so each writer adds a round's keys in an order of its own: a
+ * Fisher-Yates shuffle driven by a linear congruential generator modulo 2^32 (multiplier 1103515245, increment 12345:
+ * full period, by the Hull-Dobell conditions), seeded per writer by Knuth's multiplicative hash, in BigInt arithmetic
+ * so no product loses precision. The orders need no quality beyond differing between writers and rounds.
+ */
+const shuffled = (n: number, w: number): ReadonlyArray<number> => {
+	const out = Arr.map(indices(n), (i) => i)
+	let seed = (2654435761n * BigInt(w + 1)) % modulus
+	for (let i = n - 1; i > 0; i--) {
+		seed = (seed * 1103515245n + 12345n) % modulus
+		const j = Number(seed % BigInt(i + 1))
+		const a = out[i]
+		const b = out[j]
+		if (a === undefined || b === undefined) {
+			throw new RangeError(`shuffled: positions ${i} and ${j} of ${n}`)
+		}
+		out[i] = b
+		out[j] = a
+	}
+	return out
+}
+
+const CountPair = Schema.Tuple([Schema.FiniteFromString, Schema.FiniteFromString])
+
+/**
+ * The caller's second call of an in-flight schedule: made when the first attempt was transient, once the holder ended.
+ */
+type Second =
+	| { readonly kind: "none" }
+	| { readonly kind: "called"; readonly observed: ObservedApply }
+
+interface InFlight {
+	readonly observed: ObservedApply
+	readonly second: Second
+}
+
+const applyOn = (
+	d: object,
+	changes: unknown,
+	params: Readonly<Record<string, bigint | number>>
+) => {
+	const change = observedChange(d, changes, attemptLabel, { kind: "none" })
+	return Result.isFailure(change) ? Effect.die(change.failure) : change.success.apply(params)
+}
+
+/** The protocol's statements: each relation's one insert statement, and the one INSERT its AST runs. */
+const insertStatement = (statements: ReadonlyArray<ObservedStatement>, relation: string) =>
+	theStatement(
+		statements,
+		`the insert of ${relation}`,
+		(l) => l.kind === "write" && l.relation === relation && l.result.kind === "insert"
+	)
+
+const theInsert = (statement: ObservedStatement): Insert => {
+	const [only, ...more] = insertsOf(statement.ast)
+	if (only === undefined || more.length > 0) {
+		throw GateSetupError.make({
+			what: `an insert statement running ${insertsOf(statement.ast).length} INSERTs`
+		})
+	}
+	return only
+}
+
+/** The DO SELECT the insert's ON CONFLICT over its key columns takes, if it takes one. */
+const doSelect = (insert: Insert) => {
+	const onConflict = insert.onConflict
+	return onConflict?.kind === "columns" && onConflict.action.kind === "doSelect"
+		? { kind: "doSelect" as const }
+		: { kind: "other" as const }
+}
+
+const kinds = (xs: ReadonlyArray<{ readonly value: ObservedApply["value"] }>) =>
+	Arr.map(xs, (x) => x.value.kind)
+
+const allKind = (xs: ReadonlyArray<ObservedApply>, kind: string) =>
+	Arr.every(xs, (x) => x.value.kind === kind)
+
+const deadlocks = (l: LoadMeasure) => l.retries.bySqlstate["40P01"]
+
+/** An outcome as its measure reads: its kind, and the SQLSTATE of its wire failure when it had one. */
+const outcomeText = (o: ObservedApply) =>
+	`${o.value.kind}${o.failure.kind === "none" ? "" : ` ${o.failure.failure.sqlstate}`}`
+
+/** The first attempt met 40001 as a TransientFailure, and the caller's second call was the exact repeat. */
+const repeatedAfterConflict = (x: InFlight) =>
+	x.observed.value.kind === "transient" &&
+	x.observed.failure.kind === "refused" &&
+	x.observed.failure.failure.sqlstate === "40001" &&
+	x.second.kind === "called" &&
+	x.second.observed.value.kind === "no-change"
+
+/** @internal */
+export default defineGate({
+	name: "write-insert",
+	gates: ["R33"],
+	title: "The insert protocol: its statement forms, its outcomes with real sessions, and its cost",
+	scope:
+		"The protocol's statement forms read off the compiled programs' ASTs; grizzle writers beside a direct SQL " +
+		"writer: in-flight identical inserts, enumerated and described, committed conflicts, overlapping concurrent " +
+		"additions with and without a further key; batches of new facts, repeats and conflicts against the hand-written " +
+		"protocol and ON CONFLICT DO NOTHING.",
+	phases: writePhases,
+	options: {
+		full: { batch: 5000, samples: 9, writers: 8, rounds: 20, keys: 200 },
+		quick: { batch: 200, samples: 2, writers: 3, rounds: 3, keys: 20 }
+	} satisfies { readonly full: Options; readonly quick: Options },
+	run: ({ options }) =>
+		Effect.gen(function* () {
+			const s = yield* Substrate
+			const fx = yield* installWrites(build("Inserts"), "benchinsert", {
+				programs: {},
+				logins: []
+			})
+			const S = build(fx.installed.declared)
+			const I = fx.table("Item")
+			const c = (rel: string, f: string) => fx.column(rel, f)
+			const itemKey = namesOf(fx.installed).primaryKeyLaw(Item)
+			/** An outcome's law read back to its LawId. */
+			const reported = namesOf(fx.installed).reported
+			yield* owner(`INSERT INTO ${fx.table("Anchor")} (${c("Anchor", "id")}) VALUES (0)`)
+			yield* settle(fx)
+			const role = loginRoleOf(fx)
+			const db = yield* openFull(fx, S)
+			const direct = yield* writerSession(fx, fx.world.app, "m15c insert direct")
+			const directPid = yield* direct.pid
+			const statementsOf = (changes: unknown): ReadonlyArray<ObservedStatement> => {
+				const change = observedChange(db, changes, attemptLabel, { kind: "none" })
+				if (Result.isFailure(change)) {
+					throw change.failure
+				}
+				return change.success.statements
+			}
+			const itemInsert = (id: bigint, v: number) => ChangeSet.empty(S).insert(Item, [{ id, v }])
+			const described = ChangeSet.empty(S).insert(
+				Item,
+				query(S).rule((r) =>
+					r
+						.match(Anchor, { id: r.param("anchor", Anchor.fields.id) })
+						.find({ id: r.param("id", Item.fields.id), v: r.param("v", Item.fields.v) })
+				)
+			)
+			/**
+			 * One schedule: the direct writer inserts (id, v) and holds it; grizzle applies `apply` meanwhile, and the direct
+			 * writer ends with `end` once the barrier sees grizzle's backend blocked by it. A transient first attempt is the
+			 * caller's to retry: its second call is made once the holder ended.
+			 */
+			const inFlight = Effect.fn("inFlight")(function* (
+				id: number,
+				end: "COMMIT" | "ROLLBACK",
+				apply: Effect.Effect<ObservedApply, ApplyError>
+			) {
+				yield* direct.begin
+				yield* direct.values(
+					`INSERT INTO ${I} (${c("Item", "id")}, ${c("Item", "v")}) VALUES (${id}, 7)`,
+					[]
+				)
+				const started = yield* Deferred.make<void>()
+				const fiber = yield* Effect.forkChild(
+					Effect.andThen(Deferred.succeed(started, undefined), apply)
+				)
+				yield* Deferred.await(started)
+				yield* s.awaitBlockedBy(directPid, role)
+				yield* direct.values(end, [])
+				const observed = yield* Fiber.join(fiber)
+				const second: Second =
+					observed.value.kind === "transient"
+						? { kind: "called", observed: yield* apply }
+						: { kind: "none" }
+				const run: InFlight = { observed, second }
+				return run
+			})
+			const enumeratedRepeat = yield* inFlight(1, "COMMIT", applyOn(db, itemInsert(1n, 7), {}))
+			const enumeratedAbort = yield* inFlight(2, "ROLLBACK", applyOn(db, itemInsert(2n, 7), {}))
+			const describedRepeat = yield* inFlight(
+				3,
+				"COMMIT",
+				applyOn(db, described, { anchor: 0, id: 3n, v: 7 })
+			)
+			yield* owner(`INSERT INTO ${I} (${c("Item", "id")}, ${c("Item", "v")}) VALUES (4, 1)`)
+			const conflict = yield* applyOn(db, itemInsert(4n, 2), {})
+			const first = yield* applyOn(db, itemInsert(5n, 1), {})
+			const repeat = yield* applyOn(db, itemInsert(5n, 1), {})
+
+			/** Overlapping concurrent additions: every writer adds the same keys of a round, each in its own order. */
+			const dbs = yield* Effect.forEach(
+				Arr.map(indices(options.writers), (i) => i),
+				() => openFull(fx, S)
+			)
+			const overlap = (relation: "Item" | "Coded") =>
+				runLoad(
+					dbs,
+					(d, w, round) => {
+						const base = 1000000 * (relation === "Item" ? 1 : 2) + round * options.keys
+						const order = shuffled(options.keys, w * 7919 + round)
+						const changes =
+							relation === "Item"
+								? ChangeSet.empty(S).insert(
+										Item,
+										Arr.map(order, (k) => ({ id: BigInt(base + k), v: 1 }))
+									)
+								: ChangeSet.empty(S).insert(
+										Coded,
+										Arr.map(order, (k) => ({
+											id: BigInt(base + k),
+											code: BigInt(base + options.keys - k)
+										}))
+									)
+						return withRetries(
+							() => Effect.map(applyOn(d, changes, {}), (o) => o.attempted),
+							retryPolicy
+						)
+					},
+					{ bound: { kind: "operations", n: options.rounds }, sampler: { kind: "none" } }
+				)
+			const overlapItem: LoadMeasure = yield* overlap("Item")
+			const overlapCoded: LoadMeasure = yield* overlap("Coded")
+			const [codedRows, codedCodes] = decodeOne(
+				CountPair,
+				yield* s.admin.queryValues(
+					`SELECT pg_catalog.count(*)::text, pg_catalog.count(DISTINCT ${c("Coded", "code")})::text FROM ${fx.table("Coded")}`,
+					[]
+				)
+			)
+
+			const itemStatements = statementsOf(itemInsert(9n, 1))
+			const noteStatements = statementsOf(ChangeSet.empty(S).insert(Note, [{ id: 9n, v: 1 }]))
+			const tagStatements = statementsOf(ChangeSet.empty(S).insert(Tag, [{ id: 9n }]))
+			const itemStatement = insertStatement(itemStatements, Item.name)
+			const noteStatement = insertStatement(noteStatements, Note.name)
+			const tagStatement = insertStatement(tagStatements, Tag.name)
+			const itemAst = theInsert(itemStatement)
+			const noteAst = theInsert(noteStatement)
+			const tagAst = theInsert(tagStatement)
+			const itemSelect = doSelect(itemAst)
+			const noteSelect = doSelect(noteAst)
+			const tagConflict = tagAst.onConflict
+			const tagLabel = tagStatement.label
+
+			/** Cost: N new facts, N exact repeats, N conflicts, through the Db and hand-written. */
+			let next = 10000000
+			const facts = (from: number, v: number) =>
+				Arr.map(indices(options.batch), (i) => ({ id: BigInt(from + i), v }))
+			const newFacts = yield* timedSamples(
+				options.samples,
+				() => {
+					const from = next
+					next += options.batch
+					return applyOn(db, ChangeSet.empty(S).insert(Item, facts(from, 1)), {})
+				},
+				1
+			)
+			const repeatFrom = next - options.batch
+			const repeats = yield* timedSamples(
+				options.samples,
+				() => applyOn(db, ChangeSet.empty(S).insert(Item, facts(repeatFrom, 1)), {}),
+				0
+			)
+			const conflicts = yield* timedSamples(
+				options.samples,
+				() => applyOn(db, ChangeSet.empty(S).insert(Item, facts(repeatFrom, 2)), {}),
+				0
+			)
+			const json = (from: number, v: number) =>
+				jsonText(Arr.map(indices(options.batch), (i) => ({ c1: String(from + i), c2: v })))
+			const protocol =
+				`WITH r1(c1, c2) AS (SELECT r0.c1, r0.c2 FROM jsonb_to_recordset($1::jsonb) AS r0(c1 int8, c2 int4)), ` +
+				`r2 AS (INSERT INTO ${I} AS r3 (${c("Item", "id")}, ${c("Item", "v")}) SELECT r1.c1, r1.c2 FROM r1 ORDER BY r1.c1 ` +
+				`ON CONFLICT (${c("Item", "id")}) DO SELECT WHERE r3.${c("Item", "v")} <> EXCLUDED.${c("Item", "v")} ` +
+				`RETURNING r3.${c("Item", "id")} AS c4, r3.${c("Item", "v")} AS c5) ` +
+				"SELECT r2.c4::text, (r2.c5 = r1.c2)::text FROM r2 JOIN r1 ON r1.c1 = r2.c4"
+			const doNothing = `INSERT INTO ${I} (${c("Item", "id")}, ${c("Item", "v")}) SELECT r0.c1, r0.c2 FROM jsonb_to_recordset($1::jsonb) AS r0(c1 int8, c2 int4) ORDER BY r0.c1 ON CONFLICT (${c("Item", "id")}) DO NOTHING`
+			const handProtocol: Array<TransactionMeasure> = []
+			const handDoNothing: Array<TransactionMeasure> = []
+			for (let i = 0; i < options.samples; i++) {
+				const from = next
+				next += options.batch
+				handProtocol.push(
+					yield* measureTransaction(
+						direct,
+						transactionOf([plainStatement("protocol", protocol, [json(from, 1)])], "plain")
+					)
+				)
+				const from2 = next
+				next += options.batch
+				handDoNothing.push(
+					yield* measureTransaction(
+						direct,
+						transactionOf([plainStatement("do nothing", doNothing, [json(from2, 1)])], "plain")
+					)
+				)
+			}
+
+			const scheduleText = (x: InFlight) =>
+				`${outcomeText(x.observed)}${x.second.kind === "none" ? "" : `; retried ${outcomeText(x.second.observed)}`}`
+			const cases: Array<CaseRecord<"R33">> = [
+				{
+					name: "schedules: an identical insert in flight, a committed conflict, an exact repeat",
+					gates: ["R33"],
+					conditions: writeConditions({
+						workload:
+							"a direct SQL writer holds an uncommitted insert of a key while a grizzle writer inserts the same fact, then commits or rolls back once the grizzle writer's backend waits on it; a grizzle insert over a committed different payload; one fact inserted twice",
+						schemaState: loadedByOwner,
+						data: "Item keyed by id, immutable",
+						parameters: {},
+						semantics:
+							"a repeat is no-change, an aborted holder's fact is inserted, a conflict is invariant-rejected with the key law",
+						cache: warmedOnce
+					}),
+					phases: {},
+					variants: [],
+					comparisons: [],
+					transactions: {},
+					loads: {},
+					measures: {
+						enumeratedRepeat: scheduleText(enumeratedRepeat),
+						enumeratedAbort: scheduleText(enumeratedAbort),
+						describedRepeat: scheduleText(describedRepeat),
+						conflict:
+							conflict.value.kind === "invariant-rejected"
+								? `invariant-rejected ${conflict.value.law.kind}`
+								: conflict.value.kind,
+						repeat: `${first.value.kind} then ${repeat.value.kind}`
+					}
+				},
+				{
+					name: `overlapping concurrent additions, ${options.writers} writers`,
+					gates: ["R33"],
+					conditions: writeConditions({
+						workload: `each round, every writer adds the same ${options.keys} keys in its own order; Item has only its primary key, Coded also a key on code in the reverse order`,
+						schemaState: loadedByOwner,
+						data: "fresh keys per round",
+						parameters: { writers: options.writers, rounds: options.rounds, keys: options.keys },
+						semantics:
+							"per key one writer inserts and the others meet an exact repeat; a 40001 or a 40P01 is a TransientFailure, which the harness retries",
+						cache: warmedOnce
+					}),
+					phases: {},
+					variants: [],
+					comparisons: [],
+					transactions: {},
+					loads: { primaryKeyOnly: overlapItem, withFurtherKey: overlapCoded },
+					measures: {
+						...(deadlocks(overlapItem) === undefined
+							? {}
+							: { primaryKeyDeadlocks: deadlocks(overlapItem) }),
+						...(deadlocks(overlapCoded) === undefined
+							? {}
+							: { furtherKeyDeadlocks: deadlocks(overlapCoded) }),
+						codedRows: `${codedRows}, ${codedCodes}`
+					}
+				},
+				{
+					name: `batches of ${options.batch} facts`,
+					gates: ["R33"],
+					conditions: writeConditions({
+						workload:
+							"db.apply of an enumerated insert of new facts, of the same facts again, and of them with another payload; the hand-written protocol and ON CONFLICT DO NOTHING on new facts",
+						schemaState: loadedByOwner,
+						data: "Item keyed by id",
+						parameters: { batch: options.batch },
+						semantics: "accepted, no-change, invariant-rejected; DO NOTHING reports no conflict",
+						cache: warmedOnce
+					}),
+					phases: { operationMs: newFacts.ms },
+					variants: [],
+					comparisons: [],
+					transactions: {
+						handwrittenProtocol: summarizeTransactions(handProtocol),
+						onConflictDoNothing: summarizeTransactions(handDoNothing)
+					},
+					loads: {},
+					measures: {
+						repeatOperationMs: repeats.ms,
+						conflictOperationMs: conflicts.ms,
+						outcomes: Arr.join(
+							[...kinds(newFacts.values), ...kinds(repeats.values), ...kinds(conflicts.values)],
+							", "
+						)
+					}
+				},
+				{
+					name: "the protocol's statements",
+					gates: ["R33"],
+					conditions: writeConditions({
+						workload:
+							"the compiled insert of one fact into an immutable, a mutable and a pure-set relation",
+						schemaState: loadedByOwner,
+						data: "no facts needed",
+						parameters: {},
+						semantics: "the statements as the runtime sends them",
+						cache: warmedOnce
+					}),
+					phases: {},
+					variants: [],
+					comparisons: [],
+					transactions: {},
+					loads: {},
+					measures: {
+						immutable: Arr.join(
+							Arr.map(itemStatements, (x) => x.sql),
+							"\n"
+						),
+						mutable: Arr.join(
+							Arr.map(noteStatements, (x) => x.sql),
+							"\n"
+						),
+						pureSet: Arr.join(
+							Arr.map(tagStatements, (x) => x.sql),
+							"\n"
+						)
+					}
+				}
+			]
+			const r33: VerdictInput = {
+				checks: [
+					mechanism(
+						"an immutable relation's insert is ON CONFLICT on its key DO SELECT, ordered by the key",
+						itemSelect.kind === "doSelect" &&
+							itemAst.source.kind === "query" &&
+							itemAst.source.query.orderBy.length > 0,
+						itemStatement.sql
+					),
+					mechanism(
+						"a mutable relation's insert is ON CONFLICT on its key DO SELECT",
+						noteSelect.kind === "doSelect",
+						noteStatement.sql
+					),
+					mechanism(
+						"a pure set's insert is the pureSet variant: ON CONFLICT on its key DO NOTHING",
+						tagLabel.kind === "write" &&
+							tagLabel.result.kind === "insert" &&
+							tagLabel.result.variant === "pureSet" &&
+							tagConflict?.kind === "columns" &&
+							tagConflict.action.kind === "doNothing",
+						tagStatement.sql
+					),
+					mechanism(
+						"two overlapping additions on a relation whose only unique index is the key never deadlock",
+						deadlocks(overlapItem) === undefined,
+						jsonText(overlapItem.retries)
+					),
+					equivalence(
+						"an enumerated insert waiting on an identical one in flight fails with a 40001 TransientFailure, and the caller's second call is the exact repeat",
+						repeatedAfterConflict(enumeratedRepeat),
+						scheduleText(enumeratedRepeat)
+					),
+					equivalence(
+						"after the holder's abort the fact is inserted",
+						enumeratedAbort.observed.value.kind === "accepted",
+						scheduleText(enumeratedAbort)
+					),
+					equivalence(
+						"a described insert waiting on an identical one in flight fails with a 40001 TransientFailure, and the caller's second call is the exact repeat",
+						repeatedAfterConflict(describedRepeat),
+						scheduleText(describedRepeat)
+					),
+					equivalence(
+						"a committed different payload is a conflict, invariant-rejected with the key law",
+						conflict.value.kind === "invariant-rejected" &&
+							reported(conflict.value.law) === itemKey,
+						outcomeText(conflict)
+					),
+					equivalence(
+						"an exact repeat is no-change",
+						first.value.kind === "accepted" && repeat.value.kind === "no-change",
+						`${first.value.kind} then ${repeat.value.kind}`
+					),
+					equivalence(
+						"every overlapping addition ends accepted or no-change within the caller's retries, a deadlock being a TransientFailure, and the further key holds",
+						Arr.every([overlapItem, overlapCoded], (l) => l.outcomes.committed === l.operations) &&
+							codedRows === options.rounds * options.keys &&
+							codedCodes === options.rounds * options.keys,
+						jsonText({
+							item: overlapItem.outcomes,
+							coded: overlapCoded.outcomes,
+							state: [codedRows, codedCodes]
+						})
+					),
+					equivalence(
+						"batches: new facts accepted, repeats no-change, other payloads invariant-rejected",
+						allKind(newFacts.values, "accepted") &&
+							allKind(repeats.values, "no-change") &&
+							allKind(conflicts.values, "invariant-rejected"),
+						Arr.join(
+							[...kinds(newFacts.values), ...kinds(repeats.values), ...kinds(conflicts.values)],
+							", "
+						)
+					)
+				]
+			}
+			return { cases, verdicts: { R33: r33 } }
+		})
+})

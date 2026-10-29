@@ -1,0 +1,237 @@
+import { Array as Arr, Option } from "effect"
+import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
+import {
+	analyzePhysical,
+	multiplicityRecords,
+	type PhysicalAnalysis,
+	type PhysicalEnv,
+	unplaced
+} from "#compiler/analysis/physical/analyze.ts"
+import { plainLosses } from "#compiler/analysis/physical/props.ts"
+import type { PhysicalProps, Realization } from "#compiler/analysis/physical/props.ts"
+import type { NodeId } from "#compiler/core/ids.ts"
+import type { MultiplicityRecord } from "#compiler/ir/multiplicity.ts"
+import type { Heading, RelDag, RelNode } from "#compiler/ir/rel.ts"
+import { defined } from "#test/support/assert.ts"
+import type { Ir } from "#test/support/fixtures/ir/build.ts"
+import {
+	type Bindings,
+	noBindings,
+	type ReferenceInput,
+	type Relation
+} from "#test/support/oracle/reference/evaluate.ts"
+import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
+import { type Row, rowKey } from "#test/support/oracle/reference/values.ts"
+
+/**
+ * Shared helpers for the physical analysis tests: running the analysis, and a bag evaluator that computes what each
+ * fragment's SQL physically delivers under a realization, so every claim the analysis makes can be checked against
+ * the rows themselves.
+ *
+ * The bag evaluator is the brute-force reference evaluator (test/support/oracle/reference) with its set
+ * boundary moved: Reference deduplicates every node, as the conservative lowering does; BagReference deduplicates only
+ * what the physical form deduplicates. A relation parameter is deduplicated on entry, a Group delivers
+ * one row per group and a Recursive its UNION's distinct states (both are computed so by Reference itself), and a node
+ * realized `distinct` (a set UNION, INTERSECT, EXCEPT, or a placed DISTINCT) is deduplicated; every other node keeps
+ * the repeats its plain SQL would produce, so a projection that drops keys, a join with fanout and a UNION ALL repeat.
+ */
+export const physical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis =>
+	analyzePhysical(dag, env)
+
+/**
+ * The environment a hand-built DAG is analyzed in: the snapshot context, and its schema's own catalog, every key named
+ * as ownership installs it.
+ */
+export const snapshotOver = (m: Ir): PhysicalEnv => ({
+	context: "snapshot",
+	catalog: m.model.fixture.catalog,
+	realization: unplaced,
+	roots: "result"
+})
+
+/** The multiplicity record of `node`: what the kernel's verification reads of the analysis (multiplicityRecords). */
+export const multiplicityRecord = (a: PhysicalAnalysis, node: RelNode): MultiplicityRecord => {
+	const r = multiplicityRecords(a)[node.id]
+	if (r === undefined) {
+		throw new Error(`no record for ${node.id}`)
+	}
+	return r
+}
+
+export const propsOf = (a: PhysicalAnalysis, node: RelNode): PhysicalProps => a.of(node).props
+
+export const keyColumns = (
+	a: PhysicalAnalysis,
+	node: RelNode
+): ReadonlyArray<ReadonlyArray<string>> => Arr.map(propsOf(a, node).keys, (k) => k.columns)
+
+export const lossReasons = (
+	a: PhysicalAnalysis,
+	node: RelNode
+): ReadonlyArray<MultiplicityReason> => Arr.map(plainLosses(propsOf(a, node)), (l) => l.reason)
+
+/** The bag evaluator; its evaluations record every relation computed, a correlated node's once per outer tuple. */
+export class BagReference extends RecordingReference {
+	readonly #realization: (node: RelNode) => Realization
+
+	protected constructor(
+		dag: RelDag,
+		input: ReferenceInput,
+		realization: (node: RelNode) => Realization
+	) {
+		super(dag, input)
+		this.#realization = realization
+	}
+
+	/** The bag reference of a case under a realization: its DAG's closed bags settled. */
+	static bag(
+		dag: RelDag,
+		input: ReferenceInput,
+		realization: (node: RelNode) => Realization
+	): BagReference {
+		return new BagReference(dag, input, realization).settle()
+	}
+
+	override deduplicates(node: RelNode): boolean {
+		return (
+			node.kind === "InputSet" ||
+			node.kind === "Group" ||
+			node.kind === "Recursive" ||
+			this.#realization(node) === "distinct"
+		)
+	}
+
+	/**
+	 * An intersection or difference realized plainly is the internal ALL form: INTERSECT ALL keeps
+	 * min(l, r) copies of a row and EXCEPT ALL max(l - r, 0), counted over the inputs' delivered rows.
+	 *
+	 * Each left copy is matched against one right copy, in turn.
+	 */
+	override rows(node: RelNode, scope: Bindings): ReadonlyArray<Row> {
+		if (
+			(node.kind !== "Intersect" && node.kind !== "Difference") ||
+			this.#realization(node) !== "plain"
+		) {
+			return super.rows(node, scope)
+		}
+		const left = this.eval(node.left, scope)
+		const right = this.eval(node.right, scope)
+		const counts = new Map<string, number>()
+		for (const row of right.rows) {
+			const k = rowKey(
+				projectTo(
+					right.heading,
+					Arr.map(left.heading, (h) => h.name),
+					row
+				).row,
+				left.heading
+			)
+			counts.set(k, (counts.get(k) ?? 0) + 1)
+		}
+		const out: Array<Row> = []
+		for (const row of left.rows) {
+			const k = rowKey(row, left.heading)
+			const r = counts.get(k) ?? 0
+			if (node.kind === "Intersect" ? r > 0 : r === 0) {
+				out.push(row)
+			}
+			if (r > 0) {
+				counts.set(k, r - 1)
+			}
+		}
+		return out
+	}
+}
+
+const projectTo = (
+	heading: Heading,
+	columns: ReadonlyArray<string>,
+	row: Row
+): { heading: Heading; row: Row } => {
+	const idx = Arr.map(columns, (c) =>
+		Option.getOrThrowWith(
+			Arr.findFirstIndex(heading, (h) => h.name === c),
+			() => new Error("a column the case's own heading holds")
+		)
+	)
+	return {
+		heading: Arr.map(idx, (i) => defined(heading[i], `column ${i} of the heading`)),
+		row: Arr.map(idx, (i) => defined(row[i], `value ${i} of the row`))
+	}
+}
+
+/** Whether `rows` hold at most one row per value of `columns`. */
+export const uniqueOn = (
+	heading: Heading,
+	rows: ReadonlyArray<Row>,
+	columns: ReadonlyArray<string>
+): boolean => {
+	const seen = new Set<string>()
+	for (const row of rows) {
+		const p = projectTo(heading, columns, row)
+		const k = rowKey(p.row, p.heading)
+		if (seen.has(k)) {
+			return false
+		}
+		seen.add(k)
+	}
+	return true
+}
+
+export interface Violation {
+	readonly node: NodeId
+	readonly claim: string
+}
+
+/**
+ * Every claim the analysis makes about a node, checked against every relation its physical form delivered: each
+ * physical key holds, the maximum cardinality holds, a node with no outstanding elimination is unique, and a
+ * discharged obligation's input has one row per value of its heading. Every closed node is evaluated, and with it every
+ * correlated node beneath, once per outer tuple; a correlated node's claims are relative to the outer values, so each
+ * holds in every one of its relations.
+ */
+export const soundness = (
+	analysis: PhysicalAnalysis,
+	bag: BagReference
+): ReadonlyArray<Violation> => {
+	for (const node of analysis.order) {
+		if (bag.closed(node)) {
+			bag.eval(node, noBindings)
+		}
+	}
+	/** What one relation of a node breaks of the node's claims. */
+	const brokenIn = (node: RelNode, rel: Relation): ReadonlyArray<Violation> => {
+		const id = node.id
+		const p = propsOf(analysis, node)
+		const owed = multiplicityRecord(analysis, node).owed
+		return [
+			...Arr.map(
+				Arr.filter(p.keys, (k) => !uniqueOn(rel.heading, rel.rows, k.columns)),
+				(k): Violation => ({ node: id, claim: `key (${Arr.join(k.columns, ", ")})` })
+			),
+			...(p.maxCard.kind === "atMost" && BigInt(rel.rows.length) > p.maxCard.rows
+				? [{ node: id, claim: `at most ${p.maxCard.rows} rows` }]
+				: []),
+			...(owed.kind === "none" && !uniqueOn(rel.heading, rel.rows, p.columns)
+				? [{ node: id, claim: "nothing owed" }]
+				: [])
+		]
+	}
+	const claims = Arr.flatMap(analysis.order, (node) =>
+		Arr.flatMap(bag.evaluations.of(node), (rel) => brokenIn(node, rel))
+	)
+	const dischargedObligations = Arr.filter(analysis.obligations, (o) => o.discharged)
+	const discharged = Arr.flatMap(dischargedObligations, (o) =>
+		Arr.map(
+			Arr.filter(
+				bag.evaluations.of(o.edge.input),
+				(rel) => !uniqueOn(rel.heading, rel.rows, o.heading)
+			),
+			(): Violation => ({
+				node: o.edge.input.id,
+				claim: `discharged obligation on (${Arr.join(o.heading, ", ")})`
+			})
+		)
+	)
+	return [...claims, ...discharged]
+}

@@ -1,0 +1,661 @@
+import { indices } from "#compiler/core/array.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { codePoints } from "#compiler/core/text.ts"
+import {
+	type CharSet,
+	charSet,
+	domain,
+	has,
+	type Interval,
+	maxUtf8Width,
+	size
+} from "#compiler/text/charset.ts"
+import { closure, type Nfa } from "#compiler/text/nfa.ts"
+import { entry } from "#compiler/text/table.ts"
+
+export interface DfaLimits {
+	/** The most DFA states the subset construction may create. */
+	readonly maxStates: number
+	/** The most NFA-state visits the subset construction may spend, summed over every transition. */
+	readonly maxWork: number
+}
+
+/**
+ * A minimal DFA in canonical form: states numbered breadth-first from 0, the initial state; each state's edges sorted
+ * by their smallest code point, one edge per target with the union of its code points. The dead state and every edge
+ * into it are omitted, so a missing code point means rejection.
+ */
+export interface CanonicalDfa {
+	readonly states: ReadonlyArray<{
+		readonly accept: boolean
+		readonly edges: ReadonlyArray<{ readonly set: CharSet; readonly to: number }>
+	}>
+}
+
+/** The canonical text of a set: its intervals in order, which identifies the set. */
+const setText = (set: CharSet): string => set.map(([lo, hi]) => `${lo}-${hi}`).join(",")
+
+/** A set edge of an NFA state: the position of its set among the distinct sets, and its target. */
+interface SetEdge {
+	readonly set: number
+	readonly to: number
+}
+
+/** An atom: its code points, and the least of them. */
+interface Atom {
+	readonly set: CharSet
+	readonly first: number
+}
+
+/**
+ * The partition of the admitted domain into atoms: maximal sets of code points that every NFA edge treats alike; the
+ * distinct sets of the NFA's edges, in first-seen order; and each state's set edges.
+ */
+const atomsOf = (
+	nfa: Nfa
+): {
+	readonly atoms: ReadonlyArray<Atom>
+	readonly sets: ReadonlyArray<CharSet>
+	readonly setEdges: ReadonlyArray<ReadonlyArray<SetEdge>>
+} => {
+	const sets: Array<CharSet> = []
+	/** Each set's position by object, and by text for another object with the same intervals. */
+	const byObject = new Map<CharSet, number>()
+	const byText = new Map<string, number>()
+	const positionOf = (set: CharSet): number => {
+		const known = byObject.get(set)
+		if (known !== undefined) {
+			return known
+		}
+		const text = setText(set)
+		const position = byText.get(text) ?? sets.length
+		if (position === sets.length) {
+			sets.push(set)
+			byText.set(text, position)
+		}
+		byObject.set(set, position)
+		return position
+	}
+	const setEdges = nfa.edges.map((edges) =>
+		edges.flatMap((e): ReadonlyArray<SetEdge> =>
+			e.kind === "set" ? [{ set: positionOf(e.set), to: e.to }] : []
+		)
+	)
+	const cuts = new Set<number>()
+	for (const [lo, hi] of domain) {
+		cuts.add(lo)
+		cuts.add(hi + 1)
+	}
+	for (const s of sets) {
+		for (const [lo, hi] of s) {
+			cuts.add(lo)
+			cuts.add(hi + 1)
+		}
+	}
+	const sorted = [...cuts].toSorted((a, b) => a - b)
+	const groups = new Map<string, [Interval, ...Array<Interval>]>()
+	for (const [i, lo] of sorted.entries()) {
+		const following = sorted[i + 1]
+		if (following === undefined) {
+			break
+		}
+		const hi = following - 1
+		if (!has(domain, lo)) {
+			continue
+		}
+		const signature = sets.map((s) => (has(s, lo) ? "1" : "0")).join("")
+		const group = groups.get(signature)
+		if (group === undefined) {
+			groups.set(signature, [[lo, hi]])
+		} else {
+			group.push([lo, hi])
+		}
+	}
+	return {
+		atoms: [...groups.values()].map((intervals) => ({
+			set: charSet(intervals),
+			first: intervals[0][0]
+		})),
+		sets,
+		setEdges
+	}
+}
+
+/**
+ * A state of the subset construction: the search's accepting sink, which every later input keeps once a match was
+ * found, or a set of NFA states with whether it is the initial one, whose closure at the end of the text reads the start
+ * context.
+ */
+type Subset =
+	| { readonly kind: "done" }
+	| { readonly kind: "set"; readonly states: ReadonlyArray<number>; readonly initial: boolean }
+
+const done: Subset = { kind: "done" }
+
+/** The key a subset is interned under. */
+const subsetKey = (subset: Subset): string =>
+	subset.kind === "done"
+		? "done"
+		: `${subset.initial ? "i" : "n"}${[...subset.states].toSorted((a, b) => a - b).join(",")}`
+
+interface RawDfa {
+	/** Transition table: target per atom; one row per state. */
+	readonly next: ReadonlyArray<ReadonlyArray<number>>
+	readonly accept: ReadonlyArray<boolean>
+	readonly atoms: ReadonlyArray<Atom>
+}
+
+/** The subset construction with search semantics folded in, or undefined beyond the limits. */
+const determinize = (nfa: Nfa, limits: DfaLimits): RawDfa | undefined => {
+	const { atoms, sets, setEdges } = atomsOf(nfa)
+	/** contains[set][atom]: every code point of the atom is in the set (atoms never straddle a set boundary). */
+	const contains = sets.map((s) => atoms.map((a) => has(s, a.first)))
+	const mark = new Int32Array(nfa.edges.length).fill(-1)
+	let stamp = 0
+	let work = 0
+
+	const keys = new Map<string, number>()
+	const members: Array<Subset> = []
+	const next: Array<Array<number>> = []
+	/** Each interned state not yet expanded: its number, its subset and its transition row, which expansion fills. */
+	const queue: Array<{
+		readonly id: number
+		readonly subset: Subset
+		readonly row: Array<number>
+	}> = []
+
+	const intern = (subset: Subset): number | undefined => {
+		const key = subsetKey(subset)
+		const known = keys.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		if (members.length >= limits.maxStates) {
+			return undefined
+		}
+		const id = members.length
+		const row: Array<number> = []
+		keys.set(key, id)
+		members.push(subset)
+		next.push(row)
+		queue.push({ id, subset, row })
+		return id
+	}
+
+	/** The subset `states` reach: the sink once they hold the NFA's accepting state. */
+	const settle = (states: ReadonlyArray<number>, initial: boolean): Subset =>
+		states.includes(nfa.accept) ? done : { kind: "set", states, initial }
+
+	const initialStates = closure(nfa, [nfa.start], { atStart: true, atEnd: false }, mark, stamp++)
+	work += initialStates.length
+	if (intern(settle(initialStates, true)) === undefined) {
+		return undefined
+	}
+	for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+		const { id, subset, row } = item
+		for (let a = 0; a < atoms.length; a++) {
+			if (subset.kind === "done") {
+				row.push(id)
+				continue
+			}
+			/** The NFA states the edges of the subset over the atom lead to, after the start state an unanchored
+			 * search restarts at. */
+			const moved: Array<number> = [nfa.start]
+			for (const s of subset.states) {
+				for (const edge of entry(setEdges, s)) {
+					if (entry(contains, edge.set)[a] === true) {
+						moved.push(edge.to)
+					}
+				}
+			}
+			const reached = closure(nfa, moved, { atStart: false, atEnd: false }, mark, stamp++)
+			work += subset.states.length + reached.length
+			if (work > limits.maxWork) {
+				return undefined
+			}
+			const target = intern(settle(reached, false))
+			if (target === undefined) {
+				return undefined
+			}
+			row.push(target)
+		}
+	}
+	const accept = members.map((subset) => {
+		if (subset.kind === "done") {
+			return true
+		}
+		const atEnd = closure(
+			nfa,
+			subset.states,
+			{ atStart: subset.initial, atEnd: true },
+			mark,
+			stamp++
+		)
+		return atEnd.includes(nfa.accept)
+	})
+	return { next, accept, atoms }
+}
+
+/** The element of `xs` at `i`, which the caller's bounds make present (table.ts entry). */
+const at = (xs: ArrayLike<number>, i: number): number => entry(xs, i)
+
+/**
+ * A partition of a DFA's states into blocks, refined by Hopcroft's algorithm: each block is a contiguous range of
+ * `order`, and a split moves the states that enter the splitter to the front of their block, then cuts it there,
+ * enqueueing the smaller part (the new part when the block itself still waits).
+ */
+class Partition {
+	readonly #order: Int32Array
+	readonly #position: Int32Array
+	readonly #blockOf: Int32Array
+	readonly #start: Array<number> = []
+	readonly #end: Array<number> = []
+	/** How many of a block's states the current split has moved to its front. */
+	readonly #marked: Array<number> = []
+	readonly #queued: Array<boolean> = []
+	readonly #waiting: Array<number> = []
+
+	constructor(accept: ReadonlyArray<boolean>) {
+		const accepting = accept.flatMap((x, s) => (x ? [s] : []))
+		this.#order = Int32Array.from([...accepting, ...accept.flatMap((x, s) => (x ? [] : [s]))])
+		this.#position = new Int32Array(accept.length)
+		for (const [i, s] of this.#order.entries()) {
+			this.#position[s] = i
+		}
+		this.#blockOf = new Int32Array(accept.length)
+		if (accepting.length > 0) {
+			this.#enqueue(this.#add(0, accepting.length))
+		}
+		if (accepting.length < accept.length) {
+			this.#enqueue(this.#add(accepting.length, accept.length))
+		}
+	}
+
+	#add(from: number, to: number): number {
+		const b = this.#start.length
+		this.#start.push(from)
+		this.#end.push(to)
+		this.#marked.push(0)
+		this.#queued.push(false)
+		for (let i = from; i < to; i++) {
+			this.#blockOf[at(this.#order, i)] = b
+		}
+		return b
+	}
+
+	#enqueue(b: number): void {
+		if (this.#queued[b] !== true) {
+			this.#queued[b] = true
+			this.#waiting.push(b)
+		}
+	}
+
+	/** The states of the next waiting block, dequeued; undefined when no block waits. */
+	next(): ReadonlyArray<number> | undefined {
+		const splitter = this.#waiting.pop()
+		if (splitter === undefined) {
+			return undefined
+		}
+		this.#queued[splitter] = false
+		return Array.from(this.#order.slice(at(this.#start, splitter), at(this.#end, splitter)))
+	}
+
+	/** Splits every block some of whose states `entering` holds. */
+	split(entering: Iterable<number>): void {
+		const parted: Array<number> = []
+		for (const s of entering) {
+			const b = this.#mark(s)
+			if (b !== undefined) {
+				parted.push(b)
+			}
+		}
+		for (const b of parted) {
+			this.#cut(b)
+		}
+	}
+
+	/** Moves `s` to the front of its block: the block when `s` is its first state moved, else undefined. */
+	#mark(s: number): number | undefined {
+		const b = at(this.#blockOf, s)
+		const front = at(this.#start, b) + at(this.#marked, b)
+		const p = at(this.#position, s)
+		if (p < front) {
+			return undefined
+		}
+		const other = at(this.#order, front)
+		this.#order[front] = s
+		this.#position[s] = front
+		this.#order[p] = other
+		this.#position[other] = p
+		const first = this.#marked[b] === 0
+		this.#marked[b] = at(this.#marked, b) + 1
+		return first ? b : undefined
+	}
+
+	/** Cuts block `b` after its moved states, unless every state moved. */
+	#cut(b: number): void {
+		const moved = at(this.#marked, b)
+		this.#marked[b] = 0
+		const from = at(this.#start, b)
+		const blockSize = at(this.#end, b) - from
+		if (moved === blockSize) {
+			return
+		}
+		this.#start[b] = from + moved
+		const part = this.#add(from, from + moved)
+		this.#enqueue(this.#queued[b] === true || moved <= blockSize - moved ? part : b)
+	}
+
+	/** Each state's block, numbered densely from 0 in the order the blocks' first states come. */
+	classes(): ReadonlyArray<number> {
+		const number = new Map<number, number>()
+		return Array.from(this.#blockOf, (b) => {
+			const known = number.get(b)
+			if (known !== undefined) {
+				return known
+			}
+			number.set(b, number.size)
+			return number.size - 1
+		})
+	}
+}
+
+/**
+ * The coarsest partition of the states that separates accepting from rejecting states and that every atom's
+ * transitions respect (Hopcroft's refinement), as each state's class, numbered in first-seen state order. The coarsest
+ * such partition is unique, so the classes are the states' language equivalence whatever order the splits take.
+ *
+ * The blocks are runs of one permutation of the states, `order`, block b at start[b] up to end[b], and `position[s]` is
+ * s's index in it. A splitter is a block waiting to refine the others: for each atom, the states it enters on that atom
+ * are moved to the front of their blocks, and every block they part becomes two. A parted block that waits already
+ * waits beside its new part; one that does not is refined by its smaller part, which suffices, since the larger one
+ * refines exactly what the whole block and the smaller part refine together.
+ */
+const minimizeClasses = (dfa: RawDfa): ReadonlyArray<number> => {
+	const n = dfa.next.length
+	const atomCount = dfa.atoms.length
+	/**
+	 * The states entering each state on each atom: sources[offsets[a * n + t]] up to sources[offsets[a * n + t + 1]]
+	 * are every s with next[s][a] = t.
+	 */
+	const offsets = new Int32Array(atomCount * n + 1)
+	for (const row of dfa.next) {
+		for (const [a, t] of row.entries()) {
+			offsets[a * n + t + 1] = at(offsets, a * n + t + 1) + 1
+		}
+	}
+	for (let i = 1; i < offsets.length; i++) {
+		offsets[i] = at(offsets, i) + at(offsets, i - 1)
+	}
+	const cursor = offsets.slice(0, atomCount * n)
+	const sources = new Int32Array(atomCount * n)
+	for (const [s, row] of dfa.next.entries()) {
+		for (const [a, t] of row.entries()) {
+			const slot = at(cursor, a * n + t)
+			sources[slot] = s
+			cursor[a * n + t] = slot + 1
+		}
+	}
+	/** The states entering any of `members` on atom `a`. */
+	const entering = function* (a: number, members: ReadonlyArray<number>): Generator<number> {
+		for (const t of members) {
+			for (let i = at(offsets, a * n + t); i < at(offsets, a * n + t + 1); i++) {
+				yield at(sources, i)
+			}
+		}
+	}
+	const partition = new Partition(dfa.accept)
+	for (let members = partition.next(); members !== undefined; members = partition.next()) {
+		for (let a = 0; a < atomCount; a++) {
+			partition.split(entering(a, members))
+		}
+	}
+	return partition.classes()
+}
+
+/**
+ * The minimal DFA of the raw one, in canonical form: its states numbered in breadth-first order from the initial one,
+ * the order a loop over the growing list of states reached gives.
+ */
+const canonicalize = (dfa: RawDfa): CanonicalDfa => {
+	const classes = minimizeClasses(dfa)
+	const classCount = new Set(classes).size
+	/**
+	 * Each class's first state: the classes are numbered densely from 0 in the order their first states come, and a DFA
+	 * has its initial state, so class 0 is always there.
+	 */
+	const representative: NonEmptyReadonlyArray<number> = [
+		classes.indexOf(0),
+		...indices(classCount - 1).map((c) => classes.indexOf(c + 1))
+	]
+	const accept = mapNonEmpty(representative, (s) => dfa.accept[s] === true)
+	const targets = mapNonEmpty(representative, (s) =>
+		entry(dfa.next, s).map((t) => entry(classes, t))
+	)
+	/**
+	 * Live classes reach an accepting class: the accepting classes and, breadth first, every class with an edge into a
+	 * live one.
+	 */
+	const predecessors = new Map<number, Set<number>>()
+	for (const [c, row] of targets.entries()) {
+		for (const t of row) {
+			predecessors.set(t, (predecessors.get(t) ?? new Set<number>()).add(c))
+		}
+	}
+	const live = new Set(accept.flatMap((accepting, c) => (accepting ? [c] : [])))
+	const pending = [...live]
+	for (const t of pending) {
+		for (const c of [...(predecessors.get(t) ?? [])].filter((p) => !live.has(p))) {
+			live.add(c)
+			pending.push(c)
+		}
+	}
+	const edgesOf = (c: number): Array<{ set: CharSet; target: number }> => {
+		const byTarget = new Map<number, Array<Atom>>()
+		for (const [a, t] of entry(targets, c).entries()) {
+			if (!live.has(t)) {
+				continue
+			}
+			const list = byTarget.get(t) ?? []
+			list.push(entry(dfa.atoms, a))
+			byTarget.set(t, list)
+		}
+		return [...byTarget.entries()]
+			.map(([target, atoms]) => ({
+				set: charSet(atoms.flatMap((atom) => atom.set)),
+				first: Math.min(...atoms.map((atom) => atom.first)),
+				target
+			}))
+			.toSorted((x, y) => x.first - y.first)
+	}
+	const initial = entry(classes, 0)
+	if (!live.has(initial)) {
+		return { states: [] }
+	}
+	/** Each live class's number, breadth first: its own, or the next one when an edge first reaches it. */
+	const number = new Map<number, number>([[initial, 0]])
+	const order = [initial]
+	const numberOf = (target: number): number => {
+		const known = number.get(target)
+		if (known !== undefined) {
+			return known
+		}
+		const assigned = order.length
+		number.set(target, assigned)
+		order.push(target)
+		return assigned
+	}
+	const states: Array<CanonicalDfa["states"][number]> = []
+	for (const c of order) {
+		states.push({
+			accept: accept[c] === true,
+			edges: edgesOf(c).map(({ set, target }) => ({ set, to: numberOf(target) }))
+		})
+	}
+	return { states }
+}
+
+/**
+ * Bounded automaton reasoning over a pattern's language.
+ *
+ * A pattern denotes the set of admitted text values in which a match exists. This module determinizes that language
+ * into a minimal DFA over the admitted code points, within fixed bounds, so no determinization is uncontrolled.
+ * When the bounds hold, the minimal DFA proves the facts the schema compiler uses:
+ *
+ * - the language is empty, so no value can ever satisfy the field;
+ * - the language is every admitted value, a tautology whose CHECK erases;
+ * - the language is finite and small, so membership becomes `VALUE IN (...)`;
+ * - two patterns recognize the same values, because minimal DFAs are unique up to the canonical numbering below, which
+ *   is the language proof that domain sharing needs rather than a cosmetic rewrite.
+ *
+ * When a bound is exceeded the analysis reports nothing, and every caller falls back to the conservative choice:
+ * keep the regex CHECK, share only structurally equal IR. Nothing here validates application values.
+ *
+ * The DFA reads whole values. Search semantics are folded in: the NFA's start state is re-entered at every position,
+ * `^` edges are followed only before the first code point, `$` edges only after the last, and reaching the accept
+ * state before the end makes every extension a member (the absorbing state DONE).
+ *
+ * The canonical minimal DFA of the NFA's search language, or undefined beyond the limits.
+ */
+export const minimalDfa = (nfa: Nfa, limits: DfaLimits): CanonicalDfa | undefined => {
+	const raw = determinize(nfa, limits)
+	return raw === undefined ? undefined : canonicalize(raw)
+}
+
+/** The canonical text of a minimal DFA: equal texts, equal languages. */
+export const dfaKey = (dfa: CanonicalDfa): string =>
+	JSON.stringify(dfa.states.map((s) => [s.accept ? 1 : 0, s.edges.map((e) => [e.set, e.to])]))
+
+export const isEmptyLanguage = (dfa: CanonicalDfa): boolean => dfa.states.length === 0
+
+/** Every admitted value is a member: one accepting state looping on the whole domain. */
+export const isUniversal = (dfa: CanonicalDfa): boolean => {
+	const [only, ...others] = dfa.states
+	if (only === undefined || others.length > 0) {
+		return false
+	}
+	const [edge, ...more] = only.edges
+	return only.accept && edge !== undefined && more.length === 0 && size(edge.set) === size(domain)
+}
+
+/**
+ * Topological order of the DFA, or undefined when it has a cycle (every remaining state is live, so a cycle means
+ * infinitely many members).
+ */
+const topologicalOrder = (dfa: CanonicalDfa): ReadonlyArray<number> | undefined => {
+	const indegree = dfa.states.map(() => 0)
+	for (const s of dfa.states) {
+		for (const e of s.edges) {
+			indegree[e.to] = entry(indegree, e.to) + 1
+		}
+	}
+	const ready = indegree.flatMap((d, i) => (d === 0 ? [i] : []))
+	const order: Array<number> = []
+	for (let s = ready.pop(); s !== undefined; s = ready.pop()) {
+		order.push(s)
+		for (const e of entry(dfa.states, s).edges) {
+			indegree[e.to] = entry(indegree, e.to) - 1
+			if (indegree[e.to] === 0) {
+				ready.push(e.to)
+			}
+		}
+	}
+	return order.length === dfa.states.length ? order : undefined
+}
+
+/** The number of members of a finite language, saturating just above `cap`; undefined for an infinite one. */
+const memberCount = (dfa: CanonicalDfa, cap: number): number | undefined => {
+	const order = topologicalOrder(dfa)
+	if (order === undefined) {
+		return undefined
+	}
+	const count: Array<number> = dfa.states.map(() => 0)
+	for (const s of order.toReversed()) {
+		const state = entry(dfa.states, s)
+		let n = state.accept ? 1 : 0
+		for (const e of state.edges) {
+			n = Math.min(n + size(e.set) * entry(count, e.to), cap + 1)
+		}
+		count[s] = n
+	}
+	return entry(count, 0)
+}
+
+/** The members of a finite language with at most `limit` members, in code point order; undefined otherwise. */
+export const enumerate = (dfa: CanonicalDfa, limit: number): ReadonlyArray<string> | undefined => {
+	const count = memberCount(dfa, limit)
+	if (count === undefined || count > limit) {
+		return undefined
+	}
+	const out: Array<string> = []
+	/** The walk's own buffer: the code points of the path to the state being walked. */
+	const prefix: Array<number> = []
+	const walk = (s: number): void => {
+		const state = entry(dfa.states, s)
+		if (state.accept) {
+			out.push(String.fromCodePoint(...prefix))
+		}
+		for (const e of state.edges) {
+			for (const [lo, hi] of e.set) {
+				for (let c = lo; c <= hi; c++) {
+					prefix.push(c)
+					walk(e.to)
+					prefix.pop()
+				}
+			}
+		}
+	}
+	if (dfa.states.length > 0) {
+		walk(0)
+	}
+	return out.toSorted(compareByCodePoint)
+}
+
+/** Code point order, PostgreSQL's order under pg_c_utf8. */
+const compareByCodePoint = (a: string, b: string): number => {
+	const x = codePoints(a)
+	const y = codePoints(b)
+	for (const [i, xi] of x.entries()) {
+		const yi = y[i]
+		if (yi === undefined) {
+			break
+		}
+		if (xi !== yi) {
+			return xi - yi
+		}
+	}
+	return x.length - y.length
+}
+
+/** The longest member, in code points and in UTF-8 bytes; undefined for an infinite or empty language. */
+export const longest = (
+	dfa: CanonicalDfa
+): { readonly length: number; readonly bytes: number } | undefined => {
+	const order = topologicalOrder(dfa)
+	if (order === undefined || dfa.states.length === 0) {
+		return undefined
+	}
+	const length: Array<number> = dfa.states.map(() => -1)
+	const bytes: Array<number> = dfa.states.map(() => -1)
+	for (const s of order.toReversed()) {
+		const state = entry(dfa.states, s)
+		let l = state.accept ? 0 : -1
+		let b = state.accept ? 0 : -1
+		for (const e of state.edges) {
+			const toLength = entry(length, e.to)
+			const toBytes = entry(bytes, e.to)
+			if (toLength >= 0) {
+				l = Math.max(l, 1 + toLength)
+			}
+			if (toBytes >= 0) {
+				b = Math.max(b, maxUtf8Width(e.set) + toBytes)
+			}
+		}
+		length[s] = l
+		bytes[s] = b
+	}
+	return {
+		length: entry(length, 0),
+		bytes: entry(bytes, 0)
+	}
+}

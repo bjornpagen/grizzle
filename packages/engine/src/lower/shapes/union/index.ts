@@ -1,0 +1,251 @@
+import { Refusal } from "#compiler/core/canonical.ts"
+import { malformedDescription } from "#compiler/core/errors.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { CompletedOrder, Heading, HeadingGroup, NodeOf, RelNode } from "#compiler/ir/rel.ts"
+import {
+	type Env,
+	headingTargets,
+	type LowerContext,
+	type NodeLowerer,
+	nodeLabel
+} from "#compiler/lower/conservative/context.ts"
+import { armColumns, armTargets } from "#compiler/lower/conservative/union/arms.ts"
+import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
+import { orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
+import type { Expr, Select, SelectBody, SetOperator } from "#compiler/sql/ast.ts"
+import { core, select } from "#compiler/sql/build.ts"
+
+/**
+ * One arm read as a derived table and projected onto `heading`, in its order, each refined column cast
+ * to its base type so the arms agree on every column's PostgreSQL type (armTargets).
+ */
+const armBody = (cx: LowerContext, arm: RelNode, heading: Heading, env: Env): SelectBody => {
+	const source = cx.source(arm, env)
+	return core(armTargets(cx, heading, source.map), [source.item], undefined)
+}
+
+/** arm1 <op> arm2 <op> ..., left-associated; a nested set operation as a right operand is parenthesized. */
+const chain = (op: SetOperator, bodies: NonEmptyReadonlyArray<SelectBody>): SelectBody => {
+	const [first, ...rest] = bodies
+	return rest.reduce<SelectBody>(
+		(left, right) => ({
+			kind: "setOp",
+			op,
+			left,
+			right: right.kind === "setOp" ? select(right) : right
+		}),
+		first
+	)
+}
+
+/**
+ * The operator combining the arms of one heading group read inside a statement: UNION where the union's boundary is
+ * realized `distinct`, otherwise UNION ALL, its repeats being either proved absent or observed by no consumer.
+ */
+const armOperator = (facts: ShapeFacts, union: NodeOf<"Union">): SetOperator =>
+	facts.realization(union) === "distinct" ? "UNION" : "UNION ALL"
+
+/**
+ * A union read inside a statement, on its heading: the common heading when it has several groups (valid DAG). Each
+ * group's arms combine under armOperator, a lone arm realized `distinct` being a SELECT DISTINCT of its own; the
+ * groups then concatenate by UNION ALL, because their discriminant literals differ and the discriminant is among the
+ * common fields, so no row of one group equals a row of another. This is the UNION ALL of the common
+ * fields plus the discriminant that a bounded union consumed inside a statement is.
+ *
+ * Unions, heterogeneous ones included: pipeline heading groups, never pad.
+ *
+ * A union whose arms share a heading is an ordinary set union: UNION where its boundary is realized `distinct`, UNION ALL
+ * where the placement proved its arms unique and pairwise disjoint (R17.unionAll) or no consumer observes
+ * its repeats. A union whose arms differ in heading is their disjoint union, tagged by a literal
+ * discriminant every arm binds, with differing literal tuples for arms of different headings: arms of
+ * different heading groups never share a row of the common heading, so the groups are concatenated with UNION ALL.
+ *
+ * Delivered to the host it is one statement per heading group, in one pipelined batch inside one snapshot, each
+ * optimized alone. A bound over the union takes k per group in the common completed order, a page k + 1,
+ * and the runtime merges: the first n of the union lie among the first n of each group. Consumed inside a
+ * statement, as the queue's `pick` consumes `claimable`, the bounded union is lowered in SQL: a UNION ALL
+ * of the common fields plus the discriminant (unionLowerer), ORDER BY the completed order and LIMIT k (the take's own
+ * lowering), then a join back per heading group for its own fields. That join back is the SemiJoin the
+ * checker builds when a match narrows the bounded union by its discriminant (check/checker.ts #narrow): the group's
+ * arms semi-joined to the take on every common field, which the take's order completion proved a key, so it is lowered
+ * as any SemiJoin. No statement ever pads a column with a typed NULL.
+ */
+export const unionLowerer =
+	(facts: ShapeFacts): NodeLowerer<"Union"> =>
+	(node, cx, env) => {
+		const op = armOperator(facts, node)
+		const group = (arms: NonEmptyReadonlyArray<RelNode>): SelectBody => {
+			const [only, ...others] = arms
+			if (others.length > 0) {
+				return chain(
+					op,
+					mapNonEmpty(arms, (arm) => armBody(cx, arm, node.heading, env))
+				)
+			}
+			const source = cx.source(only, env)
+			return {
+				...core(
+					node.groups.length > 1
+						? armTargets(cx, node.heading, source.map)
+						: headingTargets(node.heading, source.map),
+					[source.item],
+					undefined
+				),
+				distinct: op === "UNION"
+			}
+		}
+		return select(
+			chain(
+				"UNION ALL",
+				mapNonEmpty(node.groups, (g) => group(g.arms))
+			)
+		)
+	}
+
+/**
+ * A bounded union consumed inside a statement with each arm bounded first: the
+ * input of the take's own ORDER BY and LIMIT k is the union of each arm's first k under the take's order. Under a total
+ * order the first k of a union lie among the first k of each arm, since a row among the union's first k has at most
+ * k - 1 rows of the union before it, and so at most k - 1 rows of its own arm; the take therefore selects the same k
+ * rows from either input. Each arm is read on the union's heading, as unionLowerer reads it, and deduplicated there
+ * first unless the facts key it on that heading, so its first k are k distinct rows; the arms then combine exactly as
+ * unionLowerer combines them, by armOperator within a heading group and UNION ALL across groups. So each arm is an
+ * ORDER BY ... LIMIT k of its own, which an index on the arm's order serves as a seek that stops after k rows: each of
+ * the work queue's claimable arms reads the workload index (kind, slot, key) from its start key. A column the arm fixes
+ * to a literal, the queue's `wrap` and the discriminant, is a constant of the arm's sort, which PostgreSQL drops.
+ * `total` is whether the order's own keys are total over the union, as the take's ORDER BY states it; otherwise the
+ * heading completes each arm's order as it completes the take's. `limit` gives k, asked once the arms are lowered, so
+ * a parameter bound takes its placeholder after the arms' own, as it does over the plain union.
+ */
+export const armBoundedUnion = (
+	cx: LowerContext,
+	facts: ShapeFacts,
+	union: NodeOf<"Union">,
+	order: CompletedOrder,
+	total: boolean,
+	limit: () => Expr,
+	env: Env
+): Select => {
+	const op = armOperator(facts, union)
+	const columns = union.heading.map((c) => c.name)
+	const arms = mapNonEmpty(union.groups, (g) =>
+		mapNonEmpty(g.arms, (node) => {
+			const source = cx.source(node, env)
+			return { node, source, ...armColumns(cx, union.heading, source.map) }
+		})
+	)
+	const k = limit()
+	/**
+	 * The arm's ORDER BY reads its delivered columns, which a DISTINCT arm requires: its targets, one per column of the
+	 * union's heading.
+	 */
+	const bounded = (arm: (typeof arms)[number][number]): Select => ({
+		...select({
+			...core(arm.targets, [arm.source.item], undefined),
+			distinct: !facts.keyedBy(arm.node, columns)
+		}),
+		orderBy: orderItemsOf(order, union.heading, arm.delivered, { leading: [], total, fixed: [] }),
+		limit: k
+	})
+	return select(
+		chain(
+			"UNION ALL",
+			mapNonEmpty(arms, (group) => chain(op, mapNonEmpty(group, bounded)))
+		)
+	)
+}
+
+/**
+ * The rows of one heading group delivered to the host or joined back, on the group's own heading. A delivered group is
+ * observed by the program's result, so its arms deduplicate unless the facts prove them unique and disjoint: one arm
+ * proved unique, or a union realized plain and proved unique on the common heading, which the group's wider heading
+ * then also keys.
+ */
+export const groupRows = (
+	cx: LowerContext,
+	union: NodeOf<"Union">,
+	g: HeadingGroup,
+	env: Env,
+	facts: ShapeFacts
+): Select => {
+	const [only, ...others] = g.arms
+	if (others.length === 0) {
+		const source = cx.source(only, env)
+		return select({
+			...core(headingTargets(g.heading, source.map), [source.item], undefined),
+			distinct: !facts.unique(only)
+		})
+	}
+	const proved = facts.realization(union) === "plain" && facts.unique(union)
+	return select(
+		chain(
+			proved ? "UNION ALL" : "UNION",
+			mapNonEmpty(g.arms, (arm) => armBody(cx, arm, g.heading, env))
+		)
+	)
+}
+
+interface MergedRow<Row> {
+	readonly group: number
+	readonly row: Row
+}
+
+type RowComparator<Row> = (a: Row, b: Row) => number
+
+/**
+ * Merges each group's rows, each already in the common order, and keeps the first `limit` overall, or all of them when
+ * `limit` is undefined. A k-way merge: at each step the least head among the groups, ties broken by group index, which
+ * a total order never leaves.
+ */
+export const mergeHeadingGroups = <Row>(
+	groups: ReadonlyArray<ReadonlyArray<Row>>,
+	compare: RowComparator<Row>,
+	limit: number | undefined
+): ReadonlyArray<MergedRow<Row>> => {
+	/** Each group's rows read in order, with its head row: the next row to merge, or done. */
+	interface Cursor {
+		readonly rows: Iterator<Row, undefined>
+		head: IteratorResult<Row, undefined>
+	}
+	const cursors = groups.map((rows): Cursor => {
+		const it = rows[Symbol.iterator]()
+		return { rows: it, head: it.next() }
+	})
+	const out: Array<MergedRow<Row>> = []
+	const total = groups.reduce((n, g) => n + g.length, 0)
+	const wanted = limit === undefined ? total : Math.min(limit, total)
+	while (out.length < wanted) {
+		const best = cursors.reduce<
+			{ readonly group: number; readonly cursor: Cursor; readonly row: Row } | undefined
+		>((least, cursor, g) => {
+			const head = cursor.head
+			if (head.done === true || (least !== undefined && compare(head.value, least.row) >= 0)) {
+				return least
+			}
+			return { group: g, cursor, row: head.value }
+		}, undefined)
+		if (best === undefined) {
+			break
+		}
+		out.push({ group: best.group, row: best.row })
+		best.cursor.head = best.cursor.rows.next()
+	}
+	return out
+}
+
+/**
+ * A heterogeneous union's discriminant must be among the order's keys for a group merge to be total across groups;
+ * the order completion puts it right after the user's fields.
+ */
+const mergeOrderProblem = (union: NodeOf<"Union">, order: CompletedOrder): string | undefined =>
+	union.groups.length > 1 && union.discriminant.some((d) => !order.keys.some((k) => k.column === d))
+		? "a completed order over a heterogeneous union that includes its discriminant"
+		: undefined
+
+export const assertMergeOrder = (union: NodeOf<"Union">, order: CompletedOrder): void => {
+	const problem = mergeOrderProblem(union, order)
+	if (problem !== undefined) {
+		throw new Refusal(malformedDescription(SourceLoc(nodeLabel(union), []), problem))
+	}
+}

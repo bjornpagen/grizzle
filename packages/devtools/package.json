@@ -1,0 +1,39 @@
+{
+	"name": "@grizzle/devtools",
+	"version": "0.0.0",
+	"private": true,
+	"description": "grizzle's dev tools: the lint preset and tsconfig base, the oxlint plugin, and superlint (type-aware rules on TypeScript 7's native API).",
+	"type": "module",
+	"imports": {
+		"#*": "./src/*"
+	},
+	"exports": {
+		"./devtool": "./src/shared/devtool.ts",
+		"./native-api": "./src/shared/native-api.ts",
+		"./preset": "./src/preset.ts",
+		"./run": "./src/shared/run.ts",
+		"./tsconfig.base.json": "./tsconfig.base.json"
+	},
+	"bin": {
+		"superlint": "./src/lint.ts"
+	},
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"typecheck": "effect-tsgo tsrs --noEmit -p tsconfig.json",
+		"superlint": "node src/lint.ts",
+		"oxlint": "oxlint",
+		"fixtures:superlint": "node src/lint.ts --fixtures",
+		"fixtures:oxlint": "node src/oxlint/fixtures.ts"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"effect": "catalog:",
+		"oxlint": "catalog:",
+		"typescript": "catalog:"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:"
+	}
+}

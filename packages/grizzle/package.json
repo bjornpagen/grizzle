@@ -1,0 +1,81 @@
+{
+	"name": "@bjornpagen/grizzle",
+	"version": "1.0.0-beta.0",
+	"description": "Declare your tables, rules, permissions and queries in TypeScript, and get PostgreSQL 19 constraints, row-level security, indexes, reviewed SQL migrations and exactly typed queries",
+	"keywords": [
+		"postgresql",
+		"postgres",
+		"typescript",
+		"effect",
+		"database",
+		"sql",
+		"schema",
+		"migrations",
+		"query",
+		"type-safe",
+		"constraints",
+		"row-level-security",
+		"rls",
+		"permissions",
+		"serializable"
+	],
+	"homepage": "https://github.com/bjornpagen/grizzle#readme",
+	"bugs": {
+		"url": "https://github.com/bjornpagen/grizzle/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bjornpagen/grizzle.git",
+		"directory": "packages/grizzle"
+	},
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
+	"type": "module",
+	"engines": {
+		"node": ">=24"
+	},
+	"imports": {
+		"#adapter/*": "./src/adapter/*",
+		"#cli/*": "./src/cli/*",
+		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
+	},
+	"exports": {
+		".": {
+			"grizzle-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"bin": {
+		"grizzle": "./dist/cli/main.js"
+	},
+	"files": [
+		"dist",
+		"src",
+		"skills"
+	],
+	"sideEffects": false,
+	"scripts": {
+		"prepack": "node --conditions=grizzle-source --disable-warning=ExperimentalWarning ../../scripts/build.ts",
+		"typecheck": "effect-tsgo tsrs -b",
+		"superlint": "superlint",
+		"oxlint": "oxlint"
+	},
+	"dependencies": {
+		"@bjornpagen/grizzle-engine": "workspace:*",
+		"@effect/platform-node": "catalog:",
+		"pg": "catalog:"
+	},
+	"devDependencies": {
+		"@types/pg": "catalog:",
+		"effect": "catalog:"
+	},
+	"peerDependencies": {
+		"effect": "^4.0.5"
+	},
+	"publishConfig": {
+		"access": "public",
+		"tag": "beta"
+	}
+}

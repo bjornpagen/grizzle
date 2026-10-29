@@ -1,0 +1,1380 @@
+import type { Case } from "@grizzle/testing/explore"
+import { boolean, type Gen } from "@grizzle/testing/gen"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	Schema,
+	String as Str
+} from "effect"
+import type { CompiledChange } from "#adapter/apply/compile.ts"
+import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import type { LawId } from "#compiler/core/ids.ts"
+import { factIdentity } from "#compiler/scalar/values/identity.ts"
+import type { ParamMap } from "#compiler/types/core/phantom.ts"
+import type { PutChoice } from "#compiler/write/put/choose.ts"
+import { messageOf } from "#test/support/message.ts"
+import {
+	type AppliedOutcome,
+	type Fact,
+	integerOf,
+	type OracleState,
+	type SequenceState
+} from "#test/support/oracle/addwins.ts"
+import { CurrentPerturbation } from "#test/support/oracle/perturb.ts"
+import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
+import { checkedStatements } from "#test/support/oracle/verify/index.ts"
+import {
+	type Binding,
+	buildChangeSet,
+	type ChangeSetSketch,
+	changeSetSketchGen,
+	type Entry,
+	generates,
+	isFact,
+	type MemberOp,
+	type PlantedArm,
+	parentSlot,
+	plantedBehind,
+	plantedChangeSet,
+	plantedFacts,
+	printChangeSet,
+	printFact,
+	printFacts,
+	type ReadSource,
+	resolveChangeSet,
+	type WChangeSet,
+	type WSourceKind
+} from "#test/support/oracle/write/changeset.ts"
+
+import {
+	isCoerced,
+	isNumericKind,
+	isToastSized,
+	sameBase,
+	type TypeKind,
+	typeInfo
+} from "#test/support/oracle/write/domain.ts"
+
+import {
+	type AcceptableRefusal,
+	type Expected,
+	expectChangeSet,
+	type GeneratedDraws
+} from "#test/support/oracle/write/expect.ts"
+
+import {
+	type FactsSketch,
+	factsSketchGen,
+	keyOf,
+	multiplyWriteFacts,
+	resolveFacts,
+	type WFacts
+} from "#test/support/oracle/write/facts.ts"
+
+import {
+	applyWith,
+	type GroupState,
+	type WriteOutcome,
+	programOf,
+	readGroup,
+	resetGroup,
+	type Statistics,
+	type WriteTarget
+} from "#test/support/oracle/write/run.ts"
+
+import {
+	intoCandidateKey,
+	isImmediate,
+	printGroup,
+	relationIn,
+	serialColumns,
+	type WContainment,
+	type WGroup,
+	type WRelation,
+	type WSchema
+} from "#test/support/oracle/write/schema.ts"
+import type { SqlError } from "#test/support/pg.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
+import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import type { Substrate } from "#test/support/substrate/substrate.ts"
+
+/** The items joined by `separator`, or `none` when there is no item. */
+const listed = (items: ReadonlyArray<string>, separator: string, none: string): string =>
+	items.length === 0 ? none : Arr.join(items, separator)
+
+/** One drawn write case of a run. */
+export interface WriteCase {
+	/** The group the case writes, a pick among the run's drawn groups. */
+	readonly group: number
+	readonly facts: FactsSketch
+	/**
+	 * Where the group's identity sequences start: past the stored values, where a migration that loaded them leaves
+	 * them, or behind them, fresh at their start, where a direct writer's explicit values leave them (it writes them
+	 * with OVERRIDING SYSTEM VALUE and advances nothing), so a generated addition may draw a value a stored fact holds.
+	 */
+	readonly behind: boolean
+	readonly changes: ChangeSetSketch
+}
+
+export const writeCaseGen: Gen<WriteCase> = (source) => ({
+	group: source.draw(pickGen),
+	facts: source.draw(factsSketchGen(5)),
+	behind: source.draw(boolean),
+	changes: source.draw(changeSetSketchGen)
+})
+
+/**
+ * The planted cases of a run whose schema holds the planted group: one per arm (changeset.ts plantedArms), each from
+ * these drawn facts of the planted group with those its arm plants beside them.
+ */
+export interface PlantedCases {
+	readonly facts: FactsSketch
+}
+
+export const plantedCasesGen: Gen<PlantedCases> = (source) => ({
+	facts: source.draw(factsSketchGen(5))
+})
+
+/**
+ * A case resolved: whether it was drawn or is a planted arm, the group it writes, the facts it starts from, whether the
+ * group's identity sequences start behind them (WriteCase), and its ChangeSet.
+ */
+export interface ResolvedCase {
+	readonly origin:
+		| { readonly kind: "drawn" }
+		| { readonly kind: "planted"; readonly arm: PlantedArm }
+	readonly group: WGroup
+	readonly facts: WFacts
+	readonly behind: boolean
+	readonly changes: WChangeSet
+}
+
+/**
+ * A drawn case, on the drawn group it picks: the planted group is written by planted cases alone, so the drawn
+ * population keeps every case. Its ChangeSet's swarm thins as the resolution meets each place, so the case draws those
+ * decisions (changeset.ts resolveChangeSet).
+ */
+export const drawnCase =
+	(schema: WSchema, wc: WriteCase): Gen<ResolvedCase> =>
+	(source) => {
+		const [first, ...rest] = Arr.filter(schema.groups, (g) => g.role === "drawn")
+		if (first === undefined) {
+			throw new Error("a write schema of no drawn group")
+		}
+		const group = pickFrom([first, ...rest], wc.group)
+		const facts = resolveFacts(group, wc.facts)
+		return {
+			origin: { kind: "drawn" },
+			group,
+			facts,
+			behind: wc.behind,
+			changes: source.draw(resolveChangeSet(group, facts, wc.changes))
+		}
+	}
+
+/**
+ * A planted case of `arm` on the planted group, from the drawn facts `facts`: its identity sequences start behind the
+ * stored values where the arm's generated addition draws a stored key (changeset.ts plantedBehind), past them
+ * otherwise.
+ */
+export const plantedCase = (group: WGroup, arm: PlantedArm, facts: FactsSketch): ResolvedCase => {
+	const stored = plantedFacts(group, resolveFacts(group, facts), arm)
+	return {
+		origin: { kind: "planted", arm },
+		group,
+		facts: stored,
+		behind: plantedBehind(arm),
+		changes: plantedChangeSet(group, arm, stored)
+	}
+}
+
+/** A failed case, with its printable form. */
+export class CaseFailed extends Schema.TaggedError<CaseFailed, { readonly brand: unique symbol }>()(
+	"CaseFailed",
+	{
+		report: Schema.String
+	}
+) {
+	override get message(): string {
+		return this.report
+	}
+}
+
+/** What kind of law refused a case. */
+type RefusalFeature =
+	| "refused by a primary key"
+	| "refused by a candidate key"
+	| "refused by an immediate foreign key"
+	| "refused by a deferred foreign key"
+	| "refused by a capacity"
+
+/**
+ * Every feature a write case notes through its Case: the shapes it drew, what the compiler and the database decided,
+ * and the run's statistics.
+ */
+export type WriteOracleFeature =
+	| `strata:${number}`
+	| `${MemberOp} ${WSourceKind}`
+	| `read ${ReadSource}`
+	| `parameters ${Binding}`
+	| `through ${Entry}`
+	| `put target ${PutChoice["target"]}`
+	| `outcome ${AppliedOutcome["kind"]}`
+	| `statistics ${Statistics}`
+	| RefusalFeature
+	| `take sent in its ${TakeForm} form`
+	| "single-statement stratum"
+	| "a single statement refused by a law"
+	| "sequential stratum of several writes"
+	| "anchored deletion"
+	| "two members of one relation in one stratum"
+	| "a member reads a relation its stratum writes"
+	| "insert generated"
+	| "insert generated project"
+	| "numeric cast between typmods"
+	| "mutable relation"
+	| "identity column"
+	| "every field an identity column"
+	| "two identity columns"
+	| "immediate containment"
+	| "deferred containment"
+	| "reference into a candidate key"
+	| "stream member"
+	| "capacity"
+	| "generated after a collision"
+	| "flight logged"
+	| "outcome invariant-rejected"
+	| "generated accepted"
+	| "numeric coerced"
+	| "numeric coerced no-change"
+	| "toast-sized input"
+	| "toast-sized no-change"
+	| "toast-sized accepted"
+	| "delta read-backs of one heading's field names over other types"
+	| "described member wider than its field"
+	| "a deletion described wider than its field"
+	| "outcome outside a domain"
+	| "put on an immutable relation"
+	| "a stated-one read-back with its parent present"
+	| "a stated-one read-back with its parent absent"
+	| "a stated-one read-back over a deferred containment that the write violates"
+	| "lagging identical netted"
+	| "lagging differing"
+	| "a generated repeat of a kept fact refused"
+	| "counts under the realization's draws"
+	| "an UPDATE ... FROM put advancing its sequence"
+
+const identityOf = (group: WGroup, relation: string, fact: unknown): string => {
+	const r = relationIn(group, relation)
+	const admitted = factIdentity(
+		Arr.map(r.columns, (c) => ({ name: c.name, spec: typeInfo[c.kind].spec })),
+		fact
+	)
+	if (!admitted.ok) {
+		const { fault, field } = admitted.error
+		throw new Error(
+			`${relation}: a fact is inadmissible, ${fault}${field === undefined ? "" : ` at ${field}`}`
+		)
+	}
+	return admitted.value.identity
+}
+
+const printSet = (facts: Iterable<Fact>): string =>
+	`[${Arr.join(Arr.map([...facts], printFact), ", ")}]`
+
+const sameIdentities = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean =>
+	a.size === b.size && Arr.every([...a], (x) => b.has(x))
+
+const printOutcome = (o: Result.Result<WriteOutcome, unknown>): string => {
+	if (Result.isFailure(o)) {
+		const e = o.failure
+		const tag =
+			typeof e === "object" && e !== null && "_tag" in e && typeof e._tag === "string"
+				? e._tag
+				: undefined
+		return `failure ${tag ?? "?"} ${Formatter.format(e)}`
+	}
+	const v = o.success
+	switch (v.kind) {
+		case "invariant-rejected":
+			return `invariant-rejected ${v.law} witness ${
+				v.witness.kind === "key"
+					? `${v.witness.relation} ${printFact(v.witness.values)}`
+					: v.witness.kind
+			}`
+		case "no-change":
+			return `no-change reads ${Arr.join(
+				Arr.map(Rec.toEntries(v.reads), ([n, rows]) => `${n}=${printSet(rows)}`),
+				" "
+			)}`
+		case "accepted":
+			return `accepted counts ${Arr.join(
+				Arr.map(v.counts, (c) => `${c.relation}(+${c.added} -${c.deleted} put ${c.put})`),
+				" "
+			)} reads ${Arr.join(
+				Arr.map(Rec.toEntries(v.reads), ([n, rows]) => `${n}=${printSet(rows)}`),
+				" "
+			)}`
+		case "outside-world":
+			return `outside-world ${v.relation}`
+	}
+}
+
+/**
+ * A pairing of the oracle's generated facts with the committed ones (see the header): for each relation the change
+ * generates into, the oracle's generated fact identity to the committed fact it is renamed to.
+ */
+type Renaming = ReadonlyMap<string, ReadonlyMap<string, Fact>>
+
+/** The pairing where nothing is renamed: an outcome the change applied none of. */
+const noRenaming: Renaming = new Map()
+
+/**
+ * The oracle's generated facts paired with the realization's on every field but the serial ones, and what cannot be
+ * paired. The realization's generated facts are the committed facts the oracle expects as no other fact.
+ */
+interface Paired {
+	readonly renaming: Renaming
+	readonly problems: ReadonlyArray<string>
+}
+
+/**
+ * The committed facts paired to the expected generated ones `expected`, each to the first one left that agrees with it
+ * on the fields `others`, and how many committed facts no expected one took.
+ */
+const pairByFields = (
+	r: WRelation,
+	others: ReadonlyArray<string>,
+	expected: ReadonlyArray<readonly [string, Fact]>,
+	committed: ReadonlyArray<Fact>
+): { readonly pairs: ReadonlyMap<string, Fact>; readonly unpaired: number } => {
+	const pool = [...committed]
+	const pairs = new Map<string, Fact>()
+	for (const [id, fact] of expected) {
+		const i = Arr.findFirstIndex(pool, (f) => keyOf(r, others, f) === keyOf(r, others, fact))
+		if (Option.isSome(i)) {
+			pairs.set(id, elementAt(pool, i.value, "the committed facts"))
+			pool.splice(i.value, 1)
+		}
+	}
+	return { pairs, unpaired: pool.length }
+}
+
+const pairGenerated = (
+	group: WGroup,
+	draws: ReadonlyMap<string, GeneratedDraws>,
+	want: OracleState,
+	got: GroupState
+): Paired => {
+	const problems: Array<string> = []
+	const out = new Map<string, ReadonlyMap<string, Fact>>()
+	for (const [relation, d] of draws) {
+		const r = relationIn(group, relation)
+		const serial = new Set(Arr.map(d.fields, (f) => f.field))
+		const others = Arr.map(
+			Arr.filter(r.columns, (c) => !serial.has(c.name)),
+			(c) => c.name
+		)
+		const wanted = [...(want.relations.get(relation) ?? new Map<string, Fact>())]
+		const expected = Arr.filter(wanted, ([id]) => d.generated.has(id))
+		const plain = new Set(
+			Arr.map(
+				Arr.filter(wanted, ([id]) => !d.generated.has(id)),
+				([id]) => id
+			)
+		)
+		const committed = Arr.map(
+			Arr.filter(
+				[...(got.relations.get(relation) ?? new Map<string, Fact>())],
+				([id]) => !plain.has(id)
+			),
+			([, f]) => f
+		)
+		problems.push(
+			...Arr.flatMap([...serial], (field) => {
+				const values = Arr.map(committed, (f) => String(f[field]))
+				return new Set(values).size === values.length
+					? []
+					: [`${relation}: generated values of ${field} repeat: ${printSet(committed)}`]
+			})
+		)
+		const { pairs, unpaired } = pairByFields(r, others, expected, committed)
+		if (pairs.size !== expected.length || unpaired > 0) {
+			problems.push(
+				`${relation}: generated facts committed ${printSet(committed)}, expected ${printSet(Arr.map(expected, ([, f]) => f))} up to their ${Arr.join([...serial], ", ")}`
+			)
+		}
+		out.set(relation, pairs)
+	}
+	return { renaming: out, problems }
+}
+
+/** The identities of the facts `want` expects of `relation`, its generated facts renamed to the committed ones. */
+const renamedIdentities = (
+	group: WGroup,
+	renaming: Renaming,
+	relation: string,
+	facts: ReadonlyMap<string, Fact>
+): ReadonlySet<string> => {
+	const pairs = renaming.get(relation)
+	return new Set(
+		Arr.map([...facts.keys()], (id) => {
+			const renamed = pairs?.get(id)
+			return renamed === undefined ? id : identityOf(group, relation, renamed)
+		})
+	)
+}
+
+const witnessProblems = (
+	group: WGroup,
+	refusal: AcceptableRefusal,
+	o: Extract<WriteOutcome, { readonly kind: "invariant-rejected" }>
+): ReadonlyArray<string> => {
+	const w = o.witness
+	if (w.kind !== "key") {
+		return refusal.keyless ? [] : [`the witness of ${o.law} is ${w.kind}, where it names a key`]
+	}
+	const fields = Arr.sort(Rec.keys(w.values), Order.String)
+	if (
+		w.relation !== refusal.relation ||
+		Arr.join(fields, ",") !== Arr.join(Arr.sort([...refusal.fields], Order.String), ",")
+	) {
+		return [
+			`the witness key ${w.relation} ${printFact(w.values)} is not ${refusal.relation}(${Arr.join(refusal.fields, ", ")})`
+		]
+	}
+	return refusal.keys.has(keyOf(relationIn(group, refusal.relation), refusal.fields, w.values))
+		? []
+		: [`the witness key ${printFact(w.values)} is no violating key of ${o.law}`]
+}
+
+/**
+ * The sequence a relation's serial field must end at: the largest value drawn into it when the change generated into
+ * it, else where its explicit values left it.
+ */
+const sequenceEnd = (
+	draws: GeneratedDraws | undefined,
+	field: string,
+	generated: ReadonlyArray<Fact>,
+	explicit: SequenceState
+): SequenceState => {
+	if (
+		draws === undefined ||
+		!Arr.some(draws.fields, (f) => f.field === field) ||
+		!Arr.isReadonlyArrayNonEmpty(generated)
+	) {
+		return explicit
+	}
+	const [first, ...rest] = Arr.map(generated, (f) => integerOf(f[field], field))
+	return { lastValue: Arr.reduce(rest, first, (a, b) => (b > a ? b : a)), isCalled: true }
+}
+
+/** A read-back row's own fact, its attached parent left out. */
+const withoutParent = (row: Fact): Fact =>
+	Rec.fromEntries(Arr.filter(Rec.toEntries(row), ([k]) => k !== parentSlot))
+
+/** The facts a read-back defines over an applied outcome: the final state's facts of its relation, or its delta's. */
+const expectedReadFacts = (
+	want: AppliedOutcome,
+	read: WChangeSet["reads"][number]
+): ReadonlyMap<string, Fact> =>
+	read.source === "state"
+		? (want.state.relations.get(read.relation) ?? new Map())
+		: (want.delta.get(read.relation)?.[read.source] ?? new Map())
+
+/** The target fact `facts` hold at a row's contained fields, by its positional key. */
+const parentOf = (
+	group: WGroup,
+	containment: WContainment,
+	row: Fact,
+	facts: Iterable<Fact>
+): Fact | undefined => {
+	const source = relationIn(group, containment.from.relation)
+	const target = relationIn(group, containment.to.relation)
+	const at = keyOf(source, containment.from.fields, row)
+	for (const f of facts) {
+		if (keyOf(target, containment.to.fields, f) === at) {
+			return f
+		}
+	}
+	return undefined
+}
+
+/** The problems of an attached read-back's parents (see the header) against the committed state. */
+const parentProblems = (
+	group: WGroup,
+	name: string,
+	containment: WContainment,
+	rows: ReadonlyArray<Fact>,
+	state: GroupState
+): ReadonlyArray<string> => {
+	const target = relationIn(group, containment.to.relation)
+	const others = Arr.map(
+		Arr.filter(target.columns, (c) => !containment.to.fields.includes(c.name)),
+		(c) => c.name
+	)
+	const committed = [...entryOf(state.relations, target.name, "the committed relations").values()]
+	return Arr.flatMap(rows, (row) => {
+		const parent = row[parentSlot]
+		const held = parentOf(group, containment, row, committed)
+		const label = `read-back ${name}: the row ${printFact(withoutParent(row))}`
+		if (!Option.isOption(parent)) {
+			return [`${label} holds no Option in ${parentSlot}`]
+		}
+		if (held === undefined) {
+			return Option.isSome(parent)
+				? [`${label} attaches a parent the committed state does not hold`]
+				: []
+		}
+		if (Option.isNone(parent)) {
+			return [`${label} attaches none, the committed state holds ${printFact(held)}`]
+		}
+		const child = parent.value
+		return !isFact(child) ||
+			Rec.keys(child).length !== others.length ||
+			!Arr.every(others, (f) => Rec.has(child, f)) ||
+			keyOf(target, others, child) !== keyOf(target, others, held)
+			? [`${label} attaches a parent other than the committed ${printFact(held)}`]
+			: []
+	})
+}
+
+/**
+ * The expectation an applied case's side is judged against: under the realization's own draws (Expected's pin), its
+ * generated facts, paired with the calculator's on their other fields, giving each generated addition its serial
+ * values, with that pairing; a pairing that fails is reported and judged as the calculator drew.
+ */
+const judgedExpectation = (
+	group: WGroup,
+	expected: Extract<Expected, { readonly kind: "applied" }>,
+	state: GroupState
+): { readonly expected: Expected; readonly paired: Paired } => {
+	const drawn = pairGenerated(group, expected.draws, expected.outcome.state, state)
+	if (expected.draws.size === 0 || drawn.problems.length > 0) {
+		return { expected, paired: drawn }
+	}
+	const pinned = expected.pin(
+		new Map(Arr.map([...drawn.renaming], ([relation, pairs]) => [relation, [...pairs.values()]]))
+	)
+	return {
+		expected: pinned,
+		paired:
+			pinned.kind === "applied"
+				? pairGenerated(group, pinned.draws, pinned.outcome.state, state)
+				: drawn
+	}
+}
+
+/** The problems of a refusal with `o`'s law against the refusals an expectation allows. */
+const refusalProblems = (
+	group: WGroup,
+	refusals: ReadonlyArray<AcceptableRefusal>,
+	o: Extract<WriteOutcome, { readonly kind: "invariant-rejected" }>
+): ReadonlyArray<string> =>
+	Option.match(
+		Arr.findFirst(refusals, (r) => r.law === o.law),
+		{
+			onNone: () => [
+				`refused with ${o.law}, expected one of ${Arr.join(
+					Arr.map(refusals, (r) => r.law),
+					", "
+				)}`
+			],
+			onSome: (refusal) => witnessProblems(group, refusal, o)
+		}
+	)
+
+/** A relation's counts as an accepted outcome reports them. */
+type Counts = Extract<WriteOutcome, { readonly kind: "accepted" }>["counts"][number]
+
+/** The problems of the database's counts `got` against the oracle's `want`, relation by relation. */
+const countProblems = (
+	got: ReadonlyArray<Counts>,
+	want: ReadonlyArray<Counts>
+): ReadonlyArray<string> => {
+	const db = new Map(Arr.map(got, (x) => [x.relation, x]))
+	const oracle = new Map(Arr.map(want, (x) => [x.relation, x]))
+	return Arr.flatMap([...new Set([...db.keys(), ...oracle.keys()])], (relation) => {
+		const g = db.get(relation)
+		const e = oracle.get(relation)
+		if (g === undefined || e === undefined) {
+			return [
+				`counts name ${relation} on one side only (db ${g !== undefined}, oracle ${e !== undefined})`
+			]
+		}
+		return g.added !== e.added || g.deleted !== e.deleted || g.put !== e.put
+			? [
+					`counts of ${relation}: db +${g.added} -${g.deleted} put ${g.put}, oracle +${e.added} -${e.deleted} put ${e.put}`
+				]
+			: []
+	})
+}
+
+/** The problems of one side's outcome and committed state against the expectation. */
+export const judgeWrite = (
+	group: WGroup,
+	c: WChangeSet,
+	expected: Expected,
+	outcome: Result.Result<WriteOutcome, unknown>,
+	state: GroupState
+): ReadonlyArray<string> => {
+	const problems: Array<string> = []
+	const stateIs = (want: OracleState, label: string, renaming: Renaming) => {
+		for (const r of group.relations) {
+			const got = new Set(state.relations.get(r.name)?.keys() ?? [])
+			const exp = renamedIdentities(
+				group,
+				renaming,
+				r.name,
+				want.relations.get(r.name) ?? new Map()
+			)
+			if (!sameIdentities(got, exp)) {
+				problems.push(
+					`${label} ${r.name}: committed ${printSet(state.relations.get(r.name)?.values() ?? [])}, expected ${printSet(want.relations.get(r.name)?.values() ?? [])}`
+				)
+			}
+		}
+	}
+	if (expected.kind === "outsideDomain") {
+		const laws = Arr.join(
+			Arr.map(expected.refusals, (r) => r.law),
+			", "
+		)
+		if (Result.isFailure(outcome)) {
+			problems.push(`expected a domain's law or one of ${laws}, got ${printOutcome(outcome)}`)
+		} else if (outcome.success.kind !== "invariant-rejected") {
+			problems.push(`expected a domain's law or one of ${laws}, got ${outcome.success.kind}`)
+		} else {
+			problems.push(...refusalProblems(group, expected.refusals, outcome.success))
+		}
+		stateIs(expected.initial, "after a domain's refusal the initial state stays:", noRenaming)
+		return problems
+	}
+	if (Result.isFailure(outcome)) {
+		problems.push(`an operational failure: ${printOutcome(outcome)}`)
+		return problems
+	}
+	const o = outcome.success
+	if (expected.kind === "rejected") {
+		if (o.kind !== "invariant-rejected") {
+			problems.push(
+				`expected invariant-rejected with one of ${Arr.join(
+					Arr.map(expected.refusals, (r) => r.law),
+					", "
+				)}, got ${o.kind}`
+			)
+		} else {
+			problems.push(...refusalProblems(group, expected.refusals, o))
+		}
+		stateIs(expected.initial, "after a refusal the initial state stays:", noRenaming)
+		return problems
+	}
+	const { expected: pinned, paired } = judgedExpectation(group, expected, state)
+	problems.push(...paired.problems)
+	if (pinned.kind !== "applied") {
+		problems.push(`under the realization's draws, expected ${printExpected(pinned)}, got ${o.kind}`)
+		return problems
+	}
+	const want = pinned.outcome
+	const renaming = paired.renaming
+	if (o.kind !== want.kind) {
+		problems.push(`expected ${want.kind}, got ${o.kind}`)
+	}
+	if (o.kind === "invariant-rejected" || o.kind === "outside-world") {
+		return problems
+	}
+	if (o.kind === "accepted" && want.kind === "accepted") {
+		problems.push(...countProblems(o.counts, want.counts))
+	}
+	for (const read of c.reads) {
+		const delivered = o.reads[read.name]
+		if (delivered === undefined) {
+			problems.push(`read-back ${read.name} is missing`)
+			continue
+		}
+		const rows = read.parent.kind === "one" ? Arr.map(delivered, withoutParent) : delivered
+		const ids = Arr.map(rows, (row) => identityOf(group, read.relation, row))
+		if (new Set(ids).size !== ids.length) {
+			problems.push(`read-back ${read.name} repeats a row: ${printSet(rows)}`)
+		}
+		const expectedFacts = expectedReadFacts(want, read)
+		if (
+			!sameIdentities(
+				new Set(ids),
+				renamedIdentities(group, renaming, read.relation, expectedFacts)
+			)
+		) {
+			problems.push(
+				`read-back ${read.name} (${read.source} ${read.relation}): db ${printSet(rows)}, oracle ${printSet(expectedFacts.values())}`
+			)
+		}
+		if (read.parent.kind === "one") {
+			problems.push(...parentProblems(group, read.name, read.parent.containment, delivered, state))
+		}
+	}
+	stateIs(want.state, "final state:", renaming)
+	for (const [key, explicit] of pinned.sequences) {
+		const got = state.sequences.get(key)
+		const dot = Option.getOrThrowWith(
+			Str.indexOf(".")(key),
+			() => new Error(`a sequence key ${key} with no dot`)
+		)
+		const relation = Str.slice(0, dot)(key)
+		const field = Str.slice(dot + 1)(key)
+		const draws = pinned.draws.get(relation)
+		const generated = [...(renaming.get(relation)?.values() ?? [])]
+		const seq = sequenceEnd(draws, field, generated, explicit)
+		if (got === undefined || got.lastValue !== seq.lastValue || got.isCalled !== seq.isCalled) {
+			problems.push(
+				`sequence ${key}: db ${got === undefined ? "?" : `${got.lastValue} ${got.isCalled}`}, oracle ${seq.lastValue} ${seq.isCalled}`
+			)
+		}
+	}
+	return problems
+}
+
+/** Whether two outcomes' counts agree, relation by relation. */
+const sameCounts = (a: AppliedOutcome["counts"], b: AppliedOutcome["counts"]): boolean =>
+	a.length === b.length &&
+	Arr.every(a, (x) =>
+		Option.exists(
+			Arr.findFirst(b, (c) => c.relation === x.relation),
+			(y) => y.added === x.added && y.deleted === x.deleted && y.put === x.put
+		)
+	)
+
+/** The two database sides agree exactly on an applied outcome. */
+const agreement = (
+	a: Result.Result<WriteOutcome, unknown>,
+	b: Result.Result<WriteOutcome, unknown>
+): ReadonlyArray<string> => {
+	if (Result.isFailure(a) || Result.isFailure(b)) {
+		return []
+	}
+	const x = a.success
+	const y = b.success
+	if (x.kind !== y.kind) {
+		return [`optimized ${x.kind}, conservative ${y.kind}`]
+	}
+	if (x.kind === "accepted" && y.kind === "accepted") {
+		const counts = (o: typeof x) =>
+			Arr.join(
+				Arr.map(
+					Arr.sort(
+						o.counts,
+						Order.mapInput(Order.String, (c: { readonly relation: string }) => c.relation)
+					),
+					(c) => `${c.relation}(+${c.added} -${c.deleted} put ${c.put})`
+				),
+				" "
+			)
+		if (counts(x) !== counts(y)) {
+			return [`optimized counts ${counts(x)}, conservative ${counts(y)}`]
+		}
+	}
+	return []
+}
+
+/**
+ * What kind of law refused, or none for a law no declaration of the group names, which the judge reports as no
+ * acceptable refusal.
+ */
+const refusalKind = (t: WriteTarget, group: WGroup, law: LawId): Option.Option<RefusalFeature> =>
+	Option.orElse(
+		Arr.findFirst(group.relations, (r): Option.Option<RefusalFeature> =>
+			t.laws.primaryKey(r.name) === law
+				? Option.some("refused by a primary key")
+				: Arr.some(r.keys, (k) => t.laws.key(r.name, k) === law)
+					? Option.some("refused by a candidate key")
+					: Option.none()
+		),
+		() =>
+			Option.orElse(
+				Arr.findFirst(group.containments, (c): Option.Option<RefusalFeature> =>
+					t.laws.foreignKey(c.from.relation, c.from.fields) === law
+						? Option.some(
+								isImmediate(group, c)
+									? "refused by an immediate foreign key"
+									: "refused by a deferred foreign key"
+							)
+						: Option.none()
+				),
+				() =>
+					Arr.some(
+						group.capacities,
+						(c) => t.laws.capacity(c.source.relation, c.source.fields).law === law
+					)
+						? Option.some("refused by a capacity")
+						: Option.none()
+			)
+	)
+
+/**
+ * The features of a case's shapes, before it runs.
+ *
+ * A described member reading a relation its own stratum writes reads the state before the stratum's writes.
+ *
+ * A put on a relation of the pinned immutable default, which changes it only by whole facts added and removed. A
+ * projection that reads a numeric of one typmod into another, so the value is rounded by the cast into the
+ * relation's type before the write compares it; and one that reads the wide text into the narrow text, whose domain
+ * refuses a value outside it, a deletion's comparison among them.
+ */
+const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>["note"]): void => {
+	note(`strata:${c.strata.length}`)
+	for (const s of c.strata) {
+		for (const m of s) {
+			note(`${m.op} ${m.source.kind}`)
+		}
+		const relations = Arr.map(s, (m) => m.relation)
+		if (new Set(relations).size < relations.length) {
+			note("two members of one relation in one stratum")
+		}
+		if (Arr.some(s, (m) => m.source.kind === "project" && relations.includes(m.source.from))) {
+			note("a member reads a relation its stratum writes")
+		}
+	}
+	const generating = Arr.flatMap(c.strata, (s) =>
+		Arr.filter(s, (m) => generates(relationIn(group, m.relation), m))
+	)
+	if (generating.length > 0) {
+		note("insert generated")
+	}
+	for (const m of generating) {
+		if (m.source.kind === "project") {
+			note("insert generated project")
+		}
+	}
+	for (const r of c.reads) {
+		note(`read ${r.source}`)
+	}
+	const members = c.strata.flat()
+	for (const m of members) {
+		if (m.op === "put" && !relationIn(group, m.relation).mutable) {
+			note("put on an immutable relation")
+		}
+	}
+	/** Each field a projecting member's head reads from a column: the member's op and both columns' kinds. */
+	const described = Arr.flatMap(members, (m) => {
+		if (m.source.kind !== "project") {
+			return []
+		}
+		const target = relationIn(group, m.relation)
+		const from = relationIn(group, m.source.from)
+		return Arr.flatMap(Rec.toEntries(m.source.head), ([field, term]) =>
+			term.kind === "var"
+				? Option.toArray(
+						Option.map(
+							Option.all({
+								to: Arr.findFirst(target.columns, (col) => col.name === field),
+								source: Arr.findFirst(from.columns, (col) => col.name === term.column)
+							}),
+							({ to, source }) => ({ op: m.op, to: to.kind, source: source.kind })
+						)
+					)
+				: []
+		)
+	})
+	for (const { op, to, source } of described) {
+		if (isNumericKind(to) && to !== source && sameBase(to, source)) {
+			note("numeric cast between typmods")
+		}
+		if (source === "text6" && to === "text") {
+			note("described member wider than its field")
+		}
+		if (source === "text6" && to === "text" && op === "delete") {
+			note("a deletion described wider than its field")
+		}
+	}
+	for (const r of group.relations) {
+		if (r.mutable) {
+			note("mutable relation")
+		}
+		const serial = serialColumns(r)
+		if (serial.length > 0) {
+			note("identity column")
+		}
+		if (serial.length === r.columns.length) {
+			note("every field an identity column")
+		}
+		if (serial.length > 1) {
+			note("two identity columns")
+		}
+	}
+	for (const x of group.containments) {
+		note(isImmediate(group, x) ? "immediate containment" : "deferred containment")
+		if (intoCandidateKey(group, x)) {
+			note("reference into a candidate key")
+		}
+	}
+	if (Arr.some(c.strata, (s) => Arr.some(s, (m) => m.source.kind === "array" && m.source.stream))) {
+		note("stream member")
+	}
+	note(`parameters ${c.binding}`)
+	note(`through ${c.entry}`)
+	if (group.capacities.length > 0) {
+		note("capacity")
+	}
+}
+
+/**
+ * The facts a member's input spells: an enumerated member's, or a relation parameter's. A projection's values come
+ * from stored facts, and its parameters are scalars.
+ */
+const inputFacts = (
+	c: WChangeSet,
+	source: WChangeSet["strata"][number][number]["source"]
+): ReadonlyArray<unknown> => {
+	if (source.kind === "array") {
+		return source.facts
+	}
+	if (source.kind !== "param") {
+		return []
+	}
+	const p = c.params[source.param]
+	return Arr.isArray(p) ? p : []
+}
+
+/** The values a ChangeSet's inputs spell, each with the kind of the column it is spelled for. */
+const inputValues = (
+	group: WGroup,
+	c: WChangeSet
+): ReadonlyArray<{ readonly kind: TypeKind; readonly value: unknown }> =>
+	Arr.flatMap(Arr.flatten(c.strata), (m) => {
+		const r = relationIn(group, m.relation)
+		return Arr.flatMap(inputFacts(c, m.source), (fact) =>
+			isFact(fact)
+				? Arr.flatMap(r.columns, (col) =>
+						Rec.has(fact, col.name) ? [{ kind: col.kind, value: fact[col.name] }] : []
+					)
+				: []
+		)
+	})
+
+/**
+ * The form each statement of the optimized artifact whose take is a per-execution choice sends in the application
+ * (write/program/bind.ts BoundWrite.form): its whole-relation form or its LATERAL form, by the parameter's distinct
+ * facts. A ChangeSet the host refuses before any SQL sends none.
+ */
+type TakeForm = "LATERAL" | "whole-relation"
+
+const takesOf = (
+	entry: CompiledChange,
+	params: ParamMap
+): Effect.Effect<ReadonlyArray<TakeForm>, InputFailure> =>
+	Effect.map(hostInputs(entry, params), (ready) => {
+		if (ready.kind !== "bound") {
+			return []
+		}
+		const artifact = entry.program.artifacts.optimized
+		return Arr.flatMap(artifact.statements, (st): ReadonlyArray<TakeForm> =>
+			st.forms.kind === "chosen"
+				? [ready.bound.form(st).sql === st.forms.large.sql ? "whole-relation" : "LATERAL"]
+				: []
+		)
+	})
+
+/**
+ * The realizations a program's optimized artifact chose (schedule/plan.ts): a stratum as one statement, a stratum of
+ * several write statements in sequence, and a deletion anchored on its own relation (write/delete/anchor.ts).
+ */
+const realizationsOf = (program: CompiledChange["program"]): ReadonlyArray<WriteOracleFeature> => {
+	const steps = program.artifacts.optimized.steps
+	const writes = new Map<number, number>()
+	for (const step of steps) {
+		if (step.kind === "write") {
+			writes.set(step.stratum, (writes.get(step.stratum) ?? 0) + 1)
+		}
+	}
+	const anchored = Arr.some(
+		program.plan.steps,
+		(step) =>
+			(step.kind === "write" && step.op === "anchoredDelete") ||
+			(step.kind === "single" && Arr.some(step.writes, (w) => w.op === "anchoredDelete"))
+	)
+	return [
+		...(Arr.some(steps, (step) => step.kind === "single")
+			? ["single-statement stratum" as const]
+			: []),
+		...(Arr.some([...writes.values()], (n) => n >= 2)
+			? ["sequential stratum of several writes" as const]
+			: []),
+		...(anchored ? ["anchored deletion" as const] : [])
+	]
+}
+
+/** What a case expects, for its failure report. */
+const printExpected = (expected: Expected): string => {
+	switch (expected.kind) {
+		case "applied":
+			return expected.outcome.kind
+		case "rejected":
+			return `invariant-rejected by one of ${Arr.join(
+				Arr.map(expected.refusals, (r) => r.law),
+				", "
+			)}`
+		case "outsideDomain":
+			return `invariant-rejected by a domain's law or one of ${Arr.join(
+				Arr.map(expected.refusals, (r) => r.law),
+				", "
+			)}`
+	}
+}
+
+/** What a case wrote: its group and its ChangeSet. */
+export interface Ran {
+	readonly group: WGroup
+	readonly changes: WChangeSet
+}
+
+/**
+ * The three-way write harness: writes compare three ways (db.apply, brute-force add-wins, conservative realization).
+ *
+ * A write case is a drawn group of the run's schema, the group's initial facts, where its identity sequences start, and
+ * one ChangeSet, each a sketch of plain numbers resolved against it (schema.ts, facts.ts, changeset.ts), the schema's
+ * and the ChangeSet's swarm thinning drawn from the case's tape as the resolution meets each place, so a shrink of the
+ * tape shrinks every part of a failing case at once and the shrunk case stays valid. A planted case writes the
+ * planted group instead, one of the fixed ChangeSets of changeset.ts PlantedArm over its drawn facts and those the arm
+ * plants. `runCase` applies the ChangeSet three ways and compares:
+ *
+ * - db.apply, the optimized artifact, with every put target the compiler chooses for the relation's mutability and the
+ *   member's shape;
+ * - the conservative realization of the same compiled program, every put the DELETE-then-insert
+ *   pair and every delta a comparison of states, so each mutable put target the optimized side chose must agree with
+ *   DELETE + INSERT in final state, counts and deltas;
+ * - the brute-force add-wins result (expect.ts).
+ *
+ * The optimized side is reached through db.apply or db.compile(changes).apply(params), as the case draws, with the
+ * parameters passed to the call or closed by ChangeSet.bind, and enumerated members given as arrays or Streams
+ * (changeset.ts): each is the same ChangeSet, so all of them must give the oracle's outcome.
+ *
+ * Each database side starts from the same reset state and must give the oracle's outcome: `accepted` with the netted
+ * counts per written relation or `no-change`, each with every read-back equal as a set to its definition over the final
+ * state and the netted deltas, and the committed state the oracle's final state, identity sequences included; or
+ * `invariant-rejected` with a law the realization may meet first and a key-only witness of that law, leaving the
+ * initial state committed; or, when a stratum adds a value its field's domain refuses, `invariant-rejected` with the
+ * domain's law, keyless, as the adapter classifies the violation by the domain PostgreSQL names, or a law the
+ * realization meets first, with the initial state committed. A read-back that attaches, stated "one", the target of a
+ * deferred containment reads each row's parent as an Option: Option.some of the target fact the committed state holds
+ * at the row's contained fields (its fields outside the referenced key), or Option.none when it holds none; a write
+ * that violates that containment is refused at COMMIT with its law, never a defect of the read-back. The two database
+ * sides must also agree with each other exactly on an applied outcome.
+ *
+ * Generated additions are compared up to renaming of their serial values. Within one attempt the realization draws
+ * values from the identity sequences as the add-wins calculator does, but which generated fact takes which value is
+ * the order the statement inserts them in, which nothing fixes, and an attempt that runs again draws fresh values,
+ * since nextval is never rolled back. So for a relation the change generates into, the committed facts the oracle does
+ * not expect as stored or explicitly written facts are the realization's generated facts; they must pair one to one
+ * with the oracle's generated facts on their other fields, with distinct values, and that pairing renames the oracle's
+ * generated facts in its expected final state and read-backs, which no other field holds (changeset.ts draws them in
+ * the last stratum only). Each identity sequence must end at the largest value drawn into its field.
+ *
+ * Every case notes its features through its Case (@grizzle/testing/explore): the shapes it drew and what the compiler
+ * and the database decided, so the suite fails when its population stops reaching one.
+ *
+ * Runs one case three ways (see the header); fails with the printable case on any disagreement.
+ *
+ * Every statement of each artifact, in the order it runs, passes the kernel's structural audit.
+ *
+ * The realization's draws repeated another stored or removed fact than the calculator's, which changes the
+ * counts the definition gives.
+ *
+ * The single-flight property judged a logged flight: a logger that recorded nothing would leave it
+ * vacuous.
+ *
+ * A put realized as UPDATE ... FROM, which inserts nothing, past whose serial values the sequence still advances.
+ *
+ * The calculator draws past a stored fact a lagging sequence repeats, and the fresh fact meets its key.
+ */
+export const runCase = (
+	t: WriteTarget,
+	rc: ResolvedCase,
+	note: Case<WriteOracleFeature>["note"]
+): Effect.Effect<Ran, CaseFailed | CompileError | SqlError | TransactionRolledBack, Substrate> =>
+	Effect.gen(function* () {
+		const { origin, group, facts: drawn, behind, changes: c } = rc
+		/** Notes `feature` when the case reaches it. */
+		const noteIf = (reached: boolean, feature: WriteOracleFeature): void => {
+			if (reached) {
+				note(feature)
+			}
+		}
+		/**
+		 * The initial state the case runs from: the drawn facts, repeated under fresh keys when the case's plan
+		 * perturbation multiplies them (../perturb.ts); the ChangeSet was drawn over the facts as generated.
+		 */
+		const perturbation = yield* CurrentPerturbation
+		const facts: WFacts = multiplyWriteFacts(group, drawn, perturbation.multiplier)
+		const { changes, params } = buildChangeSet(t.value, t.built.relations, group, c)
+		const sequences: Record<string, SequenceState> = Rec.fromEntries(
+			behind
+				? Arr.flatMap(group.relations, (r) =>
+						Arr.map(
+							serialColumns(r),
+							(col) => [`${r.name}.${col.name}`, { lastValue: 1n, isCalled: false }] as const
+						)
+					)
+				: []
+		)
+		const header = () =>
+			Arr.join(
+				[
+					...(origin.kind === "planted" ? [`the planted arm "${origin.arm}"`] : []),
+					printGroup(group),
+					"facts:",
+					printFacts(drawn),
+					...(behind ? ["identity sequences behind the stored values"] : []),
+					"changes:",
+					printChangeSet(c)
+				],
+				"\n"
+			)
+		noteShapes(group, c, note)
+		const entry = programOf(t, changes)
+		if (Result.isFailure(entry)) {
+			return yield* CaseFailed.make({
+				report: `${header()}\nthe ChangeSet does not compile: ${entry.failure.message}`
+			})
+		}
+		const program = entry.success.program
+		const problems: Array<string> = []
+		for (const artifact of ["optimized", "conservative"] as const) {
+			const audited = yield* Effect.result(
+				Effect.try({
+					try: () => {
+						checkedStatements(
+							Arr.map(program.artifacts[artifact].statements, (st) => st.ast),
+							`${artifact} write statement`
+						)
+					},
+					catch: messageOf
+				})
+			)
+			if (Result.isFailure(audited)) {
+				problems.push(audited.failure)
+			}
+		}
+		const takes = yield* takesOf(entry.success, params).pipe(
+			Effect.mapError((e) =>
+				CaseFailed.make({ report: `${header()}\nthe ChangeSet does not bind: ${e._tag}` })
+			)
+		)
+		for (const take of takes) {
+			note(`take sent in its ${take} form`)
+		}
+		for (const realization of realizationsOf(program)) {
+			note(realization)
+		}
+		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences)
+		const outcomes: Array<Result.Result<WriteOutcome, unknown>> = []
+		/** Each side's expectation under its own draws (judgedExpectation), where it committed an applied change. */
+		const realized: Array<Expected> = []
+		for (const artifact of ["optimized", "conservative"] as const) {
+			yield* resetGroup(t, group, facts, expected.initial)
+			const applied = yield* applyWith(
+				t,
+				entry.success,
+				changes,
+				params,
+				artifact,
+				expected.collisions,
+				perturbation,
+				c.entry
+			)
+			const state = yield* readGroup(t, group)
+			outcomes.push(applied.outcome)
+			if (applied.collided > 0) {
+				note("generated after a collision")
+			}
+			if (expected.kind === "applied" && Result.isSuccess(applied.outcome)) {
+				const judged = judgedExpectation(group, expected, state).expected
+				realized.push(judged)
+				noteIf(
+					judged.kind === "applied" && !sameCounts(judged.outcome.counts, expected.outcome.counts),
+					"counts under the realization's draws"
+				)
+			}
+			if (applied.flights > 0) {
+				note("flight logged")
+			}
+			for (const p of judgeWrite(group, c, expected, applied.outcome, state)) {
+				problems.push(`${artifact}: ${p}`)
+			}
+			if (problems.length > 0) {
+				problems.push(`${artifact} outcome: ${printOutcome(applied.outcome)}`)
+			}
+		}
+		const [optimized, conservative, ...others] = outcomes
+		if (optimized !== undefined && conservative !== undefined && others.length === 0) {
+			problems.push(...agreement(optimized, conservative))
+		}
+		for (const choice of program.choices) {
+			note(`put target ${choice.target}`)
+		}
+		if (expected.kind === "applied") {
+			const advances = (relation: string, column: string): boolean => {
+				const before = expected.initial.sequences.get(`${relation}.${column}`)
+				const after = expected.sequences.get(`${relation}.${column}`)
+				return before !== undefined && after !== undefined && after.lastValue !== before.lastValue
+			}
+			noteIf(
+				Arr.some(
+					program.choices,
+					(choice) =>
+						choice.target === "updateFrom" &&
+						Arr.some(serialColumns(relationIn(group, choice.relation)), (col) =>
+							advances(choice.relation, col.name)
+						)
+				),
+				"an UPDATE ... FROM put advancing its sequence"
+			)
+		}
+		/**
+		 * A stated-one read-back, each row it defines with its parent present or absent in the final state, and one over
+		 * a deferred containment a refused write violates.
+		 */
+		const attached = Arr.flatMap(c.reads, (read) =>
+			read.parent.kind === "one" ? [{ read, containment: read.parent.containment }] : []
+		)
+		if (expected.kind === "applied") {
+			const readRows = Arr.flatMap(attached, ({ read, containment }) =>
+				Arr.map([...expectedReadFacts(expected.outcome, read).values()], (row) => ({
+					containment,
+					row
+				}))
+			)
+			for (const { containment, row } of readRows) {
+				const target = entryOf(
+					expected.outcome.state.relations,
+					containment.to.relation,
+					"the final state's relations"
+				)
+				note(
+					parentOf(group, containment, row, target.values()) === undefined
+						? "a stated-one read-back with its parent absent"
+						: "a stated-one read-back with its parent present"
+				)
+			}
+		}
+		/**
+		 * A generated addition drawing the key of a stored fact its stratum deletes, its sequence lagging behind the stored
+		 * values, with the relation's delta read back both ways: the fact identical, which the change neither adds nor
+		 * removes, or differing in a field, one removal and one addition (write/delta/net.ts stratumChange). Such a draw
+		 * is the realization's (addwins.ts), so it is read from the expectation under the realization's draws.
+		 */
+		const [first] = realized
+		if (first?.kind === "applied") {
+			const readBothWays = Arr.filter([...first.draws], ([relation]) => {
+				const sources = new Set(
+					Arr.map(
+						Arr.filter(c.reads, (r) => r.relation === relation),
+						(r) => r.source
+					)
+				)
+				return sources.has("added") && sources.has("removed")
+			})
+			for (const [relation, d] of readBothWays) {
+				const r = relationIn(group, relation)
+				const initial = entryOf(first.initial.relations, relation, "the initial state's relations")
+				const final = entryOf(
+					first.outcome.state.relations,
+					relation,
+					"the final state's relations"
+				)
+				const storedKeys = new Set(Arr.map([...initial.values()], (f) => keyOf(r, r.primaryKey, f)))
+				const generated = [...d.generated]
+				noteIf(
+					Arr.some(generated, (id) => initial.has(id)),
+					"lagging identical netted"
+				)
+				noteIf(
+					Arr.some(
+						generated,
+						(id) =>
+							!initial.has(id) &&
+							storedKeys.has(keyOf(r, r.primaryKey, entryOf(final, id, "the generated facts")))
+					),
+					"lagging differing"
+				)
+			}
+		}
+		if (expected.kind === "rejected" || expected.kind === "outsideDomain") {
+			const refused = new Set(Arr.map(expected.refusals, (x) => x.law))
+			if (
+				Arr.some(attached, ({ containment: x }) =>
+					refused.has(t.laws.foreignKey(x.from.relation, x.from.fields))
+				)
+			) {
+				note("a stated-one read-back over a deferred containment that the write violates")
+			}
+		}
+		if (expected.kind === "applied") {
+			note(`outcome ${expected.outcome.kind}`)
+			if (expected.draws.size > 0) {
+				note("generated accepted")
+			}
+		} else if (expected.kind === "outsideDomain") {
+			note("outcome outside a domain")
+		} else {
+			note("outcome invariant-rejected")
+			if (origin.kind === "planted" && origin.arm === "lagging repeat") {
+				note("a generated repeat of a kept fact refused")
+			}
+			if (Arr.some(program.artifacts.optimized.steps, (step) => step.kind === "single")) {
+				note("a single statement refused by a law")
+			}
+			const metKind = Option.flatMap(Arr.head(outcomes), (met) =>
+				Result.isSuccess(met) && met.success.kind === "invariant-rejected"
+					? refusalKind(t, group, met.success.law)
+					: Option.none()
+			)
+			if (Option.isSome(metKind)) {
+				note(metKind.value)
+			}
+		}
+		/**
+		 * An input spelling a numeric value that coercion changes, and such a case changing nothing; a TOAST-sized
+		 * payload among the inputs, and such a case changing nothing or accepted.
+		 */
+		const values = inputValues(group, c)
+		const coerced = Arr.some(values, (x) => isCoerced(x.kind, x.value))
+		const unchanged = expected.kind === "applied" && expected.outcome.kind === "no-change"
+		if (coerced) {
+			note("numeric coerced")
+		}
+		if (coerced && unchanged) {
+			note("numeric coerced no-change")
+		}
+		if (Arr.some(values, (x) => isToastSized(x.value))) {
+			note("toast-sized input")
+			if (unchanged) {
+				note("toast-sized no-change")
+			}
+			if (expected.kind === "applied" && expected.outcome.kind === "accepted") {
+				note("toast-sized accepted")
+			}
+		}
+		if (problems.length > 0) {
+			return yield* CaseFailed.make({
+				report: Arr.join(
+					[
+						header(),
+						`put targets: ${listed(
+							Arr.map(program.choices, (x) => `${x.relation} ${x.target} (${x.reason})`),
+							", ",
+							"none"
+						)}`,
+						`expected: ${printExpected(expected)}`,
+						...problems
+					],
+					"\n"
+				)
+			})
+		}
+		return { group, changes: c }
+	})

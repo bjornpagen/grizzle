@@ -1,0 +1,3570 @@
+import { emptyAllenMask, parseAllenMask } from "#compiler/allen/mask.ts"
+import { allenExpr } from "#compiler/check/allen.ts"
+import { approximate } from "#compiler/check/approximate/index.ts"
+import type { CheckedNodeSpec, ScopedServices, StageScope } from "#compiler/check/context.ts"
+import { only } from "#compiler/check/defined.ts"
+import { fail, failWith, unwrap } from "#compiler/check/fail.ts"
+import { completeStatedOrders, type StatedOrder } from "#compiler/check/order.ts"
+import type {
+	ParamCell,
+	ParamTable,
+	Resolved,
+	ResolvedAttach,
+	ResolvedExpr,
+	ResolvedHead,
+	ResolvedInterior,
+	ResolvedMatch,
+	ResolvedQuery,
+	ResolvedRule,
+	ResolvedSource,
+	ResolvedStage,
+	ResolvedTake
+} from "#compiler/check/params.ts"
+import { recursion } from "#compiler/check/recursion/index.ts"
+import { refinement } from "#compiler/check/refinement/index.ts"
+import {
+	entries,
+	freshColumnName,
+	type Leaves,
+	parentUse,
+	ruleLeaves,
+	splitWhere
+} from "#compiler/check/scan.ts"
+
+import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
+import type { BudgetMeter } from "#compiler/core/budget.ts"
+import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
+import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
+import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
+import * as Result from "#compiler/core/result.ts"
+import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
+import { relNode } from "#compiler/ir/dag.ts"
+import {
+	descText,
+	type FieldDesc,
+	type LiteralDesc,
+	type OrderDesc,
+	type VarDesc
+} from "#compiler/ir/desc.ts"
+
+import {
+	describeOp,
+	type ExprSpec,
+	type ExprSpec as IrExprSpec,
+	type TypedLiteral,
+	OpId,
+	ownEffects,
+	type ParamRole,
+	rangeOp,
+	type ScalarExpr
+} from "#compiler/ir/expr.ts"
+import { headingColumns } from "#compiler/ir/law.ts"
+import type { LogicalQuery } from "#compiler/ir/products.ts"
+import {
+	type AggregateCallOver,
+	type AggregateSpec,
+	type CompletedOrder,
+	type Correlation,
+	conservativeMeta,
+	type Heading,
+	type HeadingColumn,
+	type Occurrence,
+	type ProducerCallOver,
+	type ProducerKind,
+	type RelNode,
+	type TakeBound,
+	type VarDecl
+} from "#compiler/ir/rel.ts"
+
+import {
+	baseOf,
+	contractOf,
+	rosterOf,
+	type ScalarType,
+	type SpanCarrier,
+	sameScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
+import { type AggregateOverload, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
+import { bareLiteralKind } from "#compiler/scalar/compute/literal.ts"
+import {
+	type LeafDesc,
+	type LowerEnv,
+	type Lowered,
+	type LowerParams,
+	lowerPredicate,
+	lowerTerm,
+	typeOnly
+} from "#compiler/scalar/compute/lower.ts"
+import { type NativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
+import {
+	compatible,
+	type PlainCarrier,
+	plainType,
+	valueType,
+	wildcardText,
+	withoutSerial,
+	withoutSpanWidth
+} from "#compiler/scalar/compute/types.ts"
+import { spanType } from "#compiler/scalar/registry.ts"
+import { regexMember } from "#compiler/text/refinement.ts"
+
+/**
+ * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
+ * ChangeSet's read-back, which may read delta.added and delta.removed sources, or as a write filter's membership, which
+ * reads the row it is asked at (schema/entry.ts). A read-back may name the delta of any ordinary relation: one the
+ * ChangeSet does not write is empty, which the write program supplies.
+ */
+export type QueryRead = "rows" | "page" | "readBack" | "membership"
+
+/**
+ * The operations a description may use. A query reads `any`: an operation that can raise is an admitted typed outcome.
+ * A query entry's definition reads `total` only: its role's view evaluates the definition's own expressions on facts
+ * outside the world, since PostgreSQL orders a view's quals by cost and the barrier orders only the view against its
+ * reader, so an operation that can raise (ir/expr.ts ownEffects: a division, arithmetic that can overflow, a cast into
+ * a contract or refinement, a narrowing cast, an aggregate whose accumulation can overflow) would let a fact outside
+ * the world fail a read inside it.
+ */
+export type Operations = "any" | "total"
+
+export interface CheckOptions {
+	readonly read: QueryRead
+	readonly meter: BudgetMeter
+	/**
+	 * The label of the query's location in diagnostics: "query", `read <name>`, `<op> <relation>`, `derived <name>`.
+	 */
+	readonly label: string
+}
+
+/** A ChangeSet member described by a query: its head takes the types of the relation it is written into. */
+export interface MemberTarget {
+	readonly relation: MemberRelation
+	readonly op: "insert" | "delete" | "put"
+}
+
+interface ParentColumn {
+	readonly parent: string
+	readonly name: string
+	readonly type: ScalarType
+}
+
+interface ParentScope {
+	/** The parent's label, which the child's correlation references name. */
+	readonly node: NodeId
+	readonly heading: Heading
+	readonly columns: ReadonlyArray<ParentColumn>
+}
+
+/**
+ * What an imported query's parameter is bound to: one of the importer's own parameters, a typed
+ * constant, or an outer value read through a column of the importer's region. A constant carries the bind entry where
+ * it was written: it adopts the type of its use inside the import, and a refusal of it names the bind entry.
+ */
+type BindValue =
+	| { readonly kind: "param"; readonly cell: ParamCell }
+	| {
+			readonly kind: "literal"
+			readonly value: LiteralDesc
+			readonly stated: Typing
+			readonly loc: SourceLoc
+	  }
+	| {
+			readonly kind: "column"
+			readonly node: NodeId
+			readonly name: string
+			readonly type: ScalarType
+	  }
+
+/**
+ * A bound constant at a use of `type`: the use's literal, refused when the bind entry states a type the use's is not
+ * compatible with.
+ */
+const boundConstant = (
+	schema: SchemaReading,
+	constant: Extract<BindValue, { readonly kind: "literal" }>,
+	type: ScalarType
+): ExprSpec => {
+	if (constant.stated.kind === "typed" && !compatible(constant.stated.type, type)) {
+		fail(
+			"MalformedDescription",
+			constant.loc,
+			`a bound constant of ${typeLabel(type)}, not ${typeLabel(constant.stated.type)}`
+		)
+	}
+	return literalSpec(schema.literal(constant.value, type, constant.loc), type)
+}
+
+type ParamResolver =
+	| { readonly kind: "own" }
+	| {
+			readonly kind: "bound"
+			readonly values: ReadonlyMap<string, BindValue>
+			readonly used: Set<string>
+			readonly loc: SourceLoc
+	  }
+
+/**
+ * How the query a check's root reads is read: as rows, a page, a read-back or a membership, or as a ChangeSet member's
+ * query, written into its relation.
+ */
+export type RootRole =
+	| { readonly kind: "rows" }
+	| { readonly kind: "page" }
+	| { readonly kind: "readBack" }
+	| { readonly kind: "membership" }
+	| { readonly kind: "member"; readonly target: MemberTarget }
+
+/**
+ * Where a scope's rules stand: the query's own root, read in its role; an attachment's child, correlated to its parent;
+ * an import's query, its parameters bound; or a rule's interior stage. Only an attachment's child correlates to a
+ * parent, and only the root writes a member or reads a page.
+ */
+type ScopeOrigin =
+	| { readonly kind: "root"; readonly role: RootRole }
+	| { readonly kind: "attachChild"; readonly parent: ParentScope }
+	| { readonly kind: "import" }
+	| { readonly kind: "interior" }
+
+interface Scope extends StageScope {
+	readonly params: ParamResolver
+	readonly origin: ScopeOrigin
+	/** The feedback reference a recursive step's arms read, undefined outside a recursive step. */
+	readonly self: RelNode | undefined
+}
+
+/** The relation a scope's head is written into: a ChangeSet member root's. */
+const writtenTarget = (origin: ScopeOrigin): MemberTarget | undefined =>
+	origin.kind === "root" && origin.role.kind === "member" ? origin.role.target : undefined
+
+interface StageOut {
+	readonly node: RelNode
+	/**
+	 * An orderBy's keys, and where they are written for a refusal of one of them; undefined for a stage that orders
+	 * nothing.
+	 */
+	readonly order: StatedOrderDesc | undefined
+}
+
+interface StatedOrderDesc {
+	readonly keys: ReadonlyArray<OrderDesc>
+	readonly at: SourceLoc
+}
+
+/** The first match column a slot is bound to: the slot takes its type. */
+interface Binding {
+	readonly type: ScalarType
+}
+
+/** An outer value a slot is correlated to: a column of the attachment parent or of the importer. */
+interface Outer {
+	readonly node: NodeId
+	readonly name: string
+	readonly type: ScalarType
+}
+
+interface SlotOf<Kind extends string> {
+	readonly kind: Kind
+	readonly id: VarId
+	readonly name: string
+}
+
+/**
+ * A variable of a rule's region. A rule variable is reserved when the rule is declared (its identifier and column
+ * name) and becomes a slot at the first match binding it, which gives it its type. A parent variable is correlated to
+ * its parent column until a match binds it. An imported parameter bound to an outer value is correlated to it, and the
+ * region carries it only when a filter, the head or a fallback equality reads it (needed). A hidden variable is bound
+ * to a second column of another type and equated with its variable by the filter.
+ */
+type ReservedUser = SlotOf<"user">
+type UserSlot = ReservedUser & { readonly binding: Binding }
+type ParentSlot = SlotOf<"parent"> & { readonly outer: Outer }
+type ParamSlot = SlotOf<"param"> & { readonly outer: Outer }
+type HiddenSlot = SlotOf<"hidden"> & { readonly binding: Binding }
+type Slot = UserSlot | ParentSlot | ParamSlot | HiddenSlot
+
+type AggregateHead = Extract<ResolvedHead, { readonly kind: "aggregate" }>
+type ProducerHead = Extract<ResolvedHead, { readonly kind: "producer" }>
+
+/**
+ * An equality the rule's filter owes: a variable and the hidden variable bound to a second column of another
+ * refinement or typmod, or a hidden variable and the value a binding fixes its column to.
+ */
+type PendingEquality =
+	| { readonly kind: "slots"; readonly left: UserSlot | ParentSlot; readonly right: HiddenSlot }
+	| { readonly kind: "value"; readonly hidden: HiddenSlot; readonly value: ScalarExpr }
+
+/** A slot a match binds a source column to: a rule or parent variable, or a hidden one. */
+type BoundSlot = UserSlot | ParentSlot | HiddenSlot
+
+/** A source column a match binds, and the slot it is bound to. */
+interface SlotBinding {
+	readonly column: string
+	readonly var: BoundSlot
+}
+
+interface PendingOccurrence {
+	readonly match: ResolvedMatch
+	readonly index: number
+	readonly loc: SourceLoc
+	readonly source: RelNode
+	readonly heading: Heading
+	readonly bindings: ReadonlyArray<SlotBinding>
+	readonly constants: ReadonlyArray<{ readonly column: string; readonly expr: ScalarExpr }>
+}
+
+/**
+ * A literal head column of an arm: its IR literal at the column's type, and what typed it. A fixed literal's type is
+ * the one it states (X.handle, Compute.literal, a typed parameter literal) or the written column's; a bare literal
+ * (r.literal, an untyped parameter literal) meets no term in its rule, so its type there is its value's JavaScript
+ * default (Checker bareLiteralType), which a union retypes by its position, the type the arms that deliver the column
+ * by a term agree on (Checker #positionedTypes).
+ */
+type HeadLiteral =
+	| { readonly kind: "fixed"; readonly literal: TypedLiteral }
+	| {
+			readonly kind: "bare"
+			readonly literal: TypedLiteral
+			readonly value: LiteralDesc
+			readonly loc: SourceLoc
+	  }
+
+/** How a head literal is typed in its rule: fixed at the type it states or writes, or bare, at its value's default. */
+type LiteralTyping =
+	| { readonly kind: "fixed"; readonly type: ScalarType }
+	| { readonly kind: "bare" }
+
+/** A head term: its expression, its type, and the literal a literal term is, undefined for any other term. */
+interface TermOut {
+	readonly expr: ScalarExpr
+	readonly type: ScalarType
+	readonly literal: HeadLiteral | undefined
+}
+
+/**
+ * A negated binding correlated with a slot of the rule's region: the slot's region column, and the column of the
+ * negation's left input that delivers it, the slot's own column over the region or the head key delivering it after the
+ * head.
+ */
+interface NegatedCorrelation {
+	readonly region: HeadingColumn
+	readonly on: string
+}
+
+/** The correlation of a negated binding, `column` bound to `e`, or undefined for a binding correlated with no slot. */
+type Correlate = (column: string, e: ResolvedExpr, at: SourceLoc) => NegatedCorrelation | undefined
+
+/** A negation the rule applies after its head: its place in the rule's where and each correlated binding's. */
+interface LateNegation {
+	readonly index: number
+	readonly absent: Extract<ResolvedExpr, { readonly kind: "absent" }>
+	readonly correlated: ReadonlyMap<string, NegatedCorrelation>
+}
+
+/** How a binding of a negated match lands in its region (RuleCheck #negatedBinding). */
+type NegatedBinding =
+	| {
+			readonly kind: "correlated"
+			readonly column: string
+			readonly type: ScalarType
+			readonly left: string
+	  }
+	| { readonly kind: "constant"; readonly column: string; readonly expr: ScalarExpr }
+	| {
+			readonly kind: "filtered"
+			readonly column: string
+			readonly type: ScalarType
+			readonly value: ScalarExpr
+	  }
+	| { readonly kind: "none" }
+
+/** How a constant binding lands: a constant of the region that fixes the column, or a value the filter equates with it. */
+type ConstantPlacement = { readonly kind: "fix" | "filter"; readonly expr: ScalarExpr }
+
+/** One output column of a projection: its name, its expression and the heading column it makes. */
+interface OutColumn {
+	readonly name: string
+	readonly expr: ScalarExpr
+	readonly type: ScalarType
+}
+
+const projectionOf = (out: ReadonlyArray<OutColumn>) => ({
+	out: out.map((o) => ({ name: o.name, expr: o.expr })),
+	heading: out.map((o): HeadingColumn => ({ name: o.name, type: o.type }))
+})
+
+const columnSpec = (node: NodeId, name: string, type: ScalarType): ExprSpec => ({
+	kind: "column",
+	column: { node, name },
+	args: [],
+	type,
+	nonNull: "storage"
+})
+
+const literalSpec = (value: TypedLiteral, type: ScalarType): ExprSpec => ({
+	kind: "literal",
+	value,
+	args: [],
+	type,
+	nonNull: "literal"
+})
+
+const paramSpec = (param: ParamId, role: ParamRole, type: ScalarType): ExprSpec => ({
+	kind: "param",
+	param,
+	role,
+	args: [],
+	type,
+	nonNull: "codec"
+})
+
+/** The type a comparison parameter is bound as: the base, plain text for regex text. */
+const compareType = (t: ScalarType): ScalarType => {
+	const base = baseOf(t)
+	return base.carrier === "text" ? wildcardText : base
+}
+
+/**
+ * The type a literal or parameter adopts opposite a term of type t in a comparison: the contract and its refinements
+ * when it has one, otherwise the value type, a numeric typmod widened and a span's fixed width dropped
+ * (scalar/compute/lower.ts Lowering.adopt).
+ */
+const adoptCompare = (t: ScalarType): ScalarType => {
+	if (contractOf(t) !== undefined) {
+		return withoutSerial(t)
+	}
+	const v = valueType(t)
+	return v.carrier === "numeric" && v.typmod !== undefined
+		? plainType("numeric")
+		: withoutSpanWidth(v)
+}
+
+const columnOf = (heading: Heading, name: string): HeadingColumn | undefined =>
+	heading.find((c) => c.name === name)
+
+const hasColumn = (heading: Heading, name: string): boolean => heading.some((c) => c.name === name)
+
+/** The lowering environment of a query expression, whose parameters are its rule's scope. */
+type QueryEnv = Extract<LowerEnv<Resolved>, { readonly mode: "query" }> & {
+	readonly params: Extract<LowerParams<Resolved>, { readonly kind: "scope" }>
+}
+
+/**
+ * The span type a type is over through its contracts, or undefined for a type that is no span. A contract's carrier is
+ * its base's, so a term's nominal and actual types, which differ at most by a contract, are over one span carrier.
+ */
+type SpanBase = Extract<ScalarType, { readonly carrier: SpanCarrier }>
+const spanBase = (t: ScalarType): SpanBase | undefined => {
+	const base = baseOf(t)
+	return base.carrier === "range4" || base.carrier === "range8" ? base : undefined
+}
+
+/**
+ * The result column of each aggregate head key, in order: its own name, or `__agg_<name>_<n>` for the least n from 2
+ * when a group key or an earlier aggregate takes it.
+ */
+const aggregateColumns = (
+	keyColumns: ReadonlyArray<string>,
+	aggregates: NonEmptyReadonlyArray<readonly [string, AggregateHead]>
+): NonEmptyReadonlyArray<Placed<AggregateHead>> => {
+	const taken = new Set(keyColumns)
+	return mapNonEmpty(aggregates, ([name, head]) => {
+		let column = name
+		for (let n = 2; taken.has(column); n++) {
+			column = `__agg_${name}_${n}`
+		}
+		taken.add(column)
+		return { name, column, head }
+	})
+}
+
+/** The result column of a head's span producer: its own name, or `__produced_<name>` when a group key takes it. */
+const producedColumn = (
+	keyColumns: ReadonlyArray<string>,
+	[name, head]: readonly [string, ProducerHead]
+): Placed<ProducerHead> => ({
+	name,
+	column: keyColumns.includes(name) ? `__produced_${name}` : name,
+	head
+})
+
+/**
+ * What a head folds, or undefined for a head of plain terms: aggregates and a span producer never share a head, and a
+ * head has at most one producer.
+ */
+const foldedOf = (
+	at: SourceLoc,
+	aggregates: ReadonlyArray<readonly [string, AggregateHead]>,
+	producers: ReadonlyArray<readonly [string, ProducerHead]>
+): Folded | undefined => {
+	const [producer, ...more] = producers
+	if (isNonEmpty(aggregates)) {
+		if (producer !== undefined) {
+			fail(
+				"UnsupportedOperation",
+				at,
+				"aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them"
+			)
+		}
+		return { kind: "aggregates", aggregates }
+	}
+	if (producer === undefined) {
+		return undefined
+	}
+	if (more.length > 0) {
+		fail("UnsupportedOperation", at, "one span producer per head")
+	}
+	return { kind: "producer", producer }
+}
+
+/** A column of a union's arm, with the bare head literal the arm delivers it by, if any. */
+interface Delivered {
+	readonly column: HeadingColumn
+	readonly bare: BareLiteral | undefined
+}
+
+/** A head's folding node, with each folded term's result column of its heading. */
+interface Folding {
+	readonly node: RelNode
+	readonly results: ReadonlyArray<{ readonly name: string; readonly column: HeadingColumn }>
+}
+
+/** A head term placed under its result column. */
+interface Placed<H> {
+	readonly name: string
+	readonly column: string
+	readonly head: H
+}
+
+/** What a head folds: its aggregates, or its one span producer. */
+type Folded =
+	| {
+			readonly kind: "aggregates"
+			readonly aggregates: NonEmptyReadonlyArray<readonly [string, AggregateHead]>
+	  }
+	| { readonly kind: "producer"; readonly producer: readonly [string, ProducerHead] }
+
+/** Whether a term is a parameter or an untyped literal, which takes the type of the term it meets. */
+const isBareTerm = (d: ResolvedExpr): boolean =>
+	d.kind === "param" || (d.kind === "literal" && d.type === undefined)
+
+/** The key of a heading: its column names, sorted. */
+const headingKey = (h: Heading): string =>
+	h
+		.map((c) => c.name)
+		.toSorted(compareStrings)
+		.join("\u0000")
+
+/** Named things in code unit order of their names. */
+const byName: Comparator<{ readonly name: string }> = mapInput(
+	compareStrings,
+	(named: { readonly name: string }) => named.name
+)
+
+const sameTypes = (types: NonEmptyReadonlyArray<ScalarType>): boolean =>
+	types.every((t) => sameScalarType(t, types[0]))
+
+const compatibleTypes = (types: NonEmptyReadonlyArray<ScalarType>): boolean =>
+	types.every((t) => compatible(t, types[0]))
+
+/**
+ * The type a group of arms delivers `column` at, given each arm's type for it: the type every arm shares, or the
+ * guarantees common to them; arms of incompatible types are refused.
+ */
+const groupColumnType = (
+	types: NonEmptyReadonlyArray<ScalarType>,
+	column: HeadingColumn,
+	loc: SourceLoc
+): ScalarType => {
+	if (sameTypes(types)) {
+		return types[0]
+	}
+	if (compatibleTypes(types)) {
+		return refinement.common(types)
+	}
+	return fail(
+		"MalformedDescription",
+		loc,
+		`arms of one heading with one type per column; ${column.name} is ${types.map(typeLabel).join(" and ")}`
+	)
+}
+
+/** The type arms agree on: the one they share, or the guarantees common to them; none when they are incompatible. */
+const agreedType = (types: ReadonlyArray<ScalarType>): ScalarType | undefined => {
+	if (!isNonEmpty(types)) {
+		return undefined
+	}
+	if (sameTypes(types)) {
+		return types[0]
+	}
+	return compatibleTypes(types) ? refinement.common(types) : undefined
+}
+
+type BareLiteral = Extract<HeadLiteral, { readonly kind: "bare" }>
+
+/** A literal head column typed by its position, or none for any other column. */
+const bareOf = (head: HeadLiteral | undefined): BareLiteral | undefined =>
+	head?.kind === "bare" ? head : undefined
+
+/**
+ * The columns every group delivers at compatible types, in the first heading's order, each with the guarantees common
+ * to all that every group's target widens it to, or undefined when every group delivers it at one type.
+ */
+const commonColumnsOf = (
+	firstHeading: Heading,
+	groups: NonEmptyReadonlyArray<{ readonly target: ReadonlyMap<string, ScalarType> }>
+): ReadonlyArray<{ readonly name: string; readonly widen: ScalarType | undefined }> =>
+	firstHeading.flatMap(
+		(c): ReadonlyArray<{ readonly name: string; readonly widen: ScalarType | undefined }> => {
+			const known = everyDefined(mapNonEmpty(groups, (g) => g.target.get(c.name)))
+			if (known === undefined) {
+				return []
+			}
+			if (sameTypes(known)) {
+				return [{ name: c.name, widen: undefined }]
+			}
+			return compatibleTypes(known) ? [{ name: c.name, widen: refinement.common(known) }] : []
+		}
+	)
+
+/** Every element of a non-empty list, when none is undefined. */
+const everyDefined = <A>(
+	xs: NonEmptyReadonlyArray<A | undefined>
+): NonEmptyReadonlyArray<A> | undefined => {
+	const [head, ...tail] = xs
+	if (head === undefined) {
+		return undefined
+	}
+	const out: [A, ...Array<A>] = [head]
+	for (const x of tail) {
+		if (x === undefined) {
+			return undefined
+		}
+		out.push(x)
+	}
+	return out
+}
+
+const producerKinds = {
+	intersection: "spanIntersection",
+	difference: "spanDifference",
+	pack: "spanPack"
+} as const satisfies Readonly<Record<"intersection" | "difference" | "pack", ProducerKind>>
+
+const int4TakeCapability = "a positive integer bound for take, at most 2147483647"
+
+/**
+ * A take bound has one domain, int4's positive range, however it is spelled: a literal, or a parameter an import
+ * binds to a literal (the parameter itself is typed int4).
+ * A literal take is positive by its description (ir/desc.ts takeDescShape), and a nonpositive bound breaks a rule of the
+ * relational DAG too, but an imported query's take bound by `bind` to a literal reaches here first: this refuses it at
+ * the query that binds it, in int4's terms.
+ */
+const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
+	if (k < 1n || k > 2147483647n) {
+		fail("MalformedDescription", loc, int4TakeCapability)
+	}
+	return { kind: "literal", k }
+}
+
+/** An operation as a refusal names it: an operator or function by its catalog signature, a cast by its target. */
+const operationText = (spec: IrExprSpec): string => {
+	switch (spec.kind) {
+		case "op":
+			return `operator ${describeOp(spec.op)}`
+		case "cast":
+			return `the narrowing cast to ${typeLabel(spec.type)}`
+		case "domainCast":
+			return `the cast into ${typeLabel(spec.type)}`
+		case "column":
+		case "value":
+		case "param":
+		case "literal":
+		case "cond":
+			return `a ${spec.kind}`
+	}
+}
+
+/**
+ * The checker: a ResolvedQuery to a LogicalQuery DAG.
+ *
+ * It resolves every name a query description uses against the schema, types every expression through the Compute
+ * catalogue, and builds the scoped relational DAG with exact headings and binding semantics. The shapes are:
+ *
+ * - A rule is one MatchRegion over its matches: one occurrence per match, each over a fresh source node
+ *   (a Base or Closed scan, a relation parameter's InputSet, an imported query's DAG, an interior stage, a read-back's
+ *   Delta). A variable shared by several matches is the join. Its heading is its complete binding: every variable a
+ *   match binds, whether or not the head names it, so a fold sees the distinct full bindings. A literal,
+ *   parameter or computed binding fixes its column. Every source column neither bound nor fixed is an existential
+ *   witness. Variables are named by the field `v` took them from, which survives a round trip through a
+ *   QueryDescription; allocated VarIds never name anything.
+ * - Its scalar filters are one Filter over the region; each `r.not` is an AntiJoin against the negated source projected
+ *   onto the columns the rule's values fix.
+ * - Its head is a ProjectSet, a set projection, or with aggregates a Group over the complete bound tuple, keyed by the
+ *   non-aggregate head terms. A constant head term beside aggregates is not a group key: it
+ *   is added by a projection over the groups, so no literal is ever a grouping item.
+ * - Arms are a Union, grouped by heading. Arms of different headings need a literal discriminant: the columns present in
+ *   every arm and bound to a literal in every head, with differing literal tuples for arms of different headings
+ *   (MissingDiscriminant); the roster-typed ones alone when they tell the groups apart. A column several
+ *   arms deliver keeps the guarantees common to them all (refinement/).
+ * - orderBy is completed to a total order: an Ordered query delivers an OrderedResult, take a Take,
+ *   an ordered attachment the order on its Attach. Each is built with the conservative completion, the remaining
+ *   heading, and once the DAG is whole order.ts completes the stated order under the logical keys instead, so the
+ *   completion stops as soon as the order is total (logical/order.ts).
+ * - An attachment is an Attach whose child delivers its correlation columns beside its heading: each parent variable the
+ *   child reads becomes a variable of the child's rules, bound where a match binds it and correlated to the parent row
+ *   otherwise, delivered under one name by every arm and correlated by the Attach. A child that reads no
+ *   parent variable is AttachedParentUnbound; a page over a query correlated to a parent is AttachedPage.
+ *   Delivered types start at ReadonlyArray; analysis/logical narrows them by evidence.
+ * - An imported query is checked in its own scope: its parameters are not the importer's but
+ *   are bound by its complete bind map to the importer's parameters, variables or typed constants, so two imports bind
+ *   one name differently without capture. A bind to an outer variable correlates the import: its source reads the
+ *   importer's region, placed LATERAL by the lowering.
+ * - A parameter is typed from its uses and unified across the query (params.ts), bound as its base type wherever it is
+ *   compared and cast to the refinement where it is written or emitted. A literal adopts the type of the
+ *   term it meets and is checked against that type's contract and regex refinement (ContractLiteral).
+ *
+ * - A context is a Context leaf of at most one row, its heading the context's fields typed against the schema (a closed
+ *   handle names a roster of the schema). One query names each context with one descriptor (DuplicateIdentity).
+ *   Checked against a role, a query reads only the contexts the role's relations read, as they declare them: a Db of
+ *   the role holds facts of those alone.
+ *
+ * Recursive and approximate stages are plug-ins (context.ts). Every node is charged to the policy's budgets
+ * (ResourceBound). A query reads only what its schema declares: checked against a role, only the role's relations.
+ */
+export class Checker {
+	readonly schema: SchemaReading
+	readonly options: CheckOptions
+	readonly b: DagBuilder
+	readonly meter: BudgetMeter
+	readonly params: ParamTable
+	readonly #operations: Operations
+	/**
+	 * The literal head columns of every arm node, for typing a bare one by its position in a union, for discriminants
+	 * and for narrowing a matched union.
+	 */
+	readonly #literals = new Map<RelNode, Map<string, HeadLiteral>>()
+	/** The arms of every union node, for flattening a further rule and for narrowing a matched union. */
+	readonly #unions = new Map<
+		RelNode,
+		{ readonly arms: NonEmptyReadonlyArray<RelNode>; readonly discriminant: ReadonlyArray<string> }
+	>()
+	/** The attachment names a node already carries. */
+	readonly #attached = new Map<RelNode, ReadonlySet<string>>()
+	/** Contracts the query declares itself, for DuplicateIdentity. */
+	readonly #contracts = new Map<string, { text: string; loc: SourceLoc }>()
+	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
+	readonly #contexts = new Map<string, { text: string; loc: SourceLoc }>()
+	/** Head parameters no use had typed when the head was checked, with where they were. */
+	readonly pendingHeadParams = new Map<ParamCell, SourceLoc>()
+	/**
+	 * The order the user stated for each Take, OrderedResult and ordered Attach, completed once the DAG is built
+	 * (order.ts).
+	 */
+	readonly #stated = new Map<RelNode, StatedOrder>()
+	/** The labels reserved and not yet defined: the regions of the rules being checked, the recursions being checked. */
+	readonly #reserved = new Set<NodeId>()
+	/** The approximate searches built, by the identity of their sealed source, score and bound (approximate/). */
+	readonly #searches = new Map<string, RelNode>()
+
+	/** `params` are the cells of the resolved description the checker checks (params.ts resolveQuery). */
+	constructor(
+		schema: SchemaReading,
+		options: CheckOptions,
+		params: ParamTable,
+		operations: Operations
+	) {
+		this.schema = schema
+		this.options = options
+		this.#operations = operations
+		this.b = new DagBuilder(makeIdSupply())
+		this.meter = options.meter
+		this.params = params
+	}
+
+	/** Records an expression, built over its arguments with its effects (ir/expr.ts builtExpr). */
+	emit(spec: ExprSpec): ScalarExpr {
+		return this.b.expr(spec)
+	}
+
+	/**
+	 * Refuses, in a description of total operations only, an operation that can raise (Operations): every rule of the
+	 * description reads it.
+	 */
+	requireTotal(canFail: boolean, loc: SourceLoc, operation: () => string): void {
+		if (this.#operations === "total" && canFail) {
+			fail(
+				"UnsupportedOperation",
+				loc,
+				`a query entry's definition of total operations only: ${operation()} can raise, and the role's view evaluates its definition on facts outside the world, so a fact outside it would fail every read; compute it in a program over the role`
+			)
+		}
+	}
+
+	/**
+	 * An expression the scalar lowering records at `loc`, refused where it can raise of itself in a description of total
+	 * operations only. Its arguments were recorded first, so a whole expression is total when every node of it is.
+	 */
+	#lowered(spec: IrExprSpec, loc: SourceLoc): ScalarExpr {
+		this.requireTotal(ownEffects(spec).failure === "canFail", loc, () => operationText(spec))
+		return this.emit(spec)
+	}
+
+	#charge(spec: CheckedNodeSpec, loc: SourceLoc): void {
+		unwrap(this.meter.charge("nodes", 1, loc))
+		unwrap(this.meter.charge("fields", spec.heading.length, loc))
+	}
+
+	node(spec: CheckedNodeSpec, loc: SourceLoc): RelNode {
+		this.#charge(spec, loc)
+		return this.b.node({ ...spec, loc, meta: conservativeMeta })
+	}
+
+	/** A fresh label to define later, reserved until it is defined. */
+	reserve(): ReservedNode {
+		const id = this.b.reserve()
+		this.#reserved.add(id)
+		return id
+	}
+
+	define(id: ReservedNode, spec: CheckedNodeSpec, loc: SourceLoc): RelNode {
+		this.#charge(spec, loc)
+		this.#reserved.delete(id)
+		return this.b.define(id, { ...spec, loc, meta: conservativeMeta })
+	}
+
+	/**
+	 * `node` restated as `spec`, at `loc`, under its own label: the node an order completion puts in its place, its
+	 * inputs and fields the checker's but its order (order.ts StatedOrder withOrder). No budget is charged again.
+	 */
+	#restated(node: RelNode, spec: CheckedNodeSpec, loc: SourceLoc): RelNode {
+		return relNode(node.id, { ...spec, loc, meta: conservativeMeta })
+	}
+
+	fieldType(desc: FieldDesc, loc: SourceLoc): ScalarType {
+		return this.schema.queryFieldType(desc, loc, this.#contracts)
+	}
+
+	services(): ScopedServices<Scope> {
+		return {
+			schema: this.schema,
+			builder: this.b,
+			node: (spec, loc) => this.node(spec, loc),
+			reserve: () => this.reserve(),
+			define: (id, spec, loc) => this.define(id, spec, loc),
+			reserved: (id) => this.#reserved.has(id),
+			searches: this.#searches,
+			arms: (arms, scope, loc, self) =>
+				this.arms(arms, self === undefined ? scope : { ...scope, self }, loc),
+			fieldType: (desc, loc) => this.fieldType(desc, loc)
+		}
+	}
+
+	ownScope(role: RootRole): Scope {
+		return {
+			kind: "scope",
+			params: { kind: "own" },
+			origin: { kind: "root", role },
+			self: undefined
+		}
+	}
+
+	/**
+	 * The query's DAG as a whole: its stages, then an OrderedResult when it is an Ordered. Its parameters are the
+	 * table's once the pass is final (check/index.ts).
+	 *
+	 * One charge per parameter at its first use, so an overrun names the use that crossed the bound.
+	 */
+	root(desc: ResolvedQuery, loc: SourceLoc, role: RootRole): LogicalQuery["dag"] {
+		if (this.options.read === "page" && desc.stage.kind !== "order") {
+			fail(
+				"MalformedDescription",
+				loc,
+				"an Ordered query for a page: page reads the completed order of an orderBy"
+			)
+		}
+		const out = this.stage(desc.stage, this.ownScope(role))
+		const root = out.order === undefined ? out.node : this.#orderedResult(out.node, out.order)
+		for (const at of this.params.firstUses()) {
+			unwrap(this.meter.charge("params", 1, at))
+		}
+		return unwrap(completeStatedOrders(this.b.build([root]), this.#stated))
+	}
+
+	/** An Ordered query's result: its rows under the order stated, which order.ts completes. */
+	#orderedResult(input: RelNode, stated: StatedOrderDesc): RelNode {
+		const heading = input.heading
+		const at = stated.at
+		const node = this.node(
+			{ kind: "OrderedResult", input, order: this.complete(stated, heading, new Set()), heading },
+			at
+		)
+		this.#state(node, stated, {
+			input,
+			fixed: [],
+			withOrder: (order) =>
+				this.#restated(node, { kind: "OrderedResult", input, order, heading }, at)
+		})
+		return node
+	}
+
+	stage(s: ResolvedStage, scope: Scope): StageOut {
+		/** An attachment stage is located at its attach entry, whose child is below it. */
+		const here = s.kind === "attach" ? s.attach.loc : s.loc
+		switch (s.kind) {
+			case "rules":
+				return { node: this.arms(s.arms, scope, childLoc(here, "arms")), order: undefined }
+			case "recursive":
+				return { node: recursion.check(s, scope, here, this.services()), order: undefined }
+			case "union": {
+				const input = this.stage(s.input, scope)
+				const prior = this.#unions.get(input.node)?.arms ?? [input.node]
+				const added = s.arms.map((arm) => this.rule(arm, scope))
+				return { node: this.union([...prior, ...added], here), order: undefined }
+			}
+			case "attach": {
+				const input = this.stage(s.input, scope)
+				return { node: this.attachIn(input.node, s.attach, scope, here), order: undefined }
+			}
+			case "named":
+				return { node: this.stage(s.input, scope).node, order: undefined }
+			case "order": {
+				const input = this.stage(s.input, scope)
+				return { node: input.node, order: { keys: s.order, at: childLoc(here, "order") } }
+			}
+			case "take": {
+				const input = this.stage(s.input, scope)
+				return { node: this.take(input, s.take, scope, here), order: undefined }
+			}
+			case "approx": {
+				const input = this.stage(s.input, scope)
+				return { node: approximate.check(s, input.node, here, this.services()), order: undefined }
+			}
+		}
+	}
+
+	/**
+	 * The placeholder completion a node is built with: the user's keys, then the rest of the heading in heading order,
+	 * less the columns `fixed` holds constant, such as an attachment's correlation. It is total without evidence, so the
+	 * DAG is valid as it is built; the stated order, recorded by #state, is completed under the logical keys once the
+	 * DAG is whole (order.ts).
+	 */
+	complete(order: StatedOrderDesc, heading: Heading, fixed: ReadonlySet<string>): CompletedOrder {
+		for (const [i, o] of order.keys.entries()) {
+			if (!hasColumn(heading, o.column)) {
+				fail(
+					"MalformedDescription",
+					childLoc(order.at, i),
+					`an order column of the query's heading, over a union one common to every arm; ${o.column} is not one`
+				)
+			}
+		}
+		const named = new Set(order.keys.map((o) => o.column))
+		return {
+			keys: [
+				...order.keys.map((o) => ({ column: o.column, dir: o.dir })),
+				...heading
+					.filter((c) => !named.has(c.name) && !fixed.has(c.name))
+					.map((c) => ({ column: c.name, dir: "asc" as const }))
+			]
+		}
+	}
+
+	/**
+	 * Records the order the user stated for `node`, which order.ts completes: the relation it orders, the columns fixed
+	 * per evaluation of it, and the node with a completed order in its place.
+	 */
+	#state(
+		node: RelNode,
+		order: StatedOrderDesc,
+		ordered: Pick<StatedOrder, "input" | "fixed" | "withOrder">
+	): void {
+		this.#stated.set(node, {
+			keys: order.keys.map((o) => ({ column: o.column, dir: o.dir })),
+			at: order.at,
+			...ordered
+		})
+	}
+
+	take(input: StageOut, take: ResolvedTake, scope: Scope, loc: SourceLoc): RelNode {
+		const stated = input.order
+		if (stated === undefined) {
+			return fail("MalformedDescription", loc, "take over an Ordered query")
+		}
+		const heading = input.node.heading
+		const origin = scope.origin
+		const correlation: ReadonlyArray<Correlation> =
+			origin.kind === "attachChild"
+				? origin.parent.columns.map((c) => ({
+						column: c.name,
+						expr: this.emit(columnSpec(origin.parent.node, c.parent, c.type))
+					}))
+				: []
+		const fixed = new Set(correlation.map((c) => c.column))
+		const order = this.complete(stated, heading, fixed)
+		const bound = this.takeBound(take, scope, loc)
+		const node = this.node(
+			{ kind: "Take", input: input.node, order, bound, correlation, heading },
+			loc
+		)
+		this.#state(node, stated, {
+			input: input.node,
+			fixed: correlation.map((c) => c.column),
+			withOrder: (completed) =>
+				this.#restated(
+					node,
+					{ kind: "Take", input: input.node, order: completed, bound, correlation, heading },
+					loc
+				)
+		})
+		this.#inherit(node, input.node)
+		return node
+	}
+
+	takeBound(take: ResolvedTake, scope: Scope, loc: SourceLoc): TakeBound {
+		if (take.kind === "literal") {
+			return int4TakeBound(BigInt(take.k), loc)
+		}
+		const int4 = plainType("int4")
+		const resolved = this.#resolveParam(take.cell, scope, loc)
+		switch (resolved.kind) {
+			case "param":
+				return { kind: "param", param: resolved.cell.use(int4, loc) }
+			case "literal": {
+				const v = resolved.value
+				if (typeof v === "bigint") {
+					return int4TakeBound(v, resolved.loc)
+				}
+				if (typeof v === "number" && Number.isSafeInteger(v)) {
+					return int4TakeBound(BigInt(v), resolved.loc)
+				}
+				return fail("MalformedDescription", resolved.loc, int4TakeCapability)
+			}
+			case "column":
+				return fail(
+					"UnsupportedOperation",
+					loc,
+					`take bound: a bound per outer variable; take's bound is a positive literal or a parameter`
+				)
+		}
+	}
+
+	/** Rule arms as one stage: the one arm's node, or their union. */
+	arms(arms: NonEmptyReadonlyArray<ResolvedRule>, scope: Scope, loc: SourceLoc): RelNode {
+		const nodes = mapNonEmpty(arms, (arm) => this.rule(arm, scope))
+		return only(nodes) ?? this.union(nodes, loc)
+	}
+
+	#inherit(node: RelNode, from: RelNode): void {
+		const literals = this.#literals.get(from)
+		if (literals !== undefined) {
+			this.#literals.set(node, literals)
+		}
+		const attached = this.#attached.get(from)
+		if (attached !== undefined) {
+			this.#attached.set(node, attached)
+		}
+	}
+
+	/**
+	 * A union fact can come from several arms of one heading, so which arm's attachment it would carry
+	 * is undetermined.
+	 */
+	union(arms: NonEmptyReadonlyArray<RelNode>, loc: SourceLoc): RelNode {
+		const [first, ...more] = arms
+		type Group = { readonly key: string; readonly arms: [RelNode, ...Array<RelNode>] }
+		const groups: [Group, ...Array<Group>] = [{ key: headingKey(first.heading), arms: [first] }]
+		for (const arm of more) {
+			const k = headingKey(arm.heading)
+			const g = groups.find((x) => x.key === k)
+			if (g === undefined) {
+				groups.push({ key: k, arms: [arm] })
+			} else {
+				g.arms.push(arm)
+			}
+		}
+		for (const g of groups) {
+			if (g.arms.length > 1 && g.arms.some((a) => a.kind === "Attach")) {
+				fail(
+					"UnsupportedOperation",
+					loc,
+					"attachment on an arm of a union whose heading several arms share: a fact can come from several arms, so which arm's attachment it carries is undetermined"
+				)
+			}
+		}
+		const targets = mapNonEmpty(groups, (g) => ({
+			arms: g.arms,
+			target: this.#groupTarget(g.arms, loc)
+		}))
+		const firstHeading = first.heading
+		const commonColumns = groups.length > 1 ? commonColumnsOf(firstHeading, targets) : []
+		const widenings = commonColumns.flatMap(({ name, widen }) =>
+			widen === undefined ? [] : [{ name, widen }]
+		)
+		for (const { name, widen } of widenings) {
+			for (const g of targets) {
+				g.target.set(name, widen)
+			}
+		}
+		const common = commonColumns.map(({ name }) => name)
+		const widened = mapNonEmpty(targets, (g) => ({
+			arms: mapNonEmpty(g.arms, (a) => this.#widenArm(a, g.target, loc))
+		}))
+		let discriminant: ReadonlyArray<string> = []
+		if (widened.length > 1) {
+			/** Each arm's head literals over the common columns, in their order. */
+			const literalRows = widened.map((g) =>
+				g.arms.map((a) => {
+					const literals = this.#literals.get(a)
+					return common.flatMap((c) => {
+						const head = literals?.get(c)
+						return head === undefined ? [] : [{ column: c, literal: head.literal }]
+					})
+				})
+			)
+			const literal = common.filter((c) =>
+				literalRows.every((rows) => rows.every((row) => row.some((e) => e.column === c)))
+			)
+			/** Whether the literal tuples over these columns of arms with different headings differ. */
+			const clashes = (columns: ReadonlyArray<string>) => {
+				const tuples = literalRows.map((rows) =>
+					rows.map((row) => row.filter((e) => columns.includes(e.column)).map((e) => e.literal))
+				)
+				return tuples.some((mine, gi) =>
+					tuples.some(
+						(theirs, oi) =>
+							oi < gi && mine.some((t) => theirs.some((u) => canonicalEquals(t, u, everyProperty)))
+					)
+				)
+			}
+			/**
+			 * The discriminant is the roster-typed literal columns when they alone tell the heading groups apart, so
+			 * its roster order completes ties across arms and a further
+			 * constant column, such as a bare integer wrap, is an ordinary column; otherwise it is every common column
+			 * bound to a literal in every head, typed as bare literals.
+			 */
+			const rostered = literal.filter((c) => {
+				const t = targets[0].target.get(c)
+				return t !== undefined && rosterOf(baseOf(t)) !== undefined
+			})
+			discriminant = rostered.length > 0 && !clashes(rostered) ? rostered : literal
+			const clash = clashes(discriminant)
+			if (discriminant.length === 0 || clash) {
+				fail(
+					"MissingDiscriminant",
+					loc,
+					discriminant.length === 0
+						? "a literal discriminant: arms of different headings share fields bound to a literal in every head"
+						: `discriminant literals (${discriminant.join(", ")}) that differ between arms of different headings`
+				)
+			}
+		}
+		const groupHeadings = mapNonEmpty(widened, (g) => ({
+			heading: g.arms[0].heading,
+			arms: g.arms
+		}))
+		const firstGroup = groupHeadings[0]
+		const heading: Heading =
+			widened.length === 1
+				? firstGroup.heading
+				: firstGroup.heading.filter((c) => common.includes(c.name))
+		const node = this.node({ kind: "Union", groups: groupHeadings, discriminant, heading }, loc)
+		const [firstWidened, ...moreWidened] = widened
+		const flat: NonEmptyReadonlyArray<RelNode> = [
+			...firstWidened.arms,
+			...moreWidened.flatMap((g) => g.arms)
+		]
+		this.#unions.set(node, { arms: flat, discriminant })
+		return node
+	}
+
+	/**
+	 * The type each column of a group of arms is delivered at, once each bare head literal is typed by its position
+	 * (#positionedTypes): the type all its arms share, or the guarantees common to them. The arms of one group share the
+	 * heading's column names.
+	 */
+	#groupTarget(arms: NonEmptyReadonlyArray<RelNode>, loc: SourceLoc): Map<string, ScalarType> {
+		/** Each column of the group, in the first arm's heading order, as every arm delivers it, in arm order. */
+		const delivered = new Map<string, [Delivered, ...Array<Delivered>]>()
+		for (const a of arms) {
+			const literals = this.#literals.get(a)
+			for (const column of a.heading) {
+				const d: Delivered = { column, bare: bareOf(literals?.get(column.name)) }
+				const known = delivered.get(column.name)
+				if (known === undefined) {
+					delivered.set(column.name, [d])
+				} else {
+					known.push(d)
+				}
+			}
+		}
+		const target = new Map<string, ScalarType>()
+		for (const [name, columns] of delivered) {
+			target.set(name, groupColumnType(this.#positionedTypes(columns), columns[0].column, loc))
+		}
+		return target
+	}
+
+	/**
+	 * The type each arm of a group delivers a column at, a bare head literal typed by its position, never by an equal
+	 * literal of another arm: it takes the type the arms that deliver the column by a term or a fixed literal agree on,
+	 * when it is a value of that type, and otherwise keeps the type it has, its value's JavaScript default or the type an
+	 * earlier union's position gave it, which is how a union narrowed to some of its arms keeps the types the whole union
+	 * gave them.
+	 */
+	#positionedTypes(delivered: NonEmptyReadonlyArray<Delivered>): NonEmptyReadonlyArray<ScalarType> {
+		const agreed = agreedType(
+			delivered.flatMap((d) => (d.bare === undefined ? [d.column.type] : []))
+		)
+		return mapNonEmpty(delivered, (d) =>
+			d.bare !== undefined && agreed !== undefined && this.schema.admits(d.bare.value, agreed)
+				? agreed
+				: d.column.type
+		)
+	}
+
+	/**
+	 * An arm whose columns take a wider type than it delivers, rewritten by a projection that casts them; its literal
+	 * columns stay literals, retyped, so it keeps its discriminant.
+	 */
+	#widenArm(arm: RelNode, target: ReadonlyMap<string, ScalarType>, loc: SourceLoc): RelNode {
+		const heading = arm.heading
+		const changes = heading.filter((c) => {
+			const t = target.get(c.name)
+			return t !== undefined && !sameScalarType(t, c.type)
+		})
+		const [changed] = changes
+		if (changed === undefined) {
+			return arm
+		}
+		if (arm.kind === "Attach") {
+			fail(
+				"UnsupportedOperation",
+				loc,
+				`union arm with an attachment whose column ${changed.name} differs in refinement or typmod from the other arms'; cast it to one type with Compute.cast`
+			)
+		}
+		const literals = this.#literals.get(arm) ?? new Map<string, HeadLiteral>()
+		const kept = new Map<string, HeadLiteral>()
+		const out = heading.map((c) => {
+			const t = target.get(c.name) ?? c.type
+			const head = literals.get(c.name)
+			if (head !== undefined) {
+				/** A bare literal is a value of its new type, which its position gives it; a fixed one keeps its value. */
+				const retyped: HeadLiteral =
+					head.kind === "fixed" || sameScalarType(t, c.type)
+						? head
+						: { ...head, literal: this.schema.literal(head.value, t, head.loc) }
+				kept.set(c.name, retyped)
+				return { name: c.name, expr: this.emit(literalSpec(retyped.literal, t)), type: t }
+			}
+			const col = this.emit(columnSpec(arm.id, c.name, c.type))
+			if (sameScalarType(t, c.type)) {
+				return { name: c.name, expr: col, type: t }
+			}
+			return {
+				name: c.name,
+				expr: this.emit({
+					kind: "cast",
+					checked: false,
+					args: [col],
+					type: t,
+					nonNull: "strict",
+					volatility: "immutable"
+				}),
+				type: t
+			}
+		})
+		const node = this.node(
+			{
+				kind: "ProjectSet",
+				input: arm,
+				out: out.map((o) => ({ name: o.name, expr: o.expr })),
+				heading: out.map((o) => ({ name: o.name, type: o.type }))
+			},
+			loc
+		)
+		if (kept.size > 0) {
+			this.#literals.set(node, kept)
+		}
+		return node
+	}
+
+	#attach(
+		parent: RelNode,
+		desc: ResolvedAttach,
+		scope: Scope,
+		loc: SourceLoc
+	): { readonly node: RelNode; readonly carries: ReadonlySet<string> } {
+		/**
+		 * An attachment is part of the result type, so on a member query's own result, a stage of its
+		 * chain or an arm's Finished.attach, it adds a field the relation's heading lacks; the Attach node's heading is
+		 * its parent's, which the member's head check compares. An import or an attachment
+		 * child is its own scope and carries no member.
+		 */
+		const member = writtenTarget(scope.origin)
+		if (member !== undefined) {
+			fail(
+				"DescribedHeadingMismatch",
+				loc,
+				`a member head of ${member.relation.name}'s heading; attachment ${desc.name} adds a field`
+			)
+		}
+		const heading = parent.heading
+		if (hasColumn(heading, desc.name)) {
+			fail(
+				"MalformedDescription",
+				loc,
+				`an attachment name distinct from the parent's columns; ${desc.name} is a column`
+			)
+		}
+		const carried = this.#attached.get(parent) ?? new Set<string>()
+		if (carried.has(desc.name)) {
+			fail("MalformedDescription", loc, `one attachment per name; ${desc.name} is attached twice`)
+		}
+		const use = parentUse(desc.child)
+		for (const p of use.columns) {
+			if (!hasColumn(heading, p)) {
+				fail(
+					"MalformedDescription",
+					loc,
+					`a parent variable of the parent's heading; ${p} is not a column of it`
+				)
+			}
+		}
+		if (use.columns.size === 0) {
+			fail(
+				"AttachedParentUnbound",
+				loc,
+				`a child that binds a parent variable: attachment ${desc.name} reads none of ${heading.length === 0 ? "the parent's columns" : heading.map((c) => c.name).join(", ")}`
+			)
+		}
+		/**
+		 * One correlation column per parent variable, named alike in every arm: the head key that delivers it, or the
+		 * first source column it is bound to, or the parent's own column name, kept clear of the child's head keys and of
+		 * its own attachments' names.
+		 */
+		const taken = new Set<string>()
+		const columns: Array<ParentColumn> = []
+		for (const c of heading) {
+			if (!use.columns.has(c.name)) {
+				continue
+			}
+			const alias = use.headAlias.get(c.name)
+			const name = alias ?? freshColumnName(use, use.firstBound.get(c.name) ?? c.name, taken)
+			if (alias !== undefined && taken.has(name)) {
+				fail("MalformedDescription", loc, `one parent variable per head key; ${name} delivers two`)
+			}
+			taken.add(name)
+			columns.push({ parent: c.name, name, type: c.type })
+		}
+		const childScope: Scope = {
+			kind: "scope",
+			params: scope.params,
+			origin: { kind: "attachChild", parent: { node: parent.id, heading, columns } },
+			self: undefined
+		}
+		const child = this.stage(desc.child.stage, childScope)
+		const childHeading = child.node.heading
+		const fixed = new Set(columns.map((c) => c.name))
+		const correlation = columns.map((c) => ({ parent: c.parent, child: c.name }))
+		const stated = child.order
+		const node = this.node(
+			{
+				kind: "Attach",
+				parent,
+				child: child.node,
+				name: desc.name,
+				correlation,
+				delivered: "array",
+				order: stated === undefined ? undefined : this.complete(stated, childHeading, fixed),
+				heading
+			},
+			loc
+		)
+		if (stated !== undefined) {
+			this.#state(node, stated, {
+				input: child.node,
+				fixed: correlation.map((c) => c.child),
+				withOrder: (order) =>
+					this.#restated(
+						node,
+						{
+							kind: "Attach",
+							parent,
+							child: child.node,
+							name: desc.name,
+							correlation,
+							delivered: "array",
+							order,
+							heading
+						},
+						loc
+					)
+			})
+		}
+		const literals = this.#literals.get(parent)
+		if (literals !== undefined) {
+			this.#literals.set(node, literals)
+		}
+		const carries = new Set([...carried, desc.name])
+		this.#attached.set(node, carries)
+		return { node, carries }
+	}
+
+	/**
+	 * An attachment as a stage or a rule of `scope` declares it. Under an import (`scope.params.kind === "bound"`), an
+	 * attachment is no row the importer reads: it is checked as any attachment (its refusals, its parameter uses, so
+	 * the import's complete-bind check sees the child's parameters), and the parent is returned, carrying the
+	 * attachment's name so a second attachment of that name is still refused. No root reaches the Attach node it built,
+	 * so no statement delivers it and no Attach the importer reaches lies off its delivery spine (ir/dag.ts
+	 * deliverySpine); order.ts completes its stated order like any other, and nothing reads it.
+	 */
+	attachIn(parent: RelNode, desc: ResolvedAttach, scope: Scope, loc: SourceLoc): RelNode {
+		const { node, carries } = this.#attach(parent, desc, scope, loc)
+		if (scope.params.kind === "own") {
+			return node
+		}
+		this.#attached.set(parent, carries)
+		return parent
+	}
+
+	/**
+	 * What a parameter reference reads in `scope`: in the query's own scope its own cell, under an import what the
+	 * import's bind map binds the parameter to, by the name the bind map spells it by.
+	 */
+	#resolveParam(cell: ParamCell, scope: Scope, loc: SourceLoc): BindValue {
+		const params = scope.params
+		if (params.kind === "own") {
+			return { kind: "param", cell }
+		}
+		const bound = params.values.get(cell.name)
+		if (bound === undefined) {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a bind map that binds parameter ${cell.name}: an imported query's parameters are bound completely with bind`
+			)
+		}
+		params.used.add(cell.name)
+		return bound
+	}
+
+	rule(rule: ResolvedRule, scope: Scope): RelNode {
+		return new RuleCheck(this, rule, scope, rule.loc).run()
+	}
+
+	source(
+		src: ResolvedSource,
+		scope: Scope,
+		interiors: ReadonlyArray<ResolvedInterior>,
+		loc: SourceLoc,
+		bind: (term: ResolvedExpr, param: string, loc: SourceLoc) => BindValue
+	): RelNode {
+		switch (src.kind) {
+			case "relation": {
+				const info = this.schema.relation(src.name, loc)
+				if (info.kind === "closed") {
+					return this.node(
+						{ kind: "Closed", closed: info.name, rows: info.rows, heading: info.heading },
+						loc
+					)
+				}
+				if (info.kind === "derived" || info.kind === "world") {
+					/** A view is read by its whole heading under the checker's evidence, and carries its own keys for evidence that
+					 * admits them. */
+					const { heading, keys } = info.analysis.read
+					return this.node(
+						{
+							kind: "Base",
+							relation: info.name,
+							occurrence: this.b.ids.occurrence(),
+							primaryKey: mapNonEmpty(heading, (c) => c.name),
+							keys: [],
+							relationKind: info.kind,
+							view: keys,
+							heading
+						},
+						loc
+					)
+				}
+				return this.node(
+					{
+						kind: "Base",
+						relation: info.name,
+						occurrence: this.b.ids.occurrence(),
+						primaryKey: info.primaryKey,
+						keys: info.keys,
+						relationKind: "relation",
+						heading: headingColumns(info.heading)
+					},
+					loc
+				)
+			}
+			case "query":
+				return this.#importSource(src, loc, bind)
+			case "param":
+			case "paramOf":
+				return this.#paramSource(src, scope, loc)
+			case "row":
+				return this.node(
+					{
+						kind: "InputSet",
+						input: { kind: "row" },
+						heading: this.#declaredHeading(src.heading, loc)
+					},
+					loc
+				)
+			case "interior": {
+				const interior = interiors.find((i) => i.id === src.id)
+				if (interior === undefined) {
+					return fail(
+						"MalformedDescription",
+						loc,
+						`an interior stage the rule declares, not ${JSON.stringify(src.id)}`
+					)
+				}
+				const inner: Scope = {
+					kind: "scope",
+					params: scope.params,
+					origin: { kind: "interior" },
+					self: undefined
+				}
+				return this.arms(interior.arms, inner, childLoc(loc, "interior"))
+			}
+			case "self": {
+				if (scope.self === undefined) {
+					return fail("MalformedDescription", loc, "a self source inside a recursive step only")
+				}
+				return scope.self
+			}
+			case "delta": {
+				if (this.options.read !== "readBack") {
+					return fail(
+						"MalformedDescription",
+						loc,
+						`a delta source inside a ChangeSet read-back only; delta.${src.side}(${src.relation}) reads a change`
+					)
+				}
+				/**
+				 * delta.added(R) and delta.removed(R) are R's final state minus its initial state and the reverse, for
+				 * every ordinary relation: over a relation the ChangeSet does not write
+				 * both are empty, which the write program supplies, so a read-back shared by ChangeSets that write
+				 * different relations checks against each. A closed or derived relation is never written. Over a role,
+				 * any world relation's delta is typed by its checked heading in canonical order (compareText), the order
+				 * the write front end delivers it in: empty, its target's projected onto its head, or refused there.
+				 */
+				const info = this.schema.relation(src.relation, loc)
+				if (info.kind === "world") {
+					const heading = info.analysis.read.heading.toSorted(byName)
+					return this.node(
+						{ kind: "Delta", relation: info.name, side: src.side, keys: [], heading },
+						loc
+					)
+				}
+				if (info.kind !== "relation") {
+					return fail(
+						"MalformedDescription",
+						loc,
+						`a delta of an ordinary relation or a world relation; ${info.name} is ${info.kind}, which no ChangeSet writes`
+					)
+				}
+				return this.node(
+					{
+						kind: "Delta",
+						relation: info.name,
+						side: src.side,
+						keys: [info.primaryKey, ...info.keys],
+						heading: headingColumns(info.heading)
+					},
+					loc
+				)
+			}
+			case "context":
+				return this.#contextSource(src, loc)
+		}
+	}
+
+	#contextSource(
+		src: Extract<ResolvedSource, { readonly kind: "context" }>,
+		loc: SourceLoc
+	): RelNode {
+		const context = src.context
+		const text = unwrap(descText(context))
+		/**
+		 * A Db of a role holds facts of exactly the contexts its relations read, decoded from its token: a query
+		 * over the role reads one of them, as they declare it, or would read a context no Db of the role holds.
+		 */
+		const world = this.schema.world
+		if (world.kind === "role") {
+			const held = world.role.contexts[context.name]
+			if (held === undefined) {
+				fail(
+					"MalformedDescription",
+					loc,
+					`a context role ${world.role.name}'s relations read, whose facts its Db holds (${Object.keys(world.role.contexts).length === 0 ? "none" : Object.keys(world.role.contexts).join(", ")}); context ${context.name} is none of them`
+				)
+			}
+			if (unwrap(descText(held)) !== text) {
+				failWith({
+					_tag: "DuplicateIdentity",
+					at: loc,
+					duplicate: { kind: "context", name: context.name, earlier: world.role.loc }
+				})
+			}
+		}
+		const prior = this.#contexts.get(context.name)
+		if (prior === undefined) {
+			this.#contexts.set(context.name, { text, loc })
+		} else if (prior.text !== text) {
+			failWith({
+				_tag: "DuplicateIdentity",
+				at: loc,
+				duplicate: { kind: "context", name: context.name, earlier: prior.loc }
+			})
+		}
+		const heading: Heading = entries(context.fields).map(([name, d]) => ({
+			name,
+			type: this.fieldType(d, childLoc(loc, name))
+		}))
+		return this.node({ kind: "Context", context: context.name, heading }, loc)
+	}
+
+	#importSource(
+		src: Extract<ResolvedSource, { readonly kind: "query" }>,
+		loc: SourceLoc,
+		bind: (term: ResolvedExpr, param: string, loc: SourceLoc) => BindValue
+	): RelNode {
+		const values = new Map<string, BindValue>()
+		for (const [param, term] of entries(src.bind)) {
+			values.set(param, bind(term, param, childLoc(childLoc(loc, "bind"), param)))
+		}
+		const resolver: ParamResolver = { kind: "bound", values, used: new Set(), loc }
+		const inner: Scope = {
+			kind: "scope",
+			params: resolver,
+			origin: { kind: "import" },
+			self: undefined
+		}
+		const out = this.stage(src.query.stage, inner)
+		for (const param of values.keys()) {
+			if (!resolver.used.has(param)) {
+				fail(
+					"MalformedDescription",
+					childLoc(childLoc(loc, "bind"), param),
+					`a bind map naming the imported query's parameters; it uses no parameter ${param}`
+				)
+			}
+		}
+		return out.node
+	}
+
+	#paramSource(
+		src: Extract<ResolvedSource, { readonly kind: "param" | "paramOf" }>,
+		scope: Scope,
+		loc: SourceLoc
+	): RelNode {
+		const heading =
+			src.kind === "param"
+				? this.#declaredHeading(src.heading, loc)
+				: this.#relationHeading(src.relation, loc)
+		const resolved = this.#resolveParam(src.cell, scope, loc)
+		if (resolved.kind !== "param") {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`relation parameter ${src.cell.name} bound to the importer's relation parameter`
+			)
+		}
+		const param = resolved.cell.useRelation(heading, loc)
+		return this.node({ kind: "InputSet", input: { kind: "declared", param }, heading }, loc)
+	}
+
+	/**
+	 * A relation parameter's or a row's declared heading: at least one field, each typed, a serial declaration read as its
+	 * carrier.
+	 */
+	#declaredHeading(declared: Readonly<Record<string, FieldDesc>>, loc: SourceLoc): Heading {
+		const fields = entries(declared)
+		if (fields.length === 0) {
+			fail("MalformedDescription", loc, "a relation parameter or a row with at least one field")
+		}
+		return fields.map(([name, d]) => ({
+			name,
+			type: withoutSerial(this.fieldType(d, childLoc(loc, name)))
+		}))
+	}
+
+	/** The heading of the ordinary relation a relation parameter is typed by, a serial declaration read as its carrier. */
+	#relationHeading(relation: string, loc: SourceLoc): Heading {
+		const info = this.schema.relation(relation, loc)
+		if (info.kind !== "relation") {
+			fail(
+				"MalformedDescription",
+				loc,
+				`a relation parameter typed by an ordinary relation's heading; ${info.name} is ${info.kind}`
+			)
+		}
+		return info.heading.map((c) => ({ name: c.name, type: withoutSerial(c.type) }))
+	}
+
+	/**
+	 * The environment a scalar description lowers in: leaves are columns of the node labelled `node` (a reserved region
+	 * or a built node), the input of the consumer the expression belongs to, resolved by `leaf`.
+	 */
+	env(
+		node: NodeId,
+		loc: SourceLoc,
+		leaf: (
+			desc: LeafDesc<Resolved>,
+			loc: SourceLoc
+		) => { readonly name: string; readonly type: ScalarType },
+		scope: Scope,
+		paramColumn: (
+			cell: ParamCell,
+			loc: SourceLoc
+		) => { readonly name: string; readonly type: ScalarType }
+	): QueryEnv {
+		const env: QueryEnv = {
+			mode: "query",
+			loc,
+			emit: (spec) => this.#lowered(spec, loc),
+			leaf: (desc, at) =>
+				catchRefusal(() => {
+					const c = leaf(desc, at)
+					return columnSpec(node, c.name, c.type)
+				}),
+			params: {
+				kind: "scope",
+				lower: ({ cell }, type, at) =>
+					catchRefusal(() => this.#paramUse(cell, type, at, scope, node, paramColumn))
+			},
+			fieldType: (desc, at) =>
+				catchRefusal(() => this.schema.queryFieldType(desc, at, this.#contracts)),
+			regexMember,
+			extension: (desc, at, lower) => catchRefusal(() => this.#extension(desc, lower, at, env))
+		}
+		return env
+	}
+
+	/**
+	 * A parameter meeting a term of `type` inside an expression: bound as its base type, or replaced by
+	 * what an import's bind map binds it to.
+	 */
+	#paramUse(
+		cell: ParamCell,
+		type: ScalarType,
+		loc: SourceLoc,
+		scope: Scope,
+		node: NodeId,
+		paramColumn: (
+			cell: ParamCell,
+			loc: SourceLoc
+		) => { readonly name: string; readonly type: ScalarType }
+	): ExprSpec {
+		const resolved = this.#resolveParam(cell, scope, loc)
+		switch (resolved.kind) {
+			case "param":
+				return paramSpec(resolved.cell.use(type, loc), "compare", compareType(type))
+			case "literal":
+				return boundConstant(this.schema, resolved, type)
+			case "column": {
+				const c = paramColumn(cell, loc)
+				if (!compatible(c.type, type)) {
+					fail(
+						"MalformedDescription",
+						loc,
+						`operands of one type: the variable bound to parameter ${cell.name} is ${typeLabel(c.type)}, used as ${typeLabel(type)}`
+					)
+				}
+				return columnSpec(node, c.name, c.type)
+			}
+		}
+	}
+
+	/** One immutable operator node over `args`, which can fail by itself where `canFail`. */
+	#opNode(
+		op: OpId,
+		canFail: boolean,
+		args: ReadonlyArray<ScalarExpr>,
+		type: ScalarType
+	): ScalarExpr {
+		return this.emit({
+			kind: "op",
+			op,
+			args,
+			type,
+			nonNull: "strict",
+			volatility: "immutable",
+			failure: canFail ? "canFail" : "total"
+		})
+	}
+
+	#op(op: NativeOp, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
+		return this.#opNode(op.id, op.failures.length > 0, args, type)
+	}
+
+	opNamed(
+		fn: "eq" | "and" | "not" | "or",
+		args: ReadonlyArray<ScalarExpr>,
+		loc: SourceLoc
+	): ScalarExpr {
+		const bool = plainType("bool")
+		const carriers =
+			fn === "eq" ? args.map((a) => baseOf(a.type).carrier) : ([bool.carrier] as const)
+		const op = overloadOf(fn, carriers)
+		if (op === undefined) {
+			return fail("UnsupportedOperation", loc, `${fn} over ${carriers.join(", ")}`)
+		}
+		this.requireTotal(op.failures.length > 0, loc, () => `operator ${describeOp(op.id)}`)
+		return this.#op(op, args, bool)
+	}
+
+	conjunction(preds: ReadonlyArray<ScalarExpr>, loc: SourceLoc): ScalarExpr {
+		return only(preds) ?? this.opNamed("and", preds, loc)
+	}
+
+	/**
+	 * r.allen and r.pointIn, lowered to the range operators of the shipped Allen table (check/allen.ts allenExpr, the
+	 * one IR spelling of a mask); r.not is a rule-level filter, never a scalar operand.
+	 *
+	 * A window parameter or literal takes its type from the point: a span over the point's type, as
+	 * r.pointIn(t, window) writes a time window, bound as the base range type.
+	 */
+	#extension(
+		desc: Extract<ResolvedExpr, { readonly kind: "allen" | "pointIn" | "absent" }>,
+		lower: (child: ResolvedExpr) => Result.Result<Lowered, CompileError>,
+		loc: SourceLoc,
+		env: QueryEnv
+	): Lowered {
+		const bool = plainType("bool")
+		const lowered = (s: ScalarExpr): Lowered => {
+			return {
+				expr: s,
+				nominal: s.type,
+				actual: s.type,
+				volatility: s.volatility,
+				failure: s.failure,
+				known: typeOnly
+			}
+		}
+		/** A parameter or literal operand adopts `against`'s type; anything else is a term of a compatible type. */
+		const operand = (d: ResolvedExpr, against: ScalarType, at: SourceLoc): ScalarExpr => {
+			const adopted = adoptCompare(against)
+			if (d.kind === "param") {
+				return this.emit(unwrap(env.params.lower(d, adopted, at)))
+			}
+			if (d.kind === "literal" && d.type === undefined) {
+				return this.emit(literalSpec(this.schema.literal(d.value, adopted, at), adopted))
+			}
+			const t = unwrap(lower(d))
+			if (!compatible(t.nominal, against)) {
+				fail(
+					"MalformedDescription",
+					at,
+					`operands of one type: ${typeLabel(against)} never meets ${typeLabel(t.nominal)}`
+				)
+			}
+			return t.expr
+		}
+		/** A span term, with the span its type is over and its range carrier, which its operators are typed by. */
+		const spanTerm = (
+			d: ResolvedExpr,
+			at: SourceLoc
+		): Lowered & { readonly span: SpanBase["span"]; readonly carrier: SpanCarrier } => {
+			if (isBareTerm(d)) {
+				return fail(
+					"MalformedDescription",
+					at,
+					"a span term here; a parameter or literal takes the type of the term it meets"
+				)
+			}
+			const t = unwrap(lower(d))
+			const base = spanBase(t.nominal)
+			if (base === undefined) {
+				return fail("MalformedDescription", at, `a span term, not ${typeLabel(t.nominal)}`)
+			}
+			return { ...t, span: base.span, carrier: base.carrier }
+		}
+		switch (desc.kind) {
+			case "absent":
+				return fail(
+					"UnsupportedOperation",
+					loc,
+					"r.not inside a scalar expression: relational negation is a rule-level filter, alone or in a top-level conjunction"
+				)
+			case "allen": {
+				const left = spanTerm(desc.left, childLoc(loc, "allen", "left"))
+				const right = operand(desc.right, left.nominal, childLoc(loc, "allen", "right"))
+				const mask = parseAllenMask(desc.mask)
+				if (mask === undefined) {
+					return fail("MalformedDescription", loc, "an Allen mask in 1..8191")
+				}
+				if (mask === emptyAllenMask) {
+					return fail("MalformedDescription", loc, "a nonempty Allen mask")
+				}
+				return lowered(
+					allenExpr(mask, left.expr, right, left.carrier, bool, (spec) => this.emit(spec))
+				)
+			}
+			case "pointIn": {
+				const at = childLoc(loc, "pointIn", "span")
+				if (!isBareTerm(desc.span)) {
+					const span = spanTerm(desc.span, at)
+					const point = operand(desc.point, span.span.endpoint, childLoc(loc, "pointIn", "point"))
+					return lowered(
+						this.#opNode(
+							rangeOp("range_contains_elem", span.carrier),
+							false,
+							[span.expr, point],
+							bool
+						)
+					)
+				}
+				if (isBareTerm(desc.point)) {
+					return fail(
+						"MalformedDescription",
+						childLoc(loc, "pointIn"),
+						"a term on one side of pointIn; a parameter or literal takes the type of the term it meets"
+					)
+				}
+				const point = unwrap(lower(desc.point))
+				const window = spanType(adoptCompare(point.nominal), undefined, at)
+				if (!window.ok) {
+					return fail(
+						"MalformedDescription",
+						childLoc(loc, "pointIn", "point"),
+						`a span endpoint as the point, not ${typeLabel(point.nominal)}`
+					)
+				}
+				const span = operand(desc.span, window.value, at)
+				const carrier = window.value.carrier
+				return lowered(
+					this.#opNode(rangeOp("range_contains_elem", carrier), false, [span, point.expr], bool)
+				)
+			}
+		}
+	}
+
+	/**
+	 * The type of a literal that meets no term: a JavaScript number is integer, a bigint bigint, a
+	 * Decimal numeric, a Money money, a boolean boolean and a string text with the canonical wildcard.
+	 */
+	bareLiteralType(value: LiteralDesc, loc: SourceLoc): ScalarType {
+		const kind = bareLiteralKind(value)
+		const plain: Partial<Record<string, PlainCarrier>> = {
+			integer: "int4",
+			bigint: "int8",
+			numeric: "numeric",
+			money: "money",
+			boolean: "bool"
+		}
+		if (kind === "text") {
+			return wildcardText
+		}
+		const carrier = kind === undefined ? undefined : plain[kind]
+		if (carrier === undefined) {
+			return fail(
+				"MalformedDescription",
+				loc,
+				"a head literal whose type something fixes: an integer, a bigint, a Decimal, a Money, a boolean or a string, or a typed Compute.literal"
+			)
+		}
+		return plainType(carrier)
+	}
+
+	/** The literal head columns of an arm node. */
+	literalOf(node: RelNode): ReadonlyMap<string, HeadLiteral> | undefined {
+		return this.#literals.get(node)
+	}
+
+	setLiterals(node: RelNode, literals: Map<string, HeadLiteral>): void {
+		if (literals.size > 0) {
+			this.#literals.set(node, literals)
+		}
+	}
+
+	/** The arms and discriminant of a union node this checker built. */
+	unionOf(node: RelNode):
+		| {
+				readonly arms: NonEmptyReadonlyArray<RelNode>
+				readonly discriminant: ReadonlyArray<string>
+		  }
+		| undefined {
+		return this.#unions.get(node)
+	}
+
+	/** A node over `from` that delivers `from`'s rows: it keeps `from`'s literal columns and attachments. */
+	inherit(node: RelNode, from: RelNode): void {
+		this.#inherit(node, from)
+	}
+
+	resolveParam(cell: ParamCell, scope: Scope, loc: SourceLoc): BindValue {
+		return this.#resolveParam(cell, scope, loc)
+	}
+}
+
+/** One rule: its region, filters, negations and head. */
+class RuleCheck {
+	readonly cx: Checker
+	readonly rule: ResolvedRule
+	readonly scope: Scope
+	readonly loc: SourceLoc
+	readonly region: ReservedNode
+	/** The rule variables a match binds, by the description's variable id, each reserved when the rule is declared. */
+	readonly #reserved = new Map<string, ReservedUser>()
+	/** The rule variables bound so far, by the description's variable id: each became a slot at its first match. */
+	readonly user = new Map<string, UserSlot>()
+	readonly decls = new Map<string, VarDesc>()
+	readonly parents = new Map<string, ParentSlot>()
+	/**
+	 * The parent columns the rule's scope correlates to, an attachment child's and none anywhere else, each with its
+	 * slot (#declare).
+	 */
+	readonly correlation: Array<{ readonly column: ParentColumn; readonly slot: ParentSlot }> = []
+	readonly paramSlots = new Map<string, ParamSlot>()
+	readonly hidden: Array<HiddenSlot> = []
+	/** The first match column each parent variable a match binds is bound to, which gives it its type. */
+	readonly #parentBindings = new Map<VarId, Binding>()
+	/** The imported parameters bound to an outer value that a filter, the head or a fallback equality reads. */
+	readonly #needed = new Set<VarId>()
+	readonly names = new Set<string>()
+	#occurrences: ReadonlyArray<PendingOccurrence> = []
+	readonly eqs: Array<PendingEquality> = []
+
+	constructor(cx: Checker, rule: ResolvedRule, scope: Scope, loc: SourceLoc) {
+		this.cx = cx
+		this.rule = rule
+		this.scope = scope
+		this.loc = loc
+		this.region = cx.reserve()
+	}
+
+	at(...segments: ReadonlyArray<string | number>): SourceLoc {
+		return segments.reduce<SourceLoc>((l, s) => childLoc(l, s), this.loc)
+	}
+
+	fresh(stem: string): string {
+		let name = stem
+		for (let n = 2; this.names.has(name); n++) {
+			name = `${stem}_${n}`
+		}
+		this.names.add(name)
+		return name
+	}
+
+	run(): RelNode {
+		const leaves = ruleLeaves(this.rule, true)
+		this.#declare(leaves)
+		this.#matches()
+		const region = this.#defineRegion(leaves)
+		let node = this.#filter(region)
+		/**
+		 * A negation that reads only columns the head delivers unchanged applies after the projection, over fewer
+		 * columns: projecting first and negating on the delivered columns keeps the same
+		 * set.
+		 */
+		const late = this.#lateNegations()
+		if (late === undefined) {
+			node = this.#earlyNegations(node)
+		}
+		node = this.#head(node)
+		for (const n of late ?? []) {
+			node = this.#negation(node, n.absent, this.at("where", n.index), (column) =>
+				n.correlated.get(column)
+			)
+		}
+		for (const a of this.rule.attach) {
+			node = this.cx.attachIn(node, a, this.scope, a.loc)
+		}
+		return node
+	}
+
+	/**
+	 * The type of a slot: a rule variable's and a hidden slot's binding, a parent variable's binding or else its parent
+	 * column's, a parameter's outer value's.
+	 */
+	slotType(slot: Slot): ScalarType {
+		switch (slot.kind) {
+			case "param":
+				return slot.outer.type
+			case "parent":
+				return this.#parentBindings.get(slot.id)?.type ?? slot.outer.type
+			case "hidden":
+			case "user":
+				return slot.binding.type
+		}
+	}
+
+	/** A slot's column of the rule's region, which every node the rule builds over the region delivers unchanged. */
+	#slotColumn(slot: Slot): HeadingColumn {
+		return { name: slot.name, type: this.slotType(slot) }
+	}
+
+	/** Whether no match binds the rule variable `name`. */
+	#unbound(name: string): boolean {
+		return !this.user.has(name)
+	}
+
+	/** The slot of a parent variable the rule reads, refused for a column its scope does not correlate to. */
+	#parentSlot(column: string, loc: SourceLoc): ParentSlot {
+		const slot = this.parents.get(column)
+		if (slot === undefined) {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a parent variable inside an attachment; ${column} is not one`
+			)
+		}
+		return slot
+	}
+
+	/** The slot of a parameter the rule reads that its import binds to an outer value, refused for any other. */
+	#paramSlot(cell: ParamCell, loc: SourceLoc): ParamSlot {
+		const slot = this.paramSlots.get(cell.name)
+		if (slot === undefined) {
+			return fail("MalformedDescription", loc, `parameter ${cell.name} read in this rule`)
+		}
+		return slot
+	}
+
+	/**
+	 * Slots: the parent variables an attachment's child delivers, the parameters an import binds to outer values, and
+	 * the rule's own variables, named by the field `v` took them from.
+	 */
+	#declare(leaves: Leaves<Resolved["param"]>): void {
+		for (const v of this.rule.vars) {
+			this.decls.set(v.id, v)
+		}
+		const origin = this.scope.origin
+		if (origin.kind === "attachChild") {
+			for (const column of origin.parent.columns) {
+				const slot: ParentSlot = {
+					kind: "parent",
+					id: this.cx.b.ids.var(),
+					name: this.fresh(column.name),
+					outer: { node: origin.parent.node, name: column.parent, type: column.type }
+				}
+				this.parents.set(column.parent, slot)
+				this.correlation.push({ column, slot })
+			}
+		}
+		const pageRoot = origin.kind === "root" && origin.role.kind === "page"
+		for (const p of [...leaves.parents].toSorted(compareStrings)) {
+			if (!this.parents.has(p)) {
+				fail(
+					pageRoot ? "AttachedPage" : "MalformedDescription",
+					this.loc,
+					pageRoot
+						? `a page over a query read by an attachment: parent variable ${p} correlates it to a parent, and a long child list is its own top-level query keyed by the parent`
+						: `a parent variable inside an attachment's own rules; ${p} is read outside one`
+				)
+			}
+		}
+		const params = this.scope.params
+		const needed = new Set(ruleLeaves(this.rule, false).params.map((p) => p.cell))
+		const read = new Set(leaves.params.map((p) => p.cell))
+		for (const p of [...read].toSorted(mapInput(compareStrings, (c: ParamCell) => c.name))) {
+			const value = params.kind === "bound" ? params.values.get(p.name) : undefined
+			if (value?.kind !== "column") {
+				continue
+			}
+			const slot: ParamSlot = {
+				kind: "param",
+				id: this.cx.b.ids.var(),
+				name: this.fresh(`__${p.name}`),
+				outer: { node: value.node, name: value.name, type: value.type }
+			}
+			this.paramSlots.set(p.name, slot)
+			if (needed.has(p)) {
+				this.#needed.add(slot.id)
+			}
+		}
+		const firstColumn = new Map<string, string>()
+		for (const [column, e] of this.rule.matches.flatMap((m) => entries(m.bindings))) {
+			if (e.kind === "var" && !firstColumn.has(e.var)) {
+				firstColumn.set(e.var, column)
+			}
+		}
+		this.#oneVariablePerField()
+		for (const v of this.rule.vars) {
+			const first = firstColumn.get(v.id)
+			if (first === undefined) {
+				continue
+			}
+			this.#reserved.set(v.id, {
+				kind: "user",
+				id: this.cx.b.ids.var(),
+				name: this.fresh(v.origin === undefined ? first : v.origin.field)
+			})
+		}
+	}
+
+	/**
+	 * R1: the variables the rule's matches bind that were minted at one field are one variable, unless the rule matches
+	 * that field's relation more than once. A variable's identity is then its origin, as TypeScript reads it, so the
+	 * type-level key proofs pass through joins. A second variable minted at the field is refused with the rewrite that
+	 * keeps the query: mint it where it is bound, or match the relation again. It refuses a spelling, never a query.
+	 */
+	#oneVariablePerField(): void {
+		const matched = new Map<string, number>()
+		/** The source and column each variable is first bound at. */
+		const boundAt = new Map<
+			string,
+			{ readonly source: string | undefined; readonly column: string }
+		>()
+		for (const m of this.rule.matches) {
+			const name =
+				m.source.kind === "relation"
+					? m.source.name
+					: m.source.kind === "context"
+						? m.source.context.name
+						: undefined
+			if (name !== undefined) {
+				matched.set(name, (matched.get(name) ?? 0) + 1)
+			}
+			for (const [column, e] of entries(m.bindings)) {
+				if (e.kind === "var" && !boundAt.has(e.var)) {
+					boundAt.set(e.var, { source: name, column })
+				}
+			}
+		}
+		const minted = new Map<string, Map<string, VarDesc>>()
+		for (const v of this.rule.vars) {
+			const at = boundAt.get(v.id)
+			if (v.origin === undefined || at === undefined || (matched.get(v.origin.relation) ?? 0) > 1) {
+				continue
+			}
+			const { relation, field } = v.origin
+			const fields = minted.get(relation) ?? new Map<string, VarDesc>()
+			minted.set(relation, fields)
+			const prior = fields.get(field)
+			if (prior === undefined) {
+				fields.set(field, v)
+				continue
+			}
+			const where =
+				at.source === undefined ? `column ${at.column} of a source` : `${at.source}.${at.column}`
+			const mint = at.source === undefined ? "v(source)" : `v(${at.source})`
+			fail(
+				"MalformedDescription",
+				v.loc,
+				`one variable minted at ${relation}.${field} in a rule that matches ${relation} at most once; a second one is bound at ${where}: mint it where it is bound, ${mint}.${at.column}, or match ${relation} again`
+			)
+		}
+	}
+
+	/** The slot of a rule variable a match has bound, refused for a variable the rule does not declare or binds by no
+	 * match. */
+	#userSlot(id: string, loc: SourceLoc): UserSlot {
+		return this.user.get(id) ?? this.#unboundVariable(id, loc)
+	}
+
+	/** The reservation of a rule variable a match binds, refused as #userSlot refuses. */
+	#reservedSlot(id: string, loc: SourceLoc): ReservedUser {
+		return this.#reserved.get(id) ?? this.#unboundVariable(id, loc)
+	}
+
+	#unboundVariable(id: string, loc: SourceLoc): never {
+		if (!this.decls.has(id)) {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a variable this rule declares; ${JSON.stringify(id)} is another rule's or no one's`
+			)
+		}
+		return fail(
+			"MalformedDescription",
+			loc,
+			`variable ${id} bound by a match: creating a variable with v does not bind it, using it in a match does`
+		)
+	}
+
+	/**
+	 * Binds the rule variable `id`, reserved as `reserved`, to a source column: its first binding makes its slot, of the
+	 * column's type, and a later one is a rebinding (#rebind).
+	 */
+	#bindUser(
+		id: string,
+		reserved: ReservedUser,
+		column: HeadingColumn,
+		loc: SourceLoc
+	): SlotBinding {
+		const bound = this.user.get(id)
+		if (bound === undefined) {
+			const slot: UserSlot = { ...reserved, binding: { type: column.type } }
+			this.user.set(id, slot)
+			return { column: column.name, var: slot }
+		}
+		return this.#rebind(bound, bound.binding.type, column, loc)
+	}
+
+	/**
+	 * Binds a parent variable to a source column: its first binding, compatible with its parent column, which the
+	 * attachment's correlation equates it with, gives it the column's type, and a later one is a rebinding (#rebind).
+	 */
+	#bindParent(slot: ParentSlot, column: HeadingColumn, loc: SourceLoc): SlotBinding {
+		const binding = this.#parentBindings.get(slot.id)
+		if (binding !== undefined) {
+			return this.#rebind(slot, binding.type, column, loc)
+		}
+		this.#compatibleBinding(slot, slot.outer.type, column, loc)
+		this.#parentBindings.set(slot.id, { type: column.type })
+		return { column: column.name, var: slot }
+	}
+
+	/**
+	 * A further column bound to a variable of type `type`: the variable itself for a column of its type, else a hidden
+	 * variable equated with it by the rule's filter, since one variable has one type.
+	 */
+	#rebind(
+		slot: UserSlot | ParentSlot,
+		type: ScalarType,
+		column: HeadingColumn,
+		loc: SourceLoc
+	): SlotBinding {
+		this.#compatibleBinding(slot, type, column, loc)
+		if (sameScalarType(type, column.type)) {
+			return { column: column.name, var: slot }
+		}
+		const hidden = this.#hidden(column)
+		this.eqs.push({ kind: "slots", left: slot, right: hidden })
+		return { column: column.name, var: hidden }
+	}
+
+	#compatibleBinding(slot: Slot, type: ScalarType, column: HeadingColumn, loc: SourceLoc): void {
+		if (!compatible(type, column.type)) {
+			fail(
+				"MalformedDescription",
+				loc,
+				`a variable bound to columns of one type: ${slot.name} is ${typeLabel(type)}, ${column.name} is ${typeLabel(column.type)}`
+			)
+		}
+	}
+
+	#hidden(column: HeadingColumn): HiddenSlot {
+		const slot: HiddenSlot = {
+			kind: "hidden",
+			id: this.cx.b.ids.var(),
+			name: this.fresh(`__${column.name}`),
+			binding: { type: column.type }
+		}
+		this.hidden.push(slot)
+		return slot
+	}
+
+	/**
+	 * Matches: sources are resolved in order, a source whose bind map reads a variable an unresolved match binds
+	 * waiting for it; variable and parent bindings first, then the constants, which may read any variable.
+	 */
+	#matches(): void {
+		const pending = this.rule.matches.map((match, index) => ({ match, index }))
+		const waiting = (m: ResolvedMatch): ReadonlyArray<string> => {
+			if (m.source.kind !== "query") {
+				return []
+			}
+			return entries(m.source.bind).flatMap(([, e]) =>
+				e.kind === "var" && this.#unbound(e.var) ? [e.var] : []
+			)
+		}
+		while (isNonEmpty(pending)) {
+			const [p] = pending
+			const found = pending.find((q) => waiting(q.match).length === 0)
+			if (found === undefined) {
+				fail(
+					"MalformedDescription",
+					p.match.loc,
+					`a bind map reading variables some match binds; ${waiting(p.match).join(", ")} ${waiting(p.match).length === 1 ? "is" : "are"} bound by no match`
+				)
+			}
+			const ready = found
+			pending.splice(pending.indexOf(ready), 1)
+			const { match, index } = ready
+			const loc = match.loc
+			const source = this.cx.source(
+				match.source,
+				this.scope,
+				this.rule.interiors,
+				loc,
+				(term, param, at) => this.#bindValue(term, param, at)
+			)
+			const narrowed = this.#narrow(source, match, loc)
+			const heading = narrowed.heading
+			const bindings = entries(match.bindings).flatMap(([column, e]) => {
+				const col = this.#column(
+					narrowed,
+					heading,
+					column,
+					childLoc(childLoc(loc, "bindings"), column)
+				)
+				if (e.kind === "var") {
+					return [this.#bindUser(e.var, this.#reservedSlot(e.var, childLoc(loc, column)), col, loc)]
+				}
+				return e.kind === "parent"
+					? [this.#bindParent(this.#parentSlot(e.column, loc), col, loc)]
+					: []
+			})
+			this.#occurrences = [
+				...this.#occurrences,
+				{ match, index, loc, source: narrowed, heading, bindings, constants: [] }
+			]
+		}
+		this.#occurrences = this.#occurrences
+			.toSorted((a, b) => a.index - b.index)
+			.map((occ) => this.#withConstants(occ))
+	}
+
+	#column(source: RelNode, heading: Heading, column: string, loc: SourceLoc): HeadingColumn {
+		const c = columnOf(heading, column)
+		if (c === undefined) {
+			/** The matched union, or the union a matched take bounds. */
+			const union = this.cx.unionOf(source.kind === "Take" ? source.input : source)
+			return fail(
+				"MalformedDescription",
+				loc,
+				union !== undefined && union.discriminant.length > 0
+					? `a column every arm of the union delivers, or the discriminant (${union.discriminant.join(", ")}) bound to select arms that deliver ${column}`
+					: `a column of the source's heading (${heading.map((h) => h.name).join(", ")}), not ${column}`
+			)
+		}
+		return c
+	}
+
+	/**
+	 * A matched union of several headings with discriminant columns bound to literals selects the arms those literals
+	 * name, whose own columns the match may then bind. The discriminant is the common columns literal in
+	 * every arm, so arms may share a constant literal column beside the ones that tell them apart: the arms
+	 * are selected by the discriminant columns the match binds to literals, and a column it leaves unbound selects
+	 * nothing. Whether every selected arm delivers each column the match binds is decided by #column over their union.
+	 *
+	 * A bounded union, a take over such a union, narrows the same way: the selected arms' rows joined back to the bounded
+	 * union on every common field, the discriminant included. The take's order completion refused the union
+	 * unless its common fields hold a key (check/order.ts), so each bounded row is at most one arm row and the join back
+	 * is the semi-join that keeps the arm rows among the first k. A take correlated to an attachment's parent is matched
+	 * by nothing outside its attachment, so it is not narrowed.
+	 */
+	#narrow(source: RelNode, match: ResolvedMatch, loc: SourceLoc): RelNode {
+		if (source.kind === "Take" && source.correlation.length === 0) {
+			const arms = this.#narrowUnion(source.input, match, loc)
+			if (arms === source.input) {
+				return source
+			}
+			const on = source.heading.map((c) => ({ left: c.name, right: c.name }))
+			const back = this.cx.node(
+				{ kind: "SemiJoin", left: arms, right: source, on, heading: arms.heading },
+				loc
+			)
+			this.cx.inherit(back, arms)
+			return back
+		}
+		return this.#narrowUnion(source, match, loc)
+	}
+
+	/** The arms of the union `source` a match selects by its discriminant literals, or `source` itself. */
+	#narrowUnion(source: RelNode, match: ResolvedMatch, loc: SourceLoc): RelNode {
+		const union = this.cx.unionOf(source)
+		if (union === undefined || source.kind !== "Union" || source.groups.length < 2) {
+			return source
+		}
+		const heading = source.heading
+		const wanted = entries(match.bindings).filter(([c]) => !hasColumn(heading, c))
+		if (wanted.length === 0) {
+			return source
+		}
+		const selectors = union.discriminant.flatMap((c) => {
+			const e = match.bindings[c]
+			return e?.kind === "literal" ? [[c, e] as const] : []
+		})
+		if (selectors.length === 0) {
+			return source
+		}
+		const arms = union.arms.filter((arm) =>
+			selectors.every(([c, e]) => {
+				const head = this.cx.literalOf(arm)?.get(c)
+				const column = columnOf(arm.heading, c)
+				if (head === undefined || column === undefined) {
+					return false
+				}
+				return canonicalEquals(
+					this.cx.schema.literal(e.value, column.type, loc),
+					head.literal,
+					everyProperty
+				)
+			})
+		)
+		if (!isNonEmpty(arms)) {
+			fail(
+				"MalformedDescription",
+				loc,
+				`a discriminant value some arm of the matched union carries; no arm has (${selectors.map(([c]) => c).join(", ")}) = the bound literals`
+			)
+		}
+		return only(arms) ?? this.cx.union(arms, loc)
+	}
+
+	/** What an import's bind term binds a parameter to, read in this rule's scope. */
+	#bindValue(term: ResolvedExpr, param: string, loc: SourceLoc): BindValue {
+		if (term.kind === "var") {
+			return this.#slotValue(this.#userSlot(term.var, loc))
+		}
+		if (term.kind === "parent") {
+			const slot = this.parents.get(term.column)
+			return slot === undefined
+				? fail(
+						"MalformedDescription",
+						loc,
+						`a parent variable inside an attachment; ${term.column} is not one`
+					)
+				: this.#slotValue(slot)
+		}
+		if (term.kind === "param") {
+			const resolved = this.cx.resolveParam(term.cell, this.scope, loc)
+			return resolved.kind === "column"
+				? this.#slotValue(this.#paramSlot(term.cell, loc))
+				: resolved
+		}
+		if (term.kind === "literal") {
+			return {
+				kind: "literal",
+				value: term.value,
+				stated: term.type === undefined ? untyped : typed(this.cx.fieldType(term.type, loc)),
+				loc
+			}
+		}
+		return fail(
+			"MalformedDescription",
+			loc,
+			`a bind term that is a parameter, an in-scope variable or a typed constant for parameter ${param}, not a ${term.kind} expression`
+		)
+	}
+
+	/** A slot as a bind value: its column of the rule's region, at its type. */
+	#slotValue(slot: Slot): BindValue {
+		return { kind: "column", node: this.region, name: slot.name, type: this.slotType(slot) }
+	}
+
+	/** The leaf columns of this rule's region. */
+	readonly #leaf = (
+		desc: LeafDesc<Resolved>,
+		loc: SourceLoc
+	): { readonly name: string; readonly type: ScalarType } => {
+		switch (desc.kind) {
+			case "var": {
+				const slot = this.#userSlot(desc.var, loc)
+				return { name: slot.name, type: this.slotType(slot) }
+			}
+			case "parent": {
+				const slot = this.#parentSlot(desc.column, loc)
+				return { name: slot.name, type: this.slotType(slot) }
+			}
+			case "field":
+			case "value":
+				return fail(
+					"MalformedDescription",
+					loc,
+					`a rule variable, parameter or literal here; a ${desc.kind} reference belongs to a contract predicate or a row check`
+				)
+		}
+	}
+
+	readonly #paramColumn = (
+		cell: ParamCell,
+		loc: SourceLoc
+	): { readonly name: string; readonly type: ScalarType } => {
+		const slot = this.#paramSlot(cell, loc)
+		return { name: slot.name, type: this.slotType(slot) }
+	}
+
+	env(node: NodeId, loc: SourceLoc): QueryEnv {
+		return this.cx.env(node, loc, this.#leaf, this.scope, this.#paramColumn)
+	}
+
+	/**
+	 * A binding that fixes its column: a literal adopting the column's type, a parameter bound as the column's base, or
+	 * a computed term of a compatible type. A value the region cannot hold as a constant of the column's base type is a
+	 * hidden variable equated with it by the filter.
+	 */
+	#constant(column: HeadingColumn, e: ResolvedExpr, loc: SourceLoc): ConstantPlacement {
+		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
+		if (e.kind === "literal" && e.type === undefined) {
+			const literal = this.cx.schema.literal(e.value, column.type, loc)
+			const expr = this.cx.emit(literalSpec(literal, column.type))
+			return { kind: "fix", expr }
+		}
+		if (e.kind === "param") {
+			return this.#paramConstant(e.cell, column, loc)
+		}
+		const term = unwrap(lowerTerm(e, this.env(this.region, loc)))
+		if (!compatible(term.nominal, column.type)) {
+			fail(
+				"MalformedDescription",
+				loc,
+				`operands of one type: ${column.name} is ${typeLabel(column.type)}, the binding ${typeLabel(term.nominal)}`
+			)
+		}
+		return { kind: baseMatches(term.expr.type) ? "fix" : "filter", expr: term.expr }
+	}
+
+	/**
+	 * A parameter binding that fixes its column. The parameter is declared at the type it adopts opposite the column
+	 * and bound as that type's base, as the same equality written with r.eq binds it. A column whose base is another, a
+	 * regex refinement, a numeric typmod or a span's fixed width, would cast the parameter to it, and a typmod cast
+	 * rounds: the column is a hidden variable equated with the parameter.
+	 */
+	#paramConstant(cell: ParamCell, column: HeadingColumn, loc: SourceLoc): ConstantPlacement {
+		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
+		const resolved = this.cx.resolveParam(cell, this.scope, loc)
+		switch (resolved.kind) {
+			case "param": {
+				const adopted = adoptCompare(column.type)
+				const bound = compareType(adopted)
+				const id = resolved.cell.use(adopted, loc)
+				return {
+					kind: baseMatches(bound) ? "fix" : "filter",
+					expr: this.cx.emit(paramSpec(id, "compare", bound))
+				}
+			}
+			case "literal":
+				return {
+					kind: "fix",
+					expr: this.cx.emit(boundConstant(this.cx.schema, resolved, column.type))
+				}
+			case "column": {
+				if (!compatible(resolved.type, column.type)) {
+					fail(
+						"MalformedDescription",
+						loc,
+						`operands of one type: the variable bound to parameter ${cell.name} is ${typeLabel(resolved.type)}, ${column.name} is ${typeLabel(column.type)}`
+					)
+				}
+				if (baseMatches(resolved.type)) {
+					return {
+						kind: "fix",
+						expr: this.cx.emit(columnSpec(resolved.node, resolved.name, resolved.type))
+					}
+				}
+				const slot = this.#paramSlot(cell, loc)
+				this.#needed.add(slot.id)
+				return {
+					kind: "filter",
+					expr: this.cx.emit(columnSpec(this.region, slot.name, this.slotType(slot)))
+				}
+			}
+		}
+	}
+
+	/**
+	 * An occurrence with the constants its match binds, in binding order: each fixes its column, or binds a hidden
+	 * variable the filter equates with the value.
+	 */
+	#withConstants(occ: PendingOccurrence): PendingOccurrence {
+		const constants: Array<{ readonly column: string; readonly expr: ScalarExpr }> = []
+		const hiddenBindings: Array<SlotBinding> = []
+		for (const [column, e] of entries(occ.match.bindings)) {
+			if (e.kind === "var" || e.kind === "parent") {
+				continue
+			}
+			const at = childLoc(childLoc(occ.loc, "bindings"), column)
+			const col = this.#column(occ.source, occ.heading, column, at)
+			const placed = this.#constant(col, e, at)
+			if (placed.kind === "fix") {
+				constants.push({ column: col.name, expr: placed.expr })
+				continue
+			}
+			const hidden = this.#hidden(col)
+			hiddenBindings.push({ column: col.name, var: hidden })
+			this.eqs.push({ kind: "value", hidden, value: placed.expr })
+		}
+		return { ...occ, bindings: [...occ.bindings, ...hiddenBindings], constants }
+	}
+
+	/**
+	 * The rule's region, defined under its reserved label: its variables, each one declaration every binding of it and
+	 * its correlation hold. An unbound parent variable is correlated to its parent column, an imported parameter to its
+	 * outer value.
+	 */
+	#defineRegion(leaves: Leaves<Resolved["param"]>): RelNode {
+		for (const v of [...leaves.vars].toSorted(compareStrings)) {
+			if (!this.decls.has(v)) {
+				fail(
+					"MalformedDescription",
+					this.loc,
+					`a variable this rule declares; ${JSON.stringify(v)} is another rule's or no one's`
+				)
+			}
+			if (this.#unbound(v)) {
+				fail(
+					"MalformedDescription",
+					this.loc,
+					`variable ${v} bound by a match: creating a variable with v does not bind it, using it in a match does`
+				)
+			}
+		}
+		const slots: Array<Slot> = [
+			...this.rule.vars.flatMap((v) => {
+				const s = this.user.get(v.id)
+				return s === undefined ? [] : [s]
+			}),
+			...this.parents.values(),
+			...[...this.paramSlots.values()].filter((s) => this.#needed.has(s.id)),
+			...this.hidden
+		]
+		/** Each slot's one declaration, made at its first reader (the slots are typed by now). */
+		const decls = new Map<Slot, VarDecl>()
+		const declOf = (s: Slot): VarDecl => {
+			const known = decls.get(s)
+			if (known !== undefined) {
+				return known
+			}
+			const decl: VarDecl = Object.freeze({ id: s.id, name: s.name, type: this.slotType(s) })
+			decls.set(s, decl)
+			return decl
+		}
+		const correlated: Array<{ readonly var: VarDecl; readonly expr: ScalarExpr }> = []
+		for (const s of slots) {
+			const outer =
+				s.kind === "param" || (s.kind === "parent" && !this.#parentBindings.has(s.id))
+					? s.outer
+					: undefined
+			if (outer !== undefined) {
+				correlated.push({
+					var: declOf(s),
+					expr: this.cx.emit(columnSpec(outer.node, outer.name, outer.type))
+				})
+			}
+		}
+		const vars = slots.map(declOf)
+		const occurrences: Array<Occurrence> = this.#occurrences.map((o) => ({
+			id: this.cx.b.ids.occurrence(),
+			source: o.source,
+			bindings: o.bindings.map((b) => ({ column: b.column, var: declOf(b.var) })),
+			constants: o.constants
+		}))
+		return this.cx.define(
+			this.region,
+			{
+				kind: "MatchRegion",
+				scope: this.cx.b.ids.scope(),
+				vars,
+				occurrences,
+				equalities: [],
+				correlated,
+				heading: vars.map((v) => ({ name: v.name, type: v.type }))
+			},
+			this.loc
+		)
+	}
+
+	/** The rule's scalar filters, and the equalities its hidden variables owe, as one Filter over the region. */
+	#filter(region: RelNode): RelNode {
+		const preds: Array<ScalarExpr> = []
+		const { scalar } = splitWhere(this.rule.where)
+		for (const [i, e] of scalar) {
+			const loc = this.at("where", i)
+			preds.push(unwrap(lowerPredicate(e, this.env(this.region, loc))).expr)
+		}
+		const loc = this.at("where")
+		for (const pending of this.eqs) {
+			if (pending.kind === "slots") {
+				const l = this.cx.emit(
+					columnSpec(this.region, pending.left.name, this.slotType(pending.left))
+				)
+				const r = this.cx.emit(
+					columnSpec(this.region, pending.right.name, this.slotType(pending.right))
+				)
+				preds.push(this.cx.opNamed("eq", [l, r], loc))
+			} else {
+				const h = this.cx.emit(
+					columnSpec(this.region, pending.hidden.name, this.slotType(pending.hidden))
+				)
+				preds.push(this.cx.opNamed("eq", [h, pending.value], loc))
+			}
+		}
+		if (preds.length === 0) {
+			return region
+		}
+		return this.cx.node(
+			{
+				kind: "Filter",
+				input: region,
+				pred: this.cx.conjunction(preds, loc),
+				heading: region.heading
+			},
+			this.at("where")
+		)
+	}
+
+	/**
+	 * The rule's negations placed after its head, each correlated binding under the head key that delivers its slot's
+	 * column unchanged, when every binding the negations correlate is one and the head is a plain projection; otherwise
+	 * undefined, and every negation applies over the region.
+	 *
+	 * A negated import whose bind map reads the rule's region (a rule or parent variable, or a parameter an
+	 * enclosing import binds to an outer value) is correlated with each binding of the region:
+	 * it applies over the region, where those values are still in scope.
+	 */
+	#lateNegations(): ReadonlyArray<LateNegation> | undefined {
+		const { negations } = splitWhere(this.rule.where)
+		if (negations.length === 0) {
+			return undefined
+		}
+		const heads = entries(this.rule.head)
+		if (heads.some(([, h]) => h.kind === "aggregate" || h.kind === "producer")) {
+			return undefined
+		}
+		const slotOf = (e: ResolvedExpr): Slot | undefined =>
+			e.kind === "var"
+				? this.user.get(e.var)
+				: e.kind === "parent"
+					? this.parents.get(e.column)
+					: e.kind === "param"
+						? this.paramSlots.get(e.cell.name)
+						: undefined
+		const delivered = new Map<string, string>()
+		for (const { column, slot } of this.correlation) {
+			delivered.set(slot.name, column.name)
+		}
+		for (const [key, h] of heads) {
+			const slot = h.kind === "aggregate" || h.kind === "producer" ? undefined : slotOf(h)
+			if (slot !== undefined && !delivered.has(slot.name)) {
+				delivered.set(slot.name, key)
+			}
+		}
+		const late: Array<LateNegation> = []
+		for (const [index, absent] of negations) {
+			const readsRegion =
+				absent.source.kind === "query" &&
+				entries(absent.source.bind).some(
+					([, term]) =>
+						term.kind === "var" ||
+						term.kind === "parent" ||
+						(term.kind === "param" && this.paramSlots.has(term.cell.name))
+				)
+			if (readsRegion) {
+				return undefined
+			}
+			const correlated = new Map<string, NegatedCorrelation>()
+			for (const [column, e] of entries(absent.bindings)) {
+				const slot = slotOf(e)
+				if (slot === undefined) {
+					if (e.kind === "var" || e.kind === "parent") {
+						return undefined
+					}
+					continue
+				}
+				const on = delivered.get(slot.name)
+				if (on === undefined) {
+					return undefined
+				}
+				correlated.set(column, { region: this.#slotColumn(slot), on })
+			}
+			late.push({ index, absent, correlated })
+		}
+		return late
+	}
+
+	/** Each r.not over the region `input`, in order, each correlated binding on its slot's own column. */
+	#earlyNegations(input: RelNode): RelNode {
+		let node = input
+		const { negations } = splitWhere(this.rule.where)
+		const correlate: Correlate = (_, e, at) => {
+			const slot =
+				e.kind === "var"
+					? this.#userSlot(e.var, at)
+					: e.kind === "parent"
+						? this.#parentSlot(e.column, at)
+						: e.kind === "param"
+							? this.paramSlots.get(e.cell.name)
+							: undefined
+			return slot === undefined ? undefined : { region: this.#slotColumn(slot), on: slot.name }
+		}
+		for (const [i, absent] of negations) {
+			node = this.#negation(node, absent, this.at("where", i), correlate)
+		}
+		return node
+	}
+
+	/**
+	 * One r.not over `left`: an AntiJoin against the negated source projected onto the columns this rule's values fix.
+	 * A constant of the negation reads no variable of the rule: those correlate through the columns above.
+	 */
+	#negation(
+		left: RelNode,
+		absent: Extract<ResolvedExpr, { readonly kind: "absent" }>,
+		loc: SourceLoc,
+		correlate: Correlate
+	): RelNode {
+		const source = this.cx.source(
+			absent.source,
+			this.scope,
+			this.rule.interiors,
+			loc,
+			(term, param, at) => this.#bindValue(term, param, at)
+		)
+		const heading = source.heading
+		const placed = entries(absent.bindings).map(([column, e]) =>
+			this.#negatedBinding(
+				source,
+				heading,
+				column,
+				e,
+				childLoc(childLoc(loc, "bindings"), column),
+				correlate
+			)
+		)
+		const bindings: Array<{ readonly column: string; readonly var: VarDecl }> = []
+		const constants: Array<{ readonly column: string; readonly expr: ScalarExpr }> = []
+		const vars: Array<VarDecl> = []
+		const on: Array<{ readonly left: string; readonly right: string }> = []
+		/** Columns fixed to a value through a variable of the negated region and a filter over it. */
+		const filtered: Array<{
+			readonly column: string
+			readonly type: ScalarType
+			readonly value: ScalarExpr
+		}> = []
+		for (const p of placed) {
+			if (p.kind === "constant") {
+				constants.push({ column: p.column, expr: p.expr })
+				continue
+			}
+			if (p.kind === "none") {
+				continue
+			}
+			const decl: VarDecl = Object.freeze({ id: this.cx.b.ids.var(), name: p.column, type: p.type })
+			vars.push(decl)
+			bindings.push({ column: p.column, var: decl })
+			if (p.kind === "correlated") {
+				on.push({ left: p.left, right: p.column })
+			} else {
+				filtered.push({ column: p.column, type: p.type, value: p.value })
+			}
+		}
+		const occurrence = this.cx.b.ids.occurrence()
+		const negated = this.cx.node(
+			{
+				kind: "MatchRegion",
+				scope: this.cx.b.ids.scope(),
+				vars,
+				occurrences: [{ id: occurrence, source, bindings, constants }],
+				equalities: [],
+				correlated: [],
+				heading: vars.map((v) => ({ name: v.name, type: v.type }))
+			},
+			loc
+		)
+		const regionOut = negated.heading
+		const narrowed =
+			filtered.length === 0
+				? negated
+				: this.cx.node(
+						{
+							kind: "Filter",
+							input: negated,
+							pred: this.cx.conjunction(
+								filtered.map((f) =>
+									this.cx.opNamed(
+										"eq",
+										[this.cx.emit(columnSpec(negated.id, f.column, f.type)), f.value],
+										loc
+									)
+								),
+								loc
+							),
+							heading: regionOut
+						},
+						loc
+					)
+		const fixedOnly = new Set(filtered.map((f) => f.column))
+		const rightOut = regionOut.filter((c) => !fixedOnly.has(c.name))
+		const right = this.cx.node(
+			{
+				kind: "ProjectSet",
+				input: narrowed,
+				out: rightOut.map((c) => ({
+					name: c.name,
+					expr: this.cx.emit(columnSpec(narrowed.id, c.name, c.type))
+				})),
+				heading: rightOut
+			},
+			loc
+		)
+		const node = this.cx.node({ kind: "AntiJoin", left, right, on, heading: left.heading }, loc)
+		this.cx.inherit(node, left)
+		return node
+	}
+
+	/**
+	 * How a binding of a negated match lands in its region: correlated with a column of the rule's region, a constant
+	 * of the negated region, a column fixed through a variable of the negated region and a filter over it, or nothing.
+	 */
+	#negatedBinding(
+		source: RelNode,
+		heading: Heading,
+		column: string,
+		e: ResolvedExpr,
+		at: SourceLoc,
+		correlate: Correlate
+	): NegatedBinding {
+		const col = columnOf(heading, column)
+		if (col === undefined) {
+			return fail("MalformedDescription", at, `a column of the negated source, not ${column}`)
+		}
+		const correlation = correlate(column, e, at)
+		if (correlation !== undefined) {
+			return this.#correlatedBinding(col, correlation, at)
+		}
+		if (e.kind === "literal") {
+			return { kind: "constant", column, expr: this.#negatedLiteral(e, col, at) }
+		}
+		if (e.kind !== "param") {
+			return { kind: "constant", column, expr: this.#negatedTerm(source, e, col, at) }
+		}
+		const resolved = this.cx.resolveParam(e.cell, this.scope, at)
+		if (resolved.kind === "literal") {
+			return {
+				kind: "constant",
+				column,
+				expr: this.cx.emit(boundConstant(this.cx.schema, resolved, col.type))
+			}
+		}
+		if (resolved.kind !== "param") {
+			return { kind: "none" }
+		}
+		/**
+		 * Bound as the base of the type it adopts, as everywhere it is compared. A column of another base, a regex
+		 * refinement or a numeric typmod, is a variable of the negated region equated with the parameter by a filter
+		 * there, never a cast of the parameter, which for a typmod rounds.
+		 */
+		const adopted = adoptCompare(col.type)
+		const bound = compareType(adopted)
+		const id = resolved.cell.use(adopted, at)
+		const value = this.cx.emit(paramSpec(id, "compare", bound))
+		return sameScalarType(baseOf(col.type), bound)
+			? { kind: "constant", column, expr: value }
+			: { kind: "filtered", column, type: col.type, value }
+	}
+
+	/** A negated column correlated with a region column, which has its type up to refinement. */
+	#correlatedBinding(
+		col: HeadingColumn,
+		correlation: NegatedCorrelation,
+		at: SourceLoc
+	): NegatedBinding {
+		const { region } = correlation
+		if (!compatible(region.type, col.type)) {
+			fail(
+				"MalformedDescription",
+				at,
+				`operands of one type: ${region.name} is ${typeLabel(region.type)}, ${col.name} is ${typeLabel(col.type)}`
+			)
+		}
+		if (!sameScalarType(baseOf(region.type), baseOf(col.type))) {
+			fail(
+				"UnsupportedOperation",
+				at,
+				`relational negation correlating columns of different refinement or typmod, ${region.name} and ${col.name}`
+			)
+		}
+		return { kind: "correlated", column: col.name, type: col.type, left: correlation.on }
+	}
+
+	/** A literal binding of a negated match: one adopting the column's type, or one of the type it states. */
+	#negatedLiteral(
+		e: Extract<ResolvedExpr, { readonly kind: "literal" }>,
+		col: HeadingColumn,
+		at: SourceLoc
+	): ScalarExpr {
+		if (e.type === undefined) {
+			return this.cx.emit(literalSpec(this.cx.schema.literal(e.value, col.type, at), col.type))
+		}
+		const t = this.cx.fieldType(e.type, at)
+		if (!compatible(t, col.type)) {
+			fail(
+				"MalformedDescription",
+				at,
+				`operands of one type: ${col.name} is ${typeLabel(col.type)}`
+			)
+		}
+		return this.cx.emit(literalSpec(this.cx.schema.literal(e.value, t, at), t))
+	}
+
+	/**
+	 * A computed binding of a negated match, lowered over the negated source. An own or literal-bound parameter is a
+	 * constant here; a parameter an import binds to an outer variable reads the rule's region, which the negated source
+	 * cannot, like a variable.
+	 */
+	#negatedTerm(source: RelNode, e: ResolvedExpr, col: HeadingColumn, at: SourceLoc): ScalarExpr {
+		const base = this.env(source.id, at)
+		const term = unwrap(
+			lowerTerm(e, {
+				...base,
+				leaf: (d, loc) =>
+					Result.err(
+						unsupported(
+							loc,
+							`relational negation over a computed binding of ${d.kind === "var" ? `variable ${d.var}` : `a ${d.kind} reference`}; bind the variable to the column itself and compute in the rule's filter`
+						)
+					),
+				params: {
+					kind: "scope",
+					lower: (param, type, loc) => {
+						const resolved = catchRefusal(() => this.cx.resolveParam(param.cell, this.scope, loc))
+						if (!resolved.ok) {
+							return Result.err(resolved.error)
+						}
+						if (resolved.value.kind === "column") {
+							return Result.err(
+								unsupported(
+									loc,
+									`relational negation over a computed binding of parameter ${param.cell.name}, which the import binds to an outer variable; bind the variable to the column itself and compute in the rule's filter`
+								)
+							)
+						}
+						return base.params.lower(param, type, loc)
+					}
+				}
+			})
+		)
+		if (!compatible(term.nominal, col.type)) {
+			fail(
+				"MalformedDescription",
+				at,
+				`operands of one type: ${col.name} is ${typeLabel(col.type)}`
+			)
+		}
+		return term.expr
+	}
+
+	/** A head term other than an aggregate or producer, over `input`. */
+	#term(name: string, h: ResolvedExpr, input: RelNode, loc: SourceLoc): TermOut {
+		const target = writtenTarget(this.scope.origin)?.relation.heading.find((c) => c.name === name)
+		const targetType = target === undefined ? undefined : withoutSerial(target.type)
+		const column = (c: HeadingColumn): TermOut => ({
+			expr: this.cx.emit(columnSpec(input.id, c.name, c.type)),
+			type: c.type,
+			literal: undefined
+		})
+		const literal = (value: LiteralDesc, typing: LiteralTyping, at: SourceLoc): TermOut => {
+			const type = typing.kind === "fixed" ? typing.type : this.cx.bareLiteralType(value, at)
+			const lit = this.cx.schema.literal(value, type, at)
+			const head: HeadLiteral =
+				typing.kind === "fixed"
+					? { kind: "fixed", literal: lit }
+					: { kind: "bare", literal: lit, value, loc: at }
+			return { expr: this.cx.emit(literalSpec(lit, type)), type, literal: head }
+		}
+		if (h.kind === "var" || h.kind === "parent") {
+			return column(this.#leaf(h, loc))
+		}
+		if (h.kind === "literal") {
+			return literal(h.value, this.#literalTermType(h, targetType, loc), loc)
+		}
+		if (h.kind === "param") {
+			return this.#paramTerm(h.cell, targetType, loc, column, literal)
+		}
+		if (h.kind === "absent") {
+			return fail(
+				"UnsupportedOperation",
+				loc,
+				"r.not as a head term: relational negation is a rule-level filter"
+			)
+		}
+		/**
+		 * The column has the type the builder gives the term (its nominal type): a Compute.base or a widening cast emits
+		 * no node of its own, so where the node it reads still carries the contract or typmod the term drops, the column
+		 * casts it, and a child binds it as the parent's heading states it.
+		 */
+		const term = unwrap(lowerTerm(h, this.env(input.id, loc)))
+		const expr = sameScalarType(term.expr.type, term.nominal)
+			? term.expr
+			: this.cx.emit({
+					kind: "cast",
+					checked: false,
+					args: [term.expr],
+					type: term.nominal,
+					nonNull: "strict",
+					volatility: "immutable"
+				})
+		return { expr, type: term.nominal, literal: undefined }
+	}
+
+	/**
+	 * How a literal head term is typed: fixed at the type it states (X.handle, Compute.literal), else at the written
+	 * column's; else bare, at its value's JavaScript default, which a union retypes by its position (Checker
+	 * #positionedTypes). What the rule's matches fix never types it: its value carries its type.
+	 */
+	#literalTermType(
+		h: Extract<ResolvedExpr, { readonly kind: "literal" }>,
+		targetType: ScalarType | undefined,
+		loc: SourceLoc
+	): LiteralTyping {
+		if (h.type !== undefined) {
+			return { kind: "fixed", type: this.cx.fieldType(h.type, loc) }
+		}
+		return targetType === undefined ? { kind: "bare" } : { kind: "fixed", type: targetType }
+	}
+
+	/**
+	 * A parameter head term: emitted or written at the written column's type, else the type its uses give it; one no
+	 * use types stands as a placeholder the pass refuses unless a later pass learns its type.
+	 */
+	#paramTerm(
+		cell: ParamCell,
+		targetType: ScalarType | undefined,
+		loc: SourceLoc,
+		column: (c: HeadingColumn) => TermOut,
+		literal: (value: LiteralDesc, typing: LiteralTyping, at: SourceLoc) => TermOut
+	): TermOut {
+		const resolved = this.cx.resolveParam(cell, this.scope, loc)
+		const role: ParamRole = writtenTarget(this.scope.origin) === undefined ? "emit" : "write"
+		switch (resolved.kind) {
+			case "param": {
+				const type = targetType ?? resolved.cell.typeOf()
+				if (type === undefined) {
+					return this.#placeholderParam(resolved.cell, role, loc)
+				}
+				const id = resolved.cell.use(type, loc)
+				return { expr: this.cx.emit(paramSpec(id, role, type)), type, literal: undefined }
+			}
+			case "literal": {
+				const at = resolved.loc
+				const typing: LiteralTyping =
+					resolved.stated.kind === "typed"
+						? { kind: "fixed", type: resolved.stated.type }
+						: targetType === undefined
+							? { kind: "bare" }
+							: { kind: "fixed", type: targetType }
+				return literal(resolved.value, typing, at)
+			}
+			case "column":
+				return column(this.#paramColumn(cell, loc))
+		}
+	}
+
+	/** A head parameter no use types yet: a placeholder, recorded at its first such head so the pass decides it. */
+	#placeholderParam(cell: ParamCell, role: ParamRole, loc: SourceLoc): TermOut {
+		if (!this.cx.pendingHeadParams.has(cell)) {
+			this.cx.pendingHeadParams.set(cell, loc)
+		}
+		const placeholder = plainType("bool")
+		return {
+			expr: this.cx.emit(paramSpec(cell.id, role, placeholder)),
+			type: placeholder,
+			literal: undefined
+		}
+	}
+
+	/** find: a set projection; with aggregates a Group over the complete bound tuple; with a producer a Produce. */
+	#head(input: RelNode): RelNode {
+		const headEntries = entries(this.rule.head)
+		const corr = this.correlation
+			.filter(
+				({ column: c }) =>
+					!headEntries.some(
+						([k, h]) => k === c.name && h.kind === "parent" && h.column === c.parent
+					)
+			)
+			.map(({ column: c, slot }) => {
+				if (this.rule.head[c.name] !== undefined) {
+					fail(
+						"MalformedDescription",
+						this.at("head", c.name),
+						`a head key distinct from the attachment's correlation column ${c.name}`
+					)
+				}
+				return { name: c.name, slot }
+			})
+		const aggregates: Array<readonly [string, AggregateHead]> = []
+		const producers: Array<readonly [string, ProducerHead]> = []
+		const plain: Array<readonly [string, ResolvedExpr]> = []
+		for (const [name, h] of headEntries) {
+			if (h.kind === "aggregate") {
+				aggregates.push([name, h])
+			} else if (h.kind === "producer") {
+				producers.push([name, h])
+			} else {
+				plain.push([name, h])
+			}
+		}
+		const folded = foldedOf(this.at("head"), aggregates, producers)
+		if (folded === undefined) {
+			const literals = new Map<string, HeadLiteral>()
+			const out: Array<OutColumn> = [
+				...corr.map((c) => {
+					const col = this.#slotColumn(c.slot)
+					return {
+						name: c.name,
+						expr: this.cx.emit(columnSpec(input.id, col.name, col.type)),
+						type: col.type
+					}
+				}),
+				...plain.map(([name, h]) => {
+					const t = this.#term(name, h, input, this.at("head", name))
+					if (t.literal !== undefined) {
+						literals.set(name, t.literal)
+					}
+					return { name, ...t }
+				})
+			]
+			const node = this.cx.node(
+				{
+					kind: "ProjectSet",
+					input,
+					...projectionOf(out)
+				},
+				this.at("head")
+			)
+			this.cx.setLiterals(node, literals)
+			return node
+		}
+		return this.#grouped(input, corr, plain, folded)
+	}
+
+	/** The Group over `groupInput` of a head's aggregates, each under its result column. */
+	#groupNode(
+		groupInput: RelNode,
+		keyColumns: ReadonlyArray<HeadingColumn>,
+		aggregates: NonEmptyReadonlyArray<Placed<AggregateHead>>,
+		loc: SourceLoc
+	): Folding {
+		const groupHeading = groupInput.heading
+		const hiddenNames = new Set(this.hidden.map((h) => h.name))
+		const aggs = mapNonEmpty(aggregates, ({ name, column, head }) => {
+			const at = this.at("head", name)
+			const { overload, call } = this.#aggregate(head, groupInput, at)
+			this.cx.requireTotal(overload.failures.length > 0, at, () => `aggregate ${overload.op}`)
+			const spec: AggregateSpec = {
+				name: column,
+				op: OpId(overload.op),
+				filter: undefined,
+				...call
+			}
+			return { name, spec, column: { name: column, type: overload.result } }
+		})
+		const node = this.cx.node(
+			{
+				kind: "Group",
+				input: groupInput,
+				bound: groupHeading.filter((c) => !hiddenNames.has(c.name)).map((c) => c.name),
+				keys: keyColumns.map((c) => c.name),
+				aggs: aggs.map((a) => a.spec),
+				heading: [...keyColumns, ...aggs.map((a) => a.column)]
+			},
+			loc
+		)
+		return { node, results: aggs.map(({ name, column }) => ({ name, column })) }
+	}
+
+	/** An aggregate applied over `groupInput`: its native overload and its call, count over no argument. */
+	#aggregate(
+		head: AggregateHead,
+		groupInput: RelNode,
+		at: SourceLoc
+	): { readonly overload: AggregateOverload; readonly call: AggregateCallOver<ScalarExpr> } {
+		if (head.fn === "count") {
+			return { overload: countOverload(), call: { fn: "count", args: [] } }
+		}
+		const arg = unwrap(lowerTerm(head.arg, this.env(groupInput.id, at)))
+		const overload = unwrap(unaryOverload(head.fn, arg.expr.type, at))
+		return { overload, call: { fn: overload.fn, args: [arg.expr] } }
+	}
+
+	/** The Produce over `groupInput` of a head's one span producer, under its result column. */
+	#produceNode(
+		groupInput: RelNode,
+		keyColumns: ReadonlyArray<HeadingColumn>,
+		{ name, column, head }: Placed<ProducerHead>,
+		loc: SourceLoc
+	): Folding {
+		const at = this.at("head", name)
+		const { call, type } = this.#produced(head, groupInput, at)
+		const result = { name: column, type }
+		const node = this.cx.node(
+			{
+				kind: "Produce",
+				input: groupInput,
+				...call,
+				carried: keyColumns.map((c) => c.name),
+				out: column,
+				heading: [...keyColumns, result]
+			},
+			loc
+		)
+		return { node, results: [{ name, column: result }] }
+	}
+
+	/** A span producer's call over its lowered span arguments, and the type of the spans it yields. */
+	#produced(
+		p: ProducerHead,
+		groupInput: RelNode,
+		at: SourceLoc
+	): { readonly call: ProducerCallOver<ScalarExpr>; readonly type: ScalarType } {
+		const env = this.env(groupInput.id, at)
+		const span = (a: ResolvedExpr, i: number) => {
+			const t = unwrap(lowerTerm(a, env))
+			if (spanBase(t.nominal) === undefined) {
+				fail(
+					"MalformedDescription",
+					childLoc(at, i),
+					`a span argument for ${p.fn}, not ${typeLabel(t.nominal)}`
+				)
+			}
+			return t
+		}
+		if (p.fn === "pack") {
+			const spans = span(p.args[0], 0)
+			return {
+				call: { producer: producerKinds.pack, args: [spans.expr] },
+				type: withoutSerial(spans.expr.type)
+			}
+		}
+		const first = span(p.args[0], 0)
+		const second = span(p.args[1], 1)
+		if (!compatible(second.nominal, first.nominal)) {
+			fail("MalformedDescription", at, `spans of one type for ${p.fn}`)
+		}
+		return {
+			call: { producer: producerKinds[p.fn], args: [first.expr, second.expr] },
+			type: withoutSerial(first.expr.type)
+		}
+	}
+
+	/**
+	 * A head with aggregates or a producer: the keys are the non-aggregate terms, columns of the input; a computed
+	 * key is a column a projection over the input adds; a constant key is added by a projection over the result, so it
+	 * never groups.
+	 */
+	#grouped(
+		input: RelNode,
+		corr: ReadonlyArray<{ readonly name: string; readonly slot: ParentSlot }>,
+		plain: ReadonlyArray<readonly [string, ResolvedExpr]>,
+		folded: Folded
+	): RelNode {
+		const loc = this.at("head")
+		const inputHeading = input.heading
+		const isConstant = (h: ResolvedExpr): boolean => {
+			if (h.kind === "literal") {
+				return true
+			}
+			if (h.kind !== "param") {
+				return false
+			}
+			const params = this.scope.params
+			return params.kind === "own" || params.values.get(h.cell.name)?.kind !== "column"
+		}
+		/** A head key: a slot's column, or a term the projection below computes under a fresh column. */
+		type Key =
+			| { readonly kind: "column"; readonly name: string; readonly column: HeadingColumn }
+			| {
+					readonly kind: "computed"
+					readonly name: string
+					readonly column: string
+					readonly desc: ResolvedExpr
+			  }
+		const keys: Array<Key> = corr.map((c) => ({
+			kind: "column",
+			name: c.name,
+			column: this.#slotColumn(c.slot)
+		}))
+		const constants: Array<readonly [string, ResolvedExpr]> = []
+		const internal = new Set(inputHeading.map((c) => c.name))
+		const freshInternal = (stem: string) => {
+			let name = stem
+			for (let n = 2; internal.has(name); n++) {
+				name = `${stem}_${n}`
+			}
+			internal.add(name)
+			return name
+		}
+		for (const [name, h] of plain) {
+			if (isConstant(h)) {
+				constants.push([name, h])
+			} else if (h.kind === "var" || h.kind === "parent" || h.kind === "param") {
+				keys.push({
+					kind: "column",
+					name,
+					column: h.kind === "param" ? this.#paramColumn(h.cell, loc) : this.#leaf(h, loc)
+				})
+			} else {
+				keys.push({ kind: "computed", name, column: freshInternal(`__key_${name}`), desc: h })
+			}
+		}
+		/** The input's columns, passed through the projection that adds the computed keys, when there is one. */
+		const passed: ReadonlyArray<OutColumn> = keys.some((k) => k.kind === "computed")
+			? inputHeading.map((c) => ({
+					name: c.name,
+					expr: this.cx.emit(columnSpec(input.id, c.name, c.type)),
+					type: c.type
+				}))
+			: []
+		const added: Array<OutColumn> = []
+		/**
+		 * One group key per distinct column: two head keys delivering one variable share its column, and the renaming
+		 * projection below delivers it under each name.
+		 */
+		const keyed = keys.map((k) => {
+			if (k.kind === "column") {
+				return { name: k.name, column: k.column }
+			}
+			const t = this.#term(k.name, k.desc, input, this.at("head", k.name))
+			const column: HeadingColumn = { name: k.column, type: t.type }
+			added.push({ ...column, expr: t.expr })
+			return { name: k.name, column }
+		})
+		const groupInput =
+			added.length === 0
+				? input
+				: this.cx.node({ kind: "ProjectSet", input, ...projectionOf([...passed, ...added]) }, loc)
+		const keyColumns = [...new Map(keyed.map((k) => [k.column.name, k.column])).values()]
+		const keyNames = keyColumns.map((c) => c.name)
+		const { node, results } =
+			folded.kind === "aggregates"
+				? this.#groupNode(
+						groupInput,
+						keyColumns,
+						aggregateColumns(keyNames, folded.aggregates),
+						loc
+					)
+				: this.#produceNode(groupInput, keyColumns, producedColumn(keyNames, folded.producer), loc)
+		const renamed =
+			constants.length > 0 ||
+			keyed.some((k) => k.name !== k.column.name) ||
+			results.some((r) => r.name !== r.column.name)
+		if (!renamed) {
+			return node
+		}
+		const literals = new Map<string, HeadLiteral>()
+		const out: Array<OutColumn> = [
+			...keyed.map(({ name, column: c }) => ({
+				name,
+				expr: this.cx.emit(columnSpec(node.id, c.name, c.type)),
+				type: c.type
+			})),
+			...results.map(({ name, column: c }) => ({
+				name,
+				expr: this.cx.emit(columnSpec(node.id, c.name, c.type)),
+				type: c.type
+			})),
+			...constants.map(([name, h]) => {
+				const t = this.#term(name, h, node, this.at("head", name))
+				if (t.literal !== undefined) {
+					literals.set(name, t.literal)
+				}
+				return { name, expr: t.expr, type: t.type }
+			})
+		].toSorted(byName)
+		const projected = this.cx.node(
+			{
+				kind: "ProjectSet",
+				input: node,
+				...projectionOf(out)
+			},
+			loc
+		)
+		this.cx.setLiterals(projected, literals)
+		return projected
+	}
+}

@@ -1,0 +1,422 @@
+import { layer } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import { element, type Gen } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Effect, Formatter, Layer, Option } from "effect"
+import { Db } from "#adapter/public/db.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { alternatives } from "#compiler/public/schema.ts"
+import { quoteString } from "#compiler/sql/print.ts"
+import { openWork } from "#test/pg/e2e/support.ts"
+import { assert, bareRecord, unorderedEqual } from "#test/support/assert.ts"
+import { Cents } from "#test/support/fixtures/api/contracts.ts"
+import * as W from "#test/support/fixtures/api/work.ts"
+import { a1, t1, t2, t4, t7, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
+import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { recordEntryOf } from "#test/support/oracle/pick.ts"
+import { tableState } from "#test/support/substrate/state.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+
+/** Work under the name of its installation, the schema the Db opens. */
+type Work = W.WorkNamed<string>
+
+/** The enumerated switch: the parent put and the arm changes as listed members. */
+const switchToManual = (
+	s: Work,
+	p: {
+		readonly taskId: string
+		readonly accountId: string
+		readonly previousBudget: bigint
+		readonly operatorName: string
+	}
+) =>
+	ChangeSet.empty(s)
+		.put(W.Task, [{ id: p.taskId, account: p.accountId, kind: "Manual" }])
+		.delete(W.AutomaticTask, [{ task: p.taskId, budget: Cents(p.previousBudget) }])
+		.insert(W.ManualTask, [{ task: p.taskId, operator: p.operatorName }])
+
+/** Read-backs of what a switch did: the Task facts it removed and added, and the arms. */
+const withReads = <P, Writes extends string>(s: Work, changes: ChangeSet<Work, P, Writes>) =>
+	changes
+		.read("tasks", (d) =>
+			query(s)
+				.rule((r) => {
+					const { id, account, kind } = v(W.Task)
+					return r
+						.match(d.added(W.Task), { id, account, kind })
+						.find({ side: r.literal("added"), id, account, kind })
+				})
+				.rule((r) => {
+					const { id, account, kind } = v(W.Task)
+					return r
+						.match(d.removed(W.Task), { id, account, kind })
+						.find({ side: r.literal("removed"), id, account, kind })
+				})
+		)
+		.read("previous", (d) =>
+			query(s).rule((r) => {
+				const { task, budget } = v(d.removed(W.AutomaticTask))
+				return r.match(d.removed(W.AutomaticTask), { task, budget }).find({ task, budget })
+			})
+		)
+		.read("manual", (d) =>
+			query(s).rule((r) => {
+				const { task, operator } = v(W.ManualTask)
+				return r.match(d.added(W.ManualTask), { task, operator }).find({ task, operator })
+			})
+		)
+
+/** The described switch, the members built over the installed schema value. */
+const switchToManualDescribed = (s: Work) =>
+	withReads(
+		s,
+		ChangeSet.empty(s)
+			.put(
+				W.Task,
+				query(s).rule((r) => {
+					const { account } = v(W.Task)
+					return r
+						.match(W.Task, { id: r.param("task", W.Task.fields.id), account, kind: "Automatic" })
+						.find({ id: r.param("task", W.Task.fields.id), account, kind: r.literal("Manual") })
+				})
+			)
+			.delete(
+				W.AutomaticTask,
+				query(s).rule((r) => {
+					const { budget } = v(W.AutomaticTask)
+					return r
+						.match(W.AutomaticTask, { task: r.param("task", W.AutomaticTask.fields.task), budget })
+						.find({ task: r.param("task", W.AutomaticTask.fields.task), budget })
+				})
+			)
+			.insert(
+				W.ManualTask,
+				query(s).rule((r) =>
+					r.match(W.Task, { id: r.param("task", W.Task.fields.id), kind: "Automatic" }).find({
+						task: r.param("task", W.ManualTask.fields.task),
+						operator: r.param("operator", W.ManualTask.fields.operator)
+					})
+				)
+			)
+	)
+
+type TaskKind = "automatic" | "manual" | "missing"
+type Form = "enumerated" | "described"
+type Budget = "stored" | "stale"
+
+interface Switch {
+	readonly task: string
+	readonly form: Form
+	readonly budget: Budget
+	readonly operator: "Ruth" | "Sam"
+}
+
+const tasks = [t1, t4, t2, t7, tMissing] as const
+
+const forms: Arr.NonEmptyReadonlyArray<Form> = ["enumerated", "described"]
+const budgets: Arr.NonEmptyReadonlyArray<Budget> = ["stored", "stale"]
+const operators: Arr.NonEmptyReadonlyArray<Switch["operator"]> = ["Ruth", "Sam"]
+
+/** Every switch: the task outermost, then the form, the budget for the enumerated form alone, and the operator. */
+const switches: Gen<Switch> = (source) => {
+	const task = source.draw(element(tasks))
+	const form = source.draw(element(forms))
+	const budget = form === "enumerated" ? source.draw(element(budgets)) : "stored"
+	const operator = source.draw(element(operators))
+	return { task, form, budget, operator }
+}
+
+type SwitchFeature = `${Form} ${TaskKind} ${"accepted" | "no-change" | "rejected"}`
+
+/** The stored facts of one task: its Task fact and its arm, as workFacts holds them. */
+const taskFact = (id: string) => Arr.findFirst(workFacts.Task, (t) => t.id === id)
+const automaticOf = (id: string) => Arr.findFirst(workFacts.AutomaticTask, (a) => a.task === id)
+const manualOf = (id: string) => Arr.findFirst(workFacts.ManualTask, (m) => m.task === id)
+
+const counts = (relation: string, added: bigint, deleted: bigint, put: bigint) => ({
+	relation,
+	added,
+	deleted,
+	put
+})
+
+/**
+ * The worked example's arm switch end to end, in both forms, against a model of the switch, exhausted over its inputs.
+ *
+ * Work installs with its facts and its residual alternatives law, and its full role switches a task to manual
+ * (switchToManual). The space is every stored kind of task
+ * the facts hold and one no fact holds (t1 automatic in account a1, t4 automatic in a2, t2 manual by Ruth, t7 manual by Sam, and a missing id) ×
+ * the form × the operator (Ruth, Sam) × for the enumerated form the previous budget (the stored one, or a stale one):
+ *
+ * - Enumerated members, a put of the parent among them: on an automatic task with its budget, accepted with Task put 1,
+ *   AutomaticTask deleted 1 and ManualTask added 1, its read-backs the replaced Task as removed old plus added new, the
+ *   removed budget fact and the added arm; with a stale budget the deletion matches nothing, the remaining arm's tagged
+ *   composite foreign key fails at COMMIT, and the outcome is invariant-rejected with the Automatic arm's law, a native
+ *   violation whose witness carries no key, after the rollback; on a manual task the put and the deletion change
+ *   nothing, so its own operator is no-change and another one the key law of ManualTask, witnessed by the task's key;
+ *   on a missing task the switch creates it, manual, with its arm.
+ * - Members described by queries, applied with parameters: they read stored relations, so on an automatic task the
+ *   switch is the enumerated one with the stored budget, and on a manual or missing task every member is empty,
+ *   no-change with empty read-backs.
+ *
+ * Every apply is one SERIALIZABLE transaction, and the stored state afterwards is the model's: the facts with the
+ * switched task's rows replaced, or as they were after a refusal. The deleted and reinserted Task key leaves TaskNote's
+ * reference, deferred, satisfied: t1 has a note.
+ */
+export const armSwitchSuite = (): void => {
+	layer(Substrate.layer, { excludeTestServices: true })(
+		"the worked example's arm switch end to end",
+		(it) => {
+			it.effect(
+				"both forms of the switch agree with its model over every kind of task, operator and budget",
+				(ctx) =>
+					searched(
+						ctx,
+						Effect.gen(function* () {
+							const o = yield* openWork
+							const s = yield* Substrate
+							const names = namesOf(o.installed)
+							/** The worked example's alternatives, rebuilt through the builders, which names the same laws. */
+							const laws = lawNamesOf(W.Work)
+							const automaticArm = recordEntryOf(
+								laws.alternativesOf(
+									alternatives(W.Task, "kind", W.Kind, {
+										Automatic: W.AutomaticTask,
+										Manual: W.ManualTask
+									})
+								).arms,
+								"Automatic",
+								"the alternatives' arms"
+							)
+							const task = names.table(W.Task)
+							const automatic = names.table(W.AutomaticTask)
+							const manual = names.table(W.ManualTask)
+							/**
+							 * The task's rows as workFacts holds them, in one transaction, the alternatives law holding at its end.
+							 */
+							const restore = (id: string) => {
+								const t = taskFact(id)
+								const a = automaticOf(id)
+								const m = manualOf(id)
+								const lit = quoteString
+								return transaction(s.admin, [
+									`DELETE FROM ${manual} WHERE ${names.column(W.ManualTask, "task")} = ${lit(id)}::uuid`,
+									`DELETE FROM ${automatic} WHERE ${names.column(W.AutomaticTask, "task")} = ${lit(id)}::uuid`,
+									Option.match(t, {
+										onNone: () =>
+											`DELETE FROM ${task} WHERE ${names.column(W.Task, "id")} = ${lit(id)}::uuid`,
+										onSome: (fact) =>
+											`UPDATE ${task} SET ${names.column(W.Task, "kind")} = ${lit(fact.kind)}, ${names.column(W.Task, "account")} = ${lit(fact.account)}::uuid WHERE ${names.column(W.Task, "id")} = ${lit(id)}::uuid`
+									}),
+									...Option.toArray(
+										Option.map(
+											a,
+											(arm) =>
+												`INSERT INTO ${automatic} (${names.column(W.AutomaticTask, "task")}, ${names.column(W.AutomaticTask, "budget")}) VALUES (${lit(id)}::uuid, ${String(arm.budget)})`
+										)
+									),
+									...Option.toArray(
+										Option.map(
+											m,
+											(arm) =>
+												`INSERT INTO ${manual} (${names.column(W.ManualTask, "task")}, ${names.column(W.ManualTask, "operator")}) VALUES (${lit(id)}::uuid, ${lit(arm.operator)})`
+										)
+									)
+								])
+							}
+							const state = Effect.all({
+								Task: tableState(o.installed, W.Task),
+								AutomaticTask: tableState(o.installed, W.AutomaticTask),
+								ManualTask: tableState(o.installed, W.ManualTask)
+							})
+							return yield* Effect.gen(function* () {
+								const db = yield* Db.open(o.server.roles.app, {})
+								return yield* exhaust(
+									{
+										suite: "e2e/arm-switch",
+										generator: switches,
+										literal: Formatter.format,
+										limit: 30,
+										caseHang: Duration.minutes(2),
+										features: features<SwitchFeature>([
+											"enumerated automatic accepted",
+											"enumerated automatic rejected",
+											"enumerated manual no-change",
+											"enumerated manual rejected",
+											"enumerated missing accepted",
+											"described automatic accepted",
+											"described manual no-change",
+											"described missing no-change"
+										])
+									},
+									(w, c) =>
+										Effect.gen(function* () {
+											yield* restore(w.task)
+											const before = yield* state
+											const stored = taskFact(w.task)
+											const budget = automaticOf(w.task)
+											const kind = Option.match(stored, {
+												onNone: (): TaskKind => "missing",
+												onSome: (fact): TaskKind =>
+													fact.kind === "Automatic" ? "automatic" : "manual"
+											})
+											const account = Option.match(stored, {
+												onNone: () => a1,
+												onSome: (fact) => fact.account
+											})
+											const outcome = yield* w.form === "enumerated"
+												? db.apply(
+														withReads(
+															o.schema,
+															switchToManual(o.schema, {
+																taskId: w.task,
+																accountId: account,
+																/**
+																 * A stale budget is one the task does not hold; a manual or missing
+																 * task holds none.
+																 */
+																previousBudget: Option.match(budget, {
+																	onNone: () => 1500n,
+																	onSome: (held) =>
+																		w.budget === "stored" ? held.budget : held.budget + 100n
+																}),
+																operatorName: w.operator
+															})
+														),
+														{}
+													)
+												: db.apply(switchToManualDescribed(o.schema), {
+														task: w.task,
+														operator: w.operator
+													})
+											const after = yield* state
+											/** The facts with the switched task's rows replaced. */
+											const switched = {
+												Task: [
+													...Arr.filter(before.Task, (t) => t["id"] !== w.task),
+													{ id: w.task, account, kind: "Manual" }
+												],
+												AutomaticTask: Arr.filter(
+													before.AutomaticTask,
+													(t) => t["task"] !== w.task
+												),
+												ManualTask: [
+													...Arr.filter(before.ManualTask, (t) => t["task"] !== w.task),
+													{ task: w.task, operator: w.operator }
+												]
+											}
+											const unchanged = () => {
+												unorderedEqual(after.Task, before.Task)
+												unorderedEqual(after.AutomaticTask, before.AutomaticTask)
+												unorderedEqual(after.ManualTask, before.ManualTask)
+											}
+											const accepted = (expected: ReadonlyArray<ReturnType<typeof counts>>) => {
+												assert.ok(outcome.kind === "accepted", outcome.kind)
+												assert.deepEqual(
+													Arr.map(outcome.counts, (n) => ({ ...n })),
+													[...expected]
+												)
+												unorderedEqual(after.Task, switched.Task)
+												unorderedEqual(after.AutomaticTask, switched.AutomaticTask)
+												unorderedEqual(after.ManualTask, switched.ManualTask)
+												c.note(`${w.form} ${kind} accepted`)
+												return outcome.reads
+											}
+											if (
+												kind === "automatic" &&
+												Option.isSome(budget) &&
+												Option.isSome(stored) &&
+												(w.form === "described" || w.budget === "stored")
+											) {
+												const reads = accepted([
+													counts("AutomaticTask", 0n, 1n, 0n),
+													counts("ManualTask", 1n, 0n, 0n),
+													counts("Task", 0n, 0n, 1n)
+												])
+												unorderedEqual(reads.tasks, [
+													bareRecord({ side: "added", id: w.task, account, kind: "Manual" }),
+													bareRecord({ side: "removed", id: w.task, account, kind: "Automatic" })
+												])
+												assert.deepEqual(reads.previous, [
+													bareRecord({ task: w.task, budget: Cents(budget.value.budget) })
+												])
+												assert.deepEqual(reads.manual, [
+													bareRecord({ task: w.task, operator: w.operator })
+												])
+												return
+											}
+											if (kind === "automatic") {
+												assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
+												assert.deepEqual(outcome.law, names.described(automaticArm))
+												assert.deepEqual(outcome.witness, { kind: "unreported" })
+												unchanged()
+												c.note(`${w.form} ${kind} rejected`)
+												return
+											}
+											if (w.form === "described") {
+												assert.ok(outcome.kind === "no-change", outcome.kind)
+												assert.deepEqual(outcome.reads.previous, [])
+												assert.deepEqual(outcome.reads.tasks, [])
+												assert.deepEqual(outcome.reads.manual, [])
+												unchanged()
+												c.note(`${w.form} ${kind} no-change`)
+												return
+											}
+											if (kind === "missing") {
+												const reads = accepted([
+													counts("AutomaticTask", 0n, 0n, 0n),
+													counts("ManualTask", 1n, 0n, 0n),
+													counts("Task", 0n, 0n, 1n)
+												])
+												assert.deepEqual(reads.tasks, [
+													bareRecord({
+														side: "added" as const,
+														id: w.task,
+														account,
+														kind: "Manual" as const
+													})
+												])
+												assert.deepEqual(reads.previous, [])
+												assert.deepEqual(reads.manual, [
+													bareRecord({ task: w.task, operator: w.operator })
+												])
+												return
+											}
+											if (Option.exists(manualOf(w.task), (held) => held.operator === w.operator)) {
+												assert.ok(outcome.kind === "no-change", outcome.kind)
+												unchanged()
+												c.note(`${w.form} ${kind} no-change`)
+												return
+											}
+											assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
+											assert.deepEqual(outcome.law, {
+												kind: "primaryKey",
+												relation: "ManualTask",
+												fields: ["task"]
+											})
+											assert.deepEqual(outcome.witness, {
+												kind: "key",
+												relation: "ManualTask",
+												values: { task: w.task }
+											})
+											unchanged()
+											c.note(`${w.form} ${kind} rejected`)
+										})
+								)
+							}).pipe(
+								Effect.scoped,
+								(body) =>
+									Effect.flatMap(Layer.build(o.layer), (context) =>
+										Effect.provideContext(body, context)
+									),
+								Effect.scoped
+							)
+						}).pipe(Effect.scoped)
+					)
+			)
+		}
+	)
+}

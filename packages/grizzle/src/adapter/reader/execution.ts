@@ -1,0 +1,578 @@
+import { Array as Arr, Effect, Result } from "effect"
+import type { AttachmentFacts, AttachmentScope } from "#adapter/reader/analysis.ts"
+import type { InputRefusal, RelationInputs } from "#adapter/reader/relations.ts"
+import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
+import { type Cell, factCells, recordsetJson } from "#compiler/codec/recordset.ts"
+import { printsAlike, scalarCodec } from "#compiler/codec/scalar.ts"
+import { type AttachmentLayout, type Layout, type Row, rowText } from "#compiler/core/decoder.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
+import type { StatementSpec } from "#compiler/ir/products.ts"
+import type { NodeOf } from "#compiler/ir/rel.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { columnPosition } from "#compiler/lower/conservative/context.ts"
+import {
+	type AttachedTree,
+	type ConservativeParamSlot,
+	type DeclaredParamSlot,
+	keyColumns,
+	type RelationColumn,
+	type RelationParamSlot,
+	type StatementOutput,
+	type StatementRoots,
+	type StatementTree,
+	statementOutput
+} from "#compiler/lower/conservative/types.ts"
+
+import {
+	type FusedAttachment,
+	type FusedTexts,
+	fusedTexts
+} from "#compiler/lower/shapes/attach/decode.ts"
+
+import type { Arrival, FusedStatement, StatementForms } from "#compiler/lower/shapes/index.ts"
+
+import {
+	relationTransport,
+	specializeValues,
+	type TransportLimits,
+	type ValuesInput
+} from "#compiler/lower/shapes/relparam/index.ts"
+import { executableQuery } from "#compiler/lower/template.ts"
+
+/**
+ * One statement execution and the Rows it delivers: what reads, read-backs, pages and db.explain share.
+ *
+ * A statement runs in one of two forms: as lowered, or as its whole-relation variant when a per-execution choice
+ * selects it. Each form is its lowered statement, the spec emitted from it and its placeholders as an execution binds
+ * them, all settled once per program (reader programs in run.ts, page programs in page/template.ts), so an execution
+ * looks up no declared parameter, encoder or variant, and checks nothing its program already settled.
+ *
+ * - Placeholders. Every declared parameter of the read is admitted once per execution, whether or not a sent statement
+ *   binds it, by one walk of the declarations (relations.ts executionInputs): a scalar's value encoded by its declared
+ *   type's codec, a relation's input normalized. A placeholder binds what that walk produced, so a read's refusal never
+ *   depends on which parameters the optimizer eliminated, and what is admitted is what is sent. A scalar placeholder
+ *   takes its declared parameter's encoded text. A relation placeholder takes its relation input (relations.ts),
+ *   normalized over its slot's columns, in the transport those facts select: the recordset text, or, for one to
+ *   valuesMaxRows facts, a VALUES list of typed literals, each fact's cells paired with the slot's columns, which the
+ *   execution writes into the statement's text-cast form with every later placeholder renumbered
+ *   (lower/shapes/relparam specializeValues), so the planner sees exact estimates and equal parameters run equal texts.
+ *   A page's own placeholders, its limit, size and boundary values, are its own (page/execute.ts).
+ * - Forms. A statement with a variant runs it when one of its choices' inputs exceeds the choice's threshold: a
+ *   relation parameter's distinct fact count, or, for a page's attachment, the requested size. Both forms deliver the
+ *   same set, so the choice is cost only.
+ * - Rows. A statement's rows are PostgreSQL's output texts, which the session admits as texts only. They become Rows
+ *   (core/decoder.ts): each row's texts, and per attachment slot the child Rows under it, which the value's decoder
+ *   reads through the statement's layout. An attachment statement's rows lead with the parent key texts; each parent
+ *   row gets the child Rows whose parent key equals its own under the key's type, in the statement's row order, which
+ *   is the child's completed order when the child is ordered. Equality is the type's, never the text's: the statement
+ *   correlates and deduplicates the parent key by the type's equality, so of two parent rows whose keys are equal but
+ *   print differently (1.0 and 1.00, -0 and 0) it keeps one spelling, and both parents own the children it delivers
+ *   under it. Attachments nest: a child row's own attachments are grouped under it the same way. A fused attachment's
+ *   column is parsed into its children's texts (lower/shapes/attach/decode.ts), its correlated columns copied from the
+ *   parent row's texts.
+ * - Layouts. A statement's layout names each public column's position (a rows statement's whole heading, an attachment
+ *   statement's columns after its parent key that its delivered child carries, analysis.ts, none for a zero-column
+ *   result) and each attachment's slot, child layout and the delivery the analysis proved, which the decoder's stated
+ *   delivery must be licensed by. Row plans and layouts are settled once per program (programRecords), so a row reads
+ *   no attachment fact and builds no scope, and a decoder binds to the same layouts on every read.
+ * - Records. A program's statement tree is parsed once into one record per statement (programRecords): its forms,
+ *   which sent statement's answer its rows are (a fed statement's being the feeder its arrival holds), the records of
+ *   the attachment statements under it, which its tree holds, and its layout; a read follows references only.
+ *
+ * The host values of a read's parameters, by declared name; Stream relation parameters already collected (params.ts).
+ */
+export type HostParams = Readonly<Record<string, unknown>>
+
+/** A statement of any lowering, whatever its placeholders: what a form's statement is. */
+type LoweredStatement = FusedStatement<ConservativeParamSlot>
+
+/** One form of a statement: the lowered statement, the spec emitted from it, and its placeholders in order. */
+export interface StatementForm<S extends LoweredStatement, Slot = DeclaredParamSlot> {
+	readonly statement: S
+	readonly spec: StatementSpec
+	readonly slots: ReadonlyArray<Slot>
+}
+
+/**
+ * A statement as it runs: its form, its forms (lower/shapes StatementForms): one, or its whole-relation form with the
+ * choices that select it, and how the runtime has its rows.
+ */
+export interface RunStatement<
+	S extends LoweredStatement,
+	Slot = DeclaredParamSlot,
+	Choice = ReadChoice
+> extends StatementForm<S, Slot> {
+	readonly forms: StatementForms<Choice, StatementForm<S, Slot>>
+	readonly arrival: Arrival
+}
+
+/** A read's per-execution choice: by the distinct fact count of a relation parameter. */
+export interface ReadChoice {
+	readonly source: ParamId
+	readonly threshold: number
+}
+
+/** The form of a read statement: every placeholder of a query's statement is a declared parameter's. */
+export const readForm = <S extends FusedStatement>(
+	statement: S,
+	spec: StatementSpec
+): StatementForm<S> => ({ statement, spec, slots: statement.params })
+
+/**
+ * What an execution reads, from one walk of the read's declared parameters (relations.ts executionInputs): the host
+ * parameters (Streams collected), every declared scalar parameter's encoded text, and every declared relation
+ * parameter's input in its transport.
+ */
+export interface ExecutionInputs {
+	readonly params: HostParams
+	readonly scalars: ReadonlyMap<ParamId, string>
+	readonly relations: RelationInputs
+	/** The bounds each relation placeholder's transport is chosen by (relparam relationTransport). */
+	readonly limits: TransportLimits
+}
+
+/**
+ * The input an execution admitted for the declared parameter `param`. The one site of the fact that every ParamId a
+ * program's placeholder or choice names is a declared parameter of its read or write, which executionInputs admits on
+ * every execution: the ParamId comes from the engine's lowered statement and the inputs from one walk of the
+ * declarations, two runtime tables no TypeScript type ties together, so a miss is a defect of the compiler.
+ */
+const declaredInput = <V>(inputs: ReadonlyMap<ParamId, V>, param: ParamId): V => {
+	const input = inputs.get(param)
+	if (input === undefined) {
+		throw defect(`the declared parameter ${param} has an admitted input`)
+	}
+	return input
+}
+
+/** The encoded text of the scalar input `param`. */
+const scalarInput = (inputs: ExecutionInputs, param: ParamId): string =>
+	declaredInput(inputs.scalars, param)
+
+/** The distinct fact count of the relation input `param`. */
+export const inputCount = (inputs: ExecutionInputs, param: ParamId): number =>
+	declaredInput(inputs.relations, param).normalized.count
+
+/** The form `run` takes in an execution: its large form when one of its choices `exceeds` its threshold. */
+export const formFor = <S extends LoweredStatement, Slot, Choice>(
+	run: RunStatement<S, Slot, Choice>,
+	exceeds: (choice: Choice) => boolean
+): StatementForm<S, Slot> => {
+	const forms = run.forms
+	switch (forms.kind) {
+		case "one":
+			return run
+		case "chosen":
+			return Arr.some(forms.choices, exceeds) ? forms.large : run
+	}
+}
+
+/**
+ * What a placeholder binds in one execution: its text, or the rows of a relation input travelling as a VALUES list, each
+ * fact's cells over its slot's columns.
+ */
+export type Binding =
+	| { readonly kind: "text"; readonly text: string }
+	| {
+			readonly kind: "values"
+			readonly slot: RelationParamSlot
+			readonly rows: Arr.NonEmptyReadonlyArray<ReadonlyArray<Cell<RelationColumn>>>
+	  }
+
+/**
+ * The binding of a read placeholder. A relation placeholder takes its input's normal facts over the slot's columns in
+ * the transport they select: as VALUES cells, or as the recordset text.
+ */
+export const readBinding = (
+	slot: DeclaredParamSlot,
+	inputs: ExecutionInputs
+): Result.Result<Binding, InputRefusal> => {
+	switch (slot.kind) {
+		case "scalar":
+			return Result.succeed({ kind: "text", text: scalarInput(inputs, slot.param) })
+		case "relation":
+			return Result.map(
+				declaredInput(inputs.relations, slot.param).over(slot.columns),
+				(normal): Binding => {
+					const transport = relationTransport(normal.facts, inputs.limits)
+					switch (transport.kind) {
+						case "values":
+							return {
+								kind: "values",
+								slot,
+								rows: Arr.map(transport.rows, factCells(slot.columns))
+							}
+						case "recordset":
+							return {
+								kind: "text",
+								text: recordsetJson(
+									Arr.map(slot.columns, (c) => c.definition.name),
+									normal.rows
+								)
+							}
+					}
+				}
+			)
+	}
+}
+
+/**
+ * The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`: the statement as
+ * emitted, or its VALUES form, the text-cast statement with every input that travels as VALUES written into its
+ * recordsets in one rewrite, which renumbers the placeholders after the ones it removes, as the texts already skip them.
+ */
+export const executionOf = <S extends LoweredStatement, Slot, E>(
+	form: StatementForm<S, Slot>,
+	bind: (slot: Slot) => Result.Result<Binding, E>
+): Result.Result<BatchStatement, E> => {
+	const encoded: Array<string> = []
+	const values: Array<ValuesInput> = []
+	for (const slot of form.slots) {
+		const bound = bind(slot)
+		if (Result.isFailure(bound)) {
+			return Result.fail(bound.failure)
+		}
+		if (bound.success.kind === "text") {
+			encoded.push(bound.success.text)
+		} else {
+			values.push(bound.success)
+		}
+	}
+	if (!Arr.isReadonlyArrayNonEmpty(values)) {
+		return Result.succeed({ sql: form.spec.sql, params: encoded })
+	}
+	const specialized = specializeValues(
+		{
+			ast: executableQuery(form.statement),
+			nameMap: form.statement.sql.nameMap,
+			params: form.statement.params
+		},
+		values
+	)
+	return Result.succeed({ sql: specialized.sql.text, params: encoded })
+}
+
+/** One execution of `form`, its parameters encoded. */
+export const encodeForm = <S extends LoweredStatement, Slot, E>(
+	form: StatementForm<S, Slot>,
+	bind: (slot: Slot) => Result.Result<Binding, E>
+): Effect.Effect<BatchStatement, E> =>
+	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
+
+/** One statement's rows: the texts PostgreSQL sent for them, one per column (the session admits no NULL). */
+export type StatementRun = ReadonlyArray<ReadonlyArray<string>>
+
+/** A flight's answers to the statements it sent, in the order it sent them. */
+export type SentRuns = ReadonlyArray<StatementRun>
+
+/**
+ * How one parent key cell identifies its value: the text itself where equal values of the type always print alike
+ * (codec/scalar.ts printsAlike), and otherwise the value's one identity text
+ * (scalar/values/identity.ts), so 1.0 and 1.00 are one key, as are -0 and 0.
+ */
+type KeyCell = (text: string) => string
+
+const asPrinted: KeyCell = (text) => text
+
+/**
+ * The key cell of a column of `type`, which the statement's read-back check partitions by alike
+ * (lower/conservative/deliver.ts checkedAttachment).
+ */
+const keyCellOf = (type: ScalarType): KeyCell =>
+	printsAlike(type) ? asPrinted : scalarCodec(type).textIdentity
+
+/**
+ * One parent key column as a row holds it: its position among the row's texts, and how its cell identifies its value.
+ */
+interface KeyRead {
+	readonly at: number
+	readonly cell: KeyCell
+}
+
+/**
+ * An attachment statement under a statement's rows: its record, and the parent key read from the parent's rows and from
+ * the attachment's, which lead with it.
+ */
+interface ChildPlan<Run> {
+	readonly record: StatementRecord<Run>
+	readonly parent: ReadonlyArray<KeyRead>
+	readonly child: ReadonlyArray<KeyRead>
+}
+
+/**
+ * A fused attachment column of a statement's rows: its position after the heading, and its parse into its children's
+ * texts (lower/shapes/attach/decode.ts).
+ */
+interface FusedPlan {
+	readonly position: number
+	readonly texts: FusedTexts
+}
+
+/**
+ * How one statement's rows become Rows: each row's children, slot by slot, first those of the attachment statements
+ * under it, then those of its fused attachment columns, the order its layout's attachment slots name.
+ */
+interface RowPlan<Run> {
+	readonly children: ReadonlyArray<ChildPlan<Run>>
+	readonly fused: ReadonlyArray<FusedPlan>
+}
+
+/**
+ * One statement of a program as a flight runs it and its readers read it: its forms (`run`), how its rows arrive, how
+ * they become Rows, and its layout (core/decoder.ts), where a decoder finds each public column among its texts and each
+ * attachment among a row's children. A program's records are settled once (programRecords), so a read resolves no
+ * statement position, builds no plan, and a decoder binds to the same layouts each time.
+ */
+export interface StatementRecord<Run> {
+	readonly run: Run
+	readonly arrival: Arrival
+	readonly plan: RowPlan<Run>
+	readonly layout: Layout
+}
+
+/**
+ * A program's records, in flight order, and its delivered ones, the statements that are no attachment, in flight order.
+ */
+export interface ProgramRecords<Run> {
+	readonly records: Arr.NonEmptyReadonlyArray<StatementRecord<Run>>
+	readonly delivered: Arr.NonEmptyReadonlyArray<StatementRecord<Run>>
+}
+
+/** A statement's output columns (conservative/types.ts statementOutput). */
+const outputOf = (statement: LoweredStatement): StatementOutput<FusedAttachment> =>
+	statementOutput(statement.role, statement.heading, statement.fused)
+
+/**
+ * A statement as a program runs it, whatever its forms: the lowered statement it was placed as, and how the runtime has
+ * its rows.
+ */
+export interface Arrived {
+	readonly statement: LoweredStatement
+	readonly arrival: Arrival
+}
+
+/** The answer of the sent statement whose rows a statement's are: its own, or its feeder's. */
+export const answerOf = (arrival: Arrival): number =>
+	arrival.kind === "sent" ? arrival.answer : arrival.feeder.answer
+
+/**
+ * Where a statement is in its program's tree: delivered, whose whole heading is public, or an attachment under its
+ * parent's rows, whose own columns after its parent key are public where the delivered child carries them, in its
+ * parent's scope on the delivered spine (none off it).
+ */
+type Under =
+	| { readonly kind: "root" }
+	| {
+			readonly kind: "attachment"
+			readonly attach: NodeOf<"Attach">
+			readonly scope: AttachmentScope | undefined
+	  }
+
+/** The public columns of a statement's rows and their positions, where `under` places it, which `facts` describes. */
+const columnsOf = (
+	statement: LoweredStatement,
+	under: Under,
+	facts: AttachmentFacts
+): ReadonlyMap<string, number> => {
+	const output = outputOf(statement)
+	if (under.kind === "root") {
+		return new Map(Arr.map(statement.heading, (column, i) => [column.name, output.own(i)]))
+	}
+	const { attach, scope } = under
+	return new Map(
+		Arr.flatMap(statement.heading, (column, i) =>
+			facts.carried(attach.id, scope, attach.name, column.name)
+				? [[column.name, output.own(i)] as const]
+				: []
+		)
+	)
+}
+
+/**
+ * An attachment as its parent's record holds it: its child plan, and its layout but for the slot, which its parent
+ * numbers.
+ */
+interface Attached<Run> {
+	readonly name: string
+	readonly plan: ChildPlan<Run>
+	readonly layout: Omit<AttachmentLayout, "slot">
+}
+
+/**
+ * The record of the statement `tree` holds, placed `under`, in its scope on the delivered spine `scope` (none off it),
+ * after the records of the attachment statements under it, whose layouts its own holds.
+ *
+ * An attachment's child is one statement, so it has one layout and its Rows are heading group 0 (rowsOf): the
+ * lowering refuses to deliver an attached heterogeneous union per heading group (lower/conservative/deliver.ts), and
+ * a fused child is one column.
+ */
+const recordOf = <Run extends Arrived>(
+	tree: StatementTree<Run>,
+	under: Under,
+	scope: AttachmentScope | undefined,
+	facts: AttachmentFacts
+): StatementRecord<Run> => {
+	const run = tree.statement
+	const statement = run.statement
+	const output = outputOf(statement)
+	const attached = Arr.map(tree.attachments, (child) => attachedOf(child, output, scope, facts))
+	const attachments = new Map<string, AttachmentLayout>()
+	for (const a of attached) {
+		attachments.set(a.name, { ...a.layout, slot: attachments.size })
+	}
+	const fused = Arr.map(statement.fused, (f, j): FusedPlan => {
+		attachments.set(f.name, {
+			slot: attachments.size,
+			layouts: [
+				{
+					columns: new Map(
+						Arr.flatMap(f.layout.columns, ({ column }, i) =>
+							facts.carried(f.attach, scope, f.name, column.name) ? [[column.name, i] as const] : []
+						)
+					),
+					attachments: new Map()
+				}
+			],
+			proved: facts.delivered(f.attach, f.name)
+		})
+		return {
+			position: output.fusedAt(j),
+			texts: fusedTexts(f.layout, (column) => {
+				const at = output.own(columnPosition(statement.heading, column))
+				return (row) => rowText(row, at)
+			})
+		}
+	})
+	return {
+		run,
+		arrival: run.arrival,
+		plan: { children: Arr.map(attached, (a) => a.plan), fused },
+		layout: { columns: columnsOf(statement, under, facts), attachments }
+	}
+}
+
+/**
+ * The attachment `tree` holds under the rows of a statement of output `parent`, in the parent's scope `scope`: its
+ * record, its parent key read from the parent's rows and from its own, which lead with it, and its layout.
+ */
+const attachedOf = <Run extends Arrived>(
+	tree: AttachedTree<Run>,
+	parent: StatementOutput<FusedAttachment>,
+	scope: AttachmentScope | undefined,
+	facts: AttachmentFacts
+): Attached<Run> => {
+	const { attach } = tree
+	const record = recordOf(
+		tree,
+		{ kind: "attachment", attach, scope },
+		scope?.under.get(attach.name),
+		facts
+	)
+	const parentKey = keyColumns(tree.statement.statement.role)
+	return {
+		name: attach.name,
+		plan: {
+			record,
+			parent: Arr.map(parentKey, (c) => ({ at: parent.own(c.at), cell: keyCellOf(c.type) })),
+			child: Arr.map(parentKey, (c, at) => ({ at, cell: keyCellOf(c.type) }))
+		},
+		layout: { layouts: [record.layout], proved: facts.delivered(attach.id, attach.name) }
+	}
+}
+
+/** `record` and the records of the attachment statements under it, in flight order. */
+const recordsUnder = <Run>(
+	record: StatementRecord<Run>
+): Arr.NonEmptyReadonlyArray<StatementRecord<Run>> => [
+	record,
+	...Arr.flatMap(record.plan.children, (child) => recordsUnder(child.record))
+]
+
+/**
+ * The records of a program's statements, each run by its `run`, whose attachments `facts` describes: its delivered
+ * ones, each with the records of the attachment statements under its rows, and all of them in flight order.
+ */
+export const programRecords = <Run extends Arrived>(
+	roots: StatementRoots<Run>,
+	facts: AttachmentFacts
+): ProgramRecords<Run> => {
+	const delivered = Arr.map(roots, (tree) => recordOf(tree, { kind: "root" }, facts.root, facts))
+	return { records: Arr.flatten(Arr.map(delivered, recordsUnder)), delivered }
+}
+
+/**
+ * A parent key's map key: the identities of the cells `key` reads. The keys of one map all have the arity of the
+ * attachment's parent columns, so a one-column key is its identity as is, and a wider key writes each identity after
+ * its length.
+ */
+const keyOf = (texts: ReadonlyArray<string>, key: ReadonlyArray<KeyRead>): string => {
+	let out = ""
+	for (const read of key) {
+		const identity = read.cell(rowText(texts, read.at))
+		out = key.length === 1 ? identity : `${out}${identity.length}:${identity}`
+	}
+	return out
+}
+
+/** The rows of `record` in a flight whose sent statements answered `sent`. */
+export const runOf = <Run>(record: StatementRecord<Run>, sent: SentRuns): StatementRun =>
+	sentAnswer(sent, answerOf(record.arrival))
+
+/** The children of a row with no attachment slot, and of a slot with no child. */
+const noSlots: ReadonlyArray<ReadonlyArray<Row>> = Object.freeze([])
+const noRows: ReadonlyArray<Row> = Object.freeze([])
+
+/**
+ * The Rows of `rows`, rows of `record` delivered as heading group `group` (0 unless the statement is one of a
+ * heterogeneous union's heading groups), in a flight whose sent statements answered `sent`, each with the child Rows
+ * of every attachment slot: an attachment statement's rows whose parent key equals the row's under the key's type, in
+ * the statement's row order, then each fused column's children. A child Row is heading group 0: an attachment's child
+ * is one statement of one layout (programRecords).
+ */
+export const rowsOf = <Run>(
+	record: StatementRecord<Run>,
+	sent: SentRuns,
+	rows: StatementRun,
+	group: number
+): ReadonlyArray<Row> => {
+	const plan = record.plan
+	const grouped: Array<{
+		readonly child: ChildPlan<Run>
+		readonly groups: Map<string, Array<Row>>
+	}> = []
+	for (const child of plan.children) {
+		const groups = new Map<string, Array<Row>>()
+		for (const row of rowsOf(child.record, sent, runOf(child.record, sent), 0)) {
+			const key = keyOf(row.texts, child.child)
+			const known = groups.get(key)
+			if (known === undefined) {
+				groups.set(key, [row])
+			} else {
+				known.push(row)
+			}
+		}
+		grouped.push({ child, groups })
+	}
+	const slots = plan.children.length + plan.fused.length
+	const out: Array<Row> = []
+	for (const texts of rows) {
+		if (slots === 0) {
+			out.push({ group, texts, children: noSlots })
+			continue
+		}
+		const children: Array<ReadonlyArray<Row>> = []
+		for (const one of grouped) {
+			children.push(one.groups.get(keyOf(texts, one.child.parent)) ?? noRows)
+		}
+		for (const f of plan.fused) {
+			const fusedChildren: Array<Row> = []
+			for (const child of f.texts(rowText(texts, f.position), texts)) {
+				fusedChildren.push({ group: 0, texts: child, children: noSlots })
+			}
+			children.push(fusedChildren)
+		}
+		out.push({ group, texts, children })
+	}
+	return out
+}

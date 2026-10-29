@@ -1,0 +1,1287 @@
+import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
+import type { WorldAnalysis } from "#compiler/analysis/derived/world.ts"
+import {
+	checkedRoleOver,
+	type CheckedSchema,
+	derivedAnalysis,
+	type RoleEntry,
+	type RoleWorld,
+	type RoleWrite
+} from "#compiler/analysis/schema.ts"
+import { refuse } from "#compiler/analysis/theory/build.ts"
+import { hnswSearchSettings } from "#compiler/check/approximate/policy.ts"
+import { catchCompileError, catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import {
+	compareIdentities,
+	conversionOf,
+	type Identity,
+	identifierOf,
+	identity
+} from "#compiler/core/identity.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import * as Result from "#compiler/core/result.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
+import type {
+	ClosedTheoryRelation,
+	LawField,
+	RelationInfo,
+	TheoryRelation
+} from "#compiler/ir/law.ts"
+import type { DeployPhase, LogicalQuery } from "#compiler/ir/products.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
+import { contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
+import { baseTypeRef } from "#compiler/lower/conservative/base-type.ts"
+import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+import type { AdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
+import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
+import { structuralRegex, type TextColumnUse } from "#compiler/physical/ddl/domains.ts"
+import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
+import { loginIdentity, roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
+import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
+import {
+	enforcement,
+	type Node,
+	type ObjectSpec,
+	type QualifiedKind
+} from "#compiler/physical/obligations/graph.ts"
+import type { HeadStanding } from "#compiler/schema/entry.ts"
+import type { OwnedEntry, OwnedLogin, OwnedRole, OwnedWorldEntry } from "#compiler/schema/own.ts"
+
+import {
+	type ColumnPrivilege,
+	type ConfigurationParameter,
+	configurationParameters,
+	type Expr,
+	type FunctionName,
+	type Grant,
+	type Grantee,
+	type ObjectName,
+	type Privilege,
+	type Select,
+	type SqlStatement
+} from "#compiler/sql/ast.ts"
+
+import {
+	and,
+	binary,
+	col,
+	exists,
+	lit,
+	namedType,
+	not,
+	objectName,
+	param,
+	qualifiedCall,
+	simpleSelect,
+	table,
+	target,
+	types
+} from "#compiler/sql/build.ts"
+import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import { fieldColumns } from "#compiler/write/defined.ts"
+import { filterFields, filterReadsOther, renderMembership } from "#compiler/write/entry/render.ts"
+import {
+	type OutsideProbe,
+	probeIdentity,
+	probeParams,
+	relationUniques
+} from "#compiler/write/insert/unique.ts"
+import { refusalFunction } from "#compiler/write/refusal.ts"
+
+/** The fixed login defaults. */
+const roleDefaultSettings = [
+	{ parameter: "jit", value: "off" },
+	{ parameter: "extra_float_digits", value: "1" },
+	{ parameter: "lc_monetary", value: "C.UTF-8" },
+	{ parameter: "lc_numeric", value: "C.UTF-8" },
+	{ parameter: "lc_time", value: "C.UTF-8" },
+	{ parameter: "lc_messages", value: "C.UTF-8" }
+] as const
+
+interface RoleSetting {
+	readonly parameter: ConfigurationParameter
+	readonly value: string
+}
+
+/** The search policy's session parameters as login defaults. Each is a name of
+ * configurationParameters, which the SQL AST checks; a unit test holds this list to the policy's, entry for entry. */
+export const searchPolicySettings: ReadonlyArray<RoleSetting> = hnswSearchSettings().flatMap(
+	(s) => {
+		const parameter = configurationParameters.find((p) => p === s.parameter)
+		return parameter === undefined ? [] : [{ parameter, value: s.value }]
+	}
+)
+
+/** The statement that loads the vector library in the migration session, so its `hnsw.*` parameters are known when the
+ * login defaults store them: a call of one of its C functions on a vector it parses. */
+const vectorLibraryLoad = (vectorSchema: string): Select =>
+	simpleSelect(
+		[
+			target(
+				qualifiedCall(vectorSchema, "vector_dims", [
+					lit.text("[1]", namedType(vectorSchema, "vector", []))
+				])
+			)
+		],
+		[],
+		undefined
+	)
+
+/** One installed role, by its declared name: its theory role and its schema. */
+export interface InstalledRole {
+	readonly name: string
+	readonly role: string
+	readonly schema: string
+}
+
+/** One installed login, by its declared name: its PostgreSQL role and its roles, in name order. */
+export interface InstalledLogin {
+	readonly name: string
+	readonly role: string
+	readonly roles: ReadonlyArray<InstalledRole>
+}
+
+export interface WorldsPlan {
+	readonly roleDefaults: ReadonlyArray<SqlStatement>
+	readonly publicRevokes: ReadonlyArray<SqlStatement>
+	/** The logins, in name order. */
+	readonly worlds: ReadonlyArray<InstalledLogin>
+}
+
+/** A type columns are typed by: its name, the identity it was minted from, and its object, when the installation
+ * creates one. */
+interface UsedType {
+	readonly name: ObjectName
+	readonly identity: Identity<"enum" | "contractDomain" | "textDomain">
+	readonly node: Node<"setup"> | undefined
+}
+
+/** The names of `m`'s types, ordered by the identities they were minted from. */
+const sortedNames = (m: ReadonlyMap<string, UsedType>): ReadonlyArray<ObjectName> =>
+	[...m.values()]
+		.toSorted((a, b) => compareIdentities(a.identity, b.identity))
+		.map((use) => use.name)
+
+/** The enums and domains columns are typed by, by name, and whether one is a vector. */
+interface TypeUse {
+	readonly enums: Map<string, UsedType>
+	readonly domains: Map<string, UsedType>
+	vector: boolean
+}
+
+const emptyUse = (): TypeUse => ({ enums: new Map(), domains: new Map(), vector: false })
+
+/** The enums and domains a column of type `t` names, down a contract's base chain and a span's endpoint. */
+const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
+	const contract = contractOf(t)
+	if (contract !== undefined) {
+		const name = b.names.contractDomain(contract.name)
+		use.domains.set(name.name, {
+			name,
+			identity: identity.contractDomain(contract.name),
+			node: b.typeNamed(name)
+		})
+		useType(b, contract.base, use)
+		return
+	}
+	if (t.carrier === "enum") {
+		const name = b.names.enumType(t.roster.closed)
+		use.enums.set(name.name, {
+			name,
+			identity: identity.enumType(t.roster.closed),
+			node: b.typeNamed(name)
+		})
+	}
+	const span = spanOf(t)
+	if (span !== undefined) {
+		useType(b, span.endpoint, use)
+	}
+	if (t.carrier === "vector") {
+		use.vector = true
+	}
+	const regex = structuralRegex(t)
+	if (regex !== undefined) {
+		const name = b.names.textDomain(regex)
+		if (name !== undefined) {
+			use.domains.set(name.name, {
+				name,
+				identity: identity.textDomain(regex.key),
+				node: b.typeNamed(name)
+			})
+		}
+	}
+}
+
+/** The types of every column of `heading`. */
+const useColumns = (
+	b: InstallBuilder,
+	heading: ReadonlyArray<HeadingColumn>,
+	use: TypeUse
+): void => {
+	for (const c of heading) {
+		useType(b, c.type, use)
+	}
+}
+
+/** The objects a world object's statements read: every relation, type and function they name that the installation
+ * has created so far (a table, a materialized view, a view, an enum, a domain, a function), each once. A world object
+ * waits for each, so a change to any of them (a conversion, a rebuild, a recreated view) drops it first and creates it
+ * again after (`worldChangesOf`): PostgreSQL refuses to convert, drop or rename what a view, a policy or a function
+ * body reads beneath it. A statement's own object is added after its reads, so it is none of them. */
+const readsOf = (
+	b: InstallBuilder,
+	statements: ReadonlyArray<SqlStatement>
+): ReadonlyArray<Node<DeployPhase>> => {
+	const read = new Set<Node<DeployPhase>>()
+	const note = (kinds: ReadonlyArray<QualifiedKind>, name: ObjectName): void => {
+		for (const kind of kinds) {
+			const node = b.objectNamed(kind, name)
+			if (node !== undefined) {
+				read.add(node)
+			}
+		}
+	}
+	const hooks: AstHooks = {
+		...identityHooks,
+		objectName: (name, space) => {
+			note(
+				space === "relation"
+					? ["table", "materializedView", "view"]
+					: space === "type"
+						? ["enum", "domain"]
+						: space === "function"
+							? ["function"]
+							: [],
+				name
+			)
+			return name
+		},
+		typeRef: (type) => {
+			if (type.kind === "named") {
+				note(["enum", "domain"], { schema: type.schema, name: type.name })
+			}
+			return type
+		},
+		functionRef: (fn) => {
+			note(["function"], { schema: fn.schema, name: fn.name })
+			return fn
+		}
+	}
+	for (const statement of statements) {
+		transformStatement(statement, hooks)
+	}
+	return [...read]
+}
+
+/** The serial fields of a stored relation, in heading order. */
+const serialFields = (relation: TheoryRelation): ReadonlyArray<string> =>
+	relation.fields.filter((c) => "serial" in c.type).map((c) => c.name)
+
+const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
+	if (!result.ok) {
+		throw new Refusal(result.error)
+	}
+	return result.value
+}
+
+/** A field of a context an installed role reads, typed against the base: what the installation plans a claim's domain
+ * for, which Db.open's admission validates the claim against. */
+interface ContextField {
+	readonly context: string
+	readonly field: string
+	readonly desc: FieldDesc
+	readonly type: ScalarType
+	readonly loc: SourceLoc
+}
+
+/** Every field of every context `roles` read (`OwnedRole.contexts`), typed against the base, a context's
+ * fields in name order. */
+export const contextFieldsOf = (
+	checked: CheckedSchema,
+	roles: ReadonlyArray<OwnedRole>
+): Result.Result<ReadonlyArray<ContextField>, CompileError> =>
+	catchRefusal(() =>
+		roles.flatMap((role) =>
+			Object.values(role.contexts).flatMap((context) =>
+				Object.entries(context.fields)
+					.toSorted(([a], [b]) => compareText(a, b))
+					.map(([field, desc]): ContextField => {
+						const loc = SourceLoc(`context ${context.name} of role ${role.name}`, [])
+						return { context: context.name, field, desc, type: checked.fieldType(desc, loc), loc }
+					})
+			)
+		)
+	)
+
+/** A role the installation installs, read against the installed schema: the identity its PostgreSQL role and views are
+ * named by, and its checked schema over the installed base, built once for every reader of the role. */
+export interface CheckedRole {
+	readonly theory: Identity<"role">
+	readonly checked: CheckedSchema<RoleWorld>
+}
+
+/** A login the installation installs, with each of its roles read against the installed schema, in the login's order. */
+export interface CheckedLogin {
+	readonly login: OwnedLogin
+	readonly roles: ReadonlyArray<CheckedRole>
+}
+
+/** `role` read against the installed schema `base`: its identity, refused when its name does not convert, then its
+ * checked schema over the base. */
+export const checkedRole = (
+	base: CheckedSchema,
+	installation: Identity<"schema">,
+	role: OwnedRole
+): Result.Result<CheckedRole, CompileError> =>
+	Result.flatMap(
+		catchCompileError(() => roleIdentity(installation, role.name, role.loc)),
+		(theory) => Result.map(checkedRoleOver(role, base), (checked) => ({ theory, checked }))
+	)
+
+/** Every view column of a query entry a regex refinement types, as a use of its structural text domain: the definition
+ * lowering casts such a column to its pattern's domain, so the domain must exist, and
+ * it is planned with the schema's others (`planTextDomains`). Every context field an installed role reads that a
+ * pattern refines is a use too, placed in use order by its context's and field's conversions, though a context names
+ * no object: admission validates its claim against the domain. */
+export const worldTextDomainUses = (
+	fields: ReadonlyArray<ContextField>,
+	roles: ReadonlyArray<CheckedRole>
+): ReadonlyArray<TextColumnUse> => {
+	const uses: Array<TextColumnUse> = []
+	for (const f of fields) {
+		const regex = structuralRegex(f.type)
+		if (regex === undefined) {
+			continue
+		}
+		uses.push({ regex, table: conversionOf(f.context), column: conversionOf(f.field) })
+	}
+	for (const { theory, checked } of roles) {
+		for (const e of checked.entries) {
+			if (e.kind !== "world") {
+				continue
+			}
+			const view = identifierOf(roleView(theory, e.entry))
+			for (const c of e.analysis.heading) {
+				const regex = structuralRegex(c.type)
+				if (regex === undefined) {
+					continue
+				}
+				uses.push({ regex, table: view, column: identifierOf(identity.column(c.name)) })
+			}
+		}
+	}
+	return uses
+}
+
+/** What the installation of a base's worlds shares: the base checked, the catalog a query entry's definition and a
+ * writable entry's membership are lowered against, and the definition's lowering. */
+interface WorldsContext {
+	readonly checked: CheckedSchema
+	/** The schema's installed keys and containments, as every compilation sees them, with the derived relations'
+	 * inherited keys; the transaction evidence context both lowerings run in admits only what holds at every statement. */
+	readonly catalog: EvidenceCatalog
+	readonly lower: (relation: string, query: LogicalQuery) => Select
+}
+
+const worldsContext = (b: InstallBuilder): WorldsContext => {
+	const checked = b.checked
+	const catalog = evidenceCatalog({
+		laws: b.model,
+		views: derivedKeyConstraints(derivedAnalysis(checked))
+	})
+	return {
+		checked,
+		catalog,
+		lower: (relation, query) =>
+			unwrap(lowerDefinition(relation, query, { names: b.names, catalog })).query
+	}
+}
+
+type WholeEntry = Extract<OwnedEntry, { readonly kind: "whole" }>
+
+/**
+ * A role relation as the installation reads it: a whole entry over a stored relation with its theory relation, over a
+ * closed relation with its theory relation, over a derived relation with its analysis, or a query entry.
+ */
+type RoleRelation =
+	| {
+			readonly kind: "stored"
+			readonly entry: WholeEntry
+			readonly relation: Extract<TheoryRelation, { readonly kind: "relation" }>
+	  }
+	| { readonly kind: "closed"; readonly entry: WholeEntry; readonly relation: ClosedTheoryRelation }
+	| {
+			readonly kind: "derived"
+			readonly entry: WholeEntry
+			readonly analysis: DerivedRelationAnalysis
+	  }
+	| { readonly kind: "world"; readonly entry: OwnedWorldEntry; readonly analysis: WorldAnalysis }
+
+/** A writable entry of a role as the installation reads it: the entry over the installed schema's handles, and the
+ * relation it writes. */
+interface WrittenEntry {
+	readonly write: RoleWrite
+	readonly relation: RelationInfo
+}
+
+/** A relation of a role as the installation reads it: a whole entry by the kind of the base relation its checked schema
+ * holds, the installed schema's own handle or analysis, or a query entry with its analysis. */
+const roleRelation = (e: RoleEntry): RoleRelation => {
+	if (e.kind === "world") {
+		return { kind: "world", entry: e.entry, analysis: e.analysis }
+	}
+	const r = e.relation
+	switch (r.kind) {
+		case "relation":
+			return { kind: "stored", entry: e.entry, relation: r }
+		case "closed":
+			return { kind: "closed", entry: e.entry, relation: r.relation }
+		case "derived":
+			return { kind: "derived", entry: e.entry, analysis: r.analysis }
+	}
+}
+
+/** Each writable entry of a role, in name order, with the relation it writes: the role's write list over the installed
+ * schema's handles (analysis/schema.ts RoleWrite), which names only relations the installed schema declares. */
+const roleWrites = (checked: CheckedSchema<RoleWorld>): ReadonlyArray<WrittenEntry> =>
+	[...checked.world.writes.values()].map((write) => ({
+		write,
+		relation: write.kind === "whole" ? write.relation : write.writable.target
+	}))
+
+/** One role relation's view: its CREATE VIEW, the graph objects it reads, and its columns' types. */
+interface ViewPlan {
+	readonly create: Extract<SqlStatement, { readonly kind: "createView" }>
+	readonly reads: ReadonlyArray<Node<"setup" | "structure">>
+	readonly heading: ReadonlyArray<HeadingColumn>
+}
+
+/** The view of a whole entry: every column of its table or materialized view, in heading order. */
+const wholeView = (
+	b: InstallBuilder,
+	name: ObjectName,
+	relation: string,
+	heading: NonEmptyReadonlyArray<HeadingColumn>,
+	read: Node<"setup" | "structure"> | undefined
+): ViewPlan => {
+	const source = b.names.relation(relation)
+	const columns = mapNonEmpty(heading, (c) => b.names.column(relation, c.name))
+	return {
+		create: {
+			kind: "createView",
+			name,
+			columns,
+			/** Every row and column of what it reads: it hides nothing, so no barrier keeps a reader's quals out. */
+			barrier: false,
+			query: simpleSelect(
+				columns.map((c) => target(col("r1", c))),
+				[table(source.schema, source.name, "r1")],
+				undefined
+			)
+		},
+		reads: read === undefined ? [] : [read],
+		heading
+	}
+}
+
+/** The view of a query entry: its definition, lowered, behind a security barrier. */
+const worldView = (
+	b: InstallBuilder,
+	cx: WorldsContext,
+	role: OwnedRole,
+	name: ObjectName,
+	e: OwnedWorldEntry,
+	analysis: WorldAnalysis
+): ViewPlan => {
+	const columns = mapNonEmpty(analysis.heading, (c) => b.name(identity.column(c.name)))
+	return {
+		create: {
+			kind: "createView",
+			name,
+			columns,
+			/** The facts of its definition, which hides the others: a barrier keeps a reader's quals after its own. */
+			barrier: true,
+			query: cx.lower(`${role.name}.${e.name}`, analysis.query)
+		},
+		reads: analysis.reads.flatMap((read) => {
+			const object = b.readObject(read)
+			return object === undefined ? [] : [object]
+		}),
+		heading: analysis.heading
+	}
+}
+
+/** The view of a role relation other than a closed whole entry, with the identity it is named by. */
+const viewOf = (
+	b: InstallBuilder,
+	cx: WorldsContext,
+	role: OwnedRole,
+	theory: Identity<"role">,
+	schema: string,
+	r: Exclude<RoleRelation, { readonly kind: "closed" }>
+): ViewPlan & { readonly named: Identity<"roleView"> } => {
+	const named = roleView(theory, r.entry)
+	const name = objectName(schema, b.name(named))
+	switch (r.kind) {
+		case "stored":
+			return {
+				named,
+				...wholeView(b, name, r.relation.name, r.relation.fields, b.readObject(r.relation.name))
+			}
+		case "derived":
+			return {
+				named,
+				...wholeView(
+					b,
+					name,
+					r.entry.relation.name,
+					r.analysis.heading,
+					b.readObject(r.entry.relation.name)
+				)
+			}
+		case "world":
+			return { named, ...worldView(b, cx, role, name, r.entry, r.analysis) }
+	}
+}
+
+/** A world function: a writable entry's filter function or one of its key and unique probes, its name and its object. */
+interface WorldFunction {
+	readonly name: FunctionName
+	readonly spec: ObjectSpec<"publish">
+}
+
+/** What one role's writable entry installs on its table: its policy's predicate, its filter function when its
+ * membership reads another relation, its key and unique probes, and its privileges on the table. */
+interface WritePlan {
+	/**
+	 * "whole": a whole entry, which writes the table as it is; "rows": a query entry, whose writes the table's row
+	 * security holds to the entry's membership.
+	 */
+	readonly kind: "whole" | "rows"
+	readonly filter: Expr
+	/** The functions it installs: a query entry's filter function when it has one, then its key and unique probes. */
+	readonly functions: ReadonlyArray<WorldFunction>
+	readonly grants: ReadonlyArray<SqlStatement>
+}
+
+/** The alias a probe reads T's row under: r0, the input-row alias the write protocols use, since a lowering numbers its
+ * own FROM items from r1, so no item inside the membership takes it. */
+const probeRow = "r0"
+
+/** Whether a role holds column UPDATE on a head field of its writable entry over a mutable T: only on a free one. A key
+ * field is the identity an update matches by, and a claim-fixed one holds the claim's value in every fact of the world,
+ * so the privilege set enforces the world beside the policy's WITH CHECK. */
+const takesUpdate: Readonly<Record<HeadStanding, boolean>> = {
+	free: true,
+	claimFixed: false,
+	keyed: false
+}
+
+const writePlan = (
+	b: InstallBuilder,
+	cx: WorldsContext,
+	role: OwnedRole,
+	theory: Identity<"role">,
+	w: WrittenEntry
+): WritePlan => {
+	const e = w.write
+	const written = w.relation
+	const grantee: ReadonlyArray<Grantee> = [{ kind: "role", name: identifierOf(theory) }]
+	const grant = (privileges: ReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
+		kind: "grant",
+		privileges,
+		on,
+		to: grantee
+	})
+	/** EXECUTE on the advance function of each serial field of the relation: no role holds a privilege on
+	 * an identity sequence. */
+	const advances = serialFields(written).map((field): FunctionName => ({
+		...b.names.advance(written.name, field),
+		args: [types.bigint]
+	}))
+	const advanceGrants: ReadonlyArray<SqlStatement> =
+		advances.length === 0 ? [] : [grant(["EXECUTE"], { kind: "FUNCTION", names: advances })]
+	if (e.kind === "whole") {
+		const r = e.relation
+		const tableName = b.names.relation(r.name)
+		return {
+			kind: "whole",
+			filter: lit.bool(true),
+			functions: [],
+			grants: [
+				grant(
+					r.mutable ? ["SELECT", "INSERT", "UPDATE", "DELETE"] : ["SELECT", "INSERT", "DELETE"],
+					{
+						kind: "TABLE",
+						names: [tableName]
+					}
+				),
+				...advanceGrants
+			]
+		}
+	}
+	const writable = e.writable
+	const relation = written.name
+	const tableName = b.names.relation(relation)
+	const column = (field: LawField): string => b.names.column(relation, field.name)
+	const all = written.fields.map(column)
+	const updatable = written.mutable
+		? [...writable.head.values()].flatMap((h) => (takesUpdate[h.kind] ? [column(h.field)] : []))
+		: []
+	const columnGrant = (
+		privilege: ColumnPrivilege,
+		columns: ReadonlyArray<string>
+	): ReadonlyArray<SqlStatement> =>
+		isNonEmpty(columns)
+			? [{ kind: "grantColumns", privilege, table: tableName, columns, to: identifierOf(theory) }]
+			: []
+	const grants: ReadonlyArray<SqlStatement> = [
+		...columnGrant("SELECT", all),
+		...columnGrant("INSERT", all),
+		...columnGrant("UPDATE", updatable),
+		grant(["DELETE"], { kind: "TABLE", names: [tableName] }),
+		...advanceGrants
+	]
+	/** The entry's probes (see `addWorlds`), exactly those of T's unique objects (write/insert/unique.ts
+	 * RelationUniques.probes) an entry's precheck calls: whether T holds a fact that conflicts with the submitted values
+	 * at one of its unique objects and lies outside the entry's membership, which the policy's own predicate decides
+	 * over that row. One key probe per key of T, at the key's values (overlapping at a span field), and one unique probe
+	 * per unique object of T no key subsumes, such as an at-most-one capacity's unique index, at the values of the
+	 * fields it reads, within its predicate on both sides. Each reads T and what the membership reads as the owner. */
+	const outside = not({
+		kind: "isTrue",
+		expr: unwrap(
+			renderMembership(writable, {
+				schema: cx.checked,
+				names: b.names,
+				catalog: cx.catalog,
+				row: (f) => col(probeRow, column(f))
+			})
+		)
+	})
+	/** A unique object's predicate over one side's values: its selectors, each field equal to its literal. */
+	const within = (u: UniqueObject, of: (field: LawField) => Expr): ReadonlyArray<Expr> =>
+		(u.kind === "index" ? u.where : []).map((s) =>
+			binary("=", of(s.field), lowerLiteral(b.names, s.value, s.field.type))
+		)
+	/** A probe by its identity of its parameters (write/insert/unique.ts probeIdentity, probeParams), each at its base
+	 * type, true where a fact of T outside the entry meets them at its object: within its predicate on both sides, equal
+	 * at its compared fields, overlapping at its span. */
+	const probe = (probed: OutsideProbe): WorldFunction => {
+		const named = probeIdentity(theory, e.name, probed)
+		const u = probed.object
+		const what = probed.kind === "key" ? "the keys" : `the unique object ${u.name}`
+		const probeIdent = b.name(named)
+		const allocated = fieldColumns(probeParams(probed), (f, i) => ({
+			column: column(f),
+			type: baseTypeRef(b.names, f.type),
+			position: i + 1
+		}))
+		const params = allocated.columns
+		const given = (field: LawField): Expr => {
+			const p = allocated.of(field)
+			return param(p.position, p.type)
+		}
+		const stored = (field: LawField): Expr => col(probeRow, column(field))
+		const probeName: FunctionName = {
+			schema: b.schema,
+			name: probeIdent,
+			args: params.map((p) => p.type)
+		}
+		return {
+			name: probeName,
+			spec: {
+				kind: "worldFunction",
+				ident: b.qualified("function", named),
+				ddl: [
+					{
+						kind: "createFunction",
+						language: "sql",
+						name: objectName(b.schema, probeIdent),
+						volatility: "STABLE",
+						parallel: "UNSAFE",
+						security: "DEFINER",
+						searchPath: ["pg_catalog", "pg_temp"],
+						planCacheMode: "force_generic_plan",
+						returns: "boolean",
+						params: params.map((p) => ({ name: p.column, type: p.type })),
+						body: exists(
+							simpleSelect(
+								[target(lit.bool(true))],
+								[table(tableName.schema, tableName.name, probeRow)],
+								and(
+									...within(u, stored),
+									...within(u, given),
+									...u.equal.map((f) => binary("=", stored(f), given(f))),
+									...(u.kind === "span" ? [binary("&&", stored(u.span), given(u.span))] : []),
+									outside
+								)
+							)
+						)
+					},
+					{
+						kind: "revoke",
+						privileges: ["ALL"],
+						on: { kind: "FUNCTION", names: [probeName] },
+						from: [{ kind: "PUBLIC" }]
+					}
+				],
+				reasons: [enforcement(`${what} of the writable entry ${role.name}.${e.name}`)],
+				phase: "publish"
+			}
+		}
+	}
+	const probes = relationUniques(
+		b.model.relations.get(relation) ??
+			refuse(
+				"MalformedDescription",
+				role.loc,
+				`a writable entry over an ordinary relation, not ${relation}`
+			)
+	).probes.map(probe)
+	const probeGrants: ReadonlyArray<SqlStatement> = isNonEmpty(probes)
+		? [grant(["EXECUTE"], { kind: "FUNCTION", names: probes.map((p) => p.name) })]
+		: []
+	if (!filterReadsOther(writable)) {
+		const membership = unwrap(
+			renderMembership(writable, {
+				schema: cx.checked,
+				names: b.names,
+				catalog: cx.catalog,
+				row: (f) => col(tableName.name, column(f))
+			})
+		)
+		return {
+			kind: "rows",
+			filter: membership,
+			functions: probes,
+			grants: [...grants, ...probeGrants]
+		}
+	}
+	const filterNamed = identity.filter(theory, e.name)
+	const fnIdent = b.name(filterNamed)
+	/** The fields of T the membership reads, each with its column and its base type, the type the membership reads it
+	 * at and the filter function's parameter's. */
+	const fields = filterFields(writable).map((field) => ({
+		column: column(field),
+		type: baseTypeRef(b.names, field.type)
+	}))
+	const name: FunctionName = { schema: b.schema, name: fnIdent, args: fields.map((f) => f.type) }
+	const body = unwrap(
+		renderMembership(writable, {
+			schema: cx.checked,
+			names: b.names,
+			catalog: cx.catalog,
+			row: (f, position) => param(position + 1, baseTypeRef(b.names, f.type))
+		})
+	)
+	const spec: ObjectSpec<"publish"> = {
+		kind: "worldFunction",
+		ident: b.qualified("function", filterNamed),
+		ddl: [
+			{
+				kind: "createFunction",
+				language: "sql",
+				name: objectName(b.schema, fnIdent),
+				volatility: "STABLE",
+				parallel: "UNSAFE",
+				security: "DEFINER",
+				searchPath: ["pg_catalog", "pg_temp"],
+				planCacheMode: "force_generic_plan",
+				returns: "boolean",
+				params: fields.map((f) => ({ name: f.column, type: f.type })),
+				body
+			},
+			{
+				kind: "revoke",
+				privileges: ["ALL"],
+				on: { kind: "FUNCTION", names: [name] },
+				from: [{ kind: "PUBLIC" }]
+			}
+		],
+		reasons: [enforcement(`the writable entry ${role.name}.${e.name}`)],
+		phase: "publish"
+	}
+	return {
+		kind: "rows",
+		filter: qualifiedCall(
+			b.schema,
+			fnIdent,
+			fields.map((f) => col(tableName.name, f.column))
+		),
+		functions: [{ name, spec }, ...probes],
+		grants: [...grants, grant(["EXECUTE"], { kind: "FUNCTION", names: [name] }), ...probeGrants]
+	}
+}
+
+/** What one role installs beyond its objects: whether it can name the vector type, the tables it writes through a
+ * query entry, each with its policy, and its schema and views, which PUBLIC holds nothing on. */
+interface RoleOutcome {
+	readonly installed: InstalledRole
+	readonly vector: boolean
+	readonly secured: ReadonlyArray<{ readonly relation: string; readonly policy: Node<"publish"> }>
+	readonly views: ReadonlyArray<ObjectName>
+}
+
+/** The objects of the enums and domains `use` holds, each the installation creates. */
+const usedNodes = (use: TypeUse): ReadonlyArray<Node<"setup">> =>
+	[...use.enums.values(), ...use.domains.values()].flatMap((t) =>
+		t.node === undefined ? [] : [t.node]
+	)
+
+/** One role's theory role, schema, views, policies, filter functions, key and unique probes and grants. A closed whole
+ * entry has no view: its facts are read as literals, typed by its enum and its payloads' domains, which the role uses.
+ * The filter function a policy calls, then the probes, each come after every relation, type and function their
+ * statements read. */
+const addRole = (
+	b: InstallBuilder,
+	cx: WorldsContext,
+	{ theory: named, checked }: CheckedRole,
+	login: { readonly role: string; readonly object: Node<"publish"> },
+	advance: AdvanceFunctions
+): RoleOutcome => {
+	const role = checked.world.role
+	const theory = b.name(named)
+	const schemaNamed = identity.roleSchema(named)
+	const schema = b.name(schemaNamed)
+	const why = [enforcement(`role ${role.name}`)]
+	const roleObject = b.add(
+		{
+			kind: "role",
+			ident: { kind: "role", name: named },
+			ddl: [{ kind: "createRole", name: theory, login: false }],
+			reasons: why,
+			phase: "publish"
+		},
+		[]
+	)
+	b.add(
+		{
+			kind: "membership",
+			ident: { kind: "membership", name: named },
+			ddl: [{ kind: "grantRole", role: theory, to: login.role }],
+			reasons: why,
+			phase: "publish"
+		},
+		[roleObject, login.object]
+	)
+	const schemaObject = b.add(
+		{
+			kind: "roleSchema",
+			ident: { kind: "schema", name: schemaNamed },
+			ddl: [{ kind: "createSchema", name: schema, authorization: b.settings.owner }],
+			reasons: why,
+			phase: "publish"
+		},
+		[]
+	)
+
+	const use = emptyUse()
+	const grants: Array<SqlStatement> = []
+	const after: Array<Node<DeployPhase>> = [roleObject, b.schemaNode, schemaObject]
+	const grantee: ReadonlyArray<Grantee> = [{ kind: "role", name: theory }]
+	const grant = (privileges: ReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
+		kind: "grant",
+		privileges,
+		on,
+		to: grantee
+	})
+
+	const views: Array<ObjectName> = []
+	for (const r of checked.entries.map(roleRelation)) {
+		if (r.kind === "closed") {
+			useColumns(b, r.relation.fields, use)
+			continue
+		}
+		const plan = viewOf(b, cx, role, named, schema, r)
+		const own = emptyUse()
+		useColumns(b, plan.heading, own)
+		const view = b.add(
+			{
+				kind: "view",
+				ident: { kind: "view", schema: schemaNamed, name: plan.named },
+				ddl: [plan.create],
+				reasons: why,
+				phase: "publish"
+			},
+			[schemaObject, ...plan.reads, ...readsOf(b, [plan.create]), ...usedNodes(own)]
+		)
+		useColumns(b, plan.heading, use)
+		views.push(plan.create.name)
+		after.push(view)
+	}
+
+	const secured: Array<{ readonly relation: string; readonly policy: Node<"publish"> }> = []
+	for (const w of roleWrites(checked)) {
+		const plan = writePlan(b, cx, role, named, w)
+		const relation = w.relation.name
+		const tableName = b.names.relation(relation)
+		const written = b.table(relation)
+		useColumns(b, w.relation.fields, use)
+		grants.push(...plan.grants)
+		after.push(
+			written,
+			...serialFields(w.relation).flatMap((f) => {
+				const fn = advance.get(relation)?.get(f)
+				return fn === undefined ? [] : [fn]
+			})
+		)
+		const policyNamed = identity.policy(named, relation)
+		const policyName = b.name(policyNamed)
+		const policyDdl: SqlStatement = {
+			kind: "createPolicy",
+			name: policyName,
+			table: tableName,
+			role: theory,
+			filter: plan.filter
+		}
+		const functions = plan.functions.map((fn) =>
+			b.add(fn.spec, [b.schemaNode, ...readsOf(b, fn.spec.ddl)])
+		)
+		const policy = b.add(
+			{
+				kind: "policy",
+				ident: {
+					kind: "policy",
+					schema: b.settings.installation,
+					relation: b.names.relationNamed(relation),
+					name: policyNamed
+				},
+				ddl: [policyDdl],
+				reasons: [enforcement(`the writable entry ${role.name}.${w.write.name}`)],
+				phase: "publish"
+			},
+			[written, roleObject, ...readsOf(b, [policyDdl])]
+		)
+		after.push(...functions)
+		if (plan.kind === "rows") {
+			secured.push({ relation, policy })
+		}
+	}
+	const refuses = role.writes.size > 0 || Object.keys(role.contexts).length > 0
+	if (refuses) {
+		after.push(b.refusal)
+	}
+
+	const refreshed = role.refresh.map((f) => b.names.relation(f))
+	for (const f of role.refresh) {
+		const view = b.materializedView(f)
+		if (view !== undefined) {
+			after.push(view)
+		}
+	}
+
+	const privileges: Array<SqlStatement> = [
+		grant(["USAGE"], { kind: "SCHEMA", names: [b.schema, schema] })
+	]
+	if (use.vector) {
+		privileges.push(grant(["USAGE"], { kind: "SCHEMA", names: [b.settings.vectorSchema] }))
+	}
+	if (use.enums.size > 0) {
+		privileges.push(grant(["USAGE"], { kind: "TYPE", names: sortedNames(use.enums) }))
+	}
+	if (use.domains.size > 0) {
+		privileges.push(grant(["USAGE"], { kind: "DOMAIN", names: sortedNames(use.domains) }))
+	}
+	if (views.length > 0) {
+		privileges.push(grant(["SELECT"], { kind: "TABLE", names: views }))
+	}
+	if (refreshed.length > 0) {
+		privileges.push(grant(["MAINTAIN"], { kind: "TABLE", names: refreshed }))
+	}
+	privileges.push(...grants)
+	if (refuses) {
+		privileges.push(grant(["EXECUTE"], { kind: "FUNCTION", names: [refusalFunction(b.schema)] }))
+	}
+	b.add(
+		{
+			kind: "privileges",
+			ident: { kind: "privileges", name: named },
+			ddl: privileges,
+			reasons: why,
+			phase: "publish"
+		},
+		[...after, ...usedNodes(use)]
+	)
+	return {
+		installed: { name: role.name, role: theory, schema },
+		vector: use.vector,
+		secured,
+		views
+	}
+}
+
+const addLogin = (
+	b: InstallBuilder,
+	cx: WorldsContext,
+	{ login, roles }: CheckedLogin,
+	advance: AdvanceFunctions
+): {
+	readonly installed: InstalledLogin
+	readonly vector: boolean
+	readonly secured: RoleOutcome["secured"]
+	readonly views: ReadonlyArray<ObjectName>
+} => {
+	const named = loginIdentity(b.settings.installation, login.name, login.loc)
+	const role = b.name(named)
+	const why = [enforcement(`login ${login.name}`)]
+	const roleObject = b.add(
+		{
+			kind: "role",
+			ident: { kind: "role", name: named },
+			ddl: [{ kind: "createRole", name: role, login: true }],
+			reasons: why,
+			phase: "publish"
+		},
+		[]
+	)
+	b.add(
+		{
+			kind: "privileges",
+			ident: { kind: "privileges", name: named },
+			ddl: [
+				{
+					kind: "grant",
+					privileges: ["USAGE"],
+					on: { kind: "SCHEMA", names: [b.schema] },
+					to: [{ kind: "role", name: role }]
+				},
+				{
+					kind: "grant",
+					privileges: ["EXECUTE"],
+					on: { kind: "FUNCTION", names: [snapshotGuardFunction(b.schema)] },
+					to: [{ kind: "role", name: role }]
+				}
+			],
+			reasons: why,
+			phase: "publish"
+		},
+		[roleObject, b.schemaNode, b.snapshotGuard]
+	)
+	const outcomes = [...roles]
+		.toSorted((x, y) => compareText(x.checked.world.role.name, y.checked.world.role.name))
+		.map((r) => addRole(b, cx, r, { role, object: roleObject }, advance))
+	return {
+		installed: { name: login.name, role, roles: outcomes.map((o) => o.installed) },
+		vector: outcomes.some((o) => o.vector),
+		secured: outcomes.flatMap((o) => o.secured),
+		views: outcomes.flatMap((o) => o.views)
+	}
+}
+
+/** Worlds: the logins over a schema, their roles, each role's schema and views, grants and policies, the writable
+ * entries' filter functions and key and unique probes, the logins' defaults, and the PUBLIC revokes.
+ *
+ * Every name is minted at the naming door under the installation's identity (`worldNames`): a login's and a role's
+ * PostgreSQL roles are cluster-wide. Per login over the base, the Publish phase emits:
+ *
+ * - `CREATE ROLE <login> LOGIN NOINHERIT`: the one credential of a pool, holding no privilege of its own but
+ *   USAGE on the base schema, SELECT on the ledger and EXECUTE on the snapshot guard: the fence Db.open's admission and
+ *   every transaction of its Dbs take as the login, the ledger's lock (deploy/ledger/ledger.ts) and the guard
+ *   (physical/ddl/ledger.ts);
+ * - the login's defaults, as ALTER ROLE ... SET, which PostgreSQL applies at login and never on SET ROLE: `jit = off`,
+ *   `extra_float_digits = 1` (float text is shortest round-trip only when it is positive) and the four locale
+ *   categories at C.UTF-8. lc_messages is superuser-only: the migration identity sets it through the SET privilege
+ *   the cluster grants it. For a login one of whose roles can name the vector type, the fixed HNSW search policy too
+ *   (`searchPolicySettings`): an `hnsw.*` parameter is a placeholder until the vector library is loaded in the
+ *   session, and the migration identity, which is no superuser, may store one only after that (42501 before), so the
+ *   defaults list a statement that loads the library, `SELECT <ext>.vector_dims('[1]'::<ext>.vector)`, once, before
+ *   the first of them. It is the one default statement that is not an ALTER ROLE: it installs nothing, and a migration
+ *   runs it whenever it stores a default after it.
+ *
+ * Per role of a login:
+ *
+ * - `CREATE ROLE <role> NOLOGIN`, its theory role, and `GRANT <role> TO <login> WITH INHERIT FALSE, SET
+ *   TRUE`: the login acts as the role only after SET ROLE, which each of the role's transactions does first;
+ * - its schema, `CREATE SCHEMA <role schema>`, owned by the owner, and in it one view per role relation, owned by
+ *   the owner, so it reads reality as the owner. A query entry's view is its definition, lowered by the derived
+ *   definition lowering (`lowerDefinition`), which reads a context where it stands, `CREATE VIEW ... WITH (security_barrier)`, so no qual a reader adds runs before its own
+ *   and no error such a qual raises shows a row outside it. A whole entry's view reads every row and column of its
+ *   table (or its materialized view) and hides nothing, so it is a plain view, which PostgreSQL flattens into the
+ *   reader's query, pushing its quals to the table's indexes and keeping SSI's read locks to the rows read. A closed
+ *   whole entry has no view: every query reads a closed relation's facts as typed literals;
+ * - per writable entry, one policy on the table T it writes, named for the role and T, `FOR ALL TO <role> USING (m) WITH
+ *   CHECK (m)`, where m is the entry's membership (`renderMembership`): TRUE for a whole entry, and for a
+ *   query entry `fixed ∧ w` over T's row, an existence test of that one row, lowered in the transaction context as a
+ *   view's definition is, which reads each other relation by its index at the values the row fixes. A membership that
+ *   reads another relation is a function's,
+ *   `<schema>.<filter>(<T's fields it reads>) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER`, owned by
+ *   the owner, which reads reality, never the role's policies, and which the policy and each write's precheck call. One
+ *   that reads none is the policy's own predicate. Either reads T's row by T's table name, `"<table>"."<column>"`,
+ *   which no item inside the membership takes (a lowering aliases each of its own r<n>), so no column of
+ *   T is read as another relation's column of that name;
+ * - per writable query entry, one key probe per key of T, primary and candidate, `<schema>.<key probe>(<the key's fields
+ *   at their base types>) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER`, owned by the
+ *   owner: whether T holds a fact at the submitted key values (overlapping at a span field) that lies outside the
+ *   entry's membership, which the policy's own predicate decides over that row; and one unique probe, alike, per
+ *   unique object of T no key subsumes (write/insert/unique.ts OutsideProbe), such as an at-most-one capacity's unique
+ *   index, over the fields the object reads: whether such a fact conflicts with the submitted values there, within
+ *   the object's predicate. A write's precheck calls each for the facts it submits and refuses a collision with a
+ *   hidden fact under the object's law, in the same statement;
+ * - its privileges: USAGE on the base schema, on its own schema, on the vector extension's schema when a relation it
+ *   reads or writes holds a vector column, and on the enums and domains its relations' columns are typed by, down a
+ *   contract's base chain and structural text domains alike, which a write's carriers name;
+ *   SELECT on each of its views; MAINTAIN on the materialized view of each derived relation it refreshes, which
+ *   REFRESH MATERIALIZED VIEW checks. For each writable entry on T: a whole entry's table SELECT, INSERT and DELETE,
+ *   and UPDATE when its relation is mutable, so an UPDATE of an immutable relation is refused by privilege (immutable by
+ *   default is pinned); a query entry's column SELECT and INSERT on T's fields (the head's and the fixed ones, which
+ *   are all of them), column UPDATE on its mutable head fields that are neither fixed nor in a key, and DELETE;
+ *   EXECUTE on the advance function of every serial field of T (`addAdvanceFunctions`), the one way a write moves the field's
+ *   identity sequence past explicit values, since no role holds a privilege on a sequence; EXECUTE on its filter
+ *   functions and key and unique probes. EXECUTE on the refusal function to a role that writes or reads a context: its
+ *   context sources refuse an unreadable claims setting through it, and PostgreSQL checks EXECUTE on every function of
+ *   a plan as the plan starts, a branch never taken included. TRUNCATE is granted to no one, and no role holds a
+ *   privilege on a base table it does not write.
+ *
+ * Row security is enabled on every table some role writes through a query entry, once its policies stand, `ALTER TABLE ... ENABLE ROW LEVEL
+ * SECURITY`; its owner, the migration identity, bypasses it, and FORCE is never used.
+ *
+ * For the schema as a whole: REVOKE ALL ... FROM PUBLIC on the base schema and every role's schema, every table and
+ * view, every identity sequence, every enum and every domain, so PUBLIC holds nothing on any schema object; and
+ * default-privilege resets so future objects grant nothing implicitly: ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN
+ * SCHEMA <schema> REVOKE ALL ON TABLES and ON SEQUENCES FROM PUBLIC, and, because PostgreSQL adds per-schema default
+ * ACLs to the global ones and cannot revoke the built-in PUBLIC EXECUTE on functions and USAGE on types per schema,
+ * the global ALTER DEFAULT PRIVILEGES FOR ROLE <owner> REVOKE ALL ON FUNCTIONS and ON TYPES FROM PUBLIC. */
+export const addWorlds = (
+	b: InstallBuilder,
+	advance: AdvanceFunctions,
+	revocable: Revocable,
+	checkedLogins: ReadonlyArray<CheckedLogin>
+): WorldsPlan => {
+	const logins = [...checkedLogins].toSorted((x, y) => compareText(x.login.name, y.login.name))
+	const cx = worldsContext(b)
+	const roleDefaults: Array<SqlStatement> = []
+	const searchDefaults: Array<SqlStatement> = []
+	const worlds: Array<InstalledLogin> = []
+	const views: Array<ObjectName> = []
+	const secured = new Map<string, Array<Node<"publish">>>()
+	for (const login of logins) {
+		const added = addLogin(b, cx, login, advance)
+		worlds.push(added.installed)
+		views.push(...added.views)
+		for (const s of added.secured) {
+			secured.set(s.relation, [...(secured.get(s.relation) ?? []), s.policy])
+		}
+		const settings = (list: ReadonlyArray<RoleSetting>): ReadonlyArray<SqlStatement> =>
+			list.map((s) => ({
+				kind: "alterRole",
+				name: added.installed.role,
+				action: { kind: "set", parameter: s.parameter, value: s.value }
+			}))
+		roleDefaults.push(...settings(roleDefaultSettings))
+		if (added.vector) {
+			searchDefaults.push(...settings(searchPolicySettings))
+		}
+	}
+	for (const [relation, policies] of [...secured].toSorted(([x], [y]) => compareText(x, y))) {
+		const tableName = b.names.relation(relation)
+		b.add(
+			{
+				kind: "rowSecurity",
+				ident: b.qualified("rowSecurity", b.names.relationNamed(relation)),
+				ddl: [{ kind: "alterTable", table: tableName, actions: [{ kind: "enableRowSecurity" }] }],
+				reasons: [enforcement(`the writes of ${relation} through query entries`)],
+				phase: "publish"
+			},
+			[b.table(relation), ...policies]
+		)
+	}
+	if (searchDefaults.length > 0) {
+		roleDefaults.push(vectorLibraryLoad(b.settings.vectorSchema), ...searchDefaults)
+	}
+	return {
+		roleDefaults,
+		publicRevokes: publicRevokes(b, {
+			...revocable,
+			schemas: worlds.flatMap((l) => l.roles.map((r) => r.schema)),
+			views
+		}),
+		worlds
+	}
+}
+
+/** What PUBLIC is revoked from beside the base schema: the tables with their identity sequences, the enums and the
+ * domains, each in the order the installation added them. */
+export interface Revocable {
+	readonly tables: ReadonlyArray<ObjectName>
+	readonly sequences: ReadonlyArray<ObjectName>
+	readonly enums: ReadonlyArray<ObjectName>
+	readonly domains: ReadonlyArray<ObjectName>
+}
+
+/** PUBLIC holds no privilege on any schema object, and the owner's future objects grant it nothing: the base schema
+ * and every role's schema, every table and role view, every identity sequence, enum and domain. */
+const publicRevokes = (
+	b: InstallBuilder,
+	objects: Revocable & {
+		readonly schemas: ReadonlyArray<string>
+		readonly views: ReadonlyArray<ObjectName>
+	}
+): ReadonlyArray<SqlStatement> => {
+	const from: ReadonlyArray<Grantee> = [{ kind: "PUBLIC" }]
+	const out: Array<SqlStatement> = [
+		{
+			kind: "revoke",
+			privileges: ["ALL"],
+			on: { kind: "SCHEMA", names: [b.schema, ...objects.schemas] },
+			from
+		}
+	]
+	const tables = [...objects.tables, ...objects.views]
+	if (tables.length > 0) {
+		out.push({ kind: "revoke", privileges: ["ALL"], on: { kind: "TABLE", names: tables }, from })
+	}
+	if (objects.sequences.length > 0) {
+		out.push({
+			kind: "revoke",
+			privileges: ["ALL"],
+			on: { kind: "SEQUENCE", names: objects.sequences },
+			from
+		})
+	}
+	if (objects.enums.length > 0) {
+		out.push({
+			kind: "revoke",
+			privileges: ["ALL"],
+			on: { kind: "TYPE", names: objects.enums },
+			from
+		})
+	}
+	if (objects.domains.length > 0) {
+		out.push({
+			kind: "revoke",
+			privileges: ["ALL"],
+			on: { kind: "DOMAIN", names: objects.domains },
+			from
+		})
+	}
+	/** A migration's resets are the current role's, the migration identity's; a fresh-install script a superuser runs
+	 * names the owner (InstallSettings.owner). */
+	const forRole = b.settings.owner
+	for (const on of ["TABLES", "SEQUENCES"] as const) {
+		out.push({
+			kind: "alterDefaultPrivileges",
+			forRole,
+			inSchema: b.schema,
+			privileges: ["ALL"],
+			on,
+			from
+		})
+	}
+	for (const on of ["FUNCTIONS", "TYPES"] as const) {
+		out.push({
+			kind: "alterDefaultPrivileges",
+			forRole,
+			inSchema: undefined,
+			privileges: ["ALL"],
+			on,
+			from
+		})
+	}
+	return out
+}

@@ -1,0 +1,83 @@
+import { Array as Arr } from "effect"
+import { wild } from "#test/support/kernel/naming.ts"
+import { OracleChangeSet, type OracleSchema } from "#test/support/oracle/addwins.ts"
+
+export const kinds = ["a", "b"] as const
+
+/**
+ * A small schema for the add-wins and delta oracle tests: keyed, pure-set, candidate-keyed and serial relations. The
+ * add-wins oracle reports a law as an opaque label, so each is a name no production rule produces.
+ */
+export const schema: OracleSchema = {
+	relations: [
+		{
+			name: "Task",
+			heading: [
+				{ name: "id", spec: { carrier: "int4" } },
+				{ name: "account", spec: { carrier: "int4" } },
+				{ name: "kind", spec: { carrier: "enum", handles: kinds } }
+			],
+			primaryKey: { law: wild.lawId("task_pk"), fields: ["id"] },
+			keys: [],
+			partialKeys: [],
+			serial: []
+		},
+		{
+			name: "Account",
+			heading: [
+				{ name: "id", spec: { carrier: "int4" } },
+				{ name: "name", spec: { carrier: "text" } }
+			],
+			primaryKey: { law: wild.lawId("account_pk"), fields: ["id"] },
+			keys: [{ law: wild.lawId("account_key_name"), fields: ["name"] }],
+			partialKeys: [],
+			serial: []
+		},
+		{
+			name: "Label",
+			heading: [
+				{ name: "account", spec: { carrier: "int4" } },
+				{ name: "label", spec: { carrier: "text" } }
+			],
+			primaryKey: { law: wild.lawId("label_pk"), fields: ["account", "label"] },
+			keys: [],
+			partialKeys: [],
+			serial: []
+		},
+		{
+			name: "Ticket",
+			heading: [
+				{ name: "id", spec: { carrier: "int8" } },
+				{ name: "title", spec: { carrier: "text" } }
+			],
+			primaryKey: { law: wild.lawId("ticket_pk"), fields: ["id"] },
+			keys: [{ law: wild.lawId("ticket_key_title"), fields: ["title"] }],
+			serial: ["id"],
+			partialKeys: []
+		}
+	]
+}
+
+export const task = (
+	id: number,
+	account: number,
+	kind: (typeof kinds)[number]
+): { id: number; account: number; kind: "a" | "b" } => ({
+	id,
+	account,
+	kind
+})
+
+/** One ChangeSet of strata, each stratum the given members in order: OracleChangeSet.sequence takes at least one. */
+export const sequenceOf = <M>(
+	layers: ReadonlyArray<ReadonlyArray<M>>,
+	add: (changes: OracleChangeSet, member: M) => OracleChangeSet
+): OracleChangeSet => {
+	const [first, ...rest] = Arr.map(layers, (members) =>
+		Arr.reduce(members, OracleChangeSet.empty(), add)
+	)
+	if (first === undefined) {
+		throw new Error("a sequence of at least one stratum")
+	}
+	return OracleChangeSet.sequence(first, ...rest)
+}

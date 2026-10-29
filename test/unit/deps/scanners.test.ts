@@ -1,0 +1,143 @@
+import { describe, it } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { noFeatures } from "@grizzle/testing/features"
+import { element, oneOf, string } from "@grizzle/testing/gen"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { isCUtf8 } from "#adapter/admission/expectation.ts"
+import { isTlsCode } from "#adapter/wire/session.ts"
+import { parseSqlstate } from "#compiler/core/sqlstate.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
+
+import { regex } from "arkregex"
+/**
+ * The hand-written scanners that replaced RegExp in the adapter when
+ * their packages met the dependency gate (no RegExp construction, .test or .exec under src/). Each is pinned against the
+ * regex it replaces over generated texts. Tests may use RegExp; src may not.
+ *
+ * The rotating stream's cases of every property here.
+ */
+const numRuns = 20_000
+
+const textOf = (letters: string, maxLength: number) =>
+	string(element(nonEmpty(Arr.fromIterable(letters), "an alphabet")), { min: 0, max: maxLength })
+
+describe("scanners that replace a RegExp under src", () => {
+	it.effect("isCUtf8 accepts exactly /^C\\.UTF-?8$/i", (ctx) =>
+		Effect.gen(function* () {
+			const reference = regex("^C\\.UTF-?8$", "i")
+			const texts = oneOf([
+				textOf("cCuUtTfF.-8 Kſİ", 9),
+				element(["C.UTF-8", "c.utf8", "C.utf-8", "C.UTF-8 ", "C", "POSIX", "en_US.UTF-8"])
+			])
+			yield* searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/deps/scanners-1",
+						draw: drawn(texts),
+						literal: Formatter.format,
+						features: noFeatures,
+						kept: [],
+						runs: numRuns,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(text) =>
+						Effect.sync(() => {
+							assert.equal(isCUtf8(text), reference.test(text))
+						})
+				)
+			)
+			assert.equal(isCUtf8("c.UtF8"), true)
+			assert.equal(isCUtf8("C.UTF_8"), false)
+		})
+	)
+
+	it.effect("parseSqlstate reads exactly /^[0-9A-Z]{5}$/, as the text itself", (ctx) =>
+		Effect.gen(function* () {
+			const reference = regex("^[0-9A-Z]{5}$")
+			yield* searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/deps/scanners-2",
+						draw: drawn(textOf("09AZaz_ ٠", 7)),
+						literal: Formatter.format,
+						features: noFeatures,
+						kept: [],
+						runs: numRuns,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(text) =>
+						Effect.sync(() => {
+							const parsed: string | undefined = parseSqlstate(text)
+							assert.equal(parsed, reference.test(text) ? text : undefined)
+						})
+				)
+			)
+			const read = (text: string): string | undefined => parseSqlstate(text)
+			assert.equal(read("40001"), "40001")
+			assert.equal(read("EPIPE"), "EPIPE")
+			assert.equal(read("23p01"), undefined)
+		})
+	)
+
+	it.effect(
+		"isTlsCode recognizes the certificate codes and exactly the /^ERR_(?:TLS|SSL)_/ prefixes",
+		(ctx) =>
+			Effect.gen(function* () {
+				const reference = regex("^ERR_(?:TLS|SSL)_")
+				const texts = oneOf([
+					textOf("ERR_TLSX", 10),
+					element([
+						"ERR_TLS_CERT_ALTNAME_INVALID",
+						"ERR_SSL_WRONG_VERSION_NUMBER",
+						"ERR_TLS",
+						"ECONNREFUSED"
+					])
+				])
+				const certificate = new Set([
+					"CERT_HAS_EXPIRED",
+					"DEPTH_ZERO_SELF_SIGNED_CERT",
+					"HOSTNAME_MISMATCH"
+				])
+				yield* searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/deps/scanners-3",
+							draw: drawn(texts),
+							literal: Formatter.format,
+							features: noFeatures,
+							kept: [],
+							runs: numRuns,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							steering: { kind: "none" },
+							caseHang: Duration.minutes(2)
+						},
+						(text) =>
+							Effect.sync(() => {
+								if (!certificate.has(text)) {
+									assert.equal(isTlsCode(text), reference.test(text))
+								}
+							})
+					)
+				)
+				for (const code of certificate) {
+					assert.equal(isTlsCode(code), true)
+				}
+				assert.equal(isTlsCode(42), false)
+			})
+	)
+})

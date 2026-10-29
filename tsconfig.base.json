@@ -1,0 +1,14 @@
+{
+	"compilerOptions": {
+		"target": "esnext",
+		"lib": ["esnext"],
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"moduleDetection": "force",
+		"types": ["node"],
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"noEmit": true
+	}
+}

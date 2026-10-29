@@ -1,0 +1,14 @@
+{
+	"extends": ["@grizzle/devtools/tsconfig.base.json", "../../tsconfig.base.json"],
+	"compilerOptions": {
+		"composite": true,
+		"incremental": true,
+		"noEmit": false,
+		"emitDeclarationOnly": true,
+		"declarationMap": true,
+		"rootDir": "src",
+		"outDir": "types",
+		"plugins": []
+	},
+	"include": ["src"]
+}

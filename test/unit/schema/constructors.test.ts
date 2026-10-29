@@ -1,0 +1,2254 @@
+import { describe, it } from "@effect/vitest"
+import { drawn, explore, sketched } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	shuffled,
+	uniqueArray,
+	weighted
+} from "@grizzle/testing/gen"
+import { matching } from "@grizzle/testing/pattern"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { bigint, double } from "@grizzle/testing/values"
+import { searched } from "@grizzle/testing/vitest"
+import {
+	Array as Arr,
+	Duration,
+	Effect,
+	Formatter,
+	Order,
+	pipe,
+	Record as Rec,
+	String as Str
+} from "effect"
+import { isRecord } from "#compiler/core/record.ts"
+import type { BoundValueDesc, ExprDesc, LiteralDesc, StatementDesc } from "#compiler/ir/desc.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { untypedTerm } from "#compiler/query/build/terms.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
+import { literalResult } from "#compiler/schema/literal.ts"
+import { own } from "#compiler/schema/own.ts"
+import {
+	admitClosed,
+	admitDerived,
+	admitRelation,
+	closed,
+	derived,
+	relation,
+	relationDescOf
+} from "#compiler/schema/relation.ts"
+import { admitSchema, schema, schemaDescOf } from "#compiler/schema/schema.ts"
+import {
+	admitCapacity,
+	alternatives,
+	alternativesDescOf,
+	alternativesId,
+	capacity,
+	check,
+	contained,
+	duration,
+	key,
+	mirrors,
+	mutable,
+	on,
+	ref,
+	select,
+	sideDescOf,
+	statementDescOf,
+	weigh,
+	within
+} from "#compiler/schema/statements.ts"
+import type { RowTerm } from "#compiler/schema/terms.ts"
+import type { AnyDerived } from "#compiler/types/derived/derived.ts"
+import type { FieldBase } from "#compiler/types/fields/field.ts"
+import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
+import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import type { Statement } from "#compiler/types/schema/statements.ts"
+import {
+	assert,
+	defined,
+	faulted,
+	matchesObject,
+	succeeded,
+	throwsRefused
+} from "#test/support/assert.ts"
+import { whereIndex } from "#test/support/oracle/pick.ts"
+import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
+import {
+	closedId,
+	rawContract,
+	descOf,
+	patternOnly,
+	rawPg,
+	type Row,
+	regex,
+	span,
+	uuid,
+	wildcard
+} from "#test/unit/schema/support.ts"
+
+import { regex as arkregex } from "arkregex"
+/**
+ * The relation, closed, derived, schema and statement constructors: each records
+ * its Description, refuses a malformed JavaScript argument synchronously with MalformedDescription, and
+ * returns a frozen value whose public members are exactly the public API's.
+ *
+ * Every property draws a well-formed declaration and plants at most one defect a JavaScript caller can write, so the
+ * oracle is the constructor's documented rule (packages/engine/src/schema/relation.ts, statements.ts, schema.ts, literal.ts)
+ * restated: a planted defect is refused, and a declaration without one records exactly what was written. A defect is
+ * refused where the builder admits its arguments, its admission core (admitRelation, admitClosed, ...), which a
+ * declaration with no defect reaches through the builder itself.
+ */
+const Kind = closed("Kind", ["Automatic", "Manual"])
+const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
+
+/**
+ * A one-rule definition over `over` finding the ids of `sources`, each a relation or a derived relation matched on its
+ * id, built by the query builder's untyped core as a JavaScript caller builds one.
+ */
+const idsOf = (over: unknown, sources: Arr.NonEmptyReadonlyArray<unknown>) =>
+	queryOver(over).rule((r: RuleValue) => {
+		const { id } = varsOver(sources[0])
+		return Arr.reduce(sources, r, (rule: RuleValue, source) => rule.match(source, { id })).find({
+			id
+		})
+	})
+
+/** A drawn roster, which every draw makes nonempty, as the nonempty list closed(...) takes. */
+const rosterOf = (handles: ReadonlyArray<string>): Arr.NonEmptyReadonlyArray<string> => {
+	const [first, ...rest] = handles
+	if (first === undefined) {
+		return assert.fail("a drawn roster of at least one handle")
+	}
+	return [first, ...rest]
+}
+
+const wordGen = matching(arkregex("^[a-z][a-zA-Z0-9]{0,7}$"))
+
+/** A nonempty list: a first element and up to `more` others. */
+const nonEmptyGen =
+	<A>(item: Gen<A>, more: number): Gen<Arr.NonEmptyReadonlyArray<A>> =>
+	(source) => [source.draw(item), ...source.draw(array(item, { min: 0, max: more }))]
+
+/** The first occurrence of each item, in order. */
+const distinct = <A>(items: ReadonlyArray<A>): Array<A> => [...new Set(items)]
+
+describe("relation", () => {
+	/**
+	 * A descriptor no builder made: str.regex's public pattern alone, a plain object, or an object spread of a built one.
+	 */
+	type LookAlike = "pattern only" | "plain object" | "spread copy"
+	const lookAlikeOf = (kind: LookAlike): unknown =>
+		kind === "pattern only"
+			? patternOnly("^.*$", "su")
+			: kind === "plain object"
+				? { sql: "uuid" }
+				: { ...uuid }
+	const builtDescriptors: Arr.NonEmptyReadonlyArray<FieldBase> = [
+		uuid,
+		rawPg.integer,
+		rawPg.bigint,
+		regex("^[a-z]{1,8}$", "u")
+	]
+
+	type RelationDefect =
+		| "none"
+		| "an empty name"
+		| "no fields"
+		| "a look-alike descriptor"
+		| "an empty field name"
+		| "an empty key"
+		| "an undeclared key field"
+		| "a repeated key field"
+		| "a fourth argument"
+	const relationDefects: ReadonlyArray<RelationDefect> = [
+		"none",
+		"an empty name",
+		"no fields",
+		"a look-alike descriptor",
+		"an empty field name",
+		"an empty key",
+		"an undeclared key field",
+		"a repeated key field",
+		"a fourth argument"
+	]
+	/** The name, field names and primary key an ordinary relation's Description records. */
+	const recorded = (value: unknown, label: string) => {
+		const desc = relationDescOf(value, label)
+		if (desc.kind !== "relation") {
+			return assert.fail(`${label} is an ordinary relation`)
+		}
+		const primaryKey: ReadonlyArray<string> = desc.primaryKey
+		return { name: desc.name, fields: Rec.keys(desc.fields), primaryKey }
+	}
+
+	/** What a caller does to its own inputs after the relation is built. */
+	type Mutation = "add a field" | "extend the key" | "drop a field" | "reverse the key"
+
+	it.effect(
+		"requires a nonempty name, built descriptors and a nonempty, distinct primary key over its own fields, and keeps none of the caller's inputs",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/relation-constructor",
+						draw: drawn((source) => {
+							const name = source.draw(wordGen)
+							const fields = source.draw(
+								uniqueArray(
+									(again) => ({
+										name: again.draw(wordGen),
+										descriptor: again.draw(element(builtDescriptors))
+									}),
+									(f) => f.name,
+									{ min: 1, max: 4 },
+									20
+								)
+							)
+							const names = rosterOf(Arr.map(fields, (f) => f.name))
+							return {
+								name,
+								fields,
+								key: source.draw(nonEmptyGen(element(names), 2)),
+								defect: source.draw(element(Arr.append(relationDefects, "none" as const))),
+								lookAlike: source.draw(
+									element<LookAlike>(["pattern only", "plain object", "spread copy"])
+								),
+								mutation: source.draw(
+									element<Mutation>([
+										"add a field",
+										"extend the key",
+										"drop a field",
+										"reverse the key"
+									])
+								)
+							}
+						}),
+						literal: Formatter.format,
+						features: features<RelationDefect | Mutation>([
+							...relationDefects,
+							"add a field",
+							"drop a field"
+						]),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							c.note(s.defect)
+							const names = Arr.map(s.fields, (f) => f.name)
+							const key = distinct(s.key)
+							const descriptors: Record<string, FieldBase> = Rec.fromEntries(
+								Arr.map(s.fields, (f) => [f.name, f.descriptor])
+							)
+							/** The fields a JavaScript caller hands in, a planted defect among them. */
+							const fields: Record<string, unknown> = { ...descriptors }
+							const name = s.defect === "an empty name" ? "" : s.name
+							if (s.defect === "no fields") {
+								for (const f of names) {
+									delete fields[f]
+								}
+							}
+							if (s.defect === "a look-alike descriptor") {
+								fields[defined(names[0])] = lookAlikeOf(s.lookAlike)
+							}
+							if (s.defect === "an empty field name") {
+								fields[""] = uuid
+							}
+							const primaryKey: Array<string> =
+								s.defect === "an empty key"
+									? []
+									: s.defect === "an undeclared key field"
+										? [...key, "no such field"]
+										: s.defect === "a repeated key field"
+											? [...key, defined(key[0])]
+											: [...key]
+							const lookAlike = { kind: "relation", name, fields, primaryKey }
+							if (s.defect !== "none") {
+								throwsRefused(
+									() =>
+										admitRelation(
+											name,
+											fields,
+											primaryKey,
+											s.defect === "a fourth argument" ? [{}] : []
+										),
+									"MalformedDescription"
+								)
+								if (s.defect !== "a fourth argument") {
+									throwsRefused(
+										() => relationDescOf(lookAlike, "look-alike"),
+										"MalformedDescription"
+									)
+								}
+								return
+							}
+							const R = relation(name, descriptors, primaryKey)
+							const desc = relationDescOf(R, "test")
+							assert.deepEqual(recorded(R, "test"), { name, fields: names, primaryKey: key })
+							assert.deepEqual(recorded(lookAlike, "look-alike"), {
+								name,
+								fields: names,
+								primaryKey: key
+							})
+							c.note(s.mutation)
+							switch (s.mutation) {
+								case "add a field":
+									descriptors["added"] = uuid
+									break
+								case "extend the key":
+									primaryKey.push("added")
+									break
+								case "drop a field":
+									delete descriptors[defined(names[0])]
+									break
+								case "reverse the key":
+									primaryKey.reverse()
+									break
+							}
+							assert.deepEqual(Rec.keys(R.fields), names)
+							assert.deepEqual(R.primaryKey, key)
+							assert.deepEqual(relationDescOf(R, "test"), desc)
+						})
+				)
+			)
+	)
+})
+
+/** A payload field of a closed relation as drawn: its type, and a value of each fact a builder admits for it. */
+type PayloadType = "bigint" | "cents" | "rate" | "money" | "ratio" | "flag"
+
+const Cents = rawContract("Cents", rawPg.bigint, {
+	kind: "compare",
+	op: "ge",
+	left: { kind: "value" },
+	right: { kind: "literal", value: 0n, type: undefined }
+})
+
+const payloadDescriptor = (type: PayloadType): FieldBase => {
+	switch (type) {
+		case "bigint":
+			return rawPg.bigint
+		case "cents":
+			return Cents
+		case "rate":
+			return rawPg.numericOf(7, 6)
+		case "money":
+			return rawPg.money
+		case "ratio":
+			return rawPg.real
+		case "flag":
+			return rawPg.boolean
+	}
+}
+
+/**
+ * A value of each payload type: a contract's literal is its base's, whether or not it satisfies the predicate (that is
+ * the checker's judgment at compilation).
+ */
+const payloadValueGen = (type: PayloadType): Gen<unknown> => {
+	switch (type) {
+		case "bigint":
+		case "cents":
+			return bigint(-1_000_000n, 1_000_000n)
+		case "rate":
+			return map(
+				(source) => ({
+					integer: source.draw(int(0, 8)),
+					fraction: source.draw(matching(arkregex("^[0-9]{0,8}$")))
+				}),
+				({ integer, fraction }) => (fraction === "" ? `${integer}` : `${integer}.${fraction}`)
+			)
+		case "money":
+			return map(bigint(-1_000_000n, 1_000_000n), (cents) => Money.of(cents))
+		case "ratio":
+			return map(int(-1_000_000, 1_000_000), (n) => n / 64)
+		case "flag":
+			return boolean
+	}
+}
+
+/** A value of the wrong host kind for each payload type: a JavaScript number is never a numeric or bigint literal. */
+const mistypedValue = (type: PayloadType): unknown => {
+	switch (type) {
+		case "bigint":
+		case "cents":
+		case "rate":
+			return 1
+		case "money":
+			return 1n
+		case "ratio":
+			return "1"
+		case "flag":
+			return 1
+	}
+}
+
+describe("closed", () => {
+	type ClosedDefect =
+		| "none"
+		| "a missing fact"
+		| "an extra field in a fact"
+		| "a missing field in a fact"
+		| "a fact off the roster"
+		| "a mistyped value"
+		| "a repeated handle"
+		| "an empty roster"
+		| "a payload field named id"
+		| "a payload as a third argument"
+	const closedDefects: ReadonlyArray<ClosedDefect> = [
+		"none",
+		"a missing fact",
+		"an extra field in a fact",
+		"a missing field in a fact",
+		"a fact off the roster",
+		"a mistyped value",
+		"a repeated handle",
+		"an empty roster",
+		"a payload field named id",
+		"a payload as a third argument"
+	]
+	type ClosedFeature = ClosedDefect | "no payload" | "payload"
+
+	const payloadFieldGen: Gen<{
+		readonly name: string
+		readonly type: PayloadType
+		readonly values: ReadonlyArray<unknown>
+	}> = (source) => {
+		const name = source.draw(filter(wordGen, (w) => w !== "id", 100))
+		const type = source.draw(
+			element<PayloadType>(["bigint", "cents", "rate", "money", "ratio", "flag"])
+		)
+		return { name, type, values: source.draw(array(payloadValueGen(type), { min: 4, max: 4 })) }
+	}
+
+	it.effect(
+		"records a roster in declared order and one fact per handle against its payload, types each handle, and refuses every other roster, facts or handle",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/closed-constructor",
+						draw: drawn((source) => {
+							const name = source.draw(wordGen)
+							const handles = rosterOf(
+								source.draw(
+									uniqueArray(
+										matching(arkregex("^[A-Z][a-z]{0,6}$")),
+										(item) => item,
+										{ min: 1, max: 4 },
+										20
+									)
+								)
+							)
+							return {
+								name,
+								handles,
+								payload: source.draw(
+									uniqueArray(payloadFieldGen, (f) => f.name, { min: 0, max: 3 }, 20)
+								),
+								defect: source.draw(element(Arr.append(closedDefects, "none" as const))),
+								target: source.draw(element(handles))
+							}
+						}),
+						literal: Formatter.format,
+						features: features<ClosedFeature>([...closedDefects, "no payload", "payload"]),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							const { handles, target } = s
+							/** A defect that needs a payload field plants one where the drawn payload has none. */
+							const needsField =
+								s.defect === "a missing field in a fact" || s.defect === "a mistyped value"
+							const drawnPayload: ReadonlyArray<{
+								readonly name: string
+								readonly type: PayloadType
+								readonly values: ReadonlyArray<unknown>
+							}> =
+								needsField && s.payload.length === 0
+									? [{ name: "planted", type: "flag" as const, values: [true, false, true, false] }]
+									: s.payload
+							const payload: Record<string, FieldBase> = Rec.fromEntries(
+								Arr.map(drawnPayload, (f) => [f.name, payloadDescriptor(f.type)])
+							)
+							const facts: Record<string, Record<string, unknown>> = Rec.fromEntries(
+								Arr.map(handles, (h, i) => [
+									h,
+									Rec.fromEntries(Arr.map(drawnPayload, (f) => [f.name, f.values[i]]))
+								])
+							)
+							const [first] = drawnPayload
+							c.note(s.defect)
+							switch (s.defect) {
+								case "none":
+									c.note(drawnPayload.length === 0 ? "no payload" : "payload")
+									break
+								case "a missing fact":
+									delete facts[target]
+									break
+								case "an extra field in a fact":
+									defined(facts[target])["extra"] = true
+									break
+								case "a missing field in a fact":
+									delete defined(facts[target])[defined(first).name]
+									break
+								case "a fact off the roster":
+									facts[`${target}Other`] = defined(facts[target])
+									break
+								case "a mistyped value":
+									defined(facts[target])[defined(first).name] = mistypedValue(defined(first).type)
+									break
+								case "a payload field named id":
+									payload["id"] = rawPg.bigint
+									for (const h of handles) {
+										defined(facts[h])["id"] = 1n
+									}
+									break
+								case "a repeated handle":
+								case "an empty roster":
+								case "a payload as a third argument":
+									break
+							}
+							if (s.defect !== "none") {
+								const roster =
+									s.defect === "a repeated handle"
+										? [...handles, target]
+										: s.defect === "an empty roster"
+											? []
+											: handles
+								throwsRefused(
+									() =>
+										s.defect === "a payload as a third argument"
+											? admitClosed(s.name, roster, undefined, [payload])
+											: admitClosed(s.name, roster, { payload, facts }, []),
+									"MalformedDescription"
+								)
+								return
+							}
+							const K =
+								drawnPayload.length === 0
+									? closed(s.name, handles)
+									: closed(s.name, handles).with(payload, facts)
+							const rosterHandles: ReadonlyArray<string> = K.handles
+							assert.deepEqual(rosterHandles, handles)
+							assert.deepEqual(K.facts, facts)
+							const desc = relationDescOf(K, "test")
+							if (desc.kind !== "closed") {
+								return assert.fail("a closed relation's Description")
+							}
+							assert.deepEqual(desc.handles, handles)
+							const keptPayload = K.payload
+							assert.ok(
+								isRecord(keptPayload),
+								"a closed relation's payload is a record of its descriptors"
+							)
+							for (const f of drawnPayload) {
+								assert.equal(keptPayload[f.name], payload[f.name])
+								const fieldDesc = descOf(payloadDescriptor(f.type))
+								assert.deepEqual(desc.payload[f.name], fieldDesc)
+								for (const [i, h] of handles.entries()) {
+									assert.deepEqual(
+										desc.facts[h]?.[f.name],
+										succeeded(literalResult(fieldDesc, f.values[i], undefined))
+									)
+								}
+							}
+							/**
+							 * Either form's handle(h) is h's typed literal at the roster's enum, the literal Compute.literal(closedId(K), h)
+							 * records, its column that handle; a member off the roster is refused as that literal is.
+							 */
+							const rosterId = closedId(K)
+							for (const h of handles) {
+								const term = K.handle(h)
+								assert.deepEqual(term.expr, computeCore.literal(rosterId, h).expr)
+								assert.equal(term.sql, "enum")
+							}
+							throwsRefused(() => K.handle(`${target}Other`), "MalformedDescription")
+							if (drawnPayload.length === 0) {
+								const withEmpty = relationDescOf(
+									closed(s.name, handles).with(
+										{},
+										Rec.fromEntries(Arr.map(handles, (h) => [h, {}]))
+									),
+									"test"
+								)
+								assert.deepEqual({ ...withEmpty, loc: desc.loc }, desc)
+							}
+						})
+				)
+			)
+	)
+})
+
+/** A host value a caller writes against a real, double precision, numeric(p, s) or bare numeric field. */
+type HostValue =
+	| { readonly kind: "number"; readonly value: number }
+	| {
+			readonly kind: "decimal"
+			readonly negative: boolean
+			readonly integer: string
+			readonly fraction: string
+	  }
+	| { readonly kind: "special"; readonly text: "Infinity" | "-Infinity" | "NaN" }
+	| { readonly kind: "bigint"; readonly value: bigint }
+
+const hostValue = (v: HostValue): unknown => {
+	switch (v.kind) {
+		case "number":
+		case "bigint":
+			return v.value
+		case "decimal":
+			return `${v.negative ? "-" : ""}${v.integer}${v.fraction === "" ? "" : `.${v.fraction}`}`
+		case "special":
+			return v.text
+	}
+}
+
+type LiteralField =
+	| { readonly kind: "real" }
+	| { readonly kind: "double precision" }
+	| { readonly kind: "numeric(p, s)"; readonly precision: number; readonly scale: number }
+	| { readonly kind: "numeric" }
+
+/** What the literal rule makes of a value: the float literal, the numeric's text, or the fault. */
+type Expected =
+	| { readonly kind: "float"; readonly literal: LiteralDesc }
+	| { readonly kind: "numeric"; readonly text: string }
+	| {
+			readonly kind: "fault"
+			readonly fault:
+				| "floatType"
+				| "realOverflow"
+				| "realUnderflow"
+				| "numericOverflow"
+				| "numericInfinity"
+				| "decimalNumber"
+	  }
+
+type LiteralOutcome =
+	| "rounded"
+	| "kept"
+	| "special"
+	| "overflow"
+	| "underflow"
+	| "infinity"
+	| "wrong host kind"
+
+/**
+ * The literal rule restated (literal.ts): a float field takes a JavaScript number, its special values wrapped; a real
+ * is its binary32 rounding (Math.fround), refused when a finite value rounds to an infinity (overflow) or a nonzero
+ * value to zero (underflow), and -0 is +0 in either. A numeric field never takes a JavaScript number; numeric(p, s)
+ * rounds a decimal to s fractional digits, half away from zero, refuses one that then needs more than p digits and
+ * refuses an infinity; a bare numeric keeps the decimal as written. Zero has no sign.
+ */
+const expectedLiteral = (
+	field: LiteralField,
+	v: HostValue
+): { readonly expected: Expected; readonly outcome: LiteralOutcome } => {
+	if (field.kind === "real" || field.kind === "double precision") {
+		if (v.kind !== "number") {
+			return { expected: { kind: "fault", fault: "floatType" }, outcome: "wrong host kind" }
+		}
+		const x = v.value
+		if (Number.isNaN(x)) {
+			return { expected: { kind: "float", literal: { float: "NaN" } }, outcome: "special" }
+		}
+		if (x === Number.POSITIVE_INFINITY) {
+			return { expected: { kind: "float", literal: { float: "Infinity" } }, outcome: "special" }
+		}
+		if (x === Number.NEGATIVE_INFINITY) {
+			return { expected: { kind: "float", literal: { float: "-Infinity" } }, outcome: "special" }
+		}
+		if (field.kind === "double precision") {
+			return { expected: { kind: "float", literal: x === 0 ? 0 : x }, outcome: "kept" }
+		}
+		const f = Math.fround(x)
+		if (!Number.isFinite(f)) {
+			return { expected: { kind: "fault", fault: "realOverflow" }, outcome: "overflow" }
+		}
+		if (f === 0 && x !== 0) {
+			return { expected: { kind: "fault", fault: "realUnderflow" }, outcome: "underflow" }
+		}
+		return {
+			expected: { kind: "float", literal: f === 0 ? 0 : f },
+			outcome: f === x ? "kept" : "rounded"
+		}
+	}
+	switch (v.kind) {
+		case "number":
+			return { expected: { kind: "fault", fault: "decimalNumber" }, outcome: "wrong host kind" }
+		case "special":
+			if (field.kind === "numeric(p, s)" && v.text !== "NaN") {
+				return { expected: { kind: "fault", fault: "numericInfinity" }, outcome: "infinity" }
+			}
+			return { expected: { kind: "numeric", text: v.text }, outcome: "special" }
+		case "bigint":
+		case "decimal": {
+			const negative = v.kind === "bigint" ? v.value < 0n : v.negative
+			const integer = v.kind === "bigint" ? (negative ? -v.value : v.value).toString() : v.integer
+			const fraction = v.kind === "bigint" ? "" : v.fraction
+			const digits = BigInt(`${integer}${fraction}`)
+			const signed = (magnitude: bigint, text: string) =>
+				negative && magnitude > 0n ? `-${text}` : text
+			if (field.kind === "numeric") {
+				const whole = BigInt(integer).toString()
+				return {
+					expected: {
+						kind: "numeric",
+						text: signed(digits, fraction === "" ? whole : `${whole}.${fraction}`)
+					},
+					outcome: "kept"
+				}
+			}
+			const { precision, scale } = field
+			const units =
+				fraction.length <= scale
+					? digits * 10n ** BigInt(scale - fraction.length)
+					: roundedHalfUp(digits, 10n ** BigInt(fraction.length - scale))
+			if (units >= 10n ** BigInt(precision)) {
+				return { expected: { kind: "fault", fault: "numericOverflow" }, outcome: "overflow" }
+			}
+			const padded = pipe(units.toString(), Str.padStart(scale + 1, "0"))
+			const text =
+				scale === 0 ? padded : `${Str.slice(0, -scale)(padded)}.${Str.slice(-scale)(padded)}`
+			return {
+				expected: { kind: "numeric", text: signed(units, text) },
+				outcome: fraction.length > scale ? "rounded" : "kept"
+			}
+		}
+	}
+}
+
+/** `digits` divided by `drop`, a power of ten, rounded half away from zero as numeric rounds a magnitude. */
+const roundedHalfUp = (digits: bigint, drop: bigint): bigint =>
+	digits / drop + ((digits % drop) * 2n >= drop ? 1n : 0n)
+
+const literalFieldDescriptor = (field: LiteralField): FieldBase => {
+	switch (field.kind) {
+		case "real":
+			return rawPg.real
+		case "double precision":
+			return rawPg.doublePrecision
+		case "numeric(p, s)":
+			return rawPg.numericOf(field.precision, field.scale)
+		case "numeric":
+			return rawPg.numeric
+	}
+}
+
+/** The literal's value as the rule states it: a float literal itself, a numeric by its text. */
+const agrees = (literal: LiteralDesc, expected: Expected): void => {
+	if (expected.kind === "float") {
+		assert.deepEqual(literal, expected.literal)
+	} else if (expected.kind === "numeric") {
+		assert.ok(literal instanceof Decimal, "a numeric literal is a Decimal")
+		assert.equal(literal.toString(), expected.text)
+	} else {
+		assert.fail(`the fault ${expected.fault}`)
+	}
+}
+
+describe("literals take their field's value", () => {
+	/**
+	 * Doubles of every magnitude, with binary32's edges planted: its largest finite value, the first double that rounds
+	 * past it, its smallest subnormal and the doubles on either side of half of it.
+	 */
+	const floatGen: Gen<HostValue> = weighted([
+		[
+			3,
+			map(double(-Number.MAX_VALUE, Number.MAX_VALUE), (value): HostValue => ({
+				kind: "number",
+				value
+			}))
+		],
+		[
+			2,
+			map(
+				element([
+					Number.NaN,
+					Number.POSITIVE_INFINITY,
+					Number.NEGATIVE_INFINITY,
+					-0,
+					0.1,
+					1e300,
+					-1e300,
+					1e-50,
+					3.4028234663852886e38,
+					3.4028235677973366e38,
+					3.402823669209385e38,
+					1.401298464324817e-45,
+					7.006492321624085e-46,
+					7.006492321624087e-46
+				]),
+				(value): HostValue => ({ kind: "number", value })
+			)
+		],
+		[1, map(bigint(-10n, 10n), (value): HostValue => ({ kind: "bigint", value }))]
+	])
+
+	/**
+	 * Decimals with up to a few digits beyond the field's precision and scale, exact halves planted, the specials and a
+	 * JavaScript number.
+	 */
+	const numericGen = (precision: number, scale: number): Gen<HostValue> =>
+		weighted([
+			[
+				4,
+				map(
+					(source) => ({
+						negative: source.draw(boolean),
+						integer: source.draw((source) => {
+							const n = source.draw(int(0, precision - scale + 1))
+							return source.draw(
+								n === 0 ? constant("0") : matching(arkregex.as(`^[1-9][0-9]{${n - 1}}$`))
+							)
+						}),
+						fraction: source.draw(matching(arkregex.as(`^[0-9]{0,${scale + 3}}$`)))
+					}),
+					(d): HostValue => ({ kind: "decimal", ...d })
+				)
+			],
+			[
+				2,
+				map(
+					(source) => ({
+						negative: source.draw(boolean),
+						integer: source.draw(element(["0", Str.repeat(Math.max(1, precision - scale))("9")])),
+						kept: source.draw(matching(arkregex.as(`^[0-9]{${scale}}$`)))
+					}),
+					({ negative, integer, kept }): HostValue => ({
+						kind: "decimal",
+						negative,
+						integer,
+						fraction: `${kept}5`
+					})
+				)
+			],
+			[
+				1,
+				map(
+					element<"Infinity" | "-Infinity" | "NaN">(["Infinity", "-Infinity", "NaN"]),
+					(text): HostValue => ({ kind: "special", text })
+				)
+			],
+			[1, map(bigint(-100n, 100n), (value): HostValue => ({ kind: "bigint", value }))],
+			[
+				1,
+				map(
+					weighted([
+						[9, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+						[1, element([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
+					]),
+					(value): HostValue => ({ kind: "number", value })
+				)
+			]
+		])
+
+	const caseGen = oneOf<{ readonly field: LiteralField; readonly value: HostValue }>([
+		(source) => ({ field: { kind: "real" }, value: source.draw(floatGen) }),
+		(source) => ({ field: { kind: "double precision" }, value: source.draw(floatGen) }),
+		(source) => {
+			const precision = source.draw(int(1, 12))
+			const scale = Math.min(source.draw(int(0, 12)), precision)
+			return {
+				field: { kind: "numeric(p, s)", precision, scale },
+				value: source.draw(numericGen(precision, scale))
+			}
+		},
+		(source) => ({ field: { kind: "numeric" }, value: source.draw(numericGen(6, 3)) })
+	])
+
+	type Site = "closed fact" | "selection" | "check operand"
+	type LiteralFeature = `${LiteralField["kind"]}: ${LiteralOutcome}` | Site
+
+	it.effect(
+		"rounds a real to binary32 and a numeric(p, s) to its scale, half away from zero, refusing what the column refuses, at every construction site",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/literal-rule",
+						/**
+						 * Planted: a special value of each float field and an infinite numeric(p, s), which the drawn values
+						 * reach a few times a run.
+						 */
+						draw: sketched(
+							(source) => ({
+								case: source.draw(caseGen),
+								site: source.draw(element<Site>(["closed fact", "selection", "check operand"]))
+							}),
+							(c) => c
+						),
+						literal: Formatter.format,
+						features: features<LiteralFeature>([
+							"real: rounded",
+							"real: special",
+							"real: overflow",
+							"real: underflow",
+							"real: wrong host kind",
+							"double precision: kept",
+							"double precision: special",
+							"numeric(p, s): rounded",
+							"numeric(p, s): kept",
+							"numeric(p, s): overflow",
+							"numeric(p, s): infinity",
+							"numeric(p, s): wrong host kind",
+							"numeric: kept",
+							"numeric: special",
+							"closed fact",
+							"selection",
+							"check operand"
+						]),
+						kept: [
+							{
+								note: "NaN for a real",
+								sketch: {
+									case: { field: { kind: "real" }, value: { kind: "number", value: Number.NaN } },
+									site: "closed fact"
+								},
+								draws: "",
+								reaches: ["real: special"]
+							},
+							{
+								note: "Infinity for a double precision",
+								sketch: {
+									case: {
+										field: { kind: "double precision" },
+										value: { kind: "number", value: Number.POSITIVE_INFINITY }
+									},
+									site: "selection"
+								},
+								draws: "",
+								reaches: ["double precision: special"]
+							},
+							{
+								note: "Infinity for a numeric(6, 2)",
+								sketch: {
+									case: {
+										field: { kind: "numeric(p, s)", precision: 6, scale: 2 },
+										value: { kind: "special", text: "Infinity" }
+									},
+									site: "check operand"
+								},
+								draws: "",
+								reaches: ["numeric(p, s): infinity"]
+							}
+						],
+						runs: 600,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					({ case: { field, value }, site }, c) =>
+						Effect.sync(() => {
+							const { expected, outcome } = expectedLiteral(field, value)
+							c.note(`${field.kind}: ${outcome}`)
+							c.note(site)
+							const descriptor = literalFieldDescriptor(field)
+							const host = hostValue(value)
+							const result = literalResult(descOf(descriptor), host, undefined)
+							if (expected.kind === "fault") {
+								faulted(result, expected.fault)
+							} else {
+								agrees(succeeded(result), expected)
+							}
+							const Rated = relation("Rated", { id: uuid, value: descriptor }, ["id"])
+							const recorded = (): LiteralDesc => {
+								switch (site) {
+									case "closed fact": {
+										const desc = relationDescOf(
+											closed("P", ["H"]).with({ value: descriptor }, { H: { value: host } }),
+											"test"
+										)
+										if (desc.kind !== "closed") {
+											return assert.fail("a closed relation's Description")
+										}
+										return defined(desc.facts["H"]?.["value"])
+									}
+									case "selection":
+										return defined(
+											defined(sideDescOf(on(select(Rated, { value: host }), "id"))).selection[
+												"value"
+											]
+										)
+									case "check operand": {
+										const desc = statementDescOf(
+											check("Bounded", Rated, (r: { readonly value: RowTerm }) => r.value.le(host))
+										)
+										if (
+											desc?.kind !== "check" ||
+											desc.predicate.kind !== "compare" ||
+											desc.predicate.right.kind !== "literal"
+										) {
+											return assert.fail("a check comparing the field with a literal")
+										}
+										return desc.predicate.right.value
+									}
+								}
+							}
+							if (expected.kind === "fault") {
+								throwsRefused(recorded, "MalformedDescription")
+							} else {
+								agrees(recorded(), expected)
+							}
+						})
+				)
+			)
+	)
+})
+
+describe("statements", () => {
+	type FieldListDefect = "none" | "an empty list" | "an undeclared field" | "a repeated field"
+	type FieldListSite = "key" | "on" | "on a selection" | "a selection's binding"
+	const taskFields: Arr.NonEmptyReadonlyArray<string> = ["id", "account", "kind"]
+
+	it.effect(
+		"key, on and select name a nonempty list of distinct fields of the heading, recorded in the order written",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/field-lists",
+						/** Planted: every site with every defect, each pair drawn about a sixteenth of the time. */
+						draw: sketched(
+							(source) => ({
+								fields: source.draw(
+									shuffled([...taskFields], { min: 1, max: [...taskFields].length })
+								),
+								site: source.draw(
+									element<FieldListSite>(["key", "on", "on a selection", "a selection's binding"])
+								),
+								defect: source.draw(
+									element<FieldListDefect>([
+										"none",
+										"none",
+										"an empty list",
+										"an undeclared field",
+										"a repeated field"
+									])
+								),
+								handle: source.draw(element(["Automatic", "Manual"]))
+							}),
+							(c) => c
+						),
+						literal: Formatter.format,
+						features: features<`${FieldListSite}: ${FieldListDefect}`>(
+							Arr.flatMap(["key", "on", "on a selection"] as const, (site) =>
+								Arr.map(
+									["none", "an empty list", "an undeclared field", "a repeated field"] as const,
+									(defect) => `${site}: ${defect}` as const
+								)
+							)
+						),
+						kept: Arr.flatMap(["key", "on", "on a selection"] as const, (site) =>
+							Arr.map(
+								["none", "an empty list", "an undeclared field", "a repeated field"] as const,
+								(defect) => ({
+									note: `${site}: ${defect}`,
+									sketch: { fields: ["id", "account"], site, defect, handle: "Automatic" as const },
+									draws: "",
+									reaches: [`${site}: ${defect}` as const] as const
+								})
+							)
+						),
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							/** A selection's binding takes no field list: its one defect is an undeclared field. */
+							const defect =
+								s.site === "a selection's binding" && s.defect !== "none"
+									? "an undeclared field"
+									: s.defect
+							c.note(`${s.site}: ${defect}`)
+							const list =
+								defect === "an empty list"
+									? []
+									: defect === "an undeclared field"
+										? [...s.fields, "nope"]
+										: defect === "a repeated field"
+											? [...s.fields, defined(s.fields[0])]
+											: s.fields
+							const selection = { kind: s.handle }
+							switch (s.site) {
+								case "key": {
+									if (defect !== "none") {
+										return void throwsRefused(() => key(Task, list), "MalformedDescription")
+									}
+									const k = key(Task, list)
+									matchesObject(k, { kind: "key", relation: Task, fields: list })
+									const desc = statementDescOf(k)
+									if (desc?.kind !== "key") {
+										return assert.fail("a key statement")
+									}
+									return assert.deepEqual<{
+										readonly relation: string
+										readonly fields: ReadonlyArray<string>
+									}>(
+										{ relation: desc.relation, fields: desc.fields },
+										{ relation: "Task", fields: list }
+									)
+								}
+								case "on":
+									if (defect !== "none") {
+										return void throwsRefused(() => on(Task, ...list), "MalformedDescription")
+									}
+									return assert.deepEqual<{
+										readonly relation: string
+										readonly fields: ReadonlyArray<string>
+										readonly selection: Readonly<Record<string, unknown>>
+									}>(defined(sideDescOf(on(Task, ...list))), {
+										relation: "Task",
+										fields: list,
+										selection: {}
+									})
+								case "on a selection":
+									if (defect !== "none") {
+										return void throwsRefused(
+											() => on(select(Task, selection), ...list),
+											"MalformedDescription"
+										)
+									}
+									return assert.deepEqual<{
+										readonly relation: string
+										readonly fields: ReadonlyArray<string>
+										readonly selection: Readonly<Record<string, unknown>>
+									}>(defined(sideDescOf(on(select(Task, selection), ...list))), {
+										relation: "Task",
+										fields: list,
+										selection
+									})
+								case "a selection's binding":
+									if (defect !== "none") {
+										return void throwsRefused(
+											() => select(Task, { ...selection, nope: s.handle }),
+											"MalformedDescription"
+										)
+									}
+									return assert.deepEqual(sideDescOf(on(select(Task, selection), "id")), {
+										relation: "Task",
+										fields: ["id"],
+										selection
+									})
+							}
+						})
+				)
+			)
+	)
+
+	type SideStatement = "contained" | "mirrors" | "capacity"
+	const Triple = relation("Triple", { a: uuid, b: uuid, c: uuid }, ["a", "b", "c"])
+	const tripleFields: Arr.NonEmptyReadonlyArray<string> = ["a", "b", "c"]
+
+	it.effect("contained, mirrors and capacity relate two sides built by on, of one width", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/schema/law-sides",
+					draw: drawn((source) => ({
+						statement: source.draw(element<SideStatement>(["contained", "mirrors", "capacity"])),
+						left: source.draw(int(1, 3)),
+						right: source.draw(int(1, 3)),
+						bare: source.draw(element<"none" | "left" | "right">(["none", "none", "left", "right"]))
+					})),
+					literal: Formatter.format,
+					features:
+						features<`${SideStatement}: ${"related" | "widths differ" | "a bare relation"}`>(
+							Arr.flatMap(["contained", "mirrors", "capacity"] as const, (st) =>
+								Arr.map(
+									["related", "widths differ", "a bare relation"] as const,
+									(o) => `${st}: ${o}` as const
+								)
+							)
+						),
+					kept: [],
+					runs: 200,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					steering: { kind: "none" },
+					caseHang: Duration.minutes(2)
+				},
+				(s, c) =>
+					Effect.sync(() => {
+						const left = on(Task, ...taskFields.slice(0, s.left))
+						const right = on(Triple, ...tripleFields.slice(0, s.right))
+						const l = s.bare === "left" ? Task : left
+						const r = s.bare === "right" ? Triple : right
+						const build = () =>
+							s.statement === "contained"
+								? contained(l, r)
+								: s.statement === "mirrors"
+									? mirrors(l, r)
+									: capacity(l, { from: r, within: within(0n, "*") })
+						const related = s.bare === "none" && s.left === s.right
+						c.note(
+							`${s.statement}: ${related ? "related" : s.bare === "none" ? "widths differ" : "a bare relation"}`
+						)
+						if (!related) {
+							return void throwsRefused(build, "MalformedDescription")
+						}
+						const desc = statementDescOf(build())
+						const [l0, r0] = [defined(sideDescOf(left)), defined(sideDescOf(right))]
+						if (desc?.kind === "capacity" && s.statement === "capacity") {
+							assert.deepEqual([desc.target, desc.from], [l0, r0])
+						} else if (
+							(desc?.kind === "contained" || desc?.kind === "mirrors") &&
+							desc.kind === s.statement
+						) {
+							assert.deepEqual([desc.left, desc.right], [l0, r0])
+						} else {
+							assert.fail(`a ${s.statement} statement`)
+						}
+					})
+			)
+		)
+	)
+
+	/**
+	 * A bound as a caller writes it: a nonnegative or negative bigint, ref(field), "*" (high only), a JavaScript number,
+	 * or nothing (within(n)).
+	 */
+	type BoundArg =
+		| { readonly kind: "bigint"; readonly value: bigint }
+		| { readonly kind: "ref" }
+		| { readonly kind: "unbounded" }
+		| { readonly kind: "number" }
+		| { readonly kind: "omitted" }
+	type WeightArg =
+		| "none"
+		| "a field"
+		| "a duration"
+		| "a weight weigh did not build"
+		| "an unknown rule member"
+	const boundGen = (high: boolean): Gen<BoundArg> =>
+		weighted([
+			[4, map(bigint(-2n, 6n), (value): BoundArg => ({ kind: "bigint", value }))],
+			[1, constant<BoundArg>({ kind: "ref" })],
+			[1, constant<BoundArg>({ kind: high ? "unbounded" : "number" })],
+			[1, constant<BoundArg>({ kind: high ? "omitted" : "number" })]
+		])
+	const boundValue = (b: BoundArg): unknown =>
+		b.kind === "bigint"
+			? b.value
+			: b.kind === "ref"
+				? ref("budget")
+				: b.kind === "unbounded"
+					? "*"
+					: 1
+	/** The bound a drawn argument records, or its refusal by within. */
+	type Admitted<V> = { readonly kind: "admitted"; readonly bound: V } | { readonly kind: "refused" }
+	const lowDesc = (b: BoundArg): Admitted<BoundValueDesc> =>
+		b.kind === "bigint" && b.value >= 0n
+			? { kind: "admitted", bound: b.value }
+			: b.kind === "ref"
+				? { kind: "admitted", bound: { ref: "budget" } }
+				: { kind: "refused" }
+	const highDesc = (b: BoundArg, low: Admitted<BoundValueDesc>): Admitted<BoundValueDesc | "*"> =>
+		b.kind === "omitted"
+			? low
+			: b.kind === "unbounded"
+				? { kind: "admitted", bound: "*" }
+				: lowDesc(b)
+
+	const Pool = relation("Pool", { id: uuid, budget: rawPg.bigint }, ["id"])
+	const Claim = relation(
+		"Claim",
+		{ id: uuid, pool: uuid, units: rawPg.bigint, during: span(rawPg.bigint) },
+		["id"]
+	)
+
+	it.effect(
+		"within takes nonnegative bigint or ref bounds, low not above high, and capacity records its sides, weight and bound",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/capacity-bounds",
+						draw: drawn((source) => ({
+							low: source.draw(boundGen(false)),
+							high: source.draw(boundGen(true)),
+							third: source.draw(element([false, false, false, true])),
+							weight: source.draw(
+								element<WeightArg>([
+									"none",
+									"a field",
+									"a duration",
+									"a weight weigh did not build",
+									"an unknown rule member"
+								])
+							)
+						})),
+						literal: Formatter.format,
+						features: features<
+							"bounded" | "exact" | "no upper bound" | "refused bound" | "refused rule" | WeightArg
+						>([
+							"bounded",
+							"exact",
+							"no upper bound",
+							"refused bound",
+							"refused rule",
+							"a field",
+							"a duration"
+						]),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							/** A third argument follows a high bound, the low one repeated when none is drawn. */
+							const args = s.third
+								? [boundValue(s.low), boundValue(s.high.kind === "omitted" ? s.low : s.high), 3n]
+								: [boundValue(s.low), ...(s.high.kind === "omitted" ? [] : [boundValue(s.high)])]
+							const [lowArg, ...rest] = args
+							const call = () => within(lowArg, ...rest)
+							const lowArgument = lowDesc(s.low)
+							const highArgument = highDesc(s.high, lowArgument)
+							if (s.third || lowArgument.kind === "refused" || highArgument.kind === "refused") {
+								c.note("refused bound")
+								return void throwsRefused(call, "MalformedDescription")
+							}
+							const [low, high] = [lowArgument.bound, highArgument.bound]
+							if (typeof low === "bigint" && typeof high === "bigint" && low > high) {
+								c.note("refused bound")
+								return void throwsRefused(call, "MalformedDescription")
+							}
+							c.note(
+								s.high.kind === "omitted" ? "exact" : high === "*" ? "no upper bound" : "bounded"
+							)
+							const bound = call()
+							assert.deepEqual(bound, { low, high })
+							if (
+								s.weight === "a weight weigh did not build" ||
+								s.weight === "an unknown rule member"
+							) {
+								c.note("refused rule")
+								/** A malformed rule is refused where capacity(...) admits its arguments, its admission core. */
+								const malformedRule =
+									s.weight === "a weight weigh did not build"
+										? { weight: { units: true } }
+										: { limit: 3n }
+								return void throwsRefused(
+									() =>
+										admitCapacity(on(Pool, "id"), {
+											from: on(Claim, "pool"),
+											within: bound,
+											...malformedRule
+										}),
+									"MalformedDescription"
+								)
+							}
+							const weight =
+								s.weight === "a field"
+									? { weight: weigh("units") }
+									: s.weight === "a duration"
+										? { weight: weigh(duration("during")) }
+										: {}
+							c.note(s.weight)
+							const desc = statementDescOf(
+								capacity(on(Pool, "id"), { from: on(Claim, "pool"), within: bound, ...weight })
+							)
+							if (desc?.kind !== "capacity") {
+								return assert.fail("a capacity statement")
+							}
+							assert.deepEqual(desc.target, { relation: "Pool", fields: ["id"], selection: {} })
+							assert.deepEqual(desc.from, { relation: "Claim", fields: ["pool"], selection: {} })
+							assert.deepEqual(
+								desc.weight,
+								s.weight === "a field"
+									? { kind: "field", field: "units" }
+									: s.weight === "a duration"
+										? { kind: "duration", field: "during" }
+										: { kind: "count" }
+							)
+							assert.deepEqual(desc.within, { low, high })
+						})
+				)
+			)
+	)
+
+	/**
+	 * A row check's predicate as drawn over Election: comparisons of integer fields, Compute sums (a term its builder
+	 * registered, or the same expression as an untyped term of the query builder), and charLength of the text field, with
+	 * integer literals, under and, or and not.
+	 */
+	type Operand =
+		| { readonly kind: "field"; readonly field: "limit" | "maximum" }
+		| {
+				readonly kind: "sum"
+				readonly typed: boolean
+				readonly field: "limit" | "maximum"
+				readonly addend: number
+		  }
+	type Op = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
+	type CheckPredicate =
+		| {
+				readonly kind: "fields"
+				readonly op: Op
+				readonly left: Operand
+				readonly right: "limit" | "maximum"
+		  }
+		| {
+				readonly kind: "literal"
+				readonly op: Op
+				readonly left: Operand
+				readonly value: number
+				readonly helper: boolean
+		  }
+		| { readonly kind: "length"; readonly op: Op; readonly n: number }
+		| { readonly kind: "and" | "or"; readonly args: Arr.NonEmptyReadonlyArray<CheckPredicate> }
+		| { readonly kind: "not"; readonly arg: CheckPredicate }
+	type CheckDefect =
+		| "none"
+		| "a fraction for an integer field"
+		| "a bigint for an integer field"
+		| "an integer beyond int4"
+		| "a parameter"
+		| "charLength of an integer field"
+		| "a callback returning no predicate"
+		| "a look-alike term"
+		| "a spread copy of a term"
+		| "a symbol operand"
+		| "a derived relation"
+	const checkDefects: ReadonlyArray<CheckDefect> = [
+		"none",
+		"a fraction for an integer field",
+		"a bigint for an integer field",
+		"an integer beyond int4",
+		"a parameter",
+		"charLength of an integer field",
+		"a callback returning no predicate",
+		"a look-alike term",
+		"a spread copy of a term",
+		"a symbol operand",
+		"a derived relation"
+	]
+
+	const opGen = element<Op>(["eq", "ne", "lt", "le", "gt", "ge"])
+	const intField = element<"limit" | "maximum">(["limit", "maximum"])
+	const operandGen: Gen<Operand> = weighted([
+		[3, map(intField, (field): Operand => ({ kind: "field", field }))],
+		[
+			1,
+			map(
+				(source) => ({
+					typed: source.draw(boolean),
+					field: source.draw(intField),
+					addend: source.draw(int(-100, 100))
+				}),
+				(r): Operand => ({ kind: "sum", ...r })
+			)
+		]
+	])
+	const atomGen: Gen<CheckPredicate> = oneOf([
+		map(
+			(source) => ({
+				op: source.draw(opGen),
+				left: source.draw(operandGen),
+				right: source.draw(intField)
+			}),
+			(r): CheckPredicate => ({ kind: "fields", ...r })
+		),
+		map(
+			(source) => ({
+				op: source.draw(opGen),
+				left: source.draw(operandGen),
+				value: source.draw(int(-1000, 1000)),
+				helper: source.draw(boolean)
+			}),
+			(r): CheckPredicate => ({ kind: "literal", ...r })
+		),
+		map(
+			(source) => ({ op: source.draw(opGen), n: source.draw(int(0, 2000)) }),
+			(r): CheckPredicate => ({ kind: "length", ...r })
+		)
+	])
+	const predicateGen = (depth: number): Gen<CheckPredicate> =>
+		depth === 0
+			? atomGen
+			: weighted([
+					[2, atomGen],
+					[
+						1,
+						map(
+							(source) => ({
+								kind: source.draw(element<"and" | "or">(["and", "or"])),
+								args: source.draw(nonEmptyGen(predicateGen(depth - 1), 2))
+							}),
+							(r): CheckPredicate => r
+						)
+					],
+					[1, map(predicateGen(depth - 1), (arg): CheckPredicate => ({ kind: "not", arg }))]
+				])
+
+	const Election = relation(
+		"Election",
+		{ id: uuid, limit: rawPg.integer, maximum: rawPg.integer, label: wildcard },
+		["id"]
+	)
+	const literalExpr = (value: LiteralDesc): ExprDesc => ({
+		kind: "literal",
+		value,
+		type: undefined
+	})
+
+	/** The term an operand builds over the row, and the ExprDesc it records. */
+	const operandTerm = (e: Row, o: Operand): unknown => {
+		if (o.kind === "field") {
+			return e[o.field]
+		}
+		const sum = computeCore.add(e[o.field], o.addend)
+		return o.typed ? sum : untypedTerm(sum.expr)
+	}
+	const operandExpr = (o: Operand): ExprDesc =>
+		o.kind === "field"
+			? { kind: "field", field: o.field }
+			: {
+					kind: "compute",
+					fn: "add",
+					args: [{ kind: "field", field: o.field }, literalExpr(o.addend)]
+				}
+
+	const built = (e: Row, p: CheckPredicate): unknown => {
+		switch (p.kind) {
+			case "fields":
+				return e[p.op](operandTerm(e, p.left), e[p.right])
+			case "literal": {
+				const term = operandTerm(e, p.left)
+				return p.helper || p.left.kind === "sum"
+					? e[p.op](term, p.value)
+					: e[p.left.field][p.op](p.value)
+			}
+			case "length":
+				return e.charLength(e.label)[p.op](p.n)
+			case "and":
+			case "or":
+				return e[p.kind](...Arr.map(p.args, (a) => built(e, a)))
+			case "not":
+				return e.not(built(e, p.arg))
+		}
+	}
+	const recordedExpr = (p: CheckPredicate): ExprDesc => {
+		switch (p.kind) {
+			case "fields":
+				return {
+					kind: "compare",
+					op: p.op,
+					left: operandExpr(p.left),
+					right: { kind: "field", field: p.right }
+				}
+			case "literal":
+				return { kind: "compare", op: p.op, left: operandExpr(p.left), right: literalExpr(p.value) }
+			case "length":
+				return {
+					kind: "compare",
+					op: p.op,
+					left: { kind: "compute", fn: "charLength", args: [{ kind: "field", field: "label" }] },
+					right: literalExpr(p.n)
+				}
+			case "and":
+			case "or":
+				return { kind: p.kind, args: Arr.map(p.args, recordedExpr) }
+			case "not":
+				return { kind: "not", arg: recordedExpr(p.arg) }
+		}
+	}
+
+	/** Every operand of a drawn predicate. */
+	const operandsOf = (p: CheckPredicate): ReadonlyArray<Operand> => {
+		switch (p.kind) {
+			case "fields":
+			case "literal":
+				return [p.left]
+			case "length":
+				return []
+			case "and":
+			case "or":
+				return Arr.flatMap(p.args, operandsOf)
+			case "not":
+				return operandsOf(p.arg)
+		}
+	}
+
+	/** The conjunct a defect plants beside the drawn predicate. */
+	const plantedConjunct = (e: Row, defect: CheckDefect): unknown => {
+		const sum = computeCore.add(e.limit, 1)
+		switch (defect) {
+			case "a fraction for an integer field":
+				return e.limit.ge(1.5)
+			case "a bigint for an integer field":
+				return e.limit.ge(1n)
+			case "an integer beyond int4":
+				return e.limit.ge(2 ** 31)
+			case "a parameter":
+				return e.limit.ge({ param: "x" })
+			case "charLength of an integer field":
+				return e.charLength(e.limit).le(3)
+			case "a look-alike term":
+				return e.le({ expr: sum.expr }, e.maximum)
+			case "a spread copy of a term":
+				return e.le({ ...sum }, e.maximum)
+			case "a symbol operand":
+				return e.lt(untypedTerm(sum.expr), Symbol("x"))
+			case "none":
+			case "a callback returning no predicate":
+			case "a derived relation":
+				return e.limit.ge(0)
+		}
+	}
+
+	it.effect(
+		"check records the row predicate over its own row, literals adopting the field's type, terms admitted by identity",
+		(ctx) =>
+			Effect.gen(function* () {
+				const D = derived("ElectionIds", idsOf(schema("Votes", { Election }, []), [Election]))
+				yield* searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/schema/check-constructor",
+							/** Planted: a typed and an untyped sum, which a fourth of the operands draw a few times a run. */
+							draw: sketched(
+								(source) => ({
+									predicate: source.draw(predicateGen(2)),
+									defect: source.draw(
+										element(Arr.append(Arr.append(checkDefects, "none" as const), "none" as const))
+									)
+								}),
+								(c) => c
+							),
+							literal: Formatter.format,
+							features: features<CheckDefect | "a sum" | "an untyped sum">([
+								...checkDefects,
+								"a sum",
+								"an untyped sum"
+							]),
+							kept: [
+								{
+									note: "a typed and an untyped sum",
+									sketch: {
+										predicate: {
+											kind: "and",
+											args: [
+												{
+													kind: "fields",
+													op: "le",
+													left: { kind: "sum", typed: true, field: "limit", addend: 1 },
+													right: "maximum"
+												},
+												{
+													kind: "literal",
+													op: "ge",
+													left: { kind: "sum", typed: false, field: "limit", addend: 2 },
+													value: 0,
+													helper: false
+												}
+											]
+										},
+										defect: "none"
+									},
+									draws: "",
+									reaches: ["a sum", "an untyped sum"]
+								}
+							],
+							runs: 300,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							steering: { kind: "none" },
+							caseHang: Duration.minutes(2)
+						},
+						({ predicate, defect }, c) =>
+							Effect.sync(() => {
+								c.note(defect)
+								const build = () =>
+									check(
+										defect === "a derived relation" ? "OnDerived" : "Bounded",
+										defect === "a derived relation" ? D : Election,
+										(e: Row) =>
+											defect === "a callback returning no predicate"
+												? true
+												: defect === "none"
+													? built(e, predicate)
+													: e.and(built(e, predicate), plantedConjunct(e, defect))
+									)
+								if (defect === "a derived relation") {
+									return void throwsRefused(build, "LawOnDerived")
+								}
+								if (defect !== "none") {
+									return void throwsRefused(build, "MalformedDescription")
+								}
+								const sums = operandsOf(predicate)
+								if (Arr.some(sums, (o) => o.kind === "sum" && o.typed)) {
+									c.note("a sum")
+								}
+								if (Arr.some(sums, (o) => o.kind === "sum" && !o.typed)) {
+									c.note("an untyped sum")
+								}
+								const value = build()
+								matchesObject(value, { kind: "check", name: "Bounded", relation: Election })
+								const desc = statementDescOf(value)
+								if (desc?.kind !== "check") {
+									return assert.fail("a check statement")
+								}
+								assert.deepEqual(desc, {
+									...desc,
+									name: "Bounded",
+									relation: "Election",
+									predicate: recordedExpr(predicate)
+								})
+							})
+					)
+				)
+			})
+	)
+})
+
+describe("alternatives", () => {
+	type AlternativesDefect =
+		| "none"
+		| "a discriminator of another type"
+		| "a discriminator of another roster"
+		| "an arm off the roster"
+		| "no arms"
+		| "an arm keyed unlike the parent"
+	const alternativesDefects: ReadonlyArray<AlternativesDefect> = [
+		"none",
+		"a discriminator of another type",
+		"a discriminator of another roster",
+		"an arm off the roster",
+		"no arms",
+		"an arm keyed unlike the parent"
+	]
+	type AlternativesFeature =
+		| AlternativesDefect
+		| "a Key as the parent"
+		| "a Key as an arm"
+		| "an unarmed handle"
+		| "a two-field key"
+	const Alien = closed("Alien", ["X"])
+
+	it.effect(
+		"is one statement expanding to a containment and one mirrors per armed handle, in roster order, each marked",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/alternatives-constructor",
+						draw: drawn((source) => ({
+							handles: source.draw(
+								uniqueArray(
+									matching(arkregex("^[A-Z][a-z]{0,6}$")),
+									(item) => item,
+									{ min: 1, max: 4 },
+									20
+								)
+							),
+							armed: source.draw(array(boolean, { min: 4, max: 4 })),
+							arming: source.draw(array(boolean, { min: 4, max: 4 })),
+							wide: source.draw(boolean),
+							parentKey: source.draw(boolean),
+							defect: source.draw(element(Arr.append(alternativesDefects, "none" as const))),
+							at: source.draw(pickGen)
+						})),
+						literal: Formatter.format,
+						features: features<AlternativesFeature>([
+							...alternativesDefects,
+							"a Key as the parent",
+							"a Key as an arm",
+							"an unarmed handle",
+							"a two-field key"
+						]),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							c.note(s.defect)
+							const Mode = closed("Mode", rosterOf(s.handles))
+							const Job = relation(
+								"Job",
+								{ id: uuid, mode: closedId(Mode), other: uuid, alien: closedId(Alien) },
+								["id"]
+							)
+							/** The parent's key: Job's primary key, a one-field Key, or a two-field Key. */
+							const parentFields = s.wide ? ["id", "other"] : s.parentKey ? ["other"] : ["id"]
+							const parent = s.wide || s.parentKey ? key(Job, parentFields) : Job
+							if (s.wide) {
+								c.note("a two-field key")
+							} else if (s.parentKey) {
+								c.note("a Key as the parent")
+							}
+							/** The armed handles, at least one: the first is armed when the draw arms none. */
+							const drawnArmed = whereIndex(s.handles, (i) => s.armed[i] === true)
+							const armedHandles = drawnArmed.length > 0 ? drawnArmed : s.handles.slice(0, 1)
+							if (armedHandles.length < s.handles.length) {
+								c.note("an unarmed handle")
+							}
+							const target = defined(armedHandles[pickIndex(s.at, armedHandles.length)])
+							const arms: Record<string, unknown> = {}
+							const armKeys: Record<
+								string,
+								{ readonly relation: string; readonly fields: ReadonlyArray<string> }
+							> = {}
+							for (const h of armedHandles) {
+								const i = s.handles.indexOf(h)
+								const Arm = relation(`Arm${i}`, { job: uuid, extra: uuid }, ["job"])
+								const unlike = s.defect === "an arm keyed unlike the parent" && h === target
+								const two = s.wide !== unlike
+								const viaKey = two || s.arming[i] === true
+								const fields = two ? ["job", "extra"] : viaKey ? ["extra"] : ["job"]
+								if (viaKey && !two) {
+									c.note("a Key as an arm")
+								}
+								arms[h] = viaKey ? key(Arm, fields) : Arm
+								armKeys[h] = { relation: `Arm${i}`, fields }
+							}
+							if (s.defect === "an arm off the roster") {
+								arms[`${target}Off`] = arms[target]
+							}
+							const discriminator =
+								s.defect === "a discriminator of another type"
+									? "other"
+									: s.defect === "a discriminator of another roster"
+										? "alien"
+										: "mode"
+							const armMap = s.defect === "no arms" ? {} : arms
+							const build = () => alternatives(parent, discriminator, Mode, armMap)
+							if (s.defect !== "none") {
+								return void throwsRefused(build, "MalformedDescription")
+							}
+							const law = build()
+							assert.equal(Object.isFrozen(law), true)
+							matchesObject(law, {
+								kind: "alternatives",
+								parent,
+								discriminator: "mode",
+								roster: Mode
+							})
+							assert.deepEqual(law.arms, arms)
+							const origin = { alternatives: alternativesId("Job", "mode") }
+							matchesObject(defined(alternativesDescOf(law)).statements, [
+								{
+									kind: "contained",
+									left: { relation: "Job", fields: ["mode"], selection: {} },
+									right: { relation: "Mode", fields: ["id"], selection: {} },
+									origin
+								},
+								...Arr.flatMap(s.handles, (h) => {
+									const arm = armKeys[h]
+									return arm === undefined
+										? []
+										: [
+												{
+													kind: "mirrors" as const,
+													left: { relation: "Job", fields: parentFields, selection: { mode: h } },
+													right: { relation: arm.relation, fields: arm.fields, selection: {} },
+													origin
+												}
+											]
+								})
+							])
+						})
+				)
+			)
+	)
+})
+
+describe("schema and schema.extend", () => {
+	const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"])
+	const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"])
+	const TaskRebuilt = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
+	type Entry = "Kind" | "Task" | "Account" | "Task rebuilt"
+	const entryValue = (e: Entry): AnyRelation | AnyClosed =>
+		e === "Kind" ? Kind : e === "Task" ? Task : e === "Account" ? Account : TaskRebuilt
+	const entryName = (e: Entry): string => (e === "Task rebuilt" ? "Task" : e)
+	const statementValues: Arr.NonEmptyReadonlyArray<Statement> = [
+		mutable(Task),
+		key(Account, ["name"]),
+		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask })
+	]
+	type SchemaDefect =
+		| "none"
+		| "a conflicting reuse of a relation name"
+		| "a list as a statement"
+		| "a statement no builder made"
+		| "a derived relation"
+		| "statements that are no list"
+	const schemaDefects: ReadonlyArray<SchemaDefect> = [
+		"none",
+		"a conflicting reuse of a relation name",
+		"a list as a statement",
+		"a statement no builder made",
+		"a derived relation",
+		"statements that are no list"
+	]
+
+	it.effect(
+		"records relations once per name and statements in order, expanding alternatives in place, and refuses a conflicting or malformed declaration",
+		(ctx) =>
+			Effect.gen(function* () {
+				const D = derived("TaskIds", idsOf(schema("Edu", { Kind, Task }, []), [Task]))
+				yield* searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/schema/schema-constructor",
+							draw: drawn((source) => ({
+								entries: source.draw(
+									nonEmptyGen(element<Entry>(["Kind", "Task", "Account", "Task rebuilt"]), 4)
+								),
+								statements: source.draw(shuffled([0, 1, 2], { min: 0, max: [0, 1, 2].length })),
+								defect: source.draw(element(Arr.append(schemaDefects, "none" as const)))
+							})),
+							literal: Formatter.format,
+							features: features<SchemaDefect | "one name twice" | "alternatives expanded">([
+								...schemaDefects,
+								"one name twice",
+								"alternatives expanded"
+							]),
+							kept: [],
+							runs: 200,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							steering: { kind: "none" },
+							caseHang: Duration.minutes(2)
+						},
+						(s, c) =>
+							Effect.sync(() => {
+								c.note(s.defect)
+								const relations: Record<string, AnyRelation | AnyClosed> = Rec.fromEntries(
+									Arr.map(s.entries, (e, i) => [`r${i}`, entryValue(e)])
+								)
+								const statements = Arr.map(s.statements, (i) => defined(statementValues[i]))
+								/**
+								 * The relations a JavaScript caller hands in, where a defect plants one no schema(...) declares; a defect
+								 * is refused by schema(...)'s admission core.
+								 */
+								const given: Record<string, unknown> = { ...relations }
+								switch (s.defect) {
+									case "a conflicting reuse of a relation name":
+										given["task"] = Task
+										given["other"] = relation("Task", { id: uuid }, ["id"])
+										return void throwsRefused(
+											() => admitSchema("Work", given, statements, []),
+											"DuplicateIdentity"
+										)
+									case "a list as a statement":
+										return void throwsRefused(
+											() => admitSchema("Work", given, [...statements, [statementValues[2]]], []),
+											"MalformedDescription"
+										)
+									case "a statement no builder made":
+										return void throwsRefused(
+											() => admitSchema("Work", given, [...statements, { kind: "key" }], []),
+											"MalformedDescription"
+										)
+									case "a derived relation":
+										given["derived"] = D
+										return void throwsRefused(
+											() => admitSchema("Work", given, statements, []),
+											"MalformedDescription"
+										)
+									case "statements that are no list":
+										return void throwsRefused(
+											() => admitSchema("Work", given, "statements", []),
+											"MalformedDescription"
+										)
+									case "none":
+										break
+								}
+								const names = Arr.map(s.entries, entryName)
+								if (distinct(names).length < names.length) {
+									c.note("one name twice")
+								}
+								const W = schema("Work", relations, statements)
+								const desc = defined(schemaDescOf(W))
+								assert.deepEqual(
+									Arr.map(desc.relations, (r) => r.name),
+									distinct(names)
+								)
+								const expanded = Arr.flatMap(statements, (st): ReadonlyArray<StatementDesc> => {
+									const expansion = alternativesDescOf(st)
+									return expansion === undefined
+										? [defined(statementDescOf(st))]
+										: expansion.statements
+								})
+								if (expanded.length > statements.length) {
+									c.note("alternatives expanded")
+								}
+								assert.deepEqual(desc.statements, expanded)
+								matchesObject(W, { name: "Work", relations, statements })
+								assert.equal("extends" in W ? W.extends : "no base member", undefined)
+							})
+					)
+				)
+			})
+	)
+
+	/**
+	 * A derived relation as drawn: the relations of the levels below it its definition reads (picks into them, at least
+	 * one), on their ids.
+	 */
+	type LevelDefect =
+		| "none"
+		| "a read of its own level"
+		| "a parameter"
+		| "a definition that is no query"
+	const levelDefects: ReadonlyArray<LevelDefect> = [
+		"none",
+		"a read of its own level",
+		"a parameter",
+		"a definition that is no query"
+	]
+
+	it.effect(
+		"extends under the base's name and computes derived levels from what definitions read",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/derived-levels",
+						/**
+						 * Planted: a view of level 3 reading one of level 2 named before one of level 1, which the drawn towers
+						 * reach a few times a run. Its picks select, among the relations below each level, ZView1x0 at level 2
+						 * and both AView2x0 and ZView1x0 at level 3.
+						 */
+						draw: sketched(
+							(source) => ({
+								levels: source.draw(
+									nonEmptyGen(
+										nonEmptyGen(
+											(source) => ({
+												reads: source.draw(nonEmptyGen(pickGen, 1)),
+												prefix: source.draw(element(["A", "M", "Z"]))
+											}),
+											1
+										),
+										2
+									)
+								),
+								defect: source.draw(
+									element(Arr.append(Arr.append(levelDefects, "none" as const), "none" as const))
+								)
+							}),
+							(c) => c
+						),
+						literal: Formatter.format,
+						features: features<
+							LevelDefect | "level 2" | "level 3" | "two reads" | "a deeper read named first"
+						>([...levelDefects, "level 2", "level 3", "two reads", "a deeper read named first"]),
+						kept: [
+							{
+								note: "a level-3 view reading AView2x0 and ZView1x0",
+								sketch: {
+									levels: [
+										[{ reads: [0], prefix: "Z" }],
+										[{ reads: [pickSpan / 2], prefix: "A" }],
+										[
+											{
+												reads: [Math.ceil((2 * pickSpan) / 3), Math.ceil(pickSpan / 3)],
+												prefix: "M"
+											}
+										]
+									],
+									defect: "none"
+								},
+								draws: "",
+								reaches: ["a deeper read named first" as const, "level 3" as const]
+							}
+						],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							c.note(s.defect)
+							interface Declared {
+								readonly name: string
+								readonly value: AnyRelation | AnyDerived
+								/** 0 for a base relation. */
+								readonly derivedLevel: number
+							}
+							const tower = () => {
+								const base = schema("Edu", { Kind, Task }, [])
+								const below: Array<Declared> = [{ name: "Task", value: Task, derivedLevel: 0 }]
+								const chain: Array<AnySchema> = [base]
+								const expected: Array<{
+									readonly name: string
+									readonly level: number
+									readonly schemaLevel: number
+									readonly reads: ReadonlyArray<string>
+								}> = []
+								let current: AnySchema = base
+								for (const [k, level] of s.levels.entries()) {
+									const declared: Array<Declared> = []
+									const record: Record<string, AnyDerived> = {}
+									for (const [j, view] of level.entries()) {
+										const reads = distinct(
+											Arr.map(view.reads, (p) => defined(below[pickIndex(p, below.length)]))
+										)
+										/**
+										 * The prefix varies where a view sorts by name among the relations a later definition reads.
+										 */
+										const name = `${view.prefix}View${k + 1}x${j}`
+										const value = derived(
+											name,
+											idsOf(current, [
+												defined(reads[0]).value,
+												...Arr.map(reads.slice(1), (r) => r.value)
+											])
+										)
+										const derivedLevel = Math.max(...Arr.map(reads, (r) => r.derivedLevel + 1))
+										if (reads.length > 1) {
+											c.note("two reads")
+										}
+										const byName = Arr.sort(
+											Arr.filter(reads, (r) => r.derivedLevel > 0),
+											Order.mapInput(Order.String, (r: { readonly name: string }) => r.name)
+										)
+										const lastByName = byName[byName.length - 1]
+										if (lastByName !== undefined && lastByName.derivedLevel + 1 < derivedLevel) {
+											c.note("a deeper read named first")
+										}
+										if (derivedLevel === 2) {
+											c.note("level 2")
+										}
+										if (derivedLevel === 3) {
+											c.note("level 3")
+										}
+										declared.push({ name, value, derivedLevel })
+										record[`d${k}_${j}`] = value
+										expected.push({
+											name,
+											level: derivedLevel,
+											schemaLevel: k + 1,
+											reads: Arr.sort(
+												Arr.map(reads, (r) => r.name),
+												Order.String
+											)
+										})
+									}
+									if (k === s.levels.length - 1) {
+										const first = defined(declared[0])
+										switch (s.defect) {
+											case "a read of its own level":
+												record["own"] = derived(
+													"OwnLevel",
+													idsOf(schema.extend(current, { first: first.value }, []), [first.value])
+												)
+												break
+											case "a parameter":
+												record["param"] = derived(
+													"ByAccount",
+													queryOver(current).rule((r: RuleValue) => {
+														const { id } = varsOver(Task)
+														return r
+															.match(Task, { id, account: r.param("account", uuid) })
+															.find({ id })
+													})
+												)
+												break
+											case "a definition that is no query":
+												admitDerived("Bad", {}, [])
+												break
+											case "none":
+												break
+										}
+									}
+									current = schema.extend(current, record, [])
+									chain.push(current)
+									below.push(...declared)
+								}
+								return { current, chain, expected }
+							}
+							if (s.defect !== "none") {
+								return void throwsRefused(tower, "MalformedDescription")
+							}
+							const { current, chain, expected } = tower()
+							for (const [k, value] of chain.entries()) {
+								const desc = defined(schemaDescOf(value))
+								assert.equal(desc.name, "Edu")
+								assert.equal(
+									"extends" in value ? value.extends : "no base member",
+									k === 0 ? undefined : chain[k - 1]
+								)
+								if (k > 0) {
+									matchesObject(
+										desc.relations,
+										Arr.map(
+											Arr.filter(expected, (e) => e.schemaLevel === k),
+											(e) => ({ kind: "derived" as const, name: e.name, level: e.level })
+										)
+									)
+								}
+							}
+							const owned = succeeded(own(defined(schemaDescOf(current))))
+							for (const e of expected) {
+								const r = defined(owned.relations[e.name])
+								if (r.kind !== "derived") {
+									return assert.fail(`${e.name} is a derived relation`)
+								}
+								assert.deepEqual(
+									[r.level, r.desc.level, r.reads],
+									[e.schemaLevel, e.level, e.reads]
+								)
+							}
+						})
+				)
+			)
+	)
+})

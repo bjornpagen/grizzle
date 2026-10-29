@@ -1,0 +1,228 @@
+import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
+import { admitsArity, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import {
+	type BinaryOperator,
+	type BuiltinFunctionName,
+	builtinFunctionNames,
+	type Expr
+} from "#compiler/sql/ast.ts"
+import { and, binary, call, not, or } from "#compiler/sql/build.ts"
+
+type OpForm = { readonly kind: "binary"; readonly op: BinaryOperator } | { readonly kind: "negate" }
+
+/**
+ * The operator forms by oprcode:
+ *
+ * - comparisons: int2eq .. int84ge, float4eq .. float84ge, booleq; numeric_eq, cash_eq, uuid_eq, enum_eq; texteq and
+ *   textne, then text_lt .. text_ge;
+ * - arithmetic: + - * / over the integer and float pairs, % over the integers; numeric's named forms; money;
+ * - text: concatenation and regex membership (equality, ordering and regex membership are all a query does with text).
+ */
+const opTable = (): ReadonlyMap<string, OpForm> => {
+	const table = new Map<string, OpForm>()
+	const put = (form: OpForm, ...names: ReadonlyArray<string>) => {
+		for (const name of names) {
+			table.set(name, form)
+		}
+	}
+
+	const integerPairs = [
+		"int2",
+		"int4",
+		"int8",
+		"int24",
+		"int42",
+		"int28",
+		"int82",
+		"int48",
+		"int84"
+	] as const
+	const floatPairs = ["float4", "float8", "float48", "float84"]
+	const comparisons: ReadonlyArray<readonly [string, BinaryOperator]> = [
+		["eq", "="],
+		["ne", "<>"],
+		["lt", "<"],
+		["le", "<="],
+		["gt", ">"],
+		["ge", ">="]
+	]
+
+	for (const [suffix, op] of comparisons) {
+		put(
+			{ kind: "binary", op },
+			...[...integerPairs, ...floatPairs, "bool"].map((p) => `${p}${suffix}`)
+		)
+		put({ kind: "binary", op }, ...["numeric", "cash", "uuid", "enum"].map((p) => `${p}_${suffix}`))
+		put(
+			{ kind: "binary", op },
+			suffix === "eq" || suffix === "ne" ? `text${suffix}` : `text_${suffix}`
+		)
+	}
+
+	for (const p of [...integerPairs, ...floatPairs]) {
+		put({ kind: "binary", op: "+" }, `${p}pl`)
+		put({ kind: "binary", op: "-" }, `${p}mi`)
+		put({ kind: "binary", op: "*" }, `${p}mul`)
+		put({ kind: "binary", op: "/" }, `${p}div`)
+	}
+	put({ kind: "binary", op: "%" }, "int2mod", "int4mod", "int8mod", "numeric_mod")
+	put({ kind: "binary", op: "+" }, "numeric_add", "cash_pl")
+	put({ kind: "binary", op: "-" }, "numeric_sub", "cash_mi")
+	put(
+		{ kind: "binary", op: "*" },
+		"numeric_mul",
+		"cash_mul_flt4",
+		"cash_mul_flt8",
+		"cash_mul_int2",
+		"cash_mul_int4",
+		"cash_mul_int8",
+		"flt4_mul_cash",
+		"flt8_mul_cash",
+		"int2_mul_cash",
+		"int4_mul_cash",
+		"int8_mul_cash"
+	)
+
+	put(
+		{ kind: "binary", op: "/" },
+		"numeric_div",
+		"cash_div_flt4",
+		"cash_div_flt8",
+		"cash_div_int2",
+		"cash_div_int4",
+		"cash_div_int8",
+		"cash_div_cash"
+	)
+	put({ kind: "negate" }, "int2um", "int4um", "int8um", "float4um", "float8um", "numeric_uminus")
+
+	put({ kind: "binary", op: "||" }, "textcat")
+	put({ kind: "binary", op: "~" }, "textregexeq")
+	return table
+}
+
+const table = opTable()
+
+/** The catalogue's operator forms, by oprcode: what the pg test checks against the catalog. */
+export const opForms: ReadonlyMap<string, OpForm> = table
+
+/** The connective identities: SQL syntax, not catalog entries. */
+const keywordOps = ["and", "or", "not"] as const
+
+/** The constructs spelled by a keyword: the connectives and the registry's constructs. */
+type Construct = "and" | "or" | "not" | "least" | "greatest" | "between" | "in"
+
+/** A construct's SQL form: a connective by its bare identity, or a registry construct by its keyword. */
+const keyword = (name: Construct, args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [first, second, third] = args
+	switch (name) {
+		case "and":
+			return args.length === 0 ? undefined : and(...args)
+		case "or":
+			return args.length === 0 ? undefined : or(...args)
+		case "not":
+			return args.length === 1 && first !== undefined ? not(first) : undefined
+		case "least":
+		case "greatest":
+			return args.length === 0 ? undefined : { kind: name, args }
+		case "between":
+			return args.length === 3 && first !== undefined && second !== undefined && third !== undefined
+				? { kind: "between", expr: first, low: second, high: third, not: false }
+				: undefined
+		case "in":
+			return first === undefined || args.length < 2
+				? undefined
+				: { kind: "inList", expr: first, list: args.slice(1), not: false }
+	}
+}
+
+const builtins: ReadonlySet<string> = new Set(builtinFunctionNames)
+/** A real check: the set holds exactly the builtin function names. */
+const isBuiltin = (name: string): name is BuiltinFunctionName => builtins.has(name)
+
+/**
+ * An entry of the Compute catalogue's overload registry (scalar/compute/registry.ts), whose OpIds
+ * are the IR's convention: an operator by its oprcode, a function by its regprocedure signature
+ * ("round(numeric,integer)"), a construct by its keyword and type ("between:integer"). Extension operators and
+ * functions are the vector/ plug-in's, so they are not lowered here.
+ *
+ * A cast is the IR's own cast node, never an op node.
+ */
+const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => {
+	const native = nativeOp(id)
+	if (native === undefined) {
+		return undefined
+	}
+	const sql = native.sql
+	const [first, second] = args
+	switch (sql.kind) {
+		case "infix":
+			return sql.owner === "catalog" &&
+				args.length === 2 &&
+				first !== undefined &&
+				second !== undefined
+				? binary(sql.op, first, second)
+				: undefined
+		case "prefix":
+			return args.length === 1 && first !== undefined ? { kind: "negate", expr: first } : undefined
+		case "function":
+			return sql.owner === "catalog" &&
+				isBuiltin(sql.name) &&
+				admitsArity(native.operands, args.length)
+				? call(sql.name, args)
+				: undefined
+		case "cast":
+			return undefined
+		case "between":
+		case "in":
+		case "least":
+		case "greatest":
+		case "and":
+		case "or":
+		case "not":
+			return keyword(sql.kind, args)
+	}
+}
+
+/** The connective an operator identity names, if it names one. */
+const connectiveOf = (op: OpId): (typeof keywordOps)[number] | undefined =>
+	op === "and" ? "and" : op === "or" ? "or" : op === "not" ? "not" : undefined
+
+/**
+ * The default operator lowering: an operator form with its exact arity, a connective, or an entry of the overload registry.
+ *
+ * The default scalar vocabulary of the conservative lowering: the Compute catalogue under the IR's
+ * OpId convention, one identity per overload:
+ *
+ * - an operator: its implementing function, pg_operator.oprcode ("int8pl", "numeric_mul", "texteq");
+ * - a function: its regprocedure signature ("abs(bigint)", "round(numeric,integer)");
+ * - a construct: its keyword and type ("between:integer", "in:text", "least:numeric", "greatest:bigint"), and the
+ *   connectives and, or and not.
+ *
+ * The operators, including the cross-width integer and float forms the registry does not admit (int48pl, float84lt),
+ * are the table below, which a pg test checks against pg_operator on PostgreSQL 19, so a wrong symbol cannot hide
+ * here; the connectives are the keyword forms. Functions and constructs resolve only through the overload registry
+ * (scalar/compute/registry.ts), whose entries test/pg/compute verifies against pg_proc, so no overload has a
+ * second spelling: an IR carrying a non-canonical OpId (a prosrc name, a bare "between") is UnsupportedOperation.
+ *
+ * Span and vector operations are not here: their lowerings are the span/ and vector/ plug-ins.
+ */
+export const defaultOps = (
+	expr: ScalarExpr & { readonly kind: "op" },
+	args: ReadonlyArray<Expr>
+): Expr | undefined => {
+	/** The operator forms are of overloads their catalog identity alone names. */
+	const form = typeof expr.op === "string" ? table.get(expr.op) : undefined
+	if (form === undefined) {
+		const connective = connectiveOf(expr.op)
+		return connective === undefined ? registryForm(expr.op, args) : keyword(connective, args)
+	}
+	const [left, right] = args
+	switch (form.kind) {
+		case "binary":
+			return args.length === 2 && left !== undefined && right !== undefined
+				? binary(form.op, left, right)
+				: undefined
+		case "negate":
+			return args.length === 1 && left !== undefined ? { kind: "negate", expr: left } : undefined
+	}
+}

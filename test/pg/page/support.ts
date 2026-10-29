@@ -1,0 +1,425 @@
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	Schema
+} from "effect"
+import { dbContext } from "#adapter/db/context.ts"
+import type { ReadError } from "#adapter/errors/execution.ts"
+import { type CompiledPage, compilePageTemplate } from "#adapter/page/page.ts"
+import type { CompiledReadValue, QueryResultValue, ReadExecutor } from "#adapter/reader/reader.ts"
+import { statementSql } from "#adapter/wire/batch.ts"
+import type { CursorError } from "#compiler/core/errors.ts"
+import { isRecord } from "#compiler/core/record.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { assert } from "#test/support/assert.ts"
+import { isList } from "#test/support/list.ts"
+import { mergeComparator } from "#test/support/merge.ts"
+
+/**
+ * A page as the runtime delivers it, admitted by its documented shape: the runtime readers type it
+ * unknown, since their queries are.
+ */
+const PageShape = Schema.Struct({
+	edges: Schema.Array(Schema.Struct({ node: Schema.Unknown, cursor: Schema.String })),
+	pageInfo: Schema.Struct({
+		startCursor: Schema.Option(Schema.String),
+		endCursor: Schema.Option(Schema.String),
+		hasPreviousPage: Schema.Boolean,
+		hasNextPage: Schema.Boolean
+	})
+})
+export type PageValue = typeof PageShape.Type
+
+const admitPage = (page: unknown): Effect.Effect<PageValue> =>
+	Effect.orDie(Schema.decodeUnknownEffect(PageShape)(page))
+
+/** A reader over unknown values, for loops over queries of different types and for the requests the types refuse. */
+interface UntypedReader {
+	page(
+		query: unknown,
+		params: unknown,
+		request: unknown
+	): Effect.Effect<PageValue, ReadError | CursorError>
+	execute(query: unknown, params: unknown): Effect.Effect<QueryResultValue, ReadError>
+}
+
+/**
+ * The UntypedReader of a runtime reader (packages/grizzle/src/adapter/reader/reader.ts): the reader the typed Db is at run time.
+ * A runtime reader's page and execute, at the row type unknown; a compiled handle's page bound to its query is one.
+ */
+interface RuntimeReads {
+	page(
+		query: unknown,
+		params: unknown,
+		request: unknown
+	): Effect.Effect<unknown, ReadError | CursorError>
+	execute(query: unknown, params: unknown): Effect.Effect<QueryResultValue, ReadError>
+}
+
+export const untyped = (reader: RuntimeReads): UntypedReader => ({
+	execute: (query, params) => reader.execute(query, params),
+	page: (query, params, request) => Effect.flatMap(reader.page(query, params, request), admitPage)
+})
+
+/**
+ * A compiled handle's page, admitted as a reader's is.
+ *
+ * Shared helpers for the page runtime suites (test/pg/page).
+ *
+ * Every suite pages through the real readers, Db and its compiled handles, exactly as an application does, over the Paging fixture
+ * and the boundary-value Measures fixture of the unit page suites (test/unit/page/fixtures.ts). A page's nodes are compared as canonical values (`canon`), which keep every carrier's
+ * identity: a bigint, a Decimal's text, a float's sign of zero and NaN, an Option.
+ */
+export const compiledPage = (
+	compiled: CompiledReadValue,
+	params: unknown,
+	request: unknown
+): Effect.Effect<PageValue, ReadError | CursorError> =>
+	Effect.flatMap(compiled.page(params, request), admitPage)
+
+/** A delivered row as the record it is. */
+export const rowOf = (row: unknown): Readonly<Record<string, unknown>> => {
+	if (!isRecord(row)) {
+		throw new Error(`a row is a record, not ${String(row)}`)
+	}
+	return row
+}
+
+/** The name of a prototype's constructor, "object" when it has none. */
+const constructorName = (proto: unknown): string =>
+	isRecord(proto) && typeof proto.constructor === "function" ? proto.constructor.name : "object"
+
+/** A value with every carrier's identity kept, arrays of records sorted where they are sets (unordered attachments). */
+export const canon = (value: unknown): unknown => {
+	if (Option.isOption(value)) {
+		return Option.isSome(value) ? { some: canon(value.value) } : "none"
+	}
+	if (typeof value === "bigint") {
+		return `bigint ${value}`
+	}
+	if (typeof value === "number") {
+		return Object.is(value, -0) ? "number -0" : `number ${String(value)}`
+	}
+	if (isList(value)) {
+		return Arr.map(value, canon)
+	}
+	if (typeof value === "object" && value !== null) {
+		const proto: unknown = Object.getPrototypeOf(value)
+		if (proto !== null && proto !== Object.prototype) {
+			return `${constructorName(proto)} ${Formatter.format(value)}`
+		}
+		const out: Record<string, unknown> = {}
+		const fields = rowOf(value)
+		for (const k of Arr.sort(Rec.keys(fields), Order.String)) {
+			const v = canon(fields[k])
+			out[k] = isList(v)
+				? Arr.sort([...v], (a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1))
+				: v
+		}
+		return out
+	}
+	return value
+}
+
+/** The page template a reader of `db` compiles for `query` (packages/grizzle/src/adapter/page/page.ts). */
+export const pageTemplate = (db: object, query: unknown): CompiledPage => {
+	const ctx = dbContext(db)
+	if (ctx === undefined) {
+		throw new Error("not a Db")
+	}
+	const compiled = compilePageTemplate(ctx, query)
+	if (Result.isFailure(compiled)) {
+		throw new Error(`${compiled.failure.stage}: ${compiled.failure.message}`)
+	}
+	return compiled.success
+}
+
+/**
+ * The complete sorted distinct result D: the rows the reader's execute delivers, sorted on the page's completed order,
+ * in canonical form.
+ */
+export const sortedResult = (
+	compiled: CompiledPage,
+	rows: ReadonlyArray<unknown>
+): ReadonlyArray<unknown> => {
+	const types: Record<string, ScalarType> = {}
+	for (const c of compiled.runtime.page.heading) {
+		types[c.name] = c.type
+	}
+	const compare = mergeComparator({ order: compiled.runtime.page.order, types })
+	if (!compare.ok) {
+		throw new Error(compare.error.message)
+	}
+	/** The page's completed order: the comparator's sign. */
+	const pageOrder: Order.Order<unknown> = (a, b) => {
+		const sign = compare.value(rowOf(a), rowOf(b))
+		return sign < 0 ? -1 : sign > 0 ? 1 : 0
+	}
+	const sorted = Arr.sort(rows, pageOrder)
+	for (let i = 1; i < sorted.length; i++) {
+		assert.notEqual(
+			compare.value(rowOf(sorted[i - 1]), rowOf(sorted[i])),
+			0,
+			"the page order is total over D"
+		)
+	}
+	return Arr.map(sorted, canon)
+}
+
+/** The page's completed order over delivered rows: negative when the first row comes first. */
+export const pageOrder = (compiled: CompiledPage): ((a: unknown, b: unknown) => number) => {
+	const types: Record<string, ScalarType> = {}
+	for (const c of compiled.runtime.page.heading) {
+		types[c.name] = c.type
+	}
+	const compare = mergeComparator({ order: compiled.runtime.page.order, types })
+	if (!compare.ok) {
+		throw new Error(compare.error.message)
+	}
+	return (a, b) => compare.value(rowOf(a), rowOf(b))
+}
+
+/**
+ * The rows strictly after an anchor's values in the page order, sorted and canonical: what a forward
+ * page after the anchor's cursor reads from `rows`, whether or not the anchor is still among them.
+ */
+export const strictlyAfter = (
+	compiled: CompiledPage,
+	rows: ReadonlyArray<unknown>,
+	anchor: unknown
+): ReadonlyArray<unknown> => {
+	const order = pageOrder(compiled)
+	return sortedResult(
+		compiled,
+		Arr.filter(rows, (r) => order(r, anchor) > 0)
+	)
+}
+
+/**
+ * The rows strictly before an anchor's values in the page order, sorted and canonical: what a backward page before the
+ * anchor's cursor reads from `rows`, whether or not the anchor is still among them.
+ */
+export const strictlyBefore = (
+	compiled: CompiledPage,
+	rows: ReadonlyArray<unknown>,
+	anchor: unknown
+): ReadonlyArray<unknown> => {
+	const order = pageOrder(compiled)
+	return sortedResult(
+		compiled,
+		Arr.filter(rows, (r) => order(r, anchor) < 0)
+	)
+}
+
+export interface Traversal {
+	readonly pages: ReadonlyArray<PageValue>
+	/** The nodes of every page, in presentation order, canonical. */
+	readonly nodes: ReadonlyArray<unknown>
+}
+
+/**
+ * The most pages one traversal takes before it counts as one that does not end: the suites' D hold at most a few
+ * dozen rows, so a page size of 1 ends far below it.
+ */
+const traversalPagesMax = 1_000
+
+/**
+ * Every page of D forward from { first }, following each endCursor while hasNextPage, or backward from { last },
+ * following each startCursor while hasPreviousPage.
+ */
+export const traverse = (
+	reader: UntypedReader,
+	query: unknown,
+	params: unknown,
+	direction: "forward" | "backward",
+	size: number,
+	/** Where the traversal starts: the first or last tuple, or an anchor's cursor. */
+	from: { readonly kind: "end" } | { readonly kind: "anchor"; readonly cursor: string }
+): Effect.Effect<Traversal, ReadError | CursorError> =>
+	Effect.gen(function* () {
+		const pages: Array<PageValue> = []
+		let request: object =
+			direction === "forward"
+				? from.kind === "end"
+					? { first: size }
+					: { first: size, after: from.cursor }
+				: from.kind === "end"
+					? { last: size }
+					: { last: size, before: from.cursor }
+		for (let n = 0; n < traversalPagesMax; n++) {
+			const page = yield* reader.page(query, params, request)
+			pages.push(page)
+			const more =
+				direction === "forward" ? page.pageInfo.hasNextPage : page.pageInfo.hasPreviousPage
+			const next = direction === "forward" ? page.pageInfo.endCursor : page.pageInfo.startCursor
+			if (!more || Option.isNone(next)) {
+				const ordered = direction === "forward" ? pages : Arr.reverse(pages)
+				return {
+					pages,
+					nodes: Arr.flatMap(ordered, (p) => Arr.map(p.edges, (e) => canon(e.node)))
+				}
+			}
+			request =
+				direction === "forward"
+					? { first: size, after: next.value }
+					: { last: size, before: next.value }
+		}
+		throw new Error(`a traversal of more than ${traversalPagesMax} pages`)
+	})
+
+/**
+ * Holds a page's edges and edge cursors to its own shape: startCursor and endCursor are the first and last
+ * edges' cursors, Option.none on an empty page.
+ */
+export const assertEdges = (page: PageValue, label: string): void => {
+	const first = page.edges[0]
+	const last = page.edges[page.edges.length - 1]
+	assert.deepEqual(
+		page.pageInfo.startCursor,
+		first === undefined ? Option.none() : Option.some(first.cursor),
+		label
+	)
+	assert.deepEqual(
+		page.pageInfo.endCursor,
+		last === undefined ? Option.none() : Option.some(last.cursor),
+		label
+	)
+	for (const e of page.edges) {
+		assert.equal(typeof e.cursor, "string", label)
+	}
+}
+
+/** Forward and backward traversals at every page size up to `sizes`, each concatenating to D with exact flags. */
+export const checkTraversals = (
+	label: string,
+	reader: UntypedReader,
+	query: unknown,
+	params: unknown,
+	full: ReadonlyArray<unknown>,
+	sizes: number
+): Effect.Effect<void, ReadError | CursorError> =>
+	Effect.gen(function* () {
+		const total = full.length
+		for (let size = 1; size <= sizes; size++) {
+			const forward = yield* traverse(reader, query, params, "forward", size, { kind: "end" })
+			assert.deepEqual(forward.nodes, full, `${label} forward ${size}`)
+			let offset = 0
+			for (const [k, page] of forward.pages.entries()) {
+				assertEdges(page, `${label} forward ${size} page ${k}`)
+				assert.ok(page.edges.length <= size)
+				assert.equal(
+					page.pageInfo.hasPreviousPage,
+					offset > 0,
+					`${label} forward ${size} page ${k} previous`
+				)
+				offset += page.edges.length
+				assert.equal(
+					page.pageInfo.hasNextPage,
+					offset < total,
+					`${label} forward ${size} page ${k} next`
+				)
+			}
+			const backward = yield* traverse(reader, query, params, "backward", size, { kind: "end" })
+			assert.deepEqual(backward.nodes, full, `${label} backward ${size}`)
+			let end = total
+			for (const [k, page] of backward.pages.entries()) {
+				assertEdges(page, `${label} backward ${size} page ${k}`)
+				const start = end - page.edges.length
+				assert.deepEqual(
+					Arr.map(page.edges, (e) => canon(e.node)),
+					full.slice(start, end),
+					`${label} backward ${size} page ${k}`
+				)
+				assert.equal(
+					page.pageInfo.hasNextPage,
+					end < total,
+					`${label} backward ${size} page ${k} next`
+				)
+				assert.equal(
+					page.pageInfo.hasPreviousPage,
+					start > 0,
+					`${label} backward ${size} page ${k} previous`
+				)
+				end = start
+			}
+		}
+		/** The inclusive empty-page rules. */
+		const first = yield* reader.page(query, params, { first: 1 })
+		const last = yield* reader.page(query, params, { last: 1 })
+		const start = first.pageInfo.startCursor
+		const finish = last.pageInfo.endCursor
+		if (Option.isSome(start) && Option.isSome(finish)) {
+			const pastEnd = yield* reader.page(query, params, { first: 2, after: finish.value })
+			assert.deepEqual(
+				[pastEnd.edges.length, pastEnd.pageInfo.hasPreviousPage, pastEnd.pageInfo.hasNextPage],
+				[0, true, false],
+				`${label} past the end`
+			)
+			assertEdges(pastEnd, `${label} past the end`)
+			const beforeStart = yield* reader.page(query, params, { last: 2, before: start.value })
+			assert.deepEqual(
+				[
+					beforeStart.edges.length,
+					beforeStart.pageInfo.hasPreviousPage,
+					beforeStart.pageInfo.hasNextPage
+				],
+				[0, false, true],
+				`${label} before the start`
+			)
+			/** Every edge's cursor works with either anchor. */
+			const reversed = yield* reader.page(query, params, { last: total, before: finish.value })
+			assert.deepEqual(
+				Arr.map(reversed.edges, (e) => canon(e.node)),
+				full.slice(0, total - 1),
+				`${label} before the last edge`
+			)
+		} else {
+			assert.equal(total, 0, `${label}: no edge only for an empty D`)
+			for (const page of [first, last]) {
+				assert.deepEqual(
+					[page.edges.length, page.pageInfo.hasPreviousPage, page.pageInfo.hasNextPage],
+					[0, false, false],
+					`${label} empty D`
+				)
+				assertEdges(page, `${label} empty D`)
+			}
+		}
+	})
+
+export interface Counts {
+	/** Reads the executor ran, each on one session and, past a lone statement, in one transaction. */
+	within: number
+	/** The flights sent: one round trip each. */
+	flights: number
+	/** Statements sent through the page's session. */
+	statements: number
+	/** Every statement text and its parameters, in order. */
+	readonly sent: Array<{ readonly sql: string; readonly params: ReadonlyArray<string> }>
+}
+
+/** An executor that counts the reads, flights and statements a page sends through `inner`. */
+export const countingExecutor = (
+	inner: ReadExecutor
+): { readonly executor: ReadExecutor; readonly counts: Counts } => {
+	const counts: Counts = { within: 0, flights: 0, statements: 0, sent: [] }
+	const executor: ReadExecutor = {
+		run: (flight) =>
+			Effect.suspend(() => {
+				counts.within++
+				if (flight.statements.length > 0) {
+					counts.flights++
+				}
+				for (const statement of flight.statements) {
+					counts.statements++
+					counts.sent.push({ sql: statementSql(statement), params: statement.params })
+				}
+				return inner.run(flight)
+			})
+	}
+	return { executor, counts }
+}

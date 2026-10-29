@@ -1,0 +1,957 @@
+import { Signer } from "@aws-sdk/rds-signer"
+import {
+	alternatives,
+	arm,
+	ChangeSet,
+	CredentialError,
+	capacity,
+	check,
+	closed,
+	closedId,
+	contained,
+	context,
+	contract,
+	Db,
+	DbLayer,
+	type Decimal,
+	defineConfig,
+	derived,
+	type Fact,
+	type HeadOf,
+	type Infer,
+	type Page,
+	key,
+	login,
+	on,
+	type PageCursor,
+	type ParamsOf,
+	pg,
+	query,
+	ref,
+	relation,
+	role,
+	schema,
+	span,
+	str,
+	TokenError,
+	uuid,
+	v,
+	weigh,
+	within,
+	workload
+} from "@bjornpagen/grizzle"
+import { verifyToken } from "@clerk/backend"
+import { attachDatabasePool } from "@vercel/functions/db-connections"
+import { Config, Effect, type Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
+
+type Equals<A, B> =
+	(<X>(x: X) => X extends A ? 1 : 2) extends <X>(x: X) => X extends B ? 1 : 2 ? true : false
+type Expect<T extends true> = T
+
+/**
+ * The README's program, checked. Each ```ts block of README.md is below, in order and with its comments, after a
+ * comment naming its README section, with two mechanical substitutions: the package's own name, "@bjornpagen/grizzle",
+ * resolves here to the sources through the package's grizzle-source export condition, and the committed snapshot.json
+ * the README imports is a declared value, because this directory has no migrations; the config block's own imports are
+ * this file's bindings.
+ * test/types/examples/blocks.test.ts holds every README ```ts block here, line for line and in order. The types the
+ * README's comments and prose state are pinned at the end, with the refusals it promises. Typechecked, never executed.
+ *
+ * README: the opening block, the blog's schema and one query over it.
+ */
+const ClerkUser = str.regex("^user_[0-9A-Za-z]{1,64}$")
+const ClerkOrg = str.regex("^org_[0-9A-Za-z]{1,64}$")
+const Title = str.regex("^.{1,200}$", "su")
+const Prose = str.regex("^.*$", "su")
+
+export const Status = closed("Status", ["Draft", "Published"])
+export const Post = relation(
+	"Post",
+	{
+		id: uuid,
+		org: ClerkOrg,
+		author: ClerkUser,
+		title: Title,
+		body: Prose,
+		status: closedId(Status)
+	},
+	["id"]
+)
+export const Comment = relation(
+	"Comment",
+	{ id: uuid, post: uuid, author: ClerkUser, body: Prose },
+	["id"]
+)
+export const PostViews = relation("PostViews", { post: uuid, views: pg.bigint }, ["post"])
+
+export const Blog = schema("Blog", { Status, Post, Comment, PostViews }, [
+	contained(on(Comment, "post"), on(Post, "id")),
+	contained(on(PostViews, "post"), on(Post, "id"))
+])
+
+/** A published post by its id, with its comments nested inside it. */
+export const postPage = query(Blog)
+	.rule((r) => {
+		const { id, title, body } = v(Post)
+		return r
+			.match(Post, { id, title, body, status: "Published" })
+			.where(r.eq(id, r.param("id", uuid)))
+			.find({ id, title, body })
+	})
+	.attach(
+		"comments",
+		(post) =>
+			query(Blog).rule((r) => {
+				const { id, author, body } = v(Comment)
+				return r.match(Comment, { id, post: post.id, author, body }).find({ id, author, body })
+			}),
+		"array"
+	)
+
+/** README: "Hard in Drizzle, one declaration here", 1. Every organization sees only its own rows. */
+export const ApiKey = relation("ApiKey", { id: uuid, org: ClerkOrg, name: Title }, ["id"])
+export const Keys = schema("Keys", { ApiKey }, [])
+
+/** The caller's organization: the `org` claim of their verified session token. */
+export const Tenant = context("Tenant", { org: ClerkOrg })
+
+/** The keys of the caller's organization. An insert takes `org` from the token. */
+export const orgKeys = query(Keys).rule((r) => {
+	const { id, org, name } = v(ApiKey)
+	return r.match(ApiKey, { id, org, name }).match(Tenant, { org }).find({ id, name })
+})
+
+export const KeyAdmin = role(Keys, "key_admin", { ApiKey: orgKeys }, { write: ["ApiKey"] })
+export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
+
+/** README: "Hard in Drizzle, one declaration here", 2. Top three per group, with exact types. */
+/** Millionths of a dollar, never negative; and an instant, in milliseconds since the epoch. */
+const Micros = contract("Micros", pg.bigint, (m) => m.ge(0n))
+const Millis = contract("Millis", pg.bigint)
+
+/** One API call: its workspace, its model, when it ran and what it cost. */
+export const Call = relation(
+	"Call",
+	{ id: uuid, workspace: uuid, model: Title, at: Millis, cost: Micros },
+	["id"]
+)
+export const Refund = relation("Refund", { call: uuid }, ["call"])
+export const Usage = schema("Usage", { Call, Refund }, [
+	contained(on(Refund, "call"), on(Call, "id"))
+])
+
+/** Each workspace's spend, and its three costliest models, leaving out refunded calls. */
+export const topModels = query(Usage)
+	.rule((r) => {
+		const { id, workspace, cost } = v(Call)
+		return r
+			.match(Call, { id, workspace, cost })
+			.where(r.not(Refund, { call: id }))
+			.find({ workspace, spend: r.sum(cost) })
+	})
+	.attach(
+		"models",
+		(w) =>
+			query(Usage)
+				.rule((r) => {
+					const { id, model, cost } = v(Call)
+					return r
+						.match(Call, { id, workspace: w.workspace, model, cost })
+						.where(r.not(Refund, { call: id }))
+						.find({ model, calls: r.count(), spend: r.sum(cost) })
+				})
+				.orderBy(["spend", "desc"])
+				.take(3),
+		"array"
+	)
+
+/** README: "Hard in Drizzle, one declaration here", 3. A tree of any depth. */
+export const Account = relation("Account", { id: uuid }, ["id"])
+/** Reseller billing: an account bills through at most one parent account. */
+export const BillsThrough = relation("BillsThrough", { child: uuid, parent: uuid }, ["child"])
+export const Charge = relation("Charge", { id: uuid, account: uuid, amount: Micros }, ["id"])
+export const Resellers = schema("Resellers", { Account, BillsThrough, Charge }, [
+	contained(on(BillsThrough, "child"), on(Account, "id")),
+	contained(on(BillsThrough, "parent"), on(Account, "id")),
+	contained(on(Charge, "account"), on(Account, "id"))
+])
+
+/** The root account and every account below it, at any depth. */
+const below = query(Resellers).recursive("Below", {
+	row: { account: uuid },
+	base: [
+		(r) => {
+			const { id } = v(Account)
+			return r
+				.match(Account, { id })
+				.where(r.eq(id, r.param("root", uuid)))
+				.find({ account: id })
+		}
+	],
+	rec: [
+		(r, self) => {
+			const { account } = v(self)
+			const { child } = v(BillsThrough)
+			return r
+				.match(self, { account })
+				.match(BillsThrough, { child, parent: account })
+				.find({ account: child })
+		}
+	]
+})
+
+/** What each account under a reseller spent. */
+export const treeSpend = query(Resellers).rule((r) => {
+	const tree = below.bind({ root: r.param("root", uuid) })
+	const { account } = v(tree)
+	const { id, amount } = v(Charge)
+	return r
+		.match(tree, { account })
+		.match(Charge, { id, account, amount })
+		.find({ account, spend: r.sum(amount) })
+})
+
+/** README: "Hard in Drizzle, one declaration here", 4. No double booking. */
+const Minute = contract("Minute", pg.bigint)
+
+export const Room = relation("Room", { id: uuid, name: Title }, ["id"])
+export const Opening = relation("Opening", { room: uuid, hours: span(Minute) }, ["room", "hours"])
+export const Booking = relation("Booking", { room: uuid, during: span(Minute), by: ClerkUser }, [
+	"room",
+	"during"
+])
+
+export const Rooms = schema("Rooms", { Room, Opening, Booking }, [
+	contained(on(Opening, "room"), on(Room, "id")),
+	contained(on(Booking, "room", "during"), on(Opening, "room", "hours"))
+])
+
+/** README: "Hard in Drizzle, one declaration here", 5. A budget no burst of requests can overdraw. */
+export const Grant = relation("Grant", { id: uuid, org: ClerkOrg, amount: Micros }, ["id"])
+export const Debit = relation("Debit", { call: uuid, grant: uuid, amount: Micros }, ["call"])
+
+export const Credits = schema("Credits", { Grant, Debit }, [
+	contained(on(Debit, "grant"), on(Grant, "id")),
+	capacity(on(Grant, "id"), {
+		from: on(Debit, "grant"),
+		weight: weigh("amount"),
+		within: within(0n, ref("amount"))
+	})
+])
+
+export const Metering = role(Credits, "metering", Credits.relations, { write: ["Debit"] })
+
+/** Debit a grant for one call. Your code decides the retry; grizzle never retries. */
+export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit>) =>
+	db
+		.apply(ChangeSet.empty(Credits).insert(Debit, [debit]), {})
+		.pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 3 }))
+
+/** README: "Hard in Drizzle, one declaration here", 6. Books that always balance. */
+const AccountCode = str.regex("^[a-z][a-z_]{0,63}$")
+
+export const Entry = relation("Entry", { id: uuid, memo: Prose }, ["id"])
+export const Posting = relation(
+	"Posting",
+	{ entry: uuid, account: AccountCode, amount: pg.bigint },
+	["entry", "account"]
+)
+
+export const Books = schema("Books", { Entry, Posting }, [
+	contained(on(Posting, "entry"), on(Entry, "id")),
+	capacity(on(Entry, "id"), {
+		from: on(Posting, "entry"),
+		weight: weigh("amount"),
+		within: within(0n, 0n)
+	})
+])
+
+/** README: "Hard in Drizzle, one declaration here", 7. States that carry their own data. */
+export const InvoiceState = closed("InvoiceState", ["open", "paid", "void"])
+export const Invoice = relation(
+	"Invoice",
+	{ id: uuid, org: ClerkOrg, state: closedId(InvoiceState) },
+	["id"]
+)
+export const Payment = relation(
+	"Payment",
+	{ invoice: uuid, charge: str.regex("^ch_[0-9A-Za-z]{1,64}$") },
+	["invoice"]
+)
+export const Voiding = relation("Voiding", { invoice: uuid, reason: Prose }, ["invoice"])
+
+export const Invoices = schema("Invoices", { InvoiceState, Invoice, Payment, Voiding }, [
+	alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })
+])
+
+/** An invoice, with its payment when it is paid and its voiding when it is void. */
+export const invoiceCard = query(Invoices)
+	.rule((r) => {
+		const { id, state } = v(Invoice)
+		return r
+			.match(Invoice, { id, state })
+			.where(r.eq(id, r.param("id", uuid)))
+			.find({ id, state })
+	})
+	.attach(
+		"payment",
+		(i) =>
+			query(Invoices).rule((r) => {
+				const { charge } = v(Payment)
+				return r.match(Payment, { invoice: i.id, charge }).find({ charge })
+			}),
+		arm("state", "paid")
+	)
+	.attach(
+		"voiding",
+		(i) =>
+			query(Invoices).rule((r) => {
+				const { reason } = v(Voiding)
+				return r.match(Voiding, { invoice: i.id, reason }).find({ reason })
+			}),
+		arm("state", "void")
+	)
+
+/** Pay an open invoice: its state and its payment change together, in one transaction. */
+export const pay = ChangeSet.empty(Invoices)
+	.put(
+		Invoice,
+		query(Invoices).rule((r) => {
+			const { org } = v(Invoice)
+			return r
+				.match(Invoice, { id: r.param("invoice", uuid), org, state: "open" })
+				.find({ id: r.param("invoice", uuid), org, state: InvoiceState.handle("paid") })
+		})
+	)
+	.insert(
+		Payment,
+		query(Invoices).rule((r) =>
+			r.match(Invoice, { id: r.param("invoice", uuid), state: "open" }).find({
+				invoice: r.param("invoice", uuid),
+				charge: r.param("charge", Payment.fields.charge)
+			})
+		)
+	)
+
+/** README: "Hard in Drizzle, one declaration here", 8. A usage page: cursors, a rollup and their indexes. */
+/** A workspace's calls, newest first. */
+export const callLog = query(Usage)
+	.rule((r) => {
+		const { id, model, at, cost } = v(Call)
+		return r
+			.match(Call, { id, workspace: r.param("workspace", uuid), model, at, cost })
+			.find({ id, model, at, cost })
+	})
+	.orderBy(["at", "desc"])
+
+/** Calls and spend per workspace and model, stored, and refreshed when the job says so. */
+export const ModelSpend = derived(
+	"ModelSpend",
+	query(Usage).rule((r) => {
+		const { id, workspace, model, cost } = v(Call)
+		return r
+			.match(Call, { id, workspace, model, cost })
+			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
+	})
+)
+export const Reporting = schema.extend(Usage, { ModelSpend }, [])
+
+export const Analyst = role(Reporting, "analyst", Reporting.relations, { refresh: ["ModelSpend"] })
+export const UsageApi = login(Reporting, "usage_api", [Analyst], {
+	workload: [workload(Analyst, { callLog })]
+})
+
+/** The first 50 calls, and the 50 after a cursor the client sent back. */
+export const firstCalls = (db: Db<typeof Analyst, unknown>, workspace: string) =>
+	db.page(callLog, { workspace }, { first: 50 })
+export const moreCalls = (
+	db: Db<typeof Analyst, unknown>,
+	workspace: string,
+	after: PageCursor<typeof callLog>
+) => db.page(callLog, { workspace }, { first: 50, after })
+
+/** One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). */
+export const modelSpend = query(Reporting).rule((r) => {
+	const { calls, spend } = v(ModelSpend)
+	return r
+		.match(ModelSpend, {
+			workspace: r.param("workspace", uuid),
+			model: r.param("model", Title),
+			calls,
+			spend
+		})
+		.find({ calls, spend })
+})
+
+export const spendOn = (db: Db<typeof Analyst, unknown>, workspace: string, model: string) =>
+	db.get(modelSpend, { workspace, model })
+export const nightly = (db: Db<typeof Analyst, unknown>) => db.refresh(ModelSpend)
+
+/** README: "Example", "Who is asking". */
+/** Clerk's session token: the user in `sub`, the active organization's id in the nested object `o`. */
+export const Session = context("Session", { sub: ClerkUser })
+export const Org = context("Org", { id: ClerkOrg }, { claim: "o" })
+
+/** README: "Example", "What each kind of user sees". */
+export const published = query(Blog).rule((r) => {
+	const { id, title, body } = v(Post)
+	return r.match(Post, { id, title, body, status: "Published" }).find({ id, title, body })
+})
+
+/** A member reads every published post, and every post of their active organization. */
+export const memberPosts = query(Blog)
+	.rule((r) => {
+		const { id, title, body } = v(Post)
+		return r
+			.match(Post, { id, title, body, status: "Published" })
+			.find({ id, title, body, status: Status.handle("Published") })
+	})
+	.rule((r) => {
+		const { id, org, title, body, status } = v(Post)
+		return r
+			.match(Post, { id, org, title, body, status })
+			.match(Org, { id: org })
+			.find({ id, title, body, status })
+	})
+
+/** The member's own posts in their active organization; an insert fills `author` and `org` from the token. */
+export const myPosts = query(Blog).rule((r) => {
+	const { id, org, author, title, body, status } = v(Post)
+	return r
+		.match(Post, { id, org, author, title, body, status })
+		.match(Session, { sub: author })
+		.match(Org, { id: org })
+		.find({ id, title, body, status })
+})
+
+export const comments = query(Blog).rule((r) => {
+	const { id, post, author, body } = v(Comment)
+	return r
+		.match(Comment, { id, post, author, body })
+		.match(Post, { id: post, status: "Published" })
+		.find({ id, post, author, body })
+})
+
+export const myComments = query(Blog).rule((r) => {
+	const { id, post, author, body } = v(Comment)
+	return r
+		.match(Comment, { id, post, author, body })
+		.match(Session, { sub: author })
+		.match(Post, { id: post, status: "Published" })
+		.find({ id, post, body })
+})
+
+export const postIds = query(Blog).rule((r) => {
+	const { id } = v(Post)
+	return r.match(Post, { id }).find({ id })
+})
+
+export const AnonBlog = role(Blog, "anon", { Status, Post: published, Comment: comments })
+export const MemberBlog = role(
+	Blog,
+	"member",
+	{ Status, Post: memberPosts, MyPost: myPosts, Comment: comments, MyComment: myComments },
+	{ write: ["MyPost", "MyComment"] }
+)
+export const Etl = role(Blog, "etl", { Post: postIds, PostViews }, { write: ["PostViews"] })
+
+/** README: "Example", "The app's queries and its logins". */
+const { Post: AnonPost } = AnonBlog.relations
+const { Post: MemberPost, MyPost } = MemberBlog.relations
+
+/** The feed each kind of user reads; the rows of both are { readonly id: string; readonly title: string }. */
+export const anonFeed = query(AnonBlog).rule((r) => {
+	const { id, title } = v(AnonPost)
+	return r.match(AnonPost, { id, title }).find({ id, title })
+})
+
+export const memberFeed = query(MemberBlog).rule((r) => {
+	const { id, title } = v(MemberPost)
+	return r.match(MemberPost, { id, title }).find({ id, title })
+})
+
+export const anonReads = workload(AnonBlog, { anonFeed })
+export const memberReads = workload(MemberBlog, { memberFeed })
+
+export const Web = login(Blog, "web", [AnonBlog, MemberBlog], {
+	workload: [anonReads, memberReads]
+})
+export const EtlJob = login(Blog, "etl_job", [Etl])
+
+/**
+ * README: "Example", "Connecting". The README imports `snapshot` from "./migrations/blog/snapshot.json" with
+ * { type: "json" }.
+ */
+declare const snapshot: { readonly fingerprint: string }
+
+declare const caPem: string
+
+const clerkJwtKey = Config.String("CLERK_JWT_KEY")
+
+export const WebLayer = DbLayer.make({
+	login: Web,
+	snapshot,
+	host: "db.internal",
+	port: 5432,
+	database: "app",
+	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
+		Effect.mapError((cause) => CredentialError.make({ cause }))
+	),
+	tls: { ca: caPem },
+	attachPool: attachDatabasePool,
+	verify: (token) =>
+		clerkJwtKey.pipe(
+			Effect.mapError((cause) => TokenError.make({ cause })),
+			Effect.flatMap((jwtKey) =>
+				Effect.tryPromise({
+					try: () => verifyToken(token, { jwtKey, authorizedParties: ["https://blog.example"] }),
+					catch: (cause) => TokenError.make({ cause })
+				})
+			)
+		)
+})
+
+/** README: "Example", "The route handler". */
+/** The client names a draft's id, so a POST sent twice inserts it once. */
+const Draft = Schema.Struct({ id: Schema.String, title: Schema.String, body: Schema.String })
+
+export const draft = (post: typeof Draft.Type) =>
+	ChangeSet.empty(MemberBlog).insert(MyPost, [{ ...post, status: "Draft" }])
+
+const web = ManagedRuntime.make(WebLayer)
+const bearer = (request: Request) =>
+	/^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1]
+
+/** app/posts/route.ts: one Db per request, as the role the request's session gets. */
+export const GET = (request: Request): Promise<Response> => {
+	const token = bearer(request)
+	const feed = Effect.gen(function* () {
+		if (token === undefined) {
+			const db = yield* Db.open(Web.roles.anon, {})
+			return yield* (yield* db.workload.anonFeed.execute({})).collect
+		}
+		const db = yield* Db.open(Web.roles.member, { token })
+		return yield* (yield* db.workload.memberFeed.execute({})).collect
+	})
+	return web.runPromise(Effect.map(feed, (rows) => Response.json(rows)))
+}
+
+export const POST = (request: Request): Promise<Response> => {
+	const token = bearer(request)
+	const posted = Effect.gen(function* () {
+		if (token === undefined) {
+			return 401
+		}
+		const post = yield* Schema.decodeUnknownEffect(Draft)(
+			yield* Effect.promise(() => request.json())
+		)
+		const db = yield* Db.open(Web.roles.member, { token })
+		const outcome = yield* db.apply(draft(post), {})
+		switch (outcome.kind) {
+			case "accepted":
+				return 201
+			case "no-change":
+				return 200
+			case "outside-world":
+				return 403
+			case "invariant-rejected":
+				return 409
+		}
+	})
+	return web.runPromise(Effect.map(posted, (status) => new Response(null, { status })))
+}
+
+/** README: "Example", "The nightly job". */
+export const EtlLayer = DbLayer.make({
+	login: EtlJob,
+	snapshot,
+	host: "db.internal",
+	port: 5432,
+	database: "app",
+	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
+		Effect.mapError((cause) => CredentialError.make({ cause }))
+	),
+	tls: { ca: caPem }
+})
+
+const etl = ManagedRuntime.make(EtlLayer)
+
+/** No token and no claims: it writes view counts, and never reads a title. */
+export const loadViews = (
+	views: ReadonlyArray<{ readonly post: string; readonly views: bigint }>
+) =>
+	etl.runPromise(
+		Effect.gen(function* () {
+			const db = yield* Db.open(EtlJob.roles.etl, {})
+			return yield* db.apply(ChangeSet.empty(Etl).put(PostViews, views), {})
+		}).pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 4 }))
+	)
+
+/** README: "Rules", the box office. */
+const Cents = contract("Cents", pg.bigint, (c) => c.ge(0n))
+
+export const Show = relation("Show", { id: uuid, seats: pg.bigint, price: Cents }, ["id"])
+export const Ticket = relation("Ticket", { id: uuid, show: uuid, holder: ClerkUser }, ["id"])
+export const Stage = relation("Stage", { id: uuid, name: Title }, ["id"])
+export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show: uuid }, [
+	"stage",
+	"nights"
+])
+
+export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
+	contained(on(Ticket, "show"), on(Show, "id")),
+	contained(on(Run, "stage"), on(Stage, "id")),
+	contained(on(Run, "show"), on(Show, "id")),
+	key(Ticket, ["show", "holder"]),
+	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
+	capacity(on(Show, "id"), { from: on(Ticket, "show"), within: within(0n, ref("seats")) })
+])
+
+/** README: "Queries". */
+/** Comments per author on published posts. */
+export const commentsPerAuthor = query(Blog).rule((r) => {
+	const { id, post, author } = v(Comment)
+	return r
+		.match(Comment, { id, post, author })
+		.match(Post, { id: post, status: "Published" })
+		.find({ author, comments: r.count() })
+})
+
+/** Published posts nobody has commented on. */
+export const unanswered = query(Blog).rule((r) => {
+	const { id, title } = v(Post)
+	return r
+		.match(Post, { id, title, status: "Published" })
+		.where(r.not(Comment, { post: id }))
+		.find({ id, title })
+})
+
+/** Total views per organization. */
+export const viewsPerOrg = query(Blog).rule((r) => {
+	const { post, views } = v(PostViews)
+	const { org } = v(Post)
+	return r
+		.match(PostViews, { post, views })
+		.match(Post, { id: post, org })
+		.find({ org, views: r.sum(views) })
+})
+
+/** An organization's posts by title, ready for paging. */
+export const orgPosts = query(Blog)
+	.rule((r) => {
+		const { id, title, org } = v(Post)
+		return r
+			.match(Post, { id, title, org })
+			.where(r.eq(org, r.param("org", ClerkOrg)))
+			.find({ id, title })
+	})
+	.orderBy(["title", "asc"])
+
+/** README: "Queries", no outer joins. */
+/** Tickets sold per show, zero included: the second rule covers the shows a LEFT JOIN would pad with NULL. */
+export const sold = query(BoxOffice)
+	.rule((r) => {
+		const { id } = v(Show)
+		const { id: ticket } = v(Ticket)
+		return r
+			.match(Show, { id })
+			.match(Ticket, { id: ticket, show: id })
+			.find({ show: id, sold: r.count() })
+	})
+	.rule((r) => {
+		const { id } = v(Show)
+		return r
+			.match(Show, { id })
+			.where(r.not(Ticket, { show: id }))
+			.find({ show: id, sold: r.literal(0n) })
+	})
+
+/** README: "Writes". */
+/** Publish a draft: the new row is read from the old one, in the same transaction. */
+export const publish = ChangeSet.empty(Blog).put(
+	Post,
+	query(Blog).rule((r) => {
+		const { id, org, author, title, body } = v(Post)
+		return r
+			.match(Post, { id, org, author, title, body, status: "Draft" })
+			.where(r.eq(id, r.param("id", uuid)))
+			.find({ id, org, author, title, body, status: Status.handle("Published") })
+	})
+)
+
+/** Delete every comment by one author, and read back how many went. */
+export const purge = ChangeSet.empty(Blog)
+	.delete(
+		Comment,
+		query(Blog).rule((r) => {
+			const { id, post, author, body } = v(Comment)
+			return r
+				.match(Comment, { id, post, author, body })
+				.where(r.eq(author, r.param("author", ClerkUser)))
+				.find({ id, post, author, body })
+		})
+	)
+	.read("removed", (delta) =>
+		query(Blog).rule((r) => {
+			const { id } = v(delta.removed(Comment))
+			return r.match(delta.removed(Comment), { id }).find({ comments: r.count() })
+		})
+	)
+
+/** README: "Migrations", the block of grizzle.config.ts. Its imports of defineConfig, Blog, EtlJob and Web are this file's. */
+export default defineConfig({ schemas: [Blog], logins: [Web, EtlJob] })
+
+/** README: "Deploying". */
+/** The login's PostgreSQL role, `<schema>__<login>`. */
+const etlJobRole = Config.String("BLOG_ETL_ROLE")
+
+/** The RDS IAM password: an Effect signing a token for each connection attempt, failing as a CredentialError. */
+export const RdsEtlLayer = DbLayer.make({
+	login: EtlJob,
+	snapshot,
+	host: "db.internal",
+	port: 5432,
+	database: "app",
+	password: etlJobRole.pipe(
+		Effect.flatMap((username) =>
+			Effect.tryPromise(() =>
+				new Signer({
+					hostname: "db.internal",
+					port: 5432,
+					region: "us-east-1",
+					username
+				}).getAuthToken()
+			)
+		),
+		Effect.mapBoth({
+			onFailure: (cause) => CredentialError.make({ cause }),
+			onSuccess: Redacted.make
+		})
+	),
+	tls: { ca: caPem }
+})
+
+/** The types the README's comments and prose state. */
+export type PostPageHead = Expect<
+	Equals<
+		HeadOf<typeof postPage>,
+		{
+			readonly id: string
+			readonly title: string
+			readonly body: string
+			readonly comments: ReadonlyArray<{
+				readonly id: string
+				readonly author: string
+				readonly body: string
+			}>
+		}
+	>
+>
+
+export type PostPageParams = Expect<Equals<ParamsOf<typeof postPage>, { readonly id: string }>>
+
+/** "grizzle knows postPage returns at most one row, so db.get accepts it": on a role holding the schema whole. */
+const Staff = role(Blog, "staff", Blog.relations)
+declare const staff: Db<typeof Staff, unknown>
+export const onePage = staff.get(postPage, { id: "00000000-0000-0000-0000-000000000000" })
+export type OnePage = Expect<
+	Equals<Effect.Success<typeof onePage>, Option.Option<HeadOf<typeof postPage>>>
+>
+
+/** "db.get on a query that can return several rows is a type error". */
+// @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
+export const manyPages = staff.get(published, {})
+
+export type AnonFeedHead = Expect<
+	Equals<HeadOf<typeof anonFeed>, { readonly id: string; readonly title: string }>
+>
+
+export type MemberFeedHead = Expect<
+	Equals<HeadOf<typeof memberFeed>, { readonly id: string; readonly title: string }>
+>
+
+export type CommentsPerAuthorHead = Expect<
+	Equals<HeadOf<typeof commentsPerAuthor>, { readonly author: string; readonly comments: bigint }>
+>
+
+export type ViewsPerOrgHead = Expect<
+	Equals<HeadOf<typeof viewsPerOrg>, { readonly org: string; readonly views: Decimal }>
+>
+
+export type OrgPostsParams = Expect<Equals<ParamsOf<typeof orgPosts>, { readonly org: string }>>
+
+/** "a finite pattern such as ^(yes|no)$ is "yes" | "no"". */
+const YesNo = str.regex("^(yes|no)$")
+export type YesNoHost = Expect<Equals<Infer<typeof YesNo>, "yes" | "no">>
+
+/** "A contract value is made with its constructor, Cents(500n)". */
+export const price: Infer<typeof Cents> = Cents(500n)
+
+/** "db.get(Post, { id })": a table by its key. */
+export const byKey = staff.get(Post, { id: "00000000-0000-0000-0000-000000000000" })
+export type ByKey = Expect<Equals<Effect.Success<typeof byKey>, Option.Option<Fact<typeof Post>>>>
+
+/** "Db.open(Web.roles.member, ...) does not typecheck without one": MemberBlog's relations read Session and Org. */
+// @ts-expect-error -- TS2741: MemberBlog reads a context, so Db.open requires a token
+export const memberWithoutToken = Db.open(Web.roles.member, {})
+
+/** "Db.open(Web.roles.anon, ...) needs no token", and the web login's layer serves both of its roles. */
+export const bothRoles = web.runPromise(
+	Effect.gen(function* () {
+		const anon = yield* Db.open(Web.roles.anon, {})
+		const member = yield* Db.open(Web.roles.member, { token: "a verified token" })
+		return [anon, member] as const
+	})
+)
+
+/** "Each Db shows the programs of its login's workloads for its role": the anonymous Db has no memberFeed. */
+export const anonFeedOnly = web.runPromise(
+	Effect.gen(function* () {
+		const anon = yield* Db.open(Web.roles.anon, {})
+		// @ts-expect-error -- TS2339: memberFeed is a program over MemberBlog, which an AnonBlog Db does not run
+		return anon.workload.memberFeed
+	})
+)
+
+/** A role is opened only through its login: the role value itself is no LoginRole. */
+// @ts-expect-error -- TS2739: Db.open takes a role reached through its login, Web.roles.member
+export const bareRole = Db.open(MemberBlog, { token: "a verified token" })
+
+/** "Two programs of one name across a login's workloads are a type error". */
+const twiceReader = role(Blog, "twice_reader", { Post: postIds })
+const twicePrograms = [workload(Blog, { postIds }), workload(Blog, { postIds })] as const
+// @ts-expect-error -- TS2345 refusal: two programs of one name across a login's workloads
+export const twiceNamed = () => login(Blog, "twice", [twiceReader], { workload: twicePrograms })
+
+/**
+ * "The web login can never write PostViews": Etl is a role of the other login, so the web layer provides no layer that
+ * serves it.
+ */
+export type EtlOnWeb = Expect<
+	Equals<Extract<Layer.Success<typeof WebLayer>, DbLayer<typeof Etl>>, never>
+>
+
+/** "Only the write list is writable": MemberBlog's Post is read-only. */
+const post = {
+	id: "00000000-0000-0000-0000-000000000000",
+	title: "t",
+	body: "b",
+	status: "Draft"
+} as const
+// @ts-expect-error -- TS2345 refusal: a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes
+export const writePost = ChangeSet.empty(MemberBlog).insert(MemberPost, [post])
+
+/** "A query over the schema is a type error on a role that does not hold every table whole". */
+// @ts-expect-error -- TS2345: a query over Blog is no query over MemberBlog, whose Post is a query of its own
+export const baseOnMember = (db: Db<typeof MemberBlog, unknown>) => db.execute(published, {})
+
+/** "requires verify exactly when a role of the login reads a context". */
+// @ts-expect-error -- TS2345: a role of the web login reads a context, so its layer needs verify
+export const webWithoutVerify = DbLayer.make({
+	login: Web,
+	snapshot,
+	host: "db.internal",
+	port: 5432,
+	database: "app",
+	password: Redacted.make("secret"),
+	tls: { ca: caPem }
+})
+
+/** The gallery's types, as its prose states them. */
+export type OrgKeysHead = Expect<
+	Equals<HeadOf<typeof orgKeys>, { readonly id: string; readonly name: string }>
+>
+
+/** "Db.open(Dashboard.roles.key_admin, ...) does not compile without the token". */
+// @ts-expect-error -- TS2741: KeyAdmin reads a context, so Db.open requires a token
+export const keyAdminWithoutToken = Db.open(Dashboard.roles.key_admin, {})
+
+export type TopModelsHead = Expect<
+	Equals<
+		HeadOf<typeof topModels>,
+		{
+			readonly workspace: string
+			readonly spend: Decimal
+			readonly models: ReadonlyArray<{
+				readonly model: string
+				readonly calls: bigint
+				readonly spend: Decimal
+			}>
+		}
+	>
+>
+
+export type TreeSpendHead = Expect<
+	Equals<HeadOf<typeof treeSpend>, { readonly account: string; readonly spend: Decimal }>
+>
+export type TreeSpendParams = Expect<Equals<ParamsOf<typeof treeSpend>, { readonly root: string }>>
+
+export type InvoiceCardHead = Expect<
+	Equals<
+		HeadOf<typeof invoiceCard>,
+		| {
+				readonly id: string
+				readonly state: "open"
+				readonly payment: Option.None<{ readonly charge: string }>
+				readonly voiding: Option.None<{ readonly reason: string }>
+		  }
+		| {
+				readonly id: string
+				readonly state: "paid"
+				readonly payment: Option.Some<{ readonly charge: string }>
+				readonly voiding: Option.None<{ readonly reason: string }>
+		  }
+		| {
+				readonly id: string
+				readonly state: "void"
+				readonly payment: Option.None<{ readonly charge: string }>
+				readonly voiding: Option.Some<{ readonly reason: string }>
+		  }
+	>
+>
+
+export type PayParams = Expect<
+	Equals<ParamsOf<typeof pay>, { readonly invoice: string; readonly charge: string }>
+>
+
+export type CallLogHead = Expect<
+	Equals<
+		HeadOf<typeof callLog>,
+		{
+			readonly id: string
+			readonly model: string
+			readonly at: Infer<typeof Millis>
+			readonly cost: Infer<typeof Micros>
+		}
+	>
+>
+export type FirstCalls = Expect<
+	Equals<
+		Effect.Success<ReturnType<typeof firstCalls>>,
+		Page<HeadOf<typeof callLog>, typeof callLog>
+	>
+>
+export type SpendOn = Expect<
+	Equals<
+		Effect.Success<ReturnType<typeof spendOn>>,
+		Option.Option<{ readonly calls: bigint; readonly spend: Decimal }>
+	>
+>
+
+/** Each rule's rows are a { show, sold } of its own; together they are exactly that row type, both ways. */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+export type SoldHead = Expect<
+	Same<HeadOf<typeof sold>, { readonly show: string; readonly sold: bigint }>
+>
+export type PublishParams = Expect<Equals<ParamsOf<typeof publish>, { readonly id: string }>>
+
+/** "the outcome's reads hold the count": on a role that writes Comment. */
+const Moderator = role(Blog, "moderator", Blog.relations, { write: ["Comment"] })
+declare const moderator: Db<typeof Moderator, unknown>
+export const purged = moderator.apply(purge, { author: "user_1" })
+export type PurgedReads = Expect<
+	Equals<
+		Extract<Effect.Success<typeof purged>, { readonly kind: "accepted" }>["reads"],
+		{ readonly removed: ReadonlyArray<{ readonly comments: bigint }> }
+	>
+>

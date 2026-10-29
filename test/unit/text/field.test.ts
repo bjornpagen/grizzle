@@ -1,0 +1,66 @@
+import { describe, it } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import { element } from "@grizzle/testing/gen"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Duration, Effect, Formatter } from "effect"
+import { decodeDesc } from "#compiler/ir/desc.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
+import { schemaDescOf } from "#compiler/schema/schema.ts"
+import { regexField } from "#compiler/text/field.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
+import { assert, throwsRefused } from "#test/support/assert.ts"
+import { families, flagsGen, patternOver } from "#test/unit/text/generators.ts"
+
+describe("str.regex", () => {
+	it.effect(
+		"builds an immutable descriptor that keeps its source and flags, whose desc is a valid Description field, and which a schema holds exactly when the text analysis admits its pattern",
+		(ctx) => {
+			type Admission = "admitted" | "refused"
+			return searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/text/field",
+						draw: drawn((source) => ({
+							source: source.draw(patternOver(source.draw(element(families)).alphabet)),
+							flags: source.draw(flagsGen)
+						})),
+						literal: Formatter.format,
+						features: features<Admission>(["admitted", "refused"]),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					({ source, flags }, c) =>
+						Effect.sync(() => {
+							/**
+							 * str.regex's runtime core over a drawn source (its literal-typed signature validates a written one).
+							 */
+							const field = flags === "u" ? regexField(source, ["u"]) : regexField(source, ["su"])
+							assert.equal(Object.isFrozen(field), true)
+							assert.equal(Object.isFrozen(field.pattern), true)
+							assert.equal(Object.isFrozen(field.desc), true)
+							assert.deepEqual(field.pattern, { source, flags })
+							assert.equal(decodeDesc("field", field.desc).ok, true)
+							const content = () =>
+								schema("Content", { Article: relation("Article", { state: field }, ["state"]) }, [])
+							const analyzed = textLookup(source, flags)
+							if (analyzed.ok) {
+								assert.equal(decodeDesc("schema", schemaDescOf(content())).ok, true)
+								c.note("admitted")
+							} else {
+								throwsRefused(content, analyzed.error.reason._tag)
+								c.note("refused")
+							}
+						})
+				)
+			)
+		}
+	)
+})

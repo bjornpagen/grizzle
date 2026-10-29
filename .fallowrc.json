@@ -1,0 +1,324 @@
+{
+	"$schema": "./node_modules/fallow/schema.json",
+	"entry": [
+		"test/**/*.test.ts",
+		"test/**/*.child.ts",
+		"test/types/**/fixtures/**/*.ts",
+		"test/unit/deps/fixtures/**/*.ts",
+		"test/unit/deps/runtime-probe.ts",
+		"test/support/pg-global-setup.ts",
+		"test/types/batch/global-setup.ts",
+		"vitest.config.ts",
+		"vitest.network.config.ts",
+		"bench/**/*.bench.ts",
+		"bench/**/main.ts",
+		"bench/cold/probe.ts",
+		"scripts/build.ts",
+		"scripts/dev/golden/*.ts",
+		"scripts/dev/mutate/main.ts",
+		"scripts/dev/mutate/vitest.config.ts",
+		"scripts/dev/mutate/reporter.ts",
+		"scripts/dev/mutate/oracle/*.test.ts",
+		"scripts/dev/plpgsql-coverage.ts",
+		"scripts/dev/profile/compile.ts",
+		"scripts/dev/profile/read.ts",
+		"scripts/gen/allen/main.ts",
+		"test/types/examples/work.ts",
+		"oxlint.config.ts",
+		"packages/devtools/src/oxlint/fixtures.config.ts",
+		"packages/testing/src/vitest/coverage.ts"
+	],
+	"ignorePatterns": [
+		"!packages/engine/src/laws/families/coverage/**",
+		"!packages/engine/src/query/build/**",
+		"packages/devtools/src/*/fixtures/**"
+	],
+	"ignoreDependencies": ["grizzle:config"],
+	"resolve": {
+		"conditions": ["grizzle-source"]
+	},
+	"boundaries": {
+		"zones": [
+			{
+				"name": "testing",
+				"patterns": ["packages/testing/**"]
+			},
+			{
+				"name": "core",
+				"patterns": ["packages/engine/src/core/**"]
+			},
+			{
+				"name": "sql",
+				"patterns": ["packages/engine/src/sql/**"]
+			},
+			{
+				"name": "allen",
+				"patterns": ["packages/engine/src/allen/**"]
+			},
+			{
+				"name": "ir",
+				"patterns": ["packages/engine/src/ir/**"]
+			},
+			{
+				"name": "scalar",
+				"patterns": ["packages/engine/src/scalar/**"]
+			},
+			{
+				"name": "logical",
+				"patterns": ["packages/engine/src/logical/**"]
+			},
+			{
+				"name": "types",
+				"patterns": ["packages/engine/src/types/**"]
+			},
+			{
+				"name": "text",
+				"patterns": ["packages/engine/src/text/**"]
+			},
+			{
+				"name": "codec",
+				"patterns": ["packages/engine/src/codec/**"]
+			},
+			{
+				"name": "schema",
+				"patterns": ["packages/engine/src/schema/**"]
+			},
+			{
+				"name": "check",
+				"patterns": ["packages/engine/src/check/**"]
+			},
+			{
+				"name": "analysis",
+				"patterns": ["packages/engine/src/analysis/**"]
+			},
+			{
+				"name": "laws",
+				"patterns": ["packages/engine/src/laws/**"]
+			},
+			{
+				"name": "query",
+				"patterns": ["packages/engine/src/query/**"]
+			},
+			{
+				"name": "lower",
+				"patterns": ["packages/engine/src/lower/**"]
+			},
+			{
+				"name": "write",
+				"patterns": ["packages/engine/src/write/**"]
+			},
+			{
+				"name": "physical",
+				"patterns": ["packages/engine/src/physical/**"]
+			},
+			{
+				"name": "program",
+				"patterns": ["packages/engine/src/program/**"]
+			},
+			{
+				"name": "deploy",
+				"patterns": ["packages/engine/src/deploy/**"]
+			},
+			{
+				"name": "public",
+				"patterns": ["packages/engine/src/public/**"]
+			},
+			{
+				"name": "adapter",
+				"patterns": ["packages/grizzle/src/adapter/**"]
+			},
+			{
+				"name": "cli",
+				"patterns": ["packages/grizzle/src/cli/**"]
+			},
+			{
+				"name": "engine-index",
+				"patterns": ["packages/engine/src/index.ts"]
+			},
+			{
+				"name": "index",
+				"patterns": ["packages/grizzle/src/index.ts"]
+			}
+		],
+		"rules": [
+			{
+				"from": "testing",
+				"allow": []
+			},
+			{
+				"from": "core",
+				"allow": []
+			},
+			{
+				"from": "sql",
+				"allow": ["core"]
+			},
+			{
+				"from": "allen",
+				"allow": ["core", "sql"]
+			},
+			{
+				"from": "ir",
+				"allow": ["core", "sql"]
+			},
+			{
+				"from": "scalar",
+				"allow": ["core", "ir"]
+			},
+			{
+				"from": "logical",
+				"allow": ["core", "ir", "scalar"]
+			},
+			{
+				"from": "types",
+				"allow": ["allen", "core", "ir", "scalar"]
+			},
+			{
+				"from": "text",
+				"allow": ["core", "ir", "scalar", "sql", "types"]
+			},
+			{
+				"from": "codec",
+				"allow": ["core", "ir", "scalar", "types"]
+			},
+			{
+				"from": "schema",
+				"allow": ["codec", "core", "ir", "scalar", "sql", "text", "types"]
+			},
+			{
+				"from": "check",
+				"allow": ["allen", "core", "ir", "logical", "scalar", "schema", "text"]
+			},
+			{
+				"from": "analysis",
+				"allow": ["check", "core", "ir", "logical", "scalar", "schema", "text", "types"]
+			},
+			{
+				// The law model attaches the described public Law to each constraint it plans: Law is plain data, so naming
+				// its type couples nothing at run time.
+				"from": "laws",
+				"allow": ["analysis", "core", "ir", "scalar", "schema", "sql"],
+				"allowTypeOnly": ["types"]
+			},
+			{
+				"from": "query",
+				"allow": ["core", "ir", "scalar", "schema", "text", "types"]
+			},
+			{
+				"from": "lower",
+				"allow": ["analysis", "check", "codec", "core", "ir", "logical", "scalar", "sql"]
+			},
+			{
+				"from": "write",
+				"allow": [
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"ir",
+					"laws",
+					"logical",
+					"lower",
+					"query",
+					"scalar",
+					"schema",
+					"sql",
+					"types"
+				]
+			},
+			{
+				"from": "physical",
+				"allow": [
+					"analysis",
+					"check",
+					"core",
+					"ir",
+					"laws",
+					"logical",
+					"lower",
+					"scalar",
+					"schema",
+					"sql",
+					"text",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "program",
+				"allow": [
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"ir",
+					"laws",
+					"logical",
+					"lower",
+					"physical",
+					"query",
+					"schema",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "deploy",
+				"allow": ["core", "ir", "laws", "lower", "physical", "schema", "sql", "text"]
+			},
+			{
+				"from": "public",
+				"allow": ["allen", "core", "program", "query", "scalar", "schema", "text", "types", "write"]
+			},
+			{
+				"from": "adapter",
+				"allow": [
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"deploy",
+					"ir",
+					"logical",
+					"lower",
+					"physical",
+					"program",
+					"query",
+					"scalar",
+					"schema",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "cli",
+				"allow": ["adapter", "core", "deploy", "physical", "program", "schema", "sql", "types"]
+			},
+			{
+				"from": "engine-index",
+				"allow": ["public"]
+			},
+			{
+				"from": "index",
+				"allow": ["adapter", "engine-index"]
+			}
+		],
+		"coverage": {
+			"requireAllFiles": true,
+			"allowUnmatched": [
+				"test/**",
+				"bench/**",
+				"scripts/**",
+				"packages/devtools/**",
+				"oxlint.config.ts",
+				"vitest.config.ts",
+				"vitest.network.config.ts"
+			]
+		}
+	},
+	// use and useRelation: fallow does not follow union narrowing, and ParamCell's methods are called on the narrowed
+	// BindValue in check/checker.ts.
+	"usedClassMembers": ["discriminantSpine", "use", "useRelation"]
+}

@@ -1,0 +1,214 @@
+import { describe, it } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import { array, element, type Gen, int, map, oneOf, uniqueArray } from "@grizzle/testing/gen"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { json } from "@grizzle/testing/values"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Effect, Formatter, Result, Schema } from "effect"
+import { SqlStatementSchema } from "#adapter/boundary/sql.ts"
+import { relationAccess } from "#compiler/sql/access.ts"
+import type { SqlStatement } from "#compiler/sql/ast.ts"
+import { objectName, types } from "#compiler/sql/build.ts"
+import { carrierName, isCarrierName } from "#compiler/sql/naming.ts"
+import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import { assert, unorderedEqual } from "#test/support/assert.ts"
+
+/**
+ * The relations a statement reads and writes (sql/access.ts) beyond DML: a CREATE TEMPORARY TABLE creates its carrier,
+ * an ANALYZE reads and writes the carriers it names, and a definition or a transaction statement touches none. And the
+ * ANALYZE statement's schema (sql/ast.ts Analyze): it admits exactly the carrier names, and no rewrite of
+ * schema-qualified names touches one.
+ */
+const task = objectName("w", "task")
+
+/** CREATE TABLE "w"."task" ("id" uuid NOT NULL, PRIMARY KEY ("id")). */
+const taskTable: SqlStatement = {
+	kind: "createTable",
+	table: task,
+	columns: [
+		{ name: "id", type: types.uuid, collation: undefined, generated: undefined, default: undefined }
+	],
+	primaryKey: {
+		kind: "primaryKey",
+		name: "task_key",
+		columns: [{ column: "id", withoutOverlaps: false }]
+	},
+	secondary: []
+}
+
+/**
+ * relationAccess once ended in `default: return none`, so a statement kind added to the AST accessed nothing unless
+ * someone remembered it; the carrier's own statement kind is the case that would have slipped through.
+ */
+type AccessCase =
+	| { readonly kind: "a carrier created"; readonly n: number }
+	| { readonly kind: "carriers analyzed"; readonly ns: ReadonlyArray<number> }
+	| { readonly kind: "a definition or a transaction"; readonly statement: "createTable" | "commit" }
+
+const carrier = int(1, 1000)
+
+const accessCaseGen: Gen<AccessCase> = oneOf<AccessCase>([
+	map(carrier, (n): AccessCase => ({ kind: "a carrier created", n })),
+	map(
+		uniqueArray(carrier, (n) => n, { min: 1, max: 4 }, 10),
+		(ns): AccessCase => ({ kind: "carriers analyzed", ns })
+	),
+	map(element(["createTable", "commit"] as const), (statement): AccessCase => ({
+		kind: "a definition or a transaction",
+		statement
+	}))
+])
+
+describe("the relations a statement reads and writes (sql/access.ts)", () => {
+	it.effect(
+		"creates a carrier, and reads and writes the carriers an ANALYZE names; other statements touch none",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/sql/access",
+						draw: drawn(accessCaseGen),
+						literal: Formatter.format,
+						features: features<AccessCase["kind"]>([
+							"a carrier created",
+							"carriers analyzed",
+							"a definition or a transaction"
+						]),
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(sketch, c) =>
+						Effect.sync(() => {
+							c.note(sketch.kind)
+							switch (sketch.kind) {
+								case "a carrier created": {
+									const a = relationAccess({
+										kind: "createCarrier",
+										name: carrierName(sketch.n),
+										columns: [
+											{
+												name: "c1",
+												type: types.uuid,
+												collation: undefined,
+												generated: undefined,
+												default: undefined
+											}
+										]
+									})
+									unorderedEqual([...a.reads], [])
+									unorderedEqual([...a.writes], [carrierName(sketch.n)])
+									assert.equal(a.stored, false)
+									return
+								}
+								case "carriers analyzed": {
+									const names = Arr.map(sketch.ns, carrierName)
+									const a = relationAccess({ kind: "analyze", carriers: names })
+									unorderedEqual([...a.reads], names)
+									unorderedEqual([...a.writes], names)
+									assert.equal(a.stored, false)
+									return
+								}
+								case "a definition or a transaction": {
+									const a = relationAccess(
+										sketch.statement === "createTable" ? taskTable : { kind: "commit" }
+									)
+									unorderedEqual([...a.reads], [])
+									unorderedEqual([...a.writes], [])
+									assert.equal(a.stored, false)
+									return
+								}
+							}
+						})
+				)
+			)
+	)
+})
+
+/**
+ * The ANALYZE statement names carriers only: a name read from outside (a persisted snapshot) is a carrier exactly when
+ * it spells carrierName(n) for some n from 1, whatever else a snapshot file can hold, and no rewrite of schema-qualified names
+ * touches one.
+ */
+const nearMisses = [
+	"__carrier_0",
+	"__carrier_01",
+	"__carrier_",
+	"__carrier_x",
+	"__carrier_-1",
+	"__carrier_1 ",
+	" __carrier_1",
+	"__Carrier_1",
+	"__carrier_1.0",
+	"carrier_1",
+	"task",
+	""
+] as const
+
+/** What an ANALYZE case drew: a carrier name, a string that misses one, or any JSON value. */
+type AnalyzeFeature = "live" | "near miss" | "json"
+
+/** A name an ANALYZE may be handed, and whether it is a carrier's. */
+const namedGen: Gen<readonly [unknown, boolean]> = oneOf<readonly [unknown, boolean]>([
+	map(int(1, 0x7fff_ffff), (n): readonly [unknown, boolean] => [carrierName(n), true]),
+	map(element(nearMisses), (name): readonly [unknown, boolean] => [name, false]),
+	map(json(3), (value): readonly [unknown, boolean] => [value, false])
+])
+
+describe("the ANALYZE statement", () => {
+	it.effect(
+		"admits exactly the carrier names, at decode as everywhere, and no name rewrite touches it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/sql/analyze-carriers",
+						draw: drawn(array(namedGen, { min: 1, max: 3 })),
+						literal: Formatter.format,
+						features: features<AnalyzeFeature>(["live", "near miss", "json"]),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(names, c) =>
+						Effect.sync(() => {
+							for (const [name, carrier] of names) {
+								assert.equal(isCarrierName(name), carrier, Formatter.format(name))
+								c.note(carrier ? "live" : typeof name === "string" ? "near miss" : "json")
+							}
+							const decoded = Schema.decodeResult(SqlStatementSchema)({
+								kind: "analyze",
+								carriers: Arr.map(names, ([n]) => n)
+							})
+							assert.equal(
+								Result.isSuccess(decoded),
+								Arr.every(names, ([, carrier]) => carrier)
+							)
+							if (Result.isFailure(decoded)) {
+								return
+							}
+							const carriers = Arr.flatMap(names, ([n]) => (isCarrierName(n) ? [n] : []))
+							assert.deepEqual(decoded.success, { kind: "analyze", carriers })
+							assert.equal(
+								transformStatement(decoded.success, {
+									...identityHooks,
+									objectName: (n) => ({ ...n, schema: "elsewhere" })
+								}),
+								decoded.success
+							)
+						})
+				)
+			)
+	)
+})

@@ -1,0 +1,157 @@
+{
+	"name": "grizzle-workspace",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@12.15.0",
+	"devEngines": {
+		"runtime": {
+			"name": "node",
+			"version": ">=24",
+			"onFail": "error"
+		}
+	},
+	"imports": {
+		"#test/*": "./test/*",
+		"#scripts/*": "./scripts/*",
+		"#bench/*": "./bench/*",
+		"#compiler/*": "./packages/engine/src/*",
+		"#adapter/*": "./packages/grizzle/src/adapter/*",
+		"#cli/*": "./packages/grizzle/src/cli/*",
+		"#index.ts": "./packages/grizzle/src/index.ts"
+	},
+	"scripts": {
+		"build": "node --conditions=grizzle-source --disable-warning=ExperimentalWarning scripts/build.ts",
+		"prepare": "effect-tsgo patch",
+		"check": "turbo run typecheck superlint oxlint fixtures:superlint fixtures:oxlint format dead-code dedupe",
+		"typecheck": "effect-tsgo tsrs -b",
+		"superlint": "superlint",
+		"oxlint": "oxlint test bench scripts oxlint.config.ts",
+		"format": "oxfmt --check .",
+		"format:write": "oxfmt .",
+		"dead-code": "fallow dead-code",
+		"dedupe": "pnpm dedupe --check",
+		"test": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run",
+		"test:network": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
+		"fuzz": "node packages/testing/scripts/fuzz.ts",
+		"mutate": "node --conditions=grizzle-source scripts/dev/mutate/main.ts",
+		"plpgsql-coverage": "node --conditions=grizzle-source scripts/dev/plpgsql-coverage.ts",
+		"bench": "node --conditions=grizzle-source bench/main.ts",
+		"bench:full": "node --conditions=grizzle-source bench/main.ts full",
+		"pg:build": "scripts/pg/build.sh",
+		"pg:init": "scripts/pg/init.sh",
+		"pg:doctor": "scripts/pg/doctor.sh",
+		"pg": "scripts/pg/ctl.sh",
+		"pg:coverage": "scripts/pg/ctl.sh --coverage"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"arkregex": "catalog:",
+		"effect": "catalog:",
+		"pg": "catalog:"
+	},
+	"devDependencies": {
+		"@aws-sdk/rds-signer": "catalog:",
+		"@bjornpagen/grizzle": "workspace:*",
+		"@clerk/backend": "catalog:",
+		"@effect/language-service": "catalog:",
+		"@effect/tsgo": "catalog:",
+		"@effect/vitest": "catalog:",
+		"@grizzle/devtools": "workspace:*",
+		"@grizzle/testing": "workspace:*",
+		"@types/node": "catalog:",
+		"@types/pg": "catalog:",
+		"@vercel/functions": "catalog:",
+		"fallow": "catalog:",
+		"lefthook": "catalog:",
+		"oxfmt": "catalog:",
+		"oxlint": "catalog:",
+		"oxlint-tsgolint": "catalog:",
+		"turbo": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	},
+	"superlint": {
+		"exceptions": [
+			{
+				"rule": "no-module-state",
+				"files": [
+					"packages/engine/src/query/build/scope.ts",
+					"test/pg/serverless/support.ts",
+					"packages/testing/src/vitest/coverage.ts",
+					"test/support/substrate/shared.ts"
+				]
+			}
+		],
+		"sqlTextAssertion": {
+			"files": [
+				"test/"
+			],
+			"exempt": [
+				"test/pg/migrate/",
+				"test/pg/migrate-gen/",
+				"test/unit/deploy/"
+			],
+			"texts": [
+				{
+					"module": "packages/engine/src/sql/ast.ts",
+					"alias": "EmittedText"
+				}
+			],
+			"matchers": [
+				"assert.match",
+				"assert.doesNotMatch",
+				"containsText",
+				"lacksText"
+			],
+			"equalities": [
+				"assert.equal",
+				"assert.notEqual"
+			]
+		},
+		"uncheckedVocabularyLiteral": {
+			"files": [
+				"test/"
+			],
+			"vocabularies": [
+				{
+					"module": "packages/engine/src/core/errors.ts",
+					"alias": "CompileReasonTag"
+				},
+				{
+					"module": "packages/engine/src/core/errors.ts",
+					"alias": "TransientTag"
+				},
+				{
+					"module": "packages/engine/src/core/errors.ts",
+					"alias": "CodecFault"
+				},
+				{
+					"module": "packages/engine/src/core/errors.ts",
+					"alias": "CursorFault"
+				},
+				{
+					"module": "packages/grizzle/src/adapter/errors/execution.ts",
+					"alias": "GrizzleErrorTag"
+				},
+				{
+					"module": "packages/engine/src/ir/certificate.ts",
+					"alias": "CertificateRule"
+				}
+			],
+			"titled": [
+				"describe",
+				"layer",
+				"it",
+				"test",
+				"effect",
+				"live",
+				"each"
+			],
+			"explanations": [
+				"message",
+				"why"
+			]
+		}
+	}
+}

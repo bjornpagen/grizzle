@@ -1,0 +1,104 @@
+import { describe, it } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { noFeatures } from "@grizzle/testing/features"
+import { element } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Effect, Formatter, pipe, Result, String as Str } from "effect"
+import { attachmentFacts } from "#adapter/reader/analysis.ts"
+import { formFor } from "#adapter/reader/execution.ts"
+import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
+import { readExceeds, templateProgram } from "#adapter/reader/run.ts"
+import { lateralParentMax } from "#compiler/core/policy.ts"
+import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
+import { queryInput } from "#compiler/program/compile.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { Account, Task, Work } from "#test/support/fixtures/api/work.ts"
+import { parameterNames } from "#test/support/kernel/dict.ts"
+import { indices } from "#test/support/oracle/pick.ts"
+
+/**
+ * A read's per-execution form is chosen by the count of the relation parameter its correlated take reads, whatever the
+ * parameter is named (R20).
+ *
+ * A take correlated through `bind` to a relation parameter's facts is lowered LATERAL at or below lateralParentMax
+ * distinct facts and in its whole-relation form above, the template's variant. The choice's input is the relation
+ * parameter itself, never a name: a parameter named like the page's own size, a page placeholder or any other spelling
+ * the runtime might once have branched on compiles, and its count alone selects the form. The names are the kernel's
+ * parameter dictionary (test/support/kernel/dict.ts), each admitted by the production name validator.
+ */
+
+/** An account's first two tasks by id. */
+const firstTwo = query(Work)
+	.rule((r) => {
+		const { id } = v(Task)
+		return r.match(Task, { id, account: r.param("acct", Task.fields.account) }).find({ id })
+	})
+	.orderBy(["id", "asc"])
+	.take(2)
+
+/** The accounts the relation parameter `name` names, each with its first two tasks. */
+const namedAccounts = (name: string) =>
+	query(Work).rule((r) => {
+		const wanted = r.relation(name, { id: Account.fields.id })
+		const { id: account } = v(wanted)
+		const top = firstTwo.bind({ acct: account })
+		const { id } = v(top)
+		return r.match(wanted, { id: account }).match(top, { id }).find({ account, id })
+	})
+
+/** `count` distinct account facts. */
+const accounts = (count: number): ReadonlyArray<{ readonly id: string }> =>
+	Arr.map(indices(count), (i) => ({
+		id: `00000000-0000-4000-8000-${pipe(i.toString(16), Str.padStart(12, "0"))}`
+	}))
+
+describe("a read's per-execution choice", () => {
+	it.effect(
+		"runs the whole-relation form exactly when the named relation parameter holds more than lateralParentMax facts",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/page/choice-input",
+						generator: (source) =>
+							[
+								source.draw(element(nonEmpty(parameterNames, "the parameter names"))),
+								source.draw(element([lateralParentMax, lateralParentMax + 1]))
+							] as const,
+						literal: Formatter.format,
+						limit: 2 * parameterNames.length,
+						features: noFeatures,
+						caseHang: Duration.minutes(2)
+					},
+					([name, count]) =>
+						Effect.sync(() => {
+							const read = namedAccounts(name)
+							const template = succeeded(compileTemplate(read, undefined, testCompile))
+							const { desc } = succeeded(queryInput(read))
+							const program = templateProgram(
+								template,
+								"optimized",
+								attachmentFacts(template, desc)
+							)
+							const facts = accounts(count)
+							/** The template declares the relation parameter alone: firstTwo's `acct` is bound to the account variable. */
+							const inputs = Result.getOrThrow(
+								executionInputs(paramCodecs(template.params), { [name]: facts }, transportLimits)
+							)
+							const [record] = program.records
+							assert.ok(record !== undefined, name)
+							const forms = record.run.forms
+							assert.ok(forms.kind === "chosen", name)
+							assert.equal(
+								formFor(record.run, readExceeds(inputs)) === forms.large,
+								count > lateralParentMax,
+								name
+							)
+						})
+				)
+			)
+	)
+})

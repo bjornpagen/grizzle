@@ -1,0 +1,394 @@
+import { Array as Arr, Record as Rec, Result } from "effect"
+import { toResult } from "#adapter/engine.ts"
+import { type AttachmentFacts, attachmentFacts } from "#adapter/reader/analysis.ts"
+import {
+	programRecords,
+	type RunStatement,
+	type StatementForm,
+	type StatementRecord
+} from "#adapter/reader/execution.ts"
+import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
+import { type CursorCodec, cursorCodec } from "#compiler/codec/cursor/codec.ts"
+import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
+import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
+import { type Layout, rowText } from "#compiler/core/decoder.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { cursorMaxBytes } from "#compiler/core/policy.ts"
+import * as Engine from "#compiler/core/result.ts"
+import type { QueryDesc } from "#compiler/ir/desc.ts"
+import type { Encoder, PageFill, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
+import type { Heading } from "#compiler/ir/rel.ts"
+import type { Carrier } from "#compiler/ir/scalar.ts"
+import { columnPosition } from "#compiler/lower/conservative/context.ts"
+import {
+	type DeclaredParamSlot,
+	type PageStatementSlot,
+	type StatementRoots,
+	traverseTree
+} from "#compiler/lower/conservative/types.ts"
+import type { FusedStatement, ShapeChoice } from "#compiler/lower/shapes/index.ts"
+
+import {
+	compilePageOf,
+	type PageArtifact,
+	type PageProbeProgram,
+	type PageProgram,
+	type PageRequestProgram,
+	type PageStatement,
+	type PageTemplate,
+	statedOrderOf
+} from "#compiler/lower/shapes/page/compile.ts"
+import type { PageComparator, PageVariant, ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
+import {
+	pageSlotOf,
+	pageStatementSlotOf,
+	type SpecCharge,
+	statementSpec
+} from "#compiler/lower/template.ts"
+import { vectorExpectations } from "#compiler/physical/vector/admission.ts"
+import type { QueryTemplate } from "#compiler/program/compile.ts"
+import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import { pageQueryFingerprint } from "#compiler/program/workload/fingerprint.ts"
+import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
+
+/**
+ * The page runtime template of an ordered query.
+ *
+ * Compilation produces the source query, completed order, seek comparator, forward and reverse SQL templates,
+ * page-info probes, cursor codecs, and execution requirements. The page compiler (lower/shapes/page/compile.ts)
+ * produces the order, the comparators and the statements of every request variant and
+ * probe for both artifacts; this module adds what running them needs, once per template:
+ *
+ * - each statement's StatementSpec (lower/template.ts statementSpec): its executable text with every delivered column
+ *   cast to text and one encoder per placeholder; and each per-execution variant's beside the statement it replaces;
+ * - each request's statement records (reader/execution.ts programRecords), so the query's decoder binds to the same
+ *   layouts on every page of the request variant, and how its rows statements deliver: each one's comparison tuple read
+ *   from its texts by the comparators' value codecs, and a heterogeneous union's groups merged on the fetch order;
+ * - the cursor codec (codec/cursor) of the completed comparator sequence, bound to the ordered query's semantic
+ *   fingerprint and the semantic generation. The fingerprint is the page query fingerprint
+ *   (program/workload/fingerprint.ts): the query's canonical Description and the schema fingerprint, independent of the
+ *   evidence context, the request variant and the page size, so one token serves every Db of the schema and the
+ *   compiled handles of the query. The generation is the schema fingerprint and the extensions the
+ *   schema requires by name, at the version admission verified (physical/vector/admission.ts): a token of another
+ *   schema or extension generation fails validation explicitly. A completed order whose shortest token exceeds
+ *   cursorMaxBytes is refused here with UnsupportedOperation;
+ * - one value codec per comparator, which writes a delivered edge's boundary values as the texts its probe binds, the
+ *   same canonical texts the edge's cursor carries.
+ *
+ * A page placeholder: what fills it, through the statement's own integer encoder for the limit and the size.
+ */
+export interface PageSlot {
+	readonly kind: "page"
+	readonly fill: PageFill
+	readonly encode: Encoder
+}
+
+/**
+ * One statement of a page program as the runtime runs it: its page placeholders among its read ones, and its
+ * per-execution form, when it has one.
+ */
+export type PageRunStatement = RunStatement<
+	FusedStatement<PageStatementSlot>,
+	DeclaredParamSlot | PageSlot,
+	ShapeChoice
+>
+
+/** A page statement's record (reader/execution.ts programRecords). */
+export type PageRecord = StatementRecord<PageRunStatement>
+
+/** A delivered row's comparison tuple, the comparators' values converted from its texts, in order. */
+export type ComparisonTuple = ReadonlyArray<CarrierHost[Carrier]>
+
+/** A rows statement of a request: its record, and the reading of a row's comparison tuple from its texts. */
+export interface RowsStatement {
+	readonly record: PageRecord
+	readonly tuple: (texts: ReadonlyArray<string>) => ComparisonTuple
+}
+
+/**
+ * What a request delivers: the Rows of its delivered statements, a rows delivery's one statement concatenated, or its
+ * heading groups merged on the fetch order, each group with its reading of a row's key under it.
+ */
+export type PageDelivery =
+	| { readonly kind: "concat"; readonly groups: Arr.NonEmptyReadonlyArray<RowsStatement> }
+	| { readonly kind: "groups"; readonly order: GroupOrder<RowsStatement> }
+
+export interface RunProgram<P extends PageProgram = PageRequestProgram> {
+	readonly program: P
+	/**
+	 * Its statements' records in flight order, what the request delivers, and the layouts of its delivered Rows, one
+	 * per heading group (one for a rows delivery), which the query's decoder binds to.
+	 */
+	readonly records: ReadonlyArray<PageRecord>
+	readonly delivery: PageDelivery
+	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
+}
+
+/** A probe: its program, whose one statement delivers one Boolean column, and that statement as it runs. */
+interface RunProbe<K extends ProbeKind = ProbeKind> {
+	readonly program: PageProbeProgram<K>
+	readonly statement: PageRunStatement
+}
+
+interface RunArtifact {
+	readonly requests: { readonly [V in PageVariant]: RunProgram<PageRequestProgram<V>> }
+	readonly probes: { readonly [K in ProbeKind]: RunProbe<K> }
+}
+
+export type PageArtifactName = "optimized" | "conservative"
+
+export interface PageRuntime {
+	readonly page: PageTemplate
+	readonly params: ReadonlyArray<ParamDecl>
+	readonly artifacts: { readonly [A in PageArtifactName]: RunArtifact }
+	readonly codec: CursorCodec<ReadonlyArray<PageComparator>>
+	/** What the codec binds every token to: the ordered query's semantic fingerprint and the semantic generation. */
+	readonly identity: { readonly query: string; readonly generation: CursorGeneration }
+	/** One value codec per comparator, in order. */
+	readonly values: ReadonlyArray<ScalarCodec>
+}
+
+interface PageRuntimeParts {
+	readonly page: PageTemplate
+	readonly params: ReadonlyArray<ParamDecl>
+	/**
+	 * The DAG each artifact's statements lower, whose Attach nodes lay out fused attachments: a page has none
+	 * (pageForm), so its Rows plans read none.
+	 * The ordered query's semantic fingerprint and the semantic generation.
+	 */
+	readonly query: string
+	readonly generation: CursorGeneration
+	/**
+	 * The delivered attachment types the analysis proved, and the columns each delivered child carries
+	 * (reader/analysis.ts).
+	 */
+	readonly facts: AttachmentFacts
+}
+
+/** The form of a page statement: each page placeholder is the page's, every other one a declared parameter's. */
+const pageForm = (
+	statement: FusedStatement<PageStatementSlot>,
+	spec: StatementSpec
+): StatementForm<FusedStatement<PageStatementSlot>, DeclaredParamSlot | PageSlot> => ({
+	statement,
+	spec,
+	slots: Arr.map(statement.params, (slot): DeclaredParamSlot | PageSlot =>
+		slot.kind === "page" ? pageSlotOf(slot) : slot
+	)
+})
+
+/** A statement of a page program at position `i` as it runs, each form with the spec rebuilt from it. */
+const pageRun = (
+	statement: PageStatement,
+	i: number
+): Engine.Result<PageRunStatement, CompileError> => {
+	/** The page compiler charged the template's statements; the runtime rebuilds their specs. */
+	const charge: SpecCharge = { kind: "unmetered" }
+	return Engine.flatMap(
+		statementSpec(statement, charge, i, pageStatementSlotOf),
+		(spec): Engine.Result<PageRunStatement, CompileError> => {
+			const form = pageForm(statement, spec)
+			const forms = statement.forms
+			if (forms.kind === "one") {
+				return Engine.ok({ ...form, forms, arrival: statement.arrival })
+			}
+			return Engine.map(
+				statementSpec(forms.large, charge, i, pageStatementSlotOf),
+				(large): PageRunStatement => ({
+					...form,
+					forms: { kind: "chosen", choices: forms.choices, large: pageForm(forms.large, large) },
+					arrival: statement.arrival
+				})
+			)
+		}
+	)
+}
+
+/** The statements of a page program as they run (pageRun), in their tree. */
+const specsOf = (
+	program: PageProgram
+): Result.Result<StatementRoots<PageRunStatement>, CompileError> =>
+	toResult(traverseTree(program.roots, pageRun))
+
+/**
+ * The reading of a rows statement's comparison tuple: each comparator's column, a column of the statement's heading
+ * the page names by field (lower/conservative/context.ts columnPosition), converted from the statement's texts by the
+ * comparator's value codec.
+ */
+const rowsStatement = (
+	record: PageRecord,
+	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>
+): RowsStatement => {
+	const read = Arr.map(comparators, ([c, value]) => ({
+		at: columnPosition(record.run.statement.heading, c.field),
+		convert: value.convert
+	}))
+	return {
+		record,
+		tuple: (texts) => {
+			const tuple: Array<ComparisonTuple[number]> = []
+			for (const c of read) {
+				tuple.push(c.convert(rowText(texts, c.at)))
+			}
+			return tuple
+		}
+	}
+}
+
+/**
+ * What a request delivers (PageDelivery), from its delivered records in flight order: a rows delivery's concatenated, or
+ * its heading groups merged on its fetch order, under `heading`, the union's heading every group carries.
+ */
+const pageDelivery = (
+	delivery: PageRequestProgram["delivery"],
+	heading: Heading,
+	delivered: Arr.NonEmptyReadonlyArray<PageRecord>,
+	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>
+): PageDelivery => {
+	const rows = Arr.map(delivered, (record) => rowsStatement(record, comparators))
+	return delivery.kind === "rows"
+		? { kind: "concat", groups: rows }
+		: {
+				kind: "groups",
+				order: groupOrder(delivery.order, heading, rows, (r) => r.record.run.statement.heading)
+			}
+}
+
+/** The layouts of the Rows a request delivers: its rows statement's, or each heading group's, in group order. */
+const deliveredLayouts = (delivery: PageDelivery): Arr.NonEmptyReadonlyArray<Layout> =>
+	delivery.kind === "concat"
+		? Arr.map(delivery.groups, (rows) => rows.record.layout)
+		: Arr.map(delivery.order.groups, (g) => g.group.record.layout)
+
+interface ArtifactParts {
+	readonly heading: Heading
+	readonly comparators: ReadonlyArray<PageComparator>
+	readonly values: ReadonlyArray<ScalarCodec>
+	readonly facts: AttachmentFacts
+}
+
+const runArtifact = (
+	artifact: PageArtifact,
+	parts: ArtifactParts
+): Result.Result<RunArtifact, CompileError> =>
+	Result.gen(function* () {
+		const request = <V extends PageVariant>(v: V) =>
+			Result.gen(function* () {
+				const program = artifact.requests[v]
+				const { records, delivered } = programRecords(yield* specsOf(program), parts.facts)
+				const delivery = pageDelivery(
+					program.delivery,
+					parts.heading,
+					delivered,
+					Arr.zip(parts.comparators, parts.values)
+				)
+				const run: RunProgram<PageRequestProgram<V>> = {
+					program,
+					records,
+					delivery,
+					layouts: deliveredLayouts(delivery)
+				}
+				return run
+			})
+		const probe = <K extends ProbeKind>(k: K) =>
+			Result.gen(function* () {
+				const program = artifact.probes[k]
+				const run: RunProbe<K> = {
+					program,
+					statement: yield* toResult(pageRun(program.statement, 0))
+				}
+				return run
+			})
+		return {
+			requests: {
+				first: yield* request("first"),
+				after: yield* request("after"),
+				last: yield* request("last"),
+				before: yield* request("before")
+			},
+			probes: {
+				atOrBefore: yield* probe("atOrBefore"),
+				atOrAfter: yield* probe("atOrAfter")
+			}
+		}
+	})
+
+/** The runtime template of a page template and what its statements and cursors need. */
+export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntime, CompileError> =>
+	Result.gen(function* () {
+		const page = parts.page
+		const values: ReadonlyArray<ScalarCodec> = Arr.map(page.comparators, (c) => scalarCodec(c.type))
+		const shared: ArtifactParts = {
+			heading: page.heading,
+			comparators: page.comparators,
+			values,
+			facts: parts.facts
+		}
+		const optimized = yield* runArtifact(page.optimized, shared)
+		const conservative = yield* runArtifact(page.conservative, shared)
+		const codec = yield* toResult(
+			cursorCodec(
+				{ query: parts.query, comparators: page.comparators, generation: parts.generation },
+				cursorMaxBytes
+			)
+		)
+		return {
+			page,
+			params: parts.params,
+			artifacts: { optimized, conservative },
+			codec,
+			identity: { query: parts.query, generation: parts.generation },
+			values
+		}
+	})
+
+/**
+ * The semantic generation of a schema's cursors: its fingerprint, and each extension it requires at the version
+ * admission verified.
+ */
+const cursorGeneration = (artifacts: SchemaArtifacts): CursorGeneration => ({
+	schema: artifacts.fingerprint,
+	extensions: Rec.fromEntries(
+		Arr.map(
+			vectorExpectations(artifacts.owned, artifacts.names.vectorSchema),
+			(e) => [e.extension, e.version] as const
+		)
+	)
+})
+
+/** The ordered query's semantic fingerprint (program/workload/fingerprint.ts). */
+const orderedQueryFingerprint = (
+	desc: QueryDesc,
+	artifacts: SchemaArtifacts
+): Result.Result<string, CompileError> =>
+	toResult(pageQueryFingerprint(desc, artifacts.fingerprint))
+
+interface PageTemplateInput {
+	/** The query template compiled with read "page" (program/compile.ts), and the Description it was compiled from. */
+	readonly template: QueryTemplate
+	readonly desc: QueryDesc
+	readonly artifacts: SchemaArtifacts
+}
+
+/** The page runtime template of a query template compiled for a page. */
+export const pageTemplateFor = (
+	input: PageTemplateInput
+): Result.Result<PageRuntime, CompileError> => {
+	const { template, desc, artifacts } = input
+	return Result.gen(function* () {
+		/** The location compileQuery checks the template's Description at (program/compile.ts, label "query"). */
+		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
+		const page = yield* toResult(
+			compilePageOf(template.programs, { stated, names: artifacts.reads })
+		)
+		const query = yield* orderedQueryFingerprint(desc, artifacts)
+		return yield* pageRuntimeOf({
+			page,
+			params: template.params,
+			query,
+			generation: cursorGeneration(artifacts),
+			facts: attachmentFacts(template, desc)
+		})
+	})
+}

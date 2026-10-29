@@ -1,0 +1,662 @@
+import { ALLEN } from "#compiler/public/allen.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { closedId, contract, Decimal, pg, span, uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import {
+	alternatives,
+	capacity,
+	check,
+	closed,
+	contained,
+	derived,
+	duration,
+	key,
+	login,
+	mirrors,
+	mutable,
+	on,
+	ref,
+	relation,
+	role,
+	type Schema,
+	schema,
+	select,
+	weigh,
+	within
+} from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
+
+export const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
+export const Micros = contract("Micros", pg.bigint, (x) => x.ge(0n))
+export const Week = contract("Week", pg.bigint)
+export const Ein = contract("Ein", str.regex("^[0-9]{2}-[0-9]{7}$"))
+export const LegalName = contract("LegalName", str.regex("^.+$", "su"), (x) =>
+	Compute.charLength(x).le(300)
+)
+
+const EmployeeCode = str.regex("^E[0-9]{6}$")
+const CostCenter = str.regex("^CC-[0-9]{4}$")
+const AccountNo = str.regex("^[0-9]{4,17}$")
+const Digest = str.regex("^[0-9a-f]{64}$")
+const Memo = str.regex("^.*$", "su")
+
+const dec = (exact: string): Decimal => Decimal.of(exact)
+
+const Basis = closed("Basis", ["salaried", "hourly"])
+const Stage = closed("Stage", ["draft", "approved", "paid", "voided"])
+const ShiftStatus = closed("ShiftStatus", ["pending", "approved"])
+const LeaveReason = closed("LeaveReason", ["vacation", "sick", "unpaid"])
+const Filing = closed("Filing", ["single", "joint", "head"])
+const LedgerAccount = closed("LedgerAccount", ["GrossWages", "NetPay", "Withholding"])
+const Side = closed("Side", ["debit", "credit"])
+const Levy = closed("Levy", ["SocialSecurity", "Medicare", "Futa"]).with(
+	{ employeeRate: Rate, employerRate: Rate },
+	{
+		SocialSecurity: { employeeRate: Rate(dec("0.062")), employerRate: Rate(dec("0.062")) },
+		Medicare: { employeeRate: Rate(dec("0.0145")), employerRate: Rate(dec("0.0145")) },
+		Futa: { employeeRate: Rate(dec("0")), employerRate: Rate(dec("0.006")) }
+	}
+)
+
+export const Employer = relation("Employer", { id: uuid, ein: Ein, name: LegalName }, ["id"])
+export const Employee = relation(
+	"Employee",
+	{ id: uuid, employer: uuid, code: EmployeeCode, name: LegalName },
+	["id"]
+)
+export const ReportsTo = relation("ReportsTo", { employee: uuid, manager: uuid }, ["employee"])
+export const Approver = relation("Approver", { employer: uuid, approver: uuid }, [
+	"employer",
+	"approver"
+])
+
+export const TaxProfile = relation(
+	"TaxProfile",
+	{ employee: uuid, filing: closedId(Filing), extra: Cents },
+	["employee"]
+)
+
+export const Employment = relation(
+	"Employment",
+	{ employee: uuid, during: span(Instant), basis: closedId(Basis) },
+	["employee", "during"]
+)
+
+export const Assignment = relation(
+	"Assignment",
+	{ employee: uuid, during: span(Instant), costCenter: CostCenter },
+	["employee", "during"]
+)
+
+export const Salary = relation("Salary", { employee: uuid, during: span(Instant), annual: Cents }, [
+	"employee",
+	"during"
+])
+
+export const Leave = relation(
+	"Leave",
+	{ employee: uuid, during: span(Instant), reason: closedId(LeaveReason) },
+	["employee", "during"]
+)
+
+export const Timesheet = relation("Timesheet", { employee: uuid, week: Week, ceiling: Micros }, [
+	"employee",
+	"week"
+])
+
+export const Shift = relation(
+	"Shift",
+	{ employee: uuid, during: span(Instant), week: Week, status: closedId(ShiftStatus) },
+	["employee", "during"]
+)
+
+export const PayRun = relation(
+	"PayRun",
+	{ id: uuid, employer: uuid, period: span(Instant), stage: closedId(Stage) },
+	["id"]
+)
+export const Approval = relation("Approval", { run: uuid, approver: uuid, at: Instant }, ["run"])
+export const Payment = relation("Payment", { run: uuid, settled: Instant }, ["run"])
+export const Voiding = relation("Voiding", { run: uuid, reason: Memo }, ["run"])
+export const Reissue = relation("Reissue", { run: uuid, replaces: uuid }, ["run"])
+export const PayLine = relation(
+	"PayLine",
+	{ id: uuid, run: uuid, employee: uuid, gross: Cents, net: Cents, offCycle: pg.boolean },
+	["id"]
+)
+export const OffCycleReason = relation("OffCycleReason", { line: uuid, reason: Memo }, ["line"])
+export const Deposit = relation(
+	"Deposit",
+	{ line: uuid, account: AccountNo, amount: Cents, remainder: pg.boolean },
+	["line", "account"]
+)
+
+export const LevyLine = relation(
+	"LevyLine",
+	{ line: uuid, levy: closedId(Levy), employeeRate: Rate, withheld: Cents },
+	["line", "levy"]
+)
+
+export const Posting = relation(
+	"Posting",
+	{
+		entry: pg.bigserial,
+		line: uuid,
+		account: closedId(LedgerAccount),
+		side: closedId(Side),
+		amount: Cents
+	},
+	["entry"]
+)
+export const Request = relation("Request", { id: uuid, digest: Digest, result: Memo }, ["id"])
+
+/**
+ * The payroll ledger fixture, in public-API form: the Payroll schema and its
+ * Reporting extension built by the real schema constructors, every law family of the first compiler among their
+ * statements, and the workload queries and the ChangeSets' query members built by the real query builder through the
+ * typed facade. Each query is checked into the IR test/support/fixtures/ir/payroll.ts states for it.
+ *
+ * A ChangeSet value is the write package's, so the members of approveShifts, withhold, pay and reverse are
+ * exported one query each, as the IR form does.
+ *
+ * Its statements hold every law family of the first compiler: candidate keys; opt-ins to in-place change; a row check;
+ * containments into keyed relations and into closed facts (a roster, and closed tuples); keyed equality, unconditional
+ * and conditional outside alternatives; exhaustive alternatives with a partial arm map, where draft and approved runs
+ * carry no payload; a selected target and selected sources; span coverage (mirrors, plain, selected target, selected
+ * source); and scalar-group capacity.
+ */
+export const Payroll = schema(
+	"Payroll",
+	{
+		Basis,
+		Stage,
+		ShiftStatus,
+		LeaveReason,
+		Filing,
+		LedgerAccount,
+		Side,
+		Levy,
+		Employer,
+		Employee,
+		ReportsTo,
+		Approver,
+		TaxProfile,
+		Employment,
+		Assignment,
+		Salary,
+		Leave,
+		Timesheet,
+		Shift,
+		PayRun,
+		Approval,
+		Payment,
+		Voiding,
+		Reissue,
+		PayLine,
+		OffCycleReason,
+		Deposit,
+		LevyLine,
+		Posting,
+		Request
+	},
+	[
+		key(Employer, ["ein"]),
+		key(Employee, ["employer", "code"]),
+		key(PayLine, ["run", "employee"]),
+		key(Posting, ["line", "account"]),
+		mutable(PayRun),
+		mutable(Shift),
+		mutable(Timesheet),
+		check("NotOwnManager", ReportsTo, (x) => x.ne(x.employee, x.manager)),
+		contained(on(Employee, "employer"), on(Employer, "id")),
+		contained(on(ReportsTo, "employee"), on(Employee, "id")),
+		contained(on(ReportsTo, "manager"), on(Employee, "id")),
+		contained(on(Approver, "employer"), on(Employer, "id")),
+		contained(on(Approver, "approver"), on(Employee, "id")),
+		contained(on(Employment, "employee"), on(Employee, "id")),
+		contained(on(Timesheet, "employee"), on(Employee, "id")),
+		contained(on(Shift, "employee"), on(Employee, "id")),
+		contained(on(PayRun, "employer"), on(Employer, "id")),
+		contained(on(Approval, "run"), on(PayRun, "id")),
+		contained(on(Approval, "approver"), on(Employee, "id")),
+		contained(on(Payment, "run"), on(Approval, "run")),
+		contained(on(Reissue, "run"), on(PayRun, "id")),
+		contained(on(PayLine, "run"), on(PayRun, "id")),
+		contained(on(PayLine, "employee"), on(Employee, "id")),
+		contained(on(Deposit, "line"), on(PayLine, "id")),
+		contained(on(LevyLine, "line"), on(PayLine, "id")),
+		contained(on(Posting, "line"), on(PayLine, "id")),
+		contained(on(Employment, "basis"), on(Basis, "id")),
+		contained(on(LevyLine, "levy", "employeeRate"), on(Levy, "id", "employeeRate")),
+		mirrors(on(Employee, "id"), on(TaxProfile, "employee")),
+		mirrors(on(select(PayLine, { offCycle: true }), "id"), on(OffCycleReason, "line")),
+		alternatives(PayRun, "stage", Stage, { paid: Payment, voided: Voiding }),
+		contained(on(Reissue, "replaces"), on(select(PayRun, { stage: "voided" }), "id")),
+		contained(on(select(PayRun, { stage: "approved" }), "id"), on(Approval, "run")),
+		contained(
+			on(select(Shift, { status: "approved" }), "employee", "week"),
+			on(Timesheet, "employee", "week")
+		),
+		mirrors(on(Assignment, "employee", "during"), on(Employment, "employee", "during")),
+		contained(on(Leave, "employee", "during"), on(Employment, "employee", "during")),
+		contained(
+			on(Salary, "employee", "during"),
+			on(select(Employment, { basis: "salaried" }), "employee", "during")
+		),
+		contained(
+			on(select(Shift, { status: "approved" }), "employee", "during"),
+			on(Employment, "employee", "during")
+		),
+		capacity(on(Employer, "id"), { from: on(Approver, "employer"), within: within(1n, "*") }),
+		capacity(on(PayRun, "id"), { from: on(Reissue, "replaces"), within: within(0n, 1n) }),
+		capacity(on(PayLine, "id"), {
+			from: on(select(Deposit, { remainder: true }), "line"),
+			within: within(0n, 1n)
+		}),
+		capacity(on(PayLine, "id"), { from: on(Deposit, "line"), within: within(0n, 4n) }),
+		capacity(on(PayLine, "id"), {
+			from: on(Deposit, "line"),
+			weight: weigh("amount"),
+			within: within(ref("net"), ref("net"))
+		}),
+		capacity(on(PayLine, "id"), {
+			from: on(PayLine, "id"),
+			weight: weigh("net"),
+			within: within(0n, ref("gross"))
+		}),
+		capacity(on(Timesheet, "employee", "week"), {
+			from: on(select(Shift, { status: "approved" }), "employee", "week"),
+			weight: weigh(duration("during")),
+			within: within(0n, ref("ceiling"))
+		})
+	]
+)
+
+/** Payroll under another name, as an installation under a unique schema name opens it. */
+export type PayrollNamed<N extends string> = Schema<
+	N,
+	(typeof Payroll)["relations"],
+	(typeof Payroll)["statements"]
+>
+
+/** RunTotal's definition over the Payroll it is given. */
+const runTotalsOver = <const N extends string>(installed: PayrollNamed<N>) =>
+	query(installed).rule((r) => {
+		const { id, run, gross, net } = v(PayLine)
+		return r
+			.match(PayLine, { id, run, gross, net })
+			.find({ run, lines: r.count(), gross: r.sum(gross), net: r.sum(net) })
+	})
+
+export const runTotals = runTotalsOver(Payroll)
+const RunTotal = derived("RunTotal", runTotals)
+export const Reporting = schema.extend(Payroll, { RunTotal }, [])
+
+/**
+ * Reporting and its worlds over the Payroll they are given (the declared one, or the one an installation rebuilds under
+ * its unique name): five full roles in one login. hr keeps the people and their time, the clerk runs payroll and the
+ * ledger, the approver approves, the auditor reads, and the refresher refreshes RunTotal.
+ */
+export const reportingWorlds = (installed: PayrollNamed<string>) => {
+	const reporting = schema.extend(
+		installed,
+		{ RunTotal: derived("RunTotal", runTotalsOver(installed)) },
+		[]
+	)
+	const hr = role(reporting, "hr", reporting.relations, {
+		write: [
+			"Employer",
+			"Employee",
+			"ReportsTo",
+			"Approver",
+			"TaxProfile",
+			"Employment",
+			"Assignment",
+			"Salary",
+			"Leave",
+			"Timesheet"
+		]
+	})
+	const clerk = role(reporting, "clerk", reporting.relations, {
+		write: [
+			"PayRun",
+			"PayLine",
+			"OffCycleReason",
+			"Deposit",
+			"LevyLine",
+			"Posting",
+			"Payment",
+			"Voiding",
+			"Reissue",
+			"Shift"
+		]
+	})
+	const approver = role(reporting, "approver", reporting.relations, {
+		write: ["PayRun", "Approval", "Request"]
+	})
+	const auditor = role(reporting, "auditor", reporting.relations)
+	const refresher = role(reporting, "refresher", reporting.relations, { refresh: ["RunTotal"] })
+	return {
+		Reporting: reporting,
+		hr,
+		clerk,
+		approver,
+		auditor,
+		refresher,
+		server: login(reporting, "server", [hr, clerk, approver, auditor, refresher])
+	}
+}
+
+export const payslip = query(Payroll)
+	.rule((r) => {
+		const { id, run, employee, gross, net, offCycle } = v(PayLine)
+		return r
+			.match(PayLine, { id, run, employee, gross, net, offCycle })
+			.where(r.eq(id, r.param("line", uuid)))
+			.find({ id, run, employee, gross, net, offCycle })
+	})
+	.attach(
+		"person",
+		(l) =>
+			query(Payroll).rule((r) => {
+				const { code, name } = v(Employee)
+				return r.match(Employee, { id: l.employee, code, name }).find({ code, name })
+			}),
+		"one"
+	)
+	.attach(
+		"deposits",
+		(l) =>
+			query(Payroll)
+				.rule((r) => {
+					const { account, amount, remainder } = v(Deposit)
+					return r
+						.match(Deposit, { line: l.id, account, amount, remainder })
+						.find({ account, amount, remainder })
+				})
+				.orderBy(["account", "asc"]),
+		"array"
+	)
+	.attach(
+		"levies",
+		(l) =>
+			query(Payroll).rule((r) => {
+				const { levy, employeeRate, withheld } = v(LevyLine)
+				return r
+					.match(LevyLine, { line: l.id, levy, employeeRate, withheld })
+					.find({ levy, employeeRate, withheld })
+			}),
+		"array"
+	)
+	.attach(
+		"offCycleReason",
+		(l) =>
+			query(Payroll).rule((r) => {
+				const { reason } = v(OffCycleReason)
+				return r.match(OffCycleReason, { line: l.id, reason }).find({ reason })
+			}),
+		"option"
+	)
+
+export const employeeCard = query(Payroll)
+	.rule((r) => {
+		const { id, code, name } = v(Employee)
+		return r
+			.match(Employee, { id, employer: r.param("employer", Employee.fields.employer), code, name })
+			.find({ id, code, name })
+	})
+	.attach(
+		"profile",
+		(e) =>
+			query(Payroll).rule((r) => {
+				const { filing, extra } = v(TaxProfile)
+				return r.match(TaxProfile, { employee: e.id, filing, extra }).find({ filing, extra })
+			}),
+		"option"
+	)
+	.attach(
+		"manager",
+		(e) =>
+			query(Payroll).rule((r) => {
+				const { manager } = v(ReportsTo)
+				return r.match(ReportsTo, { employee: e.id, manager }).find({ manager })
+			}),
+		"option"
+	)
+
+export const runStages = query(Payroll)
+	.rule((r) => {
+		const { id } = v(PayRun)
+		return r
+			.match(PayRun, { id, employer: r.param("employer", PayRun.fields.employer), stage: "draft" })
+			.find({ id, stage: Stage.handle("draft") })
+	})
+	.rule((r) => {
+		const { id } = v(PayRun)
+		const { approver, at } = v(Approval)
+		return r
+			.match(PayRun, {
+				id,
+				employer: r.param("employer", PayRun.fields.employer),
+				stage: "approved"
+			})
+			.match(Approval, { run: id, approver, at })
+			.find({ id, stage: Stage.handle("approved"), approver, at })
+	})
+	.rule((r) => {
+		const { id } = v(PayRun)
+		const { settled } = v(Payment)
+		return r
+			.match(PayRun, { id, employer: r.param("employer", PayRun.fields.employer), stage: "paid" })
+			.match(Payment, { run: id, settled })
+			.find({ id, stage: Stage.handle("paid"), settled })
+	})
+	.rule((r) => {
+		const { id } = v(PayRun)
+		const { reason } = v(Voiding)
+		return r
+			.match(PayRun, { id, employer: r.param("employer", PayRun.fields.employer), stage: "voided" })
+			.match(Voiding, { run: id, reason })
+			.find({ id, stage: Stage.handle("voided"), reason })
+	})
+
+export const ledger = query(Payroll)
+	.rule((r) => {
+		const { entry, line, account, side, amount } = v(Posting)
+		const { run } = v(PayLine)
+		return r
+			.match(Posting, { entry, line, account, side, amount })
+			.match(PayLine, { id: line, run })
+			.where(r.eq(run, r.param("run", uuid)))
+			.find({ entry, line, account, side, amount })
+	})
+	.orderBy(["entry", "asc"])
+
+export const ledgerBalance = query(Payroll).rule((r) => {
+	const { entry, line, side, amount } = v(Posting)
+	const { run } = v(PayLine)
+	return r
+		.match(Posting, { entry, line, side, amount })
+		.match(PayLine, { id: line, run })
+		.where(r.eq(run, r.param("run", uuid)))
+		.find({
+			debits: r.sum(Compute.cond(r.eq(side, "debit"), Compute.base(amount), 0n)),
+			credits: r.sum(Compute.cond(r.eq(side, "credit"), Compute.base(amount), 0n))
+		})
+})
+
+export const splitSegments = query(Payroll).rule((r) => {
+	const { id: run, employer, period } = v(PayRun)
+	const { employee, during, annual } = v(Salary)
+	return r
+		.match(PayRun, { id: run, employer, period })
+		.match(Employee, { id: employee, employer })
+		.match(Salary, { employee, during, annual })
+		.where(
+			r.eq(run, r.param("run", uuid)),
+			r.allen(during, ALLEN.overlaps | ALLEN.overlappedBy, period)
+		)
+		.find({ employee, during, annual })
+})
+
+export const withholdingFor = query(Payroll).rule((r) => {
+	const { id, gross } = v(PayLine)
+	const { id: levy, employeeRate } = v(Levy)
+	return r
+		.match(PayLine, { id, run: r.param("run", PayLine.fields.run), gross })
+		.match(Levy, { id: levy, employeeRate })
+		.find({
+			line: id,
+			levy,
+			employeeRate,
+			withheld: Compute.cast(
+				Compute.round(Compute.mul(Compute.cast(gross, pg.numeric), Compute.base(employeeRate))),
+				Cents
+			)
+		})
+})
+
+/**
+ * Everyone below a manager, through any number of levels. Exported because the compile profile
+ * (scripts/dev/profile/phases.ts) lowers every query a fixture module exports.
+ */
+export const Org = query(Payroll).recursive("Org", {
+	row: { employee: uuid },
+	base: [
+		(r) => {
+			const { employee } = v(ReportsTo)
+			return r
+				.match(ReportsTo, { employee, manager: r.param("manager", ReportsTo.fields.manager) })
+				.find({ employee })
+		}
+	],
+	rec: [
+		(r, self) => {
+			const { employee: middle } = v(self)
+			const { employee } = v(ReportsTo)
+			return r
+				.match(self, { employee: middle })
+				.match(ReportsTo, { employee, manager: middle })
+				.find({ employee })
+		}
+	]
+})
+
+export const orgOf = query(Payroll).rule((r) => {
+	const source = Org.bind({ manager: r.param("manager", ReportsTo.fields.manager) })
+	const { employee } = v(source)
+	return r.match(source, { employee }).find({ employee })
+})
+
+export const withinTwo = query(Payroll)
+	.rule((r) => {
+		const { employee } = v(ReportsTo)
+		return r
+			.match(ReportsTo, { employee, manager: r.param("manager", ReportsTo.fields.manager) })
+			.find({ employee })
+	})
+	.rule((r) => {
+		const { employee: middle } = v(ReportsTo)
+		const { employee } = v(ReportsTo)
+		return r
+			.match(ReportsTo, { employee: middle, manager: r.param("manager", ReportsTo.fields.manager) })
+			.match(ReportsTo, { employee, manager: middle })
+			.find({ employee })
+	})
+
+export const runTotalOf = query(Reporting).rule((r) => {
+	const { lines, gross, net } = v(RunTotal)
+	return r
+		.match(RunTotal, { run: r.param("run", uuid), lines, gross, net })
+		.find({ lines, gross, net })
+})
+
+export const employeesByPrefix = query(Payroll).rule((r) => {
+	const { id, code, name } = v(Employee)
+	return r
+		.match(Employee, { id, employer: r.param("employer", Employee.fields.employer), code, name })
+		.where(r.ge(name, r.param("lo", LegalName)), r.lt(name, r.param("hi", LegalName)))
+		.find({ id, code, name })
+})
+
+/**
+ * The ChangeSets' query members.
+ *
+ * approveShifts' put of Shift.
+ */
+export const approveShiftsMember = query(Payroll).rule((r) => {
+	const { during } = v(Shift)
+	return r
+		.match(Shift, {
+			employee: r.param("employee", Shift.fields.employee),
+			during,
+			week: r.param("week", Shift.fields.week),
+			status: "pending"
+		})
+		.find({
+			employee: r.param("employee", Shift.fields.employee),
+			during,
+			week: r.param("week", Shift.fields.week),
+			status: r.literal("approved")
+		})
+})
+
+/** withhold's insert of Posting; its insert of LevyLine is withholdingFor. */
+export const postingMember = query(Payroll)
+	.rule((r) => {
+		const { id, gross } = v(PayLine)
+		return r
+			.match(PayLine, { id, run: r.param("run", PayLine.fields.run), gross })
+			.find({ line: id, account: r.literal("GrossWages"), side: r.literal("debit"), amount: gross })
+	})
+	.rule((r) => {
+		const { id, net } = v(PayLine)
+		return r
+			.match(PayLine, { id, run: r.param("run", PayLine.fields.run), net })
+			.find({ line: id, account: r.literal("NetPay"), side: r.literal("credit"), amount: net })
+	})
+	.rule((r) => {
+		const { id, gross, net } = v(PayLine)
+		return r.match(PayLine, { id, run: r.param("run", PayLine.fields.run), gross, net }).find({
+			line: id,
+			account: r.literal("Withholding"),
+			side: r.literal("credit"),
+			amount: Compute.cast(Compute.sub(gross, net), Cents)
+		})
+	})
+
+/** pay's put of PayRun and its insert of Payment. */
+export const payPutMember = query(Payroll).rule((r) => {
+	const { employer, period } = v(PayRun)
+	return r
+		.match(PayRun, { id: r.param("run", PayRun.fields.id), employer, period, stage: "approved" })
+		.find({ id: r.param("run", uuid), employer, period, stage: r.literal("paid") })
+})
+
+export const payPaymentMember = query(Payroll).rule((r) =>
+	r
+		.match(PayRun, { id: r.param("run", PayRun.fields.id), stage: "approved" })
+		.find({ run: r.param("run", uuid), settled: r.param("now", Instant) })
+)
+
+/** reverse's put of PayRun, its deletion of Payment and its insert of Voiding. */
+export const reversePutMember = query(Payroll).rule((r) => {
+	const { employer, period } = v(PayRun)
+	return r
+		.match(PayRun, { id: r.param("run", PayRun.fields.id), employer, period, stage: "paid" })
+		.find({ id: r.param("run", uuid), employer, period, stage: r.literal("voided") })
+})
+
+export const reverseDeleteMember = query(Payroll).rule((r) => {
+	const { settled } = v(Payment)
+	return r
+		.match(Payment, { run: r.param("run", Payment.fields.run), settled })
+		.find({ run: r.param("run", uuid), settled })
+})
+
+export const reverseVoidingMember = query(Payroll).rule((r) =>
+	r
+		.match(PayRun, { id: r.param("run", PayRun.fields.id), stage: "paid" })
+		.find({ run: r.param("run", uuid), reason: r.param("reason", Voiding.fields.reason) })
+)

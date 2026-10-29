@@ -1,0 +1,150 @@
+import { describe, it } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import { filter } from "@grizzle/testing/gen"
+import { matching } from "@grizzle/testing/pattern"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Schema } from "effect"
+import * as Result from "#compiler/core/result.ts"
+import { descText } from "#compiler/ir/desc.ts"
+import { describeQuery, lowerQuery, queryFromDescription } from "#compiler/program/describe.ts"
+import { pg, uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
+import { queryValueDesc } from "#compiler/query/build/query.ts"
+import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { Work } from "#test/support/fixtures/api/work.ts"
+import { decodeJson, jsonText } from "#test/support/json.ts"
+import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
+import {
+	caseSketchGen,
+	type ProgramFeature,
+	programFeatures,
+	programForms,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
+import { printCase } from "#test/support/oracle/public/print.ts"
+
+import { regex } from "arkregex"
+/**
+ * describeQuery, queryFromDescription and lowerQuery (packages/engine/src/program/describe.ts), the engine's internal
+ * inspection vocabulary, over every generated query read (test/support/oracle/public): a query rebuilt from its
+ * Description, sent as JSON or not, is the same Description and lowers to the same statements; lowering is
+ * byte-identical across runs; a query rebuilt without its schema lowers to a refusal; and a Description is checked
+ * against the schema it is given.
+ */
+const descriptionFromJson = decodeJson(Schema.Unknown)
+
+/** A Description as the rebuild receives it: the value itself, and the value read back from its JSON text. */
+const sentForms = (d: unknown): ReadonlyArray<unknown> => [d, descriptionFromJson(jsonText(d))]
+
+const text = (q: unknown): string =>
+	succeeded(descText(queryValueDesc(q)), "the query's Description text")
+
+describe("describeQuery, queryFromDescription and lowerQuery", () => {
+	it.effect(
+		"rebuild every generated query read as the same Description, which lowers to the same statements",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/program/describe-roundtrip",
+						draw: drawn(caseSketchGen),
+						literal: Formatter.format,
+						features: features<ProgramFeature>(programForms),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(sketch, k) =>
+						Effect.sync(() => {
+							const c = k.draw(resolveCase(sketch))
+							const built = buildSchema(c.schema)
+							for (const read of c.reads) {
+								if (read.kind !== "query") {
+									continue
+								}
+								const q = buildRoot(built, built.schema, read.query)
+								const d = describeQuery(q)
+								const lowered = succeeded(
+									lowerQuery(q),
+									`the generated query lowers\n${printCase(c)}`
+								)
+								for (const sent of sentForms(d)) {
+									const rebuilt = succeeded(
+										queryFromDescription(sent, built.schema),
+										`the rebuild\n${printCase(c)}`
+									)
+									assert.equal(text(rebuilt), text(q))
+									assert.deepEqual(lowerQuery(rebuilt), Result.ok(lowered))
+								}
+								/** Rebuilt without its schema, the query has nothing to lower against. */
+								const without = succeeded(
+									queryFromDescription(d, undefined),
+									"a rebuild with no schema"
+								)
+								refused(lowerQuery(without), "MalformedDescription", "lowered with no schema")
+								for (const feature of programFeatures(read.query)) {
+									if (Arr.some(programForms, (f) => f === feature)) {
+										k.note(feature)
+									}
+								}
+							}
+						})
+				)
+			)
+	)
+
+	it.effect("check a Description against the schema it is given", (ctx) =>
+		Effect.gen(function* () {
+			/** A Description over a relation the given schema lacks, named as drawn. */
+			const relations: Readonly<Record<string, unknown>> = Work.relations
+			const named = filter(
+				matching(regex("^[A-Z][a-z]{2,8}$")),
+				(name) => !Rec.has(relations, name),
+				100
+			)
+			yield* searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/program/describe-schema",
+						draw: drawn(named),
+						literal: Formatter.format,
+						features: features<"elsewhere">(["elsewhere"]),
+						kept: [],
+						runs: 20,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						steering: { kind: "none" },
+						caseHang: Duration.minutes(2)
+					},
+					(name, k) =>
+						Effect.sync(() => {
+							const Elsewhere = relation(name, { task: uuid, budget: pg.bigint }, ["task"])
+							const d = describeQuery(
+								query(schema("Elsewhere", { [name]: Elsewhere }, [])).rule((r) => {
+									const { task, budget } = v(Elsewhere)
+									return r.match(Elsewhere, { task, budget }).find({ task, budget })
+								})
+							)
+							succeeded(queryFromDescription(d, undefined), "a Description rebuilds on its own")
+							refused(
+								queryFromDescription(d, Work),
+								"MalformedDescription",
+								"a schema without the relation"
+							)
+							k.note("elsewhere")
+						})
+				)
+			)
+		})
+	)
+})

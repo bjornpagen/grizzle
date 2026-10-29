@@ -1,0 +1,8 @@
+# One check-only gate: the hook never formats or stages files, it only refuses a failing commit.
+pre-commit:
+  skip:
+    - merge
+    - rebase
+  jobs:
+    - name: check
+      run: pnpm check

@@ -1,0 +1,98 @@
+import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { features } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	codePoint,
+	constant,
+	element,
+	type Gen,
+	map,
+	oneOf,
+	weighted
+} from "@grizzle/testing/gen"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { compareCodePoints } from "#compiler/core/text.ts"
+import { assert } from "#test/support/assert.ts"
+import { jsonText } from "#test/support/json.ts"
+import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { orderOf } from "#test/unit/values/support.ts"
+
+/**
+ * One user-perceived character: none, a scalar of any plane but NUL and the surrogates, or a letter with a combining
+ * mark after it, so a character of two scalars meets one of a single scalar.
+ */
+const grapheme: Gen<string> = weighted([
+	[1, constant("")],
+	[3, oneOf([codePoint(0x01, 0xd7_ff), codePoint(0xe0_00, 0x10_ffff)])],
+	[
+		1,
+		(source) =>
+			`${source.draw(codePoint(0x61, 0x7a))}${source.draw(boolean) ? source.draw(codePoint(0x03_00, 0x03_6f)) : ""}`
+	]
+])
+
+const scalar = oneOf([
+	element(["a", "A", "z", "é", "é", "ß", "퟿", "", "￿", "\u{10000}", "\u{10ffff}"]),
+	grapheme,
+	codePoint(0x01, 0x7f),
+	codePoint(0xe0_00, 0xff_ff),
+	codePoint(0x1_00_00, 0x10_ff_ff)
+])
+const text = map(array(scalar, { min: 0, max: 5 }), Arr.join(""))
+
+layer(Substrate.layer)("text agreement with PostgreSQL", (it) => {
+	it.effect(
+		"orders by code point exactly as ORDER BY ... COLLATE pg_catalog.pg_c_utf8 does",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { session } = yield* Substrate
+					const db = yield* session(ownerSession())
+					const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
+					return yield* explore(
+						{
+							suite: "pg/values/text/order",
+							draw: drawn(array(text, { min: 1, max: 4000 })),
+							literal: Formatter.format,
+							features: features<"JavaScript's order differs">(["JavaScript's order differs"]),
+							kept: [],
+							runs: 2,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							steering: { kind: "none" },
+							caseHang: Duration.minutes(2)
+						},
+						(sample, c) =>
+							Effect.gen(function* () {
+								const payload = jsonText(Arr.map(sample, (v, ord) => ({ ord, v })))
+								const pg = yield* db.values(
+									`SELECT c.ord::text FROM ${source} ORDER BY c.v COLLATE pg_catalog.pg_c_utf8, c.ord`,
+									[payload]
+								)
+								const host = orderOf(sample, compareCodePoints)
+								const pgOrder: ReadonlyArray<number> = Arr.map(pg, (r) => Number(r[0]))
+								assert.deepEqual(pgOrder, host)
+								const naive = orderOf(sample, (a, b) => (a < b ? -1 : a > b ? 1 : 0))
+								if (Arr.some(naive, (ord, i) => ord !== host[i])) {
+									c.note("JavaScript's order differs")
+								}
+								const distinct = yield* db.values(
+									`SELECT count(DISTINCT c.v COLLATE pg_catalog.pg_c_utf8)::text FROM ${source}`,
+									[payload]
+								)
+								assert.deepEqual(
+									Arr.map(distinct, (r) => Number(r[0])),
+									[new Set(sample).size]
+								)
+							})
+					)
+				})
+			)
+	)
+})
