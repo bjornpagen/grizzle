@@ -21,7 +21,6 @@ const writtenEntries = (
 	)
 }
 
-export { type ViolationClassifier, violationClassifier } from "#adapter/witness/classify.ts"
 /**
  * Witness decoding in the adapter.
  *
@@ -41,10 +40,9 @@ export { type ViolationClassifier, violationClassifier } from "#adapter/witness/
  * The classifier is the hook the outcome mapping of packages/grizzle/src/adapter/outcomes consumes after the aborts are decided:
  * db.apply, a prepared apply and the COMMIT of each classify through it (packages/grizzle/src/adapter/apply WriteEntry).
  * A DbLayer builds it once per role, beside the role's artifacts, when the layer is built (pool/registry.ts).
+ *
+ * One installation's witness decoding.
  */
-export type { KeyLaws } from "#adapter/witness/keylaw.ts"
-
-/** One installation's witness decoding. */
 export interface InstallationWitness {
 	readonly laws: KeyLaws
 	readonly classify: ViolationClassifier

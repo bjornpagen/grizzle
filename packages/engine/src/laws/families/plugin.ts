@@ -1,6 +1,6 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { AnchorPair, FamilyLaw, ResidualFamily } from "#compiler/ir/law.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Expr, PlDeclaration, PlStatement } from "#compiler/sql/ast.ts"
 
 /** The variables a family may declare: each family's records and its cover, never the skeleton's key record `k`, so

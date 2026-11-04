@@ -6,7 +6,7 @@ import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
-import type { KeyField } from "#compiler/ir/law.ts"
+import type { LawField } from "#compiler/ir/law.ts"
 import type { NormalFacts } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import { admitted, admittedText, type CarrierSpec } from "#compiler/scalar/values/identity.ts"
@@ -159,12 +159,12 @@ export interface HostChecks {
 export type Range = "range4" | "range8"
 
 /** A key field of the relation's facts, by its name, with its spec. */
-const hostKeyField = (f: KeyField): HostKeyField => ({ field: f.name, spec: carrierSpecOf(f.type) })
+const hostKeyField = (f: LawField): HostKeyField => ({ field: f.name, spec: carrierSpecOf(f.type) })
 
 /** The host checks of a relation's keys and span candidate keys, each field's spec its type's carrier's. */
 export const hostChecks = (
 	keyLaws: ReadonlyArray<{
-		readonly fields: ReadonlyArray<KeyField>
+		readonly fields: ReadonlyArray<LawField>
 		readonly law: LawId
 		readonly described: Law
 	}>,

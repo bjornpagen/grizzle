@@ -7,7 +7,6 @@ import { admitContract } from "#compiler/scalar/contract.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import { spanDescriptor } from "#compiler/scalar/span.ts"
-import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import type { RowHelpers, RowTerm } from "#compiler/schema/terms.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -34,8 +33,6 @@ export const descOf = (descriptor: FieldBase): FieldDesc => {
 	}
 	return described.value.desc
 }
-
-export const uuid = uuidDescriptor
 
 export const rawPg = {
 	smallint: pgDescriptors.smallint,
@@ -74,9 +71,9 @@ export const rawContract = (
 export const bareContract = (name: string, base: FieldBase): ReturnType<typeof admitContract> =>
 	admitContract(name, base, [])
 
-export const closedId = (roster: AnyClosed) => admittedClosedId(roster)
+export const rawClosedId = (roster: AnyClosed) => admittedClosedId(roster)
 
-export const span = spanDescriptor
+export const rawSpan = spanDescriptor
 
 /** A contract predicate bounding char_length(VALUE) above, as Compute.charLength(v).le(n) records it. */
 export const charLengthAtMost = (n: number): OpenExpr => ({

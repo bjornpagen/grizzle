@@ -1,6 +1,6 @@
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import type { Mutant } from "#test/support/oracle/mutants/mutants.ts"

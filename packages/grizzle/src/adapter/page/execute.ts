@@ -197,7 +197,7 @@ const probeAnswer = (
  * The delivered edges of a request of `size` whose sent statements answered `sent`, in presentation order, and whether
  * its lookahead row came back, which proves the flag of the fetching direction.
  */
-export interface PageEdges {
+interface PageEdges {
 	readonly edges: ReadonlyArray<DeliveredEdge>
 	readonly lookahead: boolean
 }

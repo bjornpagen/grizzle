@@ -34,7 +34,7 @@ import type {
 	HostFact,
 	ModelState,
 	Observation,
-	Outcome,
+	ActionOutcome,
 	Probe,
 	Token,
 	ViewFilter,
@@ -492,7 +492,7 @@ const defectDivergence = (defect: Defect): Divergence => {
  * the state the model enters.
  */
 export interface Stepped {
-	readonly observation: Outcome
+	readonly observation: ActionOutcome
 	readonly branch: number
 	readonly next: ModelState
 }

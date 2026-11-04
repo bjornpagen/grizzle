@@ -1,5 +1,6 @@
 import { array, boolean, constant, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { recursionUnrollMax } from "#compiler/core/policy.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
@@ -47,7 +48,7 @@ import {
 	type GenSchema,
 	relationHeading
 } from "#test/support/oracle/gen/schema.ts"
-import { at, cyclicAt, elementAt, nonEmptyList, indices } from "#test/support/oracle/pick.ts"
+import { at, cyclicAt, elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { pickGen } from "#test/support/pick.ts"
 
 export const graphShapes = ["chain", "tree", "diamond", "selfLoop", "denseCycle", "random"] as const

@@ -185,9 +185,6 @@ export const tupleOf = (layout: Layout, row: Row): Tuple => {
 	return new RowTuple(layout.positions, row)
 }
 
-/** Where a term reads a column, as a reading by the one rule for unstated values names it. */
-export const columnKey = (ref: ColumnRef): string => `${ref.node}\u0000${ref.name}`
-
 /** What a map holds under a key the DAG names; a missing one is a column or variable the DAG lacks. */
 const lookup = <K, V>(map: { get(key: K): V | undefined }, key: K, what: string): V => {
 	const v = map.get(key)

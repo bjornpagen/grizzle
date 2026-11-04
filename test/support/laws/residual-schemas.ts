@@ -83,7 +83,7 @@ const armRelations =
 		const [first, second, ...rest] = armed
 		const shared = second !== undefined && s.draw(boolean)
 		const lead: ArmSketch = {
-			handles: shared && second !== undefined ? [first, second] : [first],
+			handles: shared ? [first, second] : [first],
 			mutable: s.draw(boolean)
 		}
 		const others = shared ? rest : second === undefined ? [] : [second, ...rest]
@@ -149,7 +149,7 @@ export const residualSketchGen: Gen<ResidualSketch> = weighted<ResidualSketch>([
 export const handleName = (i: number): string => `h${i}`
 
 /** The arm relation name of arm position `j`. */
-export const armName = (j: number): string => `Arm${j}`
+const armName = (j: number): string => `Arm${j}`
 
 /** The `mutable` statements of the relations a list of (relation, mutability) pairs declares mutable. */
 const mutables = (

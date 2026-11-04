@@ -28,23 +28,20 @@ export type ExactCarrier = "float4" | "float8" | "money"
 /**
  * How an aggregate overload is lowered so that its result is a function of its arguments' multiset. Every overload
  * states one, so a new aggregate cannot be added without deciding; every emitter (grouped and windowed) dispatches on
- * it exhaustively (lower/conservative/group aggregateExpr).
+ * it exhaustively (lower/conservative/group aggregateExpr):
+ *
+ * - native: the native call over the arguments as they are, whose accumulator is exact or returns an input: count,
+ *   min, max, bool_and, bool_or, and sum over the integers and numeric;
+ * - scaleFree: the native call over each argument through trim_scale: avg over numeric, whose quotient reads the sum's
+ *   display scale (I2);
+ * - exactSum: sum over the exact numeric value of each argument, rounded once to real or double precision as IEEE 754
+ *   rounds, or kept as exact money;
+ * - exactMean: that exact sum over count(*), rounded once to double precision: avg over real and double precision.
  */
 export type AggregateLowering =
-	/**
-	 * The native call over the arguments as they are, whose accumulator is exact or returns an input: count, min, max,
-	 * bool_and, bool_or, and sum over the integers and numeric.
-	 */
 	| { readonly kind: "native" }
-	/** The native call over each argument through trim_scale: avg over numeric, whose quotient reads the sum's display
-	 * scale (I2). */
 	| { readonly kind: "scaleFree" }
-	/**
-	 * sum over the exact numeric value of each argument, rounded once to real or double precision as IEEE 754 rounds,
-	 * or kept as exact money.
-	 */
 	| { readonly kind: "exactSum"; readonly exact: ExactCarrier }
-	/** That exact sum over count(*), rounded once to double precision: avg over real and double precision. */
 	| { readonly kind: "exactMean"; readonly exact: ExactCarrier }
 
 const native: AggregateLowering = Object.freeze({ kind: "native" })
@@ -206,8 +203,8 @@ const refusedAggregate = (loc: SourceLoc, capability: string): Result.Result<nev
  *
  * - r.sum over real or double precision is the double (for real, the real) nearest the exact sum of its arguments'
  *   values, ties to even, ±Infinity past the largest finite value: a correctly rounded sum, as IEEE 754 rounds. Each
- *   argument enters the sum as the exact numeric value of its bits (sql/build.ts exactNumeric), the numeric sum is
- *   exact, and the total is rounded once (lower/conservative/expr/total.ts roundToFloat).
+ *   argument enters the sum as the exact numeric value of its bits (sql/build.ts exactNumericOfDouble), the numeric sum
+ *   is exact, and the total is rounded once (lower/conservative/expr/total.ts roundToFloat).
  * - r.mean over real or double precision is the double nearest PostgreSQL's numeric quotient of that exact sum, its
  *   display scale trimmed, by the count.
  * - r.sum over money is the exact total in cents, exact money, sum(x::numeric), which no total overflows; r.sum over

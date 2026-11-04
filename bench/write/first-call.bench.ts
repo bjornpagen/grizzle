@@ -131,7 +131,6 @@ export default defineGate({
 					const kind = fx.enumType("Kind")
 					const N = fx.table("Node")
 					const c = (rel: string, f: string) => fx.column(rel, f)
-					/** One statement, so one transaction, seeds every armed parent with its payload. */
 					yield* owner(
 						`WITH ${Arr.join(
 							Arr.makeBy(

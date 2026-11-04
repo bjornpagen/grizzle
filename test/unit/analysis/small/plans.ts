@@ -1,5 +1,6 @@
 import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	type AttachDesc,
@@ -13,7 +14,6 @@ import {
 	type SourceDesc,
 	type VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import {
 	closedName,
 	type FieldName,

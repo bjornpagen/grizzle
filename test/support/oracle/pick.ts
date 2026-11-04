@@ -1,14 +1,5 @@
 import { Array as Arr } from "effect"
 
-/** The indices 0 .. n - 1 of a list of `n` elements, none when `n` is zero. */
-export const indices = (n: number): ReadonlyArray<number> => {
-	const out: Array<number> = []
-	for (let i = 0; i < n; i++) {
-		out.push(i)
-	}
-	return out
-}
-
 /** The elements of `xs` at the indices `keep` holds of, in order. */
 export const whereIndex = <A>(xs: ReadonlyArray<A>, keep: (i: number) => boolean): Array<A> =>
 	Arr.flatMap(xs, (x, i) => (keep(i) ? [x] : []))

@@ -146,7 +146,7 @@ const groupRows = (
  * and then any parent column the child reads in the parent's heading order, its distinct values, and for each the
  * scope its child is evaluated in, every node of the parent's rows' chain bound to the key tuple.
  */
-export interface ParentKeys {
+interface ParentKeys {
 	readonly attach: NodeOf<"Attach">
 	readonly heading: Heading
 	readonly keys: ReadonlyArray<{ readonly key: Row; readonly scope: Bindings }>
@@ -188,21 +188,6 @@ const parentKeysOf = (
 			return { key, scope: new Map(Arr.map([...parent.spine], (id) => [id, tuple] as const)) }
 		})
 	}
-}
-
-/**
- * The parent keys of every attachment on the main delivered relation's rows, outermost first. A heterogeneous
- * delivery carries none. The parent rows are evaluated here, so a parent whose own evaluation fails throws.
- */
-export const rootParentKeys = (ref: Reference, root: RelNode): ReadonlyArray<ParentKeys> => {
-	const shape = rootShape(root)
-	if (shape.union !== undefined) {
-		return []
-	}
-	const rel = ref.eval(shape.rows, noBindings)
-	const spine = spineOf(shape.rows)
-	const parent = { heading: rel.heading, rows: rel.rows, spine: spine.labels }
-	return Arr.map(spine.attachments, (attach) => parentKeysOf(ref, attach, parent))
 }
 
 /**

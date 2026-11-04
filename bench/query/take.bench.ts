@@ -68,7 +68,7 @@ import {
 	rowsReadFrom,
 	scansOf
 } from "#bench/query/support/plans.ts"
-import { maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import { lateralParentMax, poolBounds } from "#compiler/core/policy.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -84,7 +84,6 @@ import { pgPin } from "#test/support/env.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { labeledStatements } from "#test/support/oracle/compare.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

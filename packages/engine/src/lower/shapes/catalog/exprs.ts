@@ -4,6 +4,7 @@ import { unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	type ColumnRef,
+	describeOp,
 	type LiveArgs,
 	type OpId,
 	type ScalarExpr,
@@ -213,7 +214,7 @@ export const litExpr = (ed: CatalogEditor, value: TypedLiteral, type: ScalarType
  * One native operator or connective over `args`, typed `type`: a catalog rewrite builds only operations defined on
  * every value, since it holds no proof of a precondition, so a partial overload is refused.
  */
-export const opExpr = (
+const opExpr = (
 	ed: CatalogEditor,
 	op: NativeOp,
 	args: ReadonlyArray<ScalarExpr>,
@@ -223,7 +224,7 @@ export const opExpr = (
 		throw new Refusal(
 			unsupported(
 				SourceLoc("catalog operator", []),
-				`${op.id.toString()} needs the proof of its precondition`
+				`${describeOp(op.id)} needs the proof of its precondition`
 			)
 		)
 	}
@@ -261,20 +262,6 @@ export const eitherOrder = <A>(
 	}
 	const [x, y] = operands
 	return f(x, y) ?? f(y, x)
-}
-
-/** Whether `holds` is true of the operands of the commutative binary operator `op` at `e`, in either order. */
-export const eitherOrderHolds = (
-	e: ScalarExpr,
-	op: string,
-	holds: (x: ScalarExpr, y: ScalarExpr) => boolean
-): boolean => {
-	const operands = binaryOperands(e, op)
-	if (operands === undefined) {
-		return false
-	}
-	const [x, y] = operands
-	return holds(x, y) || holds(y, x)
 }
 
 /** The native comparison `fn` over two operands of one carrier. */

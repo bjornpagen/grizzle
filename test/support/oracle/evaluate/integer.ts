@@ -1,5 +1,4 @@
 import { Result } from "effect"
-import type { IntCarrier } from "#compiler/scalar/compute/cast.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import { gcdBig } from "#test/support/oracle/evaluate/numeric.ts"
 
@@ -10,12 +9,6 @@ import { gcdBig } from "#test/support/oracle/evaluate/numeric.ts"
  * expression meets, since its divisor is proved nonzero. Division truncates toward zero, and the remainder has the
  * dividend's sign.
  */
-export const intRange: { readonly [C in IntCarrier]: readonly [bigint, bigint] } = {
-	int2: [-32768n, 32767n],
-	int4: [-2147483648n, 2147483647n],
-	int8: [-(2n ** 63n), 2n ** 63n - 1n]
-}
-
 type IntResult = Result.Result<bigint, Undefined>
 
 export const intAdd = (a: bigint, b: bigint): bigint => a + b

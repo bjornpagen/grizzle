@@ -20,6 +20,7 @@ import {
 	warmedOnce,
 	writeConditions
 } from "#bench/write/support/writes.ts"
+import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -27,7 +28,6 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /**
  * R34: normalize unnormalized input before the arbiter insert.

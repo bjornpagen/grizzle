@@ -240,7 +240,7 @@ const decoderOf = <A>(target: Decoding<A>): RowDecoder<A> =>
  * A typed reader: QueryReader<S>'s operations as properties, each a function a caller may take off the reader, and the
  * compiled read db.compile runs for a query, its rows read by `decoder`.
  */
-interface Reader<S> {
+export interface Reader<S> {
 	readonly get: QueryReader<S>["get"]
 	readonly execute: QueryReader<S>["execute"]
 	readonly page: QueryReader<S>["page"]

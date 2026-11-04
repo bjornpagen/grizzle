@@ -10,6 +10,7 @@ import type {
 } from "#compiler/core/phantom.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type { BaseOf, DomainOf, Facts, FactsOf, Rostered } from "#compiler/types/core/phantom.ts"
 
 /**
@@ -94,9 +95,6 @@ export interface SpanField<Endpoint> extends Field<Span<Endpoint>, "range"> {
 	readonly width?: BaseOf<Endpoint>
 }
 
-/** Bounded and half-open, start < end. */
-export type Span<E> = { readonly start: E; readonly end: E }
-
 /**
  * A literal operand. Over Decimal it is a Decimal, a bigint, or an exact decimal string checked at construction; a
  * JavaScript number is never a numeric literal. A literal compared with or written into a contract
@@ -124,12 +122,12 @@ export type DeclaredFacts<Proved extends ReadonlyArray<keyof Facts>> = {
 export interface Contract<
 	Name extends string,
 	B extends FieldBase,
-	Proved extends Facts = DeclaredFacts<readonly []>
+	Proved extends ReadonlyArray<keyof Facts> = readonly []
 > extends Field<
 	Infer<B> & Brand.Brand<Name>,
 	B["sql"],
 	DomainOf<B> & Brand.Brand<Name>,
-	FactsOf<B> & Proved
+	FactsOf<B> & DeclaredFacts<Proved>
 > {
 	(unbranded: Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>): Infer<B> & Brand.Brand<Name>
 	readonly name: Name

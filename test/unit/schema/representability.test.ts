@@ -26,11 +26,12 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import * as Result from "#compiler/core/result.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
+import { uuid } from "#compiler/public/fields.ts"
 import { closed, relation, relationDescOf } from "#compiler/schema/relation.ts"
 import {
 	btreeEntryBytes,
@@ -48,19 +49,17 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	bareContract,
 	charLengthAtMost,
-	closedId,
+	rawClosedId,
 	rawContract,
 	descOf,
 	rawPg,
+	rawSpan,
 	regex,
-	span,
-	uuid,
 	wildcard
 } from "#test/unit/schema/support.ts"
 
@@ -971,7 +970,7 @@ const fixedDescriptor = (type: FixedType): FieldBase => {
 		case "serial":
 			return rawPg.serial
 		case "closedId":
-			return closedId(Kind)
+			return rawClosedId(Kind)
 	}
 }
 
@@ -1268,7 +1267,7 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 							c.note(`${kind} ${admitted ? "admitted" : "refused"}`)
 							const fields: Record<string, FieldBase> =
 								kind === "span"
-									? { during: span(rawPg.bigint), ...scalars(width - 1) }
+									? { during: rawSpan(rawPg.bigint), ...scalars(width - 1) }
 									: scalars(width)
 							const names = Rec.keys(fields)
 							const R =
@@ -1360,11 +1359,11 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 							const at = pickIndex(s.position, scalarFields.length + 1)
 							const during: readonly [string, FieldBase] = [
 								"during",
-								span(s.endpoint === "integer" ? rawPg.integer : rawPg.bigint)
+								rawSpan(s.endpoint === "integer" ? rawPg.integer : rawPg.bigint)
 							]
 							const ordered = [...scalarFields.slice(0, at), during, ...scalarFields.slice(at)]
 							const keyed = s.second
-								? [...ordered, ["other", span(rawPg.bigint)] as const]
+								? [...ordered, ["other", rawSpan(rawPg.bigint)] as const]
 								: ordered
 							const names = Arr.map(keyed, ([name]) => name)
 							const R = relation("Booking", Rec.fromEntries(keyed), names, [])
@@ -1599,7 +1598,7 @@ describe("a vector field is a key field like any other: every vector has one for
 								(field, i): readonly [string, FieldBase] => [`k${i}`, field]
 							)
 							if (s.span) {
-								others.push(["during", span(rawPg.bigint)])
+								others.push(["during", rawSpan(rawPg.bigint)])
 							}
 							const vector = s.contract
 								? bareContract("Embedding", rawPg.vector(s.dimensions))

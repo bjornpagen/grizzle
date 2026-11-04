@@ -1,6 +1,7 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { SelectedSide } from "#compiler/ir/law.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type {
 	FamilyPlugin,
 	FamilyUnit,
@@ -9,7 +10,6 @@ import type {
 } from "#compiler/laws/families/plugin.ts"
 import { raiseViolation, recordField, selectedBy } from "#compiler/laws/residual/sql.ts"
 import { covers, coverWith, emptyCover, multirangeTypeOf } from "#compiler/laws/span/cover.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import type { Expr, PlStatement, Select } from "#compiler/sql/ast.ts"
 import {
 	and,

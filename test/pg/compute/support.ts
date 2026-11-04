@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
@@ -10,7 +11,6 @@ import { assert } from "#test/support/assert.ts"
 import { jsonText } from "#test/support/json.ts"
 import { strictRead } from "#test/support/kernel/strict.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
@@ -241,7 +241,7 @@ export const compareAnswers = (
 
 /**
  * The name pg_typeof gives a result of `type`: its carrier's, an exact integer's bigint while its digit bound is at
- * most 18 digits and numeric past it (lower/conservative/base-type.ts).
+ * most 18 digits and numeric past it (ir/physical.ts).
  */
 const typeName = (type: ScalarType): string => {
 	const b = baseOf(type)

@@ -9,6 +9,7 @@ import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type {
 	CountRule,
 	ParamDecl,
@@ -22,12 +23,7 @@ import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalo
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
-import {
-	flight,
-	mapTree,
-	type PhysicalNames,
-	type WriteParamSlot
-} from "#compiler/lower/conservative/types.ts"
+import { flight, mapTree, type WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
 import {

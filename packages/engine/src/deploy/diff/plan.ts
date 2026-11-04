@@ -487,9 +487,6 @@ export type TopOffer = RootRename | RelationRename | PlainOffer
 /** Every offer, wherever it stands. */
 export type Offer = TopOffer | RelationOffer
 
-/** One step of a rename's alternative, wherever the rename stands. */
-export type AlternativeStep = RelationStep
-
 /** Drafted statements the reviewer confirms under one marker, with no other way drafted: one decision, so the files
  * keep them all, as drafted, or none of them (`splitRenames`). */
 export interface Confirm {
@@ -515,23 +512,22 @@ export interface MigrationPlan {
 
 /** The candidates whose own rename offer a step holds, those nested in a relation's alternative included, in draft
  * order. */
-export const draftCandidates = (d: Draft | AlternativeStep): ReadonlyArray<Candidate> => {
-	if (d.kind !== "choice") {
-		return []
+export const draftCandidates = (d: Draft | RelationStep): ReadonlyArray<Candidate> =>
+	d.kind === "choice" ? d.offers.flatMap((o: Offer) => offerCandidates(o)) : []
+
+/** The candidates whose own rename offer an offer is, a relation rename's nested ones after it. */
+const offerCandidates = (o: Offer): ReadonlyArray<Candidate> => {
+	switch (o.kind) {
+		case "rename":
+		case "nested rename":
+			return [o.candidate]
+		case "relation rename":
+			return [o.candidate, ...o.alternative.flatMap((x) => draftCandidates(x))]
+		case "rewrite":
+		case "delete":
+		case "convert":
+			return []
 	}
-	return d.offers.flatMap((o: Offer): ReadonlyArray<Candidate> => {
-		switch (o.kind) {
-			case "rename":
-			case "nested rename":
-				return [o.candidate]
-			case "relation rename":
-				return [o.candidate, ...o.alternative.flatMap((x) => draftCandidates(x))]
-			case "rewrite":
-			case "delete":
-			case "convert":
-				return []
-		}
-	})
 }
 
 /** Every candidate rename a plan offers: each rename offer's candidate, in step order. */

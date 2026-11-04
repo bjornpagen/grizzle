@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Option, pipe, Schema, String as Str } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
+import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -18,7 +19,6 @@ import {
 import * as W from "#test/support/fixtures/api/work.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The account budgets with at least `least` automatic tasks.

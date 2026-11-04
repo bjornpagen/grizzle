@@ -1,3 +1,8 @@
+import {
+	type CounterAnalysis,
+	type CounterProof,
+	counterBound
+} from "#compiler/check/recursion/bound.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -15,17 +20,10 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { requireAdmittedFeedback } from "#compiler/lower/conservative/recursive/index.ts"
-import {
-	type CounterAnalysis,
-	type CounterProof,
-	counterBound
-} from "#compiler/lower/shapes/recursion/bound.ts"
 import { stateColumns, stateTerm } from "#compiler/lower/shapes/recursion/terms.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { Cte, Select, SelectCore } from "#compiler/sql/ast.ts"
 import { cteRefAs, distinctCoreWhen, select, setOp } from "#compiler/sql/build.ts"
-
-export { type CounterAnalysis, counterBound } from "#compiler/lower/shapes/recursion/bound.ts"
 
 export const unrollRule = "recursion.unroll"
 

@@ -9,6 +9,7 @@ import { evidenceContextShape, premiseShape } from "#compiler/ir/evidence.ts"
 import {
 	builtExpr,
 	condProblems,
+	describeOp,
 	exprEffects,
 	firstArgumentCycle,
 	type LiveArgs,
@@ -1999,11 +2000,6 @@ export const validateTable = (table: DagTable): DagTable => {
 }
 
 /**
- * Validates a DAG grizzle built over its outside form (validateTable); a label two of its nodes share is a defect. It
- * hands back the DAG it read, as typed: an assembled DAG stays one, and reading another brands nothing.
- */
-
-/**
  * The problems of an operation's or a cast's proof: the registry's overload is partial exactly where the node carries a
  * proof, and the proof kernel re-derives the precondition from its premises (lower.ts proofHolds), so every partial
  * operation a DAG holds stands where its precondition is proved, the soundness half of "no read raises".
@@ -2017,7 +2013,7 @@ const proofProblems = (
 	const native = nativeOp(op)
 	if (native === undefined || op === binaryCoercion) {
 		return native === undefined && op !== binaryCoercion
-			? [`an overload the registry holds, not ${String(op)}`]
+			? [`an overload the registry holds, not ${describeOp(op)}`]
 			: proof === undefined
 				? []
 				: ["no proof on a coercion, which is defined everywhere"]
@@ -2034,6 +2030,10 @@ const proofProblems = (
 		: ["a proof the kernel re-derives from its premises"]
 }
 
+/**
+ * Validates a DAG grizzle built over its outside form (validateTable); a label two of its nodes share is a defect. It
+ * hands back the DAG it read, as typed: an assembled DAG stays one, and reading another brands nothing.
+ */
 export const validateDag = <D extends RelDag>(dag: D): D => {
 	const table = toTable(dag)
 	if (!table.ok) {

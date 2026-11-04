@@ -8,7 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { regexMaxNodes } from "#compiler/core/policy.ts"
-import { parsePattern } from "#compiler/text/parse.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import {
 	accepts,
 	analyzeLanguage,

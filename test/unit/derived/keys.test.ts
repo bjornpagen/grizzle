@@ -17,7 +17,7 @@ import {
 } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import type { DerivedRefusal } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -30,7 +30,6 @@ import { schema as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { DefinitionQuery } from "#compiler/types/derived/derived.ts"
 import { buildSchema, caseSketchGen } from "#test/pg/derived/oracle/gen.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { checkedIn } from "#test/support/policy.ts"
 
 /** The derived refusal an analysis ends with, narrowed so its cause reads.

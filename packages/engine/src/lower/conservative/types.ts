@@ -1,8 +1,8 @@
 import type { BudgetMeter } from "#compiler/core/budget.ts"
-import type { DeclaredName } from "#compiler/core/identity.ts"
-import type { ColumnIdent, DomainName, ParamId, RelationIdent } from "#compiler/core/ids.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type {
 	CompletedOrder,
@@ -13,7 +13,7 @@ import type {
 	TakeBound,
 	ValidDag
 } from "#compiler/ir/rel.ts"
-import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import type {
 	ColumnDefinition,
@@ -21,45 +21,12 @@ import type {
 	EmittedSql,
 	Expr,
 	FromItem,
-	QualifiedFunctionRef,
 	RecordsetPlaceholder,
 	Select,
 	TypeRef,
-	TypeSchema,
 	ValuePlaceholder
 } from "#compiler/sql/ast.ts"
 import type { CarrierName, NameSupply } from "#compiler/sql/naming.ts"
-
-/** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
-export interface PhysicalNames {
-	/** The table of a relation, or the materialized view of a derived relation. */
-	readonly relation: (relation: string) => { readonly schema: string; readonly name: RelationIdent }
-	readonly column: (relation: string, field: string) => ColumnIdent
-	/** The enum type of a closed roster, by its declared name: the naming door's (core/identity.ts identity.enumType). */
-	readonly enumType: (closed: DeclaredName) => {
-		readonly schema: TypeSchema
-		readonly name: RelationIdent
-	}
-	/** The domain of a contract, by its declared name: the naming door's (core/identity.ts identity.contractDomain). */
-	readonly contractDomain: (contract: DeclaredName) => {
-		readonly schema: TypeSchema
-		readonly name: DomainName
-	}
-	/**
-	 * The structural __text_<slug> domain of a regex refinement, or undefined when the caller has none to name; the
-	 * slug is the text package's, so the default knows none.
-	 */
-	readonly textDomain: (
-		regex: RegexRef
-	) => { readonly schema: TypeSchema; readonly name: DomainName } | undefined
-	/** The schema the vector extension lives in (`vector_ext` on the local cluster), the schema of its vector type. */
-	readonly vectorSchema: TypeSchema
-	/**
-	 * The installation's refusal function (write/refusal.ts), which a context source raises an unreadable claims
-	 * setting through (sql/print.ts contextClaims).
-	 */
-	readonly refusal: QualifiedFunctionRef
-}
 
 /**
  * The SQL a Delta node reads in a read-back: the carrier the write program built, whose columns are the delta's

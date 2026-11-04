@@ -1,9 +1,8 @@
 import { Array as Arr, Option, pipe, Result, Schema, String as Str } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { isqrt } from "#test/support/oracle/evaluate/numeric.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /** numeric.c's constants for NBASE 10000. */
 const NBASE = 10000

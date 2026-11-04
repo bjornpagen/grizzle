@@ -47,7 +47,7 @@ import {
 	writePhases,
 	writerSession
 } from "#bench/write/support/writes.ts"
-import { maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -64,7 +64,6 @@ import {
 	within
 } from "#compiler/public/schema.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

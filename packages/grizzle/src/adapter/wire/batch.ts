@@ -81,10 +81,6 @@ export interface NamedStatement {
  */
 export type FlightStatement = BatchStatement | NamedStatement
 
-/** The SQL text a flight statement runs. */
-export const statementSql = (statement: FlightStatement): string =>
-	"server" in statement ? statement.server.sql : statement.sql
-
 /**
  * What one statement of a flight returned: its command tag, and its rows, every cell the text the server sent
  * (session.ts admits no NULL).
@@ -744,39 +740,6 @@ const execute = (
 				)
 	)
 
-/**
- * Sends `statement` alone, as its own implicit transaction, and returns its outcome.
- *
- * It ran, and so did its Parse: the session keeps its name for it and stays healthy.
- */
-export const runAlone = (
-	session: Session,
-	statement: BatchStatement
-): Effect.Effect<BatchOutcome, AloneFailure> =>
-	onSession(session, (restore) =>
-		Effect.gen(function* () {
-			const { planned, sent } = yield* Effect.sync(() => {
-				const closes = session.statements.takeClosing()
-				const plannedStatement = plannedOf(session, statement)
-				return {
-					planned: plannedStatement,
-					sent: send(session, closes, [plannedStatement.query], 0)
-				}
-			})
-			yield* execute(session, restore, sent, sent.statements)
-			yield* Deferred.await(sent.drained)
-			const answer = receivedAt(sent.answers, 0)
-			if (answer._tag === "result") {
-				return answer.outcome
-			}
-			if (answer._tag === "unreadable") {
-				return yield* UnreadableAnswer.make({ index: 0, fate: "committed" })
-			}
-			forget(session, planned)
-			return yield* statementFailure(session, planned, 0, answer)
-		})
-	)
-
 /** What one statement of a flight of statements apart answered: its outcome, or the server's refusal of it. */
 export type ApartAnswer = Result.Result<BatchOutcome, ServerError>
 
@@ -817,7 +780,7 @@ const apartAnswer = (
  * outcome or the server's refusal, in order. Every statement is written before any answer is read, so none waits on
  * another's answer, and a refusal reaches no other statement. A lost connection, an answer the pipeline cannot account
  * for, or an unreadable answer fails the flight, at the first in order. An interruption cancels and drains the flight
- * as runAlone does.
+ * as every flight's does (runTransaction).
  */
 export const runApart = (
 	session: Session,
@@ -951,7 +914,7 @@ const runEntered = <P, F>(
  *   between BEGIN ISOLATION LEVEL SERIALIZABLE and COMMIT or ROLLBACK, both simple Query messages in the pipeline. After
  *   a refused statement the server answers every later one 25P02 without running it, and COMMIT answers ROLLBACK, so
  *   the transaction is atomic. A lone statement runs as its own implicit transaction, which commits at its Sync, with
- *   neither (`runAlone`).
+ *   neither (`runApart`).
  * - Roles. A transaction runs as the session's login itself (runTransaction, runAlongside: a migration's and
  *   admission's), or, framed for a Db (runFramed), as a role of the login behind the Db's prologue (Prologue), two
  *   statements right after BEGIN, both run as the login. The first is the fence's lock,

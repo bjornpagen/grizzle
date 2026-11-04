@@ -40,7 +40,6 @@ import {
 } from "#adapter/errors/failures.ts"
 
 import type {
-	CompileError,
 	EncodingFailure,
 	TransientReason as EngineTransientReason
 } from "#compiler/core/errors.ts"
@@ -445,14 +444,3 @@ export type ApplyError =
 	| ExecutionFailure
 	| CommitUnknown
 	| StaleSnapshot
-
-/** Every tag a grizzle error has: a closed vocabulary superlint's unchecked-vocabulary-literal reads. */
-export type GrizzleErrorTag =
-	| CompileError["_tag"]
-	| OpenError["_tag"]
-	| ReadError["_tag"]
-	| ApplyError["_tag"]
-	| "CredentialError"
-	| "TokenError"
-	| "CursorError"
-	| "KeyConflict"

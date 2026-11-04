@@ -53,13 +53,25 @@ export const fieldKinds: Arr.NonEmptyReadonlyArray<DrawnKind> = [
  */
 export type FieldKind = DrawnKind | "tick"
 
+/** A kind a key may hold: one of keyKinds. */
+export type KeyKind =
+	| "int4"
+	| "int8"
+	| "fixed"
+	| "bool"
+	| "text"
+	| "uuid"
+	| "handle"
+	| "float8"
+	| "vector"
+
 /**
  * The kinds a key may hold: every kind whose values a key constraint, the codec and the reference identify alike, each
  * value one form (a float's -0 is its 0, NaN equal to itself, a vector's components finite with the one zero) or coerced
  * to one by the column's typmod. A relation's
  * first field picks its kind here by its recorded pick, so a kind joins at the end and every kept pick keeps its kind.
  */
-export const keyKinds: Arr.NonEmptyReadonlyArray<FieldKind> = [
+export const keyKinds: Arr.NonEmptyReadonlyArray<KeyKind> = [
 	"int4",
 	"int8",
 	"fixed",
@@ -194,7 +206,7 @@ export type ProgramFact = ReadonlyArray<TypedLiteral>
 export type StoredFact = ReadonlyArray<SpelledValue>
 
 /** A stored fact's values. */
-export const factValues = (fact: StoredFact): ProgramFact => Arr.map(fact, (v) => v.literal)
+export const storedFactValues = (fact: StoredFact): ProgramFact => Arr.map(fact, (v) => v.literal)
 
 /** A variable, typed by the field it was minted from. */
 export interface Var {

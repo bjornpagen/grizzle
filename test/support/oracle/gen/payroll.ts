@@ -1,9 +1,10 @@
 import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
 import { Array as Arr, pipe, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
 import { toastText } from "#test/support/oracle/gen/toast.ts"
-import { at, indices } from "#test/support/oracle/pick.ts"
+import { at } from "#test/support/oracle/pick.ts"
 
 type Fact = Readonly<Record<string, unknown>>
 export type PayrollFacts = Readonly<Record<string, ReadonlyArray<Fact>>>

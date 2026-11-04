@@ -2,9 +2,9 @@ import type {
 	Exact,
 	Fact,
 	FactSource,
+	OperandPremise,
 	Precondition,
-	PreconditionProof,
-	Premise
+	PreconditionProof
 } from "#compiler/ir/proof.ts"
 import { doubleParts } from "#compiler/scalar/compute/cast.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -52,9 +52,6 @@ export const minus = (x: Exact, y: Exact): Exact => addExact(x, negExact(y))
 
 /** 10^digits. */
 export const tenTo = (digits: number): Exact => ({ units: pow10(digits), scale: 0 })
-
-/** 10^-scale, the least positive value of `scale` fractional digits. */
-export const unitAt = (scale: number): Exact => ({ units: 1n, scale })
 
 /** The integer digits of a finite exact value: the least d with |x| < 10^d. */
 export const digitsOfExact = (a: Exact): number => {
@@ -158,15 +155,6 @@ export const ofSpecial = (special: "nan" | "infinity" | "-infinity"): Bounds => 
 		case "-infinity":
 			return bounds(infinite, at(negExact(tenTo(0)), false), false, 0, 0)
 	}
-}
-
-/** Whether `b` holds no value at all: an empty interval, not NaN. */
-export const isEmpty = (b: Bounds): boolean => {
-	if (b.nan || b.low.kind === "infinite" || b.high.kind === "infinite") {
-		return false
-	}
-	const c = compareExact(b.low.value, b.high.value)
-	return c > 0 || (c === 0 && (b.low.open || b.high.open))
 }
 
 const addEdges = (a: Edge, b: Edge): Edge =>
@@ -361,14 +349,11 @@ export const pointOf = (b: Bounds): Exact | undefined => {
 		: undefined
 }
 
-/** Whether an exact value is an integer. */
-export const isWhole = (e: Exact): boolean => e.units % pow10(e.scale) === 0n
-
 /** The interval premise of operand `operand`: its closed finite ends, where it has them. */
 export const intervalPremise = (
-	operand: Premise["operand"],
+	operand: OperandPremise["operand"],
 	b: Bounds
-): Extract<Premise, { readonly kind: "interval" }> | undefined => {
+): Extract<OperandPremise, { readonly kind: "interval" }> | undefined => {
 	const ends = finiteEnds(b)
 	return ends === undefined ? undefined : { kind: "interval", operand, low: ends[0], high: ends[1] }
 }
@@ -388,10 +373,10 @@ export const noFacts: FactSet = Object.freeze({})
 
 /** The fact premise of `fact` on operand `operand`, where its facts hold it. */
 export const factPremise = (
-	operand: Premise["operand"],
+	operand: OperandPremise["operand"],
 	fact: Fact,
 	facts: FactSet
-): Extract<Premise, { readonly kind: "fact" }> | undefined => {
+): Extract<OperandPremise, { readonly kind: "fact" }> | undefined => {
 	const source = facts[fact]
 	return source === undefined ? undefined : { kind: "fact", operand, fact, source }
 }

@@ -46,6 +46,7 @@ import {
 	writtenInPlace
 } from "#bench/write/support/writes.ts"
 
+import { indices } from "#compiler/core/array.ts"
 import {
 	eventsInOrder,
 	type Participant,
@@ -65,7 +66,6 @@ import {
 	within
 } from "#compiler/public/schema.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

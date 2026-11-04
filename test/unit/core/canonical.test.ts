@@ -33,6 +33,7 @@ import {
 	Schema,
 	String as Str
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import {
 	type Canonicalizable,
 	canonicalEquals,
@@ -65,7 +66,6 @@ import {
 } from "#test/support/assert.ts"
 import { decodeJson, jsonText } from "#test/support/json.ts"
 import { isList } from "#test/support/list.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 import { regex } from "arkregex"
 /**

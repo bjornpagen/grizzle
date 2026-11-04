@@ -1,3 +1,4 @@
+import type { FlightStatement } from "#adapter/wire/batch.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { EmittedText, TypeSchema } from "#compiler/sql/ast.ts"
 
@@ -15,3 +16,7 @@ export const testSql = nominal<string, EmittedText>()
  * (physical/ddl/names.ts) or the snapshot's codec.
  */
 export const testTypeSchema = nominal<string, TypeSchema>()
+
+/** The SQL text a flight statement runs: a server statement's, or the unnamed statement's own. */
+export const statementSql = (statement: FlightStatement): string =>
+	"server" in statement ? statement.server.sql : statement.sql

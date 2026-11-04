@@ -208,11 +208,6 @@ export class AcquisitionBudgetExceeded extends Schema.TaggedError<
 	leased: Schema.Int,
 	max: Schema.Int
 }) {
-	/** Whether every session up to the pool's maximum was leased. */
-	get saturated(): boolean {
-		return this.leased >= this.max
-	}
-
 	override get message(): string {
 		const pool = `${this.leased} of at most ${this.max} sessions leased, ${this.sessions} open`
 		return `no session within the acquisition wait budget of ${this.millis} ms: ${pool}`

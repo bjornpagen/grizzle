@@ -256,7 +256,7 @@ export const Assignment = relation(
 	["id"]
 )
 
-const staffingRelations = { Worker, Assignment }
+const staffingRelations = Object.freeze({ Worker, Assignment })
 
 export interface StaffingParams {
 	readonly mutable: Mutability<keyof typeof staffingRelations>
@@ -316,7 +316,7 @@ export const selectedSource: Family<StaffingParams> = {
 export const Line = relation("Line", { id: pg.integer, flagged: pg.boolean, note: label }, ["id"])
 export const Reason = relation("Reason", { id: pg.integer, line: pg.integer, text: label }, ["id"])
 
-const ledgerRelations = { Line, Reason }
+const ledgerRelations = Object.freeze({ Line, Reason })
 
 export interface LedgerParams {
 	readonly mutable: Mutability<keyof typeof ledgerRelations>
@@ -614,7 +614,7 @@ const selectors: Arr.NonEmptyReadonlyArray<Selector> = Arr.map(booleans, (value)
 	value
 }))
 
-const teamsRelations = { Team, Member }
+const teamsRelations = Object.freeze({ Team, Member })
 
 export interface TeamsParams {
 	readonly mutable: Mutability<keyof typeof teamsRelations>
@@ -824,7 +824,7 @@ export const Duty = relation(
 	["tenant", "id"]
 )
 
-const crewsRelations = { Crew, Duty }
+const crewsRelations = Object.freeze({ Crew, Duty })
 
 export interface CrewsParams {
 	readonly mutable: Mutability<keyof typeof crewsRelations>
@@ -1189,7 +1189,7 @@ export const Seat = relation("Seat", { resource: pg.integer, seat: pg.integer, l
 	"seat"
 ])
 
-const queueRelations = { Work, Wanted, Leased, Done, Seat }
+const queueRelations = Object.freeze({ Work, Wanted, Leased, Done, Seat })
 
 export interface QueueParams {
 	readonly mutable: Mutability<keyof typeof queueRelations>
@@ -1308,7 +1308,7 @@ export const Shift = relation(
 	["employee", "during"]
 )
 
-const timekeepingRelations = { Employment, Timesheet, Shift }
+const timekeepingRelations = Object.freeze({ Employment, Timesheet, Shift })
 
 export interface TimekeepingParams {
 	readonly mutable: Mutability<keyof typeof timekeepingRelations>
@@ -1455,7 +1455,7 @@ export const Deposit = relation(
 	["line", "account"]
 )
 
-const depositsRelations = { PayLine, Deposit }
+const depositsRelations = Object.freeze({ PayLine, Deposit })
 
 export interface DepositsParams {
 	readonly mutable: Mutability<keyof typeof depositsRelations>
@@ -1571,7 +1571,7 @@ const Badge = relation("Badge", { id: pg.integer, code: label }, ["id"])
 const Pin = relation("Pin", { id: pg.integer, badge: pg.integer }, ["id"])
 const Tag = relation("Tag", { id: pg.integer, code: label }, ["id"])
 
-const badgesRelations = { Badge, Pin, Tag }
+const badgesRelations = Object.freeze({ Badge, Pin, Tag })
 
 export interface BadgesParams {
 	readonly mutable: Mutability<keyof typeof badgesRelations>
@@ -1683,7 +1683,7 @@ const tenantRunStages = alternatives(TenantRun, "stage", Stage, {
 	voided: TenantVoiding
 })
 
-const tenantRunsRelations = { TenantRun, TenantPayment, TenantVoiding }
+const tenantRunsRelations = Object.freeze({ TenantRun, TenantPayment, TenantVoiding })
 
 /** The composite-key alternatives schema's parameters: each of its relations' mutability. */
 export interface TenantRunsParams {
@@ -2033,7 +2033,7 @@ const Stint = relation("Stint", { id: uuid, employee: uuid, week, status: closed
 /** A node selected by `live`, whose parent is a node. */
 const Node = relation("Node", { id: pg.integer, parent: pg.integer, live: pg.boolean }, ["id"])
 
-const sheetsRelations = { Sheet, Stint }
+const sheetsRelations = Object.freeze({ Sheet, Stint })
 
 /** A source shape, with the mutability of the relations it declares. */
 export type SourceShape =

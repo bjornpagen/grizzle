@@ -1,6 +1,6 @@
 import { array, boolean, constant, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { StorageCarrier } from "#compiler/ir/scalar.ts"
 import { login } from "#compiler/program/workload/login.ts"
@@ -31,7 +31,7 @@ import {
 	type StorageOrder,
 	type StoredRelation
 } from "#test/support/oracle/gen/restorage.ts"
-import { elementAt, indices, whereIndex } from "#test/support/oracle/pick.ts"
+import { elementAt, whereIndex } from "#test/support/oracle/pick.ts"
 
 /** The choice-th item, modulo the items there are; a choice with nothing to choose from is a defect of the generator.
  *
@@ -884,7 +884,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 }
 
 export type FactRecord = Readonly<Record<string, unknown>>
-export type Facts = Readonly<Record<string, ReadonlyArray<FactRecord>>>
+export type FactsByRelation = Readonly<Record<string, ReadonlyArray<FactRecord>>>
 
 const factOf = (r: GenBase, f: FactSketch): FactRecord =>
 	Rec.fromEntries(
@@ -906,7 +906,7 @@ const keyed = (r: GenBase, facts: ReadonlyArray<FactRecord>): ReadonlyArray<Fact
 	return [...out.values()]
 }
 
-export const initialFacts = (s: GenSchema, sketch: CaseSketch): Facts =>
+export const initialFacts = (s: GenSchema, sketch: CaseSketch): FactsByRelation =>
 	Rec.fromEntries(
 		Arr.map(
 			s.base,
@@ -975,9 +975,9 @@ const tuplesObserved: StorageOrder = { kind: "kept", observed: "tuple ids" }
  */
 export const restoredDerivedFacts = (
 	s: GenSchema,
-	facts: Facts,
+	facts: FactsByRelation,
 	r: Restorage
-): { readonly facts: Facts; readonly respelled: boolean } => {
+): { readonly facts: FactsByRelation; readonly respelled: boolean } => {
 	const restored = restoredFacts(
 		Arr.map(s.base, (base): StoredRelation<unknown> => ({
 			name: base.name,
@@ -1012,7 +1012,11 @@ export const restoredDerivedFacts = (
 }
 
 /** The facts after a base change: some dropped, some added at new or existing keys. */
-export const changedFacts = (s: GenSchema, facts: Facts, step: StepSketch): Facts =>
+export const changedFacts = (
+	s: GenSchema,
+	facts: FactsByRelation,
+	step: StepSketch
+): FactsByRelation =>
 	Rec.fromEntries(
 		Arr.map(s.base, (r, i) => {
 			const now = facts[r.name] ?? []

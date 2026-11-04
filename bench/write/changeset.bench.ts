@@ -28,6 +28,7 @@ import {
 	writesOf,
 	writtenInPlace
 } from "#bench/write/support/writes.ts"
+import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -39,7 +40,6 @@ import {
 	type Statement,
 	schema
 } from "#compiler/public/schema.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

@@ -15,10 +15,10 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { decodeDesc, descText, type RoleDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import {
 	type InstallNames,
 	roleReadNames,

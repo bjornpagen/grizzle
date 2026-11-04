@@ -1,5 +1,6 @@
 import { type Equivalence, exact, multiset, ordered, type Side } from "@grizzle/testing/oracle"
 import { Array as Arr, Formatter, Option, Record, Result } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { VectorText } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -7,7 +8,6 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import { defined } from "#test/support/assert.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type {
 	Column,
 	MixedRoot,
@@ -84,7 +84,7 @@ export interface Nested {
  */
 export type Answer = Result.Result<ReadonlyArray<Nested>, string>
 
-export const showValue = (v: Value): string => {
+const showValue = (v: Value): string => {
 	if (typeof v === "bigint") {
 		return `${v}n`
 	}

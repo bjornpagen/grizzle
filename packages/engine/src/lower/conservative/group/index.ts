@@ -12,7 +12,7 @@ import {
 	nodeLabel
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { roundToFloat } from "#compiler/lower/conservative/expr/total.ts"
+import { exactNumeric, roundToFloat } from "#compiler/lower/conservative/expr/total.ts"
 import {
 	type AggregateOverload,
 	callOverload,
@@ -26,7 +26,6 @@ import {
 	countStar,
 	derived,
 	distinctCore,
-	exactNumeric,
 	lit,
 	select,
 	target

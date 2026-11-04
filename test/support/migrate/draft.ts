@@ -241,16 +241,17 @@ const metaView = (files: FilesRead): MetaView => {
 								for (const a of o.alternative) {
 									if (a.kind === "choice") {
 										for (const n of a.offers) {
-											if (n.kind === "nested rename") {
-												const nested: CandidatePath = {
-													kind: "nested field",
-													parent: path,
-													removed: n.removed,
-													added: n.added
-												}
-												candidates.push(nested)
-												walk(file, n.alternative, { kind: "within", candidate: nested })
+											if (n.kind !== "nested rename") {
+												continue
 											}
+											const nested: CandidatePath = {
+												kind: "nested field",
+												parent: path,
+												removed: n.removed,
+												added: n.added
+											}
+											candidates.push(nested)
+											walk(file, n.alternative, { kind: "within", candidate: nested })
 										}
 									}
 								}

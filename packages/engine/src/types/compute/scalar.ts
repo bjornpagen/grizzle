@@ -37,7 +37,7 @@ export type Operand<T, S extends SqlTag, L = T> = Meets<T, S> | LiteralOf<L>
  * is finite, nonzero unless zero is one of it, and nonnegative unless one of it is negative. TypeScript has no NaN or
  * infinity literal type, and writes -0 as 0.
  */
-export type LiteralFacts<V extends number | bigint> = { readonly finite: true } & ([
+type LiteralFacts<V extends number | bigint> = { readonly finite: true } & ([
 	Extract<V, 0 | 0n>
 ] extends [never]
 	? { readonly nonzero: true }

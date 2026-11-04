@@ -1,4 +1,4 @@
-import { entry } from "#compiler/text/table.ts"
+import { entry } from "#compiler/scalar/regex/table.ts"
 
 export type Interval = readonly [lo: number, hi: number]
 

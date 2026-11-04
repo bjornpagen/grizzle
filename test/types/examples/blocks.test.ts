@@ -2,13 +2,13 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
 import * as ts from "typescript/ast"
+import { indices } from "#compiler/core/array.ts"
 import {
 	packageRoot,
 	type SyntaxSource,
 	withNativeSyntax
 } from "#scripts/dev/shared/native-syntax.ts"
 import { assert } from "#test/support/assert.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 import { regex } from "arkregex"
 /**

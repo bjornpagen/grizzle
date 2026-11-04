@@ -9,12 +9,11 @@ import {
 	type TypedLiteral,
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
+import { baseTypeRef, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
-import { baseTypeRef } from "#compiler/lower/conservative/base-type.ts"
 import { moneyText } from "#compiler/lower/conservative/expr/index.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
 import type { Expr } from "#compiler/sql/ast.ts"

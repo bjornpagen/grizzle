@@ -4,6 +4,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, NodeOf } from "#compiler/ir/rel.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { type LowerContext, physicalTypeRef, refuse } from "#compiler/lower/conservative/context.ts"
@@ -14,7 +15,6 @@ import {
 	coreScope,
 	domainOf,
 	emptyScope,
-	type NamedItem,
 	castDomain,
 	retypePlaceholders,
 	type Scope,
@@ -22,11 +22,12 @@ import {
 	Tracer,
 	withScope
 } from "#compiler/lower/conservative/refined.ts"
-import type { PhysicalNames, ScalarParamSlot } from "#compiler/lower/conservative/types.ts"
+import type { ScalarParamSlot } from "#compiler/lower/conservative/types.ts"
 import type {
 	Cte,
 	Expr,
 	FromItem,
+	FromSource,
 	Select,
 	SelectBody,
 	SelectCore,
@@ -117,7 +118,7 @@ const noCtes: ReadonlySet<string> = new Set()
  */
 class Agreement {
 	readonly #retype: ReadonlyMap<number, TypeRef>
-	readonly #items = new Map<string, NamedItem>()
+	readonly #items = new Map<string, FromSource>()
 	readonly #ctes = new Map<string, Cte>()
 	readonly #exprs = new Map<Expr, TypeRef | undefined>()
 	readonly #bodies = new Map<SelectBody, Map<number, TypeRef | undefined>>()
@@ -491,9 +492,9 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 		return notFused(at)
 	}
 	const core = inner.body
-	const [element] = core.targets
 	const [rows] = core.from
-	if (element === undefined || rows?.kind !== "derived" || core.targets.length !== 1) {
+	const element = core.targets.length === 1 ? core.targets[0] : undefined
+	if (element === undefined || rows?.kind !== "derived") {
 		return notFused(at)
 	}
 	const attach = attachOf(cx, rows.alias) ?? notFused(at)
@@ -648,11 +649,11 @@ export const refineDelivered = (cx: LowerContext, query: Select, heading: Headin
 	if (out.body.kind === "core" && out.body.targets.length > heading.length) {
 		const body = out.body
 		const outer = coreScope(body, withScope(out, emptyScope))
-		const fused = mapTargets(body, (t, i) =>
+		const refinedCore = mapTargets(body, (t, i) =>
 			i < heading.length ? t : refineFused(cx, tracer, t, outer)
 		)
-		if (fused.targets.some((t, i) => t !== body.targets[i])) {
-			out = { ...out, body: fused }
+		if (refinedCore.targets.some((t, i) => t !== body.targets[i])) {
+			out = { ...out, body: refinedCore }
 		}
 	}
 	return out

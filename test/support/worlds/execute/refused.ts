@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect"
-import type { GrizzleErrorTag } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
+import type { GrizzleErrorTag } from "#test/support/error-tags.ts"
 
 /** The tag a CompileError carries among grizzle's errors. */
 const compileErrorTag: GrizzleErrorTag = "CompileError"

@@ -27,6 +27,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { conservativeMeta, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import {
 	arrayElements,
@@ -37,7 +38,6 @@ import {
 import { chooseAttachment } from "#compiler/lower/shapes/attach/index.ts"
 import { assert } from "#test/support/assert.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { Q, Reading, T } from "#test/unit/lower/conservative/fixtures.ts"
 import { present } from "#test/unit/lower/support.ts"
 

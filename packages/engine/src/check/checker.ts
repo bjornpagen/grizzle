@@ -117,8 +117,8 @@ import {
 	withoutSerial,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
+import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { spanType } from "#compiler/scalar/registry.ts"
-import { regexMember } from "#compiler/text/refinement.ts"
 
 /**
  * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
@@ -1126,7 +1126,7 @@ export class Checker {
 			}
 		}
 		const common = commonColumns.map(({ name }) => name)
-		const widened = mapNonEmpty(targets, (g) => ({
+		const widenedGroups = mapNonEmpty(targets, (g) => ({
 			arms: mapNonEmpty(g.arms, (a) => {
 				const w = this.#widenArm(a, g.target, loc)
 				if (w !== a) {
@@ -1136,9 +1136,9 @@ export class Checker {
 			})
 		}))
 		let discriminant: ReadonlyArray<string> = []
-		if (widened.length > 1) {
+		if (widenedGroups.length > 1) {
 			/** Each arm's head literals over the common columns, in their order. */
-			const literalRows = widened.map((g) =>
+			const literalRows = widenedGroups.map((g) =>
 				g.arms.map((a) => {
 					const literals = this.#literals.get(a)
 					return common.flatMap((c) => {
@@ -1184,17 +1184,17 @@ export class Checker {
 				)
 			}
 		}
-		const groupHeadings = mapNonEmpty(widened, (g) => ({
+		const groupHeadings = mapNonEmpty(widenedGroups, (g) => ({
 			heading: g.arms[0].heading,
 			arms: g.arms
 		}))
 		const firstGroup = groupHeadings[0]
 		const heading: Heading =
-			widened.length === 1
+			widenedGroups.length === 1
 				? firstGroup.heading
 				: firstGroup.heading.filter((c) => common.includes(c.name))
 		const node = this.node({ kind: "Union", groups: groupHeadings, discriminant, heading }, loc)
-		const [firstWidened, ...moreWidened] = widened
+		const [firstWidened, ...moreWidened] = widenedGroups
 		const flat: NonEmptyReadonlyArray<RelNode> = [
 			...firstWidened.arms,
 			...moreWidened.flatMap((g) => g.arms)
@@ -1213,23 +1213,23 @@ export class Checker {
 	 * beside a typed constant of another heading is typed alike (Tone.handle("low") in one arm, "mid" in another).
 	 */
 	#positions(arms: NonEmptyReadonlyArray<RelNode>): ReadonlyMap<string, ScalarType> {
-		const typed = new Map<string, Array<ScalarType>>()
+		const termTypes = new Map<string, Array<ScalarType>>()
 		for (const a of arms) {
 			const literals = this.#literals.get(a)
 			for (const column of a.heading) {
 				if (bareOf(literals?.get(column.name)) !== undefined) {
 					continue
 				}
-				const known = typed.get(column.name)
+				const known = termTypes.get(column.name)
 				if (known === undefined) {
-					typed.set(column.name, [column.type])
+					termTypes.set(column.name, [column.type])
 				} else {
 					known.push(column.type)
 				}
 			}
 		}
 		const positions = new Map<string, ScalarType>()
-		for (const [name, types] of typed) {
+		for (const [name, types] of termTypes) {
 			const agreed = agreedType(types)
 			if (agreed !== undefined) {
 				positions.set(name, agreed)

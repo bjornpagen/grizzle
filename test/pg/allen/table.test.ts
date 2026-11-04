@@ -5,6 +5,7 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, pipe, Schema, String as Str } from "effect"
 import { ALLEN, AllenMask, allenRelations, fullAllenMask } from "#compiler/allen/mask.ts"
+import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { jsonText } from "#test/support/json.ts"
@@ -20,7 +21,6 @@ import {
 	universePairs,
 	universeSpellings
 } from "#test/support/oracle/allen.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"

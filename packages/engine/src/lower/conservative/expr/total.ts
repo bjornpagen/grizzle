@@ -1,6 +1,7 @@
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { ExactCarrier } from "#compiler/scalar/aggregate.ts"
 import type { IeeeOp, NativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import {
@@ -11,7 +12,7 @@ import {
 	col,
 	core,
 	eq,
-	exactNumeric,
+	exactNumericOfDouble,
 	ge,
 	gt,
 	le,
@@ -168,7 +169,24 @@ export const exactForm = (
 		case "least":
 		case "greatest":
 			return { kind: native.fn, args: [x, ...operands.slice(1)] }
-		default:
+		case "and":
+		case "or":
+		case "not":
+		case "cast":
+		case "ceil":
+		case "floor":
+		case "round":
+		case "trunc":
+		case "minScale":
+		case "power":
+		case "sqrt":
+		case "quot":
+		case "rem":
+		case "widthBucket":
+		case "charLength":
+		case "lower":
+		case "upper":
+		case "cosineDistance":
 			return undefined
 	}
 }
@@ -243,7 +261,22 @@ const moderate = (x: Expr, k: number, carrier: "float4" | "float8"): Expr => ({
 /** The magnitudes the native operations of each width meet with no overflow or underflow. */
 const safe = { float8: { sum: 1022, product: 500 }, float4: { sum: 126, product: 60 } } as const
 
-/** A float operand's exact numeric value (sql/build.ts exactNumeric), of a finite operand. */
+/**
+ * The exact numeric value of a float or money expression: a double's bits (sql/build.ts exactNumericOfDouble), a real
+ * widened to double precision exactly first, money as money::numeric (cash_numeric, exact).
+ */
+export const exactNumeric = (e: Expr, carrier: ExactCarrier): Expr => {
+	switch (carrier) {
+		case "money":
+			return cast(e, types.numeric)
+		case "float4":
+			return exactNumericOfDouble(cast(e, types.double))
+		case "float8":
+			return exactNumericOfDouble(e)
+	}
+}
+
+/** A float operand's exact numeric value (exactNumeric), of a finite operand. */
 const exactOf = (x: Expr, carrier: "float4" | "float8"): Expr => exactNumeric(x, carrier)
 
 /** 10^700 and 5 · 10^-701: an exact quotient's scale and its half unit, written as numeric_in reads them exactly. */

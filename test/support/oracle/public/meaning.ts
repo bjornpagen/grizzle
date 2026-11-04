@@ -7,6 +7,7 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
+import { indices } from "#compiler/core/array.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -35,8 +36,8 @@ import { baseOf, type ScalarType, sameScalarType, spanCarrierOf } from "#compile
 import { type LowerEnv, lowerTerm, noExtension, noParams } from "#compiler/scalar/compute/lower.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { widening } from "#compiler/scalar/compute/types.ts"
+import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { regexMember } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import {
 	bool,
@@ -61,7 +62,7 @@ import {
 	type GenSchema,
 	relationHeading
 } from "#test/support/oracle/gen/schema.ts"
-import { nonEmptyList, indices } from "#test/support/oracle/pick.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { Answer, Nested } from "#test/support/oracle/public/answer.ts"
 import { generatedSchemaName } from "#test/support/oracle/public/build.ts"
 import {
@@ -72,7 +73,7 @@ import {
 	type Column,
 	type Comparison,
 	type ComputedTerm,
-	factValues,
+	storedFactValues,
 	type ProgramFact,
 	type HeadItem,
 	isAggregate,
@@ -1434,7 +1435,7 @@ export const expectedKey = (
 	const at = (fact: ProgramFact, field: (typeof fields)[number]) =>
 		literalOf(elementAt(fact, fields.indexOf(field)), field.type)
 	const rows = Arr.map(
-		Arr.filter(Arr.map(c.facts.get(read.relation.name) ?? [], factValues), (fact) =>
+		Arr.filter(Arr.map(c.facts.get(read.relation.name) ?? [], storedFactValues), (fact) =>
 			Arr.every(read.key, (field, i) =>
 				equal(at(fact, field), literalOf(elementAt(read.values, i), field.type), field.type)
 			)

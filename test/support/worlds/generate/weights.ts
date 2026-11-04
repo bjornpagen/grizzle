@@ -7,7 +7,7 @@ import type {
 	ActionKind,
 	ActionWeights,
 	ModelState,
-	Outcome,
+	ActionOutcome,
 	SmallScope,
 	ValidityWeights
 } from "#test/support/worlds/model/types.ts"
@@ -74,7 +74,11 @@ export const everyRole: RoleFocus = { kind: "every" }
  */
 export interface Aiming {
 	readonly features: Arr.NonEmptyReadonlyArray<string>
-	readonly read: (state: ModelState, action: Action, observation: Outcome) => ReadonlyArray<string>
+	readonly read: (
+		state: ModelState,
+		action: Action,
+		observation: ActionOutcome
+	) => ReadonlyArray<string>
 	readonly worth: (action: Action, state: ModelState) => boolean
 	readonly scope: SmallScope
 }

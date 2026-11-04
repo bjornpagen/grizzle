@@ -4,6 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
 	type Candidate,
@@ -18,14 +19,10 @@ import {
 import { splitRenames } from "#compiler/deploy/render/chosen.ts"
 import type { ReadCandidate } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
-import {
-	findMarkers,
-	placeholderToken,
-	splitStatements,
-	statementTokens
-} from "#compiler/deploy/render/markers.ts"
+import { findMarkers, splitStatements, statementTokens } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import {
 	closed,
@@ -59,7 +56,6 @@ import {
 	renderReviewed,
 	review
 } from "#test/support/migrate/review.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /** Rename candidates that depend on another candidate, over every case of a small box, with no database.
  *
@@ -279,9 +275,7 @@ const property = (box: Box, c: Case<Feature>): void => {
 	for (const field of ofPart("field")) {
 		assert.deepEqual(
 			field.kind === "field" || field.kind === "nested field" ? field.requires : undefined,
-			type === undefined || type.kind !== "type"
-				? { kind: "nothing" }
-				: { kind: "type", candidate: type },
+			type?.kind !== "type" ? { kind: "nothing" } : { kind: "type", candidate: type },
 			`${where}: what the field's rename requires`
 		)
 		assert.equal(

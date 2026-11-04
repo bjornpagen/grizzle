@@ -4,6 +4,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
 import { type Carrier, isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
 import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
+import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { literalDescFor } from "#compiler/scalar/registry.ts"
 import { type Converter, convertByCarrier } from "#compiler/scalar/values/convert.ts"
 import {
@@ -14,7 +15,6 @@ import {
 	canonicalText,
 	type SpecOf
 } from "#compiler/scalar/values/identity.ts"
-import { regexMember } from "#compiler/text/refinement.ts"
 
 /**
  * Exact text-mode codecs per ScalarType.

@@ -33,6 +33,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { attachFuseMaxFields } from "#compiler/core/policy.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
@@ -51,7 +52,6 @@ import { int4 } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, type GenSchema, schemaName } from "#test/support/oracle/gen/schema.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { plainRegion, Q } from "#test/unit/lower/conservative/fixtures.ts"
 

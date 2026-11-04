@@ -426,7 +426,7 @@ const resolveEntry =
 				? Arr.map(serialSources, (r) => r.name)
 				: undefined
 		const sourceName = source.draw(
-			element(serialHead === undefined ? knownNonEmpty(names, "the sources of a kind") : serialHead)
+			element(serialHead ?? knownNonEmpty(names, "the sources of a kind"))
 		)
 		const fields = fieldsOfSource(base, sourceName)
 		const ordinary = kind === "ordinary-source"

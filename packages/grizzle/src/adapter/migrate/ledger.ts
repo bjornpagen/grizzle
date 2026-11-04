@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Result } from "effect"
+import { Array as Arr, Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import {
 	LedgerDamaged,
@@ -9,8 +9,8 @@ import {
 	stopped
 } from "#adapter/migrate/errors.ts"
 import type { ParsedFile, ParsedFolder } from "#adapter/migrate/input.ts"
-import { apartRow, type MigrationSession } from "#adapter/migrate/session.ts"
-import { type ApartAnswer, sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
+import { apartRow } from "#adapter/migrate/session.ts"
+import type { ApartAnswer, BatchStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { rowText } from "#compiler/core/decoder.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
@@ -143,28 +143,6 @@ export const ledgerOfAnswers = (
 		(state): LedgerRead => ({ table: present.success ? "present" : "absent", state })
 	)
 }
-
-/** The ledger's state, read in a step of its own (see ledgerOfAnswers). */
-export const readLedger = (
-	session: MigrationSession,
-	schema: string,
-	statements: LedgerStatements
-): Effect.Effect<LedgerState, MigrateError> =>
-	Effect.mapError(
-		Effect.flatMap(
-			Effect.mapError(session.apart(ledgerReads(schema, statements)), (failure) =>
-				LedgerUnread.make({ schema, failure })
-			),
-			(answers) =>
-				Effect.fromResult(
-					Result.map(
-						ledgerOfAnswers(schema, sentAnswer(answers, 0), sentAnswer(answers, 1)),
-						(read) => read.state
-					)
-				)
-		),
-		stopped
-	)
 
 /** The folder row, if absent: $1 folder, $2 source, $3 target, $4 files, $5 digest of meta.json. */
 export const folderParams = (folder: ParsedFolder): ReadonlyArray<string> => [

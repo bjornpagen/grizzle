@@ -33,7 +33,7 @@ import {
 	type Closure,
 	type Comparison,
 	type ComputedTerm,
-	factValues,
+	storedFactValues,
 	type FieldKind,
 	type HeadItem,
 	type Imported,
@@ -349,7 +349,7 @@ export const factsChangeSet = (
 				Arr.reduce(holding, changeSetOver.empty(value), (changes, { relation: stored, facts }) =>
 					changes.insert(
 						built.relation(stored),
-						Arr.map(facts, (fact) => factRecord(stored, factValues(fact)))
+						Arr.map(facts, (fact) => factRecord(stored, storedFactValues(fact)))
 					)
 				)
 			)

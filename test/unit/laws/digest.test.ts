@@ -104,7 +104,7 @@ const edited = (edit: EditName, a: AlternativesSketch): AlternativesSketch => {
 				}
 			}
 			const [to] = unarmed(a)
-			const target = to === undefined ? a.roster : to
+			const target = to ?? a.roster
 			const [, ...others] = first.handles
 			return {
 				...(to === undefined ? grown(a) : a),

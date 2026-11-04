@@ -6,7 +6,6 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import type * as Result from "#compiler/core/result.ts"
 import {
 	type Action,
-	type AlternativeStep,
 	type Choice,
 	type Confirm,
 	candidateLabel,
@@ -19,6 +18,7 @@ import {
 	type PlainOffer,
 	pathOf,
 	type RelationOffer,
+	type RelationStep,
 	type RootRename,
 	relationPath,
 	type SealedStep,
@@ -363,7 +363,7 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 const actionStatements = (action: Action): NonEmptyReadonlyArray<string> =>
 	mapNonEmpty(spellAction(action), spelledText)
 
-const renderDraft = (out: Lines, draft: Draft | AlternativeStep): void => {
+const renderDraft = (out: Lines, draft: Draft | RelationStep): void => {
 	switch (draft.kind) {
 		case "statement":
 		case "placeholderColumn":

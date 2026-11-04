@@ -49,6 +49,7 @@ import { factsIn, noFacts } from "#test/support/worlds/model/session/state.ts"
 import type {
 	Action,
 	ActionKind,
+	ActionOutcome,
 	ContextFacts,
 	DirectStatement,
 	EntryOp,
@@ -56,7 +57,6 @@ import type {
 	HostState,
 	ModelState,
 	Observation,
-	Outcome,
 	PreparedRead,
 	RoleRef,
 	SessionState,
@@ -893,7 +893,7 @@ const onlyAtItsPoints = (state: ModelState, grade: HostFact): boolean => {
 const importedGrades = (
 	state: ModelState,
 	action: Extract<Action, { readonly kind: "apply" }>,
-	observation: Outcome,
+	observation: ActionOutcome,
 	kinds: ReadonlyArray<EntryOp["kind"]>
 ): ReadonlyArray<HostFact> => {
 	const actor = actorIn(state, action)
@@ -920,7 +920,7 @@ const writing: ReadonlyArray<DirectStatement["kind"]> = [
 const leadRead = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<LeadFeature> => {
 	if (action.kind === "open-db") {
 		const role = roleOfRef(action.role)

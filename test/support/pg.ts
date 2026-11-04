@@ -19,6 +19,14 @@ import {
 import { Client, DatabaseError } from "pg"
 import { nameSchemas } from "#adapter/boundary/names.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
+import { BatchRefused } from "#adapter/errors/failures.ts"
+import {
+	type ApartFailure,
+	type BatchOutcome,
+	type BatchStatement,
+	runApart,
+	sentAnswer
+} from "#adapter/wire/batch.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
@@ -582,6 +590,20 @@ export const wireSession = (
 		SqlError.make({ reason: { _tag: "ConnectionError", message: failure.message }, cause: failure })
 	)
 }
+
+/**
+ * Runs `statement` alone on `session`, as its own implicit transaction, in a flight of statements apart
+ * (packages/grizzle/src/adapter/wire/batch.ts runApart): its outcome, or BatchRefused with the server's refusal.
+ */
+export const runAlone = (
+	session: Session,
+	statement: BatchStatement
+): Effect.Effect<BatchOutcome, ApartFailure | BatchRefused> =>
+	Effect.flatMap(runApart(session, [statement]), (answers) =>
+		Effect.mapError(Effect.fromResult(sentAnswer(answers, 0)), (failure) =>
+			BatchRefused.make({ index: 0, failure })
+		)
+	)
 
 /** The fields of a failure's ErrorResponse, if PostgreSQL refused the statement. */
 const codeOf = (error: SqlError): string | undefined =>

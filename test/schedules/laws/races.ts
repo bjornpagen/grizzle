@@ -9,6 +9,7 @@ import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter, Option, String as Str } from "effect"
 import { Cause, Effect, Record, Schema, type Scope } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
 	type Mode,
@@ -68,7 +69,7 @@ import {
 	immediacyGen
 } from "#test/support/history/run.ts"
 import { messageOf } from "#test/support/message.ts"
-import { elementAt, indices, nonEmptyList } from "#test/support/oracle/pick.ts"
+import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
 import {

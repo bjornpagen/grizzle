@@ -11,13 +11,13 @@ import { rating, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import type { Swarm } from "@grizzle/testing/swarm"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { Conversion, Stitch } from "#test/pg/oracle/public/planted.ts"
 import { type Disagreement, runCase } from "#test/pg/oracle/public/run.ts"
 import { declineFeatures } from "#test/pg/oracle/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import { type PlannerSetting, unperturbed } from "#test/support/oracle/perturb.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import {
 	type CaseSketch,
 	caseSketchGen,

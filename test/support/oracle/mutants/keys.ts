@@ -1,11 +1,10 @@
 import { exact, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Option } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { defined } from "#test/support/assert.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /** The kinds whose conservative lowering ends in a DISTINCT core a mutant may remove. */
 const distinctKinds: ReadonlySet<RelNode["kind"]> = new Set([

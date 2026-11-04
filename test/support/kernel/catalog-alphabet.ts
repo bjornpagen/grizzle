@@ -40,16 +40,15 @@ const scriptNames = (script: string, created: "TYPE" | "FUNCTION"): ReadonlyArra
 			return []
 		}
 		const [name] = Str.split(Str.replaceAll(";", "")(named), "(")
-		return name === undefined || name === "" ? [] : [name]
+		return name === "" ? [] : [name]
 	})
 
 const share = `${pgPin.prefix}/share`
 
-const [bki, vectorScript] = await Effect.runPromise(
-	Effect.all([
-		fileText(`${share}/postgres.bki`),
-		fileText(`${share}/extension/vector--${pgPin.vectorVersion}.sql`)
-	])
+const bki = await Effect.runPromise(fileText(`${share}/postgres.bki`))
+
+const vectorScript = await Effect.runPromise(
+	fileText(`${share}/extension/vector--${pgPin.vectorVersion}.sql`)
 )
 
 /** Every distinct type name of pg_catalog and the vector extension, in first-seen order. */

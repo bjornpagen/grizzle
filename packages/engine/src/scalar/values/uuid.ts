@@ -2,9 +2,6 @@ import type { regex } from "arkregex"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 
-/** uuid_out's spelling: lowercase hexadecimal in groups of 8, 4, 4, 4 and 12, hyphenated. */
-type CanonicalPattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-
 /**
  * A uuid host value: ArkRegex's language of uuid_out's spelling, `${string}-${string}-${string}-${string}-${string}`,
  * which every canonical uuid is, crypto.randomUUID()'s own type included. It is the uuid descriptor's host type,
@@ -20,7 +17,10 @@ type CanonicalPattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
  * the pattern has no escape and anchors only at the two ends of its one alternative. So ArkRegex's own inference is
  * its language, as is.
  */
-export type Uuid = regex.infer<CanonicalPattern, "u">
+export type Uuid = regex.infer<
+	"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+	"u"
+>
 
 /**
  * The uuid admission core, canonical: UUID case and byte encodings need canonicalization.

@@ -52,9 +52,10 @@ import {
 } from "#compiler/ir/scalar.ts"
 import type { RegexMember } from "#compiler/scalar/compute/evaluate.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { contractInfoOf, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { Owned } from "#compiler/schema/own.ts"
-import { analyzeText, regexMember, textInfo } from "#compiler/text/refinement.ts"
+import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
 
 export interface TheoryOptions {
 	/**

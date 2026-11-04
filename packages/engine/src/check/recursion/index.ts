@@ -1,5 +1,6 @@
 import type { RecursionPlugin } from "#compiler/check/context.ts"
 import { only as onlyMember } from "#compiler/check/defined.ts"
+import { counterDepth, counterInterval, reachable } from "#compiler/check/recursion/bound.ts"
 import { factorArms } from "#compiler/check/recursion/factor.ts"
 import { carryOrigin, correlationColumns, originParents } from "#compiler/check/recursion/origin.ts"
 import { scanArms } from "#compiler/check/recursion/scan.ts"
@@ -10,7 +11,6 @@ import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { recursionMaxStates } from "#compiler/core/policy.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { counterDepth, counterInterval, reachable } from "#compiler/lower/shapes/recursion/bound.ts"
 
 /** The location of a list's one member, or `fallback` for a list of none or several. */
 const only = (list: ReadonlyArray<{ readonly loc: SourceLoc }>, fallback: SourceLoc): SourceLoc =>

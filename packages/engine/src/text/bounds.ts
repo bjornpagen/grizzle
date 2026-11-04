@@ -1,5 +1,5 @@
-import { maxUtf8Width } from "#compiler/text/charset.ts"
-import type { RegexNode } from "#compiler/text/ir.ts"
+import { maxUtf8Width } from "#compiler/scalar/regex/charset.ts"
+import type { RegexNode } from "#compiler/scalar/regex/ir.ts"
 
 interface Extent {
 	readonly length: number

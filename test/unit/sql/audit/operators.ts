@@ -719,7 +719,7 @@ const requiredBreakTable = breakTable([
 				}
 				const body = item.query.body
 				const [first, ...rest] = body.targets
-				if (first?.alias === undefined) {
+				if (first.alias === undefined) {
 					return []
 				}
 				return Arr.map(
@@ -749,7 +749,7 @@ const requiredBreakTable = breakTable([
 					return []
 				}
 				const [first, ...rest] = right.targets
-				if (first === undefined || Arr.some(right.targets, (t) => t.alias === undefined)) {
+				if (Arr.some(right.targets, (t) => t.alias === undefined)) {
 					return []
 				}
 				return [
@@ -1357,17 +1357,15 @@ const requiredBreakTable = breakTable([
 			...noHoles,
 			statement: createTables((t) => {
 				const [first, ...rest] = t.primaryKey.columns
-				return first === undefined
-					? []
-					: [
-							{
-								...t,
-								primaryKey: {
-									...t.primaryKey,
-									columns: [{ ...first, column: "no_such_column" }, ...rest]
-								}
-							}
-						]
+				return [
+					{
+						...t,
+						primaryKey: {
+							...t.primaryKey,
+							columns: [{ ...first, column: "no_such_column" }, ...rest]
+						}
+					}
+				]
 			})
 		}
 	},
@@ -1400,7 +1398,7 @@ const requiredBreakTable = breakTable([
 				}
 				const [first, ...rest] = right.targets
 				const last = rest.at(-1)
-				if (first === undefined || last === undefined || hasParam(last.expr)) {
+				if (last === undefined || hasParam(last.expr)) {
 					return []
 				}
 				const kept: NonEmptyReadonlyArray<Target> = [first, ...rest.slice(0, -1)]
@@ -1420,9 +1418,7 @@ const requiredBreakTable = breakTable([
 					return []
 				}
 				const [first, ...rest] = item.rows
-				return first === undefined
-					? []
-					: [{ ...item, rows: [[...first, lit.int(1, types.integer)], ...rest] }]
+				return [{ ...item, rows: [[...first, lit.int(1, types.integer)], ...rest] }]
 			}
 		}
 	},
@@ -1436,7 +1432,7 @@ const requiredBreakTable = breakTable([
 					return []
 				}
 				const [first, ...rest] = w.columns
-				if (first === undefined || !Arr.isReadonlyArrayNonEmpty(rest)) {
+				if (!Arr.isReadonlyArrayNonEmpty(rest)) {
 					return []
 				}
 				const narrower: NonEmptyReadonlyArray<string> = [first, ...rest.slice(0, -1)]
@@ -1698,7 +1694,7 @@ export type StatementBreakName =
 export const requiredStatementBreaks: Arr.NonEmptyReadonlyArray<StatementBreak> = requiredBreakTable
 
 /** The statement breaks a Live population may leave unreached: of a form only some installations hold. */
-export const unrequiredStatementBreaks: ReadonlyArray<StatementBreak> = unrequiredBreakTable
+const unrequiredStatementBreaks: ReadonlyArray<StatementBreak> = unrequiredBreakTable
 
 /** Every statement break: the required ones, then the ones a population may leave unreached. */
 export const statementBreaks: Arr.NonEmptyReadonlyArray<StatementBreak> = Arr.appendAll(
@@ -1933,7 +1929,7 @@ export const requiredFaithfulRewrites: Arr.NonEmptyReadonlyArray<FaithfulRewrite
 ]
 
 /** The faithful rewrites a Live population may leave unreached: of a form only some statements hold. */
-export const unrequiredFaithfulRewrites: ReadonlyArray<FaithfulRewrite> = [
+const unrequiredFaithfulRewrites: ReadonlyArray<FaithfulRewrite> = [
 	cleared(
 		"an aggregate ORDER BY's items removed",
 		plainCalls((c) => (ordered(c.orderBy) ? [{ ...c, orderBy: [] }] : []))

@@ -262,7 +262,7 @@ const lawUnitProblems = (j: Judging): ReadonlyArray<ErasureProblem> => {
 				? unless(triggers?.length === 1, {
 						kind: "lawFunctionExecutors",
 						function: name,
-						triggers: triggers === undefined ? [] : triggers
+						triggers: triggers ?? []
 					})
 				: []
 		})

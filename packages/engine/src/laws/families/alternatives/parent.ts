@@ -58,7 +58,7 @@ export const parentRead = (
 
 /** The selected child probe: `PERFORM 1 FROM <child> AS r1 WHERE r1.<g1> = <v1> AND ...`, each child field compared with
  * the parent row's value of the anchor key field it meets (`parent`). */
-export const childProbe = (
+const childProbe = (
 	schema: string,
 	child: PairedSide,
 	parent: (f: LawField) => Expr

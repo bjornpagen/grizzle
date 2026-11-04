@@ -8,6 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Result } from "effect"
 import { pageRuntimeOf } from "#adapter/page/template.ts"
 import type { AttachmentFacts } from "#adapter/reader/analysis.ts"
+import { indices } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -43,7 +44,6 @@ import {
 	undrawn
 } from "#test/support/oracle/gen/query.ts"
 import { rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 
 /**

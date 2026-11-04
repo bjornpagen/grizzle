@@ -26,7 +26,14 @@ import { normalizeDag } from "#compiler/ir/dag.ts"
 import { descText, type QueryDesc, type QueryStageDesc, type RuleDesc } from "#compiler/ir/desc.ts"
 import { fromQueryDescription, toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { numericTypmodOf, rosterOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
+import {
+	numericTypmodOf,
+	rosterOf,
+	sameScalarType,
+	type ScalarType,
+	textOf,
+	vectorTypmodOf
+} from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { queryFromDesc, queryValueDesc } from "#compiler/query/build/index.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -45,6 +52,7 @@ import { printCase } from "#test/support/oracle/public/print.ts"
 import {
 	type ProgramCase,
 	type ProgramField,
+	type KeyKind,
 	keyKinds,
 	type ProgramRead,
 	type Stored,
@@ -498,11 +506,11 @@ const appendAt = (record: JsonRecord, key: string, items: ReadonlyArray<Json>): 
 const withMatches = (rule: JsonRecord, matches: ReadonlyArray<JsonRecord>): JsonRecord =>
 	appendAt(rule, "matches", matches)
 
-/** Whether a stored relation's field, by name, has a key kind (program.ts keyKinds). */
-/** A variable a match binds to a field of a key kind, and that field. */
+/** A variable a match binds to a field of a key kind: the variable, the field's kind and its type. */
 interface KeyVar {
 	readonly variable: string
-	readonly field: ProgramField
+	readonly kind: KeyKind
+	readonly type: ScalarType
 }
 
 /** The variables a match of a stored relation binds to fields of a key kind, in its bindings' order. */
@@ -515,15 +523,14 @@ const keyVarsOf = (match: Json, stored: ReadonlyArray<Stored>): ReadonlyArray<Ke
 	const relation = Arr.findFirst(stored, (r) => r.name === source["name"])
 	const entries = Record.toEntries(bindings)
 	return Arr.flatMap(entries, ([name, term]) => {
-		const field = Option.getOrUndefined(
-			Option.flatMap(relation, (r) => Arr.findFirst(r.fields, (f) => f.name === name))
-		)
+		const field = Option.flatMap(relation, (r) => Arr.findFirst(r.fields, (f) => f.name === name))
+		const kind = Option.flatMap(field, (f) => Arr.findFirst(keyKinds, (k) => k === f.kind))
 		return isRecord(term) &&
 			term["kind"] === "var" &&
 			typeof term["var"] === "string" &&
-			field !== undefined &&
-			keyKinds.includes(field.kind)
-			? [{ variable: term["var"], field }]
+			Option.isSome(field) &&
+			Option.isSome(kind)
+			? [{ variable: term["var"], kind: kind.value, type: field.value.type }]
 			: []
 	})
 }
@@ -538,8 +545,8 @@ const comparableVar = (rule: JsonRecord, stored: ReadonlyArray<Stored>): KeyVar 
 }
 
 /** The field descriptor, as a Description spells it, of a field of a key kind: a compared parameter's declared type. */
-const keyFieldDesc = (field: ProgramField): JsonRecord => {
-	switch (field.kind) {
+const keyFieldDesc = (key: KeyVar): JsonRecord => {
+	switch (key.kind) {
 		case "int4":
 			return { kind: "pg", type: "integer" }
 		case "int8":
@@ -551,19 +558,22 @@ const keyFieldDesc = (field: ProgramField): JsonRecord => {
 		case "uuid":
 			return { kind: "uuid" }
 		case "fixed": {
-			const typmod = defined(numericTypmodOf(field.type), "a fixed field's typmod")
+			const typmod = defined(numericTypmodOf(key.type), "a fixed field's typmod")
 			return { kind: "numeric", precision: typmod.precision, scale: typmod.scale }
 		}
 		case "text": {
-			const regex = defined(textOf(field.type), "a text field's refinement").regex
+			const regex = defined(textOf(key.type), "a text field's refinement").regex
 			return regex === "wildcard"
 				? { kind: "text", source: "^.*$", flags: "su" }
 				: { kind: "text", source: regex.source, flags: regex.flags }
 		}
 		case "handle":
-			return { kind: "closedId", roster: defined(rosterOf(field.type), "a handle's roster").closed }
-		default:
-			throw new Error(`a key kind, not ${field.kind}`)
+			return { kind: "closedId", roster: defined(rosterOf(key.type), "a handle's roster").closed }
+		case "vector":
+			return {
+				kind: "vector",
+				dimensions: defined(vectorTypmodOf(key.type), "a vector field's dimensions").dims
+			}
 	}
 }
 
@@ -571,7 +581,7 @@ const keyFieldDesc = (field: ProgramField): JsonRecord => {
 const keyParam = (key: KeyVar, name: string): JsonRecord => ({
 	kind: "param",
 	name,
-	type: keyFieldDesc(key.field)
+	type: keyFieldDesc(key)
 })
 
 /** The arms of the root's own rules stage that bind a variable a comparison with a parameter can read. */

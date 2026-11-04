@@ -316,7 +316,7 @@ const contractSearch = (f: Fixture) =>
 					)
 					const problems = Arr.flatMap(cases, (k, i): ReadonlyArray<Problem> => {
 						const answer = parseAnswer(String(rows[i]?.[0]))
-						const hostAdmits = k.host !== undefined && k.host._tag === "Success"
+						const hostAdmits = k.host?._tag === "Success"
 						const problem: Problem = {
 							sql: k.sql,
 							answer,

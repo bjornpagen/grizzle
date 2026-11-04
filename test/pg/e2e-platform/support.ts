@@ -13,7 +13,7 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { DbOf } from "#adapter/types/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -36,7 +36,6 @@ import { type Installed, installMigrated as install } from "#test/support/instal
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import {
 	type ExpectedStatement,
 	expectedStatements
@@ -587,6 +586,7 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 			}
 			break
 		case "int8":
+		case "exactInteger":
 			if (typeof host === "bigint") {
 				return host
 			}
@@ -617,6 +617,7 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 		case "float4":
 		case "float8":
 		case "money":
+		case "exactMoney":
 		case "vector":
 			break
 	}

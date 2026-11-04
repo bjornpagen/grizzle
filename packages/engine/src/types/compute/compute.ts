@@ -15,6 +15,7 @@ import type {
 } from "#compiler/scalar/compute/tables.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
 	CastAdmitted,
 	FirstOrigin,
@@ -49,7 +50,7 @@ import type {
 	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { EqualityStates, StatesOf, Stating } from "#compiler/types/evidence/evidence.ts"
-import type { Field, LiteralOf, NotRoster, Span } from "#compiler/types/fields/field.ts"
+import type { Field, LiteralOf, NotRoster } from "#compiler/types/fields/field.ts"
 
 /** A divisor's requirement: proved nonzero, except a float's, whose quotient by zero IEEE 754 defines. */
 type Divisor<S extends SqlTag, B> = [S] extends ["real" | "double precision"]

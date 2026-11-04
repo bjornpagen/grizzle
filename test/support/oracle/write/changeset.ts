@@ -1225,11 +1225,11 @@ export const resolveChangeSet =
 				 * A unit addition (see `writeFeatures`): the described one reads the first relation holding several stored
 				 * facts, else the target itself, its head of no field the unit relation's one fact per row it reads.
 				 */
-				if (
+				const unitAddition =
 					generated &&
 					serialColumns(relation).length === relation.columns.length &&
 					kept("unitAdditions")
-				) {
+				if (unitAddition) {
 					const several = Arr.filter(
 						group.relations,
 						(r) => recordEntryOf(stored, r.name, "the stored facts").length > 1

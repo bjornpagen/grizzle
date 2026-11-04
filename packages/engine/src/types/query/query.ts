@@ -1,7 +1,6 @@
 import type { Option, Stream } from "effect"
 import type { Delivered, Delivery, FieldHost, RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
-import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Requires } from "#compiler/types/compute/scalar.ts"
 import type {
 	Carrier,
@@ -319,8 +318,8 @@ export interface FinishedArm
  * at its field (StandsAt). Compilation then proves a computed exact value fits its field, or refuses it
  * (PartialOperation).
  */
-type ArmDelivers<Arm, Row> =
-	Arm extends Headed<infer Hc>
+type ArmDelivers<ArmResult, Row> =
+	ArmResult extends Headed<infer Hc>
 		? Requires<
 				DeliversRow<Hc, Row>,
 				"an arm's head delivers the row: each of its fields, at a type that meets the field's"
@@ -749,8 +748,7 @@ type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
  */
 type HeadingCarriers<Head> = {
 	readonly [K in Head extends unknown ? keyof Head : never]: Carrier<
-		Head extends unknown ? (K extends keyof Head ? Head[K] : never) : never,
-		SqlTag
+		Head extends unknown ? (K extends keyof Head ? Head[K] : never) : never
 	>
 }
 

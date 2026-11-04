@@ -11,8 +11,8 @@ import {
 } from "@grizzle/testing/gen"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
 import { codePointsText } from "#compiler/core/text.ts"
-import type { CharSet } from "#compiler/text/charset.ts"
-import type { Nfa } from "#compiler/text/nfa.ts"
+import type { CharSet } from "#compiler/scalar/regex/charset.ts"
+import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 
 import { regex } from "arkregex"

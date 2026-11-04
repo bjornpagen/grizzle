@@ -142,18 +142,16 @@ const aggregateSql = (fn: GenAggregate, arg: string, schema: string): string =>
 /** The schemas an aggregate over a generated type can live in: PostgreSQL's own, and the vector extension's. */
 const aggregateSchemas: Arr.NonEmptyReadonlyArray<string> = [quoteIdent("pg_catalog"), vectorSchema]
 
-/**
- * Why the language leaves out an aggregate an extension defines over a generated type: its answer depends on the order
- * it meets its rows in. pgvector's sum(vector) adds the components in float32 in that order and fails where a partial
- * sum overflows (vector.c vector_add), and its avg(vector) sums them in float8 in that order (vector_accum).
- */
-type Declined = "its accumulation depends on the order of its rows"
-
 /** The aggregates an extension defines that the language leaves out, by carrier, each with why. */
 const declinedAggregates: ReadonlyArray<{
 	readonly carrier: ScalarType["carrier"]
 	readonly fn: GenAggregate
-	readonly why: Declined
+	/**
+	 * Why the language leaves out an aggregate an extension defines over a generated type: its answer depends on the
+	 * order it meets its rows in. pgvector's sum(vector) adds the components in float32 in that order and fails where a
+	 * partial sum overflows (vector.c vector_add), and its avg(vector) sums them in float8 in that order (vector_accum).
+	 */
+	readonly why: "its accumulation depends on the order of its rows"
 }> = [
 	{ carrier: "vector", fn: "sum", why: "its accumulation depends on the order of its rows" },
 	{ carrier: "vector", fn: "avg", why: "its accumulation depends on the order of its rows" }

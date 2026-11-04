@@ -4,6 +4,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Built, Phantom } from "#compiler/core/phantom.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
 import type {
 	Carriers,
@@ -14,7 +15,6 @@ import type {
 	Simplify,
 	Source
 } from "#compiler/types/core/phantom.ts"
-import type { Span } from "#compiler/types/fields/field.ts"
 import type {
 	ContextsOf,
 	Decoders,

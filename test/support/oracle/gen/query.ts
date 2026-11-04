@@ -17,7 +17,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenExpr } from "#compiler/check/allen.ts"
 import { completeStatedOrders, type StatedOrder } from "#compiler/check/order.ts"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
@@ -109,7 +109,7 @@ import {
 	relationNamed,
 	valueSketchGen
 } from "#test/support/oracle/gen/schema.ts"
-import { at, cyclicAt, elementAt, nonEmptyList, indices } from "#test/support/oracle/pick.ts"
+import { at, cyclicAt, elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 
 type SourceSketch =
@@ -177,7 +177,7 @@ export type Drawn<A> = { readonly kind: "none" } | { readonly kind: "drawn"; rea
 export const undrawn: Drawn<never> = { kind: "none" }
 
 /** A part drawn always. */
-export const drawnGen = <A>(generator: Gen<A>): Gen<Drawn<A>> =>
+const drawnGen = <A>(generator: Gen<A>): Gen<Drawn<A>> =>
 	map(generator, (value): Drawn<A> => ({ kind: "drawn", value }))
 
 /** A part drawn four times in five, shrinking toward none. */

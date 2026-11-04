@@ -23,16 +23,13 @@ import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 
 type Verdict = "proved" | "unproved"
 
-/** A FROM item that names a relation: a source; a join chain names none, and its sources are the items. */
-export type NamedItem = FromSource
-
 /**
  * The FROM items one SELECT core reads, by alias, and the scope it is nested in: the WITH lists in force, the CTE
  * columns whose definitions are being traced around it (a recursive CTE's step reads itself), and the enclosing core,
  * for a LATERAL or correlated reference, or undefined at the outermost core.
  */
 export interface Scope {
-	readonly items: ReadonlyMap<string, NamedItem>
+	readonly items: ReadonlyMap<string, FromSource>
 	readonly ctes: ReadonlyArray<With>
 	readonly active: ReadonlySet<string>
 	readonly outer: Scope | undefined
@@ -40,7 +37,7 @@ export interface Scope {
 
 export const emptyScope: Scope = { items: new Map(), ctes: [], active: new Set(), outer: undefined }
 
-const collectItems = (items: ReadonlyArray<FromItem>, into: Map<string, NamedItem>): void => {
+const collectItems = (items: ReadonlyArray<FromItem>, into: Map<string, FromSource>): void => {
 	for (const item of items) {
 		switch (item.kind) {
 			case "joins":
@@ -63,7 +60,7 @@ const collectItems = (items: ReadonlyArray<FromItem>, into: Map<string, NamedIte
 }
 
 export const coreScope = (core: SelectCore, enclosing: Scope): Scope => {
-	const items = new Map<string, NamedItem>()
+	const items = new Map<string, FromSource>()
 	collectItems(core.from, items)
 	return { items, ctes: enclosing.ctes, active: enclosing.active, outer: enclosing }
 }
@@ -186,7 +183,7 @@ export class Tracer {
 	}
 
 	/** A CTE of the statement holding this one as a part, which the part does not see. */
-	item(item: NamedItem, column: string, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
+	item(item: FromSource, column: string, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
 		switch (item.kind) {
 			case "table": {
 				/** A carrier holds no stored column. */

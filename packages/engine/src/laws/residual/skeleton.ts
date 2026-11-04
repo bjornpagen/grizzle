@@ -14,11 +14,11 @@ import {
 	type SidedImage,
 	type UpdateOf
 } from "#compiler/ir/law.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { familyUnits } from "#compiler/laws/families/index.ts"
 import type { FamilyAt, FamilyUnit } from "#compiler/laws/families/plugin.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { imageField, recordField, selectedBy, witnessShown } from "#compiler/laws/residual/sql.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 
 import type {
 	CreateConstraintTrigger,

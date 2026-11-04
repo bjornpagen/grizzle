@@ -33,6 +33,7 @@ import {
 import { appendAll, maxOf } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { BoundValueDesc, ExprDesc, LiteralDesc, StatementDesc } from "#compiler/ir/desc.ts"
+import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { untypedTerm } from "#compiler/query/build/terms.ts"
@@ -89,15 +90,14 @@ import { argumentsOf } from "#test/support/list.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
 import {
-	closedId,
+	rawClosedId,
 	rawContract,
 	descOf,
 	patternOnly,
 	rawPg,
+	rawSpan,
 	type Row,
 	regex,
-	span,
-	uuid,
 	wildcard
 } from "#test/unit/schema/support.ts"
 
@@ -114,7 +114,7 @@ import { regex as arkregex } from "arkregex"
  * declaration with no defect reaches through the builder itself.
  */
 const Kind = closed("Kind", ["Automatic", "Manual"], [])
-const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"], [])
+const Task = relation("Task", { id: uuid, account: uuid, kind: rawClosedId(Kind) }, ["id"], [])
 
 /**
  * A one-rule definition over `over` finding the ids of `sources`, each a relation or a derived relation matched on its
@@ -586,7 +586,7 @@ describe("closed", () => {
 							 * column delivers exactly h. A member off the roster is refused, and so is Compute.literal over the
 							 * roster's descriptor, the JavaScript caller's path the types cannot refuse.
 							 */
-							const rosterId = closedId(K)
+							const rosterId = rawClosedId(K)
 							for (const h of handles) {
 								const term = K.handle(h)
 								assert.deepEqual(term.expr, { kind: "literal", value: h, type: descOf(rosterId) })
@@ -1301,7 +1301,7 @@ describe("statements", () => {
 	const Pool = relation("Pool", { id: uuid, budget: rawPg.bigint }, ["id"], [])
 	const Claim = relation(
 		"Claim",
-		{ id: uuid, pool: uuid, units: rawPg.bigint, during: span(rawPg.bigint) },
+		{ id: uuid, pool: uuid, units: rawPg.bigint, during: rawSpan(rawPg.bigint) },
 		["id"],
 		[]
 	)
@@ -1837,7 +1837,7 @@ describe("alternatives", () => {
 							const Mode = closed("Mode", rosterOf(s.handles), [])
 							const Job = relation(
 								"Job",
-								{ id: uuid, mode: closedId(Mode), other: uuid, alien: closedId(Alien) },
+								{ id: uuid, mode: rawClosedId(Mode), other: uuid, alien: rawClosedId(Alien) },
 								["id"],
 								[]
 							)
@@ -1933,7 +1933,7 @@ describe("schema and schema.extend", () => {
 	const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"], [])
 	const TaskRebuilt = relation(
 		"Task",
-		{ id: uuid, account: uuid, kind: closedId(Kind) },
+		{ id: uuid, account: uuid, kind: rawClosedId(Kind) },
 		["id"],
 		[]
 	)

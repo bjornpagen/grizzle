@@ -6,11 +6,12 @@ import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
-import type { PhysicalNames, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { wildcardText, withoutSerial } from "#compiler/scalar/compute/types.ts"
 import type {
 	EmittedSql,

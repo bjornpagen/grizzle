@@ -1,5 +1,5 @@
 import { compareText } from "#compiler/core/canonical.ts"
-import { type CharSet, isEmpty, union } from "#compiler/text/charset.ts"
+import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
 
 /**
  * The checked regex IR.

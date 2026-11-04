@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
@@ -49,7 +50,6 @@ import {
 	untaggedUnionRoot,
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import {
 	type RewriteAgreement,
 	agrees,

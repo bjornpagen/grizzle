@@ -25,6 +25,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import {
 	ExprId,
@@ -95,7 +96,6 @@ import {
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { dagTableShape, validateDag, validateTable } from "#test/support/oracle/dag-validate.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { Exprs, everyKind, fail, heading, scalarTypes } from "#test/unit/ir/fixture.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
 

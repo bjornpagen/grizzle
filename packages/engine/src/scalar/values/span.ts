@@ -16,7 +16,7 @@ import { int4Max, int4Min, int8Max, int8Min } from "#compiler/scalar/values/inte
 export type Span<E> = { readonly start: E; readonly end: E }
 
 /** The range representation of the endpoint type. */
-export type SpanEndpoint = "int4" | "int8"
+export type SpanEndpointCarrier = "int4" | "int8"
 
 /** The host type of each endpoint representation: a JavaScript integer for int4range, a bigint for int8range. */
 export interface SpanEndpointHost {
@@ -25,7 +25,9 @@ export interface SpanEndpointHost {
 }
 
 const endpointChecks: {
-	readonly [P in SpanEndpoint]: (value: unknown) => Result.Result<SpanEndpointHost[P], ValueFault>
+	readonly [P in SpanEndpointCarrier]: (
+		value: unknown
+	) => Result.Result<SpanEndpointHost[P], ValueFault>
 } = {
 	int4: (value) => {
 		if (
@@ -46,7 +48,7 @@ const endpointChecks: {
 	}
 }
 
-const checkEndpoint = <P extends SpanEndpoint>(
+const checkEndpoint = <P extends SpanEndpointCarrier>(
 	endpoint: P,
 	value: unknown
 ): Result.Result<SpanEndpointHost[P], ValueFault> => {
@@ -62,7 +64,7 @@ const checkEndpoint = <P extends SpanEndpoint>(
  *
  * Own members, so `in` holds; it narrows the value to an object that has them.
  */
-export const admitSpan = <P extends SpanEndpoint>(
+export const admitSpan = <P extends SpanEndpointCarrier>(
 	endpoint: P,
 	value: unknown,
 	width: bigint | undefined
@@ -91,7 +93,7 @@ export const admitSpan = <P extends SpanEndpoint>(
 }
 
 /** A span from its two endpoints. */
-export const makeSpan = <P extends SpanEndpoint>(
+export const makeSpan = <P extends SpanEndpointCarrier>(
 	endpoint: P,
 	start: unknown,
 	end: unknown

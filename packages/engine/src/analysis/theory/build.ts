@@ -6,12 +6,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import {
-	type CatalogOpId,
-	type ExprSpec,
-	type TypedLiteral,
-	type ScalarExpr
-} from "#compiler/ir/expr.ts"
+import type { CatalogOpId, ExprSpec, TypedLiteral, ScalarExpr } from "#compiler/ir/expr.ts"
 import { headingColumns, type LawField, type TheoryRelation } from "#compiler/ir/law.ts"
 
 import {

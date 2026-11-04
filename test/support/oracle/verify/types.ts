@@ -1,10 +1,11 @@
 import { Array as Arr, Effect, String as Str } from "effect"
-import { type PhysicalNames, statementOutput } from "#compiler/lower/conservative/types.ts"
+import { indices } from "#compiler/core/array.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { statementOutput } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { printType } from "#compiler/sql/print.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /** `text` with every placeholder replaced by NULL, read from its tokens. */

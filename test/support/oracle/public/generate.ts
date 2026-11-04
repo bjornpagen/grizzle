@@ -11,6 +11,7 @@ import {
 } from "@grizzle/testing/swarm"
 import { Array as Arr, Effect, Option } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
+import { indices } from "#compiler/core/array.ts"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { pageMaxSize } from "#compiler/core/policy.ts"
@@ -40,7 +41,6 @@ import {
 import { aggregateResult, type CompareOp, compareOps } from "#test/support/oracle/gen/ops.ts"
 import { type Restorage, restorageGen } from "#test/support/oracle/gen/restorage.ts"
 import { type Perturbation, plannerPerturbationGen } from "#test/support/oracle/perturb.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import {
 	deliveryProof,
 	keysOf,
@@ -66,7 +66,7 @@ import {
 	type Delivery,
 	type Derived,
 	endpointType,
-	factValues,
+	storedFactValues,
 	type ProgramFact,
 	type ProgramField,
 	type FieldKind,
@@ -1381,7 +1381,7 @@ const nextValue = (type: ScalarType, literal: TypedLiteral): TypedLiteral => {
 	)
 }
 
-const keyable = (f: ProgramField) => keyKinds.includes(f.kind)
+const keyable = (f: ProgramField) => Arr.some(keyKinds, (k) => k === f.kind)
 
 /** A relation of a drawn case, its gated fields kept or left out by the swarm, drawn from the case's decisions. */
 const resolveRelation = (
@@ -1505,7 +1505,7 @@ const resolveFacts = (
 					return canonicallySpelled(literal)
 			}
 		})
-		const identities = Arr.map(keys, (k) => keyOf(factValues(fact), relation, k))
+		const identities = Arr.map(keys, (k) => keyOf(storedFactValues(fact), relation, k))
 		if (Arr.some(identities, (id, k) => elementOf(seen, k, "a key's identities").has(id))) {
 			continue
 		}
@@ -3061,7 +3061,7 @@ const resolveRoot = (
 						relation: of,
 						rows: Arr.map(
 							resolveFacts(of, sketch.relationParam.facts, scope.dense, "canonical"),
-							factValues
+							storedFactValues
 						)
 					}
 				})()
@@ -3402,7 +3402,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 			canonicallySpelled({ kind: "enum", handle: other })
 		]
 	]
-	const keyAt = (f: StoredFact) => keyOf(factValues(f), relation, relation.primaryKey)
+	const keyAt = (f: StoredFact) => keyOf(storedFactValues(f), relation, relation.primaryKey)
 	const taken = new Set(Arr.map(plantedFacts, keyAt))
 	const drawnFacts = Arr.filter(
 		resolveFacts(

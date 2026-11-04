@@ -161,6 +161,8 @@ const literalOf = (value: LiteralDesc, type: ScalarType): TypedLiteral => {
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			break
 	}
 	throw new Error(`fixture IR: no ${base.carrier} literal for ${typeof value}`)

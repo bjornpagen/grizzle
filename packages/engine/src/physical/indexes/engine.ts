@@ -477,10 +477,7 @@ const leadDraft = (
 	rank: Rank
 ): NonEmptyReadonlyArray<Block> | undefined => {
 	const [first, ...rest] = draft
-	if (
-		first === undefined ||
-		!held.every((c) => draft.some((block) => block.some((k) => sameKey(k, c))))
-	) {
+	if (!held.every((c) => draft.some((block) => block.some((k) => sameKey(k, c))))) {
 		return undefined
 	}
 	const [leader] = first

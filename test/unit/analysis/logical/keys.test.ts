@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Dependency,
@@ -23,7 +24,6 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { Ir } from "#test/support/fixtures/ir/build.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
 import { KeyKernel } from "#test/support/keys/kernel.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /**
  * The minimal keys a dependency table proves (logical/closure.ts minimalKeys): from the whole heading alone, closed

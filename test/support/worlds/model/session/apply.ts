@@ -46,7 +46,7 @@ import type {
 	HostFact,
 	HostState,
 	ModelState,
-	Outcome,
+	ActionOutcome,
 	ReadBack,
 	RoleSpec,
 	HostValue
@@ -354,7 +354,7 @@ const collisionsOf = (
 	role: string,
 	facts: ContextFacts,
 	j: Judged
-): ReadonlyArray<Outcome> => {
+): ReadonlyArray<ActionOutcome> => {
 	const w = j.written
 	if (w.kind === "whole" || j.op.kind === "delete") {
 		return []
@@ -365,7 +365,7 @@ const collisionsOf = (
 	)
 	const atKeys = Arr.flatMap(
 		keysOf(state.install.base, w.target),
-		(key): ReadonlyArray<Outcome> => {
+		(key): ReadonlyArray<ActionOutcome> => {
 			const law = keyLawOf(state, w.target, key)
 			if (law === undefined) {
 				return []
@@ -388,7 +388,7 @@ const collisionsOf = (
 	)
 	const atIndexes = Arr.flatMap(
 		uniquesOf(state.install.base, w.target),
-		(u): ReadonlyArray<Outcome> => {
+		(u): ReadonlyArray<ActionOutcome> => {
 			const law = uniqueLawOf(state, u)
 			const at = (f: HostFact): string | undefined =>
 				selected(f, u.where) ? projection(f, u.fields) : undefined
@@ -425,15 +425,15 @@ const refusalsOf = (
 	role: string,
 	facts: ContextFacts,
 	j: Judged
-): ReadonlyArray<Outcome> => {
+): ReadonlyArray<ActionOutcome> => {
 	if (j.checks.length > 0) {
-		return Arr.map(j.checks, (law): Outcome => ({
+		return Arr.map(j.checks, (law): ActionOutcome => ({
 			kind: "invariant-rejected",
 			law,
 			witness: { kind: "withheld" }
 		}))
 	}
-	const outside: ReadonlyArray<Outcome> = j.outside
+	const outside: ReadonlyArray<ActionOutcome> = j.outside
 		? [{ kind: "outside-world", relation: j.op.relation }]
 		: []
 	return [...outside, ...collisionsOf(state, role, facts, j)]
@@ -484,7 +484,7 @@ const keyConflictOf = (
 	state: ModelState,
 	ops: ReadonlyArray<Checked>,
 	target: string
-): Outcome | undefined => {
+): ActionOutcome | undefined => {
 	const base = state.install.base
 	const submitted = Arr.flatMap(ops, ({ op, written }) =>
 		written.target === target && op.kind !== "delete"
@@ -653,9 +653,7 @@ export const compileRefused = (
 		return Arr.every(
 			ops,
 			(w) =>
-				w.written === undefined ||
-				w.written.kind !== "query" ||
-				!Arr.some([...filterReads(w.written)], (r) => targets.has(r))
+				w.written?.kind !== "query" || !Arr.some([...filterReads(w.written)], (r) => targets.has(r))
 		)
 	})
 	return (
@@ -667,7 +665,7 @@ export const compileRefused = (
 }
 
 /** A call grizzle refuses on the host, before any SQL. */
-const onHost = (refusal: Outcome): Called => ({ kind: "host", refusals: [refusal] })
+const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [refusal] })
 
 /**
  * A ChangeSet through a Db's role relations (README "Writing through a role", "Writes", "Errors and outcomes"): its strata in
@@ -700,9 +698,9 @@ export const applyCall = (
 	strata: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<EntryOp>>,
 	reads: ReadonlyArray<string>
 ): Called => {
-	const stay = (observation: Outcome): Branch => ({ observation, next: state })
+	const stay = (observation: ActionOutcome): Branch => ({ observation, next: state })
 	const stayAny = (
-		observations: ReadonlyArray<Outcome>
+		observations: ReadonlyArray<ActionOutcome>
 	): Arr.NonEmptyReadonlyArray<Branch> | undefined => {
 		const [first, ...rest] = observations
 		return first === undefined ? undefined : [stay(first), ...Arr.map(rest, stay)]
@@ -746,7 +744,7 @@ export const applyCall = (
 	for (const [i, ops] of faulted.entries()) {
 		const refusals = Arr.flatMap(
 			[...new Set(Arr.map(ops, (w) => w.written.target))],
-			(target): ReadonlyArray<Outcome> => {
+			(target): ReadonlyArray<ActionOutcome> => {
 				if (Arr.some(ops, (w) => w.written.target === target && w.fault?.kind === "encoding")) {
 					return [{ kind: "encoding-refused" }]
 				}
@@ -765,7 +763,7 @@ export const applyCall = (
 	/** The SQL phase, once the transaction's prologue lets the call through. */
 	const sql = (): Arr.NonEmptyReadonlyArray<Branch> => {
 		const submitted: Array<Submitted> = []
-		const rejected = (at: "statement" | "commit", after: HostState): ReadonlyArray<Outcome> =>
+		const rejected = (at: "statement" | "commit", after: HostState): ReadonlyArray<ActionOutcome> =>
 			Arr.map(brokenAt(state.host, after, at), ({ violation }) => ({
 				kind: "invariant-rejected",
 				law: violation.law,

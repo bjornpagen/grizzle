@@ -23,6 +23,7 @@ import {
 	type PlanNode,
 	parsePlan
 } from "#bench/harness/explain.ts"
+import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -35,7 +36,6 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { checking } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

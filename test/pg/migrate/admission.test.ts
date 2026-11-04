@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
-import { readLedger, statementsFor } from "#adapter/migrate/ledger.ts"
+import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
@@ -37,6 +37,7 @@ import {
 	type Previous,
 	draftedAt
 } from "#test/support/migrate/kit.ts"
+import { readLedger } from "#test/support/migrate/ledger.ts"
 import { draftActions, draftFiles, planStatements } from "#test/support/migrate/review.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"

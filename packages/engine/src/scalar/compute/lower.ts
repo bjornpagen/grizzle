@@ -27,7 +27,13 @@ import {
 	type ScalarExpr,
 	type TableExpr
 } from "#compiler/ir/expr.ts"
-import type { Exact, Fact, Precondition, PreconditionProof, Premise } from "#compiler/ir/proof.ts"
+import type {
+	Exact,
+	Fact,
+	OperandPremise,
+	Precondition,
+	PreconditionProof
+} from "#compiler/ir/proof.ts"
 import {
 	baseOf,
 	contractOf,
@@ -92,6 +98,7 @@ import {
 	extremeOf,
 	type FixedFn,
 	type FixedOp,
+	type NativeFn,
 	type NativeOp,
 	nativeOp,
 	overloadOf,
@@ -279,7 +286,7 @@ const moneyHigh: Exact = exactOf(2n ** 63n - 1n, 2)
  * its encoder bound it (physical/numeric/bound.ts, scalar/values/identity.ts), so every numeric expression's digits
  * are known.
  */
-export const bareNumericDigits = 1000
+const bareNumericDigits = 1000
 
 /** Every value of a carrier, before any contract: what a value of its base type can be. */
 const carrierBounds = (t: ScalarType): Bounds | undefined => {
@@ -347,7 +354,7 @@ export const boundsOfType = (t: ScalarType): Bounds | undefined => {
  * The facts every value of `t` has: an integer's, an exact value's and money's finiteness by their types, and each
  * contract level's declared facts, which its build proved from its predicate (scalar/contract.ts).
  */
-export const factsOfType = (t: ScalarType): FactSet => {
+const factsOfType = (t: ScalarType): FactSet => {
 	const facts: { [F in Fact]?: FactSet[F] } = {}
 	const carrier = baseOf(withoutSerial(t)).carrier
 	if (
@@ -421,20 +428,47 @@ const tableNumber = (
 
 const zero: Exact = exactOf(0n, 0)
 
+/** The comparisons a contract predicate states of VALUE and a literal. */
+type Comparison = "lt" | "le" | "gt" | "ge" | "eq" | "ne"
+
+const comparisonOf = (fn: NativeFn | undefined): Comparison | undefined =>
+	fn === "lt" || fn === "le" || fn === "gt" || fn === "ge" || fn === "eq" || fn === "ne"
+		? fn
+		: undefined
+
 /** The comparison a flipped operand order states: c < VALUE is VALUE > c. */
-const flipped = (fn: string | undefined): string | undefined => {
-	switch (fn) {
-		case "lt":
-			return "gt"
-		case "le":
-			return "ge"
-		case "gt":
-			return "lt"
-		case "ge":
-			return "le"
-		default:
-			return fn
+const flippedComparison: { readonly [C in Comparison]: Comparison } = {
+	lt: "gt",
+	le: "ge",
+	gt: "lt",
+	ge: "le",
+	eq: "eq",
+	ne: "ne"
+}
+
+/**
+ * A comparison of VALUE with a finite literal, as `VALUE op literal` whichever side the literal stands on; undefined for
+ * any other term.
+ */
+const literalComparison = (
+	fn: NativeFn | undefined,
+	x: TableExpr,
+	y: TableExpr
+): { readonly op: Comparison; readonly value: Exact } | undefined => {
+	const op = comparisonOf(fn)
+	const oriented =
+		op === undefined
+			? undefined
+			: x.kind === "value" && y.kind === "literal"
+				? { op, literal: y }
+				: y.kind === "value" && x.kind === "literal"
+					? { op: flippedComparison[op], literal: x }
+					: undefined
+	if (oriented === undefined) {
+		return undefined
 	}
+	const v = tableNumber(oriented.literal)
+	return typeof v === "object" ? { op: oriented.op, value: v } : undefined
 }
 
 /**
@@ -442,22 +476,16 @@ const flipped = (fn: string | undefined): string | undefined => {
  * literal, open where strict, the literal itself, or never zero for `<> 0`; undefined where it states none here.
  */
 const comparisonAtom = (
-	fn: string | undefined,
+	fn: NativeFn | undefined,
 	x: TableExpr,
 	y: TableExpr
 ): Refinement | undefined => {
-	const flippedCase = y.kind === "value" && x.kind === "literal"
-	const cmp =
-		x.kind === "value" && y.kind === "literal" ? fn : flippedCase ? flipped(fn) : undefined
-	const lit = x.kind === "literal" ? x : y.kind === "literal" ? y : undefined
-	if (cmp === undefined || lit === undefined || lit.kind !== "literal") {
+	const c = literalComparison(fn, x, y)
+	if (c === undefined) {
 		return undefined
 	}
-	const v = tableNumber(lit)
-	if (typeof v !== "object") {
-		return undefined
-	}
-	switch (cmp) {
+	const v = c.value
+	switch (c.op) {
 		case "ge":
 			return { kind: "atLeast", value: v, open: false }
 		case "gt":
@@ -470,8 +498,6 @@ const comparisonAtom = (
 			return { kind: "within", low: v, high: v }
 		case "ne":
 			return compareExact(v, zero) === 0 ? { kind: "nonzero" } : undefined
-		default:
-			return undefined
 	}
 }
 
@@ -498,7 +524,7 @@ export const unprovedFact = (
 }
 
 /** The registry function a stored op entry names, or undefined when it names no Compute overload. */
-const opFn = (e: TableExpr & { readonly kind: "op" }): string | undefined => nativeOp(e.op)?.fn
+const opFn = (e: TableExpr & { readonly kind: "op" }): NativeFn | undefined => nativeOp(e.op)?.fn
 
 /**
  * The atoms of a contract's predicate that state an interval of its VALUE: the comparisons and BETWEEN of VALUE with a
@@ -510,7 +536,7 @@ const predicateAtoms = (table: ExprTable): ReadonlyArray<Refinement> => {
 	const atoms: Array<Refinement> = []
 	const visit = (id: TableExpr["id"]): void => {
 		const e = at(id)
-		if (e === undefined || e.kind !== "op") {
+		if (e?.kind !== "op") {
 			return
 		}
 		const fn = opFn(e)
@@ -634,17 +660,21 @@ const exprText = (e: ScalarExpr): string => {
 /** How a cast converts: a registered cast, or the binary coercion that drops a refinement or widens a bound. */
 type CastHow = { readonly kind: "registered"; readonly op: CastOp } | { readonly kind: "coercion" }
 
+/** A Compute.when guard the lowering stands in the branch of: its subject, and what it establishes of it there. */
+interface WhenGuard {
+	readonly subject: ScalarExpr
+	readonly refinement: Refinement
+	readonly facts: ReadonlyArray<Fact>
+}
+
 class Lowering<R extends Refs> {
 	readonly env: LowerEnv<R>
-	/** The subjects of the Compute.when guards whose branch the lowering stands in, innermost last. */
-	readonly #guards: Array<{
-		readonly subject: ScalarExpr
-		readonly refinement: Refinement
-		readonly facts: ReadonlyArray<Fact>
-	}> = []
+	/** The Compute.when guards whose branch the lowering stands in, innermost last. */
+	readonly #guards: ReadonlyArray<WhenGuard>
 
-	constructor(env: LowerEnv<R>) {
+	constructor(env: LowerEnv<R>, guards: ReadonlyArray<WhenGuard>) {
 		this.env = env
+		this.#guards = guards
 	}
 
 	get check(): boolean {
@@ -685,14 +715,15 @@ class Lowering<R extends Refs> {
 		let bounds = proved === undefined ? boundsOfType(nominal) : proved.bounds
 		let facts: FactSet = proved === undefined ? factsOfType(nominal) : proved.facts
 		for (const g of this.#guards) {
-			if (sameExpr(g.subject, entry)) {
-				bounds = bounds === undefined ? undefined : refine(bounds, g.refinement)
-				const added: { [F in Fact]?: FactSet[F] } = { ...facts }
-				for (const f of g.facts) {
-					added[f] = { kind: "guard" }
-				}
-				facts = Object.freeze(added)
+			if (!sameExpr(g.subject, entry)) {
+				continue
 			}
+			bounds = bounds === undefined ? undefined : refine(bounds, g.refinement)
+			const added: { [F in Fact]?: FactSet[F] } = { ...facts }
+			for (const f of g.facts) {
+				added[f] = { kind: "guard" }
+			}
+			facts = Object.freeze(added)
 		}
 		if (bounds !== undefined && bounds.digits > numericMaxIntegerDigits) {
 			throw new Refusal(
@@ -857,8 +888,7 @@ class Lowering<R extends Refs> {
 				const a = args[0]
 				const interval = a?.bounds === undefined ? undefined : intervalPremise(0, a.bounds)
 				if (
-					a === undefined ||
-					a.bounds === undefined ||
+					a?.bounds === undefined ||
 					interval === undefined ||
 					!contractHolds(target, a.nominal, a.bounds)
 				) {
@@ -1413,17 +1443,15 @@ class Lowering<R extends Refs> {
 		const here = childLoc(at, "when")
 		const subject = this.term(desc.subject, childLoc(here, "subject"))
 		const guard = this.guardPredicate(desc.guard, subject, here)
-		this.#guards.push({
-			subject: subject.expr,
-			refinement: guardRefinement(desc.guard, guard.within),
-			facts: guardFacts(desc.guard, guard.within)
-		})
-		let onTrue: Lowered
-		try {
-			onTrue = this.term(desc.proved, childLoc(here, "proved"))
-		} finally {
-			this.#guards.pop()
-		}
+		const guarded = new Lowering(this.env, [
+			...this.#guards,
+			{
+				subject: subject.expr,
+				refinement: guardRefinement(desc.guard, guard.within),
+				facts: guardFacts(desc.guard, guard.within)
+			}
+		])
+		const onTrue = guarded.term(desc.proved, childLoc(here, "proved"))
 		const onFalse = this.operand(desc.otherwise, onTrue, "compare", childLoc(here, "otherwise"))
 		return this.conditional(guard.predicate, onTrue, onFalse, at)
 	}
@@ -2210,66 +2238,51 @@ const predicateDecided = (table: ExprTable, b: Bounds): boolean | undefined => {
 	const ends = finiteEnds(b)
 	const decide = (id: TableExpr["id"]): boolean | undefined => {
 		const e = at(id)
-		if (e === undefined || e.kind !== "op") {
+		if (e?.kind !== "op") {
 			return undefined
 		}
 		const fn = opFn(e)
-		switch (fn) {
-			case "and": {
-				const values = e.args.map(decide)
-				return values.includes(false) ? false : values.every((v) => v === true) ? true : undefined
-			}
-			case "or": {
-				const values = e.args.map(decide)
-				return values.includes(true) ? true : values.every((v) => v === false) ? false : undefined
-			}
-			case "not": {
-				const [v] = e.args.map(decide)
-				return v === undefined ? undefined : !v
-			}
-			default: {
-				const [x, y, z] = e.args.map(at)
-				if (ends === undefined || x === undefined || y === undefined) {
-					return undefined
-				}
-				if (
-					fn === "between" &&
-					x.kind === "value" &&
-					y.kind === "literal" &&
-					z?.kind === "literal"
-				) {
-					const lo = tableNumber(y)
-					const hi = tableNumber(z)
-					return typeof lo === "object" && typeof hi === "object"
-						? insideRange(ends[0], ends[1], lo, hi) || undefined
-						: undefined
-				}
-				return comparisonDecided(fn, x, y, ends)
-			}
+		if (fn === "and") {
+			const values = e.args.map(decide)
+			return values.includes(false) ? false : values.every((v) => v === true) ? true : undefined
 		}
+		if (fn === "or") {
+			const values = e.args.map(decide)
+			return values.includes(true) ? true : values.every((v) => v === false) ? false : undefined
+		}
+		if (fn === "not") {
+			const [v] = e.args.map(decide)
+			return v === undefined ? undefined : !v
+		}
+		const [x, y, z] = e.args.map(at)
+		if (ends === undefined || x === undefined || y === undefined) {
+			return undefined
+		}
+		if (fn === "between" && x.kind === "value" && y.kind === "literal" && z?.kind === "literal") {
+			const lo = tableNumber(y)
+			const hi = tableNumber(z)
+			return typeof lo === "object" && typeof hi === "object"
+				? insideRange(ends[0], ends[1], lo, hi) || undefined
+				: undefined
+		}
+		return comparisonDecided(fn, x, y, ends)
 	}
 	return decide(table.root)
 }
 
 /** A comparison of VALUE with a finite literal over a finite interval: true where every value satisfies it. */
 const comparisonDecided = (
-	fn: string | undefined,
+	fn: NativeFn | undefined,
 	x: TableExpr,
 	y: TableExpr,
 	[low, high]: readonly [Exact, Exact]
 ): boolean | undefined => {
-	const flippedCase = y.kind === "value" && x.kind === "literal"
-	const cmp =
-		x.kind === "value" && y.kind === "literal" ? fn : flippedCase ? flipped(fn) : undefined
-	const lit = x.kind === "literal" ? x : y.kind === "literal" ? y : undefined
-	if (cmp === undefined || lit === undefined || lit.kind !== "literal") {
+	const c = literalComparison(fn, x, y)
+	if (c === undefined) {
 		return undefined
 	}
-	const v = tableNumber(lit)
-	if (typeof v !== "object") {
-		return undefined
-	}
-	switch (cmp) {
+	const v = c.value
+	switch (c.op) {
 		case "ge":
 			return compareExact(low, v) >= 0 || undefined
 		case "gt":
@@ -2282,8 +2295,6 @@ const comparisonDecided = (
 			return (compareExact(low, v) === 0 && compareExact(high, v) === 0) || undefined
 		case "ne":
 			return compareExact(high, v) < 0 || compareExact(low, v) > 0 || undefined
-		default:
-			return undefined
 	}
 }
 
@@ -2301,7 +2312,7 @@ const powerPremises = (
 	base: Lowered,
 	exponent: Lowered,
 	target: ScalarType
-): NonEmptyReadonlyArray<Premise> | undefined => {
+): NonEmptyReadonlyArray<OperandPremise> | undefined => {
 	const nonnegative = factPremise(0, "nonnegative", base.facts)
 	const nonzero =
 		factPremise(0, "nonzero", base.facts) ?? factPremise(1, "nonnegative", exponent.facts)
@@ -2316,7 +2327,7 @@ const powerPremises = (
 }
 
 /** Whether power over these intervals stays inside its result carrier, as powerPremises states. */
-export const powerInRange = (
+const powerInRange = (
 	bLow: Exact,
 	bHigh: Exact,
 	eLow: Exact,
@@ -2358,7 +2369,7 @@ const bucketPremises = (
 	low: Lowered,
 	high: Lowered,
 	count: Lowered
-): NonEmptyReadonlyArray<Premise> | undefined => {
+): NonEmptyReadonlyArray<OperandPremise> | undefined => {
 	const lo = low.bounds === undefined ? undefined : intervalPremise(1, low.bounds)
 	const hi = high.bounds === undefined ? undefined : intervalPremise(2, high.bounds)
 	const c = count.bounds === undefined ? undefined : intervalPremise(3, count.bounds)
@@ -2369,7 +2380,7 @@ const bucketPremises = (
 }
 
 /** Whether width_bucket's bounds' intervals are disjoint and its count lies in 1..2147483646. */
-export const bucketInRange = (
+const bucketInRange = (
 	lowLow: Exact,
 	lowHigh: Exact,
 	highLow: Exact,
@@ -2422,7 +2433,7 @@ const checkedKind = (e: ScalarExpr): "literal" | "parameter" | undefined =>
  * Whether two lowered expressions compute the same value the same way: one kind, one source, one overload, one literal
  * and the same arguments, each in turn. A guard refines exactly the occurrences of its subject.
  */
-export const sameExpr = (a: ScalarExpr, b: ScalarExpr): boolean => {
+const sameExpr = (a: ScalarExpr, b: ScalarExpr): boolean => {
 	if (a === b) {
 		return true
 	}
@@ -2490,7 +2501,7 @@ const compatibleCore = (a: ScalarType, b: ScalarType): boolean => meets(valueTyp
 const run = <R extends Refs>(
 	env: LowerEnv<R>,
 	f: (l: Lowering<R>) => Lowered
-): Result.Result<Lowered, CompileError> => catchRefusal(() => f(new Lowering(env)))
+): Result.Result<Lowered, CompileError> => catchRefusal(() => f(new Lowering(env, [])))
 
 /**
  * Typing and lowering of scalar expression descriptions to the scalar IR, total by construction.
@@ -2582,7 +2593,7 @@ export const proofHolds = (
 	checkProof(proof, (precondition, premises) => {
 		const interval = (operand: number) =>
 			premises.find(
-				(p): p is Extract<Premise, { readonly kind: "interval" }> =>
+				(p): p is Extract<OperandPremise, { readonly kind: "interval" }> =>
 					p.kind === "interval" && p.operand === operand
 			)
 		switch (precondition.kind) {
@@ -2621,12 +2632,11 @@ export const proofHolds = (
 				return (
 					b !== undefined &&
 					e !== undefined &&
-					facts.some((p) => p.kind === "fact" && p.fact === "nonnegative" && p.operand === 0) &&
+					facts.some((p) => p.fact === "nonnegative" && p.operand === 0) &&
 					facts.some(
 						(p) =>
-							p.kind === "fact" &&
-							((p.fact === "nonzero" && p.operand === 0) ||
-								(p.fact === "nonnegative" && p.operand === 1))
+							(p.fact === "nonzero" && p.operand === 0) ||
+							(p.fact === "nonnegative" && p.operand === 1)
 					) &&
 					powerInRange(b.low, b.high, e.low, e.high, node.type)
 				)

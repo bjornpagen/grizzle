@@ -3,7 +3,6 @@ import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#com
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { textMaxLength } from "#compiler/core/policy.ts"
-import { placeholderToken } from "#compiler/deploy/render/markers.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,
@@ -143,8 +142,13 @@ export const storedSettingValue = (setting: RoleSetting): string =>
  * A text as one argument of a startup packet's options, which PostgreSQL splits at whitespace, taking the character
  * after a backslash as it is: each backslash and whitespace character escaped.
  */
-const optionArgument = (text: string): string =>
-	[...text].map((c) => (c === "\\" || c.trim() === "" ? `\\${c}` : c)).join("")
+const optionArgument = (text: string): string => {
+	let out = ""
+	for (const c of text) {
+		out += c === "\\" || c.trim() === "" ? `\\${c}` : c
+	}
+	return out
+}
 
 /**
  * Login defaults as a startup packet's `options`, `-c <parameter>=<value>` each, in order, every value as PostgreSQL
@@ -908,6 +912,12 @@ const columnHead = (column: ColumnDef): string => {
 	}
 	return parts.join(" ")
 }
+
+/**
+ * The text a drafted placeholder prints as: the token a reviewer replaces in a migration file, which the drafted
+ * files' checks find (deploy/render/markers.ts).
+ */
+export const placeholderToken = "__GRIZZLE_PLACEHOLDER__"
 
 const printColumnDef = (column: ColumnDef): string => `${columnHead(column)} NOT NULL`
 

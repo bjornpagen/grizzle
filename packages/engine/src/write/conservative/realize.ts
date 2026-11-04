@@ -2,15 +2,12 @@ import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { completeAddition, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import type {
-	ConservativeProgram,
-	DeltaSource,
-	PhysicalNames
-} from "#compiler/lower/conservative/types.ts"
+import type { ConservativeProgram, DeltaSource } from "#compiler/lower/conservative/types.ts"
 
 import {
 	buildCreateCarrier,

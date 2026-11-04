@@ -13,6 +13,7 @@ import * as Engine from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -24,7 +25,6 @@ import {
 	type ConservativeProgram,
 	flight,
 	keyColumns,
-	type PhysicalNames,
 	type StatementRoots,
 	statementOutput,
 	traverseTree
@@ -137,7 +137,7 @@ const paramDecls = (c: QueryCase): ReadonlyArray<ParamDecl> =>
 	)
 
 /** The case's query as a checked LogicalQuery. */
-export const logicalQuery = (c: QueryCase): LogicalQuery => ({
+const logicalQuery = (c: QueryCase): LogicalQuery => ({
 	dag: c.query.dag,
 	params: paramDecls(c)
 })
@@ -153,7 +153,7 @@ const byKey: Order.Order<readonly [string, unknown]> = Order.mapInput(
  * native equality, the first spelling kept (the generator stores one spelling per value class, gen/domain.ts), in a
  * canonical order.
  */
-export const normalizedCase = <C extends QueryCase>(c: C): C => {
+const normalizedCase = <C extends QueryCase>(c: C): C => {
 	const params: Record<string, GenParam> = {}
 	let changed = false
 	for (const [id, p] of Rec.toEntries(c.query.params)) {

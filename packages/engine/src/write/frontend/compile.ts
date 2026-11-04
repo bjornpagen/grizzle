@@ -27,7 +27,7 @@ import * as Order from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc, MemberDesc } from "#compiler/ir/desc.ts"
-import type { KeyField, RelationInfo } from "#compiler/ir/law.ts"
+import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
@@ -179,7 +179,7 @@ export interface SlotFacts {
 /** A declared key, its fields' handles in its object's order, a span last, and the law its object reports with its
  * description: identity must be declared honestly. */
 export interface KeyLaw {
-	readonly fields: NonEmptyReadonlyArray<KeyField>
+	readonly fields: NonEmptyReadonlyArray<LawField>
 	readonly law: RaisedLawId
 	readonly described: Law
 }
@@ -564,7 +564,9 @@ const merge = (params: Map<string, ParamDecl>, decl: ParamDecl, loc: SourceLoc):
  * 3. Serial class. Each insertion's serial class, decided once per target (`classesOf`): generated, when its facts
  *    omit every serial field of the target, or complete; a described member's by the head its query delivers
  *    (`describedClass`). The statement that realizes an action is the lowering's, a put's chosen with the proofs the
- *    whole ChangeSet gives.
+ *    whole ChangeSet gives. An insertion drafts its acts for its enumerated members whatever facts they are applied
+ *    with: a classed target's both classes, each reading its own slot, the generated one with every described
+ *    generated addition.
  * 4. Schedule. The stratum's dependency graph, from the relation phases and the schema's immediate foreign
  *    keys (`natives`).
  * 5. Evidence. The whole write DAG is analyzed in the transaction context, so a read-back, and a
@@ -946,9 +948,6 @@ const compile = (
 							root: q.root,
 							serial: describedClass(classes, q.query.dag.roots[0].heading)
 						}))
-						/** The insertion acts the target drafts for its enumerated members, whatever facts they are
-						 * applied with: a classed target's both classes, each reading its own slot, the generated
-						 * one with every described generated addition. */
 						switch (classes.kind) {
 							case "unclassed":
 								draft(complete, classes.complete, singleInput(complete, classes.complete), [])

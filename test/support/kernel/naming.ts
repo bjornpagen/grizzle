@@ -42,9 +42,9 @@ import {
 	namedDetail,
 	spanKeyColumns
 } from "#compiler/ir/law.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { type ConstraintLaw, compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import {
 	installationTypes,

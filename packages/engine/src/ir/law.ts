@@ -52,9 +52,6 @@ export interface LawRelation {
 /** A span field's type: a range. */
 export type SpanType = Extract<ScalarType, { readonly carrier: SpanCarrier }>
 
-/** A field of a declared key: its relation's own handle, of any type, a vector's among them. */
-export type KeyField = LawField
-
 /** A key's span field: its relation's own handle, of a range type. */
 export interface SpanField extends LawField {
 	readonly type: SpanType
@@ -72,7 +69,7 @@ export const fieldNames = (fields: ReadonlyArray<LawField>): ReadonlyArray<strin
  * key of two), whether it is the primary key, and the identity its constraint is named by.
  */
 export interface KeyName {
-	readonly fields: NonEmptyReadonlyArray<KeyField>
+	readonly fields: NonEmptyReadonlyArray<LawField>
 	readonly span: SpanField | undefined
 	readonly primary: boolean
 	readonly named: Identity<"primaryKey" | "key">
@@ -93,9 +90,9 @@ interface StoredRelationOf<Kind extends "relation" | "closed"> extends LawRelati
 	/** The additional candidate keys declared with key(), in statement order. */
 	readonly keys: ReadonlyArray<DeclaredKey>
 	/** The handles of the primary key's fields, in key order. */
-	readonly primaryFields: NonEmptyReadonlyArray<KeyField>
+	readonly primaryFields: NonEmptyReadonlyArray<LawField>
 	/** The handles of each additional candidate key's fields, as `keys` lists them. */
-	readonly keyFields: ReadonlyArray<NonEmptyReadonlyArray<KeyField>>
+	readonly keyFields: ReadonlyArray<NonEmptyReadonlyArray<LawField>>
 	readonly mutable: boolean
 	/** The schema level that declares it: 0 for the root schema, n for its n-th extension. */
 	readonly level: number
@@ -210,7 +207,7 @@ type NativeBody =
 	| {
 			readonly kind: "PrimaryKey"
 			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<KeyField>
+			readonly columns: NonEmptyReadonlyArray<LawField>
 			/** The identity ownership named the primary key's constraint by. */
 			readonly named: Identity<"primaryKey" | "key">
 	  }
@@ -301,7 +298,7 @@ type NativeBody =
 	| {
 			readonly kind: "TemporalUnique"
 			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<KeyField>
+			readonly columns: NonEmptyReadonlyArray<LawField>
 			readonly span: SpanField
 	  }
 	| {
@@ -329,14 +326,14 @@ export interface FieldValue {
  * PostgreSQL's PRIMARY KEY needs a column before WITHOUT OVERLAPS (42601); a candidate key may have none.
  */
 export type SpanKeyScalars =
-	| { readonly kind: "primary"; readonly scalars: NonEmptyReadonlyArray<KeyField> }
-	| { readonly kind: "unique"; readonly scalars: ReadonlyArray<KeyField> }
+	| { readonly kind: "primary"; readonly scalars: NonEmptyReadonlyArray<LawField> }
+	| { readonly kind: "unique"; readonly scalars: ReadonlyArray<LawField> }
 
 /** The fields of a span key in its index's order: its scalar fields, then its span. */
 export const spanKeyColumns = (o: {
 	readonly span: SpanField
 	readonly key: SpanKeyScalars
-}): NonEmptyReadonlyArray<KeyField> => appendNonEmpty(o.key.scalars, o.span)
+}): NonEmptyReadonlyArray<LawField> => appendNonEmpty(o.key.scalars, o.span)
 
 export type NativeObject = { readonly lawIds: NonEmptyReadonlyArray<RaisedLawId> } & NativeBody
 

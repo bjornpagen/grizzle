@@ -34,7 +34,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import type { QueryResult } from "#adapter/types/db.ts"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
@@ -50,7 +50,6 @@ import {
 } from "#test/pg/e2e-platform/support.ts"
 import { assert } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	billedSketchGen,

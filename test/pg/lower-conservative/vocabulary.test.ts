@@ -1,12 +1,12 @@
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { defaultOps, opForms } from "#compiler/lower/conservative/expr/ops.ts"
 import { type NativeOp, nativeOps, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import { col } from "#compiler/sql/build.ts"
 import { assert, contains } from "#test/support/assert.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { T } from "#test/unit/lower/conservative/fixtures.ts"
 

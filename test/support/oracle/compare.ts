@@ -1,6 +1,6 @@
 import { Array as Arr, Result } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -18,7 +18,6 @@ import type {
 import { admittedText } from "#compiler/scalar/values/identity.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
 import type { RawRow } from "#test/support/oracle/install/capture.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /** A statement of a program in flight order: its structural label, and the Attach node it delivers, for an attachment. */
 export interface Labeled<S> {
@@ -92,10 +91,6 @@ export interface StatementRows {
 	readonly unstated: Unstated
 	readonly rows: ReadonlyArray<RawRow>
 }
-
-/** Whether a run leaves some cell of some statement unstated. */
-export const holdsUnstated = (run: Run): boolean =>
-	Arr.some(run.statements, (s) => s.unstated.kind === "some")
 
 /** The columns a statement leaves unstated in some row. */
 const unstatedColumns = (s: StatementRows): ReadonlyArray<string> =>

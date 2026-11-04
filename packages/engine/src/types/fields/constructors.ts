@@ -18,7 +18,6 @@ import type {
 import type {
 	ClosedIdField,
 	Contract,
-	DeclaredFacts,
 	Field,
 	FieldBase,
 	FloatField,
@@ -110,7 +109,7 @@ export type ContractConstructor = <
 		v: Scalar<DomainOf<B>, unknown, unknown, B["sql"], Infer<B>>
 	) => Pr & Parameterless<Pr>,
 	declared?: { readonly proves: Proved }
-) => Contract<Name, B, DeclaredFacts<Proved>>
+) => Contract<Name, B, Proved>
 
 /**
  * A contract's name is one literal: a union of names would brand its values with every one of them, and a wider string

@@ -266,11 +266,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 									})
 								: pair("spanKey")
 					}
-					if (
-						reads.kind === "described" &&
-						deletions.length === 0 &&
-						existingKeysProof(reads.node, relation)
-					) {
+					if (deletions.length === 0 && existingKeysProof(reads.node, relation)) {
 						return chosen({ ...place, target: "updateFrom", reason: "existingKeys", inPlace })
 					}
 					return pair("unproved")

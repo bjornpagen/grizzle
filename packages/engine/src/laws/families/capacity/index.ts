@@ -1,6 +1,7 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { CapacityBound, FieldSelector, LawField } from "#compiler/ir/law.ts"
+import { baseTypeRef } from "#compiler/ir/physical.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { type CapacityCheck, capacityCheck } from "#compiler/laws/families/capacity/bounds.ts"
 import type { FamilyPlugin, FamilyUnit, FamilyVariable } from "#compiler/laws/families/plugin.ts"
@@ -12,7 +13,6 @@ import {
 	recordField,
 	selectedBy
 } from "#compiler/laws/residual/sql.ts"
-import { baseTypeRef } from "#compiler/lower/conservative/base-type.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { Expr, PlStatement, Select, SelectCore } from "#compiler/sql/ast.ts"
 import {

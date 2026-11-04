@@ -4,6 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
@@ -19,7 +20,6 @@ import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 
-import { indices } from "#test/support/oracle/pick.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 /**

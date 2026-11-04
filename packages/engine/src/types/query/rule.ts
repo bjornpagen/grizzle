@@ -2,6 +2,7 @@ import type { AllenMask } from "#compiler/allen/mask.ts"
 import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
 import type { AvgSql, NumericSql, PlainHost, SumSql } from "#compiler/scalar/compute/tables.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
 	FirstTerm,
 	FirstValue,
@@ -55,7 +56,7 @@ import type {
 	Shaped,
 	SoleMatch
 } from "#compiler/types/evidence/evidence.ts"
-import type { Field, FieldBase, LiteralOf, Span } from "#compiler/types/fields/field.ts"
+import type { Field, FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
 import type { BoundSource, ContextsOf, Finished } from "#compiler/types/query/query.ts"
 import type {
 	Aggregate,

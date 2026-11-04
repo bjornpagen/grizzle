@@ -5,10 +5,10 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
 import { columnIn, columnType, emptyEnv } from "#compiler/lower/conservative/context.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { withoutSerial } from "#compiler/scalar/compute/types.ts"
 import type {
 	Analyze,

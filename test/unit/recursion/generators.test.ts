@@ -5,6 +5,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { assert, containsEqual, defined, like, matchers } from "#test/support/assert.ts"
 import {
 	defaultRecursiveLimits,
@@ -17,7 +18,6 @@ import {
 	resolveGraph,
 	resolveRecursiveCase
 } from "#test/support/oracle/gen/recursive.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /**
  * The graph-shaped recursive generators themselves. Host only:

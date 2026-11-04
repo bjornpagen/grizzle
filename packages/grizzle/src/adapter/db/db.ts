@@ -8,12 +8,7 @@ import {
 import { type DbContext, registerContext } from "#adapter/db/context.ts"
 import { type ApplyError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
-import {
-	type CompiledRead,
-	makeReader,
-	poolExecutor,
-	type ReaderValue
-} from "#adapter/reader/reader.ts"
+import { type CompiledRead, makeReader, poolExecutor, type Reader } from "#adapter/reader/reader.ts"
 import { refresh } from "#adapter/refresh/index.ts"
 import type {
 	ApplyOutcome,
@@ -107,13 +102,30 @@ const programDecoder = <A>(program: ProgramDecoding<A>): RowDecoder<A> =>
 	"rows" in program ? program.rows : program.reads
 
 /**
- * The runtime operations of the Db over one context, which its methods dispatch to, each taking a program as a
- * JavaScript caller's value is: the reader of its reads, db.compile's compilation of any program, and the write,
- * refresh and explain operations. Tests reach them through dbRuntime for what the typed Db refuses.
+ * The runtime operations of the Db over one context, which its methods dispatch to: the reader of its reads,
+ * db.compile's compilation of a program through its decoder, and the refresh and explain operations, each taking a
+ * program as a JavaScript caller's value is. Tests build it over an opened Db's context for what the typed Db refuses
+ * (test/support/runtime-db.ts).
  */
-const runtimeOf = <S>(ctx: DbContext) => {
-	const reader = makeReader<S>(ctx, poolExecutor(ctx))
+interface Runtime<S> {
+	readonly reader: Reader<S>
 	/** What db.compile runs: a query or ordered query through the reader, a ChangeSet through the write runtime. */
+	readonly compileTyped: <A>(
+		program: unknown,
+		decoder: RowDecoder<A>
+	) => Effect.Effect<CompiledOps<A>, CompileError, Scope.Scope>
+	readonly refresh: (
+		relations: Arr.NonEmptyReadonlyArray<unknown>
+	) => Effect.Effect<void, ApplyError>
+	readonly explain: (
+		program: unknown,
+		params: ParamMap
+	) => Effect.Effect<ReadonlyArray<Plan>, ReadError>
+}
+
+/** The runtime of the Db over `ctx` (see Runtime). */
+export const runtimeOf = <S>(ctx: DbContext): Runtime<S> => {
+	const reader = makeReader<S>(ctx, poolExecutor(ctx))
 	const compileTyped = <A>(
 		program: unknown,
 		decoder: RowDecoder<A>
@@ -128,28 +140,12 @@ const runtimeOf = <S>(ctx: DbContext) => {
 						)
 					: Effect.fail(notAProgram())
 		)
-	/** The same for a JavaScript caller's value: a program carries its decoder, and any other value is refused. */
-	const compile = (
-		program: unknown
-	): Effect.Effect<CompiledOps<unknown>, CompileError, Scope.Scope> =>
-		isChangeSetValue(program)
-			? compileTyped(program, program.reads)
-			: isQueryValue(program) || isOrderedValue(program)
-				? compileTyped(program, program.rows)
-				: Effect.fail(notAProgram())
-	const methods = {
-		apply: (changes: unknown, params: ParamMap): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
-			Effect.suspend(() =>
-				isChangeSetValue(changes)
-					? apply(ctx, changes, changes.reads, params)
-					: compileFailure(notAChangeSet())
-			),
-		refresh: (relations: Arr.NonEmptyReadonlyArray<unknown>) =>
-			Effect.suspend(() => refresh(ctx, relations)),
-		explain: (program: unknown, params: ParamMap) =>
-			Effect.suspend(() => explain(ctx, program, params))
+	return {
+		reader,
+		compileTyped,
+		refresh: (relations) => Effect.suspend(() => refresh(ctx, relations)),
+		explain: (program, params) => Effect.suspend(() => explain(ctx, program, params))
 	}
-	return { reader, compileTyped, compile, methods }
 }
 
 /**
@@ -169,30 +165,10 @@ const runtimeOf = <S>(ctx: DbContext) => {
  * runs it. The rows a read delivers and the read-backs an apply delivers are the records of the program value's own
  * decoders (a query's rows, a ChangeSet's reads), and parameters arrive as ParamArg<P>, each a ParamValue, which the
  * runtime takes as a ParamMap (types/core).
- *
- * The runtime a Db dispatches to, as a JavaScript caller sees it: its runtime operations, the reader of its reads
- * (under the reader view, reader.ts ReaderValue), and db.compile's compilation of any program.
  */
-export interface DbRuntime {
-	readonly reader: ReaderValue
-	readonly compile: (
-		program: unknown
-	) => Effect.Effect<CompiledOps<unknown>, CompileError, Scope.Scope>
-	readonly methods: DbOperations
-}
-
-interface DbOperations {
-	apply(changes: unknown, params: ParamMap): Effect.Effect<ApplyOutcome<unknown>, ApplyError>
-	refresh(relations: Arr.NonEmptyReadonlyArray<unknown>): Effect.Effect<void, ApplyError>
-	explain(program: unknown, params: ParamMap): Effect.Effect<ReadonlyArray<Plan>, ReadError>
-}
-
-const runtimes = new WeakMap<object, DbRuntime>()
-
 export const makeDb = <R, P>(ctx: DbContext, workload: WorkloadHandles<R, P>): DbOf<R, P> => {
 	const runtime = runtimeOf<R>(ctx)
 	const { reader } = runtime
-	const view: DbRuntime = runtime
 	const db: DbOf<R, P> = {
 		workload,
 		get: reader.get,
@@ -213,17 +189,9 @@ export const makeDb = <R, P>(ctx: DbContext, workload: WorkloadHandles<R, P>): D
 					? apply(ctx, changes, changes.reads, params)
 					: compileFailure(notAChangeSet())
 			),
-		refresh: (...relations) => runtime.methods.refresh(relations),
-		explain: (program, params) => runtime.methods.explain(program, params)
+		refresh: (...relations) => runtime.refresh(relations),
+		explain: (program, params) => runtime.explain(program, params)
 	}
 	registerContext(db, ctx)
-	runtimes.set(db, view)
 	return db
 }
-
-/**
- * The runtime the opened Db dispatches every operation to, for what its types refuse (a program over a schema the
- * role does not admit, a ChangeSet outside the role's write list, a loop over queries of different types); undefined
- * for a value Db.open did not return.
- */
-export const dbRuntime = <R, P>(db: DbOf<R, P>): DbRuntime | undefined => runtimes.get(db)

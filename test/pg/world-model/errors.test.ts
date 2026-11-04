@@ -17,7 +17,7 @@ import {
 	requiredWhere,
 	startingWith
 } from "#test/support/worlds/drive/suite.ts"
-import type { Outcome } from "#test/support/worlds/model/types.ts"
+import type { ActionOutcome } from "#test/support/worlds/model/types.ts"
 
 /**
  * Errors over the documents base: programs of every action kind with invalid inputs of every kind, so every refusal
@@ -31,7 +31,7 @@ import type { Outcome } from "#test/support/worlds/model/types.ts"
  * breaks. A tamper changes database settings, so the file runs in a database of its own. A token that does not decode
  * through a role's contexts is the claims suite's (isolation.test.ts).
  */
-const refusals: ReadonlyArray<Outcome["kind"]> = [
+const refusals: ReadonlyArray<ActionOutcome["kind"]> = [
 	"open-refused",
 	"invariant-rejected",
 	"law-refused",

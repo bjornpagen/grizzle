@@ -19,7 +19,7 @@ import { Money, moneyFractionDigits } from "#compiler/scalar/values/money.ts"
 import {
 	makeSpan,
 	type Span,
-	type SpanEndpoint,
+	type SpanEndpointCarrier,
 	type SpanEndpointHost
 } from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
@@ -344,14 +344,16 @@ const spanEndpoints = (text: string): readonly [string, string] | undefined => {
 }
 
 const endpointReaders: {
-	readonly [P in SpanEndpoint]: (text: string) => Result.Result<SpanEndpointHost[P], StrictFault>
+	readonly [P in SpanEndpointCarrier]: (
+		text: string
+	) => Result.Result<SpanEndpointHost[P], StrictFault>
 } = {
 	int4: readSmall(int4Min, int4Max),
 	int8: readInt8
 }
 
 const readSpan =
-	<P extends SpanEndpoint>(endpoint: P) =>
+	<P extends SpanEndpointCarrier>(endpoint: P) =>
 	(text: string): Result.Result<Span<SpanEndpointHost[P]>, StrictFault> => {
 		const endpoints = spanEndpoints(text)
 		if (endpoints === undefined) {

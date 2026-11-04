@@ -33,19 +33,15 @@ import {
 import { decodeMeta } from "#adapter/boundary/meta.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import { readLedger, statementsFor } from "#adapter/migrate/ledger.ts"
+import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { writeMeta } from "#compiler/deploy/render/folder.ts"
-import {
-	findMarkers,
-	placeholderMarker,
-	placeholderToken
-} from "#compiler/deploy/render/markers.ts"
+import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { placeholderToken, quoteIdent } from "#compiler/sql/print.ts"
 import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
 import {
 	type CliRun,
@@ -63,6 +59,7 @@ import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { loginRoleOf } from "#test/support/installed.ts"
+import { readLedger } from "#test/support/migrate/ledger.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"

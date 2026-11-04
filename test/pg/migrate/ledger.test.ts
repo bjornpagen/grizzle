@@ -20,7 +20,8 @@ import type {
 	UnresolvedMarker
 } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
-import { readLedger, statementsFor } from "#adapter/migrate/ledger.ts"
+import { statementsFor } from "#adapter/migrate/ledger.ts"
+import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import {
@@ -56,7 +57,7 @@ import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/supp
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, draftedAt, fromEmpty, ownedBy } from "#test/support/migrate/kit.ts"
-import { indices } from "#test/support/oracle/pick.ts"
+import { readLedger } from "#test/support/migrate/ledger.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

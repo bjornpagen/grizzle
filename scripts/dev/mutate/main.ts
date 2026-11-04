@@ -27,7 +27,7 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import { maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import { covered, isDump, type ScriptRanges, scriptsOfDump } from "#scripts/dev/mutate/coverage.ts"
 import {
 	applyMutant,
@@ -53,7 +53,6 @@ import {
 	Verdict
 } from "#scripts/dev/mutate/report.ts"
 import { RunLine } from "#scripts/dev/mutate/reporter.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { hardenedNode, sourceCondition } from "#test/support/process.ts"
 
 import { regex } from "arkregex"

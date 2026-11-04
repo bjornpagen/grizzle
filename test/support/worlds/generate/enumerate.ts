@@ -71,7 +71,7 @@ import type {
 	LoginSpec,
 	ModelState,
 	Occurrence,
-	Outcome,
+	ActionOutcome,
 	ReadVia,
 	RelationSpec,
 	RoleRef,
@@ -1815,7 +1815,7 @@ export type Box =
  * a SQLSTATE, a law and whether its witness shows, a reason, a relation), whether rows or drift are empty, and an
  * apply's verdict.
  */
-const outcomeClass = (o: Outcome): string => {
+const outcomeClass = (o: ActionOutcome): string => {
 	switch (o.kind) {
 		case "open-refused":
 			return `${o.kind} ${o.stage} ${o.verifyCalls}`
@@ -1866,7 +1866,11 @@ export const exploreBox = (
 	starts: ReadonlyArray<ModelState>,
 	scope: SmallScope,
 	room: number,
-	situation: (state: ModelState, action: Action, observation: Outcome) => ReadonlyArray<string>
+	situation: (
+		state: ModelState,
+		action: Action,
+		observation: ActionOutcome
+	) => ReadonlyArray<string>
 ): Box => {
 	const classes = new Set<string>()
 	const transitions: Array<BoxTransition> = []

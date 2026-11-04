@@ -1,5 +1,5 @@
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
-import { baseTypeRef } from "#compiler/lower/conservative/base-type.ts"
+import { baseTypeRef } from "#compiler/ir/physical.ts"
 import {
 	type Lowerers,
 	type NodeLowerer,

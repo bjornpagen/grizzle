@@ -8,6 +8,7 @@ import { attachmentFacts } from "#adapter/reader/analysis.ts"
 import { formFor } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { readExceeds, templateProgram } from "#adapter/reader/run.ts"
+import { indices } from "#compiler/core/array.ts"
 import { lateralParentMax } from "#compiler/core/policy.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -16,7 +17,6 @@ import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { Account, Task, Work } from "#test/support/fixtures/api/work.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /**
  * A read's per-execution form is chosen by the count of the relation parameter its correlated take reads, whatever the

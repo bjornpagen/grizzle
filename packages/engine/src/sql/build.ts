@@ -1,5 +1,4 @@
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { ExactCarrier } from "#compiler/scalar/aggregate.ts"
 import type {
 	BinaryOperator,
 	BuiltinFunctionName,
@@ -315,36 +314,21 @@ const signOf = (x: Expr): Expr => ({
 	else: integer(1)
 })
 
-/**
- * The exact numeric value of a double precision expression. Its bits, read through float8send, are a sign, an
- * exponent e and a significand M (with the implicit bit when e > 0). The value M · 2^P, P = max(e, 1) - 1075, is
- * written as the text of M · 2^P when P ≥ 0, and of M · 5^-P with exponent P below, so numeric_in reads it with
- * no rounding at any scale (power(10, P) rounds past NUMERIC_MAX_DISPLAY_SCALE = 1000). NaN and the infinities are
- * numeric's own. A real widens to double precision exactly first; money is money::numeric (cash_numeric, exact).
- *
- * It is written inline, every use of the argument repeated, because an installed function is an object to name,
- * grant, migrate and check for drift, and a non-inlined SQL function costs forty times as much per row.
- */
-export const exactNumeric = (e: Expr, carrier: ExactCarrier): Expr => {
-	switch (carrier) {
-		case "money":
-			return cast(e, types.numeric)
-		case "float4":
-			return exactDouble(cast(e, types.double))
-		case "float8":
-			return exactDouble(e)
-	}
-}
-
 /** power(base::numeric, exponent::numeric) over an integer exponent, which PostgreSQL computes exactly. */
 const exactPower = (base: number, exponent: Expr): Expr =>
 	call("power", [lit.int(base, types.numeric), cast(exponent, types.numeric)])
 
 /**
- * A finite double's exact value as numeric_in reads it: the text of M · 2^max(P, 0) · 5^max(-P, 0), signed, with the
- * exponent min(P, 0), so every digit is written and none rounds.
+ * The exact numeric value of a double precision expression. Its bits, read through float8send, are a sign, an
+ * exponent e and a significand M (with the implicit bit when e > 0). The value M · 2^P, P = max(e, 1) - 1075, is
+ * written as the text of M · 2^max(P, 0) · 5^max(-P, 0), signed, with the exponent min(P, 0), so numeric_in reads it
+ * with no rounding at any scale (power(10, P) rounds past NUMERIC_MAX_DISPLAY_SCALE = 1000). NaN and the infinities
+ * are numeric's own.
+ *
+ * It is written inline, every use of the argument repeated, because an installed function is an object to name,
+ * grant, migrate and check for drift, and a non-inlined SQL function costs forty times as much per row.
  */
-const exactDouble = (x: Expr): Expr => {
+export const exactNumericOfDouble = (x: Expr): Expr => {
 	const exponent = exponentField(x)
 	const implicit: Expr = {
 		kind: "case",

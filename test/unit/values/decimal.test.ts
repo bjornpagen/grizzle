@@ -351,7 +351,6 @@ describe("Decimal parsing", () => {
 				faulted(Decimal.fromBigInt(10n ** 131072n), "decimalRange")
 				faulted(Decimal.fromParts(false, 1n, 16384), "decimalRange")
 				faulted(Decimal.fromParts(false, -1n, 0), "decimalType")
-				/** Admission is by value: a written scale past the limit whose value's least scale fits is that value. */
 				assert.equal(succeeded(Decimal.fromString(`1.${Str.repeat(20000)("0")}`)).text, "1")
 				assert.equal(succeeded(Decimal.fromParts(false, 10n ** 20000n, 20000)).text, "1")
 				return explored

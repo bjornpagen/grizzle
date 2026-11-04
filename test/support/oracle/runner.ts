@@ -35,6 +35,7 @@ import * as Engine from "#compiler/core/result.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
@@ -43,7 +44,6 @@ import {
 	type ConservativeProgram,
 	type ConservativeStatement,
 	flight,
-	type PhysicalNames,
 	statementOutput
 } from "#compiler/lower/conservative/types.ts"
 import { printObjectName } from "#compiler/sql/print.ts"

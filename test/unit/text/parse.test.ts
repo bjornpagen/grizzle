@@ -9,8 +9,8 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { regexMaxNodes } from "#compiler/core/policy.ts"
+import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { admitRegex } from "#compiler/text/field.ts"
-import { parsePattern, type RegexFlags } from "#compiler/text/parse.ts"
 import { textLimits } from "#compiler/text/refinement.ts"
 import { assert, matchesObject } from "#test/support/assert.ts"
 import { nonStringWildKinds } from "#test/unit/values/support.ts"
@@ -133,7 +133,7 @@ describe("refusals with location and reason", () => {
 		(ctx) => {
 			/**
 			 * Sources over the grammar's syntax characters, escapes, group and reference spellings. Property escapes and
-			 * non-ASCII names are left out: their validity needs Unicode tables the scanner does not carry (parse.ts).
+			 * non-ASCII names are left out: their validity needs Unicode tables the scanner does not carry (scalar/regex/parse.ts).
 			 */
 			const unit = element([
 				...Str.split("ab1209()?:<>=!|[]-^$.*+{},\\kxucsdwBiPm", ""),

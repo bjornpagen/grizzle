@@ -23,8 +23,8 @@ import {
 } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type { SqlOfTerm, ValueOfTerm } from "#compiler/types/core/phantom.ts"
-import type { Span } from "#compiler/types/fields/field.ts"
 import type { Equals, Expect } from "#test/types/query/support.ts"
 
 /** The names of a program's parameters: never for one that takes none. */

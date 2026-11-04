@@ -121,7 +121,7 @@ const boundaries: { readonly [C in Gate]: ReadonlyArray<Boundary> } = {
 			["minus one", "-1"],
 			["half", "2.5"],
 			["tiny", "1e-20"],
-			["largest", `${Str.repeat(1000)("9")}`],
+			["largest", Str.repeat(1000)("9")],
 			["int4 half", "2147483647.5"],
 			["int8 half", "9223372036854775807.5"],
 			["NaN", "NaN"],
@@ -587,7 +587,7 @@ type SpelledSituation = `padded ${string}` | `negative zero ${string}`
 const boundarySituations: ReadonlyArray<BoundarySituation> = Arr.flatMap(gateCarriers, (c) =>
 	Arr.flatMap(
 		Arr.filter(entriesOf(c), (e) => !declinedEntries.has(e)),
-		(e) =>
+		(e: string) =>
 			Arr.map(
 				[
 					...Arr.map(boundaries[c], (b) => b.name),

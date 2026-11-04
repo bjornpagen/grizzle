@@ -14,9 +14,9 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { sameValue, valueText } from "#test/pg/laws/families/model.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -76,7 +76,7 @@ import type {
 	InstallSpec,
 	InvalidKind,
 	ModelState,
-	Outcome,
+	ActionOutcome,
 	RoleSpec,
 	SmallScope,
 	WorldFeature,
@@ -180,7 +180,7 @@ const transactionEnded = "lead:the transaction ended" as const
 const endingRead = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<WorldFeature | typeof transactionEnded> => [
 	...notedOf(state, action, observation),
 	...(action.kind === "direct-end" && ofTheTransaction(action, state) ? [transactionEnded] : [])
@@ -213,7 +213,7 @@ const endingIt = (weights: Weights, features: ReadonlyArray<string>): Weights =>
 const afterBegin = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<WorldFeature> => {
 	if (action.kind !== "direct-begin" || observation.kind !== "opened") {
 		return []
@@ -325,7 +325,7 @@ const callThrough = (action: Action, session: number): boolean => {
  */
 const afterOpen =
 	(kinds: ReadonlyArray<"read" | "apply">, read: Aiming["read"]) =>
-	(state: ModelState, action: Action, observation: Outcome): ReadonlyArray<string> => {
+	(state: ModelState, action: Action, observation: ActionOutcome): ReadonlyArray<string> => {
 		if (action.kind !== "open-db" || observation.kind !== "opened") {
 			return []
 		}
@@ -431,7 +431,7 @@ const refreshesWritten = (base: BaseSpec, role: RoleSpec): boolean => {
 const refreshesWrittenRead = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<typeof dbRefreshingWritten> => {
 	if (action.kind !== "open-db" || observation.kind !== "opened" || action.role.kind !== "own") {
 		return []
@@ -457,7 +457,7 @@ const afterApplyCalls: Arr.NonEmptyReadonlyArray<ActionKind> = ["read", "refresh
 const afterApply = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<WorldFeature> => {
 	if (action.kind !== "apply") {
 		return []
@@ -555,7 +555,7 @@ const atCommitRefusals = (feature: WorldFeature): boolean =>
 const commitAfter = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<WorldFeature> => {
 	if (action.kind !== "direct") {
 		return []
@@ -582,7 +582,7 @@ const directReadAt = (action: Action, session: number): boolean =>
 const readsAfterDelete = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<WorldFeature> => {
 	if (
 		action.kind !== "direct" ||
@@ -608,7 +608,7 @@ const readsAfterDelete = (
 const afterWrite = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<WorldFeature> => [
 	...commitAfter(state, action, observation),
 	...readsAfterDelete(state, action, observation)
@@ -622,7 +622,7 @@ const afterWrite = (
  */
 const afterAStatementOf =
 	(read: Aiming["read"]) =>
-	(state: ModelState, action: Action, observation: Outcome): ReadonlyArray<string> => {
+	(state: ModelState, action: Action, observation: ActionOutcome): ReadonlyArray<string> => {
 		if (action.kind !== "direct-begin" || observation.kind !== "opened") {
 			return []
 		}
@@ -704,7 +704,7 @@ export const readPastADelete =
 const opensAfter = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<WorldFeature> =>
 	action.kind === "tamper"
 		? Arr.flatMap(branchesOf(state, action), (b) =>
@@ -757,7 +757,7 @@ export const openPastATamper =
 const readsAfterMigration = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ): ReadonlyArray<WorldFeature> =>
 	action.kind === "migrate"
 		? Arr.flatMap(branchesOf(state, action), (b) =>
@@ -1069,7 +1069,7 @@ export const aimsAt = <F extends string>(
 type FeatureReading<F extends string> = (
 	state: ModelState,
 	action: Action,
-	observation: Outcome
+	observation: ActionOutcome
 ) => ReadonlyArray<F>
 
 /** What a world-model suite draws: its focus, every role, aimed at its required worlds features, after its lead. */
@@ -1300,7 +1300,7 @@ export interface Seen {
 	readonly index: number
 	readonly before: ModelState
 	readonly action: Action
-	readonly observation: Outcome
+	readonly observation: ActionOutcome
 	readonly after: ModelState
 }
 
@@ -1514,7 +1514,7 @@ export const requiredWhere = (
 interface Ops {
 	readonly kinds: ReadonlyArray<ActionKind>
 	readonly writers: ReadonlyArray<Writer>
-	readonly observations: ReadonlyArray<Outcome["kind"]>
+	readonly observations: ReadonlyArray<ActionOutcome["kind"]>
 }
 
 /**

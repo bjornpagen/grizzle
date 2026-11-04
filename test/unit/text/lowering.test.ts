@@ -8,9 +8,9 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { regexMaxNodes } from "#compiler/core/policy.ts"
+import * as RegexIr from "#compiler/scalar/regex/ir.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { toAre } from "#compiler/text/are.ts"
-import * as RegexIr from "#compiler/text/ir.ts"
-import { parsePattern } from "#compiler/text/parse.ts"
 import { analyzeLanguage, analyzeText, textLimits } from "#compiler/text/refinement.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { families, flagsGen, nestedPattern, patternOver } from "#test/unit/text/generators.ts"
@@ -27,7 +27,7 @@ const isAsciiAlnum = (c: number): boolean =>
 	(c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)
 
 /**
- * The admitted source spelling (parse.ts) of an ARE the printer (are.ts toAre) wrote, or undefined for any other
+ * The admitted source spelling (scalar/regex/parse.ts) of an ARE the printer (are.ts toAre) wrote, or undefined for any other
  * string: the printer's inverse up to spelling, written here from the printer's documented output, so the language an
  * ARE recognizes can be analyzed again. Every construct the printer emits is respelled into the admitted grammar, which
  * reads it as the same set of code points: `\A` and `\Z` are `^` and `$` (absolute without the `m` flag), and every
@@ -184,7 +184,7 @@ const loops = (node: RegexIr.RegexNode): boolean => {
 	}
 }
 
-describe("constraint loops (ir.ts repeat)", () => {
+describe("constraint loops (scalar/regex/ir.ts repeat)", () => {
 	it.effect("leaves no repetition that loops through an assertion", (ctx) =>
 		searched(
 			ctx,

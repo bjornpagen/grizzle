@@ -153,17 +153,23 @@ export type CatalogExpr =
 			readonly else: CatalogExpr | undefined
 	  }
 	| { readonly kind: "coalesce"; readonly args: NonEmptyReadonlyArray<CatalogExpr> }
-	/** ARRAY[<items>] cast to the array of `type`, so an empty list is typed too. */
 	| {
+			/** ARRAY[<items>] cast to the array of `type`, so an empty list is typed too. */
 			readonly kind: "array"
 			readonly items: ReadonlyArray<CatalogExpr>
 			readonly type: CatalogCast
 	  }
-	/** COLLATE "pg_catalog"."C": byte order, whatever the database's collation. */
-	| { readonly kind: "collateC"; readonly expr: CatalogExpr }
+	| {
+			/** COLLATE "pg_catalog"."C": byte order, whatever the database's collation. */
+			readonly kind: "collateC"
+			readonly expr: CatalogExpr
+	  }
 	| { readonly kind: "currentUser" }
-	/** A relation as a regclass value, by its qualified name (sql/ast.ts RegclassRef). */
-	| { readonly kind: "regclass"; readonly relation: ObjectName }
+	| {
+			/** A relation as a regclass value, by its qualified name (sql/ast.ts RegclassRef). */
+			readonly kind: "regclass"
+			readonly relation: ObjectName
+	  }
 
 /** A FROM item of a catalog read; a function's column alias list names its columns. */
 export type CatalogFrom =

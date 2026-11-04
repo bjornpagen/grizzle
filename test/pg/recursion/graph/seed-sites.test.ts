@@ -4,7 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -14,7 +14,6 @@ import { str } from "#compiler/public/text.ts"
 import { isGraphRule, optimizedLoweringWith, publicCase } from "#test/pg/recursion/graph/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import {
 	conservative,
 	defaultRunOptions,

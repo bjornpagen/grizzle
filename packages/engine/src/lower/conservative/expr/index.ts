@@ -1,8 +1,8 @@
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { describeOp, type TypedLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
-import { baseTypeRef as physicalBaseType } from "#compiler/lower/conservative/base-type.ts"
 import {
 	type Env,
 	type LowerContext,
@@ -12,7 +12,6 @@ import {
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { bindOperands, ieeeCastForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
@@ -121,11 +120,7 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 			const inner = lower(arg)
 			const native = nativeOp(expr.cast)
 			const target = baseOf(expr.type).carrier
-			if (
-				native !== undefined &&
-				native.totality.kind === "ieee" &&
-				(target === "float4" || target === "float8")
-			) {
+			if (native?.totality.kind === "ieee" && (target === "float4" || target === "float8")) {
 				return (
 					bindOperands([arg], [inner], ([x]) => ieeeCastForm(x, arg.type, target)) ??
 					refuse("UnsupportedOperation", at, `an IEEE 754 rounding into ${target}`)

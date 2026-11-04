@@ -1,6 +1,6 @@
 import { topoOrder } from "#compiler/ir/dag.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { RootedDag } from "#compiler/ir/rel.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
 import type {
 	Cte,
@@ -13,9 +13,6 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { sameTypeRef } from "#compiler/sql/build.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
-
-/** A FROM item that names a relation: every item but a join, which names none and whose sides are the items. */
-type NamedItem = FromSource
 
 /** The key of an installed column: its schema, table and column. */
 const columnKey = (table: ObjectName, column: string): string =>
@@ -58,7 +55,7 @@ const installedColumns = (dag: RootedDag, names: PhysicalNames): ReadonlyMap<str
  */
 class Delivered {
 	readonly #installed: ReadonlyMap<string, TypeRef>
-	readonly #items = new Map<string, NamedItem>()
+	readonly #items = new Map<string, FromSource>()
 	readonly #ctes = new Map<string, Cte>()
 
 	constructor(query: Select, installed: ReadonlyMap<string, TypeRef>) {

@@ -78,7 +78,7 @@ export const sameHeading = (a: CreateTable, b: CreateTable): boolean =>
 	})
 
 /** The single law an object reports, when it carries exactly one law reason. */
-export const lawOf = (reasons: ReadonlyArray<PhysicalReason>): LawId | undefined => {
+const lawOf = (reasons: ReadonlyArray<PhysicalReason>): LawId | undefined => {
 	const laws = [...new Set(reasons.flatMap((r) => (r.kind === "law" ? [r.law] : [])))]
 	return laws.length === 1 ? laws[0] : undefined
 }

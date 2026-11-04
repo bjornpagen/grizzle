@@ -35,7 +35,7 @@ import type {
 	LedgerStanding,
 	MigrationHow,
 	ModelState,
-	Outcome,
+	ActionOutcome,
 	SqlState,
 	Allowed
 } from "#test/support/worlds/model/types.ts"
@@ -72,7 +72,7 @@ const named = (state: Unnamed, names: InstalledNames): ModelState => ({
 
 /** A run's outcome in the state it reaches: a branch where nothing landed, else a landing awaiting the names. */
 const allowedAt = (
-	observation: Outcome,
+	observation: ActionOutcome,
 	reached: Reached,
 	then: <S extends Unnamed>(state: S) => S
 ): Allowed =>
@@ -424,7 +424,7 @@ export const migrateBranches = (
 	to: InstallSpec,
 	how: MigrationHow
 ): Arr.NonEmptyReadonlyArray<Allowed> => {
-	const stay = (observation: Outcome): Allowed => ({ observation, next: state })
+	const stay = (observation: ActionOutcome): Allowed => ({ observation, next: state })
 	if (refusedAtBuild(to)) {
 		return [stay({ kind: "compile-refused" })]
 	}

@@ -3,14 +3,13 @@ import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchFailure } from "#adapter/errors/failures.ts"
 import { type AcquisitionBudgets, acquisitionBudgets } from "#adapter/pool/budgets.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
-import { runAlone } from "#adapter/wire/batch.ts"
 import { makePool, type Session, type SessionPool, type Transport } from "#adapter/wire/session.ts"
 import { poolBounds } from "#compiler/core/policy.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
 import { pgPin } from "#test/support/env.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import { runAlone, type SqlError } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -30,7 +29,7 @@ export const roleDefaults: Arr.NonEmptyReadonlyArray<RoleDefaultSetting> = roleD
 export type RoleDefaultSetting = (typeof roleDefaultSettings)[number]
 
 /** A parameter every login stores a default for. */
-export type RoleDefault = RoleDefaultSetting["parameter"]
+export type RoleDefaultParameter = RoleDefaultSetting["parameter"]
 
 /**
  * Creates the login `<schema>__<name>` with a random password and the given role defaults (an installed login's by

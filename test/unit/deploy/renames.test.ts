@@ -15,26 +15,22 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
-	type AlternativeStep,
 	type Candidate,
 	candidatesOf,
 	type Draft,
 	type Offer,
 	pathOf,
+	type RelationStep,
 	rivals,
 	samePath
 } from "#compiler/deploy/diff/plan.ts"
 import { splitRenames } from "#compiler/deploy/render/chosen.ts"
 import type { MigrationMeta, ReadCandidate } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
-import {
-	findMarkers,
-	fromFirstToken,
-	placeholderToken,
-	splitStatements
-} from "#compiler/deploy/render/markers.ts"
+import { findMarkers, fromFirstToken, splitStatements } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -45,6 +41,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { TypeRef } from "#compiler/sql/ast.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
 import {
 	carry,
 	noExtras,
@@ -94,7 +91,7 @@ import {
 import { int4, int8, literalEqualityKey, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
 import type { LiteralRow, ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
-import { indices, nonEmptyList } from "#test/support/oracle/pick.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { owning } from "#test/support/policy.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import type {
@@ -441,12 +438,12 @@ const printBox = (box: Box): string =>
 /** A candidate's own rename offer as the plan drafts it, by its candidate, and its alternative. */
 interface Own {
 	readonly candidate: Candidate
-	readonly alternative: ReadonlyArray<AlternativeStep>
+	readonly alternative: ReadonlyArray<RelationStep>
 }
 
 /** Every candidate's own rename offer a draft holds, nested ones included. */
 const ownOffers = (g: GenerateResult): ReadonlyArray<Own> => {
-	const inSteps = (steps: ReadonlyArray<Draft | AlternativeStep>): ReadonlyArray<Own> =>
+	const inSteps = (steps: ReadonlyArray<Draft | RelationStep>): ReadonlyArray<Own> =>
 		Arr.flatMap(steps, (d) =>
 			d.kind === "choice"
 				? Arr.flatMap(d.offers, (o: Offer): ReadonlyArray<Own> => {
@@ -471,7 +468,7 @@ const ownOffers = (g: GenerateResult): ReadonlyArray<Own> => {
 }
 
 /** The alternative of a candidate's own offer. */
-const alternativeOf = (g: GenerateResult, c: Candidate): ReadonlyArray<AlternativeStep> =>
+const alternativeOf = (g: GenerateResult, c: Candidate): ReadonlyArray<RelationStep> =>
 	Arr.flatMap(ownOffers(g), (o) => (o.candidate === c ? o.alternative : []))
 
 /** Whether a candidate's alternative converts a column by the reviewer's placeholder. */

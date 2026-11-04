@@ -5,4 +5,4 @@ export {
 	type RegexValidate,
 	str
 } from "#compiler/text/field.ts"
-export type { RegexFlags } from "#compiler/text/parse.ts"
+export type { RegexFlags } from "#compiler/scalar/regex/parse.ts"

@@ -174,7 +174,7 @@ const loaded = run.trapped.length
  * test/unit/deps under the root it is given, so each resolves to the same URL as the root-relative path.
  */
 const field = await import("#compiler/text/field.ts")
-const parse = await import("#compiler/text/parse.ts")
+const parse = await import("#compiler/scalar/regex/parse.ts")
 const refinement = await import("#compiler/text/refinement.ts")
 const loc = await import("#compiler/core/loc.ts")
 const generators = await import("#test/unit/text/generators.ts")
@@ -220,7 +220,8 @@ const refused = Arr.filter(
 
 /** The text codecs: every carrier's conversion of PostgreSQL's output texts. */
 const codec = await import("#compiler/codec/scalar.ts")
-const values = await import("#compiler/scalar/values/float.ts")
+const values: Readonly<typeof import("#compiler/scalar/values/float.ts")> =
+	await import("#compiler/scalar/values/float.ts")
 const codecTypes = (await import("#test/unit/codec/support.ts")).types
 const codecTexts: ReadonlyArray<readonly [keyof typeof codecTypes, ReadonlyArray<string>]> = [
 	["int2", ["0", "-32768", "32767", "1", "-1", "12345", "100", "-100"]],

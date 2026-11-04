@@ -5,6 +5,7 @@ import { boolean, element, filter, type Gen, int, oneOf, subarray } from "@grizz
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
+import { type CounterAnalysis, counterBound } from "#compiler/check/recursion/bound.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { compileBudgets, recursionUnrollMax } from "#compiler/core/policy.ts"
@@ -17,11 +18,7 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/index.ts"
 import { optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
-import {
-	type CounterAnalysis,
-	counterBound,
-	recursionLowerer
-} from "#compiler/lower/shapes/recursion/index.ts"
+import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -40,7 +37,7 @@ import { conservativeShapeFacts } from "#test/unit/lower/shapes/support.ts"
 import { nodeOfKind, present } from "#test/unit/lower/support.ts"
 
 /**
- * The optimized recursive lowering's proof of an iteration bound (lower/shapes/recursion/bound.ts) and the form it
+ * The optimized recursive lowering's proof of an iteration bound (check/recursion/bound.ts) and the form it
  * chooses (lower/shapes/recursion/index.ts), against the rule their headers state:
  *
  * - a bounded counter c: every seed fixes c to an integer literal (the set S), every row the step produces sets c to
@@ -559,7 +556,7 @@ const below = (bound: number): Guard => ({
 	bound: BigInt(bound)
 })
 
-describe("the bounded-counter proof (packages/engine/src/lower/shapes/recursion/bound.ts)", () => {
+describe("the bounded-counter proof (packages/engine/src/check/recursion/bound.ts)", () => {
 	it.effect(
 		"proves the model's depth, limit and seeds for every counter, or the model's reason for none",
 		(ctx) =>

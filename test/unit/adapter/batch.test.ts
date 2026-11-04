@@ -14,10 +14,10 @@ import {
 	joinFlights,
 	runFramed,
 	runTransaction,
-	statementSql,
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import { serverStatement } from "#adapter/wire/session.ts"
+import { indices } from "#compiler/core/array.ts"
 import { assert } from "#test/support/assert.ts"
 import { type CaseSpace, caseGen, smallCases } from "#test/support/flight/cases.ts"
 import type { Timing } from "#test/support/flight/drive.ts"
@@ -43,8 +43,7 @@ import {
 	rows,
 	scriptedSession
 } from "#test/support/flight/scripted.ts"
-import { indices } from "#test/support/oracle/pick.ts"
-import { testSql } from "#test/support/sql.ts"
+import { statementSql, testSql } from "#test/support/sql.ts"
 
 /**
  * Flights (packages/grizzle/src/adapter/wire/batch.ts) against their contract, at every interruption point.

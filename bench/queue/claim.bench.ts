@@ -81,11 +81,10 @@ import {
 	writeConditions,
 	writesOf
 } from "#bench/write/support/writes.ts"
-import { appendAll } from "#compiler/core/array.ts"
+import { appendAll, indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { beginSerializable, type RawSession } from "#test/support/substrate/session.ts"
 import { connectionsPerLease } from "#test/support/substrate/shared.ts"

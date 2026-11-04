@@ -20,6 +20,7 @@ import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record, String as Str } from "effect"
 import type { QueryDesc, SideDesc } from "#compiler/ir/desc.ts"
+import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own } from "#compiler/schema/own.ts"
@@ -49,13 +50,12 @@ import { argumentsOf } from "#test/support/list.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	bareContract,
-	closedId,
+	rawClosedId,
 	rawContract,
 	rawPg,
+	rawSpan,
 	type Row,
-	regex,
-	span,
-	uuid
+	regex
 } from "#test/unit/schema/support.ts"
 
 import { regex as arkregex } from "arkregex"
@@ -69,7 +69,7 @@ import { regex as arkregex } from "arkregex"
  */
 const Kind = closed("Kind", ["Automatic", "Manual"], [])
 const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
-const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"], [])
+const Task = relation("Task", { id: uuid, account: uuid, kind: rawClosedId(Kind) }, ["id"], [])
 const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: rawPg.bigint }, ["task"], [])
 const ManualTask = relation("ManualTask", { task: uuid, assignee: uuid }, ["task"], [])
 
@@ -422,7 +422,7 @@ describe("conflicting declarations", () => {
 										const first = rawContract(s.name, rawPg.bigint, atLeast(s.n))
 										const second: FieldBase = s.agree
 											? s.swapped
-												? span(rawContract(s.name, rawPg.bigint, atLeast(s.n)))
+												? rawSpan(rawContract(s.name, rawPg.bigint, atLeast(s.n)))
 												: rawContract(s.name, rawPg.bigint, atLeast(s.n))
 											: s.conflict === "a contract name over another base"
 												? rawContract(s.name, rawPg.integer, atLeast(s.n))
@@ -492,7 +492,7 @@ describe("closed relations", () => {
 
 	/** closedId(Kind) under `depth` contracts. */
 	const wrapped = (depth: number): FieldBase =>
-		depth === 0 ? closedId(Kind) : bareContract(`Grade${depth}`, wrapped(depth - 1))
+		depth === 0 ? rawClosedId(Kind) : bareContract(`Grade${depth}`, wrapped(depth - 1))
 
 	it.effect(
 		"checks every handle written against a closedId field, at any contract depth, against its roster",

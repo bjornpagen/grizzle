@@ -18,6 +18,7 @@ import {
 } from "effect"
 import { parseTarget, transactionControl } from "#adapter/migrate/input.ts"
 import { planApply, runFiles } from "#adapter/migrate/plan.ts"
+import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
 import { emptyFingerprint, emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -25,7 +26,6 @@ import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/asse
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, unowned } from "#test/support/migrate/kit.ts"
 import { draftFiles } from "#test/support/migrate/review.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { shopV1, shopV2, shopV3 } from "#test/unit/deploy/schemas.ts"
 
 /**

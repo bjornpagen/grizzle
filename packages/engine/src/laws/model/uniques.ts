@@ -4,7 +4,6 @@ import type { ConstraintName, RaisedLawId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	FieldSelector,
-	KeyField,
 	LawField,
 	LawRelation,
 	RelationInfo,
@@ -32,15 +31,15 @@ export type UniqueObject = Named &
 				readonly equal: NonEmptyReadonlyArray<LawField>
 				readonly where: ReadonlyArray<FieldSelector>
 		  }
-		| { readonly kind: "span"; readonly equal: ReadonlyArray<KeyField>; readonly span: SpanField }
+		| { readonly kind: "span"; readonly equal: ReadonlyArray<LawField>; readonly span: SpanField }
 	)
 
 /** A declared key's object: a PRIMARY KEY or UNIQUE constraint, or one WITHOUT OVERLAPS when it holds a span field, over
  * the key's own handles. */
 export type PrimaryKeyObject = Named &
 	(
-		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<KeyField> }
-		| { readonly kind: "span"; readonly equal: ReadonlyArray<KeyField>; readonly span: SpanField }
+		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<LawField> }
+		| { readonly kind: "span"; readonly equal: ReadonlyArray<LawField>; readonly span: SpanField }
 	)
 
 export interface UniqueObjects {
@@ -57,7 +56,7 @@ export const witnessFields = (u: UniqueObject): ReadonlyArray<LawField> =>
 	u.kind === "span" ? [...u.equal, u.span] : u.equal
 
 /** The fields of a declared key a conflict at it names: its compared fields, then its span. */
-export const keyWitness = (k: PrimaryKeyObject): NonEmptyReadonlyArray<KeyField> =>
+export const keyWitness = (k: PrimaryKeyObject): NonEmptyReadonlyArray<LawField> =>
 	k.kind === "span" ? appendNonEmpty(k.equal, k.span) : k.equal
 
 /** Every field a unique object reads: those it compares and, for a unique index, those its predicate reads, since a

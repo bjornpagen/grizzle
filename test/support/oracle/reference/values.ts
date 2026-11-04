@@ -1,4 +1,5 @@
 import { Array as Arr, Formatter, Result, Schema } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { VectorText } from "#compiler/ir/carriers.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -9,7 +10,6 @@ import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, floatText } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { type CatalogResult, compareCarried } from "#test/support/oracle/evaluate/catalog.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /**
  * Why the reference states no value: a closed union, so a new way to give up is a type change, and each is a named,
@@ -336,7 +336,7 @@ export const distinctRows = (
 }
 
 /** Whether a value is a declined term's, whose values the reference does not list. */
-export const declined = (v: Value): v is Declined => v instanceof Declined
+const declined = (v: Value): v is Declined => v instanceof Declined
 
 /** A stated value itself; undefined for a declined term's, whose values are not listed. */
 export const statedValue = (v: Value): CarrierValue | undefined =>
@@ -349,7 +349,7 @@ export type CarrierRead = (v: Value) => CarrierValue | undefined
  * The outcome of a reading: its value, or its decline, named (DeclineReason): a term the oracle declines, or a reading
  * of a declined term's value.
  */
-export type Outcome =
+export type ReadingOutcome =
 	| { readonly kind: "value"; readonly value: CarrierValue }
 	| { readonly kind: "declined"; readonly reason: DeclineReason }
 
@@ -358,16 +358,16 @@ export type Outcome =
  * that reads a declined term's value is declined, whatever it gives. A term the Compute evaluator does not evaluate is
  * refused.
  */
-export const outcomeOf = (run: (read: CarrierRead) => CatalogResult): Outcome => {
-	let readDeclined = false
+export const outcomeOf = (run: (read: CarrierRead) => CatalogResult): ReadingOutcome => {
+	const declinedReads: Array<Declined> = []
 	const result = run((v) => {
 		if (v instanceof Declined) {
-			readDeclined = true
+			declinedReads.push(v)
 			return undefined
 		}
 		return v
 	})
-	if (readDeclined) {
+	if (declinedReads.length > 0) {
 		return { kind: "declined", reason: "declinedRead" }
 	}
 	if (Result.isSuccess(result)) {

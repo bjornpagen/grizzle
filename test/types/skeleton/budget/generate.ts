@@ -12,7 +12,7 @@
  * The relation count whose refusals the type-test batch checks.
  */
 import { Array as Arr } from "effect"
-import { indices } from "#test/support/oracle/pick.ts"
+import { indices } from "#compiler/core/array.ts"
 import type { BudgetEntries } from "#test/types/query/budget/generate.ts"
 export const largestSkeletonSize = 200
 

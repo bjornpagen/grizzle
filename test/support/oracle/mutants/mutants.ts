@@ -1,4 +1,5 @@
 import { Array as Arr, Option } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -25,7 +26,6 @@ import {
 	withoutDistinct
 } from "#test/support/oracle/mutants/ast.ts"
 import { immediateKeys, KeyAnalysis, neverDrops } from "#test/support/oracle/mutants/keys.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 const mutantIds = [
 	"V1",
@@ -181,9 +181,6 @@ const withRecursiveBody = (query: Select, body: Select): Select => {
 		return query
 	}
 	const [first, ...rest] = w.ctes
-	if (first === undefined) {
-		return query
-	}
 	return { ...query, with: { ...w, ctes: [{ ...first, query: body }, ...rest] } }
 }
 

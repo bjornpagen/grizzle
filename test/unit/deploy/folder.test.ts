@@ -397,7 +397,7 @@ const recordOf = (roots: Roots, draw: <A>(gen: Gen<A>) => A): ReadonlyArray<Meta
 		n++
 		return `ALTER TABLE "repro"."t${n}" ${verb}`
 	}
-	const requires: MetaRequires = roots.type === undefined ? { kind: "nothing" } : roots.type
+	const requires: MetaRequires = roots.type ?? { kind: "nothing" }
 	const paths = pathsOf(roots)
 	const some = (): ReadonlyArray<CandidatePath> => draw(subarray(paths))
 	const relationSteps = Arr.map(roots.relations, (r): MetaStep => ({

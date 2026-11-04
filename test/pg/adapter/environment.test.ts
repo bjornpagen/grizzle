@@ -32,7 +32,9 @@ import {
 	Layer,
 	Option,
 	Path,
-	Redacted
+	pipe,
+	Redacted,
+	String as Str
 } from "effect"
 import { noPassword, type Password } from "#adapter/wire/session.ts"
 import { quoteString, storedSettingValue } from "#compiler/sql/print.ts"
@@ -128,10 +130,7 @@ const featuresOf = (c: EnvironmentCase): ReadonlyArray<Feature> => [
 
 /** A field of a password file's line, its colons and backslashes escaped. */
 const passFileField = (text: string): string =>
-	Arr.join(
-		Arr.map([...text], (ch) => (ch === ":" || ch === "\\" ? `\\${ch}` : ch)),
-		""
-	)
+	pipe(Str.replaceAll("\\", "\\\\")(text), Str.replaceAll(":", "\\:"))
 
 /** Every pinned default, as one row of the session's current settings. */
 const settingsSql = `SELECT ${Arr.join(

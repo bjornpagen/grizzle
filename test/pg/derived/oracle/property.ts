@@ -16,7 +16,7 @@ import {
 	type CaseSketch,
 	changedFacts,
 	downwardClosed,
-	type Facts,
+	type FactsByRelation,
 	type GenSchema,
 	initialFacts,
 	namedIn,
@@ -90,7 +90,7 @@ export type DerivedFeature =
 	| "base changes"
 	| "a fact respelled on a second reading"
 
-const reversed = (facts: Facts): Facts =>
+const reversed = (facts: FactsByRelation): FactsByRelation =>
 	Record.fromEntries(Arr.map(Record.toEntries(facts), ([r, fs]) => [r, Arr.reverse([...fs])]))
 
 interface Call {

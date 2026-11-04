@@ -1,3 +1,8 @@
+/**
+ * The text bound (core/lines.ts): every text grizzle builds as one string is measured before it is built, and refused as
+ * ResourceBound (text) past the limit. The limit is V8's longest string, which a Node upgrade can move, so it is
+ * checked against the running V8; the measure is checked against the text itself, at limits drawn around its length.
+ */
 import { constants } from "node:buffer"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -25,11 +30,6 @@ import { textMaxLength } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 
-/**
- * The text bound (core/lines.ts): every text grizzle builds as one string is measured before it is built, and refused as
- * ResourceBound (text) past the limit. The limit is V8's longest string, which a Node upgrade can move, so it is
- * checked against the running V8; the measure is checked against the text itself, at limits drawn around its length.
- */
 describe("the text bound", () => {
 	it("is V8's longest string on the running Node", () => {
 		assert.equal(textMaxLength, constants.MAX_STRING_LENGTH)

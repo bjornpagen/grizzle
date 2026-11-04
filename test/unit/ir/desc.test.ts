@@ -29,6 +29,7 @@ import {
 	Schema,
 	String as Str
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { type Canonicalizable, canonicalTag, maxNestingDepth } from "#compiler/core/canonical.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -71,7 +72,6 @@ import type {
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { decodeJson } from "#test/support/json.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { fail } from "#test/unit/ir/fixture.ts"
 
 import { regex } from "arkregex"

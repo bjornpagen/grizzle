@@ -27,7 +27,6 @@ import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
 import {
 	type AbandonedSchema,
 	type Action,
-	type AlternativeStep,
 	type Candidate,
 	type Choice,
 	type ColumnConversion,
@@ -3751,7 +3750,7 @@ class Differ {
 		now: NonEmptyReadonlyArray<LawUnit<Target>>
 	): void {
 		const law = residual.lawId
-		const previous: ReadonlyArray<LawUnit<Previous>> = was === undefined ? [] : was
+		const previous: ReadonlyArray<LawUnit<Previous>> = was ?? []
 		const prior = new Map(previous.map((u) => [u.fn.ident, u] as const))
 		const kept = new Set(now.map((u) => u.fn.ident))
 		const removed = previous.filter((u) => !kept.has(u.fn.ident))
@@ -4564,7 +4563,7 @@ class Differ {
 
 /** Every statement a draft may run: an action's, every offer's alternative of a choice beside the action it keeps, a
  * confirm's, a loss's. */
-const draftStatements = (d: Draft | AlternativeStep): ReadonlyArray<SqlStatement> => {
+const draftStatements = (d: Draft | RelationStep): ReadonlyArray<SqlStatement> => {
 	switch (d.kind) {
 		case "statement":
 		case "loss":

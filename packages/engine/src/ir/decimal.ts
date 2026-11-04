@@ -58,24 +58,6 @@ export const finiteDigitsText = (negative: boolean, digits: string, minScale: nu
 	return `${sign}${padded.slice(0, point)}.${padded.slice(point)}`
 }
 
-/** The text of a finite value's parts in its one form. */
-export const finiteDecimalText = (parts: FiniteParts): string =>
-	finiteDigitsText(parts.negative, parts.coefficient.toString(), parts.minScale)
-
-/** The one text of a decimal value: numeric_out of trim_scale(value), NaN, Infinity or -Infinity. */
-export const decimalPartsText = (parts: DecimalParts): string => {
-	switch (parts.kind) {
-		case "nan":
-			return "NaN"
-		case "infinity":
-			return "Infinity"
-		case "-infinity":
-			return "-Infinity"
-		case "finite":
-			return finiteDecimalText(parts)
-	}
-}
-
 export const isDecimalPayload = (text: string): boolean => DecimalText.parse(text) !== undefined
 
 /**

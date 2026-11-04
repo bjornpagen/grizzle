@@ -1098,18 +1098,14 @@ const queryRead = (
 		 * exactly: grizzle delivers each value in its one form, whatever the plan, the storage order or the spelling
 		 * stored, so one exact check judges them all (answer.ts answerEquivalence).
 		 */
-		yield* agreeing(c, label, shape, answerEquivalence(shape, inOrder), answers)
+		const sameValues = answerEquivalence(shape, inOrder)
+		yield* agreeing(c, label, shape, sameValues, answers)
 		/**
 		 * And against itself, with no reference in the judgment: every public side delivers exactly what db.execute
 		 * delivers, the perturbed plans' among them, which judges every column the reference declines.
 		 */
-		yield* agreeing(
-			c,
-			`${label}, against itself`,
-			shape,
-			answerEquivalence(shape, inOrder),
-			Arr.filter(answers, (a) => a.side !== "reference")
-		)
+		const publicSides = Arr.filter(answers, (a) => a.side !== "reference")
+		yield* agreeing(c, `${label}, against itself`, shape, sameValues, publicSides)
 		/** The spellings are read off the cells PostgreSQL sent the perturbed reader, as their facts stored them. */
 		const template = Exit.isSuccess(compiled) ? compiled.value.compiled : undefined
 		if (template !== undefined && Result.isSuccess(planned)) {

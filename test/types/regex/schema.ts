@@ -1,6 +1,6 @@
 import { Array as Arr, pipe, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { defined } from "#test/support/assert.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { BudgetEntries } from "#test/types/query/budget/generate.ts"
 
 /**

@@ -28,7 +28,7 @@ import {
 	Record as Rec,
 	Schema
 } from "effect"
-import { type GrizzleErrorTag, ReadFailure } from "#adapter/errors/execution.ts"
+import { ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
@@ -40,6 +40,7 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import type { GrizzleErrorTag } from "#test/support/error-tags.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"

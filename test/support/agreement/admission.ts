@@ -75,7 +75,7 @@ import { compileTemplate, testArtifacts, testCompile } from "#test/support/compi
  */
 
 /** Every position a constant may stand in. */
-export const admissionPositions = [
+const admissionPositions = [
 	"binding",
 	"unionBinding",
 	"selfJoinBinding",
@@ -114,7 +114,7 @@ export type AdmissionPosition = (typeof admissionPositions)[number]
  * ill-typed: another roster's handle, a contract's constant at its base, a handle off its roster, a text that is no
  * uuid's spelling at a uuid, another pattern's member at a refined text.
  */
-export const constantKinds = [
+const constantKinds = [
 	"text",
 	"integer",
 	"bigint",
@@ -1008,15 +1008,15 @@ export const admissionCells = (pick: (cell: number) => number): ReadonlyArray<Ad
 	)
 
 /** The shapes a combinator stands over: one rule, a union of one heading, a union of several, an attached rule. */
-export const shapeBases = ["plain", "union", "heterogeneous", "attached"] as const
+const shapeBases = ["plain", "union", "heterogeneous", "attached"] as const
 export type ShapeBase = (typeof shapeBases)[number]
 
 /** What stands between a shape and the combinator over it: nothing, or a kept stage. */
-export const shapeWrappers = ["bare", "named", "take"] as const
+const shapeWrappers = ["bare", "named", "take"] as const
 export type ShapeWrapper = (typeof shapeWrappers)[number]
 
 /** Every combinator over a query: its stages, a page of it, and a further arm of its heading or of another. */
-export const combinators = [
+const combinators = [
 	"take",
 	"page",
 	"orderBy",

@@ -1,7 +1,11 @@
+import { defect } from "#compiler/core/invariant.ts"
+import { regexMaxNodes, regexMaxRepeat } from "#compiler/core/policy.ts"
 import { codePoints } from "#compiler/core/text.ts"
-import { type CharSet, has, isAdmittedCodePoint } from "#compiler/text/charset.ts"
-import { copiesOf, type RegexNode } from "#compiler/text/ir.ts"
-import { entry } from "#compiler/text/table.ts"
+import type { RegexRef } from "#compiler/ir/scalar.ts"
+import { type CharSet, has, isAdmittedCodePoint } from "#compiler/scalar/regex/charset.ts"
+import { copiesOf, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import { entry } from "#compiler/scalar/regex/table.ts"
 
 type NfaEdge =
 	| { readonly kind: "eps"; readonly to: number }
@@ -242,4 +246,22 @@ const matchesCodePoints = (nfa: Nfa, cps: ReadonlyArray<number>): boolean => {
 export const matches = (nfa: Nfa, value: string): boolean => {
 	const cps = admittedCodePoints(value)
 	return cps !== undefined && matchesCodePoints(nfa, cps)
+}
+
+/**
+ * Whether a text is a member of a regex refinement: the NFA of its pattern's parse under the production limits, the
+ * automaton the text analysis builds (text/refinement.ts analyzeText). A RegexRef is minted only from a pattern that
+ * analysis admitted, so its parse succeeds.
+ */
+export const regexMember = (regex: RegexRef, value: string): boolean => {
+	const parsed = parsePattern(regex.source, regex.flags, {
+		maxNodes: regexMaxNodes,
+		maxRepeat: regexMaxRepeat
+	})
+	if (!parsed.ok) {
+		throw defect(
+			`the pattern of a RegexRef, which its text analysis admitted: /${regex.source}/${regex.flags}`
+		)
+	}
+	return matches(buildNfa(parsed.value), value)
 }

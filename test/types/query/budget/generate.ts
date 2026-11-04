@@ -1,5 +1,5 @@
 import { Array as Arr } from "effect"
-import { indices } from "#test/support/oracle/pick.ts"
+import { indices } from "#compiler/core/array.ts"
 
 /**
  * The growing-schema program, one type test of the query facade at scale. It writes one TypeScript program over the

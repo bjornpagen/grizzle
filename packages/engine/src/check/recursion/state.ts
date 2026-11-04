@@ -118,7 +118,7 @@ const conversion = (arm: ScalarType, declared: ScalarType): Conversion => {
 
 /**
  * An exact integer an arm computes for an integer state column, narrowed into it with the proof the recursion's
- * bounded counter gives (lower/shapes/recursion/bound.ts counterInterval): every value its step computes, the one
+ * bounded counter gives (check/recursion/bound.ts counterInterval): every value its step computes, the one
  * past its bound included, which PostgreSQL may compute before the step's filter, lies in the column's range. Without
  * one it is PartialOperation, naming the guard to write.
  */

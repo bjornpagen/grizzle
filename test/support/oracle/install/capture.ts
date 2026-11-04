@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, pipe, Record, Result, Schema, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 
 import { regex } from "arkregex"

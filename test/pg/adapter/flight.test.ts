@@ -6,10 +6,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Fiber, Formatter, Order } from "effect"
-import { type BatchStatement, runAlone } from "#adapter/wire/batch.ts"
+import type { BatchStatement } from "#adapter/wire/batch.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { until } from "#test/pg/adapter/support.ts"
 import { type CaseSpace, caseGen } from "#test/support/flight/cases.ts"
+import { runAlone } from "#test/support/pg.ts"
 
 import {
 	callOf,

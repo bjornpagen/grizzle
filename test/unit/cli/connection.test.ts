@@ -326,12 +326,15 @@ const keptAgreement: ReadonlyArray<Kept<Drawn, ConnectionFeature>> = [
 	}
 ]
 
+/** Everything a refusal reports: its message and the whole error, where no value it refuses may appear. */
+const reported = (refused: CliError): string =>
+	`${refused.message}\n${inspect(refused, { depth: 12 })}`
+
 /** A refusal at stage config, which never holds the password: not in its message, nor anywhere in the error. */
 const refusal = (r: Result.Result<MigrationConnection, CliError>, password: string): void => {
 	const refused = refusedAt(r, "stage", "config")
-	const reported = `${refused.message}\n${inspect(refused, { depth: 12 })}`
 	for (const quoted of [password, encodeURIComponent(password)]) {
-		lacksText(reported, quoted, "the refusal holds the password")
+		lacksText(reported(refused), quoted, "the refusal holds the password")
 	}
 }
 
@@ -693,7 +696,7 @@ describe("the migration's process environment, generated", () => {
 								`the environment's refusal is ${refused.reason._tag}`
 							)
 							assert.equal(refused.reason.variable, expected.value)
-							lacksText(refused.message, valueMark, "the refusal quotes a value")
+							lacksText(reported(refused), valueMark, "the refusal holds a value")
 							c.note(`refused ${expected.value}`)
 							if (expected.value === "PGOPTIONS" && e.PGREPLICATION.kind === "text") {
 								c.note("refused PGOPTIONS beside PGREPLICATION set")

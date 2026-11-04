@@ -23,8 +23,6 @@ import {
 } from "#compiler/scalar/compute/cast.ts"
 import type { ResultCarrier } from "#compiler/scalar/compute/types.ts"
 
-export type { OperandIndex, Precondition }
-
 /**
  * Why a host computation has no value: the precondition of the operation its operands fail, or a numeric result past
  * numeric's format, which the lowering's digit bounds rule out (lower.ts). The evaluator meets either only on an
@@ -53,7 +51,7 @@ export type IeeeOp = "add" | "sub" | "mul" | "div" | "sqrt" | "round"
  * - `requires`: defined where its preconditions hold, which the lowering proves at the node (T3), or refuses the
  *   operation as PartialOperation.
  */
-export type Totality =
+type Totality =
 	| { readonly kind: "total" }
 	| { readonly kind: "exact"; readonly yields: "integer" | "money" }
 	| { readonly kind: "ieee"; readonly op: IeeeOp }

@@ -39,9 +39,9 @@ const exactSum = (values: Arr.NonEmptyReadonlyArray<Decimal>): Decimal =>
 	)
 
 /**
- * The exact value of a double, independently of the SQL that computes it (sql/build.ts exactNumeric): its IEEE 754 bits
- * read through a DataView, a sign, an exponent e and a significand M with the implicit bit when e > 0, and the value
- * M · 2^P, P = max(e, 1) - 1075, as a Decimal in its one form. NaN and the infinities are numeric's own.
+ * The exact value of a double, independently of the SQL that computes it (sql/build.ts exactNumericOfDouble): its IEEE
+ * 754 bits read through a DataView, a sign, an exponent e and a significand M with the implicit bit when e > 0, and the
+ * value M · 2^P, P = max(e, 1) - 1075, as a Decimal in its one form. NaN and the infinities are numeric's own.
  */
 export const exactDouble = (x: number): Decimal => {
 	if (Number.isNaN(x)) {

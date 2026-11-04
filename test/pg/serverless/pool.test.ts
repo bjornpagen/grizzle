@@ -280,7 +280,6 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 										const exceeded: AcquisitionBudgetExceeded = failure
 										assert.equal(OpenError.make({ reason: exceeded }).stage, "wait")
 										matchesObject(exceeded, { millis: w.waitMs, leased: w.held, max: w.max })
-										assert.equal(exceeded.saturated, where === "saturated")
 										yield* letThrough
 										break
 									}

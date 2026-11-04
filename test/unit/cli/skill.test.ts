@@ -1,11 +1,11 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, FileSystem, String as Str } from "effect"
-import { documentedTexts } from "#cli/refusals.ts"
 import { skillTargets } from "#cli/skill.ts"
 import { cli, cliClock, workspace } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
+import { documentedTexts } from "#test/support/refusals.ts"
 
 /** The clock the in-process command lines of this file read. */
 const nextNow = cliClock()

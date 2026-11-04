@@ -49,7 +49,7 @@ import type {
 	ModelState,
 	ObjectKind,
 	Observation,
-	Outcome,
+	ActionOutcome,
 	RoleSpec,
 	Rule,
 	SessionState,
@@ -1657,7 +1657,7 @@ interface OpBlock {
 	readonly writers: Arr.NonEmptyReadonlyArray<Writer>
 	readonly memberships: Arr.NonEmptyReadonlyArray<Membership>
 	readonly claims: Arr.NonEmptyReadonlyArray<ClaimState>
-	readonly observations: Arr.NonEmptyReadonlyArray<Outcome["kind"]>
+	readonly observations: Arr.NonEmptyReadonlyArray<ActionOutcome["kind"]>
 }
 
 const block = (
@@ -1665,7 +1665,7 @@ const block = (
 	writers: Arr.NonEmptyReadonlyArray<Writer>,
 	memberships: Arr.NonEmptyReadonlyArray<Membership>,
 	claims: Arr.NonEmptyReadonlyArray<ClaimState>,
-	observations: Arr.NonEmptyReadonlyArray<Outcome["kind"]>
+	observations: Arr.NonEmptyReadonlyArray<ActionOutcome["kind"]>
 ): OpBlock => ({ kind, writers, memberships, claims, observations })
 
 const allMemberships: Arr.NonEmptyReadonlyArray<Membership> = [

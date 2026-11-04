@@ -8,12 +8,26 @@ import { regexMaxNodes, regexMaxRepeat } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints } from "#compiler/core/text.ts"
 import { RegexKey, type RegexRef, type TextInfo } from "#compiler/ir/scalar.ts"
+import { utf8Width } from "#compiler/scalar/regex/charset.ts"
+import {
+	expandedAssertions,
+	expandedSize,
+	type LiveNode,
+	loopsThroughAnchor,
+	type RegexNode
+} from "#compiler/scalar/regex/ir.ts"
+import { buildNfa, closurePairs, matches, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import {
+	type ParseLimits,
+	parsePattern,
+	type RegexDiagnostic,
+	type RegexFlags
+} from "#compiler/scalar/regex/parse.ts"
 import { noRosters, type ScalarEnv, type TextLookup } from "#compiler/scalar/registry.ts"
 import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
 import { binary, cUtf8Collation, lit, types } from "#compiler/sql/build.ts"
 import { toAre } from "#compiler/text/are.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
-import { utf8Width } from "#compiler/text/charset.ts"
 import {
 	type CanonicalDfa,
 	type DfaLimits,
@@ -24,21 +38,6 @@ import {
 	longest,
 	minimalDfa
 } from "#compiler/text/dfa.ts"
-
-import {
-	expandedAssertions,
-	expandedSize,
-	type LiveNode,
-	loopsThroughAnchor,
-	type RegexNode
-} from "#compiler/text/ir.ts"
-import { buildNfa, closurePairs, matches, type Nfa } from "#compiler/text/nfa.ts"
-import {
-	type ParseLimits,
-	parsePattern,
-	type RegexDiagnostic,
-	type RegexFlags
-} from "#compiler/text/parse.ts"
 
 /**
  * The fixed analysis bounds, all derived from the regex node bound (core/policy.ts regexMaxNodes in production).
@@ -56,7 +55,7 @@ import {
 interface TextLimits extends ParseLimits {
 	/** NFA positions once counted repetitions are written out, every node counting at least one. */
 	readonly maxExpanded: number
-	/** Pairs of NFA states joined by empty and assertion edges (nfa.ts closurePairs). */
+	/** Pairs of NFA states joined by empty and assertion edges (scalar/regex/nfa.ts closurePairs). */
 	readonly maxClosure: number
 	/** Assertion positions once counted repetitions are written out, and that count times the written-out positions. */
 	readonly maxAssertions: number
@@ -225,8 +224,8 @@ const languageOf = (ir: RegexNode, nfa: Nfa, limits: TextLimits): Language => {
 }
 
 /**
- * The language of a parsed pattern (parse.ts parsePattern under the same limits), classified as analyzeText classifies
- * it: an empty language is the refusal "matches no admitted text value".
+ * The language of a parsed pattern (scalar/regex/parse.ts parsePattern under the same limits), classified as
+ * analyzeText classifies it: an empty language is the refusal "matches no admitted text value".
  */
 export const analyzeLanguage = (ir: RegexNode, limits: TextLimits): Language =>
 	languageOf(ir, buildNfa(ir), limits)
@@ -235,8 +234,8 @@ export const analyzeLanguage = (ir: RegexNode, limits: TextLimits): Language =>
  * Text refinements: a declared pattern, checked, analyzed and lowered.
  *
  * `analyzeText` is what schema compilation calls for every `str.regex` descriptor. It parses the admitted grammar
- * (parse.ts) with source-located diagnostics, then proves what it can within fixed bounds and chooses the PostgreSQL
- * enforcement:
+ * (scalar/regex/parse.ts) with source-located diagnostics, then proves what it can within fixed bounds and chooses the
+ * PostgreSQL enforcement:
  *
  * - a tautology over admitted text erases: no CHECK, no domain, the column is plain text;
  * - a proved finite language of at most `finiteMembers` values becomes `VALUE IN (...)`, which recognizes exactly the
@@ -353,10 +352,6 @@ export const refinementOf = (regex: RegexRef): NontrivialRefinement => {
 		`the pattern of a RegexRef, which its text analysis admitted as no tautology: ${pattern}`
 	)
 }
-
-/** Whether a text constant is a member of a regex refinement: the NFA of its pattern's analysis (refinementOf). */
-export const regexMember = (regex: RegexRef, value: string): boolean =>
-	accepts(refinementOf(regex), value)
 
 /**
  * The text metadata of the refinement's ScalarType (ir/scalar.ts): a proved tautology is the canonical wildcard, which

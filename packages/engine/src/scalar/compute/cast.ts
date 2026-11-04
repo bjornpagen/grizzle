@@ -68,7 +68,7 @@ const roundRational = (num: bigint, den: bigint, width: "float4" | "float8"): nu
  * An exact signed rational as a float of `width`, rounded once as IEEE 754 rounds: ±Infinity past the largest finite
  * value, the correctly rounded subnormal, and the one zero below half the least subnormal.
  */
-export const toFloat = (
+const toFloat = (
 	negative: boolean,
 	num: bigint,
 	den: bigint,
@@ -125,7 +125,6 @@ const gDecimal = (x: number, digits: number): Result.Result<Decimal, Undefined> 
 	if (r * 2n > d || (r * 2n === d && (q & 1n) === 1n)) {
 		q += 1n
 	}
-	/** value = q * 10^-p, which fromUnits writes in its one form. */
 	return p >= 0
 		? fromUnits(negative ? -q : q, p)
 		: fromUnits((negative ? -q : q) * 10n ** BigInt(-p), 0)
@@ -197,7 +196,7 @@ const floatToInt = (x: number, c: IntCarrier): IntResult => {
 }
 
 /** A numeric as a float of `width`, rounded once as IEEE 754 rounds; NaN and the infinities are themselves. */
-export const decimalToFloat = (d: Decimal, width: FloatCarrier): number => {
+const decimalToFloat = (d: Decimal, width: FloatCarrier): number => {
 	const p = d.parts
 	switch (p.kind) {
 		case "nan":

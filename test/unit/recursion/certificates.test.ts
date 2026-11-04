@@ -27,7 +27,7 @@ import {
 	String as Str
 } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import { recursionMaxStates } from "#compiler/core/policy.ts"
 import { MoneyText } from "#compiler/ir/carriers.ts"
@@ -49,7 +49,7 @@ import {
 import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
-import { nonEmptyList, indices } from "#test/support/oracle/pick.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import {
 	maxIterations,
 	noBindings,

@@ -9,9 +9,9 @@ import {
 	type Interval,
 	maxUtf8Width,
 	size
-} from "#compiler/text/charset.ts"
-import { closure, type Nfa } from "#compiler/text/nfa.ts"
-import { entry } from "#compiler/text/table.ts"
+} from "#compiler/scalar/regex/charset.ts"
+import { closure, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { entry } from "#compiler/scalar/regex/table.ts"
 
 export interface DfaLimits {
 	/** The most DFA states the subset construction may create. */
@@ -236,7 +236,7 @@ const determinize = (nfa: Nfa, limits: DfaLimits): RawDfa | undefined => {
 	return { next, accept, atoms }
 }
 
-/** The element of `xs` at `i`, which the caller's bounds make present (table.ts entry). */
+/** The element of `xs` at `i`, which the caller's bounds make present (scalar/regex/table.ts entry). */
 const at = (xs: ArrayLike<number>, i: number): number => entry(xs, i)
 
 /**

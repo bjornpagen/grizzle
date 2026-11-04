@@ -528,7 +528,7 @@ export type Drafted =
 
 /** The complete installation of a version under `schema`, owned by `owner`, with its worlds: as `grizzle generate`
  * compiles it (`completeInstallOptions`). */
-export const installationOf = (version: Version, schema: string, owner: string): Installation => {
+const installationOf = (version: Version, schema: string, owner: string): Installation => {
 	const owned = owning(version.desc)
 	const logins = Arr.map(versionLogins(version), (l) => succeeded(ownLogin(l)))
 	return succeeded(

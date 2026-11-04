@@ -5,6 +5,7 @@ import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import {
@@ -14,7 +15,6 @@ import {
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
 import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"

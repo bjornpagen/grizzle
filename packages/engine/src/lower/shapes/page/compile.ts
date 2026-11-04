@@ -13,6 +13,7 @@ import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type {
 	CompletedOrder,
@@ -57,7 +58,6 @@ import {
 	mapTree,
 	type PageParamSlot,
 	type PageStatementSlot,
-	type PhysicalNames,
 	type RowsRole,
 	type StatementPlacement,
 	type StatementRoots

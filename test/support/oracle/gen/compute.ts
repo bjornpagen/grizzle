@@ -28,10 +28,10 @@ import {
 	type PlainCarrier,
 	plainType
 } from "#compiler/scalar/compute/types.ts"
+import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { regexMember } from "#compiler/text/refinement.ts"
 import {
 	fieldDescOf,
 	floatSpecialSketches,
@@ -53,12 +53,16 @@ import { at, nonEmptyList } from "#test/support/oracle/pick.ts"
  * Every term is total, as every term a program writes is: integer and money arithmetic is exact, float arithmetic
  * IEEE 754, and each partial operation stands under the guard that proves its precondition, as a program writes it
  * (Compute.when): a division under its divisor's nonzero guard, a numeric square root under its radicand's
- * nonnegative one, a power and every cast from a numeric-family value under a `within` guard whose bounds prove its
- * range, and the otherwise branch a value of the branch's type. A literal divisor is nonzero by its own value.
+ * nonnegative one, every cast from a numeric-family value under a `within` guard whose bounds prove its range, and
+ * the otherwise branch a value of the branch's type. A literal divisor is nonzero by its own value.
  *
  * The sketch is a tree of plain numbers resolved against the input heading: each choice reduced modulo what fits the
  * operand carriers in scope, and a choice with nothing to choose from degrading to a column, so every sketch resolves
  * and shrinking keeps it valid.
+ *
+ * A `pad` is a numeric padded in PostgreSQL: cast to numeric(1000, s) and back to bare numeric, a value at display scale
+ * s (domain.ts numericPaddings), which only a reading of the display scale could tell from the value; the term every
+ * merge, key and reading must see as its value alone.
  */
 export type TermSketch =
 	| {
@@ -75,8 +79,6 @@ export type TermSketch =
 			readonly left: TermSketch
 			readonly right: TermSketch
 	  }
-	| { readonly tag: "cosine"; readonly left: number; readonly right: TermSketch }
-	| { readonly tag: "power"; readonly left: number; readonly right: TermSketch }
 	| { readonly tag: "cast"; readonly target: number; readonly arg: TermSketch }
 	| {
 			readonly tag: "cond"
@@ -84,11 +86,6 @@ export type TermSketch =
 			readonly onTrue: TermSketch
 			readonly onFalse: TermSketch
 	  }
-	/**
-	 * A numeric padded in PostgreSQL: cast to numeric(1000, s) and back to bare numeric, a value at display scale s
-	 * (domain.ts numericPaddings), which only a reading of the display scale could tell from the value; the term every
-	 * merge, key and reading must see as its value alone.
-	 */
 	| { readonly tag: "pad"; readonly depth: number; readonly arg: TermSketch }
 
 export interface CompareSketch {
@@ -198,26 +195,6 @@ export const castChainSketchGen: Gen<TermSketch> = weighted<TermSketch>([
 		})
 	]
 ])
-
-/**
- * A cosine distance from a vector column to a column or literal of its type wherever the scope holds a vector column:
- * the term a finish states to reach "cosine distance" whenever its input has one.
- */
-export const cosineSketchGen: Gen<TermSketch> = (source) => ({
-	tag: "cosine",
-	left: source.draw(int(0, 7)),
-	right: source.draw(leafGen)
-})
-
-/**
- * A power of a double precision or numeric column by a column or literal of its type wherever the scope holds one: the
- * term a finish states to reach a value only PostgreSQL computes (the reference's unstated column).
- */
-export const powerSketchGen: Gen<TermSketch> = (source) => ({
-	tag: "power",
-	left: source.draw(int(0, 7)),
-	right: source.draw(leafGen)
-})
 
 export const compareSketchGen = (depth: number): Gen<CompareSketch> => {
 	const left = termSketchGen(depth)
@@ -373,7 +350,17 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "money":
 		case "exactMoney":
 			return Money.of(BigInt(n) * 100n)
-		default:
+		case "int2":
+		case "int4":
+		case "float4":
+		case "float8":
+		case "bool":
+		case "uuid":
+		case "text":
+		case "enum":
+		case "range4":
+		case "range8":
+		case "vector":
 			return n
 	}
 }
@@ -580,69 +567,6 @@ const resolveTerm = (
 					otherwise: literalOf(literalCarrier(baseOf(type).carrier), 0)
 				},
 				type,
-				free: false
-			}
-		}
-		case "cosine": {
-			const vectors = Arr.filter(
-				scope.heading,
-				(c) => c.type.carrier === "vector" && contractOf(c.type) === undefined
-			)
-			const degraded: TermSketch = {
-				tag: "binary",
-				fn: 0,
-				left: { tag: "leaf", pick: s.left, literal: false, param: false, value: { cls: 0, sp: 0 } },
-				right: s.right
-			}
-			if (vectors.length === 0 || (want !== undefined && want.carrier !== "float8")) {
-				return resolveTerm(scope, degraded, want)
-			}
-			const left: HeadingColumn = at(vectors, s.left)
-			const right = resolveTerm(scope, s.right, left.type)
-			if (right === undefined) {
-				return resolveTerm(scope, degraded, want)
-			}
-			return {
-				desc: {
-					kind: "compute",
-					fn: "cosineDistance",
-					args: [{ kind: "var", var: left.name }, right.desc]
-				},
-				type: plainType("float8"),
-				free: false
-			}
-		}
-		case "power": {
-			const plain = Arr.filter(scope.heading, (c) => contractOf(c.type) === undefined)
-			const floats = Arr.filter(plain, (c) => c.type.carrier === "float8")
-			const bases =
-				floats.length > 0 ? floats : Arr.filter(plain, (c) => c.type.carrier === "numeric")
-			const degraded: TermSketch = {
-				tag: "binary",
-				fn: 0,
-				left: { tag: "leaf", pick: s.left, literal: false, param: false, value: { cls: 0, sp: 0 } },
-				right: s.right
-			}
-			const [first] = bases
-			const carrier = first?.type.carrier
-			if (first === undefined || (want !== undefined && want.carrier !== carrier)) {
-				return resolveTerm(scope, degraded, want)
-			}
-			const left: HeadingColumn = at(bases, s.left)
-			const base: ExprDesc = { kind: "var", var: left.name }
-			const exponent = literalOf(
-				baseOf(left.type).carrier,
-				Math.abs(s.right.tag === "leaf" ? s.right.pick : 2) % 4
-			)
-			return {
-				desc: {
-					kind: "when",
-					guard: withinGuard(baseOf(left.type).carrier, 1, 10),
-					subject: base,
-					proved: { kind: "compute", fn: "power", args: [base, exponent] },
-					otherwise: base
-				},
-				type: plainOf(baseOf(left.type).carrier, left.type),
 				free: false
 			}
 		}

@@ -8,16 +8,14 @@ import {
 	type LowerContext,
 	type Lowerers,
 	type NodeLowerer,
-	nodeLabel,
-	outputNames,
-	refuse
+	outputNames
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { Expr, FromItem } from "#compiler/sql/ast.ts"
 import { lit } from "#compiler/sql/build.ts"
 
 /** A value of every admitted type, for the one row an empty VALUES source stands on; WHERE false discards it. */
-const placeholderValue = (cx: LowerContext, type: ScalarType, at: string): Expr => {
+const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 	const contract = contractOf(type)
 	const base = contract === undefined ? type : contract.base
 	switch (base.carrier) {
@@ -39,13 +37,8 @@ const placeholderValue = (cx: LowerContext, type: ScalarType, at: string): Expr 
 			return lit.text("00000000-0000-0000-0000-000000000000", cx.baseTypeRef(base))
 		case "text":
 			return lit.text("", cx.baseTypeRef(base))
-		case "enum": {
-			const handle = base.roster.handles[0]
-			if (handle === undefined) {
-				return refuse("MalformedDescription", at, "an enum type naming its roster")
-			}
-			return lowerLiteral(cx.names, { kind: "enum", handle }, base)
-		}
+		case "enum":
+			return lowerLiteral(cx.names, { kind: "enum", handle: base.roster.handles[0] }, base)
 		case "range4":
 		case "range8":
 			return lowerLiteral(cx.names, { kind: "span", start: 0n, end: 1n }, base)
@@ -74,7 +67,6 @@ const placeholderValue = (cx: LowerContext, type: ScalarType, at: string): Expr 
  * the relation is empty. A list of two rows stays a VALUES scan whose columns are never constants.
  */
 const lowerClosed: NodeLowerer<"Closed"> = (node, cx) => {
-	const at = nodeLabel(node)
 	/** Each row holds a value of its column's type per column (ir/rel.ts closedRows). */
 	const rows: ReadonlyArray<ReadonlyArray<Expr>> =
 		node.heading.length === 0
@@ -86,7 +78,7 @@ const lowerClosed: NodeLowerer<"Closed"> = (node, cx) => {
 	const placeholder =
 		node.heading.length === 0
 			? [lit.bool(true)]
-			: node.heading.map((c) => placeholderValue(cx, c.type, at))
+			: node.heading.map((c) => placeholderValue(cx, c.type))
 	const values: NonEmptyReadonlyArray<ReadonlyArray<Expr>> = isNonEmpty(rows)
 		? rows
 		: [placeholder, placeholder]

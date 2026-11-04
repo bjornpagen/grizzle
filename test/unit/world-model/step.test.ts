@@ -25,6 +25,7 @@ import { type FolderFile, folderFiles } from "#test/support/worlds/model/session
 import { initialState, observedNext, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
 	ActionKind,
+	ActionOutcome,
 	BaseSpec,
 	Branch,
 	HostFact,
@@ -32,7 +33,6 @@ import type {
 	InstallSpec,
 	LawSpec,
 	ModelState,
-	Outcome,
 	RelationSpec
 } from "#test/support/worlds/model/types.ts"
 
@@ -64,7 +64,7 @@ const names = installedNames(docsInstall)
 const host = hostSchemaOf(docsBase, names)
 
 /** An outcome's facts, each through `f`: its rows, its read-backs' rows and deltas, the keys its witness shows. */
-const mapFacts = (o: Outcome, f: (fact: HostFact) => HostFact): Outcome => {
+const mapFacts = (o: ActionOutcome, f: (fact: HostFact) => HostFact): ActionOutcome => {
 	if (o.kind === "rows") {
 		return { ...o, rows: Arr.map(o.rows, f) }
 	}
@@ -95,7 +95,7 @@ const stateFacts = (state: ModelState): ReadonlyArray<HostFact> =>
  * integer of that range the branch's state holds, a distinct one per draw, as an identity draws a value no stored fact
  * repeats.
  */
-const shownOf = (b: Branch): Outcome => {
+const shownOf = (b: Branch): ActionOutcome => {
 	const held = Arr.flatMap(stateFacts(b.next), (f) =>
 		Arr.filter(Rec.values(f), (v): v is number => typeof v === "number")
 	)
@@ -110,7 +110,7 @@ const shownOf = (b: Branch): Outcome => {
 }
 
 /** An outcome's facts: its rows, its read-backs' rows and deltas, the keys its witness shows. */
-const outcomeFacts = (o: Outcome): ReadonlyArray<HostFact> => {
+const outcomeFacts = (o: ActionOutcome): ReadonlyArray<HostFact> => {
 	if (o.kind === "rows") {
 		return o.rows
 	}
@@ -130,8 +130,11 @@ const drawsIn = (facts: ReadonlyArray<HostFact>): ReadonlyArray<number> =>
  * Rows as sets, as the real system shows them (shownOf): the branch agrees with its rows reordered and repeated, and
  * not with a row gone.
  */
-const checkRowsAsSets = (b: Branch, shown: Extract<Outcome, { readonly kind: "rows" }>): void => {
-	const shuffled: Outcome = {
+const checkRowsAsSets = (
+	b: Branch,
+	shown: Extract<ActionOutcome, { readonly kind: "rows" }>
+): void => {
+	const shuffled: ActionOutcome = {
 		kind: "rows",
 		rows: Arr.reverse([...shown.rows]).concat(shown.rows.slice(0, 1))
 	}

@@ -30,7 +30,6 @@ import type {
 import type {
 	ClosedIdField,
 	Contract,
-	DeclaredFacts,
 	Field,
 	FieldBase,
 	HandleOf,
@@ -42,6 +41,7 @@ import type { AnyClosed } from "#compiler/types/schema/relation.ts"
 
 export { Decimal } from "#compiler/scalar/values/decimal.ts"
 export { Money } from "#compiler/scalar/values/money.ts"
+export type { Span } from "#compiler/scalar/values/span.ts"
 /** The uuid host value, uuid_out's spelling as ArkRegex infers it, and its parse from a plain string. */
 export { Uuid } from "#compiler/scalar/values/uuid.ts"
 /** pgvector's carrier, a branded Float32Array. */
@@ -59,7 +59,6 @@ export type {
 	NumericField,
 	NumericTypmodField,
 	SerialField,
-	Span,
 	SpanField,
 	SqlOf,
 	TextField
@@ -95,7 +94,7 @@ export const contract: ContractConstructor = <
 		| undefined,
 	declared: { readonly proves: Proved } | undefined,
 	...extra: ReadonlyArray<never>
-): Contract<Name, B, DeclaredFacts<Proved>> => {
+): Contract<Name, B, Proved> => {
 	const parts = contractParts(name, base, [predicate, declared, ...extra])
 	type Unbranded = Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>
 	const brand = nominal<Unbranded, Unbranded & Infer<B> & Brand.Brand<Name>>()

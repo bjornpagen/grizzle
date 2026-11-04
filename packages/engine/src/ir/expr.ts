@@ -359,7 +359,7 @@ const pure: Effects = Object.freeze({ volatility: "immutable" })
  * What an expression of `spec` does of itself, before its arguments: the one classification of an operation's
  * volatility that every reader shares (exprEffects, a contract predicate's immutability, a query entry's definition).
  */
-export const ownEffects = <R extends ArgKinds>(spec: ExprSpecOver<R>): Effects => {
+const ownEffects = <R extends ArgKinds>(spec: ExprSpecOver<R>): Effects => {
 	switch (spec.kind) {
 		case "op":
 		case "cast":

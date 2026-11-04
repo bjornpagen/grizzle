@@ -7,6 +7,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
+import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	exprsOf,
 	type Heading,
@@ -18,14 +19,12 @@ import {
 	type ValidDag
 } from "#compiler/ir/rel.ts"
 import { contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
-import { baseTypeRef as physicalBaseType } from "#compiler/lower/conservative/base-type.ts"
 import {
 	type ConservativeOptions,
 	type ConservativeParamSlot,
 	type DeclaredParamSlot,
 	type MemberParamSlot,
 	type OwnParamSlot,
-	type PhysicalNames,
 	type RelationColumn,
 	type RelationParamSlot,
 	type ScalarParamSlot,

@@ -12,13 +12,13 @@ import { dbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { type CompiledPage, compilePageTemplate } from "#adapter/page/page.ts"
 import type { CompiledReadValue, QueryResultValue, ReadExecutor } from "#adapter/reader/reader.ts"
-import { statementSql } from "#adapter/wire/batch.ts"
 import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { assert } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 import { mergeComparator } from "#test/support/merge.ts"
+import { statementSql } from "#test/support/sql.ts"
 
 /**
  * A page as the runtime delivers it, admitted by its documented shape: the runtime readers type it

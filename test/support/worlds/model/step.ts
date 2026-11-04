@@ -63,7 +63,7 @@ import type {
 	InstalledNames,
 	InstallSpec,
 	ModelState,
-	Outcome,
+	ActionOutcome,
 	Probe,
 	ReadBack,
 	ReadVia,
@@ -557,7 +557,11 @@ const readBackMeets: Meet<ReadBack, ReadBack> = (e, o, binding, rest) =>
  * as sets. The drift check's mismatches are catalog facts as PostgreSQL deparses them, which the model does not spell:
  * drift agrees when both find something or both find nothing.
  */
-const matched = (expected: Outcome, observed: Outcome, rest: Rest): Binding | undefined => {
+const matched = (
+	expected: ActionOutcome,
+	observed: ActionOutcome,
+	rest: Rest
+): Binding | undefined => {
 	const agreed = (same: boolean): Binding | undefined => (same ? rest(unbound) : undefined)
 	switch (expected.kind) {
 		case "opened":
@@ -623,7 +627,7 @@ const matched = (expected: Outcome, observed: Outcome, rest: Rest): Binding | un
  * observation showed held as its value, every such value one its column holds nowhere else in that state (fresh);
  * none when the observation is not the branch's.
  */
-export const observedNext = (branch: Branch, observed: Outcome): ModelState | undefined => {
+export const observedNext = (branch: Branch, observed: ActionOutcome): ModelState | undefined => {
 	const binding = matched(branch.observation, observed, (met) =>
 		fresh(branch.next, met) ? met : undefined
 	)

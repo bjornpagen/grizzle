@@ -23,12 +23,12 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { regexMaxRepeat } from "#compiler/core/policy.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import { wildcardFlags, wildcardSource } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** What a case of the population reached: a key the compiler accepts, and one sized within a word of the item limit. */

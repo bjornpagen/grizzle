@@ -22,7 +22,7 @@ import {
 	param,
 	spelled,
 	type TestField,
-	testContract,
+	testDeclaringContract,
 	testPg,
 	v
 } from "#test/unit/compute/support.ts"
@@ -43,68 +43,6 @@ import {
  * the host evaluator judging every row.
  */
 
-/** A partial entry over literal operands, its operands' field, and the fact of its operands it needs. */
-interface Entry {
-	readonly name: string
-	readonly field: TestField
-	readonly needs: "nonzero" | "nonnegative" | "finite"
-	/** The operand, by position, the needed fact is of. */
-	readonly operand: 0 | 1
-	readonly build: (a: ScalarTerm, b: ScalarTerm) => { readonly expr: OpenExpr }
-}
-
-const entries: Arr.NonEmptyReadonlyArray<Entry> = [
-	{
-		name: "div/integer",
-		field: testPg.integer,
-		needs: "nonzero",
-		operand: 1,
-		build: (a, b) => Compute.div(a, b)
-	},
-	{
-		name: "mod/bigint",
-		field: testPg.bigint,
-		needs: "nonzero",
-		operand: 1,
-		build: (a, b) => Compute.mod(a, b)
-	},
-	{
-		name: "div/numeric",
-		field: testPg.numeric,
-		needs: "nonzero",
-		operand: 1,
-		build: (a, b) => Compute.div(a, b)
-	},
-	{
-		name: "rem/numeric",
-		field: testPg.numeric,
-		needs: "nonzero",
-		operand: 1,
-		build: (a, b) => Compute.rem(a, b)
-	},
-	{
-		name: "sqrt/numeric",
-		field: testPg.numeric,
-		needs: "nonnegative",
-		operand: 0,
-		build: (a) => Compute.sqrt(a)
-	},
-	{
-		name: "minScale/numeric",
-		field: testPg.numeric,
-		needs: "finite",
-		operand: 0,
-		build: (a) => Compute.minScale(a)
-	},
-	{
-		name: "cast numeric to integer",
-		field: testPg.numeric,
-		needs: "finite",
-		operand: 0,
-		build: (a) => Compute.cast(a, testPg.integer)
-	}
-]
-
 /** The texts of numeric's drawn literals: zero, the units, a half, a large value and the specials. */
 const decimalTexts: Arr.NonEmptyReadonlyArray<string> = [
 	"0",
@@ -119,17 +57,93 @@ const decimalTexts: Arr.NonEmptyReadonlyArray<string> = [
 	"-Infinity"
 ]
 
-/** The literal values a field's operands draw: zero, the units, a half, a large value and the specials. */
-const valuesOf = (field: TestField): Gen<LiteralDesc> => {
-	switch (field.sql) {
-		case "integer":
-			return element<LiteralDesc>([0, 1, -1, 7, 2147483647, -2147483648])
-		case "bigint":
-			return element<LiteralDesc>([0n, 1n, -1n, 7n, 2n ** 63n - 1n, -(2n ** 63n)])
-		default:
-			return element<LiteralDesc>(Arr.map(decimalTexts, (t) => Decimal.of(t)))
-	}
+/** A field operands are drawn over: the test field, the literals its operands draw, and their zero. */
+interface OperandField extends TestField {
+	/** Zero, the units, a half, a large value and the specials. */
+	readonly literals: Gen<LiteralDesc>
+	/** The zero of its literals, a string for numeric's exact decimal. */
+	readonly zero: number | bigint | string
 }
+
+const integerOperands: OperandField = {
+	...testPg.integer,
+	literals: element<LiteralDesc>([0, 1, -1, 7, 2147483647, -2147483648]),
+	zero: 0
+}
+
+const bigintOperands: OperandField = {
+	...testPg.bigint,
+	literals: element<LiteralDesc>([0n, 1n, -1n, 7n, 2n ** 63n - 1n, -(2n ** 63n)]),
+	zero: 0n
+}
+
+const numericOperands: OperandField = {
+	...testPg.numeric,
+	literals: element<LiteralDesc>(Arr.map(decimalTexts, (t) => Decimal.of(t))),
+	zero: "0"
+}
+
+/** A partial entry over literal operands, its operands' field, and the fact of its operands it needs. */
+interface Entry {
+	readonly name: string
+	readonly field: OperandField
+	readonly needs: "nonzero" | "nonnegative" | "finite"
+	/** The operand, by position, the needed fact is of. */
+	readonly operand: 0 | 1
+	readonly build: (a: ScalarTerm, b: ScalarTerm) => { readonly expr: OpenExpr }
+}
+
+const entries: Arr.NonEmptyReadonlyArray<Entry> = [
+	{
+		name: "div/integer",
+		field: integerOperands,
+		needs: "nonzero",
+		operand: 1,
+		build: (a, b) => Compute.div(a, b)
+	},
+	{
+		name: "mod/bigint",
+		field: bigintOperands,
+		needs: "nonzero",
+		operand: 1,
+		build: (a, b) => Compute.mod(a, b)
+	},
+	{
+		name: "div/numeric",
+		field: numericOperands,
+		needs: "nonzero",
+		operand: 1,
+		build: (a, b) => Compute.div(a, b)
+	},
+	{
+		name: "rem/numeric",
+		field: numericOperands,
+		needs: "nonzero",
+		operand: 1,
+		build: (a, b) => Compute.rem(a, b)
+	},
+	{
+		name: "sqrt/numeric",
+		field: numericOperands,
+		needs: "nonnegative",
+		operand: 0,
+		build: (a) => Compute.sqrt(a)
+	},
+	{
+		name: "minScale/numeric",
+		field: numericOperands,
+		needs: "finite",
+		operand: 0,
+		build: (a) => Compute.minScale(a)
+	},
+	{
+		name: "cast numeric to integer",
+		field: numericOperands,
+		needs: "finite",
+		operand: 0,
+		build: (a) => Compute.cast(a, testPg.integer)
+	}
+]
 
 /** Whether a literal violates the fact: zero for nonzero, below zero for nonnegative, NaN or an infinity for finite. */
 const violates = (value: LiteralDesc, fact: Entry["needs"]): boolean => {
@@ -203,25 +217,21 @@ const literalCaseGen: Gen<LiteralCase> = (source) => {
 	return {
 		entry,
 		source: source.draw(element(sources)),
-		a: source.draw(valuesOf(entry.field)),
-		b: source.draw(valuesOf(entry.field))
+		a: source.draw(entry.field.literals),
+		b: source.draw(entry.field.literals)
 	}
 }
 
-/** The zero of a field's literals, a string for numeric's exact decimal. */
-const zeroOf = (field: TestField): number | bigint | string =>
-	field.sql === "integer" ? 0 : field.sql === "bigint" ? 0n : "0"
-
 /** A contract over `field` whose predicate proves `fact`, which it declares. */
-const declaring = (field: TestField, fact: Entry["needs"]): TestField =>
-	testContract(
+const declaring = (field: OperandField, fact: Entry["needs"]): TestField =>
+	testDeclaringContract(
 		`Declares_${fact}_${field.sql}`,
 		field,
 		(x) =>
 			fact === "nonzero"
-				? x.ne(zeroOf(field))
+				? x.ne(field.zero)
 				: fact === "nonnegative"
-					? x.ge(zeroOf(field))
+					? x.ge(field.zero)
 					: x.between("-1000000", "1000000"),
 		[fact]
 	)
@@ -232,7 +242,7 @@ const declaring = (field: TestField, fact: Entry["needs"]): TestField =>
  */
 interface Guarded {
 	readonly name: string
-	readonly field: TestField
+	readonly field: OperandField
 	readonly build: (a: ScalarTerm, b: ScalarTerm) => { readonly expr: OpenExpr }
 	readonly holds: (a: LiteralDesc, b: LiteralDesc) => boolean
 }
@@ -240,19 +250,19 @@ interface Guarded {
 const guarded: Arr.NonEmptyReadonlyArray<Guarded> = [
 	{
 		name: "a quotient under its divisor's nonzero guard",
-		field: testPg.bigint,
+		field: bigintOperands,
 		build: (a, b) => Compute.when(Compute.nonzero(b), (d: ScalarTerm) => Compute.div(a, d), 0n),
 		holds: (_a, b) => !violates(b, "nonzero")
 	},
 	{
 		name: "a root under its radicand's nonnegative guard",
-		field: testPg.numeric,
+		field: numericOperands,
 		build: (a) => Compute.when(Compute.nonnegative(a), (x: ScalarTerm) => Compute.sqrt(x), 0n),
 		holds: (a) => !violates(a, "nonnegative")
 	},
 	{
 		name: "a narrowing under a within guard",
-		field: testPg.numeric,
+		field: numericOperands,
 		build: (a) =>
 			Compute.when(
 				Compute.within(a, -1000n, 1000n),
@@ -371,8 +381,8 @@ describe("totality", () => {
 							return {
 								form,
 								subject: source.draw(element<Subject>(["columns", "parameters"])),
-								a: source.draw(valuesOf(form.field)),
-								b: source.draw(valuesOf(form.field))
+								a: source.draw(form.field.literals),
+								b: source.draw(form.field.literals)
 							}
 						}),
 						literal: Formatter.format,
@@ -405,7 +415,7 @@ describe("totality", () => {
 									baseParams
 								)
 							const [la, lb] = [literal(a), literal(b)]
-							if (!lowered.ok || !la.ok || !lb.ok) {
+							if (!la.ok || !lb.ok) {
 								return
 							}
 							const values = [

@@ -29,7 +29,6 @@ import {
 	type ClosedTheoryRelation,
 	headingColumns,
 	isSpanField,
-	type KeyField,
 	type KeyName,
 	type LawField,
 	type RelationInfo,
@@ -40,6 +39,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
 import {
@@ -53,7 +53,7 @@ import {
 	own,
 	ownRole
 } from "#compiler/schema/own.ts"
-import { regexMember, textLookup } from "#compiler/text/refinement.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 
 /** The refusal of a declared key whose index entry is unrepresentable, for `fault`, as ownership words it. */
 const unrepresentableKey = (
@@ -359,7 +359,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			return fail("MalformedDescription", loc, "a relation with at least one field")
 		}
 		/** A declared key's fields resolved to their handles, refused when it names a field the relation lacks. */
-		const keyed = (key: DeclaredKey): NonEmptyReadonlyArray<KeyField> =>
+		const keyed = (key: DeclaredKey): NonEmptyReadonlyArray<LawField> =>
 			mapNonEmpty(
 				key,
 				(k) =>

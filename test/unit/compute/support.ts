@@ -177,13 +177,13 @@ export const spelled = (expr: OpenExpr): ExprDesc =>
 
 /**
  * A contract over a base with a predicate built from the value's comparisons, or none, declaring the facts its
- * predicate proves (none unless given).
+ * predicate proves.
  */
-export const testContract = (
+export const testDeclaringContract = (
 	name: string,
 	base: TestField,
 	predicate: ((v: ScalarTerm) => { readonly expr: OpenExpr }) | undefined,
-	facts: ReadonlyArray<Fact> = []
+	facts: ReadonlyArray<Fact>
 ): TestField => {
 	const built = predicate?.(scalarTerm({ kind: "value" }, base.scalar, base)).expr
 	return field(
@@ -197,6 +197,13 @@ export const testContract = (
 		base.sql
 	)
 }
+
+/** A contract over a base with a predicate built from the value's comparisons, or none, declaring no facts. */
+export const testContract = (
+	name: string,
+	base: TestField,
+	predicate: ((v: ScalarTerm) => { readonly expr: OpenExpr }) | undefined
+): TestField => testDeclaringContract(name, base, predicate, [])
 
 export const testSpan = (endpoint: TestField): TestField =>
 	field({ kind: "span", endpoint: endpoint.desc, width: undefined }, "range")
@@ -251,7 +258,7 @@ export const sink = (): Sink => {
 }
 
 /** A parameter of its declared type, bound as the type's base. */
-export const bindAsBase = ({
+const bindAsBase = ({
 	name,
 	type
 }: ParamRef<Spelled>): Result.Result<

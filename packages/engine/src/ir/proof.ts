@@ -60,7 +60,7 @@ export type FactSource =
  * refinement where it is no read's evaluation: a literal at compile time (ContractLiteral), a parameter at bind, or a
  * written value by the write itself, whose refusal is the write's outcome (README: writes keep their value checks).
  */
-export type Premise =
+export type OperandPremise =
 	| {
 			readonly kind: "fact"
 			readonly operand: OperandIndex
@@ -87,5 +87,5 @@ export type Premise =
  */
 export interface PreconditionProof {
 	readonly precondition: Precondition
-	readonly premises: NonEmptyReadonlyArray<Premise>
+	readonly premises: NonEmptyReadonlyArray<OperandPremise>
 }

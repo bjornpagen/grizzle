@@ -2,6 +2,7 @@ import { Array as Arr, Option } from "effect"
 import {
 	type CatalogOpId,
 	type DefinedOp,
+	describeOp,
 	OpId,
 	type PartialOp,
 	type RangeOpCode
@@ -78,7 +79,7 @@ export const definedOf = (id: OpId): DefinedOp => {
 	const native = nativeOp(id)
 	const defined = native === undefined ? undefined : definedIdOf(native)
 	if (defined === undefined) {
-		throw new Error(`the generators name no partial or unknown overload: ${String(id)}`)
+		throw new Error(`the generators name no partial or unknown overload: ${describeOp(id)}`)
 	}
 	return defined
 }

@@ -38,7 +38,7 @@ export class BlockLines implements Lines {
 }
 
 /** Lines on one row: each one part of it, joined by a space; nesting adds nothing. */
-export class InlineLines implements Lines {
+class InlineLines implements Lines {
 	readonly #out: Array<string>
 
 	constructor(out: Array<string>) {

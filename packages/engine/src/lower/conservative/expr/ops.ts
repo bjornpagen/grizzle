@@ -199,10 +199,7 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
  * reads values, and each through trim_scale for one that reads the display scale, so the scale it reads is the value's
  * least and its result a function of the operands' values (I2).
  */
-export const operandsAsRead = (
-	reads: OperandReading,
-	args: ReadonlyArray<Expr>
-): ReadonlyArray<Expr> => {
+const operandsAsRead = (reads: OperandReading, args: ReadonlyArray<Expr>): ReadonlyArray<Expr> => {
 	switch (reads) {
 		case "value":
 			return args

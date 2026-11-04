@@ -11,6 +11,7 @@ import {
 } from "@grizzle/testing/gen"
 import { type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Equal, Option, Order, pipe, Record as Rec, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { conversionOf as converts, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as EngineResult from "#compiler/core/result.ts"
@@ -90,7 +91,7 @@ import {
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
-import { indices, nonEmptyList } from "#test/support/oracle/pick.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { inputText } from "#test/support/oracle/runner.ts"
 import { pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
 
@@ -1402,7 +1403,8 @@ const renamed = (
 				return t
 			}
 			/** A closed relation takes the name: its enum is a type of that name, where a builtin type's lives. */
-			if (picks.mask % 3 === 2) {
+			const toRoster = picks.mask % 3 === 2
+			if (toRoster) {
 				return renamedRosterTo(
 					t,
 					indexIn(Math.floor(picks.mask / 3), t.schema.closed.length),
@@ -2911,10 +2913,7 @@ const carriedRow = (
 			if (renamedTo !== undefined) {
 				return { kind: "enum", handle: renamedTo }
 			}
-			const [first] = handles
-			if (first !== undefined) {
-				return { kind: "enum", handle: first }
-			}
+			return { kind: "enum", handle: handles[0] }
 		}
 		return Option.isSome(kept) ? kept.value.value : typedDefault(bc.type)
 	})

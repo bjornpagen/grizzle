@@ -7,11 +7,10 @@ import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DetailCodec, FieldSelector, LawField, LawRelation } from "#compiler/ir/law.ts"
+import { baseTypeRef, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { KeyValue } from "#compiler/laws/families/plugin.ts"
 import { detailExpr, withheldDetailExpr } from "#compiler/laws/model/detail.ts"
-import { baseTypeRef } from "#compiler/lower/conservative/base-type.ts"
-import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import type { Expr, FromItem, PlStatement } from "#compiler/sql/ast.ts"
 import {
 	and,

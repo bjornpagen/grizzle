@@ -414,7 +414,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 			for (const name of Object.keys(head)) {
 				requireName(name, "r.find", "an answer column name")
 			}
-			const entries = headRecord(head, (value, name) => T.literalTerm(value, `r.find ${name}`))
+			const entries = headRecord(head, (given, name) => T.literalTerm(given, `r.find ${name}`))
 			const terms: Record<string, OpenHead> = {}
 			const fields: Array<readonly [string, Typing]> = []
 			for (const [name, term] of Object.entries<unknown>(entries)) {

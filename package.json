@@ -86,6 +86,7 @@
 				"rule": "no-spread-argument",
 				"files": [
 					"packages/grizzle/src/adapter/wire/releasing-pool.ts",
+					"test/types/evidence/fixtures/evidence.ts",
 					"test/unit/deps/runtime-probe.ts"
 				]
 			}
@@ -138,7 +139,7 @@
 					"alias": "CursorFault"
 				},
 				{
-					"module": "packages/grizzle/src/adapter/errors/execution.ts",
+					"module": "test/support/error-tags.ts",
 					"alias": "GrizzleErrorTag"
 				},
 				{

@@ -275,7 +275,7 @@ const units = (p: Participant): ReadonlyArray<UnitRecord> =>
 	})
 
 /** A residual law's record (`ResidualRecord`). */
-export const residualRecord = (r: ResidualLaw): ResidualRecord => ({
+const residualRecord = (r: ResidualLaw): ResidualRecord => ({
 	family: familyRecord(r),
 	anchor: { relation: r.anchor.relation.name, key: names(r.anchor.key) },
 	absentAnchor: familyAbsentAnchor[r.family],

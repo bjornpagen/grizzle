@@ -680,7 +680,7 @@ export type Witness =
 	| { readonly kind: "withheld" }
 
 /** What one action did, as the model predicts it and the executor observes it. Rows and keys compare as sets. */
-export type Outcome =
+export type ActionOutcome =
 	| { readonly kind: "opened"; readonly session: number; readonly verifyCalls: 0 | 1 }
 	| { readonly kind: "open-refused"; readonly stage: ModelOpenStage; readonly verifyCalls: 0 | 1 }
 	| { readonly kind: "rows"; readonly rows: ReadonlyArray<HostFact> }
@@ -723,7 +723,7 @@ export type Defect =
 	| { readonly kind: "artifacts-disagree" }
 
 /** What one action did on the real system: an outcome the model can predict, or a defect it never allows. */
-export type Observation = Outcome | Defect
+export type Observation = ActionOutcome | Defect
 
 /**
  * What the executor reads from a session's connection to check the real system entered the state the model claims. An
@@ -855,7 +855,7 @@ export interface ModelState {
 
 /** One allowed outcome of an action and the state it leads to; an action may allow several (nature's choices). */
 export interface Branch {
-	readonly observation: Outcome
+	readonly observation: ActionOutcome
 	readonly next: ModelState
 }
 
@@ -870,7 +870,7 @@ export interface Landing {
 
 /** One allowed outcome of a migration that lands an installation, the state it leads to awaiting that one's names. */
 export interface Landed {
-	readonly observation: Outcome
+	readonly observation: ActionOutcome
 	readonly landing: Landing
 }
 
@@ -960,7 +960,7 @@ export type WorldFeature =
 	| AmbientFeature
 	| `name:${IdentifierFeature}`
 	| "catalog-type name"
-	| `op:${ActionKind}:${Membership}:${ClaimState}:${Writer}:${Outcome["kind"]}`
+	| `op:${ActionKind}:${Membership}:${ClaimState}:${Writer}:${ActionOutcome["kind"]}`
 	| `object:${ObjectKind}:${"hidden-row-absent" | "raise-suppressed" | "accepted-inside" | "refused-outside" | "attempt-refused" | "witness-shown" | "witness-withheld"}`
 	| `invalid:${InvalidKind}`
 	| `invariant:${InvariantName}`

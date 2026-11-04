@@ -24,11 +24,11 @@
 import { array, type Gen, int, map, type Size } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { pickFrom, pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
 import {
 	type CardM,

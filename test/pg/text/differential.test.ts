@@ -9,11 +9,11 @@ import { Array as Arr, Duration, Effect, Exit, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { regexMaxNodes } from "#compiler/core/policy.ts"
+import * as RegexIr from "#compiler/scalar/regex/ir.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import * as RegexIr from "#compiler/text/ir.ts"
-import { parsePattern } from "#compiler/text/parse.ts"
 import {
 	accepts,
 	analyzeLanguage,

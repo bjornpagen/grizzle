@@ -9,12 +9,9 @@ import { Array as Arr, Duration, Effect, Formatter, Result, String as Str } from
 import { type Candidate, type Offer, pathOf, rivals, samePath } from "#compiler/deploy/diff/plan.ts"
 import { chosenIn, lossDecisions, splitRenames } from "#compiler/deploy/render/chosen.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
-import {
-	fromFirstToken,
-	placeholderToken,
-	splitStatements
-} from "#compiler/deploy/render/markers.ts"
+import { fromFirstToken, splitStatements } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
 import {
 	declaredRosterRebuild,
 	fieldsBetweenRebuiltRosters,
@@ -418,8 +415,6 @@ describe("the decision record a draft writes and the reviews check reads against
 									[],
 									`${decisionText(chosen)}: the review reads back as made`
 								)
-								/** Each group of two statements or more: kept whole, removed whole, and kept but for one, or kept only in
-								 * one. */
 								for (const f of g.folder.meta.files) {
 									for (const step of f.steps) {
 										if (step.kind !== "confirm" || step.statements.length < 2) {

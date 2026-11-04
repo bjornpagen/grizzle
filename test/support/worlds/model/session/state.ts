@@ -11,7 +11,7 @@ import type {
 	InstallSpec,
 	LoginSpec,
 	ModelState,
-	Outcome,
+	ActionOutcome,
 	RelationSpec,
 	RoleSpec,
 	Rule,
@@ -139,7 +139,7 @@ export const staleDb = (state: ModelState, session: SessionState): boolean =>
  * transaction's prologue lets it through (step.ts dbCall).
  */
 export type Called =
-	| { readonly kind: "host"; readonly refusals: Arr.NonEmptyReadonlyArray<Outcome> }
+	| { readonly kind: "host"; readonly refusals: Arr.NonEmptyReadonlyArray<ActionOutcome> }
 	| { readonly kind: "sends"; readonly sql: () => Arr.NonEmptyReadonlyArray<Branch> }
 
 /** Whether the ledger holds an unfinished folder: every Db call that sends SQL, and every Db.open, is refused. */

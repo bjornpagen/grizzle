@@ -10,7 +10,7 @@ import {
 	uniteMasks
 } from "#compiler/allen/mask.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { type DefinedOp, type ExprSpec, type ScalarExpr } from "#compiler/ir/expr.ts"
+import type { DefinedOp, ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
 import { type ScalarType, type SpanCarrier, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import { connectiveOps, definedRangeOp, nativeOp } from "#compiler/scalar/compute/registry.ts"
 

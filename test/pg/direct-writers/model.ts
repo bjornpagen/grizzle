@@ -10,6 +10,7 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { Expr, Insert, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, col, eq, lit, simpleSelect } from "#compiler/sql/build.ts"
@@ -18,7 +19,7 @@ import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { type OracleState, oracleState, type SequenceState } from "#test/support/oracle/addwins.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { OracleTable } from "#test/support/oracle/install/model.ts"
-import { elementAt, indices } from "#test/support/oracle/pick.ts"
+import { elementAt } from "#test/support/oracle/pick.ts"
 import { isSerialKind, typeInfo, type TypeKind } from "#test/support/oracle/write/domain.ts"
 import {
 	type Fact,

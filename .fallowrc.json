@@ -321,5 +321,12 @@
 	},
 	// use and useRelation: fallow does not follow union narrowing, and ParamCell's methods are called on the narrowed
 	// BindValue in check/checker.ts.
-	"usedClassMembers": ["discriminantSpine", "use", "useRelation"]
+	"usedClassMembers": [
+		"discriminantSpine",
+		"use",
+		"useRelation",
+		"freshVar",
+		"freshOccurrence",
+		"freshScope"
+	]
 }

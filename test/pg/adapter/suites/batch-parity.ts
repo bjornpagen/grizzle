@@ -14,11 +14,11 @@ import {
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import { type ServerStatement, serverStatement } from "#adapter/wire/session.ts"
+import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, failureOf } from "#test/support/assert.ts"
 import { fenceSql, prologueIn } from "#test/support/flight/model.ts"
 import { wild } from "#test/support/kernel/naming.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import { testSql } from "#test/support/sql.ts"
 import { fixtureGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"

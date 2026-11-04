@@ -1,11 +1,11 @@
 import { Array as Arr, Record as Rec } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,
 	HeadTermDesc,
 	QueryDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
 export const double: FieldDesc = { kind: "pg", type: "double precision" }

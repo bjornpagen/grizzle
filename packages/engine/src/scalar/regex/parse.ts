@@ -14,8 +14,8 @@ import {
 	surrogateLo,
 	union,
 	word
-} from "#compiler/text/charset.ts"
-import * as Ir from "#compiler/text/ir.ts"
+} from "#compiler/scalar/regex/charset.ts"
+import * as Ir from "#compiler/scalar/regex/ir.ts"
 
 export type RegexFlags = "u" | "su"
 

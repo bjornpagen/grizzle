@@ -28,7 +28,14 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { assert, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
-import { bareContract, closedId, descOf, rawPg, regex, span } from "#test/unit/schema/support.ts"
+import {
+	bareContract,
+	descOf,
+	rawClosedId,
+	rawPg,
+	rawSpan,
+	regex
+} from "#test/unit/schema/support.ts"
 
 /**
  * The world builders' admission (context, role, login) and ownership of their decoded descriptions (ownRole,
@@ -53,7 +60,7 @@ const Kind = closed("Kind", ["Draft", "Live"])
 const Author = regex("^user_[a-z]{1,8}$", "u")
 const Post = relation(
 	"Post",
-	{ id: uuid, author: Author, kind: closedId(Kind), words: pg.integer },
+	{ id: uuid, author: Author, kind: rawClosedId(Kind), words: pg.integer },
 	["id"]
 )
 const Note = relation("Note", { id: uuid, post: uuid }, ["id"])
@@ -485,12 +492,12 @@ const contextFields: Arr.NonEmptyReadonlyArray<readonly [string, FieldBase, bool
 	["integer", rawPg.integer, true],
 	["bigint", rawPg.bigint, true],
 	["a contract over bigint", bareContract("Tier", rawPg.bigint), true],
-	["a closed handle", closedId(Kind), true],
+	["a closed handle", rawClosedId(Kind), true],
 	["numeric", rawPg.numeric, false],
 	["real", rawPg.real, false],
 	["double precision", rawPg.doublePrecision, false],
 	["money", rawPg.money, false],
-	["a span", span(rawPg.integer), false],
+	["a span", rawSpan(rawPg.integer), false],
 	["a vector", rawPg.vector(3), false],
 	["a serial", rawPg.bigserial, false],
 	["a contract over money", bareContract("Fee", rawPg.money), false]

@@ -98,7 +98,7 @@ export const serialHead = (
 	const serialHeads = Arr.filter(Rec.toEntries(w.head), ([, h]) => serial(h.field))
 	const readByFilter = (field: string): boolean => {
 		const t = supplierFields[field]
-		return t !== undefined && t.kind === "var" && reads.has(t.name)
+		return t?.kind === "var" && reads.has(t.name)
 	}
 	return {
 		classed: Arr.flatMap(serialHeads, ([head, h]) => (readByFilter(h.field) ? [] : [head])),

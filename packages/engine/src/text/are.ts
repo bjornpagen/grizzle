@@ -1,5 +1,5 @@
-import type { CharSet, Interval } from "#compiler/text/charset.ts"
-import type { LiveNode } from "#compiler/text/ir.ts"
+import type { CharSet, Interval } from "#compiler/scalar/regex/charset.ts"
+import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
 
 const hex = (c: number, width: number): string => c.toString(16).toUpperCase().padStart(width, "0")
 

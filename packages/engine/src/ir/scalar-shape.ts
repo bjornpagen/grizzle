@@ -33,9 +33,9 @@ import {
 	factNames,
 	factsSorted,
 	type OperandIndex,
+	type OperandPremise,
 	type Precondition,
-	type PreconditionProof,
-	type Premise
+	type PreconditionProof
 } from "#compiler/ir/proof.ts"
 
 import {
@@ -515,7 +515,7 @@ const factSourceShape: S.Shape<FactSource> = S.tagged("kind", {
 	type: S.struct({})
 })
 
-const premiseShape: S.Shape<Premise> = S.tagged("kind", {
+const premiseShape: S.Shape<OperandPremise> = S.tagged("kind", {
 	fact: S.struct({ operand: operandIndexShape, fact: factShape, source: factSourceShape }),
 	interval: S.struct({ operand: operandIndexShape, low: exactShape, high: exactShape }),
 	checked: S.struct({

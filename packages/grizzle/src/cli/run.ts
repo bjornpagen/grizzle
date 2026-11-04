@@ -14,8 +14,8 @@ import {
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import {
 	MigrateError,
+	type MigrateOutcome,
 	type MigrationPlace,
-	type Outcome,
 	stageOutcome
 } from "#adapter/migrate/errors.ts"
 import { parseArgs, usageText } from "#cli/args.ts"
@@ -194,7 +194,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 }
 
 /** What the database holds after a refused migrate or drift, as its report's outcome line says it. */
-const outcomeLine = (command: "migrate" | "drift", outcome: Outcome): string => {
+const outcomeLine = (command: "migrate" | "drift", outcome: MigrateOutcome): string => {
 	switch (outcome) {
 		case "nothingRan":
 			return "No statement of any folder ran; the ledger and the catalog are unchanged."

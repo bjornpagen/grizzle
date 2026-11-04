@@ -391,6 +391,30 @@ const extrasOf = (
 	return { missing, extras: rest }
 }
 
+/** The refusal of a chosen candidate whose required candidate is not chosen: a field rename's, of its type's rename. */
+const unmetBy = (
+	c: ReadCandidate,
+	chosen: ReadonlySet<ReadCandidate>
+): ReadonlyArray<SplitRename> => {
+	switch (c.kind) {
+		case "relation":
+		case "type":
+		case "login":
+			return []
+		case "field":
+		case "nested field":
+			return c.requires.kind === "type" && !chosen.has(c.requires.candidate)
+				? [
+						{
+							kind: "orphan",
+							file: c.file,
+							detail: `${c.label} is chosen without ${c.requires.candidate.label}, which it requires: ${c.head.text}`
+						}
+					]
+				: []
+	}
+}
+
 /** A review of a folder read against its record: the decision, what it refuses, and the losses it reaches. */
 interface Evaluation {
 	readonly splits: ReadonlyArray<SplitRename>
@@ -418,25 +442,7 @@ const evaluate = (record: DecisionRecord, files: ReadonlyArray<FolderFile>): Eva
 				detail: `${c.label} and ${other.label} are both chosen, and rename one name twice: choose at most one rename for each added and each removed name`
 			}))
 	)
-	const unmet = picked.flatMap((c): ReadonlyArray<SplitRename> => {
-		switch (c.kind) {
-			case "relation":
-			case "type":
-			case "login":
-				return []
-			case "field":
-			case "nested field":
-				return c.requires.kind === "type" && !chosen.has(c.requires.candidate)
-					? [
-							{
-								kind: "orphan",
-								file: c.file,
-								detail: `${c.label} is chosen without ${c.requires.candidate.label}, which it requires: ${c.head.text}`
-							}
-						]
-					: []
-		}
-	})
+	const unmet = picked.flatMap((c) => unmetBy(c, chosen))
 	const perFile = reviewed.map((r) => {
 		const f = r.file
 		const sorted = sortFile(r, chosen)
@@ -474,7 +480,11 @@ const evaluate = (record: DecisionRecord, files: ReadonlyArray<FolderFile>): Eva
 		return {
 			splits: [
 				...sorted.splits,
-				...missing.map((r): SplitRename => ({ kind: "split", file: f.name, detail: r.missing })),
+				...missing.map((req): SplitRename => ({
+					kind: "split",
+					file: f.name,
+					detail: req.missing
+				})),
 				...written,
 				...both
 			],

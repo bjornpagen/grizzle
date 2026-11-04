@@ -31,7 +31,7 @@ import { context, login, role, schema } from "#compiler/public/schema.ts"
 import { printRoleSetting, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/types/schema/world.ts"
 import {
-	type RoleDefault,
+	type RoleDefaultParameter,
 	type RoleDefaultSetting,
 	roleDefaults
 } from "#test/pg/adapter/support.ts"
@@ -104,7 +104,7 @@ const vectorProbe = query(W.Work).rule((r) => {
  * A value admission must refuse for each role default Publish stores, as ALTER ROLE ... SET spells it: PostgreSQL's own
  * search path, jit on, no extra float digits, the C locale.
  */
-const wrongRoleDefault: { readonly [P in RoleDefault]: string } = {
+const wrongRoleDefault: { readonly [P in RoleDefaultParameter]: string } = {
 	search_path: `${quoteIdent("$user")}, ${quoteIdent("public")}`,
 	jit: quoteString("on"),
 	extra_float_digits: quoteString("0"),
@@ -192,7 +192,7 @@ type OpenCase =
 type OpenFeature =
 	| Exclude<OpenCase["kind"], "role default" | "payload refused">
 	| `payload refused ${PayloadFault}`
-	| `role default ${"reset" | "wrong"} ${RoleDefault}`
+	| `role default ${"reset" | "wrong"} ${RoleDefaultParameter}`
 
 const featureOf = (openCase: OpenCase): OpenFeature => {
 	switch (openCase.kind) {

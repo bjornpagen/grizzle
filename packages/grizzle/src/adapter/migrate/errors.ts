@@ -59,10 +59,10 @@ export type MigrateStage =
  * What ran before a stage stopped the command, as the report's outcome line says it: nothing at all, the files before
  * the failed one (a rerun resumes), every folder with a catalog that differs, or every folder with no verdict.
  */
-export type Outcome = "nothingRan" | "resumes" | "drifted" | "noVerdict"
+export type MigrateOutcome = "nothingRan" | "resumes" | "drifted" | "noVerdict"
 
 /** The outcome of each stage. */
-export const stageOutcome: { readonly [S in MigrateStage]: Outcome } = {
+export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 	connect: "nothingRan",
 	owner: "nothingRan",
 	input: "nothingRan",

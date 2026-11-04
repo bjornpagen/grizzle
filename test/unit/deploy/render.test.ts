@@ -5,9 +5,9 @@ import {
 	isNoTransaction,
 	noTransactionMarker,
 	placeholderMarker,
-	placeholderToken,
 	renameMarker
 } from "#compiler/deploy/render/markers.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 
 describe("markers", () => {

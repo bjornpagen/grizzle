@@ -10,6 +10,7 @@ import {
 	type uuid
 } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type { ComputedOrigin, Term, TypeOfTerm } from "#compiler/types/core/phantom.ts"
 import type {
 	Contract,
@@ -17,8 +18,7 @@ import type {
 	Infer,
 	IntegerLike,
 	LiteralOf,
-	SerialField,
-	Span
+	SerialField
 } from "#compiler/types/fields/field.ts"
 import { Cents, type Ein, type EpochDay, type Rate } from "#test/types/skeleton/fixtures/work.ts"
 import type { Equals, Expect, IsAssignable, Not } from "#test/types/skeleton/support.ts"

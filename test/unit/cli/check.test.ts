@@ -10,10 +10,10 @@ import {
 	findMarkers,
 	noTransactionMarker,
 	placeholderMarker,
-	placeholderToken,
 	splitStatements
 } from "#compiler/deploy/render/markers.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
 import { cli, cliClock, viaDatabaseUrl, workspace, writeConfig } from "#test/pg/cli/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"

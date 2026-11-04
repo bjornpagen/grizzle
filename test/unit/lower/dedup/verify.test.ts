@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -32,7 +33,6 @@ import { f, key, relation, type SchemaDesc } from "#test/support/fixtures/ir/des
 import { localVectorSchema, productionNames, standInNames } from "#test/support/kernel/naming.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import {
 	artifactProblems,
 	type ChannelProgram,

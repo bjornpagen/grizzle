@@ -453,19 +453,18 @@ const rootsIn = (files: ReadonlyArray<MetaFile>): ReadonlyArray<ReadRoot> => {
 		})
 		return { kind: "relation", path, fields, ...readBase(path, o.head, file) }
 	}
-	const others = files.flatMap((f) =>
-		offersIn(f.steps).flatMap((o): ReadonlyArray<ReadRoot> => {
-			switch (o.kind) {
-				case "relation rename":
-					return [relationRead(o, f.name)]
-				case "rename":
-					return rootRead(o, f.name)
-				case "replace":
-				case "delete":
-					return []
-			}
-		})
-	)
+	const offerRead = (o: MetaTopOffer, file: string): ReadonlyArray<ReadRoot> => {
+		switch (o.kind) {
+			case "relation rename":
+				return [relationRead(o, file)]
+			case "rename":
+				return rootRead(o, file)
+			case "replace":
+			case "delete":
+				return []
+		}
+	}
+	const others = files.flatMap((f) => offersIn(f.steps).flatMap((o) => offerRead(o, f.name)))
 	return [...types, ...others]
 }
 
@@ -475,35 +474,40 @@ const everyCandidate = (roots: ReadonlyArray<ReadRoot>): ReadonlyArray<ReadCandi
 		r.kind === "relation" ? [r, ...r.fields] : [r]
 	)
 
-/** The record's steps, every candidate a step names read as the candidate its path names, a choice's offers read by
- * `offer`. */
+/** A record step, every candidate it names read as the candidate its path names, a choice's offers read by `offer`. */
+const readStep = <M, R>(
+	s: MetaStepOf<M>,
+	candidates: ReadonlyArray<ReadCandidate>,
+	offer: (o: M) => R
+): ReadStepOf<R> => {
+	switch (s.kind) {
+		case "statement":
+			return { kind: "statement", statement: spell(s.statement) }
+		case "loss":
+			return {
+				kind: "loss",
+				loses: s.loses,
+				statement: spell(s.statement),
+				carriers: s.carriers.map((c) => named(candidates, c))
+			}
+		case "confirm":
+			return { kind: "confirm", statements: mapNonEmpty(s.statements, (x) => spell(x)) }
+		case "choice":
+			return {
+				kind: "choice",
+				keep: spell(s.keep),
+				follows: s.follows.map((x) => spell(x)),
+				offers: mapNonEmpty(s.offers, offer)
+			}
+	}
+}
+
+/** The record's steps, each read (readStep). */
 const readSteps = <M, R>(
 	steps: ReadonlyArray<MetaStepOf<M>>,
 	candidates: ReadonlyArray<ReadCandidate>,
 	offer: (o: M) => R
-): ReadonlyArray<ReadStepOf<R>> =>
-	steps.map((s): ReadStepOf<R> => {
-		switch (s.kind) {
-			case "statement":
-				return { kind: "statement", statement: spell(s.statement) }
-			case "loss":
-				return {
-					kind: "loss",
-					loses: s.loses,
-					statement: spell(s.statement),
-					carriers: s.carriers.map((c) => named(candidates, c))
-				}
-			case "confirm":
-				return { kind: "confirm", statements: mapNonEmpty(s.statements, (x) => spell(x)) }
-			case "choice":
-				return {
-					kind: "choice",
-					keep: spell(s.keep),
-					follows: s.follows.map((x) => spell(x)),
-					offers: mapNonEmpty(s.offers, offer)
-				}
-		}
-	})
+): ReadonlyArray<ReadStepOf<R>> => steps.map((s) => readStep(s, candidates, offer))
 
 /** The candidate a path names. */
 const named = (candidates: ReadonlyArray<ReadCandidate>, path: CandidatePath): ReadCandidate =>
@@ -625,50 +629,53 @@ const sitesIn = (file: ReadFile): ReadonlyArray<Site> => {
 		standing: ReadonlyArray<Literal>,
 		lookup: ReadonlyArray<Literal> | undefined
 	): Site => ({ file: file.name, statement: spelled.text, at, spelled, standing, lookup })
+	const offerSites = (o: ReadOffer, scope: ReadonlyArray<Literal>): ReadonlyArray<Site> => {
+		const taken = [...scope, { candidate: o.candidate, chosen: true }]
+		const label = o.candidate.label
+		switch (o.kind) {
+			case "rename":
+				return [
+					site(o.candidate.head, `the head of ${label}`, taken, scope),
+					...walk(o.alternative, taken, `inside ${label}`)
+				]
+			case "replace":
+				return o.statements.map((x) => site(x, `a statement ${label} writes`, taken, undefined))
+			case "delete":
+				return []
+		}
+	}
+	const stepSites = (
+		s: ReadStep,
+		scope: ReadonlyArray<Literal>,
+		within: string
+	): ReadonlyArray<Site> => {
+		switch (s.kind) {
+			case "statement":
+				return [site(s.statement, `a statement ${within}`, scope, undefined)]
+			case "loss":
+				return [site(s.statement, `the statement of a data loss ${within}`, scope, scope)]
+			case "confirm":
+				return s.statements.map((x) => site(x, `a confirmed statement ${within}`, scope, scope))
+			case "choice": {
+				const kept = [
+					...scope,
+					...s.offers.map((o: ReadOffer): Literal => ({ candidate: o.candidate, chosen: false }))
+				]
+				return [
+					site(s.keep, `the statement candidate renames decide ${within}`, kept, undefined),
+					...s.follows.map((x) =>
+						site(x, `a statement following a decided one ${within}`, scope, undefined)
+					),
+					...s.offers.flatMap((o: ReadOffer) => offerSites(o, scope))
+				]
+			}
+		}
+	}
 	const walk = (
 		steps: ReadonlyArray<ReadStep>,
 		scope: ReadonlyArray<Literal>,
 		within: string
-	): ReadonlyArray<Site> =>
-		steps.flatMap((s): ReadonlyArray<Site> => {
-			switch (s.kind) {
-				case "statement":
-					return [site(s.statement, `a statement ${within}`, scope, undefined)]
-				case "loss":
-					return [site(s.statement, `the statement of a data loss ${within}`, scope, scope)]
-				case "confirm":
-					return s.statements.map((x) => site(x, `a confirmed statement ${within}`, scope, scope))
-				case "choice": {
-					const kept = [
-						...scope,
-						...s.offers.map((o: ReadOffer): Literal => ({ candidate: o.candidate, chosen: false }))
-					]
-					return [
-						site(s.keep, `the statement candidate renames decide ${within}`, kept, undefined),
-						...s.follows.map((x) =>
-							site(x, `a statement following a decided one ${within}`, scope, undefined)
-						),
-						...s.offers.flatMap((o: ReadOffer): ReadonlyArray<Site> => {
-							const taken = [...scope, { candidate: o.candidate, chosen: true }]
-							const label = o.candidate.label
-							switch (o.kind) {
-								case "rename":
-									return [
-										site(o.candidate.head, `the head of ${label}`, taken, scope),
-										...walk(o.alternative, taken, `inside ${label}`)
-									]
-								case "replace":
-									return o.statements.map((x) =>
-										site(x, `a statement ${label} writes`, taken, undefined)
-									)
-								case "delete":
-									return []
-							}
-						})
-					]
-				}
-			}
-		})
+	): ReadonlyArray<Site> => steps.flatMap((s) => stepSites(s, scope, within))
 	return walk(file.steps, [], "at the top of the file")
 }
 

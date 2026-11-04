@@ -274,7 +274,7 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 
 /**
  * Counters past the Walks shape: a union of arms bounded unequally, a between, swapped operands,
- * a decreasing counter, and a step of two over two seeds. The bounded-counter proof (lower/shapes/recursion/bound.ts)
+ * a decreasing counter, and a step of two over two seeds. The bounded-counter proof (check/recursion/bound.ts)
  * reads each one's depth off the step; an under-counted depth would unroll too few levels and drop every state the
  * missing levels derive, so the unrolled form must agree row for row with the reference evaluator and the conservative
  * lowering, as the recursive CTE does.

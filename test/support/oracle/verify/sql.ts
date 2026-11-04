@@ -3,7 +3,6 @@ import { appendAll } from "#compiler/core/array.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
-import { placeholderToken } from "#compiler/deploy/render/markers.ts"
 import {
 	type Analyze,
 	builtinFunctionNames,
@@ -47,7 +46,7 @@ import {
 import { types } from "#compiler/sql/build.ts"
 import { type Lexed, lex, type Token } from "#compiler/sql/lexer.ts"
 import { bodyPositionNames, isDecimal } from "#compiler/sql/naming.ts"
-import { printType, storedSettingValue } from "#compiler/sql/print.ts"
+import { placeholderToken, printType, storedSettingValue } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 /** r<n>: the generated alias of a relation occurrence or a stage. */
@@ -372,14 +371,16 @@ export const isUnitRead = (select: Select): boolean => {
 	if (body.kind !== "core") {
 		return false
 	}
+	if (!Arr.isReadonlyArrayNonEmpty(body.targets)) {
+		return true
+	}
 	const [only, ...rest] = body.targets
 	return (
-		only === undefined ||
-		(rest.length === 0 &&
-			only.alias === undefined &&
-			only.expr.kind === "literal" &&
-			only.expr.value.kind === "bool" &&
-			only.expr.value.value)
+		rest.length === 0 &&
+		only.alias === undefined &&
+		only.expr.kind === "literal" &&
+		only.expr.value.kind === "bool" &&
+		only.expr.value.value
 	)
 }
 

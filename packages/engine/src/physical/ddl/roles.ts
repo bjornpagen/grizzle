@@ -36,12 +36,12 @@ import type {
 	RelationInfo,
 	TheoryRelation
 } from "#compiler/ir/law.ts"
+import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { DeployPhase, LogicalQuery } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
-import { baseTypeRef } from "#compiler/lower/conservative/base-type.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { AdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"

@@ -17,10 +17,10 @@ import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type Action,
-	type AlternativeStep,
 	type Draft,
 	headOf,
-	type Offer
+	type Offer,
+	type RelationStep
 } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -441,7 +441,7 @@ const offerStatements = (o: Offer): ReadonlyArray<SqlStatement> => {
  * The statements a drafted step holds: its action's, a choice's kept action and every offer's, the statements a
  * reviewer confirms, or the statement of a loss a reviewer writes in.
  */
-const draftStatements = (d: Draft | AlternativeStep): ReadonlyArray<SqlStatement> => {
+const draftStatements = (d: Draft | RelationStep): ReadonlyArray<SqlStatement> => {
 	switch (d.kind) {
 		case "choice":
 			return [

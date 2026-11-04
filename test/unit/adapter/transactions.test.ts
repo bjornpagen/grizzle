@@ -14,7 +14,7 @@ import {
 } from "#adapter/errors/failures.ts"
 import { decodePlan } from "#adapter/explain/plan.ts"
 import { classifyServerError, transientFailureOf } from "#adapter/outcomes/index.ts"
-import { violationClassifier } from "#adapter/witness/index.ts"
+import { violationClassifier } from "#adapter/witness/classify.ts"
 import { keyLaws } from "#adapter/witness/keylaw.ts"
 import type { UniqueAbort } from "#compiler/write/program/artifact.ts"
 import type { KeyDecoder } from "#compiler/write/program/outcome.ts"

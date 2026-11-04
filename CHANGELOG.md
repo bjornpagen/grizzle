@@ -520,6 +520,11 @@ How to upgrade:
 - **Format and state:** a query, row check or contract that wrote `and` or `or` of one predicate now holds that
   predicate itself in its Description, so a fingerprint over that Description changes once; none otherwise.
 
+#### `AcquisitionBudgetExceeded.saturated` is removed
+
+- **The `saturated` getter of `AcquisitionBudgetExceeded` is removed.** It was derived from the error's own fields.
+  - Codemod: `e.saturated` → `e.leased === e.max`.
+
 #### No read raises an evaluation error: integer and money arithmetic is exact, floats are IEEE 754, partial operations are guarded (#9)
 
 - **Integer arithmetic is exact and delivers `bigint`.** `Compute.add`, `sub`, `mul`, `neg`, `abs`, `div`, `gcd` and

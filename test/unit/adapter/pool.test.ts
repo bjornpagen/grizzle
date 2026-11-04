@@ -632,7 +632,6 @@ describe("the session pool", () => {
 												const failure = failureOf(exit)
 												assert.ok(Schema.is(AcquisitionBudgetExceeded)(failure), String(failure))
 												matchesObject(failure, { millis: waitMs, leased: max, max })
-												assert.equal(failure.saturated, true)
 											}
 											c.note("waiters for a permit timed out")
 										}
@@ -669,7 +668,6 @@ describe("the session pool", () => {
 											const failure = failureOf(exit)
 											assert.ok(Schema.is(AcquisitionBudgetExceeded)(failure), String(failure))
 											matchesObject(failure, { millis: waitMs, leased: held.length, max })
-											assert.equal(failure.saturated, false)
 										}
 										c.note(
 											connecting

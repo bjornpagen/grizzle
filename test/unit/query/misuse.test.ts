@@ -1118,7 +1118,7 @@ describe("named scopes", () => {
 									built.ok && compileTemplate(built.value, undefined, testCompile).ok,
 									"two scopes of two names compile"
 								)
-								const stage = built.ok ? queryValueDesc(built.value)?.stage : undefined
+								const stage = queryValueDesc(built.value)?.stage
 								const spelled: ReadonlyArray<string> =
 									stage?.kind === "rules" ? Arr.map(stage.arms[0].vars, (d) => d.id) : []
 								assert.deepEqual(

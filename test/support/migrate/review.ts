@@ -2,7 +2,6 @@ import { Array as Arr, Option, pipe, Record as Rec, Result, Schema, String as St
 import { decodeMeta, readMeta } from "#adapter/boundary/meta.ts"
 import {
 	type Action,
-	type AlternativeStep,
 	type Candidate,
 	type CandidatePath,
 	candidateLabel,
@@ -16,6 +15,7 @@ import {
 	type MigrationPlan,
 	type Offer,
 	pathOf,
+	type RelationStep,
 	samePath
 } from "#compiler/deploy/diff/plan.ts"
 import { type DraftFile, planFiles } from "#compiler/deploy/phases/files.ts"
@@ -41,13 +41,12 @@ import {
 	isNoTransaction,
 	lossMarker,
 	placeholderMarker,
-	placeholderToken,
 	renameMarker,
 	splitStatements
 } from "#compiler/deploy/render/markers.ts"
 import { offerInstruction, renderFile } from "#compiler/deploy/render/sql.ts"
 import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { placeholderToken, printStatement } from "#compiler/sql/print.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 
 /** A drafted action that needs a value from the reviewer.
@@ -145,7 +144,7 @@ const isPlaceholder = (a: Action): a is Placeholder =>
 
 /** What an offer replaces the statement it decides with: its actions, a rename's head first, and the choices nested in
  * a rename's alternative. */
-const offerSteps = (offer: Offer): ReadonlyArray<AlternativeStep> => {
+const offerSteps = (offer: Offer): ReadonlyArray<RelationStep> => {
 	switch (offer.kind) {
 		case "rename":
 		case "relation rename":
@@ -161,13 +160,13 @@ const offerSteps = (offer: Offer): ReadonlyArray<AlternativeStep> => {
 }
 
 /** Every action an offer may write: its own, and every action of the choices and losses nested in it, kept or offered. */
-export const offerActions = (offer: Offer): ReadonlyArray<Action> =>
+const offerActions = (offer: Offer): ReadonlyArray<Action> =>
 	Arr.flatMap(offerSteps(offer), (s) =>
 		s.kind === "choice" || s.kind === "loss" ? draftActions(s) : [s]
 	)
 
 /** Every action a draft holds, the kept and the offered ones alike, a loss's statement among them. */
-export const draftActions = (d: Draft | AlternativeStep): ReadonlyArray<Action> => {
+export const draftActions = (d: Draft | RelationStep): ReadonlyArray<Action> => {
 	switch (d.kind) {
 		case "choice":
 			return [d.keep, ...Arr.flatMap(d.offers, (o: Offer) => offerActions(o))]
@@ -434,7 +433,7 @@ const offerInstructions: ReadonlySet<string> = new Set(Rec.values(offerInstructi
 type Marked = Choice<Offer> | LossDecision | Confirm
 
 /** The marked steps of a list of drafted steps, in draft order. */
-const markedIn = (steps: ReadonlyArray<Draft | AlternativeStep>): ReadonlyArray<Marked> =>
+const markedIn = (steps: ReadonlyArray<Draft | RelationStep>): ReadonlyArray<Marked> =>
 	Arr.flatMap(steps, (d): ReadonlyArray<Marked> => {
 		switch (d.kind) {
 			case "choice":
@@ -650,10 +649,10 @@ export type Written =
 	| { readonly kind: "decided" }
 	| { readonly kind: "split"; readonly choice: number; readonly offer: number }
 
-export const decided: Written = { kind: "decided" }
+const decided: Written = { kind: "decided" }
 
 /** Every choice a draft holds, in folder order: each, then those nested in its offers' alternatives. */
-const choicesIn = (steps: ReadonlyArray<Draft | AlternativeStep>): ReadonlyArray<Choice<Offer>> =>
+const choicesIn = (steps: ReadonlyArray<Draft | RelationStep>): ReadonlyArray<Choice<Offer>> =>
 	Arr.flatMap(steps, (d): ReadonlyArray<Choice<Offer>> =>
 		d.kind === "choice" ? [d, ...Arr.flatMap(d.offers, (o: Offer) => choicesIn(offerSteps(o)))] : []
 	)

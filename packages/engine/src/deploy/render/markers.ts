@@ -1,8 +1,8 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
 
 export const noTransactionMarker = "-- grizzle: no-transaction"
-export const placeholderToken = "__GRIZZLE_PLACEHOLDER__"
 export const placeholderMarker = "-- grizzle: placeholder"
 export const renameMarker = "-- grizzle: rename candidate"
 /** A loss: a statement that loses stored data, drafted commented below this line, which says what it loses and how to

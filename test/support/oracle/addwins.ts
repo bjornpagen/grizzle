@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import {
@@ -19,7 +20,7 @@ import {
 	type RelationDelta,
 	stateDelta
 } from "#test/support/oracle/delta.ts"
-import { elementAt, entryOf, indices } from "#test/support/oracle/pick.ts"
+import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 
 export type { Fact, FactSet }
 

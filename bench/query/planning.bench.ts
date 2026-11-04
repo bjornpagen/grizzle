@@ -41,14 +41,13 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { outline, planOf, scansOf, summaryOf } from "#bench/query/support/plans.ts"
-import { maxOf } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 import { regex } from "arkregex"

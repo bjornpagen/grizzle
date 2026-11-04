@@ -1078,7 +1078,7 @@ const built = (spec: QuerySpec): unknown => {
  * equal columns (ir/keys.ts keyClasses): one column of each class, together, are a key. Each class is in name order,
  * and a key's classes by their first names.
  */
-export interface Verdict {
+interface Verdict {
 	readonly get: boolean
 	readonly keys: ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>
 }
@@ -1108,7 +1108,7 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
  * One drawn query: its source, the engine's verdict, which the program asserts of the types exactly, a self-join's
  * included, and what it reached.
  */
-export interface AgreementCase {
+interface AgreementCase {
 	readonly source: string
 	readonly uses: ReadonlySet<Imported>
 	readonly verdict: Verdict
@@ -1166,7 +1166,7 @@ export const agreementWitnesses = () =>
  * Every case the program holds: the floor's witnesses, then the stream of the agreement's label under the run's seed
  * (`TEST_SEED`, or the seed the run drew), so every process of one run draws the same cases and every run new ones.
  */
-export const agreementCases = (seed: number): ReadonlyArray<AgreementCase> => [
+const agreementCases = (seed: number): ReadonlyArray<AgreementCase> => [
 	...agreementWitnesses().values,
 	...sample(caseGen, rotatingSeed(seed, floorSeed(agreementLabel)), agreementCount)
 ]

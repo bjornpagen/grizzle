@@ -1,5 +1,4 @@
-import { Array as Arr, Record as Rec } from "effect"
-import { appliedEditPhrase, type MigrateStage } from "#adapter/migrate/errors.ts"
+import type { MigrateStage } from "#adapter/migrate/errors.ts"
 import type { CliStage } from "#cli/errors.ts"
 
 interface Refusal {
@@ -117,11 +116,3 @@ export const cliStageFix: Readonly<Record<CliStage, string>> = {
 	snapshot: "restore snapshot.json and the migration folders from git",
 	generate: "fix the schema or workload it names, then run grizzle generate again"
 }
-
-/** Every text of the table above, for the skill file's test. */
-export const documentedTexts = (): ReadonlyArray<string> => [
-	...Arr.flatMap(Rec.values(refusalText), (r) => [r.problem, r.fix]),
-	...Rec.values(appliedEditPhrase),
-	...Rec.values(migrateStageFix),
-	...Rec.values(cliStageFix)
-]

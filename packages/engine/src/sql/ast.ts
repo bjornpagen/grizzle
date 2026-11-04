@@ -201,9 +201,9 @@ export type BinaryOperator = (typeof binaryOperators)[number]
 /**
  * PostgreSQL builtin functions grizzle emits, printed qualified by pg_catalog. Compute's catalogue, the aggregates,
  * window and ordered-set functions of the compile-target catalog, the exact value of a double's bits (float8send and
- * get_byte, build.ts exactNumeric), the span functions, the attachment transport, the runtime probes and the database
- * default's statement; a recordset is a FROM item of its own. Extension functions
- * (pgvector) are qualified by their extension's schema instead.
+ * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, the runtime probes and the
+ * database default's statement; a recordset is a FROM item of its own. Extension functions (pgvector) are qualified by
+ * their extension's schema instead.
  */
 export const builtinFunctionNames = [
 	"count",
@@ -386,10 +386,13 @@ export type Expr =
 			readonly high: Expr
 			readonly not: boolean
 	  }
-	/** At least one item: PostgreSQL has no empty IN list, so an empty membership is `false` (`true` NOT) at its source. */
 	| {
 			readonly kind: "inList"
 			readonly expr: Expr
+			/**
+			 * At least one item: PostgreSQL has no empty IN list, so an empty membership is `false` (`true` NOT) at its
+			 * source.
+			 */
 			readonly list: NonEmptyReadonlyArray<Expr>
 			readonly not: boolean
 	  }
@@ -459,40 +462,42 @@ export type FromSource =
 	| { readonly kind: "table"; readonly table: TableName; readonly alias: string }
 	| { readonly kind: "cte"; readonly name: string; readonly alias: string | undefined }
 	| { readonly kind: "enclosing"; readonly name: string; readonly alias: string }
-	/** A derived table; an empty column alias list is none, as PostgreSQL spells a relation of no column. */
 	| {
 			readonly kind: "derived"
 			readonly query: Select
 			readonly alias: string
+			/** The column alias list; an empty one is none, as PostgreSQL spells a relation of no column. */
 			readonly columns: ReadonlyArray<string>
 			readonly lateral: boolean
 	  }
-	/** A function's rows; an empty column alias list is none. */
 	| {
+			/** A function's rows. */
 			readonly kind: "function"
 			readonly call: Call
 			readonly alias: string
+			/** The column alias list; an empty one is none. */
 			readonly columns: ReadonlyArray<string>
 			readonly lateral: boolean
 	  }
-	/**
-	 * A jsonb placeholder's facts as a relation of `columns`, of any width: a recordset of no column is one row of no
-	 * column per fact, which the printer spells as the placeholder's array elements.
-	 */
 	| {
 			readonly kind: "recordset"
+			/** The jsonb placeholder whose facts are the relation. */
 			readonly source: RecordsetPlaceholder
 			readonly alias: string
+			/**
+			 * The relation's columns, of any width: a recordset of no column is one row of no column per fact, which the
+			 * printer spells as the placeholder's array elements.
+			 */
 			readonly columns: ReadonlyArray<ColumnDefinition>
 	  }
-	/**
-	 * A VALUES list names at least one column: PostgreSQL has no VALUES row of no value. A row of no column is the
-	 * derived `(SELECT)`.
-	 */
 	| {
 			readonly kind: "values"
 			readonly rows: NonEmptyReadonlyArray<ReadonlyArray<Expr>>
 			readonly alias: string
+			/**
+			 * At least one column: PostgreSQL has no VALUES row of no value. A row of no column is the derived
+			 * `(SELECT)`.
+			 */
 			readonly columns: NonEmptyReadonlyArray<string>
 	  }
 	| ContextSource
@@ -862,11 +867,14 @@ export interface CreateCarrier {
 
 export type AlterTableAction =
 	| { readonly kind: "addColumn"; readonly column: ColumnDef }
-	/**
-	 * ADD COLUMN ... DEFAULT <placeholder> NOT NULL: a drafted column whose value for the rows already stored the
-	 * reviewer writes in place of the placeholder (deploy/render/markers.ts placeholderToken).
-	 */
-	| { readonly kind: "addColumnPlaceholder"; readonly column: ColumnDef }
+	| {
+			/**
+			 * ADD COLUMN ... DEFAULT <placeholder> NOT NULL: a drafted column whose value for the rows already stored the
+			 * reviewer writes in place of the placeholder (print.ts placeholderToken).
+			 */
+			readonly kind: "addColumnPlaceholder"
+			readonly column: ColumnDef
+	  }
 	| { readonly kind: "dropColumn"; readonly column: string }
 	| { readonly kind: "dropDefault"; readonly column: string }
 	| {
@@ -897,7 +905,7 @@ export type AlterTableAction =
 
 /**
  * An ALTER COLUMN ... TYPE's USING: the conversion of each stored value, or a drafted placeholder the reviewer replaces
- * with one (deploy/render/markers.ts placeholderToken).
+ * with one (print.ts placeholderToken).
  */
 export type Using =
 	| { readonly kind: "expr"; readonly expr: Expr }

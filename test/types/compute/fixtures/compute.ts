@@ -6,6 +6,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
 	ParamOrigin,
 	ParamType,
@@ -15,7 +16,7 @@ import type {
 	Term,
 	TypeOfTerm
 } from "#compiler/types/core/phantom.ts"
-import type { Infer, Span } from "#compiler/types/fields/field.ts"
+import type { Infer } from "#compiler/types/fields/field.ts"
 import type { ParamsOf } from "#compiler/types/query/query.ts"
 import type { Rule } from "#compiler/types/query/rule.ts"
 import type { Aggregate } from "#compiler/types/query/terms.ts"

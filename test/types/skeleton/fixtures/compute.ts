@@ -7,6 +7,7 @@ import type { FixedOp, OperandReading } from "#compiler/scalar/compute/registry.
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal, DecimalParts, FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
@@ -18,7 +19,7 @@ import type {
 	Term,
 	TypeOfTerm
 } from "#compiler/types/core/phantom.ts"
-import type { Infer, Span } from "#compiler/types/fields/field.ts"
+import type { Infer } from "#compiler/types/fields/field.ts"
 import type { ParamsOf } from "#compiler/types/query/query.ts"
 import { derived, query, v } from "#index.ts"
 import { Cents, type Rate } from "#test/types/skeleton/fixtures/work.ts"

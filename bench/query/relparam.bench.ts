@@ -39,12 +39,12 @@ import {
 	rowsReadFrom,
 	summaryOf
 } from "#bench/query/support/plans.ts"
+import { indices } from "#compiler/core/array.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /**
  * R22: a relation parameter is one parameter.

@@ -75,7 +75,7 @@ const passthrough = (q: Select): Select | undefined => {
 	const bareRight: SetOperand | undefined =
 		right.kind === "core"
 			? unaliased(right)
-			: right.kind === "select" && right.body.kind === "core"
+			: right.body.kind === "core"
 				? { ...right, body: unaliased(right.body) }
 				: undefined
 	if (bareRight === undefined) {

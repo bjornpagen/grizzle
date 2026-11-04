@@ -21,6 +21,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { loginRoleExchange } from "#compiler/deploy/diff/diff.ts"
 import { type Candidate, candidatesOf } from "#compiler/deploy/diff/plan.ts"
@@ -61,7 +62,7 @@ import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { indices, nonEmptyList } from "#test/support/oracle/pick.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { type Built, buildInstall } from "#test/support/worlds/execute/build.ts"
 import type {
@@ -1200,8 +1201,8 @@ const noteHistory = (before: Model, after: Model, note: (f: Feature) => void): v
 	}
 }
 
-/** What a step of a history fails with: a migrating step's error or a refused exchange's. */
-type StepError = Effect.Error<ReturnType<typeof step>> | Effect.Error<ReturnType<typeof exchange>>
+/** What a step of a history fails with: a migrating step's error; an exchange fails none. */
+type StepError = Effect.Error<ReturnType<typeof step>>
 
 const real = (
 	h: History,

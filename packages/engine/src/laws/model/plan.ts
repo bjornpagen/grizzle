@@ -40,7 +40,6 @@ import {
 	type FieldValue,
 	type ImageGuard,
 	isSpanField,
-	type KeyField,
 	type KeyName,
 	type LawField,
 	type LawWeight,
@@ -114,7 +113,7 @@ export type NativePlan =
 	| {
 			readonly kind: "PrimaryKey"
 			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<KeyField>
+			readonly columns: NonEmptyReadonlyArray<LawField>
 			readonly named: Identity<"primaryKey" | "key">
 	  }
 	| {
@@ -194,7 +193,7 @@ export type NativePlan =
 	| {
 			readonly kind: "TemporalUnique"
 			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<KeyField>
+			readonly columns: NonEmptyReadonlyArray<LawField>
 			readonly span: SpanField
 	  }
 	| {
@@ -327,7 +326,7 @@ const deleting = (
 })
 
 /** What each family checks beyond its anchor, with its participants as planned: one per relation. */
-export type PlannedDetail = FamilyDetail<
+type PlannedDetail = FamilyDetail<
 	NonEmptyReadonlyArray<ParticipantPlan>,
 	NonEmptyReadonlyArray<AlternativesPlan>
 >
@@ -357,13 +356,13 @@ const contains = <T>(outer: ReadonlyArray<T>, inner: ReadonlyArray<T>): boolean 
 const declaredKeys = (r: TheoryRelation): ReadonlyArray<KeySet> => [r.primaryKey, ...r.keys]
 
 /** The handles of each declared key's fields, the primary key's first. */
-const declaredFields = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<KeyField>> => [
+const declaredFields = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<LawField>> => [
 	r.primaryFields,
 	...r.keyFields
 ]
 
 /** The declared keys of `r` with no span field. */
-const scalarKeys = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<KeyField>> =>
+const scalarKeys = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<LawField>> =>
 	declaredFields(r).filter((k) => !k.some(isSpanField))
 
 /** The DETAIL codec of a residual law whose violating facts are facts of `r`: their key
