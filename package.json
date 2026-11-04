@@ -61,6 +61,7 @@
 		"@types/node": "catalog:",
 		"@types/pg": "catalog:",
 		"@vercel/functions": "catalog:",
+		"amaro": "catalog:",
 		"fallow": "catalog:",
 		"lefthook": "catalog:",
 		"oxfmt": "catalog:",

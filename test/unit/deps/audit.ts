@@ -1,11 +1,11 @@
-import { stripTypeScriptTypes } from "node:module"
+import { transformSync } from "amaro"
 import { Array as Arr, Order, Record as Rec, Schema, String as Str } from "effect"
 import { type Token, tokenize } from "#test/unit/deps/lexer.ts"
 
 /**
  * The production dependency audit over src/: no RegExp construction, .test or .exec, and no arkregex runtime import.
  *
- * Every module is read as the JavaScript Node runs: node:module's stripTypeScriptTypes erases the types, so a
+ * Every module is read as the JavaScript Node runs: amaro, the type stripper Node runs, erases the types, so a
  * type-only import is gone and an `import { type X } from "m"`, which keeps `import {} from "m"` under
  * verbatimModuleSyntax, is still a runtime import of m. The erased text is tokenized (lexer.ts) and checked for:
  *
@@ -44,22 +44,8 @@ export interface ModuleAudit {
 const regexMembers: ReadonlySet<string> = new Set(["test", "exec"])
 const regexBuildingCalls: ReadonlySet<string> = new Set(["match", "matchAll", "search"])
 
-/** Node's warning emitter, bound to process, which erase puts back after its silenced call. */
-const emitWarning = process.emitWarning.bind(process)
-
-/**
- * The erased JavaScript of a TypeScript module, exactly as Node's type stripping produces it.
- *
- * stripTypeScriptTypes announces itself as experimental on first use; the warning is not a finding.
- */
-export const erase = (source: string): string => {
-	process.emitWarning = () => {}
-	try {
-		return stripTypeScriptTypes(source, { mode: "strip" })
-	} finally {
-		process.emitWarning = emitWarning
-	}
-}
+/** The erased JavaScript of a TypeScript module, as amaro's type stripping (mode "strip-only") produces it. */
+export const erase = (source: string): string => transformSync(source, { mode: "strip-only" }).code
 
 const isPunct = (t: Token | undefined, text: string): boolean =>
 	t?.kind === "punct" && t.text === text
