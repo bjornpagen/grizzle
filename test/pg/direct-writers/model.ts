@@ -3,6 +3,7 @@ import { array, boolean, constant, element, type Gen, int, weighted } from "@gri
 import {
 	Array as Arr,
 	Effect,
+	Formatter,
 	Option,
 	Record as Rec,
 	Result,
@@ -980,8 +981,8 @@ export const runDirectCase = (
 					[
 						why,
 						...Arr.map(sqls, (sql, i) => `  ${i}: ${sql}`),
-						`predicted ${JSON.stringify(predicted.kind === "fails" ? { at: predicted.answer.sqlstate, step: predicted.at, named: predicted.answer.named.kind === "constraints" ? [...predicted.answer.named.constraints] : predicted.answer.named } : "commits")}`,
-						`met ${JSON.stringify(met)}`
+						`predicted ${Formatter.format(predicted.kind === "fails" ? { at: predicted.answer.sqlstate, step: predicted.at, named: predicted.answer.named.kind === "constraints" ? [...predicted.answer.named.constraints] : predicted.answer.named } : "commits")}`,
+						`met ${Formatter.format(met)}`
 					],
 					"\n"
 				)

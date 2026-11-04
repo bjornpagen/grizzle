@@ -385,12 +385,11 @@ const privilegeCase = (install: InstallSpec, c: Case<Feature>) =>
 				)
 			}
 			const session = yield* open(ownerSession())
-			const planned = new Set(
-				yield* Effect.filter(
-					Arr.dedupe(Arr.flatMap(statements, (s) => (writes.has(s.p) ? [s.sql] : []))),
-					(sql) => plannedByOwner(session, sql)
-				)
+			const ownerPlanned = yield* Effect.filter(
+				Arr.dedupe(Arr.flatMap(statements, (s) => (writes.has(s.p) ? [s.sql] : []))),
+				(sql) => plannedByOwner(session, sql)
 			)
+			const planned = new Set(ownerPlanned)
 			const candidates = Arr.flatMap(statements, ({ o, p, sql }) =>
 				writes.has(p) && !planned.has(sql)
 					? []

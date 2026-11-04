@@ -86,26 +86,21 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 		() =>
 			Effect.gen(function* () {
 				const fx = yield* installFixture({ candidates })
-				const stored = Arr.map(yield* storedSettings(fx), (row) => String(row[0]))
+				const settings = yield* storedSettings(fx)
+				const stored = Arr.map(settings, (row) => String(row[0]))
 				for (const setting of policySettings) {
 					assert.ok(stored.includes(setting), `${setting} in ${Arr.join(stored, ", ")}`)
 				}
 				/** The login's session, as its role, shows each setting, before any vector function runs and after. */
 				const session = yield* searcher(fx, "searcher")
 				for (const s of searchPolicySettings) {
-					assert.deepEqual(
-						yield* session.values(`SHOW ${s.parameter}`, []),
-						[[s.value]],
-						s.parameter
-					)
+					const rows = yield* session.values(`SHOW ${s.parameter}`, [])
+					assert.deepEqual(rows, [[s.value]], s.parameter)
 				}
 				yield* session.values(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
 				for (const s of searchPolicySettings) {
-					assert.deepEqual(
-						yield* session.values(`SHOW ${s.parameter}`, []),
-						[[s.value]],
-						s.parameter
-					)
+					const rows = yield* session.values(`SHOW ${s.parameter}`, [])
+					assert.deepEqual(rows, [[s.value]], s.parameter)
 				}
 
 				yield* Effect.gen(function* () {

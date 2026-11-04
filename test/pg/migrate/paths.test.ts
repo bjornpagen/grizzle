@@ -247,8 +247,9 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 					return yield* rowsOf(m, planOf(p.path.b, f, owner), p.path.b, f, model.numbered)
 				})
 			)
+			const migratedRows = yield* rowsOf(m, planOf(p.path.b, x, owner), p.path.b, x, model.numbered)
 			yield* same(
-				yield* rowsOf(m, planOf(p.path.b, x, owner), p.path.b, x, model.numbered),
+				migratedRows,
 				freshRows,
 				"(b) the facts B holds after the migration are not the carry model's"
 			)

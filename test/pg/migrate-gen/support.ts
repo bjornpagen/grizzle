@@ -10,7 +10,16 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
-import { Array as Arr, Equal, Option, Order, pipe, Record as Rec, String as Str } from "effect"
+import {
+	Array as Arr,
+	Equal,
+	Formatter,
+	Option,
+	Order,
+	pipe,
+	Record as Rec,
+	String as Str
+} from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { conversionOf as converts, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -1092,7 +1101,7 @@ const conversionOf = (declared: string): string => {
 	const r = parseDeclaredName(declared)
 	if (!r.ok) {
 		throw new Error(
-			`the generator drew ${JSON.stringify(declared)}, which the naming rule refuses: ${r.error}`
+			`the generator drew ${Formatter.format(declared)}, which the naming rule refuses: ${r.error}`
 		)
 	}
 	return converts(r.value)

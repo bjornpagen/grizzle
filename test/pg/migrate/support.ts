@@ -488,21 +488,17 @@ export const sameCatalog = (
 		const substrate = yield* Substrate
 		const ofExpected = installationAbstraction(expected)
 		const ofActual = installationAbstraction(actual)
-		const a = comparable(
-			yield* presentCatalog(expected.names.schema),
-			expected.names.schema,
-			ofExpected
-		)
-		const b = comparable(yield* presentCatalog(actual.names.schema), actual.names.schema, ofActual)
+		const expectedCatalog = yield* presentCatalog(expected.names.schema)
+		const a = comparable(expectedCatalog, expected.names.schema, ofExpected)
+		const actualCatalog = yield* presentCatalog(actual.names.schema)
+		const b = comparable(actualCatalog, actual.names.schema, ofActual)
 		for (const part of Rec.keys(a)) {
 			assert.deepEqual(b[part], a[part], `${what}: catalog ${part}`)
 		}
 		const s = yield* substrate.session({ ...ownerSession(), label: `definitions ${what}` })
-		assert.deepEqual(
-			yield* definitions(s, actual.names.schema, ofActual),
-			yield* definitions(s, expected.names.schema, ofExpected),
-			`${what}: definitions`
-		)
+		const actualDefinitions = yield* definitions(s, actual.names.schema, ofActual)
+		const expectedDefinitions = yield* definitions(s, expected.names.schema, ofExpected)
+		assert.deepEqual(actualDefinitions, expectedDefinitions, `${what}: definitions`)
 	}).pipe(Effect.scoped)
 
 /** A version of a generated path with where its names came from. */
@@ -685,7 +681,8 @@ export const rowsOf = (
 	Effect.gen(function* () {
 		const out: Record<string, ReadonlyArray<ReadonlyArray<string>>> = {}
 		for (const [key, sql] of rowsSql(plan, v, schema, numbered)) {
-			out[key] = Arr.sort(yield* statementRows(session, sql, []), Arr.makeOrder(Order.String))
+			const rows = yield* statementRows(session, sql, [])
+			out[key] = Arr.sort(rows, Arr.makeOrder(Order.String))
 		}
 		return out
 	})

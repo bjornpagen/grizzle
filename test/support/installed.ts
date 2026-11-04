@@ -9,6 +9,7 @@ import type { FolderSource } from "#adapter/migrate/input.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { QueryResultValue } from "#adapter/reader/reader.ts"
 import type { DbConfigShape, DbLayerOf } from "#adapter/types/layer.ts"
+import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -405,7 +406,7 @@ const openDb = (
 export const withDbClaims = <A, E>(
 	m: Installed,
 	role: AnyLoginRole,
-	payload: unknown,
+	payload: Json,
 	body: (db: OpenedDb) => Effect.Effect<A, E, Scope.Scope>
 ): Effect.Effect<A, E | OpenError | SqlError, Scope.Scope> =>
 	Effect.scoped(Effect.flatMap(openDb(role, tokenOf(payload)), body)).pipe(

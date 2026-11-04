@@ -1,7 +1,8 @@
-import { Array as Arr, Order, Result, Schema } from "effect"
+import { Array as Arr, Order, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Identity } from "#compiler/core/identity.ts"
 import * as EngineResult from "#compiler/core/result.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { type CandidatePath, candidatesOf, pathOf, samePath } from "#compiler/deploy/diff/plan.ts"
 import { lossDecisions, splitRenames } from "#compiler/deploy/render/chosen.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
@@ -125,76 +126,63 @@ class Drafted implements DraftedView {
 
 export type { Drafted }
 
-const Text = Schema.String
-const Ends = { removed: Text, added: Text } as const
-const RelationPathRead = Schema.Struct({ kind: Schema.Literal("relation"), ...Ends })
-const PathRead = Schema.Union([
-	RelationPathRead,
-	Schema.Struct({ kind: Schema.Literal("type"), ...Ends }),
-	Schema.Struct({ kind: Schema.Literal("login"), ...Ends }),
-	Schema.Struct({ kind: Schema.Literal("field"), relation: Text, ...Ends }),
-	Schema.Struct({ kind: Schema.Literal("nested field"), parent: RelationPathRead, ...Ends })
-])
+type Ends = { readonly removed: string; readonly added: string }
+type RelationPathRead = { readonly kind: "relation" } & Ends
+type PathRead =
+	| RelationPathRead
+	| ({ readonly kind: "type" } & Ends)
+	| ({ readonly kind: "login" } & Ends)
+	| ({ readonly kind: "field"; readonly relation: string } & Ends)
+	| ({ readonly kind: "nested field"; readonly parent: RelationPathRead } & Ends)
 
 /** What a root's rename offer renames that is no relation, as the door reads it. */
-const RootRenamesRead = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("type"), ...Ends }),
-	Schema.Struct({ kind: Schema.Literal("login"), ...Ends }),
-	Schema.Struct({ kind: Schema.Literal("field"), relation: Text, ...Ends })
-])
+type RootRenamesRead =
+	| ({ readonly kind: "type" } & Ends)
+	| ({ readonly kind: "login" } & Ends)
+	| ({ readonly kind: "field"; readonly relation: string } & Ends)
 
-const LossesRead = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("relation"), relation: Text }),
-	Schema.Struct({ kind: Schema.Literal("field"), relation: Text, field: Text }),
-	Schema.Struct({ kind: Schema.Literal("schema"), schema: Text })
-])
+type LossesRead =
+	| { readonly kind: "relation"; readonly relation: string }
+	| { readonly kind: "field"; readonly relation: string; readonly field: string }
+	| { readonly kind: "schema"; readonly schema: string }
 
-const PlainRead = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("replace") }),
-	Schema.Struct({ kind: Schema.Literal("delete") })
-])
+type PlainRead = { readonly kind: "replace" } | { readonly kind: "delete" }
 
 /** The steps of one place of meta.json's record as the door reads them: only what a reviewer's decisions name. */
-const stepsRead = <O, E>(offer: Schema.Codec<O, E>) =>
-	Schema.Union([
-		Schema.Struct({ kind: Schema.Literal("statement") }),
-		Schema.Struct({ kind: Schema.Literal("choice"), offers: Schema.Array(offer) }),
-		Schema.Struct({
-			kind: Schema.Literal("loss"),
-			loses: LossesRead,
-			statement: Text,
-			carriers: Schema.Array(PathRead)
-		}),
-		Schema.Struct({ kind: Schema.Literal("confirm") })
-	])
+type StepsRead<Offer> =
+	| { readonly kind: "statement" }
+	| { readonly kind: "choice"; readonly offers: ReadonlyArray<Offer> }
+	| {
+			readonly kind: "loss"
+			readonly loses: LossesRead
+			readonly statement: string
+			readonly carriers: ReadonlyArray<PathRead>
+	  }
+	| { readonly kind: "confirm" }
 
-const SealedRead = stepsRead(PlainRead)
-const NestedRead = Schema.Struct({
-	kind: Schema.Literal("nested rename"),
-	...Ends,
-	alternative: Schema.Array(SealedRead)
-})
-const RelationStepsRead = stepsRead(Schema.Union([NestedRead, PlainRead]))
-const TopRead = stepsRead(
-	Schema.Union([
-		Schema.Struct({
-			kind: Schema.Literal("rename"),
-			renames: RootRenamesRead,
-			alternative: Schema.Array(SealedRead)
-		}),
-		Schema.Struct({
-			kind: Schema.Literal("relation rename"),
-			...Ends,
-			alternative: Schema.Array(RelationStepsRead)
-		}),
-		PlainRead
-	])
-)
+type SealedRead = StepsRead<PlainRead>
+type NestedRead = {
+	readonly kind: "nested rename"
+	readonly alternative: ReadonlyArray<SealedRead>
+} & Ends
+type RelationStepsRead = StepsRead<NestedRead | PlainRead>
+type TopRead = StepsRead<
+	| {
+			readonly kind: "rename"
+			readonly renames: RootRenamesRead
+			readonly alternative: ReadonlyArray<SealedRead>
+	  }
+	| ({
+			readonly kind: "relation rename"
+			readonly alternative: ReadonlyArray<RelationStepsRead>
+	  } & Ends)
+	| PlainRead
+>
 
-const MetaRead = Schema.Struct({
-	files: Schema.Array(Schema.Struct({ name: Text, steps: Schema.Array(TopRead) }))
-})
-const decodeMeta = Schema.decodeUnknownResult(Schema.fromJsonString(MetaRead))
+/** meta.json's record as the door reads it: a file grizzle drafted in this process, so its text is trusted. */
+type MetaRead = {
+	readonly files: ReadonlyArray<{ readonly name: string; readonly steps: ReadonlyArray<TopRead> }>
+}
 
 /** What meta.json's record names that a reviewer decides, walked in draft order: every candidate by its path, the
  * confirmed groups, and every loss where it stands. */
@@ -204,10 +192,10 @@ interface MetaView {
 	readonly losses: ReadonlyArray<DraftedLoss>
 }
 
-type FilesRead = (typeof MetaRead.Type)["files"]
+type FilesRead = MetaRead["files"]
 
 /** A step of any place, as the door reads it. */
-type StepRead = typeof TopRead.Type | typeof RelationStepsRead.Type | typeof SealedRead.Type
+type StepRead = TopRead | RelationStepsRead | SealedRead
 
 const metaView = (files: FilesRead): MetaView => {
 	const candidates: Array<CandidatePath> = []
@@ -323,7 +311,7 @@ export const draftOf = (
 		generated(subject, extensions, installation, previous, name),
 		`the draft ${name}`
 	)
-	const meta = metaView(succeeded(decodeMeta(g.folder.metaText), `the meta.json of ${name}`).files)
+	const meta = metaView(trustedJson<MetaRead>(g.folder.metaText).files)
 	return new Drafted(
 		{
 			change: g.change,

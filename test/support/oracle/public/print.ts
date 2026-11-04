@@ -1,4 +1,4 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Formatter } from "effect"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -48,7 +48,7 @@ const literal = (l: TypedLiteral): string => {
 			return `${l.value}`
 		case "text":
 		case "uuid":
-			return JSON.stringify(l.value)
+			return Formatter.format(l.value)
 		case "enum":
 			return l.handle
 		case "span":
@@ -65,7 +65,7 @@ const variable = (v: Var): string => `v${v.id}`
 
 /** A parameter as its rule declares it: with its field's own descriptor, or with its base's. */
 const param = (p: Param): string =>
-	`r.param(${JSON.stringify(p.name)}, ${p.declaration.kind === "field" ? p.declaration.field.kind : `base ${p.type.carrier}`})`
+	`r.param(${Formatter.format(p.name)}, ${p.declaration.kind === "field" ? p.declaration.field.kind : `base ${p.type.carrier}`})`
 
 const operand = (o: Operand<ParentColumn>): string => {
 	switch (o.kind) {
@@ -151,9 +151,9 @@ const source = (s: Source): string => {
 		case "interior":
 			return `r.interior((r) => ${rule(s.rule)})`
 		case "relation param":
-			return `r.relation(${JSON.stringify(s.param.name)}, ${s.param.relation.name})`
+			return `r.relation(${Formatter.format(s.param.name)}, ${s.param.relation.name})`
 		case "closure":
-			return `query(S).recursive(${JSON.stringify(s.name)}, closure of ${s.edge.name} from ${s.from.name} to ${s.to.name} where ${s.from.name} < ${s.to.name})`
+			return `query(S).recursive(${Formatter.format(s.name)}, closure of ${s.edge.name} from ${s.from.name} to ${s.to.name} where ${s.from.name} < ${s.to.name})`
 	}
 }
 
@@ -195,12 +195,12 @@ const rule = (r: Rule<ParentColumn>): string => {
 
 const delivery = (d: StatedDelivery): string =>
 	d.kind === "arm"
-		? `arm(${JSON.stringify(d.field.name)}, ${JSON.stringify(d.handle)})`
-		: JSON.stringify(d.kind)
+		? `arm(${Formatter.format(d.field.name)}, ${Formatter.format(d.handle)})`
+		: Formatter.format(d.kind)
 
 const order = (keys: ReadonlyArray<OrderKey>): string =>
 	Arr.join(
-		Arr.map(keys, (k) => `[${JSON.stringify(k.column.name)}, "${k.dir}"]`),
+		Arr.map(keys, (k) => `[${Formatter.format(k.column.name)}, "${k.dir}"]`),
 		", "
 	)
 
@@ -210,11 +210,11 @@ const query = (q: Query<ParentColumn>, indent: string): string => {
 		lines.push(`${indent}.orderBy(${order(q.bound.order)}).take(${q.bound.k})`)
 	}
 	if (q.stage.kind === "named") {
-		lines.push(`${indent}.named(${JSON.stringify(q.stage.name)})`)
+		lines.push(`${indent}.named(${Formatter.format(q.stage.name)})`)
 	}
 	for (const a of q.attachments) {
 		lines.push(
-			`${indent}.attach(${JSON.stringify(a.name)}, (p) => query(S)\n${query(a.child, `${indent}\t`)}, ${delivery(a.delivery)})`
+			`${indent}.attach(${Formatter.format(a.name)}, (p) => query(S)\n${query(a.child, `${indent}\t`)}, ${delivery(a.delivery)})`
 		)
 	}
 	return Arr.join(lines, "\n")
@@ -226,7 +226,7 @@ const fact = (f: ProgramFact): string => `(${Arr.join(Arr.map(f, literal), ", ")
 const stored = (v: SpelledValue): string =>
 	v.spelling.kind === "canonical"
 		? literal(v.literal)
-		: `${literal(v.literal)} stored as ${JSON.stringify(v.spelling.text)}`
+		: `${literal(v.literal)} stored as ${Formatter.format(v.spelling.text)}`
 
 const storedFact = (f: StoredFact): string => `(${Arr.join(Arr.map(f, stored), ", ")})`
 

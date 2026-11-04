@@ -346,7 +346,8 @@ layer(Substrate.layer, { excludeTestServices: true })("db.refresh", (it) => {
 											c.note("a look-alike refreshed")
 										}
 									}
-									assert.deepEqual(yield* populated, [
+									const populatedViews = yield* populated
+									assert.deepEqual(populatedViews, [
 										["StudentWeekly", model.has("StudentWeekly")],
 										["WeekBusy", model.has("WeekBusy")],
 										["WeekSittings", false]

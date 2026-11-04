@@ -325,8 +325,9 @@ const linkNodeModules = Effect.fn("linkNodeModules")(function* (repo: string, in
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	yield* fs.makeDirectory(path.join(into, "node_modules"), { recursive: true })
+	const entries = yield* fs.readDirectory(path.join(repo, "node_modules"))
 	yield* Effect.forEach(
-		yield* fs.readDirectory(path.join(repo, "node_modules")),
+		entries,
 		Effect.fnUntraced(function* (entry) {
 			const from = path.join(repo, "node_modules", entry)
 			const to = path.join(into, "node_modules", entry)
@@ -667,7 +668,8 @@ const coverageIn = Effect.fn("coverageIn")(function* (
 ) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
-	const dumps = Arr.filter(yield* fs.readDirectory(dir, { recursive: true }), isDump)
+	const entries = yield* fs.readDirectory(dir, { recursive: true })
+	const dumps = Arr.filter(entries, isDump)
 	const scripts = yield* Effect.forEach(dumps, (name) =>
 		Effect.flatMap(fs.readFileString(path.join(dir, name)), (text) =>
 			scriptsOfDump({ text, root, wanted })
@@ -1041,7 +1043,7 @@ const stage2Of = Effect.fn("stage2Of")(function* (
 	const retry = Effect.fn("retry")(function* (m: Planned, before: Verdict, tree: string) {
 		const files = Arr.filter(baseline.passes, (p) => p.covers.has(m.id))
 		const tried = Arr.isReadonlyArrayNonEmpty(files)
-			? Option.some(yield* attempt(stage, m, tree, files, baseline))
+			? yield* Effect.asSome(attempt(stage, m, tree, files, baseline))
 			: Option.none<Attempt>()
 		const after = Option.match(tried, {
 			onNone: () => before,

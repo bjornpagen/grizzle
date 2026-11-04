@@ -152,7 +152,8 @@ interface Pruned {
  */
 export const pruneTriage = Effect.fn("pruneTriage")(function* (input: TriageInput) {
 	const fs = yield* FileSystem.FileSystem
-	const [kept, dropped] = Arr.partition(yield* readVerdicts(input.path), (t) =>
+	const verdicts = yield* readVerdicts(input.path)
+	const [kept, dropped] = Arr.partition(verdicts, (t) =>
 		input.population.has(t.id) ? Result.succeed(t) : Result.fail(t.id)
 	)
 	const text = yield* Schema.encodeEffect(TriageJson)(kept).pipe(

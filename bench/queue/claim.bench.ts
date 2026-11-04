@@ -682,13 +682,11 @@ export default defineGate({
 						const from = nextItem
 						nextItem += options.enqueueBatch
 						const keys = Arr.map(indices(options.enqueueBatch), (i) => `${from + i}`)
-						const digests = decodeRows(
-							TextRow,
-							yield* s.admin.queryValues(
-								`SELECT ${digestOf("x")} FROM pg_catalog.unnest($1::int8[]) AS x`,
-								[`{${Arr.join(keys, ",")}}`]
-							)
+						const rows = yield* s.admin.queryValues(
+							`SELECT ${digestOf("x")} FROM pg_catalog.unnest($1::int8[]) AS x`,
+							[`{${Arr.join(keys, ",")}}`]
 						)
+						const digests = decodeRows(TextRow, rows)
 						const facts = Arr.map(digests, ([key], i) => ({ key: Digest(key), i }))
 						const change = ChangeSet.empty(Q)
 							.insert(
@@ -777,9 +775,11 @@ export default defineGate({
 						kind: "probe",
 						run: (session) =>
 							Effect.gen(function* () {
-								footprint.locks = predicateLocks(
-									yield* session.rows(predicateLocksSql("l.pid = pg_catalog.pg_backend_pid()"), [])
+								const rows = yield* session.rows(
+									predicateLocksSql("l.pid = pg_catalog.pg_backend_pid()"),
+									[]
 								)
+								footprint.locks = predicateLocks(rows)
 								footprint.plans = []
 								footprint.reads = []
 								yield* session.rows(
@@ -803,12 +803,11 @@ export default defineGate({
 											)}`
 										)
 										/** The same generic plan as JSON, for the reads of stored relations it makes. */
-										const [json] = decodeOne(
-											JsonRow,
-											yield* session.rows("SELECT pg_temp.grizzle_bench_explain_json($1::text)", [
-												statement.sql
-											])
+										const rows = yield* session.rows(
+											"SELECT pg_temp.grizzle_bench_explain_json($1::text)",
+											[statement.sql]
 										)
+										const [json] = decodeOne(JsonRow, rows)
 										const tree = parsePlanTree(json)
 										if (Result.isFailure(tree)) {
 											return yield* Effect.die(tree.failure)
@@ -841,20 +840,19 @@ export default defineGate({
 					})
 					const held: Array<{ readonly key: string; readonly epoch: bigint }> = []
 					for (let i = 0; i < live; i++) {
-						appendAll(held, leasedRows(yield* plainClaim.success.apply(claimParams(i))))
+						const claimed = yield* plainClaim.success.apply(claimParams(i))
+						appendAll(held, leasedRows(claimed))
 					}
 					const probed = yield* probedClaim.success.apply(claimParams(live))
 					appendAll(held, leasedRows(probed))
 					for (const h of held) {
 						yield* probeSettle.success.apply({ key: h.key, epoch: h.epoch, outcome: "succeeded" })
 					}
-					const lockSettings = decodeOne(
-						SettingsRow,
-						yield* observer.values(
-							"SELECT pg_catalog.current_setting('max_pred_locks_per_transaction'), pg_catalog.current_setting('max_pred_locks_per_relation'), pg_catalog.current_setting('max_pred_locks_per_page')",
-							[]
-						)
+					const rows = yield* observer.values(
+						"SELECT pg_catalog.current_setting('max_pred_locks_per_transaction'), pg_catalog.current_setting('max_pred_locks_per_relation'), pg_catalog.current_setting('max_pred_locks_per_page')",
+						[]
 					)
+					const lockSettings = decodeOne(SettingsRow, rows)
 					const claimFootprint = {
 						live,
 						held: held.length,
@@ -881,20 +879,16 @@ export default defineGate({
 						readonly seat: number
 					}> = []
 					for (let i = 0; i < options.dead; i++) {
-						appendAll(
-							deadLeases,
-							leasedRows(
-								yield* reclaimer.claim({
-									kind: "transcode",
-									slot: Slot(0),
-									resource: "cpu",
-									from: Digest(Str.repeat(64)("0")),
-									fromSeat: SeatNo(0),
-									now: Instant(now),
-									expires: Instant(now)
-								})
-							)
-						)
+						const reclaimed = yield* reclaimer.claim({
+							kind: "transcode",
+							slot: Slot(0),
+							resource: "cpu",
+							from: Digest(Str.repeat(64)("0")),
+							fromSeat: SeatNo(0),
+							now: Instant(now),
+							expires: Instant(now)
+						})
+						appendAll(deadLeases, leasedRows(reclaimed))
 					}
 					const reclaimMs: Array<number> = []
 					const reclaimed: Array<{
@@ -1005,10 +999,13 @@ export default defineGate({
 					from: string
 				) =>
 					Effect.gen(function* () {
-						const above = decodeRows(row, yield* statement(label, sql(">="), [from]))
+						const aboveRows = yield* statement(label, sql(">="), [from])
+						const above = decodeRows(row, aboveRows)
 						return above.length > 0
 							? above
-							: decodeRows(row, yield* statement(label, sql("<"), [from]))
+							: yield* Effect.map(statement(label, sql("<"), [from]), (belowRows) =>
+									decodeRows(row, belowRows)
+								)
 					})
 				const attempt = Effect.gen(function* () {
 					const t0 = performance.now()

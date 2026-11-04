@@ -636,16 +636,10 @@ export default defineGate({
 			)
 			const contStudent = columnAt(cont, "student")
 			const contMedian = columnAt(cont, "median")
-			const contGenerated = keyedTexts(
-				yield* textRowsOf(raw, contM.delivered.generated.statements),
-				contStudent,
-				contMedian
-			)
-			const contComposed = keyedTexts(
-				yield* textRowsOf(raw, contM.delivered.conservative.statements),
-				contStudent,
-				contMedian
-			)
+			const generatedTexts = yield* textRowsOf(raw, contM.delivered.generated.statements)
+			const contGenerated = keyedTexts(generatedTexts, contStudent, contMedian)
+			const conservativeTexts = yield* textRowsOf(raw, contM.delivered.conservative.statements)
+			const contComposed = keyedTexts(conservativeTexts, contStudent, contMedian)
 			const contAgreement = within(tolerance)(contGenerated.pairs, contComposed.pairs)
 			const contCounts = agreementCounts(tolerance, contGenerated.pairs, contComposed.pairs)
 			const mode = compile(fx, modalDay, reading)

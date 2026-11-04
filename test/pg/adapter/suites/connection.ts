@@ -193,15 +193,18 @@ export const connectionSuite = (): void => {
 									const verified =
 										config.servername.kind === "host" ? config.host : config.servername.servername
 									if (config.ca !== "local") {
-										assert.equal(yield* refusedStage(pool), "tls")
+										const stage = yield* refusedStage(pool)
+										assert.equal(stage, "tls")
 										c.note(`refused ${config.ca} ca`)
 									} else if (!certificateNames.has(verified)) {
-										assert.equal(yield* refusedStage(pool), "tls")
+										const stage = yield* refusedStage(pool)
+										assert.equal(stage, "tls")
 										c.note(
 											`refused ${config.servername.kind === "host" ? "host" : "override"} name`
 										)
 									} else {
-										assert.deepEqual(yield* leased(pool, currentUser), [[writer.role, "true"]])
+										const leasedRows = yield* leased(pool, currentUser)
+										assert.deepEqual(leasedRows, [[writer.role, "true"]])
 										c.note(
 											config.servername.kind === "host"
 												? "connected"
@@ -223,7 +226,8 @@ export const connectionSuite = (): void => {
 					const writer = yield* substrateLogin(schema, "server", roleDefaults)
 					const server = yield* refusingServer
 					const pool = yield* fakeServerPool(writer, server.port)
-					assert.equal(yield* refusedStage(pool), "tls")
+					const stage = yield* refusedStage(pool)
+					assert.equal(stage, "tls")
 					assert.equal(server.after(), 0)
 				}).pipe(Effect.scoped)
 		)
@@ -237,7 +241,8 @@ export const connectionSuite = (): void => {
 					...defaultPool,
 					password: { kind: "given", password: Redacted.make("not the password") }
 				})
-				assert.equal(yield* refusedStage(pool), "authentication")
+				const stage = yield* refusedStage(pool)
+				assert.equal(stage, "authentication")
 			}).pipe(Effect.scoped)
 		)
 
@@ -280,7 +285,8 @@ export const connectionSuite = (): void => {
 							}
 						})
 					)
-					assert.equal(yield* pool.size, 4)
+					const size = yield* pool.size
+					assert.equal(size, 4)
 					assert.equal(rotating.state.evaluations, 4)
 				}).pipe(Effect.scoped)
 		)
@@ -318,7 +324,8 @@ export const connectionSuite = (): void => {
 						password: { kind: "given", password: flaky },
 						pool: { idleTimeoutMs: 60_000, min: 1, max: 4 }
 					})
-					assert.deepEqual(yield* leased(pool, okQuery), [["ok"]])
+					const leasedRows = yield* leased(pool, okQuery)
+					assert.deepEqual(leasedRows, [["ok"]])
 					state.ok = false
 					const later = yield* Effect.scoped(
 						Effect.gen(function* () {

@@ -184,9 +184,10 @@ export default defineGate({
 					{ instants: [{ at: BigInt(instant) }] },
 					{ ...measure, samples: 1, conservativeSamples: 1 }
 				)
+				const generatedTexts = yield* textRowsOf(raw, m.delivered.generated.statements)
 				generatedRows.push({
 					instant,
-					rows: Arr.map(yield* textRowsOf(raw, m.delivered.generated.statements), (row) =>
+					rows: Arr.map(generatedTexts, (row) =>
 						Arr.filterMap(row, (cell, i) =>
 							i === atIndex ? Result.failVoid : Result.succeed(cell)
 						)

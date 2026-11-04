@@ -1,4 +1,5 @@
 import { Array as Arr, pipe, String as Str } from "effect"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { NamedDetailCodec } from "#compiler/ir/law.ts"
 import { decodeDetail, detailTag } from "#compiler/laws/model/detail.ts"
 
@@ -15,12 +16,12 @@ export const encodeDetail = (codec: NamedDetailCodec, values: ReadonlyArray<stri
 			`DetailCodec: ${codec.keys.length} key values for ${codec.relation}, not ${values.length}`
 		)
 	}
-	return `${detailTag}${JSON.stringify([codec.relation, ...values])}`
+	return `${detailTag}${jsonText([codec.relation, ...values])}`
 }
 
 /** The DETAIL of `codec`'s law with its keys withheld: the tag and the relation's name alone. */
 const withheldDetail = (codec: NamedDetailCodec): string =>
-	`${detailTag}${JSON.stringify([codec.relation])}`
+	`${detailTag}${jsonText([codec.relation])}`
 
 /**
  * The key texts of a DETAIL a law function raised for a caller that holds the relation whole, read strictly: the
@@ -28,7 +29,7 @@ const withheldDetail = (codec: NamedDetailCodec): string =>
  * tag, relation, arity or escaping, or one that withholds its keys, fails the test.
  */
 export const strictDetail = (codec: NamedDetailCodec, text: string): ReadonlyArray<string> => {
-	if (!pipe(text, Str.startsWith(`${detailTag}[${JSON.stringify(codec.relation)}`))) {
+	if (!pipe(text, Str.startsWith(`${detailTag}[${jsonText(codec.relation)}`))) {
 		throw new Error(`DETAIL ${text}: not ${codec.relation}'s`)
 	}
 	const decoded = decodeDetail(codec, text)

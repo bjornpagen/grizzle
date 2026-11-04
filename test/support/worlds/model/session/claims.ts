@@ -14,6 +14,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 import { regex } from "arkregex"
+import { jsonText } from "#compiler/core/trusted.ts"
 /**
  * The claims rules of README "Permissions" and "Security model", restated over a verified payload: a context reads its fields
  * from the payload's own top level or from the nested claim object its `claim` names; an absent claim object is no
@@ -231,10 +232,7 @@ const byKey = <A>(record: Readonly<Record<string, A>>): ReadonlyArray<readonly [
 /** One context's fact as the claims setting spells it: a JSON object of its fields' texts as JSON strings. */
 const memberText = (fact: HostFact): string =>
 	`{${Arr.join(
-		Arr.map(
-			byKey(fact),
-			([field, value]) => `${JSON.stringify(field)}:${JSON.stringify(valueText(value))}`
-		),
+		Arr.map(byKey(fact), ([field, value]) => `${jsonText(field)}:${jsonText(valueText(value))}`),
 		","
 	)}}`
 
@@ -245,6 +243,6 @@ const memberText = (fact: HostFact): string =>
  */
 export const claimsText = (facts: ContextFacts): string =>
 	`{${Arr.join(
-		Arr.map(byKey(facts), ([context, fact]) => `${JSON.stringify(context)}:${memberText(fact)}`),
+		Arr.map(byKey(facts), ([context, fact]) => `${jsonText(context)}:${memberText(fact)}`),
 		","
 	)}}`

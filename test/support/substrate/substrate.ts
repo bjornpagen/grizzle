@@ -21,7 +21,7 @@ import {
 	endBackend,
 	listedBackend
 } from "#test/support/kernel/sanitize.ts"
-import { freshDatabase, type PgConnection, type SqlError } from "#test/support/pg.ts"
+import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
 import {
@@ -316,10 +316,7 @@ const superuserClient = (database: string, applicationName: string) =>
 				application_name: applicationName,
 				types: textTypes
 			})
-			return Effect.as(
-				Effect.tryPromise(() => c.connect()),
-				c
-			)
+			return Effect.as(Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf }), c)
 		}),
 		(c) => Effect.promise(() => c.end())
 	)
@@ -331,7 +328,7 @@ const asSuperuser = (database: string, statements: ReadonlyArray<string>): Effec
 			Effect.gen(function* () {
 				const client = yield* superuserClient(database, "grizzle-substrate superuser")
 				for (const sql of statements) {
-					yield* Effect.tryPromise(() => client.query(sql))
+					yield* Effect.tryPromise({ try: () => client.query(sql), catch: sqlErrorOf })
 				}
 			})
 		)
@@ -363,7 +360,10 @@ const asSuperuserRead = <A, E>(
 			const rows = (sql: string): Effect.Effect<TextRows> =>
 				Effect.orDie(
 					Effect.flatMap(
-						Effect.tryPromise(() => client.query({ text: sql, rowMode: "array" })),
+						Effect.tryPromise({
+							try: () => client.query({ text: sql, rowMode: "array" }),
+							catch: sqlErrorOf
+						}),
 						(result) => decodeTextRows(result.rows)
 					)
 				)
@@ -470,7 +470,8 @@ const build = Effect.fnUntraced(function* (
 		defaults: ReadonlyArray<RoleDefault>
 	): Effect.Effect<Credentials, never, Scope.Scope> =>
 		Effect.gen(function* () {
-			const name = ownerLoginName(yield* nextAllocation)
+			const allocation = yield* nextAllocation
+			const name = ownerLoginName(allocation)
 			const password = randomPassword()
 			const quoted = quoteIdent(name)
 			yield* Effect.addFinalizer(() =>
@@ -533,9 +534,10 @@ const build = Effect.fnUntraced(function* (
 			const writer = yield* openPsql(psqlOptions(options)).pipe(
 				Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
 			)
-			started.backend = Option.some(
-				yield* Effect.orDie(Effect.flatMap(writer.pid, (pid) => listedBackend(admin, pid)))
+			const listed = yield* Effect.orDie(
+				Effect.flatMap(writer.pid, (pid) => listedBackend(admin, pid))
 			)
+			started.backend = Option.some(listed)
 			if (Option.isSome(options.role)) {
 				yield* Effect.orDie(writer.run(`SET ROLE ${quoteIdent(options.role.value)}`))
 				yield* writer.resetStatements

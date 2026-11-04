@@ -242,11 +242,12 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 								assert.deepEqual(mismatches.slice(0, 5), [])
 							})
 					)
-					const [[signedZero, tie]] = yield* Schema.decodeUnknownEffect(twoCells)(
-						yield* db.values(
+					const [[signedZero, tie]] = yield* Effect.flatMap(
+						db.values(
 							`SELECT ('[-0,1]'::${vectorType} OPERATOR(${extension}.=) $1::text::${vectorType})::text, ('[1.0000000596046448]'::${vectorType})::real[]::float8[]::text`,
 							[Vector.componentText(Vector.make(Float32Array.of(-0, 1), 2))]
-						)
+						),
+						Schema.decodeUnknownEffect(twoCells)
 					)
 					assert.equal(signedZero, "true")
 					assert.deepEqual(pgFloatArray(tie), [1.0000001192092896])
@@ -311,10 +312,11 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 					const widest = succeeded(
 						Vector.admit(Float32Array.from(ones(vectorMaxDimensions)), vectorMaxDimensions)
 					)
-					const [[dims]] = yield* Schema.decodeUnknownEffect(oneCell)(
-						yield* db.values(`SELECT ${extension}.vector_dims($1::text::${vectorType})::text`, [
+					const [[dims]] = yield* Effect.flatMap(
+						db.values(`SELECT ${extension}.vector_dims($1::text::${vectorType})::text`, [
 							Vector.componentText(widest)
-						])
+						]),
+						Schema.decodeUnknownEffect(oneCell)
 					)
 					assert.equal(Number(dims), vectorMaxDimensions)
 					yield* expectSqlstate(
@@ -335,10 +337,11 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 									Vector.componentText(Vector.make(Float32Array.of(tiny, 1), 2)),
 									"[0,1]"
 								)
-								const [[read]] = yield* Schema.decodeUnknownEffect(oneCell)(
-									yield* db.values(`SELECT (($1::text::${vectorType})::real[])::float8[]::text`, [
+								const [[read]] = yield* Effect.flatMap(
+									db.values(`SELECT (($1::text::${vectorType})::real[])::float8[]::text`, [
 										`[${String(tiny)},1]`
-									])
+									]),
+									Schema.decodeUnknownEffect(oneCell)
 								)
 								assert.deepEqual(
 									Arr.map(pgFloatArray(read), (x) => x === 0),

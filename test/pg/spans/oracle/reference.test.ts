@@ -328,7 +328,7 @@ const sameRows = (
 	const difference = sameRowSet(expected, got)
 	return Option.isNone(difference)
 		? undefined
-		: `${label}: ${difference.value}\n  reference  ${JSON.stringify(expected)}\n  postgresql ${JSON.stringify(got)}`
+		: `${label}: ${difference.value}\n  reference  ${Formatter.format(expected)}\n  postgresql ${Formatter.format(got)}`
 }
 
 /**
@@ -406,10 +406,8 @@ layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
 								}
 								const expected = referenceRows(sc)
 								const byClassifier = referenceSql(schema, sc, endpointMaskPredicate)
-								const classified = Arr.map(
-									yield* db.values(byClassifier.sql, byClassifier.params),
-									(row) => Arr.map(row, String)
-								)
+								const rows = yield* db.values(byClassifier.sql, byClassifier.params)
+								const classified = Arr.map(rows, (row) => Arr.map(row, String))
 								const first = sameRows("endpoint classifier", expected, classified)
 								if (first !== undefined) {
 									return yield* fail(first)
@@ -421,9 +419,8 @@ layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
 											`the shipped formula uses lower() or upper(): ${byTable.sql}`
 										)
 									}
-									const tabled = Arr.map(yield* db.values(byTable.sql, byTable.params), (row) =>
-										Arr.map(row, String)
-									)
+									const rows = yield* db.values(byTable.sql, byTable.params)
+									const tabled = Arr.map(rows, (row) => Arr.map(row, String))
 									const second = sameRows("shipped mask table", expected, tabled)
 									if (second !== undefined) {
 										return yield* fail(second)

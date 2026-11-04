@@ -43,9 +43,8 @@ layer(Substrate.layer)("money agreement with PostgreSQL", (it) => {
 		const db = yield* session(ownerSession())
 		yield* db.values("SET lc_monetary TO 'C.UTF-8'", [])
 		yield* db.values("SET lc_numeric TO 'C.UTF-8'", [])
-		assert.deepEqual(yield* db.values("SELECT ('1.005'::money::numeric = 1.01)::text", []), [
-			["true"]
-		])
+		const rows = yield* db.values("SELECT ('1.005'::money::numeric = 1.01)::text", [])
+		assert.deepEqual(rows, [["true"]])
 		return db
 	})
 

@@ -754,20 +754,24 @@ const runGrizzle = (form: GrizzleWrite, db: RacesDb): Effect.Effect<GrizzleRan> 
 			const made: Result.Result<Call, ReadError> =
 				form.kind === "program"
 					? Result.succeed({ call: form.apply, ops: form.ops })
-					: Result.map(yield* Effect.result(form.read(db)), (c): Call => ({
-							call: c.apply,
-							ops: () => c.ops
-						}))
+					: yield* Effect.result(
+							Effect.map(form.read(db), (c): Call => ({
+								call: c.apply,
+								ops: () => c.ops
+							}))
+						)
 			/** The call made and its answer, or the read's or the call's failure. */
 			const ran: Result.Result<
 				{ readonly made: Call; readonly answer: Answer },
 				ReadError | ApplyError
 			> = Result.isFailure(made)
 				? Result.fail(made.failure)
-				: Result.map(yield* Effect.result(made.success.call(db)), (answer) => ({
-						made: made.success,
-						answer
-					}))
+				: yield* Effect.result(
+						Effect.map(made.success.call(db), (answer) => ({
+							made: made.success,
+							answer
+						}))
+					)
 			if (Result.isSuccess(ran)) {
 				return {
 					transients,

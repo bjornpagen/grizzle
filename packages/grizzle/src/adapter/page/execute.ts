@@ -173,7 +173,7 @@ interface Candidate {
 
 /** The server's answer contradicting what statement `index` is proved to deliver, after the read committed. */
 const contradicted = (index: number): UnreadableAnswer =>
-	UnreadableAnswer.make({ index, fate: "committed" })
+	new UnreadableAnswer({ index, fate: "committed" })
 
 /**
  * Whether the probe's one row says D holds a tuple on its side of the anchor: its one Boolean column. Its SQL is
@@ -329,7 +329,8 @@ export const pageFlight = (
 		const batch: Array<BatchStatement> = []
 		for (const record of program.records) {
 			if (record.arrival.kind === "sent") {
-				batch.push(yield* sending(record.run, inputs, call))
+				const statement = yield* sending(record.run, inputs, call)
+				batch.push(statement)
 			}
 		}
 		const sent = batch.length
@@ -337,7 +338,7 @@ export const pageFlight = (
 		const probing =
 			call.variant === "first" || call.variant === "last"
 				? Option.none()
-				: Option.some(yield* probeSending(run, inputs, call))
+				: yield* Effect.asSome(probeSending(run, inputs, call))
 		if (Option.isSome(probing)) {
 			batch.push(probing.value.statement)
 		}

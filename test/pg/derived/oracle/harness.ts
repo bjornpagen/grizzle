@@ -312,11 +312,13 @@ export const snapshotOf = (
 				Effect.gen(function* () {
 					const storedRows = new Map<string, ReadonlyArray<StoredRow>>()
 					for (const relation of stored) {
-						storedRows.set(relation, yield* viewRows(session, o, relation))
+						const rows = yield* viewRows(session, o, relation)
+						storedRows.set(relation, rows)
 					}
 					const definedRows = new Map<string, ReadonlyArray<string>>()
 					for (const relation of defined) {
-						definedRows.set(relation, yield* definitionRows(session, o, relation))
+						const rows = yield* definitionRows(session, o, relation)
+						definedRows.set(relation, rows)
 					}
 					const read: Snapshot = { stored: storedRows, defined: definedRows }
 					return read

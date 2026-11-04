@@ -151,7 +151,8 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 			yield* p.commit
 			yield* expectSqlstate(Fiber.join(rawUpdate), "40001")
 			yield* b.rollback
-			assert.deepEqual(yield* s.admin.queryValues(`SELECT "v" FROM ${fact}`, []), [["p"]])
+			const rows = yield* s.admin.queryValues(`SELECT "v" FROM ${fact}`, [])
+			assert.deepEqual(rows, [["p"]])
 		})
 	)
 
@@ -210,16 +211,19 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 					n === 0 ? "40001" : n === 1 ? "40P01" : "23505"
 				)
 				assert.equal((yield* expectSqlstate(refusedTwice.attempt, "23505")).code, "23505")
-				assert.equal(yield* refusedTwice.runs, 3)
+				const refusedTwiceRuns = yield* refusedTwice.runs
+				assert.equal(refusedTwiceRuns, 3)
 				const alwaysRefused = yield* scripted(() => "40001")
 				assert.equal(
 					(yield* Effect.flip(expectConstraint(alwaysRefused.attempt, factKey, "23505")))._tag,
 					"ExpectationFailed"
 				)
-				assert.equal(yield* alwaysRefused.runs, expectationAttempts)
+				const alwaysRefusedRuns = yield* alwaysRefused.runs
+				assert.equal(alwaysRefusedRuns, expectationAttempts)
 				const refusalExpected = yield* scripted((n) => (n === 0 ? "40001" : "23505"))
 				yield* expectSqlstate(refusalExpected.attempt, "40001")
-				assert.equal(yield* refusalExpected.runs, 1)
+				const refusalExpectedRuns = yield* refusalExpected.runs
+				assert.equal(refusalExpectedRuns, 1)
 			})
 	)
 })

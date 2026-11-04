@@ -129,22 +129,23 @@ END $f$`,
 			const checker: Array<TransactionMeasure> = []
 			for (let i = 0; i < options.samples; i++) {
 				const first = i * options.children
-				native.push(
-					yield* measureTransaction(
-						fkWriter,
-						split(
-							childSql(
-								fk.table("Child"),
-								fk.column("Child", "id"),
-								fk.column("Child", "parent"),
-								first
-							)
+				const nativeRun = yield* measureTransaction(
+					fkWriter,
+					split(
+						childSql(
+							fk.table("Child"),
+							fk.column("Child", "id"),
+							fk.column("Child", "parent"),
+							first
 						)
 					)
 				)
-				checker.push(
-					yield* measureTransaction(hand, split(childSql(`${B}.child`, "id", "parent", first)))
+				native.push(nativeRun)
+				const checkerRun = yield* measureTransaction(
+					hand,
+					split(childSql(`${B}.child`, "id", "parent", first))
 				)
+				checker.push(checkerRun)
 			}
 			/** The native FK refuses an orphan. */
 			const orphanNative = yield* measureTransaction(
@@ -160,13 +161,11 @@ END $f$`,
 					"plain"
 				)
 			)
-			const fkConstraints = decodeRows(
-				ConstraintRow,
-				yield* s.admin.queryValues(
-					`SELECT c.conname::text, c.condeferrable::text, c.condeferred::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.connamespace WHERE n.nspname = $1::text AND c.contype = 'f'`,
-					[fk.installed.schema]
-				)
+			const rows = yield* s.admin.queryValues(
+				`SELECT c.conname::text, c.condeferrable::text, c.condeferred::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.connamespace WHERE n.nspname = $1::text AND c.contype = 'f'`,
+				[fk.installed.schema]
 			)
+			const fkConstraints = decodeRows(ConstraintRow, rows)
 
 			/**
 			 * 2. The queue's alternatives. Its reverse law is read through the door from the alternatives value that declares
@@ -240,13 +239,11 @@ END $f$`,
 				],
 				[]
 			)
-			const constraints = decodeRows(
-				ConstraintRow,
-				yield* s.admin.queryValues(
-					`SELECT cl.relname::text, c.contype::text, pg_catalog.count(*)::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_class AS cl ON cl.oid = c.conrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.connamespace WHERE n.nspname = $1::text GROUP BY 1, 2 ORDER BY 1, 2`,
-					[q.installed.schema]
-				)
+			const constraintRows = yield* s.admin.queryValues(
+				`SELECT cl.relname::text, c.contype::text, pg_catalog.count(*)::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_class AS cl ON cl.oid = c.conrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.connamespace WHERE n.nspname = $1::text GROUP BY 1, 2 ORDER BY 1, 2`,
+				[q.installed.schema]
 			)
+			const constraints = decodeRows(ConstraintRow, constraintRows)
 			const constraintText = Arr.join(
 				Arr.map(constraints, (r) => Arr.join(r, ":")),
 				", "

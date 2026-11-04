@@ -278,13 +278,11 @@ export default defineGate({
 			const smallChange = yield* timed(refreshAll)
 			const smallChangeRows = yield* rewritten
 			/** An equal but differently spelled numeric: student 1's largest fee, rewritten with one more trailing zero. */
-			const [topId, topAmount] = decodeOne(
-				FeeRow,
-				yield* s.admin.queryValues(
-					`SELECT ${c("Fee", "id")}::text, ${c("Fee", "amount")}::text FROM ${fx.table("Fee")} WHERE ${c("Fee", "student")} = 1 ORDER BY ${c("Fee", "amount")} DESC, ${c("Fee", "id")} LIMIT 1`,
-					[]
-				)
+			const topFee = yield* s.admin.queryValues(
+				`SELECT ${c("Fee", "id")}::text, ${c("Fee", "amount")}::text FROM ${fx.table("Fee")} WHERE ${c("Fee", "student")} = 1 ORDER BY ${c("Fee", "amount")} DESC, ${c("Fee", "id")} LIMIT 1`,
+				[]
 			)
+			const [topId, topAmount] = decodeOne(FeeRow, topFee)
 			yield* owner(
 				`UPDATE ${fx.table("Fee")} SET ${c("Fee", "amount")} = (${c("Fee", "amount")}::text || '0')::numeric WHERE ${c("Fee", "id")} = ${topId}`
 			)
@@ -316,9 +314,11 @@ export default defineGate({
 			const hand = yield* s.session({ ...ownerSession(), label: "m15c refresh hand-written" })
 			const replayed: Array<TransactionMeasure> = []
 			for (let i = 0; i < options.samples; i++) {
-				replayed.push(
-					yield* measureTransaction(refresher, refreshTransaction(generatedStatement.sql))
+				const replayedRun = yield* measureTransaction(
+					refresher,
+					refreshTransaction(generatedStatement.sql)
 				)
+				replayed.push(replayedRun)
 			}
 			const handwritten = yield* measureTransaction(
 				hand,
@@ -336,13 +336,11 @@ export default defineGate({
 			/** PostgreSQL reports Workers Launched only on a Gather node, so every other node launched none. */
 			const workers = (p: typeof generatedPlan) =>
 				planNodes(p.plan).reduce((sum, n) => sum + Option.getOrElse(n.workersLaunched, () => 0), 0)
-			const [generatedCount, handCount, differing] = decodeOne(
-				ViewRows,
-				yield* s.admin.queryValues(
-					`SELECT (SELECT pg_catalog.count(*) FROM ${view("StudentWeekly")})::text, (SELECT pg_catalog.count(*) FROM ${B}.student_weekly)::text, (SELECT pg_catalog.count(*) FROM (SELECT student, week, sittings, passes FROM ${B}.student_weekly EXCEPT SELECT ${c("StudentWeekly", "student")}, ${c("StudentWeekly", "week")}, ${c("StudentWeekly", "sittings")}, ${c("StudentWeekly", "passes")} FROM ${view("StudentWeekly")}) AS d)::text`,
-					[]
-				)
+			const viewCounts = yield* s.admin.queryValues(
+				`SELECT (SELECT pg_catalog.count(*) FROM ${view("StudentWeekly")})::text, (SELECT pg_catalog.count(*) FROM ${B}.student_weekly)::text, (SELECT pg_catalog.count(*) FROM (SELECT student, week, sittings, passes FROM ${B}.student_weekly EXCEPT SELECT ${c("StudentWeekly", "student")}, ${c("StudentWeekly", "week")}, ${c("StudentWeekly", "sittings")}, ${c("StudentWeekly", "passes")} FROM ${view("StudentWeekly")}) AS d)::text`,
+				[]
 			)
+			const [generatedCount, handCount, differing] = decodeOne(ViewRows, viewCounts)
 
 			const data = `${sittings} sittings of ${options.students} students over ${options.weeks} weeks; ${options.students * 2} fees`
 			const cases: Array<CaseRecord<"R40" | "refresh-lifetime">> = [

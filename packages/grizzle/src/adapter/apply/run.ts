@@ -72,7 +72,7 @@ export type InputFailure = EncodingFailure | InputTooLarge | CompileError
 
 /** An input's refusal as an apply's error: a codec's as itself, any other as the ExecutionFailure whose reason it is. */
 export const inputApplyError = (failure: InputFailure): EncodingFailure | ExecutionFailure =>
-	failure._tag === "EncodingFailure" ? failure : ExecutionFailure.make({ reason: failure })
+	failure._tag === "EncodingFailure" ? failure : new ExecutionFailure({ reason: failure })
 
 /**
  * Running one application of a WriteProgram.
@@ -113,12 +113,12 @@ export const inputApplyError = (failure: InputFailure): EncodingFailure | Execut
  * the ReadFailure whose reason it is.
  */
 export const compileFailure = (refusal: CompileError): Effect.Effect<never, ExecutionFailure> =>
-	Effect.fail(ExecutionFailure.make({ reason: refusal }))
+	Effect.fail(new ExecutionFailure({ reason: refusal }))
 
 /** A capability found absent after admission, on an apply, before any SQL. */
 export const capabilityFailure = (
 	missing: MissingCapability
-): Effect.Effect<never, ExecutionFailure> => Effect.fail(ExecutionFailure.make({ reason: missing }))
+): Effect.Effect<never, ExecutionFailure> => Effect.fail(new ExecutionFailure({ reason: missing }))
 
 /**
  * A Stream relation parameter collected on the host: one that fails encodes nothing, and one of more than `maxRows`
@@ -137,7 +137,7 @@ const collectParam = (
 	).pipe(
 		Effect.filterOrFail(
 			(facts) => facts.length <= maxRows,
-			() => InputTooLarge.make()
+			() => new InputTooLarge()
 		)
 	)
 
@@ -206,9 +206,7 @@ export const hostInputs = (
 		 */
 		const bound = bindWrite(program, { members, params: host })
 		if (!bound.ok) {
-			return yield* Effect.fail(
-				bound.error === "ResourceBound" ? InputTooLarge.make() : bound.error
-			)
+			return yield* Effect.fail(bound.error === "ResourceBound" ? new InputTooLarge() : bound.error)
 		}
 		if (bound.value.kind === "invariant-rejected") {
 			return {
@@ -273,17 +271,17 @@ const flightFailure = <R>(
 			return outcomeOf(classifyServerError(failure.failure, { ...context, uniqueAborts: [] }))
 		case "StaleName":
 			return Effect.fail(
-				TransientFailure.make({ reason: StaleStatement.make(), error: failure.failure })
+				new TransientFailure({ reason: new StaleStatement(), error: failure.failure })
 			)
 		case "CommitLost":
-			return Effect.fail(CommitUnknown.make())
+			return Effect.fail(new CommitUnknown())
 		case "ConnectionLost":
 		case "DriverFailure":
-			return Effect.fail(TransportFailure.make({ reason: failure }))
+			return Effect.fail(new TransportFailure({ reason: failure }))
 		case "UnreadableAnswer":
-			return Effect.fail(ExecutionFailure.make({ reason: failure }))
+			return Effect.fail(new ExecutionFailure({ reason: failure }))
 		case "PrologueRefused":
-			return Effect.fail(ExecutionFailure.make({ reason: failure.failure }))
+			return Effect.fail(new ExecutionFailure({ reason: failure.failure }))
 		case "StaleSnapshot":
 			return Effect.fail(failure)
 	}
@@ -337,12 +335,11 @@ export const runWrite = <R>(
 			sent.push(s)
 			statements.push({ sql: inputs.bound.form(s).sql, params: values.value })
 		}
-		const readBacks = joinFlights(
-			yield* Effect.mapError(
-				Effect.forEach(reads.runs.runs, (run) => readBackFlight(run, inputs)),
-				inputApplyError
-			)
+		const flights = yield* Effect.mapError(
+			Effect.forEach(reads.runs.runs, (run) => readBackFlight(run, inputs)),
+			inputApplyError
 		)
+		const readBacks = joinFlights(flights)
 		const ran = yield* Effect.result(
 			runFramed(
 				session,

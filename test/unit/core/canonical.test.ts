@@ -64,10 +64,11 @@ import {
 	succeeded,
 	unorderedEqual
 } from "#test/support/assert.ts"
-import { decodeJson, jsonText } from "#test/support/json.ts"
+import { decodeJson } from "#test/support/json.ts"
 import { isList } from "#test/support/list.ts"
 
 import { regex } from "arkregex"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 /**
  * The canonical serializer (core/canonical.ts): one text per value, the JSON Canonicalization Scheme (RFC 8785) over
  * the value's JSON form, and a refusal, at the offending value's path, of everything outside the value model.
@@ -251,7 +252,7 @@ const isJsonList = (j: Json): j is ReadonlyArray<Json> => Arr.isArray(j)
  */
 const rfc8785 = (j: Json): string => {
 	if (typeof j === "string" || typeof j === "number" || typeof j === "boolean") {
-		return JSON.stringify(j)
+		return jsonText(j)
 	}
 	if (isJsonList(j)) {
 		return `[${Arr.join(Arr.map(j, rfc8785), ",")}]`
@@ -261,7 +262,7 @@ const rfc8785 = (j: Json): string => {
 		Order.mapInput(Order.String, ([key]: readonly [string, Json]) => key)
 	)
 	return `{${Arr.join(
-		Arr.map(members, ([k, child]) => `${JSON.stringify(k)}:${rfc8785(child)}`),
+		Arr.map(members, ([k, child]) => `${jsonText(k)}:${rfc8785(child)}`),
 		","
 	)}}`
 }
@@ -299,7 +300,7 @@ const spellingsOf = (v: unknown, note: (f: SpellingFeature) => void): void => {
 		if (Object.is(v, -0)) {
 			note("negative zero")
 		}
-		if (Str.includes("e")(JSON.stringify(v))) {
+		if (Str.includes("e")(jsonText(v))) {
 			note("an exponent-form number")
 		}
 	} else if (isList(v)) {
@@ -575,7 +576,10 @@ describe("a value outside the model", () => {
 							const result =
 								plant.direction === "encode"
 									? encode(v, everyProperty)
-									: decode(jsonText(placed(path, plant.at, jsonForm(filler))), revivers)
+									: decode(
+											jsonText(trusted<Json>(placed(path, plant.at, jsonForm(filler)))),
+											revivers
+										)
 							if (plant.direction === "encode") {
 								assert.deepEqual(refusalLoc(refused(result, "MalformedDescription")).path, [
 									...path,

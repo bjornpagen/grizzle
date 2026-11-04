@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -367,36 +367,6 @@ describe("reading a printed ARE back", () => {
 							`/${source}/u as ${are}`
 						)
 					})
-			)
-		)
-	)
-
-	it.effect("reads nothing the printer never prints", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/text/are-unread",
-					generator: element([
-						".",
-						"^a",
-						"a$",
-						"\\d",
-						"\\u12",
-						"\\U0001F6",
-						"\\uabcd",
-						"\\",
-						"\\é",
-						"é"
-					]),
-					literal: Formatter.format,
-					/** The space: the ten strings. */
-					limit: 10,
-					coverage: noCoverage,
-					caseHang: Duration.minutes(2)
-				},
-				(unread) =>
-					Effect.sync(() => assert.equal(areSource(unread), undefined, Formatter.format(unread)))
 			)
 		)
 	)

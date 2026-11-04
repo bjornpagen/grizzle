@@ -207,7 +207,8 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									)
 									held.push({ scope: leaseScope, pid })
 								}
-								assert.equal(yield* pool.leased, w.held)
+								const heldNow = yield* pool.leased
+								assert.equal(heldNow, w.held)
 								if (w.ending === "layer released") {
 									/**
 									 * The layer's release is under way at once and ends once the held leases are released.
@@ -227,12 +228,14 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									assert.equal(asked(), 0, "pg is never asked for a client")
 									assert.equal(gate.state.attempts, attempts, "no connection is attempted")
 									assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
-									assert.equal(yield* pool.leased, w.held)
+									const leased = yield* pool.leased
+									assert.equal(leased, w.held)
 									for (const h of held) {
 										yield* Scope.close(h.scope, Exit.void)
 									}
 									yield* Fiber.join(release)
-									assert.equal(yield* pool.size, 0, "the ended pool holds no session")
+									const size = yield* pool.size
+									assert.equal(size, 0, "the ended pool holds no session")
 									c.note(`${where} ${w.ending}`)
 									return
 								}
@@ -315,12 +318,14 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 										break
 									}
 								}
-								assert.equal(yield* pool.leased, leased)
+								const leasedNow = yield* pool.leased
+								assert.equal(leasedNow, leased)
 								assert.ok((yield* pool.size) <= w.max)
 								for (const h of held) {
 									yield* Scope.close(h.scope, Exit.void)
 								}
-								assert.equal(yield* pool.leased, 0)
+								const leasedAfter = yield* pool.leased
+								assert.equal(leasedAfter, 0)
 								/** Every session up to the maximum at once, without a wait. */
 								const pids = yield* Effect.scoped(
 									Effect.all(

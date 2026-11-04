@@ -557,8 +557,9 @@ export const POST = (request: Request): Promise<Response> => {
 		if (token === undefined) {
 			return 401
 		}
-		const post = yield* Schema.decodeUnknownEffect(Draft)(
-			yield* Effect.promise(() => request.json())
+		const post = yield* Effect.flatMap(
+			Effect.promise(() => request.json()),
+			Schema.decodeUnknownEffect(Draft)
 		)
 		const db = yield* Db.open(Web.roles.member, { token })
 		const outcome = yield* db.apply(draft(post), {})
@@ -737,20 +738,20 @@ export const RdsEtlLayer = DbLayer.make({
 	port: 5432,
 	database: "app",
 	password: etlJobRole.pipe(
+		Effect.mapError((cause) => CredentialError.make({ cause })),
 		Effect.flatMap((username) =>
-			Effect.tryPromise(() =>
-				new Signer({
-					hostname: "db.internal",
-					port: 5432,
-					region: "us-east-1",
-					username
-				}).getAuthToken()
-			)
+			Effect.tryPromise({
+				try: () =>
+					new Signer({
+						hostname: "db.internal",
+						port: 5432,
+						region: "us-east-1",
+						username
+					}).getAuthToken(),
+				catch: (cause) => CredentialError.make({ cause })
+			})
 		),
-		Effect.mapBoth({
-			onFailure: (cause) => CredentialError.make({ cause }),
-			onSuccess: Redacted.make
-		})
+		Effect.map(Redacted.make)
 	),
 	tls: { ca: caPem }
 })

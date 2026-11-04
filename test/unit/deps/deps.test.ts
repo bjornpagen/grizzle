@@ -5,10 +5,11 @@ import {
 	Array as Arr,
 	Effect,
 	FileSystem,
+	Formatter,
 	Option,
 	Order,
-	type PlatformError,
 	pipe,
+	type PlatformError,
 	Schema,
 	String as Str
 } from "effect"
@@ -51,7 +52,8 @@ const modulesUnder = (
 ): Effect.Effect<ReadonlyArray<string>, PlatformError.PlatformError, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		return modulesIn(yield* fs.readDirectory(`${root}${dir}`, { recursive: true }), dir)
+		const entries = yield* fs.readDirectory(`${root}${dir}`, { recursive: true })
+		return modulesIn(entries, dir)
 	})
 
 const decodePackageJson = Schema.decodeUnknownEffect(Schema.fromJsonString(PackageJson))
@@ -65,8 +67,9 @@ const entryPoints: Effect.Effect<
 	const fs = yield* FileSystem.FileSystem
 	const targets: Array<string> = []
 	for (const directory of packageDirectories) {
-		const pkg = yield* decodePackageJson(
-			yield* fs.readFileString(`${root}packages/${directory}/package.json`)
+		const pkg = yield* Effect.flatMap(
+			fs.readFileString(`${root}packages/${directory}/package.json`),
+			decodePackageJson
 		)
 		appendAll(targets, entriesOf(directory, pkg))
 	}
@@ -82,7 +85,7 @@ const isArkUrl = (url: string): boolean =>
 	Str.includes("/node_modules/arkregex/")(url) || Str.includes("/@ark/")(url)
 
 const show = (findings: ReadonlyArray<Finding>): Array<string> =>
-	Arr.map(findings, (f) => `${f.file}:${f.line}: ${f.rule} ${JSON.stringify(f.text)}`)
+	Arr.map(findings, (f) => `${f.file}:${f.line}: ${f.rule} ${Formatter.format(f.text)}`)
 
 describe("the audit finds what it must", () => {
 	it("tokenizes strings, templates, comments and divisions without inventing a regex", () => {
@@ -246,11 +249,10 @@ describe("the audit finds what it must", () => {
 /** Every module under both packages' src with its source text. */
 const sources = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
-	const files = Arr.flatten(
-		yield* Effect.forEach(["packages/engine/src", "packages/grizzle/src"], (dir) =>
-			modulesUnder(dir)
-		)
+	const modules = yield* Effect.forEach(["packages/engine/src", "packages/grizzle/src"], (dir) =>
+		modulesUnder(dir)
 	)
+	const files = Arr.flatten(modules)
 	return yield* Effect.forEach(files, (file) =>
 		Effect.map(fs.readFileString(`${root}${file}`), (source) => ({ file, source }))
 	)
@@ -296,10 +298,8 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 				assert.deepEqual(runtime, [])
 				assert.ok(typeOnly >= 1)
 				const fs = yield* FileSystem.FileSystem
-				containsText(
-					yield* fs.readFileString(`${root}packages/engine/src/text/field.ts`),
-					'import type { regex } from "arkregex"'
-				)
+				const text = yield* fs.readFileString(`${root}packages/engine/src/text/field.ts`)
+				containsText(text, 'import type { regex } from "arkregex"')
 			})
 		)
 	}

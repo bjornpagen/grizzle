@@ -539,21 +539,23 @@ const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 				)
 			}
 		}
-		const tables = yield* Schema.decodeUnknownEffect(XactRows)(
-			yield* admin.queryValues(
+		const tables = yield* Effect.flatMap(
+			admin.queryValues(
 				"SELECT relname::text, seq_scan::text, idx_scan::text FROM pg_catalog.pg_stat_xact_user_tables WHERE schemaname = $1::text",
 				[o.installed.schema]
-			)
+			),
+			Schema.decodeUnknownEffect(XactRows)
 		)
 		/**
 		 * PostgreSQL has no per-transaction view of index statistics: an index's scans in this transaction are
 		 * pg_stat_get_xact_numscans of the index, the counter pg_stat_xact_user_tables sums into idx_scan.
 		 */
-		const indexes = yield* Schema.decodeUnknownEffect(XactRows)(
-			yield* admin.queryValues(
+		const indexes = yield* Effect.flatMap(
+			admin.queryValues(
 				"SELECT indexrelname::text, relname::text, pg_catalog.pg_stat_get_xact_numscans(indexrelid)::text FROM pg_catalog.pg_stat_user_indexes WHERE schemaname = $1::text",
 				[o.installed.schema]
-			)
+			),
+			Schema.decodeUnknownEffect(XactRows)
 		)
 		yield* admin.query("ROLLBACK", [])
 		return {

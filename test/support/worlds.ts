@@ -1,8 +1,10 @@
-import { Array as Arr, Effect, type Layer, Record as Rec, Schema, type Scope } from "effect"
+import { Array as Arr, Effect, type Layer, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
+import type { Json } from "#compiler/core/canonical.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type AnyClosed,
@@ -51,14 +53,15 @@ export const fullWorld = (base: Reality) => {
 }
 export type FullWorld = ReturnType<typeof fullWorld>
 
-const decodePayload = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
-
 /** The token of `payload`: its JSON text. */
-export const tokenOf = (payload: unknown): string => JSON.stringify(payload)
+export const tokenOf = (payload: Json): string => jsonText(payload)
 
 /** Every test layer's verify: the payload a token's JSON text holds, or a TokenError for text that holds none. */
 export const testVerify = (token: string): Effect.Effect<unknown, TokenError> =>
-	Effect.mapError(decodePayload(token), (cause) => TokenError.make({ cause }))
+	Effect.try({
+		try: () => trustedJson<unknown>(token),
+		catch: (cause) => TokenError.make({ cause })
+	})
 
 /**
  * The DbLayer of `login` over `installed`, in `database`: the snapshot its migrations reached, verify-full TLS against

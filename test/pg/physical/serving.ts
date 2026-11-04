@@ -298,8 +298,8 @@ const tableOf = (installed: Judged, relation: string) =>
 		const { admin } = yield* Substrate
 		const q = installed.installation.names.relation(relation)
 		const quoted = `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
-		const columns = yield* Schema.decodeUnknownEffect(ColumnHolds)(
-			yield* admin.queryValues(
+		const columns = yield* Effect.flatMap(
+			admin.queryValues(
 				"WITH RECURSIVE base(name, oid, typtype, typbasetype) AS (" +
 					"SELECT a.attname, t.oid, t.typtype, t.typbasetype FROM pg_catalog.pg_attribute AS a " +
 					"JOIN pg_catalog.pg_type AS t ON t.oid = a.atttypid " +
@@ -310,7 +310,8 @@ const tableOf = (installed: Judged, relation: string) =>
 					"WHEN typtype = 'e'::\"char\" OR oid = 'pg_catalog.bool'::pg_catalog.regtype THEN 'few' ELSE 'many' END " +
 					"FROM base WHERE typtype <> 'd'::\"char\"",
 				[quoted]
-			)
+			),
+			Schema.decodeUnknownEffect(ColumnHolds)
 		)
 		const holding = (holds: "span" | "few"): ReadonlySet<string> =>
 			new Set(
@@ -319,8 +320,9 @@ const tableOf = (installed: Judged, relation: string) =>
 					([name]) => name
 				)
 			)
-		const counted = yield* Schema.decodeUnknownEffect(Texts)(
-			yield* admin.queryValues(`SELECT count(*)::text FROM ${quoted}`, [])
+		const counted = yield* Effect.flatMap(
+			admin.queryValues(`SELECT count(*)::text FROM ${quoted}`, []),
+			Schema.decodeUnknownEffect(Texts)
 		)
 		return {
 			quoted,
@@ -347,14 +349,15 @@ const indexFacts = (
 		const facts = new Map<string, IndexFacts>()
 		for (const i of indexes) {
 			const table = tableFor(i.relation)
-			const [row] = yield* Schema.decodeUnknownEffect(PagesAndPredicate)(
-				yield* admin.queryValues(
+			const [row] = yield* Effect.flatMap(
+				admin.queryValues(
 					"SELECT (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::text, " +
 						"pg_catalog.pg_get_expr(x.indpred, x.indrelid) FROM pg_catalog.pg_class AS c " +
 						"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace JOIN pg_catalog.pg_index AS x ON x.indexrelid = c.oid " +
 						"WHERE n.nspname = $1::text AND c.relname = $2::text",
 					[installed.schema, i.index.name]
-				)
+				),
+				Schema.decodeUnknownEffect(PagesAndPredicate)
 			)
 			if (row === undefined) {
 				return assert.fail(`no index ${i.index.name} in ${installed.schema}`)
@@ -364,11 +367,12 @@ const indexFacts = (
 				predicate === null
 					? table.rows
 					: Number(
-							(yield* Schema.decodeUnknownEffect(Texts)(
-								yield* admin.queryValues(
+							(yield* Effect.flatMap(
+								admin.queryValues(
 									`SELECT count(*)::text FROM ${table.quoted} WHERE ${predicate}`,
 									[]
-								)
+								),
+								Schema.decodeUnknownEffect(Texts)
 							))[0]?.[0]
 						)
 			facts.set(i.index.name, {
@@ -390,7 +394,8 @@ export const plannedFacts = (
 		const indexes = installed.installation.indexes
 		const tables = new Map<string, Table>()
 		for (const r of new Set(Arr.map(indexes, (i) => i.relation))) {
-			tables.set(r, yield* tableOf(installed, r))
+			const table = yield* tableOf(installed, r)
+			tables.set(r, table)
 		}
 		return yield* indexFacts(installed, indexes, (relation) => {
 			const t = tables.get(relation)
@@ -516,15 +521,16 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 		const sample =
 			sampled.length === 0
 				? []
-				: (yield* Schema.decodeUnknownEffect(Texts)(
-						yield* admin.queryValues(
+				: (yield* Effect.flatMap(
+						admin.queryValues(
 							`SELECT ${Arr.join(
 								Arr.map(sampled, (k) => `${column(k.field)}::text`),
 								", "
 							)} FROM ${table.quoted}${where(selection)} ` +
 								`ORDER BY ctid OFFSET (SELECT count(*) / 2 FROM ${table.quoted}${where(selection)}) LIMIT 1`,
 							[]
-						)
+						),
+						Schema.decodeUnknownEffect(Texts)
 					))[0]
 		if (sample === undefined) {
 			return assert.fail(`${label}: ${request.relation} holds no row to probe`)
@@ -623,11 +629,12 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 			selection.length === 0 || statement.conditions.length === 0
 				? 0
 				: Number(
-						(yield* Schema.decodeUnknownEffect(Texts)(
-							yield* admin.queryValues(
+						(yield* Effect.flatMap(
+							admin.queryValues(
 								`SELECT count(*)::text FROM ${table.quoted}${where([...statement.conditions, `NOT (${Arr.join(selection, " AND ")})`])}`,
 								[]
-							)
+							),
+							Schema.decodeUnknownEffect(Texts)
 						))[0]?.[0]
 					)
 		const bound = conditioned[shape] ? Arr.map(keys, (k) => k.field) : []
@@ -934,7 +941,8 @@ export const judgeServing = (
 		const relations = [...new Set(Arr.map(indexes, (i) => i.relation))]
 		const tables = new Map<string, Table>()
 		for (const r of relations) {
-			tables.set(r, yield* tableOf(installed, r))
+			const table = yield* tableOf(installed, r)
+			tables.set(r, table)
 		}
 		const plannedOn = (relation: string): ReadonlyMap<string, PlannedIndex> =>
 			new Map(
@@ -959,7 +967,8 @@ export const judgeServing = (
 		const probes = new Map<IndexRequest, Probe>()
 		for (const i of judged) {
 			for (const r of i.requests) {
-				probes.set(r, yield* probeOf(installed, tableFor(r.relation), r, rowsOf(r)))
+				const probe = yield* probeOf(installed, tableFor(r.relation), r, rowsOf(r))
+				probes.set(r, probe)
 			}
 		}
 		const probeFor = (r: IndexRequest): Probe => {
@@ -1029,12 +1038,13 @@ export const judgeServing = (
 					(i) => i.relation === host.relation && i.index.name !== host.index.name
 				)) {
 					const index = `${quoteIdent(q.schema)}.${quoteIdent(i.index.name)}`
-					const [owner] = yield* Schema.decodeUnknownEffect(Texts)(
-						yield* admin.queryValues(
+					const [owner] = yield* Effect.flatMap(
+						admin.queryValues(
 							"SELECT c.conname::text FROM pg_catalog.pg_constraint AS c WHERE c.conindid = $1::text::regclass " +
 								"AND c.conrelid = $2::text::regclass AND c.contype IN ('p'::\"char\", 'u'::\"char\", 'x'::\"char\")",
 							[index, table]
-						)
+						),
+						Schema.decodeUnknownEffect(Texts)
 					)
 					const constraint = owner?.[0]
 					statements.push(
@@ -1072,7 +1082,8 @@ export const judgeServing = (
 					}
 					const other = verdict.through.index.name !== host.index.name
 					if (other) {
-						const [alone] = yield* planned([probe], yield* withoutOthers(host))
+						const isolated = yield* withoutOthers(host)
+						const [alone] = yield* planned([probe], isolated)
 						if (alone === undefined) {
 							return assert.fail(`${probe.label}: no plan through ${host.index.name} alone`)
 						}

@@ -109,16 +109,15 @@ const walPosition = Effect.fn("walPosition")(function* (
 	session: BenchSession
 ): Effect.fn.Return<WalPosition, SqlError> {
 	yield* session.values("SELECT pg_catalog.pg_stat_force_next_flush()", [])
+	const rows = yield* session.values(
+		"SELECT w.wal_records::text, w.wal_fpi::text, w.wal_bytes::text, w.wal_fpi_bytes::text, " +
+			"w.wal_buffers_full::text, pg_catalog.pg_current_wal_insert_lsn()::text, c.redo_lsn::text " +
+			"FROM pg_catalog.pg_stat_get_backend_wal(pg_catalog.pg_backend_pid()) AS w, " +
+			"pg_catalog.pg_control_checkpoint() AS c",
+		[]
+	)
 	const [[records, fpi, bytes, fpiBytes, buffersFull, lsn, redoLsn]] = yield* Effect.orDie(
-		Schema.decodeUnknownEffect(PositionRows)(
-			yield* session.values(
-				"SELECT w.wal_records::text, w.wal_fpi::text, w.wal_bytes::text, w.wal_fpi_bytes::text, " +
-					"w.wal_buffers_full::text, pg_catalog.pg_current_wal_insert_lsn()::text, c.redo_lsn::text " +
-					"FROM pg_catalog.pg_stat_get_backend_wal(pg_catalog.pg_backend_pid()) AS w, " +
-					"pg_catalog.pg_control_checkpoint() AS c",
-				[]
-			)
-		)
+		Schema.decodeUnknownEffect(PositionRows)(rows)
 	)
 	return {
 		backend: {

@@ -251,9 +251,10 @@ const observe = (r: System) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const ledger = yield* readLedger(r.m, r.schema, statements(r.schema))
+		const rows = yield* strictLedgerRows(r)
 		assert.deepEqual(
 			ledgerRows(ledger),
-			yield* strictLedgerRows(r),
+			rows,
 			"the ledger's rows read strictly as the runner reads them"
 		)
 		return { ledger, catalog: yield* readCatalog(substrate.admin, r.schema) }
@@ -1080,7 +1081,8 @@ const runOn = (shape: ChainShape) => (steps: LedgerProgram, c: Case<Feature>) =>
 			)[0]
 		)
 		const elsewhere = yield* substrate.schema({ create: false, label: "ledger_elsewhere" })
-		const intruder = yield* openMigrator(substrate, yield* substrate.role(elsewhere, "intruder"))
+		const role = yield* substrate.role(elsewhere, "intruder")
+		const intruder = yield* openMigrator(substrate, role)
 		const system: System = {
 			schema,
 			m: yield* openMigrator(substrate, substrate.owner),

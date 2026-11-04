@@ -116,7 +116,8 @@ const contents = (dir: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const out: Array<readonly [string, string]> = []
-		for (const entry of Arr.sort(yield* fs.readDirectory(dir, { recursive: true }), Order.String)) {
+		const entries = yield* fs.readDirectory(dir, { recursive: true })
+		for (const entry of Arr.sort(entries, Order.String)) {
 			const full = `${dir}/${entry}`
 			const info = yield* fs.stat(full)
 			out.push(
@@ -147,8 +148,9 @@ const tamper = (c: Case, dir: string, other: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const schema = `${dir}/${schemaDir}`
+		const entries = yield* fs.readDirectory(schema)
 		const folders = Arr.sort(
-			Arr.filter(yield* fs.readDirectory(schema), (n) => n !== snapshotFileName),
+			Arr.filter(entries, (n) => n !== snapshotFileName),
 			Order.String
 		)
 		const newest = folderAt(Arr.last(folders))
@@ -206,13 +208,15 @@ const tamper = (c: Case, dir: string, other: string) =>
 			}
 			case "meta.json of another schema": {
 				const otherSchema = identifierOf(identity.schema(parsedSchemaName("TamperOther")))
-				const read = succeeded(decodeMeta(yield* fs.readFileString(meta)))
+				const text = yield* fs.readFileString(meta)
+				const read = succeeded(decodeMeta(text))
 				yield* fs.writeFileString(meta, succeeded(writeMeta({ ...read, schema: otherSchema })))
 				const tampered: Tampered = { names: otherSchema, stage: "snapshot", entry: newest }
 				return tampered
 			}
 			case "meta.json source edited": {
-				const read = succeeded(decodeMeta(yield* fs.readFileString(meta)))
+				const text = yield* fs.readFileString(meta)
+				const read = succeeded(decodeMeta(text))
 				yield* fs.writeFileString(meta, succeeded(writeMeta({ ...read, source: read.target })))
 				const tampered: Tampered = { names: newest, stage: "snapshot", entry: newest }
 				return tampered
@@ -259,7 +263,8 @@ const tampered = (
 				Str.includes(names)(generated.stderr),
 				`${label}: ${generated.stderr} does not name ${names}`
 			)
-			assert.deepEqual(yield* contents(ws), before, `${label}: generate wrote`)
+			const after = yield* contents(ws)
+			assert.deepEqual(after, before, `${label}: generate wrote`)
 			const checked = yield* cli(ws, ["check"], nextNow(), {})
 			assert.equal(checked.code, 1, `${label}: check passes`)
 			assert.ok(

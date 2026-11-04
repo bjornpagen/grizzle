@@ -859,7 +859,9 @@ export const textRowsOf = Effect.fn("textRowsOf")(function* (
 ): Effect.fn.Return<ReadonlyArray<TextRow>, SqlError | MalformedRows> {
 	const out: Array<TextRow> = []
 	for (const [i, s] of statements.entries()) {
-		appendAll(out, yield* Effect.fromResult(textRows(yield* raw.values(s.sql, s.params), i)))
+		const values = yield* raw.values(s.sql, s.params)
+		const texts = yield* Effect.fromResult(textRows(values, i))
+		appendAll(out, texts)
 	}
 	return out
 })

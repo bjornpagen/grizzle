@@ -11,6 +11,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 
+import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	classify,
 	compareSpans,
@@ -782,9 +783,7 @@ export const spanInsert = (
 	const values = keyed ? ["j.g", `j.d::${range}`] : ["j.id", "j.g", `j.d::${range}`]
 	return {
 		sql: `INSERT INTO ${table(schema, relation)} (${Arr.join(columns, ", ")}) SELECT ${Arr.join(values, ", ")} FROM jsonb_to_recordset($1::text::jsonb) AS j(id int4, g int4, d text)`,
-		params: [
-			JSON.stringify(Arr.map(facts, (f) => ({ id: f.id, g: f.group, d: spanText(f.during) })))
-		]
+		params: [jsonText(Arr.map(facts, (f) => ({ id: f.id, g: f.group, d: spanText(f.during) })))]
 	}
 }
 

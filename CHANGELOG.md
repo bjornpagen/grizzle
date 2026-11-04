@@ -601,3 +601,33 @@ How to upgrade:
 - **Format and state:** snapshot.json changes: a scalar operation node carries its precondition proof, failure
   annotations are gone, and a contract records its declared facts; every bare numeric column gains its bound CHECK.
   Re-create every database installed before.
+
+#### Node 26 and Effect 4.1 are the floor
+
+- **grizzle needs Node 26 or later.** `engines.node` of `@bjornpagen/grizzle` and `@bjornpagen/grizzle-engine` is
+  `>=26`. No codemod: run on Node 26.
+- **`effect` is a peer dependency at `^4.1.2`.** Install Effect 4.1 beside grizzle; 4.0 is outside the range. Effect
+  4.1 moved its crypto services out of the `effect` barrel into `effect/crypto`. No codemod in grizzle code.
+
+#### Effect Schema leaves grizzle's runtime: errors are `Data.TaggedError`, snapshot.json and meta.json are trusted by their digests
+
+- **Every grizzle error is a `Data.TaggedError`.** `OpenError`, `ReadFailure`, `TransientFailure`,
+  `TransportFailure`, `ExecutionFailure`, `CommitUnknown`, `StaleSnapshot`, `CredentialError`, `TokenError` and every
+  reason class keep their `_tag`, their fields, their getters and their `message`, and `Effect.catchTag`,
+  `catchReason`, `catchReasons` and `unwrapReason` reach them as before. They are no longer Effect Schema classes: no
+  `.make`, no decoding or encoding, no use as a Schema, and the constructor checks nothing its type does not.
+  - Codemod: `CredentialError.make({ cause })` → `new CredentialError({ cause })`; `TokenError.make({ cause })` →
+    `new TokenError({ cause })`; any grizzle error `X.make(args)` → `new X(args)`, and `X.make()` of an error without
+    fields → `new X()`.
+  - Codemod: `Schema.is(X)(u)` of a grizzle error `X` → `u instanceof X`; a test of `_tag` needs no change.
+  - Fix: a grizzle error held in a field of the application's own Schema is declared with
+    `Schema.declare((u: unknown): u is X => u instanceof X)`.
+- **Format and state:** snapshot.json records each installed statement as itself: every clause stated (an empty list,
+  a false flag, the ascending order), which it left out before, and each placeholder as the statement holds it, so it
+  grows by what it now states. Its fingerprint is the digest of the file's own JSON value, every property but the
+  fingerprint, checked over that value before anything reads it as a snapshot: a snapshot.json edited by hand is still
+  refused (`grizzle check`, `grizzle generate`, `DbLayer.make`), now before it is read. meta.json is
+  `{ "digest": ..., "meta": ... }`, its meta sealed by the digest of its content: a meta.json edited or corrupted
+  outside grizzle is refused as malformed by `grizzle check`, `grizzle generate` and `grizzle migrate` before its meta
+  is read. Every snapshot fingerprint changes, and a previous snapshot.json or meta.json is refused, never read:
+  delete `migrations/`, re-create every database and run `grizzle generate` (step 3 above).

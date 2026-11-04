@@ -190,17 +190,13 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 						assert.equal(error.constraint, constraint)
 						return detailOf(error.detail)
 					})
-				assert.equal(
-					readLawDetail(yield* raised(sqlstates.integrityConstraintViolation, law)).kind,
-					"law"
-				)
-				assert.deepEqual(
-					readChangeDetail(yield* raised(sqlstates.grizzleConcurrentChange, change)),
-					{
-						reason: change.reason,
-						relation: change.relation
-					}
-				)
+				const lawRaised = yield* raised(sqlstates.integrityConstraintViolation, law)
+				assert.equal(readLawDetail(lawRaised).kind, "law")
+				const changeRaised = yield* raised(sqlstates.grizzleConcurrentChange, change)
+				assert.deepEqual(readChangeDetail(changeRaised), {
+					reason: change.reason,
+					relation: change.relation
+				})
 				/** Everything sent after a refusal without waiting: the transaction is aborted, COMMIT answers ROLLBACK. */
 				const session = yield* s.session({ ...ownerSession(), label: "direct" })
 				yield* expectSqlstate(

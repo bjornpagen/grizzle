@@ -51,7 +51,7 @@ type Value = number | ReadonlyArray<number> | boolean
 /** A value the seek compares as one integer; a missing column or placeholder is a defect of the predicate. */
 const integer = (v: Value | undefined): number => {
 	if (typeof v !== "number") {
-		throw new Error(`an integer operand, not ${JSON.stringify(v)}`)
+		throw new Error(`an integer operand, not ${Formatter.format(v)}`)
 	}
 	return v
 }

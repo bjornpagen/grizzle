@@ -50,7 +50,7 @@ export interface SchemaTree {
 
 /** The refusal of a schema's migrations directory that holds what no generator writes. */
 const strayIn = (schema: string, fault: TreeRefused["fault"]): CliError =>
-	cliError(TreeRefused.make({ schema, fault }))
+	cliError(new TreeRefused({ schema, fault }))
 
 const visible = (name: string): boolean => !Str.startsWith(".")(name)
 
@@ -123,20 +123,22 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 		for (const entry of yield* visibleEntries(fs, directory)) {
 			const type = yield* entryType(fs, path.join(directory, entry))
 			if (entry === snapshotFileName && type === "File") {
-				snapshotText = Option.some(yield* fs.readFileString(path.join(directory, entry)))
+				const text = yield* fs.readFileString(path.join(directory, entry))
+				snapshotText = Option.some(text)
 				continue
 			}
 			if (type !== "Directory") {
 				return yield* strayIn(schema, { kind: "strayEntry", directory, entry })
 			}
-			folders.push(yield* readFolder(schema, directory, entry))
+			const folder = yield* readFolder(schema, directory, entry)
+			folders.push(folder)
 		}
 		const tree: SchemaTree = { directory, folders, snapshotText }
 		return tree
 	},
 	(effect, schema, directory) =>
 		Effect.catchTag(effect, "PlatformError", (cause) =>
-			Effect.fail(cliError(TreeUnread.make({ schema, directory, cause })))
+			Effect.fail(cliError(new TreeUnread({ schema, directory, cause })))
 		)
 )
 
@@ -183,7 +185,7 @@ export const writeFolder = Effect.fn("writeFolder")(
 		yield* fs.makeDirectory(directory, { recursive: true })
 		const final = path.join(directory, folder.name)
 		if (yield* fs.exists(final)) {
-			return yield* cliError(FolderExists.make({ schema, path: final }))
+			return yield* cliError(new FolderExists({ schema, path: final }))
 		}
 		return yield* writeAtomically(directory, folder.name, (scratch) =>
 			Effect.gen(function* () {
@@ -197,7 +199,7 @@ export const writeFolder = Effect.fn("writeFolder")(
 	},
 	(effect, schema, ...[, folder]) =>
 		Effect.catchTag(effect, "PlatformError", (cause) =>
-			Effect.fail(cliError(FolderUnwritten.make({ schema, folder: folder.name, cause })))
+			Effect.fail(cliError(new FolderUnwritten({ schema, folder: folder.name, cause })))
 		)
 )
 
@@ -218,6 +220,6 @@ export const writeSnapshotFile = Effect.fn("writeSnapshotFile")(
 	},
 	(effect, schema) =>
 		Effect.catchTag(effect, "PlatformError", (cause) =>
-			Effect.fail(cliError(SnapshotUnwritten.make({ schema, cause })))
+			Effect.fail(cliError(new SnapshotUnwritten({ schema, cause })))
 		)
 )

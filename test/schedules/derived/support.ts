@@ -296,12 +296,14 @@ export const open = (
 		 * Each refresher's Db through a DbLayer of its own, as an application opens it, and its actor: the one session
 		 * of the login beside the refreshers resolved before it.
 		 */
+		const refresherContext = yield* Layer.build(loginLayer(opened.installed, f.server))
 		const refresherDb = yield* Db.open(f.server.roles.refresher, {}).pipe(
-			Effect.provideContext(yield* Layer.build(loginLayer(opened.installed, f.server)))
+			Effect.provideContext(refresherContext)
 		)
 		const first = yield* grizzleActor("refresher", server, [])
+		const refresher2Context = yield* Layer.build(loginLayer(opened.installed, f.server))
 		const refresher2Db = yield* Db.open(f.server.roles.refresher2, {}).pipe(
-			Effect.provideContext(yield* Layer.build(loginLayer(opened.installed, f.server)))
+			Effect.provideContext(refresher2Context)
 		)
 		const refreshers = {
 			refresher: first,

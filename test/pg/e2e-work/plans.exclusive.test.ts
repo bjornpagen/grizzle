@@ -156,17 +156,19 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 			}
 			const column = (relation: string, field: string): string =>
 				quoteIdent(names.column(relation, field))
-			const busiest = yield* Schema.decodeUnknownEffect(Texts)(
-				yield* s.admin.queryValues(
+			const busiest = yield* Effect.flatMap(
+				s.admin.queryValues(
 					`SELECT ${column("Task", "account")}::text FROM ${table("Task")} GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 200`,
 					[]
-				)
+				),
+				Schema.decodeUnknownEffect(Texts)
 			)
-			const tasks = yield* Schema.decodeUnknownEffect(Texts)(
-				yield* s.admin.queryValues(
+			const tasks = yield* Effect.flatMap(
+				s.admin.queryValues(
 					`SELECT ${column("Task", "id")}::text FROM ${table("Task")} ORDER BY 1 LIMIT 400`,
 					[]
-				)
+				),
+				Schema.decodeUnknownEffect(Texts)
 			)
 			const e: Entities = {
 				accounts: Arr.map(busiest, ([a]) => a),

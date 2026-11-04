@@ -74,7 +74,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 					failure._tag === "BatchDiagnosticUnowned",
 					`the batch failed with ${failure._tag}`
 				)
-				assert.equal(failure.file, yield* fs.realPath(planted))
+				const realPath = yield* fs.realPath(planted)
+				assert.equal(failure.file, realPath)
 			})
 		)
 	)
@@ -86,7 +87,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 				const path = yield* Path.Path
 				const outside = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-batch-root-" })
 				const linked = path.join(outside, "repository")
-				yield* fs.symlink(yield* repository, linked)
+				const repositoryPath = yield* repository
+				yield* fs.symlink(repositoryPath, linked)
 				const batch = yield* buildBatchAt(linked, [probe], typeRun().seed)
 				const unit = defined(batch.units["batch/probe"], "the probe's unit")
 				assert.deepEqual(batch.unattributed, [])

@@ -236,10 +236,8 @@ export const batchParitySuite = (): void => {
 						])
 						assertOneRoundTrip(session.since(mark), "I")
 						assert.deepEqual(one, { command: "INSERT", rows: [["one"]] })
-						assert.deepEqual(
-							yield* s.admin.queryValues(`SELECT "v" FROM ${table} WHERE "k" = -7`, []),
-							[["one"]]
-						)
+						const rows = yield* s.admin.queryValues(`SELECT "v" FROM ${table} WHERE "k" = -7`, [])
+						assert.deepEqual(rows, [["one"]])
 						return explored
 					}).pipe(Effect.scoped)
 				)
@@ -317,17 +315,16 @@ export const batchParitySuite = (): void => {
 										assert.equal(failure.failure.constraint, tKey)
 									}
 									assert.equal(session.retired(), false)
-									assert.deepEqual(
-										yield* readBack(session, `SELECT "k"::text FROM ${table} ORDER BY "k"`),
-										[["-1"]]
+									const keys = yield* readBack(
+										session,
+										`SELECT "k"::text FROM ${table} ORDER BY "k"`
 									)
-									assert.deepEqual(
-										yield* readBack(
-											session,
-											`SELECT (CASE WHEN is_called THEN last_value ELSE 0 END)::text FROM ${seq}`
-										),
-										[[String(before)]]
+									assert.deepEqual(keys, [["-1"]])
+									const sequenceValue = yield* readBack(
+										session,
+										`SELECT (CASE WHEN is_called THEN last_value ELSE 0 END)::text FROM ${seq}`
 									)
+									assert.deepEqual(sequenceValue, [[String(before)]])
 								})
 						)
 					}).pipe(Effect.scoped)

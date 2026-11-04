@@ -1025,8 +1025,10 @@ const queryRead = (
 		 * row from a query proved to have at most one is a defect, which the comparison reports as get's answer. Both
 		 * readers answer or both refuse.
 		 */
-		const plainGet = gotten(shape, yield* sideExit(reader.get(q, params)))
-		const strictGet = gotten(shape, yield* sideExit(perturbed.get(q, params)))
+		const plainExit = yield* sideExit(reader.get(q, params))
+		const plainGet = gotten(shape, plainExit)
+		const strictExit = yield* sideExit(perturbed.get(q, params))
+		const strictGet = gotten(shape, strictExit)
 		if (plainGet.kind === "refused") {
 			note("get refused: not proved at most one row")
 		} else if (plainGet.got !== "failed") {
@@ -1239,8 +1241,10 @@ const getAgain = (
 	get: (reader: ReaderValue) => Effect.Effect<Option.Option<unknown>, ReadError>
 ): Reading =>
 	Effect.gen(function* () {
-		const plain = keyed(shape, yield* sideExit(get(readers.plain)))
-		const planned = keyed(shape, yield* sideExit(get(readers.perturbed)))
+		const plainExit = yield* sideExit(get(readers.plain))
+		const plain = keyed(shape, plainExit)
+		const perturbedExit = yield* sideExit(get(readers.perturbed))
+		const planned = keyed(shape, perturbedExit)
 		yield* agreeing(
 			c,
 			`${label}, read again over its facts stored otherwise`,
@@ -1285,12 +1289,13 @@ const keyRead = (
 			note(Option.isSome(got.value) ? "key get some" : "key get none")
 		}
 		const first = keyed(shape, got)
+		const exit = yield* sideExit(perturbed.get(target, values))
 		yield* agreeing(c, `read ${index}`, shape, answerEquivalence(shape, false), [
 			{ side: "reference", output: expectedKey(c, read) },
 			{ side: "db.get", output: first },
 			{
 				side: "db.get under the planner perturbation",
-				output: keyed(shape, yield* sideExit(perturbed.get(target, values)))
+				output: keyed(shape, exit)
 			}
 		])
 		return () =>
@@ -1319,12 +1324,13 @@ const handleRead = (
 			note("key get closed some")
 		}
 		const first = keyed(shape, got)
+		const exit = yield* sideExit(perturbed.get(built.roster, { id: read.handle }))
 		yield* agreeing(c, `read ${index}`, shape, answerEquivalence(shape, false), [
 			{ side: "reference", output: expectedHandle(read) },
 			{ side: "db.get", output: first },
 			{
 				side: "db.get under the planner perturbation",
-				output: keyed(shape, yield* sideExit(perturbed.get(built.roster, { id: read.handle })))
+				output: keyed(shape, exit)
 			}
 		])
 		return () =>
@@ -1573,15 +1579,28 @@ export const runCase = (
 		const again: Array<Again> = []
 		for (const [i, read] of c.reads.entries()) {
 			if (read.kind === "key") {
-				again.push(yield* keyRead(c, reader, perturbed, built, read, i, note))
+				const reread = yield* keyRead(c, reader, perturbed, built, read, i, note)
+				again.push(reread)
 			} else if (read.kind === "handle") {
-				again.push(yield* handleRead(c, reader, perturbed, built, read, i, note))
+				const reread = yield* handleRead(c, reader, perturbed, built, read, i, note)
+				again.push(reread)
 			} else if (read.kind === "mixed") {
-				again.push(yield* mixedRead(c, reader, perturbed, built, value, read, i, note))
+				const reread = yield* mixedRead(c, reader, perturbed, built, value, read, i, note)
+				again.push(reread)
 			} else {
-				again.push(
-					yield* queryRead(c, reader, perturbed, apply, built, value, read, i, note, stitch)
+				const reread = yield* queryRead(
+					c,
+					reader,
+					perturbed,
+					apply,
+					built,
+					value,
+					read,
+					i,
+					note,
+					stitch
 				)
+				again.push(reread)
 			}
 		}
 		const restored = restoredProgram(c)

@@ -219,13 +219,16 @@ export const commitSuite = (): void => {
 											}
 											if (Exit.isSuccess(exit)) {
 												assert.equal(exit.value.kind, "accepted")
-												assert.deepEqual(yield* noteOf(t3), [stored])
+												const committedNote = yield* noteOf(t3)
+												assert.deepEqual(committedNote, [stored])
 												return
 											}
-											assert.deepEqual(yield* noteOf(t3), [])
+											const refusedNote = yield* noteOf(t3)
+											assert.deepEqual(refusedNote, [])
 											const again = yield* db.apply(changes, { source: t1, target: t3 })
 											assert.equal(again.kind, "accepted")
-											assert.deepEqual(yield* noteOf(t3), [read])
+											const retriedNote = yield* noteOf(t3)
+											assert.deepEqual(retriedNote, [read])
 										})
 								)
 							}).pipe(Effect.scoped, withLayer(o.layer))

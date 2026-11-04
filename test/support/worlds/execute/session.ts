@@ -262,8 +262,10 @@ export const readSession = (
 					)
 				case "ReadFailure":
 				case "TransientFailure":
-				case "StaleSnapshot":
-					return refusedWith(yield* readFailed(error), error)
+				case "StaleSnapshot": {
+					const failed = yield* readFailed(error)
+					return refusedWith(failed, error)
+				}
 			}
 		}
 		const agree = yield* artifactsAgree(session.db, factsVia)
@@ -396,11 +398,13 @@ export const applySession = (
 		const runtime = yield* runtimeOf(session.db)
 		const outcome = yield* Effect.result(runtime.methods.apply(changes, {}))
 		if (Result.isFailure(outcome)) {
-			return refusedWith(yield* applyFailed(outcome.failure), outcome.failure)
+			const failed = yield* applyFailed(outcome.failure)
+			return refusedWith(failed, outcome.failure)
 		}
 		const answer = outcome.success
 		if (answer.kind !== "accepted" && answer.kind !== "no-change") {
-			return seen(yield* applied(answer, session.described))
+			const appliedAnswer = yield* applied(answer, session.described)
+			return seen(appliedAnswer)
 		}
 		const readBacks = yield* Effect.forEach(planned, (p) => readBackOf(p, answer.reads))
 		return seen({ kind: "applied", outcome: answer.kind, reads: readBacks })
@@ -471,9 +475,11 @@ export const applyValue = (session: DbSession, changes: unknown): Effect.Effect<
 		const runtime = yield* runtimeOf(session.db)
 		const outcome = yield* Effect.result(runtime.methods.apply(changes, {}))
 		if (Result.isFailure(outcome)) {
-			return refusedWith(yield* applyFailed(outcome.failure), outcome.failure)
+			const failed = yield* applyFailed(outcome.failure)
+			return refusedWith(failed, outcome.failure)
 		}
-		return seen(yield* applied(outcome.success, session.described))
+		const appliedSuccess = yield* applied(outcome.success, session.described)
+		return seen(appliedSuccess)
 	})
 
 /** A value handed to db.execute, whatever it is: its rows are not compared, only whether grizzle refuses it. */
@@ -484,7 +490,8 @@ export const executeValue = (session: DbSession, program: unknown): Effect.Effec
 			Effect.flatMap(runtime.reader.execute(program, {}), (r) => r.collect)
 		)
 		if (Result.isFailure(rows)) {
-			return refusedWith(yield* readFailed(rows.failure), rows.failure)
+			const failed = yield* readFailed(rows.failure)
+			return refusedWith(failed, rows.failure)
 		}
 		return seen({ kind: "rows", rows: [] })
 	})
@@ -495,7 +502,8 @@ export const refreshValue = (session: DbSession, relation: unknown): Effect.Effe
 		const runtime = yield* runtimeOf(session.db)
 		const done = yield* Effect.result(runtime.methods.refresh([relation]))
 		if (Result.isFailure(done)) {
-			return refusedWith(yield* applyFailed(done.failure), done.failure)
+			const failed = yield* applyFailed(done.failure)
+			return refusedWith(failed, done.failure)
 		}
 		return seen({ kind: "ok" })
 	})

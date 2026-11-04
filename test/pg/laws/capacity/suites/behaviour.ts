@@ -658,14 +658,13 @@ export const capacityBehaviourSuite = (): void => {
 					Effect.gen(function* () {
 						const { admin } = yield* Substrate
 						/** Every shape's installation, made before the first case. */
-						const installs = new Map(
-							yield* Effect.forEach(shapes, (shape) =>
-								Effect.map(
-									installCapacity(shape.desc, `cap${shape.name}`),
-									(installed) => [shape.name, installed] as const
-								)
+						const installedShapes = yield* Effect.forEach(shapes, (shape) =>
+							Effect.map(
+								installCapacity(shape.desc, `cap${shape.name}`),
+								(installed) => [shape.name, installed] as const
 							)
 						)
+						const installs = new Map(installedShapes)
 						return yield* explore(
 							{
 								suite: "laws/capacity-shapes",

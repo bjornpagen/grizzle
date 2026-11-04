@@ -217,7 +217,7 @@ const unknownKey = (key: string): Named => ({ kind: "unknown", key })
 
 /** The text a refusal names `names` by. */
 const nameText = (names: Named): string =>
-	names.kind === "setting" ? `DbConfig.${names.setting}` : JSON.stringify(names.key)
+	names.kind === "setting" ? `DbConfig.${names.setting}` : Formatter.format(names.key)
 
 /**
  * A login one of whose roles reads a context, without a verify: no Db of it could turn a token into claims.

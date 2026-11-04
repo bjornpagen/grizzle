@@ -317,9 +317,9 @@ const configurations = (ctx: TestContext) =>
 						 * A typed connection wins over DATABASE_URL, here naming a database that does not exist.
 						 */
 						const intruder = intruding
-							? yield* substrate.role(
-									yield* substrate.schema({ create: false, label: "cliother" }),
-									"intruder"
+							? yield* Effect.flatMap(
+									substrate.schema({ create: false, label: "cliother" }),
+									(other) => substrate.role(other, "intruder")
 								)
 							: "the migration identity"
 						const env =
@@ -345,22 +345,20 @@ const configurations = (ctx: TestContext) =>
 											)
 										}
 
-						assert.equal(yield* run(["generate"], {}), 0, "generate")
-						assert.equal(yield* run(["check"], {}), 0, "check")
+						const generateExit = yield* run(["generate"], {})
+						assert.equal(generateExit, 0, "generate")
+						const checkExit = yield* run(["check"], {})
+						assert.equal(checkExit, 0, "check")
 						if (intruder !== "the migration identity") {
 							c.note("a role that does not own the schemas refused")
-							assert.equal(
-								yield* run(["migrate"], env),
-								1,
-								"migrate as a role that does not own the schemas"
-							)
+							const migrateExit = yield* run(["migrate"], env)
+							assert.equal(migrateExit, 1, "migrate as a role that does not own the schemas")
 							if (sketch.executor === "in process") {
-								const resolved = succeeded(
-									yield* resolvedConfig(
-										defineConfig(configOf(substrate.cluster, { schemas: specs, connection })),
-										`${ws}/grizzle.config.ts`
-									)
+								const config = yield* resolvedConfig(
+									defineConfig(configOf(substrate.cluster, { schemas: specs, connection })),
+									`${ws}/grizzle.config.ts`
 								)
+								const resolved = succeeded(config)
 								const refused = yield* Effect.flip(
 									Effect.provideService(
 										migrate(resolved, ws),
@@ -378,7 +376,8 @@ const configurations = (ctx: TestContext) =>
 							}
 							return
 						}
-						assert.equal(yield* run(["migrate"], env), 0, "migrate")
+						const migrateExit = yield* run(["migrate"], env)
+						assert.equal(migrateExit, 0, "migrate")
 						const ledgers: Array<LedgerState> = []
 						for (const [i, name] of names.entries()) {
 							const state = yield* ledgerOf(name)
@@ -398,10 +397,12 @@ const configurations = (ctx: TestContext) =>
 							)
 							ledgers.push(state)
 						}
-						assert.equal(yield* run(["migrate"], env), 0, "a second migrate")
+						const secondMigrateExit = yield* run(["migrate"], env)
+						assert.equal(secondMigrateExit, 0, "a second migrate")
 						for (const [i, name] of names.entries()) {
+							const ledger = yield* ledgerOf(name)
 							assert.deepEqual(
-								yield* ledgerOf(name),
+								ledger,
 								defined(ledgers[i], `${name}'s ledger after the first migrate`),
 								`the second migrate leaves ${name}'s ledger`
 							)

@@ -440,15 +440,16 @@ export const directSql = (
 ): Effect.Effect<DirectSql> =>
 	Effect.gen(function* () {
 		switch (statement.kind) {
-			case "set-role":
-				return { sql: `SET ROLE ${roleIdent(yield* names.role(statement.role))}`, reads: none }
+			case "set-role": {
+				const role = yield* names.role(statement.role)
+				return { sql: `SET ROLE ${roleIdent(role)}`, reads: none }
+			}
 			case "reset-role":
 				return { sql: "RESET ROLE", reads: none }
-			case "set-session-authorization":
-				return {
-					sql: `SET SESSION AUTHORIZATION ${roleIdent(yield* names.role(statement.role))}`,
-					reads: none
-				}
+			case "set-session-authorization": {
+				const role = yield* names.role(statement.role)
+				return { sql: `SET SESSION AUTHORIZATION ${roleIdent(role)}`, reads: none }
+			}
 			case "set-claims": {
 				const setting = statement.setting
 				const text = setting.kind === "facts" ? claimsText(setting.facts) : setting.text

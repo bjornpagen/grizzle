@@ -442,8 +442,10 @@ describe("installation size", () => {
 					(point, c) =>
 						Effect.gen(function* () {
 							c.note(point.dimension)
-							const small = sizesOf(yield* installationOf(scaled(point)))
-							const large = sizesOf(yield* installationOf(scaled({ ...point, n: 2 * point.n })))
+							const smallInstallation = yield* installationOf(scaled(point))
+							const small = sizesOf(smallInstallation)
+							const largeInstallation = yield* installationOf(scaled({ ...point, n: 2 * point.n }))
+							const large = sizesOf(largeInstallation)
 							const at = `${point.dimension} at ${point.n} against ${2 * point.n}`
 							assert.ok(
 								large.largest <= linear * small.largest,

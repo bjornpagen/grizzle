@@ -32,7 +32,7 @@ const backendsOf = (
 	)
 
 const describeBackend = (b: Backend): string =>
-	`backend ${b.pid} of ${b.role}: ${b.state}, last query ${JSON.stringify(b.query)}`
+	`backend ${b.pid} of ${b.role}: ${b.state}, last query ${Formatter.format(b.query)}`
 
 /**
  * How many back-to-back polls find a role's backends before the check prints what it waits for: enough that a closed

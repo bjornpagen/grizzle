@@ -202,9 +202,8 @@ const execute = Effect.fn("execute")(function* (
 	const out: Array<TextRow> = []
 	const executed = Effect.gen(function* () {
 		for (const [i, s] of spec.statements.entries()) {
-			const rows = yield* Effect.fromResult(
-				textRows(yield* clock.time("executeMs", session.values(s.sql, s.params)), i)
-			)
+			const timed = yield* clock.time("executeMs", session.values(s.sql, s.params))
+			const rows = yield* Effect.fromResult(textRows(timed, i))
 			const decode = spec.decode
 			if (decode.kind === "decode") {
 				clock.timeCall("decodeMs", () => decode.run(rows, i))
@@ -262,9 +261,11 @@ export const measureVariant = Effect.fn("measureVariant")(function* (
 	}
 	const plans: Array<PlanSummary> = []
 	for (const s of spec.statements) {
-		plans.push(
-			yield* captures(options.explainSamples, explain(session, s.sql, s.params, options.explain))
+		const captured = yield* captures(
+			options.explainSamples,
+			explain(session, s.sql, s.params, options.explain)
 		)
+		plans.push(captured)
 	}
 	const serverPlans: Array<{
 		readonly mode: PlanMode
@@ -273,12 +274,11 @@ export const measureVariant = Effect.fn("measureVariant")(function* (
 	for (const mode of options.serverPlans) {
 		const perStatement: Array<PlanSummary> = []
 		for (const s of spec.statements) {
-			perStatement.push(
-				yield* captures(
-					options.explainSamples,
-					explainServerStatement(session, s.sql, s.params, mode, options.explain)
-				)
+			const captured = yield* captures(
+				options.explainSamples,
+				explainServerStatement(session, s.sql, s.params, mode, options.explain)
 			)
+			perStatement.push(captured)
 		}
 		serverPlans.push({ mode, plans: perStatement })
 	}

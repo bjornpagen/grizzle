@@ -157,7 +157,8 @@ export const v8Coverage = (
 				Effect.gen(function* () {
 					yield* take
 					const value = yield* effect
-					return [value, traceOf(yield* take)] as const
+					const taken = yield* take
+					return [value, traceOf(taken)] as const
 				}),
 			concurrent: false
 		}

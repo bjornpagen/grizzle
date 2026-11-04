@@ -160,13 +160,11 @@ const catalogInserts = Effect.fn("catalogInserts")(function* (): Effect.fn.Retur
 	Substrate
 > {
 	const s = yield* Substrate
-	const [inserted] = decodeOne(
-		CountRow,
-		yield* s.admin.queryValues(
-			`SELECT COALESCE(pg_catalog.sum(n_tup_ins), 0)::text FROM pg_catalog.pg_stat_sys_tables WHERE schemaname = 'pg_catalog' AND relname = ANY ($1::text[])`,
-			[`{${Arr.join(catalogTables, ",")}}`]
-		)
+	const rows = yield* s.admin.queryValues(
+		`SELECT COALESCE(pg_catalog.sum(n_tup_ins), 0)::text FROM pg_catalog.pg_stat_sys_tables WHERE schemaname = 'pg_catalog' AND relname = ANY ($1::text[])`,
+		[`{${Arr.join(catalogTables, ",")}}`]
 	)
+	const [inserted] = decodeOne(CountRow, rows)
 	return inserted
 })
 
@@ -289,13 +287,11 @@ export default defineGate({
 								}),
 							{ concurrency: "unbounded" }
 						)
-						const [balance] = decodeOne(
-							BalanceRow,
-							yield* s.admin.queryValues(
-								`SELECT ${fx.column("Account", "balance")}::text FROM ${fx.table("Account")} WHERE ${fx.column("Account", "id")} = ${options.accounts}`,
-								[]
-							)
+						const rows = yield* s.admin.queryValues(
+							`SELECT ${fx.column("Account", "balance")}::text FROM ${fx.table("Account")} WHERE ${fx.column("Account", "id")} = ${options.accounts}`,
+							[]
 						)
+						const [balance] = decodeOne(BalanceRow, rows)
 						const flat = results.flat()
 						return {
 							balance,
@@ -368,13 +364,11 @@ export default defineGate({
 				relation: "Pending" | "Entry",
 				accounts: ReadonlyArray<number>
 			) {
-				const [n] = decodeOne(
-					CountRow,
-					yield* s.admin.queryValues(
-						`SELECT pg_catalog.count(*)::text FROM ${imm.table(relation)} WHERE ${imm.column(relation, "account")} = ANY ($1::int8[])`,
-						[`{${Arr.join(Arr.map(accounts, String), ",")}}`]
-					)
+				const rows = yield* s.admin.queryValues(
+					`SELECT pg_catalog.count(*)::text FROM ${imm.table(relation)} WHERE ${imm.column(relation, "account")} = ANY ($1::int8[])`,
+					[`{${Arr.join(Arr.map(accounts, String), ",")}}`]
 				)
+				const [n] = decodeOne(CountRow, rows)
 				return n
 			})
 			const finalPosts = {

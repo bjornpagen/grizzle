@@ -143,7 +143,7 @@ const runOnce = (
 	const difference = exact(observations.model, observations.run)
 	if (Option.isSome(difference)) {
 		throw new Error(
-			`the run disagrees with the model: ${difference.value}\ntiming ${JSON.stringify(timing)}, interruption ${JSON.stringify(observations.interruption)}`
+			`the run disagrees with the model: ${difference.value}\ntiming ${Formatter.format(timing)}, interruption ${Formatter.format(observations.interruption)}`
 		)
 	}
 	const session = run.session

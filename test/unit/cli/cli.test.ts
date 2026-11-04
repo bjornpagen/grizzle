@@ -93,7 +93,9 @@ const at = (y: number, mo: number, d: number, h: number, mi: number, s: number) 
 const ls = (dir: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		return (yield* fs.exists(dir)) ? Arr.sort(yield* fs.readDirectory(dir), Order.String) : []
+		return (yield* fs.exists(dir))
+			? yield* Effect.map(fs.readDirectory(dir), (entries) => Arr.sort(entries, Order.String))
+			: []
 	})
 
 /** The text of the file at `path`. */
@@ -223,16 +225,15 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 			"resolves schemas, their logins' workloads and the migrations directory, and keeps the connection unread",
 			() =>
 				Effect.gen(function* () {
-					const c = succeeded(
-						yield* resolvedConfig(
-							defineConfig({
-								schemas: [s.schema, other.schema],
-								logins: [s.server, other.server],
-								migrations: "db"
-							}),
-							file
-						)
+					const config = yield* resolvedConfig(
+						defineConfig({
+							schemas: [s.schema, other.schema],
+							logins: [s.server, other.server],
+							migrations: "db"
+						}),
+						file
 					)
+					const c = succeeded(config)
 					assert.equal(c.migrations, `${repoRoot}app/db`)
 					const o = owning(s.schema)
 					const p = owning(other.schema)
@@ -259,20 +260,18 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 						]
 					)
 					assert.ok(Option.isNone(c.connection), "no connection given")
-					assert.equal(
-						succeeded(
-							yield* resolvedConfig(defineConfig({ schemas: [s.schema], logins: [] }), file)
-						).migrations,
-						`${repoRoot}app/migrations`
+					const resolved = yield* resolvedConfig(
+						defineConfig({ schemas: [s.schema], logins: [] }),
+						file
 					)
+					assert.equal(succeeded(resolved).migrations, `${repoRoot}app/migrations`)
 					/** A connection is kept as given: only migrate checks it, so generate and check run with a broken one. */
 					const broken = { ...connection, port: 70000 }
-					const kept = succeeded(
-						yield* resolvedConfig(
-							defineConfig({ schemas: [s.schema], logins: [], connection: broken }),
-							file
-						)
-					).connection
+					const resolvedBroken = yield* resolvedConfig(
+						defineConfig({ schemas: [s.schema], logins: [], connection: broken }),
+						file
+					)
+					const kept = succeeded(resolvedBroken).connection
 					assert.ok(Option.isSome(kept) && kept.value === broken, "the connection kept as given")
 				})
 		)
@@ -281,11 +280,8 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 			"refuses a plain object with the fix, and anything that is not a configuration, never naming a credential",
 			() =>
 				Effect.gen(function* () {
-					refusedAt(
-						yield* resolvedConfig({ schemas: [s.schema], logins: [] }, file),
-						"stage",
-						"config"
-					)
+					const config = yield* resolvedConfig({ schemas: [s.schema], logins: [] }, file)
+					refusedAt(config, "stage", "config")
 					/** Refused at the configuration, no credential in its message or anywhere in the error. */
 					const named = (value: unknown) =>
 						Effect.map(resolvedConfig(value, file), (r) => {
@@ -373,28 +369,35 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					owning(shop("GenShop", 1, "full").schema).installation.identifier
 				)
 				const dir = join(ws, schemaDirectory)
+				const dirEntries = yield* ls(dir)
 				assert.deepEqual(
-					yield* ls(dir),
+					dirEntries,
 					Arr.sort([expected.folder.name, snapshotFileName], Order.String)
 				)
 				const folder = join(dir, expected.folder.name)
+				const folderEntries = yield* ls(folder)
 				assert.deepEqual(
-					yield* ls(folder),
+					folderEntries,
 					Arr.sort([metaFileName, ...Arr.map(expected.folder.files, (f) => f.name)], Order.String)
 				)
-				assert.equal(yield* read(join(folder, metaFileName)), expected.folder.metaText)
+				const metaText = yield* read(join(folder, metaFileName))
+				assert.equal(metaText, expected.folder.metaText)
 				for (const f of expected.folder.files) {
-					assert.equal(yield* read(join(folder, f.name)), f.text)
+					const fileText = yield* read(join(folder, f.name))
+					assert.equal(fileText, f.text)
 				}
-				assert.equal(yield* read(join(dir, snapshotFileName)), expected.snapshotText)
+				const snapshotText = yield* read(join(dir, snapshotFileName))
+				assert.equal(snapshotText, expected.snapshotText)
 
 				const again = yield* cli(ws, ["generate"], now, {})
 				assert.equal(again.code, 0, again.stderr)
+				const dirEntriesAfter = yield* ls(dir)
 				assert.deepEqual(
-					yield* ls(dir),
+					dirEntriesAfter,
 					Arr.sort([expected.folder.name, snapshotFileName], Order.String)
 				)
-				assert.equal(yield* read(join(dir, snapshotFileName)), expected.snapshotText)
+				const snapshotTextAfter = yield* read(join(dir, snapshotFileName))
+				assert.equal(snapshotTextAfter, expected.snapshotText)
 			})
 	)
 
@@ -424,12 +427,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 			})
 			assert.equal((yield* cli(ws, ["generate"], t2, {})).code, 0)
 			assert.equal((yield* cli(ws, ["generate", "--custom"], t3, {})).code, 0)
-			const folders = Arr.filter(
-				yield* ls(
-					join(ws, "migrations", owning(shop("NameShop", 1, "full").schema).installation.identifier)
-				),
-				(n) => n !== snapshotFileName
+			const entries = yield* ls(
+				join(ws, "migrations", owning(shop("NameShop", 1, "full").schema).installation.identifier)
 			)
+			const folders = Arr.filter(entries, (n) => n !== snapshotFileName)
 			assert.equal(folders.length, times.length)
 			for (const [i, time] of times.entries()) {
 				const name = folders[i]
@@ -455,14 +456,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 			)
 			const dir = join(ws, "migrations", expected.snapshot.schema)
 			const folder = join(dir, expected.folder.name)
+			const folderEntries = yield* ls(folder)
 			assert.deepEqual(
-				yield* ls(folder),
+				folderEntries,
 				Arr.sort([metaFileName, ...Arr.map(expected.folder.files, (f) => f.name)], Order.String)
 			)
 			for (const f of expected.folder.files) {
-				assert.equal(yield* read(join(folder, f.name)), f.text)
+				const fileText = yield* read(join(folder, f.name))
+				assert.equal(fileText, f.text)
 			}
-			assert.equal(yield* read(join(dir, snapshotFileName)), expected.snapshotText)
+			const snapshotText = yield* read(join(dir, snapshotFileName))
+			assert.equal(snapshotText, expected.snapshotText)
 			/** The residual law's function and the derived relation's view are drafted with the rest. */
 			const kinds = Arr.map(expected.snapshot.manifest.objects, (o) => o.kind)
 			contains(kinds, "lawFunction")
@@ -494,19 +498,22 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 						workload: noWorkload
 					})
 				)
+				const folderEntries = yield* ls(folder)
 				assert.deepEqual(
-					yield* ls(folder),
+					folderEntries,
 					Arr.sort([metaFileName, ...Arr.map(expected.folder.files, (f) => f.name)], Order.String)
 				)
 				for (const f of expected.folder.files) {
-					assert.equal(yield* read(join(folder, f.name)), f.text)
+					const fileText = yield* read(join(folder, f.name))
+					assert.equal(fileText, f.text)
 				}
 				assert.equal(
 					validationFile(expected).phase,
 					"publish",
 					"the draft validates the payload's refinement in Publish"
 				)
-				const snapshot = succeeded(readSnapshot(yield* read(join(dir, "snapshot.json"))))
+				const snapshotText = yield* read(join(dir, "snapshot.json"))
+				const snapshot = succeeded(readSnapshot(snapshotText))
 				/** The first migration's target from the empty snapshot, drafted from the schema alone. */
 				const derived = succeeded(
 					generate({
@@ -547,14 +554,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					"migrations",
 					owning(shop("MarkShop", 1, "none").schema).installation.identifier
 				)
-				const folders = Arr.filter(yield* ls(dir), (n) => n !== snapshotFileName)
+				const entries = yield* ls(dir)
+				const folders = Arr.filter(entries, (n) => n !== snapshotFileName)
 				const [init, second] = folders
 				assert.equal(folders.length, 2)
 				assert.ok(init !== undefined && second !== undefined, "two drafted folders")
 				assert.ok(isFolderName(init) && isFolderName(second), Arr.join(folders, ", "))
 				assert.ok(second > init, "the folder drafted in the same second sorts after the last")
-				const snapshot = succeeded(readSnapshot(yield* read(join(dir, snapshotFileName))))
-				const meta = succeeded(readMeta(yield* read(join(dir, second, metaFileName))))
+				const snapshotText = yield* read(join(dir, snapshotFileName))
+				const snapshot = succeeded(readSnapshot(snapshotText))
+				const metaText = yield* read(join(dir, second, metaFileName))
+				const meta = succeeded(readMeta(metaText))
 				assert.equal(meta.target, snapshot.fingerprint)
 				assert.equal(meta.kind, "drafted")
 			})
@@ -579,16 +589,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					{}
 				)
 				assert.equal(custom.code, 0, custom.stderr)
-				assert.deepEqual(yield* ls(join(dir, "20261012120002_backfill")), [metaFileName])
-				const meta = succeeded(
-					readMeta(yield* read(join(dir, "20261012120002_backfill/meta.json")))
-				)
+				const backfillEntries = yield* ls(join(dir, "20261012120002_backfill"))
+				assert.deepEqual(backfillEntries, [metaFileName])
+				const metaText = yield* read(join(dir, "20261012120002_backfill/meta.json"))
+				const meta = succeeded(readMeta(metaText))
 				const snapshot = succeeded(readSnapshot(before))
 				assert.deepEqual(
 					[meta.source, meta.target, meta.kind],
 					[snapshot.fingerprint, snapshot.fingerprint, "custom"]
 				)
-				assert.equal(yield* read(join(dir, "snapshot.json")), before)
+				const snapshotText = yield* read(join(dir, "snapshot.json"))
+				assert.equal(snapshotText, before)
 			})
 	)
 
@@ -669,7 +680,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 				yield* write(join(ws, "migrations/atom_b"), "not a directory\n")
 				const r = yield* cli(ws, ["generate"], nextNow(), {})
 				assert.equal(r.code, 1)
-				assert.deepEqual(yield* ls(join(ws, "migrations")), ["atom_b"])
+				const schemaFolders = yield* ls(join(ws, "migrations"))
+				assert.deepEqual(schemaFolders, ["atom_b"])
 			})
 	)
 
@@ -698,10 +710,12 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					connection: viaDatabaseUrl
 				})
 				const ownSnapshot = yield* read(join(dirA, "snapshot.json"))
-				yield* write(join(dirA, "snapshot.json"), yield* read(join(dirB, "snapshot.json")))
+				const snapshotB = yield* read(join(dirB, "snapshot.json"))
+				yield* write(join(dirA, "snapshot.json"), snapshotB)
 				const foreign = yield* cli(ws, ["generate"], nextNow(), {})
 				assert.equal(foreign.code, 1)
-				assert.deepEqual(yield* listing, before)
+				const after = yield* listing
+				assert.deepEqual(after, before)
 				yield* write(join(dirA, "snapshot.json"), ownSnapshot)
 				assert.equal((yield* cli(ws, ["generate"], nextNow(), {})).code, 0)
 			})

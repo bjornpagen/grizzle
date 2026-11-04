@@ -159,7 +159,8 @@ const fenceSchedule = (holder: Holder) =>
 			runStep(world, before, { kind: "migrate", to: checked, how: "complete" }, 1, unnoted),
 			{ startImmediately: true }
 		)
-		yield* s.awaitBlockedBy(yield* Effect.orDie(held.pid), s.owner.role)
+		const pid = yield* Effect.orDie(held.pid)
+		yield* s.awaitBlockedBy(pid, s.owner.role)
 		const during = running(before, checked)
 		yield* Effect.forEach(
 			[...calls(0), annDb, jobDb],

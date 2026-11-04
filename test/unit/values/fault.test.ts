@@ -46,7 +46,7 @@ describe("value faults", () => {
 							() => Decimal.of(text),
 							(error: unknown) => {
 								assert.ok(isCompileError(error))
-								lacksText(JSON.stringify(error), secret)
+								lacksText(Formatter.format(error, { ignoreToString: true }), secret)
 								lacksText(String(error), secret)
 								return true
 							}

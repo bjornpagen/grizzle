@@ -234,7 +234,8 @@ describe("a tape", () => {
 							if (!Arr.isReadonlyArrayNonEmpty(replayed.values)) {
 								c.note("an empty tape")
 							}
-							deepStrictEqual(yield* replayOf(replayTokenOf(suite, replayed)), { suite, replayed })
+							const replay = yield* replayOf(replayTokenOf(suite, replayed))
+							deepStrictEqual(replay, { suite, replayed })
 						})
 				)
 			)

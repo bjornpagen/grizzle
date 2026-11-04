@@ -1,4 +1,4 @@
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { identity, parseSchemaName } from "#compiler/core/identity.ts"
@@ -179,7 +179,7 @@ const writeChangeSets = (f: Fixture): ReadonlyArray<readonly [string, unknown]> 
 
 const ok = <A, E>(r: Result.Result<A, E>, what: string): A => {
 	if (!r.ok) {
-		throw new Error(`${what}: ${JSON.stringify(r.error)}`)
+		throw new Error(`${what}: ${Formatter.format(r.error)}`)
 	}
 	return r.value
 }

@@ -390,7 +390,8 @@ export const installedOf = (input: {
 		const { plan } = input
 		const credentials = new Map<string, Credentials>()
 		for (const login of Rec.values(plan.logins)) {
-			credentials.set(login.name, yield* substrate.login(login.role))
+			const issued = yield* substrate.login(login.role)
+			credentials.set(login.name, issued)
 		}
 		const credentialsOf = (name: string): Credentials =>
 			defined(credentials.get(name), `the login ${name} of ${plan.declared}`)

@@ -1281,7 +1281,7 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 				)
 				const once: Option.Option<RealWorld> =
 					spec.realization === "once"
-						? Option.some(yield* realize(educationInstall, ordinarySession))
+						? yield* Effect.asSome(realize(educationInstall, ordinarySession))
 						: Option.none()
 				return yield* searched(
 					ctx,

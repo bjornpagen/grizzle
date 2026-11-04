@@ -1,5 +1,5 @@
 import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
@@ -750,7 +750,7 @@ export const plansUpTo = (grammar: Grammar, operators: number): Gen<Plan> =>
 
 /** The plan in the builder's words, for a failure report. */
 export const printPlan = (plan: Plan): string =>
-	Arr.join([`scan ${plan.scan}`, ...Arr.map(plan.steps, (s) => JSON.stringify(s))], " → ")
+	Arr.join([`scan ${plan.scan}`, ...Arr.map(plan.steps, (s) => Formatter.format(s))], " → ")
 
 /** The features a plan names: its scan and each step's operator, with what distinguishes its forms. */
 export type PlanFeature =

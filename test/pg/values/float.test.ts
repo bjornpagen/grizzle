@@ -281,10 +281,9 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 									const pgDescOrder: ReadonlyArray<number> = Arr.map(pgDesc, (r) => Number(r[0]))
 									assert.deepEqual(pgDescOrder, desc)
 									const identities = new Set(Arr.map(values, floatText))
-									const [[count]] = yield* Schema.decodeUnknownEffect(oneCell)(
-										yield* db.values(`SELECT count(DISTINCT ${cast})::text FROM ${source}`, [
-											payload
-										])
+									const [[count]] = yield* Effect.flatMap(
+										db.values(`SELECT count(DISTINCT ${cast})::text FROM ${source}`, [payload]),
+										Schema.decodeUnknownEffect(oneCell)
 									)
 									assert.equal(Number(count), identities.size)
 									const kept = yield* db.values(

@@ -492,18 +492,17 @@ describe("the session pool", () => {
 							const holds = Effect.gen(function* () {
 								yield* settle
 								const open = server.open.size
+								const live = yield* pool.live
 								assert.equal(
-									yield* pool.live,
+									live,
 									open,
 									"the sessions a release reaches are exactly the open connections"
 								)
-								assert.equal(
-									yield* pool.size,
-									open,
-									"pg's Pool counts exactly the open connections"
-								)
+								const size = yield* pool.size
+								assert.equal(size, open, "pg's Pool counts exactly the open connections")
 								assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
-								assert.equal(yield* pool.leased, held.length)
+								const leased = yield* pool.leased
+								assert.equal(leased, held.length)
 							})
 							const lease = Effect.gen(function* () {
 								const scope = yield* Scope.fork(poolScope)
@@ -748,7 +747,8 @@ describe("the session pool", () => {
 							yield* Scope.close(poolScope, Exit.void)
 							yield* settle
 							assert.equal(server.open.size, 0, "the ended pool closed every connection")
-							assert.equal(yield* pool.live, 0, "the ended pool keeps no session")
+							const live = yield* pool.live
+							assert.equal(live, 0, "the ended pool keeps no session")
 						})
 				)
 			)

@@ -297,7 +297,8 @@ describe("the write front end over its small box", () => {
 											)
 										: Effect.succeed(parsedChange(write.success.changes))
 								)
-							const compiled = offlineCompile(writer.value, yield* changeOf([]), new Set())
+							const change = yield* changeOf([])
+							const compiled = offlineCompile(writer.value, change, new Set())
 							assert.ok(
 								!compileRefused(base, role, [[insert([])]], []),
 								"the model refuses an insert through the role's one written entry"
@@ -328,7 +329,8 @@ describe("the write front end over its small box", () => {
 							}
 							for (const facts of factLists(factKinds(base, written))) {
 								const predicted = opFault(base, written, insert(facts))?.kind === "encoding"
-								const bound = yield* offlineBind(compiled.value, yield* changeOf(facts))
+								const change = yield* changeOf(facts)
+								const bound = yield* offlineBind(compiled.value, change)
 								const refusal = bound.ok ? undefined : bound.error
 								if (refusal !== undefined && !atEncoder(refusal)) {
 									return assert.fail(

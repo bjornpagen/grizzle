@@ -578,7 +578,8 @@ const disabledTriggers = (
 ): Effect.Effect<ReadonlyArray<string>, SqlError> =>
 	Effect.gen(function* () {
 		const schema = catalog.names.schema
-		const statements = yield* Effect.forEach(yield* triggerFunctions(catalog, trigger), (fn) =>
+		const functions = yield* triggerFunctions(catalog, trigger)
+		const statements = yield* Effect.forEach(functions, (fn) =>
 			Effect.gen(function* () {
 				const rows = yield* Option.match(fn.table, {
 					onNone: () => admin.queryValues(`${triggersQuery} ORDER BY 1, 2`, [schema, fn.name]),
@@ -689,26 +690,32 @@ const perturbationStatements = (
 					`GRANT ${extra} TO ${yield* worldRole(names, p.role)} WITH INHERIT TRUE`
 				]
 			}
-			case "policy-dropped":
-				return Option.match(yield* policyOf(catalog, p.role, p.entry), {
+			case "policy-dropped": {
+				const existingPolicy = yield* policyOf(catalog, p.role, p.entry)
+				return Option.match(existingPolicy, {
 					onNone: () => [],
 					onSome: (policy) => [
 						printStatement({ kind: "dropPolicy", name: policy.name, table: policy.table })
 					]
 				})
-			case "policy-edited":
-				return Option.match(yield* policyOf(catalog, p.role, p.entry), {
+			}
+			case "policy-edited": {
+				const currentPolicy = yield* policyOf(catalog, p.role, p.entry)
+				return Option.match(currentPolicy, {
 					onNone: () => [],
 					onSome: (policy) => [
 						printStatement({ kind: "dropPolicy", name: policy.name, table: policy.table }),
 						printStatement({ ...policy, filter: and([policy.filter, lit.bool(true)]) })
 					]
 				})
-			case "view-redefined":
-				return yield* Option.match(yield* viewOf(catalog, p.role, p.entry), {
+			}
+			case "view-redefined": {
+				const existingView = yield* viewOf(catalog, p.role, p.entry)
+				return yield* Option.match(existingView, {
 					onNone: () => Effect.succeed([]),
 					onSome: (view) => Effect.map(redefinedView(view), (sql) => [sql])
 				})
+			}
 			case "function-redefined":
 				return [`ALTER FUNCTION ${yield* catalog.function(p.fn)} COST 7`]
 			case "search-path-altered":
@@ -717,7 +724,7 @@ const perturbationStatements = (
 				]
 			case "column-default":
 				return [
-					`ALTER TABLE ${yield* tableOf(names, p.relation)} ALTER COLUMN ${yield* columnOf(names, p.relation, p.field)} SET DEFAULT ${yield* defaultOf(yield* catalog.domain(p.relation, p.field))}`
+					`ALTER TABLE ${yield* tableOf(names, p.relation)} ALTER COLUMN ${yield* columnOf(names, p.relation, p.field)} SET DEFAULT ${yield* Effect.flatMap(catalog.domain(p.relation, p.field), defaultOf)}`
 				]
 			case "trigger-disabled":
 				return yield* disabledTriggers(admin, catalog, p.trigger)

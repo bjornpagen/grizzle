@@ -7,6 +7,7 @@ import {
 	Effect,
 	Exit,
 	Fiber,
+	Formatter,
 	Option,
 	pipe,
 	Queue,
@@ -695,7 +696,7 @@ const refusalOf = (
 	const fields = parseVerboseError(completed.sqlstate, completed.stderr)
 	return fields === undefined
 		? PsqlProcessError.make({
-				reason: `psql writer ${label}: a statement failed with SQLSTATE ${JSON.stringify(completed.sqlstate)} and no PostgreSQL error report: ${sql}`,
+				reason: `psql writer ${label}: a statement failed with SQLSTATE ${Formatter.format(completed.sqlstate)} and no PostgreSQL error report: ${sql}`,
 				stderr: completed.stderr
 			})
 		: PsqlStatementError.make({ sql, fields })

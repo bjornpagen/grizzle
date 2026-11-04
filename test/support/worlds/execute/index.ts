@@ -365,27 +365,20 @@ const realizeWith = (
 				/** Each login's layer, given the version's snapshot, built in the realization's scope. */
 				const layers: Record<string, Context.Context<DbLayerOf<BuiltLogin>>> = {}
 				for (const l of spec.logins) {
-					const layer = yield* layerOf(
-						spec,
-						built,
-						l.name,
-						yield* get(credentials, l.name, "credentials of"),
-						snapshot,
-						"version"
-					)
+					const loginCredentials = yield* get(credentials, l.name, "credentials of")
+					const layer = yield* layerOf(spec, built, l.name, loginCredentials, snapshot, "version")
 					layers[l.name] = yield* Effect.orDie(Scope.provide(Layer.build(layer), scope))
 				}
 				return { spec, built, names, plan, installation, snapshot, credentials, layers }
 			})
 
-		const firstCredentials = Rec.fromEntries(
-			yield* Effect.forEach(installSpec.logins, (l) =>
-				Effect.map(
-					get(declared.logins, l.name, "login"),
-					(value) => [l.name, installed.as(value)] as const
-				)
+		const loginEntries = yield* Effect.forEach(installSpec.logins, (l) =>
+			Effect.map(
+				get(declared.logins, l.name, "login"),
+				(value) => [l.name, installed.as(value)] as const
 			)
 		)
+		const firstCredentials = Rec.fromEntries(loginEntries)
 		const first = yield* versionOf(
 			installSpec,
 			installed.plan,
@@ -637,7 +630,10 @@ const realizeWith = (
 					held: Option.none<Held>(),
 					layers:
 						ref.kind === "own"
-							? Layer.build(yield* layerOf(spec, built, login, credentials, drafted, "probe"))
+							? yield* Effect.map(
+									layerOf(spec, built, login, credentials, drafted, "probe"),
+									Layer.build
+								)
 							: Effect.succeed(allLayers(Option.some(login)))
 				}
 			})
@@ -660,12 +656,13 @@ const realizeWith = (
 				const current = state.current
 				const login = target.held.value.login
 				const credentials = yield* get(current.credentials, login, "credentials of")
+				const probeSnapshot = yield* snapshotOf(snapshot)
 				const layer = yield* layerOf(
 					current.spec,
 					current.built,
 					login,
 					credentials,
-					yield* snapshotOf(snapshot),
+					probeSnapshot,
 					"probe"
 				)
 				return { ...target, layers: Layer.build(layer) }
@@ -737,7 +734,8 @@ const realizeWith = (
 						)
 					)
 				)
-				return yield* opened(target.value, target.held, exit, yield* verifyCallsSince(before))
+				const calls = yield* verifyCallsSince(before)
+				return yield* opened(target.value, target.held, exit, calls)
 			})
 
 		/** An open with the token it hands verify in flight, and none once it ends, however it ends. */
@@ -1173,6 +1171,7 @@ const realizeWith = (
 					{ snapshot: directorySnapshot(), folders: foldersOf(state.directory) }
 				)
 				const next: Next = { spec: action.to, plan: drafted.plan, snapshot: drafted.snapshot }
+				const end = yield* runEndOf(drafted.folder, action.how)
 				const outcome = yield* runTo(
 					{
 						applied: state.directory.applied,
@@ -1186,7 +1185,7 @@ const realizeWith = (
 						drafted.folder,
 						action.how
 					),
-					yield* runEndOf(drafted.folder, action.how)
+					end
 				)
 				return yield* ranSeen(outcome, { kind: "ok" }, () => ({
 					kind: "migration-refused",
@@ -1261,7 +1260,8 @@ const realizeWith = (
 					fields: ReadonlyArray<{ readonly field: string; readonly domain: FieldDomain }>
 				) =>
 					Effect.gen(function* () {
-						const table = `${quoteIdent(v.names.schema)}.${quoteIdent(yield* get(v.names.tables, name, "table"))}`
+						const tableName = yield* get(v.names.tables, name, "table")
+						const table = `${quoteIdent(v.names.schema)}.${quoteIdent(tableName)}`
 						const columns = yield* get(v.names.columns, name, "columns")
 						const select = yield* Effect.forEach(fields, (f) =>
 							Effect.map(get(columns, f.field, "column"), (c) => `${quoteIdent(c)}::text`)
@@ -1284,13 +1284,11 @@ const realizeWith = (
 					})
 				const reality = new Map<string, ReadonlyArray<HostFact>>()
 				for (const r of v.spec.base.relations) {
-					reality.set(
+					const observed = yield* read(
 						r.name,
-						yield* read(
-							r.name,
-							Arr.map(r.fields, (f) => ({ field: f.name, domain: f.domain }))
-						)
+						Arr.map(r.fields, (f) => ({ field: f.name, domain: f.domain }))
 					)
+					reality.set(r.name, observed)
 				}
 				const derived: Record<string, ReadonlyArray<HostFact>> = {}
 				for (const d of storedRelations(v).slice(v.spec.base.relations.length)) {
@@ -1446,7 +1444,8 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 		const schema = v.installation.names.schema
 		switch (fn.kind) {
 			case "filter": {
-				const world = worldNames(yield* ownedOf(v, fn.role), v.installation.names.installation)
+				const owned = yield* ownedOf(v, fn.role)
+				const world = worldNames(owned, v.installation.names.installation)
 				const name = world.filterFunction(fn.entry, [])
 				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 			}
@@ -1456,7 +1455,8 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 					return yield* missing(`role ${fn.role}`)
 				}
 				const probe = probeOf(v.spec.base, role, fn)
-				const world = worldNames(yield* ownedOf(v, fn.role), v.installation.names.installation)
+				const owned = yield* ownedOf(v, fn.role)
+				const world = worldNames(owned, v.installation.names.installation)
 				/**
 				 * A probe the installation defines, by its key (the model's notion, writes.ts probeOf); one it defines none
 				 * of (an entry it writes through no query entry, a key its target lacks) as a probe over no key, which no
@@ -1478,7 +1478,8 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 				 * A probe the installation defines, by its index (writes.ts uniqueProbeOf); one it defines none of as a key
 				 * probe over no key, which no installation defines, so no call finds it.
 				 */
-				const world = worldNames(yield* ownedOf(v, fn.role), v.installation.names.installation)
+				const owned = yield* ownedOf(v, fn.role)
+				const world = worldNames(owned, v.installation.names.installation)
 				const name =
 					probed === undefined
 						? world.keyProbe(fn.entry, [], [])

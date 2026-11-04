@@ -232,11 +232,8 @@ const migrates = (history: History) =>
 
 		yield* Effect.scoped(
 			Effect.gen(function* () {
-				const fresh = compiledAt(
-					last,
-					yield* substrate.schema({ create: false, label: `${history.label}_fresh` }),
-					owner
-				)
+				const schema = yield* substrate.schema({ create: false, label: `${history.label}_fresh` })
+				const fresh = compiledAt(last, schema, owner)
 				yield* transaction(substrate.admin, installationSql(fresh))
 				yield* sameCatalog(
 					compiledAt(last, name, owner),

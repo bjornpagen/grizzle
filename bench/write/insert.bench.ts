@@ -305,13 +305,11 @@ export default defineGate({
 				)
 			const overlapItem: LoadMeasure = yield* overlap("Item")
 			const overlapCoded: LoadMeasure = yield* overlap("Coded")
-			const [codedRows, codedCodes] = decodeOne(
-				CountPair,
-				yield* s.admin.queryValues(
-					`SELECT pg_catalog.count(*)::text, pg_catalog.count(DISTINCT ${c("Coded", "code")})::text FROM ${fx.table("Coded")}`,
-					[]
-				)
+			const rows = yield* s.admin.queryValues(
+				`SELECT pg_catalog.count(*)::text, pg_catalog.count(DISTINCT ${c("Coded", "code")})::text FROM ${fx.table("Coded")}`,
+				[]
 			)
+			const [codedRows, codedCodes] = decodeOne(CountPair, rows)
 
 			const itemStatements = statementsOf(itemInsert(9n, 1))
 			const noteStatements = statementsOf(ChangeSet.empty(S).insert(Note, [{ id: 9n, v: 1 }]))
@@ -365,20 +363,18 @@ export default defineGate({
 			for (let i = 0; i < options.samples; i++) {
 				const from = next
 				next += options.batch
-				handProtocol.push(
-					yield* measureTransaction(
-						direct,
-						transactionOf([plainStatement("protocol", protocol, [json(from, 1)])], "plain")
-					)
+				const protocolRun = yield* measureTransaction(
+					direct,
+					transactionOf([plainStatement("protocol", protocol, [json(from, 1)])], "plain")
 				)
+				handProtocol.push(protocolRun)
 				const from2 = next
 				next += options.batch
-				handDoNothing.push(
-					yield* measureTransaction(
-						direct,
-						transactionOf([plainStatement("do nothing", doNothing, [json(from2, 1)])], "plain")
-					)
+				const doNothingRun = yield* measureTransaction(
+					direct,
+					transactionOf([plainStatement("do nothing", doNothing, [json(from2, 1)])], "plain")
 				)
+				handDoNothing.push(doNothingRun)
 			}
 
 			const scheduleText = (x: InFlight) =>

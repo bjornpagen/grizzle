@@ -39,7 +39,8 @@ import { workspaceConfigs } from "#shared/workspace.ts"
 /**
  * Superlint: the repository's opinionated type-aware rules that oxlint has no rule for. It lints the package in the
  * working directory: each workspace package's `superlint` task runs it in the package, and the repository root's runs
- * it at the root, where it also holds every tsconfig to REJECTED_DIAGNOSTICS and refuses a JavaScript file. The repository's own names come from
+ * it at the root, where it also holds every tsconfig to REJECTED_DIAGNOSTICS, the shared base to the installed
+ * @effect/tsgo's diagnostics, and refuses a JavaScript file. The repository's own names come from
  * the `superlint` field of its root package.json. Explicit paths lint the files at or under them (a file
  * the tsconfig excludes is added to the program); `--fixtures` runs every rule against its fixtures instead. Exit
  * status 1 means findings, 2 that the linter itself failed.
@@ -206,7 +207,8 @@ const rejectedDiagnosticFindings = Effect.gen(function* () {
 	const { root } = yield* Repository
 	const shown = relativeTo(root)
 	const base = path.resolve(TSCONFIG_BASE)
-	const listed = Arr.flatMap(severitiesIn(yield* readLanguageServiceConfig(base)), Record.keys)
+	const baseConfig = yield* readLanguageServiceConfig(base)
+	const listed = Arr.flatMap(severitiesIn(baseConfig), Record.keys)
 	const rejected: ReadonlyArray<string> = Record.keys(REJECTED_DIAGNOSTICS)
 	const expected = (diagnostic: string): string =>
 		Arr.contains(rejected, diagnostic) ? "off" : "error"
@@ -248,6 +250,116 @@ const rejectedDiagnosticFindings = Effect.gen(function* () {
 		)
 	)
 	return Arr.flatten(findings)
+})
+
+/** The rules of one of @effect/tsgo's oxlint presets, keyed `effecttsgo/<kebab-name>`. */
+const TsgoPreset = Schema.fromJsonString(
+	Schema.Struct({ rules: Schema.Record(Schema.String, Schema.Unknown) })
+)
+
+const decodeTsgoPreset = Schema.decodeUnknownEffect(TsgoPreset)
+
+/** The prefix of every rule an @effect/tsgo oxlint preset names. */
+const TSGO_RULE_PREFIX = "effecttsgo/"
+
+/** A diagnostic's name as both spellings agree on it: a tsconfig's camelCase and a preset's kebab-case. */
+const comparableName = (name: string): string => Str.replaceAll("-", "")(Str.toLowerCase(name))
+
+/**
+ * The diagnostics of the installed @effect/tsgo, by kebab-case name: every rule its oxlint presets name. A preset
+ * directory that cannot be found or read, that holds no preset, or whose presets this lint cannot read fails the lint:
+ * an unknown roster is never a pass.
+ */
+const tsgoRoster = Effect.gen(function* () {
+	const fs = yield* FileSystem.FileSystem
+	const path = yield* Path.Path
+	const manifestUrl = yield* Effect.try({
+		try: () => new URL(import.meta.resolve("@effect/tsgo/package.json")),
+		catch: inspectionFailure("@effect/tsgo")
+	})
+	const manifest = yield* path
+		.fromFileUrl(manifestUrl)
+		.pipe(Effect.mapError(inspectionFailure(manifestUrl.href)))
+	const presets = path.join(path.dirname(manifest), "oxlint-presets")
+	const entries = yield* fs.readDirectory(presets).pipe(Effect.mapError(inspectionFailure(presets)))
+	const files = Arr.filter(entries, (entry) => Str.endsWith(".json")(entry))
+	if (!Arr.isReadonlyArrayNonEmpty(files)) {
+		return yield* DevtoolFailure.make({ detail: `${presets} holds no @effect/tsgo oxlint preset` })
+	}
+	const named = yield* Effect.forEach(files, (file) =>
+		Effect.gen(function* () {
+			const location = path.join(presets, file)
+			const text = yield* fs
+				.readFileString(location)
+				.pipe(Effect.mapError(inspectionFailure(location)))
+			const preset = yield* decodeTsgoPreset(text).pipe(
+				Effect.mapError((cause) =>
+					DevtoolFailure.make({
+						detail: `${location} is not an oxlint preset this lint reads`,
+						cause
+					})
+				)
+			)
+			return Record.keys(preset.rules)
+		})
+	)
+	const rules = Arr.dedupe(Arr.flatten(named))
+	const foreign = Arr.filter(rules, (rule) => !Str.startsWith(TSGO_RULE_PREFIX)(rule))
+	if (Arr.isReadonlyArrayNonEmpty(foreign)) {
+		return yield* DevtoolFailure.make({
+			detail: `${presets} names rules outside ${TSGO_RULE_PREFIX}: ${Arr.join(foreign, ", ")}`
+		})
+	}
+	if (!Arr.isReadonlyArrayNonEmpty(rules)) {
+		return yield* DevtoolFailure.make({ detail: `${presets} names no @effect/tsgo rule` })
+	}
+	return Arr.map(rules, (rule) => Str.slice(TSGO_RULE_PREFIX.length)(rule))
+})
+
+/**
+ * The shared base lists exactly the diagnostics of the installed @effect/tsgo: a release that adds one fails the lint
+ * until the base sets it, instead of leaving it at its default, and one that drops a diagnostic fails it until the base
+ * stops listing it.
+ */
+const diagnosticRosterFindings = Effect.gen(function* () {
+	const path = yield* Path.Path
+	const { root } = yield* Repository
+	const base = path.resolve(TSCONFIG_BASE)
+	const baseConfig = yield* readLanguageServiceConfig(base)
+	const listed = Arr.flatMap(severitiesIn(baseConfig), Record.keys)
+	const roster = yield* tsgoRoster
+	const comparableListed = Arr.map(listed, comparableName)
+	const comparableRoster = Arr.map(roster, comparableName)
+	const finding = (message: string, suggestion: string): Finding => ({
+		file: base,
+		line: 1,
+		column: 1,
+		rule: "diagnostic-roster",
+		message: `${relativeTo(root)(base)} ${message}`,
+		suggestion
+	})
+	return [
+		...Arr.filterMap(roster, (diagnostic): Result.Result<Finding, void> =>
+			Arr.contains(comparableListed, comparableName(diagnostic))
+				? Result.failVoid
+				: Result.succeed(
+						finding(
+							`does not list the Effect diagnostic ${diagnostic}, which the installed @effect/tsgo has.`,
+							"Set it to error, or reject it in REJECTED_DIAGNOSTICS with its reason, which needs the owner."
+						)
+					)
+		),
+		...Arr.filterMap(listed, (diagnostic): Result.Result<Finding, void> =>
+			Arr.contains(comparableRoster, comparableName(diagnostic))
+				? Result.failVoid
+				: Result.succeed(
+						finding(
+							`lists the Effect diagnostic ${diagnostic}, which the installed @effect/tsgo does not have.`,
+							"Delete it from the shared base and from every tsconfig that restates the plugin."
+						)
+					)
+		)
+	]
 })
 
 const JAVASCRIPT_EXTENSIONS: ReadonlyArray<string> = [".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]
@@ -400,7 +512,11 @@ const main = Effect.gen(function* () {
 	)
 	const repository =
 		packageRoot === root
-			? [...(yield* rejectedDiagnosticFindings), ...(yield* tsOnlyExtensionFindings)]
+			? [
+					...(yield* rejectedDiagnosticFindings),
+					...(yield* diagnosticRosterFindings),
+					...(yield* tsOnlyExtensionFindings)
+				]
 			: []
 	const reported = [...findings, ...repository]
 	yield* Console.log(renderFindings({ tool: "superlint", root, findings: reported }))

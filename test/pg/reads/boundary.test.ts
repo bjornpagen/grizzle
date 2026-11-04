@@ -158,7 +158,8 @@ const called = <A, E>(
 			assert.equal(window.frontend.length, 0, `${what} was refused (${refusal}) after sending SQL`)
 			real.note(`refused before SQL: ${refusal}`)
 		}
-		assert.equal(yield* real.pool.leased, 0, `${what} left a session leased`)
+		const leased = yield* real.pool.leased
+		assert.equal(leased, 0, `${what} left a session leased`)
 		return error
 	})
 
@@ -268,7 +269,8 @@ const live = (
 	model: Model
 ): Effect.Effect<void> =>
 	Effect.gen(function* () {
-		expectLive(model, `a live ${what}`, yield* called(real, what, call))
+		const outcome = yield* called(real, what, call)
+		expectLive(model, `a live ${what}`, outcome)
 		real.note(`${what} live`)
 	})
 

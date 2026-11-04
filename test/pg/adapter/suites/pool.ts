@@ -162,11 +162,8 @@ export const poolSuite = (): void => {
 											idle.delete(session)
 											c.note("leased an idle session")
 										} else {
-											assert.equal(
-												yield* pool.size,
-												before + 1,
-												"a session not idle before is a new one"
-											)
+											const size = yield* pool.size
+											assert.equal(size, before + 1, "a session not idle before is a new one")
 											c.note("leased a new session")
 										}
 										held.push({ session, pid, scope: leaseScope })
@@ -180,14 +177,12 @@ export const poolSuite = (): void => {
 											if (ends) {
 												retired.add(h.session)
 												retiredPids.add(h.pid)
-												assert.equal(
-													yield* pool.size,
-													before - 1,
-													"a retired session's release closes it"
-												)
+												const size = yield* pool.size
+												assert.equal(size, before - 1, "a retired session's release closes it")
 											} else {
 												idle.add(h.session)
-												assert.equal(yield* pool.size, before, "a release keeps the session")
+												const size = yield* pool.size
+												assert.equal(size, before, "a release keeps the session")
 											}
 										})
 									for (const step of steps) {
@@ -215,13 +210,15 @@ export const poolSuite = (): void => {
 												c.note("connection lost")
 												break
 										}
-										assert.equal(yield* pool.leased, held.length)
+										const leased = yield* pool.leased
+										assert.equal(leased, held.length)
 										assert.ok((yield* pool.size) <= max)
 									}
 									for (const h of Arr.copy(held)) {
 										yield* release(h, false)
 									}
-									assert.equal(yield* pool.leased, 0)
+									const leased = yield* pool.leased
+									assert.equal(leased, 0)
 									for (const pid of retiredPids) {
 										yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
 									}

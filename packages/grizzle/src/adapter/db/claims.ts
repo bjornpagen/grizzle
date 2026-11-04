@@ -3,6 +3,7 @@ import { readHost } from "#adapter/engine.ts"
 import { ClaimRefused } from "#adapter/errors/failures.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { ContextDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
@@ -123,7 +124,7 @@ const claimObject = (
 	context: ContextDesc,
 	payload: unknown
 ): Result.Result<ReadonlyMap<string, unknown> | undefined, ClaimRefused> =>
-	readHost(ClaimRefused.make({ context: context.name, fault: { kind: "notAnObject" } }), () => {
+	readHost(new ClaimRefused({ context: context.name, fault: { kind: "notAnObject" } }), () => {
 		const claim = context.claim
 		const found =
 			claim === undefined
@@ -136,7 +137,7 @@ const claimObject = (
 		}
 		if (!isRecord(found) || isList(found)) {
 			return Result.fail(
-				ClaimRefused.make({ context: context.name, fault: { kind: "notAnObject" } })
+				new ClaimRefused({ context: context.name, fault: { kind: "notAnObject" } })
 			)
 		}
 		const own = new Map<string, unknown>()
@@ -172,7 +173,7 @@ const contextFact = (
 		for (const field of context.fields) {
 			if (!object.has(field.name)) {
 				return Result.fail(
-					ClaimRefused.make({
+					new ClaimRefused({
 						context: context.desc.name,
 						fault: { kind: "missing", field: field.name }
 					})
@@ -182,7 +183,7 @@ const contextFact = (
 			const text = Option.isSome(host) ? scalarCodec(field.type).encode(host.value) : undefined
 			if (text === undefined || !text.ok) {
 				return Result.fail(
-					ClaimRefused.make({
+					new ClaimRefused({
 						context: context.desc.name,
 						fault: { kind: "refused", field: field.name }
 					})
@@ -196,7 +197,7 @@ const contextFact = (
 /** A JSON object of string members, in the order given. */
 const objectText = (members: ReadonlyArray<readonly [string, string]>): string =>
 	`{${Arr.join(
-		Arr.map(members, ([key, json]) => `${JSON.stringify(key)}:${json}`),
+		Arr.map(members, ([key, json]) => `${jsonText(key)}:${json}`),
 		","
 	)}}`
 
@@ -220,7 +221,7 @@ export const claimsOf = (
 		}
 		members.push([
 			context.desc.name,
-			objectText(Arr.map(fact.success, ({ field, text }) => [field, JSON.stringify(text)] as const))
+			objectText(Arr.map(fact.success, ({ field, text }) => [field, jsonText(text)] as const))
 		])
 		for (const { field, type, text } of fact.success) {
 			values.push({ context: context.desc.name, field, type, text })

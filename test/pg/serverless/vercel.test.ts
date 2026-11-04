@@ -214,8 +214,10 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							),
 							{ concurrency: 3 }
 						)
-						assert.equal(yield* pool.size, 3)
-						assert.equal(yield* roleBackends(reader.role), 3)
+						const size = yield* pool.size
+						assert.equal(size, 3)
+						const backends = yield* roleBackends(reader.role)
+						assert.equal(backends, 3)
 					})
 				)
 				assert.equal(context.waits.length, 3)
@@ -226,7 +228,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 					1,
 					"when the last keep-alive ends, the pool holds only its floor: the instance outlived the idle sessions"
 				)
-				assert.equal(yield* pool.size, 1)
+				const size = yield* pool.size
+				assert.equal(size, 1)
 				yield* until(Effect.map(roleBackends(reader.role), (n) => n === 1))
 			}).pipe(Effect.scoped)
 	)
@@ -272,7 +275,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 				)
 				const runs = []
 				for (let i = 0; i < 4; i++) {
-					runs.push(yield* Effect.promise(() => instance.runPromise(invocation)))
+					const run = yield* Effect.promise(() => instance.runPromise(invocation))
+					runs.push(run)
 				}
 				/** The floor session is reused: a warm invocation does not reconnect. */
 				const [first] = runs
@@ -285,7 +289,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 				)
 				assert.equal(attached.length, 1)
 				assert.equal(attached[0], first.pool.native)
-				assert.equal(yield* roleBackends(worker.role), 1)
+				const backends = yield* roleBackends(worker.role)
+				assert.equal(backends, 1)
 				/**
 				 * Nothing was added to globalThis, and nothing on it, or one level below it, is the pool, pg's Pool or the
 				 * layer's service (a pool shared through a global can cross bundle copies of effect).

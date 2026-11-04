@@ -117,8 +117,8 @@ export const active = <const R extends ActiveRules>(rules: R): R => rules
 
 /**
  * Effect language-service diagnostics rejected on purpose, each with why it is off. The shared tsconfig base sets
- * exactly these to off, every other of the 130 to error, and superlint at the repository root refuses any tsconfig
- * whose offs differ.
+ * exactly these to off and every other diagnostic of the installed @effect/tsgo to error, and superlint at the
+ * repository root refuses any tsconfig whose offs differ.
  */
 export const REJECTED_DIAGNOSTICS = {
 	apiStabilityLeak: "unstable Effect APIs stay usable, so exposing one is no defect",
@@ -126,6 +126,8 @@ export const REJECTED_DIAGNOSTICS = {
 		"unstable Effect APIs stay usable, so using an experimental one is no defect",
 	missingPipeableSignature:
 		"Function.dual is an overload in disguise that dispatches on arguments.length on every call, for a data-last form almost nothing calls (owner, 2026-10-26)",
+	preferSchemaTaggedError:
+		"Effect Schema is for types, never runtime validation: errors are Data.TaggedError (owner, 2026-11-04)",
 	unstableApiUsage: "Effect's whole Node platform layer is marked unstable"
 } as const satisfies Record<string, string>
 
@@ -311,6 +313,13 @@ const MATH_RANDOM: RestrictedProperty = {
 		"Math.random is banned: draw randomness from an injected source, so a run can be replayed."
 }
 
+/** Node 26's Temporal global, banned everywhere: where Effect runs, time is its Clock and DateTime's. */
+const TEMPORAL: Readonly<{ name: string; message: string }> = {
+	name: "Temporal",
+	message:
+		"Temporal is banned: time goes through Effect's Clock and DateTime, and in Effect-free code through what the code is handed."
+}
+
 type PluginRule = keyof typeof plugin.rules
 
 /** The plugin rules that take a project's names. */
@@ -428,7 +437,7 @@ export const lintConfig = (project: Project): OxlintConfig => ({
 	ignorePatterns: [...project.ignorePatterns],
 	rules: {
 		...GENERIC_RULES,
-		"eslint/no-restricted-globals": ["error", ...project.restrictedGlobals],
+		"eslint/no-restricted-globals": ["error", TEMPORAL, ...project.restrictedGlobals],
 		"eslint/no-restricted-imports": restrictedImports(project.restrictedImports),
 		"eslint/no-restricted-properties": [
 			"error",

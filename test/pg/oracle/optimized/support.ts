@@ -1,5 +1,14 @@
 import { exact, ordered } from "@grizzle/testing/oracle"
-import { Array as Arr, Effect, Option, Order, Record as Rec, Result, Schema } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	Schema
+} from "effect"
 import { decodePlan } from "#adapter/explain/plan.ts"
 import { type PlanLabel, planEdges, planNodeTypes } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -42,6 +51,8 @@ import {
 	type OptimizedStatement
 } from "#compiler/lower/shapes/index.ts"
 
+import { canonicalTextOf, type Json } from "#compiler/core/canonical.ts"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import {
 	relationTransport,
 	specializeValues,
@@ -253,7 +264,7 @@ export interface PlanShape {
  * The EXPLAIN cell as grizzle's own driver hands it to db.explain: json text. The test client parses json columns, so
  * the plan is spelled back as text before the runtime's reader sees it.
  */
-const asDriverText = (cell: unknown): string => JSON.stringify(cell)
+const asDriverText = (cell: unknown): string => jsonText(trusted<Json>(cell))
 
 /**
  * The plan PostgreSQL chooses for each of `statements`, under the settings and with the parameter values the statements
@@ -354,7 +365,7 @@ const respell = (
 		return Effect.succeed(texts)
 	}
 	const sql = `SELECT ${cast} FROM pg_catalog.jsonb_array_elements_text($1::pg_catalog.jsonb) WITH ORDINALITY AS u(x, n) ORDER BY u.n`
-	return captureRows(session, sql, [JSON.stringify(texts)], { columns: 1 }).pipe(
+	return captureRows(session, sql, [jsonText(texts)], { columns: 1 }).pipe(
 		Effect.mapBoth({
 			onSuccess: (rows) => Arr.map(rows, (r) => cellAt(r, 0, "respell")),
 			onFailure: (e) => failure("unfuse", "respell", sqlMessage(e))
@@ -376,7 +387,7 @@ const childRowsOf = (
 ): Result.Result<ReadonlyArray<ReadonlyArray<string>>, string> => {
 	const elements = strictArrayText(text)
 	if (Result.isFailure(elements)) {
-		return Result.fail(`a malformed array ${JSON.stringify(text)}`)
+		return Result.fail(`a malformed array ${Formatter.format(text)}`)
 	}
 	const out: Array<ReadonlyArray<string>> = []
 	const [only] = element
@@ -391,7 +402,7 @@ const childRowsOf = (
 		let values: ReadonlyMap<string, string>
 		if (element.length === 0) {
 			if (e !== "true") {
-				return Result.fail(`an existence element ${JSON.stringify(e)}`)
+				return Result.fail(`an existence element ${Formatter.format(e)}`)
 			}
 			values = new Map([[unitColumn, e]])
 		} else if (element.length === 1 && only !== undefined) {
@@ -399,20 +410,20 @@ const childRowsOf = (
 		} else {
 			const parsed = decodeJsonElement(e)
 			if (Result.isFailure(parsed)) {
-				return Result.fail(`a malformed JSON element ${JSON.stringify(e)}`)
+				return Result.fail(`a malformed JSON element ${Formatter.format(e)}`)
 			}
 			const object = parsed.success
 			if (!isRecord(object) || Arr.isArray(object)) {
-				return Result.fail(`a JSON element that is no object ${JSON.stringify(e)}`)
+				return Result.fail(`a JSON element that is no object ${Formatter.format(e)}`)
 			}
 			if (Rec.keys(object).length !== element.length) {
-				return Result.fail(`a JSON element of another width ${JSON.stringify(e)}`)
+				return Result.fail(`a JSON element of another width ${Formatter.format(e)}`)
 			}
 			const m = new Map<string, string>()
 			for (const [i, col] of element.entries()) {
 				const cell = object[`f${i + 1}`]
 				if (typeof cell !== "string") {
-					return Result.fail(`a JSON cell that is no string ${JSON.stringify(e)}`)
+					return Result.fail(`a JSON cell that is no string ${Formatter.format(e)}`)
 				}
 				m.set(col.name, cell)
 			}
@@ -673,9 +684,9 @@ export const orderProblems = (
 		const groups = (rows: ReadonlyArray<RawRow>): ReadonlyMap<string, ReadonlyArray<string>> => {
 			const m = new Map<string, Array<string>>()
 			for (const row of rows) {
-				const key = JSON.stringify(row.slice(0, l.prefix))
+				const key = canonicalTextOf(row.slice(0, l.prefix))
 				const list = m.get(key) ?? []
-				list.push(JSON.stringify(row))
+				list.push(canonicalTextOf(row))
 				m.set(key, list)
 			}
 			return m
@@ -763,7 +774,7 @@ export const agrees = (o: DifferentialOutcome): boolean =>
 export const baselineIsSet = (o: DifferentialOutcome): boolean =>
 	Arr.every(
 		o.conservative.statements,
-		(s) => new Set(Arr.map(s.rows, (r) => JSON.stringify(r))).size === s.rows.length
+		(s) => new Set(Arr.map(s.rows, (r) => canonicalTextOf(r))).size === s.rows.length
 	)
 
 const lowerSide = <A>(side: string, f: () => Engine.Result<A, CompileError>) =>
@@ -961,12 +972,10 @@ const runDifferential = (
 						)
 					]
 					for (const [k, [where, s]] of judged.entries()) {
-						appendAll(
-							typed,
-							yield* typeProblems(session, s, names, `type_probe_${k}`, where).pipe(
-								Effect.mapError((e) => failure("types", where, `${sqlMessage(e)}\n${s.sql.text}`))
-							)
+						const problems = yield* typeProblems(session, s, names, `type_probe_${k}`, where).pipe(
+							Effect.mapError((e) => failure("types", where, `${sqlMessage(e)}\n${s.sql.text}`))
 						)
+						appendAll(typed, problems)
 					}
 					if (typed.length > 0) {
 						return yield* failure("types", "both", Arr.join(typed, "\n"))

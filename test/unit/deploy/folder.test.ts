@@ -840,14 +840,16 @@ describe("meta.json, generated", () => {
 									return
 								}
 								c.note(fault.miss)
-								const read = readMeta(yield* jsonText({ ...meta, files }))
+								const text = yield* jsonText({ ...meta, files })
+								const read = readMeta(text)
 								if (Result.isSuccess(read)) {
 									assert.fail(`${fault.miss} is read`)
 								}
 								assert.equal(read.failure.reason._tag, "MalformedArtifact")
 								return
 							}
-							const read = readMeta(yield* jsonText(faulted(meta, fault)))
+							const text = yield* jsonText(faulted(meta, fault))
+							const read = readMeta(text)
 							if (Result.isSuccess(read)) {
 								assert.fail(`${Formatter.format(fault)} is read`)
 							}

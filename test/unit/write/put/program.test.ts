@@ -31,7 +31,8 @@ describe("the write program's refusals before any SQL", () => {
 		Effect.gen(function* () {
 			const value = shopChangeSet().insert(Item, [fact(1, "a", 1n), fact(1, "b", 1n)])
 			const program = shopCompiled(value, shopCompile)
-			const r = succeeded(yield* bind(program, value, {}))
+			const bound = yield* bind(program, value, {})
+			const r = succeeded(bound)
 			assert.equal(r.kind, "invariant-rejected")
 			assert.equal(r.kind === "invariant-rejected" && r.law, lawNamesOf(Shop).primaryKeyLaw(Item))
 		})
@@ -43,7 +44,8 @@ describe("the write program's refusals before any SQL", () => {
 			Effect.gen(function* () {
 				const value = shopChangeSet().put(Item, stockFromParam(Item, "items"))
 				const program = shopCompiled(value, shopCompile)
-				const r = succeeded(yield* bind(program, value, { items: [fact(3, "a", 1n)] }))
+				const bound = yield* bind(program, value, { items: [fact(3, "a", 1n)] })
+				const r = succeeded(bound)
 				assert.equal(r.kind, "bound")
 				const missing = yield* bind(program, value, {})
 				assert.equal(

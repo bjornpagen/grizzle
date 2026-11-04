@@ -405,20 +405,16 @@ export default defineGate({
 				...handOptions,
 				explain: serializedExplain
 			})
-			const cardsHandRows = nestedRows(yield* textRowsOf(raw, cardsHandSpec.statements), [
-				"ids",
-				"priorities",
-				"sheet"
-			])
+			const cardsHandTexts = yield* textRowsOf(raw, cardsHandSpec.statements)
+			const cardsHandRows = nestedRows(cardsHandTexts, ["ids", "priorities", "sheet"])
 			const titlesHandSpec = handwritten(
 				"handwritten: one statement, the distinct titles a correlated array",
 				[{ sql: regionSql([children(["title"], true)]), params: [String(region)] }],
 				autocommit
 			)
 			const titlesHand = yield* measureVariant(raw, titlesHandSpec, handOptions)
-			const titlesHandRows = nestedRows(yield* textRowsOf(raw, titlesHandSpec.statements), [
-				"titles"
-			])
+			const titlesHandTexts = yield* textRowsOf(raw, titlesHandSpec.statements)
+			const titlesHandRows = nestedRows(titlesHandTexts, ["titles"])
 			const cardsPlans = [...plansOf(cardsM.generated), ...plansOf(cardsM.conservative)]
 			cases.push({
 				name: "a region's accounts with one-, two- and five-field attachments",
@@ -595,7 +591,8 @@ export default defineGate({
 				autocommit
 			)
 			const reachHand = yield* measureVariant(raw, reachHandSpec, handOptions)
-			const reachHandRows = nestedRows(yield* textRowsOf(raw, reachHandSpec.statements), ["reach"])
+			const reachHandTexts = yield* textRowsOf(raw, reachHandSpec.statements)
+			const reachHandRows = nestedRows(reachHandTexts, ["reach"])
 			const recursionStates = Arr.reduce(
 				findNodes(reachChild, "Recursive Union"),
 				0,

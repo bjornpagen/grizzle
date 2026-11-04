@@ -168,7 +168,8 @@ layer(Substrate.layer)("the Compute registry against pg_operator, pg_proc and pg
 					}
 				}
 				for (const op of nativeOps) {
-					appendAll(problems, yield* entryProblems(db, op))
+					const opProblems = yield* entryProblems(db, op)
+					appendAll(problems, opProblems)
 				}
 				assert.deepEqual(problems, [])
 			})

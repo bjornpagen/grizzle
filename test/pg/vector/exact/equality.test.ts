@@ -28,6 +28,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 
+import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	changeSetOver as ChangeSet,
 	type ChangeSetValue,
@@ -77,8 +78,7 @@ const text = (value: Vector): string => {
 }
 
 /** A vector's binary32 components as JSON, for comparing what pgvector prints (shortest float32) with a host value. */
-const components = (value: Vector): string =>
-	JSON.stringify(Array.from(value, (x) => (x === 0 ? 0 : x)))
+const components = (value: Vector): string => jsonText(Array.from(value, (x) => (x === 0 ? 0 : x)))
 
 /** pgvector's output text read strictly by the kernel, and the library's conversion of it agreeing. */
 const decodedComponents = (stored: string): string => {
@@ -112,7 +112,8 @@ const compiled = (q: unknown, installed: Installed): QueryTemplate => {
 const run = (session: RawSession, spec: StatementSpec, params: Readonly<Record<string, unknown>>) =>
 	Effect.gen(function* () {
 		const rows = yield* session.values(spec.sql, paramTexts(spec, params))
-		return Arr.map(yield* textRows(rows), headingRecord(spec.heading))
+		const texts = yield* textRows(rows)
+		return Arr.map(texts, headingRecord(spec.heading))
 	})
 
 /**
@@ -343,11 +344,10 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					installed
 				)
 				for (const spec of statements(byValue)) {
-					assert.deepEqual(
-						sortedIds(yield* run(writer, spec, { probe: vec(1, 0) })),
-						sortedIds([{ id: id(1) }, { id: id(4) }])
-					)
-					assert.deepEqual(yield* run(writer, spec, { probe: vec(2, 0) }), [])
+					const matched = yield* run(writer, spec, { probe: vec(1, 0) })
+					assert.deepEqual(sortedIds(matched), sortedIds([{ id: id(1) }, { id: id(4) }]))
+					const unmatched = yield* run(writer, spec, { probe: vec(2, 0) })
+					assert.deepEqual(unmatched, [])
 				}
 
 				/** A vector variable shared by two relations: a join on native equality. */
@@ -366,7 +366,8 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					{ a: id(3), b: id(102) }
 				])
 				for (const spec of statements(join)) {
-					assert.deepEqual(sortedIds(yield* run(writer, spec, {})), expectedJoin)
+					const joined = yield* run(writer, spec, {})
+					assert.deepEqual(sortedIds(joined), expectedJoin)
 				}
 
 				/** One variable bound to two columns of one relation: the loops, -0 = +0 included. */
@@ -378,7 +379,8 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					installed
 				)
 				for (const spec of statements(loops)) {
-					assert.deepEqual(yield* run(writer, spec, {}), [bareRecord({ id: id(201) })])
+					const found = yield* run(writer, spec, {})
+					assert.deepEqual(found, [bareRecord({ id: id(201) })])
 				}
 
 				/** An anti-join correlated on a vector: the A facts whose value no B fact has. */
@@ -390,7 +392,8 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					installed
 				)
 				for (const spec of statements(unmatched)) {
-					assert.deepEqual(yield* run(writer, spec, {}), [bareRecord({ id: id(5) })])
+					const found = yield* run(writer, spec, {})
+					assert.deepEqual(found, [bareRecord({ id: id(5) })])
 				}
 
 				/**
@@ -506,7 +509,8 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					A: [clash]
 				})
 				conflictOf(conflict, A)
-				assert.deepEqual(yield* stored(installed, "a", `"id"::text, "value"::text`), [
+				const storedA = yield* stored(installed, "a", `"id"::text, "value"::text`)
+				assert.deepEqual(storedA, [
 					[id(1), components(a1.value)],
 					[id(2), components(a2.value)]
 				])
@@ -517,10 +521,10 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					Note: [n1]
 				})
 				assert.deepEqual(insertedKeys(noted), [id(11)])
-				assert.deepEqual(
-					markers(yield* apply(writer, installed, changeSet().insert(Note, [n1]), { Note: [n1] })),
-					[]
-				)
+				const appliedNote = yield* apply(writer, installed, changeSet().insert(Note, [n1]), {
+					Note: [n1]
+				})
+				assert.deepEqual(markers(appliedNote), [])
 				/** A repeat of the noted fact's key differing in its rank, or in its vector, conflicts. */
 				const clashings: Arr.NonEmptyReadonlyArray<
 					readonly [differs: "rank" | "vector", fact: typeof n1]
@@ -574,11 +578,14 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					Note: [moved]
 				})
 				assert.deepEqual(again.out[0]?.rows, [])
-				assert.deepEqual(
-					yield* stored(installed, "note", `"id"::text, "value"::text, "rank"::text`),
-					[[id(11), components(moved.value), "1"]]
+				const storedNotes = yield* stored(
+					installed,
+					"note",
+					`"id"::text, "value"::text, "rank"::text`
 				)
-				assert.deepEqual(yield* stored(installed, "a", `"id"::text`), [[id(1)]])
+				assert.deepEqual(storedNotes, [[id(11), components(moved.value), "1"]])
+				const storedIds = yield* stored(installed, "a", `"id"::text`)
+				assert.deepEqual(storedIds, [[id(1)]])
 			})
 	)
 })

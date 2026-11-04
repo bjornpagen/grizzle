@@ -1,4 +1,4 @@
-import { Array as Arr, Result } from "effect"
+import { Array as Arr, Formatter, Result } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
@@ -119,7 +119,7 @@ const canonicalCell = (type: ScalarType): ((cell: string) => string) => {
 	return (cell) => {
 		const value = read(cell)
 		if (Result.isFailure(value)) {
-			throw new Error(`${JSON.stringify(cell)} is no output text of its type (${value.failure})`)
+			throw new Error(`${Formatter.format(cell)} is no output text of its type (${value.failure})`)
 		}
 		return admittedText(spec, value.success)
 	}
@@ -366,7 +366,7 @@ export const compareRuns = (left: Run, right: Run): Comparison => {
 
 const printRawRow = (row: RawRow): string =>
 	`(${Arr.join(
-		Arr.map(row, (v) => JSON.stringify(v)),
+		Arr.map(row, (v) => Formatter.format(v)),
 		", "
 	)})`
 

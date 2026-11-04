@@ -815,7 +815,8 @@ export const payrollInvalidSuite = (): void => {
 						const p = yield* openPayroll
 						const before = yield* tableCounts(p)
 						const exhausted = yield* everyRow("state-a", p, fromStateA)
-						assert.deepEqual(yield* tableCounts(p), before, "every refusal rolled back")
+						const counts = yield* tableCounts(p)
+						assert.deepEqual(counts, before, "every refusal rolled back")
 						return exhausted
 					}).pipe(Effect.scoped)
 				)
@@ -893,15 +894,13 @@ export const payrollInvalidSuite = (): void => {
 								)
 							)
 							yield* accepted(approveShifts(p, w1))
-							assert.deepEqual(
-								yield* p.f.rows(
-									`SELECT "week"::text, "status"::text, count(*)::text FROM $S."shift" GROUP BY 1, 2 ORDER BY 1, 2`
-								),
-								[
-									[String(w1), "approved", "2"],
-									[String(w2), "pending", "1"]
-								]
+							const rows = yield* p.f.rows(
+								`SELECT "week"::text, "status"::text, count(*)::text FROM $S."shift" GROUP BY 1, 2 ORDER BY 1, 2`
 							)
+							assert.deepEqual(rows, [
+								[String(w1), "approved", "2"],
+								[String(w2), "pending", "1"]
+							])
 							return yield* everyRow("after-approve-shifts", p, afterApproveShifts)
 						}).pipe(Effect.scoped)
 					)

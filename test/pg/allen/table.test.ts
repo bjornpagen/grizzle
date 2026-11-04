@@ -60,7 +60,8 @@ layer(Substrate.layer)("the Allen table on PostgreSQL 19", (it) => {
 			everyType("pg/allen/canonicalization", (type) =>
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const schema = quoteIdent(yield* s.schema({ ...freshSchema, label: "allen" }))
+					const allenSchema = yield* s.schema({ ...freshSchema, label: "allen" })
+					const schema = quoteIdent(allenSchema)
 					const db = yield* s.session(ownerSession())
 					yield* db.query(
 						`CREATE FUNCTION ${schema}.canon_${type}(t text) RETURNS text LANGUAGE plpgsql AS $f$
@@ -111,7 +112,8 @@ $f$`,
 				everyType("pg/allen/masks", (type) =>
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const schema = quoteIdent(yield* s.schema({ ...freshSchema, label: "allen" }))
+						const allenSchema = yield* s.schema({ ...freshSchema, label: "allen" })
+						const schema = quoteIdent(allenSchema)
 						const db = yield* s.session(ownerSession())
 						yield* db.query(
 							`CREATE TABLE ${schema}.u (
@@ -158,8 +160,9 @@ JOIN jsonb_to_recordset($1::text::jsonb) AS j(a text, b text, rel int4) ON j.a =
 								)
 							]
 						)
-						const [[count]] = yield* Schema.decodeUnknownEffect(oneText)(
-							yield* db.values(`SELECT count(*)::text FROM ${schema}.p`, [])
+						const [[count]] = yield* Effect.flatMap(
+							db.values(`SELECT count(*)::text FROM ${schema}.p`, []),
+							Schema.decodeUnknownEffect(oneText)
 						)
 						assert.equal(Number(count), spans.length ** 2)
 

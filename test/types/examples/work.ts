@@ -415,7 +415,8 @@ export const workPrograms = <const N extends string>(W: ReturnType<typeof workEx
 					return Opt.none()
 				}
 				const db = yield* Db.open(W.Server.roles.reader, {})
-				return Opt.some(yield* (yield* db.execute(W.accountsByPrefix, bounds)).collect)
+				const rows = yield* (yield* db.execute(W.accountsByPrefix, bounds)).collect
+				return Opt.some(rows)
 			})
 		)
 

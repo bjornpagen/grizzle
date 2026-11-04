@@ -46,7 +46,7 @@ const taggedText = (error: Error, seen: ReadonlySet<unknown>): string => {
 			? own
 			: [["message", error.message], ...own]
 	return `${label} {${Arr.join(
-		Arr.map(fields, ([k, v]) => `${JSON.stringify(k)}:${fieldText(v, seen)}`),
+		Arr.map(fields, ([k, v]) => `${Formatter.format(k)}:${fieldText(v, seen)}`),
 		","
 	)}}`
 }
@@ -71,7 +71,7 @@ const fieldText = (value: unknown, seen: ReadonlySet<unknown>): string => {
 			return `{${Arr.join(
 				Arr.map(
 					Rec.toEntries(ownFields(value)),
-					([k, v]) => `${JSON.stringify(k)}:${fieldText(v, seen)}`
+					([k, v]) => `${Formatter.format(k)}:${fieldText(v, seen)}`
 				),
 				","
 			)}}`

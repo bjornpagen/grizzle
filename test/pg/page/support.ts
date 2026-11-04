@@ -12,6 +12,7 @@ import { dbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { type CompiledPage, compilePageTemplate } from "#adapter/page/page.ts"
 import type { CompiledReadValue, QueryResultValue, ReadExecutor } from "#adapter/reader/reader.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -117,9 +118,7 @@ export const canon = (value: unknown): unknown => {
 		const fields = rowOf(value)
 		for (const k of Arr.sort(Rec.keys(fields), Order.String)) {
 			const v = canon(fields[k])
-			out[k] = isList(v)
-				? Arr.sort([...v], (a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1))
-				: v
+			out[k] = isList(v) ? Arr.sort([...v], Order.mapInput(Order.String, canonicalTextOf)) : v
 		}
 		return out
 	}

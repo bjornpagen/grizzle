@@ -1,4 +1,4 @@
-import { Option, String as Str } from "effect"
+import { Formatter, Option, String as Str } from "effect"
 import { Hex } from "effect/encoding"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 
@@ -43,7 +43,7 @@ export const defaultSchemaLabel = "gzs"
  */
 export const uniqueSchemaName = (label: string, allocationNumber: number): string => {
 	if (!word.test(label)) {
-		throw new Error(`schema label ${JSON.stringify(label)} is not a lowercase letter word`)
+		throw new Error(`schema label ${Formatter.format(label)} is not a lowercase letter word`)
 	}
 	const name = `${label}_${process.pid}_${allocationNumber}_${random32()}`
 	assertIdentifier(name)
@@ -80,10 +80,10 @@ export const allocatingPid = (name: string): Option.Option<number> =>
 /** A role a test creates under an allocated `schema`: `<schema>__<name>`, which starts with rolePrefix(schema). */
 export const roleName = (schema: string, name: string): string => {
 	if (!allocation.test(schema)) {
-		throw new Error(`schema name ${JSON.stringify(schema)} is no allocated name`)
+		throw new Error(`schema name ${Formatter.format(schema)} is no allocated name`)
 	}
 	if (!word.test(name)) {
-		throw new Error(`role name ${JSON.stringify(name)} is not a lowercase letter word`)
+		throw new Error(`role name ${Formatter.format(name)} is not a lowercase letter word`)
 	}
 	const full = `${schema}__${name}`
 	assertIdentifier(full)
@@ -104,11 +104,11 @@ export const rolePrefix = (schema: string): string => `${schema}_`
 
 export const assertIdentifier = (name: string): void => {
 	if (!regex("^[a-z_][a-z0-9_]*$").test(name)) {
-		throw new Error(`${JSON.stringify(name)} is not a plain lowercase identifier`)
+		throw new Error(`${Formatter.format(name)} is not a plain lowercase identifier`)
 	}
 	if (Buffer.byteLength(name, "utf8") > maxIdentifierBytes) {
 		throw new Error(
-			`${JSON.stringify(name)} exceeds ${maxIdentifierBytes} bytes and would be truncated`
+			`${Formatter.format(name)} exceeds ${maxIdentifierBytes} bytes and would be truncated`
 		)
 	}
 }

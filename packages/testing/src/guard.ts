@@ -73,7 +73,8 @@ export const guardHook =
 	(options: Readonly<{ label: string; budgetMillis: number }>) =>
 	<A, E, R>(hook: Effect.Effect<A, E, R>): Effect.Effect<A, E | LayerHung, R> =>
 		Effect.gen(function* () {
-			const meter = yield* Ref.make(startedAt(yield* liveMillis))
+			const startMillis = yield* liveMillis
+			const meter = yield* Ref.make(startedAt(startMillis))
 			const running = yield* Effect.forkDetach(
 				hook.pipe(Effect.provideService(CurrentMeter, Option.some(meter)))
 			)

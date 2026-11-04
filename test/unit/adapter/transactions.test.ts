@@ -16,6 +16,7 @@ import { decodePlan } from "#adapter/explain/plan.ts"
 import { classifyServerError, transientFailureOf } from "#adapter/outcomes/index.ts"
 import { violationClassifier } from "#adapter/witness/classify.ts"
 import { keyLaws } from "#adapter/witness/keylaw.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { UniqueAbort } from "#compiler/write/program/artifact.ts"
 import type { KeyDecoder } from "#compiler/write/program/outcome.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -401,6 +402,6 @@ describe("EXPLAIN (FORMAT JSON) decoding", () => {
 	}
 
 	it("keeps exactly the node type and estimates of the json text", () => {
-		assert.deepEqual(decodePlan(JSON.stringify(document)), Result.succeed(expected))
+		assert.deepEqual(decodePlan(jsonText(document)), Result.succeed(expected))
 	})
 })

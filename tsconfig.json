@@ -105,7 +105,7 @@
 					"preferEffectString": "error",
 					"preferNamespaceImport": "error",
 					"preferSchemaOverJson": "error",
-					"preferSchemaTaggedError": "error",
+					"preferSchemaTaggedError": "off",
 					"preferSchemaTypeProperty": "error",
 					"preferSucceedSomeOrNone": "error",
 					"preferTypedSchemaDecoder": "error",

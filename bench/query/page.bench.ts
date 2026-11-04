@@ -186,22 +186,28 @@ export default defineGate({
 			const dropped = compile(fx, amountsOf, pageReading)
 			const droppedPages = pageRuntime(dropped)
 			const droppedCall = { variant: "after", size: pageSize, boundary: ["50000"] } as const
+			const droppedOptimized = yield* deliverPage(
+				runtime,
+				droppedPages,
+				"optimized",
+				{ account },
+				droppedCall
+			)
 			const droppedAfter = yield* measureVariant(
 				raw,
-				rowsVariant(
-					"generated",
-					"generated after, key dropped",
-					yield* deliverPage(runtime, droppedPages, "optimized", { account }, droppedCall)
-				),
+				rowsVariant("generated", "generated after, key dropped", droppedOptimized),
 				once
+			)
+			const droppedConservativeRows = yield* deliverPage(
+				runtime,
+				droppedPages,
+				"conservative",
+				{ account },
+				droppedCall
 			)
 			const droppedConservative = yield* measureVariant(
 				raw,
-				rowsVariant(
-					"conservative",
-					"conservative after, key dropped",
-					yield* deliverPage(runtime, droppedPages, "conservative", { account }, droppedCall)
-				),
+				rowsVariant("conservative", "conservative after, key dropped", droppedConservativeRows),
 				once
 			)
 			/** The comparisons of the rows statement's seek: a row value against a row value. */

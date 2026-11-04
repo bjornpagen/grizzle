@@ -10,6 +10,7 @@ import { BudgetMeter } from "#compiler/core/budget.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -343,7 +344,7 @@ export const statementParams = (
 				if (p?.kind !== "relation") {
 					throw new Error(`no rows for ${slot.param}`)
 				}
-				return JSON.stringify(
+				return jsonText(
 					Arr.map(p.rows, (row) =>
 						Rec.fromEntries(
 							Arr.map(slot.columns, (col) => [

@@ -213,11 +213,8 @@ describe("explore", () => {
 					)
 				)
 				strictEqual(released._tag, "CaseHung")
-				strictEqual(
-					yield* Ref.get(cleaned),
-					true,
-					"the hung case's lease went back before the hang was reported"
-				)
+				const returned = yield* Ref.get(cleaned)
+				strictEqual(returned, true, "the hung case's lease went back before the hang was reported")
 				const frozen = yield* Effect.flip(
 					explore(
 						{
@@ -751,7 +748,8 @@ describe("the coverage verdict", () => {
 							const [first, second] = sketch.runs
 							const verdict = yield* verdictOf(sketch, first)
 							c.note(verdict.outcome.kind)
-							deepStrictEqual(yield* verdictOf(sketch, second), verdict)
+							const secondVerdict = yield* verdictOf(sketch, second)
+							deepStrictEqual(secondVerdict, verdict)
 							const decided = floorDecides(sketch)
 							switch (decided.kind) {
 								case "stalled":
@@ -938,41 +936,34 @@ describe("replay fidelity", () => {
 						Effect.gen(function* () {
 							const [first, second] = sketch.runs
 							const failure = yield* fidelitySearch(sketch, first, [], Option.none())
-							deepStrictEqual(
-								caseOf(
-									yield* fidelitySearch(
-										sketch,
-										{ seed: first.seed, concurrency: second.concurrency },
-										[],
-										Option.none()
-									)
-								),
-								caseOf(failure)
+							const swappedConcurrency = yield* fidelitySearch(
+								sketch,
+								{ seed: first.seed, concurrency: second.concurrency },
+								[],
+								Option.none()
 							)
+							deepStrictEqual(caseOf(swappedConcurrency), caseOf(failure))
 							if (Option.isNone(failure)) {
 								return
 							}
 							const failed = failure.value
 							c.note(failed.phase)
 							if (isWitness(failed.phase)) {
-								deepStrictEqual(
-									caseOf(
-										yield* fidelitySearch(
-											sketch,
-											{ seed: second.seed, concurrency: first.concurrency },
-											[],
-											Option.none()
-										)
-									),
-									caseOf(failure)
+								const swappedSeed = yield* fidelitySearch(
+									sketch,
+									{ seed: second.seed, concurrency: first.concurrency },
+									[],
+									Option.none()
 								)
+								deepStrictEqual(caseOf(swappedSeed), caseOf(failure))
 							}
 							if (Option.isNone(failed.replay)) {
 								return
 							}
 							const token = failed.replay.value
+							const replayedSearch = yield* fidelitySearch(sketch, second, [], Option.some(token))
 							deepStrictEqual(
-								caseOf(yield* fidelitySearch(sketch, second, [], Option.some(token))),
+								caseOf(replayedSearch),
 								Option.some(["replayed", Option.some(token)] as const)
 							)
 							if (sketch.search === "explore" && token.drawn.kind === "unsteered") {

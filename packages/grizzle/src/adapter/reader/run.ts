@@ -438,9 +438,10 @@ const programStatements = (
 			if (record.arrival.kind === "fed") {
 				continue
 			}
-			statements.push(
-				yield* encodeForm(formFor(record.run, exceeds), (slot) => readBinding(slot, inputs))
+			const encoded = yield* encodeForm(formFor(record.run, exceeds), (slot) =>
+				readBinding(slot, inputs)
 			)
+			statements.push(encoded)
 		}
 		return statements
 	})
@@ -475,7 +476,7 @@ const atMostOne = <A>(
 	const [first, second] = delivered
 	if (second !== undefined) {
 		return Result.fail(
-			UnreadableAnswer.make({ index: answerOf(second.group.record.arrival), fate: "committed" })
+			new UnreadableAnswer({ index: answerOf(second.group.record.arrival), fate: "committed" })
 		)
 	}
 	return Result.succeed(first === undefined ? Option.none() : Option.some(read(first.row)))

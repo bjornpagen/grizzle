@@ -285,8 +285,9 @@ layer(Substrate.layer)("key representability against PostgreSQL's B-tree item li
 										Arr.map(fields, (f, i) => widestValue(f, sketch.salt + i))
 									)
 								}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+								const outcome = yield* Effect.result(run)
 								succeeded(
-									yield* Effect.result(run),
+									outcome,
 									`the compiler accepts the key (${Arr.join(
 										Arr.map(fields, (f) => columnSql(f)),
 										", "

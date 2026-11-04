@@ -452,9 +452,7 @@ export const applyWith = (
 				if (problems.length > 0) {
 					return Effect.die(new Error(`the single-flight property: ${Arr.join(problems, "; ")}`))
 				}
-				return Result.isSuccess(result)
-					? Effect.succeed(result.success)
-					: Effect.fail(result.failure)
+				return Effect.fromResult(result)
 			})
 		)
 	})

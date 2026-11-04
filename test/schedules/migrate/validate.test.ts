@@ -479,8 +479,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						`refused by a law this data violates, once: ${Formatter.format(server)}: ${e.message}`
 					)
 					refused.push(refusalName(found))
+					const contents = yield* x.contents
 					assert.deepEqual(
-						yield* x.contents,
+						contents,
 						before,
 						`the refusal by ${refusalName(found)} left the rows intact`
 					)
@@ -546,10 +547,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						w1: { kind: "psql", as: x.writer },
 						w2: { kind: "psql", as: x.writer }
 					})
-					const [[pid]] = yield* decodeBackend(
-						yield* Effect.orDie(
-							statementRows(x.migrator, "SELECT pg_catalog.pg_backend_pid()::text", [])
-						)
+					const [[pid]] = yield* Effect.flatMap(
+						Effect.orDie(statementRows(x.migrator, "SELECT pg_catalog.pg_backend_pid()::text", [])),
+						decodeBackend
 					)
 					const m: GrizzleActor = { name: "m", role: x.s.owner.role, pid }
 					const actors = { direct, grizzle: { m } }

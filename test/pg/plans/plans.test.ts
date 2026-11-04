@@ -460,7 +460,8 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 						(drawnIds) =>
 							Effect.gen(function* () {
 								const ids = Arr.map(drawnIds, (n) => ({ id: uid(6, n) }))
-								probesOnly(yield* estimate(spec.sql, paramTexts(spec, { ids })), "recordset")
+								const recordsetPlan = yield* estimate(spec.sql, paramTexts(spec, { ids }))
+								probesOnly(recordsetPlan, "recordset")
 								/** The VALUES transport of the same statement: the input's canonical texts as a VALUES list. */
 								const rows = Arr.map(drawnIds, (n) =>
 									Arr.map(slot.columns, (column) => ({ column, text: uid(6, n) }))
@@ -477,7 +478,8 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 									[{ slot, rows }]
 								)
 								assert.deepEqual(specialized.params, [])
-								probesOnly(yield* estimate(specialized.sql.text, []), "VALUES")
+								const valuesPlan = yield* estimate(specialized.sql.text, [])
+								probesOnly(valuesPlan, "VALUES")
 							})
 					)
 				})
@@ -491,14 +493,12 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 			Effect.gen(function* () {
 				const { schema } = yield* fixture
 				const byAmount = only(compiled(sumsOfAmounts, schema).optimized, "optimized statement")
-				assert.equal(
-					groupingSteps(yield* estimate(byAmount.sql, [])).length,
-					2,
-					"a deduplication, then the fold"
-				)
+				const byAmountPlan = yield* estimate(byAmount.sql, [])
+				assert.equal(groupingSteps(byAmountPlan).length, 2, "a deduplication, then the fold")
 				const byPosting = only(compiled(sumsOfPostings, schema).optimized, "optimized statement")
+				const byPostingPlan = yield* estimate(byPosting.sql, [])
 				assert.deepEqual(
-					groupingSteps(yield* estimate(byPosting.sql, [])),
+					groupingSteps(byPostingPlan),
 					["Aggregate"],
 					"one fold, nothing deduplicated"
 				)

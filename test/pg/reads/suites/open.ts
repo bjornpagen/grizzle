@@ -21,6 +21,7 @@ import { Db } from "#adapter/public/db.ts"
 import { DbLayer as DbLayerValue } from "#adapter/public/layer.ts"
 import { makeReader, poolExecutor, type ReaderValue } from "#adapter/reader/reader.ts"
 import type { DbLayerService, DbLayerOf } from "#adapter/types/layer.ts"
+import type { Json } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
@@ -215,7 +216,7 @@ const featureOf = (openCase: OpenCase): OpenFeature => {
 }
 
 /** The payload of each fault, and of the faultless opens: a member claim object for a2, an absent one. */
-const faultPayload: { readonly [F in PayloadFault]: unknown } = {
+const faultPayload: { readonly [F in PayloadFault]: Json } = {
 	notAnObject: { member: "a2" },
 	missing: { member: {} },
 	refused: { member: { account: "not a uuid" } }
@@ -312,7 +313,7 @@ export const openSuite = (): void => {
 						 * datlocprovider is 'c' for libc, and the NULL datlocale of a libc database is read as
 						 * the empty string.
 						 */
-						const openMember = (payload: unknown) =>
+						const openMember = (payload: Json) =>
 							Db.open(worlds.web.roles.member, { token: tokenOf(payload) })
 						return yield* exhaust(
 							{
@@ -408,7 +409,8 @@ export const openSuite = (): void => {
 												error.reason,
 												RoleOutsideLayers.make({ role: "auditor", login: "ops" })
 											)
-											assert.deepEqual(yield* backendsOf(worlds.ops), [["0"]])
+											const backends = yield* backendsOf(worlds.ops)
+											assert.deepEqual(backends, [["0"]])
 											break
 										}
 										case "not a role": {
@@ -440,7 +442,8 @@ export const openSuite = (): void => {
 											)
 											assert.equal(error.stage, "token")
 											assertInstanceOf(error.reason, TokenError)
-											assert.deepEqual(yield* backendsOf(worlds.web), [["0"]])
+											const backends = yield* backendsOf(worlds.web)
+											assert.deepEqual(backends, [["0"]])
 											break
 										}
 										case "payload refused": {
@@ -458,7 +461,8 @@ export const openSuite = (): void => {
 												error.reason,
 												ClaimRefused.make({ context: "Member", fault })
 											)
-											assert.deepEqual(yield* backendsOf(worlds.web), [["0"]])
+											const backends = yield* backendsOf(worlds.web)
+											assert.deepEqual(backends, [["0"]])
 											break
 										}
 										case "role default": {
@@ -534,7 +538,8 @@ export const openSuite = (): void => {
 											const error = yield* refusal(openApp.pipe(withLayer(failing)))
 											assert.equal(error.stage, "credential")
 											assertInstanceOf(error.reason, CredentialError)
-											assert.deepEqual(yield* backendsOf(worlds.server), [["0"]])
+											const backends = yield* backendsOf(worlds.server)
+											assert.deepEqual(backends, [["0"]])
 											break
 										}
 									}
@@ -597,7 +602,8 @@ export const openSuite = (): void => {
 						return assert.fail("the probe's compile fails with a CompileError")
 					}
 					assert.equal(compiled.reason._tag, "UnsupportedOperation")
-					assert.deepEqual(yield* activity(), before)
+					const after = yield* activity()
+					assert.deepEqual(after, before)
 				}).pipe(Effect.scoped, withLayer(loginLayerIn(database, opened.installed, opened.server)))
 			}).pipe(Effect.scoped)
 		)

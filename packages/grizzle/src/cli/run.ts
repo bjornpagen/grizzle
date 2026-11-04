@@ -1,6 +1,7 @@
 import {
 	Array as Arr,
 	Cause,
+	Data,
 	DateTime,
 	Effect,
 	Exit,
@@ -8,12 +9,11 @@ import {
 	Option,
 	Path,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import {
-	MigrateError,
+	type MigrateError,
 	type MigrateOutcome,
 	type MigrationPlace,
 	stageOutcome
@@ -134,19 +134,16 @@ const placeParts = (place: MigrationPlace): ReadonlyArray<string> => {
 }
 
 /** A migrate or a drift the database refused, with the command that ran, which its report names. */
-class CommandRefused extends Schema.TaggedError<
-	CommandRefused,
-	{ readonly brand: unique symbol }
->()("CommandRefused", {
-	command: Schema.Literals(["migrate", "drift"]),
-	error: MigrateError
-}) {}
+class CommandRefused extends Data.TaggedError("CommandRefused")<{
+	readonly command: "migrate" | "drift"
+	readonly error: MigrateError
+}> {}
 
 /** A command's failure: a CLI refusal as it is, a migrate or drift refusal with its command. */
 const refusedBy =
 	(command: "migrate" | "drift") =>
 	(e: CliError | MigrateError): CliError | CommandRefused =>
-		e._tag === "CliError" ? e : CommandRefused.make({ command, error: e })
+		e._tag === "CliError" ? e : new CommandRefused({ command, error: e })
 
 /**
  * The lines a refusal lists under its first, each a fact of its own: each unresolved marker and data loss, and each
@@ -275,12 +272,14 @@ const program = Effect.fn("program")(function* (
 		return ran(exitCodes.ok, [Str.trimEnd(usageText)], [])
 	}
 	if (command.kind === "skill") {
-		return ran(exitCodes.ok, yield* installSkill(cwd), [])
+		const installed = yield* installSkill(cwd)
+		return ran(exitCodes.ok, installed, [])
 	}
 	const { value, file } = yield* configFile
 	const config = yield* resolveConfig(value, file)
 	if (command.kind === "names") {
-		return ran(exitCodes.ok, yield* names(config), [])
+		const listed = yield* names(config)
+		return ran(exitCodes.ok, listed, [])
 	}
 	if (command.kind === "check") {
 		const checks = yield* check(config, cwd)

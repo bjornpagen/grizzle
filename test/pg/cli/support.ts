@@ -19,11 +19,12 @@ import type { GrizzleConfig, MigrationConnectionConfig } from "#adapter/types/co
 import { type ConfigFile, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
 import { type CliError, ConfigMissing, cliError, configFileName } from "#cli/errors.ts"
 import { runCli } from "#cli/run.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
 import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
-import { decodeJson, jsonText } from "#test/support/json.ts"
+import { decodeJson } from "#test/support/json.ts"
 import { sourceCondition } from "#test/support/process.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 
@@ -205,15 +206,17 @@ export const specConfig = (
 > =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		const spec = decodeSpec(yield* fs.readFileString(`${dir}/${specFileName}`))
-		return configOf(yield* readCluster, spec)
+		const text = yield* fs.readFileString(`${dir}/${specFileName}`)
+		const spec = decodeSpec(text)
+		const cluster = yield* readCluster
+		return configOf(cluster, spec)
 	})
 
 /**
  * The grizzle.config.ts every spec's workspace holds: config.child.ts's configModule builds the configuration from the
  * spec beside it.
  */
-const configText = `import { defineConfig } from "@bjornpagen/grizzle"\nimport { configModule } from ${JSON.stringify(configChild)}\n\nexport default defineConfig(await configModule(import.meta.dirname))\n`
+const configText = `import { defineConfig } from "@bjornpagen/grizzle"\nimport { configModule } from ${jsonText(configChild)}\n\nexport default defineConfig(await configModule(import.meta.dirname))\n`
 
 /**
  * A grizzle.config.ts of `text` itself in `dir`: a malformed configuration, or one written by hand, which the bin
@@ -313,7 +316,8 @@ const workspaceConfig = (
 		if (!(yield* Effect.orDie(fs.exists(`${dir}/${specFileName}`)))) {
 			return yield* cliError(ConfigMissing.make({ directory: dir }))
 		}
-		const value = defineConfig(yield* Effect.orDie(specConfig(dir)))
+		const config = yield* Effect.orDie(specConfig(dir))
+		const value = defineConfig(config)
 		const loaded: ConfigFile = { file: `${dir}/${configFileName}`, value }
 		return loaded
 	})

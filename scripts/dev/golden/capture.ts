@@ -33,6 +33,7 @@ import {
 	Array as Arr,
 	Effect,
 	FileSystem,
+	Formatter,
 	Layer,
 	ManagedRuntime,
 	Option,
@@ -143,27 +144,29 @@ const attempt = (step: () => Settled): Settled => {
 }
 
 /**
- * JSON with every object's keys in code point order, bigints as strings tagged `n`, two-space indented. A source site
- * (`{ file, line, column }` under `site`) is written as `<site>`: it names the tree's path and the fixture's line,
- * which move with the files, not with the compiler.
+ * A value with every object's keys in code point order, and a source site (`{ file, line, column }` under `site`) as
+ * `<site>`: it names the tree's path and the fixture's line, which move with the files, not with the compiler.
  */
-const canonical = (value: unknown): string =>
-	JSON.stringify(
-		value,
-		(key, v: unknown) => {
-			if (typeof v === "bigint") {
-				return `${v.toString()}n`
-			}
-			if (key === "site" && isRecord(v) && "file" in v && "line" in v) {
-				return "<site>"
-			}
-			if (isRecord(v) && !Arr.isArray(v)) {
-				return Rec.fromEntries(Arr.sort(Rec.toEntries(v), byKey))
-			}
-			return v
-		},
-		2
-	)
+const ordered = (value: unknown): unknown => {
+	if (Arr.isArray(value)) {
+		return Arr.map(value, ordered)
+	}
+	if (isRecord(value)) {
+		return Rec.fromEntries(
+			Arr.map(Arr.sort(Rec.toEntries(value), byKey), ([key, v]) => [
+				key,
+				key === "site" && isRecord(v) && "file" in v && "line" in v ? "<site>" : ordered(v)
+			])
+		)
+	}
+	return value
+}
+
+/**
+ * JSON with every object's keys in code point order, bigints as strings tagged `n`, two-space indented, a source site
+ * as `<site>` (ordered). Effect's JSON writer, so the capture loads no module a baseline tree may lack.
+ */
+const canonical = (value: unknown): string => Formatter.formatJson(ordered(value), { space: 2 })
 
 /** Records one subject the capture writes, by its path under <out-dir>, with its text. */
 type Write = (path: string, text: string) => void

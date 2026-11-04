@@ -82,10 +82,12 @@ layer(Substrate.layer)("pgvector admission", (it) => {
 					...worldSession(opened.installed.world(opened.app)),
 					label: "searcher"
 				})
+				const databaseRows = yield* searcher.values(databaseQuery.sql, [])
+				const extensionRows = yield* searcher.values(extensionsQuery.sql, [])
 				const rows = Result.getOrThrow(
 					serverRows({
-						database: texts(yield* searcher.values(databaseQuery.sql, [])),
-						extensions: texts(yield* searcher.values(extensionsQuery.sql, []))
+						database: texts(databaseRows),
+						extensions: texts(extensionRows)
 					})
 				)
 				assert.deepEqual(serverMismatches(rows, expected), [])
@@ -118,13 +120,12 @@ layer(Substrate.layer)("pgvector admission", (it) => {
 				const plain = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 				const database = yield* bareDatabase("novec", builtinCUtf8)
 
-				const refused = refusal(
-					yield* Effect.flip(
-						Db.open(vectors.server.roles.app, {}).pipe(
-							withLayer(loginLayerIn(database, vectors.installed, vectors.server))
-						)
+				const error = yield* Effect.flip(
+					Db.open(vectors.server.roles.app, {}).pipe(
+						withLayer(loginLayerIn(database, vectors.installed, vectors.server))
 					)
 				)
+				const refused = refusal(error)
 				assert.equal(refused.stage, "capability")
 				const schema = vectors.installed.schema
 				assert.deepEqual(

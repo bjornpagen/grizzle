@@ -1,5 +1,5 @@
 import { array, boolean, constant, type Gen, int, map, weighted } from "@grizzle/testing/gen"
-import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Formatter, Option, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { recursionUnrollMax } from "#compiler/core/policy.ts"
@@ -1971,7 +1971,7 @@ export const resolveRecursiveCase = (
 		features.push("relation roots over text")
 	}
 	const terminatesAsBag = Arr.every(q.notes, (n) => n.bounded || n.acyclic)
-	const label = `${printGraph(graph)}\nrecursion ${JSON.stringify(parts)}`
+	const label = `${printGraph(graph)}\nrecursion ${Formatter.format(parts)}`
 	return {
 		schema: q.schema,
 		facts: graphFacts(graph, sketch.spelling),

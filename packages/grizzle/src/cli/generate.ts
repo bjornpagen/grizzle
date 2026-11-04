@@ -121,11 +121,11 @@ export type SchemaGenerateReport = Written & {
 const draftRefused =
 	(schema: string, step: DraftRefused["step"]) =>
 	(error: CompileError): CliError =>
-		cliError(DraftRefused.make({ schema, step, error }))
+		cliError(new DraftRefused({ schema, step, error }))
 
 /** The refusal of the schema choice a command line makes, for `fault`. */
 const refuseChoice = (fault: SchemaChoiceRefused["fault"]): Result.Result<never, CliError> =>
-	Result.fail(cliError(SchemaChoiceRefused.make({ fault })))
+	Result.fail(cliError(new SchemaChoiceRefused({ fault })))
 
 /** The configured schemas the command applies to. */
 const selectSchemas = (
@@ -283,7 +283,8 @@ const abandonedSchemas = Effect.fn("abandonedSchemas")(
 		}
 		const configured = new Set(Arr.map(config.schemas, (s) => s.ident))
 		const abandoned: Array<AbandonedSchema> = []
-		for (const name of Arr.sort(yield* fs.readDirectory(config.migrations), Order.String)) {
+		const entries = yield* fs.readDirectory(config.migrations)
+		for (const name of Arr.sort(entries, Order.String)) {
 			const directory = path.join(config.migrations, name)
 			const candidate = !configured.has(name) && (yield* fs.stat(directory)).type === "Directory"
 			if (candidate && (yield* fs.exists(path.join(directory, snapshotFileName)))) {
@@ -294,7 +295,7 @@ const abandonedSchemas = Effect.fn("abandonedSchemas")(
 	},
 	(effect, config) =>
 		Effect.mapError(effect, (cause) =>
-			cliError(MigrationsUnread.make({ directory: config.migrations, cause }))
+			cliError(new MigrationsUnread({ directory: config.migrations, cause }))
 		)
 )
 
@@ -368,7 +369,7 @@ const givenName = (mode: GenerateMode): Option.Option<string> => {
 const nameRefusal = (mode: GenerateMode): Option.Option<CliError> =>
 	Option.map(
 		Option.filter(givenName(mode), (name) => !folderName("00000000000000", name).ok),
-		(name) => cliError(MigrationNameRefused.make({ migration: name }))
+		(name) => cliError(new MigrationNameRefused({ migration: name }))
 	)
 
 /** @internal */
@@ -387,11 +388,13 @@ export const generate = Effect.fn("generate")(function* (
 	const schemas = yield* Effect.fromResult(selectSchemas(config, options))
 	const drafts: Array<Draft> = []
 	for (const s of schemas) {
-		drafts.push(yield* draftFor(config, s, options))
+		const draft = yield* draftFor(config, s, options)
+		drafts.push(draft)
 	}
 	const reports: Array<SchemaGenerateReport> = []
 	for (const d of drafts) {
-		reports.push(yield* writeDraft(d))
+		const report = yield* writeDraft(d)
+		reports.push(report)
 	}
 	return reports
 })

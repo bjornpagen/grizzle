@@ -262,7 +262,8 @@ const writeOver = (
 
 const findings = (ws: Workspace, version: Version) =>
 	Effect.gen(function* () {
-		const checks = yield* check(yield* configOf(ws, version), ws.dir)
+		const config = yield* configOf(ws, version)
+		const checks = yield* check(config, ws.dir)
 		return Arr.flatMap(checks, (c) => c.findings)
 	})
 
@@ -286,9 +287,10 @@ const open = (ws: Workspace, version: Version) =>
 		const substrate = yield* Substrate
 		const { writer, server } = version
 		const credentials = yield* substrate.login(loginRoleOf(server))
+		const text = yield* ws.snapshotText
 		const dbLayer = DbLayer.make({
 			login: server,
-			snapshot: snapshotJson(yield* ws.snapshotText),
+			snapshot: snapshotJson(text),
 			host: pgPin.host,
 			port: pgPin.port,
 			database: substrate.database,
@@ -309,14 +311,16 @@ const open = (ws: Workspace, version: Version) =>
 /** A second generate drafts nothing. */
 const settled = (ws: Workspace, version: Version) =>
 	Effect.gen(function* () {
-		const [again] = yield* generate(yield* configOf(ws, version), {
+		const config = yield* configOf(ws, version)
+		const [again] = yield* generate(config, {
 			mode: { kind: "draft", naming: { kind: "derived" } },
 			schema: Option.none(),
 			now: now()
 		})
 		assert.ok(again !== undefined, "a second generate reports its schema")
 		assert.equal(again.kind, "unchanged", "a second generate drafts nothing")
-		assert.deepEqual(yield* findings(ws, version), [], "check sees no ungenerated change")
+		const checkFindings = yield* findings(ws, version)
+		assert.deepEqual(checkFindings, [], "check sees no ungenerated change")
 	})
 
 /** A reviewer's mistake the step makes before deciding the folder as drafted: none, a chosen rename spelt otherwise than
@@ -469,13 +473,16 @@ const step = (
 				Arr.some(refused, (f) => f.kind === "splitRename"),
 				Arr.join(Arr.map(refused, findingText), "\n")
 			)
-			assert.equal(yield* open(ws, version), "ledger")
+			const refusedAt = yield* open(ws, version)
+			assert.equal(refusedAt, "ledger")
 		}
 		yield* writeOver(ws, g.folder.name, reviewedSource(g, reviewerOf(g)).files)
-		assert.deepEqual(yield* findings(ws, version), [], "check passes once every marker is decided")
+		const decidedFindings = yield* findings(ws, version)
+		assert.deepEqual(decidedFindings, [], "check passes once every marker is decided")
 		const [applied] = yield* migrated(ws, version)
 		assert.ok(applied?.applied.length === 1, "migrate applies the folder")
-		assert.equal(yield* open(ws, version), "admitted")
+		const decidedAt = yield* open(ws, version)
+		assert.equal(decidedAt, "admitted")
 		yield* settled(ws, version)
 		return { g, mistaken: wrong !== "not makeable" }
 	})
@@ -1615,52 +1622,41 @@ const renames = explore(
 						}
 						shape = next.shape
 						const g = turn.g
-						unorderedEqual(
-							yield* texts(ws, `SELECT ${col(g, "Account", "id")} FROM ${tbl(g, "Account")}`),
-							[accounts[0], accounts[1]]
+						const accountIds = yield* texts(
+							ws,
+							`SELECT ${col(g, "Account", "id")} FROM ${tbl(g, "Account")}`
 						)
-						assert.deepEqual(
-							yield* texts(
-								ws,
-								`SELECT ${col(g, "Note", "id")}, ${col(g, "Note", "account")}, ${col(g, "Note", n("body"))}, ${col(g, "Note", n("title"))} FROM ${tbl(g, "Note")}`
-							),
-							[`1 ${accounts[0]} hello subject`]
+						unorderedEqual(accountIds, [accounts[0], accounts[1]])
+						const notes = yield* texts(
+							ws,
+							`SELECT ${col(g, "Note", "id")}, ${col(g, "Note", "account")}, ${col(g, "Note", n("body"))}, ${col(g, "Note", n("title"))} FROM ${tbl(g, "Note")}`
 						)
-						assert.deepEqual(
-							yield* texts(
-								ws,
-								`SELECT ${col(g, "Comment", "id")}, ${col(g, "Comment", "note")} FROM ${tbl(g, "Comment")}`
-							),
-							[`${id(21)} 1`]
+						assert.deepEqual(notes, [`1 ${accounts[0]} hello subject`])
+						const comments = yield* texts(
+							ws,
+							`SELECT ${col(g, "Comment", "id")}, ${col(g, "Comment", "note")} FROM ${tbl(g, "Comment")}`
 						)
-						unorderedEqual(
-							yield* texts(
-								ws,
-								`SELECT ${col(g, "Task", "id")}, ${col(g, "Task", n("selector"))} FROM ${tbl(g, "Task")}`
-							),
-							[`${id(11)} Automatic`, `${id(12)} ${n("manual")}`]
+						assert.deepEqual(comments, [`${id(21)} 1`])
+						const tasks = yield* texts(
+							ws,
+							`SELECT ${col(g, "Task", "id")}, ${col(g, "Task", n("selector"))} FROM ${tbl(g, "Task")}`
 						)
-						assert.deepEqual(
-							yield* texts(
-								ws,
-								`SELECT ${col(g, "ManualTask", "task")}, ${col(g, "ManualTask", n("operator"))} FROM ${tbl(g, "ManualTask")}`
-							),
-							[`${id(12)} ops`]
+						unorderedEqual(tasks, [`${id(11)} Automatic`, `${id(12)} ${n("manual")}`])
+						const manualTasks = yield* texts(
+							ws,
+							`SELECT ${col(g, "ManualTask", "task")}, ${col(g, "ManualTask", n("operator"))} FROM ${tbl(g, "ManualTask")}`
 						)
-						assert.deepEqual(
-							yield* texts(
-								ws,
-								`SELECT ${col(g, "AutomaticTask", "task")}, ${col(g, "AutomaticTask", "budget")} FROM ${tbl(g, "AutomaticTask")}`
-							),
-							[`${id(11)} 10`]
+						assert.deepEqual(manualTasks, [`${id(12)} ops`])
+						const automaticTasks = yield* texts(
+							ws,
+							`SELECT ${col(g, "AutomaticTask", "task")}, ${col(g, "AutomaticTask", "budget")} FROM ${tbl(g, "AutomaticTask")}`
 						)
-						assert.deepEqual(
-							yield* texts(
-								ws,
-								`SELECT ${col(g, "Item", "id")}, ${col(g, "Item", "rank")}, ${col(g, "Item", n("amount"))} FROM ${tbl(g, "Item")}`
-							),
-							[`${id(31)} ${n("high")} 5`]
+						assert.deepEqual(automaticTasks, [`${id(11)} 10`])
+						const items = yield* texts(
+							ws,
+							`SELECT ${col(g, "Item", "id")}, ${col(g, "Item", "rank")}, ${col(g, "Item", n("amount"))} FROM ${tbl(g, "Item")}`
 						)
+						assert.deepEqual(items, [`${id(31)} ${n("high")} 5`])
 						yield* expectConstraint(
 							ws.sql(`DELETE FROM ${tbl(g, "ManualTask")}`),
 							shopOf(ws.name, shape).alternatives,

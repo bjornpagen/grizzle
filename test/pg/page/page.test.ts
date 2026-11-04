@@ -618,10 +618,8 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						const counted = untyped(makeReader(context, executor))
 						const params = { account: A }
 						const compiled = pageTemplate(db, priorityDescendingTasks)
-						const full = sortedResult(
-							compiled,
-							yield* (yield* db.execute(priorityDescendingTasks, params)).collect
-						)
+						const rows = yield* (yield* db.execute(priorityDescendingTasks, params)).collect
+						const full = sortedResult(compiled, rows)
 						/**
 						 * Every page size from one to past the account's 23 tasks: each traversal's pages are as many
 						 * transactions, and both directions deliver D.
@@ -1287,26 +1285,21 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 							},
 							(request) =>
 								Effect.gen(function* () {
-									assert.deepEqual(
-										yield* Effect.flip(db.page(titles, params, request)),
-										oversized,
-										Formatter.format(request)
-									)
+									const error = yield* Effect.flip(db.page(titles, params, request))
+									assert.deepEqual(error, oversized, Formatter.format(request))
 								})
 						)
 						/** A page whose edges exclude the long title pages normally, and the page after it fails. */
 						const head = yield* db.page(titles, params, { first: 1 })
 						const headTitles = Arr.map(head.edges, (e) => e.node.title)
 						assert.deepEqual([headTitles, head.pageInfo.hasNextPage], [["𝔘nicode"], true])
-						assert.deepEqual(
-							yield* Effect.flip(
-								db.page(titles, params, {
-									first: 1,
-									after: Option.getOrThrow(head.pageInfo.endCursor)
-								})
-							),
-							oversized
+						const error = yield* Effect.flip(
+							db.page(titles, params, {
+								first: 1,
+								after: Option.getOrThrow(head.pageInfo.endCursor)
+							})
 						)
+						assert.deepEqual(error, oversized)
 						const tail = yield* db.page(titles, params, { last: 2 })
 						const tailTitles = Arr.map(tail.edges, (e) => e.node.title)
 						assert.deepEqual([tailTitles, tail.pageInfo.hasPreviousPage], [["gamma", "beta"], true])
@@ -1318,10 +1311,8 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						assert.equal(top.title, long)
 						/** The same query over an account without the long title pages normally. */
 						const compiled = pageTemplate(db, titles)
-						const full = sortedResult(
-							compiled,
-							yield* (yield* db.execute(titles, { account: A })).collect
-						)
+						const rows = yield* (yield* db.execute(titles, { account: A })).collect
+						const full = sortedResult(compiled, rows)
 						yield* checkTraversals(
 							"titles of A",
 							untyped(dbReader(db)),

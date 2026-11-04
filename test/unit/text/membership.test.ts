@@ -185,7 +185,7 @@ describe("host NFA membership equals ECMAScript", () => {
 					}
 					const s = found.value
 					return {
-						note: `${p.label} on ${JSON.stringify(s)}`,
+						note: `${p.label} on ${Formatter.format(s)}`,
 						sketch: [p, { witness: false, s }],
 						draws: "",
 						reaches: [`${p.label} refuses`]

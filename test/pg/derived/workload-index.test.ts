@@ -112,7 +112,8 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 				assert.deepEqual(workloadFlags, ["false", "true", "m"])
 				yield* owner.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
 				yield* owner.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
-				assert.deepEqual(yield* indexes(), before)
+				const after = yield* indexes()
+				assert.deepEqual(after, before)
 				yield* owner.query(`ANALYZE ${view}`, [])
 				yield* owner.query("SET enable_seqscan = off", [])
 				const template = compileTemplate(busyAccounts, undefined, {

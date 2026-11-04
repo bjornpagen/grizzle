@@ -146,7 +146,8 @@ const derive = Effect.gen(function* () {
 	const manifest = `${root}/pnpm-workspace.yaml`
 	const text = yield* fs.readFileString(manifest).pipe(Effect.mapError(inspectionFailure(manifest)))
 	const globs = yield* workspaceGlobsOf(manifest, text)
-	const packages = Arr.flatten(yield* Effect.forEach(globs, (glob) => packagesOf(root, glob)))
+	const matched = yield* Effect.forEach(globs, (glob) => packagesOf(root, glob))
+	const packages = Arr.flatten(matched)
 	return { root, packages }
 })
 

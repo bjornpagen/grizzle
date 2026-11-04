@@ -696,14 +696,15 @@ const middleRow = (cx: Judging, source: string, fields: ReadonlyArray<FieldSpec>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const table = tableSql(cx, source)
-		const [row] = yield* Schema.decodeUnknownEffect(Texts)(
-			yield* admin.queryValues(
+		const [row] = yield* Effect.flatMap(
+			admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(fields, (f) => `${columnSql(cx, source, f.name)}::text`),
 					", "
 				)} FROM ${table} ORDER BY ctid OFFSET (SELECT count(*) / 2 FROM ${table}) LIMIT 1`,
 				[]
-			)
+			),
+			Schema.decodeUnknownEffect(Texts)
 		)
 		const values = defined(row, `the middle row of ${source}`)
 		return Rec.fromEntries(
@@ -715,14 +716,15 @@ const middleRow = (cx: Judging, source: string, fields: ReadonlyArray<FieldSpec>
 const absentRow = (fields: ReadonlyArray<FieldSpec>) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const [row] = yield* Schema.decodeUnknownEffect(Texts)(
-			yield* admin.queryValues(
+		const [row] = yield* Effect.flatMap(
+			admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(fields, (f) => `(${absentSql(f.domain)})::text`),
 					", "
 				)}`,
 				[]
-			)
+			),
+			Schema.decodeUnknownEffect(Texts)
 		)
 		const values = defined(row, "the absent row")
 		return Rec.fromEntries(
@@ -941,14 +943,15 @@ const claimsOf = (base: BaseSpec) =>
 		if (!Arr.isReadonlyArrayNonEmpty(fields)) {
 			return { text: "{}", claimed: new Map<string, string>() }
 		}
-		const [row] = yield* Schema.decodeUnknownEffect(Texts)(
-			yield* admin.queryValues(
+		const [row] = yield* Effect.flatMap(
+			admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(fields, (f) => `(${claimSql(f.field.domain)})::text`),
 					", "
 				)}`,
 				[]
-			)
+			),
+			Schema.decodeUnknownEffect(Texts)
 		)
 		const values = defined(row, "the claims' values")
 		const claimed = Arr.map(fields, (f, at) => ({
@@ -1018,8 +1021,8 @@ const memberRow = (cx: Judging, target: RelationSpec, w: LinkWitness) =>
 			],
 			", "
 		)
-		const [row] = yield* Schema.decodeUnknownEffect(Texts)(
-			yield* admin.queryValues(
+		const [row] = yield* Effect.flatMap(
+			admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(target.fields, (f) => `${targetColumn(f.name)}::text`),
 					", "
@@ -1027,7 +1030,8 @@ const memberRow = (cx: Judging, target: RelationSpec, w: LinkWitness) =>
 				Arr.map(claimed, (c) =>
 					defined(cx.claimed.get(`${c.context}.${c.field}`), `the claim ${c.context}.${c.field}`)
 				)
-			)
+			),
+			Schema.decodeUnknownEffect(Texts)
 		)
 		return Option.map(Option.fromUndefinedOr(row), (values) =>
 			Rec.fromEntries(

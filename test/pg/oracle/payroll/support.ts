@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
@@ -228,7 +229,7 @@ const runProgram = (
 const programAgrees = (o: ProgramOutcome): boolean =>
 	Arr.every(
 		o.conservative.statements,
-		(s) => new Set(Arr.map(s.rows, (r) => JSON.stringify(r))).size === s.rows.length
+		(s) => new Set(Arr.map(s.rows, (r) => canonicalTextOf(r))).size === s.rows.length
 	) &&
 	Arr.every(
 		o.optimized,

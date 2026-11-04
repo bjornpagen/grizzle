@@ -1,4 +1,4 @@
-import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Formatter, pipe, Record as Rec, String as Str } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { closedId, Decimal, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import type { AnyClosed } from "#compiler/public/schema.ts"
@@ -457,7 +457,7 @@ export const printValue = (value: unknown): string => {
 		return `Decimal(${value.toString()})`
 	}
 	if (typeof value === "string" && value.length > 64) {
-		return `${JSON.stringify(Str.slice(0, 12)(value))}...${JSON.stringify(Str.slice(-12)(value))} (${value.length} code units)`
+		return `${Formatter.format(Str.slice(0, 12)(value))}...${Formatter.format(Str.slice(-12)(value))} (${value.length} code units)`
 	}
-	return JSON.stringify(value)
+	return Formatter.format(value)
 }

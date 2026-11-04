@@ -264,12 +264,13 @@ const Sized = Schema.Array(Schema.Tuple([Schema.String, Schema.String]))
 export const relationRows = (schema: string) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const sized = yield* Schema.decodeUnknownEffect(Sized)(
-			yield* admin.queryValues(
+		const sized = yield* Effect.flatMap(
+			admin.queryValues(
 				"SELECT c.relname::text, c.reltuples::bigint::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n " +
 					"ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind IN ('r', 'm')",
 				[schema]
-			)
+			),
+			Schema.decodeUnknownEffect(Sized)
 		)
 		return new Map(Arr.map(sized, ([r, n]) => [r, Number(n)]))
 	})
@@ -285,14 +286,15 @@ export const plannedIndexes = (installation: Installation): ReadonlySet<string> 
 export const createdIndexes = (schema: string) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const names = yield* Schema.decodeUnknownEffect(Schema.Array(Schema.Tuple([Schema.String])))(
-			yield* admin.queryValues(
+		const names = yield* Effect.flatMap(
+			admin.queryValues(
 				"SELECT c.relname::text FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid " +
 					"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text " +
 					"AND NOT i.indisunique AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint AS k WHERE k.conindid = i.indexrelid) " +
 					"ORDER BY 1",
 				[schema]
-			)
+			),
+			Schema.decodeUnknownEffect(Schema.Array(Schema.Tuple([Schema.String])))
 		)
 		return Arr.map(names, ([name]) => name)
 	})

@@ -1,4 +1,4 @@
-import { Array as Arr, Record } from "effect"
+import { Array as Arr, Formatter, Record } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -52,7 +52,7 @@ const printSchema = (schema: GenSchema): string => {
 const printStored = (v: SpelledValue, type: ScalarType): string =>
 	v.spelling.kind === "canonical"
 		? printLiteral(v.literal, type)
-		: `${printLiteral(v.literal, type)} stored as ${JSON.stringify(v.spelling.text)}`
+		: `${printLiteral(v.literal, type)} stored as ${Formatter.format(v.spelling.text)}`
 
 const printStoredRow = (
 	row: StoredRow,

@@ -1053,17 +1053,17 @@ export const WebLayer = DbLayer.make({
 	port: 5432,
 	database: "app",
 	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
-		Effect.mapError((cause) => CredentialError.make({ cause }))
+		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
 	tls: { ca: caPem },
 	attachPool: attachDatabasePool,
 	verify: (token) =>
 		clerkJwtKey.pipe(
-			Effect.mapError((cause) => TokenError.make({ cause })),
+			Effect.mapError((cause) => new TokenError({ cause })),
 			Effect.flatMap((jwtKey) =>
 				Effect.tryPromise({
 					try: () => verifyToken(token, { jwtKey, authorizedParties: ["https://blog.example"] }),
-					catch: (cause) => TokenError.make({ cause })
+					catch: (cause) => new TokenError({ cause })
 				})
 			)
 		)
@@ -1173,7 +1173,7 @@ export const EtlLayer = DbLayer.make({
 	port: 5432,
 	database: "app",
 	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
-		Effect.mapError((cause) => CredentialError.make({ cause }))
+		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
 	tls: { ca: caPem }
 })
@@ -1870,20 +1870,20 @@ export const RdsEtlLayer = DbLayer.make({
 	port: 5432,
 	database: "app",
 	password: etlJobRole.pipe(
+		Effect.mapError((cause) => new CredentialError({ cause })),
 		Effect.flatMap((username) =>
-			Effect.tryPromise(() =>
-				new Signer({
-					hostname: "db.internal",
-					port: 5432,
-					region: "us-east-1",
-					username
-				}).getAuthToken()
-			)
+			Effect.tryPromise({
+				try: () =>
+					new Signer({
+						hostname: "db.internal",
+						port: 5432,
+						region: "us-east-1",
+						username
+					}).getAuthToken(),
+				catch: (cause) => new CredentialError({ cause })
+			})
 		),
-		Effect.mapBoth({
-			onFailure: (cause) => CredentialError.make({ cause }),
-			onSuccess: Redacted.make
-		})
+		Effect.map(Redacted.make)
 	),
 	tls: { ca: caPem }
 })

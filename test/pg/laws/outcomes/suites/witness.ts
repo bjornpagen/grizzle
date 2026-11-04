@@ -104,7 +104,8 @@ const failingCommit = (
 		for (const [sql, params] of statements) {
 			yield* session.query(sql, params)
 		}
-		return serverFields(yield* Effect.flip(session.commit))
+		const error = yield* Effect.flip(session.commit)
+		return serverFields(error)
 	})
 
 /** The outcome db.apply reports for a change of an empty ChangeSet's reads. */

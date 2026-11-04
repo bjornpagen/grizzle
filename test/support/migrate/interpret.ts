@@ -1,4 +1,4 @@
-import { Array as Arr, Option, Order, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Formatter, Option, Order, Result, Schema, String as Str } from "effect"
 import type { Action } from "#compiler/deploy/diff/plan.ts"
 import { triggerColumns } from "#compiler/deploy/snapshot/objects.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -1032,7 +1032,7 @@ class Model {
 				const value = mapped()
 				if (value === undefined) {
 					refuse(
-						`invalid input value for enum ${printType(type)}: ${JSON.stringify(handle)} (22P02)`
+						`invalid input value for enum ${printType(type)}: ${Formatter.format(handle)} (22P02)`
 					)
 				} else if (value.kind !== "enum" || !labels.includes(value.handle)) {
 					refuse(

@@ -408,7 +408,8 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 						({ type, mask }, c) =>
 							Effect.gen(function* () {
 								noteMask(mask, c)
-								assert.deepEqual(yield* checkMask(installed, reader, type, mask), [])
+								const maskFaults = yield* checkMask(installed, reader, type, mask)
+								assert.deepEqual(maskFaults, [])
 							})
 					)
 					return yield* explore(
@@ -428,7 +429,8 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							Effect.gen(function* () {
 								noteMask(mask, c)
 								for (const type of rangeTypes) {
-									assert.deepEqual(yield* checkMask(installed, reader, type, mask), [])
+									const maskFaults = yield* checkMask(installed, reader, type, mask)
+									assert.deepEqual(maskFaults, [])
 								}
 							})
 					)

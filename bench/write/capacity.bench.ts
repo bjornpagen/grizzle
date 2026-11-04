@@ -278,18 +278,16 @@ END $f$`,
 				const handwritten: Array<TransactionMeasure> = []
 				for (let i = 0; i < options.samples; i++) {
 					const grp = nextGroup++
-					generated.push(
-						yield* measureTransaction(
-							writer,
-							split(membersSql(M, c("Member", "id"), c("Member", "grp"), nextId, k, grp))
-						)
+					const generatedRun = yield* measureTransaction(
+						writer,
+						split(membersSql(M, c("Member", "id"), c("Member", "grp"), nextId, k, grp))
 					)
-					handwritten.push(
-						yield* measureTransaction(
-							hand,
-							split(membersSql(`${B}.member`, "id", "grp", nextId, k, grp))
-						)
+					generated.push(generatedRun)
+					const handRun = yield* measureTransaction(
+						hand,
+						split(membersSql(`${B}.member`, "id", "grp", nextId, k, grp))
 					)
+					handwritten.push(handRun)
 					nextId += k
 				}
 				/**
@@ -351,18 +349,16 @@ END $f$`,
 			const wideGenerated: Array<TransactionMeasure> = []
 			const wideHand: Array<TransactionMeasure> = []
 			for (let i = 0; i < options.samples; i++) {
-				wideGenerated.push(
-					yield* measureTransaction(
-						writer,
-						split(membersSql(M, c("Member", "id"), c("Member", "grp"), nextId, 1, wideGroup))
-					)
+				const wideGeneratedRun = yield* measureTransaction(
+					writer,
+					split(membersSql(M, c("Member", "id"), c("Member", "grp"), nextId, 1, wideGroup))
 				)
-				wideHand.push(
-					yield* measureTransaction(
-						hand,
-						split(membersSql(`${B}.member`, "id", "grp", nextId, 1, wideGroup))
-					)
+				wideGenerated.push(wideGeneratedRun)
+				const wideHandRun = yield* measureTransaction(
+					hand,
+					split(membersSql(`${B}.member`, "id", "grp", nextId, 1, wideGroup))
 				)
+				wideHand.push(wideHandRun)
 				nextId += 1
 			}
 			const wideGrizzle = yield* timedSamples(
@@ -426,16 +422,11 @@ END $f$`,
 				},
 				{ bound: { kind: "operations", n: options.operations }, sampler: sampler(pids) }
 			)
-			const grizzlePids = Arr.map(
-				decodeRows(
-					CountRow,
-					yield* s.admin.queryValues(
-						"SELECT pid::text FROM pg_catalog.pg_stat_activity WHERE usename = $1::name AND datname = pg_catalog.current_database() AND pid <> ALL ($2::int4[])",
-						[loginRoleOf(fx), `{${Arr.join(Arr.map(pids, String), ",")}}`]
-					)
-				),
-				([pid]) => pid
+			const rows = yield* s.admin.queryValues(
+				"SELECT pid::text FROM pg_catalog.pg_stat_activity WHERE usename = $1::name AND datname = pg_catalog.current_database() AND pid <> ALL ($2::int4[])",
+				[loginRoleOf(fx), `{${Arr.join(Arr.map(pids, String), ",")}}`]
 			)
+			const grizzlePids = Arr.map(decodeRows(CountRow, rows), ([pid]) => pid)
 			const grizzleHot = yield* runLoad(
 				dbs,
 				(d) => {
@@ -536,13 +527,11 @@ END $f$`,
 			const grizzleRaceRetries = Arr.flatMap(grizzleRace, (o) =>
 				Arr.map(o.retries, (r) => r.reason)
 			)
-			const [boundMembers, boundMembersGrizzle] = decodeOne(
-				CountPair,
-				yield* s.admin.queryValues(
-					`SELECT (SELECT count(*) FROM ${M} WHERE ${c("Member", "grp")} = ${boundGroup})::text, (SELECT count(*) FROM ${M} WHERE ${c("Member", "grp")} = ${boundGroupGrizzle})::text`,
-					[]
-				)
+			const boundCounts = yield* s.admin.queryValues(
+				`SELECT (SELECT count(*) FROM ${M} WHERE ${c("Member", "grp")} = ${boundGroup})::text, (SELECT count(*) FROM ${M} WHERE ${c("Member", "grp")} = ${boundGroupGrizzle})::text`,
+				[]
 			)
+			const [boundMembers, boundMembersGrizzle] = decodeOne(CountPair, boundCounts)
 
 			/** 5. The partial-unique specialization, read from the installation record beside the catalog it installed. */
 			const objects = yield* lawObjects(fx)

@@ -335,7 +335,8 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 				}),
 				[]
 			)
-			assert.deepEqual(yield* publicCan(1, "kind"), [[true, true]])
+			const kindGrants = yield* publicCan(1, "kind")
+			assert.deepEqual(kindGrants, [[true, true]])
 
 			yield* run([reset("FUNCTIONS", { kind: "global" }), reset("TYPES", { kind: "global" })])
 			yield* m.query(sql(probe(schema, 2)), [])
@@ -343,7 +344,8 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 				sql({ kind: "createEnum", name: objectName(schema, "state"), labels: ["Open"] }),
 				[]
 			)
-			assert.deepEqual(yield* publicCan(2, "state"), [[false, false]])
+			const stateGrants = yield* publicCan(2, "state")
+			assert.deepEqual(stateGrants, [[false, false]])
 		})
 	)
 
@@ -420,8 +422,9 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 						(c) =>
 							Effect.gen(function* () {
 								const text = sql(c.statement)
+								const rows = yield* s.admin.queryValues(text, [])
 								const got: ReadonlyArray<number> = Arr.sort(
-									Arr.map(yield* s.admin.queryValues(text, []), (row) => Number(row[0])),
+									Arr.map(rows, (row) => Number(row[0])),
 									Order.Number
 								)
 								assert.deepEqual(got, c.rows, text)
@@ -551,14 +554,12 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 						Arr.map(defined(row, "the SELECT's one row"), String)
 					)
 
-				assert.deepEqual(
-					yield* values(
-						Arr.map(labels, (l) =>
-							asText(lit.text(l, namedType(testTypeSchema(schema), "label", [])))
-						)
-					),
-					labels
+				const rows = yield* values(
+					Arr.map(labels, (l) =>
+						asText(lit.text(l, namedType(testTypeSchema(schema), "label", [])))
+					)
 				)
+				assert.deepEqual(rows, labels)
 				const ints: ReadonlyArray<readonly [bigint, typeof types.smallint]> = [
 					[-32768n, types.smallint],
 					[32767n, types.smallint],
@@ -569,22 +570,21 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					[0n, types.numeric],
 					[-170141183460469231731687303715884105728n, types.numeric]
 				]
+				const printedInts = yield* values(Arr.map(ints, ([n, type]) => asText(lit.int(n, type))))
 				assert.deepEqual(
-					yield* values(Arr.map(ints, ([n, type]) => asText(lit.int(n, type)))),
+					printedInts,
 					Arr.map(ints, ([n]) => n.toString())
 				)
-				assert.deepEqual(
-					yield* values([`pg_typeof(${printExpr(lit.int(-2147483648n, types.integer))})::text`]),
-					["integer"]
-				)
-				assert.deepEqual(
-					yield* values([
-						asText(lit.bool(true)),
-						asText(lit.bool(false)),
-						asText(lit.text("[1,5)", types.int4range))
-					]),
-					["true", "false", "[1,5)"]
-				)
+				const minimumType = yield* values([
+					`pg_typeof(${printExpr(lit.int(-2147483648n, types.integer))})::text`
+				])
+				assert.deepEqual(minimumType, ["integer"])
+				const printedLiterals = yield* values([
+					asText(lit.bool(true)),
+					asText(lit.bool(false)),
+					asText(lit.text("[1,5)", types.int4range))
+				])
+				assert.deepEqual(printedLiterals, ["true", "false", "[1,5)"])
 
 				const zero = (d: string) =>
 					Arr.every(Arr.fromIterable(d), (c) => c === "0" || c === "-" || c === ".")
@@ -604,13 +604,14 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					(sample) =>
 						Effect.gen(function* () {
 							const texts = [...edgeTexts, ...sample.texts]
-							assert.deepEqual(
-								yield* values(Arr.map(texts, (x) => printExpr(lit.text(x, types.text)))),
-								texts
-							)
+							const rows = yield* values(Arr.map(texts, (x) => printExpr(lit.text(x, types.text))))
+							assert.deepEqual(rows, texts)
 							const decimals = [...edgeDecimals, ...sample.decimals]
+							const printedDecimals = yield* values(
+								Arr.map(decimals, (d) => asText(lit.decimal(d, types.numeric)))
+							)
 							assert.deepEqual(
-								yield* values(Arr.map(decimals, (d) => asText(lit.decimal(d, types.numeric)))),
+								printedDecimals,
 								Arr.map(decimals, (d) => (zero(d) && Str.startsWith("-")(d) ? Str.slice(1)(d) : d))
 							)
 							const doubles = [...edgeDoubles, ...sample.doubles]

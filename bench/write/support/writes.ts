@@ -193,7 +193,8 @@ export const baselineSchema = Effect.fn("baselineSchema")(function* (
 	label: string
 ): Effect.fn.Return<string, SqlError, Substrate | Scope.Scope> {
 	const s = yield* Substrate
-	return quoteIdent(yield* s.schema({ ...freshSchema, label }))
+	const schema = yield* s.schema({ ...freshSchema, label })
+	return quoteIdent(schema)
 })
 
 /**
@@ -869,47 +870,30 @@ export const lawObjects = Effect.fn("lawObjects")(function* <S>(
 	const s = yield* Substrate
 	const schema = fixture.installed.schema
 	/** Every function of the schema but those every installation has. */
-	const functions = Arr.map(
-		decodeRows(
-			TextRow,
-			yield* s.admin.queryValues(
-				"SELECT p.proname::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname <> ALL ($2::text[]) ORDER BY 1",
-				[schema, installationFunctions]
-			)
-		),
-		([name]) => name
+	const functionRows = yield* s.admin.queryValues(
+		"SELECT p.proname::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname <> ALL ($2::text[]) ORDER BY 1",
+		[schema, installationFunctions]
 	)
-	const triggers = Arr.map(
-		decodeRows(
-			TextRow,
-			yield* s.admin.queryValues(
-				"SELECT c.relname::text || '.' || t.tgname::text FROM pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND NOT t.tgisinternal ORDER BY 1",
-				[schema]
-			)
-		),
-		([trigger]) => trigger
+	const functions = Arr.map(decodeRows(TextRow, functionRows), ([name]) => name)
+	const triggerRows = yield* s.admin.queryValues(
+		"SELECT c.relname::text || '.' || t.tgname::text FROM pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND NOT t.tgisinternal ORDER BY 1",
+		[schema]
 	)
-	const indexes = Arr.map(
-		decodeRows(
-			TextRow,
-			yield* s.admin.queryValues(
-				"SELECT c.relname::text FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text ORDER BY 1",
-				[schema]
-			)
-		),
-		([index]) => index
+	const triggers = Arr.map(decodeRows(TextRow, triggerRows), ([trigger]) => trigger)
+	const indexRows = yield* s.admin.queryValues(
+		"SELECT c.relname::text FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text ORDER BY 1",
+		[schema]
 	)
+	const indexes = Arr.map(decodeRows(TextRow, indexRows), ([index]) => index)
 	const names = namesOf(fixture.installed)
 	const definitions: Record<string, string> = {}
 	for (const residual of fixture.installed.installation.laws.residuals) {
 		for (const unit of names.residual(residual.lawId).units) {
-			definitions[unit.function] = decodeOne(
-				TextRow,
-				yield* s.admin.queryValues(
-					"SELECT pg_catalog.pg_get_functiondef(p.oid)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname = $2::text",
-					[schema, unit.function]
-				)
-			)[0]
+			const definitionRows = yield* s.admin.queryValues(
+				"SELECT pg_catalog.pg_get_functiondef(p.oid)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname = $2::text",
+				[schema, unit.function]
+			)
+			definitions[unit.function] = decodeOne(TextRow, definitionRows)[0]
 		}
 	}
 	return { functions, triggers, indexes, definitions }
@@ -1056,7 +1040,8 @@ export const probeLaws = Effect.fn("probeLaws")(function* <S>(
 				}
 			}
 		}
-		const scans = scanDelta(before, yield* transactionScans(session, fixture.installed.schema))
+		const after = yield* transactionScans(session, fixture.installed.schema)
+		const scans = scanDelta(before, after)
 		const calls = Arr.map(tallies, (t): LawCalls => ({
 			relation: t.relation,
 			trigger: t.trigger,

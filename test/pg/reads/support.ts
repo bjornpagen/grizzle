@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, type Layer, type Scope } from "effect"
+import { Array as Arr, Effect, Formatter, type Layer, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -88,7 +88,7 @@ const releaseWhenIdle = (
 								...Arr.map(
 									left,
 									([pid, role, state, text]) =>
-										`  backend ${String(pid)} of ${String(role)}: ${String(state)}, last query ${JSON.stringify(String(text))}`
+										`  backend ${String(pid)} of ${String(role)}: ${String(state)}, last query ${Formatter.format(String(text))}`
 								)
 							],
 							"\n"

@@ -1,5 +1,5 @@
 import { NodeServices } from "@effect/platform-node"
-import { Array as Arr, Console, Effect, Layer } from "effect"
+import { Array as Arr, Console, Effect } from "effect"
 import { plpgsqlCoverageReport, readPlpgsqlCoverage } from "#scripts/dev/plpgsql-coverage.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { coverageAdminUrl, pgPin } from "#test/support/env.ts"
@@ -42,9 +42,7 @@ const setupCluster = Effect.gen(function* () {
 
 /** Vitest's global setup: the doctor, the sweep and the worker databases, before any test file starts. */
 export const setup = (): Promise<void> =>
-	Effect.runPromise(
-		Effect.provide(setupCluster, Layer.mergeAll(InitializedCluster.layer, NodeServices.layer))
-	)
+	Effect.runPromise(Effect.provide(setupCluster, [InitializedCluster.layer, NodeServices.layer]))
 
 /**
  * On the coverage cluster, the PL/pgSQL coverage every worker database recorded, read before the sweep drops what the

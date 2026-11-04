@@ -287,11 +287,10 @@ FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
 				ctx,
 				Effect.gen(function* () {
 					/** Every size's installation, made before the first case. */
-					const installs = new Map(
-						yield* Effect.forEach(sizes, (size) =>
-							Effect.map(install(size), (opened) => [size.name, opened] as const)
-						)
+					const installedSizes = yield* Effect.forEach(sizes, (size) =>
+						Effect.map(install(size), (opened) => [size.name, opened] as const)
 					)
+					const installs = new Map(installedSizes)
 					return yield* explore(
 						{
 							suite: "spans/allen-gist",

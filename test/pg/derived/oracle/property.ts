@@ -302,8 +302,10 @@ export const derivedCase = (
 			const readEvery = Effect.forEach(order, (name) =>
 				Effect.map(read(name), (rows) => [name, rows] as const)
 			)
-			const first = new Map(yield* readEvery)
-			const restored = restoredDerivedFacts(g, facts, yield* CurrentRestorage)
+			const firstRead = yield* readEvery
+			const first = new Map(firstRead)
+			const restorage = yield* CurrentRestorage
+			const restored = restoredDerivedFacts(g, facts, restorage)
 			if (restored.respelled) {
 				c.note("a fact respelled on a second reading")
 			}
@@ -316,7 +318,8 @@ export const derivedCase = (
 				{ label: "the second reading", named: order, unchanged: true },
 				c
 			)
-			const second = new Map(yield* readEvery)
+			const secondRead = yield* readEvery
+			const second = new Map(secondRead)
 			for (const name of order) {
 				const difference = multiset(identicalValue)(readOf(second, name), readOf(first, name))
 				if (Option.isSome(difference)) {

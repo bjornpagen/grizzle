@@ -247,7 +247,8 @@ const place = (root: string, spec: UnitSpec, seed: number) =>
 			case "disarmed": {
 				/** The copy sits beside ./fixtures, at the same depth, so the fixtures' relative imports resolve unchanged. */
 				const copy = yield* scopedTempDir(path.join(root, spec.dir), ".disarmed-")
-				const disarmed = yield* Effect.forEach(yield* fixtureFiles(root, spec.dir), (file) =>
+				const files = yield* fixtureFiles(root, spec.dir)
+				const disarmed = yield* Effect.forEach(files, (file) =>
 					Effect.gen(function* () {
 						const source = yield* fs.readFileString(path.join(root, spec.dir, "fixtures", file))
 						const armed = yield* placing(() => disarm(file, source))
@@ -530,7 +531,8 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 					continue
 				}
 				for (const file of placed.success.files) {
-					owners.set(yield* fs.realPath(file), unit)
+					const realPath = yield* fs.realPath(file)
+					owners.set(realPath, unit)
 				}
 				placements.set(unit, {
 					directives: placed.success.directives,
@@ -622,7 +624,8 @@ const writeBatchOn = (groups: ReadonlyArray<Group>, seed: number, path: string) 
 				unattributed: [`the type-test batch failed: ${Cause.pretty(cause)}`]
 			})
 		)
-		yield* fs.writeFileString(`${path}.partial`, yield* Schema.encodeEffect(BatchJson)(result))
+		const encoded = yield* Schema.encodeEffect(BatchJson)(result)
+		yield* fs.writeFileString(`${path}.partial`, encoded)
 		yield* fs.rename(`${path}.partial`, path)
 	})
 
@@ -634,7 +637,7 @@ const whenWritten = (path: string) =>
 			until: (exists) => exists,
 			schedule: Schedule.spaced("50 millis")
 		})
-		return yield* Schema.decodeEffect(BatchJson)(yield* fs.readFileString(path))
+		return yield* Effect.flatMap(fs.readFileString(path), Schema.decodeEffect(BatchJson))
 	})
 
 interface Checked {

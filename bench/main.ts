@@ -108,7 +108,8 @@ const sweepCluster = Effect.scoped(
 
 const gates = Effect.fn("gates")(function* (command: GatesCommand) {
 	if (command.report) {
-		const summary = summarizeRecords(yield* readRecords(command.outDir))
+		const records = yield* readRecords(command.outDir)
+		const summary = summarizeRecords(records)
 		yield* writeSummary(command.outDir, summary)
 		yield* printSummary(summary)
 		return failed(summary, []) ? 1 : 0
@@ -147,9 +148,10 @@ const full = Effect.gen(function* () {
 	const command = allGates(false)
 	const status = yield* gates(command)
 	const discovered = yield* discoverGates(defaultGateDirectories)
+	const records = yield* readRecords(command.outDir)
 	const listing = gateListing(
 		Arr.map(discovered, (d) => ({ file: d.file, gates: d.gate.gates })),
-		yield* readRecords(command.outDir)
+		records
 	)
 	const markdown = `${command.outDir}/GATES.md`
 	yield* fs.makeDirectory(command.outDir, { recursive: true })
@@ -216,7 +218,7 @@ const setStatus = (status: number): Effect.Effect<void> =>
 const main = Effect.gen(function* () {
 	const args = yield* Effect.sync((): ReadonlyArray<string> => process.argv.slice(2))
 	const command = yield* parseBenchArgs(args)
-	yield* setStatus(yield* run(command))
+	yield* Effect.flatMap(run(command), setStatus)
 }).pipe(
 	Effect.catchTag("UsageError", (e) => Effect.andThen(Console.error(e.reason), setStatus(2))),
 	Effect.catch((e) => Effect.andThen(Console.error(e), setStatus(1)))

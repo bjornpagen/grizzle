@@ -115,9 +115,10 @@ export const openSession = Effect.fnUntraced(function* (
 		Effect.andThen(record(sql), pinned.query(sql, params))
 	const values = (sql: string, params: ReadonlyArray<unknown>) =>
 		Effect.andThen(record(sql), pinned.queryValues(sql, params))
-	const pid = Effect.succeed(
-		yield* Effect.map(pinned.queryValues(backendPidQuery, []), (rows) => Number(rows[0]?.[0]))
+	const backendPid = yield* Effect.map(pinned.queryValues(backendPidQuery, []), (rows) =>
+		Number(rows[0]?.[0])
 	)
+	const pid = Effect.succeed(backendPid)
 
 	return {
 		label,

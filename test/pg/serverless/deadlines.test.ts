@@ -91,8 +91,10 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 							Effect.gen(function* () {
 								const vercel =
 									context === "vercel deadline"
-										? Option.some(
-												yield* vercelRuntime(onVercel, Option.some((yield* wallMillis) + 2_000))
+										? yield* Effect.asSome(
+												Effect.flatMap(wallMillis, (now) =>
+													vercelRuntime(onVercel, Option.some(now + 2_000))
+												)
 											)
 										: Option.none()
 								const pool = yield* poolFor(writer, {

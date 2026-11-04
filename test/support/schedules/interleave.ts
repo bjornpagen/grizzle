@@ -1037,7 +1037,8 @@ export const exploreInterleavings = <E>(
 			libraryStrategy,
 			(run) =>
 				Effect.gen(function* () {
-					const i = interleavingOf(spec.txns, run, yield* readState(env, spec.state))
+					const state = yield* readState(env, spec.state)
+					const i = interleavingOf(spec.txns, run, state)
 					const judged = yield* spec.model(i)
 					if (judged._tag === "Refused") {
 						return yield* RunRefused.make({

@@ -115,9 +115,8 @@ const packageAt = Effect.fnUntraced(function* (
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	const location = path.join(root, "packages", directory)
-	const manifest = yield* Schema.decodeEffect(Schema.fromJsonString(Manifest))(
-		yield* fs.readFileString(path.join(location, "package.json"))
-	).pipe(
+	const text = yield* fs.readFileString(path.join(location, "package.json"))
+	const manifest = yield* Schema.decodeEffect(Schema.fromJsonString(Manifest))(text).pipe(
 		Effect.mapError((cause) =>
 			BuildFailure.make({ detail: `packages/${directory}/package.json: ${cause.message}` })
 		)
@@ -126,8 +125,9 @@ const packageAt = Effect.fnUntraced(function* (
 		routeOf(manifest.name, key, target)
 	)
 	const src = path.join(location, "src")
+	const files = yield* filesUnder(src)
 	const modules = Arr.filter(
-		yield* filesUnder(src),
+		files,
 		(file) => Str.endsWith(".ts")(file) && !Str.endsWith(".d.ts")(file)
 	)
 	return {
@@ -225,7 +225,8 @@ const emitModules = Effect.fnUntraced(function* (pkg: Package) {
 					})
 			})
 			const js = `${moduleOf(file, ".ts")}.js`
-			yield* write(path.join(pkg.dist, js), yield* rewrite(pkg, js, stripped, emitted))
+			const rewritten = yield* rewrite(pkg, js, stripped, emitted)
+			yield* write(path.join(pkg.dist, js), rewritten)
 		}),
 		{ discard: true }
 	)
@@ -307,19 +308,18 @@ const emitDeclarations = Effect.fnUntraced(function* (
 				Effect.fnUntraced(function* (module) {
 					const file = `${module}.d.ts`
 					const text = yield* fs.readFileString(path.join(pkg.types, file))
-					yield* write(path.join(pkg.dist, file), yield* rewrite(pkg, file, text, emitted))
+					const rewritten = yield* rewrite(pkg, file, text, emitted)
+					yield* write(path.join(pkg.dist, file), rewritten)
 					const map = `${file}.map`
 					const mapText = yield* fs.readFileString(path.join(pkg.types, map))
-					yield* write(
+					const relocated = yield* relocateMap(
+						pkg,
+						module,
+						path.join(pkg.types, map),
 						path.join(pkg.dist, map),
-						yield* relocateMap(
-							pkg,
-							module,
-							path.join(pkg.types, map),
-							path.join(pkg.dist, map),
-							mapText
-						)
+						mapText
 					)
+					yield* write(path.join(pkg.dist, map), relocated)
 				}),
 				{ discard: true }
 			)

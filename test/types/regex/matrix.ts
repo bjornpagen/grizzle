@@ -14,7 +14,7 @@
  * the rest at runtime with the development oracle (ECMAScript's RegExp, which never appears under src/)
  * and the compiler's own NFA.
  */
-import { Array as Arr, String as Str } from "effect"
+import { Array as Arr, Formatter, String as Str } from "effect"
 export type Admission =
 	| "admitted"
 	| "MalformedDescription"
@@ -834,7 +834,7 @@ export const rows: ReadonlyArray<Row> = [
 	...Arr.map(
 		["i", "m", "g", "y", "d", "v", "s", "us", "", "iu", "sui", "gu", "uu", "U", "uv", "sus"],
 		(flags): Row => ({
-			name: `flags ${JSON.stringify(flags)}`,
+			name: `flags ${Formatter.format(flags)}`,
 			category: "flags",
 			source: "^ok$",
 			flags,
@@ -842,7 +842,7 @@ export const rows: ReadonlyArray<Row> = [
 			host: {
 				kind: "refused",
 				refused: "TS2345",
-				reason: `the ${JSON.stringify(flags)} flags are not admitted`
+				reason: `the ${Formatter.format(flags)} flags are not admitted`
 			},
 			admission: "MalformedDescription",
 			members: [],
@@ -856,7 +856,7 @@ export const rows: ReadonlyArray<Row> = [
 			["(?=a)b", "us"]
 		] as const,
 		([source, flags]): Row => ({
-			name: `flags ${JSON.stringify(flags)} over ${JSON.stringify(source)}`,
+			name: `flags ${Formatter.format(flags)} over ${Formatter.format(source)}`,
 			category: "flags",
 			source,
 			flags,
@@ -864,7 +864,7 @@ export const rows: ReadonlyArray<Row> = [
 			host: {
 				kind: "refused",
 				refused: "TS2345",
-				reason: `the ${JSON.stringify(flags)} flags are not admitted`
+				reason: `the ${Formatter.format(flags)} flags are not admitted`
 			},
 			admission: "MalformedDescription",
 			members: [],

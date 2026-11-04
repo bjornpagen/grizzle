@@ -254,7 +254,7 @@ layer(Substrate.layer)("fresh install", (it) => {
 					[]
 				)
 				yield* w.query("SET lc_monetary = 'ja_JP.UTF-8'", [])
-				const [[monetary]] = yield* decodeOneText(yield* w.values("SHOW lc_monetary", []))
+				const [[monetary]] = yield* Effect.flatMap(w.values("SHOW lc_monetary", []), decodeOneText)
 				assert.equal(monetary, "ja_JP.UTF-8")
 				const charge = (n: number, fee: bigint, surcharge: bigint) =>
 					w.query(
@@ -281,13 +281,11 @@ layer(Substrate.layer)("fresh install", (it) => {
 				yield* charge(5, 126n, 0n)
 				yield* w.query("RESET lc_monetary", [])
 				const feeColumn = at.columns("Charge", ["fee"])
-				assert.deepEqual(
-					yield* w.values(
-						`SELECT ${feeColumn}::numeric::text FROM ${at.table("Charge")} ORDER BY ${feeColumn}`,
-						[]
-					),
-					[["1.25"], ["1.26"]]
+				const rows = yield* w.values(
+					`SELECT ${feeColumn}::numeric::text FROM ${at.table("Charge")} ORDER BY ${feeColumn}`,
+					[]
 				)
+				assert.deepEqual(rows, [["1.25"], ["1.26"]])
 			})
 	)
 
@@ -340,8 +338,9 @@ layer(Substrate.layer)("fresh install", (it) => {
 				`INSERT INTO ${accountTable} (${opening}) VALUES ('ABC'::text, 'Usd'::${currency}, 1::bigint)`,
 				[]
 			)
-			const [[id]] = yield* decodeOneText(
-				yield* w.values(`SELECT ${at.columns("Account", ["id"])}::text FROM ${accountTable}`, [])
+			const [[id]] = yield* Effect.flatMap(
+				w.values(`SELECT ${at.columns("Account", ["id"])}::text FROM ${accountTable}`, []),
+				decodeOneText
 			)
 			yield* expectSqlstate(
 				w.query(
@@ -362,13 +361,11 @@ layer(Substrate.layer)("fresh install", (it) => {
 				`SELECT ${quoteIdent(advance.schema)}.${quoteIdent(advance.name)}(10::bigint)`,
 				[]
 			)
-			assert.deepEqual(
-				yield* w.values(
-					`INSERT INTO ${accountTable} (${opening}) VALUES ('DEF'::text, 'Usd'::${currency}, 1::bigint) RETURNING ${at.columns("Account", ["id"])}::text`,
-					[]
-				),
-				[["11"]]
+			const rows = yield* w.values(
+				`INSERT INTO ${accountTable} (${opening}) VALUES ('DEF'::text, 'Usd'::${currency}, 1::bigint) RETURNING ${at.columns("Account", ["id"])}::text`,
+				[]
 			)
+			assert.deepEqual(rows, [["11"]])
 			yield* expectConstraint(
 				w.query(
 					`INSERT INTO ${accountTable} (${opening}) VALUES ('abc'::text, 'Usd'::${currency}, 1::bigint)`,
@@ -444,8 +441,9 @@ layer(Substrate.layer)("fresh install", (it) => {
 			yield* expectSqlstate(r.query(`DELETE FROM ${entryTable}`, []), "42501")
 			yield* expectSqlstate(r.query(`SELECT count(*) FROM ${entryTable}`, []), "42501")
 			/** The tagged foreign key is deferred: a payout of a Refund entry fails at COMMIT. */
-			const [[entry]] = yield* decodeOneText(
-				yield* w.values(`SELECT ${at.columns("Entry", ["id"])}::text FROM ${entryTable}`, [])
+			const [[entry]] = yield* Effect.flatMap(
+				w.values(`SELECT ${at.columns("Entry", ["id"])}::text FROM ${entryTable}`, []),
+				decodeOneText
 			)
 			yield* expectConstraint(
 				inTransaction(

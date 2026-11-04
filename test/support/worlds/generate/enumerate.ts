@@ -399,7 +399,9 @@ const wildText = (wild: TokenWild, contexts: ReadonlyArray<ContextSpec>, empty: 
 			return `{"pad":"${Str.repeat(1_048_576)("x")}"}`
 		case "pattern-edge": {
 			const domain = field?.domain
-			return domain?.kind === "text" ? at(JSON.stringify(patternEdges(domain)[0].value)) : empty
+			return domain?.kind === "text"
+				? at(jsonText({ kind: "string", value: patternEdges(domain)[0].value }))
+				: empty
 		}
 		case "extra-fields":
 			return '{"extra":"x"}'

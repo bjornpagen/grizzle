@@ -166,7 +166,8 @@ describe("a guarded hook", () => {
 	it.effect("ends as the hook ends: its value, or its own failure", () =>
 		Effect.gen(function* () {
 			const guarded = guardHook({ label: "a build", budgetMillis: 1000 })
-			strictEqual(yield* guarded(Effect.succeed(7)), 7)
+			const guardedValue = yield* guarded(Effect.succeed(7))
+			strictEqual(guardedValue, 7)
 			const refused = yield* Effect.flip(guarded(Effect.fail("refused")))
 			strictEqual(refused, "refused")
 			strictEqual(Schema.is(LayerHung)(refused) ? "hung" : "its own", "its own")

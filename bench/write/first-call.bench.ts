@@ -162,27 +162,25 @@ export default defineGate({
 					const everyPayload: Array<TransactionMeasure> = []
 					for (let sample = 0; sample < options.samples; sample++) {
 						const id = 100000 + sample
-						firstParent.push(
-							yield* fresh(
-								[
-									`INSERT INTO ${N} (${c("Node", "id")}, ${c("Node", "kind")}) VALUES (${id}, 'h0'::${kind})`,
-									`INSERT INTO ${fx.table("Arm0")} (${c("Arm0", "node")}, ${c("Arm0", "amount")}) VALUES (${id}, 1)`
-								],
-								sample
-							)
+						const firstParentRun = yield* fresh(
+							[
+								`INSERT INTO ${N} (${c("Node", "id")}, ${c("Node", "kind")}) VALUES (${id}, 'h0'::${kind})`,
+								`INSERT INTO ${fx.table("Arm0")} (${c("Arm0", "node")}, ${c("Arm0", "amount")}) VALUES (${id}, 1)`
+							],
+							sample
 						)
-						everyPayload.push(
-							yield* fresh(
-								Arr.flatMap(
-									Arr.makeBy(armed, (i) => i),
-									(i) => [
-										`DELETE FROM ${fx.table(`Arm${i}`)} WHERE ${c(`Arm${i}`, "node")} = ${i + 1}`,
-										`INSERT INTO ${fx.table(`Arm${i}`)} (${c(`Arm${i}`, "node")}, ${c(`Arm${i}`, "amount")}) VALUES (${i + 1}, ${sample + 2})`
-									]
-								),
-								sample
-							)
+						firstParent.push(firstParentRun)
+						const everyPayloadRun = yield* fresh(
+							Arr.flatMap(
+								Arr.makeBy(armed, (i) => i),
+								(i) => [
+									`DELETE FROM ${fx.table(`Arm${i}`)} WHERE ${c(`Arm${i}`, "node")} = ${i + 1}`,
+									`INSERT INTO ${fx.table(`Arm${i}`)} (${c(`Arm${i}`, "node")}, ${c(`Arm${i}`, "amount")}) VALUES (${i + 1}, ${sample + 2})`
+								]
+							),
+							sample
 						)
+						everyPayload.push(everyPayloadRun)
 					}
 					const firstParentMs = median(Arr.map(firstParent, commitMs))
 					const everyPayloadMs = median(Arr.map(everyPayload, commitMs))

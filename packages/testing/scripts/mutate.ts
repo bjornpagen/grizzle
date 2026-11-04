@@ -23,16 +23,17 @@ import { applied, type Mutant, mutantsOf, OPERATORS, type Operator } from "#muta
 import { fnv1a32, mix } from "#random.ts"
 
 /**
- * `pnpm mutate --package <dir> --file <path>... [--config <vitest config>] [--workers N]`: measures a package's suite by
- * source mutation, a measurement and never a gate. Every mutant of the named files (mutants.ts) is judged in a copy of
- * the package in a temporary directory, never in the checkout, so a run killed mid-mutant leaves nothing mutated and
+ * `pnpm mutate --package <dir> --file <path>... [--config <vitest config>] [--workers N]`: measures a package's suite
+ * by source mutation, a measurement and never a gate. Every mutant of the named files (mutants.ts) is judged in a copy
+ * of the package in a temporary directory, never in the checkout, so a run killed mid-mutant leaves nothing mutated and
  * people and agents working in the checkout never see a mutant: the package's `typecheck` script sets aside one the
  * compiler refuses as invalid, the package's Vitest run (`--bail=1`) kills one some test fails on, and one every test
  * passes on survives, naming behaviour no test pins. A copy holds the package's own files, links its `node_modules` and
  * dot directories, and extends the original tsconfig's base by absolute path; the workspace's `node_modules` is linked
- * beside the copies, so a module resolves from a copy as it does from the package. `--workers N` judges N mutants at
- * once, each in a copy of its own. `--sample N` judges N mutants drawn by `--seed`; `--operator` and `--mutant` choose some;
- * `--list` prints them and runs nothing.
+ * beside the copies, so a module resolves from a copy as it does from the package, and pnpm runs a copy's scripts
+ * without verifying its dependencies, which a copy outside the workspace cannot resolve. `--workers N` judges N mutants
+ * at once, each in a copy of its own. `--sample N` judges N mutants drawn by `--seed`; `--operator` and `--mutant`
+ * choose some; `--list` prints them and runs nothing.
  */
 class MutationRunRefused extends Schema.TaggedError<
 	MutationRunRefused,
@@ -149,9 +150,8 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 
 	const workspace = yield* rootOf(pkg)
 	const searchPath = `${path.join(workspace, "node_modules", ".bin")}:${yield* Config.String("PATH")}`
-	const runDir = yield* fs.realPath(
-		yield* fs.makeTempDirectoryScoped({ prefix: "testing-mutate-" })
-	)
+	const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "testing-mutate-" })
+	const runDir = yield* fs.realPath(tempDir)
 	yield* fs.symlink(path.join(workspace, "node_modules"), path.join(runDir, "node_modules"))
 	const entries = yield* fs.readDirectory(pkg)
 	const tsconfig = yield* Effect.flatMap(
@@ -165,7 +165,8 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 	const made = yield* Ref.make(0)
 	/** A fresh copy of the package: its own files copied, and what it only reads linked. */
 	const copy = Effect.gen(function* () {
-		const tree = path.join(runDir, `copy-${String(yield* Ref.getAndUpdate(made, (n) => n + 1))}`)
+		const copyNumber = yield* Ref.getAndUpdate(made, (n) => n + 1)
+		const tree = path.join(runDir, `copy-${String(copyNumber)}`)
 		yield* fs.makeDirectory(tree)
 		yield* Effect.forEach(
 			entries,
@@ -184,12 +185,16 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 	const typeErrors = (tree: string) =>
 		Effect.map(
 			spawner.string(
-				ChildProcess.make("pnpm", ["-s", "run", "typecheck"], {
-					cwd: tree,
-					env: { PATH: searchPath },
-					extendEnv: true,
-					stdin: "ignore"
-				})
+				ChildProcess.make(
+					"pnpm",
+					["-s", "--config.verify-deps-before-run=false", "run", "typecheck"],
+					{
+						cwd: tree,
+						env: { PATH: searchPath },
+						extendEnv: true,
+						stdin: "ignore"
+					}
+				)
 			),
 			(output) =>
 				Arr.filter(
@@ -211,6 +216,7 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 					"pnpm",
 					[
 						"-s",
+						"--config.verify-deps-before-run=false",
 						"exec",
 						"vitest",
 						"run",

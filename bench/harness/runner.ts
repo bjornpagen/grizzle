@@ -458,7 +458,8 @@ export const readRecords = Effect.fn("readRecords")(
 		if (!(yield* fs.exists(dir))) {
 			return []
 		}
-		const files = Arr.sort(Arr.filter(yield* fs.readDirectory(dir), isRecordFile), Order.String)
+		const entries = yield* fs.readDirectory(dir)
+		const files = Arr.sort(Arr.filter(entries, isRecordFile), Order.String)
 		const records = yield* Effect.forEach(files, (f) =>
 			Effect.flatMap(fs.readFileString(path.join(dir, f)), decodeRecord)
 		)
@@ -609,7 +610,8 @@ export const runGates = Effect.fn("runGates")(function* (options: RunGatesOption
 			return record
 		})
 	)
-	const summary = summarizeRecords(yield* readRecords(options.outDir))
+	const outRecords = yield* readRecords(options.outDir)
+	const summary = summarizeRecords(outRecords)
 	yield* writeSummary(options.outDir, summary)
 	const run: GatesRun = { records, summary }
 	return run

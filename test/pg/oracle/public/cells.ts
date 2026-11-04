@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Record, Result, Schema } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record, Result, Schema } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
@@ -46,7 +46,7 @@ function disagree(report: string): never {
 }
 
 const misread = (type: ScalarType, text: string, what: string): never =>
-	disagree(`a ${type.carrier} cell ${JSON.stringify(text)}: ${what}`)
+	disagree(`a ${type.carrier} cell ${Formatter.format(text)}: ${what}`)
 
 const readsAs = (type: ScalarType, text: string, value: unknown, what: string): void => {
 	const codec = scalarCodec(type)

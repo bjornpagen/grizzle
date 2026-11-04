@@ -71,9 +71,8 @@ const openPayroll: Effect.Effect<
 	})
 	const s: PayrollInstalled = f.rebuilt(P.Payroll)
 	const worlds = P.reportingWorlds(s)
-	const hr = yield* Db.open(worlds.server.roles.hr, {}).pipe(
-		Effect.provideContext(yield* Layer.build(f.layer(worlds.server)))
-	)
+	const serverContext = yield* Layer.build(f.layer(worlds.server))
+	const hr = yield* Db.open(worlds.server.roles.hr, {}).pipe(Effect.provideContext(serverContext))
 	const psql = yield* openActors(substrate, {
 		h: { kind: "psql", as: f.installed.world(worlds.hr) }
 	})

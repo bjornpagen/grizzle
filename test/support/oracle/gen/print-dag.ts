@@ -1,4 +1,4 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Formatter } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { type NodeScope, nodeScopes, postorder, topoOrder } from "#compiler/ir/dag.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
@@ -34,7 +34,7 @@ export const printLiteral = (literal: TypedLiteral, type: ScalarType): string =>
 		case "bool":
 			return `${literal.value}::${label}`
 		case "text":
-			return `${JSON.stringify(literal.value)}::${label}`
+			return `${Formatter.format(literal.value)}::${label}`
 		case "uuid":
 			return `'${literal.value}'::${label}`
 		case "enum":

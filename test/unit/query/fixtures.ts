@@ -1,4 +1,4 @@
-import { Array as Arr, Record as Rec } from "effect"
+import { Array as Arr, Formatter, Record as Rec } from "effect"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
@@ -92,7 +92,7 @@ const assertCanonical = (desc: QueryDesc): void => {
 	): void => {
 		const listed = Arr.map(vars, (x) => (hasProperties(x) ? x["id"] : undefined))
 		if (new Set(listed).size !== listed.length) {
-			leaks.push(`${path}.vars: repeated ids ${JSON.stringify(listed)}`)
+			leaks.push(`${path}.vars: repeated ids ${Formatter.format(listed)}`)
 		}
 		const used = new Set<string>()
 		const uses = (value: unknown): void => {
@@ -114,7 +114,7 @@ const assertCanonical = (desc: QueryDesc): void => {
 		uses([rule["matches"], rule["where"], rule["head"]])
 		for (const id of used) {
 			if (!listed.includes(id)) {
-				leaks.push(`${path}: variable ${JSON.stringify(id)} is not in RuleDesc.vars`)
+				leaks.push(`${path}: variable ${Formatter.format(id)} is not in RuleDesc.vars`)
 			}
 		}
 	}

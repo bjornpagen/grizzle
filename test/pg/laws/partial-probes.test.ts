@@ -248,18 +248,20 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 								yield* transaction(substrate.admin, p.load(t, col))
 								yield* substrate.admin.query(`ANALYZE ${t(p.source)}`, [])
 								/** The catalog's predicate of the index holds exactly the selected rows. */
-								const predicates = yield* Schema.decodeUnknownEffect(Texts)(
-									yield* substrate.admin.queryValues(
+								const predicates = yield* Effect.flatMap(
+									substrate.admin.queryValues(
 										`SELECT pg_catalog.pg_get_expr(x.indpred, x.indrelid) FROM pg_catalog.pg_index AS x WHERE x.indexrelid = ${quoteString(indexName)}::regclass`,
 										[]
-									)
+									),
+									Schema.decodeUnknownEffect(Texts)
 								)
 								const [predicate] = defined(predicates[0], "the index's predicate")
-								const counted = yield* Schema.decodeUnknownEffect(Counts)(
-									yield* substrate.admin.queryValues(
+								const counted = yield* Effect.flatMap(
+									substrate.admin.queryValues(
 										`SELECT count(*)::int4 FROM ${t(p.source)} WHERE ${predicate}`,
 										[]
-									)
+									),
+									Schema.decodeUnknownEffect(Counts)
 								)
 								const [held] = defined(counted[0], "the count of the predicate's rows")
 								assert.equal(held, p.selected)
@@ -277,11 +279,12 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 										})
 										const indexScans = Effect.gen(function* () {
 											yield* w.values("SELECT pg_catalog.pg_stat_force_next_flush()", [])
-											const rows = yield* Schema.decodeUnknownEffect(Counts)(
-												yield* w.values(
+											const rows = yield* Effect.flatMap(
+												w.values(
 													`SELECT idx_scan::int4 FROM pg_catalog.pg_stat_all_indexes WHERE indexrelid = ${quoteString(indexName)}::regclass`,
 													[]
-												)
+												),
+												Schema.decodeUnknownEffect(Counts)
 											)
 											return defined(rows[0], "the index's statistics")[0]
 										})

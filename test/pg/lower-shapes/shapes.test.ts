@@ -67,6 +67,7 @@ import {
 	topAmounts
 } from "#test/unit/lower/shapes/queries.ts"
 
+import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	context,
 	shapedFacts,
@@ -221,8 +222,13 @@ const slotValue = (params: Params, slot: ConservativeParamSlot): string => {
 			 * lets the statement read the recordset without a DISTINCT; the fixture facts are already canonical text.
 			 */
 			const rows = Arr.map(value, (row) =>
-				JSON.stringify(
-					Rec.fromEntries(Arr.map(slot.columns, (c) => [c.definition.name, row[c.name]]))
+				jsonText(
+					Rec.fromEntries(
+						Arr.map(slot.columns, (c) => [
+							c.definition.name,
+							defined(row[c.name], `the fact's ${c.name}`)
+						])
+					)
 				)
 			)
 			return `[${Arr.join([...new Set(rows)], ",")}]`
@@ -240,13 +246,12 @@ const runProgram = (program: ConservativeProgram, params: Params) =>
 		const ran: Array<Ran> = []
 		for (const statement of flight(program.roots)) {
 			const values = Arr.map(statement.params, (slot) => slotValue(params, slot))
-			ran.push(
-				yield* runText(
-					statement.sql.text,
-					statementOutput(statement.role, statement.heading, []).heading,
-					values
-				)
+			const text = yield* runText(
+				statement.sql.text,
+				statementOutput(statement.role, statement.heading, []).heading,
+				values
 			)
+			ran.push(text)
 		}
 		return ran
 	})
@@ -283,7 +288,7 @@ const disagreements = (
 			want
 		)
 		if (Option.isSome(difference)) {
-			out.push(`statement ${i}: ${JSON.stringify(ran.text)} for ${JSON.stringify(want)}`)
+			out.push(`statement ${i}: ${Formatter.format(ran.text)} for ${Formatter.format(want)}`)
 		}
 		if (new Set(ran.text).size !== ran.text.length) {
 			out.push(`statement ${i} repeats a row`)
@@ -376,7 +381,7 @@ const nestedDisagreements = (
 	const out: Array<string> = []
 	const parentsAgree = attached.order === undefined ? multiset(exact) : ordered(exact)
 	if (Option.isSome(parentsAgree(want.parents, got.parents))) {
-		out.push(`parents ${JSON.stringify(got.parents)} for ${JSON.stringify(want.parents)}`)
+		out.push(`parents ${Formatter.format(got.parents)} for ${Formatter.format(want.parents)}`)
 	}
 	for (const [i, attach] of attached.attaches.entries()) {
 		const a = want.children[i]
@@ -391,7 +396,7 @@ const nestedDisagreements = (
 			const childrenAgree = attach.order === undefined ? multiset(exact) : ordered(exact)
 			if (Option.isSome(childrenAgree(x, y))) {
 				out.push(
-					`${attach.name} of ${JSON.stringify(parent)}: ${JSON.stringify(y)} for ${JSON.stringify(x)}`
+					`${attach.name} of ${Formatter.format(parent)}: ${Formatter.format(y)} for ${Formatter.format(x)}`
 				)
 			}
 		}
@@ -710,12 +715,14 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 						)
 						return disagreements(base, shaped, ordered)
 					})
-				assert.deepEqual(yield* program(topAmounts().query, [0], {}), [])
+				const topAmountsFaults = yield* program(topAmounts().query, [0], {})
+				assert.deepEqual(topAmountsFaults, [])
 				assert.ok(
 					(yield* program(topAmounts().query, [0], unique)).length > 0,
 					"a unique fact the take does not have disagrees"
 				)
-				assert.deepEqual(yield* program(Cases.byAmount().query, [], {}), [])
+				const byAmountFaults = yield* program(Cases.byAmount().query, [], {})
+				assert.deepEqual(byAmountFaults, [])
 				assert.ok(
 					(yield* program(Cases.byAmount().query, [], exact)).length > 0,
 					"an exact contribution the aggregate does not have disagrees"
@@ -738,8 +745,10 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 						const s = statementOf(cx, d.query, ["account", "amount"], {})
 						return disagreements([base], [yield* runText(s.text, 2, s.values)], [])
 					})
-				assert.deepEqual(yield* perGroup("rowNumber", 2n, {}), [])
-				assert.deepEqual(yield* perGroup("distinctOn", 1n, {}), [])
+				const rowNumberFaults = yield* perGroup("rowNumber", 2n, {})
+				assert.deepEqual(rowNumberFaults, [])
+				const distinctOnFaults = yield* perGroup("distinctOn", 1n, {})
+				assert.deepEqual(distinctOnFaults, [])
 				assert.ok(
 					(yield* perGroup("rowNumber", 2n, unique)).length > 0,
 					"a unique fact the per-group take does not have disagrees"
@@ -766,7 +775,8 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 						)
 						return disagreements([base], [yield* runText(s.text, 2, s.values)], [])
 					})
-				assert.deepEqual(yield* group({}), [])
+				const groupFaults = yield* group({})
+				assert.deepEqual(groupFaults, [])
 				assert.ok(
 					(yield* group(unique)).length > 0,
 					"a unique fact the delivered group does not have disagrees"
@@ -776,25 +786,15 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 				const oracle = yield* oracleNested(attached, schema)
 				const sound = shapedFacts(attached.query.dag, {}, "shapes").facts
 				const unsound = shapedFacts(attached.query.dag, perParent, "shapes").facts
-				assert.deepEqual(
-					nestedDisagreements(oracle, yield* pipelinedNested(attached, sound, schema), attached),
-					[]
-				)
-				assert.deepEqual(
-					nestedDisagreements(oracle, yield* fusedNested(attached, sound, schema), attached),
-					[]
-				)
-				const pipelined = nestedDisagreements(
-					oracle,
-					yield* pipelinedNested(attached, unsound, schema),
-					attached
-				)
+				const pipelinedSound = yield* pipelinedNested(attached, sound, schema)
+				assert.deepEqual(nestedDisagreements(oracle, pipelinedSound, attached), [])
+				const fusedSound = yield* fusedNested(attached, sound, schema)
+				assert.deepEqual(nestedDisagreements(oracle, fusedSound, attached), [])
+				const pipelinedUnsound = yield* pipelinedNested(attached, unsound, schema)
+				const pipelined = nestedDisagreements(oracle, pipelinedUnsound, attached)
 				assert.ok(pipelined.length > 0, "an unsound fact disagrees in the pipelined attachment")
-				const fused = nestedDisagreements(
-					oracle,
-					yield* fusedNested(attached, unsound, schema),
-					attached
-				)
+				const fusedUnsound = yield* fusedNested(attached, unsound, schema)
+				const fused = nestedDisagreements(oracle, fusedUnsound, attached)
 				assert.ok(fused.length > 0, "an unsound fact disagrees in the fused attachment")
 			})
 	)

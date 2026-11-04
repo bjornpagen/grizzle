@@ -280,7 +280,8 @@ export const payrollDirectSuite = (): void => {
 						for (const row of refused) {
 							yield* checkRow(p, row)
 						}
-						assert.deepEqual(yield* p.f.rows(counts), before)
+						const rows = yield* p.f.rows(counts)
+						assert.deepEqual(rows, before)
 						const reached = new Set(Arr.flatMap(refused, reachedBy))
 						assert.deepEqual(
 							Arr.filter(promised, (error) => !reached.has(error)),

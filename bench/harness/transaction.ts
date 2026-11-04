@@ -196,10 +196,9 @@ const deferredEventMemory = Effect.fn("deferredEventMemory")(function* (
 	if (access === "direct") {
 		return yield* read
 	}
+	const currentUserRows = yield* session.values("SELECT current_user::text", [])
 	const [[current]] = yield* Effect.orDie(
-		Schema.decodeUnknownEffect(CurrentUserRows)(
-			yield* session.values("SELECT current_user::text", [])
-		)
+		Schema.decodeUnknownEffect(CurrentUserRows)(currentUserRows)
 	)
 	yield* session.values(`SET ROLE ${quoteIdent(memoryReadingRole)}`, [])
 	return yield* Effect.ensuring(

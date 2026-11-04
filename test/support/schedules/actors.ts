@@ -213,7 +213,8 @@ export const openActors = <const Specs extends Readonly<Record<string, ActorSpec
 	Effect.gen(function* () {
 		const opened = new Map<string, DirectActor>()
 		for (const [name, spec] of Record.toEntries(specs)) {
-			opened.set(name, yield* openActor(substrate, name, spec))
+			const actor = yield* openActor(substrate, name, spec)
+			opened.set(name, actor)
 		}
 		return Record.map<keyof Specs & string, ActorSpec, DirectActor>(specs, (spec, name) =>
 			defined(opened.get(name), `the ${spec.kind} actor ${name}, opened above`)

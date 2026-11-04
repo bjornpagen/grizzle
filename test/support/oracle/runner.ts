@@ -32,6 +32,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -428,7 +429,7 @@ export const slotValue = (c: QueryCase, slot: ConservativeParamSlot): string | u
 				return undefined
 			}
 			const index = found.value
-			return JSON.stringify(
+			return jsonText(
 				Arr.map(p.rows, (row) =>
 					Rec.fromEntries(
 						Arr.map(slot.columns, (col, k) => [
@@ -677,7 +678,8 @@ const runNamed = (
 		if (!facts.ok) {
 			return yield* failure("plan", "facts", facts.error.message)
 		}
-		const restoration = restoredCase(c, yield* CurrentRestorage)
+		const restorage = yield* CurrentRestorage
+		const restoration = restoredCase(c, restorage)
 		const restoredStatements = factStatements(plan, factSet(restoration.case))
 		if (!restoredStatements.ok) {
 			return yield* failure("plan", "facts stored otherwise", restoredStatements.error.message)

@@ -148,7 +148,8 @@ const agreed = (template: QueryTemplate) =>
 				throw new Error(`optimized statement ${i}`)
 			}
 			const expected = yield* run(base)
-			assert.deepEqual(yield* run(optimized), expected, `statement ${i}`)
+			const optimizedRows = yield* run(optimized)
+			assert.deepEqual(optimizedRows, expected, `statement ${i}`)
 			assert.equal(new Set(expected).size, expected.length, `statement ${i} repeats a row`)
 			out.push(expected)
 		}

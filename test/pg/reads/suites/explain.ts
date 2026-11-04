@@ -482,8 +482,9 @@ export const explainSuite = (): void => {
 														)
 										const before = yield* state()
 										const plans = yield* db.explain(changes, {})
+										const after = yield* state()
 										assert.deepEqual(
-											exactValue(yield* state(), before),
+											exactValue(after, before),
 											Option.none(),
 											"explain executes nothing"
 										)
@@ -583,10 +584,8 @@ export const explainSuite = (): void => {
 									})
 							)
 						}).pipe(Effect.scoped, withLayer(o.layer))
-						assert.deepEqual(
-							multiset(exactValue)(yield* tableState(o.installed, W.TaskNote), before),
-							Option.none()
-						)
+						const after = yield* tableState(o.installed, W.TaskNote)
+						assert.deepEqual(multiset(exactValue)(after, before), Option.none())
 						return exhausted
 					}).pipe(Effect.scoped)
 				)

@@ -113,7 +113,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's parameter argume
 					})
 					const ordered = tasks.orderBy(["id", "asc"])
 					return yield* Effect.gen(function* () {
-						const reader: ReaderValue = dbReader(yield* Db.open(o.server.roles.app, {}))
+						const db = yield* Db.open(o.server.roles.app, {})
+						const reader: ReaderValue = dbReader(db)
 						const compiled = yield* reader.compile(tasks)
 						const reads: { readonly [C in Call]: Read } = {
 							"execute without parameters": { live: {}, call: (a) => reader.execute(tasks, a) },

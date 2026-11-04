@@ -298,7 +298,8 @@ const flightSuite = Effect.gen(function* () {
 			if (k !== undefined && (at === undefined || at < k)) {
 				return { blocked: false, at }
 			}
-			const server = asSet(yield* onServer(c, k))
+			const serverRows = yield* onServer(c, k)
+			const server = asSet(serverRows)
 			yield* agree(
 				[
 					["scripted", scripted],

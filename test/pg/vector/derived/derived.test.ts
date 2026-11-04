@@ -169,7 +169,8 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 						o.table("DocumentEmbedding")
 					]
 				)
-				assert.deepEqual(yield* textRows(privileges), [["true", "false", "false", "false", "true"]])
+				const privilegeTexts = yield* textRows(privileges)
+				assert.deepEqual(privilegeTexts, [["true", "false", "false", "false", "true"]])
 
 				/**
 				 * The first migration stored the policy for the viewer's login, and its session as the viewer shows it
@@ -180,30 +181,25 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 					label: "viewer"
 				})
 				for (const p of searchPolicySettings) {
-					assert.deepEqual(
-						yield* session.values(`SHOW ${p.parameter}`, []),
-						[[p.value]],
-						p.parameter
-					)
+					const rows = yield* session.values(`SHOW ${p.parameter}`, [])
+					assert.deepEqual(rows, [[p.value]], p.parameter)
 				}
 				yield* session.values(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
 				for (const p of searchPolicySettings) {
-					assert.deepEqual(
-						yield* session.values(`SHOW ${p.parameter}`, []),
-						[[p.value]],
-						p.parameter
-					)
+					const rows = yield* session.values(`SHOW ${p.parameter}`, [])
+					assert.deepEqual(rows, [[p.value]], p.parameter)
 				}
 
 				/**
 				 * A complete scan of the view, as the owner sees it: every embedded document of the account with the
 				 * native distance, the same C function `cosine_distance` calls.
 				 */
-				const oracle = yield* textRows(
-					yield* s.admin.queryValues(
+				const oracle = yield* Effect.flatMap(
+					s.admin.queryValues(
 						`SELECT "document"::text, ("value" OPERATOR(vector_ext.<=>) $1::vector_ext.vector)::text FROM ${o.table("Embeddings")} WHERE "account" = $2::uuid ORDER BY 1`,
 						[vectorText(o.probe(7)), accountA]
-					)
+					),
+					textRows
 				)
 				assert.notDeepEqual(oracle, [], "the view holds A's embedded documents")
 

@@ -41,7 +41,7 @@ import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 const typeOf = (desc: FieldDesc): ScalarType => {
 	const typed = scalarTypeOf(desc, bareEnv, SourceLoc("an injectivity case", []))
 	if (!typed.ok) {
-		throw new Error(`the registry refuses ${JSON.stringify(desc)}: ${typed.error.message}`)
+		throw new Error(`the registry refuses ${Formatter.format(desc)}: ${typed.error.message}`)
 	}
 	return typed.value
 }

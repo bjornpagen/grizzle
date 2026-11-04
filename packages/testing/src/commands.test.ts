@@ -157,12 +157,11 @@ describe("a state machine", () => {
 		() =>
 			Effect.gen(function* () {
 				const generator = program(QUEUE, { min: 0, max: 12 })
-				const failing = Option.getOrThrow(
-					yield* Effect.findFirst(
-						Arr.map(Arr.range(0, 999), (seed) => generate(generator, randomChooser(wordsOf(seed)))),
-						(generated) => failsOn(CAPACITY - 1)(generated.value)
-					)
+				const found = yield* Effect.findFirst(
+					Arr.map(Arr.range(0, 999), (seed) => generate(generator, randomChooser(wordsOf(seed)))),
+					(generated) => failsOn(CAPACITY - 1)(generated.value)
 				)
+				const failing = Option.getOrThrow(found)
 				const shrunk = yield* shrink(generator, failing, failsOn(CAPACITY - 1), completeShrink)
 				deepStrictEqual(shrunk.best.failure, [
 					{ command: "push", parameters: 0 },

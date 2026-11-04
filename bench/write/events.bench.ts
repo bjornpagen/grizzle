@@ -154,15 +154,15 @@ export default defineGate({
 				const split: Array<TransactionMeasure> = []
 				for (let i = 0; i < options.samples; i++) {
 					const first = 10000000 + i * n
-					lawAndNative.push(yield* queued([generated(first, n)]))
+					const lawAndNativeRun = yield* queued([generated(first, n)])
+					lawAndNative.push(lawAndNativeRun)
 					const tenth = Math.ceil(n / 10)
-					split.push(
-						yield* queued(
-							Arr.map(indices(10), (k) =>
-								generated(first + k * tenth, Math.max(0, Math.min(tenth, n - k * tenth)))
-							)
+					const splitRun = yield* queued(
+						Arr.map(indices(10), (k) =>
+							generated(first + k * tenth, Math.max(0, Math.min(tenth, n - k * tenth)))
 						)
 					)
+					split.push(splitRun)
 				}
 				const [one] = lawAndNative
 				const [ten] = split
@@ -222,24 +222,23 @@ export default defineGate({
 				}
 				const committed: Array<TransactionMeasure> = []
 				for (let i = 0; i < options.samples; i++) {
-					committed.push(
-						yield* measureTransaction(writer, {
-							readOnly: false,
-							/** An even K leaves the member where it started. */
-							statements: Arr.map(
-								[
-									...moveSql(k),
-									...(k % 2 === 1
-										? [`UPDATE ${M} SET ${c("Member", "grp")} = 1 WHERE ${c("Member", "id")} = 1`]
-										: [])
-								],
-								(sql, n) => plainStatement(`move ${n}`, sql, [])
-							),
-							end: "split",
-							deferredEvents: true,
-							wal: false
-						})
-					)
+					const committedRun = yield* measureTransaction(writer, {
+						readOnly: false,
+						/** An even K leaves the member where it started. */
+						statements: Arr.map(
+							[
+								...moveSql(k),
+								...(k % 2 === 1
+									? [`UPDATE ${M} SET ${c("Member", "grp")} = 1 WHERE ${c("Member", "id")} = 1`]
+									: [])
+							],
+							(sql, n) => plainStatement(`move ${n}`, sql, [])
+						),
+						end: "split",
+						deferredEvents: true,
+						wal: false
+					})
+					committed.push(committedRun)
 				}
 				const series = summarizeTransactions(committed)
 				moveSeries.push(series)

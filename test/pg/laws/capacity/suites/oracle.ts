@@ -316,10 +316,8 @@ const capacityOracle = (variant: PoolsVariant) =>
 						yield* w.commit
 					}
 					for (const ops of k.transactions) {
-						const items = Arr.map(
-							yield* admin.queryValues(`SELECT "id" FROM ${item} ORDER BY "id"`, []),
-							(r) => Number(r[0])
-						)
+						const rows = yield* admin.queryValues(`SELECT "id" FROM ${item} ORDER BY "id"`, [])
+						const items = Arr.map(rows, (r) => Number(r[0]))
 						const pick = (n: number): number => items[n % Math.max(items.length, 1)] ?? 0
 						yield* w.begin
 						/** The statement one operation of a transaction sends. */
@@ -346,11 +344,13 @@ const capacityOracle = (variant: PoolsVariant) =>
 						for (const o of ops) {
 							yield* w.query(statementOf(o), [])
 						}
-						const poolRows = yield* decodeRows(
-							yield* w.values(`SELECT "id", "low", "high", "open" FROM ${pool}`, [])
+						const poolRows = yield* Effect.flatMap(
+							w.values(`SELECT "id", "low", "high", "open" FROM ${pool}`, []),
+							decodeRows
 						)
-						const itemRows = yield* decodeRows(
-							yield* w.values(`SELECT "id", "pool", "weight", "live" FROM ${item}`, [])
+						const itemRows = yield* Effect.flatMap(
+							w.values(`SELECT "id", "pool", "weight", "live" FROM ${item}`, []),
+							decodeRows
 						)
 						const expected = violated(
 							Arr.map(poolRows, ([id, low, high, open]) => ({ id, low, high, open })),

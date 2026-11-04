@@ -855,10 +855,8 @@ export const installedPrivileges = (
 				Effect.orDie(decode(rows))
 			)
 		const known = [...Record.values(names.logins), ...Record.values(names.roles)]
-		const roles = Arr.map(
-			yield* read(queries.grantees, known, Schema.decodeUnknownEffect(NameRows)),
-			([name]) => name
-		)
+		const granteeRows = yield* read(queries.grantees, known, Schema.decodeUnknownEffect(NameRows))
+		const roles = Arr.map(granteeRows, ([name]) => name)
 		const grantees = [...roles, "public"]
 		const byRole = new Map<string, Grantee>([
 			...Arr.map(Record.toEntries(names.logins), ([name, role]): readonly [string, Grantee] => [
@@ -900,34 +898,38 @@ export const installedPrivileges = (
 			],
 			privilegesFrom
 		)
-		const members = Arr.flatMap(
-			yield* read(queries.members, roles, Schema.decodeUnknownEffect(MemberRows)),
-			([member, role, inherit, set, adminOption]) => {
-				const edge = (option: MembershipOption): PrivilegeFact => ({
-					kind: "membership",
-					member: granteeOf(member),
-					role: granteeOf(role),
-					option
-				})
-				return [
-					edge("member"),
-					...(inherit ? [edge("inherit")] : []),
-					...(set ? [edge("set")] : []),
-					...(adminOption ? [edge("admin")] : [])
-				]
-			}
+		const memberRows = yield* read(queries.members, roles, Schema.decodeUnknownEffect(MemberRows))
+		const members = Arr.flatMap(memberRows, ([member, role, inherit, set, adminOption]) => {
+			const edge = (option: MembershipOption): PrivilegeFact => ({
+				kind: "membership",
+				member: granteeOf(member),
+				role: granteeOf(role),
+				option
+			})
+			return [
+				edge("member"),
+				...(inherit ? [edge("inherit")] : []),
+				...(set ? [edge("set")] : []),
+				...(adminOption ? [edge("admin")] : [])
+			]
+		})
+		const attributeRows = yield* read(
+			queries.attributes,
+			roles,
+			Schema.decodeUnknownEffect(AttributeRows)
 		)
-		const attributes = Arr.flatMap(
-			yield* read(queries.attributes, roles, Schema.decodeUnknownEffect(AttributeRows)),
-			([role, ...held]) =>
-				Arr.flatMap(
-					Arr.zip(attributeOrder, held),
-					([attribute, on]): ReadonlyArray<PrivilegeFact> =>
-						on ? [{ kind: "attribute", grantee: granteeOf(role), attribute }] : []
-				)
+		const attributes = Arr.flatMap(attributeRows, ([role, ...held]) =>
+			Arr.flatMap(Arr.zip(attributeOrder, held), ([attribute, on]): ReadonlyArray<PrivilegeFact> =>
+				on ? [{ kind: "attribute", grantee: granteeOf(role), attribute }] : []
+			)
+		)
+		const rowSecurityRows = yield* read(
+			queries.rowSecurity,
+			roles,
+			Schema.decodeUnknownEffect(FlagRows)
 		)
 		const rowSecurity = Arr.flatMap(
-			yield* read(queries.rowSecurity, roles, Schema.decodeUnknownEffect(FlagRows)),
+			rowSecurityRows,
 			([table, enabled, forced]): ReadonlyArray<PrivilegeFact> => [
 				...(enabled ? [{ kind: "row-security", table, state: "enabled" } as const] : []),
 				...(forced ? [{ kind: "row-security", table, state: "forced" } as const] : [])

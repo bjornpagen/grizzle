@@ -158,11 +158,13 @@ const publishedPackage = Effect.gen(function* () {
 	const root = path.join(import.meta.dirname, "..", "..", "..")
 	const manifestOf = (directory: string) =>
 		fs.readFileString(path.join(root, "packages", directory, "package.json"))
-	const engine = yield* Schema.decodeEffect(Schema.fromJsonString(Manifest))(
-		yield* manifestOf("engine")
+	const engine = yield* Effect.flatMap(
+		manifestOf("engine"),
+		Schema.decodeEffect(Schema.fromJsonString(Manifest))
 	)
-	const shell = yield* Schema.decodeEffect(Schema.fromJsonString(ShellManifest))(
-		yield* manifestOf("grizzle")
+	const shell = yield* Effect.flatMap(
+		manifestOf("grizzle"),
+		Schema.decodeEffect(Schema.fromJsonString(ShellManifest))
 	)
 	const published = [
 		{ directory: "engine", manifest: engine, bin: noBin },
@@ -192,10 +194,8 @@ const publishedPackage = Effect.gen(function* () {
 					Arr.some(manifest.files, (file) => Str.startsWith(`./${file}/`)(entry)),
 				`${manifest.name}: ${entry} lies outside the published files`
 			)
-			assert.ok(
-				yield* fs.exists(path.join(installed, entry)),
-				`${manifest.name}: ${entry} was not emitted`
-			)
+			const exists = yield* fs.exists(path.join(installed, entry))
+			assert.ok(exists, `${manifest.name}: ${entry} was not emitted`)
 		}
 	}
 	const workspace = new Set(Arr.map(published, ({ manifest }) => manifest.name))

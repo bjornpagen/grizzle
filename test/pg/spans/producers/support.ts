@@ -1,5 +1,5 @@
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
-import { Array as Arr, Effect, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -119,12 +119,12 @@ export const sameSet = (
 ): string | undefined => {
 	const r = repeats(actual)
 	if (r > 0) {
-		return `${label}: ${r} repeated row(s) in ${JSON.stringify(actual)}`
+		return `${label}: ${r} repeated row(s) in ${Formatter.format(actual)}`
 	}
 	const difference = sameRowSet(rowSet(expected), rowSet(actual))
 	return Option.isNone(difference)
 		? undefined
-		: `${label}: ${difference.value}\n  expected ${JSON.stringify(rowSet(expected))}\n  actual   ${JSON.stringify(rowSet(actual))}`
+		: `${label}: ${difference.value}\n  expected ${Formatter.format(rowSet(expected))}\n  actual   ${Formatter.format(rowSet(actual))}`
 }
 
 /**

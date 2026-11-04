@@ -88,11 +88,12 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 			assert.equal((yield* cli(ws, ["generate", "--name", "tier"], at(1), {})).code, 0)
 			const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkMark")))}/20261014120001_tier`
 			const folder = join(ws, rel)
+			const folderFiles = yield* list(folder)
 			const files = yield* Effect.forEach(
 				succeeded(
 					orderFolderFiles(
 						Arr.map(
-							Arr.filter(yield* list(folder), (f) => f !== metaFileName),
+							Arr.filter(folderFiles, (f) => f !== metaFileName),
 							(name) => ({ name })
 						)
 					)
@@ -147,8 +148,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 				assert.equal(generated.code, 0, generated.stderr)
 				const old = identifierOf(identity.schema(parsedSchemaName("ChkOld")))
 				const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkNew")))}/20261014120001_init`
+				const files = yield* list(join(ws, rel))
 				const setup = Option.getOrThrowWith(
-					Arr.findFirst(yield* list(join(ws, rel)), (f) => Str.endsWith("-setup.sql")(f)),
+					Arr.findFirst(files, (f) => Str.endsWith("-setup.sql")(f)),
 					() => new Error("the first migration has a Prepare file")
 				)
 				const where = `${rel}/${setup}`
@@ -176,10 +178,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					`check refuses the loss once, naming ${old}:\n${refused.stderr}`
 				)
 				const path = join(ws, where)
+				const text = yield* read(path)
 				yield* write(
 					path,
 					Arr.join(
-						Arr.map(Str.split(yield* read(path), "\n"), (l) =>
+						Arr.map(Str.split(text, "\n"), (l) =>
 							Str.startsWith("-- CREATE SCHEMA ")(l) ? Str.slice("-- ".length)(l) : l
 						),
 						"\n"
@@ -211,15 +214,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 				const snapshot = join(dir, snapshotFileName)
 				yield* write(snapshot, "{ not json\n")
 				const seedMeta = join(dir, seed, metaFileName)
-				const meta = succeeded(decodeMeta(yield* read(seedMeta)))
+				const metaText = yield* read(seedMeta)
+				const meta = succeeded(decodeMeta(metaText))
 				/** A custom folder whose one snapshot is no previous target: the chain breaks there. */
 				const elsewhere = SchemaFingerprint(Str.repeat(64)("0"))
 				yield* write(
 					seedMeta,
 					succeeded(writeMeta({ ...meta, source: elsewhere, target: elsewhere }))
 				)
+				const initFiles = yield* list(join(dir, init))
 				const structure = Option.getOrThrowWith(
-					Arr.findFirst(yield* list(join(dir, init)), (f) => Str.endsWith("-structure.sql")(f)),
+					Arr.findFirst(initFiles, (f) => Str.endsWith("-structure.sql")(f)),
 					() => new Error("the first migration has a Structure file")
 				)
 				yield* write(
@@ -233,7 +238,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 				const all = yield* cli(ws, ["check"], nextNow(), {})
 				assert.equal(all.code, 1)
 				const reported = lines(all.stderr)
-				const structureLines = Str.split(yield* read(join(dir, init, structure)), "\n")
+				const structureText = yield* read(join(dir, init, structure))
+				const structureLines = Str.split(structureText, "\n")
 				const statements = splitStatements(Arr.join(structureLines, "\n")).length
 				const expected = [
 					finding(`${rel}/${snapshotFileName}`, refusalText.unreadableSnapshot),

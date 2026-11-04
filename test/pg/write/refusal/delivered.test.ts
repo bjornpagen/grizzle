@@ -315,7 +315,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											() => new Error(`${artifact}: the note read back`)
 										)
 										assert.deepEqual(mine.holder, Option.none(), `${artifact}: no holder`)
-										assert.equal(yield* stored(id), 1, `${artifact}: the note committed`)
+										const committed = yield* stored(id)
+										assert.equal(committed, 1, `${artifact}: the note committed`)
 									})
 							)
 							return yield* exhaust(
@@ -337,7 +338,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const delivered: string | undefined = failure.reason.constraint
 										assert.equal(sqlstate, sqlstates.grizzleDeliveredType, `${label}: a breach`)
 										assert.equal(delivered, breach.delivered, `${label}: the type it broke`)
-										assert.equal(yield* stored(breach.note.id), 0, `${label}: nothing committed`)
+										const committed = yield* stored(breach.note.id)
+										assert.equal(committed, 0, `${label}: nothing committed`)
 									})
 							)
 						}).pipe(

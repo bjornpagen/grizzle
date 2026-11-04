@@ -1136,9 +1136,11 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 				return assert.fail(loaded.error.message)
 			}
 			yield* transaction(substrate.admin, loaded.value)
+			const migratedRows = yield* rowsOf(m, plan, v, h.schema, model.numbered)
+			const freshRows = yield* rowsOf(m, freshPlan, v, fresh, model.numbered)
 			assert.deepEqual(
-				yield* rowsOf(m, plan, v, h.schema, model.numbered),
-				yield* rowsOf(m, freshPlan, v, fresh, model.numbered),
+				migratedRows,
+				freshRows,
 				`step ${h.steps}: the rows read through the renamed objects are not the model's`
 			)
 		})

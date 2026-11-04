@@ -288,18 +288,12 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 											}
 										}
 										const grantFacts = { ...noFacts, CreditGrant: grants }
-										assert.equal(
-											yield* decided(db, grantFacts),
-											"accepted",
-											"the grants are stored"
-										)
+										const grantsDecision = yield* decided(db, grantFacts)
+										assert.equal(grantsDecision, "accepted", "the grants are stored")
 										for (const record of settled.records) {
 											const f = recordFacts(record)
-											assert.equal(
-												yield* decided(db, f),
-												"accepted",
-												`${record.event.id} is recorded`
-											)
+											const decision = yield* decided(db, f)
+											assert.equal(decision, "accepted", `${record.event.id} is recorded`)
 											/** Its tier pieces sum to what the model charged. */
 											const pieces = yield* (yield* db.execute(P.eventCost, {
 												event: record.event.id

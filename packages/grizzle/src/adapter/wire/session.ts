@@ -10,6 +10,7 @@ import {
 	Cause,
 	Clock,
 	type Context,
+	Data,
 	Deferred,
 	Duration,
 	Effect,
@@ -19,7 +20,6 @@ import {
 	Predicate,
 	Redacted,
 	Result,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
@@ -420,30 +420,23 @@ const messageRefusals: ReadonlyMap<string, () => ConnectRefusal> = new Map<
 	string,
 	() => ConnectRefusal
 >([
-	["timeout expired", () => ConnectTimedOut.make({ millis: connectBudgetMs })],
+	["timeout expired", () => new ConnectTimedOut({ millis: connectBudgetMs })],
 	[
 		"The server does not support SSL connections",
-		() => TlsRefused.make({ fault: { kind: "notOffered" } })
+		() => new TlsRefused({ fault: { kind: "notOffered" } })
 	],
 	[
 		"There was an error establishing an SSL connection",
-		() => TlsRefused.make({ fault: { kind: "unanswered" } })
+		() => new TlsRefused({ fault: { kind: "unanswered" } })
 	],
-	["Connection terminated unexpectedly", () => ConnectionClosed.make()]
+	["Connection terminated unexpectedly", () => new ConnectionClosed()]
 ])
 
 /**
  * The password Effect of an attempt died or was interrupted: a defect of the operation that opened the session, never
  * a connection failure. The password function rejects with it, so the attempt's end can tell it from pg's failures.
  */
-class PasswordDefect extends Schema.TaggedError<
-	PasswordDefect,
-	{ readonly brand: unique symbol }
->()("PasswordDefect", {
-	defect: Schema.Unknown
-}) {}
-
-const isPasswordDefect = Schema.is(PasswordDefect)
+class PasswordDefect extends Data.TaggedError("PasswordDefect")<{ readonly defect: unknown }> {}
 
 /** What pg said with a failure it reports by message alone: the message, or the value it failed with, rendered. */
 const saidBy = (error: unknown): string =>
@@ -458,28 +451,28 @@ const saidBy = (error: unknown): string =>
  * anything else pg ended the startup with as its own refusal, with pg's words.
  */
 const connectRefusalOf = (error: unknown): ConnectRefusal => {
-	if (Schema.is(CredentialError)(error)) {
+	if (error instanceof CredentialError) {
 		return error
 	}
 	if (error instanceof DatabaseError) {
 		const answer = serverFailure(error)
 		return answer === undefined
-			? DriverRefused.make({ said: error.message })
-			: StartupRefused.make({ error: answer.error })
+			? new DriverRefused({ said: error.message })
+			: new StartupRefused({ error: answer.error })
 	}
 	if (Predicate.hasProperty(error, "code") && Predicate.isString(error.code)) {
 		return isTlsCode(error.code)
-			? TlsRefused.make({ fault: { kind: "handshake", code: error.code } })
-			: SocketFailed.make({ code: error.code })
+			? new TlsRefused({ fault: { kind: "handshake", code: error.code } })
+			: new SocketFailed({ code: error.code })
 	}
 	const said = saidBy(error)
 	const known = messageRefusals.get(said)
-	return known === undefined ? DriverRefused.make({ said }) : known()
+	return known === undefined ? new DriverRefused({ said }) : known()
 }
 
 /** The end of a failed connection attempt: a defect of the password Effect is the operation's; any other its class. */
 const attemptFailed = (error: unknown): Effect.Effect<never, ConnectRefusal> =>
-	isPasswordDefect(error) ? Effect.die(error.defect) : Effect.fail(connectRefusalOf(error))
+	error instanceof PasswordDefect ? Effect.die(error.defect) : Effect.fail(connectRefusalOf(error))
 
 /**
  * The services a client's password Effect runs under: `current`, else its pool's or its caller's (`own`).
@@ -517,7 +510,7 @@ const passwordOf = (spec: SessionSpec, services: AttemptServices): (() => Promis
 					const error = Cause.findError(cause)
 					return Result.isSuccess(error)
 						? error.success
-						: PasswordDefect.make({ defect: Cause.squash(cause) })
+						: new PasswordDefect({ defect: Cause.squash(cause) })
 				})
 			)
 		)
@@ -791,7 +784,7 @@ export const connectSession = (
 			const spec: SessionSpec = { ...given, startup: "owner" }
 			const transport = spec.transport
 			if (transport._tag === "tls" && caCount(transport.tls) === 0) {
-				return yield* TlsRefused.make({ fault: { kind: "noAuthority" } })
+				return yield* new TlsRefused({ fault: { kind: "noAuthority" } })
 			}
 			const services = yield* Effect.context()
 			const SessionClient = sessionClient(spec, { current: services, own: services })
@@ -806,7 +799,7 @@ export const connectSession = (
 			const session = sessionOf(client, spec)
 			if (session === undefined) {
 				client.connection.stream.destroy()
-				return yield* NoCancelKey.make()
+				return yield* new NoCancelKey()
 			}
 			yield* Effect.addFinalizer(() =>
 				session.lost()
@@ -1021,7 +1014,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		 */
 		const attemptFor = (ask: Ask): boolean => {
 			if (native.ending) {
-				ask.state = { _tag: "refused", failure: Effect.fail(LayerReleased.make()) }
+				ask.state = { _tag: "refused", failure: Effect.fail(new LayerReleased()) }
 				Deferred.doneUnsafe(ask.settled, Effect.void)
 				return false
 			}
@@ -1130,13 +1123,14 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			Effect.uninterruptibleMask((restore) =>
 				Effect.gen(function* () {
 					if (refused) {
-						return yield* TlsRefused.make({ fault: { kind: "noAuthority" } })
+						return yield* new TlsRefused({ fault: { kind: "noAuthority" } })
 					}
 					if (native.ending) {
-						return yield* LayerReleased.make()
+						return yield* new LayerReleased()
 					}
 					const now = yield* Clock.currentTimeMillis
-					const asked = newAsk(yield* Effect.context())
+					const context = yield* Effect.context()
+					const asked = newAsk(context)
 					const waited = yield* Effect.exit(
 						restore(
 							Effect.timeoutOption(
@@ -1153,7 +1147,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 						return yield* Effect.failCause(waited.cause)
 					}
 					if (claimed._tag === "unanswered") {
-						return yield* AcquisitionBudgetExceeded.make({
+						return yield* new AcquisitionBudgetExceeded({
 							millis: budgets.waitMs,
 							sessions: native.totalCount,
 							leased,
@@ -1167,7 +1161,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 					const session = sessions.get(client)
 					if (session === undefined) {
 						yield* giveBack(client, true)
-						return yield* NoCancelKey.make()
+						return yield* new NoCancelKey()
 					}
 					if (session.lost() && replacements > 0) {
 						yield* giveBack(client, true)

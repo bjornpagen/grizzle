@@ -54,15 +54,16 @@ const installWithWorkload = (schema: unknown, workload: WorkloadPhysical, label:
 			expectedCatalog(plan.installation).indexes
 		)
 		const s = yield* substrate.session(ownerSession())
-		const statistics = yield* Schema.decodeUnknownEffect(TextTriples)(
-			yield* s.values(
+		const statistics = yield* Effect.flatMap(
+			s.values(
 				`SELECT s.stxname::text, array_to_string(s.stxkind, ',')::text,
 			        (SELECT string_agg(a.attname::text, ',' ORDER BY a.attnum) FROM pg_attribute a
 			          WHERE a.attrelid = s.stxrelid AND a.attnum = ANY (s.stxkeys))::text
 			 FROM pg_statistic_ext s JOIN pg_namespace n ON n.oid = s.stxnamespace
 			 WHERE n.nspname = '${plan.schema}' ORDER BY 1`,
 				[]
-			)
+			),
+			Schema.decodeUnknownEffect(TextTriples)
 		)
 		return { plan, statistics }
 	})
@@ -111,8 +112,8 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 				 * Every key of every index on the task table besides its keys, read from pg_index in key order: the index,
 				 * the key's column and its direction.
 				 */
-				const installed = yield* Schema.decodeUnknownEffect(TextTriples)(
-					yield* session.values(
+				const installed = yield* Effect.flatMap(
+					session.values(
 						`SELECT i.relname::text, a.attname::text, CASE WHEN (x.indoption[k.n - 1] & 1) = 1 THEN 'desc' ELSE 'asc' END::text
 					 FROM pg_catalog.pg_index x
 					 JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid
@@ -123,7 +124,8 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 					 WHERE n.nspname = $1::text AND t.relname = $2::text AND NOT x.indisprimary AND NOT x.indisunique
 					 ORDER BY i.relname, k.n`,
 						[plan.schema, task]
-					)
+					),
+					Schema.decodeUnknownEffect(TextTriples)
 				)
 				const shared = Option.getOrThrowWith(
 					Arr.findFirst(
@@ -203,8 +205,8 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 				assert.notDeepEqual(hnsw, [], "an HNSW index")
 				const session = yield* (yield* Substrate).session(ownerSession())
 				for (const i of hnsw) {
-					const opclasses = yield* Schema.decodeUnknownEffect(TextPairs)(
-						yield* session.values(
+					const opclasses = yield* Effect.flatMap(
+						session.values(
 							`SELECT n.nspname::text, c.opcname::text FROM pg_catalog.pg_index x
 						 JOIN pg_catalog.pg_class r ON r.oid = x.indexrelid
 						 JOIN pg_catalog.pg_namespace rn ON rn.oid = r.relnamespace
@@ -212,7 +214,8 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 						 JOIN pg_catalog.pg_namespace n ON n.oid = c.opcnamespace
 						 WHERE rn.nspname = $1::text AND r.relname = $2::text`,
 							[plan.schema, i.index.name]
-						)
+						),
+						Schema.decodeUnknownEffect(TextPairs)
 					)
 					assert.deepEqual(opclasses, [[vectorSchema, "vector_cosine_ops"]])
 				}

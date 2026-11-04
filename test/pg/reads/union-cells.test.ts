@@ -492,7 +492,7 @@ const show = (value: unknown): string =>
 	typeof value === "bigint"
 		? `${value}n`
 		: typeof value === "string"
-			? JSON.stringify(value)
+			? Formatter.format(value)
 			: String(value)
 
 /** A delivered value: its host kind and its value. */
@@ -727,7 +727,8 @@ layer(Substrate.layer)("union cells", (it) => {
 									const union = yield* records(unionOf(arms))
 									const alone: Array<unknown> = []
 									for (const arm of arms) {
-										appendAll(alone, yield* records(unionOf([arm])))
+										const armRecords = yield* records(unionOf([arm]))
+										appendAll(alone, armRecords)
 									}
 									assert.deepEqual(
 										set(sameRecord)(union, alone),

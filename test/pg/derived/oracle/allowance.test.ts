@@ -343,7 +343,8 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 			}
 			const before = new Map<string, ReadonlyArray<Row>>()
 			for (const item of items) {
-				before.set(item.name, yield* rowsOf(o, item, "view"))
+				const rows = yield* rowsOf(o, item, "view")
+				before.set(item.name, rows)
 			}
 			yield* reload(o, { Amount: permuted(facts.Amount, sketch.shuffle) })
 			const report = yield* refreshReport(ctx, all)

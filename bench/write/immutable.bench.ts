@@ -372,17 +372,16 @@ export default defineGate({
 						]
 						const measured: Array<TransactionMeasure> = []
 						for (let i = 0; i < options.samples; i++) {
-							measured.push(
-								yield* measureTransaction(
-									session,
-									transactionOf(
-										Arr.map(statements(id, id * 1000000, smallGroup), (sql, k) =>
-											plainStatement(`s${k}`, sql, [])
-										),
-										"split"
-									)
+							const measuredRun = yield* measureTransaction(
+								session,
+								transactionOf(
+									Arr.map(statements(id, id * 1000000, smallGroup), (sql, k) =>
+										plainStatement(`s${k}`, sql, [])
+									),
+									"split"
 								)
 							)
+							measured.push(measuredRun)
 							id += 1
 						}
 						bySize[`log${t}`] = summarizeTransactions(measured)
@@ -398,21 +397,20 @@ export default defineGate({
 					for (const [g, n] of options.groupSizes.entries()) {
 						const measured: Array<TransactionMeasure> = []
 						for (let i = 0; i < options.samples; i++) {
-							measured.push(
-								yield* measureTransaction(
-									session,
-									transactionOf(
-										[
-											plainStatement(
-												"member",
-												`INSERT INTO ${fx.table("Member")} (${memberCols(fx)}) VALUES (${id}, ${sized + g + 1}, 0)`,
-												[]
-											)
-										],
-										"split"
-									)
+							const measuredRun = yield* measureTransaction(
+								session,
+								transactionOf(
+									[
+										plainStatement(
+											"member",
+											`INSERT INTO ${fx.table("Member")} (${memberCols(fx)}) VALUES (${id}, ${sized + g + 1}, 0)`,
+											[]
+										)
+									],
+									"split"
 								)
 							)
+							measured.push(measuredRun)
 							id += 1
 						}
 						byGroup[`group${n}`] = summarizeTransactions(measured)

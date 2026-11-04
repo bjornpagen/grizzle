@@ -416,9 +416,10 @@ export const readSuite = () => {
 					Effect.gen(function* () {
 						const opened = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 						const sessions = yield* Layer.build(opened.layer)
-						const { reader, leases } = countingReader(
-							yield* Db.open(opened.server.roles.app, {}).pipe(Effect.provideContext(sessions))
+						const db = yield* Db.open(opened.server.roles.app, {}).pipe(
+							Effect.provideContext(sessions)
 						)
+						const { reader, leases } = countingReader(db)
 						const stored = workFacts.Task
 						return yield* explore(
 							{
@@ -627,7 +628,8 @@ export const readSuite = () => {
 								(c, notes) =>
 									Effect.gen(function* () {
 										const wait = notes.steering.pipe(waitsFor, element, notes.draw)
-										const pre = answer(yield* reads[wait.read])
+										const preRead = yield* reads[wait.read]
+										const pre = answer(preRead)
 										const g = group++
 										const account = uuidAt(0x40 + g, 0)
 										const automatic = uuidAt(0x40 + g, 1)
@@ -641,7 +643,8 @@ export const readSuite = () => {
 										const reading = yield* Effect.forkChild(reads[wait.read], {
 											startImmediately: true
 										})
-										yield* s.awaitBlockedBy(yield* holder.pid, role)
+										const pid = yield* holder.pid
+										yield* s.awaitBlockedBy(pid, role)
 										/**
 										 * The newest tasks of the previous case, if any, leave with what hangs on them.
 										 */
@@ -685,8 +688,10 @@ export const readSuite = () => {
 											)
 										}
 										yield* holder.commit
-										const got = answer(yield* Fiber.join(reading))
-										const post = answer(yield* reads[wait.read])
+										const joined = yield* Fiber.join(reading)
+										const got = answer(joined)
+										const postRead = yield* reads[wait.read]
+										const post = answer(postRead)
 										assert.notDeepEqual(pre, post, "the commit changes the answer")
 										const state = Option.isNone(exactValue(got, pre))
 											? "read the state before the commit"

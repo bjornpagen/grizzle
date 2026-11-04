@@ -108,7 +108,11 @@ const runSpecs = (
 	Effect.gen(function* () {
 		const raws: Array<Raw> = []
 		for (const spec of specs) {
-			raws.push(yield* decodeRaw(yield* session.values(spec.sql, paramTexts(spec, params))))
+			const decoded = yield* Effect.flatMap(
+				session.values(spec.sql, paramTexts(spec, params)),
+				decodeRaw
+			)
+			raws.push(decoded)
 		}
 		return raws
 	})
@@ -167,10 +171,12 @@ layer(Substrate.layer)("compiled templates on PostgreSQL 19", (it) => {
 				/** The rows of an artifact's first statement, the one that delivers the notes. */
 				const delivered = (raws: ReadonlyArray<Raw>): Raw =>
 					defined(raws[0], "the delivering statement's rows")
-				const kept = delivered(yield* runSpecs(tx.optimized, {}, session))
+				const optimizedRuns = yield* runSpecs(tx.optimized, {}, session)
+				const kept = delivered(optimizedRuns)
 				lacks(kept.flat(), t(9))
 				assert.equal(kept.length, 2)
-				const conservative = delivered(yield* runSpecs(selected.statements, {}, session))
+				const selectedRuns = yield* runSpecs(selected.statements, {}, session)
+				const conservative = delivered(selectedRuns)
 				lacks(conservative.flat(), t(9))
 				assert.equal(conservative.length, 2)
 				yield* session.rollback

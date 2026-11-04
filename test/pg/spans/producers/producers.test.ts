@@ -356,7 +356,8 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 								}
 								const want = rowSet(expected)
 								k.note(`correlated:${outcomeOf(want)}`)
-								const problem = sameSet("correlated", want, yield* rawRows(db, sql, []))
+								const rows = yield* rawRows(db, sql, [])
+								const problem = sameSet("correlated", want, rows)
 								if (problem !== undefined) {
 									return yield* PropertyFailed.make({
 										report: `${printSpanCase(c)}\n${problem}\n${sql}`

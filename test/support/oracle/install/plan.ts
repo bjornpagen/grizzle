@@ -1,5 +1,13 @@
 import { exact, set } from "@grizzle/testing/oracle"
-import { Array as Arr, Option, Order, Record as Rec, Schema, String as Str } from "effect"
+import {
+	Array as Arr,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Schema,
+	String as Str
+} from "effect"
 import {
 	CompileError,
 	type CompileReason,
@@ -118,7 +126,7 @@ const declaredAt = (declared: string, location: string): DeclaredName => {
 		return refuse(
 			"MalformedDescription",
 			location,
-			`the declared name ${JSON.stringify(declared)}: ${kept.error}`
+			`the declared name ${Formatter.format(declared)}: ${kept.error}`
 		)
 	}
 	return kept.value
@@ -132,7 +140,7 @@ const schemaAt = (declared: string, location: string): SchemaName => {
 		return refuse(
 			"MalformedDescription",
 			location,
-			`the declared schema name ${JSON.stringify(declared)}: ${kept.error}`
+			`the declared schema name ${Formatter.format(declared)}: ${kept.error}`
 		)
 	}
 	return kept.value
@@ -334,7 +342,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		refuse(
 			"MalformedDescription",
 			schemaLocation,
-			`${JSON.stringify(schema)} is not an admitted schema identifier`
+			`${Formatter.format(schema)} is not an admitted schema identifier`
 		)
 	}
 

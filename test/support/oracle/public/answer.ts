@@ -89,7 +89,7 @@ const showValue = (v: Value): string => {
 		return `${v}n`
 	}
 	if (typeof v === "string") {
-		return JSON.stringify(v)
+		return Formatter.format(v)
 	}
 	if (typeof v === "number") {
 		return Object.is(v, -0) ? "-0" : String(v)
@@ -375,7 +375,9 @@ const fromPublic = (shape: Shape, row: unknown): Result.Result<Nested, string> =
 	const extra = Arr.filter(keys, (k) => !expected.includes(k))
 	const missing = Arr.filter(expected, (k) => !Record.has(row, k))
 	if (extra.length > 0 || missing.length > 0) {
-		return Result.fail(`a row with keys ${JSON.stringify(keys)}, not ${JSON.stringify(expected)}`)
+		return Result.fail(
+			`a row with keys ${Formatter.format(keys)}, not ${Formatter.format(expected)}`
+		)
 	}
 	const values: Array<Value> = []
 	for (const c of shape.columns) {

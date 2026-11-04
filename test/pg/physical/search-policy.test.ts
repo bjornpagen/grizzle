@@ -264,10 +264,12 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 											label: l.name
 										})
 										for (const [parameter, value] of searchPairs) {
+											const rows = yield* session.values(
+												"SELECT pg_catalog.current_setting($1::text, true)",
+												[parameter]
+											)
 											assert.deepEqual(
-												yield* session.values("SELECT pg_catalog.current_setting($1::text, true)", [
-													parameter
-												]),
+												rows,
 												[[value]],
 												`the login ${l.name}'s session holds ${parameter}`
 											)

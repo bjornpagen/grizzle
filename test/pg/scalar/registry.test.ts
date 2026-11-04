@@ -15,6 +15,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
+import { jsonText } from "#compiler/core/trusted.ts"
 /**
  * The catalog type of each carrier; enum is probed through a fresh enum type, ranges through int4range and int8range,
  * and the exact carriers through numeric, the type an exact value of any digit bound is.
@@ -127,7 +128,7 @@ const nativeOf = (db: RawSession, type: string, poly: string | undefined) =>
 					WHERE p.proname = 'bool_or' AND p.pronargs = 1 AND p.proargtypes[0] IN (SELECT oid FROM t)))::text`,
 			[
 				`{${Arr.join(
-					Arr.map(inputs, (i) => JSON.stringify(i)),
+					Arr.map(inputs, (i) => jsonText(i)),
 					","
 				)}}`
 			]
@@ -175,7 +176,7 @@ const probe = (db: RawSession, spellings: ReadonlyArray<string>) =>
 			"SELECT pg_temp.probe_type(s) FROM unnest($1::text[]) WITH ORDINALITY AS u(s, i) ORDER BY u.i",
 			[
 				`{${Arr.join(
-					Arr.map(spellings, (s) => JSON.stringify(s)),
+					Arr.map(spellings, (s) => jsonText(s)),
 					","
 				)}}`
 			]

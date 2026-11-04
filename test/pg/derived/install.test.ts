@@ -239,17 +239,15 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 					}
 					return `${domain.schema}.${domain.name}`
 				}
-				assert.deepEqual(
-					yield* owner.values(
-						`SELECT a.attname::text, a.atttypid::regtype::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attnum > 0 ORDER BY a.attnum`,
-						[]
-					),
-					[
-						["declared", domainOf("^[A-Z]{3}$"), "pg_c_utf8"],
-						["id", "uuid", "-"],
-						["undeclared", domainOf("^[a-z]+$"), "pg_c_utf8"]
-					]
+				const rows = yield* owner.values(
+					`SELECT a.attname::text, a.atttypid::regtype::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attnum > 0 ORDER BY a.attnum`,
+					[]
 				)
+				assert.deepEqual(rows, [
+					["declared", domainOf("^[A-Z]{3}$"), "pg_c_utf8"],
+					["id", "uuid", "-"],
+					["undeclared", domainOf("^[a-z]+$"), "pg_c_utf8"]
+				])
 				yield* load(installed, { Coded: [{ id: id(1), code: "QRS" }] })
 				const refreshing = yield* substrate.session({
 					...worldSession(installed.world(refresher)),
@@ -266,10 +264,11 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 					label: "viewer"
 				})
 				const seen = `${quoteIdent(installed.role(viewer))}.${quoteIdent(installed.names.relation("Literals").name)}`
-				assert.deepEqual(
-					yield* viewing.values(`SELECT "declared"::text, "undeclared"::text FROM ${seen}`, []),
-					[["ABC", "abc"]]
+				const viewingRows = yield* viewing.values(
+					`SELECT "declared"::text, "undeclared"::text FROM ${seen}`,
+					[]
 				)
+				assert.deepEqual(viewingRows, [["ABC", "abc"]])
 			})
 	)
 

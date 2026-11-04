@@ -296,7 +296,8 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 										0,
 										"no statement before the refusal"
 									)
-									assert.deepEqual(yield* tableState(o.installed, Typed), [])
+									const state = yield* tableState(o.installed, Typed)
+									assert.deepEqual(state, [])
 									if (c.form === "parameter") {
 										assert.deepEqual(error.place, { _tag: "Slot", name: c.field })
 									}

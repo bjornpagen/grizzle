@@ -231,7 +231,8 @@ const serverStatementTypes = Effect.fn("serverStatementTypes")(function* (
 
 /** A type spelling as PostgreSQL prints the type it names: regtype's text, as parameter_types prints its elements. */
 const canonicalType = Effect.fn("canonicalType")(function* (raw: RawSession, spelling: string) {
-	const decoded = decodeOneText(yield* raw.values("SELECT ($1::text)::regtype::text", [spelling]))
+	const rows = yield* raw.values("SELECT ($1::text)::regtype::text", [spelling])
+	const decoded = decodeOneText(rows)
 	if (Result.isFailure(decoded)) {
 		throw GateSetupError.make({ what: `the type ${spelling}: ${decoded.failure.message}` })
 	}
@@ -462,12 +463,11 @@ export default defineGate({
 			const generic = serverStatementPlanOf(rangeM.generated, "generic", 0)
 			const custom = serverStatementPlanOf(rangeM.generated, "custom", 0)
 			/** The Entry rows the range selects, counted once on the raw session: what a scan of the range reads. */
-			const counted = decodeOneText(
-				yield* raw.values(
-					`SELECT pg_catalog.count(*)::text FROM ${E} WHERE ${col("amount")} >= ${rangeValues.lo} AND ${col("amount")} < ${rangeValues.hi}`,
-					[]
-				)
+			const rows = yield* raw.values(
+				`SELECT pg_catalog.count(*)::text FROM ${E} WHERE ${col("amount")} >= ${rangeValues.lo} AND ${col("amount")} < ${rangeValues.hi}`,
+				[]
 			)
+			const counted = decodeOneText(rows)
 			if (Result.isFailure(counted)) {
 				throw GateSetupError.make({ what: `the range count: ${counted.failure.message}` })
 			}
@@ -688,7 +688,8 @@ export default defineGate({
 				const inferred = yield* serverStatementTypes(raw, sql, `gz_m15b_sig_${i}`)
 				const cast: Array<string> = []
 				for (const slot of statement.params) {
-					cast.push(yield* canonicalType(raw, slotType(label, slot)))
+					const canonical = yield* canonicalType(raw, slotType(label, slot))
+					cast.push(canonical)
 				}
 				signatures.push(
 					mechanism(

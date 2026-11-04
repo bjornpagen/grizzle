@@ -143,12 +143,11 @@ export default defineGate({
 				for (let i = 0; i < options.samples; i++) {
 					const first = 100000000 + nextShift
 					nextShift += options.batch
-					generated.push(
-						yield* measureTransaction(
-							writer,
-							transactionOf([plainStatement("shifts", batchSql(first), [])], "split")
-						)
+					const generatedRun = yield* measureTransaction(
+						writer,
+						transactionOf([plainStatement("shifts", batchSql(first), [])], "split")
 					)
+					generated.push(generatedRun)
 				}
 				const probe = yield* probeLaws(writer, fx, law, [batchSql(900000000 + nextShift)], [])
 				return { label, generated: summarizeTransactions(generated), probe }

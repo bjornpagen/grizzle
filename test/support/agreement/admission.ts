@@ -3,6 +3,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
 import { Decimal, Money, pg, Vector } from "#compiler/public/fields.ts"
@@ -158,7 +159,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 	switch (kind) {
 		case "text": {
 			const v = of(["a", "b"])
-			return { source: JSON.stringify(v), value: () => v, column: "text" }
+			return { source: jsonText(v), value: () => v, column: "text" }
 		}
 		case "integer": {
 			const v = of([1, 2])
@@ -174,12 +175,12 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		}
 		case "uuid": {
 			const v = of(["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"])
-			return { source: JSON.stringify(v), value: () => v, column: "uuid" }
+			return { source: jsonText(v), value: () => v, column: "uuid" }
 		}
 		case "decimal": {
 			const v = of(["1.5", "2"])
 			return {
-				source: `Decimal.of(${JSON.stringify(v)})`,
+				source: `Decimal.of(${jsonText(v)})`,
 				value: () => Decimal.of(v),
 				column: "numeric"
 			}
@@ -199,7 +200,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "handle": {
 			const m = of(["low", "mid", "high"] as const)
 			return {
-				source: `Tone.handle(${JSON.stringify(m)})`,
+				source: `Tone.handle(${jsonText(m)})`,
 				value: () => Tone.handle(m),
 				column: "tone"
 			}
@@ -223,7 +224,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "wrongRoster": {
 			const m = of(["low", "dark"] as const)
 			return {
-				source: `Shade.handle(${JSON.stringify(m)})`,
+				source: `Shade.handle(${jsonText(m)})`,
 				value: () => Shade.handle(m),
 				column: "tone"
 			}
@@ -244,19 +245,19 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 			}
 		case "uuidUpper": {
 			const v = of(["00000000-0000-4000-8000-00000000000A", "00000000-0000-4000-8000-0000000000BC"])
-			return { source: JSON.stringify(v), value: () => v, column: "uuid" }
+			return { source: jsonText(v), value: () => v, column: "uuid" }
 		}
 		case "notUuid": {
 			const v = of(["0193d8f2", "00000000-0000-4000-8000"])
-			return { source: JSON.stringify(v), value: () => v, column: "uuid" }
+			return { source: jsonText(v), value: () => v, column: "uuid" }
 		}
 		case "language": {
 			const v = of(["pass", "fail"])
-			return { source: JSON.stringify(v), value: () => v, column: "grade" }
+			return { source: jsonText(v), value: () => v, column: "grade" }
 		}
 		case "otherLanguage": {
 			const v = of(["yes", "no"])
-			return { source: JSON.stringify(v), value: () => v, column: "grade" }
+			return { source: jsonText(v), value: () => v, column: "grade" }
 		}
 	}
 }
@@ -797,7 +798,7 @@ const statementOf = (
 		case "checkRow":
 			return {
 				lines: [
-					`export const ${name} = check(${JSON.stringify(name)}, Cell, (p) => p.${col}.eq(${c.source}))`
+					`export const ${name} = check(${jsonText(name)}, Cell, (p) => p.${col}.eq(${c.source}))`
 				],
 				verdict: () =>
 					Result.flatMap(
@@ -1045,7 +1046,7 @@ interface ShapedArm {
  * approximate search ranks by, and each further constant under its field.
  */
 const scoredArm = (d: string, more: ReadonlyArray<readonly [string, number]>): ShapedArm => ({
-	source: `(r) => { const { id, vector } = v(Cell, "cell"); return r.match(Cell, { id, vector }).find({ id, d: ${JSON.stringify(d)}, s: Compute.cosineDistance(vector, Vector.make(Float32Array.of(0.5, 1, 2), 3))${Arr.join(
+	source: `(r) => { const { id, vector } = v(Cell, "cell"); return r.match(Cell, { id, vector }).find({ id, d: ${jsonText(d)}, s: Compute.cosineDistance(vector, Vector.make(Float32Array.of(0.5, 1, 2), 3))${Arr.join(
 		Arr.map(more, ([field, value]) => `, ${field}: ${value}`),
 		""
 	)} }) }`,
@@ -1062,7 +1063,7 @@ const scoredArm = (d: string, more: ReadonlyArray<readonly [string, number]>): S
 
 /** The child of an attachment named `name`: the Cell its parent's id keys, heading the parent field `at` when given. */
 const cellAttachment = (name: string, at: string | undefined): StageOver => ({
-	source: `.attach(${JSON.stringify(name)}, (p) => query(Agree).rule((q) => q.match(Cell, { id: p.id }).find({ found: true${at === undefined ? "" : `, at: p.${at}`} })), "array")`,
+	source: `.attach(${jsonText(name)}, (p) => query(Agree).rule((q) => q.match(Cell, { id: p.id }).find({ found: true${at === undefined ? "" : `, at: p.${at}`} })), "array")`,
 	over: (q) =>
 		q.attach(
 			name,
@@ -1176,7 +1177,7 @@ const applied = (combinator: Combinator, base: ShapeBase): Applied => {
 			const field = orderedBy(base)
 			return {
 				line: (name, shape) =>
-					`export const ${name} = ${shape}.orderBy([${JSON.stringify(field)}, "desc"])`,
+					`export const ${name} = ${shape}.orderBy([${jsonText(field)}, "desc"])`,
 				build: (q) => q.orderBy([field, "desc"]),
 				read: "rows"
 			}
@@ -1330,12 +1331,12 @@ export const admissionModule = (
 	Arr.join(
 		[
 			"// Generated by test/support/agreement/admission.ts: the admission agreement over every position and constant kind.",
-			`import { Compute } from ${JSON.stringify(entries.compute)}`,
-			`import { Decimal, Money, pg, Vector } from ${JSON.stringify(entries.fields)}`,
-			`import { query, v } from ${JSON.stringify(entries.query)}`,
-			`import type { DbOf } from ${JSON.stringify(entries.db)}`,
-			`import { check, role } from ${JSON.stringify(entries.declare)}`,
-			`import { Agree, Cell, Cents, Shade, Tone } from ${JSON.stringify(entries.schema)}`,
+			`import { Compute } from ${jsonText(entries.compute)}`,
+			`import { Decimal, Money, pg, Vector } from ${jsonText(entries.fields)}`,
+			`import { query, v } from ${jsonText(entries.query)}`,
+			`import type { DbOf } from ${jsonText(entries.db)}`,
+			`import { check, role } from ${jsonText(entries.declare)}`,
+			`import { Agree, Cell, Cents, Shade, Tone } from ${jsonText(entries.schema)}`,
 			"",
 			'const Reader = role(Agree, "reader", Agree.relations)',
 			"",

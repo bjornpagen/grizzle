@@ -1,4 +1,5 @@
 import { Array as Arr, Record } from "effect"
+import { jsonText as jsonTextOf } from "#compiler/core/trusted.ts"
 
 /**
  * A JSON text as a tree the token generators edit before it is written: ordered members, so a duplicate key or a
@@ -21,7 +22,7 @@ export const jsonObject = (members: ReadonlyArray<readonly [string, Json]>): Jso
 })
 
 /**
- * The text of a tree. A string is written by JSON.stringify, which escapes a lone surrogate and a NUL, so the text
+ * The text of a tree. A string is written by trusted.ts jsonText, which escapes a lone surrogate and a NUL, so the text
  * stays well-formed JSON whose parse yields the very string.
  */
 export const jsonText = (json: Json): string => {
@@ -29,7 +30,7 @@ export const jsonText = (json: Json): string => {
 		case "raw":
 			return json.text
 		case "string":
-			return JSON.stringify(json.value)
+			return jsonTextOf(json.value)
 		case "number":
 			return String(json.value)
 		case "boolean":
@@ -40,7 +41,7 @@ export const jsonText = (json: Json): string => {
 			return `[${Arr.join(Arr.map(json.items, jsonText), ",")}]`
 		case "object":
 			return `{${Arr.join(
-				Arr.map(json.members, ([key, value]) => `${JSON.stringify(key)}:${jsonText(value)}`),
+				Arr.map(json.members, ([key, value]) => `${jsonTextOf(key)}:${jsonText(value)}`),
 				","
 			)}}`
 	}

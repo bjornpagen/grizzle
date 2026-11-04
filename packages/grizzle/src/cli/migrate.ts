@@ -50,7 +50,8 @@ export const migrate = Effect.fn("migrate")(function* (
 	FileSystem.FileSystem | Path.Path
 > {
 	const targets = yield* readTargets(config)
-	const connection = yield* migrationConnection(config, yield* connectionEnv, cwd)
+	const env = yield* connectionEnv
+	const connection = yield* migrationConnection(config, env, cwd)
 	return yield* applyMigrations({ connection, targets })
 })
 
@@ -68,7 +69,8 @@ export const drift = Effect.fn("drift")(function* (
 	FileSystem.FileSystem | Path.Path
 > {
 	const targets = yield* readTargets(config)
-	const connection = yield* migrationConnection(config, yield* connectionEnv, cwd)
+	const env = yield* connectionEnv
+	const connection = yield* migrationConnection(config, env, cwd)
 	yield* checkDriftOf({ connection, targets })
 	return Arr.map(targets, (t) => ({
 		schema: t.snapshot.schema,

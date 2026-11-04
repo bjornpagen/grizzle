@@ -42,12 +42,14 @@ layer(NodeServices.layer, { excludeTestServices: true })("the grizzle skill", (i
 				const first = yield* cli(ws, ["skill"], nextNow(), {})
 				assert.equal(first.code, 0, first.stderr)
 				for (const target of skillTargets) {
-					assert.equal(yield* fs.readFileString(`${ws}/${target}`), skill)
+					const text = yield* fs.readFileString(`${ws}/${target}`)
+					assert.equal(text, skill)
 				}
 				yield* fs.makeDirectory(`${ws}/.claude/skills/grizzle`, { recursive: true })
 				yield* fs.writeFileString(`${ws}/.claude/skills/grizzle/SKILL.md`, "stale\n")
 				assert.equal((yield* cli(ws, ["skill"], nextNow(), {})).code, 0)
-				assert.equal(yield* fs.readFileString(`${ws}/.claude/skills/grizzle/SKILL.md`), skill)
+				const text = yield* fs.readFileString(`${ws}/.claude/skills/grizzle/SKILL.md`)
+				assert.equal(text, skill)
 			})
 	)
 })

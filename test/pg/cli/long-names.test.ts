@@ -138,11 +138,10 @@ const installs = (fixture: Fixture) =>
 			assert.equal(ran.code, 0, `grizzle ${Arr.join(argv, " ")}: ${ran.stderr}`)
 		}
 		const snapshotFile = `${dir}/migrations/${installed}/snapshot.json`
-		assert.ok(
-			yield* fs.exists(snapshotFile),
-			`the migrations directory is named by the installed schema ${installed}`
-		)
-		const snapshot = snapshotJson(yield* fs.readFileString(snapshotFile))
+		const exists = yield* fs.exists(snapshotFile)
+		assert.ok(exists, `the migrations directory is named by the installed schema ${installed}`)
+		const text = yield* fs.readFileString(snapshotFile)
+		const snapshot = snapshotJson(text)
 		const catalog = yield* readCatalog(substrate.admin, installed)
 		assert.equal(catalog.kind, "present", `the schema is installed as ${installed}`)
 		const login = fixture.login(declared)
@@ -155,11 +154,12 @@ const installs = (fixture: Fixture) =>
 			Arr.some([loginRole, ...roles], (role) => utf8Length(role) === maxIdentifierBytes),
 			"a role fills the identifier"
 		)
-		const held = yield* Schema.decodeUnknownEffect(Names)(
-			yield* substrate.admin.queryValues(
+		const held = yield* Effect.flatMap(
+			substrate.admin.queryValues(
 				"SELECT r.rolname::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = ANY ($1::text[]) ORDER BY 1",
 				[[loginRole, ...roles]]
-			)
+			),
+			Schema.decodeUnknownEffect(Names)
 		)
 		assert.deepEqual(
 			Arr.map(held, ([name]) => name),

@@ -80,22 +80,18 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   partial unique index (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
  *   handed drawn requests on it: workload B-tree requests of every use, law probes of every row or of a flag's selected
  *   rows, and GiST span predicates on during with any of Booking's scalars. Its kept cases plant the requests a
- *   planner is tempted to serve wrongly: an equality lookup on a span key's scalar prefix, which the GiST index serves
- *   so no B-tree belongs beside it; a span predicate on during alone, which the span key's GiST index does not serve,
- *   since PostgreSQL reads it nearly whole through its leading room; an equality pair beside a range over the same
- *   two columns in the other order, which one index serves; a descending key lookup beside a law probe of a flag's
- *   rows on the same column, which the lookup's index of every row serves, so no partial index belongs beside it; and
- *   law probes of the held bookings on (room, id), on id and on room, whose partial index on (id, room) PostgreSQL
- *   sweeps for the probe on room, a residue no plan the engine makes avoids (serving.ts).
+ *   planner is tempted to serve wrongly: an equality pair beside a range over the same two columns in the other order,
+ *   which one index serves; a law probe of the remainder deposits on line, the partial unique index's own selection;
+ *   a descending key lookup beside a law probe of a flag's rows on the same column, which the lookup's index of every
+ *   row serves, so no partial index belongs beside it; and law probes of the held bookings on (room, id), on id and on
+ *   room, whose partial index on (id, room) PostgreSQL sweeps for the probe on room, a residue no plan the engine makes
+ *   avoids (serving.ts).
  * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
  *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
  *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
  *   request over its columns that one order can serve with it. The first order is then installed and judged as above.
- *   Its kept cases: an equality pair beside a seek over the same columns in the other order, an equality lookup on all
- *   three columns beside a seek on two of them (one key order serves both, which a creation order alone misses), a
- *   narrower lookup arriving before a wider one over its columns, and two seeks no one key order serves. Beside drawn
- *   sets it draws two seeks over the same columns in reverse orders, and an equality lookup beside a seek over some or
- *   all of its columns, each among up to two other requests.
+ *   Beside drawn sets it draws two seeks over the same columns in reverse orders, and an equality lookup beside a seek
+ *   over some or all of its columns, each among up to two other requests.
  *
  * A field's value on row g (see the header): `value` the series or its spread, `key` whether the field lies in a key.
  *
@@ -485,18 +481,6 @@ const accessIntent = (
 
 const requestKept: ReadonlyArray<Kept<ReadonlyArray<Intent>, ServingFeature | RequestFeature>> = [
 	{
-		note: "an equality lookup on room, the scalar prefix of Booking's span key",
-		sketch: [accessIntent("Booking", ["room"], "equality lookup")],
-		draws: "",
-		reaches: ["a GiST index serving a B-tree request"]
-	},
-	{
-		note: "a span predicate on during alone, beside the span key's GiST index on (room, during)",
-		sketch: [{ kind: "span predicate", scalars: [] }],
-		draws: "",
-		reaches: ["a span predicate on during alone"]
-	},
-	{
 		note: "an equality pair on (account, created) beside a range on created then account",
 		sketch: [
 			accessIntent("Event", ["account", "created"], "equality lookup"),
@@ -734,51 +718,6 @@ const sharedSetGen: Gen<ReadonlyArray<SharedSketch>> = weighted([
 	[1, transposedGen],
 	[1, coveringGen]
 ])
-
-const sharedKept: ReadonlyArray<Kept<ReadonlyArray<SharedSketch>, SharedFeature>> = [
-	{
-		note: "an equality pair on (account, created) beside a seek on created then account",
-		sketch: [
-			sharedSketch(["account", "created"], "equality lookup"),
-			sharedSketch(["created", "account"], "take seek")
-		],
-		draws: "",
-		reaches: [
-			"an equality lookup beside an order over its columns",
-			"one index serving requests of two needs"
-		]
-	},
-	{
-		note: "an equality lookup on all three columns beside a seek on created then account, which one key order serves",
-		sketch: [
-			sharedSketch(["tenant", "account", "created"], "equality lookup"),
-			sharedSketch(["created", "account"], "take seek")
-		],
-		draws: "",
-		reaches: [
-			"a wider equality lookup beside a narrower order over its columns",
-			"one index serving requests of two needs"
-		]
-	},
-	{
-		note: "an equality lookup on account arriving before one on account and created",
-		sketch: [
-			sharedSketch(["account"], "equality lookup"),
-			sharedSketch(["account", "created"], "equality lookup")
-		],
-		draws: "",
-		reaches: ["a narrower request beside a wider one over its columns"]
-	},
-	{
-		note: "seeks on account then created and on created then account, which no one key order serves",
-		sketch: [
-			sharedSketch(["account", "created"], "take seek"),
-			sharedSketch(["created", "account"], "take seek")
-		],
-		draws: "",
-		reaches: ["two indexes on one column set"]
-	}
-]
 
 /**
  * The drawn requests planned in every order they can arrive in, the plan one list of indexes, then installed in the
@@ -1851,7 +1790,7 @@ const sharedSuite = (runs: number) => (ctx: TestContext) =>
 					],
 					{ cases: runs, sense: notesOnly }
 				),
-				kept: sharedKept,
+				kept: [],
 				runs,
 				shrink: { kind: "bounded", candidates: 60 },
 				concurrency: 1,

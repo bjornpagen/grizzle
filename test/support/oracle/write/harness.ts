@@ -1251,7 +1251,8 @@ export const runCase = (
 		 * spelling, and the side db.apply runs applied again under the complement of the case's plan. Its answer is a
 		 * function of the facts, so it gives the oracle's outcome again and agrees exactly with its first reading.
 		 */
-		const restored = restoredWriteFacts(group, facts, yield* CurrentRestorage)
+		const restorage = yield* CurrentRestorage
+		const restored = restoredWriteFacts(group, facts, restorage)
 		noteIf(restored.reordered, "facts reordered on a second reading")
 		noteIf(restored.respelled, "a fact respelled on a second reading")
 		const secondPlan = complementOf(perturbation)

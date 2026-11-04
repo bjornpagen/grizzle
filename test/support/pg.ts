@@ -321,7 +321,7 @@ export const reportedConstraintOf = (value: unknown): ConstraintName | undefined
 		: undefined
 
 /** The SqlError of a failed statement. */
-const sqlErrorOf = (error: unknown): SqlError => {
+export const sqlErrorOf = (error: unknown): SqlError => {
 	if (error instanceof DatabaseError && error.code !== undefined) {
 		return SqlError.make({
 			reason: {
@@ -479,7 +479,7 @@ const connectOnce = (
 				})
 				return Effect.sync(() => client.connection.stream.destroy())
 			}),
-			() => Effect.ignore(Effect.tryPromise(() => client.end()))
+			() => Effect.ignore(Effect.tryPromise({ try: () => client.end(), catch: sqlErrorOf }))
 		)
 		const processId = numberOf(client, "processID")
 		const secretKey = numberOf(client, "secretKey")

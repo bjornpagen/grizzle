@@ -248,7 +248,8 @@ const writeText = (path: string, text: string) =>
 const sqlFiles = (dir: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		return Arr.filter(yield* fs.readDirectory(dir), (f) => Str.endsWith(".sql")(f))
+		const entries = yield* fs.readDirectory(dir)
+		return Arr.filter(entries, (f) => Str.endsWith(".sql")(f))
 	})
 
 /** Runs a command line in the workspace, and holds the universal property: no password in its output. */
@@ -316,7 +317,8 @@ const tampered = (kind: TamperKind, original: string): string => {
 const appliedFile = (model: Readonly<Model>, r: Workspace, folders: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
 		for (const folder of folders.slice(0, model.applied)) {
-			const file = Arr.head(yield* sqlFiles(`${schemaDir(r)}/${folder}`))
+			const files = yield* sqlFiles(`${schemaDir(r)}/${folder}`)
+			const file = Arr.head(files)
 			if (Option.isSome(file)) {
 				return Option.some(`${schemaDir(r)}/${folder}/${file.value}`)
 			}
@@ -344,7 +346,8 @@ const refusedWhileTampered = (kind: TamperKind, r: Workspace) =>
 		const before = yield* r.applied
 		const migrated = yield* command(r, ["migrate"], r.env)
 		assert.equal(migrated.code, 1, `migrate with ${kind} tampered: ${migrated.stdout}`)
-		assert.deepEqual(yield* r.applied, before, "nothing ran")
+		const applied = yield* r.applied
+		assert.deepEqual(applied, before, "nothing ran")
 		if (kind === "an applied file") {
 			return
 		}
@@ -353,7 +356,8 @@ const refusedWhileTampered = (kind: TamperKind, r: Workspace) =>
 		const listing = yield* foldersOnDisk(r)
 		const generated = yield* command(r, ["generate"], r.env)
 		assert.equal(generated.code, 1, `generate with ${kind} tampered`)
-		assert.deepEqual(yield* foldersOnDisk(r), listing, "generate wrote nothing")
+		const folders = yield* foldersOnDisk(r)
+		assert.deepEqual(folders, listing, "generate wrote nothing")
 	})
 
 /** A plain step of the loop: one command, with what it was drawn with. */
@@ -525,7 +529,7 @@ const runGenerate = (r: Workspace, before: Model, after: Model) =>
 		r.c.note(changed ? "generate a change" : "generate no change")
 		const snapshotFile = `${schemaDir(r)}/snapshot.json`
 		const previous = (yield* fs.exists(snapshotFile))
-			? Option.some(yield* fs.readFileString(snapshotFile))
+			? yield* Effect.asSome(fs.readFileString(snapshotFile))
 			: Option.none()
 		const ran = yield* command(r, ["generate"], r.env)
 		assert.equal(ran.code, 0, ran.stderr)
@@ -556,11 +560,8 @@ const runReview = (r: Workspace, before: Model, after: Model) =>
 						Str.replaceAll(placeholderToken, "3")
 					)
 				)
-				assert.deepEqual(
-					findMarkers(yield* readText(`${dir}/${file}`)),
-					[],
-					`${folder}/${file} reviewed`
-				)
+				const fileText = yield* readText(`${dir}/${file}`)
+				assert.deepEqual(findMarkers(fileText), [], `${folder}/${file} reviewed`)
 			}
 		}
 		yield* confirm(after, r)
@@ -578,7 +579,8 @@ const runMigrate = (r: Workspace, before: Model, after: Model) =>
 		if (!checks(before)) {
 			r.c.note("migrate refuses before connecting")
 			assert.equal(ran.code, 1, ran.stdout)
-			assert.deepEqual(yield* r.applied, applied, "nothing ran")
+			const appliedAfter = yield* r.applied
+			assert.deepEqual(appliedAfter, applied, "nothing ran")
 		} else if (before.failing !== undefined) {
 			r.c.note("migrate stops at a failing data step")
 			assert.equal(ran.code, 1, ran.stdout)
@@ -614,7 +616,8 @@ const runDrift = (r: Workspace, model: Model) =>
 				`the drift names the stray table: ${ran.stderr}`
 			)
 		}
-		assert.deepEqual(yield* r.applied, applied, "drift applies nothing")
+		const appliedAfter = yield* r.applied
+		assert.deepEqual(appliedAfter, applied, "drift applies nothing")
 		yield* confirm(model, r)
 	})
 
@@ -635,7 +638,8 @@ const runCustom = (r: Workspace, failing: boolean, before: Model, after: Model) 
 		r.c.note("custom data step")
 		const ran = yield* command(r, ["generate", "--custom", "--name", "step"], r.env)
 		assert.equal(ran.code, 0, ran.stderr)
-		const folder = Arr.last(yield* foldersOnDisk(r))
+		const folders = yield* foldersOnDisk(r)
+		const folder = Arr.last(folders)
 		assert.ok(Option.exists(folder, Str.endsWith("_step")), "the custom folder is the newest")
 		const dir = `${schemaDir(r)}/${Option.getOrThrow(folder)}`
 		const tier = before.generated?.version === 2 ? `, "tier"` : ""
@@ -746,7 +750,8 @@ const runWrongPassword = (r: Workspace, model: Model) =>
 			})
 		})
 		assert.equal(ran.code, 1, ran.stdout)
-		assert.deepEqual(yield* r.applied, applied, "nothing ran")
+		const appliedAfter = yield* r.applied
+		assert.deepEqual(appliedAfter, applied, "nothing ran")
 		yield* confirm(model, r)
 	})
 

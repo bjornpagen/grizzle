@@ -778,20 +778,19 @@ export const readCatalogWith = <E>(
 		}
 		const part = <A>(sql: string, codec: Schema.Codec<A, unknown>) =>
 			readJson(run, sql, schema, Schema.Array(codec))
+		const tables = yield* part(queries.tables, RawCatalogTableSchema)
+		const indexes = yield* part(queries.indexes, RawCatalogIndexSchema)
 		return {
 			kind: "present",
 			catalog: {
 				schema,
 				owner: head.owner,
 				schemaGrants: head.grants,
-				tables: Arr.map(yield* part(queries.tables, RawCatalogTableSchema), (t): CatalogTable => ({
+				tables: Arr.map(tables, (t): CatalogTable => ({
 					...t,
 					columns: Arr.map(t.columns, columnOf)
 				})),
-				indexes: yield* Effect.forEach(
-					yield* part(queries.indexes, RawCatalogIndexSchema),
-					indexOf
-				),
+				indexes: yield* Effect.forEach(indexes, indexOf),
 				enums: yield* part(queries.enums, CatalogEnumSchema),
 				domains: yield* part(queries.domains, CatalogDomainSchema),
 				sequences: yield* part(queries.sequences, CatalogSequenceSchema),

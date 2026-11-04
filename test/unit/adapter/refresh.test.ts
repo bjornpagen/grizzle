@@ -621,7 +621,8 @@ describe("how a refresh ends", () => {
 								statement: (query) =>
 									query.sql !== populatedSql ? { _tag: "refused", error: raised } : rows([])
 							})
-							const failure = failureOf(yield* refreshOn(session, [B]))
+							const refreshed = yield* refreshOn(session, [B])
+							const failure = failureOf(refreshed)
 							assert.ok(Schema.is(ExecutionFailure)(failure))
 							assert.deepEqual(failure.reason, raised)
 							assert.deepEqual(session.committed(), [])
@@ -670,7 +671,8 @@ describe("how a refresh ends", () => {
 					Arr.findFirstIndex(targetsOf([A, B]), (t) => t.relation === "A")
 				)
 				const session = refreshSession(["b"], rewrittenAt(position))
-				const failure = failureOf(yield* refreshOn(session, [A, B]))
+				const refreshed = yield* refreshOn(session, [A, B])
+				const failure = failureOf(refreshed)
 				assert.deepEqual(told(failure), {
 					transient: ConcurrentRefresh.make({ relation: "A" }),
 					sqlstate: sqlstates.grizzleConcurrentChange
@@ -679,7 +681,8 @@ describe("how a refresh ends", () => {
 				assert.deepEqual(session.committed(), [])
 				/** A 40Z01 that names no target is no ConcurrentRefresh. */
 				const stray = refreshSession(["b"], rewrittenAt(9))
-				const strayFailure = failureOf(yield* refreshOn(stray, [A, B]))
+				const strayRefreshed = yield* refreshOn(stray, [A, B])
+				const strayFailure = failureOf(strayRefreshed)
 				assert.deepEqual(told(strayFailure), { execution: sqlstates.grizzleConcurrentChange })
 			})
 	)

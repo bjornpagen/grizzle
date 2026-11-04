@@ -545,7 +545,8 @@ const fullResult = (
 		const raws: Array<ReadonlyArray<Row>> = []
 		for (const [i, statement] of statements.entries()) {
 			const values = Arr.map(statement.params, (slot) => slotText(o.c, slot))
-			raws.push(yield* run(session)(defined(specs[i], "statement").sql, values))
+			const raw = yield* run(session)(defined(specs[i], "statement").sql, values)
+			raws.push(raw)
 		}
 		const heading = template.heading
 		const project = (spec: StatementSpec, row: Row): Row =>
@@ -732,10 +733,11 @@ const pager =
 							boundary: (yield* fromEngine(runtime.codec.decode(request.token))).texts
 						}
 					: { variant: request.variant, size: request.size }
-			const rows = yield* send(
-				yield* Effect.mapError(pageFlight(runtime, artifact, inputs, call), (reason) =>
+			const rows = yield* Effect.flatMap(
+				Effect.mapError(pageFlight(runtime, artifact, inputs, call), (reason) =>
 					ReadFailure.make({ reason })
-				)
+				),
+				send
 			)
 			/** The page's nodes, which this suite compares by their texts, read as their Rows. */
 			const page = yield* Effect.fromResult(pageOf(runtime, rows, (row) => row))

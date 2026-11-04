@@ -243,17 +243,17 @@ const planSchema = (
 		const schema = parsed.schema
 		const [owner] = yield* Result.mapError(
 			apartRows(schemaOwner, sentAnswer(answers, at)),
-			(failure) => stopped(OwnerUnread.make({ schema, failure }))
+			(failure) => stopped(new OwnerUnread({ schema, failure }))
 		)
 		if (owner !== undefined && owner !== user) {
-			return yield* Result.fail(stopped(OwnedByAnother.make({ schema, owner, user })))
+			return yield* Result.fail(stopped(new OwnedByAnother({ schema, owner, user })))
 		}
 		const taken = yield* Result.mapError(
 			apartRow(tryLock, sentAnswer(answers, at + 1)),
-			(failure) => stopped(LockUnread.make({ schema, failure }))
+			(failure) => stopped(new LockUnread({ schema, failure }))
 		)
 		if (!taken) {
-			return yield* Result.fail(stopped(ApplyBusy.make({ schema })))
+			return yield* Result.fail(stopped(new ApplyBusy({ schema })))
 		}
 		const read = yield* Result.mapError(
 			ledgerOfAnswers(schema, sentAnswer(answers, at + 2), sentAnswer(answers, at + 3)),
@@ -290,17 +290,18 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 				}
 			)
 		),
-		(failure) => stopped(SurveyFailed.make({ failure }))
+		(failure) => stopped(new SurveyFailed({ failure }))
 	)
 	/** The session's role concerns no schema. */
 	const user = yield* Effect.fromResult(
 		Result.mapError(apartRow(currentUser, sentAnswer(answers, 0)), (failure) =>
-			stopped(RoleUnread.make({ failure }))
+			stopped(new RoleUnread({ failure }))
 		)
 	)
 	const planned: Array<Planned> = []
 	for (const [i, c] of checked.entries()) {
-		planned.push(yield* Effect.fromResult(planSchema(c, answers, answersFrom(i), user)))
+		const schemaPlan = yield* Effect.fromResult(planSchema(c, answers, answersFrom(i), user))
+		planned.push(schemaPlan)
 	}
 	return planned
 })
@@ -322,7 +323,7 @@ const runFile = (
 	const fence = fenceOf(statements, ledger)
 	const statementFailed = (index: number) => (failure: StatementFailure) =>
 		stopped(
-			StatementFailed.make({
+			new StatementFailed({
 				schema,
 				folder: folder.name,
 				file: file.name,
@@ -331,20 +332,20 @@ const runFile = (
 			})
 		)
 	const recordFailed = (failure: StatementFailure) =>
-		stopped(RecordFailed.make({ schema, at, failure }))
+		stopped(new RecordFailed({ schema, at, failure }))
 	/** A COMMIT the server refused, or one the connection was lost during, which may have committed. */
 	const commitFailed = (
 		failure: Extract<BatchFailure, { readonly _tag: "CommitRefused" | "CommitLost" }>
 	) =>
 		stopped(
 			failure._tag === "CommitRefused"
-				? FileCommitRefused.make({
+				? new FileCommitRefused({
 						schema,
 						folder: folder.name,
 						file: file.name,
 						failure: failure.failure
 					})
-				: FileCommitLost.make({ schema, at })
+				: new FileCommitLost({ schema, at })
 		)
 	const record = [
 		{ sql: statements.recordFolder.text, params: folderParams(folder) },
@@ -379,7 +380,7 @@ const runFile = (
 					case "DriverFailure":
 					case "UnreadableAnswer":
 						return stopped(
-							TransactionFailed.make({ schema, folder: folder.name, file: file.name, failure })
+							new TransactionFailed({ schema, folder: folder.name, file: file.name, failure })
 						)
 				}
 			}
@@ -428,7 +429,7 @@ const fenceOf = (
 
 /** The ledger's lock refused or failed. */
 const lockFailed = (schema: string, at: RecordPlace, failure: StatementFailure): MigrateError =>
-	stopped(LedgerUnlocked.make({ schema, at, failure }))
+	stopped(new LedgerUnlocked({ schema, at, failure }))
 
 /**
  * The folder row alone, under the ledger's lock: a folder without files, and a no-transaction file's folder before its
@@ -443,7 +444,7 @@ const recordFolderRow = (
 ): Effect.Effect<void, MigrateError> => {
 	const at: RecordPlace = { kind: "folder", folder: folder.name }
 	const fence = fenceOf(statements, ledger)
-	const failed = (failure: StatementFailure) => stopped(RecordFailed.make({ schema, at, failure }))
+	const failed = (failure: StatementFailure) => stopped(new RecordFailed({ schema, at, failure }))
 	return Effect.mapError(
 		session.transaction([
 			...fence,
@@ -459,7 +460,7 @@ const recordFolderRow = (
 				case "CommitRefused":
 					return failed(failure.failure)
 				case "CommitLost":
-					return stopped(FileCommitLost.make({ schema, at }))
+					return stopped(new FileCommitLost({ schema, at }))
 				case "ConnectionLost":
 				case "DriverFailure":
 				case "UnreadableAnswer":
@@ -513,7 +514,7 @@ const driftFailure = (
 		case "StaleName": {
 			const at = failure.index - replay.from
 			return at >= 0 && at < replay.count
-				? ReplayRefused.make({ statement: at + 1, of: replay.count, failure: failure.failure })
+				? new ReplayRefused({ statement: at + 1, of: replay.count, failure: failure.failure })
 				: failure.failure
 		}
 		case "CommitRefused":
@@ -538,7 +539,7 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 ): Effect.fn.Return<void, MigrateError> {
 	const schema = snapshot.schema
 	const unchecked = (failure: DriftUnchecked["failure"]) =>
-		stopped(DriftUnchecked.make({ schema, failure }))
+		stopped(new DriftUnchecked({ schema, failure }))
 	const drift = yield* Effect.mapError(Effect.fromResult(driftFlight(snapshot)), unchecked)
 	const answered = yield* Effect.mapError(
 		session.alongside(ledgerReads(schema, statements), drift.flight.statements, driftTransaction),
@@ -557,7 +558,7 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 	/** Each mismatch is a fact of its own, which the report lists one per line. */
 	const mismatches = [...ledgerMismatches(snapshot, read.state), ...found]
 	if (Arr.isReadonlyArrayNonEmpty(mismatches)) {
-		return yield* stopped(Drifted.make({ schema, snapshot: snapshot.fingerprint, mismatches }))
+		return yield* stopped(new Drifted({ schema, snapshot: snapshot.fingerprint, mismatches }))
 	}
 })
 
@@ -573,17 +574,19 @@ export const applyOnSession = Effect.fn("applyOnSession")(function* (
 	const repeated = Arr.findFirst(schemas, (s, i) => schemas.indexOf(s) !== i)
 	if (Option.isSome(repeated)) {
 		return yield* stopped(
-			InputRefused.make({ schema: repeated.value, fault: { kind: "repeatedSchema" } })
+			new InputRefused({ schema: repeated.value, fault: { kind: "repeatedSchema" } })
 		)
 	}
 	const checked: Array<Checked> = []
 	for (const t of targets) {
-		checked.push(yield* Effect.fromResult(checkTarget(t)))
+		const checkedTarget = yield* Effect.fromResult(checkTarget(t))
+		checked.push(checkedTarget)
 	}
 	const planned = yield* surveyAll(session, checked)
 	const reports: Array<SchemaApplyReport> = []
 	for (const p of planned) {
-		reports.push(yield* runPlan(session, p))
+		const report = yield* runPlan(session, p)
+		reports.push(report)
 	}
 	for (const p of planned) {
 		yield* checkDrift(session, p.snapshot, p.statements)
