@@ -16,7 +16,15 @@ import {
 import { Command, Flag } from "effect/cli"
 import { createFileSystemLayer, type FileSystemCallbacks, serverFS } from "typescript/fs"
 import { API, DiagnosticCategory, type Diagnostic, type Snapshot } from "typescript/sync"
-import { createVitest, type Reporter, type TestRunResult, type Vitest } from "vitest/node"
+import {
+	createVitest,
+	ForksPoolWorker,
+	type PoolOptions,
+	type PoolRunnerInitializer,
+	type Reporter,
+	type TestRunResult,
+	type Vitest
+} from "vitest/node"
 import { applied, type Mutant, mutantsOf, OPERATORS, type Operator } from "#mutants.ts"
 import { fnv1a32, mix } from "#random.ts"
 import { type MutatedFile, type RealPath, realPathOf } from "#vitest/mutated-file.ts"
@@ -192,54 +200,114 @@ const verdictOf = (result: TestRunResult): Verdict => {
 }
 
 /**
- * Every project of the run puts each test file in a fresh process (the forks pool, isolated), so no process that loaded
- * one mutant's target loads another's.
+ * A forks worker its run owns from the moment its process is forked (start forks before it awaits anything) to its
+ * stop, so the run's release can end it whatever it is doing. Its stop is Vitest's own: SIGTERM, then SIGKILL once
+ * ForksPoolWorker's grace has passed (Vitest's SIGKILL_TIMEOUT, 500 ms in Vitest 5.1), which is how long a worker that
+ * ignores SIGTERM, one looping in a mutant, keeps running.
  */
-const freshProcesses = (vitest: Vitest) => {
-	const shared = Arr.filter(
+class OwnedFork extends ForksPoolWorker {
+	readonly #running: Set<OwnedFork>
+
+	constructor(options: PoolOptions, running: Set<OwnedFork>) {
+		super(options)
+		this.#running = running
+	}
+
+	override start() {
+		const started = super.start()
+		this.#running.add(this)
+		return started
+	}
+
+	override stop() {
+		this.#running.delete(this)
+		return super.stop()
+	}
+}
+
+/** The name of the run's pool. */
+const OWNED_FORKS = "owned-forks"
+
+/** The run's pool: Vitest's forks, every worker owned by the run while it runs. */
+const ownedForks = (running: Set<OwnedFork>): PoolRunnerInitializer => ({
+	name: OWNED_FORKS,
+	createPoolWorker: (options) => new OwnedFork(options, running)
+})
+
+/**
+ * Every project of the run runs each test file in a fresh process of the run's own pool, so no process that loaded one
+ * mutant's target loads another's, and the run's release ends every one.
+ */
+const ownedFreshProcesses = (vitest: Vitest) => {
+	const unowned = Arr.filter(
 		vitest.projects,
-		(project) => project.config.pool !== "forks" || !project.config.isolate
+		(project) => project.config.pool !== OWNED_FORKS || !project.config.isolate
 	)
-	return Arr.isReadonlyArrayNonEmpty(shared)
+	return Arr.isReadonlyArrayNonEmpty(unowned)
 		? Effect.fail(
 				new MutationRunRefused({
-					message: `a mutant's run needs every test file in a fresh process (pool "forks", isolate), and ${Arr.join(
-						Arr.map(shared, (project) => project.name),
+					message: `a mutant's run needs every test file in a fresh process of its own pool, and ${Arr.join(
+						Arr.map(unowned, (project) => project.name),
 						", "
-					)} shares one`
+					)} runs elsewhere`
 				})
 			)
 		: Effect.void
 }
 
-/** The package's suite, run in process in a Vitest of its own, with `mutated` provided to every test process. */
+/**
+ * The package's suite, run in process in a Vitest of its own on a pool it owns, with `mutated` provided to every test
+ * process. However the run ends, finished, failed, past its deadline or interrupted, its release stops every worker
+ * still running and then closes the Vitest, whose close waits for the run in flight and so never ends a hung worker.
+ */
 const suiteOf = (pkg: RealPath, setup: string, seed: number) => (mutated: MutatedFile) =>
-	Effect.acquireUseRelease(
-		Effect.tryPromise({
-			try: () =>
-				createVitest(
-					{
-						root: pkg,
-						watch: false,
-						bail: 1,
-						reporters: [silent],
-						env: { TEST_SEED: String(seed) },
-						provide: { "grizzle.testing.mutated": mutated }
-					},
-					{ test: { setupFiles: [setup] } }
+	Effect.suspend(() => {
+		const running = new Set<OwnedFork>()
+		return Effect.acquireUseRelease(
+			Effect.tryPromise({
+				try: () =>
+					createVitest(
+						{
+							root: pkg,
+							watch: false,
+							bail: 1,
+							reporters: [silent],
+							env: { TEST_SEED: String(seed) },
+							provide: { "grizzle.testing.mutated": mutated }
+						},
+						{ test: { setupFiles: [setup], pool: ownedForks(running) } }
+					),
+				catch: refused("Vitest did not start")
+			}),
+			(vitest) =>
+				Effect.andThen(
+					ownedFreshProcesses(vitest),
+					Effect.map(
+						Effect.tryPromise({
+							try: () => vitest.start(),
+							catch: refused("the suite did not run")
+						}),
+						verdictOf
+					)
 				),
-			catch: refused("Vitest did not start")
-		}),
-		(vitest) =>
-			Effect.andThen(
-				freshProcesses(vitest),
-				Effect.map(
-					Effect.tryPromise({ try: () => vitest.start(), catch: refused("the suite did not run") }),
-					verdictOf
+			(vitest) =>
+				Effect.andThen(
+					Effect.forEach(Arr.fromIterable(running), (fork) => Effect.promise(() => fork.stop()), {
+						concurrency: "unbounded",
+						discard: true
+					}),
+					Effect.promise(() => vitest.close())
 				)
-			),
-		(vitest) => Effect.promise(() => vitest.close())
-	)
+		)
+	})
+
+/**
+ * A run that judged every mutant exits 0: the measurement succeeded, whatever exit status the suites it ran in process
+ * left behind (Vitest sets 1 after every failing run, which is every killed mutant's).
+ */
+const judgedEvery = Effect.sync(() => {
+	process.exitCode = 0
+})
 
 const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 	const fs = yield* FileSystem.FileSystem
@@ -345,6 +413,7 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 		({ mutant, verdict }) => Console.log(`${Str.toUpperCase(verdict.kind)} ${describe(mutant)}`),
 		{ discard: true }
 	)
+	yield* judgedEvery
 }, Effect.scoped)
 
 const mutate = Command.make(
