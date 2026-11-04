@@ -254,6 +254,15 @@ export default defineConfig(
 				rules: active({ "devtools/no-try": "off" })
 			},
 			{
+				files: ["packages/engine/src/core/trusted.ts"],
+				rules: active({
+					/** trustedJson's T is the type its caller names for trusted JSON text: the door's whole purpose. */
+					"typescript/no-unnecessary-type-parameters": "off",
+					/** The one door from JSON text to a typed value (owner, 2026-11-04): parsed once, trusted, never validated. */
+					"typescript/consistent-type-assertions": "off"
+				})
+			},
+			{
 				files: ["packages/engine/src/schema/record.ts"],
 				rules: active({
 					/** assembled's R and describedHeading's C are the types the module's one assertion gives a record built key by key: TypeScript cannot derive them, so their callers name them. */

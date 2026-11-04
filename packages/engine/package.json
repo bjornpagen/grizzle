@@ -167,6 +167,11 @@
 			"types": "./dist/core/text.d.ts",
 			"default": "./dist/core/text.js"
 		},
+		"./internal/core/trusted.ts": {
+			"grizzle-source": "./src/core/trusted.ts",
+			"types": "./dist/core/trusted.d.ts",
+			"default": "./dist/core/trusted.js"
+		},
 		"./internal/deploy/admission/manifest.ts": {
 			"grizzle-source": "./src/deploy/admission/manifest.ts",
 			"types": "./dist/deploy/admission/manifest.d.ts",
