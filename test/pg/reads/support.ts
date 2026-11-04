@@ -11,6 +11,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type Installed,
 	installMigrated as install,
@@ -162,7 +163,11 @@ export const installed = <
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
-		const done = yield* install(fixture, { ...options, logins: [fullWorld(fixture).server] })
+		const done = yield* install(fixture, {
+			ambient: ordinarySession,
+			...options,
+			logins: [fullWorld(fixture).server]
+		})
 		yield* load(done, facts)
 		const rebuilt = schema<string, R, St>(done.schema, fixture.relations, fixture.statements)
 		const world = fullWorld(rebuilt)

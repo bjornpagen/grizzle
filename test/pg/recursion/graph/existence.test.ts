@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect } from "effect"
@@ -109,9 +109,9 @@ const caseOf = (label: string, q: unknown): LabelledCase =>
 
 /** Friends of friends: exactly two directed steps, every participating person required to exist. */
 const FriendsOfFriends = query(Network).rule((r) => {
-	const { id: start } = v(Person)
-	const { id: middle } = v(Person)
-	const { id: end } = v(Person)
+	const { id: start } = v(Person, "start")
+	const { id: middle } = v(Person, "middle")
+	const { id: end } = v(Person, "end")
 	return r
 		.match(Person, { id: start })
 		.match(Follows, { from: start, to: middle })
@@ -124,8 +124,8 @@ const FriendsOfFriends = query(Network).rule((r) => {
 
 /** The same two steps over Follows alone: a dangling edge is a fact like any other. */
 const FollowsOnly = query(Network).rule((r) => {
-	const { from: start, to: middle } = v(Follows)
-	const { to: end } = v(Follows)
+	const { from: start, to: middle } = v(Follows, "first")
+	const { to: end } = v(Follows, "second")
 	return r
 		.match(Follows, { from: start, to: middle })
 		.match(Follows, { from: middle, to: end })
@@ -138,7 +138,7 @@ const Existing = query(Network).recursive("Existing", {
 	row: { person: pg.integer },
 	base: [
 		(r) => {
-			const { id } = v(Person)
+			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("person", pg.integer)))
@@ -147,8 +147,8 @@ const Existing = query(Network).recursive("Existing", {
 	],
 	rec: [
 		(r, self) => {
-			const { person } = v(self)
-			const { to } = v(Follows)
+			const { person } = v(self, "self")
+			const { to } = v(Follows, "follows")
 			return r
 				.match(self, { person })
 				.match(Follows, { from: person, to })
@@ -204,7 +204,7 @@ layer(Substrate.layer)("endpoint existence during deferred violations", (it) => 
 							generator: element(cases),
 							literal: (c: LabelledCase) => c.label,
 							limit: cases.length,
-							features: features<AgreedFeature>(
+							coverage: requiredInSpace<AgreedFeature>(
 								Arr.map(cases, (c): AgreedFeature => `agreed: ${c.label}`)
 							),
 							caseHang: Duration.minutes(2)

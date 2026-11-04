@@ -1,6 +1,7 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { contractLaw, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { contractLawIdentity } from "#compiler/analysis/theory/theory.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
@@ -11,7 +12,7 @@ import {
 	identity,
 	maxIdentifierBytes
 } from "#compiler/core/identity.ts"
-import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
+import type { Identifier, IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -53,13 +54,12 @@ import {
 } from "#compiler/physical/indexes/engine.ts"
 import { commentsOf } from "#compiler/physical/install/comments.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import { numericBoundStorage } from "#compiler/physical/numeric/bound.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
 import { spanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
-import { emptyNameMap } from "#compiler/sql/naming.ts"
 import type { TextRefinement } from "#compiler/text/refinement.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -84,9 +84,9 @@ export const installOptions = (owned: Owned, owner: string | undefined): Install
 	extensions: []
 })
 
-/** A law of the installation with its description, as an outcome names it (types/changeset Law). */
-export interface DescribedLaw {
-	readonly law: LawId
+/** A law of the installation with its description, as an outcome names it (types/changeset Law); L, the laws it may be. */
+export interface DescribedLaw<L extends LawId = LawId> {
+	readonly law: L
 	readonly described: Law
 }
 
@@ -101,8 +101,6 @@ export interface Installation {
 	/** The install script: every object's DDL in install order, then the PUBLIC revokes, the logins' defaults and every
 	 * installed object's COMMENT. */
 	readonly statements: ReadonlyArray<SqlStatement>
-	/** The emitted text of each statement, in order. */
-	readonly sql: ReadonlyArray<string>
 	readonly closedTemplates: Readonly<Record<string, ClosedTemplate>>
 	readonly textDomains: ReadonlyArray<TextDomain>
 	readonly indexes: ReadonlyArray<PlannedIndex>
@@ -117,7 +115,7 @@ export interface Installation {
 	readonly constraintToLaw: ConstraintLaws
 	/** Every law of the theory with its description, in theory order: the identities a residual law's function and a
 	 * write statement's refusal raise under. */
-	readonly theoryLaws: ReadonlyArray<DescribedLaw>
+	readonly theoryLaws: ReadonlyArray<DescribedLaw<Identifier<"law">>>
 	/** Every law a violation of the installation can report, by its LawId, as an outcome names it (types/changeset
 	 * Law): the theory's laws, then each constraint's law, each described where it is built. */
 	readonly described: ReadonlyMap<LawId, Law>
@@ -148,15 +146,15 @@ const admittedSchema = (name: string): boolean => {
 
 /** The installation of an owned schema, under the policy it was owned under: the obligation graph of every native
  * object, each with its DDL, its reasons and its phase, in a deterministic install order; the manifest; the VALUES
- * templates of the closed relations; the planned indexes with their merged provenance; and the install script, every
- * statement audited and printed through `emit`, so no text leaves the compiler that the structural audit refuses. It is
- * pure: no database, no clock, no file.
+ * templates of the closed relations; the planned indexes with their merged provenance; and the install script, its
+ * statements as SQL trees, printed only where they are sent or drafted. It is pure: no database, no clock, no file.
  *
  * The steps follow the dependency order: the namespace and the refusal function every write statement that can refuse
  * raises through; the isolation default and guard; the enums, the structural text domains and the contract domains;
  * the tables with their identities; the tags, keys, CHECKs and references the law model specialized; the shape, width
  * and contract-endpoint CHECKs of every span column (`spanStorage`), which every installation carries because a span's
- * storage is never optional; the validation of every closed payload with a nontrivial refinement
+ * storage is never optional; the bound CHECK of every bare numeric column (`numericBoundStorage`), which every
+ * installation carries because every numeric digit bound rests on it; the validation of every closed payload with a nontrivial refinement
  * (`refinedConstantsExtension`), which every installation carries because the compiler relies on a closed fact's
  * membership only once PostgreSQL has validated it; then the caller's extensions; then the law-maintenance and workload
  * indexes, deduplicated against the key indexes; then, in Publish, the worlds: the logins, their roles with their
@@ -282,7 +280,12 @@ const build = (
 		catchRefusal(() => {
 			/** The built-in span CHECKs and closed facts' validation, then each extension in the caller's order, each
 			 * once: a caller that lists a built-in extension again adds nothing twice. */
-			const extensions = new Set([spanStorage, refinedConstantsExtension, ...options.extensions])
+			const extensions = new Set([
+				spanStorage,
+				numericBoundStorage,
+				refinedConstantsExtension,
+				...options.extensions
+			])
 			const roles = settings.logins.flatMap((l) => l.roles)
 			/** The checker's reading of the schema, the law model's, whose relation handles its theory read: every extension
 			 * and world of the installation reads it. */
@@ -293,7 +296,7 @@ const build = (
 				if (!uses.ok) {
 					throw new Refusal(uses.error)
 				}
-				extraUses.push(...uses.value)
+				appendAll(extraUses, uses.value)
 			}
 			const fields = contextFieldsOf(checked, roles)
 			if (!fields.ok) {
@@ -311,8 +314,9 @@ const build = (
 					return read.value
 				})
 			}))
-			extraUses.push(
-				...worldTextDomainUses(
+			appendAll(
+				extraUses,
+				worldTextDomainUses(
 					fields.value,
 					logins.flatMap((l) => l.roles)
 				)
@@ -356,20 +360,20 @@ const build = (
 					throw new Refusal(contribution.error)
 				}
 				const c = contribution.value
-				extensionRequests.push(...c.indexRequests)
-				statisticsRequests.push(...c.statisticsRequests)
+				appendAll(extensionRequests, c.indexRequests)
+				appendAll(statisticsRequests, c.statisticsRequests)
 				for (const law of c.residualLaws) {
 					claimedResiduals.add(law)
 				}
 				for (const d of c.derivedRelations) {
 					claimedDerived.add(d)
 				}
-				constraintLaws.push(...c.constraintLaws)
+				appendAll(constraintLaws, c.constraintLaws)
 			}
 			/** Each owner and name is one entry: every object is named once, each under its own identity, and the census
 			 * holds distinct identities to distinct identifiers. */
 			const constraintToLaw = constraintLawMap(constraintLaws)
-			const theoryLaws = model.theory.laws.map((law): DescribedLaw =>
+			const theoryLaws = model.theory.laws.map((law): DescribedLaw<Identifier<"law">> =>
 				Object.freeze({ law: law.id, described: lawDescription(law) })
 			)
 			const described = new Map<LawId, Law>([
@@ -399,13 +403,6 @@ const build = (
 			const comments = commentsOf(created, census)
 			const manifest = { ...ordered, comments }
 			const statements = [...created, ...worlds.publicRevokes, ...worlds.roleDefaults, ...comments]
-			const sql = statements.map((s) => {
-				const emitted = emit(s, emptyNameMap, unmetered)
-				if (!emitted.ok) {
-					throw new Refusal(emitted.error)
-				}
-				return emitted.value.text
-			})
 			const derived = Object.values(owned.relations)
 				.filter((r) => r.kind === "derived")
 				.map((r) => r.name)
@@ -417,7 +414,6 @@ const build = (
 				names,
 				manifest,
 				statements,
-				sql,
 				closedTemplates: templates,
 				textDomains,
 				indexes: indexes.value,

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, int, uniqueArray } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -138,6 +138,7 @@ const evaluate = (e: Expr, tuple: ReadonlyArray<number>, bound: ReadonlyArray<nu
 		case "returning":
 		case "subquery":
 		case "user":
+		case "regclass":
 			throw new Error(`no ${e.kind} in a seek`)
 	}
 }
@@ -219,7 +220,12 @@ describe("the seek predicate", () => {
 						literal: Formatter.format,
 						/** The 1, 2, 4 and 8 direction sets of zero to three keys, each with every seek. */
 						limit: 15 * seeks.length,
-						features: features<`${0 | 1 | 2 | 3} keys`>(["0 keys", "1 keys", "2 keys", "3 keys"]),
+						coverage: requiredInSpace<`${0 | 1 | 2 | 3} keys`>([
+							"0 keys",
+							"1 keys",
+							"2 keys",
+							"3 keys"
+						]),
 						caseHang: Duration.minutes(2)
 					},
 					({ dirs, seek, m }, c) =>
@@ -283,13 +289,12 @@ describe("variants and probes", () => {
 						)
 					),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2_000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ dirs, d, anchor, size }) =>
@@ -340,13 +345,12 @@ describe("variants and probes", () => {
 						suite: "unit/page/reverse",
 						draw: drawn(array(element(["asc" as const, "desc" as const]), { min: 1, max: 4 })),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 50,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(dirs) =>

@@ -3,7 +3,7 @@ import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { DbOf as DbType } from "#adapter/types/db.ts"
 import type { DbLayerService } from "#adapter/types/layer.ts"
 import type { ChangeSet as PublicChangeSet } from "#compiler/public/changeset.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { type EvidenceOfQuery, type HeadOf, query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -75,7 +75,7 @@ export const Writer = role(Work, "writer", Work.relations, {
  * declared containment, with no further predicate, is the bare fact; a child bound on no key is a set.
  */
 export const accounts = query(Work).rule((r) => {
-	const { id, name, tier } = v(Account)
+	const { id, name, tier } = v(Account, "account")
 	return r.match(Account, { id, name, tier }).find({ id, name, tier })
 })
 
@@ -89,7 +89,7 @@ export const accountCards = accounts
 		"tasks",
 		(a) =>
 			query(Work).rule((r) => {
-				const { id, title } = v(Task)
+				const { id, title } = v(Task, "task")
 				return r.match(Task, { id, account: a.id, title }).find({ id, title })
 			}),
 		"array"
@@ -98,7 +98,7 @@ export const accountCards = accounts
 		"self",
 		(a) =>
 			query(Work).rule((r) => {
-				const { name } = v(Account)
+				const { name } = v(Account, "account")
 				return r.match(Account, { id: a.id, name }).find({ name })
 			}),
 		"option"
@@ -108,11 +108,11 @@ export type AccountCardsHead = Expect<
 	Equals<
 		HeadOf<typeof accountCards>,
 		{
-			readonly id: string
+			readonly id: Uuid
 			readonly name: string
 			readonly tier: "Free" | "Pro"
 			readonly tierFact: { readonly tier: "Free" | "Pro" }
-			readonly tasks: ReadonlyArray<{ readonly id: string; readonly title: string }>
+			readonly tasks: ReadonlyArray<{ readonly id: Uuid; readonly title: string }>
 			readonly self: Option.Option<{ readonly name: string }>
 		}
 	>
@@ -134,32 +134,35 @@ export const foreignChild = () => {
 
 /** 2. get: a lookup through the primary key, a candidate key, or any query proved at most one row. */
 export const accountById = query(Work).rule((r) => {
-	const { name } = v(Account)
+	const { name } = v(Account, "account")
 	return r.match(Account, { id: r.param("id", Account.fields.id), name }).find({ name })
 })
 
 export const accountByName = query(Work).rule((r) => {
-	const { id } = v(Account)
+	const { id } = v(Account, "account")
 	return r.match(Account, { id, name: r.param("name", Account.fields.name) }).find({ id })
 })
 
 export const tasksOf = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id, account: r.param("account", Task.fields.account) }).find({ id })
 })
 
 export const taskCount = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r
 		.match(Task, { id, account: r.param("account", Task.fields.account) })
 		.find({ tasks: r.count() })
 })
 
+const accountId = "0193d8f2-7c1e-7000-8000-0000000000a1"
+const taskId = "0193d8f2-7c1e-7000-8000-0000000000a2"
+
 export const gets = (db: DbType<typeof Reader, unknown>) => {
-	const byId = db.get(accountById, { id: "a" })
+	const byId = db.get(accountById, { id: accountId })
 	const byKey = db.get(byName, { name: "acme" })
-	const byPrimary = db.get(Task, { id: "t" })
-	const count = db.get(taskCount, { account: "a" })
+	const byPrimary = db.get(Task, { id: taskId })
+	const count = db.get(taskCount, { account: accountId })
 	return { byId, byKey, byPrimary, count }
 }
 type Gets = ReturnType<typeof gets>
@@ -171,7 +174,7 @@ export type GetByKey = Expect<
 	Equals<
 		Gets["byKey"],
 		Effect.Effect<
-			Option.Option<{ readonly id: string; readonly name: string; readonly tier: "Free" | "Pro" }>,
+			Option.Option<{ readonly id: Uuid; readonly name: string; readonly tier: "Free" | "Pro" }>,
 			ReadError
 		>
 	>
@@ -183,7 +186,7 @@ export type GetCount = Expect<
 
 export const manyGet = (db: DbType<typeof Reader, unknown>) =>
 	// @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-	db.get(tasksOf, { account: "a" })
+	db.get(tasksOf, { account: accountId })
 
 export const nonKeyGet = (db: DbType<typeof Reader, unknown>) =>
 	// @ts-expect-error -- TS2353: a keyed get names the key fields only
@@ -200,13 +203,13 @@ export const badDiscriminator = () =>
 
 /** 4. derived: the definition's evidence keys the derived relation, here its group term; no law names one. */
 export const tasksPerAccount = query(Work).rule((r) => {
-	const { id, account } = v(Task)
+	const { id, account } = v(Task, "task")
 	return r.match(Task, { id, account }).find({ account, tasks: r.count() })
 })
 export const TasksPerAccount = derived("TasksPerAccount", tasksPerAccount)
 /** A plain definition keeps the key its match proves (types/evidence HeadKeys): Task's id. */
 export const titles = query(Work).rule((r) => {
-	const { id, title } = v(Task)
+	const { id, title } = v(Task, "task")
 	return r.match(Task, { id, title }).find({ id, title })
 })
 export const Titles = derived("Titles", titles)
@@ -226,7 +229,7 @@ export type TitlesKeys = Expect<
 
 /** The retained key pins a match on the derived relation like a declared key. */
 export const titleById = query(Reports).rule((r) => {
-	const { title } = v(Titles)
+	const { title } = v(Titles, "titles")
 	return r.match(Titles, { id: r.param("id", Account.fields.id), title }).find({ title })
 })
 export type TitleByIdCard = Expect<Equals<EvidenceOfQuery<typeof titleById>["card"], "atMostOne">>
@@ -247,7 +250,7 @@ export const applies = (
 	reports: DbType<typeof Refresher, unknown>
 ) => {
 	const change = ChangeSet.empty(Work).delete(Task, [
-		{ id: "t", account: "a", kind: "Manual", title: "x" }
+		{ id: taskId, account: accountId, kind: "Manual", title: "x" }
 	])
 	const applied = writer.apply(change, {})
 	const refreshed = reports.refresh(TasksPerAccount, Titles)
@@ -275,16 +278,16 @@ export const refreshOutOfScope = (reporter: DbType<typeof Reporter, unknown>) =>
 /** 6. orderBy: fields of the heading, common to every arm of a union. */
 export const payloads = query(Work)
 	.rule((r) => {
-		const { id } = v(Task)
-		const { budget } = v(AutomaticTask)
+		const { id } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
 		return r
 			.match(Task, { id, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
 			.find({ id, kind: Kind.handle("Automatic"), budget })
 	})
 	.rule((r) => {
-		const { id } = v(Task)
-		const { operator } = v(ManualTask)
+		const { id } = v(Task, "task")
+		const { operator } = v(ManualTask, "manualTask")
 		return r
 			.match(Task, { id, kind: "Manual" })
 			.match(ManualTask, { task: id, operator })

@@ -1,18 +1,19 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { allenRelations, fullAllenMask, parseAllenMask } from "#compiler/allen/mask.ts"
-import type { QueryDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { pg, span, uuid } from "#compiler/public/fields.ts"
+import { pg, span, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -37,7 +38,7 @@ const Rooms = schema("Rooms", { Booking, Visit }, [])
 
 /** The workload program whose span predicate requests Visit's GiST (room, during): one room's visits meeting a window. */
 const visitsInWindow = query(Rooms).rule((r) => {
-	const { id, during } = v(Visit)
+	const { id, during } = v(Visit, "visit")
 	return r
 		.match(Visit, { id, room: r.param("room", Visit.fields.room), during })
 		.where(r.allen(during, ALLEN.intersects, r.param("w", Visit.fields.during)))
@@ -61,7 +62,7 @@ type Size = (typeof sizes)[number]
 const spanTop = (size: Size, relationName: RelationName): number =>
 	relationName === "Booking" ? size.perRoom * 10 : size.rooms * size.perRoom
 
-const roomId = (r: number): string =>
+const roomId = (r: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(r.toString(16), Str.padStart(12, "0"))}`
 
 /**
@@ -84,7 +85,7 @@ const roomRule = (relationName: RelationName, where: ExprDesc, prefix: Prefix): 
 						bindings:
 							prefix === "by room"
 								? {
-										room: { kind: "param", name: "room" },
+										room: { kind: "param", name: "room", type: { kind: "uuid" } },
 										during: { kind: "var", var: "s" },
 										[outside]: { kind: "var", var: "o" }
 									}
@@ -100,16 +101,23 @@ const roomRule = (relationName: RelationName, where: ExprDesc, prefix: Prefix): 
 	})
 }
 
+/** The declared type of the window parameter w: a span over bigint, as Visit's and Booking's during. */
+const bigintSpan: FieldDesc = {
+	kind: "span",
+	endpoint: { kind: "pg", type: "bigint" },
+	width: undefined
+}
+
 const allenWhere = (mask: number): ExprDesc => ({
 	kind: "allen",
 	left: { kind: "var", var: "s" },
 	mask,
-	right: { kind: "param", name: "w" }
+	right: { kind: "param", name: "w", type: bigintSpan }
 })
 
 const pointWhere: ExprDesc = {
 	kind: "pointIn",
-	point: { kind: "param", name: "t" },
+	point: { kind: "param", name: "t", type: { kind: "pg", type: "bigint" } },
 	span: { kind: "var", var: "s" }
 }
 
@@ -117,7 +125,7 @@ const pointWhere: ExprDesc = {
 const endpointWhere = (upper: boolean): ExprDesc => ({
 	kind: "pointIn",
 	point: { kind: "compute", fn: upper ? "upper" : "lower", args: [{ kind: "var", var: "s" }] },
-	span: { kind: "param", name: "w" }
+	span: { kind: "param", name: "w", type: bigintSpan }
 })
 
 /** The masks planted beside any other: each basic relation and each named mask. */
@@ -166,7 +174,7 @@ type Prefix = "by room" | "unprefixed"
 const prefixes = ["by room", "unprefixed"] as const satisfies ReadonlyArray<Prefix>
 type PlanFeature = `${RelationName} ${PredicateKind} ${Prefix}` | `size ${Size["name"]}`
 
-const predicateKinds: ReadonlyArray<PredicateKind> = [
+const predicateKinds: Arr.NonEmptyReadonlyArray<PredicateKind> = [
 	"one disjunct",
 	"a union",
 	"pointIn",
@@ -220,7 +228,7 @@ const planKept: ReadonlyArray<Kept<PlanSketch, PlanFeature>> = Arr.map(
 	})
 )
 
-const requiredFeatures: ReadonlyArray<PlanFeature> = [
+const requiredFeatures: Arr.NonEmptyReadonlyArray<PlanFeature> = [
 	...Arr.flatMap(relationNames, (r) =>
 		Arr.flatMap(predicateKinds, (k) => Arr.map(prefixes, (p): PlanFeature => `${r} ${k} ${p}`))
 	),
@@ -289,13 +297,12 @@ FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
 							suite: "spans/allen-gist",
 							draw: drawn(planSketchGen),
 							literal: Formatter.format,
-							features: features<PlanFeature>(requiredFeatures),
+							coverage: required<PlanFeature>(requiredFeatures, { cases: 80, sense: notesOnly }),
 							kept: planKept,
 							runs: 80,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(sketch, c) =>

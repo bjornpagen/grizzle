@@ -1,10 +1,10 @@
 import type { Brand, Stream } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
-import type { Origin, Term } from "#compiler/types/core/phantom.ts"
+import type { Origin, ParamType, Rostered, Term } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type {
 	EvidenceOfQuery,
@@ -25,16 +25,16 @@ type ParamNamesOf<X> = keyof ParamsOf<X>
  * ordering. Every
  * `@ts-expect-error -- TSnnnn` names the diagnostic the harness requires on the next line.
  *
- * Variables carry their origin: relation, field and descriptor.
+ * Variables carry their origin: relation, field and scope.
  */
-declare const taskVars: ReturnType<typeof v<typeof Task>>
+declare const taskVars: ReturnType<typeof v<typeof Task, "task">>
 export type TaskIdOrigin = Expect<
-	Equals<typeof taskVars.id, Term<string, unknown, Origin<"Task", "id">, "uuid">>
+	Equals<typeof taskVars.id, Term<Uuid, unknown, Origin<"Task", "id", "task">, "uuid">>
 >
 
-/** The account parameter is inferred as a required string from its use. */
+/** The account parameter is a required uuid: its map entry is the descriptor it was declared at. */
 export const tasksForAccount = query(Work).rule((r) => {
-	const { id, account, kind } = v(Task)
+	const { id, account, kind } = v(Task, "task")
 	return r
 		.match(Task, { id, account, kind })
 		.where(r.eq(account, r.param("account", uuid)))
@@ -42,13 +42,13 @@ export const tasksForAccount = query(Work).rule((r) => {
 })
 
 export type TasksForAccountParams = Expect<
-	Equals<ParamsOf<typeof tasksForAccount>, { readonly account: string }>
+	Equals<ParamsOf<typeof tasksForAccount>, { readonly account: ParamType<Uuid, "uuid"> }>
 >
 
 export type TasksForAccountHead = Expect<
 	Equals<
 		HeadOf<typeof tasksForAccount>,
-		{ readonly id: string; readonly kind: "Automatic" | "Manual" }
+		{ readonly id: Uuid; readonly kind: "Automatic" | "Manual" }
 	>
 >
 
@@ -58,7 +58,7 @@ export const Preference = relation("Preference", { account: uuid, enabled: pg.bo
 ])
 export const Settings = schema("Settings", { Preference }, [])
 export const preferencesByState = query(Settings).rule((r) => {
-	const { account, enabled } = v(Preference)
+	const { account, enabled } = v(Preference, "preference")
 	return r
 		.match(Preference, { account, enabled })
 		.where(r.eq(enabled, r.param("enabled", pg.boolean)))
@@ -66,11 +66,11 @@ export const preferencesByState = query(Settings).rule((r) => {
 })
 
 export type PreferenceParams = Expect<
-	Equals<ParamsOf<typeof preferencesByState>, { readonly enabled: boolean }>
+	Equals<ParamsOf<typeof preferencesByState>, { readonly enabled: ParamType<boolean, "boolean"> }>
 >
 
 export type PreferenceHead = Expect<
-	Equals<HeadOf<typeof preferencesByState>, { readonly account: string; readonly enabled: boolean }>
+	Equals<HeadOf<typeof preferencesByState>, { readonly account: Uuid; readonly enabled: boolean }>
 >
 
 /**
@@ -80,7 +80,7 @@ export type PreferenceHead = Expect<
 export const Budget = relation("Budget", { account: uuid, cents: Cents }, ["account"])
 export const Money = schema("Money", { Budget, Account }, [])
 export const atLeast = query(Money).rule((r) => {
-	const { account, cents } = v(Budget)
+	const { account, cents } = v(Budget, "budget")
 	return r
 		.match(Budget, { account: r.param("account", Budget.fields.account), cents })
 		.match(Account, { id: r.param("account", Account.fields.id) })
@@ -91,14 +91,17 @@ export const atLeast = query(Money).rule((r) => {
 export type AtLeastParams = Expect<
 	Equals<
 		ParamsOf<typeof atLeast>,
-		{ readonly account: string; readonly floor: bigint & Brand.Brand<"Cents"> }
+		{
+			readonly account: ParamType<Uuid, "uuid">
+			readonly floor: ParamType<bigint & Brand.Brand<"Cents">, "bigint">
+		}
 	>
 >
 
 /** A relation parameter is a set-valued source: an array or a Stream of facts. */
 export const tasksById = query(Work).rule((r) => {
 	const wanted = r.relation("ids", { id: uuid })
-	const { id, kind } = v(Task)
+	const { id, kind } = v(Task, "task")
 	return r.match(wanted, { id }).match(Task, { id, kind }).find({ id, kind })
 })
 
@@ -106,7 +109,7 @@ export type TasksByIdParams = Expect<
 	Equals<
 		ParamsOf<typeof tasksById>,
 		{
-			readonly ids: ReadonlyArray<{ readonly id: string }> | Stream.Stream<{ readonly id: string }>
+			readonly ids: ReadonlyArray<{ readonly id: Uuid }> | Stream.Stream<{ readonly id: Uuid }>
 		}
 	>
 >
@@ -119,7 +122,7 @@ export const Ledger = relation(
 )
 export const Books = schema("Books", { Ledger }, [])
 export const numericFilter = query(Books).rule((r) => {
-	const { id, amount } = v(Ledger)
+	const { id, amount } = v(Ledger, "ledger")
 	return r
 		.match(Ledger, { id, amount })
 		.where(r.gt(amount, "10.50"), r.lt(amount, 100n))
@@ -127,46 +130,45 @@ export const numericFilter = query(Books).rule((r) => {
 })
 
 export const badNumeric = query(Books).rule((r) => {
-	const { id, amount } = v(Ledger)
+	const { id, amount } = v(Ledger, "ledger")
 	// @ts-expect-error -- TS2345: a JavaScript number is never a numeric literal
 	return r.match(Ledger, { id, amount }).where(r.gt(amount, 10)).find({ id })
 })
 
 export const badJoin = query(Books).rule((r) => {
-	const { id, cents, n } = v(Ledger)
+	const { id, cents, n } = v(Ledger, "ledger")
 	// @ts-expect-error -- TS2345: a contract term never meets its bare base
 	return r.match(Ledger, { id, cents, n }).where(r.eq(cents, n)).find({ id })
 })
 
 export const badBinding = query(Books).rule((r) => {
-	const { id } = v(Ledger)
-	const { n } = v(Ledger)
+	const { id, n } = v(Ledger, "ledger")
 	// @ts-expect-error -- TS2322: a bigint variable does not bind a contract field
 	return r.match(Ledger, { id, cents: n }).find({ id })
 })
 
 /** The same refusals with the bare base first: T is invariant, so Term<Cents> is no Term<bigint> either. */
 export const badJoinReversed = query(Books).rule((r) => {
-	const { id, cents, n } = v(Ledger)
+	const { id, cents, n } = v(Ledger, "ledger")
 	// @ts-expect-error -- TS2345: a bare base never meets a contract term
 	return r.match(Ledger, { id, cents, n }).where(r.eq(n, cents)).find({ id })
 })
 
 export const badBindingReversed = query(Books).rule((r) => {
-	const { id, cents } = v(Ledger)
+	const { id, cents } = v(Ledger, "ledger")
 	// @ts-expect-error -- TS2322: a contract variable does not bind a bigint field
 	return r.match(Ledger, { id, n: cents }).find({ id })
 })
 
 /** A binding names fields of the source: the binding object is inferred, so the excess check is explicit. */
 export const misspelledField = query(Books).rule((r) => {
-	const { id } = v(Ledger)
+	const { id } = v(Ledger, "ledger")
 	// @ts-expect-error -- TS2322 refusal: not a field of the arms the bindings select
 	return r.match(Ledger, { id, nope: id }).find({ id })
 })
 
 export const misspelledNegation = query(Books).rule((r) => {
-	const { id } = v(Ledger)
+	const { id } = v(Ledger, "ledger")
 	// @ts-expect-error -- TS2322 refusal: not a field of the arms the bindings select
 	const negated = r.not(Ledger, { id, bogus: 1n })
 	return r.match(Ledger, { id }).where(negated).find({ id })
@@ -174,16 +176,18 @@ export const misspelledNegation = query(Books).rule((r) => {
 
 /** r.not is relational negation; its parameters join the rule's, at the bound fields' types. */
 export const unpaid = query(Books).rule((r) => {
-	const { id } = v(Ledger)
+	const { id } = v(Ledger, "ledger")
 	return r
 		.match(Ledger, { id })
 		.where(r.not(Ledger, { id, n: r.param("n", Ledger.fields.n) }))
 		.find({ id })
 })
-export type UnpaidParams = Expect<Equals<ParamsOf<typeof unpaid>, { readonly n: bigint }>>
+export type UnpaidParams = Expect<
+	Equals<ParamsOf<typeof unpaid>, { readonly n: ParamType<bigint, "bigint"> }>
+>
 /** inSet takes literals of the term's type. */
 export const inSetOk = query(Books).rule((r) => {
-	const { id, n } = v(Ledger)
+	const { id, n } = v(Ledger, "ledger")
 	return r
 		.match(Ledger, { id, n })
 		.where(r.inSet(n, [1n, 2n]))
@@ -191,7 +195,7 @@ export const inSetOk = query(Books).rule((r) => {
 })
 
 export const inSetBad = query(Work).rule((r) => {
-	const { id, account } = v(Task)
+	const { id, account } = v(Task, "task")
 	// @ts-expect-error -- TS2322: a number is not a literal of a uuid field
 	const listed = r.inSet(account, [1])
 	return r.match(Task, { id, account }).where(listed).find({ id })
@@ -199,7 +203,7 @@ export const inSetBad = query(Work).rule((r) => {
 
 /** Parameters stand in every operand position opposite a term, typed by that term. */
 export const computedParams = query(Books).rule((r) => {
-	const { id, n } = v(Ledger)
+	const { id, n } = v(Ledger, "ledger")
 	return r.match(Ledger, { id, n }).find({
 		id,
 		g: Compute.gcd(n, r.param("g", pg.bigint)),
@@ -207,13 +211,19 @@ export const computedParams = query(Books).rule((r) => {
 		b: Compute.widthBucket(amount, low, high, r.param("buckets", pg.integer))
 	})
 })
-declare const amount: Term<Decimal, unknown, unknown, "numeric">
-declare const low: Term<Decimal, unknown, unknown, "numeric">
-declare const high: Term<Decimal, unknown, unknown, "numeric">
+/** width_bucket's operand and bounds are proved finite, as a guard's branch or a declaration states. */
+type FiniteDecimal = Term<Decimal, unknown, unknown, "numeric", Decimal, { readonly finite: true }>
+declare const amount: FiniteDecimal
+declare const low: FiniteDecimal
+declare const high: FiniteDecimal
 export type ComputedParams = Expect<
 	Equals<
 		ParamsOf<typeof computedParams>,
-		{ readonly g: bigint; readonly cap: bigint; readonly buckets: number }
+		{
+			readonly g: ParamType<bigint, "bigint">
+			readonly cap: ParamType<bigint, "bigint">
+			readonly buckets: ParamType<number, "integer">
+		}
 	>
 >
 
@@ -224,7 +234,7 @@ export type ComputedParams = Expect<
 export const Item = relation("Item", { id: uuid, qty: pg.integer, cents: Cents }, ["id"])
 export const Shop = schema("Shop", { Item }, [])
 export const totals = query(Shop).rule((r) => {
-	const { id, qty, cents } = v(Item)
+	const { id, qty, cents } = v(Item, "item")
 	return r.match(Item, { id, qty, cents }).find({
 		n: r.count(),
 		qtySum: r.sum(qty),
@@ -267,23 +277,23 @@ export const RoleRejected = relation("RoleRejected", { assertion: uuid, issue: u
 export const Roster = schema("Roster", { Role, Enrollment, RoleReported, RoleRejected }, [])
 export const roles = query(Roster)
 	.rule((r) => {
-		const { assertion } = v(Enrollment)
-		const { value } = v(RoleReported)
+		const { assertion } = v(Enrollment, "enrollment")
+		const { value } = v(RoleReported, "roleReported")
 		return r
 			.match(Enrollment, { assertion, role: "reported" })
 			.match(RoleReported, { assertion, value })
 			.find({ assertion, role: Role.handle("reported"), value })
 	})
 	.rule((r) => {
-		const { assertion } = v(Enrollment)
-		const { issue } = v(RoleRejected)
+		const { assertion } = v(Enrollment, "enrollment")
+		const { issue } = v(RoleRejected, "roleRejected")
 		return r
 			.match(Enrollment, { assertion, role: "rejected" })
 			.match(RoleRejected, { assertion, issue })
 			.find({ assertion, role: Role.handle("rejected"), issue })
 	})
 	.rule((r) => {
-		const { assertion } = v(Enrollment)
+		const { assertion } = v(Enrollment, "enrollment")
 		return r
 			.match(Enrollment, { assertion, role: "omitted" })
 			.find({ assertion, role: Role.handle("omitted") })
@@ -292,9 +302,9 @@ export const roles = query(Roster)
 export type RolesHead = Expect<
 	Equals<
 		HeadOf<typeof roles>,
-		| { readonly assertion: string; readonly role: "reported"; readonly value: string }
-		| { readonly assertion: string; readonly role: "rejected"; readonly issue: string }
-		| { readonly assertion: string; readonly role: "omitted" }
+		| { readonly assertion: Uuid; readonly role: "reported"; readonly value: string }
+		| { readonly assertion: Uuid; readonly role: "rejected"; readonly issue: Uuid }
+		| { readonly assertion: Uuid; readonly role: "omitted" }
 	>
 >
 /** A union's evidence is unknown: two arms can each return a row. */
@@ -308,7 +318,7 @@ export const rolesByValue = roles.orderBy(["value", "asc"])
  * to an arm-only field.
  */
 export const byIssue = query(Roster).rule((r) => {
-	const { assertion } = v(roles)
+	const { assertion } = v(roles, "roles")
 	return r
 		.match(roles, {
 			assertion,
@@ -317,80 +327,95 @@ export const byIssue = query(Roster).rule((r) => {
 		})
 		.find({ assertion })
 })
-export type ByIssueParams = Expect<Equals<ParamsOf<typeof byIssue>, { readonly issue: string }>>
+export type ByIssueParams = Expect<
+	Equals<ParamsOf<typeof byIssue>, { readonly issue: ParamType<Uuid, "uuid"> }>
+>
 export const byRole = query(Roster).rule((r) => {
-	const { assertion } = v(roles)
+	const { assertion } = v(roles, "roles")
 	return r
 		.match(roles, { assertion, role: r.param("role", Enrollment.fields.role) })
 		.find({ assertion })
 })
 
 export type ByRoleParams = Expect<
-	Equals<ParamsOf<typeof byRole>, { readonly role: "reported" | "rejected" | "omitted" }>
+	Equals<
+		ParamsOf<typeof byRole>,
+		{
+			readonly role: ParamType<
+				("reported" | "rejected" | "omitted") & Rostered<"Role">,
+				"enum",
+				"reported" | "rejected" | "omitted"
+			>
+		}
+	>
 >
 
 /** take(k) closes an ordered query into a set; a named k is an integer parameter. */
 export const latest = tasksForAccount.orderBy(["kind", "asc"]).take("batch")
 export type LatestParams = Expect<
-	Equals<ParamsOf<typeof latest>, { readonly account: string; readonly batch: number }>
+	Equals<
+		ParamsOf<typeof latest>,
+		{ readonly account: ParamType<Uuid, "uuid">; readonly batch: ParamType<number, "integer"> }
+	>
 >
 
 /** Imports: a parameterized query is matched through bind, which binds every parameter. */
 export const perAccount = query(Work).rule((r) => {
-	const { id: account } = v(Account)
+	const { id: account } = v(Account, "account")
 	const top = tasksForAccount.bind({ account })
-	const { id, kind } = v(top)
+	const { id, kind } = v(top, "top")
 	return r.match(Account, { id: account }).match(top, { id, kind }).find({ account, id, kind })
 })
 export type PerAccountParams = Expect<Equals<ParamNamesOf<typeof perAccount>, never>>
 export const perOuterParam = query(Work).rule((r) => {
 	const top = tasksForAccount.bind({ account: r.param("who", uuid) })
-	const { id } = v(top)
+	const { id } = v(top, "top")
 	return r.match(top, { id }).find({ id })
 })
 
 export type PerOuterParams = Expect<
-	Equals<ParamsOf<typeof perOuterParam>, { readonly who: string }>
+	Equals<ParamsOf<typeof perOuterParam>, { readonly who: ParamType<Uuid, "uuid"> }>
 >
 
 export const unbound = query(Work).rule((r) => {
-	const { id } = v(tasksForAccount)
+	const { id } = v(tasksForAccount, "tasksForAccount")
 	// @ts-expect-error -- TS2345 refusal: bind the query's parameters before matching it: Q.bind({ ... })
 	return r.match(tasksForAccount, { id }).find({ id })
 })
 // @ts-expect-error -- TS2345: bind requires every parameter
 export const partialBind = tasksForAccount.bind({})
+const accountId = "0193d8f2-7c1e-7000-8000-0000000000a1"
 // @ts-expect-error -- TS2322 refusal: not a field of the arms the bindings select
-export const misspelledBind = tasksForAccount.bind({ account: "a", acount: "a" })
+export const misspelledBind = tasksForAccount.bind({ account: accountId, acount: accountId })
 
 /** A rule matches only relations of its schema: Settings does not hold Task. */
 export const foreign = query(Settings).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	// @ts-expect-error -- TS2345 refusal: the relation is not in this query's schema
 	return r.match(Task, { id }).find({ id })
 })
 
 /** The same holds for a query, a bound import and an interior stage: each carries its schema. */
 export const allPreferences = query(Settings).rule((r) => {
-	const { account, enabled } = v(Preference)
+	const { account, enabled } = v(Preference, "preference")
 	return r.match(Preference, { account, enabled }).find({ account, enabled })
 })
 
 export const foreignQuery = query(Work).rule((r) => {
-	const { account } = v(allPreferences)
+	const { account } = v(allPreferences, "allPreferences")
 	// @ts-expect-error -- TS2345 refusal: the query is not over a level of this query's schema
 	return r.match(allPreferences, { account }).find({ account })
 })
 
 export const foreignImport = query(Work).rule((r) => {
 	const imported = preferencesByState.bind({ enabled: true })
-	const { account } = v(imported)
+	const { account } = v(imported, "imported")
 	// @ts-expect-error -- TS2345 refusal: the query is not over a level of this query's schema
 	return r.match(imported, { account }).find({ account })
 })
 
 export const foreignArmAttach = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return (
 		r
 			.match(Task, { id })
@@ -402,12 +427,12 @@ export const foreignArmAttach = query(Work).rule((r) => {
 
 /** A relation parameter bound to a query reads that query's schema, so it is checked against the import's levels. */
 export const settingsIds = query(Settings).rule((r) => {
-	const { account } = v(Preference)
+	const { account } = v(Preference, "preference")
 	return r.match(Preference, { account }).find({ id: account })
 })
 
 export const workIds = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id }).find({ id })
 })
 export const boundToWork = tasksById.bind({ ids: workIds })
@@ -416,7 +441,7 @@ export const boundToWork = tasksById.bind({ ids: workIds })
  * join the importing rule's.
  */
 export const idsOfAccount = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id, account: r.param("acct", Task.fields.account) }).find({ id })
 })
 // @ts-expect-error -- TS2322 refusal: bind the query's parameters before matching it: Q.bind({ ... })
@@ -425,27 +450,27 @@ export const boundRelationBinding = query(Work).rule((r) => {
 	const wanted = tasksById.bind({
 		ids: idsOfAccount.bind({ acct: r.param("acct", Task.fields.account) })
 	})
-	const { id } = v(wanted)
+	const { id } = v(wanted, "wanted")
 	return r.match(wanted, { id }).find({ id })
 })
 
 export type BoundRelationParams = Expect<
-	Equals<ParamsOf<typeof boundRelationBinding>, { readonly acct: string }>
+	Equals<ParamsOf<typeof boundRelationBinding>, { readonly acct: ParamType<Uuid, "uuid"> }>
 >
 // @ts-expect-error -- TS2322 refusal: the bound source is not over a level of the query's schema
 export const foreignRelationBinding = tasksById.bind({ ids: settingsIds })
 /** An interior stage is over its rule's schema, and its parameters join the rule's. */
 export const interiorStage = query(Work).rule((r) => {
 	const stage = r.interior((r2) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r2.match(Task, { id, account: r2.param("account", Task.fields.account) }).find({ id })
 	})
-	const { id } = v(stage)
+	const { id } = v(stage, "stage")
 	return r.match(stage, { id }).find({ id })
 })
 
 export type InteriorParams = Expect<
-	Equals<ParamsOf<typeof interiorStage>, { readonly account: string }>
+	Equals<ParamsOf<typeof interiorStage>, { readonly account: ParamType<Uuid, "uuid"> }>
 >
 
 /** Recursive relations: an explicit row signature, typed self. */
@@ -455,14 +480,14 @@ export const reachable = query(Graph).recursive("Reach", {
 	row: { from: uuid, to: uuid },
 	base: [
 		(r) => {
-			const { from, to } = v(Edge)
+			const { from, to } = v(Edge, "edge")
 			return r.match(Edge, { from: r.param("start", Edge.fields.from), to }).find({ from, to })
 		}
 	],
 	rec: [
 		(r, self) => {
-			const step = v(Edge)
-			const prior = v(self)
+			const step = v(Edge, "edge")
+			const prior = v(self, "self")
 			return r
 				.match(self, { from: prior.from, to: prior.to })
 				.match(Edge, { from: prior.to, to: step.to })
@@ -472,9 +497,11 @@ export const reachable = query(Graph).recursive("Reach", {
 })
 
 export type ReachableHead = Expect<
-	Equals<HeadOf<typeof reachable>, { readonly from: string; readonly to: string }>
+	Equals<HeadOf<typeof reachable>, { readonly from: Uuid; readonly to: Uuid }>
 >
-export type ReachableParams = Expect<Equals<ParamsOf<typeof reachable>, { readonly start: string }>>
+export type ReachableParams = Expect<
+	Equals<ParamsOf<typeof reachable>, { readonly start: ParamType<Uuid, "uuid"> }>
+>
 
 /** The shipped values have the public signatures themselves: no declare-only twin stands in for them. */
 export type QueryIsTheConstructor = Expect<Equals<typeof query, QueryConstructor>>

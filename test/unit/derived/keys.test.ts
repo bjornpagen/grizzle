@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -16,6 +17,7 @@ import {
 } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
+import { maxOf } from "#compiler/core/array.ts"
 import type { DerivedRefusal } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -67,14 +69,17 @@ const PairBase = schema("PairBase", { Pair }, [key(Pair, ["c"])])
  * signature refuses (`DefinitionCheck`), which a JavaScript caller can still pass. */
 const analyzedOver = (q: DefinitionQuery) =>
 	Result.map(
-		checkedIn(runtimeSchema.extend(Base, { D: runtimeDerived("D", q) }, [])),
+		checkedIn(runtimeSchema.extend(Base, { D: runtimeDerived("D", q, []) }, [], [])),
 		derivedAnalysis
 	)
 
 const Line = relation("Line", { id: uuid, amount: pg.bigint, embedding: pg.vector(1000) }, ["id"])
 const L = schema("L", { Line }, [])
 const analyzedOverLines = (q: DefinitionQuery) =>
-	Result.map(checkedIn(runtimeSchema.extend(L, { T: runtimeDerived("T", q) }, [])), derivedAnalysis)
+	Result.map(
+		checkedIn(runtimeSchema.extend(L, { T: runtimeDerived("T", q, []) }, [], [])),
+		derivedAnalysis
+	)
 
 const Wide = relation(
 	"Wide",
@@ -118,7 +123,7 @@ const Wide = relation(
 )
 const WideSchema = schema("WideSchema", { Wide }, [])
 const wideQuery = query(WideSchema).rule((r) => {
-	const vars = v(Wide)
+	const vars = v(Wide, "wide")
 	const picked = {
 		c00: vars.c00,
 		c01: vars.c01,
@@ -176,7 +181,7 @@ const unstorable = (
 			return {
 				analyzed: analyzedOver(
 					query(Base).rule((r) => {
-						const { note } = v(Org)
+						const { note } = v(Org, "org")
 						return r.match(Org, { note }).find({ note })
 					})
 				),
@@ -191,7 +196,7 @@ const unstorable = (
 			return {
 				analyzed: analyzedOver(
 					query(Base).rule((r) => {
-						const { id, note } = v(Org)
+						const { id, note } = v(Org, "org")
 						return r.match(Org, { id, note }).find({ note, n: r.count() })
 					})
 				),
@@ -206,7 +211,7 @@ const unstorable = (
 			return {
 				analyzed: analyzedOverLines(
 					query(L).rule((r) => {
-						const { id, amount } = v(Line)
+						const { id, amount } = v(Line, "line")
 						return r.match(Line, { id, amount }).find({ total: r.sum(amount) })
 					})
 				),
@@ -234,7 +239,7 @@ const unstorable = (
 			return {
 				analyzed: analyzedOverLines(
 					query(L).rule((r) => {
-						const { embedding } = v(Line)
+						const { embedding } = v(Line, "line")
 						return r.match(Line, { embedding }).find({ embedding })
 					})
 				),
@@ -249,7 +254,7 @@ const unstorable = (
 			return {
 				analyzed: analyzedOver(
 					query(Base).rule((r) => {
-						const { id } = v(Org)
+						const { id } = v(Org, "org")
 						return r.match(Org, { id }).find({})
 					})
 				),
@@ -260,14 +265,14 @@ const unstorable = (
 				analyzed: analyzedOver(
 					query(Base)
 						.rule((r) => {
-							const { id } = v(Org)
+							const { id } = v(Org, "org")
 							return r.match(Org, { id }).find({ id })
 						})
 						.attach(
 							"same",
 							(o) =>
 								query(Base).rule((r) => {
-									const { owner } = v(Org)
+									const { owner } = v(Org, "org")
 									return r.match(Org, { id: o.id, owner }).find({ owner })
 								}),
 							"option"
@@ -280,12 +285,12 @@ const unstorable = (
 				analyzed: analyzedOver(
 					query(Base)
 						.rule((r) => {
-							const { id } = v(Org)
-							return r.match(Org, { id }).find({ id, tag: r.literal("a") })
+							const { id } = v(Org, "org")
+							return r.match(Org, { id }).find({ id, tag: "a" })
 						})
 						.rule((r) => {
-							const { id, owner } = v(Org)
-							return r.match(Org, { id, owner }).find({ id, tag: r.literal("b"), owner })
+							const { id, owner } = v(Org, "org")
+							return r.match(Org, { id, owner }).find({ id, tag: "b", owner })
 						})
 				),
 				cause: { kind: "headingGroups", relation: "D" }
@@ -356,17 +361,15 @@ describe("derived relation keys", () => {
 						suite: "unit/derived/keys",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
-						features: features<KeyFeature>([
-							"the whole heading",
-							"at most one fact",
-							"a level over a derived relation"
-						]),
+						coverage: required<KeyFeature>(
+							["the whole heading", "at most one fact", "a level over a derived relation"],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>
@@ -405,7 +408,7 @@ describe("derived relation keys", () => {
 								if (below.length > 0) {
 									c.note("a level over a derived relation")
 								}
-								assert.equal(r.level, 1 + Math.max(0, ...below), `${name}'s level`)
+								assert.equal(r.level, 1 + maxOf(below, 0), `${name}'s level`)
 							}
 						})
 				)
@@ -432,13 +435,13 @@ describe("derived relation keys", () => {
 						generator: heads,
 						literal: Formatter.format,
 						limit: 6,
-						features: features<"several keys">(["several keys"]),
+						coverage: requiredInSpace<"several keys">(["several keys"]),
 						caseHang: Duration.minutes(2)
 					},
 					(order, c) =>
 						Effect.sync(() => {
 							const q = query(Base).rule((r) => {
-								const vars = v(Org)
+								const vars = v(Org, "org")
 								return r.match(Org, { id: vars.id, code: vars.code, owner: vars.owner }).find({
 									[order[0]]: vars[order[0]],
 									[order[1]]: vars[order[1]],
@@ -459,7 +462,7 @@ describe("derived relation keys", () => {
 							/** The composite key and the one-column key, the narrower first whatever the head's order. */
 							const names = { owner: "a", id: "b", code: "c" } as const
 							const pairs = query(PairBase).rule((rule) => {
-								const vars = v(Pair)
+								const vars = v(Pair, "pair")
 								return rule.match(Pair, { a: vars.a, b: vars.b, c: vars.c }).find({
 									[names[order[0]]]: vars[names[order[0]]],
 									[names[order[1]]]: vars[names[order[1]]],
@@ -470,7 +473,7 @@ describe("derived relation keys", () => {
 								succeeded(
 									Result.map(
 										checkedIn(
-											runtimeSchema.extend(PairBase, { P: runtimeDerived("P", pairs) }, [])
+											runtimeSchema.extend(PairBase, { P: runtimeDerived("P", pairs, []) }, [], [])
 										),
 										derivedAnalysis
 									)
@@ -489,14 +492,14 @@ describe("derived relation keys", () => {
 		const Tag = relation("Tag", { org: uuid, tag: uuid }, ["org", "tag"])
 		const JoinBase = schema("JoinBase", { Org, Tag }, [])
 		const q = query(JoinBase).rule((r) => {
-			const { id, owner } = v(Org)
-			const { tag } = v(Tag)
+			const { id, owner } = v(Org, "org")
+			const { tag } = v(Tag, "tag")
 			return r.match(Org, { id, owner }).match(Tag, { org: id, tag }).find({ id, owner })
 		})
 		const j = defined(
 			succeeded(
 				Result.map(
-					checkedIn(runtimeSchema.extend(JoinBase, { J: runtimeDerived("J", q) }, [])),
+					checkedIn(runtimeSchema.extend(JoinBase, { J: runtimeDerived("J", q, []) }, [], [])),
 					derivedAnalysis
 				)
 			).relations["J"]
@@ -531,7 +534,7 @@ describe("derived relation keys", () => {
 					]),
 					literal: Formatter.format,
 					limit: 8,
-					features: features<Unstorable>([
+					coverage: requiredInSpace<Unstorable>([
 						"wildcard whole heading",
 						"unbounded inherited key",
 						"one fact, no representable field",

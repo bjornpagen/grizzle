@@ -1,5 +1,11 @@
 import type { NodeId } from "#compiler/core/ids.ts"
-import { nativeEqualityKey, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	type DefinedOp,
+	nativeEqualityKey,
+	type OpId,
+	type ScalarExpr,
+	type TypedLiteral
+} from "#compiler/ir/expr.ts"
 import {
 	type Cell,
 	closedRows,
@@ -24,7 +30,7 @@ import {
 	type Rule,
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
-import { overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { connectiveOps, definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 
 const membershipRule = "R07.finiteMembership"
@@ -65,16 +71,15 @@ const membershipOnly = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArra
 	})
 }
 
-/** A boolean operator over `args`, total and immutable of itself: it can fail or is stable where one of them is. */
-const opExpr = (ed: DagEditor, op: OpId, args: ReadonlyArray<ScalarExpr>): ScalarExpr =>
+/** A boolean operator over `args`, defined everywhere and immutable of itself: stable where one of them is. */
+const opExpr = (ed: DagEditor, op: DefinedOp, args: ReadonlyArray<ScalarExpr>): ScalarExpr =>
 	ed.expr({
 		kind: "op",
 		op,
 		args,
 		type: plainType("bool"),
 		nonNull: "strict",
-		volatility: "immutable",
-		failure: "total"
+		volatility: "immutable"
 	})
 
 const literalExpr = (ed: DagEditor, value: TypedLiteral, type: ScalarType): ScalarExpr =>
@@ -99,9 +104,10 @@ const varRef = (ed: DagEditor, region: Cell, v: VarDecl): ScalarExpr =>
 		nonNull: "storage"
 	})
 
-const comparison = (fn: "eq" | "in", type: ScalarType): OpId | undefined => {
+const comparison = (fn: "eq" | "in", type: ScalarType): DefinedOp | undefined => {
 	const carrier = baseOf(type).carrier
-	return (fn === "eq" ? overloadOf("eq", [carrier, carrier]) : overloadOf("in", [carrier]))?.id
+	const op = fn === "eq" ? overloadOf("eq", [carrier, carrier]) : overloadOf("in", [carrier])
+	return op === undefined ? undefined : definedIdOf(op)
 }
 
 /**
@@ -165,7 +171,7 @@ const membership = (
 		tuples.set(tested.map((c) => nativeEqualityKey(cell(row, c))).join("\u0000"), tuple)
 	}
 	const equality: Array<OpId> = []
-	const eqOf = (column: string): OpId | undefined => {
+	const eqOf = (column: string): DefinedOp | undefined => {
 		const op = comparison("eq", typeOfColumn(column))
 		if (op !== undefined && !equality.includes(op)) {
 			equality.push(op)
@@ -216,7 +222,7 @@ const membership = (
 			conj.push(opExpr(ed, op, [expr, literalExpr(ed, value, typeOfColumn(column))]))
 		}
 		const [sole] = conj
-		return conj.length === 1 && sole !== undefined ? sole : opExpr(ed, OpId("and"), conj)
+		return conj.length === 1 && sole !== undefined ? sole : opExpr(ed, connectiveOps.and, conj)
 	}
 	const disjuncts: Array<ScalarExpr> = []
 	for (const tuple of tuples.values()) {
@@ -229,7 +235,9 @@ const membership = (
 	const [single] = disjuncts
 	return {
 		pred:
-			disjuncts.length === 1 && single !== undefined ? single : opExpr(ed, OpId("or"), disjuncts),
+			disjuncts.length === 1 && single !== undefined
+				? single
+				: opExpr(ed, connectiveOps.or, disjuncts),
 		equality
 	}
 }
@@ -310,7 +318,7 @@ const membershipRuleImpl: Rule = {
 				rule: membershipRule,
 				inputs: [o.source.id, cell.id],
 				outputs,
-				premises: nodePremises(o.source.id),
+				premises: nodePremises([o.source.id]),
 				context: "descriptor",
 				preservedHeading: region.heading.map((c) => c.name),
 				equality: m.equality,

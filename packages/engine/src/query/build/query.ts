@@ -1,5 +1,6 @@
 import { oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { parseNameCharacters } from "#compiler/core/identity.ts"
 import { childLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -13,7 +14,7 @@ import {
 	type QueryStageDesc,
 	type TakeDesc
 } from "#compiler/ir/desc.ts"
-import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
+import type { BuilderScope, OpenBound, OpenExpr, VarScope } from "#compiler/ir/open.ts"
 
 import {
 	attachedDecoders,
@@ -99,7 +100,9 @@ import type {
 	Query,
 	QueryBuilder,
 	QueryConstructor,
+	ScopeName,
 	SelfSource,
+	UnionArms,
 	VConstructor
 } from "#compiler/types/query/query.ts"
 import type { Rule } from "#compiler/types/query/rule.ts"
@@ -292,26 +295,35 @@ const defineDesc = <T extends object>(value: T, state: QueryState, label: string
 }
 
 /**
- * A query value over a state and its records, implementing Query<S, Head, Ev, P, IHead, Hc, Cx>; each combinator's
- * result type is the one its signature names, its heading of carriers the state's (headingOf), and its records the ones
- * it builds. The contexts it reads, Cx, are a phantom.
+ * A query value over a state and its records, implementing Query<S, Head, Ev, P, IHead, Hc, Cx, Arms>; each
+ * combinator's result type is the one its signature names, its heading of carriers the state's (headingOf), and its
+ * records the ones it builds. The contexts it reads, Cx, and its arms, Arms, are phantoms.
  */
-const queryOf = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx>(
+const queryOf = <
+	S,
+	Head,
+	Ev extends Evidence,
+	P,
+	IHead,
+	Hc extends Carriers,
+	Cx,
+	Arms extends UnionArms
+>(
 	state: QueryState<Hc>,
 	records: QueryRecords<Head, IHead>
-): Query<S, Head, Ev, P, IHead, Hc, Cx> => {
+): Query<S, Head, Ev, P, IHead, Hc, Cx, Arms> => {
 	const { schema, heading, pending } = state
 	const carriers = headingOf(state.carriers)
 	const decoders = decodersOf(records)
 	const stage = state.desc.stage
-	const next = <H2, E2 extends Evidence, P2, I2, C2 extends Carriers, X2>(
+	const next = <H2, E2 extends Evidence, P2, I2, C2 extends Carriers, X2, A2 extends UnionArms>(
 		s: QueryStageDesc,
 		p: ReadonlySet<BuilderScope>,
 		h: Heading,
 		c: QueryCarriers<C2>,
 		r: QueryRecords<H2, I2>
-	): Query<S, H2, E2, P2, I2, C2, X2> => queryOf(makeState(schema, s, p, h, c), r)
-	const value: Query<S, Head, Ev, P, IHead, Hc, Cx> & SchemaMember = {
+	): Query<S, H2, E2, P2, I2, C2, X2, A2> => queryOf(makeState(schema, s, p, h, c), r)
+	const value: Query<S, Head, Ev, P, IHead, Hc, Cx, Arms> & SchemaMember = {
 		...builtMark,
 		schema: schema.value,
 		heading: carriers,
@@ -325,7 +337,7 @@ const queryOf = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx
 		 */
 		rule: (rule) => {
 			const label = "Query.rule"
-			hostArguments(label, rule)
+			hostArguments(label, [rule])
 			const loc = buildLoc(label, [])
 			const arm = runRule(schema, rule, "rule", undefined)
 			const h = unionHeading([heading, arm.state.heading])
@@ -347,7 +359,7 @@ const queryOf = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx
 		 */
 		attach: (name, child, delivery) => {
 			const label = `Query.attach(${typeof name === "string" ? name : "?"})`
-			hostArguments(label, name, child, delivery)
+			hostArguments(label, [name, child, delivery])
 			const n = attachmentName(name, heading, label)
 			if (!isCallback(child)) {
 				throw malformed(
@@ -373,7 +385,7 @@ const queryOf = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx
 			)
 		},
 		named: (name) => {
-			hostArguments("Query.named", name)
+			hostArguments("Query.named", [name])
 			const n = requireName(name, "Query.named", "a diagnostic name")
 			return next(
 				{ kind: "named", input: stage, name: n, loc: buildLoc("Query.named", [n]) },
@@ -384,11 +396,11 @@ const queryOf = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx
 			)
 		},
 		bind: (bindings) => {
-			hostArguments("Query.bind", bindings)
+			hostArguments("Query.bind", [bindings])
 			return bindQuery(state, bindings)
 		},
 		orderBy: (...order) => {
-			hostArguments("Query.orderBy", ...order)
+			hostArguments("Query.orderBy", order)
 			return orderedOf(
 				makeState(schema, orderStage(stage, heading, order), pending, heading, state.carriers),
 				records
@@ -399,7 +411,7 @@ const queryOf = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx
 		 * checker's.
 		 */
 		approximateNearest: (spec) => {
-			hostArguments("Query.approximateNearest", spec)
+			hostArguments("Query.approximateNearest", [spec])
 			return next(approximateStage(stage, heading, spec), pending, heading, state.carriers, records)
 		}
 	}
@@ -475,14 +487,23 @@ const orderStage = (
 	return { kind: "order", input: stage, order: out, loc: buildLoc(label, []) }
 }
 
-/** An ordered value over a state and its records, implementing Ordered<S, Head, Ev, P, IHead, Hc, Cx>. */
-const orderedOf = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx>(
+/** An ordered value over a state and its records, implementing Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>. */
+const orderedOf = <
+	S,
+	Head,
+	Ev extends Evidence,
+	P,
+	IHead,
+	Hc extends Carriers,
+	Cx,
+	Arms extends UnionArms
+>(
 	state: QueryState<Hc>,
 	records: QueryRecords<Head, IHead>
-): Ordered<S, Head, Ev, P, IHead, Hc, Cx> => {
+): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms> => {
 	const stage = state.desc.stage
 	const decoders = decodersOf(records)
-	const value: Ordered<S, Head, Ev, P, IHead, Hc, Cx> & SchemaMember = {
+	const value: Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms> & SchemaMember = {
 		...builtMark,
 		schema: state.schema.value,
 		heading: headingOf(state.carriers),
@@ -490,7 +511,7 @@ const orderedOf = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, 
 		immediate: decoders.immediate,
 		/** The first k under the completed total order, a set again. */
 		take: (k) => {
-			hostArguments("Ordered.take", k)
+			hostArguments("Ordered.take", [k])
 			return queryOf(
 				makeState(
 					state.schema,
@@ -530,7 +551,7 @@ const bindQuery = <S, Head, SP, Hc extends Carriers, Cx>(
 			"bindings: a record from the query's parameter names to terms, parameters or literals"
 		)
 	}
-	const out: Record<string, OpenExpr> = {}
+	const out: Record<string, OpenBound> = {}
 	for (const [name, value] of Object.entries(bindings)) {
 		requireName(name, label, "a parameter name")
 		if (value === undefined) {
@@ -566,13 +587,13 @@ const bindQuery = <S, Head, SP, Hc extends Carriers, Cx>(
 }
 
 /** A relation parameter bound to a relation parameter of the importing rule: the outer parameter, by name. */
-const boundSource = (value: unknown): OpenExpr | undefined => {
+const boundSource = (value: unknown): OpenBound | undefined => {
 	const registered = registeredSource(value)
 	if (
 		registered !== undefined &&
 		(registered.desc.kind === "param" || registered.desc.kind === "paramOf")
 	) {
-		return { kind: "param", name: registered.desc.name }
+		return { kind: "relationParam", name: registered.desc.name }
 	}
 	const isRelation =
 		typeof value === "object" &&
@@ -592,7 +613,7 @@ const boundSource = (value: unknown): OpenExpr | undefined => {
  * built, refusing anything else and a JavaScript caller's extra argument.
  */
 const querySchema = (schema: unknown, extra: ReadonlyArray<unknown>): SchemaInfo => {
-	hostArguments("query", schema, ...extra)
+	hostArguments("query", [schema, ...extra])
 	if (extra.length > 0) {
 		throw malformed("query", "query(schema): one argument")
 	}
@@ -641,7 +662,7 @@ const builderOf = <S>(info: SchemaInfo): QueryBuilder<S> => {
 	const builder: QueryBuilder<S> = {
 		/** A query of one arm: its carriers, heading group and decoders the arm's. */
 		rule: (rule) => {
-			hostArguments("query.rule", rule)
+			hostArguments("query.rule", [rule])
 			const loc = buildLoc("query.rule", [])
 			const arm = runRule(info, rule, "rule", undefined)
 			const group = armGroup(arm)
@@ -661,7 +682,7 @@ const builderOf = <S>(info: SchemaInfo): QueryBuilder<S> => {
 		 * admitted the row, a record of descriptors, which is its one carried heading group.
 		 */
 		recursive: (name, spec) => {
-			hostArguments("query.recursive", name, spec)
+			hostArguments("query.recursive", [name, spec])
 			const state = recursive(info, name, spec)
 			const rows = record(spec.row)
 			return queryOf(
@@ -754,29 +775,44 @@ const recursive = <S, const Row extends Record<string, FieldBase>>(
 }
 
 /**
- * What v reads of a source and of the rule it is called in: the source's heading and carriers, and each fresh
- * variable's expression. A variable over a relation, closed or derived relation carries that relation and field as its
+ * What v reads of a source, of the scope name it was given and of the rule it is called in: the source's heading and
+ * carriers, and each fresh variable's expression, in the one scope the call makes. The name keeps the declared-name
+ * rule's characters (core/identity.ts parseNameCharacters), which its type states (ScopeName), so only a JavaScript
+ * caller meets this check, and spells the scope's variables, `<name>.<field>` (rule.ts finishRule), never a SQL
+ * identifier. A variable over a relation, closed or derived relation carries that relation and field as its
  * origin. Its fields are typed under the schema of the innermost running rule callback, so v outside every rule
  * callback is refused: no schema would type it. Inside an attachment child but outside its rules, a variable belongs to
  * no rule yet (its owner is "adopted"), and the child's rules adopt it.
  */
 const variablesOf = (
 	source: unknown,
+	name: unknown,
 	extra: ReadonlyArray<unknown>
 ): { readonly info: SourceInfo; readonly expr: (field: string) => OpenExpr } => {
-	hostArguments("v", source, ...extra)
+	hostArguments("v", [source, name, ...extra])
 	if (extra.length > 0) {
-		throw malformed("v", "v(source): one argument")
+		throw malformed("v", "v(source, name): two arguments")
+	}
+	if (typeof name !== "string") {
+		throw malformed(
+			"v",
+			"v(source, name): a scope name, the string that names the variables' scope"
+		)
+	}
+	const characters = parseNameCharacters(name)
+	if (!characters.ok) {
+		throw malformed("v", `the scope name ${JSON.stringify(name)} as ${characters.error}`)
 	}
 	const site = mintSite()
 	if (site === undefined) {
 		throw malformed(
 			"v",
-			"v(source) inside a rule callback, whose schema types the variables; outside every callback no schema does"
+			"v(source, name) inside a rule callback, whose schema types the variables; outside every callback no schema does"
 		)
 	}
 	const info = sourceInfo(source, "v", site.schema.env)
-	const loc = buildLoc(`v(${info.label})`, [])
+	const loc = buildLoc(`v(${info.label}, ${JSON.stringify(name)})`, [])
+	const scope: VarScope = { name, loc }
 	const origin = info.origin
 	return {
 		info,
@@ -785,6 +821,7 @@ const variablesOf = (
 			var: {
 				build: site.build,
 				owner: site.owner,
+				scope,
 				field,
 				origin: origin.kind === "relation" ? { relation: origin.relation, field } : undefined,
 				loc: childLoc(loc, field)
@@ -794,15 +831,16 @@ const variablesOf = (
 }
 
 /**
- * v(source) for a JavaScript caller, the admission core of v: fresh variables over the source's heading, one per
- * scalar field, each a branded term, carried by the field's carrier, or untyped where the source carries none (a
- * described query, state.ts QueryCarriers, whose carriers are the empty heading).
+ * v(source, name) for a JavaScript caller, the admission core of v: fresh variables over the source's heading in the
+ * scope `name`, one per scalar field, each a branded term, carried by the field's carrier, or untyped where the source
+ * carries none (a described query, state.ts QueryCarriers, whose carriers are the empty heading).
  */
 export const varsOver = (
 	source: unknown,
+	name: unknown,
 	...extra: ReadonlyArray<unknown>
 ): Readonly<Record<string, UntypedTerm>> => {
-	const { info, expr } = variablesOf(source, extra)
+	const { info, expr } = variablesOf(source, name, extra)
 	const out: Record<string, UntypedTerm> = {}
 	for (const [field, typing] of info.heading.fields) {
 		const carrier = Object.hasOwn(info.carriers, field) ? info.carriers[field] : undefined
@@ -813,12 +851,16 @@ export const varsOver = (
 }
 
 /**
- * v(source), the public builder: the variables minted over the source's heading of carriers (schema/record.ts mint),
- * each a term of its carrier's host and SQL type with its origin (VarsOf).
+ * v(source, name), the public builder: the variables minted over the source's heading of carriers in the scope `name`
+ * (schema/record.ts mint), each a term of its carrier's host and SQL type with its origin (VarsOf).
  */
-export const v: VConstructor = <R extends VSource>(source: R, ...extra: ReadonlyArray<unknown>) => {
-	const { info, expr } = variablesOf(source, extra)
-	return mint<VarOrigins<R>, R["heading"]>(
+export const v: VConstructor = <R extends VSource, const N extends string>(
+	source: R,
+	name: ScopeName<N>,
+	...extra: ReadonlyArray<unknown>
+) => {
+	const { info, expr } = variablesOf(source, name, extra)
+	return mint<VarOrigins<R, N>, R["heading"]>(
 		source.heading,
 		<A, S extends SqlTag>(carrier: Carrier<A, S>, field: string): Term<A, unknown, unknown, S> =>
 			fieldTerm(expr(field), headingField(info.heading, field, `v(${info.label})`), carrier)

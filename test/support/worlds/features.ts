@@ -1,4 +1,4 @@
-import type { Reached } from "@grizzle/testing/features"
+import type { Situations } from "@grizzle/testing/features"
 import { Array as Arr, Option, Record } from "effect"
 import { isResidual, isSpan, selected } from "#test/pg/laws/families/model.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
@@ -16,6 +16,7 @@ import {
 	entryContexts,
 	roleEntryOf,
 	factsIn,
+	relationSpecOf,
 	roleOf,
 	seenThrough,
 	sessionAt
@@ -23,12 +24,15 @@ import {
 import {
 	filterReadsStored,
 	keysOf,
+	serialHead,
 	uniquesOf,
-	writtenAt
+	writtenAt,
+	writtenNamed
 } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	Action,
 	ActionKind,
+	AdditionFeature,
 	BaseSpec,
 	ClaimState,
 	ContextFacts,
@@ -1371,7 +1375,7 @@ const pathsOf = (
 					: action.reads.length > 0
 						? ["readback:refused-delta"]
 						: []
-			return [strata, ...readbacks]
+			return [strata, ...readbacks, ...additionsOf(state, action)]
 		}
 		case "open-db":
 		case "refresh":
@@ -1386,6 +1390,42 @@ const pathsOf = (
 		case "wild":
 			return []
 	}
+}
+
+/**
+ * The insertions a ChangeSet applies through a Db's role relations, each fact by its serial class and its relation's
+ * generated class (AdditionFeature): generated when it leaves out every classed serial field of a classed relation,
+ * complete otherwise; unit when the relation's every carried field is classed serial, so a generated fact carries none.
+ */
+export const additionsOf = (
+	state: ModelState,
+	action: Extract<Action, { readonly kind: "apply" }>
+): ReadonlyArray<AdditionFeature> => {
+	const base = state.install.base
+	const role = Option.flatMap(Option.fromUndefinedOr(sessionAt(state, action.session)), (session) =>
+		session.kind === "db" ? roleIn(state.install, session.role) : Option.none()
+	)
+	return Option.match(role, {
+		onNone: () => [],
+		onSome: (r) =>
+			Arr.flatMap(action.strata.flat(), (op): ReadonlyArray<AdditionFeature> => {
+				const written = writtenNamed(base, r, op.relation)
+				if (op.kind !== "insert" || written === undefined) {
+					return []
+				}
+				const { classed } = serialHead(base, written)
+				const carried =
+					written.kind === "whole"
+						? Arr.map(relationSpecOf(base, written.target)?.fields ?? [], (f) => f.name)
+						: Record.keys(written.head)
+				const target = written.kind === "whole" ? "whole" : "entry"
+				const unit = Arr.every(carried, (f) => classed.includes(f)) ? "unit" : "carried"
+				return Arr.map(op.facts, (fact): AdditionFeature => {
+					const generated = classed.length > 0 && Arr.every(classed, (f) => fact[f] === undefined)
+					return `addition:${generated ? "generated" : "complete"}:${target}:${unit}`
+				})
+			})
+	})
 }
 
 /** Whether a stratum writes a query entry and also a relation the entry's rule reads, so membership would depend on order. */
@@ -1783,6 +1823,14 @@ const situations: ReadonlyArray<WorldFeature> = [
 	"readback:empty-delta",
 	"readback:projected-delta",
 	"readback:refused-delta",
+	"addition:complete:whole:carried",
+	"addition:complete:whole:unit",
+	"addition:complete:entry:carried",
+	"addition:complete:entry:unit",
+	"addition:generated:whole:carried",
+	"addition:generated:whole:unit",
+	"addition:generated:entry:carried",
+	"addition:generated:entry:unit",
 	"deletion:base-gone",
 	"deletion:world-gone",
 	"deletion:derived-kept",
@@ -1811,10 +1859,14 @@ const invariantNames: Arr.NonEmptyReadonlyArray<InvariantName> = [
  * op features of requiredOps, every object outcome a world object can show, every invalid kind of the vocabulary
  * (invalid/kinds.ts lists them all), every invariant, and every deletion and pooled-connection situation.
  */
-export const requiredWorldFeatures: ReadonlyArray<Reached<WorldFeature>> = Arr.dedupe([
-	...situations,
-	...Arr.flatMap(requiredOps, blockFeatures),
-	...objectOutcomes,
-	...Arr.map(invalidKinds, (kind): WorldFeature => `invalid:${kind}`),
-	...Arr.map(invariantNames, (name): WorldFeature => `invariant:${name}`)
-])
+export const requiredWorldFeatures: Situations<WorldFeature> = Arr.dedupe(
+	Arr.appendAll(
+		[
+			...situations,
+			...Arr.flatMap(requiredOps, blockFeatures),
+			...objectOutcomes,
+			...Arr.map(invalidKinds, (kind): WorldFeature => `invalid:${kind}`)
+		],
+		Arr.map(invariantNames, (name): WorldFeature => `invariant:${name}`)
+	)
+)

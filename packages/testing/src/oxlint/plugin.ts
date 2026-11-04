@@ -100,3 +100,15 @@ export const TEST_RULES: DummyRuleMap = {
 	),
 	...VITEST_RULES
 }
+
+/** The plugin's rule that refuses a read of the current time. */
+const CLOCK_RULE: keyof typeof RULES = "no-wall-clock-verdict"
+
+/**
+ * What a repository holds its clock-free code to beyond its test files, the testing library and the tests' support
+ * modules: the plugin's clock rule, so no verdict rests on a hidden clock, an input the run's seed does not bind. A
+ * module whose job is the clock (a case's hang guard, a lease's timeout) is the repository's own exception.
+ */
+export const CLOCK_RULES: DummyRuleMap = {
+	[`${plugin.meta.name}/${CLOCK_RULE}`]: "error"
+}

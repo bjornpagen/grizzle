@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,15 +12,15 @@ import {
 	oneOf,
 	string
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
-	allowedFailures,
 	caseChunk,
 	compareAnswers,
 	type EvalCase,
@@ -42,10 +42,11 @@ import {
 
 import { regex } from "arkregex"
 /**
- * What a case reached: a value both sides agree on, overflow (22003), zero to a negative power or a negative base to a
- * non-integer power (2201F), and a result that underflows to zero at its display scale, on both sides.
+ * What a case reached: a value both sides agree on; a power compilation refuses, its literal operands outside the
+ * domain and range it proves (PartialOperation, precondition powerDomain: zero to a negative power, a negative base, a
+ * result past numeric's digits); and a result that underflows to zero at its display scale, on both sides.
  */
-type PowerFeature = "value agreement" | "failure 22003" | "failure 2201F" | "underflow to zero"
+type PowerFeature = "value agreement" | "refused at compilation" | "underflow to zero"
 
 const digitString = (min: number, max: number): Gen<string> =>
 	string(codePoint(0x30, 0x39), { min, max })
@@ -204,23 +205,21 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 								})
 							),
 							literal: Formatter.format,
-							features: features<PowerFeature>([
-								"value agreement",
-								"failure 22003",
-								"failure 2201F",
-								"underflow to zero"
-							]),
+							coverage: required<PowerFeature>(
+								["value agreement", "refused at compilation", "underflow to zero"],
+								{ cases: 4, sense: notesOnly }
+							),
 							kept: [],
 							runs: 4,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(batch, c) =>
 							Effect.gen(function* () {
-								const cases: Array<EvalCase> = Arr.map([...edges, ...batch], ([a, b], ord) => {
+								let refused = 0
+								const cases: Array<EvalCase> = Arr.flatMap([...edges, ...batch], ([a, b], ord) => {
 									const lowered = lowerWith(
 										"query",
 										expr,
@@ -232,19 +231,28 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 										baseParams
 									)
 									if (!lowered.ok) {
-										throw new Error(`power(${a}, ${b}): ${String(lowered.error)}`)
+										const reason = lowered.error.reason
+										if (
+											reason._tag !== "PartialOperation" ||
+											reason.precondition !== "powerDomain"
+										) {
+											throw new Error(`power(${a}, ${b}): ${String(lowered.error)}`)
+										}
+										refused++
+										return []
 									}
 									const { root } = lowered.value
 									const sql = renderSql(root.expr, plainRender)
-									return {
-										ord,
-										label: `power(${a}, ${b})`,
-										sql,
-										valueSql: sql,
-										type: root.actual,
-										host: evaluate(root.expr, constantEnv),
-										allowed: allowedFailures(root.expr)
-									}
+									return [
+										{
+											ord,
+											label: `power(${a}, ${b})`,
+											sql,
+											valueSql: sql,
+											type: root.actual,
+											host: evaluate(root.expr, constantEnv)
+										}
+									]
 								})
 								const answers = yield* runCases(db, s, cases, caseChunk)
 								const result = compareAnswers(cases, answers)
@@ -253,24 +261,8 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 								if (result.values > 0) {
 									c.note("value agreement")
 								}
-								/** The only failures are overflow and the two 2201F refusals. */
-								const failures = new Set(
-									Arr.map([...result.failures.keys()], (k) =>
-										Option.match(Str.lastIndexOf(":")(k), {
-											onNone: () => k,
-											onSome: (at) => Str.slice(at + 1)(k)
-										})
-									)
-								)
-								assert.deepEqual(
-									Arr.filter([...failures], (code) => code !== "22003" && code !== "2201F"),
-									[]
-								)
-								if (failures.has("22003")) {
-									c.note("failure 22003")
-								}
-								if (failures.has("2201F")) {
-									c.note("failure 2201F")
+								if (refused > 0) {
+									c.note("refused at compilation")
 								}
 								if (
 									Arr.some(

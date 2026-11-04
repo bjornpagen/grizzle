@@ -1,8 +1,18 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
-import { characterOf, element, filter, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
+import { required } from "@grizzle/testing/features"
+import {
+	characterOf,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string
+} from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { bigint, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter, Layer, Option, pipe, Result, String as Str } from "effect"
@@ -26,7 +36,7 @@ import {
 	seatsLaw
 } from "#test/pg/laws/outcomes/schemas.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { strictDetail } from "#test/support/detail.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -35,7 +45,8 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
-const member = (n: number): string =>
+import { Uuid } from "#compiler/public/fields.ts"
+const member = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`
 
 /** One lawful club with two members, the first its captain. */
@@ -184,10 +195,10 @@ const detailFeatures = (key: ClubKey): ReadonlyArray<DetailFeature> => [
 type NativeCase =
 	| {
 			readonly kind: "a candidate key"
-			readonly id: string
+			readonly id: Uuid
 			readonly email: "ann@example.org" | "ben@example.org"
 	  }
-	| { readonly kind: "a partial UNIQUE index"; readonly id: string; readonly email: string }
+	| { readonly kind: "a partial UNIQUE index"; readonly id: Uuid; readonly email: string }
 	| { readonly kind: "a table CHECK"; readonly club: ClubKey; readonly seats: number }
 	| { readonly kind: "a contract domain"; readonly club: ClubKey; readonly seats: number }
 	| { readonly kind: "a text refinement domain"; readonly club: ClubKey }
@@ -202,7 +213,11 @@ const freshClubGen = filter(
 	freshAttempts
 )
 /** A member id no stored member holds, and an email none holds. */
-const freshIdGen = filter(uuid(4), (id) => id !== member(1) && id !== member(2), freshAttempts)
+const freshIdGen = filter(
+	map(uuid(4), (text) => succeeded(Uuid.parse(text), "a version 4 uuid's text")),
+	(id) => id !== member(1) && id !== member(2),
+	freshAttempts
+)
 const freshEmailGen = filter(
 	matching(regex("^[a-z]{1,12}@example\\.org$")),
 	(e) => e !== "ann@example.org" && e !== "ben@example.org",
@@ -301,18 +316,20 @@ export const witnessSuite = (): void => {
 									shrink: { kind: "bounded", candidates: 100 },
 									concurrency: 1,
 									steerEvery: 16,
-									steering: { kind: "none" },
-									features: features<DetailFeature>([
-										"region North",
-										"region South",
-										"a number at a limit of bigint",
-										"a code with a quote",
-										"a code with a backslash",
-										"a code with a comma or bracket",
-										"a code with a line break or tab",
-										"a code with a non-ASCII letter",
-										"a code with an astral character"
-									]),
+									coverage: required<DetailFeature>(
+										[
+											"region North",
+											"region South",
+											"a number at a limit of bigint",
+											"a code with a quote",
+											"a code with a backslash",
+											"a code with a comma or bracket",
+											"a code with a line break or tab",
+											"a code with a non-ASCII letter",
+											"a code with an astral character"
+										],
+										{ cases: 60, sense: notesOnly }
+									),
 									caseHang: Duration.minutes(2)
 								},
 								(key, c) =>
@@ -468,14 +485,16 @@ export const witnessSuite = (): void => {
 									shrink: { kind: "bounded", candidates: 100 },
 									concurrency: 1,
 									steerEvery: 16,
-									steering: { kind: "none" },
-									features: features<NativeFeature>([
-										"refused by a candidate key",
-										"refused by a partial UNIQUE index",
-										"refused by a table CHECK",
-										"refused by a contract domain",
-										"refused by a text refinement domain"
-									]),
+									coverage: required<NativeFeature>(
+										[
+											"refused by a candidate key",
+											"refused by a partial UNIQUE index",
+											"refused by a table CHECK",
+											"refused by a contract domain",
+											"refused by a text refinement domain"
+										],
+										{ cases: 60, sense: notesOnly }
+									),
 									caseHang: Duration.minutes(2)
 								},
 								(k, c) =>

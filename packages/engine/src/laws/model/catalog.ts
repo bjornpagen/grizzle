@@ -1,8 +1,10 @@
 import { type CatalogKey, theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
 import type { DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import type { LawId, PremiseObject } from "#compiler/core/ids.ts"
+import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { Enforcement, EvidenceCatalog, ExistenceConstraint } from "#compiler/ir/evidence.ts"
+import { lawUnits } from "#compiler/ir/law.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 
 type ExistenceKind = ExistenceConstraint["kind"]
@@ -34,8 +36,8 @@ const existenceKind = (native: NamedNative["object"]): ExistenceKind | undefined
 	}
 }
 
-/** The enforcement by an installed constraint or law function, keyed by its installed name. */
-const constraintEnforcement = (name: PremiseObject): Enforcement => ({ kind: "constraint", name })
+/** The enforcement by an installed constraint, keyed by its installed name. */
+const constraintEnforcement = (name: ConstraintName): Enforcement => ({ kind: "constraint", name })
 
 /** The enforcement of a containment law, with its kind. */
 interface Enforced {
@@ -46,7 +48,7 @@ interface Enforced {
 /** A native object's enforcement of `law`, when it discharges the law and is of an existence kind. A native with an
  * installed name is a constraint; an enum is installed by its closed relation's type, which no constraint names. */
 const nativeEnforcement = (n: NamedNative, law: LawId): Enforced | undefined => {
-	if (!n.object.lawIds.includes(law)) {
+	if (!n.object.lawIds.some((raised) => raised === law)) {
 		return undefined
 	}
 	switch (n.namespace) {
@@ -68,7 +70,7 @@ const nativeEnforcement = (n: NamedNative, law: LawId): Enforced | undefined => 
 }
 
 /** The enforcement of a containment law, with its kind: the first native object of an existence kind that discharges
- * the law, or its residual law function. */
+ * the law, or its residual law's units, every unit function a premise. */
 const enforcement = (laws: LawModel, law: LawId): Enforced | undefined => {
 	for (const n of laws.natives) {
 		const enforced = nativeEnforcement(n, law)
@@ -79,7 +81,13 @@ const enforcement = (laws: LawModel, law: LawId): Enforced | undefined => {
 	const residual = laws.residuals.find((r) => r.lawId === law)
 	return residual === undefined
 		? undefined
-		: { enforcement: constraintEnforcement(identifierOf(residual.function)), kind: "residualLaw" }
+		: {
+				enforcement: {
+					kind: "residualLaw",
+					functions: mapNonEmpty(lawUnits(residual), (u) => identifierOf(u.unit.function))
+				},
+				kind: "residualLaw"
+			}
 }
 
 /** Every derived relation's inherited keys, the first its primary one, each with the unique index its view is installed

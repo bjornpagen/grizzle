@@ -35,6 +35,7 @@ const assignments = (text: string): Readonly<Record<string, string>> => {
  */
 const PinFile = Schema.Struct({
 	PG_PIN_VERSION: Schema.String,
+	PGVECTOR_PIN_VERSION: Schema.String,
 	GRIZZLE_PG_PREFIX: Schema.String,
 	PG_PORT: Schema.FiniteFromString,
 	GRIZZLE_PG_STATE: Schema.String,
@@ -81,6 +82,7 @@ const place = clusterPlace(cluster)
  */
 export const pgPin = {
 	version: pin.PG_PIN_VERSION,
+	vectorVersion: pin.PGVECTOR_PIN_VERSION,
 	prefix: pin.GRIZZLE_PG_PREFIX,
 	host: "localhost",
 	cluster,

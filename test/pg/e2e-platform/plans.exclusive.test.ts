@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -56,7 +57,9 @@ import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
  * PostgreSQL finds cheaper), which counts as used. The engine's own serving rule is never consulted: a copy of it would
  * agree with it.
  */
+import { appendAll } from "#compiler/core/array.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { loadPlatform, type OpenedPlatform, openPlatform } from "#test/pg/e2e-platform/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -110,14 +113,14 @@ const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
 
 /** The entities a read is asked about, busiest first: what each pick chooses among. */
 interface Entities {
-	readonly workspaces: ReadonlyArray<string>
-	readonly orgs: ReadonlyArray<string>
-	readonly keys: ReadonlyArray<string>
-	readonly events: ReadonlyArray<string>
-	readonly models: ReadonlyArray<string>
-	readonly grants: ReadonlyArray<string>
-	readonly invoices: ReadonlyArray<string>
-	readonly subscriptions: ReadonlyArray<string>
+	readonly workspaces: ReadonlyArray<Uuid>
+	readonly orgs: ReadonlyArray<Uuid>
+	readonly keys: ReadonlyArray<Uuid>
+	readonly events: ReadonlyArray<Uuid>
+	readonly models: ReadonlyArray<Uuid>
+	readonly grants: ReadonlyArray<Uuid>
+	readonly invoices: ReadonlyArray<Uuid>
+	readonly subscriptions: ReadonlyArray<Uuid>
 	readonly months: ReadonlyArray<{
 		readonly month: number
 		readonly start: bigint
@@ -125,8 +128,11 @@ interface Entities {
 	}>
 }
 
-const busiest = <A>(rows: ReadonlyArray<A>, by: (a: A) => string): ReadonlyArray<string> => {
-	const count = new Map<string, number>()
+const busiest = <A, K extends string>(
+	rows: ReadonlyArray<A>,
+	by: (a: A) => K
+): ReadonlyArray<K> => {
+	const count = new Map<K, number>()
 	for (const r of rows) {
 		count.set(by(r), (count.get(by(r)) ?? 0) + 1)
 	}
@@ -134,8 +140,8 @@ const busiest = <A>(rows: ReadonlyArray<A>, by: (a: A) => string): ReadonlyArray
 		Arr.sort(
 			[...count],
 			Order.combine(
-				Order.mapInput(Order.flip(Order.Number), ([, n]: readonly [string, number]) => n),
-				Order.mapInput(Order.String, ([k]: readonly [string, number]) => k)
+				Order.mapInput(Order.flip(Order.Number), ([, n]: readonly [K, number]) => n),
+				Order.mapInput(Order.String, ([k]: readonly [K, number]) => k)
 			)
 		),
 		([k]) => k
@@ -694,14 +700,16 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2),
-					features: features<PlanFeature>([
-						"a read by the busiest entities",
-						"a read by another",
-						"a whole month's window",
-						"a week's window"
-					])
+					coverage: required<PlanFeature>(
+						[
+							"a read by the busiest entities",
+							"a read by another",
+							"a whole month's window",
+							"a week's window"
+						],
+						{ cases: runs, sense: notesOnly }
+					)
 				},
 				(pick, cx) =>
 					o.withDb((db) =>
@@ -722,7 +730,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 									)
 								}
 								const judged = yield* sentProblems(s.admin, pr.name, sent, judge)
-								problems.push(...judged.problems)
+								appendAll(problems, judged.problems)
 								for (const index of judged.read) {
 									used.add(index)
 								}
@@ -742,8 +750,9 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 				if (ran.accepted !== w.accepted) {
 					lawProblems.push(`${w.name}: ${ran.accepted ? "accepted" : "refused"}`)
 				}
-				lawProblems.push(
-					...Arr.map(
+				appendAll(
+					lawProblems,
+					Arr.map(
 						Arr.filter(
 							Arr.map(w.counted, (c) => o.installed.names.relation(c).name),
 							(table) => (ran.seqScans.get(table) ?? 0) > 0

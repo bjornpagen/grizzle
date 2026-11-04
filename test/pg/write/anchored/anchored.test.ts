@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -20,6 +20,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
@@ -103,6 +104,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 				Effect.gen(function* () {
 					const s = yield* Substrate
 					const o = yield* install(queueSchema("Queue"), {
+						ambient: ordinarySession,
 						label: "anchored",
 						extensions: [],
 						logins: []
@@ -151,7 +153,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 							Wanted,
 							query(S).rule((r) => {
 								const named = r.relation("keys", { key: Wanted.fields.key })
-								const { key, due, attempts } = v(Wanted)
+								const { key, due, attempts } = v(Wanted, "wanted")
 								return r
 									.match(named, { key })
 									.match(Wanted, { key, due, attempts })
@@ -161,7 +163,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 						"a deletion of the Wanted item a parameter selects": ChangeSet.empty(S).delete(
 							Wanted,
 							query(S).rule((r) => {
-								const { key, due, attempts } = v(Wanted)
+								const { key, due, attempts } = v(Wanted, "wanted")
 								return r
 									.match(Wanted, { key, due, attempts })
 									.where(r.eq(key, r.param("key", Wanted.fields.key)))
@@ -176,7 +178,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 							generator: element(shapes),
 							literal: Formatter.format,
 							limit: shapes.length,
-							features: features<AnchoredFeature>(
+							coverage: requiredInSpace<AnchoredFeature>(
 								Arr.map(
 									shapes,
 									(shape): AnchoredFeature => `${shape}: Wanted read once, by an index condition`

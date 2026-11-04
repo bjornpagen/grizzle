@@ -11,12 +11,18 @@ import {
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	headNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import { isMoneyPayload, isVectorPayload, moneyTag, vectorTag } from "#compiler/ir/carriers.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
+import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { reservedSlots } from "#compiler/ir/slots.ts"
 
@@ -60,6 +66,8 @@ export type FieldDesc =
 			readonly name: string
 			readonly base: FieldDesc
 			readonly predicate: ExprDesc | undefined
+			/** The facts the contract declares its predicate proves, distinct and in the one order (ir/proof.ts). */
+			readonly facts: ReadonlyArray<Fact>
 	  }
 	| { readonly kind: "span"; readonly endpoint: FieldDesc; readonly width: bigint | undefined }
 	| { readonly kind: "closedId"; readonly roster: string }
@@ -88,9 +96,7 @@ export const computeFns = [
 	"least",
 	"greatest",
 	"widthBucket",
-	"scale",
 	"minScale",
-	"trimScale",
 	"lower",
 	"upper",
 	"width",
@@ -135,6 +141,11 @@ export interface Refs {
 	 */
 	readonly param: object
 	/**
+	 * What a scalar parameter reference states of its type beside its name: its declared field descriptor in a
+	 * Description; the checker's own references may state a channel instead (check/params.ts ParamTyping).
+	 */
+	readonly paramType: unknown
+	/**
 	 * The references of the descriptions a clause holds whole: an interior stage's arms, an attachment's child and an
 	 * imported query. The builder's open clauses hold finished, spelled ones.
 	 */
@@ -154,7 +165,7 @@ export type LeafShape =
  * interior stage's canonical spelling, and every leaf kind. A walk over a description's parameters (mapQueryParams)
  * changes only `P`.
  */
-export interface ParamsAs<P extends object> extends Refs {
+export interface ParamsAs<P extends object, T = FieldDesc> extends Refs {
 	readonly var: string
 	readonly parent: string
 	readonly interior: string
@@ -164,19 +175,33 @@ export interface ParamsAs<P extends object> extends Refs {
 		| { readonly kind: "value" }
 		| { readonly kind: "parent"; readonly column: string }
 	readonly param: P
-	readonly nested: ParamsAs<P>
+	readonly paramType: T
+	readonly nested: ParamsAs<P, T>
 }
 
 /** A Description's references: every reference spelled canonically, a parameter by its name. */
 export type Spelled = ParamsAs<{ readonly name: string }>
 
 /**
+ * What a Compute.when guard tests of its subject and so establishes inside its then branch: never zero, never below
+ * zero, above zero (both), never NaN or an infinity, or within two literal bounds (and so finite). The first four are
+ * facts a term's TypeScript type states; within states an interval, which no type does (scalar/compute/bounds.ts).
+ */
+export type GuardDesc =
+	| { readonly kind: "nonzero" }
+	| { readonly kind: "nonnegative" }
+	| { readonly kind: "positive" }
+	| { readonly kind: "finite" }
+	| { readonly kind: "within"; readonly low: LiteralDesc; readonly high: LiteralDesc }
+
+/**
  * Terms and predicates in one vocabulary: one builder serves contract predicates, row checks,
- * query filters and computed outputs.
+ * query filters and computed outputs. `when` is the one guard of a partial operation: its then branch is computed
+ * only where its guard holds of its subject, and every occurrence of the subject there has what the guard establishes.
  */
 export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	| R["leaf"]
-	| ({ readonly kind: "param" } & R["param"])
+	| ({ readonly kind: "param"; readonly type: R["paramType"] } & R["param"])
 	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly type: FieldDesc | undefined }
 	| {
 			readonly kind: "compute"
@@ -199,6 +224,13 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 			readonly onFalse: ExprDesc<L, R>
 	  }
 	| {
+			readonly kind: "when"
+			readonly guard: GuardDesc
+			readonly subject: ExprDesc<L, R>
+			readonly proved: ExprDesc<L, R>
+			readonly otherwise: ExprDesc<L, R>
+	  }
+	| {
 			readonly kind: "compare"
 			readonly op: CompareOp
 			readonly left: ExprDesc<L, R>
@@ -215,8 +247,8 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 			readonly arg: ExprDesc<L, R>
 			readonly values: ReadonlyArray<LiteralDesc>
 	  }
-	| { readonly kind: "and"; readonly args: ReadonlyArray<ExprDesc<L, R>> }
-	| { readonly kind: "or"; readonly args: ReadonlyArray<ExprDesc<L, R>> }
+	| { readonly kind: "and"; readonly args: NonEmptyReadonlyArray<ExprDesc<L, R>> }
+	| { readonly kind: "or"; readonly args: NonEmptyReadonlyArray<ExprDesc<L, R>> }
 	| { readonly kind: "not"; readonly arg: ExprDesc<L, R> }
 	| {
 			readonly kind: "allen"
@@ -231,8 +263,45 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 			readonly bindings: BindingsDesc<L, R>
 	  }
 
+/** The constant a connective of no operand is, its unit: true for and, false for or. */
+const connectiveUnit = (
+	kind: "and" | "or"
+): { readonly kind: "literal"; readonly value: boolean; readonly type: undefined } => ({
+	kind: "literal",
+	value: kind === "and",
+	type: undefined
+})
+
+/**
+ * The conjunction or disjunction of `args`, total: of no operand its unit, the constant true or false; of one, that
+ * operand; of more, the connective over them. The one constructor of a connective from a list: no and or or holds no
+ * operand.
+ */
+export const connectiveExpr = <L, R extends Refs>(
+	kind: "and" | "or",
+	args: ReadonlyArray<ExprDesc<L, R>>
+): ExprDesc<L, R> => {
+	if (!isNonEmpty(args)) {
+		return connectiveUnit(kind)
+	}
+	return args.length === 1 ? headNonEmpty(args) : { kind, args }
+}
+
 export type BindingsDesc<L = Located, R extends Refs = Spelled> = Readonly<
 	Record<string, ExprDesc<L, R>>
+>
+
+/**
+ * What an imported query's bind map binds one of its parameters to: a scalar term, or, for a relation parameter, a
+ * relation parameter of the importing rule by name.
+ */
+export type BindTermDesc<L = Located, R extends Refs = Spelled> =
+	| ExprDesc<L, R>
+	| ({ readonly kind: "relationParam" } & R["param"])
+
+/** An imported query's bind map: each of its parameters bound to what the importer gives it. */
+export type BindMapDesc<L = Located, R extends Refs = Spelled> = Readonly<
+	Record<string, BindTermDesc<L, R>>
 >
 
 /** What `match` consumes. */
@@ -241,7 +310,7 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 	| {
 			readonly kind: "query"
 			readonly query: QueryDesc<L, R["nested"]>
-			readonly bind: BindingsDesc<L, R>
+			readonly bind: BindMapDesc<L, R>
 	  }
 	| ({ readonly kind: "param"; readonly heading: Readonly<Record<string, FieldDesc>> } & R["param"])
 	| ({ readonly kind: "paramOf"; readonly relation: string } & R["param"])
@@ -253,8 +322,8 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 
 /**
  * The row a write filter's membership is asked at: one fact of `heading`, whose values the membership's caller names
- * (write/entry/render.ts renderMembership). Only a writable entry's filter reads it (schema/entry.ts), and only a check
- * that reads the query as a membership admits it (check/description.ts).
+ * (write/entry/render.ts renderMembership); a heading of no field is the unit row. Only a writable entry's filter reads
+ * it (schema/entry.ts), and only a check that reads the query as a membership admits it (check/description.ts).
  */
 export interface RowSourceDesc {
 	readonly kind: "row"
@@ -669,6 +738,12 @@ class ParamWalk<P extends object> {
 		return Object.fromEntries(Object.entries(b).map(([k, e]) => [k, this.expr(e)]))
 	}
 
+	bound(b: BindTermDesc): BindTermDesc<Located, ParamsAs<P>> {
+		return b.kind === "relationParam"
+			? { kind: "relationParam", ...this.#spelling.param(b.name) }
+			: this.expr(b)
+	}
+
 	/** An imported query is its own namespace; only its bind map is read in this one. */
 	source(s: SourceDesc): SourceDesc<Located, ParamsAs<P>> {
 		switch (s.kind) {
@@ -676,7 +751,7 @@ class ParamWalk<P extends object> {
 				return {
 					...s,
 					query: new ParamWalk(this.#spelling.imported()).query(s.query),
-					bind: this.bindings(s.bind)
+					bind: Object.fromEntries(Object.entries(s.bind).map(([k, b]) => [k, this.bound(b)]))
 				}
 			case "param":
 				return { kind: "param", heading: s.heading, ...this.#spelling.param(s.name) }
@@ -704,7 +779,7 @@ class ParamWalk<P extends object> {
 	expr(e: ExprDesc): ExprDesc<Located, ParamsAs<P>> {
 		switch (e.kind) {
 			case "param":
-				return { kind: "param", ...this.#spelling.param(e.name) }
+				return { kind: "param", type: e.type, ...this.#spelling.param(e.name) }
 			case "var":
 			case "field":
 			case "value":
@@ -725,13 +800,20 @@ class ParamWalk<P extends object> {
 					onTrue: this.expr(e.onTrue),
 					onFalse: this.expr(e.onFalse)
 				}
+			case "when":
+				return {
+					...e,
+					subject: this.expr(e.subject),
+					proved: this.expr(e.proved),
+					otherwise: this.expr(e.otherwise)
+				}
 			case "compare":
 				return { ...e, left: this.expr(e.left), right: this.expr(e.right) }
 			case "between":
 				return { ...e, arg: this.expr(e.arg), low: this.expr(e.low), high: this.expr(e.high) }
 			case "and":
 			case "or":
-				return { ...e, args: e.args.map((a) => this.expr(a)) }
+				return { ...e, args: mapNonEmpty(e.args, (a) => this.expr(a)) }
 			case "allen":
 				return { ...e, left: this.expr(e.left), right: this.expr(e.right) }
 			case "pointIn":
@@ -826,14 +908,14 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	moneyShape,
 	vectorShape,
 	S.struct({ span: S.struct({ start: integerOrBigint, end: integerOrBigint }) }),
-	S.struct({ float: S.literalsShape("NaN", "Infinity", "-Infinity") })
+	S.struct({ float: S.literalsShape(["NaN", "Infinity", "-Infinity"]) })
 )
 
-const regexFlags = S.literalsShape("u", "su")
+const regexFlags = S.literalsShape(["u", "su"])
 
 const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 	S.tagged("kind", {
-		pg: S.struct({ type: S.literalsShape(...pgScalarNames) }),
+		pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
 		numeric: S.normalized(
 			S.refine(
 				S.structWith({}, { precision: S.integer, scale: S.integer }),
@@ -845,10 +927,22 @@ const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 			),
 			(f) => (f.precision === undefined ? {} : { precision: f.precision, scale: f.scale ?? 0 })
 		),
-		serial: S.struct({ type: S.literalsShape("smallserial", "serial", "bigserial") }),
+		serial: S.struct({ type: S.literalsShape(["smallserial", "serial", "bigserial"]) }),
 		uuid: S.struct({}),
 		text: S.struct({ source: S.string, flags: regexFlags }),
-		contract: S.structStated({ name, base: fieldDescShape }, { predicate: exprDescShape }, {}),
+		contract: S.structStated(
+			{
+				name,
+				base: fieldDescShape,
+				facts: S.refine(
+					S.uniqueArray(S.literalsShape(factNames), (f) => f, "facts"),
+					factsSorted,
+					"a contract's facts sorted, each once"
+				)
+			},
+			{ predicate: exprDescShape },
+			{}
+		),
 		span: S.structStated(
 			{ endpoint: fieldDescShape },
 			{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
@@ -863,6 +957,10 @@ const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 
 const bindingsDescShape: S.Shape<BindingsDesc> = S.lazy("bindings", () =>
 	S.recordShape(exprDescShape, S.nonEmptyString)
+)
+
+const bindMapDescShape: S.Shape<BindMapDesc> = S.lazy("a bind map", () =>
+	S.recordShape(bindTermDescShape, S.nonEmptyString)
 )
 
 /**
@@ -904,9 +1002,7 @@ const computeCases: {
 	least: unscaledCompute,
 	greatest: unscaledCompute,
 	widthBucket: unscaledCompute,
-	scale: unscaledCompute,
 	minScale: unscaledCompute,
-	trimScale: unscaledCompute,
 	lower: unscaledCompute,
 	upper: unscaledCompute,
 	width: unscaledCompute,
@@ -919,7 +1015,7 @@ const exprCases = {
 	field: S.struct({ field: name }),
 	value: S.struct({}),
 	parent: S.struct({ column: name }),
-	param: S.struct({ name }),
+	param: S.struct({ name, type: S.lazy("a field descriptor", () => fieldDescShape) }),
 	literal: S.structStated(
 		{ value: literalDescShape },
 		{ type: S.lazy("a field descriptor", () => fieldDescShape) },
@@ -936,8 +1032,20 @@ const exprCases = {
 		onTrue: S.lazy("an expression", () => exprDescShape),
 		onFalse: S.lazy("an expression", () => exprDescShape)
 	}),
+	when: S.struct({
+		guard: S.tagged("kind", {
+			nonzero: S.struct({}),
+			nonnegative: S.struct({}),
+			positive: S.struct({}),
+			finite: S.struct({}),
+			within: S.struct({ low: literalDescShape, high: literalDescShape })
+		}),
+		subject: S.lazy("an expression", () => exprDescShape),
+		proved: S.lazy("an expression", () => exprDescShape),
+		otherwise: S.lazy("an expression", () => exprDescShape)
+	}),
 	compare: S.struct({
-		op: S.literalsShape(...compareOps),
+		op: S.literalsShape(compareOps),
 		left: S.lazy("an expression", () => exprDescShape),
 		right: S.lazy("an expression", () => exprDescShape)
 	}),
@@ -948,10 +1056,10 @@ const exprCases = {
 	}),
 	in: S.struct({
 		arg: S.lazy("an expression", () => exprDescShape),
-		values: S.nonEmptyArray(literalDescShape)
+		values: S.array(literalDescShape)
 	}),
-	and: S.struct({ args: S.nonEmptyArray(S.lazy("an expression", () => exprDescShape)) }),
-	or: S.struct({ args: S.nonEmptyArray(S.lazy("an expression", () => exprDescShape)) }),
+	and: S.struct({ args: S.array(S.lazy("an expression", () => exprDescShape)) }),
+	or: S.struct({ args: S.array(S.lazy("an expression", () => exprDescShape)) }),
 	not: S.struct({ arg: S.lazy("an expression", () => exprDescShape) }),
 	allen: S.struct({
 		left: S.lazy("an expression", () => exprDescShape),
@@ -968,22 +1076,59 @@ const exprCases = {
 	})
 } as const
 
-const exprDescShape: S.Shape<ExprDesc> = S.lazy("an expression", () => S.tagged("kind", exprCases))
+/**
+ * An expression as the decoder reads it, before it parses a connective: an and or or of any number of operands, which
+ * unitWhenEmpty parses into the expression it is.
+ */
+type ReadExpr =
+	| Exclude<ExprDesc, { readonly kind: "and" | "or" }>
+	| { readonly kind: "and"; readonly args: ReadonlyArray<ExprDesc> }
+	| { readonly kind: "or"; readonly args: ReadonlyArray<ExprDesc> }
 
-const headTermDescShape: S.Shape<HeadTermDesc> = S.tagged("kind", {
-	...exprCases,
-	aggregate: S.unionShape(
-		S.struct({ fn: S.literalsShape("count") }),
-		S.struct({ fn: S.literalsShape("sum", "mean", "min", "max"), arg: exprDescShape })
-	),
-	producer: S.unionShape(
-		S.struct({ fn: S.literalsShape("pack"), args: S.single(exprDescShape) }),
-		S.struct({
-			fn: S.literalsShape("intersection", "difference"),
-			args: S.pairShape(exprDescShape)
-		})
-	)
-})
+/** A head term as the decoder reads it: a read expression, an aggregate or a producer. */
+type ReadHead = ReadExpr | Exclude<HeadTermDesc, ExprDesc>
+
+/**
+ * A connective of operands as such, and an empty one as what its builder builds (connectiveExpr): its unit, the
+ * constant true or false.
+ */
+const unitWhenEmpty = (e: ReadExpr): ExprDesc => {
+	if (e.kind !== "and" && e.kind !== "or") {
+		return e
+	}
+	const args = e.args
+	return isNonEmpty(args) ? { kind: e.kind, args } : connectiveUnit(e.kind)
+}
+
+const exprDescShape: S.Shape<ExprDesc> = S.lazy("an expression", () =>
+	S.normalized<ReadExpr, ExprDesc>(S.tagged("kind", exprCases), unitWhenEmpty)
+)
+
+/** A bind map's binding as the decoder reads it: a read expression, or a relation parameter by name. */
+type ReadBound = ReadExpr | Exclude<BindTermDesc, ExprDesc>
+
+const bindTermDescShape: S.Shape<BindTermDesc> = S.normalized<ReadBound, BindTermDesc>(
+	S.tagged("kind", { ...exprCases, relationParam: S.struct({ name }) }),
+	(b) => (b.kind === "relationParam" ? b : unitWhenEmpty(b))
+)
+
+const headTermDescShape: S.Shape<HeadTermDesc> = S.normalized<ReadHead, HeadTermDesc>(
+	S.tagged("kind", {
+		...exprCases,
+		aggregate: S.unionShape(
+			S.struct({ fn: S.literalsShape(["count"]) }),
+			S.struct({ fn: S.literalsShape(["sum", "mean", "min", "max"]), arg: exprDescShape })
+		),
+		producer: S.unionShape(
+			S.struct({ fn: S.literalsShape(["pack"]), args: S.single(exprDescShape) }),
+			S.struct({
+				fn: S.literalsShape(["intersection", "difference"]),
+				args: S.pairShape(exprDescShape)
+			})
+		)
+	}),
+	(h) => (h.kind === "aggregate" || h.kind === "producer" ? h : unitWhenEmpty(h))
+)
 
 const fieldMapShape = S.recordShape(fieldDescShape, name)
 
@@ -1007,15 +1152,22 @@ const sourceDescShape: S.Shape<SourceDesc> = S.lazy("a source", () =>
 		query: S.normalized(
 			S.structWith(
 				{ query: S.lazy("a query description", () => unorderedQueryShape) },
-				{ bind: bindingsDescShape }
+				{ bind: bindMapDescShape }
 			),
 			(q) => ({ query: q.query, bind: q.bind ?? {} })
 		),
-		param: S.struct({ name, heading: fieldMapShape }),
+		param: S.struct({
+			name,
+			heading: S.refine(
+				fieldMapShape,
+				(f) => Object.keys(f).length > 0,
+				"a relation parameter of at least one field"
+			)
+		}),
 		paramOf: S.struct({ name, relation: name }),
 		interior: S.struct({ id: name }),
 		self: S.struct({}),
-		delta: S.struct({ side: S.literalsShape("added", "removed"), relation: name }),
+		delta: S.struct({ side: S.literalsShape(["added", "removed"]), relation: name }),
 		context: S.struct({ context: S.lazy("a context description", () => contextDescShape) }),
 		row: S.struct({ heading: fieldMapShape })
 	})
@@ -1055,7 +1207,7 @@ const ruleDescShape: S.Shape<RuleDesc> = S.lazy("a rule", () =>
 
 const orderDescShape: S.Shape<OrderDesc> = S.struct({
 	column: name,
-	dir: S.literalsShape("asc", "desc")
+	dir: S.literalsShape(["asc", "desc"])
 })
 
 const takeDescShape: S.Shape<TakeDesc> = S.tagged("kind", {
@@ -1178,7 +1330,7 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 				}),
 				within: S.struct({
 					low: boundValueShape,
-					high: S.unionShape(S.literalsShape("*"), boundValueShape)
+					high: S.unionShape(S.literalsShape(["*"]), boundValueShape)
 				})
 			},
 			loc
@@ -1287,7 +1439,7 @@ const loginDescShape: S.Shape<LoginDesc> = S.located(
 const memberDescShape: S.Shape<MemberDesc> = S.located(
 	S.structWith(
 		{
-			op: S.literalsShape("insert", "delete", "put"),
+			op: S.literalsShape(["insert", "delete", "put"]),
 			relation: name,
 			member: S.tagged("kind", {
 				array: S.struct({ slot: name }),

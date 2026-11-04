@@ -13,6 +13,7 @@ import {
 } from "#bench/harness/explain.ts"
 import { PhaseClock, type StandardPhase } from "#bench/harness/phases.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
@@ -208,7 +209,7 @@ const execute = Effect.fn("execute")(function* (
 			if (decode.kind === "decode") {
 				clock.timeCall("decodeMs", () => decode.run(rows, i))
 			}
-			out.push(...rows)
+			appendAll(out, rows)
 		}
 	})
 	switch (transaction.kind) {

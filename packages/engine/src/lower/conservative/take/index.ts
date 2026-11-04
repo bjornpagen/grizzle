@@ -9,7 +9,7 @@ import {
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
 import type { Expr, OrderItem } from "#compiler/sql/ast.ts"
-import { conjunction, core, select } from "#compiler/sql/build.ts"
+import { conjunction, distinctCore, select } from "#compiler/sql/build.ts"
 
 /**
  * Take: the first k tuples of a set under a completed total order, a set again.
@@ -27,7 +27,7 @@ import { conjunction, core, select } from "#compiler/sql/build.ts"
  */
 const lowerTake: NodeLowerer<"Take"> = (node, cx, env) => {
 	const input = cx.source(node.input, env)
-	const scope = extendEnv(env, [node.input.id, input.map])
+	const scope = extendEnv(env, [[node.input.id, input.map]])
 	const correlation: Array<Expr> = node.correlation.map((c) =>
 		cx.equal(
 			columnType(node.heading, c.column),
@@ -37,10 +37,9 @@ const lowerTake: NodeLowerer<"Take"> = (node, cx, env) => {
 	)
 	const orderBy: ReadonlyArray<OrderItem> = completedOrderItems(node.order, node.heading, input.map)
 	return {
-		...select({
-			...core(headingTargets(node.heading, input.map), [input.item], conjunction(correlation)),
-			distinct: true
-		}),
+		...select(
+			distinctCore(headingTargets(node.heading, input.map), [input.item], conjunction(correlation))
+		),
 		orderBy,
 		limit: cx.boundExpr(node.bound)
 	}

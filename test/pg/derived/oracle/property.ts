@@ -1,4 +1,5 @@
 import type { Case } from "@grizzle/testing/explore"
+import { multiset } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Option, Record, Schema } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import {
@@ -18,7 +19,8 @@ import {
 	type Facts,
 	type GenSchema,
 	initialFacts,
-	namedIn
+	namedIn,
+	restoredDerivedFacts
 } from "#test/pg/derived/oracle/gen.ts"
 
 import {
@@ -32,7 +34,8 @@ import {
 	snapshotOf
 } from "#test/pg/derived/oracle/harness.ts"
 import { assert, failureOf, unorderedEqual } from "#test/support/assert.ts"
-import { exactValue } from "#test/support/equivalence.ts"
+import { exactValue, identicalValue } from "#test/support/equivalence.ts"
+import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
@@ -40,8 +43,8 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
 /** What a case reached, so the population shows it exercised each construct: each definition form, a second and a
  * third level, a negation, each aggregate over each kind it takes, both kinds of refresh statement, a view holding
  * rows, a call whose unchanged definitions wrote nothing after no base change and after a change elsewhere, a call
- * publishing several views in one commit, a read of an unpopulated view, both reloads of the same facts, and a base
- * change.
+ * publishing several views in one commit, a read of an unpopulated view, both reloads of the same facts, a base
+ * change, and a second reading over a value respelled.
  *
  * The generated refresh oracle's property.
  *
@@ -64,7 +67,11 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  * - before a view's first refresh a read of it through the Db is ReadError, and after it the Db reads
  *   exactly the rows the view stores.
  *
- * Each case ends with a call naming every derived relation, after which every view equals its definition. */
+ * Each case ends with a call naming every derived relation, after which every view equals its definition, and then a
+ * second reading by the twin-spelling and plan relations: the facts reloaded with one value in its next spelling, in
+ * the order they are stored (gen.ts restoredDerivedFacts: the oracle reads every view's tuples, which that order
+ * decides), every view refreshed under the complement of the case's plan, every check above holding, and the Db
+ * reading every view exactly as it read it before, value for value. */
 export type DerivedFeature =
 	| `form ${GenSchema["derived"][number]["form"]}`
 	| "level 2"
@@ -81,6 +88,7 @@ export type DerivedFeature =
 	| "identical reloads"
 	| "reordered reloads"
 	| "base changes"
+	| "a fact respelled on a second reading"
 
 const reversed = (facts: Facts): Facts =>
 	Record.fromEntries(Arr.map(Record.toEntries(facts), ([r, fs]) => [r, Arr.reverse([...fs])]))
@@ -199,7 +207,7 @@ export const derivedCase = (
 			let facts = initialFacts(declared, sketch)
 			const o = yield* installDerived(declared.value, facts, "doracle", [declared.server])
 			const g = buildSchema(sketch, { name: o.installed.declared })
-			const { db, ctx } = yield* openCaseDb(o, g.refresher)
+			const { db, ctx, again } = yield* openCaseDb(o, g.refresher)
 			const order = g.refreshOrder
 			const byName = new Map(Arr.map(g.derived, (d) => [d.name, d]))
 			for (const d of g.derived) {
@@ -291,5 +299,31 @@ export const derivedCase = (
 				{ label: "final call", named: order, unchanged: false },
 				c
 			)
+			const readEvery = Effect.forEach(order, (name) =>
+				Effect.map(read(name), (rows) => [name, rows] as const)
+			)
+			const first = new Map(yield* readEvery)
+			const restored = restoredDerivedFacts(g, facts, yield* CurrentRestorage)
+			if (restored.respelled) {
+				c.note("a fact respelled on a second reading")
+			}
+			yield* reload(o, restored.facts)
+			yield* checkCall(
+				g,
+				o,
+				again,
+				populated,
+				{ label: "the second reading", named: order, unchanged: true },
+				c
+			)
+			const second = new Map(yield* readEvery)
+			for (const name of order) {
+				const difference = multiset(identicalValue)(readOf(second, name), readOf(first, name))
+				if (Option.isSome(difference)) {
+					return assert.fail(
+						`the second reading: ${name}, refreshed over its facts with one value respelled under the complement plan, reads otherwise: ${difference.value}`
+					)
+				}
+			}
 		})
 	)

@@ -31,6 +31,7 @@ export {
 	type CommitLost,
 	type ConcurrentRefresh,
 	type ConnectionClosed,
+	type ConnectionEnvironmentRefused,
 	type ConnectionLost,
 	type ConnectRefusal,
 	type ConnectTimedOut,

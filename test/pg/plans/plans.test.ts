@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -48,7 +49,7 @@ import {
 	uid
 } from "#test/pg/plans/fixture.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, paramTexts, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, installationSql, paramTexts, testCompile } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { isList } from "#test/support/list.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -83,7 +84,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 /** The first ten postings by id: a take over the retained primary key. */
 const firstPostings = query(Plans)
 	.rule((r) => {
-		const { id } = v(Posting)
+		const { id } = v(Posting, "posting")
 		return r.match(Posting, { id }).find({ id })
 	})
 	.orderBy(["id", "asc"])
@@ -92,7 +93,7 @@ const firstPostings = query(Plans)
 /** An account's first two entries by seq, bound to each account of a relation parameter. */
 const firstEntries = query(Plans)
 	.rule((r) => {
-		const { seq, amount } = v(Entry)
+		const { seq, amount } = v(Entry, "entry")
 		return r
 			.match(Entry, { account: r.param("account", Entry.fields.account), seq, amount })
 			.find({ seq, amount })
@@ -102,27 +103,27 @@ const firstEntries = query(Plans)
 
 const entriesPerAccount = query(Plans).rule((r) => {
 	const wanted = r.relation("accounts", { id: Account.fields.id })
-	const { id: account } = v(Account)
+	const { id: account } = v(Account, "account")
 	const top = firstEntries.bind({ account })
-	const { seq, amount } = v(top)
+	const { seq, amount } = v(top, "top")
 	return r.match(wanted, { id: account }).match(top, { seq, amount }).find({ account, seq, amount })
 })
 
 /** The items whose ids a relation parameter lists. */
 const itemsById = query(Plans).rule((r) => {
 	const wanted = r.relation("ids", { id: Item.fields.id })
-	const { id, amount } = v(Item)
+	const { id, amount } = v(Item, "item")
 	return r.match(wanted, { id }).match(Item, { id, amount }).find({ id, amount })
 })
 
 /** The sum per account over the bound (account, amount), and over the bound (id, account, amount). */
 const sumsOfAmounts = query(Plans).rule((r) => {
-	const { account, amount } = v(Posting)
+	const { account, amount } = v(Posting, "posting")
 	return r.match(Posting, { account, amount }).find({ account, total: r.sum(amount) })
 })
 
 const sumsOfPostings = query(Plans).rule((r) => {
-	const { id, account, amount } = v(Posting)
+	const { id, account, amount } = v(Posting, "posting")
 	return r.match(Posting, { id, account, amount }).find({ account, total: r.sum(amount) })
 })
 
@@ -131,14 +132,14 @@ const sumsOfPostings = query(Plans).rule((r) => {
  * predicate names.
  */
 const openNote = query(Plans).rule((r) => {
-	const { id } = v(Note)
+	const { id } = v(Note, "note")
 	return r
 		.match(Note, { id, ticket: r.param("ticket", Note.fields.ticket), open: true })
 		.find({ id })
 })
 
 const automaticTask = query(Plans).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r
 		.match(Task, { id, account: r.param("account", Task.fields.account), kind: "Automatic" })
 		.find({ id })
@@ -151,7 +152,7 @@ const automaticTask = query(Plans).rule((r) => {
  */
 const accountsWithFirstEntries = query(Plans)
 	.rule((r) => {
-		const { id, name } = v(Account)
+		const { id, name } = v(Account, "account")
 		return r.match(Account, { id, name }).find({ id, name })
 	})
 	.attach(
@@ -159,7 +160,7 @@ const accountsWithFirstEntries = query(Plans)
 		(parent) =>
 			query(Plans)
 				.rule((r) => {
-					const { seq, amount } = v(Entry)
+					const { seq, amount } = v(Entry, "entry")
 					return r
 						.match(Entry, { account: parent.id, seq, amount })
 						.find({ seq, amount, seqAgain: seq, amountAgain: amount, seqThird: seq })
@@ -300,7 +301,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 		const names = installation.value.names
 		const table = (relation: string) => printObjectName(names.relation(relation))
 		yield* transaction(s.admin, [
-			...installation.value.sql,
+			...installationSql(installation.value),
 			...factSql({ table, kindType: printObjectName(names.enumType(parsedName("Kind"))) })
 		])
 		for (const relation of relationNames) {
@@ -354,13 +355,12 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								uniqueArray(int(0, sizes.accounts - 1), (n) => n, { min: 1, max: 8 }, 20)
 							),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 20,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(parents) =>
@@ -449,13 +449,12 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							/** Ids of the fixture's items, repeats included, and ids past it that name no item. */
 							draw: drawn(array(int(0, sizes.items + 999), { min: 1, max: 12 })),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 20,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(drawnIds) =>
@@ -561,18 +560,20 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							suite: "pg/plans/partial-index",
 							draw: drawn(partialCase),
 							literal: Formatter.format,
-							features: features<PartialFeature>([
-								"openNote force_generic_plan",
-								"openNote force_custom_plan",
-								"automaticTask force_generic_plan",
-								"automaticTask force_custom_plan"
-							]),
+							coverage: required<PartialFeature>(
+								[
+									"openNote force_generic_plan",
+									"openNote force_custom_plan",
+									"automaticTask force_generic_plan",
+									"automaticTask force_custom_plan"
+								],
+								{ cases: 16, sense: notesOnly }
+							),
 							kept: planted,
 							runs: 16,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(c, cx) =>

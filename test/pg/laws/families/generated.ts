@@ -13,7 +13,6 @@ import {
 	contained,
 	key,
 	mirrors,
-	mutable,
 	on,
 	ref,
 	relation,
@@ -26,7 +25,12 @@ import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import type { Family } from "#test/pg/laws/families/families.ts"
+import {
+	describeMutability,
+	type Family,
+	type Mutability,
+	mutables
+} from "#test/pg/laws/families/families.ts"
 import {
 	type HostBound,
 	everyFact,
@@ -39,6 +43,7 @@ import {
 	type HostValue
 } from "#test/pg/laws/families/model.ts"
 import { openWriter, type Session } from "#test/pg/laws/families/support.ts"
+import { defined } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
 	type LawNames,
@@ -46,6 +51,7 @@ import {
 	parsedName,
 	reportedLawId
 } from "#test/support/kernel/naming.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { applyRuntime } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -56,9 +62,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 type Encoding = "plain" | "identity" | "bigint" | "decimal" | "money"
 
-/** A relation as the host sees it, with each field's encoding. */
+/** A relation as the host sees it, with each field's encoding; its mutability is its schema's (BoxParams). */
 interface Rel {
-	readonly host: HostRelation
+	readonly host: Omit<HostRelation, "mutable">
 	readonly encodings: Readonly<Record<string, Encoding>>
 }
 
@@ -211,24 +217,22 @@ const visitHost = (k: Encoding): Rel =>
 /** A point's laws, stated to the host over the law names of its schema. */
 type HostLaws = (laws: LawNames) => ReadonlyArray<HostLaw>
 
-/** One point: its traits, its schema, its relations' values by name, and the host's relations and laws. */
+/** A statement of a point's schema. */
+type PointStatement = Parameters<typeof schema>[2][number]
+
+/**
+ * One point: its traits, its relations' values by name, its law statements, and the host's relations and laws. Its
+ * schema is its relations and statements with the `mutable` statements of the relations its BoxParams declare mutable,
+ * each written by every writer (boxSchema).
+ */
 interface Point {
 	readonly name: string
 	readonly traits: ReadonlyArray<string>
-	readonly schema: (name: string, isMutable: boolean) => AnySchema
 	readonly values: Readonly<Record<string, AnyRelation>>
+	readonly statements: ReadonlyArray<PointStatement>
 	readonly relations: ReadonlyArray<Rel>
 	readonly laws: HostLaws
 }
-
-/** A schema of `relations` and `statements`, every relation mutable or none, each written by every writer. */
-const pointSchema =
-	(
-		relations: Readonly<Record<string, AnyRelation>>,
-		statements: (isMutable: boolean) => ReadonlyArray<Parameters<typeof schema>[2][number]>
-	) =>
-	(name: string, isMutable: boolean): AnySchema =>
-		schema(name, { Stage, ...relations }, statements(isMutable))
 
 const keyLaw = (
 	laws: LawNames,
@@ -240,9 +244,6 @@ const keyLaw = (
 	relation: r.name,
 	fields
 })
-
-const mutables = (isMutable: boolean, relations: ReadonlyArray<AnyRelation>) =>
-	isMutable ? Arr.map(relations, (r) => mutable(r)) : []
 
 /** Selected-source containment points. */
 const containmentI2 = contained(on(select(ChildI2, { flag: true }), "parent"), on(ParentI2, "id"))
@@ -276,14 +277,11 @@ const selectedContainment =
 		}
 	]
 
-const containmentPoints: ReadonlyArray<Point> = [
+const containmentPoints: Arr.NonEmptyReadonlyArray<Point> = [
 	{
 		name: "a containment over an int2 key, a boolean selector",
 		traits: ["family containment", "key int2", "selector boolean"],
-		schema: pointSchema({ Parent: ParentI2, Child: ChildI2 }, (m) => [
-			containmentI2,
-			...mutables(m, [ParentI2, ChildI2])
-		]),
+		statements: [containmentI2],
 		values: { Parent: ParentI2, Child: ChildI2 },
 		relations: [parentHost("plain"), childHost("plain")],
 		laws: (laws) => [
@@ -299,10 +297,7 @@ const containmentPoints: ReadonlyArray<Point> = [
 	{
 		name: "a containment over an int8 key, a closed handle selector",
 		traits: ["family containment", "key int8", "selector closed"],
-		schema: pointSchema({ Parent: ParentI8, Child: ChildI8 }, (m) => [
-			containmentI8,
-			...mutables(m, [ParentI8, ChildI8])
-		]),
+		statements: [containmentI8],
 		values: { Parent: ParentI8, Child: ChildI8 },
 		relations: [parentHost("bigint"), childHost("bigint")],
 		laws: (laws) => [
@@ -318,10 +313,7 @@ const containmentPoints: ReadonlyArray<Point> = [
 	{
 		name: "a containment into an anchor whose every column is serial",
 		traits: ["family containment", "key serial", "selector boolean", "an all-serial anchor"],
-		schema: pointSchema({ Parent: ParentSerial, Child: ChildSerial }, (m) => [
-			containmentSerial,
-			...mutables(m, [ParentSerial, ChildSerial])
-		]),
+		statements: [containmentSerial],
 		values: { Parent: ParentSerial, Child: ChildSerial },
 		relations: [rel("Parent", [["id", "identity"]], ["id"]), childHost("plain")],
 		laws: (laws) => [
@@ -337,11 +329,7 @@ const containmentPoints: ReadonlyArray<Point> = [
 	{
 		name: "a containment over an int4 key whose source names it by a candidate key",
 		traits: ["family containment", "key int4", "selector text", "witness by a candidate key"],
-		schema: pointSchema({ Parent: ParentI4, Child: ChildI4 }, (m) => [
-			containmentI4,
-			childParentKey,
-			...mutables(m, [ParentI4, ChildI4])
-		]),
+		statements: [containmentI4, childParentKey],
 		values: { Parent: ParentI4, Child: ChildI4 },
 		relations: [parentHost("plain"), childHost("plain")],
 		laws: (laws) => [
@@ -358,10 +346,7 @@ const containmentPoints: ReadonlyArray<Point> = [
 	{
 		name: "a containment into a target selected by a field of 63 bytes",
 		traits: ["family tagged containment", "key int4", "a selector field of 63 bytes"],
-		schema: pointSchema({ Parent: ParentLong, Child: ChildLong }, (m) => [
-			taggedLong,
-			...mutables(m, [ParentLong, ChildLong])
-		]),
+		statements: [taggedLong],
 		values: { Parent: ParentLong, Child: ChildLong },
 		relations: [
 			rel(
@@ -390,10 +375,7 @@ const containmentPoints: ReadonlyArray<Point> = [
 	{
 		name: "conditional mirrors over an int2 key, an int2 selector",
 		traits: ["family mirrors", "key int2", "selector int2"],
-		schema: pointSchema({ Parent: ParentI2, Child: ChildI2 }, (m) => [
-			mirrorsI2,
-			...mutables(m, [ParentI2, ChildI2])
-		]),
+		statements: [mirrorsI2],
 		values: { Parent: ParentI2, Child: ChildI2 },
 		relations: [parentHost("plain"), childHost("plain")],
 		laws: (laws) => {
@@ -420,10 +402,7 @@ const containmentPoints: ReadonlyArray<Point> = [
 	{
 		name: "alternatives over an int8 key, one handle of three armed",
 		traits: ["family alternatives", "key int8"],
-		schema: pointSchema({ Parent: Run, Child: Paid }, (m) => [
-			runStages,
-			...mutables(m, [Run, Paid])
-		]),
+		statements: [runStages],
 		values: { Parent: Run, Child: Paid },
 		relations: [
 			rel(
@@ -520,12 +499,7 @@ const capacityPoint = (c: CapacityPoint): Point => {
 	return {
 		name: Arr.join(c.traits, ", "),
 		traits: c.traits,
-		schema: pointSchema({ Team: c.team, Member: c.member }, (m) => [
-			law,
-			...(c.contained ? [containment] : []),
-			...(c.by === "code" ? [codeKey] : []),
-			...mutables(m, [c.team, c.member])
-		]),
+		statements: [law, ...(c.contained ? [containment] : []), ...(c.by === "code" ? [codeKey] : [])],
 		values: { Team: c.team, Member: c.member },
 		relations: [
 			teamHost(c.cap),
@@ -576,7 +550,7 @@ const capacityPoint = (c: CapacityPoint): Point => {
 	}
 }
 
-const capacityPoints: ReadonlyArray<Point> = [
+const capacityPoints: Arr.NonEmptyReadonlyArray<Point> = [
 	capacityPoint({
 		team: TeamCount,
 		member: MemberCount,
@@ -698,7 +672,7 @@ const coveragePoint = (
 ): Point => ({
 	name: Arr.join(traits, ", "),
 	traits,
-	schema: pointSchema({ Rota: rota, Visit: visit }, (m) => [law, ...mutables(m, [rota, visit])]),
+	statements: [law],
 	values: { Rota: rota, Visit: visit },
 	relations: [rotaHost(k), visitHost(k)],
 	laws: (laws) => [
@@ -721,7 +695,7 @@ const coveragePoint = (
 	]
 })
 
-const coveragePoints: ReadonlyArray<Point> = [
+const coveragePoints: Arr.NonEmptyReadonlyArray<Point> = [
 	coveragePoint(
 		RotaI2,
 		VisitI2,
@@ -745,15 +719,11 @@ const coveragePoints: ReadonlyArray<Point> = [
 /** Two relations, a row check of one declared name each. */
 const leftDistinct = check("Distinct", Left, (x) => x.ne(x.a, x.b))
 const rightDistinct = check("Distinct", Right, (x) => x.ne(x.a, x.b))
-const checkPoints: ReadonlyArray<Point> = [
+const checkPoints: Arr.NonEmptyReadonlyArray<Point> = [
 	{
 		name: "two relations, a row check of one declared name each",
 		traits: ["family row checks", "a check name two relations declare"],
-		schema: pointSchema({ Left, Right }, (m) => [
-			leftDistinct,
-			rightDistinct,
-			...mutables(m, [Left, Right])
-		]),
+		statements: [leftDistinct, rightDistinct],
 		values: { Left, Right },
 		relations: [
 			rel("Left", enc(["id", "a", "b"], "plain"), ["id"]),
@@ -778,12 +748,10 @@ const checkPoints: ReadonlyArray<Point> = [
 	}
 ]
 
-const points: ReadonlyArray<Point> = [
-	...containmentPoints,
-	...capacityPoints,
-	...coveragePoints,
-	...checkPoints
-]
+const points: Arr.NonEmptyReadonlyArray<Point> = Arr.appendAll(
+	Arr.appendAll(Arr.appendAll(containmentPoints, capacityPoints), coveragePoints),
+	checkPoints
+)
 
 /**
  * A capacity the compiler refuses (UnsupportedLawFamily): a weight whose sum is inexact or may overflow (real, double
@@ -823,14 +791,25 @@ export const refusedCapacities: Arr.NonEmptyReadonlyArray<RefusedCapacity> = [
 	{ name: "a double precision ref bound", schema: weighed(TeamF8, MemberCount, "cap") }
 ]
 
+/** A point of the box with the mutability of each of its relations, by the name its values give it. */
 export interface BoxParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<string>
 	readonly point: Point
 }
 
+/** The schema of a box point under a name: its relations, its statements, and its relations' `mutable` statements. */
+const boxSchema = (p: BoxParams, name: string): AnySchema =>
+	schema(name, { Stage, ...p.point.values }, [
+		...p.point.statements,
+		...mutables(p.mutable, p.point.values)
+	])
+
 const hostOf = (p: BoxParams): HostSchema => ({
-	relations: Arr.map(p.point.relations, (r) => r.host),
-	laws: p.point.laws(lawNamesOf(p.point.schema("families", p.mutable)))
+	relations: Arr.map(p.point.relations, (r): HostRelation => ({
+		...r.host,
+		mutable: defined(p.mutable[r.host.name], `the mutability of ${r.host.name}`)
+	})),
+	laws: p.point.laws(lawNamesOf(boxSchema(p, "families")))
 })
 
 const encodingOf = (r: Rel, field: string): Encoding => r.encodings[field] ?? "plain"
@@ -845,7 +824,7 @@ const boxSession = (
 ): Effect.Effect<Session, OpenError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const value = p.point.schema(installed.declared, p.mutable)
+		const value = boxSchema(p, installed.declared)
 		const { db } = yield* openWriter({ installed, schema: value })
 		const host = hostOf(p)
 		const q = quoteIdent(installed.schema)
@@ -894,11 +873,19 @@ const boxSession = (
 		}
 	})
 
-/** The family over `pointsOf` the box's points. */
-const boxOf = (caseLabel: string, pointsOf: ReadonlyArray<Point>): Family<BoxParams> => ({
+/** The family over `pointsOf` the box's points, each with every relation immutable and with every one mutable. */
+const boxOf = (
+	caseLabel: string,
+	pointsOf: Arr.NonEmptyReadonlyArray<Point>
+): Family<BoxParams> => ({
 	label: caseLabel,
-	variants: (isMutable) => Arr.map(pointsOf, (point) => ({ mutable: isMutable, point })),
-	describe: (p) => `${p.mutable ? "mutable" : "immutable"}, ${p.point.name}`,
+	variants: Arr.flatMap([false, true] as const, (declared) =>
+		Arr.map(pointsOf, (point): BoxParams => ({
+			mutable: Rec.map(point.values, () => declared),
+			point
+		}))
+	),
+	describe: (p) => `${describeMutability(p.mutable)}, ${p.point.name}`,
 	traits: (p) => p.point.traits,
 	/**
 	 * Every relation of every point draws from these: a few keys, so a group fills past its bounds; caps around the
@@ -945,7 +932,7 @@ const boxOf = (caseLabel: string, pointsOf: ReadonlyArray<Point>): Family<BoxPar
 		Right: { id: [1, 2, 3], a: [1, 2], b: [1, 2] }
 	},
 	host: hostOf,
-	schema: (p) => (name) => p.point.schema(name, p.mutable),
+	schema: (p) => (name) => boxSchema(p, name),
 	connect: boxSession
 })
 
@@ -992,9 +979,12 @@ export const lawBox: Family<BoxParams> = boxOf("the law-family box", points)
  */
 export const directLawBox: Family<BoxParams> = boxOf(
 	"the law-family box, direct",
-	Arr.filter(points, (point) =>
-		Arr.every(point.relations, (r) =>
-			Arr.every(Rec.values(r.encodings), (e) => e !== "money" && e !== "identity")
-		)
+	nonEmptyList(
+		Arr.filter(points, (point) =>
+			Arr.every(point.relations, (r) =>
+				Arr.every(Rec.values(r.encodings), (e) => e !== "money" && e !== "identity")
+			)
+		),
+		"the direct law-family box"
 	)
 )

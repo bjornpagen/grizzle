@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, type Situations } from "@grizzle/testing/features"
 import { v8Coverage } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
@@ -12,10 +12,12 @@ import {
 	generatedDocsInstalls,
 	noCheck,
 	noLead,
+	noteNaming,
 	programCaseGen,
 	stage
 } from "#test/support/worlds/drive/suite.ts"
 import { realize } from "#test/support/worlds/execute/index.ts"
+import { drawnNameFeatures } from "#test/support/worlds/generate/names.ts"
 import { everyRole, noAims } from "#test/support/worlds/generate/weights.ts"
 import type { WorldFeature } from "#test/support/worlds/model/types.ts"
 
@@ -50,11 +52,15 @@ const guide: Arr.NonEmptyReadonlyArray<string> = [
 /**
  * What every population of random programs reaches by construction: each invariant the driver holds whose triggering
  * actions the swarm draws in nearly every program (an open, a write, a commit, a migration, a catalog change, a Db's
- * transaction, a delete). Left out: no-hidden-value, which needs an action to meet a fact outside the actor's world, as
- * the reality and the actor happen to give it (once to thrice in 48 cases of the model's own run of the suite), and is
- * the errors suite's to require.
+ * transaction, a delete); each feature of the names a generated installation draws from the kernel dictionary
+ * (generate/names.ts), each in at least one case in eight; and a base object or a role entry named after a PostgreSQL
+ * type under the installation's schemas first on its owner's search path, about one case in five. Left out:
+ * no-hidden-value, which needs an action to meet a fact outside the actor's world, as the reality and the actor happen
+ * to give it (once to thrice in 48 cases of the model's own run of the suite), and is the errors suite's to require.
  */
-const required: ReadonlyArray<WorldFeature> = [
+const situations: Situations<WorldFeature> = [
+	["grizzle-first path", "catalog-type name"],
+	...Arr.map(drawnNameFeatures, (feature): WorldFeature => `name:${feature}`),
 	"invariant:laws-hold",
 	"invariant:claims-end-with-transaction",
 	"invariant:role-ends-with-transaction",
@@ -95,19 +101,19 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 									)
 								),
 								literal: Formatter.format,
-								features: features<WorldFeature>(required),
+								coverage: required<WorldFeature>(situations, { cases, sense }),
 								kept: [],
 								runs: cases,
 								shrink: { kind: "bounded", candidates: 200 },
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "mutate", cases, sense },
 								caseHang: Duration.minutes(2)
 							},
 							(pc, c) =>
 								Effect.scoped(
 									Effect.gen(function* () {
-										const world = yield* realize(pc.install)
+										const world = yield* realize(pc.install, pc.ambient)
+										noteNaming(pc, c)
 										const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
 										yield* driveProgram(staged, pc, c, noCheck)
 									})

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Layer, Option, Record as Rec } from "effect"
@@ -28,7 +28,9 @@ import {
 	reviewedSource,
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { installationSql } from "#test/support/compile.ts"
 import { pgPin } from "#test/support/env.ts"
 import * as graphApi from "#test/support/fixtures/api/graph.ts"
 import * as ledgerApi from "#test/support/fixtures/api/ledger.ts"
@@ -214,7 +216,7 @@ const migrates = (history: History) =>
 				yield* apply(
 					m,
 					{ snapshot: g.snapshot, folders: [...folders] },
-					checkedAdmission(installation)
+					checkedAdmission(installation, substrate.admin)
 				)
 			}
 			previous = fromSnapshot(g.snapshot)
@@ -234,13 +236,14 @@ const migrates = (history: History) =>
 					yield* substrate.schema({ create: false, label: `${history.label}_fresh` }),
 					owner
 				)
-				yield* transaction(substrate.admin, fresh.sql)
+				yield* transaction(substrate.admin, installationSql(fresh))
 				yield* sameCatalog(
 					compiledAt(last, name, owner),
 					fresh,
 					`${history.label}: the migrated history against a fresh install`
 				)
 				const installed = yield* installMigrated(last.desc, {
+					ambient: ordinarySession,
 					label: `${history.label}_installer`,
 					logins: last.logins(last.desc.name),
 					extensions: []
@@ -311,7 +314,7 @@ layer(Substrate.layer)("the worked examples migrate version by version", (it) =>
 						generator: historyGen,
 						literal: (history: History) => history.label,
 						limit: histories.length,
-						features: features<HistoryLabel>(historyLabels),
+						coverage: requiredInSpace<HistoryLabel>(historyLabels),
 						caseHang: Duration.minutes(10)
 					},
 					(history, c) => {

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,6 +12,7 @@ import {
 	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -59,13 +60,15 @@ layer(Substrate.layer)("text agreement with PostgreSQL", (it) => {
 							suite: "pg/values/text/order",
 							draw: drawn(array(text, { min: 1, max: 4000 })),
 							literal: Formatter.format,
-							features: features<"JavaScript's order differs">(["JavaScript's order differs"]),
+							coverage: required<"JavaScript's order differs">(["JavaScript's order differs"], {
+								cases: 2,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: 2,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(sample, c) =>

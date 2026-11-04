@@ -1,5 +1,11 @@
+import { appendAll } from "#compiler/core/array.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	concatNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { fieldNames, type LawField } from "#compiler/ir/law.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
@@ -254,7 +260,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 		at
 	)
 	const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
-	const ctes: Array<Cte> = [cte(r1, inputs.columns, read.select)]
+	const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
 	if (r4 !== undefined) {
 		ctes.push(
 			cte(r4, keys.columns, {
@@ -295,7 +301,13 @@ const sameKeyArm = (
 	const facts = head.all.map((f) => target(head.inCol(f)))
 	return core(
 		[...prefix, ...Array.from({ length: copies }, () => facts).flat(), target(lit.bool(true))],
-		[join(cteRef(head.r1), cteRef(r4), and(...head.pk.map((f) => eq(head.inCol(f), r4Col(f)))))],
+		[
+			join(
+				cteRef(head.r1),
+				cteRef(r4),
+				and(mapNonEmpty(head.pk, (f) => eq(head.inCol(f), r4Col(f))))
+			)
+		],
 		undefined
 	)
 }
@@ -320,7 +332,7 @@ const guardedPut = (
 	const guarded = refusalGuard({ supply, schema: w.names.schema, verdicts: rv, arms: arms(rv) })
 	return {
 		...simpleSelect(deliver(rv), [cteRef(rv)], guarded.guard),
-		with: { ctes: [...ctes, verdictCte, guarded.cte], recursive: false }
+		with: { ctes: concatNonEmpty(ctes, [verdictCte, guarded.cte]), recursive: false }
 	}
 }
 
@@ -365,7 +377,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			normalized: true
 		})
 		if (probe !== undefined) {
-			ctes.push(...probe.ctes)
+			appendAll(ctes, probe.ctes)
 		}
 		const cU = probe === undefined ? undefined : supply.column(internal("unique marker"))
 		const insert: Insert = {
@@ -388,16 +400,18 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			},
 			onConflict: {
 				kind: "columns",
-				columns: pk.map(column),
+				columns: mapNonEmpty(pk, column),
 				action: {
 					kind: "doUpdate",
-					set: payload.map((f): Assignment => ({
+					set: mapNonEmpty(payload, (f): Assignment => ({
 						column: column(f),
 						value: { kind: "excluded", column: column(f) }
 					})),
 					where: ne(
-						rowOrSingle(payload.map((f) => col(r3, column(f)))),
-						rowOrSingle(payload.map((f) => ({ kind: "excluded" as const, column: column(f) })))
+						rowOrSingle(mapNonEmpty(payload, (f) => col(r3, column(f)))),
+						rowOrSingle(
+							mapNonEmpty(payload, (f) => ({ kind: "excluded" as const, column: column(f) }))
+						)
 					)
 				}
 			},
@@ -437,19 +451,21 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 		const body: Select["body"] = {
 			kind: "setOp",
 			op: "UNION ALL",
-			left: core(
-				[
-					...returned.columns.map((c) => targetAs(col(r2, c), c)),
-					targetAs(lit.int(0, types.integer), cU)
-				],
-				[cteRef(r2)],
-				undefined
-			),
-			right: core(
-				[...all.map((f) => target(probe.refusalCol(f))), target(probe.ordinal)],
-				[cteRef(probe.refusal)],
-				undefined
-			)
+			arms: [
+				core(
+					[
+						...returned.columns.map((c) => targetAs(col(r2, c), c)),
+						targetAs(lit.int(0, types.integer), cU)
+					],
+					[cteRef(r2)],
+					undefined
+				),
+				core(
+					[...all.map((f) => target(probe.refusalCol(f))), target(probe.ordinal)],
+					[cteRef(probe.refusal)],
+					undefined
+				)
+			]
 		}
 		const ast = guardedPut(
 			w,
@@ -501,12 +517,19 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 			kind: "update",
 			table: w.names.relation(relation.name),
 			alias: r3,
-			set: payload.map((f): Assignment => ({ column: column(f), value: inCol(f) })),
+			set: mapNonEmpty(payload, (f): Assignment => ({ column: column(f), value: inCol(f) })),
 			from: [cteRef(r1)],
 			where: and(
-				...pk.map((f) => eq(col(r3, column(f)), inCol(f))),
-				ne(rowOrSingle(payload.map((f) => col(r3, column(f)))), rowOrSingle(payload.map(inCol))),
-				...(gate === undefined ? [] : [gate])
+				concatNonEmpty(
+					pk.map((f) => eq(col(r3, column(f)), inCol(f))),
+					[
+						ne(
+							rowOrSingle(mapNonEmpty(payload, (f) => col(r3, column(f)))),
+							rowOrSingle(mapNonEmpty(payload, inCol))
+						),
+						...(gate === undefined ? [] : [gate])
+					]
+				)
 			),
 			returning: [
 				...fresh.pairs.map((p) =>
@@ -554,15 +577,17 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 		const body: Select["body"] = {
 			kind: "setOp",
 			op: "UNION ALL",
-			left: core(
-				[
-					...[...fresh.columns, ...old.columns].map((c) => targetAs(col(r2, c), c)),
-					targetAs(lit.bool(false), c9)
-				],
-				[cteRef(r2)],
-				undefined
-			),
-			right: sameKeyArm(head, r4, [], 2)
+			arms: [
+				core(
+					[
+						...[...fresh.columns, ...old.columns].map((c) => targetAs(col(r2, c), c)),
+						targetAs(lit.bool(false), c9)
+					],
+					[cteRef(r2)],
+					undefined
+				),
+				sameKeyArm(head, r4, [], 2)
+			]
 		}
 		const ast = guardedPut(
 			w,
@@ -591,7 +616,10 @@ const scopePredicate = (w: WriteContext, spec: MergeSpec, r3: string): Expr | un
 		map.set(column, col(r3, w.names.column(relation.name, field)))
 	}
 	const columns: ColumnMap = map
-	const env = extendEnv(emptyEnv, ...scope.nodes.map((n) => [n, columns] as const))
+	const env = extendEnv(
+		emptyEnv,
+		scope.nodes.map((n) => [n, columns] as const)
+	)
 	/** The proof binds each constant to a column of the relation's own occurrence, a Base of the relation
 	 * (`scopedFacts`), so each is a field of the relation. */
 	const parts: Array<Expr> = [
@@ -600,7 +628,7 @@ const scopePredicate = (w: WriteContext, spec: MergeSpec, r3: string): Expr | un
 			eq(col(r3, w.names.column(relation.name, c.field)), lowerExpr(w.cx, c.expr, env))
 		)
 	]
-	return parts.length === 0 ? undefined : and(...parts)
+	return isNonEmpty(parts) ? and(parts) : undefined
 }
 
 /** MERGE INTO r USING (input) ON key WHEN MATCHED AND differs THEN UPDATE WHEN NOT MATCHED THEN INSERT WHEN NOT
@@ -615,7 +643,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 		const returned = fieldColumns(all, () => supply.column(internal("returned column")))
 		const c9 = r4 === undefined ? undefined : supply.column(internal("same-key marker"))
 		const gatedBy = (condition: Expr): Expr =>
-			gate === undefined ? condition : and(condition, gate)
+			gate === undefined ? condition : and([condition, gate])
 		const gated = (condition: Expr | undefined): Expr | undefined =>
 			condition === undefined ? gate : gatedBy(condition)
 		const scope = scopePredicate(w, spec, r3)
@@ -626,16 +654,19 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 			table: w.names.relation(relation.name),
 			alias: r3,
 			using: cteRef(r1),
-			on: and(...pk.map((f) => eq(col(r3, column(f)), inCol(f)))),
+			on: and(mapNonEmpty(pk, (f) => eq(col(r3, column(f)), inCol(f)))),
 			whens: [
 				{
 					match: "MATCHED",
 					condition: gatedBy(
-						ne(rowOrSingle(payload.map((f) => col(r3, column(f)))), rowOrSingle(payload.map(inCol)))
+						ne(
+							rowOrSingle(mapNonEmpty(payload, (f) => col(r3, column(f)))),
+							rowOrSingle(mapNonEmpty(payload, inCol))
+						)
 					),
 					action: {
 						kind: "update",
-						set: payload.map((f) => ({ column: column(f), value: inCol(f) }))
+						set: mapNonEmpty(payload, (f) => ({ column: column(f), value: inCol(f) }))
 					}
 				},
 				{
@@ -644,7 +675,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 					action: {
 						kind: "insert",
 						overriding: carriesSerial(spec.relation, "complete") ? "SYSTEM VALUE" : undefined,
-						row: all.map((f) => ({ column: column(f), value: inCol(f) }))
+						row: mapNonEmpty(all, (f) => ({ column: column(f), value: inCol(f) }))
 					}
 				},
 				{
@@ -699,16 +730,18 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 		const body: Select["body"] = {
 			kind: "setOp",
 			op: "UNION ALL",
-			left: core(
-				[
-					targetAs(col(r2, actionCol), actionCol),
-					...returned.columns.map((c) => targetAs(col(r2, c), c)),
-					targetAs(lit.bool(false), c9)
-				],
-				[cteRef(r2)],
-				undefined
-			),
-			right: sameKeyArm(head, r4, [target(lit.text("INSERT", types.text))], 1)
+			arms: [
+				core(
+					[
+						targetAs(col(r2, actionCol), actionCol),
+						...returned.columns.map((c) => targetAs(col(r2, c), c)),
+						targetAs(lit.bool(false), c9)
+					],
+					[cteRef(r2)],
+					undefined
+				),
+				sameKeyArm(head, r4, [target(lit.text("INSERT", types.text))], 1)
+			]
 		}
 		const ast = guardedPut(
 			w,

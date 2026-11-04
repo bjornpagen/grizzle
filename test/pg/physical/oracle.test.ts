@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -20,6 +21,7 @@ import { fixtureWorlds, worldsGrants } from "#test/pg/physical/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { type ProjectedCatalog, projectCatalog } from "#test/support/catalog/expected.ts"
 import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
+import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -80,7 +82,7 @@ type PhysicalFeature =
 	| "vector column"
 	| "text domain judged both ways"
 
-const required = [
+const situations = [
 	"text domain",
 	"deferred foreign key",
 	"law index",
@@ -156,7 +158,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 								schemaSketchGen({ ...defaultSchemaLimits, extended: true, keys: "spanKeys" })
 							),
 							literal: Formatter.format,
-							features: features<PhysicalFeature>(required),
+							coverage: required<PhysicalFeature>(situations, { cases: 400, sense: notesOnly }),
 							kept: [],
 							/**
 							 * The floor stream runs 100 and the rotating stream 400: 500 schemas, each installed twice.
@@ -165,7 +167,6 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 							shrink: { kind: "complete" },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(sketch, c) =>
@@ -173,13 +174,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 								Effect.gen(function* () {
 									/** The full data swarm keeps every place, so the resolution draws nothing. */
 									const desc: SchemaDesc = schemaDesc(
-										c.draw(
-											resolveSchema(
-												sketch,
-												{ mode: "perCase", choices: [], edge: false },
-												fullDataSwarm
-											)
-										)
+										c.draw(resolveSchema(sketch, { mode: "drawn", edge: false }, fullDataSwarm))
 									)
 									/**
 									 * The schema name first, the pinned session second: the session is released before
@@ -214,7 +209,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 									const actual = yield* installedCatalog(
 										pinned,
 										schema,
-										real.value.sql,
+										installationSql(real.value),
 										probeTextDomains(pinned, real.value, desc)
 									)
 									assert.deepEqual(actual.probed.problems, [])

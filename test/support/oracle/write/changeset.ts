@@ -1,6 +1,7 @@
 import { array, boolean, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, Stream } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { Decimal } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { Fact as RelationFact } from "#compiler/public/schema.ts"
@@ -17,7 +18,7 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { nonEmpty } from "#test/support/assert.ts"
-import { isList } from "#test/support/list.ts"
+import { argumentsOf, isList } from "#test/support/list.ts"
 import {
 	type Fact,
 	factsOf,
@@ -378,8 +379,9 @@ export interface ChangeSetSketch {
 /**
  * The features a ChangeSet's swarm turns on, off or thins: each kind of member source beyond an enumerated array, more
  * than one stratum, read-backs, the MERGE near misses of the reread pair, coerced spellings, a projection's parameter
- * spelling a text longer than its field's domain admits, Stream members and parameters, ChangeSet.bind, and
- * db.compile.
+ * spelling a text longer than its field's domain admits, Stream members and parameters, ChangeSet.bind, db.compile,
+ * and unit additions: into a relation whose every field is an identity, a described generated addition of no field,
+ * whose query holds several rows, beside the enumerated `[{}]` in the same stratum, one new fact in all.
  */
 const writeFeatures = [
 	"projections",
@@ -392,7 +394,8 @@ const writeFeatures = [
 	"outsideDomain",
 	"streams",
 	"bind",
-	"compiled"
+	"compiled",
+	"unitAdditions"
 ] as const
 type WriteFeature = (typeof writeFeatures)[number]
 
@@ -421,12 +424,15 @@ const memberSketchGen: Gen<MemberSketch> = (source) => ({
 	head: source.draw(array(headTermGen, { min: 4, max: 4 }))
 })
 
-/** Between `min` and `max` strata of one to three members each. */
+/**
+ * Between `min` and `max` strata of up to three members each: a stratum of no member is one a ChangeSet keeps (union
+ * aligns strata by position), so it has its own weight.
+ */
 const strataGen = (
 	min: number,
 	max: number
 ): Gen<Arr.NonEmptyReadonlyArray<ReadonlyArray<MemberSketch>>> =>
-	map(array(array(memberSketchGen, { min: 1, max: 3 }), { min, max }), (strata) =>
+	map(array(array(memberSketchGen, { min: 0, max: 3 }), { min, max }), (strata) =>
 		nonEmpty(strata, "a ChangeSet sketch's strata")
 	)
 
@@ -1045,7 +1051,10 @@ export const resolveChangeSet =
 		/** Remembers the complete facts a member names; a generated addition is no fact a later member could name. */
 		const remember = (relation: WRelation, facts: ReadonlyArray<Fact>) => {
 			const list = named.get(relation.name) ?? []
-			list.push(...Arr.filter(facts, (f) => !isGenerated(relation, f)))
+			appendAll(
+				list,
+				Arr.filter(facts, (f) => !isGenerated(relation, f))
+			)
 			named.set(relation.name, list)
 		}
 		/** A near miss's further fact of `relation` beside the put, as an enumerated insert. */
@@ -1199,7 +1208,7 @@ export const resolveChangeSet =
 						relation: relation.name,
 						source: { kind: "scoped", scope, exclude: other }
 					})
-					out.push(...(miss === 2 ? nearMissInsert(relation, m) : []))
+					appendAll(out, miss === 2 ? nearMissInsert(relation, m) : [])
 					continue
 				}
 				if (m.source === 8 && plain && kept("paramMembers")) {
@@ -1212,21 +1221,47 @@ export const resolveChangeSet =
 					})
 					continue
 				}
+				/**
+				 * A unit addition (see `writeFeatures`): the described one reads the first relation holding several stored
+				 * facts, else the target itself, its head of no field the unit relation's one fact per row it reads.
+				 */
+				if (
+					generated &&
+					serialColumns(relation).length === relation.columns.length &&
+					kept("unitAdditions")
+				) {
+					const several = Arr.filter(
+						group.relations,
+						(r) => recordEntryOf(stored, r.name, "the stored facts").length > 1
+					)
+					const [from] = several
+					out.push({
+						op,
+						relation: relation.name,
+						source: {
+							kind: "project",
+							from: from === undefined ? relation.name : from.name,
+							filter: undefined,
+							head: {}
+						}
+					})
+					out.push({
+						op,
+						relation: relation.name,
+						source: { kind: "array", facts: [{}], stream: kept("streams") }
+					})
+					continue
+				}
 				/** A member adding to a relation with a text field may be a projection outside that field's domain. */
 				const outside =
 					op !== "delete" &&
 					Arr.some(relation.columns, (c) => c.kind === "text") &&
 					kept("outsideDomain")
 				if (outside || (m.source >= 5 && m.source <= 7 && kept("projections"))) {
-					/**
-					 * A described generated addition into a relation whose every field is serial is refused, its head
-					 * holding no field (packages/engine/src/write/frontend/compile.ts), so a projection into one states them.
-					 */
-					const everySerial = serialColumns(relation).length === relation.columns.length
 					out.push({
 						op,
 						relation: relation.name,
-						source: project(relation, m, op, generated && !everySerial, outside)
+						source: project(relation, m, op, generated, outside)
 					})
 					continue
 				}
@@ -1358,7 +1393,7 @@ export const buildChangeSet = (
 				const from = relationIn(group, source.from)
 				const filter = source.filter
 				return query(schema).rule((r) => {
-					const vars = v(rel(from.name))
+					const vars = v(rel(from.name), "from")
 					const matched = r.match(rel(from.name), bindAll(from, vars))
 					const q =
 						filter === undefined
@@ -1384,13 +1419,13 @@ export const buildChangeSet = (
 			}
 			case "param":
 				return query(schema).rule((r) => {
-					const vars = v(rel(target.name))
+					const vars = v(rel(target.name), "target")
 					const all = bindAll(target, vars)
 					return r.match(r.relation(source.param, rel(target.name)), all).find(all)
 				})
 			case "scoped":
 				return query(schema).rule((r) => {
-					const vars = v(rel(target.name))
+					const vars = v(rel(target.name), "target")
 					const all = bindAll(target, vars)
 					const key: Readonly<Record<string, (typeof vars)[string]>> = Rec.fromEntries(
 						Arr.map(target.primaryKey, (k) => [k, field(vars, k)])
@@ -1420,7 +1455,7 @@ export const buildChangeSet = (
 				}
 				const first = queryOver(schema)
 					.rule((r: RuleValue): FinishedValue => {
-						const vars = varsOver(rel(from.name))
+						const vars = varsOver(rel(from.name), "from")
 						/** The parent's column is fixed to the parameter, so the head carries the other columns. */
 						const others = Rec.fromEntries(
 							Arr.map(
@@ -1435,15 +1470,15 @@ export const buildChangeSet = (
 							})
 							.find(others)
 					})
-					.orderBy(...Arr.map(from.primaryKey, (k) => [k, "asc"]))
+					.orderBy(...argumentsOf(Arr.map(from.primaryKey, (k) => [k, "asc"])))
 					.take(source.k)
 				return queryOver(schema).rule((r: RuleValue): FinishedValue => {
 					const named = r.relation(source.parents, {
 						[source.on]: descriptorOf(from.name, source.on)
 					})
-					const parent = termOf(varsOver(rel(from.name)), source.on)
+					const parent = termOf(varsOver(rel(from.name), "parent"), source.on)
 					const top = first.bind({ parent })
-					const vars = varsOver(top)
+					const vars = varsOver(top, "top")
 					const others = Rec.fromEntries(
 						Arr.map(
 							Arr.filter(from.columns, (col) => col.name !== source.on),
@@ -1485,7 +1520,7 @@ export const buildChangeSet = (
 			parent.kind === "none"
 				? (d) =>
 						query(schema).rule((r) => {
-							const all = bindAll(relation, v(rel(relation.name)))
+							const all = bindAll(relation, v(rel(relation.name), "relation"))
 							return r.match(sourceOf(d), all).find(all)
 						})
 				: (d) => attachedReadBack(schema, rel, group, relation, sourceOf(d), parent.containment)
@@ -1524,7 +1559,7 @@ const attachedReadBack = (
 	}
 	return queryOver(schema)
 		.rule((r: RuleValue): FinishedValue => {
-			const vars = varsOver(rel(relation.name))
+			const vars = varsOver(rel(relation.name), "relation")
 			const all = Rec.fromEntries(Arr.map(relation.columns, (c) => [c.name, termOf(vars, c.name)]))
 			return r.match(source, all).find(all)
 		})
@@ -1532,7 +1567,7 @@ const attachedReadBack = (
 			parentSlot,
 			(row: Readonly<Record<string, unknown>>) =>
 				queryOver(schema).rule((r: RuleValue): FinishedValue => {
-					const vars = varsOver(rel(target.name))
+					const vars = varsOver(rel(target.name), "target")
 					const bindings: Record<string, unknown> = {}
 					const head: Record<string, unknown> = {}
 					for (const c of target.columns) {
@@ -1674,7 +1709,7 @@ export const oracleChangeSet = (group: WGroup, c: WChangeSet): OracleChangeSet =
 		return value
 	})
 	const [first, ...rest] = strata
-	return rest.length === 0 ? first : OracleChangeSet.sequence(first, ...rest)
+	return rest.length === 0 ? first : OracleChangeSet.sequence(first, ...argumentsOf(rest))
 }
 
 /** A printable form of a ChangeSet, for failure reports. */

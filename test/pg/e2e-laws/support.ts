@@ -17,6 +17,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { strictDetail } from "#test/support/detail.ts"
 import {
@@ -61,7 +62,7 @@ export interface Fixture {
 	readonly layer: <L extends AnyLogin>(login: L) => Layer.Layer<DbLayerOf<L>, OpenError>
 	/** Owner statements in one transaction; `$S` is the quoted schema. */
 	readonly owner: (
-		...sql: ReadonlyArray<string>
+		sql: ReadonlyArray<string>
 	) => Effect.Effect<void, SqlError | TransactionRolledBack>
 	/** One owner query's rows as texts. */
 	readonly rows: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<string>>, SqlError>
@@ -122,19 +123,20 @@ export const openFixture = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const done = yield* install(fixture, {
+			ambient: ordinarySession,
 			extensions: [],
 			logins,
 			label: "real"
 		})
 		yield* load(done, options.facts)
 		const q = quoteIdent(done.schema)
-		const owner = (...sql: ReadonlyArray<string>) =>
+		const owner = (sql: ReadonlyArray<string>) =>
 			transaction(
 				s.admin,
 				Arr.map(sql, (x) => Str.replaceAll("$S", q)(x))
 			)
 		if (options.after.length > 0) {
-			yield* owner(...options.after)
+			yield* owner(options.after)
 		}
 		const layer = <L extends AnyLogin>(login: L): Layer.Layer<DbLayerOf<L>, OpenError> =>
 			loginLayerIn(s.database, done, login)

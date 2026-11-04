@@ -329,8 +329,10 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 		),
 		losses:
 			folder.meta.kind === "drafted"
-				? Arr.flatMap(folder.meta.decisions.losses, (l) =>
-						l.within.kind === "top" ? [{ file: l.file, loses: lossText(l.loses) }] : []
+				? Arr.flatMap(folder.meta.files, (f) =>
+						Arr.flatMap(f.steps, (s) =>
+							s.kind === "loss" ? [{ file: f.name, loses: lossText(s.loses) }] : []
+						)
 					)
 				: []
 	}

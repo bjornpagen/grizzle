@@ -3,7 +3,7 @@ import type { DbOf } from "#adapter/types/db.ts"
 import type { FieldHost } from "#compiler/core/decoder.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, Decimal, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, Decimal, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -64,8 +64,8 @@ export const Writer = role(Work, "writer", Work.relations, {
 
 /** AccountBudget is keyed by its group term. */
 export const automaticBudget = query(Work).rule((r) => {
-	const { id, account } = v(Task)
-	const { budget } = v(AutomaticTask)
+	const { id, account } = v(Task, "task")
+	const { budget } = v(AutomaticTask, "automaticTask")
 	return r
 		.match(Task, { id, account, kind: "Automatic" })
 		.match(AutomaticTask, { task: id, budget })
@@ -75,14 +75,14 @@ export const AccountBudget = derived("AccountBudget", automaticBudget)
 
 /** A plain head over one match keeps every field's own descriptor; a serial field reads as its plain width. */
 export const taskFacts = query(Work).rule((r) => {
-	const { id, account, kind, cost } = v(Task)
+	const { id, account, kind, cost } = v(Task, "task")
 	return r.match(Task, { id, account, kind, cost }).find({ id, account, kind, cost })
 })
 export const TaskFacts = derived("TaskFacts", taskFacts)
 
 /** Aggregates: the host type names the SQL type where it determines one. */
 export const taskTotals = query(Work).rule((r) => {
-	const { id, account, cost, hours } = v(Task)
+	const { id, account, cost, hours } = v(Task, "task")
 	return r.match(Task, { id, account, cost, hours }).find({
 		account,
 		n: r.count(),
@@ -113,7 +113,7 @@ export type BudgetFields = Expect<
 	Equals<
 		CarriersOf<typeof AccountBudget>,
 		{
-			readonly account: Carrier<string, "uuid">
+			readonly account: Carrier<Uuid, "uuid">
 			readonly tasks: Carrier<bigint, "bigint">
 			readonly budget: Carrier<Decimal, "numeric">
 		}
@@ -121,7 +121,7 @@ export type BudgetFields = Expect<
 >
 
 export type FactAccount = Expect<
-	Equals<CarriersOf<typeof TaskFacts>["account"], Carrier<string, "uuid">>
+	Equals<CarriersOf<typeof TaskFacts>["account"], Carrier<Uuid, "uuid">>
 >
 
 export type FactKind = Expect<
@@ -177,7 +177,7 @@ export type FactKeys = Expect<
  * key pins the occurrence.
  */
 export const budgetOf = query(Reports).rule((r) => {
-	const { tasks } = v(AccountBudget)
+	const { tasks } = v(AccountBudget, "accountBudget")
 	return r
 		.match(AccountBudget, { account: r.param("account", Task.fields.account), tasks })
 		.find({ tasks })
@@ -186,7 +186,7 @@ export const budgetOf = query(Reports).rule((r) => {
 /** 3. Levels: a query over Work is a query over Reports; a definition is a query over a level below its extension. */
 export type ReportsLevels = Expect<Equals<LevelsOf<typeof Reports>, typeof Reports | typeof Work>>
 export const overReports = query(Reports).rule((r) => {
-	const { account, tasks } = v(AccountBudget)
+	const { account, tasks } = v(AccountBudget, "accountBudget")
 	return r.match(AccountBudget, { account, tasks }).find({ account, tasks })
 })
 export const BudgetCopy = derived("BudgetCopy", overReports)
@@ -203,7 +203,7 @@ export const ownLevel = () =>
 
 /** 4. A definition is parameterless. */
 export const tasksOf = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id, account: r.param("account", Task.fields.account) }).find({ id })
 })
 
@@ -213,16 +213,16 @@ export const parameterized = () =>
 
 /** A bound import is parameterless: the binding supplies the import's parameter. */
 export const boundImport = query(Work).rule((r) => {
-	const { id: account } = v(Account)
+	const { id: account } = v(Account, "account")
 	const tasks = tasksOf.bind({ account })
-	const { id } = v(tasks)
+	const { id } = v(tasks, "tasks")
 	return r.match(Account, { id: account }).match(tasks, { id }).find({ account, id })
 })
 export const BoundImport = derived("BoundImport", boundImport)
 
 /** 5. A materialized view stores one heading with at least one column. */
 export const nothing = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id }).find({})
 })
 
@@ -232,11 +232,11 @@ export const emptyHead = () =>
 
 export const mixed = query(Work)
 	.rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r.match(Task, { id, kind: "Automatic" }).find({ id, kind: Kind.handle("Automatic") })
 	})
 	.rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r
 			.match(Task, { id, account, kind: "Manual" })
 			.find({ id, kind: Kind.handle("Manual"), account })
@@ -249,11 +249,11 @@ export const severalHeadings = () =>
 /** Arms that differ only in a discriminant's value are one heading. */
 export const kinds = query(Work)
 	.rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r.match(Task, { id, kind: "Automatic" }).find({ id, kind: Kind.handle("Automatic") })
 	})
 	.rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r.match(Task, { id, kind: "Manual" }).find({ id, kind: Kind.handle("Manual") })
 	})
 export const Kinds = derived("Kinds", kinds)

@@ -1,5 +1,5 @@
 import { pipe, String as Str } from "effect"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import {
 	capacity,
 	contained,
@@ -52,5 +52,5 @@ export const Shop = schema(
 	]
 )
 
-export const uuidOf = (n: number): string =>
+export const uuidOf = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`

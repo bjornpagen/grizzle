@@ -5,6 +5,7 @@ import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
 import {
 	type CompareOp,
+	connectiveExpr,
 	decodeDesc,
 	type ExprDesc,
 	type FieldDesc,
@@ -136,8 +137,8 @@ const termOperand = (
 }
 
 const literalList = (values: unknown, type: TermType | undefined, label: string) => {
-	if (!isList(values) || values.length === 0) {
-		throw malformed(label, "a nonempty finite list of literals")
+	if (!isList(values)) {
+		throw malformed(label, "a finite list of literals")
 	}
 	return values.map((v) =>
 		type === undefined ? untypedLiteral(v, label) : literalFor(type.desc, v, label, type.roster)
@@ -193,16 +194,16 @@ const predicateOperand = (value: unknown, label: string): OpenExpr => {
 	return expr
 }
 
-const predicates = (
-	values: ReadonlyArray<unknown>,
-	label: string
-): readonly [OpenExpr, ...Array<OpenExpr>] => {
-	if (values.length === 0) {
-		throw malformed(label, "at least one predicate")
-	}
-	const [first, ...rest] = values
-	return [predicateOperand(first, label), ...rest.map((v) => predicateOperand(v, label))]
-}
+/** A row check's and and or, total: of no predicate the constant true and false, of one that predicate. */
+const connective =
+	(kind: "and" | "or") =>
+	(...ps: ReadonlyArray<unknown>): PredicateValue =>
+		predicateValue(
+			connectiveExpr(
+				kind,
+				ps.map((p) => predicateOperand(p, kind))
+			)
+		)
 
 const isTextDesc = (desc: FieldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
@@ -255,10 +256,8 @@ const rowHelpers = Object.freeze({
 			values: literalList(values, arg.type, "in")
 		})
 	},
-	and: (...ps: ReadonlyArray<unknown>): PredicateValue =>
-		predicateValue({ kind: "and", args: predicates(ps, "and") }),
-	or: (...ps: ReadonlyArray<unknown>): PredicateValue =>
-		predicateValue({ kind: "or", args: predicates(ps, "or") }),
+	and: connective("and"),
+	or: connective("or"),
 	not: (p: unknown): PredicateValue =>
 		predicateValue({ kind: "not", arg: predicateOperand(p, "not") }),
 	/** char_length over text: admitted in contract predicates and row checks only, never in a query. */
@@ -282,9 +281,8 @@ export type RowHelpers = typeof rowHelpers
  * check may use: eq, ne, lt, le, gt, ge, between, in, and, or, not and charLength.
  *
  * A literal operand adopts the type of the term it meets and is checked at construction:
- * over a numeric field a JavaScript number is refused. Whether the predicate stays in the total fragment, with integer
- * arithmetic cast to numeric and divisors nonzero literals, is the checker's judgment at compilation;
- * this module records what was written. A row check reads its own row only: a parameter, a query variable or a
+ * over a numeric field a JavaScript number is refused. Whether each partial operation's precondition is proved, a
+ * divisor's nonzero among them, is the checker's judgment at compilation; this module records what was written. A row check reads its own row only: a parameter, a query variable or a
  * relational negation inside it is refused here, because a check has no inputs.
  *
  * A term of another package (a Compute expression) composes through the term protocol of protocol.ts: a term
@@ -351,6 +349,8 @@ export const foreignInput = <R extends Refs>(expr: ExprDesc<Located, R>): string
 			return foreignInput(expr.arg)
 		case "cond":
 			return firstForeign([expr.pred, expr.onTrue, expr.onFalse])
+		case "when":
+			return firstForeign([expr.subject, expr.proved, expr.otherwise])
 		case "compare":
 			return firstForeign([expr.left, expr.right])
 		case "between":

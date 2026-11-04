@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
@@ -277,31 +278,32 @@ type OrderFeature =
 describe("completing an order", () => {
 	it.effect(
 		"is the policy's completion: the user's fields, the discriminant, the least narrower key, or the heading",
-		(ctx) => {
-			const required = features<OrderFeature>([
-				"refused MalformedDescription",
-				"refused UnsupportedOperation",
-				"total as stated",
-				"completed by the discriminant",
-				"completed by a narrower key",
-				"completed by the heading",
-				"a fixed column skipped",
-				"the empty heading"
-			])
-			return searched(
+		(ctx) =>
+			searched(
 				ctx,
 				explore(
 					{
 						suite: "unit/analysis/logical/order-completion",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						features: required,
+						coverage: required<OrderFeature>(
+							[
+								"refused MalformedDescription",
+								"refused UnsupportedOperation",
+								"total as stated",
+								"completed by the discriminant",
+								"completed by a narrower key",
+								"completed by the heading",
+								"a fixed column skipped",
+								"the empty heading"
+							],
+							{ cases: 3000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ subject: s, user, rows }, c) =>
@@ -360,7 +362,6 @@ describe("completing an order", () => {
 						})
 				)
 			)
-		}
 	)
 })
 
@@ -516,8 +517,8 @@ describe("completing an order over a union of different headings", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 200,
-						features: features<UnionFeature>(
-							Arr.flatMap(wrappers, (w): ReadonlyArray<UnionFeature> => [
+						coverage: requiredInSpace<UnionFeature>(
+							Arr.flatMap(wrappers, (w): Arr.NonEmptyReadonlyArray<UnionFeature> => [
 								`${w} completed`,
 								`${w} refused`
 							])

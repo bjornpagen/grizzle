@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, element, int, shuffled, subarray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record as Rec } from "effect"
@@ -11,6 +12,7 @@ import {
 	provisionalTheory,
 	type Theory
 } from "#compiler/analysis/theory/theory.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { FieldId, type LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -125,7 +127,7 @@ describe("span laws", () => {
 					generator: element([1, 2]),
 					literal: Formatter.format,
 					limit: 2,
-					features: features<"one span field" | "two span fields">([
+					coverage: requiredInSpace<"one span field" | "two span fields">([
 						"one span field",
 						"two span fields"
 					]),
@@ -164,50 +166,44 @@ describe("span laws", () => {
 })
 
 describe("casts in violation queries", () => {
-	it.effect("a cast between carriers is checked exactly when its native cast can fail", (ctx) => {
-		/**
-		 * The violation queries cast only totally today (a capacity's numeric widths and sums), so the checked side of the
-		 * rule is reached by no fixture; the total side is, at every cast.
-		 */
-		const casts = Arr.flatMap(theories, ([name, t]) =>
-			Arr.flatMap(exprClosure(Arr.flatMap(topoOrder(t.dag), (n) => exprsOf(n))), (e) => {
-				if (e.kind !== "cast") {
-					return []
-				}
-				const [source] = e.args
-				const [from, to] = [baseOf(source.type).carrier, baseOf(e.type).carrier]
-				const native = from === to ? undefined : castOf(from, to)
-				return native === undefined
-					? []
-					: [{ name, cast: e, source, canFail: native.failures.length > 0 }]
-			})
-		)
-		return searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/analysis/logical/violation-casts",
-					generator: element(nonEmpty(casts, "a cast in some violation query")),
-					literal: Formatter.format,
-					limit: 10_000,
-					features: features<"a checked cast" | "a total cast">(["a total cast"]),
-					caseHang: Duration.minutes(2)
-				},
-				({ cast, source, canFail }, c) =>
-					Effect.sync(() => {
-						c.note(canFail ? "a checked cast" : "a total cast")
-						assert.equal(cast.checked, canFail)
-						if (!canFail) {
-							assert.equal(
-								cast.failure,
-								source.failure,
-								"a total cast fails only as its operand does"
-							)
-						}
-					})
+	it.effect(
+		"every cast between carriers is the registry's, and a partial one stands with its proof",
+		(ctx) => {
+			/**
+			 * The violation queries cast only totally today (a capacity's numeric widths and sums), so the proved side of the
+			 * rule is reached by no fixture; the defined side is, at every cast.
+			 */
+			const casts = Arr.flatMap(theories, ([name, t]) =>
+				Arr.flatMap(exprClosure(Arr.flatMap(topoOrder(t.dag), (n) => exprsOf(n))), (e) => {
+					if (e.kind !== "cast") {
+						return []
+					}
+					const [source] = e.args
+					const [from, to] = [baseOf(source.type).carrier, baseOf(e.type).carrier]
+					const native = from === to ? undefined : castOf(from, to)
+					return native === undefined ? [] : [{ name, cast: e, partial: native.partial }]
+				})
 			)
-		)
-	})
+			return searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/analysis/logical/violation-casts",
+						generator: element(nonEmpty(casts, "a cast in some violation query")),
+						literal: Formatter.format,
+						limit: 10_000,
+						coverage: requiredInSpace<"a proved cast" | "a defined cast">(["a defined cast"]),
+						caseHang: Duration.minutes(2)
+					},
+					({ cast, partial }, c) =>
+						Effect.sync(() => {
+							c.note(partial ? "a proved cast" : "a defined cast")
+							assert.equal("proof" in cast, partial)
+						})
+				)
+			)
+		}
+	)
 })
 
 describe("field-compatibility classes", () => {
@@ -239,7 +235,7 @@ describe("field-compatibility classes", () => {
 						]),
 						literal: Formatter.format,
 						limit: 5,
-						features: features<Pairing>([
+						coverage: requiredInSpace<Pairing>([
 							"a typmod and a refinement apart",
 							"another carrier",
 							"a contract against its base",
@@ -391,7 +387,7 @@ describe("violation queries mean what their laws say", () => {
 		| "a parent without its arm"
 		| "a payload in the other arm"
 		| "a refused budget"
-	const mutations: ReadonlyArray<Mutation> = [
+	const mutations: Arr.NonEmptyReadonlyArray<Mutation> = [
 		"a second key",
 		"an orphan note",
 		"a parent without its arm",
@@ -450,7 +446,7 @@ describe("violation queries mean what their laws say", () => {
 						generator: subarray(mutations),
 						literal: Formatter.format,
 						limit: 32,
-						features: features<Mutation | "lawful" | "several at once">([
+						coverage: requiredInSpace<Mutation | "lawful" | "several at once">([
 							...mutations,
 							"lawful",
 							"several at once"
@@ -510,7 +506,7 @@ describe("violation queries mean what their laws say", () => {
 							[source.draw(manager), source.draw(manager), source.draw(manager)] as const,
 						literal: Formatter.format,
 						limit: 64,
-						features: features<"a self-managed employee" | "lawful">([
+						coverage: requiredInSpace<"a self-managed employee" | "lawful">([
 							"a self-managed employee",
 							"lawful"
 						]),
@@ -570,7 +566,7 @@ describe("violation queries mean what their laws say", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 200,
-						features: features<"a shared name" | "lawful" | "labels">([
+						coverage: requiredInSpace<"a shared name" | "lawful" | "labels">([
 							"a shared name",
 							"lawful",
 							"labels"
@@ -667,15 +663,17 @@ describe("violation queries mean what their laws say", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							"an empty group" | "a crowded group" | "a sum over budget" | "lawful"
-						>(["an empty group", "a crowded group", "a sum over budget", "lawful"]),
+						>(["an empty group", "a crowded group", "a sum over budget", "lawful"], {
+							cases: 300,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([budgets, draws], c) =>
@@ -734,7 +732,7 @@ describe("violation queries mean what their laws say", () => {
 						]),
 						literal: Formatter.format,
 						limit: 2,
-						features: features<"integer" | "bigint">(["integer", "bigint"]),
+						coverage: requiredInSpace<"integer" | "bigint">(["integer", "bigint"]),
 						caseHang: Duration.minutes(2)
 					},
 					([name, endpoint, carrier], c) =>
@@ -766,11 +764,15 @@ describe("violation queries mean what their laws say", () => {
 							for (const node of topoOrder({
 								roots: [defined(lawsOf(rt, "capacity")[0]).violation]
 							})) {
-								aggregates.push(...(node.kind === "Group" ? Arr.map(node.aggs, (a) => a.op) : []))
+								appendAll(aggregates, node.kind === "Group" ? Arr.map(node.aggs, (a) => a.op) : [])
 								const exprs = exprClosure(exprsOf(node))
-								ops.push(...Arr.flatMap(exprs, (expr) => (expr.kind === "op" ? [expr.op] : [])))
-								casts.push(
-									...Arr.flatMap(exprs, (expr) =>
+								appendAll(
+									ops,
+									Arr.flatMap(exprs, (expr) => (expr.kind === "op" ? [expr.op] : []))
+								)
+								appendAll(
+									casts,
+									Arr.flatMap(exprs, (expr) =>
 										expr.kind === "cast" ? [baseOf(expr.type).carrier] : []
 									)
 								)
@@ -826,7 +828,7 @@ describe("evidence and its validity context", () => {
 						generator: element(nonEmpty(relations, "a relation of the fixture schemas")),
 						literal: Formatter.format,
 						limit: 200,
-						features: features<"a candidate key" | "a primary key alone">([
+						coverage: requiredInSpace<"a candidate key" | "a primary key alone">([
 							"a candidate key",
 							"a primary key alone"
 						]),
@@ -865,7 +867,7 @@ describe("evidence and its validity context", () => {
 						generator: element(nonEmpty(facts, "a containment of the fixture schemas")),
 						literal: Formatter.format,
 						limit: 500,
-						features: features<"a roster membership" | "a committed-snapshot containment">([
+						coverage: requiredInSpace<"a roster membership" | "a committed-snapshot containment">([
 							"a roster membership",
 							"a committed-snapshot containment"
 						]),
@@ -914,7 +916,7 @@ describe("evidence and its validity context", () => {
 						generator: subarray(containedLaws),
 						literal: Formatter.format,
 						limit: 64,
-						features: features<"none named" | "some named">(["none named", "some named"]),
+						coverage: requiredInSpace<"none named" | "some named">(["none named", "some named"]),
 						caseHang: Duration.minutes(2)
 					},
 					(named, c) =>
@@ -931,7 +933,7 @@ describe("evidence and its validity context", () => {
 								}
 								assert.equal(
 									k.context,
-									named.includes(k.law) ? "immediate" : "committedSnapshot",
+									Arr.some(named, (n) => n === k.law) ? "immediate" : "committedSnapshot",
 									k.from.relation
 								)
 							}
@@ -946,7 +948,7 @@ describe("evidence and its validity context", () => {
 								Arr.map(
 									Arr.filter(
 										t.evidence.containments,
-										(k) => k.context !== "descriptor" && named.includes(k.law)
+										(k) => k.context !== "descriptor" && Arr.some(named, (n) => n === k.law)
 									),
 									(k) => k.law
 								)
@@ -990,16 +992,15 @@ describe("law identities", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<"reordered" | "an unrelated statement">([
-							"reordered",
-							"an unrelated statement"
-						]),
+						coverage: required<"reordered" | "an unrelated statement">(
+							["reordered", "an unrelated statement"],
+							{ cases: 50, sense: notesOnly }
+						),
 						kept: [],
 						runs: 50,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([order, added, at], c) =>
@@ -1059,7 +1060,7 @@ describe("law identities", () => {
 					]),
 					literal: Formatter.format,
 					limit: 4,
-					features: features<"one declaration" | "two declarations">([
+					coverage: requiredInSpace<"one declaration" | "two declarations">([
 						"one declaration",
 						"two declarations"
 					]),

@@ -14,7 +14,7 @@
  */
 import { layer } from "@effect/vitest"
 import { type Case as SearchCase, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -26,6 +26,7 @@ import {
 	string,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record, String as Str } from "effect"
 import { pg } from "#compiler/public/fields.ts"
@@ -34,9 +35,11 @@ import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { indices } from "#test/support/oracle/pick.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -246,7 +249,7 @@ const forms = (p: Pred): ReadonlyArray<CheckForm> => {
 	}
 }
 
-const requiredForms: ReadonlyArray<CheckForm> = [
+const requiredForms: Arr.NonEmptyReadonlyArray<CheckForm> = [
 	"compare literal",
 	"compare field",
 	"op eq",
@@ -301,7 +304,7 @@ const build = (p: Pred, r: ItemRow) => {
 			case "and":
 			case "or": {
 				const [first, ...rest] = q.args
-				return r[q.kind](go(first), ...Arr.map(rest, go))
+				return r[q.kind](go(first), ...argumentsOf(Arr.map(rest, go)))
 			}
 			case "not":
 				return r.not(go(q.arg))
@@ -326,13 +329,12 @@ const rowChecks = explore(
 		suite: "laws/row-checks",
 		draw: drawn(batch),
 		literal: Formatter.format,
-		features: features<CheckForm>(requiredForms),
+		coverage: required<CheckForm>(requiredForms, { cases: 1, sense: notesOnly }),
 		kept: [],
 		runs: 1,
 		shrink: { kind: "bounded", candidates: 60 },
 		concurrency: 1,
 		steerEvery: 16,
-		steering: { kind: "none" },
 		caseHang: Duration.minutes(2)
 	},
 	(b, c) => checkBatch(b, c.noteAll)
@@ -352,7 +354,7 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<CheckForm>["noteAll
 				Record.fromEntries(Arr.map(items, (item, i) => [`Item${i}`, item])),
 				statements
 			),
-			{ label: "checks", logins: [], extensions: [] }
+			{ ambient: ordinarySession, label: "checks", logins: [], extensions: [] }
 		)
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "checks writer" })

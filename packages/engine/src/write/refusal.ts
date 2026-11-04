@@ -1,7 +1,7 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import type { ConstraintName, RaisedLawId } from "#compiler/core/ids.ts"
 import { jsonStrings } from "#compiler/core/json-strings.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
@@ -16,7 +16,6 @@ import type {
 	FunctionParam,
 	Revoke,
 	Select,
-	SelectBody,
 	SelectCore
 } from "#compiler/sql/ast.ts"
 
@@ -33,6 +32,7 @@ import {
 	notExists,
 	qualifiedCall,
 	select,
+	setOp,
 	simpleSelect,
 	tableCol,
 	target,
@@ -76,7 +76,6 @@ export const refusalFunctionDdl = (schema: string): readonly [CreateFunction, Re
 			volatility: "VOLATILE",
 			parallel: "SAFE",
 			security: "DEFINER",
-			searchPath: ["pg_catalog", "pg_temp"],
 			planCacheMode: "force_custom_plan",
 			body: {
 				declare: [],
@@ -139,7 +138,7 @@ export interface RefusedValue {
 export type ArmRefusal =
 	| {
 			readonly kind: "law"
-			readonly law: LawId
+			readonly law: RaisedLawId
 			readonly relation: string
 			readonly key: ReadonlyArray<RefusedValue>
 	  }
@@ -414,12 +413,7 @@ const sourcedGuard = (
 					limit: lit.int(1, types.integer)
 				}
 			: {
-					...select(
-						rest.reduce<SelectBody>(
-							(left, a) => ({ kind: "setOp", op: "UNION ALL", left, right: arm(a) }),
-							arm(first)
-						)
-					),
+					...select(setOp("UNION ALL", [arm(first), ...rest.map(arm)])),
 					orderBy: [asc(tableCol(rank)), asc(tableCol(detail))],
 					limit: lit.int(1, types.integer)
 				}

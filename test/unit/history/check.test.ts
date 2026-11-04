@@ -27,7 +27,7 @@
 
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
@@ -54,7 +54,8 @@ const worker: HostRelation = {
 		{ name: "id", column: "id" },
 		{ name: "name", column: "name" }
 	],
-	key: ["id"]
+	key: ["id"],
+	mutable: false
 }
 
 const host: HostSchema = {
@@ -446,7 +447,7 @@ describe("the history checker", () => {
 						 * states); the limit is the cap against a space grown by mistake.
 						 */
 						limit: 140_000,
-						features: features<CheckerFeature>([
+						coverage: requiredInSpace<CheckerFeature>([
 							"explained",
 							"unexplained",
 							"explained abort",

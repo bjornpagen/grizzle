@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, oneOf, uniqueArray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { json } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -10,9 +11,9 @@ import { SqlStatementSchema } from "#adapter/boundary/sql.ts"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { objectName, types } from "#compiler/sql/build.ts"
-import { carrierName, isCarrierName } from "#compiler/sql/naming.ts"
+import { type CarrierName, carrierName, isCarrierName } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
+import { assert, assertVariant, unorderedEqual } from "#test/support/assert.ts"
 
 /**
  * The relations a statement reads and writes (sql/access.ts) beyond DML: a CREATE TEMPORARY TABLE creates its carrier,
@@ -26,9 +27,7 @@ const task = objectName("w", "task")
 const taskTable: SqlStatement = {
 	kind: "createTable",
 	table: task,
-	columns: [
-		{ name: "id", type: types.uuid, collation: undefined, generated: undefined, default: undefined }
-	],
+	columns: [{ name: "id", type: types.uuid, collation: undefined, generated: undefined }],
 	primaryKey: {
 		kind: "primaryKey",
 		name: "task_key",
@@ -43,17 +42,18 @@ const taskTable: SqlStatement = {
  */
 type AccessCase =
 	| { readonly kind: "a carrier created"; readonly n: number }
-	| { readonly kind: "carriers analyzed"; readonly ns: ReadonlyArray<number> }
+	| { readonly kind: "carriers analyzed"; readonly ns: Arr.NonEmptyReadonlyArray<number> }
 	| { readonly kind: "a definition or a transaction"; readonly statement: "createTable" | "commit" }
 
 const carrier = int(1, 1000)
 
 const accessCaseGen: Gen<AccessCase> = oneOf<AccessCase>([
 	map(carrier, (n): AccessCase => ({ kind: "a carrier created", n })),
-	map(
-		uniqueArray(carrier, (n) => n, { min: 1, max: 4 }, 10),
-		(ns): AccessCase => ({ kind: "carriers analyzed", ns })
-	),
+	(source): AccessCase => {
+		const first = source.draw(carrier)
+		const more = source.draw(uniqueArray(carrier, (n) => n, { min: 0, max: 3 }, 10))
+		return { kind: "carriers analyzed", ns: [first, ...Arr.filter(more, (n) => n !== first)] }
+	},
 	map(element(["createTable", "commit"] as const), (statement): AccessCase => ({
 		kind: "a definition or a transaction",
 		statement
@@ -71,17 +71,15 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 						suite: "unit/sql/access",
 						draw: drawn(accessCaseGen),
 						literal: Formatter.format,
-						features: features<AccessCase["kind"]>([
-							"a carrier created",
-							"carriers analyzed",
-							"a definition or a transaction"
-						]),
+						coverage: required<AccessCase["kind"]>(
+							["a carrier created", "carriers analyzed", "a definition or a transaction"],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>
@@ -97,8 +95,7 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 												name: "c1",
 												type: types.uuid,
 												collation: undefined,
-												generated: undefined,
-												default: undefined
+												generated: undefined
 											}
 										]
 									})
@@ -172,13 +169,15 @@ describe("the ANALYZE statement", () => {
 						suite: "unit/sql/analyze-carriers",
 						draw: drawn(array(namedGen, { min: 1, max: 3 })),
 						literal: Formatter.format,
-						features: features<AnalyzeFeature>(["live", "near miss", "json"]),
+						coverage: required<AnalyzeFeature>(["live", "near miss", "json"], {
+							cases: 300,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(names, c) =>
@@ -198,8 +197,12 @@ describe("the ANALYZE statement", () => {
 							if (Result.isFailure(decoded)) {
 								return
 							}
-							const carriers = Arr.flatMap(names, ([n]) => (isCarrierName(n) ? [n] : []))
-							assert.deepEqual(decoded.success, { kind: "analyze", carriers })
+							assertVariant(decoded.success, "kind", "analyze", "an ANALYZE decodes as one")
+							const read: ReadonlyArray<CarrierName> = decoded.success.carriers
+							assert.deepEqual(
+								read,
+								Arr.flatMap(names, ([n]) => (isCarrierName(n) ? [n] : []))
+							)
 							assert.equal(
 								transformStatement(decoded.success, {
 									...identityHooks,

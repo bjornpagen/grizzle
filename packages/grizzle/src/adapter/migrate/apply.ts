@@ -1,5 +1,10 @@
 import { Array as Arr, Effect, Option, Result, type Scope } from "effect"
-import { driftFlight, driftTransaction, ledgerMismatches } from "#adapter/admission/drift.ts"
+import {
+	driftFlight,
+	driftTransaction,
+	type FlightSpan,
+	ledgerMismatches
+} from "#adapter/admission/drift.ts"
 import type { BatchFailure } from "#adapter/errors/failures.ts"
 import {
 	ApplyBusy,
@@ -16,6 +21,7 @@ import {
 	SurveyFailed,
 	type RecordPlace,
 	RecordFailed,
+	ReplayRefused,
 	RoleUnread,
 	StatementFailed,
 	type StatementFailure,
@@ -53,6 +59,8 @@ import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { LedgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emitCatalog } from "#compiler/sql/emit.ts"
 
 /**
  * `grizzle migrate`: the apply runner.
@@ -130,24 +138,39 @@ export interface SchemaApplyReport {
 /** The key of a schema's apply lock. */
 export const applyLockKey = (schema: string): string => `grizzle migrate ${schema}`
 /** The advisory lock id of the key $1, as every apply lock statement computes it. */
-export const applyLockKeySql = "pg_catalog.hashtextextended($1::text, 0::bigint)"
+export const applyLockKeyExpr: C.CatalogExpr = C.call("hashtextextended", [
+	C.param(1, "text"),
+	C.literal(0n, "bigint")
+])
 /** Whether the lock keyed by $1 was taken. */
 const tryLock: CatalogQuery<boolean> = {
-	sql: `SELECT pg_catalog.pg_try_advisory_lock(${applyLockKeySql})::text`,
+	sql: emitCatalog(
+		C.query([C.asText(C.call("pg_try_advisory_lock", [applyLockKeyExpr]))], [], undefined)
+	),
 	what: "a Boolean",
 	row: ([taken]) => (taken === "true" ? true : taken === "false" ? false : undefined)
 }
-const unlockSql = `SELECT pg_catalog.pg_advisory_unlock(${applyLockKeySql})::text`
+const unlockSql = emitCatalog(
+	C.query([C.asText(C.call("pg_advisory_unlock", [applyLockKeyExpr]))], [], undefined)
+)
 const roleName = ([name]: ReadonlyArray<string>): string | undefined => name
 const currentUser: CatalogQuery<string> = {
-	sql: "SELECT CURRENT_USER::text",
+	sql: emitCatalog(C.query([C.asText(C.currentUser)], [], undefined)),
 	what: "a role name",
 	row: roleName
 }
 
+const namespace = C.from("pg_namespace", "n")
+
 /** The owner of the schema $1: one row, or none before its first migration. */
 const schemaOwner: CatalogQuery<string> = {
-	sql: "SELECT pg_catalog.pg_get_userbyid(n.nspowner)::text FROM pg_catalog.pg_namespace AS n WHERE n.nspname = $1::text",
+	sql: emitCatalog(
+		C.query(
+			[C.asText(C.call("pg_get_userbyid", [namespace.col("nspowner")]))],
+			[namespace.item],
+			C.eq(namespace.col("nspname"), C.param(1, "text"))
+		)
+	),
 	what: "a role name",
 	row: roleName
 }
@@ -478,6 +501,31 @@ const runPlan = Effect.fn("runPlan")(function* (
 })
 
 /**
+ * What stopped the drift check's transaction: a refusal of a statement of the replay is the replay's (ReplayRefused,
+ * numbered within the replay), and every other failure is the reads' (decidingFailure).
+ */
+const driftFailure = (
+	replay: FlightSpan,
+	failure: BatchFailure
+): ReplayRefused | StatementFailure => {
+	switch (failure._tag) {
+		case "BatchRefused":
+		case "StaleName": {
+			const at = failure.index - replay.from
+			return at >= 0 && at < replay.count
+				? ReplayRefused.make({ statement: at + 1, of: replay.count, failure: failure.failure })
+				: failure.failure
+		}
+		case "CommitRefused":
+		case "CommitLost":
+		case "ConnectionLost":
+		case "DriverFailure":
+		case "UnreadableAnswer":
+			return decidingFailure(failure)
+	}
+}
+
+/**
  * The drift check of one schema (adapter/admission/drift.ts), in one flight (see the header): the ledger's two reads
  * apart, then the drift check's transaction, which it rolls back. migrate runs it after every apply; `grizzle drift` runs
  * it alone. A folder not yet applied is the ledger's mismatch: the latest complete folder's target is not the snapshot.
@@ -491,9 +539,9 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 	const schema = snapshot.schema
 	const unchecked = (failure: DriftUnchecked["failure"]) =>
 		stopped(DriftUnchecked.make({ schema, failure }))
-	const flight = yield* Effect.mapError(Effect.fromResult(driftFlight(snapshot)), unchecked)
+	const drift = yield* Effect.mapError(Effect.fromResult(driftFlight(snapshot)), unchecked)
 	const answered = yield* Effect.mapError(
-		session.alongside(ledgerReads(schema, statements), flight.statements, driftTransaction),
+		session.alongside(ledgerReads(schema, statements), drift.flight.statements, driftTransaction),
 		unchecked
 	)
 	const read = yield* Effect.mapError(
@@ -503,11 +551,11 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 		unchecked
 	)
 	const outcomes = yield* Effect.mapError(Effect.fromResult(answered.framed), (failure) =>
-		failure.pipe(decidingFailure, unchecked)
+		unchecked(driftFailure(drift.replay, failure))
 	)
-	const drift = yield* Effect.mapError(flight.read(outcomes), unchecked)
+	const found = yield* Effect.mapError(drift.flight.read(outcomes), unchecked)
 	/** Each mismatch is a fact of its own, which the report lists one per line. */
-	const mismatches = [...ledgerMismatches(snapshot, read.state), ...drift]
+	const mismatches = [...ledgerMismatches(snapshot, read.state), ...found]
 	if (Arr.isReadonlyArrayNonEmpty(mismatches)) {
 		return yield* stopped(Drifted.make({ schema, snapshot: snapshot.fingerprint, mismatches }))
 	}

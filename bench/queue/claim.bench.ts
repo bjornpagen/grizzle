@@ -81,6 +81,7 @@ import {
 	writeConditions,
 	writesOf
 } from "#bench/write/support/writes.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
@@ -813,7 +814,7 @@ export default defineGate({
 										if (Result.isFailure(tree)) {
 											return yield* Effect.die(tree.failure)
 										}
-										footprint.reads.push(...storedReads(statement.number, tree.success))
+										appendAll(footprint.reads, storedReads(statement.number, tree.success))
 										yield* session.rows("RELEASE SAVEPOINT grizzle_bench_probe", [])
 									} else {
 										const f = plan.failure
@@ -841,10 +842,10 @@ export default defineGate({
 					})
 					const held: Array<{ readonly key: string; readonly epoch: bigint }> = []
 					for (let i = 0; i < live; i++) {
-						held.push(...leasedRows(yield* plainClaim.success.apply(claimParams(i))))
+						appendAll(held, leasedRows(yield* plainClaim.success.apply(claimParams(i))))
 					}
 					const probed = yield* probedClaim.success.apply(claimParams(live))
-					held.push(...leasedRows(probed))
+					appendAll(held, leasedRows(probed))
 					for (const h of held) {
 						yield* probeSettle.success.apply({ key: h.key, epoch: h.epoch, outcome: "succeeded" })
 					}
@@ -881,8 +882,9 @@ export default defineGate({
 						readonly seat: number
 					}> = []
 					for (let i = 0; i < options.dead; i++) {
-						deadLeases.push(
-							...leasedRows(
+						appendAll(
+							deadLeases,
+							leasedRows(
 								yield* reclaimer.claim({
 									kind: "transcode",
 									slot: Slot(0),
@@ -914,7 +916,7 @@ export default defineGate({
 							expires: Instant(forever)
 						})
 						reclaimMs.push(performance.now() - t)
-						reclaimed.push(...leasedRows(o))
+						appendAll(reclaimed, leasedRows(o))
 						lateSettles.push((yield* reclaimer.settle(lease.key, lease.epoch)).value.kind)
 					}
 					const reclaimOk =

@@ -13,7 +13,12 @@ import {
 } from "#test/pg/laws/families/model.ts"
 import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
 import { entryRows, factKey, isMember } from "#test/support/worlds/model/host.ts"
-import { type Cell, checkLaw, rowFault } from "#test/support/worlds/model/session/domains.ts"
+import {
+	type Cell,
+	checkLaw,
+	type RowFault,
+	rowFault
+} from "#test/support/worlds/model/session/domains.ts"
 import { brokenAt, type Submitted, witnessFor } from "#test/support/worlds/model/session/laws.ts"
 import {
 	type Called,
@@ -25,6 +30,7 @@ import {
 
 import {
 	keysOf,
+	serialHead,
 	type UniqueIndex,
 	uniquesOf,
 	type Written,
@@ -157,6 +163,35 @@ const cellsOf = (
 	return cells
 }
 
+/**
+ * Whether an op's facts leave out serial fields as grizzle refuses at the encoder (README "Writes", "Writing through a
+ * role"): an inserted fact leaving out some of its relation's classed serial fields and not all, or one its filter
+ * reads (serialHead); a deleted or put fact, which names a complete fact, leaving out any.
+ */
+const misshapen = (base: BaseSpec, w: Written, op: EntryOp): boolean => {
+	const { classed, filtered } = serialHead(base, w)
+	const carries = (fact: HostFact, field: string): boolean => fact[field] !== undefined
+	return Arr.some(op.facts, (fact) => {
+		if (op.kind !== "insert") {
+			return !Arr.every([...classed, ...filtered], (f) => carries(fact, f))
+		}
+		const supplied = Arr.filter(classed, (f) => carries(fact, f)).length
+		return (
+			(supplied > 0 && supplied < classed.length) || !Arr.every(filtered, (f) => carries(fact, f))
+		)
+	})
+}
+
+/**
+ * The fault of an op's facts that grizzle refuses before any SQL, judged once per op: a misshapen fact's (a base type's
+ * fault, which the encoder refuses), else its cells' fault (rowFault), a base type's or a law domain's CHECK; none for
+ * facts every encoder and CHECK admits.
+ */
+export const opFault = (base: BaseSpec, w: Written, op: EntryOp): RowFault | undefined =>
+	misshapen(base, w, op)
+		? { kind: "encoding", fault: "type" }
+		: rowFault(cellsOf(base, w, op.facts))
+
 /** Adds a column's cell of a value to the cells, unless the column met the value before. */
 const newCell = (
 	cells: Array<Cell>,
@@ -234,7 +269,8 @@ const judge = (
 	first: number
 ): Judged => {
 	let next = first
-	const named = Arr.map(op.facts, (f) => {
+	/** Equal facts are one: equal generated additions one requested addition, drawn once. */
+	const named = Arr.map(Arr.dedupeWith(op.facts, sameValues), (f) => {
 		const fill = written.kind === "whole" ? f : fillOf(written, f, facts)
 		if (fill === undefined) {
 			return undefined
@@ -590,6 +626,46 @@ const deltaOf = (
 const without = (a: ReadonlyArray<HostFact>, b: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> =>
 	Arr.filter(a, (f) => !Arr.some(b, (g) => sameValues(f, g)))
 
+/**
+ * Whether grizzle refuses a ChangeSet of these strata and read-backs through a role when it compiles (README "Writing
+ * through a role", "Writes"): a relation outside the role's write list, a stratum that writes a query entry and also a
+ * relation its filter reads, or a read-back of a relation the role does not hold or whose delta the change does not
+ * determine. A ChangeSet's facts are values outside its Description, so no fact, generated or complete, and no
+ * relation's serial fields, is a reason to refuse it there.
+ */
+export const compileRefused = (
+	base: BaseSpec,
+	role: RoleSpec,
+	strata: ReadonlyArray<ReadonlyArray<EntryOp>>,
+	reads: ReadonlyArray<string>
+): boolean => {
+	const layers = Arr.map(strata, (ops) =>
+		Arr.map(ops, (op) => ({ op, written: writtenNamed(base, role, op.relation) }))
+	)
+	const written = Arr.flatMap(layers, (ops) =>
+		Arr.flatMap(ops, (w) => (w.written === undefined ? [] : [w.written]))
+	)
+	/** Whether no query a stratum writes reads a relation the stratum writes. */
+	const disjoint = Arr.every(layers, (ops) => {
+		const targets = new Set(
+			Arr.flatMap(ops, (w) => (w.written === undefined ? [] : [w.written.target]))
+		)
+		return Arr.every(
+			ops,
+			(w) =>
+				w.written === undefined ||
+				w.written.kind !== "query" ||
+				!Arr.some([...filterReads(w.written)], (r) => targets.has(r))
+		)
+	})
+	return (
+		Arr.some(layers, (ops) => Arr.some(ops, (w) => w.written === undefined)) ||
+		!disjoint ||
+		Arr.some(reads, (r) => roleEntryOf(role, r) === undefined) ||
+		Arr.some(reads, (relation) => deltaOf(base, role, relation, written).kind === "unknown")
+	)
+}
+
 /** A call grizzle refuses on the host, before any SQL. */
 const onHost = (refusal: Outcome): Called => ({ kind: "host", refusals: [refusal] })
 
@@ -636,43 +712,25 @@ export const applyCall = (
 	if (role === undefined) {
 		return onHost({ kind: "handle-refused" })
 	}
-	const resolved = Arr.map(strata, (ops) =>
-		Arr.map(ops, (op) => ({ op, written: writtenNamed(base, role, op.relation) }))
-	)
-	const layers = Arr.map(resolved, (ops) =>
-		Arr.filterMap(ops, (r) =>
-			r.written === undefined ? Result.failVoid : Result.succeed({ op: r.op, written: r.written })
-		)
-	)
-	if (!Arr.every(layers, (ops, i) => ops.length === (resolved[i]?.length ?? 0))) {
+	if (compileRefused(base, role, strata, reads)) {
 		return onHost({ kind: "compile-refused" })
 	}
-	/** Whether no query a stratum writes reads a relation the stratum writes. */
-	const disjoint = Arr.every(layers, (ops) => {
-		const targets = new Set(Arr.map(ops, (w) => w.written.target))
-		return Arr.every(
-			ops,
-			(w) =>
-				w.written.kind !== "query" || !Arr.some([...filterReads(w.written)], (r) => targets.has(r))
-		)
-	})
+	const layers = Arr.map(strata, (ops) =>
+		Arr.filterMap(ops, (op) => {
+			const written = writtenNamed(base, role, op.relation)
+			return written === undefined ? Result.failVoid : Result.succeed({ op, written })
+		})
+	)
 	const everyWritten = Arr.map(layers.flat(), (w) => w.written)
 	const deltas = Arr.map(reads, (relation) => ({
 		relation,
 		delta: deltaOf(base, role, relation, everyWritten)
 	}))
-	if (
-		!disjoint ||
-		Arr.some(reads, (r) => roleEntryOf(role, r) === undefined) ||
-		Arr.some(deltas, (d) => d.delta.kind === "unknown")
-	) {
-		return onHost({ kind: "compile-refused" })
-	}
 	const faulted = Arr.map(layers, (ops) =>
 		Arr.map(ops, ({ op, written }) => ({
 			op,
 			written,
-			fault: rowFault(cellsOf(base, written, op.facts))
+			fault: opFault(base, written, op)
 		}))
 	)
 	const checked = Arr.map(faulted, (ops) =>

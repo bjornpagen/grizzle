@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -65,7 +65,7 @@ describe("parameter names", () => {
 						]),
 						literal: Formatter.format,
 						limit: 5,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					(name) =>

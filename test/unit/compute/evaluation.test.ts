@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -95,11 +96,15 @@ const atLibmEnd = <A>(n: number, run: () => A): A => {
 	}
 }
 
-/** The numeric power node (registry.ts), the one estimated node. */
+/** The numeric power node (registry.ts), the one estimated node, partial where its domain is unproved. */
 const numericPower = Option.getOrThrowWith(
 	Arr.findFirst(nativeOps, (op) => op.fn === "power" && firstOperand(op.operands) === "numeric"),
 	() => new Error("no numeric power node")
 )
+if (!numericPower.partial) {
+	throw new Error("numeric power requires its domain")
+}
+const numericPowerId = numericPower.id
 
 /** A power's operands, and whether the case is a planted decline. */
 interface PowerCase {
@@ -151,12 +156,15 @@ const evaluated = (c: PowerCase): CatalogResult => {
 		})
 	const root = s.emit({
 		kind: "op",
-		op: numericPower.id,
+		op: numericPowerId,
 		args: [operand(baseParam), operand(exponentParam)],
 		type: types.numeric,
 		nonNull: "strict",
 		volatility: numericPower.volatility,
-		failure: "canFail"
+		proof: {
+			precondition: { kind: "powerDomain" },
+			premises: [{ kind: "checked", operand: 0, by: "parameter" }]
+		}
 	})
 	return evaluate(root, {
 		kind: "row",
@@ -181,8 +189,8 @@ const outcome = (r: CatalogResult): string => {
 	}
 	const stop = r.failure
 	switch (stop.kind) {
-		case "failure":
-			return `failure ${stop.code}`
+		case "undefined":
+			return `undefined ${stop.what}`
 		case "unsupported":
 			return `unsupported ${stop.what}`
 		case "declined":
@@ -203,7 +211,10 @@ describe("the oracle's classes of evaluation", () => {
 						suite: "unit/compute/evaluation-power",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						features: features<PowerFeature>(["outcome claimed at both ends", "declined"]),
+						coverage: required<PowerFeature>(["outcome claimed at both ends", "declined"], {
+							cases: 300,
+							sense: notesOnly
+						}),
 						kept: [],
 						/**
 						 * A drawn power's outcome is claimed at both ends in most of its cases; a planted decline is one case in six,
@@ -213,7 +224,6 @@ describe("the oracle's classes of evaluation", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(power, c) =>
@@ -261,7 +271,7 @@ describe("the oracle's classes of evaluation", () => {
 					literal: Formatter.format,
 					/** The space is the registry's nodes, each once. */
 					limit: nativeOps.length,
-					features: features<"an exact float node">(["an exact float node"]),
+					coverage: requiredInSpace<"an exact float node">(["an exact float node"]),
 					caseHang: Duration.minutes(2)
 				},
 				(op, c) =>

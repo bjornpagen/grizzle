@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
 
 export const noTransactionMarker = "-- grizzle: no-transaction"
@@ -81,11 +82,11 @@ const placeholderLines = (text: string): ReadonlySet<number> => {
 	for (const t of tokens) {
 		const held = tokenOffsets(tokenText(t), 0, Number.POSITIVE_INFINITY).length
 		if (held > 0) {
-			offsets.push(...tokenOffsets(text, t.start, held))
+			appendAll(offsets, tokenOffsets(text, t.start, held))
 		}
 	}
 	if (error !== undefined) {
-		offsets.push(...tokenOffsets(text, error.offset, Number.POSITIVE_INFINITY))
+		appendAll(offsets, tokenOffsets(text, error.offset, Number.POSITIVE_INFINITY))
 	}
 	const lines = new Set<number>()
 	let line = 0
@@ -248,6 +249,10 @@ const placeholderUpper = placeholderToken.toUpperCase()
 
 /** Whether a drafted token is the placeholder token, a hole the reviewer's value fills. */
 const isHole = (t: StatementToken): boolean => t.kind === "word" && t.upper === placeholderUpper
+
+/** Whether a drafted statement holds a hole, which more than one written statement fills. */
+export const hasPlaceholder = (tokens: ReadonlyArray<StatementToken>): boolean =>
+	tokens.some((t) => isHole(t))
 
 /** Whether tokens nest their parentheses and brackets, as a value's do. */
 const balanced = (tokens: ReadonlyArray<StatementToken>): boolean => {

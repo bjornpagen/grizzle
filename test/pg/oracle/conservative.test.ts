@@ -4,17 +4,20 @@
  * 2,000 generated cases of the generator's own population, and 2,000 more with denser facts so that fewer results are
  * empty, in the run's rotating stream (and a quarter as many in the suite's floor stream), each case under a plan
  * perturbation: one to four relations with composite and candidate keys, closed rosters, pure sets and
- * containments, small-domain facts including NaN, -0, numeric display scales and supplementary-plane text, and
- * queries over match, filter, project, semi- and anti-join, union, intersection, difference, group, take, attach and
- * recursion, at the root as a plain set, with attachments, or as a heterogeneous union. For every case, every
- * statement the conservative lowering emits returns exactly the raw text multiset the reference evaluator computes by
- * definition: the same rows, each once, since every statement delivers a set. A failing case shrinks and
- * is reported in printable form.
+ * containments, small-domain facts including NaN, -0, numeric display scales and supplementary-plane text in their
+ * stored spellings, and queries over match, filter, project, semi- and anti-join, union, intersection, difference,
+ * group, take, attach and recursion, at the root as a plain set, with attachments, or as a heterogeneous union. For
+ * every case, every statement the conservative lowering emits returns exactly the canonical cell multiset the
+ * reference evaluator computes by definition: the same rows, each once, since every statement delivers a set. And the
+ * runner judges the case against itself (runner.ts runOracle, its second reading): its facts stored otherwise, another
+ * storage order and one value in another spelling, under another plan, must deliver exactly the same rows, with no
+ * reference in the judgment. A failing case shrinks and is reported in printable form.
  */
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { rating, required } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -22,6 +25,7 @@ import type { TestContext } from "vitest"
 import {
 	type ConservativeFeature,
 	caseFeatures,
+	declineFeatures,
 	denseQueryCaseGen,
 	operatorKinds
 } from "#test/pg/oracle/support.ts"
@@ -43,7 +47,7 @@ const cases = 2000
  * The features the gate's population must contain: what its cases exercise, what only the real installer adds to their
  * plans, and "nonempty": a case whose conservative run delivered a row.
  */
-const required = [
+const situations = [
 	"relations:1",
 	"relations:2",
 	"relations:3",
@@ -66,7 +70,9 @@ const required = [
 	"nested attach",
 	"text domain",
 	"deferred foreign key",
-	"nonempty"
+	"nonempty",
+	"facts reordered",
+	"a fact respelled"
 ] as const satisfies ReadonlyArray<ConservativeFeature>
 
 /**
@@ -84,23 +90,35 @@ const agreeOn = (ctx: TestContext, gen: Gen<QueryCase>, suite: string) =>
 				{
 					suite,
 					literal: Formatter.format,
-					features: features<ConservativeFeature>(required),
+					coverage: rating(
+						required<ConservativeFeature>(situations, { cases: cases, sense: notesOnly }),
+						declineFeatures
+					),
 					kept: [],
 					runs: cases,
 					shrink: completeShrink,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2),
 					perturb: "all"
 				},
 				(c, k) =>
 					Effect.gen(function* () {
 						k.noteAll(caseFeatures(c))
-						const outcome = yield* runOracle(c, conservative, reference, {
+						const options = {
 							...defaultRunOptions,
 							schema: { kind: "named", name: schema }
-						})
+						} as const
+						const outcome = yield* runOracle(c, conservative, reference, options)
 						if (!outcome.comparison.equal || outcome.comparison.leftDuplicates > 0) {
 							return yield* PropertyFailed.make({ report: printOutcome(outcome) })
+						}
+						if (outcome.right.kind === "reference") {
+							k.noteAll(Arr.map(outcome.right.declines, (reason) => `declined ${reason}` as const))
+						}
+						if (outcome.again.reordered) {
+							k.note("facts reordered")
+						}
+						if (outcome.again.respelled) {
+							k.note("a fact respelled")
 						}
 						const installation = outcome.plan.installation
 						if (installation.textDomains.length > 0) {

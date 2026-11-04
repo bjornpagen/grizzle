@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -13,6 +13,7 @@ import {
 	oneOf,
 	string
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, Schema } from "effect"
@@ -168,7 +169,7 @@ const applyOp = <A>(
 			return out.orderBy([gen.key, op.dir]).take(op.param ? "batch" : op.k)
 		case "import":
 			return query(gen.schema).rule((r: RuleValue) => {
-				const vars = v(out)
+				const vars = v(out, "out")
 				return r.match(out, vars).find(vars)
 			})
 	}
@@ -252,7 +253,7 @@ interface WorkArm {
 }
 
 const notesOf = query(Work).rule((r: RuleValue) => {
-	const { note } = v(TaskNote)
+	const { note } = v(TaskNote, "taskNote")
 	return r.match(TaskNote, { task: r.param("task", TaskNote.fields.task), note }).find({ note })
 })
 
@@ -272,9 +273,9 @@ const work: Grammar<WorkArm> = {
 		head: source.draw(element(["plain", "count", "sum"] as const))
 	}),
 	rule: (arm) => (r: RuleValue) => {
-		const { id, account } = v(Task)
-		const { budget } = v(AutomaticTask)
-		const { note } = v(TaskNote)
+		const { id, account } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
+		const { note } = v(TaskNote, "taskNote")
 		let rule = r.match(
 			Task,
 			arm.kind === "free" ? { id, account } : { id, account, kind: arm.kind }
@@ -288,15 +289,15 @@ const work: Grammar<WorkArm> = {
 		}
 		if (arm.interior) {
 			const automatic = r.interior((r2: RuleValue) => {
-				const { task, budget: b } = v(AutomaticTask)
+				const { task, budget: b } = v(AutomaticTask, "automaticTask")
 				return r2.match(AutomaticTask, { task, budget: b }).find({ task, budget: b })
 			})
-			const { budget: staged } = v(automatic)
+			const { budget: staged } = v(automatic, "automatic")
 			rule = rule.match(automatic, { task: id, budget: staged })
 		}
 		if (arm.bind) {
 			const bound = notesOf.bind({ task: id })
-			const { note: imported } = v(bound)
+			const { note: imported } = v(bound, "bound")
 			rule = rule.match(bound, { note: imported })
 		}
 		if (arm.noNote) {
@@ -339,7 +340,7 @@ const work: Grammar<WorkArm> = {
 	key: "account",
 	child: (p: ParentVars) =>
 		query(Work).rule((r: RuleValue) => {
-			const { id } = v(Task)
+			const { id } = v(Task, "task")
 			return r.match(Task, { id, account: p["account"] }).find({ id })
 		})
 }
@@ -359,8 +360,8 @@ const spans: Grammar<SpanArm> = {
 		producer: source.draw(element(["none", "intersection", "difference", "pack"] as const))
 	}),
 	rule: (arm) => (r: RuleValue) => {
-		const a = v(Booking)
-		const b = v(Booking)
+		const a = v(Booking, "first")
+		const b = v(Booking, "second")
 		let rule = r.match(Booking, { room: a["room"], during: a["during"] })
 		const pair =
 			arm.allen || arm.pointIn || arm.producer === "intersection" || arm.producer === "difference"
@@ -387,7 +388,7 @@ const spans: Grammar<SpanArm> = {
 	key: "room",
 	child: (p: ParentVars) =>
 		query(Schedule).rule((r: RuleValue) => {
-			const { during, guest } = v(Booking)
+			const { during, guest } = v(Booking, "booking")
 			return r.match(Booking, { room: p["room"], during, guest }).find({ guest })
 		})
 }
@@ -395,8 +396,8 @@ const spans: Grammar<SpanArm> = {
 describe("rebuilding from a Description", () => {
 	const automatic = () =>
 		query(Work).rule((r: RuleValue) => {
-			const { id, account } = v(Task)
-			const { budget } = v(AutomaticTask)
+			const { id, account } = v(Task, "task")
+			const { budget } = v(AutomaticTask, "automaticTask")
 			return r
 				.match(Task, { id, account, kind: "Automatic" })
 				.match(AutomaticTask, { task: id, budget })
@@ -405,7 +406,7 @@ describe("rebuilding from a Description", () => {
 
 	const noteChild = (t: ParentVars) =>
 		query(Work).rule((r: RuleValue) => {
-			const { note } = v(TaskNote)
+			const { note } = v(TaskNote, "taskNote")
 			return r.match(TaskNote, { task: t["id"], note }).find({ note })
 		})
 
@@ -419,7 +420,7 @@ describe("rebuilding from a Description", () => {
 		from === "an attach stage"
 			? automatic().attach("note", noteChild, "array")
 			: query(Work).rule((r: RuleValue) => {
-					const { id } = v(Task)
+					const { id } = v(Task, "task")
 					return r.match(Task, { id }).find({ id }).attach("note", noteChild, "array")
 				})
 	const operate = (q: QueryValue, operation: Operation) => () => {
@@ -454,7 +455,7 @@ describe("rebuilding from a Description", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 6,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					([from, operation]) =>
@@ -486,7 +487,7 @@ describe("rebuilding from a Description", () => {
 			row: { task: Task.fields.id, kind: closedId(Kind) },
 			base: [
 				(r: RuleValue) => {
-					const { id, kind } = v(Task)
+					const { id, kind } = v(Task, "task")
 					return r.match(Task, { id, kind }).find({ task: id, kind })
 				}
 			],
@@ -499,7 +500,7 @@ describe("rebuilding from a Description", () => {
 		})
 	const matchingKind = (q: unknown, handle: string) => () =>
 		query(Work).rule((r: RuleValue) => {
-			const { task } = v(q)
+			const { task } = v(q, "q")
 			return r.match(q, { task, kind: handle }).find({ task })
 		})
 
@@ -525,13 +526,15 @@ describe("rebuilding from a Description", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: features<Handle>(["a roster handle", "no handle"]),
+						coverage: required<Handle>(["a roster handle", "no handle"], {
+							cases: 60,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(handle, c) =>
@@ -572,13 +575,12 @@ describe("generated queries", () => {
 						suite: "unit/query/roundtrip-58",
 						draw: drawn(generated(work)),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					property(work)
@@ -597,13 +599,12 @@ describe("generated queries", () => {
 						suite: "unit/query/roundtrip-109",
 						draw: drawn(generated(spans)),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 150,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					property(spans)

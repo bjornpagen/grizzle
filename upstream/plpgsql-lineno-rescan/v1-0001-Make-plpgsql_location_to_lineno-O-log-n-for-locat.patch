@@ -1,0 +1,224 @@
+From 34ed71b90bb1515ea0813057cadc8605f3af6aa9 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 21:06:15 -0600
+Subject: [PATCH v1] Make plpgsql_location_to_lineno O(log n) for locations out
+ of order
+
+The PL/pgSQL grammar computes an IF's, an ELSIF's and a CASE WHEN's
+line number when it reduces the statement, after the statements of
+its body have asked for theirs.  plpgsql_location_to_lineno() tracks
+one current line and, whenever a location goes backwards, rescans the
+function source from its first byte (location_lineno_init()).  So a
+body of N compound statements compiles in O(N * length): a single
+CASE of 40000 WHENs takes about 17 s to compile on 19rc1, at CREATE
+FUNCTION and again at the first call in every backend, almost all of
+it in strchr() under plpgsql_location_to_lineno().
+
+Record where each line of the source starts once, at scanner setup,
+and resolve every location by binary search over those offsets.  The
+line numbers are unchanged, and plpgsql_latest_lineno() still returns
+the most recently computed one.  The same CASE compiles in about
+60 ms.
+
+Add a test of the line numbers reported for errors raised by IF, ELSIF
+and CASE, and by a statement in a CASE arm, whose locations reach the
+scanner out of order.  They are the same as before.
+---
+ src/pl/plpgsql/src/expected/plpgsql_misc.out | 42 ++++++++++++++
+ src/pl/plpgsql/src/pl_scanner.c              | 61 +++++++++++++-------
+ src/pl/plpgsql/src/sql/plpgsql_misc.sql      | 35 +++++++++++
+ 3 files changed, 118 insertions(+), 20 deletions(-)
+
+diff --git a/src/pl/plpgsql/src/expected/plpgsql_misc.out b/src/pl/plpgsql/src/expected/plpgsql_misc.out
+index b3def30282..7dd29b9d82 100644
+--- a/src/pl/plpgsql/src/expected/plpgsql_misc.out
++++ b/src/pl/plpgsql/src/expected/plpgsql_misc.out
+@@ -110,3 +110,45 @@ do $$ declare x int; begin x := 1 $$;
+ ERROR:  missing ";" at end of SQL statement
+ LINE 1: do $$ declare x int; begin x := 1 $$;
+                                           ^
++--
++-- Line numbers of statements whose location the grammar resolves only after
++-- their bodies (IF, ELSIF and CASE), so locations reach the scanner out of
++-- order
++--
++create function lineno_order(k int) returns int language plpgsql as $$
++declare
++  r int;
++begin
++  if k = 1 then
++    r := 1;
++  elsif 1 / (k - 2) = 0 then
++    r := 2;
++  end if;
++  case 6 / (k - 3)
++    when 0 then
++      r := 3;
++    else
++      if k = 5 then
++        r := 1 / (k - 5);
++      end if;
++      r := 4;
++  end case;
++  if 1 / (k - 4) = 0 then
++    r := 5;
++  end if;
++  return r;
++end
++$$;
++select lineno_order(2);
++ERROR:  division by zero
++CONTEXT:  PL/pgSQL function lineno_order(integer) line 5 at IF
++select lineno_order(3);
++ERROR:  division by zero
++CONTEXT:  PL/pgSQL function lineno_order(integer) line 10 at CASE
++select lineno_order(4);
++ERROR:  division by zero
++CONTEXT:  PL/pgSQL function lineno_order(integer) line 19 at IF
++select lineno_order(5);
++ERROR:  division by zero
++CONTEXT:  PL/pgSQL function lineno_order(integer) line 15 at assignment
++drop function lineno_order(int);
+diff --git a/src/pl/plpgsql/src/pl_scanner.c b/src/pl/plpgsql/src/pl_scanner.c
+index 344fb7b870..d038483a61 100644
+--- a/src/pl/plpgsql/src/pl_scanner.c
++++ b/src/pl/plpgsql/src/pl_scanner.c
+@@ -122,9 +122,13 @@ struct plpgsql_yy_extra_type
+ 	int			pushback_token[MAX_PUSHBACKS];
+ 	TokenAuxData pushback_auxdata[MAX_PUSHBACKS];
+ 
+-	/* State for plpgsql_location_to_lineno() */
+-	const char *cur_line_start;
+-	const char *cur_line_end;
++	/*
++	 * State for plpgsql_location_to_lineno(): the byte offset at which each
++	 * line of scanorig starts, line_starts[0] being 0, and the line number
++	 * most recently computed.
++	 */
++	int		   *line_starts;
++	int			num_lines;
+ 	int			cur_line_num;
+ };
+ 
+@@ -563,41 +567,58 @@ plpgsql_yyerror(YYLTYPE *yyllocp, PLpgSQL_stmt_block **plpgsql_parse_result_p, y
+  * Given a location (a byte offset in the function source text),
+  * return a line number.
+  *
+- * We expect that this is typically called for a sequence of increasing
+- * location values, so optimize accordingly by tracking the endpoints
+- * of the "current" line.
++ * Locations do not arrive in increasing order: the grammar asks for an IF's,
++ * an ELSIF's or a CASE WHEN's line number when it reduces the statement, so
++ * after the statements of its body have asked for theirs.  Resolving each
++ * location against the line starts recorded at scanner setup costs O(log
++ * lines) whatever the order, where rescanning from the start of the source
++ * whenever a location goes backwards made a body of N compound statements
++ * cost O(N * length).
+  */
+ int
+ plpgsql_location_to_lineno(int location, yyscan_t yyscanner)
+ {
+-	const char *loc;
++	int			lo;
++	int			hi;
+ 
+ 	if (location < 0 || yyextra->scanorig == NULL)
+ 		return 0;				/* garbage in, garbage out */
+-	loc = yyextra->scanorig + location;
+-
+-	/* be correct, but not fast, if input location goes backwards */
+-	if (loc < yyextra->cur_line_start)
+-		location_lineno_init(yyscanner);
+ 
+-	while (yyextra->cur_line_end != NULL && loc > yyextra->cur_line_end)
++	/* find the last line starting at or before location */
++	lo = 0;
++	hi = yyextra->num_lines - 1;
++	while (lo < hi)
+ 	{
+-		yyextra->cur_line_start = yyextra->cur_line_end + 1;
+-		yyextra->cur_line_num++;
+-		yyextra->cur_line_end = strchr(yyextra->cur_line_start, '\n');
++		int			mid = lo + (hi - lo + 1) / 2;
++
++		if (yyextra->line_starts[mid] <= location)
++			lo = mid;
++		else
++			hi = mid - 1;
+ 	}
+ 
++	yyextra->cur_line_num = lo + 1;
+ 	return yyextra->cur_line_num;
+ }
+ 
+-/* initialize or reset the state for plpgsql_location_to_lineno */
++/* record each line's start offset, for plpgsql_location_to_lineno */
+ static void
+ location_lineno_init(yyscan_t yyscanner)
+ {
+-	yyextra->cur_line_start = yyextra->scanorig;
++	const char *str = yyextra->scanorig;
++	const char *nl;
++	int			n = 1;
++
++	for (nl = strchr(str, '\n'); nl != NULL; nl = strchr(nl + 1, '\n'))
++		n++;
++
++	yyextra->line_starts = palloc_array(int, n);
++	yyextra->line_starts[0] = 0;
++	n = 1;
++	for (nl = strchr(str, '\n'); nl != NULL; nl = strchr(nl + 1, '\n'))
++		yyextra->line_starts[n++] = nl + 1 - str;
++	yyextra->num_lines = n;
+ 	yyextra->cur_line_num = 1;
+-
+-	yyextra->cur_line_end = strchr(yyextra->cur_line_start, '\n');
+ }
+ 
+ /* return the most recently computed lineno */
+diff --git a/src/pl/plpgsql/src/sql/plpgsql_misc.sql b/src/pl/plpgsql/src/sql/plpgsql_misc.sql
+index e2c3278a8d..e3bedcea6b 100644
+--- a/src/pl/plpgsql/src/sql/plpgsql_misc.sql
++++ b/src/pl/plpgsql/src/sql/plpgsql_misc.sql
+@@ -70,3 +70,38 @@ end $$;
+ -- unterminated constructs should complain about the missing terminator
+ do $$ begin if true $$;
+ do $$ declare x int; begin x := 1 $$;
++
++--
++-- Line numbers of statements whose location the grammar resolves only after
++-- their bodies (IF, ELSIF and CASE), so locations reach the scanner out of
++-- order
++--
++create function lineno_order(k int) returns int language plpgsql as $$
++declare
++  r int;
++begin
++  if k = 1 then
++    r := 1;
++  elsif 1 / (k - 2) = 0 then
++    r := 2;
++  end if;
++  case 6 / (k - 3)
++    when 0 then
++      r := 3;
++    else
++      if k = 5 then
++        r := 1 / (k - 5);
++      end if;
++      r := 4;
++  end case;
++  if 1 / (k - 4) = 0 then
++    r := 5;
++  end if;
++  return r;
++end
++$$;
++select lineno_order(2);
++select lineno_order(3);
++select lineno_order(4);
++select lineno_order(5);
++drop function lineno_order(int);
+-- 
+2.54.0 (Apple Git-157)
+

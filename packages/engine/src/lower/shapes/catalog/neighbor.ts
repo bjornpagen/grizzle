@@ -1,4 +1,4 @@
-import { firstIndex } from "#compiler/core/array.ts"
+import { firstIndex, appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CatalogRule } from "#compiler/ir/certificate.ts"
 import { type ColumnRef, type OpId, type ScalarExpr, sortedOps } from "#compiler/ir/expr.ts"
@@ -842,7 +842,7 @@ const asOfPass = (
 	const nodes: Array<Cell> = []
 	const numbered = carry ? numberedParents(cx, parentRows) : undefined
 	if (numbered !== undefined) {
-		nodes.push(...numbered.nodes)
+		appendAll(nodes, numbered.nodes)
 	}
 	const pRows = numbered?.rows ?? parentRows
 	/** Q's own restrictions first. */
@@ -894,7 +894,7 @@ const asOfPass = (
 		],
 		qKeys
 	)
-	nodes.push(...ranked.nodes)
+	appendAll(nodes, ranked.nodes)
 	const qr = ranked.last
 	const qRank = required(ranked.outs[0], "the rank window's output")
 	/** The tagged union's heading: group, compared prefix, side, rank. */
@@ -1013,7 +1013,7 @@ const asOfPass = (
 		],
 		plainKeys([[...g, ...k, side, rank]])
 	)
-	nodes.push(...carried.nodes)
+	appendAll(nodes, carried.nodes)
 	const w = carried.last
 	const carriedOut = required(carried.outs[0], "the carried window's output")
 	const parents = ed.node({

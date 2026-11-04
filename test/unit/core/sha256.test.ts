@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { array, codePoint, int, map, oneOf, string } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -62,13 +62,12 @@ describe("utf8", () => {
 							)
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -91,13 +90,12 @@ describe("utf8", () => {
 						suite: "unit/core/utf8-generalized",
 						draw: drawn(utf16),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -121,13 +119,12 @@ describe("sha256Hex", () => {
 					suite: "unit/core/sha256-text",
 					draw: drawn(utf16),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(text) =>

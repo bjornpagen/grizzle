@@ -252,7 +252,7 @@ export interface ChangeSetConstructor {
 	): ChangeSet<HigherLevel<SA, SB>, Simplify<P1 & P2>, W1 | W2, Simplify<R1 & R2>, C1 | C2>
 }
 
-/** A key value a witness may carry. */
+/** A key value a witness may carry: a vector field may be a key field. */
 export type KeyHost =
 	| string
 	| number
@@ -262,6 +262,7 @@ export type KeyHost =
 	| Money
 	| Span<number>
 	| Span<bigint>
+	| Vector
 
 /**
  * What a law's refusal names: the violating fact's key, or why it names none.
@@ -329,7 +330,8 @@ export interface LawBounds {
  *   fact selecting a handle has its arm's fact (its head containment and arm halves are `contained` and `mirrors`);
  * - `capacity`: a capacity, by its target and source sides, its weight and its bounds;
  * - `contract`: a contract's predicate, by its name;
- * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language.
+ * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language;
+ * - `numericBound`: a bare numeric field's bound, at most 1,000 integer digits, by its relation and field.
  */
 export type Law =
 	| {
@@ -355,3 +357,4 @@ export type Law =
 	  }
 	| { readonly kind: "contract"; readonly contract: string }
 	| { readonly kind: "pattern"; readonly source: string; readonly flags: "u" | "su" }
+	| { readonly kind: "numericBound"; readonly relation: string; readonly field: string }

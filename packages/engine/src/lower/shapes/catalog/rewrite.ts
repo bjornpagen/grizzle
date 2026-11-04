@@ -21,7 +21,6 @@ import { tryAttachedNeighbor, tryBoundNeighbor } from "#compiler/lower/shapes/ca
 import { tryOrdinal } from "#compiler/lower/shapes/catalog/ordinal.ts"
 import { tryPercentile } from "#compiler/lower/shapes/catalog/percentile.ts"
 import { tryShare } from "#compiler/lower/shapes/catalog/share.ts"
-import { trySlope } from "#compiler/lower/shapes/catalog/slope.ts"
 
 /** What one recognizer produced. */
 interface Applied extends Grounds {
@@ -122,20 +121,6 @@ const families: ReadonlyArray<{
 			}
 		}
 	},
-	{
-		name: "slope",
-		kinds: ["Group"],
-		run: (cx, cell) => {
-			const r = trySlope(cx, cell)
-			return {
-				rules: ["R32"],
-				...r,
-				premises: [{ kind: "node", node: cell.id }],
-				context: "queryLocal",
-				equality: []
-			}
-		}
-	},
 	{ name: "ordinal", kinds: ["Group"], run: tryOrdinal }
 ]
 
@@ -185,7 +170,6 @@ export interface CatalogResult<R extends Roots = Roots> {
  * | R29 | selection by ordinal ceil(p · n) | PERCENTILE_DISC(p) WITHIN GROUP | percentile.ts |
  * | R30 | interpolation between two ordinals | PERCENTILE_CONT(p) WITHIN GROUP | percentile.ts |
  * | R31 | count per value, take(1) by count desc, value asc | MODE() WITHIN GROUP | mode.ts |
- * | R32 | closed-form slope guarded by its denominator | REGR_SLOPE and the test REGR_SXX > 0 | slope.ts |
  *
  * The recognizers rewrite the relational DAG into the internal Window and OrderedSetAggregate nodes,
  * each with a certificate (rewrite.ts); native.ts lowers those nodes to SQL. Where a condition fails the composition

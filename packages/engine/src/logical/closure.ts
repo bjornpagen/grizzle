@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { type Dependency, type Implication, implication } from "#compiler/ir/keys.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
@@ -126,7 +127,7 @@ export const derivation = <V>(c: Closure<V>, targets: Iterable<string>): Implica
 			continue
 		}
 		used.set(how.index, how)
-		stack.push(...how.dependency.from)
+		appendAll(stack, how.dependency.from)
 	}
 	const steps = [...used.values()]
 		.toSorted((a, b) => a.order - b.order)

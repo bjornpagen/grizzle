@@ -4,8 +4,9 @@
  * The conservative gate only ever shows the reference agreeing. These checks show that the same runner, with the
  * reference on the right, catches a wrong lowering on PostgreSQL:
  *
- * - the I1 mutant (a DISTINCT dropped from a projection that keeps no key) is told apart from the reference within
- *   500 generated cases, and the failure shrinks to the printed case and the repeated row;
+ * - the I1 mutant (a DISTINCT dropped from a projection that keeps no key) is told apart from the reference by the
+ *   floor stream's generated cases, which the suite's label fixes, and the failure shrinks to the printed case and the
+ *   repeated row;
  * - the reference agrees with PostgreSQL's capture on a planted case of every hard spelling (1.00 in numeric(5,2), 1.0,
  *   NaN, -0, money and supplementary-plane text), the control of the structural checks below;
  * - the reference derives the delivered statements from the IR, so a lowering that drops an attachment statement,
@@ -18,7 +19,7 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, Run } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -26,6 +27,7 @@ import { runOfProcess } from "@grizzle/testing/vitest/run"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	type AttachedTree,
@@ -36,7 +38,15 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, containsEqual, containsText } from "#test/support/assert.ts"
 import type { StructuralDifference } from "#test/support/oracle/compare.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
-import { float4, float8, int4, numeric, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
+import {
+	canonicallySpelled,
+	float4,
+	float8,
+	int4,
+	numeric,
+	scalarOfSpec,
+	type SpelledValue
+} from "#test/support/oracle/gen/domain.ts"
 import { projectRoot, rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
 import { mutantLowering } from "#test/support/oracle/mutants/index.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
@@ -104,7 +114,13 @@ const spell = relation(
 	[]
 )
 
-/** Every column of Spell, bound by name. */
+/** A value stored in a twin input spelling, which PostgreSQL reads as the value and stores differently. */
+const twin = (literal: TypedLiteral, text: string): SpelledValue => ({
+	literal,
+	spelling: { kind: "twin", text }
+})
+
+/** Every column of Spell, bound by name, the hard spellings among its stored values. */
 const spellCase = (): LabelledCase => {
 	const q = new Q()
 	const all = q.region([
@@ -115,20 +131,20 @@ const spellCase = (): LabelledCase => {
 		{
 			Spell: [
 				[
-					int(1),
-					dec("1"),
-					dec("1.0"),
-					flt(-0),
-					{ kind: "money", value: Money.of(150n) },
-					str("\u{1F600}")
+					canonicallySpelled(int(1)),
+					canonicallySpelled(dec("1")),
+					twin(dec("1"), "1.0"),
+					twin(flt(0), "-0"),
+					canonicallySpelled({ kind: "money", value: Money.of(150n) }),
+					canonicallySpelled(str("\u{1F600}"))
 				],
 				[
-					int(2),
-					dec("2.5"),
-					dec("NaN"),
-					{ kind: "floatSpecial", value: "NaN" },
-					{ kind: "money", value: Money.of(-25n) },
-					str("a\u{10FFFF}")
+					canonicallySpelled(int(2)),
+					canonicallySpelled(dec("2.5")),
+					canonicallySpelled(dec("NaN")),
+					canonicallySpelled({ kind: "floatSpecial", value: "NaN" }),
+					canonicallySpelled({ kind: "money", value: Money.of(-25n) }),
+					canonicallySpelled(str("a\u{10FFFF}"))
 				]
 			]
 		},
@@ -153,7 +169,7 @@ const fixtureCase = (name: FixtureName): LabelledCase => {
 
 layer(Substrate.layer)("the reference side of the oracle discriminates", (it) => {
 	it.effect(
-		"tells the I1 mutant from the reference within 500 cases and shrinks to the printed case",
+		"tells the I1 mutant from the reference in its floor cases and shrinks to the printed case",
 		() =>
 			Effect.gen(function* () {
 				const s = yield* Substrate
@@ -165,26 +181,23 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					{
 						suite: "oracle/reference-i1",
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2),
 						perturb: "none"
 					},
 					(c) =>
 						Effect.gen(function* () {
+							const harnessFailure = (e: unknown) =>
+								Effect.sync(() => {
+									harnessErrors.push(`${String(e)}\n${printOracleCase(c)}`)
+								})
 							const outcome = yield* runOracle(c, mutantLowering(mutants.I1), reference, {
 								...defaultRunOptions,
 								schema: { kind: "named", name: name }
-							}).pipe(
-								Effect.catch((e) =>
-									Effect.sync(() => {
-										harnessErrors.push(`${String(e)}\n${printOracleCase(c)}`)
-									})
-								)
-							)
+							}).pipe(Effect.catchTags({ OracleFailure: harnessFailure, SqlError: harnessFailure }))
 							if (outcome !== undefined && !outcome.comparison.equal) {
 								return yield* comparisonFailed(outcome)
 							}
@@ -192,12 +205,22 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 				).pipe(Effect.provideServiceEffect(Run, runOfProcess))
 				assert.deepEqual(harnessErrors, [], Arr.join(harnessErrors, "\n\n"))
 				if (result.kind === "survived") {
-					return assert.fail("the I1 mutant survived 500 cases")
+					return assert.fail("the I1 mutant survived every case")
+				}
+				if (result.kind === "unwitnessed") {
+					return assert.fail(
+						`the I1 mutant survived its witnesses, the floor and steered cases: only a case the run's seed drew killed it\n${result.report}`
+					)
 				}
 				if (result.kind === "failed") {
 					return assert.fail(result.report)
 				}
-				const outcome = result.outcome
+				if (result.verdict.kind === "invariance") {
+					return assert.fail(
+						`the I1 mutant was caught by its own second reading, never told from the reference\n${result.report}`
+					)
+				}
+				const outcome = result.verdict.outcome
 				containsText(result.report, printOracleCase(result.counterexample))
 				assert.ok(
 					Arr.some(outcome.comparison.diffs, (d) => d.missing.length > 0),
@@ -291,7 +314,7 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					generator: element(fixtureNames),
 					literal: Formatter.format,
 					limit: fixtureNames.length,
-					features: features<FixtureName>(fixtureNames),
+					coverage: requiredInSpace<FixtureName>(fixtureNames),
 					caseHang: Duration.minutes(2)
 				},
 				(fixture, k) =>

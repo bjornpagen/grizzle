@@ -14,6 +14,7 @@ import type { ConstraintName, LawId, PremiseObject } from "#compiler/core/ids.ts
 import { defect } from "#compiler/core/invariant.ts"
 import { parseSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
 
 export type { Path }
 
@@ -476,6 +477,18 @@ export const finiteNumber: Shape<number> = leaf("a finite number", (value, path)
 		: refuse(path, `a finite number, not ${describe(value, path)}`)
 )
 
+/**
+ * A finite number with the one zero (ir/carriers.ts CanonicalFloat): -0 is refused, so a decoded float literal is in
+ * its one form, as the canonical serializer, which writes -0 as 0, and every constructor leave it.
+ */
+export const canonicalFloat: Shape<CanonicalFloat> = leaf(
+	"a finite number other than -0",
+	(value, path) =>
+		typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)
+			? canonicalZero(value)
+			: refuse(path, `a finite number other than -0, not ${describe(value, path)}`)
+)
+
 export const integer: Shape<number> = leaf("a safe integer", (value, path) =>
 	typeof value === "number" && Number.isSafeInteger(value)
 		? value
@@ -500,7 +513,7 @@ export const bigint: Shape<bigint> = leaf("a bigint", (value, path) =>
 )
 
 export const literalsShape = <const L extends ReadonlyArray<string | number | boolean>>(
-	...values: L
+	values: L
 ): Shape<L[number]> => {
 	const expected = values.map((v) => JSON.stringify(v)).join(" | ")
 	const members: ReadonlyArray<unknown> = values

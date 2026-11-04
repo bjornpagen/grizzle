@@ -327,7 +327,7 @@ END $f$`,
 						),
 						lawFunctions: Arr.join(objects.functions, ", "),
 						reverseTriggers: Arr.join(
-							Arr.map(reverse.triggers, (t) => `${t.relation}.${t.trigger}`),
+							Arr.map(reverse.units, (u) => `${u.relation}.${u.event}.${u.trigger}`),
 							", "
 						),
 						constraints: constraintText,
@@ -348,10 +348,10 @@ END $f$`,
 						jsonText(fkConstraints)
 					),
 					mechanism(
-						"the alternatives leave exactly one residual law, the reverse obligation, whose function is the one installed",
+						"the alternatives leave exactly one residual law, the reverse obligation, whose units' functions are the ones installed",
 						residuals.length === 1 &&
-							objects.functions.length === 1 &&
-							objects.functions[0] === reverse.function,
+							objects.functions.length === reverse.units.length &&
+							Arr.every(reverse.units, (u) => objects.functions.includes(u.function)),
 						`${Arr.join(
 							Arr.map(residuals, (r) => r.lawId),
 							", "

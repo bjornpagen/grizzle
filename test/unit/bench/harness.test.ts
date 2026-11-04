@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -707,7 +707,7 @@ describe("outcomes, retries and loads", () => {
 							generator: element(others),
 							literal: Formatter.format,
 							limit: 3,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						([step, options]) =>
@@ -936,7 +936,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 								] as const,
 							literal: Formatter.format,
 							limit: 4,
-							features: features<RecordFeature>([
+							coverage: requiredInSpace<RecordFeature>([
 								"run failed",
 								"release clean",
 								"release leaked",

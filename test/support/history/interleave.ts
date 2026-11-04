@@ -240,13 +240,7 @@ const entryOf = (
 ): Effect.Effect<Entry> => {
 	switch (t.kind) {
 		case "below": {
-			const why = belowDeparture(
-				env.host,
-				env.rig.installed.schema,
-				t.below,
-				env.isMutable,
-				result.outcomes
-			)
+			const why = belowDeparture(env.host, env.rig.installed.schema, t.below, result.outcomes)
 			return Effect.succeed(
 				why === undefined
 					? { kind: "planted" }

@@ -265,7 +265,7 @@ const admitOn = (side: unknown, fields: ReadonlyArray<unknown>): SideDesc => {
  */
 export const on = <R, const F extends ReadonlyArray<string>>(
 	side: R,
-	...fields: F
+	fields: F
 ): Side<R, readonly [...F]> => {
 	const desc = admitOn(side, fields)
 	return ownValue({ source: side, fields: frozenTuple<F>(fields) }, "side", desc)
@@ -356,7 +356,8 @@ export const alternativesDescOf = (value: unknown): AlternativesDesc | undefined
  * The admission core of alternatives(...): the arguments checked and the expansion described. The discriminator must
  * be a closedId field of the roster itself: the expansion's select refuses only a handle the roster lacks, so a
  * discriminator over another roster with the same handles would pass it. Each arm is keyed like the parent, refused
- * here rather than by the expanded mirrors statement, which the caller never wrote.
+ * here rather than by the expanded mirrors statement, which the caller never wrote; and each is a relation other than
+ * the parent, whose own arm, keyed by a key of the parent, would hold every parent at its handle.
  */
 const admitAlternatives = (
 	parent: unknown,
@@ -399,7 +400,7 @@ const admitAlternatives = (
 	const origin = { alternatives: alternativesId(parentRel.name, disc) }
 	const parentKeyed = keyRelation(parent)
 	const parentValue = parentKeyed === undefined ? parent : parentKeyed.relation
-	const head = admitContained(on(parentValue, disc), on(roster, "id"))
+	const head = admitContained(on(parentValue, [disc]), on(roster, ["id"]))
 	const statements: Array<StatementDesc> = [
 		admitted({ ...head, origin, loc: builderLoc(label, [parentRel.name, "alternatives", disc]) })
 	]
@@ -409,6 +410,9 @@ const admitAlternatives = (
 			continue
 		}
 		const armKey = keyRef(arm, `${label} arm ${h}`)
+		if (armKey.rel.name === parentRel.name) {
+			throw malformed(label, `the arm ${h} a relation other than its parent ${parentRel.name}`)
+		}
 		if (armKey.fields.length !== parentKey.fields.length) {
 			throw malformed(
 				label,
@@ -418,8 +422,8 @@ const admitAlternatives = (
 		const armKeyed = keyRelation(arm)
 		const armValue = armKeyed === undefined ? arm : armKeyed.relation
 		const m = admitMirrors(
-			on(select(parentValue, { [disc]: h }), ...parentKey.fields),
-			on(armValue, ...armKey.fields)
+			on(select(parentValue, { [disc]: h }), parentKey.fields),
+			on(armValue, armKey.fields)
 		)
 		statements.push(
 			admitted({

@@ -289,9 +289,11 @@ export default defineGate({
 			const r11: VerdictInput = {
 				checks: [
 					mechanism(
-						"one residual law, whose function is installed",
+						"one residual law, whose unit functions are installed",
 						fx.installed.installation.laws.residuals.length === 1 &&
-							objects.functions.includes(namesOf(fx.installed).residual(law).function),
+							Arr.every(namesOf(fx.installed).residual(law).units, (u) =>
+								objects.functions.includes(u.function)
+							),
 						`${Arr.join(
 							Arr.map(fx.installed.installation.laws.residuals, (r) => r.lawId),
 							", "

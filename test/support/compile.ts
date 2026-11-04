@@ -13,6 +13,7 @@ import {
 	lowerOptimized,
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 
 import {
 	compileQuery,
@@ -34,6 +35,7 @@ import {
 	type LoginWorkloads,
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
+import { printStatement } from "#compiler/sql/print.ts"
 import type { CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { checkedLowering, templateLowering } from "#test/support/oracle/verify/index.ts"
 
@@ -222,3 +224,7 @@ export const paramTexts = (
 				)
 		}
 	})
+
+/** An installation's script as the driver sends it: each statement's text, in install order. */
+export const installationSql = (installation: Installation): ReadonlyArray<string> =>
+	Arr.map(installation.statements, (statement) => printStatement(statement))

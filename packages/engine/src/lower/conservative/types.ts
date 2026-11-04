@@ -25,6 +25,7 @@ import type {
 	RecordsetPlaceholder,
 	Select,
 	TypeRef,
+	TypeSchema,
 	ValuePlaceholder
 } from "#compiler/sql/ast.ts"
 import type { CarrierName, NameSupply } from "#compiler/sql/naming.ts"
@@ -36,12 +37,12 @@ export interface PhysicalNames {
 	readonly column: (relation: string, field: string) => ColumnIdent
 	/** The enum type of a closed roster, by its declared name: the naming door's (core/identity.ts identity.enumType). */
 	readonly enumType: (closed: DeclaredName) => {
-		readonly schema: string
+		readonly schema: TypeSchema
 		readonly name: RelationIdent
 	}
 	/** The domain of a contract, by its declared name: the naming door's (core/identity.ts identity.contractDomain). */
 	readonly contractDomain: (contract: DeclaredName) => {
-		readonly schema: string
+		readonly schema: TypeSchema
 		readonly name: DomainName
 	}
 	/**
@@ -50,9 +51,9 @@ export interface PhysicalNames {
 	 */
 	readonly textDomain: (
 		regex: RegexRef
-	) => { readonly schema: string; readonly name: DomainName } | undefined
-	/** The schema the vector extension lives in (`vector_ext` on the local cluster). */
-	readonly vectorSchema: string
+	) => { readonly schema: TypeSchema; readonly name: DomainName } | undefined
+	/** The schema the vector extension lives in (`vector_ext` on the local cluster), the schema of its vector type. */
+	readonly vectorSchema: TypeSchema
 	/**
 	 * The installation's refusal function (write/refusal.ts), which a context source raises an unreadable claims
 	 * setting through (sql/print.ts contextClaims).

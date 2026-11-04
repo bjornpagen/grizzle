@@ -8,7 +8,9 @@ import { terminationCertificate } from "#compiler/check/recursion/termination.ts
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { recursionMaxStates } from "#compiler/core/policy.ts"
+import type { RelNode } from "#compiler/ir/rel.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import { counterDepth, counterInterval, reachable } from "#compiler/lower/shapes/recursion/bound.ts"
 
 /** The location of a list's one member, or `fallback` for a list of none or several. */
 const only = (list: ReadonlyArray<{ readonly loc: SourceLoc }>, fallback: SourceLoc): SourceLoc =>
@@ -79,7 +81,7 @@ export const recursion: RecursionPlugin = {
 		const origin = state
 			.filter((c) => !row.has(c.name) || correlation.has(c.name))
 			.map((c) => c.name)
-		const base = conform(cx, def.name, baseNode, state, "base", only(arms.base, baseLoc))
+		const base = conform(cx, def.name, baseNode, state, "base", only(arms.base, baseLoc), new Map())
 		const { rec } = arms
 		if (!isNonEmpty(rec)) {
 			return base
@@ -92,7 +94,15 @@ export const recursion: RecursionPlugin = {
 			originParents(stage, origin, baseLoc)
 		)
 		const stepNode = cx.arms([stepRule], scope, recLoc, self)
-		const step = conform(cx, def.name, stepNode, state, "rec", only(rec, recLoc))
+		const step = conform(
+			cx,
+			def.name,
+			stepNode,
+			state,
+			"rec",
+			only(rec, recLoc),
+			stateCounters(base, stepNode, self, state)
+		)
 		const termination = terminationCertificate({
 			def,
 			row,
@@ -109,4 +119,26 @@ export const recursion: RecursionPlugin = {
 			loc
 		)
 	}
+}
+
+/**
+ * The interval every bounded counter of a recursion's state computes, by state column (bound.ts counterInterval): what
+ * proves an exact step `c + k` fits the column it narrows into, with no guard of the author's.
+ */
+const stateCounters = (
+	base: RelNode,
+	step: RelNode,
+	self: RelNode,
+	state: Heading
+): ReadonlyMap<string, readonly [bigint, bigint]> => {
+	const labels = new Map(reachable([base, step]).map((n) => [n.id, n] as const))
+	const parts = { base, step, self, heading: state }
+	const out = new Map<string, readonly [bigint, bigint]>()
+	for (const c of state) {
+		const analysis = counterDepth(labels, parts, c.name)
+		if (analysis.kind === "bounded") {
+			out.set(c.name, counterInterval(analysis.proof))
+		}
+	}
+	return out
 }

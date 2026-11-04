@@ -58,12 +58,10 @@ import {
 	modalDay,
 	modeOfDays,
 	ordinalPerStudent,
-	pointGroupKind,
 	pointsPerCohort,
 	roomPercentile,
 	runningPerStudent,
-	runningQualified,
-	slopes
+	runningQualified
 } from "#bench/query/support/lab.ts"
 
 import {
@@ -75,6 +73,7 @@ import {
 	rowsReadFrom,
 	scansOf
 } from "#bench/query/support/plans.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import type { Expr, FunctionCall, WindowSpec } from "#compiler/sql/ast.ts"
@@ -82,7 +81,7 @@ import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 
 /**
- * R08, R24, R26, R28-R32 and R41: aggregates and the compile-target catalog against handwritten native SQL.
+ * R08, R24, R26, R28-R31 and R41: aggregates and the compile-target catalog against handwritten native SQL.
  *
  * Every catalog entry is measured three ways on the Lab fixture (support/lab.ts): the generated statement, which the
  * catalog rewrites to its native target; the conservative lowering, which is the composition itself (the self-join and
@@ -101,8 +100,6 @@ import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
  *   p = 0.07, which is not dyadic and where the native aggregate takes the eighth value and the composition the
  *   seventh, and p = 0, where the native aggregate returns the first value and the composition none; neither is
  *   rewritten, both agree with the composition, and handwritten percentile_disc differs, so each counterexample is live.
- * - R32 (:353): agreement on random double-precision groups, the arm disagreement on near-degenerate groups recorded as
- *   a measure, exactly degenerate groups on the zero arm, and no NULL delivered for any group.
  * - R08 (contract): the direct join and grouping against the handwritten direct and pre-aggregated shapes,
  *   and the counterexample that binding without the key changes the contributions, so a bag sum or a sum over DISTINCT
  *   argument is wrong.
@@ -113,7 +110,7 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly samples: number
 }
 
-type Gates = "R08" | "R24" | "R26" | "R28" | "R29" | "R30" | "R31" | "R32" | "R41"
+type Gates = "R08" | "R24" | "R26" | "R28" | "R29" | "R30" | "R31" | "R41"
 
 /** The tolerance the double-precision catalog entries agree within: an absolute difference of their values. */
 const tolerance = 1e-9
@@ -162,18 +159,15 @@ const uncast = (e: Expr): Expr => (e.kind === "cast" ? uncast(e.expr) : e)
 
 const decodeOneText = Schema.decodeUnknownResult(Schema.Array(Schema.Tuple([Schema.String])))
 
-const ofKind = (texts: Keyed, kind: ReturnType<typeof pointGroupKind>) =>
-	Arr.filter(texts.pairs, ([grp]) => pointGroupKind(Number(grp)) === kind)
-
 /** @internal */
 export default defineGate({
 	name: "query-catalog",
-	gates: ["R08", "R24", "R26", "R28", "R29", "R30", "R31", "R32", "R41"],
+	gates: ["R08", "R24", "R26", "R28", "R29", "R30", "R31", "R41"],
 	title:
 		"Aggregates and the compile-target catalog against their compositions and handwritten native SQL",
 	scope:
 		"Conditional aggregates (R24), ordinals and running aggregates (R26, R41), shares (R28), discrete and continuous " +
-		"percentiles and the mode (R29-R31), the regression slope (R32), and aggregation over a join (R08), each delivered " +
+		"percentiles and the mode (R29-R31), and aggregation over a join (R08), each delivered " +
 		"as the catalog's native form and as the composition, and compared with handwritten window and ordered-set SQL.",
 	phases: queryPhases,
 	options: {
@@ -188,10 +182,8 @@ export default defineGate({
 			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b catalog runtime")
 			const raw = yield* rawSession(fx, fx.world.app, "m15b catalog raw")
 			const sitting = fx.relationName("Sitting")
-			const point = fx.relationName("Point")
 			const S = fx.table("Sitting")
 			const St = fx.table("Student")
-			const P = fx.table("Point")
 			const s = (f: string) => fx.column("Sitting", f)
 			const data = labData(size)
 			const sittings = labSittings(size)
@@ -669,7 +661,7 @@ export default defineGate({
 				const plan = planOf(m.generated, 0)
 				return scansOf(plan, sitting).length === 1 && !nodeTypes(plan).has("WindowAgg")
 			}
-			cases.push(
+			appendAll(cases, [
 				{
 					name: "discrete percentiles 1/2 and 1/4 of each student's scores",
 					gates: ["R29"],
@@ -764,7 +756,7 @@ export default defineGate({
 					loads: {},
 					measures: { sittingScansGenerated: scansOf(planOf(modeM.generated, 0), sitting).length }
 				}
-			)
+			])
 			const r29: VerdictInput = {
 				checks: [
 					mechanism(
@@ -823,143 +815,6 @@ export default defineGate({
 						`${modeM.generated.result.rows} generated rows, ${modeHand.result.rows} handwritten`
 					),
 					agrees("the uncorrelated mode agrees with its composition", modeAllM)
-				]
-			}
-
-			/** R32. */
-			const slope = compile(fx, slopes, reading)
-			const slopeM = yield* measureQuery(runtime, raw, slope, {}, measure)
-			const slopeHandSpec = handwritten(
-				"handwritten regr_slope",
-				[
-					{
-						sql: handwrittenRows(
-							headingOf(slope),
-							`SELECT ${fx.column("Point", "grp")} AS grp, CASE WHEN regr_sxx(${fx.column("Point", "y")}, ${fx.column("Point", "x")}) > 0::float8 ` +
-								`THEN regr_slope(${fx.column("Point", "y")}, ${fx.column("Point", "x")}) ELSE 0::float8 END AS slope FROM ${P} GROUP BY ${fx.column("Point", "grp")}`
-						),
-						params: []
-					}
-				],
-				autocommit
-			)
-			const slopeHand = yield* measureVariant(raw, slopeHandSpec, handOptions)
-			const gi = columnAt(slope, "grp")
-			const si = columnAt(slope, "slope")
-			const slopeGenerated = keyedTexts(
-				yield* textRowsOf(raw, slopeM.delivered.generated.statements),
-				gi,
-				si
-			)
-			const slopeComposed = keyedTexts(
-				yield* textRowsOf(raw, slopeM.delivered.conservative.statements),
-				gi,
-				si
-			)
-			const slopeHandRows = keyedTexts(yield* textRowsOf(raw, slopeHandSpec.statements), gi, si)
-			/** Agreement is required on the random groups, the well-conditioned ones. */
-			const randomAgreement = within(tolerance)(
-				ofKind(slopeGenerated, "random"),
-				ofKind(slopeComposed, "random")
-			)
-			const randomCounts = agreementCounts(
-				tolerance,
-				ofKind(slopeGenerated, "random"),
-				ofKind(slopeComposed, "random")
-			)
-			const everyGroup = agreementCounts(tolerance, slopeGenerated.pairs, slopeComposed.pairs)
-			const degenerate = ofKind(slopeGenerated, "degenerate")
-			const composedDegenerate = ofKind(slopeComposed, "degenerate")
-			/**
-			 * On near-degenerate groups the composed denominator and REGR_SXX are different roundings of a quantity near zero,
-			 * so a group can fall in the other arm: the disagreement is recorded, never required away.
-			 */
-			const nearGenerated = ofKind(slopeGenerated, "near")
-			if (nearGenerated.length === 0) {
-				throw GateSetupError.make({ what: "the fixture has no near-degenerate group" })
-			}
-			const nearComposed = new Map(ofKind(slopeComposed, "near"))
-			const nearCounts = agreementCounts(tolerance, nearGenerated, ofKind(slopeComposed, "near"))
-			const nearArmDisagreements = Arr.filter(
-				nearGenerated,
-				([grp, value]) => (value === "0") !== (nearComposed.get(grp) === "0")
-			).length
-			const handAgreement = within(tolerance)(
-				ofKind(slopeGenerated, "random"),
-				ofKind(slopeHandRows, "random")
-			)
-			const slopePlan = planOf(slopeM.generated, 0)
-			const slopeAggregates = aggregateNodes(slopePlan)
-			cases.push({
-				name: "regression slopes per group, random, degenerate and near-degenerate groups",
-				gates: ["R32"],
-				conditions: conditions({
-					workload:
-						"count and four sums per group, the slope arm guarded by a cond on the denominator",
-					schemaState: installed,
-					data,
-					parameters: { tolerance },
-					semantics:
-						"per group, the least-squares slope of y on x, zero where the denominator is not positive",
-					cache: warm
-				}),
-				phases: {},
-				variants: [slopeM.generated, slopeM.conservative, slopeHand],
-				comparisons: [compareVariants(slopeM.generated, slopeHand)],
-				transactions: {},
-				loads: {},
-				measures: {
-					groups: everyGroup.keys,
-					randomGroups: randomCounts.keys,
-					exactGroups: randomCounts.exact,
-					roundingGroups: randomCounts.withinTolerance,
-					disagreeingGroups: randomCounts.outside,
-					maxAbsDifference: randomCounts.maxAbsDifference,
-					degenerateGroups: degenerate.length,
-					nearDegenerateGroups: nearGenerated.length,
-					nearArmDisagreements,
-					nearArmDisagreementRate: nearArmDisagreements / nearGenerated.length,
-					nearOutsideTolerance: nearCounts.outside,
-					nearMaxAbsDifference: nearCounts.maxAbsDifference
-				}
-			})
-			const r32: VerdictInput = {
-				checks: [
-					mechanism(
-						"the guarded native form is one grouped pass",
-						slopeAggregates.length === 1 &&
-							Arr.every(slopeAggregates, (agg) => scansOf(agg, point).length === 1) &&
-							scansOf(slopePlan, point).length === 1 &&
-							has(shapeOf(optimizedStatement(slope, 0).ast), "aggregate regr_slope"),
-						outline(slopePlan, 0)
-					),
-					mechanism(
-						"no NULL is delivered for any group",
-						slopeGenerated.nulls === 0 &&
-							slopeComposed.nulls === 0 &&
-							slopeM.delivered.generated.rows.length === everyGroup.keys &&
-							everyGroup.unmatched === 0 &&
-							everyGroup.repeated === 0,
-						`${slopeGenerated.nulls} and ${slopeComposed.nulls} NULL rows; ${everyGroup.keys} groups, ${everyGroup.unmatched} unmatched, ${everyGroup.repeated} repeated`
-					),
-					equivalence(
-						"regr_slope agrees with the composition on every random group up to rounding",
-						randomCounts.keys > 0 && Option.isNone(randomAgreement),
-						Option.getOrElse(randomAgreement, () => `${randomCounts.keys} groups agree`)
-					),
-					equivalence(
-						"exactly degenerate groups take the zero arm in both forms",
-						degenerate.length > 0 &&
-							Arr.every(degenerate, ([, value]) => value === "0") &&
-							composedDegenerate.length === degenerate.length &&
-							Arr.every(composedDegenerate, ([, value]) => value === "0"),
-						`${degenerate.length} generated, ${composedDegenerate.length} composed degenerate groups`
-					),
-					equivalence(
-						"regr_slope agrees with the handwritten guarded form up to rounding",
-						slopeHandRows.nulls === 0 && Option.isNone(handAgreement),
-						`${slopeHandRows.nulls} NULL rows; ${Option.getOrElse(handAgreement, () => "agree")}`
-					)
 				]
 			}
 
@@ -1105,7 +960,6 @@ export default defineGate({
 					R29: r29,
 					R30: r30,
 					R31: r31,
-					R32: r32,
 					R41: r41
 				}
 			}

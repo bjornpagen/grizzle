@@ -7,11 +7,14 @@ import {
 	type Run,
 	type SearchFailure
 } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { rating, required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import type { Swarm } from "@grizzle/testing/swarm"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import type { Conversion, Stitch } from "#test/pg/oracle/public/planted.ts"
 import { type Disagreement, runCase } from "#test/pg/oracle/public/run.ts"
+import { declineFeatures } from "#test/pg/oracle/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import { type PlannerSetting, unperturbed } from "#test/support/oracle/perturb.ts"
 import { indices } from "#test/support/oracle/pick.ts"
@@ -19,6 +22,7 @@ import {
 	type CaseSketch,
 	caseSketchGen,
 	mixedForms,
+	plantedNameCount,
 	type Population,
 	type ProgramFeature,
 	programForms,
@@ -27,11 +31,13 @@ import {
 } from "#test/support/oracle/public/generate.ts"
 import type {
 	AggregateFn,
+	FieldKind,
 	NameKind,
 	Operand,
 	ParentColumn,
 	StatedDelivery
 } from "#test/support/oracle/public/program.ts"
+import type { DeclineReason } from "#test/support/oracle/reference/values.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -47,7 +53,7 @@ export type PublicSuite = "public" | "public/planted-stitch" | "public/planted-c
 export const cases = 80
 
 /** The suite's required features, and every program form the generator draws: each must be reached on every run. */
-const required = [
+const situations = [
 	"attachment fused",
 	"attachment pipelined",
 	"attachment nested",
@@ -58,6 +64,16 @@ const required = [
 	"arm none",
 	"two spellings among parent keys",
 	"pipelined attachment over two spellings of one parent key",
+	"fused attachment over two spellings of one parent key",
+	"a vector parent key stored with a -0 component",
+	"a collapse over two stored spellings of one value",
+	"a display-scale reading over a collapsed or padded value",
+	"a padded term at a collapse",
+	"padded mean",
+	"facts by a direct writer",
+	"facts reordered on a second reading",
+	"a fact respelled on a second reading",
+	"key of float8",
 	"get some",
 	"get none",
 	"get refused: not proved at most one row",
@@ -77,12 +93,14 @@ const required = [
  * deliveries the runtime chose, and every program feature of its query reads.
  */
 export type PublicFeature =
-	| (typeof required)[number]
+	| (typeof situations)[number]
 	| `name ${NameKind}`
 	| `planner ${PlannerSetting}`
 	| `bind ${Operand<ParentColumn>["kind"]}`
 	| `compare ${CompareOp} ${Operand<never>["kind"]}`
 	| `aggregate ${AggregateFn}`
+	| `declined ${DeclineReason}`
+	| `key of ${FieldKind}`
 	| `stated ${StatedDelivery["kind"]}`
 	| `attachment ${"fused" | "pipelined"}`
 	| "candidate key"
@@ -100,7 +118,6 @@ export type PublicFeature =
 	| "attachments, several"
 	| "attachment"
 	| "attachment nested"
-	| "fused attachment over two spellings of one parent key"
 	| "pages, several"
 	| ProgramFeature
 
@@ -121,7 +138,7 @@ const match = (source: number, derived: number): MatchSketch => ({
 	attached: 0,
 	binds: Arr.map(indices(7), () => ({ how: 0, pick: 0, value: floorValue }))
 })
-const head = { vars: [], names: zeros(6), folds: [{ fn: 0, arg: 0 }] } as const
+const head = { vars: [], names: zeros(6), folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }] } as const
 const negation = { source: 0, picks: zeros(2) } as const
 const read = (
 	matches: ReadonlyArray<MatchSketch>,
@@ -135,6 +152,7 @@ const read = (
 		inSet: [],
 		allen: [],
 		pointIn,
+		connective: [],
 		computed: [],
 		negation,
 		head,
@@ -175,11 +193,19 @@ const caseSketch = (
 	population,
 	swarm,
 	perturbation: unperturbed,
+	ambient: ordinarySession,
+	restorage: { shift: 0, respell: 0 },
 	roster: 0,
 	span: 0,
 	relations,
 	reads,
-	planted: { names: zeros(19), value: floorValue, handle: 0, side: { kind: 0, values: zeros(3) } }
+	planted: {
+		names: zeros(plantedNameCount),
+		value: floorValue,
+		handle: 0,
+		padding: 0,
+		side: { kind: 0, values: zeros(3) }
+	}
 })
 
 /**
@@ -197,6 +223,7 @@ const forms = {
 	"computed group key": 3,
 	between: 3,
 	"in set": 3,
+	connective: 3,
 	"relation param": 3,
 	recursive: 3,
 	where: 3,
@@ -211,13 +238,14 @@ const forms = {
 
 /**
  * The planted population's case (generate.ts plantedCase), whose key reads get a stored fact, a key no fact holds and a
- * roster handle, which the drawn populations reach a few times a run (key get some 4 and 6 of 100 on two runs, none 2
- * and 8, closed some 4 and 1). And cases of the form-directed population that read an earlier read's import bound to a
- * parameter and to an outer variable, a recursive closure and a point in a span, each in a read that delivers rows,
- * which drawn cases reach 4 to 8 times a run each: each the sketch an offline search over that population shrank, given
- * two facts per relation and a read of the form the reference delivers rows for.
+ * roster handle. And cases of the form-directed population that read an earlier read's import bound to a parameter and
+ * to an outer variable, a recursive closure and a point in a span, each in a read that delivers rows: each the sketch an
+ * offline search over that population shrank, given two facts per relation and a read of the form the reference
+ * delivers rows for. And issue #3's two acceptance cases (generate.ts acceptanceCollapse and acceptanceMean): its shrunk
+ * case under its stated perturbation, and the mean over one value in two spellings under every planner setting, each
+ * read again over its facts in the other order (its restorage), both judged by the one exact check.
  *
- * A planted case resolves drawing nothing. A form-directed case draws, in the order its resolution asks: a decision
+ * A planted or acceptance case resolves drawing nothing. A form-directed case draws, in the order its resolution asks: a decision
  * keeping or leaving each place a feature of weight 1 or 2 could appear (0 leaves it), and one choosing each binding's
  * mode among the modes the swarm turns on, in proportion to their weights (0 the first that is on).
  */
@@ -227,6 +255,47 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
 		sketch: caseSketch("planted", {}, [relation([0], [])], []),
 		draws: "",
 		reaches: ["key get some", "key get none", "key get closed some"]
+	},
+	{
+		note: "issue #3's shrunk case: Task's 0 in two spellings, collapsed under its plan",
+		sketch: {
+			...caseSketch("acceptance collapse", {}, [relation([0], [])], []),
+			perturbation: {
+				settings: [
+					"enable_hashjoin = off",
+					"enable_sort = off",
+					"plan_cache_mode = force_generic_plan"
+				],
+				multiplier: 1
+			}
+		},
+		draws: "",
+		reaches: ["facts by a direct writer", "attachment nested", "stated option"]
+	},
+	{
+		note: "issue #3's mean over 0 at display scale 24, 0, 1 and 3, under every setting",
+		sketch: {
+			...caseSketch("acceptance mean", {}, [relation([0], [])], []),
+			perturbation: {
+				settings: [
+					"enable_hashjoin = off",
+					"enable_mergejoin = off",
+					"enable_sort = off",
+					"debug_parallel_query = regress",
+					"plan_cache_mode = force_generic_plan",
+					"parallel_setup_cost = 0",
+					"parallel_tuple_cost = 0",
+					"min_parallel_table_scan_size = 0"
+				],
+				multiplier: 1
+			}
+		},
+		draws: "",
+		reaches: [
+			"facts by a direct writer",
+			"a collapse over two stored spellings of one value",
+			"a display-scale reading over a collapsed or padded value"
+		]
 	},
 	{
 		note: "an earlier read imported, bound to a parameter and to an outer variable",
@@ -283,8 +352,18 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
  * - an attachment fused into its parent's statement, one pipelined as a statement of its own, and a nested one;
  * - each stated delivery the decoder binds: an Option, the one child, and an arm read Some and None by its parent's
  *   handle, each licensed by the analysis and kept by the reference;
- * - two parents whose keys are equal but spelled differently (1.0 and 1.00), with children, under a pipelined
- *   attachment: the stitch by key must use the type's equality, not the text;
+ * - facts stored by a direct SQL writer at SERIALIZABLE, each value in its drawn input spelling, since db.apply stores
+ *   every value in its one form;
+ * - two parents whose keys are equal but stored in different spellings (1.0 and 1.00), with children, under a
+ *   pipelined and under a fused attachment, and a vector key stored with -0 components: the stitch by key must use
+ *   the type's equality, not the text;
+ * - one value in two stored spellings collapsed into one row, a padding (a cast to numeric(1000, s) and back) at a
+ *   collapse, a display-scale reading (a quotient, a root, a power or a mean) over either, and a mean of a padding:
+ *   a value is only its value, whatever its display scale, so every one is delivered exactly as the reference states
+ *   it;
+ * - every read read again over its facts stored otherwise, another order through a fresh load and one value
+ *   respelled, exactly as it first answered;
+ * - a key over double precision, whose 0 and -0 are one value and NaN equal to itself;
  * - db.get answering some and none over a query proved at most one row, and refusing one it cannot prove so; db.get
  *   over a primary or candidate key, some and none;
  * - an ordered root paged forward and backward;
@@ -314,13 +393,15 @@ const exploration = (
 			suite,
 			draw: drawn(caseSketchGen),
 			literal: Formatter.format,
-			features: features<PublicFeature>(required),
+			coverage: rating(
+				required<PublicFeature>(situations, { cases: cases, sense: notesOnly }),
+				declineFeatures
+			),
 			kept: planted,
 			runs: cases,
 			shrink: { kind: "bounded", candidates: 150 },
 			concurrency: 1,
 			steerEvery: 16,
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2)
 		},
 		(sketch, c) =>

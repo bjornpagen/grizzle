@@ -68,11 +68,11 @@ export const rawContract = (
 	name: string,
 	base: FieldBase,
 	predicate: OpenExpr
-): ReturnType<typeof admitContract> => admitContract(name, base, () => predicateValue(predicate))
+): ReturnType<typeof admitContract> => admitContract(name, base, [() => predicateValue(predicate)])
 
 /** A contract with no predicate: a name over its base. */
 export const bareContract = (name: string, base: FieldBase): ReturnType<typeof admitContract> =>
-	admitContract(name, base)
+	admitContract(name, base, [])
 
 export const closedId = (roster: AnyClosed) => admittedClosedId(roster)
 

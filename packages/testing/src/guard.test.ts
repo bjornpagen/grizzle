@@ -3,7 +3,7 @@ import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Deferred, Duration, Effect, Formatter, Option, Schema } from "effect"
 import { drawn, explore } from "#explore.ts"
 import { awaitFact } from "#fact.ts"
-import { features } from "#features.ts"
+import { required } from "#features.ts"
 import { array, element, type Gen, int } from "#gen.ts"
 import {
 	closed,
@@ -16,6 +16,7 @@ import {
 	workedBy
 } from "#guard.ts"
 import { liveMillis } from "#live.ts"
+import { notesOnly } from "#sense.ts"
 import { searched } from "#vitest/searched.ts"
 
 /** A step of a hook's life: time passing, then a wait opening or closing, or nothing. */
@@ -99,18 +100,20 @@ describe("a guarded hook", () => {
 						suite: "guard/meter",
 						draw: drawn(array(stepGen, { min: 0, max: 12 })),
 						literal: Formatter.format,
-						features: features<MeterFeature>([
-							"a wait nested in another",
-							"work between two waits",
-							"a wait still open at the end",
-							"work after the last wait"
-						]),
+						coverage: required<MeterFeature>(
+							[
+								"a wait nested in another",
+								"work between two waits",
+								"a wait still open at the end",
+								"work after the last wait"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: { kind: "bounded", candidates: 200 },
 						concurrency: 1,
 						steerEvery: 400,
-						steering: { kind: "none" },
 						caseHang: Duration.seconds(10)
 					},
 					(steps, c) =>

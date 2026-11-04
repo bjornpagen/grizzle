@@ -12,6 +12,7 @@ import {
 	orgB,
 	tenantOf
 } from "#test/schedules/worlds/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, judged, runStep } from "#test/support/worlds/drive/index.ts"
@@ -144,7 +145,7 @@ const holders: Arr.NonEmptyReadonlyArray<Holder> = [
 const fenceSchedule = (holder: Holder) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const world = yield* realize(docsInstall)
+		const world = yield* realize(docsInstall, ordinarySession)
 		yield* world.reset(reality)
 		const start = yield* checkStart(world, initialState(docsInstall, world.names, reality))
 		const opened = yield* runStep(world, start, annDb, 0, unnoted)

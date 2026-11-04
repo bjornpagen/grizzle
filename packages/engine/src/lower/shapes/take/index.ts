@@ -1,5 +1,6 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { atMost } from "#compiler/ir/cardinality.ts"
 import { makeCertificate } from "#compiler/ir/certificate.ts"
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
@@ -38,6 +39,9 @@ import {
 	conjunction,
 	core,
 	derived,
+	distinctCore,
+	distinctCoreWhen,
+	distinctOnCore,
 	le,
 	select,
 	target,
@@ -526,7 +530,7 @@ const certify = (facts: ShapeFacts, take: NodeOf<"Take">, shape: TakeShape): voi
 /** The input of a take read as a derived table, with the scope its expressions see. */
 const takeInput = (cx: LowerContext, node: NodeOf<"Take">, env: Env) => {
 	const input = cx.source(node.input, env)
-	return { input, scope: extendEnv(env, [node.input.id, input.map]) }
+	return { input, scope: extendEnv(env, [[node.input.id, input.map]]) }
 }
 
 /** The equalities of `correlations`, some of the take's, each a column of its heading, which is its input's. */
@@ -607,10 +611,14 @@ export const takeLowerer =
 			fixed: []
 		})
 		return {
-			...select({
-				...core(headingTargets(node.heading, input.map), [input.item], conjunction(where)),
-				distinct
-			}),
+			...select(
+				distinctCoreWhen(
+					distinct,
+					headingTargets(node.heading, input.map),
+					[input.item],
+					conjunction(where)
+				)
+			),
 			orderBy,
 			limit: cx.boundExpr(node.bound)
 		}
@@ -632,9 +640,10 @@ const partitionExprs = (spec: PerGroupSpec): ReadonlyArray<Expr> =>
 
 /**
  * SELECT DISTINCT ON (r2.c1) r2.c1, r2.c2 FROM (<input>) AS r2(c1, c2) ORDER BY r2.c1, r2.c2 DESC. The
- * first row per key under the total order; repeats of that row collapse into it, so the input needs no DISTINCT.
+ * first row per key under the total order; repeats of that row collapse into it, so the input needs no DISTINCT. With
+ * no key every row is of the one group, whose first row is the input's under the order, LIMIT 1.
  */
-const distinctOnPerGroup = (facts: ShapeFacts, spec: PerGroupSpec): Select => {
+const distinctOnPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSpec): Select => {
 	const { node, input } = spec
 	const on = partitionExprs(spec)
 	const orderBy: ReadonlyArray<OrderItem> = orderItemsOf(node.order, node.heading, input.map, {
@@ -642,13 +651,11 @@ const distinctOnPerGroup = (facts: ShapeFacts, spec: PerGroupSpec): Select => {
 		total: orderIsTotal(facts, node.input, node.order, node.heading),
 		fixed: []
 	})
-	return {
-		...select({
-			...core(headingTargets(node.heading, input.map), [input.item], conjunction(spec.filters)),
-			distinct: { on }
-		}),
-		orderBy
-	}
+	const targets = headingTargets(node.heading, input.map)
+	const where = conjunction(spec.filters)
+	return isNonEmpty(on)
+		? { ...select(distinctOnCore(on, targets, [input.item], where)), orderBy }
+		: { ...select(core(targets, [input.item], where)), orderBy, limit: cx.boundExpr(node.bound) }
 }
 
 /**
@@ -668,10 +675,9 @@ const rowNumberPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSp
 	let filters = spec.filters
 	const unique = facts.unique(node.input)
 	if (!unique) {
-		const deduplicated = select({
-			...core(headingTargets(node.heading, input.map), [input.item], conjunction(filters)),
-			distinct: true
-		})
+		const deduplicated = select(
+			distinctCore(headingTargets(node.heading, input.map), [input.item], conjunction(filters))
+		)
 		input = cx.wrap(deduplicated, node.heading, origin)
 		filters = []
 	}
@@ -726,7 +732,9 @@ export const decorrelatedTake = (
 	const filters = correlationPredicates(cx, node, local, input, scope)
 	const spec: PerGroupSpec = { node, input, partition: outer.map((c) => c.column), filters }
 	const query =
-		shape === "distinctOn" ? distinctOnPerGroup(facts, spec) : rowNumberPerGroup(cx, facts, spec)
+		shape === "distinctOn"
+			? distinctOnPerGroup(cx, facts, spec)
+			: rowNumberPerGroup(cx, facts, spec)
 	certify(facts, node, shape)
 	return { query, joins: outer.map((c) => ({ column: c.column, expr: c.expr })) }
 }

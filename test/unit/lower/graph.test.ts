@@ -1,20 +1,13 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, type GenValue, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { printsAlike } from "#compiler/codec/scalar.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
@@ -35,13 +28,12 @@ import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { assert, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import { genCatalog, ownedSchemaFixture } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
-import { spellingChoiceCount, valueClasses } from "#test/support/oracle/gen/domain.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import {
 	defaultRecursiveLimits,
@@ -56,7 +48,6 @@ import {
 	vertexKinds
 } from "#test/support/oracle/gen/recursive.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { T } from "#test/unit/lower/conservative/fixtures.ts"
 import { nodeOfKind, present } from "#test/unit/lower/support.ts"
 
 /**
@@ -66,13 +57,11 @@ import { nodeOfKind, present } from "#test/unit/lower/support.ts"
  * - A carried column is a state column the step delivers unchanged from the state it extends: over generated
  *   recursions, exactly the origin the generator's recursion keeps (a walk's or reach's origin column, a pair closure's
  *   fixed end), never the advanced endpoint or a computed counter; and every generated recursion is positive linear.
- * - printsAlike holds exactly for the types whose equal values have one spelling: over every type of the ledger
- *   fixture, against the generator's value classes, the spellings PostgreSQL's native equality makes equal.
- * - A predicate moves into a recursion's seed exactly when it reads only a carried column of a type that prints alike
- *   and the recursion has no other reader: over generated origin filters by vertex type, and over a planted
+ * - A predicate moves into a recursion's seed exactly when it reads only a carried column and the recursion has no
+ *   other reader, whatever the column's type, a numeric or double precision one included: over generated origin filters by vertex type, and over a planted
  *   arrangement of the Network example (each recursion, column, spelling of the predicate and sharing), where a
  *   recursion also delivered as a root, or a second import left unfiltered, never moves; the pass is the identity where
- *   nothing moves and idempotent where something did. Over generated origin filters of a type that prints alike, the
+ *   nothing moves and idempotent where something did. Over generated origin filters of every vertex type, the
  *   recursion's seed applies the filter after the pass, whether the pass placed it there or the seed applied it
  *   already, and the pass is idempotent.
  */
@@ -125,20 +114,15 @@ describe("carried state columns (shapes/attach-recursive/carried.ts)", () => {
 						suite: "unit/lower/graph/carried",
 						draw: drawn(recursiveCaseGen({ ...defaultRecursiveLimits, consumers: ["state"] })),
 						literal: Formatter.format,
-						features: features<RecursiveFeature>([
-							"form:reach",
-							"form:walks",
-							"form:pairs",
-							"origin",
-							"left-linear",
-							"right-linear"
-						]),
+						coverage: required<RecursiveFeature>(
+							["form:reach", "form:walks", "form:pairs", "origin", "left-linear", "right-linear"],
+							{ cases: 60, sense: notesOnly }
+						),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c, note) =>
@@ -163,42 +147,12 @@ describe("carried state columns (shapes/attach-recursive/carried.ts)", () => {
 	)
 })
 
-describe("types that stand in for one another (codec/scalar.ts printsAlike)", () => {
-	it.effect("are exactly those whose every value class has one spelling", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/lower/graph/prints-alike",
-					generator: element(nonEmpty(Rec.toEntries(T), "the ledger fixture's types")),
-					literal: Formatter.format,
-					limit: 32,
-					features: features<"prints alike" | "spells equal values apart">([
-						"prints alike",
-						"spells equal values apart"
-					]),
-					caseHang: Duration.minutes(2)
-				},
-				([name, type], c) =>
-					Effect.sync(() => {
-						const oneSpelling = Arr.every(
-							valueClasses(type, true),
-							(spellings) => spellings.length === 1
-						)
-						assert.equal(printsAlike(type), oneSpelling, name)
-						c.note(oneSpelling ? "prints alike" : "spells equal values apart")
-					})
-			)
-		)
-	)
-})
-
 /** The Walks example: hops computed, the person advanced. */
 const Walks = query(Network).recursive("Walks", {
 	row: { person: uuid, hops: pg.integer },
 	base: [
 		(r) => {
-			const { id } = v(Person)
+			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("start", uuid)))
@@ -207,8 +161,8 @@ const Walks = query(Network).recursive("Walks", {
 	],
 	rec: [
 		(r, self) => {
-			const { person, hops } = v(self)
-			const { to } = v(Follows)
+			const { person, hops } = v(self, "self")
+			const { to } = v(Follows, "follows")
 			return r
 				.match(self, { person, hops })
 				.match(Follows, { from: person, to })
@@ -224,14 +178,14 @@ const Reach = query(Network).recursive("Reach", {
 	row: { origin: uuid, person: uuid },
 	base: [
 		(r) => {
-			const { id } = v(Person)
+			const { id } = v(Person, "person")
 			return r.match(Person, { id }).find({ origin: id, person: id })
 		}
 	],
 	rec: [
 		(r, self) => {
-			const { origin, person } = v(self)
-			const { to } = v(Follows)
+			const { origin, person } = v(self, "self")
+			const { to } = v(Follows, "follows")
 			return r
 				.match(self, { origin, person })
 				.match(Follows, { from: person, to })
@@ -260,8 +214,8 @@ const pushQuery = (column: Column, spelling: Spelling, twice: boolean): unknown 
 	switch (column) {
 		case "Reach.origin":
 			return query(Network).rule((r) => {
-				const { origin, person } = v(Reach)
-				const { origin: o2 } = v(Reach)
+				const { origin, person } = v(Reach, "reach")
+				const { origin: o2 } = v(Reach, "second")
 				const first =
 					spelling === "where"
 						? r.match(Reach, { origin, person }).where(r.eq(origin, r.param("p", uuid)))
@@ -272,8 +226,8 @@ const pushQuery = (column: Column, spelling: Spelling, twice: boolean): unknown 
 			})
 		case "Reach.person":
 			return query(Network).rule((r) => {
-				const { origin, person } = v(Reach)
-				const { person: p2 } = v(Reach)
+				const { origin, person } = v(Reach, "reach")
+				const { person: p2 } = v(Reach, "second")
 				const first =
 					spelling === "where"
 						? r.match(Reach, { origin, person }).where(r.eq(person, r.param("p", uuid)))
@@ -286,8 +240,8 @@ const pushQuery = (column: Column, spelling: Spelling, twice: boolean): unknown 
 			return query(Network).rule((r) => {
 				const walks = Walks.bind({ start: r.param("start", uuid) })
 				const again = Walks.bind({ start: r.param("start", uuid) })
-				const { person, hops } = v(walks)
-				const { person: p2 } = v(again)
+				const { person, hops } = v(walks, "walks")
+				const { person: p2 } = v(again, "again")
 				const first =
 					spelling === "where"
 						? r.match(walks, { person, hops }).where(r.eq(person, r.param("p", uuid)))
@@ -300,8 +254,8 @@ const pushQuery = (column: Column, spelling: Spelling, twice: boolean): unknown 
 			return query(Network).rule((r) => {
 				const walks = Walks.bind({ start: r.param("start", uuid) })
 				const again = Walks.bind({ start: r.param("start", uuid) })
-				const { person, hops } = v(walks)
-				const { hops: h2 } = v(again)
+				const { person, hops } = v(walks, "walks")
+				const { hops: h2 } = v(again, "again")
 				const first =
 					spelling === "where"
 						? r.match(walks, { person, hops }).where(r.eq(hops, Compute.literal(pg.integer, 2)))
@@ -374,7 +328,7 @@ const cases = <F extends RecursiveFeature | GraphFeature>(
 			sketch: {
 				graph: { ...firstGraphSketch, vertexKind: k.vertexKind },
 				recursion: { ...firstRecursionSketch, form: k.form, consumer: k.consumer },
-				spelling: Array.from({ length: spellingChoiceCount }, () => 0)
+				spelling: [0, 0, 0, 0, 0, 0, 0, 0]
 			},
 			draws: "",
 			reaches: k.reaches
@@ -392,7 +346,7 @@ const originFilterCases = cases<GraphFeature>(["originFilter"], recursiveCaseSke
 		vertexKind: vertexKinds.indexOf("float8"),
 		form: 0,
 		consumer: 0,
-		reaches: ["no rule over float8"]
+		reaches: ["the seed applies an origin filter over double precision"]
 	}
 ])
 
@@ -452,7 +406,7 @@ const restatedRoots: Kept<RecursiveCaseSketch, GraphFeature> = {
 		spelling: [0, 0, 0, 0, 0, 0, 0, 0]
 	},
 	draws: "",
-	reaches: ["the seed applies an origin filter of a type that prints alike"]
+	reaches: ["the seed applies an origin filter"]
 }
 
 describe("proved root pushdown (graph.seedPushdown)", () => {
@@ -481,7 +435,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 32,
-						features: features<PushFeature>([
+						coverage: requiredInSpace<PushFeature>([
 							"moved where",
 							"moved constant",
 							"kept where",
@@ -521,7 +475,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 	)
 
 	it.effect(
-		"on generated cases, applies an origin filter of a type that prints alike in the seed, and fires on nothing else",
+		"on generated cases, applies an origin filter of every vertex type in the seed, and fires on nothing else",
 		(ctx) =>
 			searched(
 				ctx,
@@ -536,20 +490,17 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
-							features: features<GraphFeature>([
-								"the seed applies an origin filter of a type that prints alike",
-								"no rule over float8"
-							])
+							coverage: required<GraphFeature>(
+								[
+									"the seed applies an origin filter",
+									"the seed applies an origin filter over double precision"
+								],
+								{ cases: 60, sense: notesOnly }
+							)
 						},
 						(q, c) =>
 							Effect.sync(() => {
-								if (q.graph.kind === "float8") {
-									assert.deepEqual(graphRules(optimizedOf(q)), [], q.label)
-									c.note("no rule over float8")
-									return
-								}
 								const once = succeeded(graphPass.run(generatedQuery(q), caseContext(q)))
 								assert.deepEqual(
 									Arr.dedupe(seedApplications(once)),
@@ -561,7 +512,11 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 									once,
 									`${q.label}: idempotent`
 								)
-								c.note("the seed applies an origin filter of a type that prints alike")
+								c.note(
+									q.graph.kind === "float8"
+										? "the seed applies an origin filter over double precision"
+										: "the seed applies an origin filter"
+								)
 							})
 					),
 					explore(
@@ -598,13 +553,11 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
-							features: features<RecursiveFeature>([
-								"consumer:endFilter",
-								"consumer:endNe",
-								["consumer:minLength", "form:walks"]
-							])
+							coverage: required<RecursiveFeature>(
+								["consumer:endFilter", "consumer:endNe", ["consumer:minLength", "form:walks"]],
+								{ cases: 60, sense: notesOnly }
+							)
 						},
 						(q, c) =>
 							Effect.sync(() => {
@@ -618,10 +571,13 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 	)
 })
 
-/** Where a generated origin filter's vertex type let its recursion's seed apply it, and where it did not. */
+/**
+ * Where a generated origin filter's recursion's seed applied it: over any vertex type, and over double precision, the
+ * type the seed once refused because equal values could print apart.
+ */
 type GraphFeature =
-	| "the seed applies an origin filter of a type that prints alike"
-	| "no rule over float8"
+	| "the seed applies an origin filter"
+	| "the seed applies an origin filter over double precision"
 
 /** The pass context of a generated case: its own catalog. */
 const caseContext = (c: RecursiveCase) =>
@@ -654,7 +610,7 @@ const alikeByName = (x: ScalarExpr, y: ScalarExpr): boolean => {
 		case "op":
 			return y.kind === "op" && x.op === y.op
 		case "cast":
-			return y.kind === "cast" && x.checked === y.checked
+			return y.kind === "cast" && x.cast === y.cast
 		case "value":
 		case "domainCast":
 		case "cond":
@@ -670,7 +626,7 @@ const columnsRead = (e: ScalarExpr): ReadonlyArray<NodeId> =>
 const seedConjuncts = (r: NodeOf<"Recursive">): ReadonlyArray<ScalarExpr> => {
 	const out: Array<ScalarExpr> = []
 	for (let n = r.base; n.kind === "Filter"; n = n.input) {
-		out.push(...conjuncts(n.pred))
+		appendAll(out, conjuncts(n.pred))
 	}
 	return out
 }

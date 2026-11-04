@@ -5,6 +5,7 @@
 import {
 	absurd,
 	type Array as Arr,
+	type Brand,
 	type Cause,
 	Deferred,
 	Duration,
@@ -51,10 +52,20 @@ import {
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
+
+/** A statement of a reviewed migration file, minted where migrate/input.ts splits a file into its statements. */
+export type MigrationText = string & Brand.Brand<"MigrationText">
+
+/**
+ * SQL grizzle sends: printed from an AST by the engine (sql/emit.ts), or a reviewed migration file's own statement.
+ * Hand-written SQL is no SentText, so it never reaches the wire.
+ */
+export type SentText = EmittedText | MigrationText
 
 /** One statement of a flight: its SQL and its parameters' texts, in placeholder order. */
 export interface BatchStatement {
-	readonly sql: string
+	readonly sql: SentText
 	readonly params: ReadonlyArray<string>
 }
 

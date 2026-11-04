@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import type { Reached } from "@grizzle/testing/features"
+import type { Situations } from "@grizzle/testing/features"
 import { Array as Arr, String as Str } from "effect"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { reachingPastRefused } from "#test/support/worlds/drive/acting.ts"
@@ -61,7 +61,7 @@ const ofKinds = (prefix: string): ReadonlyArray<InvalidKind> =>
 	Arr.filter(invalidKinds, Str.startsWith(prefix))
 
 /** What the reads suite must reach. */
-const readsRequired: ReadonlyArray<Reached<WorldFeature>> = [
+const readsRequired: Situations<WorldFeature> = [
 	...requiredWhere(
 		(f) =>
 			opIn({ kinds: ["read"], writers: ["db"], observations: ["rows"] })(f) ||
@@ -75,7 +75,7 @@ const readsRequired: ReadonlyArray<Reached<WorldFeature>> = [
 ]
 
 /** What the writes suite must reach. */
-const writesRequired: ReadonlyArray<Reached<WorldFeature>> = [
+const writesRequired: Situations<WorldFeature> = [
 	...requiredWhere(
 		(f) =>
 			opIn({
@@ -127,15 +127,12 @@ const writesRequired: ReadonlyArray<Reached<WorldFeature>> = [
 const staleTokenRefused: WorldFeature = "op:open-db:inside:not-matching:db:open-refused"
 
 /** What the claims suite must reach. */
-const claimsRequired: ReadonlyArray<Reached<WorldFeature>> = [
-	...Arr.filter(
-		requiredWhere(
-			(f) =>
-				opIn({ kinds: ["open-db"], writers: ["db"], observations: ["opened", "open-refused"] })(
-					f
-				) || opIn({ kinds: ["read"], writers: ["db"], observations: ["rows"] })(f)
-		),
-		(r) => r !== staleTokenRefused
+const claimsRequired: Situations<WorldFeature> = [
+	...requiredWhere(
+		(f) =>
+			f !== staleTokenRefused &&
+			(opIn({ kinds: ["open-db"], writers: ["db"], observations: ["opened", "open-refused"] })(f) ||
+				opIn({ kinds: ["read"], writers: ["db"], observations: ["rows"] })(f))
 	),
 	...invalidFeatures(ofKinds("token:"))
 ]

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import { element, int, map, oneOf, uniqueArray } from "@grizzle/testing/gen"
 import {
 	type Broken,
@@ -15,6 +15,7 @@ import {
 	WILD_KINDS
 } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -49,6 +50,7 @@ import { assert, defined, lacks, nonEmpty, succeeded, throwsRefused } from "#tes
 import { parsedName } from "#test/support/kernel/naming.ts"
 
 import { regex } from "arkregex"
+import { argumentsOf } from "#test/support/list.ts"
 /** Every object's keys in order, at every depth. */
 const keyOrder = (value: unknown): unknown =>
 	Arr.isArray(value)
@@ -105,7 +107,7 @@ describe("alias identity", () => {
 							generator: element(nonEmpty(spellings, "the aliases")),
 							literal: Formatter.format,
 							limit: spellings.length,
-							features: features<(typeof aliasGroups)[number][0]>(
+							coverage: requiredInSpace<(typeof aliasGroups)[number][0]>(
 								Arr.map(aliasGroups, ([name]) => name)
 							),
 							caseHang: Duration.minutes(2)
@@ -160,7 +162,7 @@ describe("alias identity", () => {
 						},
 						literal: Formatter.format,
 						limit: (distinct.length * (distinct.length - 1)) / 2,
-						features: features<"a pair">(["a pair"]),
+						coverage: requiredInSpace<"a pair">(["a pair"]),
 						caseHang: Duration.minutes(2)
 					},
 					([i, j], c) =>
@@ -209,7 +211,7 @@ describe("alias identity", () => {
 							generator: element(fields),
 							literal: Formatter.format,
 							limit: fields.length,
-							features: features<"a descriptor">(["a descriptor"]),
+							coverage: requiredInSpace<"a descriptor">(["a descriptor"]),
 							caseHang: Duration.minutes(2)
 						},
 						(field, c) =>
@@ -288,18 +290,20 @@ describe("typmod validation", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<TypmodFeature | "arity">([
-							"admitted",
-							"refused",
-							"arity",
-							...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`)
-						]),
+						coverage: required<TypmodFeature | "arity">(
+							[
+								"admitted",
+								"refused",
+								"arity",
+								...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`)
+							],
+							{ cases: 2000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([dp, ds, arity], c) =>
@@ -319,10 +323,13 @@ describe("typmod validation", () => {
 									: undefined
 							if (expected === undefined) {
 								c.note("refused")
-								throwsRefused(() => pgDescriptors.numeric(...args), "MalformedDescription")
+								throwsRefused(
+									() => pgDescriptors.numeric(...argumentsOf(args)),
+									"MalformedDescription"
+								)
 							} else {
 								c.note("admitted")
-								const built = pgDescriptors.numeric(...args)
+								const built = pgDescriptors.numeric(...argumentsOf(args))
 								assert.deepEqual({ precision: built.precision, scale: built.scale }, expected)
 							}
 							if (arity === 2 && dp.kind === "live" && ds.kind === "live") {
@@ -348,7 +355,7 @@ describe("typmod validation", () => {
 						literal: Formatter.format,
 						/** The space: 64 integers and 3 other arguments. */
 						limit: 67,
-						features: features<"admitted" | "refused">(["admitted", "refused"]),
+						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
 						caseHang: Duration.minutes(2)
 					},
 					(precision, c) =>
@@ -396,18 +403,20 @@ describe("typmod validation", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					features: features<TypmodFeature>([
-						"admitted",
-						"refused",
-						...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`)
-					]),
+					coverage: required<TypmodFeature>(
+						[
+							"admitted",
+							"refused",
+							...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`)
+						],
+						{ cases: 1000, sense: notesOnly }
+					),
 					kept: [],
 					/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 					runs: 1000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([d, extra], c) =>
@@ -421,14 +430,11 @@ describe("typmod validation", () => {
 							dimensions <= 16000
 						) {
 							c.note("admitted")
-							admitVectorDimensions(dimensions)
+							admitVectorDimensions(dimensions, [])
 							assert.equal(pgDescriptors.vector(dimensions).dimensions, dimensions)
 						} else {
 							c.note("refused")
-							throwsRefused(
-								() => admitVectorDimensions(dimensions, ...extra),
-								"MalformedDescription"
-							)
+							throwsRefused(() => admitVectorDimensions(dimensions, extra), "MalformedDescription")
 						}
 					})
 			)
@@ -488,20 +494,22 @@ describe("typmod validation", () => {
 									] as const
 							),
 							literal: Formatter.format,
-							features: features<TypmodFeature | "endpoint integer" | "endpoint bigint">([
-								"admitted",
-								"refused",
-								...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`),
-								"endpoint integer",
-								"endpoint bigint"
-							]),
+							coverage: required<TypmodFeature | "endpoint integer" | "endpoint bigint">(
+								[
+									"admitted",
+									"refused",
+									...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`),
+									"endpoint integer",
+									"endpoint bigint"
+								],
+								{ cases: 1000, sense: notesOnly }
+							),
 							kept: [],
 							/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 							runs: 1000,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						([e, d, arity], c) =>
@@ -586,7 +594,11 @@ describe("span endpoint eligibility", () => {
 							]),
 							literal: Formatter.format,
 							limit: eligible.length + ineligible.length,
-							features: features<"range4" | "range8" | "refused">(["range4", "range8", "refused"]),
+							coverage: requiredInSpace<"range4" | "range8" | "refused">([
+								"range4",
+								"range8",
+								"refused"
+							]),
 							caseHang: Duration.minutes(2)
 						},
 						([endpoint, expected], c) =>
@@ -640,7 +652,7 @@ describe("serial family", () => {
 						]),
 						literal: Formatter.format,
 						limit: 3,
-						features: features<"int2" | "int4" | "int8">(["int2", "int4", "int8"]),
+						coverage: requiredInSpace<"int2" | "int4" | "int8">(["int2", "int4", "int8"]),
 						caseHang: Duration.minutes(2)
 					},
 					([field, carrier, plain], c) =>
@@ -686,19 +698,19 @@ describe("closedId", () => {
 						)
 					})),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ name, other, handles }) =>
 					Effect.sync(() => {
 						const [first, ...rest] = handles
-						const roster = closed(name, [defined(first, "a handle"), ...rest])
+						const listed: Arr.NonEmptyReadonlyArray<string> = [defined(first, "a handle"), ...rest]
+						const roster = closed(name, listed)
 						const field = admittedClosedId(roster)
 						assert.equal(field.roster, roster)
 						assert.equal(field.sql, carrierSql.enum)
@@ -706,14 +718,14 @@ describe("closedId", () => {
 							descOf(field),
 							succeeded(describeField(admittedClosedId(roster), SourceLoc("again", []))).desc
 						)
-						assert.deepEqual(rosterOf(scalarOf(field)), { closed: parsedName(name), handles })
+						assert.deepEqual(rosterOf(scalarOf(field)), {
+							closed: parsedName(name),
+							handles: listed
+						})
 						assert.equal(identityOf(admittedClosedId(roster)), identityOf(field))
 						if (other !== name) {
 							assert.equal(
-								sameScalarType(
-									scalarOf(admittedClosedId(closed(other, [defined(first, "a handle"), ...rest]))),
-									scalarOf(field)
-								),
+								sameScalarType(scalarOf(admittedClosedId(closed(other, listed))), scalarOf(field)),
 								false
 							)
 						}
@@ -780,17 +792,16 @@ describe("closedId", () => {
 					suite: "unit/scalar/closed-id",
 					draw: drawn(corrupted(Kind, forgeries)),
 					literal: Formatter.format,
-					features: features<CorruptedFeature<ClosedRule>>([
-						"live",
-						...Arr.map(forgeries, (f): CorruptedFeature<ClosedRule> => `wild ${f.rule}`)
-					]),
+					coverage: required<CorruptedFeature<ClosedRule>>(
+						["live", ...Arr.map(forgeries, (f): CorruptedFeature<ClosedRule> => `wild ${f.rule}`)],
+						{ cases: 500, sense: notesOnly }
+					),
 					kept: [],
 					/** Nine rules times the one site each breaks at, and the live relation. */
 					runs: 500,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(forged, c) =>

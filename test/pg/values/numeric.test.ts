@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
@@ -94,7 +95,7 @@ const typmodSql = "((c.p << 16) | (c.s & 2047)) + 4"
 const typeSql = "format('numeric(%s,%s)', c.p, c.s)"
 
 layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
-	it.effect("parses every literal to the value and display scale numeric_in gives it", (ctx) =>
+	it.effect("parses every literal to the value numeric_in gives it, in its one form", (ctx) =>
 		searched(
 			ctx,
 			Effect.gen(function* () {
@@ -105,19 +106,18 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 						suite: "pg/values/numeric/parse",
 						draw: drawn(caseBatch),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: literalRuns,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(chunk) =>
 						Effect.gen(function* () {
 							const rows = yield* db.values(
-								"SELECT c.ord::text, c.v::numeric::text FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text) ORDER BY c.ord",
+								"SELECT c.ord::text, trim_scale(c.v::numeric)::text FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text) ORDER BY c.ord",
 								[jsonText(Arr.map(chunk, ({ ord, v }) => ({ ord, v })))]
 							)
 							const mismatches = Arr.filter(
@@ -144,17 +144,15 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 							suite: "pg/values/numeric/coercion",
 							draw: drawn(caseBatch),
 							literal: Formatter.format,
-							features: features<CoercionFeature>([
-								"overflow by rounding",
-								"negative scale",
-								"scale above precision"
-							]),
+							coverage: required<CoercionFeature>(
+								["overflow by rounding", "negative scale", "scale above precision"],
+								{ cases: literalRuns, sense: notesOnly }
+							),
 							kept: [],
 							runs: literalRuns,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(chunk, k) =>
@@ -162,10 +160,10 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 								const rows = yield* db.values(
 									`SELECT c.ord::text,
 						CASE WHEN pg_input_is_valid(c.v, ${typeSql})
-							THEN numeric_in(c.v::cstring, 1700::oid, ${typmodSql})::text
+							THEN trim_scale(numeric_in(c.v::cstring, 1700::oid, ${typmodSql}))::text
 							ELSE (pg_input_error_info(c.v, ${typeSql})).sql_error_code END,
 						CASE WHEN pg_input_is_valid(c.v, ${typeSql})
-							THEN pg_catalog.numeric(c.v::numeric, ${typmodSql})::text
+							THEN trim_scale(pg_catalog.numeric(c.v::numeric, ${typmodSql}))::text
 							ELSE (pg_input_error_info(c.v, ${typeSql})).sql_error_code END
 					FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text, p int4, s int4)
 					ORDER BY c.ord`,
@@ -183,7 +181,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 									if (host === "22003" && x.isFinite()) {
 										/** The unrounded magnitude fits, so the rounding alone overflowed. */
 										const fits = normalizeNumeric(x, { precision: 1000, scale: 0 }).ok
-										const intDigits = x.coefficient.toString().length - x.scale
+										const intDigits = x.parts.coefficient.toString().length - x.parts.minScale
 										if (fits && intDigits <= c.p - c.s) {
 											k.note("overflow by rounding")
 										}
@@ -208,27 +206,32 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 			Effect.gen(function* () {
 				const { session } = yield* Substrate
 				const db = yield* session(ownerSession())
-				const value = weighted([
-					[6, decimalGen],
+				/** A numeric spelling: a value's one text, padded by some trailing zeros, or a dictionary spelling. */
+				const value: Gen<string> = weighted([
+					[4, map(decimalGen, (d) => d.toString())],
 					[
-						1,
-						map(element(["1.0", "1.00", "-0", "0.000", "NaN", "Infinity", "-Infinity"]), (text) =>
-							Decimal.of(text)
-						)
-					]
+						2,
+						(source) => {
+							const d = source.draw(decimalGen)
+							const k = source.draw(element([1, 8, 24, 40]))
+							return d.isFinite()
+								? `${Str.includes(".")(d.text) ? d.text : `${d.text}.`}${Str.repeat(k)("0")}`
+								: d.text
+						}
+					],
+					[1, element(["1.0", "1.00", "-0", "0.000", "NaN", "Infinity", "-Infinity"])]
 				])
 				return yield* explore(
 					{
 						suite: "pg/values/numeric/order",
 						draw: drawn(array(value, { min: 1, max: 3000 })),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(values) => orderAgreement(db, values)
@@ -238,10 +241,14 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 	)
 })
 
-/** The order, equality and DISTINCT of one batch of numerics on PostgreSQL against the host's. */
-const orderAgreement = (db: RawSession, values: ReadonlyArray<Decimal>) =>
+/**
+ * The order, equality and DISTINCT of one batch of numeric spellings on PostgreSQL against the host's values: the
+ * spellings travel as written, so PostgreSQL stores their display scales, and the host reads each as its one Decimal.
+ */
+const orderAgreement = (db: RawSession, spellings: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
-		const payload = jsonText(Arr.map(values, (d, ord) => ({ ord, v: d.toString() })))
+		const values = Arr.map(spellings, (text) => Decimal.of(text))
+		const payload = jsonText(Arr.map(spellings, (v, ord) => ({ ord, v })))
 		const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
 		const ascending = orderOf(values, (a, b) => a.compare(b))
 		const descending = orderOf(values, (a, b) => b.compare(a))
@@ -260,12 +267,12 @@ const orderAgreement = (db: RawSession, values: ReadonlyArray<Decimal>) =>
 		const distinct = yield* db.values(`SELECT count(DISTINCT c.v::numeric)::text FROM ${source}`, [
 			payload
 		])
-		const identities = Arr.dedupe(Arr.map(values, (d) => d.identityText()))
+		const identities = Arr.dedupe(Arr.map(values, (d) => d.text))
 		assert.deepEqual(
 			Arr.map(distinct, (r) => Number(r[0])),
 			[identities.length]
 		)
-		/** DISTINCT keeps one value per identity text; its trimmed text is the identity text. */
+		/** DISTINCT keeps one value per Decimal; its trimmed text is the Decimal's one text. */
 		const kept = yield* db.values(`SELECT DISTINCT trim_scale(c.v::numeric)::text FROM ${source}`, [
 			payload
 		])

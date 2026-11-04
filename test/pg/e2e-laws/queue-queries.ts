@@ -25,8 +25,8 @@ export const queueQueries = (s: QueueInstalled) => {
 	/** The claimable work. */
 	const claimable = query(s)
 		.rule((r) => {
-			const { key, kind, slot, epoch, enqueued } = v(Q.QueueWork)
-			const { due, attempts } = v(Q.Wanted)
+			const { key, kind, slot, epoch, enqueued } = v(Q.QueueWork, "queueWork")
+			const { due, attempts } = v(Q.Wanted, "wanted")
 			return r
 				.match(Q.QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
 				.match(Q.Wanted, { key, due, attempts })
@@ -43,14 +43,14 @@ export const queueQueries = (s: QueueInstalled) => {
 					standing: Q.Standing.handle("wanted"),
 					epoch,
 					enqueued,
-					wrap: r.literal(0),
+					wrap: 0,
 					due,
 					attempts
 				})
 		})
 		.rule((r) => {
-			const { key, kind, slot, epoch, enqueued } = v(Q.QueueWork)
-			const { due, attempts } = v(Q.Wanted)
+			const { key, kind, slot, epoch, enqueued } = v(Q.QueueWork, "queueWork")
+			const { due, attempts } = v(Q.Wanted, "wanted")
 			return r
 				.match(Q.QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
 				.match(Q.Wanted, { key, due, attempts })
@@ -67,14 +67,14 @@ export const queueQueries = (s: QueueInstalled) => {
 					standing: Q.Standing.handle("wanted"),
 					epoch,
 					enqueued,
-					wrap: r.literal(1),
+					wrap: 1,
 					due,
 					attempts
 				})
 		})
 		.rule((r) => {
-			const { key, kind, slot, epoch, enqueued } = v(Q.QueueWork)
-			const { seat, expires } = v(Q.Leased)
+			const { key, kind, slot, epoch, enqueued } = v(Q.QueueWork, "queueWork")
+			const { seat, expires } = v(Q.Leased, "leased")
 			return r
 				.match(Q.QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
 				.match(Q.Leased, {
@@ -96,14 +96,14 @@ export const queueQueries = (s: QueueInstalled) => {
 					standing: Q.Standing.handle("leased"),
 					epoch,
 					enqueued,
-					wrap: r.literal(0),
+					wrap: 0,
 					seat,
 					expires
 				})
 		})
 		.rule((r) => {
-			const { key, kind, slot, epoch, enqueued } = v(Q.QueueWork)
-			const { seat, expires } = v(Q.Leased)
+			const { key, kind, slot, epoch, enqueued } = v(Q.QueueWork, "queueWork")
+			const { seat, expires } = v(Q.Leased, "leased")
 			return r
 				.match(Q.QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
 				.match(Q.Leased, {
@@ -125,7 +125,7 @@ export const queueQueries = (s: QueueInstalled) => {
 					standing: Q.Standing.handle("leased"),
 					epoch,
 					enqueued,
-					wrap: r.literal(1),
+					wrap: 1,
 					seat,
 					expires
 				})
@@ -135,7 +135,7 @@ export const queueQueries = (s: QueueInstalled) => {
 	/** A free seat of a resource. */
 	const freeSeat = query(s)
 		.rule((r) => {
-			const { resource, seat } = v(Q.Seat)
+			const { resource, seat } = v(Q.Seat, "seat")
 			return r
 				.match(Q.Seat, { resource, seat })
 				.where(
@@ -143,10 +143,10 @@ export const queueQueries = (s: QueueInstalled) => {
 					r.ge(seat, r.param("fromSeat", Q.Seat.fields.seat)),
 					r.not(Q.Leased, { resource, seat })
 				)
-				.find({ seat, wrap: r.literal(0) })
+				.find({ seat, wrap: 0 })
 		})
 		.rule((r) => {
-			const { resource, seat } = v(Q.Seat)
+			const { resource, seat } = v(Q.Seat, "seat")
 			return r
 				.match(Q.Seat, { resource, seat })
 				.where(
@@ -154,7 +154,7 @@ export const queueQueries = (s: QueueInstalled) => {
 					r.lt(seat, r.param("fromSeat", Q.Seat.fields.seat)),
 					r.not(Q.Leased, { resource, seat })
 				)
-				.find({ seat, wrap: r.literal(1) })
+				.find({ seat, wrap: 1 })
 		})
 		.orderBy(["wrap", "asc"], ["seat", "asc"])
 		.take(1)
@@ -171,8 +171,8 @@ export const queueQueries = (s: QueueInstalled) => {
 				resource: r.param("resource", Q.Seat.fields.resource),
 				fromSeat: r.param("fromSeat", Q.Seat.fields.seat)
 			})
-			const { key, kind, slot, epoch, enqueued } = v(items)
-			const { seat } = v(seats)
+			const { key, kind, slot, epoch, enqueued } = v(items, "items")
+			const { seat } = v(seats, "seats")
 			return r
 				.match(items, { standing: "wanted", key, kind, slot, epoch, enqueued })
 				.match(seats, { seat })
@@ -186,8 +186,8 @@ export const queueQueries = (s: QueueInstalled) => {
 				from: r.param("from", Q.QueueWork.fields.key),
 				resource: r.param("resource", Q.Seat.fields.resource)
 			})
-			const { key, kind, slot, epoch, enqueued } = v(items)
-			const { seat } = v(Q.Leased)
+			const { key, kind, slot, epoch, enqueued } = v(items, "items")
+			const { seat } = v(Q.Leased, "leased")
 			return r
 				.match(items, { standing: "leased", key, kind, slot, epoch, enqueued })
 				.match(Q.Leased, { key, seat })
@@ -203,12 +203,12 @@ export const queueQueries = (s: QueueInstalled) => {
 				resource: r.param("resource", Q.Seat.fields.resource),
 				fromSeat: r.param("fromSeat", Q.Seat.fields.seat)
 			})
-			const p = v(picked)
+			const p = v(picked, "picked")
 			return r.match(picked, p).find({
 				key: p.key,
 				kind: p.kind,
 				slot: p.slot,
-				standing: r.literal("leased"),
+				standing: "leased",
 				epoch: Compute.add(p.epoch, 1n),
 				enqueued: p.enqueued
 			})
@@ -222,8 +222,8 @@ export const queueQueries = (s: QueueInstalled) => {
 				resource: r.param("resource", Q.Seat.fields.resource),
 				fromSeat: r.param("fromSeat", Q.Seat.fields.seat)
 			})
-			const { key } = v(picked)
-			const { due, attempts } = v(Q.Wanted)
+			const { key } = v(picked, "picked")
+			const { due, attempts } = v(Q.Wanted, "wanted")
 			return r
 				.match(picked, { key })
 				.match(Q.Wanted, { key, due, attempts })
@@ -238,7 +238,7 @@ export const queueQueries = (s: QueueInstalled) => {
 				resource: r.param("resource", Q.Seat.fields.resource),
 				fromSeat: r.param("fromSeat", Q.Seat.fields.seat)
 			})
-			const { key, epoch, seat } = v(picked)
+			const { key, epoch, seat } = v(picked, "picked")
 			return r.match(picked, { key, epoch, seat }).find({
 				key,
 				resource: r.param("resource", Q.Seat.fields.resource),
@@ -250,7 +250,7 @@ export const queueQueries = (s: QueueInstalled) => {
 		}),
 		/** The settlement. */
 		settleLeasedDelete: query(s).rule((r) => {
-			const { key, resource, seat, epoch, expires } = v(Q.Leased)
+			const { key, resource, seat, epoch, expires } = v(Q.Leased, "leased")
 			return r
 				.match(Q.Leased, { key, resource, seat, epoch, expires })
 				.where(
@@ -260,7 +260,7 @@ export const queueQueries = (s: QueueInstalled) => {
 				.find({ key, resource, seat, epoch, expires })
 		}),
 		settleDoneInsert: query(s).rule((r) => {
-			const { key, resource, seat, epoch, expires } = v(Q.Leased)
+			const { key, resource, seat, epoch, expires } = v(Q.Leased, "leased")
 			return r
 				.match(Q.Leased, { key, resource, seat, epoch, expires })
 				.where(
@@ -270,8 +270,8 @@ export const queueQueries = (s: QueueInstalled) => {
 				.find({ key, outcome: r.param("outcome", Q.Done.fields.outcome) })
 		}),
 		settleWorkPut: query(s).rule((r) => {
-			const { key, resource, seat, epoch, expires } = v(Q.Leased)
-			const { kind, slot, enqueued } = v(Q.QueueWork)
+			const { key, resource, seat, epoch, expires } = v(Q.Leased, "leased")
+			const { kind, slot, enqueued } = v(Q.QueueWork, "queueWork")
 			return r
 				.match(Q.Leased, { key, resource, seat, epoch, expires })
 				.match(Q.QueueWork, { key, kind, slot, epoch, enqueued })
@@ -279,7 +279,7 @@ export const queueQueries = (s: QueueInstalled) => {
 					r.eq(key, r.param("key", Q.Leased.fields.key)),
 					r.eq(epoch, r.param("epoch", pg.bigint))
 				)
-				.find({ key, kind, slot, standing: r.literal("done"), epoch, enqueued })
+				.find({ key, kind, slot, standing: "done", epoch, enqueued })
 		})
 	}
 }

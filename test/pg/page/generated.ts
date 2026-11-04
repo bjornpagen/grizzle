@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -34,6 +35,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { nodesByLabel, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
@@ -77,6 +79,7 @@ import {
 	queryCaseGen
 } from "#test/support/oracle/gen/case.ts"
 import { float8, int4 } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaDesc, schemaName } from "#test/support/oracle/gen/schema.ts"
@@ -146,7 +149,7 @@ type PageFeature =
 	| `skipped: ${PageSkip}`
 
 /** What the population must reach. */
-const required: ReadonlyArray<PageFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	"Group",
 	"Recursive",
 	"Take",
@@ -278,9 +281,9 @@ const plantedCase = (
 	const int = (value: number): TypedLiteral => ({ kind: "int", value: BigInt(value) })
 	return {
 		schema: { name: schemaName, relations: [r], closed: [], containments: [] },
-		facts: { R0: Arr.map(indices(facts), (i) => [int(i + 1), int(i % 3)]) },
+		facts: canonicalFacts({ R0: Arr.map(indices(facts), (i) => [int(i + 1), int(i % 3)]) }),
 		query: { dag, params },
-		spelling: { mode: "perCase", choices: [], edge: false }
+		spelling: { mode: "drawn", edge: false }
 	}
 }
 
@@ -313,7 +316,10 @@ const planted: ReadonlyArray<Kept<OrderedCase, PageFeature>> = [
 					x: {
 						kind: "relation",
 						heading: scores,
-						rows: [[{ kind: "float", value: -0 }], [{ kind: "float", value: 1.5 }]]
+						rows: [
+							[{ kind: "float", value: canonicalZero(0) }],
+							[{ kind: "float", value: canonicalZero(1.5) }]
+						]
 					}
 				},
 				({ q }) => q.region([{ source: q.input("x", scores), bind: { x: "x" }, constants: {} }])
@@ -1305,12 +1311,11 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 								{
 									suite: `page/generated-${artifact}`,
 									literal: Formatter.format,
-									features: features<PageFeature>(required),
+									coverage: required<PageFeature>(situations, { cases: 2_000, sense: notesOnly }),
 									kept: planted,
 									/** The suite's stated population. */
 									runs: 2_000,
 									shrink: completeShrink,
-									steering: { kind: "none" },
 									caseHang,
 									perturb: "all"
 								},

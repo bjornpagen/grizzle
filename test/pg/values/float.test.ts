@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, constant, element, filter, type Gen, map, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -9,7 +10,7 @@ import { Array as Arr, Duration, Effect, Formatter, Schema } from "effect"
 import {
 	canonicalZero,
 	compareFloat,
-	floatIdentityText,
+	floatText,
 	fround,
 	toReal
 } from "#compiler/scalar/values/float.ts"
@@ -109,13 +110,12 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 							suite: "pg/values/float/rounding",
 							draw: drawn(batchOf(doubles, 10_000)),
 							literal: Formatter.format,
-							features: features<FloatFeature>(["admitted"]),
+							coverage: required<FloatFeature>(["admitted"], { cases: runs, sense: notesOnly }),
 							kept: [],
 							runs,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(doubles, c) =>
@@ -155,13 +155,15 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 						suite: "pg/values/float/refusals",
 						draw: drawn(batchOf(doubles, 10_000)),
 						literal: Formatter.format,
-						features: features<FloatFeature>(["overflow", "underflow"]),
+						coverage: required<FloatFeature>(["overflow", "underflow"], {
+							cases: runs,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(doubles, c) =>
@@ -225,7 +227,10 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 								suite: `pg/values/float/order-${type}`,
 								draw: drawn(batchOf(orderValue, 3000)),
 								literal: Formatter.format,
-								features: features<FloatFeature>(["NaN", "signed zero"]),
+								coverage: required<FloatFeature>(["NaN", "signed zero"], {
+									cases: runs,
+									sense: notesOnly
+								}),
 								/** Planted: a batch holding -0 and NaN, which a short drawn batch lacks. */
 								kept: [
 									{
@@ -239,7 +244,6 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.minutes(2)
 							},
 							(sample, c) =>
@@ -276,7 +280,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 									assert.deepEqual(pgAscOrder, asc)
 									const pgDescOrder: ReadonlyArray<number> = Arr.map(pgDesc, (r) => Number(r[0]))
 									assert.deepEqual(pgDescOrder, desc)
-									const identities = new Set(Arr.map(values, floatIdentityText))
+									const identities = new Set(Arr.map(values, floatText))
 									const [[count]] = yield* Schema.decodeUnknownEffect(oneCell)(
 										yield* db.values(`SELECT count(DISTINCT ${cast})::text FROM ${source}`, [
 											payload
@@ -288,7 +292,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 										[payload]
 									)
 									assert.deepEqual(
-										new Set(Arr.map(kept, (r) => floatIdentityText(canonicalZero(fromPg(r[0]))))),
+										new Set(Arr.map(kept, (r) => floatText(canonicalZero(fromPg(r[0]))))),
 										identities
 									)
 								})

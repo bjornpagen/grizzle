@@ -25,8 +25,10 @@ import {
 import { headerBytes, readCursor, writeCursor } from "#compiler/codec/cursor/layout.ts"
 import { boundaryValue } from "#compiler/codec/cursor/value.ts"
 import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
+import { maxOf, minOf } from "#compiler/core/array.ts"
 import { type CompileError, type CursorError, unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { NumericTypmod, ScalarType } from "#compiler/ir/scalar.ts"
@@ -124,7 +126,7 @@ export const cursorValueMaxBytes = (type: ScalarType): number | "unbounded" => {
 		case "text":
 			return type.text.byteBound ?? "unbounded"
 		case "enum":
-			return Math.max(0, ...type.roster.handles.map(utf8ByteLength))
+			return maxOf(type.roster.handles.map(utf8ByteLength), 0)
 		case "range4":
 			return 25
 		case "range8":
@@ -133,6 +135,10 @@ export const cursorValueMaxBytes = (type: ScalarType): number | "unbounded" => {
 			const { dims } = type.typmod
 			return 2 + dims * floatMaxText + Math.max(dims - 1, 0)
 		}
+		case "exactInteger":
+			return 1 + type.digits
+		case "exactMoney":
+			return 1 + type.digits + 3
 	}
 }
 
@@ -145,8 +151,10 @@ export const cursorValueMinBytes = (type: ScalarType): number => {
 		case "numeric":
 		case "float4":
 		case "float8":
+		case "exactInteger":
 			return 1
 		case "money":
+		case "exactMoney":
 			return "0.00".length
 		case "bool":
 			return "true".length
@@ -155,7 +163,7 @@ export const cursorValueMinBytes = (type: ScalarType): number => {
 		case "text":
 			return 0
 		case "enum":
-			return Math.min(...type.roster.handles.map(utf8ByteLength))
+			return minOf(mapNonEmpty(type.roster.handles, utf8ByteLength))
 		case "range4":
 		case "range8":
 			return "[0,1)".length

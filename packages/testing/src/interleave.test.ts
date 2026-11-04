@@ -13,7 +13,7 @@ import {
 } from "effect"
 import { type Case, drawn, explore } from "#explore.ts"
 import { awaitFact } from "#fact.ts"
-import { features, noFeatures } from "#features.ts"
+import { noCoverage, required } from "#features.ts"
 import { array, element, type Gen, int } from "#gen.ts"
 import {
 	AfterCycle,
@@ -25,6 +25,7 @@ import {
 	type Sessions,
 	type Strategy
 } from "#interleave.ts"
+import { notesOnly } from "#sense.ts"
 import { completeShrink } from "#shrink.ts"
 import { searched } from "#vitest/searched.ts"
 
@@ -249,13 +250,12 @@ describe("interleaving", () => {
 					suite: "sleep sets are sound",
 					draw: drawn(sessionSets),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 24,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(1)
 				},
 				(sessions) =>
@@ -387,13 +387,12 @@ describe("interleaving", () => {
 					suite: "drawn schedules",
 					draw: drawn(sessionSets),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 40,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(1)
 				},
 				(sessions, c: Case<never>) =>
@@ -450,17 +449,15 @@ describe("releasing sessions", () => {
 						suite: "every started session released",
 						draw: drawn(releaseCases),
 						literal: Formatter.format,
-						features: features<Released>([
-							"a run pruned",
-							"a run refused",
-							"a judged run left a session part-way"
-						]),
+						coverage: required<Released>(
+							["a run pruned", "a run refused", "a judged run left a session part-way"],
+							{ cases: 40, sense: notesOnly }
+						),
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 1,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(1)
 					},
 					([sessions, script], c: Case<Released>) =>

@@ -9,7 +9,7 @@ export interface ObjectName {
 
 /**
  * A table a data-modifying statement or a FROM item names: a stored relation by its qualified name, or a write
- * program's transaction-scoped carrier by its bare name, which resolves to the session's own temporary schema.
+ * program's transaction-scoped carrier, which prints qualified by pg_temp, the session's own temporary schema.
  */
 export type TableName = ObjectName | CarrierName
 
@@ -28,10 +28,7 @@ export interface Collation {
 	readonly name: "pg_c_utf8"
 }
 
-/**
- * PostgreSQL's builtin types, spelled as SQL spells them. These names are keywords or pg_catalog types that resolve
- * ahead of any user schema, so they print unquoted.
- */
+/** The pg_catalog types a value has: a column's, a domain's base, a parameter's, a cast's, a PL/pgSQL variable's. */
 export const builtinTypeNames = [
 	"smallint",
 	"integer",
@@ -48,11 +45,74 @@ export const builtinTypeNames = [
 	"int8range",
 	"int4multirange",
 	"int8multirange",
-	"regclass",
-	"record",
-	"trigger"
+	"record"
 ] as const
 export type BuiltinTypeName = (typeof builtinTypeNames)[number]
+
+/** What a function grizzle installs returns. */
+export type FunctionReturns = "trigger" | "boolean" | "void"
+
+/** The pg_catalog types only a catalog read, or a relation reference, names. */
+export type CatalogReadType =
+	| "name"
+	| "oid"
+	| "char"
+	| "regclass"
+	| "regnamespace"
+	| "regtype"
+	| "regprocedure"
+
+/** Every pg_catalog type grizzle's SQL names. */
+export type CatalogTypeName = BuiltinTypeName | FunctionReturns | CatalogReadType | "jsonpath"
+
+/**
+ * How a pg_catalog type is spelled so that it names pg_catalog's type under every search_path: an SQL keyword, which
+ * PostgreSQL's grammar resolves into pg_catalog itself, or its name qualified by pg_catalog.
+ */
+export type CatalogSpelling = "keyword" | "qualified"
+
+export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling } = {
+	smallint: "keyword",
+	integer: "keyword",
+	bigint: "keyword",
+	numeric: "keyword",
+	real: "keyword",
+	"double precision": "keyword",
+	boolean: "keyword",
+	text: "qualified",
+	uuid: "qualified",
+	jsonb: "qualified",
+	jsonpath: "qualified",
+	money: "qualified",
+	int4range: "qualified",
+	int8range: "qualified",
+	int4multirange: "qualified",
+	int8multirange: "qualified",
+	record: "qualified",
+	trigger: "qualified",
+	void: "qualified",
+	name: "qualified",
+	oid: "qualified",
+	char: "qualified",
+	regclass: "qualified",
+	regnamespace: "qualified",
+	regtype: "qualified",
+	regprocedure: "qualified"
+}
+
+/**
+ * The schema of a named type: the installation's, for a domain or an enum, or the vector extension's. Only the doors
+ * that name those schemas mint it (physical/ddl/names.ts, physical/install/extension.ts, and the snapshot codec at its
+ * boundary), so no named type sits in pg_catalog: a pg_catalog type is builtin.
+ */
+export type TypeSchema = string & { readonly [typeSchemaBrand]: true }
+declare const typeSchemaBrand: unique symbol
+
+/** A named type by its schema and its name: a domain's, an enum's, or the vector extension's vector. */
+export interface TypeName {
+	readonly schema: TypeSchema
+	readonly name: string
+}
 
 /** `array` is whether the type is the array of the type it names. */
 export type TypeRef =
@@ -72,11 +132,18 @@ export type TypeRef =
 	  }
 	| {
 			readonly kind: "named"
-			readonly schema: string
+			readonly schema: TypeSchema
 			readonly name: string
 			readonly typmod: ReadonlyArray<number>
 			readonly array: boolean
 	  }
+
+/**
+ * The one search_path grizzle sets: pg_catalog, then the session's temporary schema. Every function grizzle installs
+ * pins it, so no caller's path reaches a body, every login's sessions start under it (RoleSetting), and the drift check
+ * reads under it, since PostgreSQL's deparsers spell a name bare exactly when the path finds it first.
+ */
+export const closedSearchPath = ["pg_catalog", "pg_temp"] as const
 
 /**
  * The spellings of a double no persisted number holds: JSON has no NaN or infinity, and canonical JSON writes -0 as 0.
@@ -132,9 +199,11 @@ export const binaryOperators = [
 export type BinaryOperator = (typeof binaryOperators)[number]
 
 /**
- * PostgreSQL builtin functions grizzle emits, printed unquoted. Compute's catalogue, the aggregates, window and
- * ordered-set functions of the compile-target catalog, the span functions, the attachment transport, and the runtime
- * probes; a recordset is a FROM item of its own. Extension functions (pgvector) are qualified and quoted instead.
+ * PostgreSQL builtin functions grizzle emits, printed qualified by pg_catalog. Compute's catalogue, the aggregates,
+ * window and ordered-set functions of the compile-target catalog, the exact value of a double's bits (float8send and
+ * get_byte, build.ts exactNumeric), the span functions, the attachment transport, the runtime probes and the database
+ * default's statement; a recordset is a FROM item of its own. Extension functions
+ * (pgvector) are qualified by their extension's schema instead.
  */
 export const builtinFunctionNames = [
 	"count",
@@ -155,17 +224,16 @@ export const builtinFunctionNames = [
 	"percentile_disc",
 	"percentile_cont",
 	"mode",
-	"regr_slope",
-	"regr_sxx",
 	"abs",
 	"sign",
 	"gcd",
 	"lcm",
 	"power",
 	"sqrt",
-	"scale",
 	"min_scale",
 	"trim_scale",
+	"float8send",
+	"get_byte",
 	"width_bucket",
 	"round",
 	"trunc",
@@ -190,7 +258,9 @@ export const builtinFunctionNames = [
 	"pg_advisory_xact_lock",
 	"current_setting",
 	"set_config",
-	"pg_jit_available"
+	"pg_jit_available",
+	"format",
+	"current_database"
 ] as const
 export type BuiltinFunctionName = (typeof builtinFunctionNames)[number]
 
@@ -305,8 +375,8 @@ export type Expr =
 			readonly schema: string | undefined
 	  }
 	| { readonly kind: "negate"; readonly expr: Expr }
-	| { readonly kind: "and"; readonly args: ReadonlyArray<Expr> }
-	| { readonly kind: "or"; readonly args: ReadonlyArray<Expr> }
+	| { readonly kind: "and"; readonly args: NonEmptyReadonlyArray<Expr> }
+	| { readonly kind: "or"; readonly args: NonEmptyReadonlyArray<Expr> }
 	| { readonly kind: "not"; readonly expr: Expr }
 	| { readonly kind: "isTrue"; readonly expr: Expr }
 	| {
@@ -316,17 +386,18 @@ export type Expr =
 			readonly high: Expr
 			readonly not: boolean
 	  }
+	/** At least one item: PostgreSQL has no empty IN list, so an empty membership is `false` (`true` NOT) at its source. */
 	| {
 			readonly kind: "inList"
 			readonly expr: Expr
-			readonly list: ReadonlyArray<Expr>
+			readonly list: NonEmptyReadonlyArray<Expr>
 			readonly not: boolean
 	  }
 	| { readonly kind: "inQuery"; readonly expr: Expr; readonly query: Select; readonly not: boolean }
 	| { readonly kind: "exists"; readonly query: Select; readonly not: boolean }
 	| { readonly kind: "subquery"; readonly query: Select }
 	| { readonly kind: "array"; readonly query: Select }
-	| { readonly kind: "row"; readonly items: ReadonlyArray<Expr> }
+	| { readonly kind: "row"; readonly items: NonEmptyReadonlyArray<Expr> }
 	| {
 			readonly kind: "case"
 			readonly operand: Expr | undefined
@@ -334,16 +405,23 @@ export type Expr =
 			readonly else: Expr
 	  }
 	| FunctionCall
-	| { readonly kind: "greatest" | "least"; readonly args: ReadonlyArray<Expr> }
+	| { readonly kind: "greatest" | "least"; readonly args: NonEmptyReadonlyArray<Expr> }
 	| { readonly kind: "mergeAction" }
 	| { readonly kind: "domainValue" }
 	| User
 	| PlRecord
-	| {
-			readonly kind: "plSpecial"
-			readonly name: "TG_OP" | "TG_TABLE_NAME" | "TG_TABLE_SCHEMA" | "FOUND"
-	  }
+	| { readonly kind: "plSpecial"; readonly name: "TG_TABLE_NAME" | "TG_TABLE_SCHEMA" }
 	| { readonly kind: "field"; readonly record: PlRecord; readonly field: string }
+	| RegclassRef
+
+/**
+ * A relation as a regclass value, by its name: it prints as the quoted qualified name in a string literal cast to
+ * pg_catalog's regclass, and a rewrite of schema object names (sql/transform.ts) moves it as it moves every other.
+ */
+export interface RegclassRef {
+	readonly kind: "regclass"
+	readonly relation: ObjectName
+}
 
 /**
  * A user name SQL spells without parentheses: CURRENT_USER, the role privileges are checked as (inside a SECURITY
@@ -373,10 +451,15 @@ export interface ColumnDefinition {
 	readonly collation: Collation | undefined
 }
 
-export type FromItem =
+/**
+ * A FROM item that is no join chain: a relation, a CTE reference, a derived table, a function's rows, a recordset, a
+ * VALUES list or a context source. A join chain joins sources only, so its length is never a depth.
+ */
+export type FromSource =
 	| { readonly kind: "table"; readonly table: TableName; readonly alias: string }
 	| { readonly kind: "cte"; readonly name: string; readonly alias: string | undefined }
 	| { readonly kind: "enclosing"; readonly name: string; readonly alias: string }
+	/** A derived table; an empty column alias list is none, as PostgreSQL spells a relation of no column. */
 	| {
 			readonly kind: "derived"
 			readonly query: Select
@@ -384,6 +467,7 @@ export type FromItem =
 			readonly columns: ReadonlyArray<string>
 			readonly lateral: boolean
 	  }
+	/** A function's rows; an empty column alias list is none. */
 	| {
 			readonly kind: "function"
 			readonly call: Call
@@ -391,21 +475,44 @@ export type FromItem =
 			readonly columns: ReadonlyArray<string>
 			readonly lateral: boolean
 	  }
+	/**
+	 * A jsonb placeholder's facts as a relation of `columns`, of any width: a recordset of no column is one row of no
+	 * column per fact, which the printer spells as the placeholder's array elements.
+	 */
 	| {
 			readonly kind: "recordset"
 			readonly source: RecordsetPlaceholder
 			readonly alias: string
 			readonly columns: ReadonlyArray<ColumnDefinition>
 	  }
+	/**
+	 * A VALUES list names at least one column: PostgreSQL has no VALUES row of no value. A row of no column is the
+	 * derived `(SELECT)`.
+	 */
 	| {
 			readonly kind: "values"
-			readonly rows: ReadonlyArray<ReadonlyArray<Expr>>
+			readonly rows: NonEmptyReadonlyArray<ReadonlyArray<Expr>>
 			readonly alias: string
-			readonly columns: ReadonlyArray<string>
+			readonly columns: NonEmptyReadonlyArray<string>
 	  }
 	| ContextSource
-	| { readonly kind: "join"; readonly left: FromItem; readonly right: FromItem; readonly on: Expr }
-	| { readonly kind: "crossJoin"; readonly left: FromItem; readonly right: FromItem }
+
+/** One join of a join chain: its source joined to everything before it, on a condition or crosswise. */
+export type JoinStep =
+	| { readonly kind: "on"; readonly source: FromSource; readonly on: Expr }
+	| { readonly kind: "cross"; readonly source: FromSource }
+
+/**
+ * Sources joined left to right, `a JOIN b ON p CROSS JOIN c` being `(a JOIN b ON p) CROSS JOIN c`: one node however
+ * many sources it joins.
+ */
+export interface JoinChain {
+	readonly kind: "joins"
+	readonly first: FromSource
+	readonly steps: NonEmptyReadonlyArray<JoinStep>
+}
+
+export type FromItem = FromSource | JoinChain
 
 /**
  * A context's one fact, read from the session's claims (sql/print.ts printContextSource): one row when the claims hold
@@ -435,29 +542,44 @@ export interface ContextColumn {
 }
 
 /**
- * `distinct` is false for none, true for DISTINCT, or DISTINCT ON its expressions. An empty FROM or GROUP BY is none,
- * and an undefined WHERE or HAVING is none.
+ * A SELECT core: its projection (CoreProjection) over its FROM. An empty FROM or GROUP BY is none, and an undefined
+ * WHERE or HAVING is none.
  */
-export interface SelectCore {
+export type SelectCore = {
 	readonly kind: "core"
-	readonly distinct: boolean | { readonly on: ReadonlyArray<Expr> }
-	readonly targets: ReadonlyArray<Target>
 	readonly from: ReadonlyArray<FromItem>
 	readonly where: Expr | undefined
 	readonly groupBy: ReadonlyArray<Expr>
 	readonly having: Expr | undefined
-}
+} & CoreProjection
+
+/**
+ * What a core delivers of each row it reads: `distinct` is false for none, true for DISTINCT, or DISTINCT ON its
+ * expressions, at least one. DISTINCT reads at least one target, as PostgreSQL's grammar requires; a core of no target
+ * reads one row of no column for each row of its FROM, the unit relation's rows.
+ */
+export type CoreProjection =
+	| { readonly distinct: false; readonly targets: ReadonlyArray<Target> }
+	| {
+			readonly distinct: true | { readonly on: NonEmptyReadonlyArray<Expr> }
+			readonly targets: NonEmptyReadonlyArray<Target>
+	  }
 
 export type SetOperator = "UNION" | "UNION ALL" | "INTERSECT" | "EXCEPT"
 
+/**
+ * A set-operation arm: a core, or a parenthesized full query with its own clauses. A set operation nests only as the body
+ * of such a query, so a chain of one operator is one node however many arms it has.
+ */
+export type SetOperand = SelectCore | Select
+
+/** At least two arms combined by one operator, left to right: `a op b op c` is `(a op b) op c`. */
 export interface SetOperation {
 	readonly kind: "setOp"
 	readonly op: SetOperator
-	readonly left: SelectBody
-	readonly right: SelectBody
+	readonly arms: readonly [SetOperand, SetOperand, ...Array<SetOperand>]
 }
 
-/** A set-operation arm is a core, a nested set operation, or a parenthesized full query with its own clauses. */
 export type SelectBody = SelectCore | SetOperation | Select
 
 export type CteBody = Select | Insert | Update | Delete | Merge
@@ -465,8 +587,8 @@ export type CteBody = Select | Insert | Update | Delete | Merge
 export interface Cte {
 	readonly name: string
 	/**
-	 * Required for a query CTE. A data-modifying CTE is named by its RETURNING aliases instead, unless it lists
-	 * columns. An empty list is none.
+	 * A query CTE lists its columns, none for a relation of no column. A data-modifying CTE is named by its RETURNING
+	 * aliases instead, unless it lists columns. An empty list is none, as PostgreSQL spells it by leaving it out.
 	 */
 	readonly columns: ReadonlyArray<string>
 	/** Undefined leaves the choice to PostgreSQL. */
@@ -474,9 +596,10 @@ export interface Cte {
 	readonly query: CteBody
 }
 
+/** A WITH of at least one CTE: a query with none has no WITH (an undefined `with`). */
 export interface With {
 	readonly recursive: boolean
-	readonly ctes: ReadonlyArray<Cte>
+	readonly ctes: NonEmptyReadonlyArray<Cte>
 }
 
 /**
@@ -506,46 +629,63 @@ export type ConflictAction =
 	| { readonly kind: "doSelect"; readonly where: Expr | undefined }
 	| {
 			readonly kind: "doUpdate"
-			readonly set: ReadonlyArray<Assignment>
+			readonly set: NonEmptyReadonlyArray<Assignment>
 			readonly where: Expr | undefined
 	  }
 
 export type OnConflict =
 	| {
 			readonly kind: "columns"
-			readonly columns: ReadonlyArray<string>
+			readonly columns: NonEmptyReadonlyArray<string>
 			readonly action: ConflictAction
 	  }
 	| { readonly kind: "constraint"; readonly constraint: string; readonly action: DoNothing }
 
-export type InsertSource =
-	| { readonly kind: "query"; readonly query: Select }
-	| { readonly kind: "values"; readonly rows: ReadonlyArray<ReadonlyArray<Expr>> }
+/**
+ * The columns an INSERT assigns and the source of their values, in order. A query's columns may be none, PostgreSQL's
+ * implicit list of the table's first zero columns: every column takes its default, an identity's its next value. A
+ * VALUES source has at least one row and at least one column: PostgreSQL has no VALUES row of no value. Each row holds
+ * one value per column, a width TypeScript does not relate to the columns' (the SQL audit checks it).
+ */
+export type InsertTarget =
+	| {
+			readonly columns: ReadonlyArray<string>
+			readonly source: { readonly kind: "query"; readonly query: Select }
+	  }
+	| {
+			readonly columns: NonEmptyReadonlyArray<string>
+			readonly source: {
+				readonly kind: "values"
+				readonly rows: NonEmptyReadonlyArray<ReadonlyArray<Expr>>
+			}
+	  }
+
+export type InsertSource = InsertTarget["source"]
+
+/** An INSERT target whose source is a VALUES list, its columns at least one. */
+export type ValuesTarget = Extract<InsertTarget, { readonly source: { readonly kind: "values" } }>
+
+/** Whether an INSERT's source is a VALUES list: the arm of InsertTarget whose columns are at least one. */
+export const isValuesTarget = (t: InsertTarget): t is ValuesTarget => t.source.kind === "values"
 
 /** In each data-modifying statement an undefined clause is none, and so is an empty list. */
-export interface Insert {
+export type Insert = {
 	readonly kind: "insert"
 	readonly with: With | undefined
 	readonly table: TableName
 	readonly alias: string | undefined
-	readonly columns: ReadonlyArray<string>
-	/**
-	 * SYSTEM VALUE: an explicit serial value into a GENERATED ALWAYS column. USER VALUE: the
-	 * identity default for every serial column, whose supplied values PostgreSQL ignores, the generated addition into
-	 * a relation whose every field is serial.
-	 */
-	readonly overriding: "SYSTEM VALUE" | "USER VALUE" | undefined
-	readonly source: InsertSource
+	/** SYSTEM VALUE: explicit serial values into GENERATED ALWAYS columns. */
+	readonly overriding: "SYSTEM VALUE" | undefined
 	readonly onConflict: OnConflict | undefined
 	readonly returning: ReadonlyArray<Target>
-}
+} & InsertTarget
 
 export interface Update {
 	readonly kind: "update"
 	readonly with: With | undefined
 	readonly table: ObjectName
 	readonly alias: string
-	readonly set: ReadonlyArray<Assignment>
+	readonly set: NonEmptyReadonlyArray<Assignment>
 	readonly from: ReadonlyArray<FromItem>
 	readonly where: Expr | undefined
 	/** May name old."c" and new."c". */
@@ -564,15 +704,20 @@ export interface Delete {
 
 export interface MergeUpdate {
 	readonly kind: "update"
-	readonly set: ReadonlyArray<Assignment>
+	readonly set: NonEmptyReadonlyArray<Assignment>
 }
 
-/** INSERT (<columns>) [OVERRIDING SYSTEM VALUE] VALUES (<values>): each column with the value it takes. */
-export interface MergeInsert {
-	readonly kind: "insert"
-	readonly overriding: "SYSTEM VALUE" | undefined
-	readonly row: ReadonlyArray<Assignment>
-}
+/**
+ * INSERT (<columns>) [OVERRIDING SYSTEM VALUE] VALUES (<values>), each column with the value it takes, at least one;
+ * or INSERT DEFAULT VALUES, PostgreSQL's spelling of an insert of no column, every column its default.
+ */
+export type MergeInsert =
+	| {
+			readonly kind: "insert"
+			readonly overriding: "SYSTEM VALUE" | undefined
+			readonly row: NonEmptyReadonlyArray<Assignment>
+	  }
+	| { readonly kind: "insertDefault" }
 
 type MergeAction = MergeUpdate | MergeInsert | { readonly kind: "delete" } | DoNothing
 
@@ -610,7 +755,8 @@ export type ColumnGeneration =
 	| { readonly kind: "stored"; readonly expr: Expr }
 
 /**
- * A column. NOT NULL is not optional: every column is NOT NULL. An undefined collation, generation or default is none.
+ * A column. NOT NULL is not optional: every column is NOT NULL. An undefined collation or generation is none, and a
+ * column has no default: a drafted ADD COLUMN's placeholder is its own action (AlterTableAction addColumnPlaceholder).
  */
 export interface ColumnDef {
 	readonly name: string
@@ -618,8 +764,6 @@ export interface ColumnDef {
 	/** Required when the type is builtin text or text[]. */
 	readonly collation: Collation | undefined
 	readonly generated: ColumnGeneration | undefined
-	/** Only for ADD COLUMN in a migration, with a reviewed value. */
-	readonly default: Expr | undefined
 }
 
 export interface KeyColumn {
@@ -643,15 +787,19 @@ export type TableConstraint =
 	| {
 			readonly kind: "primaryKey"
 			readonly name: string
-			readonly columns: ReadonlyArray<KeyColumn>
+			readonly columns: NonEmptyReadonlyArray<KeyColumn>
 	  }
-	| { readonly kind: "unique"; readonly name: string; readonly columns: ReadonlyArray<KeyColumn> }
+	| {
+			readonly kind: "unique"
+			readonly name: string
+			readonly columns: NonEmptyReadonlyArray<KeyColumn>
+	  }
 	| {
 			readonly kind: "foreignKey"
 			readonly name: string
-			readonly columns: ReadonlyArray<ForeignKeyColumn>
+			readonly columns: NonEmptyReadonlyArray<ForeignKeyColumn>
 			readonly references: ObjectName
-			readonly referencedColumns: ReadonlyArray<ForeignKeyColumn>
+			readonly referencedColumns: NonEmptyReadonlyArray<ForeignKeyColumn>
 			/** Undefined: NOT DEFERRABLE. */
 			readonly deferrable: "INITIALLY DEFERRED" | "INITIALLY IMMEDIATE" | undefined
 	  }
@@ -660,7 +808,7 @@ export type TableConstraint =
 			readonly kind: "exclude"
 			readonly name: string
 			readonly method: "gist"
-			readonly elements: ReadonlyArray<ExclusionElement>
+			readonly elements: NonEmptyReadonlyArray<ExclusionElement>
 	  }
 
 /** An undefined AUTHORIZATION is the current role's. */
@@ -702,17 +850,23 @@ export const tableConstraints = (t: CreateTable): NonEmptyReadonlyArray<TableCon
 ]
 
 /**
- * A write program's transaction-scoped carrier: CREATE TEMPORARY TABLE ... ON COMMIT DROP. It lives in pg_temp, so its
- * name is never schema-qualified, and it declares no constraint.
+ * A write program's transaction-scoped carrier: CREATE TEMPORARY TABLE ... ON COMMIT DROP. It lives in pg_temp, the
+ * session's own temporary schema, by which it prints qualified, and it declares no constraint.
  */
 export interface CreateCarrier {
 	readonly kind: "createCarrier"
 	readonly name: CarrierName
-	readonly columns: NonEmptyReadonlyArray<ColumnDef>
+	/** Of any width: PostgreSQL holds a table of no column, the carrier of the unit relation. */
+	readonly columns: ReadonlyArray<ColumnDef>
 }
 
 export type AlterTableAction =
 	| { readonly kind: "addColumn"; readonly column: ColumnDef }
+	/**
+	 * ADD COLUMN ... DEFAULT <placeholder> NOT NULL: a drafted column whose value for the rows already stored the
+	 * reviewer writes in place of the placeholder (deploy/render/markers.ts placeholderToken).
+	 */
+	| { readonly kind: "addColumnPlaceholder"; readonly column: ColumnDef }
 	| { readonly kind: "dropColumn"; readonly column: string }
 	| { readonly kind: "dropDefault"; readonly column: string }
 	| {
@@ -721,7 +875,7 @@ export type AlterTableAction =
 			readonly type: TypeRef
 			/** Required when the type is builtin text or text[]. */
 			readonly collation: Collation | undefined
-			readonly using: Expr
+			readonly using: Using
 	  }
 	| { readonly kind: "addIdentity"; readonly column: string; readonly sequence: ObjectName }
 	| { readonly kind: "dropIdentity"; readonly column: string }
@@ -740,6 +894,14 @@ export type AlterTableAction =
 	| { readonly kind: "dropConstraint"; readonly name: string }
 	| { readonly kind: "enableRowSecurity" }
 	| { readonly kind: "disableRowSecurity" }
+
+/**
+ * An ALTER COLUMN ... TYPE's USING: the conversion of each stored value, or a drafted placeholder the reviewer replaces
+ * with one (deploy/render/markers.ts placeholderToken).
+ */
+export type Using =
+	| { readonly kind: "expr"; readonly expr: Expr }
+	| { readonly kind: "placeholder" }
 
 export interface AlterTable {
 	readonly kind: "alterTable"
@@ -868,7 +1030,7 @@ export interface CreateIndex {
 	/** Outside a transaction block only. */
 	readonly concurrently: boolean
 	readonly method: "btree" | "gist" | "hnsw"
-	readonly keys: ReadonlyArray<IndexKey>
+	readonly keys: NonEmptyReadonlyArray<IndexKey>
 	readonly include: ReadonlyArray<string>
 	readonly where: Expr | undefined
 }
@@ -885,7 +1047,7 @@ export interface DropIndex {
 export interface CreateMaterializedView {
 	readonly kind: "createMaterializedView"
 	readonly name: ObjectName
-	readonly columns: ReadonlyArray<string>
+	readonly columns: NonEmptyReadonlyArray<string>
 	readonly query: Select
 }
 
@@ -967,14 +1129,17 @@ export type TriggerEvent =
 	| { readonly kind: "UPDATE"; readonly of: NonEmptyReadonlyArray<string> }
 
 /**
- * CREATE CONSTRAINT TRIGGER ... AFTER <events> ON <table> DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE
- * FUNCTION <function>().
+ * CREATE CONSTRAINT TRIGGER ... AFTER <event> ON <table> DEFERRABLE INITIALLY DEFERRED FOR EACH ROW [WHEN (<when>)]
+ * EXECUTE FUNCTION <function>(): a law unit's trigger, for one event.
  */
 export interface CreateConstraintTrigger {
 	readonly kind: "createConstraintTrigger"
 	readonly name: string
 	readonly table: ObjectName
-	readonly events: NonEmptyReadonlyArray<TriggerEvent>
+	readonly event: TriggerEvent
+	/** The row filter PostgreSQL evaluates when the row event happens, before it queues the deferred event; none when
+	 * every row of the event threatens the law. */
+	readonly when: Expr | undefined
 	readonly function: ObjectName
 }
 
@@ -990,11 +1155,16 @@ export interface CreateGuardTrigger {
 }
 
 /**
- * The current database's default of a configuration parameter, whatever the database is named:
+ * The current database's default of a configuration parameter, whatever the database is named, printed as a DO block
+ * (sql/catalog.ts DoBlock, built by sql/build.ts databaseDefaultBlock):
  *
- *   DO $$BEGIN
- *     EXECUTE format('ALTER DATABASE %I SET <parameter> = %L'::text, current_database(), '<value>'::text);
- *   END$$
+ *   DO $$
+ *   BEGIN
+ *     PERFORM "pg_catalog"."pg_advisory_xact_lock"(<key>::bigint);
+ *     EXECUTE "pg_catalog"."format"('ALTER DATABASE %I SET <parameter> = %L'::"pg_catalog"."text",
+ *       "pg_catalog"."current_database"(), '<value>'::"pg_catalog"."text");
+ *   END
+ *   $$
  *
  * ALTER DATABASE names its database and an installation's statements name none, so the block reads its name; PostgreSQL
  * reads `ALTER DATABASE CURRENT_DATABASE` as a database of that name. The installation's one database default is
@@ -1007,11 +1177,11 @@ export interface AlterDatabaseDefault {
 }
 
 /**
- * The role-level settings Publish stores for a login: the fixed session settings
+ * The role-level settings of one text value Publish stores for a login: the fixed session settings
  * and the vector library's search policy (check/approximate/policy.ts). An `hnsw.*` name is a
  * placeholder until the vector library is loaded in the session that stores it.
  */
-export const configurationParameters = [
+export const textParameters = [
 	"jit",
 	"extra_float_digits",
 	"lc_monetary",
@@ -1023,7 +1193,40 @@ export const configurationParameters = [
 	"hnsw.max_scan_tuples",
 	"hnsw.scan_mem_multiplier"
 ] as const
+export type TextParameter = (typeof textParameters)[number]
+
+/** Every role-level setting Publish stores for a login: its search_path, and the settings of one text value. */
+export const configurationParameters = ["search_path", ...textParameters] as const
 export type ConfigurationParameter = (typeof configurationParameters)[number]
+
+/** A login default of one text value: its parameter, and the value it stores. */
+export interface TextSetting {
+	readonly parameter: TextParameter
+	readonly value: string
+}
+
+/**
+ * A login default, as ALTER ROLE ... SET stores it: a text parameter at its value, or search_path at closedSearchPath,
+ * the one search_path grizzle sets, printed as its list of schemas. A role's own default outranks its database's, so
+ * a login's sessions resolve no name through a path the database, the cluster or an operator chose; no other path is
+ * representable.
+ */
+export type RoleSetting = TextSetting | { readonly parameter: "search_path" }
+
+/**
+ * The text parameters only a superuser, or a role granted SET on them, may set: a login's own startup options naming
+ * one are refused (42501), so only a role default the migration identity stores through its SET privilege sets it.
+ */
+export type SuperuserParameter = Extract<TextParameter, "lc_messages">
+
+/**
+ * A login default the login's own sessions may set at startup: search_path, or a text parameter no superuser alone may
+ * set. The startup options of every session of a login carry each of them (physical/ddl/roles.ts
+ * loginStartupOptions).
+ */
+export type SessionSetting =
+	| { readonly parameter: Exclude<TextParameter, SuperuserParameter>; readonly value: string }
+	| { readonly parameter: "search_path" }
 
 /**
  * CREATE ROLE <name> LOGIN NOINHERIT, a login, or CREATE ROLE <name> NOLOGIN, a theory role: a login holds no
@@ -1052,7 +1255,7 @@ export interface RevokeRole {
 }
 
 export type AlterRoleAction =
-	| { readonly kind: "set"; readonly parameter: ConfigurationParameter; readonly value: string }
+	| { readonly kind: "set"; readonly setting: RoleSetting }
 	| { readonly kind: "reset"; readonly parameter: ConfigurationParameter }
 
 export interface AlterRole {
@@ -1076,28 +1279,29 @@ export const privileges = [
 ] as const
 export type Privilege = (typeof privileges)[number]
 
+/** What a GRANT or REVOKE names, at least one object: PostgreSQL has no grant on no object. */
 export type GrantObjects =
-	| { readonly kind: "TABLE"; readonly names: ReadonlyArray<ObjectName> }
-	| { readonly kind: "SEQUENCE"; readonly names: ReadonlyArray<ObjectName> }
-	| { readonly kind: "SCHEMA"; readonly names: ReadonlyArray<string> }
-	| { readonly kind: "TYPE"; readonly names: ReadonlyArray<ObjectName> }
-	| { readonly kind: "DOMAIN"; readonly names: ReadonlyArray<ObjectName> }
-	| { readonly kind: "FUNCTION"; readonly names: ReadonlyArray<FunctionName> }
+	| { readonly kind: "TABLE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
+	| { readonly kind: "SEQUENCE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
+	| { readonly kind: "SCHEMA"; readonly names: NonEmptyReadonlyArray<string> }
+	| { readonly kind: "TYPE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
+	| { readonly kind: "DOMAIN"; readonly names: NonEmptyReadonlyArray<ObjectName> }
+	| { readonly kind: "FUNCTION"; readonly names: NonEmptyReadonlyArray<FunctionName> }
 
 export type Grantee = { readonly kind: "role"; readonly name: string } | { readonly kind: "PUBLIC" }
 
 export interface Grant {
 	readonly kind: "grant"
-	readonly privileges: ReadonlyArray<Privilege>
+	readonly privileges: NonEmptyReadonlyArray<Privilege>
 	readonly on: GrantObjects
-	readonly to: ReadonlyArray<Grantee>
+	readonly to: NonEmptyReadonlyArray<Grantee>
 }
 
 export interface Revoke {
 	readonly kind: "revoke"
-	readonly privileges: ReadonlyArray<Privilege>
+	readonly privileges: NonEmptyReadonlyArray<Privilege>
 	readonly on: GrantObjects
-	readonly from: ReadonlyArray<Grantee>
+	readonly from: NonEmptyReadonlyArray<Grantee>
 }
 
 /** The privileges PostgreSQL grants on columns that a role's write of a query entry holds on its table's columns. */
@@ -1130,9 +1334,9 @@ export interface AlterDefaultPrivileges {
 	readonly forRole: string | undefined
 	/** Undefined: the global form, for every schema in the database. */
 	readonly inSchema: string | undefined
-	readonly privileges: ReadonlyArray<Privilege>
+	readonly privileges: NonEmptyReadonlyArray<Privilege>
 	readonly on: "TABLES" | "SEQUENCES" | "FUNCTIONS" | "TYPES"
-	readonly from: ReadonlyArray<Grantee>
+	readonly from: NonEmptyReadonlyArray<Grantee>
 }
 
 /** Always IF NOT EXISTS: Setup creates an extension only when absent. */
@@ -1143,11 +1347,12 @@ export interface CreateExtension {
 	readonly schema: string
 }
 
+/** Extended statistics over at least two columns, as PostgreSQL requires; an empty kind list is every kind. */
 export interface CreateStatistics {
 	readonly kind: "createStatistics"
 	readonly name: ObjectName
 	readonly statistics: ReadonlyArray<"ndistinct" | "dependencies" | "mcv">
-	readonly columns: ReadonlyArray<string>
+	readonly columns: readonly [string, string, ...Array<string>]
 	readonly table: ObjectName
 }
 
@@ -1160,7 +1365,7 @@ type LockMode = "ACCESS SHARE" | "SHARE" | "SHARE ROW EXCLUSIVE" | "EXCLUSIVE" |
  */
 export interface LockTable {
 	readonly kind: "lockTable"
-	readonly tables: ReadonlyArray<ObjectName>
+	readonly tables: NonEmptyReadonlyArray<ObjectName>
 	readonly mode: LockMode
 	readonly wait: "wait" | "nowait"
 }
@@ -1183,6 +1388,14 @@ export interface RaiseOption {
 	readonly value: Expr
 }
 
+/** A PERFORM's query: the SELECT whose leading keyword PERFORM replaces, so it has no WITH and its body is one core. */
+export interface PerformQuery {
+	readonly body: SelectCore
+	readonly orderBy: ReadonlyArray<OrderItem>
+	readonly limit: Expr | undefined
+	readonly offset: Expr | undefined
+}
+
 export type PlStatement =
 	| {
 			readonly kind: "if"
@@ -1199,15 +1412,22 @@ export type PlStatement =
 			readonly query: Select
 			readonly body: ReadonlyArray<PlStatement>
 	  }
-	| { readonly kind: "perform"; readonly query: Select }
+	| { readonly kind: "perform"; readonly query: PerformQuery }
 	| {
+			/** PERFORM <probe>; IF NOT FOUND THEN <body> END IF: the probe and what its emptiness obliges, one statement,
+			 * so FOUND is read only right after the probe that set it. */
+			readonly kind: "whenAbsent"
+			readonly probe: PerformQuery
+			readonly body: NonEmptyReadonlyArray<PlStatement>
+	  }
+	| {
+			/** An exhaustive CASE: no ELSE, so a value no WHEN lists raises CASE_NOT_FOUND. */
 			readonly kind: "case"
 			readonly operand: Expr
-			readonly whens: ReadonlyArray<{
-				readonly values: ReadonlyArray<Expr>
+			readonly whens: NonEmptyReadonlyArray<{
+				readonly values: NonEmptyReadonlyArray<Expr>
 				readonly body: ReadonlyArray<PlStatement>
 			}>
-			readonly else: ReadonlyArray<PlStatement> | undefined
 	  }
 	| { readonly kind: "raise"; readonly message: string; readonly using: ReadonlyArray<RaiseOption> }
 	| { readonly kind: "return"; readonly value: Expr }
@@ -1225,7 +1445,8 @@ export interface FunctionParam {
 }
 
 /**
- * A function grizzle installs, by language:
+ * A function grizzle installs, by language, each under closedSearchPath (`SET search_path = pg_catalog, pg_temp`), so
+ * no caller's path reaches its body:
  *
  * - PL/pgSQL: CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS trigger | boolean | void LANGUAGE plpgsql
  *   VOLATILE [PARALLEL SAFE] SECURITY DEFINER SET search_path = pg_catalog, pg_temp SET plan_cache_mode =
@@ -1239,7 +1460,8 @@ export interface FunctionParam {
  *   SET search_path = pg_catalog, pg_temp SET plan_cache_mode = force_generic_plan RETURN <expr>: a writable entry's
  *   world functions, its filter that reads another relation, which its policy and its writes' prechecks call, and its
  *   key and unique probes (physical/ddl/roles.ts). Its body names its arguments by position (`$n`), never by name, so
- *   no argument can be read as a column of a relation the body reads.
+ *   no argument can be read as a column of a relation the body reads. PostgreSQL parses this body under the creating
+ *   session's path, not the function's, so only its absolute names make it mean one thing.
  *
  * `parallel` is the function's parallel safety: SAFE prints PARALLEL SAFE; UNSAFE, PostgreSQL's own default, prints no
  * clause. Only the refusal function is SAFE, so a statement that reads the claims still plans in parallel.
@@ -1252,7 +1474,6 @@ export type CreateFunction =
 			readonly volatility: "VOLATILE"
 			readonly parallel: "SAFE" | "UNSAFE"
 			readonly security: "DEFINER"
-			readonly searchPath: NonEmptyReadonlyArray<string>
 			readonly planCacheMode: "force_custom_plan"
 			readonly body: PlBlock
 	  } & (
@@ -1267,7 +1488,6 @@ export type CreateFunction =
 			readonly volatility: "STABLE"
 			readonly parallel: "SAFE" | "UNSAFE"
 			readonly security: "DEFINER"
-			readonly searchPath: NonEmptyReadonlyArray<string>
 			/**
 			 * The body is planned once per session, its arguments as parameters: an existence test its indexes serve at
 			 * any argument values gains nothing from a custom plan.
@@ -1304,7 +1524,8 @@ export interface Refresh {
  */
 export interface Analyze {
 	readonly kind: "analyze"
-	readonly carriers: ReadonlyArray<CarrierName>
+	/** At least one: ANALYZE of no relation analyzes every relation of the database. */
+	readonly carriers: NonEmptyReadonlyArray<CarrierName>
 }
 
 /**
@@ -1348,6 +1569,12 @@ export interface Comment {
 
 export type Dml = Select | Insert | Update | Delete | Merge
 
+/**
+ * Every statement that creates, changes or drops a schema object grizzle installs. Grizzle writes names into the type,
+ * function and relation namespaces only: no variant creates an operator, an operator class or a collation, which is why
+ * an operator prints bare while every other name prints by its schema. A variant that creates an operator reopens that
+ * rule, and with it the search_path every bare operator resolves through.
+ */
 export type Ddl =
 	| CreateSchema
 	| CreateTable

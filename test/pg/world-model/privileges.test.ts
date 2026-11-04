@@ -1,10 +1,12 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features, type Reached } from "@grizzle/testing/features"
+import { type Reached, required } from "@grizzle/testing/features"
 import { constant, element, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record, Result } from "effect"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { educationInstall } from "#test/support/fixtures/education/index.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -335,7 +337,7 @@ const kindOf = (a: Attempt): string => `${a.kind}:${a.privilege}`
 const privilegeCase = (install: InstallSpec, c: Case<Feature>) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const world = yield* realize(install)
+			const world = yield* realize(install, ordinarySession)
 			const names = world.names
 			const expected = expectedPrivileges(install, names)
 			const installed = yield* installedPrivileges(names)
@@ -432,7 +434,7 @@ const attemptKinds: ReadonlyArray<PrivilegeType> = [
  * grants one on, every membership option and attribute it gives, row security, and a refused attempt of each privilege
  * an attempt exercises alone on each kind of object.
  */
-const required: ReadonlyArray<Reached<Feature>> = [
+const situations: Arr.NonEmptyReadonlyArray<Reached<Feature>> = [
 	"held:schema:USAGE",
 	"held:table:SELECT",
 	"held:table:INSERT",
@@ -560,13 +562,12 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							suite: "pg/world-model/privileges",
 							draw: drawn(installs),
 							literal: Formatter.format,
-							features: features<Feature>(required),
+							coverage: required<Feature>(situations, { cases: 8, sense: notesOnly }),
 							kept: [],
 							runs: 8,
 							shrink: { kind: "bounded", candidates: 100 },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						privilegeCase

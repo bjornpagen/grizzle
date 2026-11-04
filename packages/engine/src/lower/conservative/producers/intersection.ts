@@ -1,3 +1,4 @@
+import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import type { ProducerNode } from "#compiler/ir/rel.ts"
 import {
 	type Env,
@@ -12,7 +13,7 @@ import {
 	spanArguments
 } from "#compiler/lower/conservative/producers/shared.ts"
 import type { Select } from "#compiler/sql/ast.ts"
-import { binary, core, select, target } from "#compiler/sql/build.ts"
+import { binary, distinctCoreWhen, select, target } from "#compiler/sql/build.ts"
 
 /**
  * r.intersection(a, b): the common points of two spans, zero or one span per binding.
@@ -34,16 +35,16 @@ export const intersectionQuery = (
 ): Select => {
 	const at = nodeLabel(node)
 	const input = cx.source(node.input, env)
-	const scope = extendEnv(env, [node.input.id, input.map])
+	const scope = extendEnv(env, [[node.input.id, input.map]])
 	const {
 		args: [a, b]
 	} = spanArguments(cx, node, scope, at)
-	return select({
-		...core(
-			[...carriedTargets(node, input.map), target(binary("*", a, b))],
+	return select(
+		distinctCoreWhen(
+			form.distinct,
+			appendNonEmpty(carriedTargets(node, input.map), target(binary("*", a, b))),
 			[input.item],
 			binary("&&", a, b)
-		),
-		distinct: form.distinct
-	})
+		)
+	)
 }

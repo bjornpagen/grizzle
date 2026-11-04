@@ -176,7 +176,7 @@ const step = (cx: RewriteCx): void => {
 			rule: pruneRule,
 			inputs: changed,
 			outputs: changed,
-			premises: nodePremises(...changed),
+			premises: nodePremises(changed),
 			context: "queryLocal",
 			preservedHeading: ed.roots.flatMap((r) => r.current.heading.map((c) => c.name)),
 			equality: [],

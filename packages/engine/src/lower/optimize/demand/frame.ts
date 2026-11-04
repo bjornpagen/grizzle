@@ -131,7 +131,7 @@ const nodeLoc = (pass: string, id: NodeId, node: EditNode): SourceLoc =>
 	node.loc ?? SourceLoc(`${pass} at node ${id}`, ["nodes", id])
 
 /** A node premise for each node a proof reads. */
-export const nodePremises = (...ids: ReadonlyArray<NodeId>): ReadonlyArray<Premise> =>
+export const nodePremises = (ids: ReadonlyArray<NodeId>): ReadonlyArray<Premise> =>
 	ids.map((node) => ({ kind: "node", node }))
 
 /**

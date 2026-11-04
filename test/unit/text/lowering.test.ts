@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -140,13 +141,15 @@ describe("the text refinement", () => {
 						flags: source.draw(flagsGen)
 					})),
 					literal: Formatter.format,
-					features: features<Empty>(Arr.map(empties, ([e]) => e)),
+					coverage: required<Empty>(
+						Arr.map(empties, ([e]) => e),
+						{ cases: 100, sense: notesOnly }
+					),
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ empty: [name, construct], prefix, flags }, c) =>
@@ -208,16 +211,16 @@ describe("constraint loops (ir.ts repeat)", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					features: features<"source loops through an assertion">([
-						"source loops through an assertion"
-					]),
+					coverage: required<"source loops through an assertion">(
+						["source loops through an assertion"],
+						{ cases: 1000, sense: notesOnly }
+					),
 					kept: [],
 					/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 					runs: 1000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([source, flags], c) =>
@@ -247,16 +250,15 @@ describe("reading a printed ARE back", () => {
 						suite: "unit/text/lowering-18081",
 						draw: drawn((source) => [source.draw(familyPattern), source.draw(flagsGen)] as const),
 						literal: Formatter.format,
-						features: features<"compared" | "read back to its own key">([
-							"compared",
-							"read back to its own key"
-						]),
+						coverage: required<"compared" | "read back to its own key">(
+							["compared", "read back to its own key"],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([source, flags], c) =>
@@ -317,11 +319,10 @@ describe("reading a printed ARE back", () => {
 					suite: "unit/text/are-verdict",
 					draw: drawn(nestedPattern),
 					literal: Formatter.format,
-					features: features<Verdict>([
-						"admitted",
-						"refused at a budget",
-						"spelled otherwise than its ARE"
-					]),
+					coverage: required<Verdict>(
+						["admitted", "refused at a budget", "spelled otherwise than its ARE"],
+						{ cases: 500, sense: notesOnly }
+					),
 					kept: [
 						{
 							note: "an empty arm wrote a chain of optional copies more cheaply than the quantifier its ARE prints, so `(?:(?:a|)){0,255}...` was admitted and its ARE `(?:a?){0,255}(?:a+)?b` refused",
@@ -334,7 +335,6 @@ describe("reading a printed ARE back", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(source, c) =>
@@ -390,7 +390,7 @@ describe("reading a printed ARE back", () => {
 					literal: Formatter.format,
 					/** The space: the ten strings. */
 					limit: 10,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
 				(unread) =>

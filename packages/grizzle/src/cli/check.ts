@@ -54,9 +54,11 @@ interface CheckFinding {
  * - an unresolved marker, a placeholder or a candidate rename, in any folder: `migrate` refused it before the folder
  *   ran and refuses an applied file edited afterwards, so an applied folder holds none either;
  * - a candidate rename decided one way at one statement it marks and another way at another, a statement it decides
- *   that is neither kept as drafted nor replaced as its marker says, two chosen candidates that rename one name, or a
- *   loss decided both ways, in any folder whose meta.json records its decisions (render/chosen.ts splitRenames, which
- *   compares statements as PostgreSQL's scanner reads them);
+ *   that is neither kept as drafted nor replaced as its marker says, two chosen candidates that rename one name, a loss
+ *   decided both ways, or a statement of a branch the reviewer did not take written in, wherever it stands, in any
+ *   folder whose meta.json records its decision record, every drafted statement in its place (render/chosen.ts
+ *   splitRenames, which decides each candidate from its head and compares statements as PostgreSQL's scanner reads
+ *   them);
  * - an unresolved loss: a statement that loses stored data, a relation with its rows or a field with its values, that
  *   is neither written in nor carried by a chosen candidate rename (render/chosen.ts lossDecisions), each named with
  *   what it loses;
@@ -129,18 +131,18 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				break
 		}
 		if (m.kind !== "unreadable" && m.meta.kind === "drafted") {
-			for (const r of splitRenames(m.meta.decisions, folder.files)) {
+			for (const r of splitRenames(m.meta.record, folder.files)) {
 				at(
 					"splitRename",
 					path(folder.name, r.file),
 					`${r.detail}: ${refusalText.splitRename.problem}`
 				)
 			}
-			for (const d of lossDecisions(m.meta.decisions, folder.files)) {
+			for (const d of lossDecisions(m.meta.record, folder.files)) {
 				if (d.kind === "unresolved") {
 					at(
 						"unresolvedLoss",
-						path(folder.name, d.loss.file),
+						path(folder.name, d.file),
 						`${lossText(d.loss.loses)}: ${refusalText.unresolvedLoss.problem}`
 					)
 				}

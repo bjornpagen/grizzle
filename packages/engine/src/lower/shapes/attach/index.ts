@@ -1,6 +1,12 @@
 import { pipelinedOnly } from "#compiler/check/approximate/attach.ts"
-import { printsAlike, resultTextCasts } from "#compiler/codec/scalar.ts"
+import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import {
+	concatNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
@@ -36,6 +42,7 @@ import {
 	conjunction,
 	core,
 	countStar,
+	distinctCoreWhen,
 	gt,
 	lit,
 	ne,
@@ -50,9 +57,10 @@ type AttachmentForm = "fused" | "pipelined"
 
 /**
  * What a fused array carries per child (decode.ts FusedLayout): each child column, from the element, or from the
- * parent row where the Attach correlates it to a parent column of the same type whose equal values always print alike,
- * which the parent row already delivers (the first such). A numeric or float column can hold equal values with different
- * spellings (1.0 and 1.00, -0 and 0), so it travels in the array.
+ * parent row where the Attach correlates it to a parent column of the same type, which the parent row already
+ * delivers (the first such). The correlation is native equality, and equal values decode to one host value (a
+ * numeric's 1.0 and 1.00 are one Decimal, a float's -0 and 0 one zero), so the parent's cell delivers the child's
+ * value whatever the type.
  */
 export const fusedLayout = (
 	attach: NodeOf<"Attach">,
@@ -63,7 +71,6 @@ export const fusedLayout = (
 		const carried = attach.correlation.find(
 			(c) =>
 				c.child === k.name &&
-				printsAlike(k.type) &&
 				parent.some((h) => h.name === c.parent && sameScalarType(h.type, k.type))
 		)
 		return {
@@ -158,10 +165,14 @@ const childRows = (
 	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
 	const source = cx.sourceAs(child, env, lateral)
 	const where = correlationEqualities(cx, attach, child.heading, source.map, parentMap)
-	return select({
-		...core(headingTargets(child.heading, source.map), [source.item], conjunction(where)),
-		distinct: !facts.childUniquePerParent(attach)
-	})
+	return select(
+		distinctCoreWhen(
+			!facts.childUniquePerParent(attach),
+			headingTargets(child.heading, source.map),
+			[source.item],
+			conjunction(where)
+		)
+	)
 }
 
 /** A value as its exact result text (codec resultTextCasts): money through numeric. */
@@ -186,13 +197,10 @@ const fusedAttachment = (
 	const wrapped = cx.wrap(rows, child.heading, { kind: "node", node: attach.id })
 	/** The element's fields are columns of the child's heading. */
 	const fields = fusedElement(fusedLayout(attach, child.heading, attach.parent.heading))
-	const texts: ReadonlyArray<Expr> =
-		fields.length === 0
-			? [asText(lit.bool(true), ["text"])]
-			: fields.map((c) => asText(columnIn(wrapped.map, c.name), resultTextCasts(c.type)))
-	const [single] = texts
-	const element: Expr =
-		texts.length === 1 && single !== undefined ? single : call("to_jsonb", [row(...texts)])
+	const texts: NonEmptyReadonlyArray<Expr> = isNonEmpty(fields)
+		? mapNonEmpty(fields, (c) => asText(columnIn(wrapped.map, c.name), resultTextCasts(c.type)))
+		: [asText(lit.bool(true), ["text"])]
+	const element: Expr = texts.length === 1 ? texts[0] : call("to_jsonb", [row(texts)])
 	const orderBy: ReadonlyArray<OrderItem> =
 		attach.order === undefined || child.heading.length === 0
 			? []
@@ -445,14 +453,15 @@ export const pipelinedAttachment = (
 						fixed: []
 					})
 				]
-	const body = {
-		...core(
-			[...keys.map((k) => target(k.expr)), ...headingTargets(child.heading, source.map)],
-			[parent.item, source.item],
-			conjunction(where)
+	const body = distinctCoreWhen(
+		distinct,
+		concatNonEmpty(
+			keys.map((k) => target(k.expr)),
+			headingTargets(child.heading, source.map)
 		),
-		distinct
-	}
+		[parent.item, source.item],
+		conjunction(where)
+	)
 	return {
 		rows: select(body),
 		query: { ...select(body), orderBy }

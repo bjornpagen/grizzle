@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Option, Record as Rec, type Scope, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { namedDetail } from "#compiler/ir/law.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
@@ -298,7 +299,7 @@ export const runDirect = (
 		const found: Array<Found> = [...ran.found]
 		for (const advance of yield* advancesOf(names, statement)) {
 			const advanced = yield* runOne(reading, names, session, advance)
-			found.push(...advanced.found)
+			appendAll(found, advanced.found)
 			if (advanced.observation.kind !== "ok") {
 				return { ...advanced, found }
 			}

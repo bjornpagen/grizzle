@@ -109,7 +109,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								awaits("refresher", mayWait),
 								awaits("refresher2", mayWait),
 								check(freshSql(o, "StudentWeekly"), fresh),
-								check(weekly(o, o.view), rowSet(...weeklyRows(labels, [...initial, first, second])))
+								check(weekly(o, o.view), rowSet(weeklyRows(labels, [...initial, first, second])))
 							]),
 							actors
 						)
@@ -163,7 +163,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								check(freshSql(o, "StudentTotal"), fresh),
 								check(
 									studentTotals(o, o.view),
-									rowSet(...totalRows(labels, [...initial, first, second]))
+									rowSet(totalRows(labels, [...initial, first, second]))
 								)
 							]),
 							actors
@@ -217,10 +217,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									refreshed(exactly()),
 									complete
 								),
-								check(studentTotals(o, o.view), rowSet(...after)),
+								check(studentTotals(o, o.view), rowSet(after)),
 								rollback("holder"),
 								awaits("refresher", complete),
-								check(studentTotals(o, o.view), rowSet(...after)),
+								check(studentTotals(o, o.view), rowSet(after)),
 								check(freshSql(o, "StudentTotal"), fresh),
 								check(freshSql(o, "StudentWeekly"), fresh)
 							]),
@@ -274,10 +274,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								awaits("refresher", mayWait),
 								awaits("refresher2", mayWait),
 								check(freshSql(o, "StudentTotal"), fresh),
-								check(
-									studentTotals(o, o.view),
-									rowSet(...totalRows(labels, [...initial, newcomer]))
-								)
+								check(studentTotals(o, o.view), rowSet(totalRows(labels, [...initial, newcomer])))
 							]),
 							actors
 						)
@@ -304,7 +301,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							grizzle: o.refreshers
 						}
 						const newcomer = sat(8, 8, 1, true)
-						const after = rowSet(...totalRows(labels, [...initial, newcomer]))
+						const after = rowSet(totalRows(labels, [...initial, newcomer]))
 						return [
 							yield* runSchedule(
 								o.env,
@@ -330,7 +327,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									rollback("holder"),
 									awaits("refresher", complete),
 									check(studentTotals(o, o.view), after),
-									check(weekly(o, o.view), rowSet(...weeklyRows(labels, [...initial, newcomer]))),
+									check(weekly(o, o.view), rowSet(weeklyRows(labels, [...initial, newcomer]))),
 									check(freshSql(o, "StudentTotal"), fresh),
 									check(freshSql(o, "StudentWeekly"), fresh)
 								]),

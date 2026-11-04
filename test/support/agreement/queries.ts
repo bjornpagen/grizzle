@@ -1,4 +1,5 @@
-import { element, type Gen } from "@grizzle/testing/gen"
+import { floorPopulation, type Reached } from "@grizzle/testing/features"
+import { array, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
@@ -10,9 +11,17 @@ import { pg } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { Agree, Item, Note, Tag } from "#test/support/agreement/schema.ts"
+import {
+	type AdmissionCell,
+	admissionCells,
+	admissionModule,
+	admissionSize,
+	combinatorCells
+} from "#test/support/agreement/admission.ts"
+import { Agree, Item, Note, Tag, Tone, Tones } from "#test/support/agreement/schema.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { messageOf } from "#test/support/message.ts"
 
 /**
@@ -28,11 +37,27 @@ import { messageOf } from "#test/support/message.ts"
  * (analysis/logical/get.ts requireGet) and its minimal keys. Both readings walk one spec construct by construct, so the
  * program and the engine see one query.
  *
- * The draws come from the run's own stream (agreementCases samples it from the run's seed): the program the type-test
- * batch checks and the cases the test reads are one population in every process of a run, and every run draws a new
- * one. Each case first draws a swarm over the constructs (@grizzle/testing/swarm), then its query construct by
+ * The draws are two populations of one generator: the floor's witnesses (floorPopulation), the same in every run, which
+ * alone meet the required constructs, and the run's own stream (agreementCases samples it from the run's seed), new
+ * every run: the program the type-test batch checks and the cases the test reads are one population in every process
+ * of a run. Each case first draws a swarm over the constructs (@grizzle/testing/swarm), then its query construct by
  * construct: the swarm turns constructs off for a whole case and thins the rest, so the forms that crowd others out are
- * left out of some cases and the rest combine.
+ * left out of some cases and the rest combine. Each constant's construct is drawn at a place every case visits, so a
+ * case whose swarm keeps it holds it and the floor reaches it by construction: a constant of Tone through the rule's
+ * anchor (Anchor), a handle discriminant before the union's own gates, a constant at Tones as the rule's last match.
+ * So is a self-join whose get the engine proves (pinnedSelfJoin), drawn as a rule's second match: two scopes of one
+ * relation, each with a key bound to values fixed per binding, in a query of no other arm, which reaches the pair a
+ * repeat and a proved get make (agreementPairs) wherever the swarm keeps it.
+ *
+ * A constant stands in every term position: a JavaScript value (`literal`), Tone's handle (`handle`) at Item.tone in a
+ * binding, a filter, first in a comparison, a head, a union's discriminant and a binding at Tones, the union source of
+ * ./schema.ts, whose arm it selects, and `Compute.literal(pg.integer, v)`
+ * (`constant`) where its value never reaches the evidence (Compute operands, a conditional's branch): its type keeps its
+ * descriptor's whole host type, the one approximation of a typed constant's value, so the evidence never reads it.
+ *
+ * The program is emitted twice, in the drawn order and in a second drawn order, as two modules, and a third asserts
+ * every query's head and keys equal across the two: TypeScript's evaluation of the evidence must not depend on the
+ * order of unrelated statements. A fourth module is the admission agreement (./admission.ts).
  */
 
 /** The constructs a drawn query may use, each a swarm feature. */
@@ -47,6 +72,7 @@ export const agreementFeatures = [
 	"secondMatch",
 	"thirdMatch",
 	"repeat",
+	"pinnedSelfJoin",
 	"fixFilter",
 	"computedFix",
 	"varEquality",
@@ -58,6 +84,12 @@ export const agreementFeatures = [
 	"computedHead",
 	"condHead",
 	"literalHead",
+	"constantBinding",
+	"constantFirst",
+	"constantFilter",
+	"constantHead",
+	"handleDiscriminant",
+	"constantAtUnionSource",
 	"aggregate",
 	"groupTerm",
 	"sum",
@@ -74,8 +106,18 @@ export type AgreementNote =
 	| "get refused"
 	| "a key below the heading"
 
+/**
+ * The pairs of notes one case must reach together: a self-join whose get the engine proves, which pinnedSelfJoin
+ * draws by construction.
+ */
+export const agreementPairs: ReadonlyArray<readonly [AgreementNote, AgreementNote]> = [
+	["repeat", "get proved"]
+]
+
 type Rel = "Item" | "Tag" | "Note"
-type Kind = "uuid" | "int"
+/** What a match reads: a relation, or Tones, the union of Item's facts by tone (./schema.ts). */
+type MatchSource = Rel | "Tones"
+type Kind = "uuid" | "int" | "enum"
 
 interface Field {
 	readonly rel: Rel
@@ -88,7 +130,8 @@ const fieldsOf: { readonly [R in Rel]: Arr.NonEmptyReadonlyArray<Field> } = {
 		{ rel: "Item", name: "id", kind: "uuid" },
 		{ rel: "Item", name: "owner", kind: "uuid" },
 		{ rel: "Item", name: "n", kind: "int" },
-		{ rel: "Item", name: "m", kind: "int" }
+		{ rel: "Item", name: "m", kind: "int" },
+		{ rel: "Item", name: "tone", kind: "enum" }
 	],
 	Tag: [
 		{ rel: "Tag", name: "item", kind: "uuid" },
@@ -101,12 +144,20 @@ const fieldsOf: { readonly [R in Rel]: Arr.NonEmptyReadonlyArray<Field> } = {
 	]
 }
 const rels: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Tag", "Note"]
+/** Each relation's keys, by their fields (./schema.ts). */
+const keysOf: { readonly [R in Rel]: Arr.NonEmptyReadonlyArray<ReadonlyArray<string>> } = {
+	Item: [["id"], ["owner", "n"]],
+	Tag: [["item", "label"]],
+	Note: [["item"]]
+}
 const allFields: Arr.NonEmptyReadonlyArray<Field> = Arr.flatMap(rels, (rel) => fieldsOf[rel])
 /** The integer field a parameter compared with a constant is typed by, where the rule binds no variable. */
 const integerField: Field = { rel: "Item", name: "n", kind: "int" }
+/** Item.tone, the field a rule's first match binds when it draws a constant of Tone by construction (Anchor). */
+const toneField: Field = { rel: "Item", name: "tone", kind: "enum" }
 
-/** The relation values the built query matches, and their field descriptors, which its parameters are typed by. */
-const sources: { readonly [R in Rel]: unknown } = { Item, Tag, Note }
+/** The values the built query matches, and the relations' field descriptors, which its parameters are typed by. */
+const sources: { readonly [R in MatchSource]: unknown } = { Item, Tag, Note, Tones }
 const descriptors: { readonly [R in Rel]: Readonly<Record<string, unknown>> } = {
 	Item: Item.fields,
 	Tag: Tag.fields,
@@ -114,7 +165,8 @@ const descriptors: { readonly [R in Rel]: Readonly<Record<string, unknown>> } = 
 }
 
 /**
- * A variable v mints over a relation's field; `copy` tells apart the variables of a relation the rule matches twice.
+ * A variable v mints over a relation's field, in the scope of the relation's `copy`-th match in its rule: a self-join's
+ * two matches mint in two scopes (scopeOf).
  */
 interface Var {
 	readonly field: Field
@@ -126,6 +178,7 @@ type Term =
 	| { readonly kind: "param"; readonly name: string; readonly at: Field }
 	| { readonly kind: "literal"; readonly type: Kind; readonly value: number }
 	| { readonly kind: "constant"; readonly value: number }
+	| { readonly kind: "handle"; readonly value: number }
 	| {
 			readonly kind: "arith"
 			readonly op: "add" | "sub" | "mul"
@@ -150,12 +203,12 @@ type Pred =
 
 type HeadTerm =
 	| { readonly kind: "term"; readonly t: Term }
-	| { readonly kind: "headLiteral"; readonly value: number | string }
+	| { readonly kind: "literal"; readonly value: number | string }
 	| { readonly kind: "count" }
 	| { readonly kind: "sum"; readonly of: Term }
 
 interface Match {
-	readonly rel: Rel
+	readonly rel: MatchSource
 	readonly copy: number
 	readonly bindings: ReadonlyArray<readonly [string, Term]>
 }
@@ -199,6 +252,11 @@ class Drawing {
 		return kept
 	}
 
+	/** Notes a construct another construct's draw made, as the draw that kept it would. */
+	note(feature: AgreementFeature): void {
+		this.reached.add(feature)
+	}
+
 	/** One of `forms`, by the swarm's weights of their constructs, the first when every one is off; noted. */
 	choose<A>(forms: Arr.NonEmptyReadonlyArray<Form<A>>): A {
 		const feature = this.#source.draw(
@@ -237,14 +295,25 @@ const literalOf = (d: Drawing, type: Kind): Term => ({
 	value: d.from([0, 1, 2, 3])
 })
 
+/** Tone's members, which a handle and a JavaScript value of Item.tone name by index. */
+const tones = Tone.handles
+
+const toneOf = (value: number): (typeof tones)[number] => Arr.getUnsafe(tones, value % tones.length)
+
+const handleOf = (d: Drawing): Term => ({ kind: "handle", value: d.from([0, 1, 2]) })
+
+/** A value a field's binding fixes per binding: a parameter or a literal of the field's type. */
+const boundInputs = (d: Drawing, at: Field): Arr.NonEmptyReadonlyArray<Form<Term>> => [
+	["param", () => d.param(at)],
+	["literal", () => literalOf(d, at.kind)]
+]
+
 /** A value fixed per binding: a parameter or a literal, or Compute over a constant and a parameter. */
 const inputOf = (d: Drawing, at: Field): Term => {
-	const plain: Arr.NonEmptyReadonlyArray<Form<Term>> = [
-		["param", () => d.param(at)],
-		["literal", () => literalOf(d, at.kind)]
-	]
-	return at.kind === "int"
-		? d.choose([
+	const plain = boundInputs(d, at)
+	switch (at.kind) {
+		case "int":
+			return d.choose([
 				...plain,
 				[
 					"computedFix",
@@ -256,7 +325,11 @@ const inputOf = (d: Drawing, at: Field): Term => {
 					})
 				]
 			])
-		: d.choose(plain)
+		case "enum":
+			return d.choose([...plain, ["constantFilter", () => handleOf(d)]])
+		case "uuid":
+			return d.choose(plain)
+	}
 }
 
 /**
@@ -303,6 +376,9 @@ const comparisonOver = (d: Drawing, bound: ReadonlyArray<Var>): Pred => {
 		}
 	}
 	const v = d.from(bound)
+	if (v.field.kind === "enum" && d.keep("constantFirst")) {
+		return { kind: "cmp", op: d.from(["eq", "ne"] as const), a: handleOf(d), b: varTerm(v), via }
+	}
 	return v.field.kind === "int" && d.from([0, 1]) === 0
 		? { kind: "cmp", op: d.from(["lt", "ge"] as const), a: varTerm(v), b: literalOf(d, "int"), via }
 		: { kind: "cmp", op: d.from(["eq", "ne"] as const), a: varTerm(v), b: inputOf(d, v.field), via }
@@ -333,6 +409,7 @@ const bindingForms = (
 			: []),
 		["param", () => d.param(field)],
 		["literal", () => literalOf(d, field.kind)],
+		...(field.kind === "enum" ? [["constantBinding", () => handleOf(d)] as const] : []),
 		["omit", () => undefined],
 		...(field.kind === "int" && Arr.isReadonlyArrayNonEmpty(ints)
 			? [
@@ -356,10 +433,68 @@ interface Bound {
 	readonly bound: ReadonlyArray<Var>
 }
 
-/** A match's bindings, field by field, each drawn over the variables bound before it, a join among them. */
-const bindingsOf = (d: Drawing, rel: Rel, copy: number, before: ReadonlyArray<Var>): Bound =>
+/**
+ * A rule's constant of Tone drawn by construction: its first match is Item, whose tone it binds to a handle
+ * (constantBinding), or to tone's variable, which a filter compares with a handle second (constantFilter) or first
+ * (constantFirst). Each is otherwise drawn only where Item.tone's variable happens to be bound, which few cases do.
+ */
+type Anchor =
+	| { readonly kind: "binding"; readonly handle: Term }
+	| { readonly kind: "variable"; readonly filter: boolean; readonly first: boolean }
+
+const anchorOf = (d: Drawing): Anchor | undefined => {
+	if (d.keep("constantBinding")) {
+		return { kind: "binding", handle: handleOf(d) }
+	}
+	const filter = d.keep("constantFilter")
+	const first = d.keep("constantFirst")
+	return filter || first ? { kind: "variable", filter, first } : undefined
+}
+
+/** The filters an anchor's variable is compared with a handle in. */
+const anchorFilters = (d: Drawing, anchor: Anchor | undefined): ReadonlyArray<Pred> => {
+	if (anchor === undefined || anchor.kind === "binding") {
+		return []
+	}
+	const tone = varTerm({ field: toneField, copy: 0 })
+	const compared = (a: Term, b: Term): Pred => ({
+		kind: "cmp",
+		op: d.from(["eq", "ne"] as const),
+		a,
+		b,
+		via: viaOf(d)
+	})
+	return [
+		...(anchor.filter ? [compared(tone, handleOf(d))] : []),
+		...(anchor.first ? [compared(handleOf(d), tone)] : [])
+	]
+}
+
+/** What an anchor binds Item.tone to, where it binds it. */
+const anchored = (anchor: Anchor | undefined, field: Field, own: Var): Term | undefined =>
+	anchor === undefined || field.rel !== toneField.rel || field.name !== toneField.name
+		? undefined
+		: anchor.kind === "binding"
+			? anchor.handle
+			: varTerm(own)
+
+/**
+ * A match's bindings, field by field, each drawn over the variables bound before it, a join among them; a field the
+ * anchor binds is bound as it says, and a field of `inputs` to a value fixed per binding.
+ */
+const bindingsOf = (
+	d: Drawing,
+	rel: Rel,
+	copy: number,
+	before: ReadonlyArray<Var>,
+	anchor: Anchor | undefined,
+	inputs: ReadonlyArray<string>
+): Bound =>
 	Arr.reduce(fieldsOf[rel], { bindings: [], bound: before }, (drawn: Bound, field): Bound => {
-		const term = d.choose(bindingForms(d, field, { field, copy }, drawn.bound))
+		const own: Var = { field, copy }
+		const term = Arr.contains(inputs, field.name)
+			? d.choose(boundInputs(d, field))
+			: (anchored(anchor, field, own) ?? d.choose(bindingForms(d, field, own, drawn.bound)))
 		return term === undefined
 			? drawn
 			: {
@@ -371,14 +506,23 @@ const bindingsOf = (d: Drawing, rel: Rel, copy: number, before: ReadonlyArray<Va
 const withVariable = (bound: ReadonlyArray<Var>, term: Term): ReadonlyArray<Var> =>
 	term.kind === "var" && !Arr.some(bound, (b) => sameVar(b, term.v)) ? [...bound, term.v] : bound
 
-/** A rule: its matches, its filters and its head, over the variables its matches bind. */
-const drawRule = (d: Drawing): RuleSpec => {
-	const count = d.keep("secondMatch") ? (d.keep("thirdMatch") ? 3 : 2) : 1
+/** A rule's matches, and the variables they bind. */
+interface Matched {
+	readonly matches: Arr.NonEmptyReadonlyArray<Match>
+	readonly bound: ReadonlyArray<Var>
+}
+
+/**
+ * One to three matches, each of a drawn relation, the first Item when an anchor draws a constant of Tone (Anchor): a
+ * relation already matched again only where the swarm keeps the repeat.
+ */
+const drawnMatches = (d: Drawing, anchor: Anchor | undefined, second: boolean): Matched => {
+	const count = second ? (d.keep("thirdMatch") ? 3 : 2) : 1
 	const matched: Array<Rel> = []
 	let bound: ReadonlyArray<Var> = []
 	const matches: Array<Match> = []
 	for (let i = 0; i < count; i++) {
-		const drawn = d.from(rels)
+		const drawn = i === 0 && anchor !== undefined ? toneField.rel : d.from(rels)
 		const unmatched = Arr.filter(rels, (rel) => !Arr.contains(matched, rel))
 		const rel =
 			Arr.contains(matched, drawn) && Arr.isReadonlyArrayNonEmpty(unmatched) && !d.keep("repeat")
@@ -386,15 +530,67 @@ const drawRule = (d: Drawing): RuleSpec => {
 				: drawn
 		const copy = Arr.filter(matched, (m) => m === rel).length
 		matched.push(rel)
-		const bindings = bindingsOf(d, rel, copy, bound)
+		const bindings = bindingsOf(d, rel, copy, bound, i === 0 ? anchor : undefined, [])
 		bound = bindings.bound
 		matches.push({ rel, copy, bindings: bindings.bindings })
 	}
+	return { matches: [defined(matches[0], "the first match"), ...matches.slice(1)], bound }
+}
+
+/**
+ * A self-join whose get the engine proves, drawn by construction (pinnedSelfJoin): two matches of one relation, Item
+ * when an anchor draws a constant of Tone, each scope binding one of the relation's keys to values fixed per binding,
+ * so both facts are pinned and so is every variable the rule binds. Its other fields are drawn as any match's.
+ */
+const pinnedMatches = (d: Drawing, anchor: Anchor | undefined): Matched => {
+	d.note("repeat")
+	const rel = anchor === undefined ? d.from(rels) : toneField.rel
+	const first = bindingsOf(d, rel, 0, [], anchor, d.from(keysOf[rel]))
+	const second = bindingsOf(d, rel, 1, first.bound, undefined, d.from(keysOf[rel]))
 	return {
-		matches: [defined(matches[0], "the first match"), ...matches.slice(1)],
-		filters: filtersOver(d, bound),
-		head: headOver(d, bound)
+		matches: [
+			{ rel, copy: 0, bindings: first.bindings },
+			{ rel, copy: 1, bindings: second.bindings }
+		],
+		bound: second.bound
 	}
+}
+
+/** A drawn rule, and whether it is a pinned self-join, which no union's arm is. */
+interface DrawnRule {
+	readonly rule: RuleSpec
+	readonly pinned: boolean
+}
+
+/**
+ * A rule: its matches, its filters and its head, over the variables its matches bind. A second match may be a pinned
+ * self-join's (pinnedMatches), the rule's matches alone; any other rule's are drawn, and its last, under
+ * constantAtUnionSource, is Tones with a constant bound at tone, a handle or its member's JavaScript value, which
+ * selects the arm holding it.
+ */
+const drawRule = (d: Drawing): DrawnRule => {
+	const anchor = anchorOf(d)
+	const second = d.keep("secondMatch")
+	const pinned = second && d.keep("pinnedSelfJoin")
+	const { matches, bound } = pinned ? pinnedMatches(d, anchor) : drawnMatches(d, anchor, second)
+	const atUnion: ReadonlyArray<Match> =
+		!pinned && d.keep("constantAtUnionSource")
+			? [{ rel: "Tones", copy: 0, bindings: [["tone", tonesConstant(d)]] }]
+			: []
+	return {
+		rule: {
+			matches: Arr.appendAll(matches, atUnion),
+			filters: [...anchorFilters(d, anchor), ...filtersOver(d, bound)],
+			head: headOver(d, bound)
+		},
+		pinned
+	}
+}
+
+/** A constant some arm of Tones holds at tone: low or mid, as a handle or as the member's JavaScript value. */
+const tonesConstant = (d: Drawing): Term => {
+	const value = d.from([0, 1])
+	return d.from([0, 1]) === 0 ? { kind: "handle", value } : { kind: "literal", type: "enum", value }
 }
 
 /** The rule's filters: an equality with a value fixed per binding, between two variables, a range; joined or not. */
@@ -417,7 +613,7 @@ const filtersOver = (d: Drawing, bound: ReadonlyArray<Var>): ReadonlyArray<Pred>
 			kind: "cmp",
 			op: d.from(["lt", "ge"] as const),
 			a: varTerm(d.from(ints)),
-			b: literalOf(d, "int"),
+			b: d.from([0, 1]) === 0 ? literalOf(d, "int") : { kind: "constant", value: d.from([1, 2]) },
 			via: viaOf(d)
 		})
 	}
@@ -493,7 +689,8 @@ const headOver = (
 	const fields = Arr.map(Arr.range(0, d.from([0, 1, 2])), (i) => {
 		const anywhere: ReadonlyArray<Form<HeadTerm>> = [
 			["condHead", () => ({ kind: "term", t: condOver(d, bound, ints) })],
-			["literalHead", () => ({ kind: "headLiteral", value: d.from([0, 1, "a", "b"]) })]
+			["literalHead", () => ({ kind: "literal", value: d.from([0, 1, "a", "b"]) })],
+			["constantHead", () => ({ kind: "term", t: handleOf(d) })]
 		]
 		const forms: Arr.NonEmptyReadonlyArray<Form<HeadTerm>> = Arr.isReadonlyArrayNonEmpty(bound)
 			? [
@@ -508,10 +705,7 @@ const headOver = (
 						: []),
 					...anywhere
 				]
-			: [
-					["literalHead", () => ({ kind: "headLiteral", value: d.from([0, 1, "a", "b"]) })],
-					...anywhere
-				]
+			: [["literalHead", () => ({ kind: "literal", value: d.from([0, 1, "a", "b"]) })], ...anywhere]
 		return [`h${i}`, d.choose(forms)] as const
 	})
 	return fields
@@ -534,6 +728,7 @@ const renamed = (arm: RuleSpec): Pick<RuleSpec, "matches" | "filters" | "head"> 
 			case "var":
 			case "literal":
 			case "constant":
+			case "handle":
 				return t
 		}
 	}
@@ -547,7 +742,7 @@ const renamed = (arm: RuleSpec): Pick<RuleSpec, "matches" | "filters" | "head"> 
 				return { kind: "term", t: term(h.t) }
 			case "sum":
 				return { kind: "sum", of: term(h.of) }
-			case "headLiteral":
+			case "literal":
 			case "count":
 				return h
 		}
@@ -562,17 +757,49 @@ const renamed = (arm: RuleSpec): Pick<RuleSpec, "matches" | "filters" | "head"> 
 	}
 }
 
-const discriminated = (arm: RuleSpec, value: string): RuleSpec => ({
+const discriminated = (arm: RuleSpec, value: HeadTerm): RuleSpec => ({
 	...arm,
-	head: [...arm.head, ["d", { kind: "headLiteral", value }]]
+	head: [...arm.head, ["d", value]]
 })
 
-/** The query a drawing draws: a rule, a union of it with its renamed twin, and a take that closes it. */
+/**
+ * A union's two discriminants of Tone: the first arm's a handle, the second arm's a handle or its member's JavaScript
+ * value, which the first arm's enum types.
+ */
+const handleDiscriminants = (d: Drawing): readonly [HeadTerm, HeadTerm] => [
+	{ kind: "term", t: { kind: "handle", value: 0 } },
+	d.from([0, 1]) === 0
+		? { kind: "term", t: { kind: "handle", value: 1 } }
+		: { kind: "literal", value: toneOf(1) }
+]
+
+/** A union's two discriminants as JavaScript values. */
+const literalDiscriminants: readonly [HeadTerm, HeadTerm] = [
+	{ kind: "literal", value: "a" },
+	{ kind: "literal", value: "b" }
+]
+
+/**
+ * The query a drawing draws: a rule, a union of it with its renamed twin, and a take that closes it. A handle
+ * discriminant is drawn first, so a case that keeps it is a discriminated union whatever the union's own gates draw. A
+ * pinned self-join is no union's arm, so its get is proved whatever the rest of the case draws.
+ */
 const drawQuery = (d: Drawing): QuerySpec => {
-	const first = drawRule(d)
-	const arms: Arr.NonEmptyReadonlyArray<RuleSpec> = d.keep("union")
-		? d.keep("discriminant")
-			? [discriminated(first, "a"), discriminated(secondArm(first), "b")]
+	const { rule: first, pinned } = drawRule(d)
+	const handled = !pinned && d.keep("handleDiscriminant")
+	if (handled) {
+		d.note("union")
+		d.note("discriminant")
+	}
+	const union = handled || (!pinned && d.keep("union"))
+	const tagged = handled
+		? handleDiscriminants(d)
+		: union && d.keep("discriminant")
+			? literalDiscriminants
+			: undefined
+	const arms: Arr.NonEmptyReadonlyArray<RuleSpec> = union
+		? tagged !== undefined
+			? [discriminated(first, tagged[0]), discriminated(secondArm(first), tagged[1])]
 			: [first, secondArm(first)]
 		: [first]
 	const take = d.keep("take") ? d.from([1, 2] as const) : undefined
@@ -582,10 +809,21 @@ const drawQuery = (d: Drawing): QuerySpec => {
 const uuidOf = (value: number): string =>
 	`00000000-0000-4000-8000-${pipe(String(value), Str.padStart(12, "0"))}`
 
-const varName = (v: Var): string => `${v.field.rel}${v.copy}`
+/** The words that name the second and third scope of one relation in a rule. */
+const ordinals = ["second", "third"] as const
+
+/**
+ * A variable's scope name, which the program also declares its variables under: its relation's name in lower camel
+ * case for the first match of it, prefixed by the ordinal of its match after that, as a reader would name two scopes
+ * of one relation by role.
+ */
+const varName = (v: Var): string =>
+	v.copy === 0
+		? Str.uncapitalize(v.field.rel)
+		: `${defined(ordinals[v.copy - 1], "a third match at most")}${v.field.rel}`
 
 /** The names a rendered query imports beside query and Agree. */
-type Imported = "Compute" | "pg" | "v" | Rel
+type Imported = "Compute" | "pg" | "v" | "Tone" | MatchSource
 
 /** The source of one query, with the names it imports. */
 class Rendering {
@@ -599,11 +837,16 @@ class Rendering {
 				this.uses.add(t.at.rel)
 				return `r.param(${JSON.stringify(t.name)}, ${t.at.rel}.fields.${t.at.name})`
 			case "literal":
-				return t.type === "int" ? String(t.value) : JSON.stringify(uuidOf(t.value))
+				return t.type === "int"
+					? String(t.value)
+					: JSON.stringify(t.type === "uuid" ? uuidOf(t.value) : toneOf(t.value))
 			case "constant":
 				this.uses.add("Compute")
 				this.uses.add("pg")
 				return `Compute.literal(pg.integer, ${t.value})`
+			case "handle":
+				this.uses.add("Tone")
+				return `Tone.handle(${JSON.stringify(toneOf(t.value))})`
 			case "arith":
 				this.uses.add("Compute")
 				return `Compute.${t.op}(${this.term(t.a)}, ${this.term(t.b)})`
@@ -630,8 +873,8 @@ class Rendering {
 		switch (h.kind) {
 			case "term":
 				return this.term(h.t)
-			case "headLiteral":
-				return `r.literal(${JSON.stringify(h.value)})`
+			case "literal":
+				return JSON.stringify(h.value)
 			case "count":
 				return "r.count()"
 			case "sum":
@@ -663,7 +906,7 @@ class Rendering {
 		const declared = Arr.map(variablesOf(arm), (v) => {
 			this.uses.add("v")
 			this.uses.add(v.field.rel)
-			return `\t\tconst ${varName(v)} = v(${v.field.rel})`
+			return `\t\tconst ${varName(v)} = v(${v.field.rel}, ${JSON.stringify(varName(v))})`
 		})
 		const body = `r${Arr.join([...matches, ...filters, head], "")}`
 		return Arr.isReadonlyArrayNonEmpty(declared)
@@ -707,6 +950,7 @@ const variablesOf = (arm: RuleSpec): ReadonlyArray<Var> => {
 			case "param":
 			case "literal":
 			case "constant":
+			case "handle":
 				return
 		}
 	}
@@ -744,7 +988,7 @@ const built = (spec: QuerySpec): unknown => {
 		const minted = new Map<string, Readonly<Record<string, unknown>>>()
 		const variable = (v: Var): unknown => {
 			const name = varName(v)
-			const vars = minted.get(name) ?? varsOver(sources[v.field.rel])
+			const vars = minted.get(name) ?? varsOver(sources[v.field.rel], name)
 			minted.set(name, vars)
 			return vars[v.field.name]
 		}
@@ -755,9 +999,11 @@ const built = (spec: QuerySpec): unknown => {
 				case "param":
 					return r.param(t.name, descriptors[t.at.rel][t.at.name])
 				case "literal":
-					return t.type === "int" ? t.value : uuidOf(t.value)
+					return t.type === "int" ? t.value : t.type === "uuid" ? uuidOf(t.value) : toneOf(t.value)
 				case "constant":
 					return computeCore.literal(pg.integer, t.value)
+				case "handle":
+					return Tone.handle(toneOf(t.value))
 				case "arith": {
 					const a = term(t.a)
 					const b = term(t.b)
@@ -802,8 +1048,8 @@ const built = (spec: QuerySpec): unknown => {
 			switch (h.kind) {
 				case "term":
 					return term(h.t)
-				case "headLiteral":
-					return r.literal(h.value)
+				case "literal":
+					return h.value
 				case "count":
 					return r.count()
 				case "sum":
@@ -817,7 +1063,7 @@ const built = (spec: QuerySpec): unknown => {
 			)
 		)
 		const filtered = Arr.isReadonlyArrayNonEmpty(arm.filters)
-			? matched.where(...Arr.map(arm.filters, pred))
+			? matched.where(...argumentsOf(Arr.map(arm.filters, pred)))
 			: matched
 		return filtered.find(Rec.fromEntries(Arr.map(arm.head, ([n, h]) => [n, head(h)] as const)))
 	})
@@ -859,27 +1105,13 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 }
 
 /**
- * The one disagreement out of scope: a variable's origin is its identity only in a
- * rule that matches no relation twice. A rule that matches a relation twice mints two variables of one origin, whose
- * types are one type, so no type can tell which a key binds: the types prove such a rule no key through its variables,
- * and a get the engine proves of it they may refuse. The program asserts no get the engine proves of a query with such
- * a rule; it asserts every get the engine refuses, and every key the types claim.
+ * One drawn query: its source, the engine's verdict, which the program asserts of the types exactly, a self-join's
+ * included, and what it reached.
  */
-export const repeatedScope =
-	"a rule that matches a relation twice: the types tell its variables apart by origin alone"
-
-/**
- * What the program asserts of the types' get: the engine's verdict, accepted or refused, or nothing for a get the
- * engine proves of a query out of scope (repeatedScope).
- */
-type Asserted = "accepted" | "refused" | "out of scope"
-
-/** One drawn query: its source, the engine's verdict, what the program asserts of the types, and what it reached. */
 export interface AgreementCase {
 	readonly source: string
 	readonly uses: ReadonlySet<Imported>
 	readonly verdict: Verdict
-	readonly asserted: Asserted
 	readonly notes: ReadonlySet<AgreementNote>
 }
 
@@ -899,31 +1131,45 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	const rendering = new Rendering()
 	const source = rendering.query(spec)
 	const verdict = verdictOf(spec, source)
-	const repeated = Arr.some(spec.arms, (arm) =>
-		Arr.some(arm.matches, (m, i) => Arr.some(arm.matches.slice(0, i), (p) => p.rel === m.rel))
-	)
-	const asserted: Asserted = !verdict.get ? "refused" : repeated ? "out of scope" : "accepted"
 	const heading = Arr.length(defined(spec.arms[0], "the first arm").head)
 	const notes = new Set<AgreementNote>(reached)
 	notes.add(verdict.get ? "get proved" : "get refused")
 	if (Arr.some(verdict.keys, (k) => k.length < heading)) {
 		notes.add("a key below the heading")
 	}
-	return { source, uses: rendering.uses, verdict, asserted, notes }
+	return { source, uses: rendering.uses, verdict, notes }
 }
 
-/** The queries the program holds. */
+/** The queries the run's own stream draws. */
 export const agreementCount = 240
 
+/** The label both populations are drawn under. */
+const agreementLabel = "types/evidence agreement"
+
+/** One case: a drawn query and what the engine says of it. */
+const caseGen: Gen<AgreementCase> = (source) => caseOf(drawnGen(source))
+
+/** What a case reached: its notes, and each required pair of them it notes together (agreementPairs). */
+const reachedBy = (c: AgreementCase): ReadonlyArray<Reached<AgreementNote>> => [
+	...c.notes,
+	...Arr.filter(agreementPairs, ([a, b]) => c.notes.has(a) && c.notes.has(b))
+]
+
 /**
- * The run's drawn cases: the stream of the agreement's label under the run's seed (`TEST_SEED`, or the seed the run
- * drew), so every process of one run draws the same cases and every run draws new ones.
+ * The floor's witnesses: a quarter of the run's count, drawn under the label alone, the same in every run, and the only
+ * cases whose constructs and verdicts meet the required situations (test/types/evidence/agreement.test.ts).
  */
-export const agreementCases = (seed: number): ReadonlyArray<AgreementCase> =>
-	Arr.map(
-		sample(drawnGen, rotatingSeed(seed, floorSeed("types/evidence agreement")), agreementCount),
-		caseOf
-	)
+export const agreementWitnesses = () =>
+	floorPopulation(agreementLabel, caseGen, agreementCount / 4, reachedBy)
+
+/**
+ * Every case the program holds: the floor's witnesses, then the stream of the agreement's label under the run's seed
+ * (`TEST_SEED`, or the seed the run drew), so every process of one run draws the same cases and every run new ones.
+ */
+export const agreementCases = (seed: number): ReadonlyArray<AgreementCase> => [
+	...agreementWitnesses().values,
+	...sample(caseGen, rotatingSeed(seed, floorSeed(agreementLabel)), agreementCount)
+]
 
 /** The refusal db.get's type names for a query not proved at most one row per binding (adapter/types/db.ts). */
 const getRefusal = "get needs a query proved at most one row per parameter binding"
@@ -970,34 +1216,89 @@ export const agreementEntriesFrom = (entry: (path: string) => string): Agreement
 })
 
 /**
- * The program over the run's cases: every case's query, the get the types must accept or refuse (a refusal under its
- * directive, which the type-test batch disarms), and the assertion that every key the types claim lies over one the
- * engine proves.
+ * The program over the run's cases, as four modules:
+ * - index.ts, every case's query in the drawn order, the get the types must accept or refuse (a refusal under its
+ *   directive, which the type-test batch disarms), and the assertion that every key the types claim lies over one the
+ *   engine proves;
+ * - order.ts, the same in a second order drawn from the run's stream;
+ * - invariance.ts, every query's head and keys asserted equal across the two orders;
+ * - admission.ts, the admission agreement over every position and constant kind (./admission.ts), its constants drawn
+ *   from the run's stream, and over every combinator on every shape of query.
  */
-export const agreementProgram = (entries: AgreementEntries, seed: number): string =>
-	programOf(entries, agreementCases(seed))
+export const agreementModules = (
+	entries: AgreementEntries,
+	seed: number
+): Arr.NonEmptyReadonlyArray<{ readonly file: string; readonly source: string }> => {
+	const cases = agreementCases(seed)
+	const indices = Arr.map(cases, (_c, i) => i)
+	const order = defined(
+		sample(
+			shuffled(indices, { min: indices.length, max: indices.length }),
+			rotatingSeed(seed, floorSeed(`${agreementLabel} order`)),
+			1
+		)[0],
+		"the second order"
+	)
+	const picks = defined(
+		sample(
+			array(int(0, 5), { min: admissionSize, max: admissionSize }),
+			rotatingSeed(seed, floorSeed(`${agreementLabel} admission`)),
+			1
+		)[0],
+		"the admission matrix's picks"
+	)
+	const cells: ReadonlyArray<AdmissionCell> = admissionCells((cell) =>
+		defined(picks[cell], "a pick per cell of the matrix")
+	)
+	return [
+		{ file: "index.ts", source: programOf(entries, cases, indices) },
+		{ file: "order.ts", source: programOf(entries, cases, order) },
+		{ file: "invariance.ts", source: invarianceOf(entries, cases) },
+		{ file: "admission.ts", source: admissionModule(entries, cells, combinatorCells()) }
+	]
+}
 
-const programOf = (entries: AgreementEntries, cases: ReadonlyArray<AgreementCase>): string => {
+/** Every query's head and keys equal in the two orders' modules. */
+const invarianceOf = (entries: AgreementEntries, cases: ReadonlyArray<AgreementCase>): string =>
+	Arr.join(
+		[
+			"// Generated by test/support/agreement/queries.ts: the evidence is the same whatever the statements' order.",
+			`import type { EvidenceOfQuery, HeadOf } from ${JSON.stringify(entries.query)}`,
+			'import type * as A from "./index.ts"',
+			'import type * as B from "./order.ts"',
+			"type Equals<X, Y> = (<Z>() => Z extends X ? 1 : 2) extends <Z>() => Z extends Y ? 1 : 2 ? true : false",
+			"type Expect<T extends true> = T",
+			...Arr.map(
+				cases,
+				(_c, i) =>
+					`export type o${i} = [Expect<Equals<HeadOf<typeof A.q${i}>, HeadOf<typeof B.q${i}>>>, Expect<Equals<EvidenceOfQuery<typeof A.q${i}>["keys"], EvidenceOfQuery<typeof B.q${i}>["keys"]>>]`
+			),
+			""
+		],
+		"\n"
+	)
+
+const programOf = (
+	entries: AgreementEntries,
+	cases: ReadonlyArray<AgreementCase>,
+	order: ReadonlyArray<number>
+): string => {
 	const uses = new Set(Arr.flatMap(cases, (c) => [...c.uses]))
-	const schemaNames = ["Agree", ...Arr.filter(rels, (rel) => uses.has(rel))]
-	const blocks = Arr.map(cases, (c, i) => {
+	const schemaNames = [
+		"Agree",
+		...(uses.has("Tone") ? ["Tone"] : []),
+		...Arr.filter([...rels, "Tones"] as const, (source) => uses.has(source))
+	]
+	const blocks = Arr.map(order, (i) => {
+		const c = defined(cases[i], "a case of the drawn order")
 		const keys = keysType(c.verdict.keys)
-		const scope = c.asserted === "out of scope" ? ` (out of scope: ${repeatedScope})` : ""
-		const get = (directive: ReadonlyArray<string>): ReadonlyArray<string> => [
-			`export const g${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) =>`,
-			...directive,
-			`\tdb.get(q${i}, args)`
-		]
-		const asserted: { readonly [A in Asserted]: ReadonlyArray<string> } = {
-			accepted: get([]),
-			refused: get([`\t// @ts-expect-error -- TS2345 refusal: ${getRefusal}`]),
-			"out of scope": []
-		}
 		return Arr.join(
 			[
-				`/** The engine ${c.verdict.get ? "proves" : "refuses"} get${scope}; its keys: ${keys}. */`,
+				`/** The engine ${c.verdict.get ? "proves" : "refuses"} get; its keys: ${keys}. */`,
 				`export const q${i} = ${c.source}`,
-				...asserted[c.asserted],
+				`export const g${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) =>`,
+				...(c.verdict.get ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${getRefusal}`]),
+				`\tdb.get(q${i}, args)`,
 				`export type k${i} = Expect<Equals<Unproved<typeof q${i}, ${keys}>, never>>`,
 				""
 			],

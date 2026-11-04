@@ -6,6 +6,7 @@ import {
 	derivedAnalysis
 } from "#compiler/analysis/schema.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
@@ -16,6 +17,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Premise } from "#compiler/ir/evidence.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
@@ -140,11 +142,10 @@ const viewObjects = (
 ): ReadonlyArray<CatalogKey> => {
 	const name = a.name
 	const view = b.names.relation(name)
-	const columns: Array<string> = []
+	const columns = mapNonEmpty(a.heading, (c) => b.name(identity.column(c.name)))
 	/** Each field an index or statistics object on the view may name. */
 	const fields: Array<readonly [string, TargetField]> = []
 	for (const c of a.heading) {
-		columns.push(b.name(identity.column(c.name)))
 		fields.push([c.name, { desc: c.desc, type: c.type }])
 	}
 
@@ -207,7 +208,7 @@ const viewObjects = (
 			table: view,
 			unique: true,
 			method: "btree",
-			keys: k.fields.map((f) => columnKey(b.names.column(name, f))),
+			keys: mapNonEmpty(k.fields, (f) => columnKey(b.names.column(name, f))),
 			concurrently: false,
 			include: [],
 			where: undefined
@@ -248,8 +249,9 @@ const viewObjects = (
 const textColumnUses = (analysis: DerivedAnalysis): ReadonlyArray<TextColumnUse> => {
 	const uses: Array<TextColumnUse> = []
 	for (const a of analysis.order) {
-		uses.push(
-			...a.heading.flatMap((c): ReadonlyArray<TextColumnUse> => {
+		appendAll(
+			uses,
+			a.heading.flatMap((c): ReadonlyArray<TextColumnUse> => {
 				const regex = structuralRegex(c.type)
 				if (regex === undefined) {
 					return []
@@ -297,7 +299,7 @@ export const derivedRelationExtension = (): InstallExtension => {
 			const analysis = derivedAnalysis(b.checked)
 			const keys: Array<CatalogKey> = []
 			for (const a of analysis.order) {
-				keys.push(...viewObjects(b, analysis, a, keys))
+				appendAll(keys, viewObjects(b, analysis, a, keys))
 			}
 			const out: InstallContribution = {
 				...noContribution,

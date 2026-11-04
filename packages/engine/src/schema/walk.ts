@@ -120,8 +120,12 @@ class Collector {
 						this.inputs.add(input)
 					}
 				}
-				for (const e of Object.values(s.bind)) {
-					this.expr(e)
+				for (const b of Object.values(s.bind)) {
+					if (b.kind === "relationParam") {
+						this.inputs.add(`relation parameter ${b.name}`)
+					} else {
+						this.expr(b)
+					}
 				}
 				return
 			}
@@ -170,6 +174,7 @@ class Collector {
 			case "compare":
 			case "compute":
 			case "cond":
+			case "when":
 			case "field":
 			case "in":
 			case "literal":
@@ -210,6 +215,11 @@ class Collector {
 				this.expr(e.pred)
 				this.expr(e.onTrue)
 				this.expr(e.onFalse)
+				return
+			case "when":
+				this.expr(e.subject)
+				this.expr(e.proved)
+				this.expr(e.otherwise)
 				return
 			case "compare":
 				this.expr(e.left)

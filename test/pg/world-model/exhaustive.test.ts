@@ -1,9 +1,10 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Exit, Formatter, Option, Ref, Scope } from "effect"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, runStep } from "#test/support/worlds/drive/index.ts"
 import { type Taken, unnoted } from "#test/support/worlds/drive/suite.ts"
@@ -26,8 +27,7 @@ import type {
 	HostState,
 	InstallSpec,
 	ModelState,
-	SmallScope,
-	WorldFeature
+	SmallScope
 } from "#test/support/worlds/model/types.ts"
 
 const uuid: FieldDomain = { kind: "uuid" }
@@ -114,7 +114,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 					const installs: ReadonlyArray<InstallSpec> = enumerateInstalls(teamsBase, scope)
 					const realities = yield* Effect.forEach(installs, (install, index) =>
 						Effect.scoped(
-							Effect.map(realize(install), (world) => ({
+							Effect.map(realize(install, ordinarySession), (world) => ({
 								slot: { index, install },
 								names: world.names,
 								realities: enumerateRealities(
@@ -177,7 +177,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								yield* Scope.close(current.value.lifetime, Exit.void)
 							}
 							const lifetime = yield* Scope.make()
-							const world = yield* Scope.provide(lifetime)(realize(slot.install))
+							const world = yield* Scope.provide(lifetime)(realize(slot.install, ordinarySession))
 							yield* Ref.set(held, Option.some({ slot: slot.index, world, lifetime }))
 							return world
 						})
@@ -187,14 +187,14 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							generator: element(knownNonEmpty(box, "the small box's transitions")),
 							literal: Formatter.format,
 							limit,
-							features: features<WorldFeature>([]),
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						(transition, c) =>
 							Effect.gen(function* () {
 								const install = transition.slot.install
 								const world = changesCatalog(transition)
-									? yield* realize(install)
+									? yield* realize(install, ordinarySession)
 									: yield* shared(transition.slot)
 								yield* world.reset(transition.reality)
 								const start = yield* checkStart(

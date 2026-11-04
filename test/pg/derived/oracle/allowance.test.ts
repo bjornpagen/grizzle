@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -13,6 +14,7 @@ import {
 	String as Str
 } from "effect"
 import { refreshReport } from "#adapter/refresh/index.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { pg } from "#compiler/public/fields.ts"
 import type { AnyDerived, AnySchema } from "#compiler/public/schema.ts"
@@ -73,7 +75,7 @@ const grouped =
 	(head: (r: RuleValue, x: Vars) => Readonly<Record<string, unknown>>) =>
 	(over: AnySchema): QueryValue =>
 		query(over).rule((r: RuleValue) => {
-			const x = v(Amount)
+			const x = v(Amount, "amount")
 			return r
 				.match(Amount, { id: x["id"], grp: x["grp"], amount: x["amount"], ratio: x["ratio"] })
 				.find({ grp: x["grp"], ...head(r, x) })
@@ -115,7 +117,7 @@ const menu: ReadonlyArray<MenuItem> = [
 		columns: { groups: "exact", drift: "float" },
 		build: (over, lower) =>
 			query(over).rule((r: RuleValue) => {
-				const t = v(lower["Totals"])
+				const t = v(lower["Totals"], "totals")
 				return r
 					.match(lower["Totals"], { grp: t["grp"], drift: t["drift"] })
 					.find({ groups: r.count(), drift: r.sum(t["drift"]) })
@@ -163,18 +165,18 @@ const chosen = (sketch: Sketch): ReadonlyArray<MenuItem> => {
 }
 
 const build = (name: string, items: ReadonlyArray<MenuItem>) => {
-	const Base = schema(name, { Amount }, [])
+	const Base = schema(name, { Amount }, [], [])
 	const level1: Record<string, AnyDerived> = {}
 	for (const m of Arr.filter(items, (i) => i.level === 1)) {
-		level1[m.name] = derived(m.name, m.build(Base, {}))
+		level1[m.name] = derived(m.name, m.build(Base, {}), [])
 	}
-	let top: AnySchema = schema.extend(Base, level1, [])
+	let top: AnySchema = schema.extend(Base, level1, [], [])
 	const level2: Record<string, AnyDerived> = {}
 	for (const m of Arr.filter(items, (i) => i.level === 2)) {
-		level2[m.name] = derived(m.name, m.build(top, level1))
+		level2[m.name] = derived(m.name, m.build(top, level1), [])
 	}
 	if (Rec.keys(level2).length > 0) {
-		top = schema.extend(top, level2, [])
+		top = schema.extend(top, level2, [], [])
 	}
 	const values: Readonly<Record<string, AnyDerived>> = { ...level1, ...level2 }
 	/** The role that refreshes every derived relation, holding them and Amount whole, in the login `server`. */
@@ -197,7 +199,7 @@ const permuted = <A>(xs: ReadonlyArray<A>, shuffle: number): ReadonlyArray<A> =>
 	const out: Array<A> = []
 	let s = shuffle
 	while (pool.length > 0) {
-		out.push(...pool.splice(s % pool.length, 1))
+		appendAll(out, pool.splice(s % pool.length, 1))
 		s = Math.floor(s / Math.max(pool.length, 1)) + 13
 	}
 	return out.length > 1 && Arr.every(out, (x, i) => x === xs[i]) ? Arr.reverse([...xs]) : out
@@ -297,7 +299,7 @@ type AllowanceFeature =
 	| "numeric spelling rewritten"
 	| "float aggregate rewritten"
 
-const required: ReadonlyArray<AllowanceFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<AllowanceFeature> = [
 	"row kept",
 	"row rewritten",
 	"numeric spelling rewritten",
@@ -408,11 +410,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						{
 							suite: "derived/allowance",
 							literal: Formatter.format,
-							features: features<AllowanceFeature>(required),
+							coverage: required<AllowanceFeature>(situations, { cases: cases, sense: notesOnly }),
 							kept: [],
 							runs: cases,
 							shrink: { kind: "complete" },
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							perturb: "planner"
 						},

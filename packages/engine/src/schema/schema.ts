@@ -137,7 +137,7 @@ const rootSchema = <
 	name: Name,
 	relations: Relations,
 	statements: Statements,
-	...extra: ReadonlyArray<unknown>
+	extra: ReadonlyArray<unknown>
 ): Schema<Name, Relations, readonly [...Statements]> => {
 	const desc = admitSchema(name, relations, statements, extra)
 	return ownValue(
@@ -235,7 +235,7 @@ const extend = <
 	base: Base,
 	relations: Relations,
 	statements: Statements,
-	...extra: ReadonlyArray<unknown>
+	extra: ReadonlyArray<unknown>
 ): Schema<
 	Base["name"],
 	Base["relations"] & Relations,

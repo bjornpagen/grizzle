@@ -1,13 +1,14 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { boolean, element, filter, int, map, string, weighted } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
-import { floatText } from "#compiler/codec/float.ts"
+import { floatText } from "#compiler/scalar/values/float.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { strictComponent, strictDouble, strictReal } from "#test/support/kernel/strict.ts"
@@ -189,13 +190,12 @@ describe("exact binary32 reading", () => {
 					suite: "unit/codec/float-1714631201",
 					draw: drawn(float32),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 5000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(f) =>
@@ -223,22 +223,19 @@ describe("exact binary32 reading", () => {
 						side: source.draw(element(["at" as const, "above" as const, "below" as const]))
 					})),
 					literal: Formatter.format,
-					features: features<MidpointFeature>([
-						"above",
-						"below",
-						"tie to the lower",
-						"tie to the upper"
-					]),
+					coverage: required<MidpointFeature>(
+						["above", "below", "tie to the lower", "tie to the upper"],
+						{ cases: 300, sense: notesOnly }
+					),
 					kept: [],
 					/**
-					 * Each side is a third of the cases, and a tie's even neighbour is either with even odds: 300 cases reach
-					 * all four.
+					 * The rotating stream's sample: each side is a third of the cases, and a tie's even neighbour is either
+					 * with even odds.
 					 */
 					runs: 300,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ f, negative, side }, c) =>
@@ -298,22 +295,18 @@ describe("exact binary32 reading", () => {
 							suite: "unit/codec/float-1918989417",
 							draw: drawn(decimal),
 							literal: Formatter.format,
-							features: features<RangeFeature>([
-								"normal",
-								"subnormal",
-								"overflow",
-								"underflow",
-								"zero"
-							]),
+							coverage: required<RangeFeature>(
+								["normal", "subnormal", "overflow", "underflow", "zero"],
+								{ cases: 5000, sense: notesOnly }
+							),
 							kept: [],
 							/**
-							 * Overflow and underflow are each about one exponent in eight: 5000 cases reach every range many times.
+							 * The rotating stream's sample: overflow and underflow are each about one exponent in eight.
 							 */
 							runs: 5000,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(text, c) =>
@@ -390,15 +383,17 @@ describe("the float text grammar, scanned without RegExp", () => {
 						suite: "unit/codec/float-7497063",
 						draw: drawn(texts),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							"grammar admits" | "grammar refuses" | "special" | "strtod spelling"
-						>(["grammar admits", "grammar refuses", "special", "strtod spelling"]),
+						>(["grammar admits", "grammar refuses", "special", "strtod spelling"], {
+							cases: 20000,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 20000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text, c) =>
@@ -450,13 +445,12 @@ describe("double precision text", () => {
 						])
 					),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 10000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(x) =>

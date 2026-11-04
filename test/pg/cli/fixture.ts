@@ -36,7 +36,7 @@ export const shopV1 = (name: string, programs: ShopWorkload) => {
 	const writer = role(s, "writer", s.relations, { write: ["Customer", "Order"] })
 	/** A customer by name: an equality lookup on a bounded text field, which drafts `customer__ix__name`. */
 	const customersByName = query(s).rule((r) => {
-		const c = v(Customer)
+		const c = v(Customer, "customer")
 		return r
 			.match(Customer, { id: c.id, name: c.name })
 			.where(r.eq(c.name, r.param("name", Customer.fields.name)))
@@ -44,7 +44,7 @@ export const shopV1 = (name: string, programs: ShopWorkload) => {
 	})
 	/** A customer's orders: served by the foreign key's reverse index, which law maintenance already requests. */
 	const ordersOf = query(s).rule((r) => {
-		const o = v(Order)
+		const o = v(Order, "order")
 		return r
 			.match(Order, { id: o.id, customer: o.customer, cents: o.cents })
 			.where(r.eq(o.customer, r.param("customer", uuid)))
@@ -80,14 +80,14 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
 	const reader = role(s, "reader", s.relations)
 	const writer = role(s, "writer", s.relations, { write: ["Customer", "Order"] })
 	const customersByName = query(s).rule((r) => {
-		const c = v(Customer)
+		const c = v(Customer, "customer")
 		return r
 			.match(Customer, { id: c.id, name: c.name })
 			.where(r.eq(c.name, r.param("name", Customer.fields.name)))
 			.find({ id: c.id, name: c.name })
 	})
 	const ordersOf = query(s).rule((r) => {
-		const o = v(Order)
+		const o = v(Order, "order")
 		return r
 			.match(Order, { id: o.id, customer: o.customer, cents: o.cents })
 			.where(r.eq(o.customer, r.param("customer", uuid)))
@@ -164,7 +164,7 @@ export const ledger = (name: string) => {
 	])
 	/** Each customer's payment count and total: a stored query, keyed by customer. */
 	const spend = query(base).rule((r) => {
-		const { customer, cents } = v(Payment)
+		const { customer, cents } = v(Payment, "payment")
 		return r
 			.match(Payment, { customer, cents })
 			.find({ customer, payments: r.count(), cents: r.sum(cents) })
@@ -177,7 +177,7 @@ export const ledger = (name: string) => {
 	})
 	const refresher = role(s, "refresher", s.relations, { refresh: ["CustomerSpend"] })
 	const customersByName = query(s).rule((r) => {
-		const c = v(Customer)
+		const c = v(Customer, "customer")
 		return r
 			.match(Customer, { id: c.id, name: c.name })
 			.where(r.eq(c.name, r.param("name", Customer.fields.name)))
@@ -188,7 +188,7 @@ export const ledger = (name: string) => {
 	 * its materialized view serves.
 	 */
 	const frequentSpenders = query(s).rule((r) => {
-		const { customer, payments, cents } = v(CustomerSpend)
+		const { customer, payments, cents } = v(CustomerSpend, "customerSpend")
 		return r
 			.match(CustomerSpend, { customer, payments, cents })
 			.where(r.ge(payments, r.param("least", pg.bigint)))

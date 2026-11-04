@@ -259,7 +259,8 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 	return Object.freeze(out)
 }
 
-/** The slot of a stratum's array members of one op and relation, which are one input (`WriteSlot` spells it). */
+/** The slot of a stratum's array members of one op and relation, which are one input (`EnumeratedInput` spells
+ * it). */
 export const arraySlot = (stratum: number, op: MemberOp, relation: string): string =>
 	slotSpelling("member", stratum, op, "array", relation)
 

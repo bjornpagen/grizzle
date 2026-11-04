@@ -1,5 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
+import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/groups.ts"
@@ -24,13 +25,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("str.regex types", (it)
 		Effect.gen(function* () {
 			/**
 			 * The program the batch checked: the same run draws the same program. It proves nothing of a family that
-			 * contributes no member, so every family contributes one.
+			 * contributes no member, so every family contributes one from its witnesses, the draws its labels fix.
 			 */
-			const { families } = containedProgram(typeRun().seed)
+			const { families, witnesses } = containedProgram(typeRun().seed)
 			assert.equal((yield* checked("text/contained")).output, "")
-			for (const f of families) {
-				assert.ok(f.values > 0, `${f.family}: ${f.patterns} admitted patterns, no member`)
-			}
+			assert.deepEqual(unreachedOf(families, [witnesses]), [])
 		})
 	)
 })

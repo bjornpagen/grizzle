@@ -9,6 +9,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { Array as Arr, Option, pipe, Record as Rec, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { valueText } from "#test/pg/laws/families/model.ts"
 import { defined } from "#test/support/assert.ts"
 import {
@@ -91,7 +92,7 @@ const draftOf = (claims: ReadonlyArray<Claim>): Draft => {
 			jsonOf(v)
 		])
 		if (claim.context.claim.kind === "top-level") {
-			top.push(...members)
+			appendAll(top, members)
 		} else if (claim.fact.kind === "present") {
 			const key = claim.context.claim.key
 			objects.set(key, [...(objects.get(key) ?? []), ...members])
@@ -115,7 +116,7 @@ const payloadOf = (claims: ReadonlyArray<Claim>): Readonly<Record<string, unknow
 	const objects = new Map<string, Array<readonly [string, unknown]>>()
 	for (const claim of claims) {
 		if (claim.context.claim.kind === "top-level") {
-			top.push(...claimMembers(claim))
+			appendAll(top, claimMembers(claim))
 		} else if (claim.fact.kind === "present") {
 			const key = claim.context.claim.key
 			objects.set(key, [...(objects.get(key) ?? []), ...claimMembers(claim)])
@@ -207,6 +208,7 @@ const claimedFields = (rule: Rule, o: Occurrence): ReadonlyArray<ClaimedField> =
 					(b) => ({ field, context: b.context, claim: b.claim })
 				)
 			case "literal":
+			case "handle":
 				return []
 		}
 	})

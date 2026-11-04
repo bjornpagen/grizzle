@@ -27,7 +27,7 @@ import { type FusedLayout, fusedElement } from "#compiler/lower/shapes/attach/de
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { admittedIdentityText, isHostValue } from "#compiler/scalar/values/identity.ts"
+import { isHostValue } from "#compiler/scalar/values/identity.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import type { Conversion } from "#test/pg/oracle/public/planted.ts"
 import { strictArrayText, strictReader as strictCellReader } from "#test/support/kernel/strict.ts"
@@ -55,8 +55,7 @@ const readsAs = (type: ScalarType, text: string, value: unknown, what: string): 
 		misread(type, text, `no output text of its type (${read.failure})`)
 	} else if (
 		!isHostValue(codec.spec.carrier, value) ||
-		codec.text(value) !== codec.text(read.success) ||
-		admittedIdentityText(codec.spec, value) !== admittedIdentityText(codec.spec, read.success)
+		codec.text(value) !== codec.text(read.success)
 	) {
 		misread(type, text, what)
 	}
@@ -298,6 +297,33 @@ const checkRecords = (
 
 type SentChecked = Checked & { readonly sent: boolean }
 
+/**
+ * A delivered row as PostgreSQL sent it: each column's cell text by its field name, and each attachment's children by
+ * its name, in the delivered order. Its texts spell each value as the server wrote it, the one witness of the
+ * spellings a delivery met once grizzle delivers every value in its one form.
+ */
+export interface SentRow {
+	readonly texts: ReadonlyMap<string, string>
+	readonly children: ReadonlyMap<string, ReadonlyArray<SentRow>>
+}
+
+const sentRow = (row: Row, layout: Layout): SentRow => ({
+	texts: new Map(
+		Arr.map([...layout.columns], ([field, at]): readonly [string, string] => [
+			field,
+			defined(row.texts[at], `the cell ${at} of ${field}`)
+		])
+	),
+	children: new Map(
+		Arr.map([...layout.attachments], ([field, a]): readonly [string, ReadonlyArray<SentRow>] => [
+			field,
+			Arr.map(defined(row.children[a.slot], `the child slot ${a.slot}`), (child) =>
+				sentRow(child, defined(a.layouts[child.group], `the layout of group ${child.group}`))
+			)
+		])
+	)
+})
+
 const checkRead =
 	(conversion: Conversion) =>
 	(
@@ -305,7 +331,7 @@ const checkRead =
 		sent: SentRuns,
 		params: unknown,
 		records: ReadonlyArray<unknown>
-	): void => {
+	): ReadonlyArray<SentRow> => {
 		const { prepared, desc } = Option.getOrThrowWith(
 			recorded,
 			() => new Error("a read whose template was not recorded")
@@ -332,6 +358,9 @@ const checkRead =
 		)
 		const rows = deliveredRows(program, sent, isRecord(params) ? params : {})
 		checkRecords(records, rows, program.layouts, headingsOf(statements))
+		return Arr.map(rows, (row) =>
+			sentRow(row, defined(program.layouts[row.group], `the layout of group ${row.group}`))
+		)
 	}
 
 const probeOf = (
@@ -430,8 +459,12 @@ const recordingCompile = (ctx: DbContext) => {
 	}
 }
 
-export const strictReaderOf = (ctx: DbContext, conversion: Conversion): ReaderValue => {
+/** A reader that reads every cell strictly, and the rows its last execute delivered as PostgreSQL sent them. */
+export type StrictReader = ReaderValue & { readonly sentRows: () => ReadonlyArray<SentRow> }
+
+export const strictReaderOf = (ctx: DbContext, conversion: Conversion): StrictReader => {
 	const compiler = recordingCompile(ctx)
+	let lastSent: ReadonlyArray<SentRow> = []
 	const context: DbContext = { ...ctx, compile: compiler.compile }
 	let inProgress: Flight = { kind: "awaiting" }
 	const base = poolExecutor(ctx)
@@ -456,6 +489,7 @@ export const strictReaderOf = (ctx: DbContext, conversion: Conversion): ReaderVa
 	): Effect.Effect<A, E> =>
 		Effect.suspend(() => {
 			inProgress = { kind: "awaiting" }
+			lastSent = []
 			return Effect.flatMap(answer, (a) => {
 				const answered = inProgress
 				switch (answered.kind) {
@@ -474,10 +508,11 @@ export const strictReaderOf = (ctx: DbContext, conversion: Conversion): ReaderVa
 		(result, sent) =>
 			Effect.flatMap(result.collect, (rows) =>
 				Effect.sync(() => {
-					read(recorded(), sent, params, rows)
+					lastSent = read(recorded(), sent, params, rows)
 				})
 			)
 	return {
+		sentRows: () => lastSent,
 		execute: (query, params) =>
 			checked(reader.execute(query, params), collected(compiler.last, params)),
 		get: (target, params) =>

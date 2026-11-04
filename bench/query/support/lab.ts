@@ -27,26 +27,19 @@ const Price = relation(
 	["id"]
 )
 
-const Point = relation(
-	"Point",
-	{ id: pg.bigint, grp: pg.integer, x: pg["double precision"], y: pg["double precision"] },
-	["id"]
-)
-
 /**
- * The Lab fixture of the catalog and bounded-subset gates (R24, R26-R32, R41, R42), in public-API form: the
+ * The Lab fixture of the catalog and bounded-subset gates (R24, R26-R31, R41, R42), in public-API form: the
  * compositions of the language's worked examples, each an ordinary query of the language, which the compile-target
  * catalog's recognizers decide on.
  *
  * Sitting(id, student, day, score) is the ordered fact: ties on the day are broken by the key, and scores are dyadic
  * fractions, so every double-precision sum is exact and the composed and native forms deliver one spelling; its rooms
  * hold 100 sittings each, the last fewer, for the percentile counterexample. Price(id, student, day, amount) is the
- * as-of source. Point(id, grp, x, y) holds the regression groups: random double-precision groups, exactly degenerate
- * ones and near-degenerate ones. Student(id, cohort) is the parent relation every per-student take correlates to.
+ * as-of source. Student(id, cohort) is the parent relation every per-student take correlates to.
  * LabReports extends Lab with BestThree, the every-student take as a derived relation (R20's refresh-evaluated
  * definition).
  */
-export const Lab = schema("Lab", { Student, Sitting, Price, Point }, [
+export const Lab = schema("Lab", { Student, Sitting, Price }, [
 	contained(on(Sitting, "student"), on(Student, "id")),
 	contained(on(Price, "student"), on(Student, "id"))
 ])
@@ -58,8 +51,8 @@ const f8 = (x: number) => Compute.literal(pg["double precision"], x)
  * conditional count of scores above 3.
  */
 export const runningPerStudent = query(Lab).rule((r) => {
-	const { id, student, day } = v(Sitting)
-	const t = v(Sitting)
+	const { id, student, day } = v(Sitting, "sitting")
+	const t = v(Sitting, "earlier")
 	return r
 		.match(Sitting, { id, student, day })
 		.match(Sitting, { id: t.id, student, day: t.day, score: t.score })
@@ -76,8 +69,8 @@ export const runningPerStudent = query(Lab).rule((r) => {
 
 /** R26 without R41: the ordinal alone. */
 export const ordinalPerStudent = query(Lab).rule((r) => {
-	const { id, student, day } = v(Sitting)
-	const t = v(Sitting)
+	const { id, student, day } = v(Sitting, "sitting")
+	const t = v(Sitting, "earlier")
 	return r
 		.match(Sitting, { id, student, day })
 		.match(Sitting, { id: t.id, student, day: t.day })
@@ -90,8 +83,8 @@ export const ordinalPerStudent = query(Lab).rule((r) => {
  * composed self-join.
  */
 export const runningQualified = query(Lab).rule((r) => {
-	const { id, student, day } = v(Sitting)
-	const t = v(Sitting)
+	const { id, student, day } = v(Sitting, "sitting")
+	const t = v(Sitting, "earlier")
 	return r
 		.match(Sitting, { id, student, day })
 		.match(Sitting, { id: t.id, student, day: t.day, score: t.score })
@@ -102,7 +95,7 @@ export const runningQualified = query(Lab).rule((r) => {
 /** R24: per student, a conditional count, a conditional sum of scores and a bigint conditional count. */
 export const conditionalPerStudent = (threshold: number) =>
 	query(Lab).rule((r) => {
-		const { id, student, score } = v(Sitting)
+		const { id, student, score } = v(Sitting, "sitting")
 		return r.match(Sitting, { id, student, score }).find({
 			student,
 			passed: r.sum(
@@ -114,25 +107,25 @@ export const conditionalPerStudent = (threshold: number) =>
 
 /** R28: each student's count beside the total count. */
 const perStudent = query(Lab).rule((r) => {
-	const { id, student } = v(Sitting)
+	const { id, student } = v(Sitting, "sitting")
 	return r.match(Sitting, { id, student }).find({ student, n: r.count() })
 })
 
 const total = query(Lab).rule((r) => {
-	const { id } = v(Sitting)
+	const { id } = v(Sitting, "sitting")
 	return r.match(Sitting, { id }).find({ n: r.count() })
 })
 
 export const groupedShare = query(Lab).rule((r) => {
-	const { student, n } = v(perStudent)
-	const { n: all } = v(total)
+	const { student, n } = v(perStudent, "perStudent")
+	const { n: all } = v(total, "total")
 	return r.match(perStudent, { student, n }).match(total, { n: all }).find({ student, n, all })
 })
 
 /** R28: each sitting with its student's count. */
 export const keyedShare = query(Lab).rule((r) => {
-	const { id, student, day } = v(Sitting)
-	const { n } = v(perStudent)
+	const { id, student, day } = v(Sitting, "sitting")
+	const { n } = v(perStudent, "perStudent")
 	return r
 		.match(Sitting, { id, student, day })
 		.match(perStudent, { student, n })
@@ -141,8 +134,8 @@ export const keyedShare = query(Lab).rule((r) => {
 
 /** The ordinal of each sitting by score within its student, ties broken by id: the ordinal stage of a percentile. */
 const scoreOrdinals = query(Lab).rule((r) => {
-	const { id, student, score } = v(Sitting)
-	const t = v(Sitting)
+	const { id, student, score } = v(Sitting, "sitting")
+	const t = v(Sitting, "lower")
 	return r
 		.match(Sitting, { id, student, score })
 		.match(Sitting, { id: t.id, student, score: t.score })
@@ -152,21 +145,21 @@ const scoreOrdinals = query(Lab).rule((r) => {
 
 /** R29: the scores at ordinal ceil(p · n) of each student, for p = 1/2 and 1/4, dyadic fractions. */
 export const discretePercentiles = query(Lab).rule((r) => {
-	const { student, n } = v(perStudent)
-	const half = v(scoreOrdinals)
-	const quarter = v(scoreOrdinals)
+	const { student, n } = v(perStudent, "perStudent")
+	const half = v(scoreOrdinals, "half")
+	const quarter = v(scoreOrdinals, "quarter")
 	const at = (p: number) =>
-		Compute.cast(
-			Compute.ceil(
-				Compute.cast(Compute.mul(f8(p), Compute.cast(n, pg["double precision"])), pg.numeric)
-			),
-			pg.bigint
+		Compute.ceil(
+			Compute.cast(Compute.mul(f8(p), Compute.cast(n, pg["double precision"])), pg.numeric)
 		)
 	return r
 		.match(perStudent, { student, n })
 		.match(scoreOrdinals, { student, score: half.score, ord: half.ord })
 		.match(scoreOrdinals, { student, score: quarter.score, ord: quarter.ord })
-		.where(r.eq(half.ord, at(0.5)), r.eq(quarter.ord, at(0.25)))
+		.where(
+			r.eq(Compute.cast(half.ord, pg.numeric), at(0.5)),
+			r.eq(Compute.cast(quarter.ord, pg.numeric), at(0.25))
+		)
 		.find({ student, median: half.score, lowerQuartile: quarter.score })
 })
 
@@ -177,13 +170,13 @@ export const discretePercentiles = query(Lab).rule((r) => {
  * aggregate returns the first value). Neither admits the rewrite.
  */
 const perRoom = query(Lab).rule((r) => {
-	const { id, room } = v(Sitting)
+	const { id, room } = v(Sitting, "sitting")
 	return r.match(Sitting, { id, room }).find({ room, n: r.count() })
 })
 
 const roomOrdinals = query(Lab).rule((r) => {
-	const { id, room, score } = v(Sitting)
-	const t = v(Sitting)
+	const { id, room, score } = v(Sitting, "sitting")
+	const t = v(Sitting, "lower")
 	return r
 		.match(Sitting, { id, room, score })
 		.match(Sitting, { id: t.id, room, score: t.score })
@@ -193,34 +186,28 @@ const roomOrdinals = query(Lab).rule((r) => {
 
 export const roomPercentile = (p: number) =>
 	query(Lab).rule((r) => {
-		const { room, n } = v(perRoom)
-		const o = v(roomOrdinals)
-		const at = Compute.cast(
-			Compute.ceil(
-				Compute.cast(Compute.mul(f8(p), Compute.cast(n, pg["double precision"])), pg.numeric)
-			),
-			pg.bigint
+		const { room, n } = v(perRoom, "perRoom")
+		const o = v(roomOrdinals, "roomOrdinals")
+		const at = Compute.ceil(
+			Compute.cast(Compute.mul(f8(p), Compute.cast(n, pg["double precision"])), pg.numeric)
 		)
 		return r
 			.match(perRoom, { room, n })
 			.match(roomOrdinals, { room, score: o.score, ord: o.ord })
-			.where(r.eq(o.ord, at))
+			.where(r.eq(Compute.cast(o.ord, pg.numeric), at))
 			.find({ room, value: o.score })
 	})
 
 /** R30: the median interpolated between the ordinals floor(1 + (n - 1)/2) and ceil(1 + (n - 1)/2). */
 export const continuousMedian = query(Lab).rule((r) => {
-	const { student, n } = v(perStudent)
-	const a = v(scoreOrdinals)
-	const b = v(scoreOrdinals)
+	const { student, n } = v(perStudent, "perStudent")
+	const a = v(scoreOrdinals, "floor")
+	const b = v(scoreOrdinals, "ceil")
 	const h = Compute.mul(f8(0.5), Compute.cast(Compute.sub(n, 1n), pg["double precision"]))
 	const position = (fn: "floor" | "ceil") =>
-		Compute.cast(
-			fn === "floor"
-				? Compute.floor(Compute.cast(Compute.add(f8(1), h), pg.numeric))
-				: Compute.ceil(Compute.cast(Compute.add(f8(1), h), pg.numeric)),
-			pg.bigint
-		)
+		fn === "floor"
+			? Compute.floor(Compute.cast(Compute.add(f8(1), h), pg.numeric))
+			: Compute.ceil(Compute.cast(Compute.add(f8(1), h), pg.numeric))
 	const frac = Compute.sub(
 		h,
 		Compute.cast(Compute.floor(Compute.cast(h, pg.numeric)), pg["double precision"])
@@ -229,7 +216,10 @@ export const continuousMedian = query(Lab).rule((r) => {
 		.match(perStudent, { student, n })
 		.match(scoreOrdinals, { student, score: a.score, ord: a.ord })
 		.match(scoreOrdinals, { student, score: b.score, ord: b.ord })
-		.where(r.eq(a.ord, position("floor")), r.eq(b.ord, position("ceil")))
+		.where(
+			r.eq(Compute.cast(a.ord, pg.numeric), position("floor")),
+			r.eq(Compute.cast(b.ord, pg.numeric), position("ceil"))
+		)
 		.find({
 			student,
 			median: Compute.add(a.score, Compute.mul(frac, Compute.sub(b.score, a.score)))
@@ -239,7 +229,7 @@ export const continuousMedian = query(Lab).rule((r) => {
 /** R31: the most frequent day of each student's sittings, ties to the earliest day. */
 const dayCounts = query(Lab)
 	.rule((r) => {
-		const { id, day } = v(Sitting)
+		const { id, day } = v(Sitting, "sitting")
 		return r
 			.match(Sitting, { id, student: r.param("student", Sitting.fields.student), day })
 			.find({ day, n: r.count() })
@@ -248,53 +238,30 @@ const dayCounts = query(Lab)
 	.take(1)
 
 export const modalDay = query(Lab).rule((r) => {
-	const { id: student } = v(Student)
+	const { id: student } = v(Student, "student")
 	const top = dayCounts.bind({ student })
-	const { day } = v(top)
+	const { day } = v(top, "top")
 	return r.match(Student, { id: student }).match(top, { day }).find({ student, mode: day })
 })
 
 /** R31 over every sitting, uncorrelated: the most frequent day overall. */
 const allDayCounts = query(Lab)
 	.rule((r) => {
-		const { id, day } = v(Sitting)
+		const { id, day } = v(Sitting, "sitting")
 		return r.match(Sitting, { id, day }).find({ day, n: r.count() })
 	})
 	.orderBy(["n", "desc"], ["day", "asc"])
 	.take(1)
 
 export const modeOfDays = query(Lab).rule((r) => {
-	const { day } = v(allDayCounts)
+	const { day } = v(allDayCounts, "allDayCounts")
 	return r.match(allDayCounts, { day }).find({ mode: day })
-})
-
-/** R32: the regression slope of y on x per group, the zero denominator tested by a two-arm cond. */
-const pointSums = query(Lab).rule((r) => {
-	const { id, grp, x, y } = v(Point)
-	return r.match(Point, { id, grp, x, y }).find({
-		grp,
-		n: r.count(),
-		sx: r.sum(x),
-		sy: r.sum(y),
-		sxy: r.sum(Compute.mul(x, y)),
-		sxx: r.sum(Compute.mul(x, x))
-	})
-})
-
-export const slopes = query(Lab).rule((r) => {
-	const { grp, n, sx, sy, sxy, sxx } = v(pointSums)
-	const nf = Compute.cast(n, pg["double precision"])
-	const den = Compute.sub(Compute.mul(nf, sxx), Compute.mul(sx, sx))
-	const num = Compute.sub(Compute.mul(nf, sxy), Compute.mul(sx, sy))
-	return r
-		.match(pointSums, { grp, n, sx, sy, sxy, sxx })
-		.find({ grp, slope: Compute.cond(Compute.gt(den, f8(0)), Compute.div(num, den), f8(0)) })
 })
 
 /** R27: every sitting with its student's next sitting by (day, id), bound. */
 const nextSitting = query(Lab)
 	.rule((r) => {
-		const n = v(Sitting)
+		const n = v(Sitting, "sitting")
 		return r
 			.match(Sitting, {
 				id: n.id,
@@ -314,9 +281,9 @@ const nextSitting = query(Lab)
 	.take(1)
 
 export const withNext = query(Lab).rule((r) => {
-	const { id, student, day } = v(Sitting)
+	const { id, student, day } = v(Sitting, "sitting")
 	const next = nextSitting.bind({ st: student, d: day, i: id })
-	const { nid, nscore } = v(next)
+	const { nid, nscore } = v(next, "next")
 	return r
 		.match(Sitting, { id, student, day })
 		.match(next, { nid, nscore })
@@ -326,7 +293,7 @@ export const withNext = query(Lab).rule((r) => {
 /** R42: every sitting with its student's latest price at or before its day. */
 const latestPrice = query(Lab)
 	.rule((r) => {
-		const p = v(Price)
+		const p = v(Price, "price")
 		return r
 			.match(Price, {
 				id: p.id,
@@ -341,9 +308,9 @@ const latestPrice = query(Lab)
 	.take(1)
 
 export const withPrice = query(Lab).rule((r) => {
-	const { id, student, day } = v(Sitting)
+	const { id, student, day } = v(Sitting, "sitting")
 	const price = latestPrice.bind({ st: student, d: day })
-	const { pid, amount } = v(price)
+	const { pid, amount } = v(price, "price")
 	return r
 		.match(Sitting, { id, student, day })
 		.match(price, { pid, amount })
@@ -353,7 +320,7 @@ export const withPrice = query(Lab).rule((r) => {
 /** R42's mirror: every sitting with its student's earliest price at or after its day. */
 const earliestPrice = query(Lab)
 	.rule((r) => {
-		const p = v(Price)
+		const p = v(Price, "price")
 		return r
 			.match(Price, {
 				id: p.id,
@@ -368,9 +335,9 @@ const earliestPrice = query(Lab)
 	.take(1)
 
 export const withNextPrice = query(Lab).rule((r) => {
-	const { id, student, day } = v(Sitting)
+	const { id, student, day } = v(Sitting, "sitting")
 	const price = earliestPrice.bind({ st: student, d: day })
-	const { pid, amount } = v(price)
+	const { pid, amount } = v(price, "price")
 	return r
 		.match(Sitting, { id, student, day })
 		.match(price, { pid, amount })
@@ -380,10 +347,10 @@ export const withNextPrice = query(Lab).rule((r) => {
 /** R42 for a bound parent set: the sittings of the students a relation parameter names, with their as-of price. */
 export const withPriceFor = query(Lab).rule((r) => {
 	const wanted = r.relation("students", { id: pg.integer })
-	const { id: student } = v(wanted)
-	const { id, day } = v(Sitting)
+	const { id: student } = v(wanted, "wanted")
+	const { id, day } = v(Sitting, "sitting")
 	const price = latestPrice.bind({ st: student, d: day })
-	const { pid, amount } = v(price)
+	const { pid, amount } = v(price, "price")
 	return r
 		.match(wanted, { id: student })
 		.match(Sitting, { id, student, day })
@@ -394,7 +361,7 @@ export const withPriceFor = query(Lab).rule((r) => {
 /** R20: the three best-scored sittings per student, over every student and for a relation parameter's students. */
 const bestThree = query(Lab)
 	.rule((r) => {
-		const { id, score } = v(Sitting)
+		const { id, score } = v(Sitting, "sitting")
 		return r
 			.match(Sitting, { id, student: r.param("st", Sitting.fields.student), score })
 			.find({ id, score })
@@ -403,24 +370,24 @@ const bestThree = query(Lab)
 	.take(3)
 
 export const bestPerStudent = query(Lab).rule((r) => {
-	const { id: student } = v(Student)
+	const { id: student } = v(Student, "student")
 	const top = bestThree.bind({ st: student })
-	const { id, score } = v(top)
+	const { id, score } = v(top, "top")
 	return r.match(Student, { id: student }).match(top, { id, score }).find({ student, id, score })
 })
 
 export const bestForStudents = query(Lab).rule((r) => {
 	const wanted = r.relation("students", { id: pg.integer })
-	const { id: student } = v(wanted)
+	const { id: student } = v(wanted, "wanted")
 	const top = bestThree.bind({ st: student })
-	const { id, score } = v(top)
+	const { id, score } = v(top, "top")
 	return r.match(wanted, { id: student }).match(top, { id, score }).find({ student, id, score })
 })
 
 /** R20, k = 1: each student's best sitting. */
 const bestOne = query(Lab)
 	.rule((r) => {
-		const { id, score } = v(Sitting)
+		const { id, score } = v(Sitting, "sitting")
 		return r
 			.match(Sitting, { id, student: r.param("st", Sitting.fields.student), score })
 			.find({ id, score })
@@ -429,16 +396,16 @@ const bestOne = query(Lab)
 	.take(1)
 
 export const topPerStudent = query(Lab).rule((r) => {
-	const { id: student } = v(Student)
+	const { id: student } = v(Student, "student")
 	const top = bestOne.bind({ st: student })
-	const { id, score } = v(top)
+	const { id, score } = v(top, "top")
 	return r.match(Student, { id: student }).match(top, { id, score }).find({ student, id, score })
 })
 
 /** R20 through an attachment: each cohort's students with their three best sittings attached. */
 const cohortCards = query(Lab)
 	.rule((r) => {
-		const { id, cohort } = v(Student)
+		const { id, cohort } = v(Student, "student")
 		return r
 			.match(Student, { id, cohort })
 			.where(r.eq(cohort, r.param("cohort", pg.integer)))
@@ -449,7 +416,7 @@ const cohortCards = query(Lab)
 		(s) =>
 			query(Lab)
 				.rule((r) => {
-					const { id, score } = v(Sitting)
+					const { id, score } = v(Sitting, "sitting")
 					return r.match(Sitting, { id, student: s.id, score }).find({ id, score })
 				})
 				.orderBy(["score", "desc"], ["id", "asc"])
@@ -466,7 +433,7 @@ const cohortCards = query(Lab)
  */
 export const studentSheets = query(Lab)
 	.rule((r) => {
-		const { id } = v(Student)
+		const { id } = v(Student, "student")
 		return r
 			.match(Student, { id })
 			.where(r.le(id, r.param("upto", pg.integer)))
@@ -477,7 +444,7 @@ export const studentSheets = query(Lab)
 		(s) =>
 			query(Lab)
 				.rule((r) => {
-					const { id, day, score, points, room } = v(Sitting)
+					const { id, day, score, points, room } = v(Sitting, "sitting")
 					return r
 						.match(Sitting, { id, student: s.id, day, score, points, room })
 						.find({ id, day, score, points, room })
@@ -489,7 +456,7 @@ export const studentSheets = query(Lab)
 
 export const studentSheetOne = query(Lab)
 	.rule((r) => {
-		const { id } = v(Student)
+		const { id } = v(Student, "student")
 		return r
 			.match(Student, { id })
 			.where(r.eq(id, r.param("id", pg.integer)))
@@ -500,7 +467,7 @@ export const studentSheetOne = query(Lab)
 		(s) =>
 			query(Lab)
 				.rule((r) => {
-					const { id, day, score, points, room } = v(Sitting)
+					const { id, day, score, points, room } = v(Sitting, "sitting")
 					return r
 						.match(Sitting, { id, student: s.id, day, score, points, room })
 						.find({ id, day, score, points, room })
@@ -515,8 +482,8 @@ export const studentSheetOne = query(Lab)
  * contributes.
  */
 export const pointsPerCohort = query(Lab).rule((r) => {
-	const { id: student, cohort } = v(Student)
-	const { id, points } = v(Sitting)
+	const { id: student, cohort } = v(Student, "student")
+	const { id, points } = v(Sitting, "sitting")
 	return r
 		.match(Student, { id: student, cohort })
 		.match(Sitting, { id, student, points })
@@ -527,8 +494,8 @@ export const pointsPerCohort = query(Lab).rule((r) => {
  * R08's counterexample: the sitting's key is not bound, so equal (cohort, student, points) bindings contribute once.
  */
 export const distinctPointsPerCohort = query(Lab).rule((r) => {
-	const { id: student, cohort } = v(Student)
-	const { points } = v(Sitting)
+	const { id: student, cohort } = v(Student, "student")
+	const { points } = v(Sitting, "sitting")
 	return r
 		.match(Student, { id: student, cohort })
 		.match(Sitting, { student, points })
@@ -548,7 +515,7 @@ export const labRefresher = role(LabReports, "refresher", LabReports.relations, 
 export const labRefreshers = login(LabReports, "refreshers", [labRefresher])
 /** The refreshed relation read back. */
 export const bestThreeRows = query(LabReports).rule((r) => {
-	const { student, id, score } = v(BestThree)
+	const { student, id, score } = v(BestThree, "bestThree")
 	return r.match(BestThree, { student, id, score }).find({ student, id, score })
 })
 
@@ -563,7 +530,6 @@ export const labPrograms = {
 	continuousMedian,
 	modalDay,
 	modeOfDays,
-	slopes,
 	withNext,
 	withPrice,
 	withPriceFor,
@@ -577,14 +543,6 @@ export const labPrograms = {
 	distinctPointsPerCohort
 } as const
 
-/** A pseudo-random double precision in [0, 1] from the row number expression `g`, not a dyadic fraction. */
-const unit = (g: string): string =>
-	`((pg_catalog.hashint8(${g}) & 2147483647)::float8 / 2147483647::float8)`
-
-/** The kind of a point group: exactly degenerate, near-degenerate or random. */
-export const pointGroupKind = (grp: number): "degenerate" | "near" | "random" =>
-	(grp - 1) % 11 === 0 ? "degenerate" : (grp - 1) % 11 === 1 ? "near" : "random"
-
 interface LabSize {
 	readonly students: number
 	readonly perStudent: number
@@ -593,16 +551,12 @@ interface LabSize {
 export const labSittings = (size: LabSize): number => (size.students - 1) * size.perStudent + 1
 export const labPrices = (size: LabSize): number =>
 	size.students * 6 - Math.floor(size.students / 7) * 6
-const labGroups = (size: LabSize): number => Math.max(10, Math.floor(size.students / 2))
 
 /**
  * Deterministic facts: `students` students in ten cohorts, each with `perStudent` sittings on days that repeat (so the
  * day ties are broken by the key) and dyadic scores from a small set (so scores tie too); student 1 has a single
  * sitting; two prices on each of days 2, 5 and 8 for every student but those whose id is divisible by 7, which have
- * none (so prices tie on the day, sittings fall before, on and after them, and some parents have no as-of row); points
- * in groups of ten: in every eleven groups the first is exactly degenerate (every x equal), the second near-degenerate
- * (every x equal up to a relative perturbation below 1e-8, so the composed denominator n·Σx² − (Σx)² and REGR_SXX are
- * different roundings of a quantity near zero), and the other nine random double-precision coordinates.
+ * none (so prices tie on the day, sittings fall before, on and after them, and some parents have no as-of row).
  */
 export const loadLab = Effect.fn("loadLab")(function* <S>(
 	fixture: Fixture<S>,
@@ -629,17 +583,8 @@ export const loadLab = Effect.fn("loadLab")(function* <S>(
 		`DELETE FROM ${fixture.table("Price")} WHERE ${fixture.column("Price", "student")} % 7 = 0`,
 		[]
 	)
-	yield* fill(fixture, "Point", labGroups(size) * 10, {
-		id: "g::int8",
-		grp: "(1 + (g - 1) / 10)::int4",
-		x:
-			"(CASE ((g - 1) / 10) % 11 WHEN 0 THEN 2::float8 " +
-			`WHEN 1 THEN 2::float8 * (1::float8 + ${unit("g + 7")} * 1e-8::float8) ` +
-			`ELSE ${unit("g + 3")} * 10::float8 END)`,
-		y: `(${unit("g")} * 8::float8)`
-	})
 	yield* settle(fixture)
 })
 
 export const labData = (size: LabSize): string =>
-	`${size.students} students in 10 cohorts; ${labSittings(size)} sittings (${size.perStudent} per student, student 1 a single one) with repeating days and dyadic scores; ${labPrices(size)} prices, two on each of days 2, 5 and 8 per student, none for every seventh student; rooms of 100 sittings; ${labGroups(size)} point groups of ten, in every eleven one exactly degenerate, one near-degenerate (x equal up to 1e-8 relative) and nine with random double-precision coordinates`
+	`${size.students} students in 10 cohorts; ${labSittings(size)} sittings (${size.perStudent} per student, student 1 a single one) with repeating days and dyadic scores; ${labPrices(size)} prices, two on each of days 2, 5 and 8 per student, none for every seventh student; rooms of 100 sittings`

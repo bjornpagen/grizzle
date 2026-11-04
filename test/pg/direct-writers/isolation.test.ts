@@ -28,7 +28,7 @@
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { searched } from "@grizzle/testing/vitest"
@@ -48,6 +48,7 @@ import {
 	within
 } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { isLedgerObject, parsedName } from "#test/support/kernel/naming.ts"
@@ -310,6 +311,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 					)
 					assert.equal(before[0]?.[0], "read committed")
 					const installed = yield* install(Guarded, {
+						ambient: ordinarySession,
 						extensions: [],
 						logins: [world.server],
 						label: "guard"
@@ -382,6 +384,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 					Effect.gen(function* () {
 						const s = yield* Substrate
 						const installed = yield* install(Guarded, {
+							ambient: ordinarySession,
 							extensions: [],
 							logins: [world.server],
 							label: "guardbox"
@@ -410,12 +413,12 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							)
 						)
 						yield* transaction(s.admin, loadState(q))
-						const required: ReadonlyArray<IsolationFeature> = [
+						const situations: Arr.NonEmptyReadonlyArray<IsolationFeature> = [
+							"truncate: refused by privilege",
 							...Arr.flatMap(writes, (w): ReadonlyArray<IsolationFeature> => [
 								`${w}: admitted`,
 								`${w}: refused by the guard`
 							]),
-							"truncate: refused by privilege",
 							"update: refused by privilege",
 							"select: admitted",
 							...Arr.map(tables, (t): IsolationFeature => `${tableKind(t)}: refused by the guard`)
@@ -426,7 +429,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								generator: box,
 								literal: Formatter.format,
 								limit: levels.length * actors.length * statements.length * tables.length,
-								features: features<IsolationFeature>(required),
+								coverage: requiredInSpace<IsolationFeature>(situations),
 								caseHang: Duration.minutes(2)
 							},
 							([[level, actor, statement], table], c) =>

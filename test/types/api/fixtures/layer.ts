@@ -117,7 +117,7 @@ export type MisprovidedStillNeedsWriter = Expect<
 /** A role whose relations read a context: its login's layer needs verify, and opening it needs a token. */
 const Session = context("Session", { sub: str.regex("^[a-z]{1,32}$") })
 const mine = query(Work).rule((r) => {
-	const { id, name } = v(Account)
+	const { id, name } = v(Account, "account")
 	return r.match(Account, { id, name }).match(Session, { sub: name }).find({ id })
 })
 const Mine = role(Work, "mine", { Account, Mine: mine })
@@ -169,12 +169,12 @@ export const writerWithToken = Db.open(WorkLogin.roles.writer, { token: "a token
 declare const mineDb: Db<typeof Mine, unknown>
 declare const writerDb: Db<typeof WorkWriter, unknown>
 const myAccounts = query(Mine).rule((r) => {
-	const { id, name } = v(Mine.relations.Account)
+	const { id, name } = v(Mine.relations.Account, "account")
 	return r.match(Mine.relations.Account, { id, name }).match(Session, { sub: name }).find({ id })
 })
 export const mineReads = mineDb.execute(myAccounts, {})
 const sessionAccounts = query(Work).rule((r) => {
-	const { id, name } = v(Account)
+	const { id, name } = v(Account, "account")
 	return r.match(Account, { id, name }).match(Session, { sub: name }).find({ id })
 })
 // @ts-expect-error -- TS2345 refusal: a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold
@@ -192,7 +192,7 @@ export const writerApplies = writerDb.apply(sessionAudit, {})
 const Org = context("Org", { id: uuid }, { claim: "o" })
 const Negated = role(Work, "negated", {
 	Task: query(Work).rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r
 			.match(Task, { id, account })
 			.where(r.not(Org, { id: account }))
@@ -202,7 +202,7 @@ const Negated = role(Work, "negated", {
 
 const Disjoined = role(Work, "disjoined", {
 	Task: query(Work).rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r
 			.match(Task, { id, account })
 			.where(r.or(r.not(Org, { id: account }), r.eq(account, id)))
@@ -213,10 +213,10 @@ const Disjoined = role(Work, "disjoined", {
 const Staged = role(Work, "staged", {
 	Task: query(Work).rule((r) => {
 		const stage = r.interior((r2) => {
-			const { id } = v(Org)
+			const { id } = v(Org, "org")
 			return r2.match(Org, { id }).find({ id })
 		})
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r.match(Task, { id, account }).match(stage, { id: account }).find({ id, account })
 	})
 })
@@ -229,13 +229,13 @@ export const disjoinedWithoutToken = Db.open(Scoped.roles.disjoined, {})
 // @ts-expect-error -- TS2741: Staged reads Org in an interior stage, so Db.open needs a token
 export const stagedWithoutToken = Db.open(Scoped.roles.staged, {})
 const orgAccounts = query(Work).rule((r) => {
-	const { id } = v(Org)
+	const { id } = v(Org, "org")
 	return r.match(Account, { id }).match(Org, { id }).find({ id })
 })
 
 const Imported = role(Work, "imported", {
 	Task: query(Work).rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r.match(Task, { id, account }).match(orgAccounts, { id: account }).find({ id, account })
 	})
 })

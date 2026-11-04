@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, Run } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
+import { notesOnly } from "@grizzle/testing/sense"
 import { sample } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record } from "effect"
@@ -318,21 +319,27 @@ const empty: HostState = new Map()
 /**
  * The witness states every invalid kind is sought in: each fixture over the empty reality and eight lawful realities, each
  * under every witness layout, every folder applied or the installation's own folder a run left unfinished. The realities
- * are drawn from one fixed stream on purpose: they are witnesses of a reachability proof, which must not move with
- * TEST_SEED, not samples of a distribution.
+ * are drawn from the label's floor stream on purpose: they are witnesses of a reachability proof, which must not move
+ * with TEST_SEED, not samples of a distribution.
  */
 const witnesses: ReadonlyArray<ModelState> = Arr.flatMap(fixtures, ({ install, state }) =>
-	Arr.flatMap([empty, ...sample(realityGen(install.base, state.host), 0x5eed, 8)], (reality) => {
-		const loaded = initialState(install, state.names, reality)
-		return Arr.flatMap(witnessLayouts(loaded), (sessions): ReadonlyArray<ModelState> => [
-			{ ...loaded, sessions },
-			{
-				...loaded,
-				sessions,
-				migrations: { kind: "pending", folders: [install], ledger: "unfinished" }
-			}
-		])
-	})
+	Arr.flatMap(
+		[
+			empty,
+			...sample(realityGen(install.base, state.host), floorSeed("unit/world-model witnesses"), 8)
+		],
+		(reality) => {
+			const loaded = initialState(install, state.names, reality)
+			return Arr.flatMap(witnessLayouts(loaded), (sessions): ReadonlyArray<ModelState> => [
+				{ ...loaded, sessions },
+				{
+					...loaded,
+					sessions,
+					migrations: { kind: "pending", folders: [install], ledger: "unfinished" }
+				}
+			])
+		}
+	)
 )
 
 /** Every invalid kind, in the vocabulary's order: the box the first property enumerates. */
@@ -477,7 +484,9 @@ describe("the worlds generators", () => {
 						generator: element(everyInvalidKind),
 						literal: Formatter.format,
 						limit: everyInvalidKind.length,
-						features: features<Feature>(Arr.map(everyInvalidKind, (k): Feature => `invalid:${k}`)),
+						coverage: requiredInSpace<Feature>(
+							Arr.map(everyInvalidKind, (k): Feature => `invalid:${k}`)
+						),
 						caseHang: Duration.minutes(2)
 					},
 					(kind, c) =>
@@ -526,13 +535,15 @@ describe("the worlds generators", () => {
 							}
 						}),
 						literal: Formatter.format,
-						features: features<"live" | "invalid">(["live", "invalid"]),
+						coverage: required<"live" | "invalid">(["live", "invalid"], {
+							cases: 160,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 160,
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ state, actions }, c) =>
@@ -566,13 +577,15 @@ describe("the worlds generators", () => {
 							return { base, state, reality: source.draw(realityGen(base, state.host)) }
 						}),
 						literal: Formatter.format,
-						features: features<"facts" | "empty">(["facts", "empty"]),
+						coverage: required<"facts" | "empty">(["facts", "empty"], {
+							cases: 200,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 200,
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ base, state, reality }, c) =>
@@ -634,13 +647,15 @@ describe("the worlds generators", () => {
 							}
 						}),
 						literal: Formatter.format,
-						features: features<InstallFeature>(["live", ...installKindList, "two logins", "query"]),
+						coverage: required<InstallFeature>(
+							["live", ...installKindList, "two logins", "query"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ kind, install }, c) =>
@@ -695,17 +710,15 @@ describe("the worlds generators", () => {
 							return { state, action: source.draw(actionGen(state, zeroWeights)) }
 						}),
 						literal: Formatter.format,
-						features: features<`forced ${ActionKind}` | "unforced">([
-							"forced open-db",
-							"forced direct-begin",
-							"unforced"
-						]),
+						coverage: required<`forced ${ActionKind}` | "unforced">(
+							["forced open-db", "forced direct-begin", "unforced"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ state, action }, c) =>
@@ -761,18 +774,18 @@ describe("the worlds generators", () => {
 							steps: source.draw(int(0, 3))
 						})),
 						literal: Formatter.format,
-						features: features<`kind ${ActionKind}`>(
+						coverage: required<`kind ${ActionKind}`>(
 							Arr.map(
 								["open-db", "direct-begin", "migrate", "tamper", "drift", "wild"] as const,
 								(k): `kind ${ActionKind}` => `kind ${k}`
-							)
+							),
+							{ cases: 24, sense: notesOnly }
 						),
 						kept: [],
 						runs: 24,
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ reality, steps }, c) =>

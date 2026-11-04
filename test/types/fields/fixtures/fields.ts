@@ -1,5 +1,7 @@
 import type { Brand } from "effect"
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
+import type { ValueFault } from "#compiler/core/errors.ts"
+import type { Result } from "#compiler/core/result.ts"
 import {
 	type ClosedIdField,
 	type Contract,
@@ -19,9 +21,11 @@ import {
 	type SpanField,
 	span,
 	type uuid,
+	type Uuid,
 	type Vector
 } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
+import type { DomainOf, LanguageOf } from "#compiler/types/core/phantom.ts"
 import type { Equals, Expect, IsAssignable, Not } from "#test/types/fields/support.ts"
 
 /**
@@ -106,7 +110,29 @@ export type DecimalAlias = Expect<Equals<typeof pg.decimal, typeof pg.numeric>>
 export type Serial2Alias = Expect<Equals<typeof pg.serial2, typeof pg.smallserial>>
 export type Serial4Alias = Expect<Equals<typeof pg.serial4, typeof pg.serial>>
 export type Serial8Alias = Expect<Equals<typeof pg.serial8, typeof pg.bigserial>>
-export type UuidHost = Expect<Equals<Infer<typeof uuid>, string>>
+
+/**
+ * uuid: its host type, domain and language are Uuid, ArkRegex's inference of uuid_out's spelling. TypeScript writes a
+ * hexadecimal group as `${string}`, so the language is the five hyphenated groups, the widened residue the type keeps:
+ * the boundary refuses what it admits beyond the uuids (toUuid, the checker).
+ */
+export type UuidLanguage = Expect<Equals<Uuid, `${string}-${string}-${string}-${string}-${string}`>>
+export type UuidHost = Expect<Equals<Infer<typeof uuid>, Uuid>>
+export type UuidDomain = Expect<Equals<DomainOf<typeof uuid>, Uuid>>
+export type UuidIsItsLanguage = Expect<Equals<LanguageOf<typeof uuid>, Uuid>>
+export type UuidField = Expect<Equals<typeof uuid, Field<Uuid, "uuid">>>
+export const canonical: Uuid = "0193d8f2-7c1e-7000-8000-00000000002a"
+declare const randomUuid: ReturnType<typeof crypto.randomUUID>
+export const generated: Uuid = randomUuid
+// @ts-expect-error -- TS2322: a text with fewer than four hyphens is no uuid
+export const notUuid: Uuid = "0193d8f2-7c1e-7000-800000000000002a"
+declare const plainId: string
+// @ts-expect-error -- TS2322: a plain string is no uuid; Uuid.parse makes it one
+export const plainUuid: Uuid = plainId
+/** Uuid.parse is the one typed way from a plain string to a Uuid. */
+export type ParseSignature = Expect<
+	Equals<typeof Uuid.parse, (input: unknown) => Result<Uuid, ValueFault>>
+>
 export type BigserialHost = Expect<Equals<typeof pg.bigserial, SerialField<bigint, "bigint">>>
 
 /** float(p) selects real for 1-24 and double precision for 25-53 at runtime: the type is either. */

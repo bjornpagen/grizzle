@@ -13,6 +13,7 @@ import {
 	role,
 	schema,
 	str,
+	type Uuid,
 	uuid,
 	v
 } from "#index.ts"
@@ -32,7 +33,7 @@ export const Task = relation(
 export const Work = schema("Work", { Task }, [])
 export const Reader = role(Work, "reader", Work.relations)
 export const tasksForAccount = query(Work).rule((r) => {
-	const { id, account, priority, title } = v(Task)
+	const { id, account, priority, title } = v(Task, "task")
 	return r
 		.match(Task, { id, account, priority, title })
 		.where(r.eq(account, r.param("account", uuid)))
@@ -43,9 +44,10 @@ export const byTitle = tasksForAccount.orderBy(["title", "asc"])
 
 declare const db: Db<typeof Reader, unknown>
 type Ordered = typeof orderedTasks
+const accountId = "0193d8f2-7c1e-7000-8000-0000000000a1"
 
 /** A page is Page<Head, the ordered query>, failing with ReadError or CursorError. */
-export const firstPage = db.page(orderedTasks, { account: "a" }, { first: 25 })
+export const firstPage = db.page(orderedTasks, { account: accountId }, { first: 25 })
 type FirstPage = Effect.Success<typeof firstPage>
 export type FirstPageError = Expect<Equals<Effect.Error<typeof firstPage>, ReadError | CursorError>>
 export type FirstPageShape = Expect<
@@ -62,7 +64,7 @@ export type StartCursor = Expect<
 >
 export type Flags = Expect<Equals<FirstPage["pageInfo"]["hasNextPage"], boolean>>
 /** The node is the query's heading. */
-export type NodeId = Expect<Equals<FirstPage["edges"][number]["node"]["id"], string>>
+export type NodeId = Expect<Equals<FirstPage["edges"][number]["node"]["id"], Uuid>>
 export type NodePriority = Expect<Equals<FirstPage["edges"][number]["node"]["priority"], number>>
 
 /**
@@ -75,41 +77,45 @@ export type CursorIsString = Expect<IsAssignable<PageCursor<Ordered>, string>>
 export type StringIsNoCursor = Expect<Not<IsAssignable<string, PageCursor<Ordered>>>>
 
 /** The four shapes. */
-export const after = db.page(orderedTasks, { account: "a" }, { first: 25, after: cursor })
-export const last = db.page(orderedTasks, { account: "a" }, { last: 10 })
-export const before = db.page(orderedTasks, { account: "a" }, { last: 10, before: cursor })
+export const after = db.page(orderedTasks, { account: accountId }, { first: 25, after: cursor })
+export const last = db.page(orderedTasks, { account: accountId }, { last: 10 })
+export const before = db.page(orderedTasks, { account: accountId }, { last: 10, before: cursor })
 export const otherQuerysCursor = db.page(
 	orderedTasks,
-	{ account: "a" },
+	{ account: accountId },
 	{ first: 2, after: titleCursor }
 )
 
 /** Everything else is refused at the type level. */
 // @ts-expect-error -- TS2345: mixed directions
-export const mixed = db.page(orderedTasks, { account: "a" }, { first: 1, last: 1 })
-// @ts-expect-error -- TS2345: an anchor of the other direction
-export const firstBefore = db.page(orderedTasks, { account: "a" }, { first: 1, before: cursor })
+export const mixed = db.page(orderedTasks, { account: accountId }, { first: 1, last: 1 })
+export const firstBefore = db.page(
+	orderedTasks,
+	{ account: accountId },
+	// @ts-expect-error -- TS2345: an anchor of the other direction
+	{ first: 1, before: cursor }
+)
 export const bothAnchors = db.page(
 	orderedTasks,
-	{ account: "a" },
+	{ account: accountId },
 	// @ts-expect-error -- TS2345: both anchors
 	{ first: 1, after: cursor, before: cursor }
 )
 
 export const undefinedCursor = db.page(
 	orderedTasks,
-	{ account: "a" },
+	{ account: accountId },
 	// @ts-expect-error -- TS2379: an explicitly supplied undefined cursor (exactOptionalPropertyTypes)
 	{ first: 1, after: undefined }
 )
 // @ts-expect-error -- TS2322: an explicitly supplied null cursor
-export const nullCursor = db.page(orderedTasks, { account: "a" }, { last: 1, before: null })
+export const nullCursor = db.page(orderedTasks, { account: accountId }, { last: 1, before: null })
 // @ts-expect-error -- TS2322: a plain string is no cursor
-export const plainString = db.page(orderedTasks, { account: "a" }, { first: 1, after: "abc" })
+export const plainString = db.page(orderedTasks, { account: accountId }, { first: 1, after: "abc" })
 // @ts-expect-error -- TS2345: no default page size
-export const noSize = db.page(orderedTasks, { account: "a" }, {})
+export const noSize = db.page(orderedTasks, { account: accountId }, {})
 // @ts-expect-error -- TS2741: page takes an ordered query
-export const unordered = db.page(tasksForAccount, { account: "a" }, { first: 1 })
+export const unordered = db.page(tasksForAccount, { account: accountId }, { first: 1 })
 // @ts-expect-error -- TS2322: the parameters are the query's
 export const wrongParams = db.page(orderedTasks, { account: 1 }, { first: 1 })
 
@@ -119,9 +125,9 @@ declare const compiled: Compiled<
 	typeof orderedTasks,
 	FirstPage["edges"][number]["node"]
 >
-export const compiledPage = compiled.page({ account: "a" }, { last: 3, before: cursor })
+export const compiledPage = compiled.page({ account: accountId }, { last: 3, before: cursor })
 export type CompiledPage = Expect<
 	Equals<Effect.Error<typeof compiledPage>, ReadError | CursorError>
 >
 // @ts-expect-error -- TS2345: mixed directions on a compiled handle
-export const compiledMixed = compiled.page({ account: "a" }, { last: 3, first: 3 })
+export const compiledMixed = compiled.page({ account: accountId }, { last: 3, first: 3 })

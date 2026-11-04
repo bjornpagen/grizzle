@@ -1,37 +1,76 @@
+import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
+	type DefinedOp,
+	definedOp,
 	type OpId,
 	OpId as opId,
+	type PartialOp,
+	partialOp,
 	type RangeOpCode,
 	rangeOp,
 	type Volatility
 } from "#compiler/ir/expr.ts"
+import type { OperandIndex, Precondition } from "#compiler/ir/proof.ts"
 import { type Carrier, carriers, type SpanCarrier } from "#compiler/ir/scalar.ts"
 import {
 	floatCast,
 	type HostCast,
 	type IntCarrier,
 	integerCast,
-	moneyToNumeric,
+	moneyCast,
 	numericCast
 } from "#compiler/scalar/compute/cast.ts"
-import type { PlainCarrier } from "#compiler/scalar/compute/types.ts"
+import type { ResultCarrier } from "#compiler/scalar/compute/types.ts"
+
+export type { OperandIndex, Precondition }
 
 /**
- * The SQLSTATEs an operation can raise, and "null", the NULL a native function returns on some non-null input
- * (scale and min_scale over NaN and the infinities), which grizzle treats as an execution failure.
+ * Why a host computation has no value: the precondition of the operation its operands fail, or a numeric result past
+ * numeric's format, which the lowering's digit bounds rule out (lower.ts). The evaluator meets either only on an
+ * expression no lowering admits.
  */
-const failureCodes = {
-	"22003": "numeric value out of range: overflow, underflow, or an out-of-range cast",
-	"0A000": "a numeric NaN or infinity cast to an integer type or money, which has no such value",
-	"22012": "division by zero",
-	"2201F":
-		"invalid argument for the power function: a negative square root, zero to a negative power, or a complex result",
-	"2201G": "invalid argument for width_bucket",
-	"23514": "a domain check violation: the value is not a value of the contract",
-	null: "a NULL result, which no admitted value is"
-} as const
-export type FailureCode = keyof typeof failureCodes
+export type Undefined = PreconditionKind | "format"
+
+/**
+ * The IEEE 754 operations a float overload computes: the four arithmetic operations, the square root, and the one
+ * rounding a conversion into a float carrier is.
+ */
+export type IeeeOp = "add" | "sub" | "mul" | "div" | "sqrt" | "round"
+
+/**
+ * How an overload is defined on every value its operand types admit. Every overload states one, so none can be added
+ * partial without deciding, and the lowering and the SQL rendering dispatch on it exhaustively:
+ * - `total`: defined everywhere as PostgreSQL computes it: comparisons, boolean composition, numeric arithmetic within
+ *   the digit bounds every numeric expression has (lower.ts), sign, char_length, span endpoints, widening casts;
+ * - `exact`: integer or money arithmetic computed exactly (T1): its value is an exact integer or exact money
+ *   (ir/scalar.ts ExactType), never the overflowing native result, so the overload's catalog result is its PostgreSQL
+ *   identity only, and SQL rendering computes it over its operands widened into the exact space
+ *   (lower/conservative/expr/exact.ts);
+ * - `ieee`: float arithmetic as IEEE 754 defines it (T2): overflow is ±Infinity, underflow the correctly rounded
+ *   subnormal or the one zero, x / ±0 is ±Infinity, 0 / 0 and the square root of a negative are NaN, computed by SQL
+ *   rendering without letting PostgreSQL raise (lower/conservative/expr/ieee.ts);
+ * - `requires`: defined where its preconditions hold, which the lowering proves at the node (T3), or refuses the
+ *   operation as PartialOperation.
+ */
+export type Totality =
+	| { readonly kind: "total" }
+	| { readonly kind: "exact"; readonly yields: "integer" | "money" }
+	| { readonly kind: "ieee"; readonly op: IeeeOp }
+	| { readonly kind: "requires"; readonly preconditions: NonEmptyReadonlyArray<Precondition> }
+
+const total: Totality = Object.freeze({ kind: "total" })
+const exactInteger: Totality = Object.freeze({ kind: "exact", yields: "integer" })
+const exactMoney: Totality = Object.freeze({ kind: "exact", yields: "money" })
+const ieee = (op: IeeeOp): Totality => Object.freeze({ kind: "ieee", op })
+const requires = (preconditions: NonEmptyReadonlyArray<Precondition>): Totality =>
+	Object.freeze({ kind: "requires", preconditions: Object.freeze(preconditions) })
+const nonzero = (operand: OperandIndex): Precondition => Object.freeze({ kind: "nonzero", operand })
+const finite = (operand: OperandIndex): Precondition => Object.freeze({ kind: "finite", operand })
+const fits: Precondition = Object.freeze({ kind: "fits" })
+const divisor: Totality = requires([nonzero(1)])
+const narrowing: Totality = requires([fits])
+const finiteNarrowing: Totality = requires([finite(0), fits])
 
 /**
  * The catalogue that owns an operator or function: PostgreSQL's own, in pg_catalog, or the pgvector extension's, which
@@ -108,9 +147,7 @@ export type NativeFn =
 	| "least"
 	| "greatest"
 	| "widthBucket"
-	| "scale"
 	| "minScale"
-	| "trimScale"
 	| "lower"
 	| "upper"
 	| "charLength"
@@ -143,20 +180,34 @@ interface VariadicOperands {
 /** The operands a node takes. */
 export type Operands = PositionalOperands<NonEmptyReadonlyArray<Carrier>> | VariadicOperands
 
+/**
+ * What an overload reads of its numeric operands: their values, or also the display scale PostgreSQL keeps beside a
+ * value (numeric_div's select_div_scale, sqrt's and power_var's result scales, numeric_avg's quotient). Every overload
+ * says which, so a new entry cannot be added without deciding. SQL rendering passes each operand of a "displayScale"
+ * overload through trim_scale (lower/conservative/expr/ops.ts operandsAsRead), so the scale it reads is the value's
+ * least, a function of the value.
+ */
+export type OperandReading = "value" | "displayScale"
+
 /** What every overload of the table records: everything about it but its function, result and identity. */
 interface OverloadBase {
 	readonly operands: Operands
 	readonly sql: SqlForm
 	readonly catalog: CatalogRef
 	readonly volatility: Volatility
-	/** Empty when the node is total on non-null inputs. */
-	readonly failures: ReadonlyArray<FailureCode>
+	/** How the overload is defined on every value its operands admit. */
+	readonly totality: Totality
+	/** What the overload reads of its numeric operands. */
+	readonly reads: OperandReading
 }
 
-/** A function, operator, cast or construct with a fixed result type, a plain carrier. */
+/**
+ * A function, operator, cast or construct with a fixed result type: a plain carrier, or an exact one whose digit bound
+ * the lowering derives; an `exact` overload's result is its PostgreSQL identity's, the Compute result its Totality's.
+ */
 interface FixedOverload extends OverloadBase {
 	readonly fn: FixedFn
-	readonly result: PlainCarrier
+	readonly result: ResultCarrier
 }
 
 /** LEAST or GREATEST, which PostgreSQL types by its operands' common type: a value of its element carrier. */
@@ -175,15 +226,33 @@ type ExtremeFn = "least" | "greatest"
 /** The Compute operations with a fixed result type. */
 export type FixedFn = Exclude<NativeFn, ExtremeFn>
 
+/**
+ * An overload's identity as an expression names it, by its Totality: a DefinedOp, or a PartialOp that stands only
+ * beside the proof of its precondition (ir/expr.ts); `partial` tells the two apart.
+ */
+type Identified =
+	| {
+			readonly partial: false
+			readonly id: DefinedOp
+			readonly totality: Exclude<Totality, { readonly kind: "requires" }>
+	  }
+	| {
+			readonly partial: true
+			readonly id: PartialOp
+			readonly totality: Extract<Totality, { readonly kind: "requires" }>
+	  }
+
+/** The identity `id` has under `totality`, minted once per entry. */
+const identified = (id: OpId, totality: Totality): Identified =>
+	totality.kind === "requires"
+		? { partial: true, id: partialOp(id), totality }
+		: { partial: false, id: definedOp(id), totality }
+
 /** A native node of a fixed result type. */
-export interface FixedOp extends FixedOverload {
-	readonly id: OpId
-}
+export type FixedOp = FixedOverload & Identified
 
 /** A native LEAST or GREATEST. */
-export interface ExtremeOp extends ExtremeOverload {
-	readonly id: OpId
-}
+export type ExtremeOp = ExtremeOverload & Identified
 
 /** A native node: an overload of the table with its identity. */
 export type NativeOp = FixedOp | ExtremeOp
@@ -206,7 +275,9 @@ export const catalogTypeName = {
 	enum: "anyenum",
 	range4: "anyrange",
 	range8: "anyrange",
-	vector: "vector"
+	vector: "vector",
+	exactInteger: "numeric",
+	exactMoney: "numeric"
 } as const satisfies { readonly [C in Carrier]: string }
 type CatalogTypeName = (typeof catalogTypeName)[Carrier]
 
@@ -231,11 +302,8 @@ const variadic = (element: Carrier): VariadicOperands => {
 	return Object.freeze(operands)
 }
 
-/** An overload frozen with its failure list, which every builder writes inline for it. */
-const frozen = <O extends Overload>(overload: O): O => {
-	Object.freeze(overload.failures)
-	return Object.freeze(overload)
-}
+/** An overload, frozen. */
+const frozen = <O extends Overload>(overload: O): O => Object.freeze(overload)
 
 type Infix = "+" | "-" | "*" | "/" | "%" | "=" | "<>" | "<" | "<=" | ">" | ">="
 
@@ -244,8 +312,9 @@ const infix = (
 	fn: FixedFn,
 	op: Infix,
 	carrier: Carrier,
-	result: PlainCarrier,
-	failures: ReadonlyArray<FailureCode>
+	result: ResultCarrier,
+	totality: Totality,
+	reads: OperandReading
 ): FixedOverload => {
 	const t = catalogTypeName[carrier]
 	return frozen({
@@ -261,12 +330,13 @@ const infix = (
 			owner: "catalog"
 		},
 		volatility: "immutable",
-		failures
+		totality,
+		reads
 	})
 }
 
 /** A pg_catalog prefix minus. */
-const negation = (carrier: PlainCarrier, failures: ReadonlyArray<FailureCode>): FixedOverload =>
+const negation = (carrier: ResultCarrier, totality: Totality): FixedOverload =>
 	frozen({
 		fn: "neg",
 		operands: positional([carrier]),
@@ -280,7 +350,8 @@ const negation = (carrier: PlainCarrier, failures: ReadonlyArray<FailureCode>): 
 			owner: "catalog"
 		},
 		volatility: "immutable",
-		failures
+		totality,
+		reads: "value"
 	})
 
 /** A pg_catalog function call over its operands' catalog types; its OpId is its regprocedure signature. */
@@ -288,8 +359,9 @@ const fnCall = (
 	fn: FixedFn,
 	name: string,
 	args: NonEmptyReadonlyArray<Carrier>,
-	result: PlainCarrier,
-	failures: ReadonlyArray<FailureCode>
+	result: ResultCarrier,
+	totality: Totality,
+	reads: OperandReading
 ): FixedOverload =>
 	frozen({
 		fn,
@@ -304,7 +376,8 @@ const fnCall = (
 			owner: "catalog"
 		},
 		volatility: "immutable",
-		failures
+		totality,
+		reads
 	})
 
 /** A total pgvector function, which SQL qualifies by the installation's extension schema. */
@@ -312,7 +385,7 @@ const vectorCall = (
 	fn: FixedFn,
 	name: string,
 	args: NonEmptyReadonlyArray<Carrier>,
-	result: PlainCarrier
+	result: ResultCarrier
 ): FixedOverload =>
 	frozen({
 		fn,
@@ -327,7 +400,8 @@ const vectorCall = (
 			owner: "vector"
 		},
 		volatility: "immutable",
-		failures: []
+		totality: total,
+		reads: "value"
 	})
 
 type Comparison = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
@@ -355,7 +429,8 @@ const comparison = (cmp: Comparison, carrier: Carrier): FixedOverload => {
 			owner
 		},
 		volatility: "immutable",
-		failures: []
+		totality: total,
+		reads: "value"
 	})
 }
 
@@ -368,7 +443,8 @@ const between = (carrier: Carrier, ge: OpId, le: OpId): FixedOverload =>
 		sql: { kind: "between" },
 		catalog: { kind: "construct", uses: Object.freeze([ge, le]) },
 		volatility: "immutable",
-		failures: []
+		totality: total,
+		reads: "value"
 	})
 
 /** IN over any number of operands of one carrier, composed of its =. */
@@ -380,7 +456,8 @@ const membership = (carrier: Carrier, eq: OpId): FixedOverload =>
 		sql: { kind: "in" },
 		catalog: { kind: "construct", uses: Object.freeze([eq]) },
 		volatility: "immutable",
-		failures: []
+		totality: total,
+		reads: "value"
 	})
 
 /** LEAST or GREATEST over any number of operands of one carrier, composed of its < or >. */
@@ -392,7 +469,8 @@ const extreme = (fn: ExtremeFn, carrier: Carrier, order: OpId): ExtremeOverload 
 		sql: { kind: fn },
 		catalog: { kind: "construct", uses: Object.freeze([order]) },
 		volatility: "immutable",
-		failures: []
+		totality: total,
+		reads: "value"
 	})
 
 /** A boolean connective over any number of boolean operands. */
@@ -404,7 +482,8 @@ const connective = (fn: "and" | "or"): FixedOverload =>
 		sql: { kind: fn },
 		catalog: { kind: "construct", uses: [] },
 		volatility: "immutable",
-		failures: []
+		totality: total,
+		reads: "value"
 	})
 
 const booleanNot: FixedOverload = frozen({
@@ -414,7 +493,8 @@ const booleanNot: FixedOverload = frozen({
 	sql: { kind: "not" },
 	catalog: { kind: "construct", uses: [] },
 	volatility: "immutable",
-	failures: []
+	totality: total,
+	reads: "value"
 })
 
 /** A span's lower or upper endpoint, which never returns NULL: a grizzle span is bounded and nonempty. */
@@ -432,7 +512,8 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
 			owner: "catalog"
 		},
 		volatility: "immutable",
-		failures: []
+		totality: total,
+		reads: "value"
 	})
 
 /**
@@ -442,7 +523,7 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  * Every scalar expression node is exactly one PostgreSQL operator, function or cast, or one of the SQL constructs that
  * compose them (BETWEEN, IN, LEAST, GREATEST, AND, OR, NOT); CASE is the IR's own cond node. Each native
  * node records its exact overload: its operand and result carriers, its SQL spelling, the catalog object that
- * implements it, its volatility, and the SQLSTATEs it can raise. The registry is static data: no catalog I/O happens
+ * implements it, its volatility, and how it is defined on every value (Totality). The registry is static data: no catalog I/O happens
  * in the compiler, and every entry is the one PostgreSQL 19's pg_operator, pg_proc and pg_cast define.
  *
  * The OpId of an entry:
@@ -458,107 +539,151 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  * take two terms of one type; no bit, string or array function; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
  * signatures cannot spell. The gaps where PostgreSQL has no same-type overload are compositions of entries here,
- * resolved in lower.ts: sign over an integer type is sign(numeric) cast back,
- * sign over real is sign(double precision) cast back, and gcd and lcm over smallint are the integer forms cast back.
+ * resolved in lower.ts: sign over an integer type is sign(numeric) cast back, sign over real is sign(double precision)
+ * cast back, gcd and lcm over smallint are the integer forms, and integer division is the exact integers' truncating
+ * div, so int2div, int4div and int8div, which overflow at the type's minimum over -1, are no entries.
  *
- * The entries record:
- * - arithmetic: integer overflow, numeric format overflow, float overflow and underflow are 22003; a zero divisor is
- *   22012;
- * - money follows money rules: sums and differences overflow the signed 64-bit count; money / money is double
- *   precision;
- * - numeric functions: a quotient whose weight leaves numeric's format, and a rounding, ceiling or floor that carries
- *   a value at the weight limit (131072 integer digits) past it, is 22003; trunc never grows a value;
+ * The entries record, each with its Totality, so that no expression raises on a value its operands admit:
+ * - integer arithmetic (+, -, *, unary minus, abs, gcd, lcm over smallint, integer and bigint) is `exact`: an exact
+ *   integer, delivered as bigint; money + and - are `exact` money. The exact carriers' own overloads (OpIds prefixed
+ *   "exact:" and "exactMoney:") take exact operands and are numeric's, total within the digit bounds;
+ * - float +, -, *, / and the square root over double precision are `ieee`;
+ * - numeric arithmetic, rounding, ceiling, floor, trunc, gcd and lcm are total: every numeric expression's integer
+ *   digits are bounded (a bare numeric field's by 1000, README Limits), so none reaches numeric's limit of 131072;
+ * - a divisor (/, %, div, mod over numeric, the exact integers, the integers' %, money / money) is `nonzero`; numeric
+ *   sqrt's radicand `nonnegative`; min_scale's operand `finite`; power its `powerDomain`; width_bucket its
+ *   `bucketDomain`;
+ * - money / money is double precision;
  * - comparisons: every carrier with equality has = and <>, every ordered carrier the four orderings;
  * - text length, for contract predicates and row checks only;
- * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator.
+ * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator;
+ * - readings: numeric_div, power(numeric,numeric) and sqrt(numeric) take their result scale from their operands'
+ *   display scales (numeric.c select_div_scale, sqrt's and power_var's rscale, the exponent's included), so they are
+ *   "displayScale" and render their operands through trim_scale. Every other entry reads values: add, sub, mul
+ *   (rounded past 16383 digits at a fixed position), mod, abs, neg, gcd, lcm, div (truncated, exact) and width_bucket
+ *   (compute_bucket divides exactly at scale 0) are exact; sign, round, trunc, ceil, floor and min_scale are functions
+ *   of the value by definition; comparisons, hashing and casts are value-based.
  */
 const catalogOverloads = {
-	int2pl: infix("add", "+", "int2", "int2", ["22003"]),
-	int2mi: infix("sub", "-", "int2", "int2", ["22003"]),
-	int2mul: infix("mul", "*", "int2", "int2", ["22003"]),
-	int2div: infix("div", "/", "int2", "int2", ["22012", "22003"]),
-	int2mod: infix("mod", "%", "int2", "int2", ["22012"]),
-	int2um: negation("int2", ["22003"]),
-	"abs(smallint)": fnCall("abs", "abs", ["int2"], "int2", ["22003"]),
-	int4pl: infix("add", "+", "int4", "int4", ["22003"]),
-	int4mi: infix("sub", "-", "int4", "int4", ["22003"]),
-	int4mul: infix("mul", "*", "int4", "int4", ["22003"]),
-	int4div: infix("div", "/", "int4", "int4", ["22012", "22003"]),
-	int4mod: infix("mod", "%", "int4", "int4", ["22012"]),
-	int4um: negation("int4", ["22003"]),
-	"abs(integer)": fnCall("abs", "abs", ["int4"], "int4", ["22003"]),
-	int8pl: infix("add", "+", "int8", "int8", ["22003"]),
-	int8mi: infix("sub", "-", "int8", "int8", ["22003"]),
-	int8mul: infix("mul", "*", "int8", "int8", ["22003"]),
-	int8div: infix("div", "/", "int8", "int8", ["22012", "22003"]),
-	int8mod: infix("mod", "%", "int8", "int8", ["22012"]),
-	int8um: negation("int8", ["22003"]),
-	"abs(bigint)": fnCall("abs", "abs", ["int8"], "int8", ["22003"]),
-	numeric_add: infix("add", "+", "numeric", "numeric", ["22003"]),
-	numeric_sub: infix("sub", "-", "numeric", "numeric", ["22003"]),
-	numeric_mul: infix("mul", "*", "numeric", "numeric", ["22003"]),
-	numeric_div: infix("div", "/", "numeric", "numeric", ["22012", "22003"]),
-	numeric_mod: infix("mod", "%", "numeric", "numeric", ["22012"]),
-	numeric_uminus: negation("numeric", []),
-	"abs(numeric)": fnCall("abs", "abs", ["numeric"], "numeric", []),
-	float4pl: infix("add", "+", "float4", "float4", ["22003"]),
-	float4mi: infix("sub", "-", "float4", "float4", ["22003"]),
-	float4mul: infix("mul", "*", "float4", "float4", ["22003"]),
-	float4div: infix("div", "/", "float4", "float4", ["22012", "22003"]),
-	float4um: negation("float4", []),
-	"abs(real)": fnCall("abs", "abs", ["float4"], "float4", []),
-	float8pl: infix("add", "+", "float8", "float8", ["22003"]),
-	float8mi: infix("sub", "-", "float8", "float8", ["22003"]),
-	float8mul: infix("mul", "*", "float8", "float8", ["22003"]),
-	float8div: infix("div", "/", "float8", "float8", ["22012", "22003"]),
-	float8um: negation("float8", []),
-	"abs(double precision)": fnCall("abs", "abs", ["float8"], "float8", []),
-	cash_pl: infix("add", "+", "money", "money", ["22003"]),
-	cash_mi: infix("sub", "-", "money", "money", ["22003"]),
-	cash_div_cash: infix("div", "/", "money", "float8", ["22012"]),
-	"div(numeric,numeric)": fnCall("quot", "div", ["numeric", "numeric"], "numeric", [
-		"22012",
-		"22003"
-	]),
-	"mod(numeric,numeric)": fnCall("rem", "mod", ["numeric", "numeric"], "numeric", ["22012"]),
-	"sign(numeric)": fnCall("sign", "sign", ["numeric"], "numeric", []),
-	"sign(double precision)": fnCall("sign", "sign", ["float8"], "float8", []),
-	"round(numeric)": fnCall("round", "round", ["numeric"], "numeric", ["22003"]),
-	"round(numeric,integer)": fnCall("round", "round", ["numeric", "int4"], "numeric", ["22003"]),
-	"trunc(numeric)": fnCall("trunc", "trunc", ["numeric"], "numeric", []),
-	"trunc(numeric,integer)": fnCall("trunc", "trunc", ["numeric", "int4"], "numeric", []),
-	"ceil(numeric)": fnCall("ceil", "ceil", ["numeric"], "numeric", ["22003"]),
-	"floor(numeric)": fnCall("floor", "floor", ["numeric"], "numeric", ["22003"]),
-	"gcd(integer,integer)": fnCall("gcd", "gcd", ["int4", "int4"], "int4", ["22003"]),
-	"lcm(integer,integer)": fnCall("lcm", "lcm", ["int4", "int4"], "int4", ["22003"]),
-	"gcd(bigint,bigint)": fnCall("gcd", "gcd", ["int8", "int8"], "int8", ["22003"]),
-	"lcm(bigint,bigint)": fnCall("lcm", "lcm", ["int8", "int8"], "int8", ["22003"]),
-	"gcd(numeric,numeric)": fnCall("gcd", "gcd", ["numeric", "numeric"], "numeric", []),
-	"lcm(numeric,numeric)": fnCall("lcm", "lcm", ["numeric", "numeric"], "numeric", ["22003"]),
-	"power(numeric,numeric)": fnCall("power", "power", ["numeric", "numeric"], "numeric", [
-		"2201F",
-		"22003"
-	]),
+	int2pl: infix("add", "+", "int2", "int2", exactInteger, "value"),
+	int2mi: infix("sub", "-", "int2", "int2", exactInteger, "value"),
+	int2mul: infix("mul", "*", "int2", "int2", exactInteger, "value"),
+	int2mod: infix("mod", "%", "int2", "int2", divisor, "value"),
+	int2um: negation("int2", exactInteger),
+	"abs(smallint)": fnCall("abs", "abs", ["int2"], "int2", exactInteger, "value"),
+	int4pl: infix("add", "+", "int4", "int4", exactInteger, "value"),
+	int4mi: infix("sub", "-", "int4", "int4", exactInteger, "value"),
+	int4mul: infix("mul", "*", "int4", "int4", exactInteger, "value"),
+	int4mod: infix("mod", "%", "int4", "int4", divisor, "value"),
+	int4um: negation("int4", exactInteger),
+	"abs(integer)": fnCall("abs", "abs", ["int4"], "int4", exactInteger, "value"),
+	int8pl: infix("add", "+", "int8", "int8", exactInteger, "value"),
+	int8mi: infix("sub", "-", "int8", "int8", exactInteger, "value"),
+	int8mul: infix("mul", "*", "int8", "int8", exactInteger, "value"),
+	int8mod: infix("mod", "%", "int8", "int8", divisor, "value"),
+	int8um: negation("int8", exactInteger),
+	"abs(bigint)": fnCall("abs", "abs", ["int8"], "int8", exactInteger, "value"),
+	numeric_add: infix("add", "+", "numeric", "numeric", total, "value"),
+	numeric_sub: infix("sub", "-", "numeric", "numeric", total, "value"),
+	numeric_mul: infix("mul", "*", "numeric", "numeric", total, "value"),
+	numeric_div: infix("div", "/", "numeric", "numeric", divisor, "displayScale"),
+	numeric_mod: infix("mod", "%", "numeric", "numeric", divisor, "value"),
+	numeric_uminus: negation("numeric", total),
+	"abs(numeric)": fnCall("abs", "abs", ["numeric"], "numeric", total, "value"),
+	float4pl: infix("add", "+", "float4", "float4", ieee("add"), "value"),
+	float4mi: infix("sub", "-", "float4", "float4", ieee("sub"), "value"),
+	float4mul: infix("mul", "*", "float4", "float4", ieee("mul"), "value"),
+	float4div: infix("div", "/", "float4", "float4", ieee("div"), "value"),
+	float4um: negation("float4", total),
+	"abs(real)": fnCall("abs", "abs", ["float4"], "float4", total, "value"),
+	float8pl: infix("add", "+", "float8", "float8", ieee("add"), "value"),
+	float8mi: infix("sub", "-", "float8", "float8", ieee("sub"), "value"),
+	float8mul: infix("mul", "*", "float8", "float8", ieee("mul"), "value"),
+	float8div: infix("div", "/", "float8", "float8", ieee("div"), "value"),
+	float8um: negation("float8", total),
+	"abs(double precision)": fnCall("abs", "abs", ["float8"], "float8", total, "value"),
+	cash_pl: infix("add", "+", "money", "money", exactMoney, "value"),
+	cash_mi: infix("sub", "-", "money", "money", exactMoney, "value"),
+	cash_div_cash: infix("div", "/", "money", "float8", divisor, "value"),
+	"div(numeric,numeric)": fnCall(
+		"quot",
+		"div",
+		["numeric", "numeric"],
+		"numeric",
+		divisor,
+		"value"
+	),
+	"mod(numeric,numeric)": fnCall("rem", "mod", ["numeric", "numeric"], "numeric", divisor, "value"),
+	"sign(numeric)": fnCall("sign", "sign", ["numeric"], "numeric", total, "value"),
+	"sign(double precision)": fnCall("sign", "sign", ["float8"], "float8", total, "value"),
+	"round(numeric)": fnCall("round", "round", ["numeric"], "numeric", total, "value"),
+	"round(numeric,integer)": fnCall(
+		"round",
+		"round",
+		["numeric", "int4"],
+		"numeric",
+		total,
+		"value"
+	),
+	"trunc(numeric)": fnCall("trunc", "trunc", ["numeric"], "numeric", total, "value"),
+	"trunc(numeric,integer)": fnCall(
+		"trunc",
+		"trunc",
+		["numeric", "int4"],
+		"numeric",
+		total,
+		"value"
+	),
+	"ceil(numeric)": fnCall("ceil", "ceil", ["numeric"], "numeric", total, "value"),
+	"floor(numeric)": fnCall("floor", "floor", ["numeric"], "numeric", total, "value"),
+	"gcd(integer,integer)": fnCall("gcd", "gcd", ["int4", "int4"], "int4", exactInteger, "value"),
+	"lcm(integer,integer)": fnCall("lcm", "lcm", ["int4", "int4"], "int4", exactInteger, "value"),
+	"gcd(bigint,bigint)": fnCall("gcd", "gcd", ["int8", "int8"], "int8", exactInteger, "value"),
+	"lcm(bigint,bigint)": fnCall("lcm", "lcm", ["int8", "int8"], "int8", exactInteger, "value"),
+	"gcd(numeric,numeric)": fnCall("gcd", "gcd", ["numeric", "numeric"], "numeric", total, "value"),
+	"lcm(numeric,numeric)": fnCall("lcm", "lcm", ["numeric", "numeric"], "numeric", total, "value"),
+	"power(numeric,numeric)": fnCall(
+		"power",
+		"power",
+		["numeric", "numeric"],
+		"numeric",
+		requires([{ kind: "powerDomain" }]),
+		"displayScale"
+	),
 	"power(double precision,double precision)": fnCall(
 		"power",
 		"power",
 		["float8", "float8"],
 		"float8",
-		["2201F", "22003"]
+		requires([{ kind: "powerDomain" }]),
+		"value"
 	),
-	"sqrt(numeric)": fnCall("sqrt", "sqrt", ["numeric"], "numeric", ["2201F"]),
-	"sqrt(double precision)": fnCall("sqrt", "sqrt", ["float8"], "float8", ["2201F"]),
+	"sqrt(numeric)": fnCall(
+		"sqrt",
+		"sqrt",
+		["numeric"],
+		"numeric",
+		requires([{ kind: "nonnegative", operand: 0 }]),
+		"displayScale"
+	),
+	"sqrt(double precision)": fnCall("sqrt", "sqrt", ["float8"], "float8", ieee("sqrt"), "value"),
 	"width_bucket(numeric,numeric,numeric,integer)": fnCall(
 		"widthBucket",
 		"width_bucket",
 		["numeric", "numeric", "numeric", "int4"],
 		"int4",
-		["2201G", "22003"]
+		requires([{ kind: "bucketDomain" }]),
+		"value"
 	),
-	"scale(numeric)": fnCall("scale", "scale", ["numeric"], "int4", ["null"]),
-	"min_scale(numeric)": fnCall("minScale", "min_scale", ["numeric"], "int4", ["null"]),
-	"trim_scale(numeric)": fnCall("trimScale", "trim_scale", ["numeric"], "numeric", []),
-	"char_length(text)": fnCall("charLength", "char_length", ["text"], "int4", []),
+	"min_scale(numeric)": fnCall(
+		"minScale",
+		"min_scale",
+		["numeric"],
+		"int4",
+		requires([finite(0)]),
+		"value"
+	),
+	"char_length(text)": fnCall("charLength", "char_length", ["text"], "int4", total, "value"),
 	"vector:cosine_distance(vector,vector)": vectorCall(
 		"cosineDistance",
 		"cosine_distance",
@@ -701,6 +826,74 @@ const catalogOverloads = {
 	"in:vector": membership("vector", opId("vector_eq")),
 	"least:vector": extreme("least", "vector", opId("vector_lt")),
 	"greatest:vector": extreme("greatest", "vector", opId("vector_gt")),
+	"exact:numeric_add": infix("add", "+", "exactInteger", "exactInteger", total, "value"),
+	"exact:numeric_sub": infix("sub", "-", "exactInteger", "exactInteger", total, "value"),
+	"exact:numeric_mul": infix("mul", "*", "exactInteger", "exactInteger", total, "value"),
+	"exact:numeric_uminus": negation("exactInteger", total),
+	"exact:abs(numeric)": fnCall("abs", "abs", ["exactInteger"], "exactInteger", total, "value"),
+	"exact:div(numeric,numeric)": fnCall(
+		"div",
+		"div",
+		["exactInteger", "exactInteger"],
+		"exactInteger",
+		divisor,
+		"value"
+	),
+	"exact:mod(numeric,numeric)": fnCall(
+		"mod",
+		"mod",
+		["exactInteger", "exactInteger"],
+		"exactInteger",
+		divisor,
+		"value"
+	),
+	"exact:gcd(numeric,numeric)": fnCall(
+		"gcd",
+		"gcd",
+		["exactInteger", "exactInteger"],
+		"exactInteger",
+		total,
+		"value"
+	),
+	"exact:lcm(numeric,numeric)": fnCall(
+		"lcm",
+		"lcm",
+		["exactInteger", "exactInteger"],
+		"exactInteger",
+		total,
+		"value"
+	),
+	"exact:sign(numeric)": fnCall("sign", "sign", ["exactInteger"], "exactInteger", total, "value"),
+	"exact:numeric_eq": comparison("eq", "exactInteger"),
+	"exact:numeric_ne": comparison("ne", "exactInteger"),
+	"exact:numeric_lt": comparison("lt", "exactInteger"),
+	"exact:numeric_le": comparison("le", "exactInteger"),
+	"exact:numeric_gt": comparison("gt", "exactInteger"),
+	"exact:numeric_ge": comparison("ge", "exactInteger"),
+	"between:exact integer": between(
+		"exactInteger",
+		opId("exact:numeric_ge"),
+		opId("exact:numeric_le")
+	),
+	"in:exact integer": membership("exactInteger", opId("exact:numeric_eq")),
+	"least:exact integer": extreme("least", "exactInteger", opId("exact:numeric_lt")),
+	"greatest:exact integer": extreme("greatest", "exactInteger", opId("exact:numeric_gt")),
+	"exactMoney:numeric_add": infix("add", "+", "exactMoney", "exactMoney", total, "value"),
+	"exactMoney:numeric_sub": infix("sub", "-", "exactMoney", "exactMoney", total, "value"),
+	"exactMoney:numeric_eq": comparison("eq", "exactMoney"),
+	"exactMoney:numeric_ne": comparison("ne", "exactMoney"),
+	"exactMoney:numeric_lt": comparison("lt", "exactMoney"),
+	"exactMoney:numeric_le": comparison("le", "exactMoney"),
+	"exactMoney:numeric_gt": comparison("gt", "exactMoney"),
+	"exactMoney:numeric_ge": comparison("ge", "exactMoney"),
+	"between:exact money": between(
+		"exactMoney",
+		opId("exactMoney:numeric_ge"),
+		opId("exactMoney:numeric_le")
+	),
+	"in:exact money": membership("exactMoney", opId("exactMoney:numeric_eq")),
+	"least:exact money": extreme("least", "exactMoney", opId("exactMoney:numeric_lt")),
+	"greatest:exact money": extreme("greatest", "exactMoney", opId("exactMoney:numeric_gt")),
 	and: connective("and"),
 	or: connective("or"),
 	not: booleanNot
@@ -741,35 +934,35 @@ const spanOverloads: {
 }
 
 /** A registered cast: its node, and the host conversion the evaluator runs for it. */
-export interface CastOp extends FixedOp {
+export type CastOp = FixedOp & {
 	readonly fn: "cast"
-	readonly operands: PositionalOperands<readonly [PlainCarrier]>
+	readonly operands: PositionalOperands<readonly [ResultCarrier]>
 	readonly host: HostCast
 }
 
 /** A registered cast from `S` to `T`. */
-interface CastOpOf<S extends PlainCarrier, T extends PlainCarrier> extends CastOp {
+type CastOpOf<S extends ResultCarrier, T extends ResultCarrier> = CastOp & {
 	readonly operands: PositionalOperands<readonly [S]>
 	readonly result: T
 }
 
 /** The cast from `source` to `target`, under its OpId "cast:<source>-><target>" over their PostgreSQL type names. */
-const castOp = <S extends PlainCarrier, T extends PlainCarrier>(
+const castOp = <S extends ResultCarrier, T extends ResultCarrier>(
 	source: S,
 	target: T,
-	failures: ReadonlyArray<FailureCode>,
+	totality: Totality,
 	volatility: Volatility,
 	host: HostCast
 ): CastOpOf<S, T> => {
 	const op: CastOpOf<S, T> = {
-		id: opId(`cast:${catalogTypeName[source]}->${catalogTypeName[target]}`),
+		...identified(opId(`cast:${catalogTypeName[source]}->${catalogTypeName[target]}`), totality),
 		fn: "cast",
 		operands: positional([source] as const),
 		result: target,
 		sql: { kind: "cast", target },
 		catalog: { kind: "cast", source: catalogTypeName[source], target: catalogTypeName[target] },
 		volatility,
-		failures: Object.freeze(failures),
+		reads: "value",
 		host
 	}
 	return Object.freeze(op)
@@ -777,20 +970,20 @@ const castOp = <S extends PlainCarrier, T extends PlainCarrier>(
 
 /** A cast of each source family, its host conversion the family's for its target. */
 const fromInteger = <
-	S extends IntCarrier,
-	T extends IntCarrier | "numeric" | "float4" | "float8" | "money"
+	S extends IntCarrier | "exactInteger",
+	T extends IntCarrier | "numeric" | "float4" | "float8" | "money" | "exactInteger"
 >(
 	source: S,
 	target: T,
-	failures: ReadonlyArray<FailureCode>,
+	totality: Totality,
 	volatility: Volatility
-): CastOpOf<S, T> => castOp(source, target, failures, volatility, integerCast(target))
+): CastOpOf<S, T> => castOp(source, target, totality, volatility, integerCast(target))
 
 const fromNumeric = <T extends IntCarrier | "numeric" | "float4" | "float8" | "money">(
 	target: T,
-	failures: ReadonlyArray<FailureCode>,
+	totality: Totality,
 	volatility: Volatility
-): CastOpOf<"numeric", T> => castOp("numeric", target, failures, volatility, numericCast(target))
+): CastOpOf<"numeric", T> => castOp("numeric", target, totality, volatility, numericCast(target))
 
 const fromFloat = <
 	S extends "float4" | "float8",
@@ -798,82 +991,126 @@ const fromFloat = <
 >(
 	source: S,
 	target: T,
-	failures: ReadonlyArray<FailureCode>,
+	totality: Totality,
 	volatility: Volatility
-): CastOpOf<S, T> => castOp(source, target, failures, volatility, floatCast(source, target))
+): CastOpOf<S, T> => castOp(source, target, totality, volatility, floatCast(source, target))
 
-const fromMoney = (
-	target: "numeric",
-	failures: ReadonlyArray<FailureCode>,
+const fromMoney = <S extends "money" | "exactMoney", T extends "numeric" | "money" | "exactMoney">(
+	source: S,
+	target: T,
+	totality: Totality,
 	volatility: Volatility
-): CastOpOf<"money", "numeric"> => castOp("money", target, failures, volatility, moneyToNumeric)
+): CastOpOf<S, T> => castOp(source, target, totality, volatility, moneyCast(target))
 
 /**
  * Each cast by its source and target carriers, which its OpId "cast:<source>-><target>" spells by their PostgreSQL
- * type names, so two casts under one identity are a compile error. Casts among the numeric family and money: integer
- * narrowing, numeric and float to integer, float8 to real, and numeric or float to a narrower value overflow with
- * 22003; numeric to an integer rounds half away from zero and float to an integer rounds half to even, as
+ * type names, so two casts under one identity are a compile error. Casts among the numeric family, money and the
+ * exact carriers, each with its Totality: a widening is total; integer narrowing, an exact integer or exact amount
+ * into a storage carrier, numeric and float to an integer or money, and a numeric typmod coercion are defined where
+ * the value fits (numeric and floats also finite); a conversion into a float rounds once as IEEE 754 does (`ieee`
+ * round). Numeric to an integer rounds half away from zero and float to an integer rounds half to even, as
  * PostgreSQL's numeric_int and dtoi casts do. The money casts run in the fixed monetary context and are STABLE in the
  * catalog.
  */
 const castOverloads = {
 	int2: {
-		int4: fromInteger("int2", "int4", [], "immutable"),
-		int8: fromInteger("int2", "int8", [], "immutable"),
-		numeric: fromInteger("int2", "numeric", [], "immutable"),
-		float4: fromInteger("int2", "float4", [], "immutable"),
-		float8: fromInteger("int2", "float8", [], "immutable")
+		int4: fromInteger("int2", "int4", total, "immutable"),
+		int8: fromInteger("int2", "int8", total, "immutable"),
+		numeric: fromInteger("int2", "numeric", total, "immutable"),
+		float4: fromInteger("int2", "float4", total, "immutable"),
+		float8: fromInteger("int2", "float8", total, "immutable"),
+		exactInteger: fromInteger("int2", "exactInteger", total, "immutable")
 	},
 	int4: {
-		int2: fromInteger("int4", "int2", ["22003"], "immutable"),
-		int8: fromInteger("int4", "int8", [], "immutable"),
-		numeric: fromInteger("int4", "numeric", [], "immutable"),
-		float4: fromInteger("int4", "float4", [], "immutable"),
-		float8: fromInteger("int4", "float8", [], "immutable"),
-		money: fromInteger("int4", "money", ["22003"], "stable")
+		int2: fromInteger("int4", "int2", narrowing, "immutable"),
+		int8: fromInteger("int4", "int8", total, "immutable"),
+		numeric: fromInteger("int4", "numeric", total, "immutable"),
+		float4: fromInteger("int4", "float4", total, "immutable"),
+		float8: fromInteger("int4", "float8", total, "immutable"),
+		money: fromInteger("int4", "money", total, "stable"),
+		exactInteger: fromInteger("int4", "exactInteger", total, "immutable")
 	},
 	int8: {
-		int2: fromInteger("int8", "int2", ["22003"], "immutable"),
-		int4: fromInteger("int8", "int4", ["22003"], "immutable"),
-		numeric: fromInteger("int8", "numeric", [], "immutable"),
-		float4: fromInteger("int8", "float4", [], "immutable"),
-		float8: fromInteger("int8", "float8", [], "immutable"),
-		money: fromInteger("int8", "money", ["22003"], "stable")
+		int2: fromInteger("int8", "int2", narrowing, "immutable"),
+		int4: fromInteger("int8", "int4", narrowing, "immutable"),
+		numeric: fromInteger("int8", "numeric", total, "immutable"),
+		float4: fromInteger("int8", "float4", total, "immutable"),
+		float8: fromInteger("int8", "float8", total, "immutable"),
+		money: fromInteger("int8", "money", narrowing, "stable"),
+		exactInteger: fromInteger("int8", "exactInteger", total, "immutable")
 	},
 	numeric: {
-		int2: fromNumeric("int2", ["22003", "0A000"], "immutable"),
-		int4: fromNumeric("int4", ["22003", "0A000"], "immutable"),
-		int8: fromNumeric("int8", ["22003", "0A000"], "immutable"),
-		float4: fromNumeric("float4", ["22003"], "immutable"),
-		float8: fromNumeric("float8", ["22003"], "immutable"),
-		numeric: fromNumeric("numeric", ["22003"], "immutable"),
-		money: fromNumeric("money", ["22003", "0A000"], "stable")
+		int2: fromNumeric("int2", finiteNarrowing, "immutable"),
+		int4: fromNumeric("int4", finiteNarrowing, "immutable"),
+		int8: fromNumeric("int8", finiteNarrowing, "immutable"),
+		float4: fromNumeric("float4", ieee("round"), "immutable"),
+		float8: fromNumeric("float8", ieee("round"), "immutable"),
+		numeric: fromNumeric("numeric", narrowing, "immutable"),
+		money: fromNumeric("money", finiteNarrowing, "stable")
 	},
 	float4: {
-		int2: fromFloat("float4", "int2", ["22003"], "immutable"),
-		int4: fromFloat("float4", "int4", ["22003"], "immutable"),
-		int8: fromFloat("float4", "int8", ["22003"], "immutable"),
-		float8: fromFloat("float4", "float8", [], "immutable"),
-		numeric: fromFloat("float4", "numeric", [], "immutable")
+		int2: fromFloat("float4", "int2", finiteNarrowing, "immutable"),
+		int4: fromFloat("float4", "int4", finiteNarrowing, "immutable"),
+		int8: fromFloat("float4", "int8", finiteNarrowing, "immutable"),
+		float8: fromFloat("float4", "float8", total, "immutable"),
+		numeric: fromFloat("float4", "numeric", total, "immutable")
 	},
 	float8: {
-		int2: fromFloat("float8", "int2", ["22003"], "immutable"),
-		int4: fromFloat("float8", "int4", ["22003"], "immutable"),
-		int8: fromFloat("float8", "int8", ["22003"], "immutable"),
-		float4: fromFloat("float8", "float4", ["22003"], "immutable"),
-		numeric: fromFloat("float8", "numeric", [], "immutable")
+		int2: fromFloat("float8", "int2", finiteNarrowing, "immutable"),
+		int4: fromFloat("float8", "int4", finiteNarrowing, "immutable"),
+		int8: fromFloat("float8", "int8", finiteNarrowing, "immutable"),
+		float4: fromFloat("float8", "float4", ieee("round"), "immutable"),
+		numeric: fromFloat("float8", "numeric", total, "immutable")
 	},
 	money: {
-		numeric: fromMoney("numeric", [], "stable")
+		numeric: fromMoney("money", "numeric", total, "stable"),
+		exactMoney: fromMoney("money", "exactMoney", total, "stable")
+	},
+	exactInteger: {
+		int2: fromInteger("exactInteger", "int2", narrowing, "immutable"),
+		int4: fromInteger("exactInteger", "int4", narrowing, "immutable"),
+		int8: fromInteger("exactInteger", "int8", narrowing, "immutable"),
+		numeric: fromInteger("exactInteger", "numeric", total, "immutable"),
+		float4: fromInteger("exactInteger", "float4", ieee("round"), "immutable"),
+		float8: fromInteger("exactInteger", "float8", ieee("round"), "immutable"),
+		money: fromInteger("exactInteger", "money", narrowing, "stable")
+	},
+	exactMoney: {
+		money: fromMoney("exactMoney", "money", narrowing, "stable"),
+		numeric: fromMoney("exactMoney", "numeric", total, "immutable")
 	}
 } as const satisfies {
-	readonly [S in PlainCarrier]?: { readonly [T in PlainCarrier]?: CastOpOf<S, T> }
+	readonly [S in ResultCarrier]?: { readonly [T in ResultCarrier]?: CastOpOf<S, T> }
 }
 
 /** Every cast by its source and target carriers, for a lookup by any pair. */
 const castTable: { readonly [S in Carrier]?: { readonly [T in Carrier]?: CastOp } } = castOverloads
 
-const listedOp = (id: OpId, overload: Overload): NativeOp => Object.freeze({ id, ...overload })
+const listedOp = (id: OpId, overload: Overload): NativeOp =>
+	Object.freeze({ ...overload, ...identified(id, overload.totality) })
+
+/**
+ * The binary coercion a cast node names where it drops only a refinement PostgreSQL never checks on the way (a
+ * contract's base, a numeric typmod, a text refinement, a span width: types.ts widensTo): defined everywhere.
+ */
+export const binaryCoercion: DefinedOp = definedOp(opId("coercion"))
+
+/** An overload's identity where it is defined everywhere, for a caller that builds an expression with no proof. */
+export const definedIdOf = (op: NativeOp): DefinedOp | undefined => (op.partial ? undefined : op.id)
+
+/** The boolean connectives' identities, defined on every boolean. */
+export const connectiveOps: { readonly [C in "and" | "or" | "not"]: DefinedOp } = Object.freeze({
+	and: definedOp(opId("and")),
+	or: definedOp(opId("or")),
+	not: definedOp(opId("not"))
+})
+
+/**
+ * A range-polymorphic operator or function at a range carrier, as an expression names it: every one the IR holds (the
+ * comparisons, the Allen atoms' operators, the endpoints) is defined on every span.
+ */
+export const definedRangeOp = (code: RangeOpCode, carrier: SpanCarrier): DefinedOp =>
+	definedOp(rangeOp(code, carrier))
 
 /** The registry's node listed under a catalog identity. */
 const catalogOp = (id: keyof typeof catalogOverloads): NativeOp =>

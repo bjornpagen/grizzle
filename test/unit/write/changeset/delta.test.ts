@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,6 +12,7 @@ import {
 	string,
 	subarray
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -90,13 +91,12 @@ describe("netting", () => {
 						suite: "unit/write/changeset/delta-5003",
 						draw: drawn(sequences),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ start, steps }) =>
@@ -224,17 +224,19 @@ describe("a stratum's change is a set difference", () => {
 							suite: "unit/write/changeset/lagging-sequence",
 							draw: drawn(laggingGen),
 							literal: Formatter.format,
-							features: features<LaggingFeature>([
-								"a fact removed and added back identical",
-								"a generated fact differing in its key",
-								"a generated fact differing in its note"
-							]),
+							coverage: required<LaggingFeature>(
+								[
+									"a fact removed and added back identical",
+									"a generated fact differing in its key",
+									"a generated fact differing in its note"
+								],
+								{ cases: 500, sense: notesOnly }
+							),
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ stored, lagging, generatedNote, alsoDeleted, later }, c) =>
@@ -425,13 +427,12 @@ describe("relation identity", () => {
 									] as const
 							),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						([task, text]) =>

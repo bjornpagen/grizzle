@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -11,6 +11,7 @@ import {
 	map,
 	oneOf
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint } from "@grizzle/testing/values"
@@ -61,7 +62,7 @@ const Edge = relation("Edge", { id: pg.integer, s: span(pg.bigint) }, ["id"])
 const Store = schema("Store", { Booking, Slot, Plan, Edge }, [])
 
 const edgeBounds = query(Store).rule((r) => {
-	const { id, s } = v(Edge)
+	const { id, s } = v(Edge, "edge")
 	return r
 		.match(Edge, { id, s })
 		.where(r.allen(s, ALLEN.intersects, r.param("window", Edge.fields.s)))
@@ -112,7 +113,6 @@ const exploration = {
 	shrink: boundedShrink(100),
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(2)
 } as const
 
@@ -287,14 +287,17 @@ layer(Substrate.layer)("span storage", (it) => {
 									reaches: ["unbounded below refused"]
 								}
 							],
-							features: features<F>([
-								"a canonical spelling stored",
-								"another spelling stored canonical",
-								"an empty spelling refused",
-								"unbounded below refused",
-								"unbounded above refused",
-								"unbounded on both sides refused"
-							]),
+							coverage: required<F>(
+								[
+									"a canonical spelling stored",
+									"another spelling stored canonical",
+									"an empty spelling refused",
+									"unbounded below refused",
+									"unbounded above refused",
+									"unbounded on both sides refused"
+								],
+								{ cases: exploration.runs, sense: notesOnly }
+							),
 							...exploration
 						},
 						(d, c) =>
@@ -382,14 +385,17 @@ layer(Substrate.layer)("span storage", (it) => {
 									reaches: ["a narrower span refused"]
 								}
 							],
-							features: features<F>([
-								"the declared width stored",
-								"the declared width stored from the lower limit",
-								"the declared width stored to the upper limit",
-								"a narrower span refused",
-								"a wider span refused",
-								"a span wider than the type refused"
-							]),
+							coverage: required<F>(
+								[
+									"the declared width stored",
+									"the declared width stored from the lower limit",
+									"the declared width stored to the upper limit",
+									"a narrower span refused",
+									"a wider span refused",
+									"a span wider than the type refused"
+								],
+								{ cases: exploration.runs, sense: notesOnly }
+							),
 							...exploration
 						},
 						(d, c) =>
@@ -460,13 +466,16 @@ layer(Substrate.layer)("span storage", (it) => {
 									reaches: ["an endpoint at the contract's bound stored"]
 								}
 							],
-							features: features<F>([
-								"both endpoints in the contract stored",
-								"an endpoint at the contract's bound stored",
-								"refused by its lower endpoint alone",
-								"refused by its upper endpoint alone",
-								"refused by both endpoints"
-							]),
+							coverage: required<F>(
+								[
+									"both endpoints in the contract stored",
+									"an endpoint at the contract's bound stored",
+									"refused by its lower endpoint alone",
+									"refused by its upper endpoint alone",
+									"refused by both endpoints"
+								],
+								{ cases: exploration.runs, sense: notesOnly }
+							),
 							...exploration
 						},
 						(d, c) =>
@@ -561,15 +570,18 @@ layer(Substrate.layer)("span storage", (it) => {
 									reaches: ["a span from the lower limit read", "a span to the upper limit read"]
 								}
 							],
-							features: features<F>([
-								"a span from the lower limit read",
-								"a span to the upper limit read",
-								"a width past bigint refused with 22003",
-								"an empty answer",
-								"a nonempty answer",
-								"an empty window refused by its codec",
-								"a reversed window refused by its codec"
-							]),
+							coverage: required<F>(
+								[
+									"a span from the lower limit read",
+									"a span to the upper limit read",
+									"a width past bigint refused with 22003",
+									"an empty answer",
+									"a nonempty answer",
+									"an empty window refused by its codec",
+									"a reversed window refused by its codec"
+								],
+								{ cases: exploration.runs, sense: notesOnly }
+							),
 							...exploration
 						},
 						(d, c) =>

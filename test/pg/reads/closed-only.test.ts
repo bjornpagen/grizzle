@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
@@ -93,19 +94,21 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 						suite: "reads/closed-only",
 						draw: drawn(plansCaseGen),
 						literal: Formatter.format,
-						features: features<ClosedFeature>([
-							"one handle",
-							"every handle",
-							"a bound admitting none",
-							"a bound admitting some",
-							"a bound admitting all"
-						]),
+						coverage: required<ClosedFeature>(
+							[
+								"one handle",
+								"every handle",
+								"a bound admitting none",
+								"a bound admitting some",
+								"a bound admitting all"
+							],
+							{ cases: 24, sense: notesOnly }
+						),
 						kept: closedKept,
 						runs: 24,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c, notes) =>
@@ -123,15 +126,15 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 							const opened = yield* installed(Plans, {}, { label: "real", extensions: [] })
 							assert.deepEqual(opened.installed.installation.laws.theory.laws, [])
 							const tiers = query(opened.schema).rule((r) => {
-								const { id, seats, label } = v(Tier)
+								const { id, seats, label } = v(Tier, "tier")
 								return r.match(Tier, { id, seats, label }).find({ id, seats, label })
 							})
 							const admitted = query(opened.schema).rule((r) => {
-								const { id, seats } = v(Tier)
+								const { id, seats } = v(Tier, "tier")
 								return r.match(Tier, { id, seats }).where(r.ge(seats, c.floor)).find({ id, seats })
 							})
 							const regions = query(opened.schema).rule((r) => {
-								const { id } = v(Region)
+								const { id } = v(Region, "region")
 								return r.match(Region, { id }).find({ id })
 							})
 							const bounded = Arr.filter(tierFacts, (f) => f.seats >= c.floor)

@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
@@ -167,25 +168,24 @@ describe("every declared parameter admitted at the read boundary", () => {
 						suite: "unit/adapter/reader-eliminated-parameter",
 						draw: drawn(pinnedReadGen),
 						literal: Formatter.format,
-						features: features<PinnedFeature>([
-							"a parameter only an eliminated rule reads",
-							"a parameter a statement binds"
-						]),
+						coverage: required<PinnedFeature>(
+							["a parameter only an eliminated rule reads", "a parameter a statement binds"],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ read: { inner, outer, kind }, wrong }, c) =>
 						Effect.sync(() => {
 							const q = queryOver(Pinned)
 								.rule((r: RuleValue) => {
-									const { id, [kind.field]: x } = varsOver(Sample)
+									const { id, [kind.field]: x } = varsOver(Sample, "sample")
 									const pinned = r.interior((r2: RuleValue) => {
-										const { id: handle } = varsOver(Color)
+										const { id: handle } = varsOver(Color, "color")
 										return r2
 											.match(Color, { id: handle })
 											.where(r2.eq(handle, inner))
@@ -198,7 +198,7 @@ describe("every declared parameter admitted at the read boundary", () => {
 										.find({ id })
 								})
 								.rule((r: RuleValue) => {
-									const { id, whole } = varsOver(Sample)
+									const { id, whole } = varsOver(Sample, "sample")
 									return r
 										.match(Sample, { id, whole })
 										.where(r.eq(whole, r.param("q", pg.integer)))
@@ -378,7 +378,7 @@ describe("capabilities found after admission", () => {
 describe("attachment heads", () => {
 	const nested = query(W.Work)
 		.rule((r) => {
-			const { id, name } = v(W.Account)
+			const { id, name } = v(W.Account, "account")
 			return r.match(W.Account, { id, name }).find({ id, name })
 		})
 		.attach(
@@ -386,14 +386,14 @@ describe("attachment heads", () => {
 			(a) =>
 				query(W.Work)
 					.rule((r) => {
-						const { id, kind } = v(W.Task)
+						const { id, kind } = v(W.Task, "task")
 						return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
 					})
 					.attach(
 						"note",
 						(t) =>
 							query(W.Work).rule((r) => {
-								const { note } = v(W.TaskNote)
+								const { note } = v(W.TaskNote, "taskNote")
 								return r.match(W.TaskNote, { task: t.id, note }).find({ note })
 							}),
 						"option"

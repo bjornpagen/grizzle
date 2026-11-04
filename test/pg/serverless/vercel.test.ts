@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
@@ -137,7 +137,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
 							literal: Formatter.format,
 							limit: 4,
-							features: features<VercelEnvFeature>([
+							coverage: requiredInSpace<VercelEnvFeature>([
 								"url and region",
 								"url only",
 								"region only",

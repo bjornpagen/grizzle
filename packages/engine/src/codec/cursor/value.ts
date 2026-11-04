@@ -83,7 +83,9 @@ const candidates: { readonly [C in Carrier]: (spec: SpecOf<C>) => (text: string)
 	enum: () => itself,
 	range4: () => spanOf(Number),
 	range8: () => spanOf(bigintOf),
-	vector: (spec) => vectorOf(spec.dimensions)
+	vector: (spec) => vectorOf(spec.dimensions),
+	exactInteger: () => bigintOf,
+	exactMoney: () => moneyOf
 }
 
 const candidateOf = <C extends Carrier>(

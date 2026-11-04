@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	boolean,
 	constant,
@@ -11,6 +11,7 @@ import {
 	oneOf,
 	option
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -92,7 +93,7 @@ const seatsAt = (name: string) => {
 	const base = schema(name, { Group, Team, Seat }, [codeKey, oneLead, oneSeat])
 	const Session = context("Session", { sub: Subject })
 	const mine = query(base).rule((r) => {
-		const { id, code, grp, lead, team, holder } = v(Seat)
+		const { id, code, grp, lead, team, holder } = v(Seat, "seat")
 		return r
 			.match(Seat, { id, code, grp, lead, team, holder })
 			.match(Session, { sub: holder })
@@ -261,22 +262,24 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 									suite: "pg/write/entry-occupants",
 									draw: drawn(caseGen),
 									literal: Formatter.format,
-									features: features<OccupantFeature>([
-										"hidden occupant at the primary key",
-										"hidden occupant at the candidate key",
-										"hidden occupant at the at most one lead",
-										"hidden occupant at the at most one seat",
-										"inside occupant at the at most one lead",
-										"inside occupant at the at most one seat",
-										"an exact repeat",
-										"accepted"
-									]),
+									coverage: required<OccupantFeature>(
+										[
+											"hidden occupant at the primary key",
+											"hidden occupant at the candidate key",
+											"hidden occupant at the at most one lead",
+											"hidden occupant at the at most one seat",
+											"inside occupant at the at most one lead",
+											"inside occupant at the at most one seat",
+											"an exact repeat",
+											"accepted"
+										],
+										{ cases: 60, sense: notesOnly }
+									),
 									kept: [],
 									runs: 60,
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									steering: { kind: "none" },
 									caseHang: Duration.minutes(2)
 								},
 								(c, cx) =>

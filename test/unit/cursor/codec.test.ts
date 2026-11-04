@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -19,6 +19,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -198,7 +199,7 @@ const carrierCaseGen: Gen<CarrierCase> = oneOf([
 				kind: "vector",
 				value: Vector.inCosineDomain(made)
 					? made
-					: Vector.make(Float32Array.of(1, ...cs.slice(1)), 3)
+					: Vector.make(Float32Array.from([1, ...cs.slice(1)]), 3)
 			}
 		}
 	),
@@ -268,18 +269,15 @@ describe("boundary values round-trip exactly", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<"one zero" | "NaN" | "an infinity" | "finite">([
-							"one zero",
-							"NaN",
-							"an infinity",
-							"finite"
-						]),
+						coverage: required<"one zero" | "NaN" | "an infinity" | "finite">(
+							["one zero", "NaN", "an infinity", "finite"],
+							{ cases: 3000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([d, float4], c) =>
@@ -333,17 +331,15 @@ describe("boundary values round-trip exactly", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<"int8" | "contract" | "an extreme">([
-							"int8",
-							"contract",
-							"an extreme"
-						]),
+						coverage: required<"int8" | "contract" | "an extreme">(
+							["int8", "contract", "an extreme"],
+							{ cases: 2000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([n, which], c) =>
@@ -360,7 +356,7 @@ describe("boundary values round-trip exactly", () => {
 		})
 	)
 
-	it.effect("keeps every Decimal exactly, display scale and the special values included", (ctx) =>
+	it.effect("keeps every Decimal exactly, in its one form, the special values included", (ctx) =>
 		Effect.gen(function* () {
 			const codec = single(cursorCodecTypes.numeric)
 			yield* searched(
@@ -378,13 +374,12 @@ describe("boundary values round-trip exactly", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(d) =>
@@ -398,73 +393,82 @@ describe("boundary values round-trip exactly", () => {
 		})
 	)
 
-	it.effect("applies a numeric typmod before it encodes, the text at the typmod's scale", (ctx) =>
-		Effect.gen(function* () {
-			/** Each typmod with its scale and the largest whole part that rounds within its precision. */
-			const typmods = [
-				{
-					name: "numeric(7,2)",
-					codec: single(cursorCodecTypes.numeric72),
-					scale: 2,
-					largest: 99_998n
-				},
-				{
-					name: "numeric(5,-2)",
-					codec: single(cursorCodecTypes.numericNeg),
-					scale: -2,
-					largest: 9_999_800n
-				}
-			] as const
-			yield* searched(
-				ctx,
-				explore(
+	it.effect(
+		"applies a numeric typmod before it encodes, the text the rounded value's one text",
+		(ctx) =>
+			Effect.gen(function* () {
+				/** Each typmod with its scale and the largest whole part that rounds within its precision. */
+				const typmods = [
 					{
-						suite: "unit/cursor/codec-typmod",
-						draw: drawn((source) => ({
-							typmod: source.draw(element([0 as const, 1 as const])),
-							negative: source.draw(boolean),
-							whole: source.draw(bigint(0n, 9_999_800n)),
-							fraction: source.draw(matching(regex("^\\d{0,4}$")))
-						})),
-						literal: Formatter.format,
-						features: features<"numeric(7,2)" | "numeric(5,-2)">(["numeric(7,2)", "numeric(5,-2)"]),
-						kept: [],
-						runs: 500,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						steering: { kind: "none" },
-						caseHang: Duration.minutes(2)
+						name: "numeric(7,2)",
+						codec: single(cursorCodecTypes.numeric72),
+						scale: 2,
+						largest: 99_998n
 					},
-					({ typmod, negative, whole: drawnWhole, fraction }, c) =>
-						Effect.sync(() => {
-							const { name, codec, scale: s, largest } = typmods[typmod]
-							c.note(name)
-							const whole = drawnWhole % (largest + 1n)
-							const value = Decimal.of(
-								`${negative ? "-" : ""}${whole}${fraction === "" ? "" : `.${fraction}`}`
-							)
-							/** The magnitude in units of 10^-scale, rounded half away from zero to units of 10^-s. */
-							const scale = fraction.length
-							const units = whole * 10n ** BigInt(scale) + (fraction === "" ? 0n : BigInt(fraction))
-							const k = scale - s
-							const rounded =
-								k <= 0
-									? units * 10n ** BigInt(-k)
-									: (units + 5n * 10n ** BigInt(k - 1)) / 10n ** BigInt(k)
-							const digits =
-								s > 0
-									? pipe(rounded.toString(), Str.padStart(s + 1, "0"))
-									: (rounded * 10n ** BigInt(-s)).toString()
-							const unsigned =
-								s > 0 ? `${Str.slice(0, -s)(digits)}.${Str.slice(-s)(digits)}` : digits
-							const expected = negative && rounded !== 0n ? `-${unsigned}` : unsigned
-							const decoded = succeeded(codec.decode(succeeded(codec.encode([value]))))
-							assert.equal(decoded.texts[0], expected, `${name} of ${value.toString()}`)
-						})
+					{
+						name: "numeric(5,-2)",
+						codec: single(cursorCodecTypes.numericNeg),
+						scale: -2,
+						largest: 9_999_800n
+					}
+				] as const
+				yield* searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/cursor/codec-typmod",
+							draw: drawn((source) => ({
+								typmod: source.draw(element([0 as const, 1 as const])),
+								negative: source.draw(boolean),
+								whole: source.draw(bigint(0n, 9_999_800n)),
+								fraction: source.draw(matching(regex("^\\d{0,4}$")))
+							})),
+							literal: Formatter.format,
+							coverage: required<"numeric(7,2)" | "numeric(5,-2)">(
+								["numeric(7,2)", "numeric(5,-2)"],
+								{ cases: 500, sense: notesOnly }
+							),
+							kept: [],
+							runs: 500,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang: Duration.minutes(2)
+						},
+						({ typmod, negative, whole: drawnWhole, fraction }, c) =>
+							Effect.sync(() => {
+								const { name, codec, scale: s, largest } = typmods[typmod]
+								c.note(name)
+								const whole = drawnWhole % (largest + 1n)
+								const value = Decimal.of(
+									`${negative ? "-" : ""}${whole}${fraction === "" ? "" : `.${fraction}`}`
+								)
+								/** The magnitude in units of 10^-scale, rounded half away from zero to units of 10^-s. */
+								const scale = fraction.length
+								const units =
+									whole * 10n ** BigInt(scale) + (fraction === "" ? 0n : BigInt(fraction))
+								const k = scale - s
+								const rounded =
+									k <= 0
+										? units * 10n ** BigInt(-k)
+										: (units + 5n * 10n ** BigInt(k - 1)) / 10n ** BigInt(k)
+								const digits =
+									s > 0
+										? pipe(rounded.toString(), Str.padStart(s + 1, "0"))
+										: (rounded * 10n ** BigInt(-s)).toString()
+								const unsigned =
+									s > 0 ? `${Str.slice(0, -s)(digits)}.${Str.slice(-s)(digits)}` : digits
+								/** The rounded value's one text: its fraction's trailing zeros, and a then bare point, dropped. */
+								const trimmed = Str.includes(".")(unsigned)
+									? Str.replace(regex("\\.?0+$"), "")(unsigned)
+									: unsigned
+								const expected = negative && rounded !== 0n ? `-${trimmed}` : trimmed
+								const decoded = succeeded(codec.decode(succeeded(codec.encode([value]))))
+								assert.equal(decoded.texts[0], expected, `${name} of ${value.toString()}`)
+							})
+					)
 				)
-			)
-		})
+			})
 	)
 
 	it.effect("keeps supplementary-plane text and every other scalar sequence exactly", (ctx) =>
@@ -486,13 +490,12 @@ describe("boundary values round-trip exactly", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s) =>
@@ -514,24 +517,26 @@ describe("boundary values round-trip exactly", () => {
 						suite: "unit/cursor/codec-carriers",
 						draw: drawn(carrierCaseGen),
 						literal: Formatter.format,
-						features: features<CarrierCase["kind"]>([
-							"money",
-							"uuid",
-							"bool",
-							"handle",
-							"int8range",
-							"vector",
-							"task tuple",
-							"empty tuple",
-							"refused admission"
-						]),
+						coverage: required<CarrierCase["kind"]>(
+							[
+								"money",
+								"uuid",
+								"bool",
+								"handle",
+								"int8range",
+								"vector",
+								"task tuple",
+								"empty tuple",
+								"refused admission"
+							],
+							{ cases: 900, sense: notesOnly }
+						),
 						kept: [],
-						/** Nine arms, each about one case in nine: 900 cases reach every one many times over. */
+						/** The rotating stream's sample of nine arms, each about one case in nine. */
 						runs: 900,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>
@@ -623,13 +628,12 @@ describe("boundary values round-trip exactly", () => {
 						suite: "unit/cursor/codec-1605",
 						draw: drawn((source) => [source.draw(decimalGen), source.draw(decimalGen)] as const),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([a, b]) =>
@@ -833,9 +837,9 @@ describe("validation before any SQL, in order", () => {
 						generator: plantings,
 						literal: Formatter.format,
 						limit: 20_000,
-						features: features<CursorFault | "accepted">([
-							...new Set(Rec.values(faultReasons)),
-							"accepted"
+						coverage: requiredInSpace<CursorFault | "accepted">([
+							"accepted",
+							...new Set(Rec.values(faultReasons))
 						]),
 						caseHang: Duration.minutes(2)
 					},
@@ -919,20 +923,22 @@ describe("validation before any SQL, in order", () => {
 								])
 							),
 							literal: Formatter.format,
-							features: features<CursorFault>([
-								"cursorEncoding",
-								"cursorMalformed",
-								"cursorGeneration",
-								"cursorQuery",
-								"cursorComparator",
-								"cursorValue"
-							]),
+							coverage: required<CursorFault>(
+								[
+									"cursorEncoding",
+									"cursorMalformed",
+									"cursorGeneration",
+									"cursorQuery",
+									"cursorComparator",
+									"cursorValue"
+								],
+								{ cases: 5000, sense: notesOnly }
+							),
 							kept: [],
 							runs: 5000,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(text, c) =>
@@ -960,7 +966,7 @@ describe("validation before any SQL, in order", () => {
 							[source.draw(int(0, headerBytes - 1)), source.draw(element([1, 0x80]))] as const,
 						literal: Formatter.format,
 						limit: headerBytes * 2,
-						features: features<"a header byte changed">(["a header byte changed"]),
+						coverage: requiredInSpace<"a header byte changed">(["a header byte changed"]),
 						caseHang: Duration.minutes(2)
 					},
 					([i, delta], c) =>
@@ -1015,13 +1021,12 @@ describe("size limits (the codec's byte bound)", () => {
 								})
 							),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 1000,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(scalars) =>
@@ -1066,13 +1071,12 @@ describe("size limits (the codec's byte bound)", () => {
 							/** Four times the default limit spans every residue of the base64url length mod 4 many times over. */
 							draw: drawn(int(succeeded(codecUnder(cursorMaxBytes)).bound.min, 4 * cursorMaxBytes)),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 1_000,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(maxBytes) =>
@@ -1120,15 +1124,17 @@ describe("size limits (the codec's byte bound)", () => {
 								length: source.draw(int(0, 500))
 							})),
 							literal: Formatter.format,
-							features: features<
+							coverage: required<
 								"refused at build" | "built, every token fits" | "built, a token may not fit"
-							>(["refused at build", "built, every token fits", "built, a token may not fit"]),
+							>(["refused at build", "built, every token fits", "built, a token may not fit"], {
+								cases: 500,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ maxBytes, spec, length }, c) =>
@@ -1193,13 +1199,12 @@ describe("per-value byte bounds behind the static token bound", () => {
 					Arr.isReadonlyArrayNonEmpty(extremes) ? oneOf([generator, element(extremes)]) : generator
 				),
 				literal: Formatter.format,
-				features: noFeatures,
+				coverage: noCoverage,
 				kept: [],
 				runs: 3000,
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "none" },
 				caseHang: Duration.minutes(2)
 			},
 			(value) =>

@@ -2,7 +2,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { closedId, contract, pg, span, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg, span, uuid, Vector } from "#compiler/public/fields.ts"
 import {
 	closed,
 	key,
@@ -25,28 +25,37 @@ import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
+import { argumentsOf } from "#test/support/list.ts"
+import { numeric, vectorDimensions } from "#test/support/oracle/gen/domain.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
-import type {
-	ProgramCase,
-	Closure,
-	ComputedTerm,
-	ProgramFact,
-	FieldKind,
-	HeadItem,
-	Imported,
-	MixedRoot,
-	Operand,
-	OrderKey,
-	Param,
-	ParentColumn,
-	Query,
-	Root,
-	Rule,
-	ProgramSchema,
-	Source,
-	StatedDelivery,
-	Stored,
-	Var
+import {
+	type ArgTerm,
+	type Closure,
+	type Comparison,
+	type ComputedTerm,
+	factValues,
+	type FieldKind,
+	type HeadItem,
+	type Imported,
+	type MixedRoot,
+	type Operand,
+	type OrderKey,
+	type Padding,
+	type Param,
+	type ParentColumn,
+	type ProgramCase,
+	type ProgramFact,
+	type ProgramSchema,
+	paddingBounds,
+	powerBounds,
+	type Query,
+	type Root,
+	type Rule,
+	type Source,
+	type StatedDelivery,
+	type Stored,
+	unguarded,
+	type Var
 } from "#test/support/oracle/public/program.ts"
 
 /** The generated text field: at most two code points of any kind, a bounded key. */
@@ -73,6 +82,8 @@ const tick = contract("Tick", pg.bigint)
 
 const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 	switch (kind) {
+		case "int2":
+			return pg.smallint
 		case "int4":
 			return pg.integer
 		case "int8":
@@ -81,6 +92,8 @@ const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 			return pg.numeric
 		case "fixed":
 			return pg.numeric(5, 2)
+		case "float4":
+			return pg.real
 		case "float8":
 			return pg.float8
 		case "money":
@@ -101,6 +114,8 @@ const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 			return span(pg.bigint)
 		case "tick":
 			return tick
+		case "vector":
+			return pg.vector(vectorDimensions)
 	}
 }
 
@@ -116,12 +131,16 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 	}
 	const type = param.type
 	switch (type.carrier) {
+		case "int2":
+			return pg.smallint
 		case "int4":
 			return pg.integer
 		case "int8":
 			return pg.bigint
 		case "numeric":
 			return pg.numeric
+		case "float4":
+			return pg.real
 		case "float8":
 			return pg.float8
 		case "money":
@@ -138,10 +157,13 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 			return span(pg.integer)
 		case "range8":
 			return span(pg.bigint)
-		case "int2":
-		case "float4":
 		case "vector":
-			throw new Error(`no generated parameter of carrier ${type.carrier}`)
+			return pg.vector(vectorDimensions)
+		case "exactInteger":
+		case "exactMoney":
+			throw new Error(
+				`a parameter of the exact carrier ${type.carrier}, which no descriptor declares`
+			)
 	}
 }
 
@@ -268,8 +290,9 @@ export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
 			return type.carrier === "int8" ? literal.value : Number(literal.value)
 		case "numeric":
 		case "money":
-		case "vector":
 			return literal.value
+		case "vector":
+			return Vector.fromValue(literal.value)
 		case "float":
 			return literal.value
 		case "floatSpecial":
@@ -308,7 +331,10 @@ export const factRecord = (
 	return row
 }
 
-/** The ChangeSet that stores a case's facts: one insert per relation that holds any, or none when no relation does. */
+/**
+ * The ChangeSet that stores a case's facts: one insert per relation that holds any, or none when no relation does.
+ * db.apply stores each value in its one form, whatever spelling the fact drew.
+ */
 export const factsChangeSet = (
 	c: ProgramCase,
 	built: BuiltSchema,
@@ -323,7 +349,7 @@ export const factsChangeSet = (
 				Arr.reduce(holding, changeSetOver.empty(value), (changes, { relation: stored, facts }) =>
 					changes.insert(
 						built.relation(stored),
-						Arr.map(facts, (fact) => factRecord(stored, fact))
+						Arr.map(facts, (fact) => factRecord(stored, factValues(fact)))
 					)
 				)
 			)
@@ -348,6 +374,24 @@ const compare = (r: RuleValue, op: CompareOp, left: unknown, right: unknown): un
 	}
 }
 
+/**
+ * A padding through Compute's admission cores: Compute.when(Compute.within(v, low, high), (v) =>
+ * Compute.cast(Compute.cast(v, pg.numeric(1000, scale)), pg.numeric), Compute.cast(v, pg.numeric)).
+ */
+const paddingTerm = (p: Padding, term: (v: Var) => unknown): unknown => {
+	const type = p.arg.field.type
+	const [low, high] = paddingBounds(type)
+	return computeCore.when(
+		computeCore.within(term(p.arg), hostValue(low, type), hostValue(high, type)),
+		(v: unknown) => computeCore.cast(computeCore.cast(v, pg.numeric(1000, p.scale)), pg.numeric),
+		computeCore.cast(term(p.arg), pg.numeric)
+	)
+}
+
+/** What an aggregate or a reading reads: its variable's term, or the variable's padding. */
+const argTermValue = (a: ArgTerm, term: (v: Var) => unknown): unknown =>
+	a.kind === "var" ? term(a.var) : paddingTerm(a.padding, term)
+
 /** The Compute term of a computed head key, through Compute's admission cores. */
 const computedTerm = (r: RuleValue, t: ComputedTerm, term: (v: Var) => unknown): unknown => {
 	switch (t.kind) {
@@ -360,6 +404,26 @@ const computedTerm = (r: RuleValue, t: ComputedTerm, term: (v: Var) => unknown):
 				compare(r, t.op, term(t.arg), hostValue(t.than, t.arg.field.type)),
 				term(t.arg),
 				hostValue(t.otherwise, t.arg.field.type)
+			)
+		case "padded":
+			return paddingTerm(t.padding, term)
+		case "div":
+			return computeCore.div(argTermValue(t.dividend, term), hostValue(t.divisor, numeric))
+		case "sqrt":
+			return computeCore.when(
+				computeCore.nonnegative(argTermValue(t.radicand, term)),
+				(a: unknown) => computeCore.sqrt(a),
+				hostValue(unguarded, numeric)
+			)
+		case "power":
+			return computeCore.when(
+				computeCore.within(
+					argTermValue(t.base, term),
+					hostValue(powerBounds[0], numeric),
+					hostValue(powerBounds[1], numeric)
+				),
+				(a: unknown) => computeCore.power(a, hostValue(t.exponent, numeric)),
+				hostValue(unguarded, numeric)
 			)
 	}
 }
@@ -374,17 +438,17 @@ const headTerm = (r: RuleValue, h: HeadItem, term: (v: Var) => unknown): unknown
 		case "computed":
 			return computedTerm(r, h.term, term)
 		case "literal":
-			return r.literal(hostValue(h.literal, h.type))
+			return hostValue(h.literal, h.type)
 		case "fold":
 			switch (h.fn) {
 				case "sum":
-					return r.sum(term(h.arg))
+					return r.sum(argTermValue(h.arg, term))
 				case "mean":
-					return r.mean(term(h.arg))
+					return r.mean(argTermValue(h.arg, term))
 				case "min":
-					return r.min(term(h.arg))
+					return r.min(argTermValue(h.arg, term))
 				case "max":
-					return r.max(term(h.arg))
+					return r.max(argTermValue(h.arg, term))
 			}
 	}
 }
@@ -404,7 +468,7 @@ const closureQuery = (built: BuiltSchema, value: SchemaValue, closure: Closure):
 		},
 		base: [
 			(r: RuleValue): FinishedValue => {
-				const e = varsOver(edge)
+				const e = varsOver(edge, "edge")
 				return r
 					.match(edge, { [from]: e[from], [to]: e[to] })
 					.where(r.lt(e[from], e[to]))
@@ -413,8 +477,8 @@ const closureQuery = (built: BuiltSchema, value: SchemaValue, closure: Closure):
 		],
 		rec: [
 			(r: RuleValue, self: unknown): FinishedValue => {
-				const path = varsOver(self)
-				const e = varsOver(edge)
+				const path = varsOver(self, "self")
+				const e = varsOver(edge, "edge")
 				return r
 					.match(self, { src: path["src"], dst: path["dst"] })
 					.match(edge, { [from]: path["dst"], [to]: e[to] })
@@ -426,10 +490,10 @@ const closureQuery = (built: BuiltSchema, value: SchemaValue, closure: Closure):
 }
 
 /**
- * The callback of one rule: its matches, each over fresh variables v(source) mints, a variable's term taken where it
- * first occurs, a derived source built at the match that reads it; its comparisons, ranges, sets, Allen atoms, point
- * memberships and negations in one where; its head. `parent` holds the parent's head terms, which an attachment's
- * callback receives.
+ * The callback of one rule: its matches, each over fresh variables in a scope of its own, `match<index>`, a variable's
+ * term taken where it first occurs, a derived source built at the match that reads it; its comparisons, ranges, sets,
+ * Allen atoms, point memberships, connectives and negations in one where; its head. `parent` holds the parent's head
+ * terms, which an attachment's callback receives.
  */
 const ruleCallback =
 	(
@@ -492,9 +556,9 @@ const ruleCallback =
 			}
 		}
 		let ruled = r
-		for (const m of rule.matches) {
+		for (const [index, m] of rule.matches.entries()) {
 			const source = sourceValue(m.source)
-			const vars = varsOver(source)
+			const vars = varsOver(source, `match${index}`)
 			const bindings: Record<string, unknown> = {}
 			for (const b of m.bindings) {
 				if (b.operand.kind === "var" && !terms.has(b.operand.var.id)) {
@@ -504,10 +568,10 @@ const ruleCallback =
 			}
 			ruled = ruled.match(source, bindings)
 		}
+		const comparison = (c: Comparison): unknown =>
+			compare(r, c.op, term(c.left), operand(c.right, c.left.field.type))
 		const predicates = [
-			...Arr.map(rule.where, (c) =>
-				compare(r, c.op, term(c.left), operand(c.right, c.left.field.type))
-			),
+			...Arr.map(rule.where, comparison),
 			...Arr.map(rule.between, (b) =>
 				r.between(
 					term(b.left),
@@ -523,6 +587,10 @@ const ruleCallback =
 			),
 			...Arr.map(rule.allens, (a) => r.allen(term(a.left), a.mask, term(a.right))),
 			...Arr.map(rule.pointIns, (p) => r.pointIn(term(p.point), term(p.span))),
+			...Arr.map(rule.connectives, (j) => {
+				const args = argumentsOf(Arr.map(j.args, comparison))
+				return j.kind === "and" ? r.and(...args) : r.or(...args)
+			}),
 			...Arr.map(rule.negations, (n) => {
 				const bindings: Record<string, unknown> = {}
 				for (const b of n.bindings) {
@@ -532,7 +600,7 @@ const ruleCallback =
 			})
 		]
 		if (predicates.length > 0) {
-			ruled = ruled.where(...predicates)
+			ruled = ruled.where(...argumentsOf(predicates))
 		}
 		const head: Record<string, unknown> = {}
 		for (const h of rule.head) {
@@ -566,7 +634,7 @@ const buildQuery = (
 		query = query.rule(ruleCallback(built, value, armRule, parent))
 	}
 	if (q.bound.kind === "take") {
-		query = query.orderBy(...orderArgs(q.bound.order)).take(q.bound.k)
+		query = query.orderBy(...argumentsOf(orderArgs(q.bound.order))).take(q.bound.k)
 	}
 	if (q.stage.kind === "named") {
 		query = query.named(q.stage.name)
@@ -607,7 +675,9 @@ export const buildMixed = (built: BuiltSchema, value: SchemaValue, root: MixedRo
  * attach (in the delivery each attachment states, arm(field, handle) for an arm) and a final orderBy, exactly as an
  * application chains them. A rule's derived sources are built where the match that reads them is: an earlier read's
  * query and its Query.bind, r.interior, r.relation and query(S).recursive; its filters are r.eq ... r.ge, r.between,
- * r.inSet, r.allen, r.pointIn and r.not in one where; its Compute terms Compute.base, Compute.cast and Compute.cond. The
+ * r.inSet, r.allen, r.pointIn and r.not in one where; its Compute terms Compute.base, Compute.cast, Compute.cond,
+ * Compute.div, and Compute.when over Compute.within or Compute.nonnegative guarding a typmod's cast, Compute.sqrt and
+ * Compute.power; its aggregates r.count, r.sum, r.mean, r.min and r.max, over a variable or a padding of one. The
  * builders record Descriptions, and everything grizzle does with them (checking, lowering, running, decoding) is under
  * test. The shapes are known only at run time, so the builders are driven through their runtime as a JavaScript
  * caller drives them (queryOver, varsOver, changeSetOver, computeCore): the same values the typed facade returns,
@@ -621,5 +691,7 @@ export const buildRoot = (
 	root: Root
 ): QueryValue | OrderedValue => {
 	const query = buildQuery(built, value, root, {})
-	return root.delivery.kind === "ordered" ? query.orderBy(...orderArgs(root.delivery.order)) : query
+	return root.delivery.kind === "ordered"
+		? query.orderBy(...argumentsOf(orderArgs(root.delivery.order)))
+		: query
 }

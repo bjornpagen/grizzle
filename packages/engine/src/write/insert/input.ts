@@ -1,4 +1,5 @@
 import type { ParamId } from "#compiler/core/ids.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import { type KeyProof, keyIn } from "#compiler/ir/keys.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
@@ -17,13 +18,14 @@ import {
 	cast,
 	col,
 	columnDefinition,
-	core,
 	derived,
+	distinctCoreWhen,
 	recordset,
+	sameTypeRef,
 	select,
-	target
+	target,
+	unitTargets
 } from "#compiler/sql/build.ts"
-import { printType } from "#compiler/sql/print.ts"
 import { type Carrier, carrierField, carrierScan } from "#compiler/write/carriers/carriers.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import {
@@ -100,7 +102,7 @@ export interface RelationInput {
 }
 
 /** The relation input of the slot `slot` whose facts carry `heading`, of `relation`: built once, with its slot
- * (`WriteSlot.input`), and a slot is one action's, so the plan and the conservative realization read one input, and the
+ * (`MemberSlot.input`), and a slot is one action's, so the plan and the conservative realization read one input, and the
  * statements each builds over it are one request (`StatementShare`). */
 export const relationInput = (
 	slot: ParamId,
@@ -191,7 +193,7 @@ const castInto = (
 	const toBase = w.cx.baseTypeRef(to)
 	const fromBase = w.cx.baseTypeRef(from.type)
 	return {
-		value: printType(fromBase) === printType(toBase) ? value : cast(value, toBase),
+		value: sameTypeRef(fromBase, toBase) ? value : cast(value, toBase),
 		type: { type: to, sqlType: toBase }
 	}
 }
@@ -326,7 +328,12 @@ const inputColumns = (
  * same-key check, unless the input's evidence proves it distinct, or unique on the primary key, which elides the
  * corresponding step. The conservative realization never supplies a proof;
  * keyUniqueByEvidence reads one from the write DAG's immediate-evidence keys, and distinctByEvidence one from the
- * physical keys of the member as the optimized artifact lowers it. */
+ * physical keys of the member as the optimized artifact lowers it.
+ *
+ * A read of no field, the generated class of a target whose every carried field is serial, is the unit relation: it
+ * reads the unit marker, one row of no field for each fact the input holds, `SELECT DISTINCT true FROM
+ * jsonb_array_elements($n::jsonb) AS r0` for a relation parameter, so its input CTE lists no column and an insert
+ * over it assigns none. */
 export const readInput = (
 	w: WriteContext,
 	input: WriteInput,
@@ -346,15 +353,11 @@ export const readInput = (
 		const r = readField(field.name)
 		return castInto(w, r.value, r.type, rowType(field), into.as, at)
 	})
+	const targets = isNonEmpty(read) ? mapNonEmpty(read, (r) => target(r.value)) : unitTargets
 	return {
-		select: select({
-			...core(
-				read.map((r) => target(r.value)),
-				[from],
-				undefined
-			),
-			distinct: options.kind === "input" && options.distinct
-		}),
+		select: select(
+			distinctCoreWhen(options.kind === "input" && options.distinct, targets, [from], undefined)
+		),
 		types: read.map((r) => r.type)
 	}
 }

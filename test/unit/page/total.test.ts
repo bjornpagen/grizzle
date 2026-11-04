@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Result } from "effect"
@@ -34,7 +35,6 @@ import {
 	queryCaseSketchGen,
 	resolveQueryCase
 } from "#test/support/oracle/gen/case.ts"
-import { spellingChoiceCount } from "#test/support/oracle/gen/domain.ts"
 import {
 	genParamDecls,
 	queryGenerators,
@@ -198,7 +198,6 @@ const ordered = (root: RootSketch): OrderedSketch => ({
 				]
 			},
 			facts: [],
-			spelling: Array.from({ length: spellingChoiceCount }, () => 0),
 			root,
 			paramNames: [],
 			...fullCaseSwarms
@@ -398,22 +397,20 @@ describe("the page compiler and the page runtime template", () => {
 						suite: "unit/page/runtime-total",
 						draw: drawn(orderedSketchGen),
 						literal: Formatter.format,
-						features: features<TotalFeature>([
-							"heading groups",
-							"attachments",
-							"per-execution form"
-						]),
+						coverage: required<TotalFeature>(
+							["heading groups", "attachments", "per-execution form"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: plantedCases,
 						/**
-						 * Each case compiles a page without a database; 200 rotating cases reach the attach roots (2 of the
-						 * generated roots' 8 weights) and the heading groups whose tag is a common key many times. Most
-						 * generated hetero roots are thinned away by the case's swarm or refused for want of a common key.
+						 * The rotating stream's sample, each case a page compiled without a database: the attach roots are 2 of
+						 * the generated roots' 8 weights, and most generated hetero roots are thinned away by the case's swarm or
+						 * refused for want of a common key.
 						 */
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>

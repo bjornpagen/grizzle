@@ -1,6 +1,11 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import type { FamilyPlugin, FamilyVariable, KeyValue } from "#compiler/laws/families/plugin.ts"
+import type {
+	FamilyPlugin,
+	FamilyUnit,
+	FamilyVariable,
+	KeyValue
+} from "#compiler/laws/families/plugin.ts"
 import { raiseViolation, readAnchor, recordField, selectedBy } from "#compiler/laws/residual/sql.ts"
 import type { Expr, PlStatement, Select } from "#compiler/sql/ast.ts"
 import {
@@ -40,19 +45,20 @@ const output = (i: number): string => `c${i + 1}`
  * 3 looks for a selected A fact at the key; each one is a violation, and the first in key order is the witness, its
  * DETAIL the violating fact's key (the projection when it is a key of A, otherwise A's primary key).
  *
- * The event table: A INSERT checks the inserted row's target, B DELETE the deleted row's key; a `mutable`
- * A's UPDATE OF its selector or projected fields checks the old and the new targets, and a `mutable` B's UPDATE OF g
- * the old and the new keys, both in key order. The skeleton skips an A row outside the
- * selection, which cannot threaten the law. The probe is served by the law's index on A (f...), partial with the
- * selection, which its WHERE implies, unless an index of every row of A already serves it. */
+ * The event table: A INSERT checks the inserted row's target, B DELETE the deleted row's key; a `mutable` A's UPDATE OF
+ * its selector or projected fields checks the new target, and a `mutable` B's UPDATE OF g the old key, the one its row
+ * left. An A row outside the selection cannot threaten the law, and its trigger does not fire for it. The one term reads
+ * both relations, so every participant's units run the whole check. The probe is served by the law's index on A
+ * (f...), partial with the selection, which its WHERE implies, unless an index of every row of A already serves it. */
 export const selectedSourceFamily: FamilyPlugin<"selectedSourceContainment"> = ({
 	law,
 	schema,
+	names,
 	shown
 }) => {
 	const { anchor, source, detail } = law
 	const read = (field: LawField): Expr => col("r1", field.column)
-	const selected = selectedBy(law.lawId, schema, source.selection, read)
+	const selected = selectedBy(law.lawId, names, source.selection, read)
 	const raise = raiseViolation(
 		law.lawId,
 		detail,
@@ -66,7 +72,7 @@ export const selectedSourceFamily: FamilyPlugin<"selectedSourceContainment"> = (
 				core(
 					detail.keys.map((k, i) => targetAs(read(k), output(i))),
 					[{ kind: "table", table: objectName(schema, source.relation.ident), alias: "r1" }],
-					and(...key.map((k) => eq(read(k.pair.field), k.value)), selected)
+					and([...mapNonEmpty(key, (k) => eq(read(k.pair.field), k.value)), selected])
 				)
 			),
 			orderBy: detail.keys.map((k) => asc(read(k))),
@@ -82,5 +88,6 @@ export const selectedSourceFamily: FamilyPlugin<"selectedSourceContainment"> = (
 			}
 		})
 	}
-	return { declare: [{ name: witnessVariable, type: types.record }], check }
+	const unit: FamilyUnit = { declare: [{ name: witnessVariable, type: types.record }], check }
+	return () => unit
 }

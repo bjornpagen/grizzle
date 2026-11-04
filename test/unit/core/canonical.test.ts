@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -17,6 +17,7 @@ import {
 	unicodeScalar,
 	uniqueArray
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -339,22 +340,24 @@ describe("the canonical text", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					features: features<SpellingFeature>([
-						"a bigint",
-						"a Canonicalizable value",
-						"a string beginning with ~",
-						"an integer-like key",
-						"a __proto__ key",
-						"keys code points order otherwise",
-						"negative zero",
-						"an exponent-form number"
-					]),
+					coverage: required<SpellingFeature>(
+						[
+							"a bigint",
+							"a Canonicalizable value",
+							"a string beginning with ~",
+							"an integer-like key",
+							"a __proto__ key",
+							"keys code points order otherwise",
+							"negative zero",
+							"an exponent-form number"
+						],
+						{ cases: 1000, sense: notesOnly }
+					),
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([v, draws], c) =>
@@ -364,7 +367,7 @@ describe("the canonical text", () => {
 						const form = jsonForm(v)
 						assert.deepEqual(succeeded(toJson(permuted, everyProperty)), form)
 						assert.equal(succeeded(encode(permuted, everyProperty)), rfc8785(form))
-						assert.equal(writeCanonicalJson(form), rfc8785(form))
+						assert.equal(succeeded(writeCanonicalJson(form)), rfc8785(form))
 					})
 			)
 		)
@@ -380,13 +383,12 @@ describe("the canonical text", () => {
 						suite: "unit/core/canonical-2",
 						draw: drawn(value),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(v) =>
@@ -555,7 +557,7 @@ describe("a value outside the model", () => {
 								[source.draw(element(outsides)), source.draw(pathGen), source.draw(leaf)] as const
 						),
 						literal: Formatter.format,
-						features: features<Outside>(outsides),
+						coverage: required<Outside>(outsides, { cases: 600, sense: notesOnly }),
 						kept: [],
 						/**
 						 * Twenty-three kinds of value at paths of up to four steps: six hundred cases place each kind tens of times.
@@ -564,7 +566,6 @@ describe("a value outside the model", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([kind, path, filler], c) =>
@@ -646,7 +647,7 @@ describe("a value outside the model", () => {
 								] as const,
 							literal: Formatter.format,
 							limit: 24,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						([depth, container, direction]) =>
@@ -738,17 +739,15 @@ describe("the omitted members", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<OmittedFeature>([
-							"an undefined property",
-							"a SourceLoc under loc",
-							"another value under loc"
-						]),
+						coverage: required<OmittedFeature>(
+							["an undefined property", "a SourceLoc under loc", "another value under loc"],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([entries, member], c) =>
@@ -819,18 +818,15 @@ describe("the omitted members", () => {
 									] as const
 							),
 							literal: Formatter.format,
-							features: features<Freezing>([
-								"unfrozen",
-								"frozen at the top",
-								"frozen with a mutable loc",
-								"deeply frozen"
-							]),
+							coverage: required<Freezing>(
+								["unfrozen", "frozen at the top", "frozen with a mutable loc", "deeply frozen"],
+								{ cases: 200, sense: notesOnly }
+							),
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						([freezing, v, replacement], c) =>
@@ -900,10 +896,10 @@ describe("canonical comparison", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<"a repeated member" | "two distinct members">([
-							"a repeated member",
-							"two distinct members"
-						]),
+						coverage: required<"a repeated member" | "two distinct members">(
+							["a repeated member", "two distinct members"],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [
 							{
 								note: "[1] beside another [1]",
@@ -916,7 +912,6 @@ describe("canonical comparison", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([distinct, picks, at], c) =>

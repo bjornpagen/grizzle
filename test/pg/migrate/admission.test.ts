@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { tokenOf } from "@grizzle/testing/tape"
@@ -309,14 +309,11 @@ const reviewerOf = (edit: Edit, g: GenerateResult, first: GenerateResult): Revie
 				p0,
 				"table grant"
 			)
-			if (grant.names.length === 1) {
-				return deleted(g, grant.s)
-			}
 			const gone = picked(grant.names, p1, "granted table")
-			return swapped(g, grant.s, {
-				...grant.s,
-				on: { kind: "TABLE", names: Arr.filter(grant.names, (n) => n !== gone) }
-			})
+			const kept = Arr.filter(grant.names, (n) => n !== gone)
+			return Arr.isReadonlyArrayNonEmpty(kept)
+				? swapped(g, grant.s, { ...grant.s, on: { kind: "TABLE", names: kept } })
+				: deleted(g, grant.s)
 		}
 		case "an EXECUTE grant deleted":
 			return deleted(
@@ -457,8 +454,10 @@ layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
 						shrink: { kind: "bounded", candidates: 40 },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "mutate", cases: 120, sense: notesOnly },
-						features: features<EditFeature>(Arr.map(editKinds, featureOf)),
+						coverage: required<EditFeature>(Arr.map(editKinds, featureOf), {
+							cases: 120,
+							sense: notesOnly
+						}),
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>

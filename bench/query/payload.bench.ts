@@ -36,6 +36,7 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { outline, planOf, serializedKb, summaryOf } from "#bench/query/support/plans.ts"
+import { maxOf } from "#compiler/core/array.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -70,7 +71,7 @@ const Payload = schema("Payload", { Doc }, [])
 /** The twenty best-ranked documents with their payload; the order is total at the key. */
 const topDocs = query(Payload)
 	.rule((r) => {
-		const { id, rank, title, body } = v(Doc)
+		const { id, rank, title, body } = v(Doc, "doc")
 		return r.match(Doc, { id, rank, title, body }).find({ id, rank, title, body })
 	})
 	.orderBy(["rank", "desc"], ["id", "asc"])
@@ -82,7 +83,7 @@ const topDocs = query(Payload)
  */
 const topBodies = query(Payload)
 	.rule((r) => {
-		const { rank, body } = v(Doc)
+		const { rank, body } = v(Doc, "doc")
 		return r.match(Doc, { rank, body }).find({ rank, body })
 	})
 	.orderBy(["rank", "desc"])
@@ -100,7 +101,10 @@ const sortFigures = (plan: PlanNode): { readonly width: number; readonly spaceKb
 		throw GateSetupError.make({ what: "the plan sorts nothing" })
 	}
 	return {
-		width: Math.max(...Arr.map(sorts, (n) => n.planWidth)),
+		width: maxOf(
+			Arr.map(sorts, (n) => n.planWidth),
+			Number.NEGATIVE_INFINITY
+		),
 		spaceKb: Arr.reduce(
 			sorts,
 			0,

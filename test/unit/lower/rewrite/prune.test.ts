@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -112,7 +112,7 @@ describe("demand pruning", () => {
 								source.draw(element<"with id" | "without id">(["with id", "without id"]))
 							] as const,
 						limit: 16,
-						features: features<"an aggregate dropped" | "every aggregate delivered">([
+						coverage: requiredInSpace<"an aggregate dropped" | "every aggregate delivered">([
 							"an aggregate dropped",
 							"every aggregate delivered"
 						]),
@@ -211,7 +211,7 @@ const stageOver = (q: Q, stage: Stage): RelNode => {
 		],
 		conservativeMeta
 	)
-	return q.filter(p, q.op("int4gt", [q.col(p, "d"), q.int(0, T.int4)], T.bool, "total"))
+	return q.filter(p, q.op("int4gt", [q.col(p, "d"), q.int(0, T.int4)], T.bool))
 }
 
 /**
@@ -311,7 +311,7 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 								source.draw(element<Reader>(["recursive step", "root region", "unpinned region"]))
 							] as const,
 						limit: 9,
-						features: features<`${Reader} over a ${Stage}`>([
+						coverage: requiredInSpace<`${Reader} over a ${Stage}`>([
 							"recursive step over a projection",
 							"recursive step over a filter",
 							"recursive step over a region",
@@ -369,7 +369,7 @@ describe("a dead binding outside a named heading", () => {
 						literal: Formatter.format,
 						generator: element<Passes>(["prune", "the relational rewrites"]),
 						limit: 2,
-						features: features<Passes>(["prune", "the relational rewrites"]),
+						coverage: requiredInSpace<Passes>(["prune", "the relational rewrites"]),
 						caseHang: Duration.minutes(2)
 					},
 					(passes, c) =>

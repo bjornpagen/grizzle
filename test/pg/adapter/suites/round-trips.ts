@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -22,6 +23,7 @@ import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t4, t5, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -72,7 +74,7 @@ const derivedFixture = (name: string) => {
 	const StudentWeekly = derived(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
-			const { id, student, week } = v(Sitting)
+			const { id, student, week } = v(Sitting, "sitting")
 			return r.match(Sitting, { id, student, week }).find({ student, week, sittings: r.count() })
 		})
 	)
@@ -196,16 +198,16 @@ export const roundTripSuite = (): void => {
 						const reads = W.workReads(s)
 						const payloads = query(s)
 							.rule((r) => {
-								const { id, account } = v(W.Task)
-								const { budget } = v(W.AutomaticTask)
+								const { id, account } = v(W.Task, "task")
+								const { budget } = v(W.AutomaticTask, "automaticTask")
 								return r
 									.match(W.Task, { id, account, kind: "Automatic" })
 									.match(W.AutomaticTask, { task: id, budget })
 									.find({ id, account, kind: W.Kind.handle("Automatic"), budget })
 							})
 							.rule((r) => {
-								const { id, account } = v(W.Task)
-								const { operator } = v(W.ManualTask)
+								const { id, account } = v(W.Task, "task")
+								const { operator } = v(W.ManualTask, "manualTask")
 								return r
 									.match(W.Task, { id, account, kind: "Manual" })
 									.match(W.ManualTask, { task: id, operator })
@@ -214,7 +216,7 @@ export const roundTripSuite = (): void => {
 						/** An attachment whose child has an attachment of its own stays pipelined. */
 						const accountTaskNotes = query(s)
 							.rule((r) => {
-								const { id, name } = v(W.Account)
+								const { id, name } = v(W.Account, "account")
 								return r.match(W.Account, { id, name }).find({ id, name })
 							})
 							.attach(
@@ -222,14 +224,14 @@ export const roundTripSuite = (): void => {
 								(a) =>
 									query(s)
 										.rule((r) => {
-											const { id, kind } = v(W.Task)
+											const { id, kind } = v(W.Task, "task")
 											return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
 										})
 										.attach(
 											"note",
 											(t) =>
 												query(s).rule((r) => {
-													const { note } = v(W.TaskNote)
+													const { note } = v(W.TaskNote, "taskNote")
 													return r.match(W.TaskNote, { task: t.id, note }).find({ note })
 												}),
 											"option"
@@ -239,8 +241,8 @@ export const roundTripSuite = (): void => {
 						/** Ordered pages: one statement each, and one whose attachment computes the page again. */
 						const budgets = query(s)
 							.rule((r) => {
-								const { id } = v(W.Task)
-								const { budget } = v(W.AutomaticTask)
+								const { id } = v(W.Task, "task")
+								const { budget } = v(W.AutomaticTask, "automaticTask")
 								return r
 									.match(W.Task, {
 										id,
@@ -253,7 +255,7 @@ export const roundTripSuite = (): void => {
 							.orderBy(["budget", "desc"], ["id", "asc"])
 						const noted = query(s)
 							.rule((r) => {
-								const { id } = v(W.Task)
+								const { id } = v(W.Task, "task")
 								return r
 									.match(W.Task, { id, account: r.param("account", W.Task.fields.account) })
 									.find({ id })
@@ -262,7 +264,7 @@ export const roundTripSuite = (): void => {
 								"notes",
 								(t) =>
 									query(s).rule((r) => {
-										const { note } = v(W.TaskNote)
+										const { note } = v(W.TaskNote, "taskNote")
 										return r.match(W.TaskNote, { task: t.id, note }).find({ note })
 									}),
 								"option"
@@ -289,13 +291,15 @@ export const roundTripSuite = (): void => {
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									steering: { kind: "none" },
-									features: features<ReadCallFeature>([
-										...Arr.map(readCallKinds, (k): ReadCallFeature => `${k} one statement`),
-										...Arr.flatMap(readCallKinds, (k): ReadonlyArray<ReadCallFeature> =>
-											k === "get" ? [] : [`${k} several statements`]
-										)
-									]),
+									coverage: required<ReadCallFeature>(
+										[
+											...Arr.map(readCallKinds, (k): ReadCallFeature => `${k} one statement`),
+											...Arr.flatMap(readCallKinds, (k): ReadonlyArray<ReadCallFeature> =>
+												k === "get" ? [] : [`${k} several statements`]
+											)
+										],
+										{ cases: 40, sense: notesOnly }
+									),
 									caseHang
 								},
 								(calls, notes) =>
@@ -432,14 +436,16 @@ export const roundTripSuite = (): void => {
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									steering: { kind: "none" },
-									features: features<WriteCallFeature>([
-										"apply",
-										"compiled apply",
-										"explain",
-										"a read-back that attaches",
-										"nothing to write"
-									]),
+									coverage: required<WriteCallFeature>(
+										[
+											"apply",
+											"compiled apply",
+											"explain",
+											"a read-back that attaches",
+											"nothing to write"
+										],
+										{ cases: 30, sense: notesOnly }
+									),
 									caseHang
 								},
 								(calls, notes) =>
@@ -460,14 +466,14 @@ export const roundTripSuite = (): void => {
 												? plain.read("cards", () =>
 														query(s)
 															.rule((r) => {
-																const { id, kind } = v(W.Task)
+																const { id, kind } = v(W.Task, "task")
 																return r.match(W.Task, { id, kind }).find({ id, kind })
 															})
 															.attach(
 																"automatic",
 																(t) =>
 																	query(s).rule((r) => {
-																		const { budget } = v(W.AutomaticTask)
+																		const { budget } = v(W.AutomaticTask, "automaticTask")
 																		return r
 																			.match(W.AutomaticTask, { task: t.id, budget })
 																			.find({ budget })
@@ -515,6 +521,7 @@ export const roundTripSuite = (): void => {
 					testContext,
 					Effect.gen(function* () {
 						const installation = yield* install(derivedFixture("Edu").Reports, {
+							ambient: ordinarySession,
 							extensions: [],
 							label: "trips",
 							logins: [derivedFixture("Edu").server]
@@ -530,7 +537,10 @@ export const roundTripSuite = (): void => {
 									generator: element<"unpopulated" | "populated">(["unpopulated", "populated"]),
 									literal: Formatter.format,
 									limit: 2,
-									features: features<"unpopulated" | "populated">(["unpopulated", "populated"]),
+									coverage: requiredInSpace<"unpopulated" | "populated">([
+										"unpopulated",
+										"populated"
+									]),
 									caseHang
 								},
 								(state, c) =>

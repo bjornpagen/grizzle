@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Option, Schema, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Actors } from "#test/support/schedules/actors.ts"
 import {
@@ -494,7 +495,7 @@ const judgeRun = (
 	const entries: Array<TraceEntry> = []
 	for (const [index, step] of x.schedule.steps.entries()) {
 		const judged = judgeStep(x, index, step)
-		entries.push(...judged.entries)
+		appendAll(entries, judged.entries)
 		if (judged.failure !== undefined) {
 			return { entries, failure: { step: index, reason: judged.failure } }
 		}

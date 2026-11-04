@@ -1,4 +1,5 @@
 import { Array as Arr, Effect } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
@@ -7,7 +8,7 @@ import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, lit, namedType, numericType, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import type { MergedCells, Run, StatementRows } from "#test/support/oracle/compare.ts"
+import type { Run, StatementRows } from "#test/support/oracle/compare.ts"
 import {
 	captureRows,
 	type QueryRunner,
@@ -21,14 +22,16 @@ import type { ExpectedStatement } from "#test/support/oracle/reference/deliver.t
 import {
 	literalOfValue,
 	referenceUnsupported,
-	Unstated,
+	Declined,
 	type Value
 } from "#test/support/oracle/reference/values.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { testTypeSchema } from "#test/support/sql.ts"
 
 /**
  * The PostgreSQL type a value of `type` is spelled at: its base, with its numeric typmod, an enum as the installed
- * type of its roster.
+ * type of its roster, an exact value as the lowering types it (bigint for an exact integer of at most 18 digits,
+ * numeric otherwise).
  */
 const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 	const b = baseOf(type)
@@ -61,14 +64,18 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			if (e === undefined) {
 				throw referenceUnsupported(`the installed enum of ${closed}`)
 			}
-			return namedType(e.name.schema, e.name.name, [])
+			return namedType(testTypeSchema(e.name.schema), e.name.name, [])
 		}
 		case "range4":
 			return types.int4range
 		case "range8":
 			return types.int8range
 		case "vector":
-			return namedType(plan.vectorSchema, "vector", [b.typmod.dims])
+			return namedType(testTypeSchema(plan.vectorSchema), "vector", [b.typmod.dims])
+		case "exactInteger":
+			return b.digits <= 18 ? types.bigint : types.numeric
+		case "exactMoney":
+			return types.numeric
 	}
 }
 
@@ -150,9 +157,8 @@ export const renderExpected = (
 			return slot
 		}
 		/**
-		 * A declined term's cell (values.ts Unstated) is rendered as no value's text: the comparison reads its column's
-		 * type alone, and each row stating every column as written (compare.ts). A merged value's cell is rendered by one
-		 * of its spellings and marked merged, which the comparison reads, that cell alone, up to its spelling.
+		 * A declined term's cell (values.ts Declined) is rendered as no value's text: the comparison reads its column's
+		 * type alone, and each row stating every column (compare.ts).
 		 */
 		const indexed = Arr.map(statements, (s) =>
 			Arr.map(s.rows, (row) =>
@@ -161,13 +167,7 @@ export const renderExpected = (
 					if (column === undefined) {
 						throw new Error(`${s.label}: a row wider than its heading`)
 					}
-					if (!(v instanceof Unstated)) {
-						return slotOf(v, column.type)
-					}
-					if (v.known.kind === "declined") {
-						return "unstated"
-					}
-					return slotOf(Arr.headNonEmpty(v.known.spellings), column.type)
+					return v instanceof Declined ? "unstated" : slotOf(v, column.type)
 				})
 			)
 		)
@@ -177,7 +177,7 @@ export const renderExpected = (
 			const [row] = yield* captureRows(runner, `SELECT ${Arr.join(chunk, ", ")}`, [], {
 				columns: chunk.length
 			})
-			texts.push(...(row ?? []))
+			appendAll(texts, row ?? [])
 		}
 		const textAt = (slot: number): string => {
 			const text = texts[slot]
@@ -196,14 +196,6 @@ export const renderExpected = (
 				const declined = Arr.flatMap(s.heading, (column, j) =>
 					Arr.some(rows, (row) => row[j] === "unstated") ? [column] : []
 				)
-				const merged: MergedCells = new Map(
-					Arr.flatMap(s.rows, (row, r) => {
-						const cells = Arr.flatMap(row, (v, j) =>
-							v instanceof Unstated && v.known.kind === "merged" ? [j] : []
-						)
-						return cells.length === 0 ? [] : [[r, new Set(cells)] as const]
-					})
-				)
 				return {
 					label: s.label,
 					columns: Arr.map(s.heading, (c) => c.name),
@@ -215,12 +207,9 @@ export const renderExpected = (
 									columns: Arr.map(declined, (c) => c.name),
 									complete: Arr.flatMap(rows, (row, r) =>
 										Arr.every(row, (slot) => slot !== "unstated") ? [r] : []
-									),
-									merged
+									)
 								}
-							: merged.size > 0
-								? { kind: "merged", merged }
-								: { kind: "none" },
+							: { kind: "none" },
 					rows: Arr.map(rows, textOf)
 				}
 			})

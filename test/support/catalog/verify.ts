@@ -130,6 +130,17 @@ export type ErasureProblem =
 	| { readonly kind: "malformedGuard"; readonly table: string }
 	| { readonly kind: "foreignTrigger"; readonly trigger: string; readonly table: string }
 	| { readonly kind: "triggerNotDeferred"; readonly trigger: string; readonly table: string }
+	| {
+			readonly kind: "lawTriggerEvents"
+			readonly trigger: string
+			readonly table: string
+			readonly type: number
+	  }
+	| {
+			readonly kind: "lawFunctionExecutors"
+			readonly function: string
+			readonly triggers: ReadonlyArray<string>
+	  }
 	| { readonly kind: "isolationDefault" }
 	| { readonly kind: "inertPolicyPredicate"; readonly policy: string; readonly table: string }
 	| { readonly kind: "policyCommand"; readonly policy: string; readonly table: string }
@@ -210,6 +221,53 @@ const unless = (holds: boolean, problem: ErasureProblem): ReadonlyArray<ErasureP
  * TRUNCATE (32).
  */
 const guardTriggerType = 2 + 4 + 8 + 16 + 32
+
+/** The event bits of pg_trigger.tgtype: INSERT (4), DELETE (8), UPDATE (16) and TRUNCATE (32). */
+const triggerEvents = [4, 8, 16, 32] as const
+
+/**
+ * A residual law's units as the catalog holds them: every law trigger fires on exactly one event, and every law function
+ * is executed by exactly one trigger, a law trigger. A trigger of two events would dispatch on the event at run time
+ * and queue what its WHEN cannot filter; a function two triggers share compiles its whole body once per trigger in each
+ * backend.
+ */
+const lawUnitProblems = (j: Judging): ReadonlyArray<ErasureProblem> => {
+	const laws = Arr.filter(
+		j.catalog.triggers,
+		(t) => !t.internal && j.expect.triggers.get(t.name) === "law"
+	)
+	const executors = new Map<string, Array<string>>()
+	for (const t of j.catalog.triggers) {
+		if (!t.internal && j.expect.functions.get(t.function)?.kind === "law") {
+			const known = executors.get(t.function)
+			if (known === undefined) {
+				executors.set(t.function, [t.name])
+			} else {
+				known.push(t.name)
+			}
+		}
+	}
+	return [
+		...Arr.flatMap(laws, (t) =>
+			unless(Arr.filter(triggerEvents, (bit) => (t.type & bit) !== 0).length === 1, {
+				kind: "lawTriggerEvents",
+				trigger: t.name,
+				table: t.table,
+				type: t.type
+			})
+		),
+		...Arr.flatMap([...j.expect.functions], ([name, expected]) => {
+			const triggers = executors.get(name)
+			return expected.kind === "law"
+				? unless(triggers?.length === 1, {
+						kind: "lawFunctionExecutors",
+						function: name,
+						triggers: triggers === undefined ? [] : triggers
+					})
+				: []
+		})
+	]
+}
 
 const allowed = {
 	table: new Set(["SELECT", "INSERT", "DELETE", "UPDATE"]),
@@ -880,6 +938,7 @@ export const verifyErasure = (
 				: []
 		),
 		...Arr.flatMap(catalog.triggers, (t) => triggerProblems(j, t)),
+		...lawUnitProblems(j),
 		...unless(
 			Arr.contains(catalog.databaseSettings, "default_transaction_isolation=serializable"),
 			{

@@ -104,13 +104,21 @@ export type UnitSpec =
 			readonly kind: "program"
 			readonly dir: string
 			readonly prefix: string
-			readonly file: string
 			readonly disarm: boolean
 			/** A program whose check takes far longer than any fixture's (see `rank`). */
 			readonly heavy: boolean
-			/** The program's source, from its imports spelled by `entry` and the run's seed (provided.ts). */
-			readonly source: (entry: (path: string) => string, seed: number) => string
+			/** The program's modules, from their imports spelled by `entry` and the run's seed (provided.ts). */
+			readonly source: (
+				entry: (path: string) => string,
+				seed: number
+			) => Arr.NonEmptyReadonlyArray<ProgramModule>
 	  }
+
+/** One module of a generated program: its file name in the program's directory, and its source. */
+export interface ProgramModule {
+	readonly file: string
+	readonly source: string
+}
 
 export interface Group {
 	/** The test file that reads the group's units, relative to the repository. */
@@ -263,19 +271,22 @@ const place = (root: string, spec: UnitSpec, seed: number) =>
 					const relative = path.relative(scratch, path.join(root, repoPath))
 					return Str.startsWith(".")(relative) ? relative : `./${relative}`
 				}
-				const generated = yield* placing(() => spec.source(entry, seed))
-				const file = path.join(scratch, spec.file)
-				if (!spec.disarm) {
-					yield* fs.writeFileString(file, generated)
-					const placed: Placed = { files: [file], directives: [], problems: [] }
-					return placed
-				}
-				const disarmed = yield* placing(() => disarm(spec.file, generated))
-				yield* fs.writeFileString(file, disarmed.source)
+				const modules = yield* placing(() => spec.source(entry, seed))
+				const written = yield* Effect.forEach(modules, (m) =>
+					Effect.gen(function* () {
+						const file = path.join(scratch, m.file)
+						const armed = spec.disarm
+							? yield* placing(() => disarm(m.file, m.source))
+							: { source: m.source, directives: [] }
+						yield* fs.writeFileString(file, armed.source)
+						return { file, directives: armed.directives }
+					})
+				)
+				const directives = Arr.flatMap(written, (w) => w.directives)
 				const placed: Placed = {
-					files: [file],
-					directives: disarmed.directives,
-					problems: vacuous(`${spec.dir}/${spec.prefix}`, disarmed.directives)
+					files: Arr.map(written, (w) => w.file),
+					directives,
+					problems: spec.disarm ? vacuous(`${spec.dir}/${spec.prefix}`, directives) : []
 				}
 				return placed
 			}

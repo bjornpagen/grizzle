@@ -12,12 +12,12 @@ import type {
 	ColumnDefinition,
 	EmittedSql,
 	Expr,
-	FromItem,
+	FromSource,
 	RecordsetPlaceholder,
 	Select,
 	ValuePlaceholder
 } from "#compiler/sql/ast.ts"
-import { cast, core, lit, select, types } from "#compiler/sql/build.ts"
+import { cast, core, lit, select, types, unitRow } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
@@ -146,7 +146,9 @@ const valuesLiteral = ({ text, column }: ValuesCell): Expr => {
  * placeholders becomes `(VALUES (...), ...) AS r(c1, ...)` with the same alias and column names, each cell a literal of
  * its column's definition, their slots are removed, and every other slot is renumbered below the ones removed. One walk
  * reaches every expression and FROM item of the statement (sql/transform.ts), so every placeholder is renumbered
- * against the template's numbers at once. The result leaves through sql/emit like every emitted statement.
+ * against the template's numbers at once. The result leaves through sql/emit like every emitted statement. VALUES has
+ * no row of no value, so a recordset of no column holding facts, the unit relation's one row, becomes the derived
+ * `(SELECT) AS r`.
  */
 export const specializeValues = <S extends ValuePlaceholder | RecordsetPlaceholder>(
 	statement: SpecializableStatement<S>,
@@ -164,7 +166,7 @@ export const specializeValues = <S extends ValuePlaceholder | RecordsetPlacehold
 	}
 	const ast = transformSelect(statement.ast, {
 		...identityHooks,
-		replaceFromItem: (item) => {
+		replaceSource: (item) => {
 			if (item.kind !== "recordset") {
 				return undefined
 			}
@@ -173,12 +175,15 @@ export const specializeValues = <S extends ValuePlaceholder | RecordsetPlacehold
 				const source = renumbered(item.source)
 				return source === item.source ? item : { ...item, source }
 			}
-			return {
-				kind: "values",
-				rows: mapNonEmpty(rows, (row) => row.map(valuesLiteral)),
-				alias: item.alias,
-				columns: item.columns.map((d) => d.name)
-			} satisfies FromItem
+			const columns = item.columns
+			return isNonEmpty(columns)
+				? ({
+						kind: "values",
+						rows: mapNonEmpty(rows, (row) => row.map(valuesLiteral)),
+						alias: item.alias,
+						columns: mapNonEmpty(columns, (d) => d.name)
+					} satisfies FromSource)
+				: unitRow(item.alias)
 		},
 		expr: (e) => {
 			if (e.kind !== "param") {

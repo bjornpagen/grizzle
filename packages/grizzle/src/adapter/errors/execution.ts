@@ -11,6 +11,7 @@ import {
 	CommitLost,
 	CompileErrorSchema,
 	ConcurrentRefresh,
+	ConnectionEnvironmentRefused,
 	ConnectionLost,
 	DbConfigRefused,
 	Deadlock,
@@ -60,15 +61,16 @@ import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
  */
 
 /**
- * Why opening a Db failed: no session (AcquireRefusal); a DbConfig no connection can use; a role no provided layer
- * serves, or a login with no role name; a token verify refused or threw, or claims that do not decode through the
- * role's contexts; a schema, snapshot or option value that does not compile or parse (CompileError); an admission
- * refused; an admission whose transaction SERIALIZABLE refused, which is retryable (AdmissionTransient); or an
- * admission that could not run to a verdict.
+ * Why opening a Db failed: no session (AcquireRefusal); a DbConfig no connection can use, or an environment that sets
+ * a connection option grizzle cannot override; a role no provided layer serves, or a login with no role name; a token
+ * verify refused or threw, or claims that do not decode through the role's contexts; a schema, snapshot or option
+ * value that does not compile or parse (CompileError); an admission refused; an admission whose transaction
+ * SERIALIZABLE refused, which is retryable (AdmissionTransient); or an admission that could not run to a verdict.
  */
 const OpenReasonSchema = Schema.Union([
 	AcquireRefusalSchema,
 	DbConfigRefused,
+	ConnectionEnvironmentRefused,
 	RoleOutsideLayers,
 	LoginNameRefused,
 	TokenError,
@@ -89,11 +91,12 @@ export type OpenReason = typeof OpenReasonSchema.Type
 type AcquireStage = "credential" | "tls" | "authentication" | "connect" | "wait" | "released"
 
 /**
- * Where opening a Db failed: an acquisition's stage; `config`, a DbConfig refused; `role`, a role no provided layer's
- * login holds or a login with no role name; `token`, a token verify refused or whose claims do not decode; `schema`,
- * a value that does not compile or parse, or a layer whose snapshot does not record its workloads (WorkloadUngenerated);
- * admission's stage, `capability` for a workload program needing an extension the database lacks too; or `admission`,
- * an admission with no verdict, its transaction refused by SERIALIZABLE (retryable) or failed otherwise.
+ * Where opening a Db failed: an acquisition's stage; `config`, a DbConfig or the environment's connection options
+ * refused; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token verify
+ * refused or whose claims do not decode; `schema`, a value that does not compile or parse, or a layer whose snapshot
+ * does not record its workloads (WorkloadUngenerated); admission's stage, `capability` for a workload program needing
+ * an extension the database lacks too; or `admission`, an admission with no verdict, its transaction refused by
+ * SERIALIZABLE (retryable) or failed otherwise.
  */
 export type OpenStage =
 	| AcquireStage
@@ -143,6 +146,7 @@ const openStage = (reason: OpenReason): OpenStage => {
 		case "LayerReleased":
 			return acquireStage(reason)
 		case "DbConfigRefused":
+		case "ConnectionEnvironmentRefused":
 			return "config"
 		case "RoleOutsideLayers":
 		case "LoginNameRefused":

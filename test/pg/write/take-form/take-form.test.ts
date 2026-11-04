@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { int, oneOf, uniqueArray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -23,7 +24,7 @@ import {
 	parsePlan
 } from "#bench/harness/explain.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
@@ -70,7 +71,7 @@ const accounts = 2000
 const entriesPerAccount = 30
 
 /** A deterministic uuid of account `n`. */
-const uid = (n: number): string =>
+const uid = (n: number): Uuid =>
 	`00000001-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const uidSql = (n: string): string =>
@@ -135,7 +136,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 
 						const firstTwo = query(S)
 							.rule((r) => {
-								const { seq, amount } = v(Entry)
+								const { seq, amount } = v(Entry, "entry")
 								return r
 									.match(Entry, { account: r.param("account", Entry.fields.account), seq, amount })
 									.find({ seq, amount })
@@ -146,9 +147,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							Latest,
 							query(S).rule((r) => {
 								const named = r.relation("accounts", { id: Account.fields.id })
-								const { id: account } = v(Account)
+								const { id: account } = v(Account, "account")
 								const top = firstTwo.bind({ account })
-								const { seq, amount } = v(top)
+								const { seq, amount } = v(top, "top")
 								return r
 									.match(named, { id: account })
 									.match(top, { seq, amount })
@@ -173,7 +174,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						if (forms.kind !== "chosen") {
 							return assert.fail(`the insert's take is a per-execution choice, not ${forms.kind}`)
 						}
-						const threshold = Math.min(...Arr.map(forms.choices, (c) => c.threshold))
+						const threshold = Arr.reduce(
+							Arr.map(forms.choices, (c) => c.threshold),
+							Number.POSITIVE_INFINITY,
+							(least, x) => Math.min(least, x)
+						)
 						const entry = names.relation("Entry").name
 						const account = int(0, accounts - 1)
 						return yield* Effect.gen(function* () {
@@ -194,10 +199,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										])
 									),
 									literal: Formatter.format,
-									features: features<FormFeature>([
-										"the LATERAL form for few parents",
-										"the whole-relation form for many parents"
-									]),
+									coverage: required<FormFeature>(
+										[
+											"the LATERAL form for few parents",
+											"the whole-relation form for many parents"
+										],
+										{ cases: 12, sense: notesOnly }
+									),
 									/** Planted: two parents, and one past the threshold. */
 									kept: [
 										{
@@ -217,7 +225,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									steering: { kind: "none" },
 									caseHang: Duration.minutes(2)
 								},
 								(parents, c) =>

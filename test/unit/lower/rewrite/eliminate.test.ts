@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -191,7 +191,7 @@ describe("the complete proof", () => {
 							)
 						}),
 						limit: 18,
-						features: features<EliminateFeature>([
+						coverage: requiredInSpace<EliminateFeature>([
 							"eliminated in snapshot",
 							"eliminated in transaction",
 							"eliminated on immediate evidence",
@@ -261,7 +261,7 @@ describe("the complete proof", () => {
 						literal: Formatter.format,
 						generator: element<Evidence>(["snapshot", "transaction"]),
 						limit: 2,
-						features: features<Evidence>(["snapshot", "transaction"]),
+						coverage: requiredInSpace<Evidence>(["snapshot", "transaction"]),
 						caseHang: Duration.minutes(2)
 					},
 					(evidence, c) =>

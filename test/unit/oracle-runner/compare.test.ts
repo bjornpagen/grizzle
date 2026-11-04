@@ -1,27 +1,22 @@
 /**
- * Raw text multiset comparison (test/support/oracle/compare.ts): compare raw text row multisets against a count-by-key
- * oracle, and runs with cells stated by value alone (a collapse across spellings) against the largest pairing of their
- * rows, found by trying every pairing, where a merged cell may be any spelling of its class and every other cell is
- * itself, a zero's sign included.
+ * Canonical cell multiset comparison (test/support/oracle/compare.ts): row multisets against a count-by-key oracle, and
+ * runs whose cells spell values in any of their output spellings (1.0 and 1.00, -0 and 0) against a count of the values
+ * those cells spell, which reads no spelling: two runs agree exactly when they hold one multiset of values.
  */
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import { assert } from "#test/support/assert.ts"
-import {
-	compareMultisets,
-	compareRuns,
-	type MergedCells,
-	type Run
-} from "#test/support/oracle/compare.ts"
-import { indices, nonEmptyList } from "#test/support/oracle/pick.ts"
+import { compareMultisets, compareRuns, type Run } from "#test/support/oracle/compare.ts"
+import { at } from "#test/support/oracle/pick.ts"
 
-describe("raw text multisets", () => {
+describe("row multisets", () => {
 	it.effect("agree with a count-by-key oracle on random multisets", (ctx) =>
 		Effect.gen(function* () {
 			const rows = array(array(element(["0", "1", "-0", "1.0", "", "x"]), { min: 1, max: 2 }), {
@@ -35,13 +30,12 @@ describe("raw text multisets", () => {
 						suite: "unit/oracle-runner/compare-1",
 						draw: drawn((source) => [source.draw(rows), source.draw(rows)] as const),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([a, b]) =>
@@ -81,359 +75,143 @@ describe("raw text multisets", () => {
 	)
 })
 
-/**
- * A cell of a drawn run: a value class, one of its spellings, and whether the run states it by value alone (only a
- * class of several spellings can be merged).
- */
-interface CellSketch {
-	readonly cls: number
-	readonly spelling: number
-	readonly merged: boolean
-}
-
-/**
- * The value classes the cells draw from: a float zero of either sign, one numeric at three display scales, and two
- * values of one spelling each.
- */
-const classes: ReadonlyArray<ReadonlyArray<string>> = [
-	["0", "-0"],
+/** The values of a column of the canonical comparison: each value class with the output texts that spell it. */
+const numericClasses: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
+	["0", "0.0", "0.000000000000000000000000"],
 	["1", "1.0", "1.00"],
-	["2"],
-	["x"]
+	["-1.5", "-1.50", "-1.5000000000"],
+	["NaN"],
+	["0.1", "0.10"]
 ]
 
-const classAt = (cls: number): ReadonlyArray<string> => {
-	const spellings = classes[cls]
-	if (spellings === undefined) {
-		throw new Error(`no value class ${cls}`)
-	}
-	return spellings
+const floatClasses: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
+	["0", "-0"],
+	["1.5"],
+	["NaN"],
+	["1e-07"],
+	["-Infinity"]
+]
+
+/** The columns of a drawn run: a bare numeric and a double precision, each with its classes. */
+const columns = [
+	{ type: plainType("numeric"), classes: numericClasses },
+	{ type: plainType("float8"), classes: floatClasses }
+] as const
+
+/** A cell: a value class of its column and one of its spellings. */
+interface Cell {
+	readonly cls: number
+	readonly sp: number
 }
 
-/** A drawn cell's text: its spelling pick among its class's spellings. */
-const textOf = (c: CellSketch): string => {
-	const spellings = classAt(c.cls)
-	const text = spellings[c.spelling % spellings.length]
-	if (text === undefined) {
-		throw new Error(`no spelling ${c.spelling} of class ${c.cls}`)
-	}
-	return text
+type Row = readonly [Cell, Cell]
+
+/** How the right run was made from the left: respelled and reordered, one value changed, or one row more. */
+type Change = "respelled" | "a value changed" | "a row repeated"
+
+interface RunPair {
+	readonly left: ReadonlyArray<Row>
+	readonly right: ReadonlyArray<Row>
 }
 
-/** Whether a run states a drawn cell by value alone: it is marked, and its class holds several spellings. */
-const isMerged = (c: CellSketch): boolean => c.merged && classAt(c.cls).length > 1
+type CanonicalFeature = "agree across spellings" | "a value told apart" | "a count told apart"
 
-type MergedFeature =
-	| "paired only up to a merged spelling"
-	| "a zero's sign told apart in an unmerged cell"
-	| "a pairing only an augmenting path finds"
+const cellGen: Gen<Cell> = (source) => ({ cls: source.draw(int(0, 4)), sp: source.draw(int(0, 2)) })
+const rowGen: Gen<Row> = (source) => [source.draw(cellGen), source.draw(cellGen)]
 
-/** A run of one statement over `width` columns: its rows' texts and the cells it states by value alone. */
-const runOf = (
-	name: string,
-	width: number,
-	rows: ReadonlyArray<ReadonlyArray<CellSketch>>
-): Run => {
-	const merged: MergedCells = new Map(
-		Arr.flatMap(rows, (row, r) => {
-			const cells = Arr.flatMap(row, (c, i) => (isMerged(c) ? [i] : []))
-			return cells.length === 0 ? [] : [[r, new Set(cells)] as const]
-		})
+/** The right run from the left by a drawn change, each row respelled and the rows drawn in a new order. */
+const pairGen: Gen<RunPair> = (source) => {
+	const left = source.draw(array(rowGen, { min: 1, max: 6 }))
+	const change = source.draw(
+		weighted<Change>([
+			[2, constant("respelled")],
+			[1, constant("a value changed")],
+			[1, constant("a row repeated")]
+		])
 	)
-	return {
-		name,
-		statements: [
-			{
-				label: "main",
-				columns: Arr.map(indices(width), (i) => `c${i}`),
-				types: Array.from({ length: width }, () => plainType("numeric")),
-				unstated: merged.size === 0 ? { kind: "none" } : { kind: "merged", merged },
-				rows: Arr.map(rows, (row) => Arr.map(row, textOf))
+	const respelled = Arr.map(left, (row): Row => [
+		{ cls: row[0].cls, sp: source.draw(int(0, 2)) },
+		{ cls: row[1].cls, sp: source.draw(int(0, 2)) }
+	])
+	const order = Arr.sort(
+		Arr.map(respelled, (row, i) => ({ row, r: source.draw(int(0, 1000)) + i / 10_000 })),
+		Order.mapInput(Order.Number, (x: { readonly r: number }) => x.r)
+	)
+	const shuffled = Arr.map(order, (x) => x.row)
+	const at = source.draw(int(0, shuffled.length - 1))
+	switch (change) {
+		case "respelled":
+			return { left, right: shuffled }
+		case "a value changed":
+			return {
+				left,
+				right: Arr.map(shuffled, (row, i): Row =>
+					i === at ? [{ cls: (row[0].cls + 1) % numericClasses.length, sp: 0 }, row[1]] : row
+				)
 			}
-		]
+		case "a row repeated":
+			return { left, right: [...shuffled, ...Arr.take(Arr.drop(shuffled, at), 1)] }
 	}
 }
 
-/**
- * Whether two drawn rows may be one row: each cell's text as written, or a merged cell's class holding the other's
- * text (both merged: one class), and, for `loose`, a zero of either sign besides.
- */
-const mayPair = (
-	a: ReadonlyArray<CellSketch>,
-	b: ReadonlyArray<CellSketch>,
-	loose: boolean
-): boolean =>
-	Arr.every(a, (x, i) => {
-		const y = b[i]
-		if (y === undefined) {
-			return false
-		}
-		const open = (c: CellSketch) => isMerged(c) || (loose && c.cls === 0)
-		return open(x) || open(y) ? x.cls === y.cls : textOf(x) === textOf(y)
-	})
+const textOf = (row: Row): ReadonlyArray<string> =>
+	Arr.map(row, (c, i) => at(at(columns[i === 0 ? 0 : 1].classes, c.cls), c.sp))
 
-/** The most rows of `left` paired one to one with rows of `right` they may be, by trying every pairing. */
-const largestPairing = (
-	left: ReadonlyArray<ReadonlyArray<CellSketch>>,
-	right: ReadonlyArray<ReadonlyArray<CellSketch>>,
-	loose: boolean
-): number => {
-	const best = (i: number, used: ReadonlySet<number>): number => {
-		const row = left[i]
-		if (row === undefined) {
-			return 0
+const runOf = (name: string, rows: ReadonlyArray<Row>): Run => ({
+	name,
+	statements: [
+		{
+			label: "main",
+			columns: ["n", "f"],
+			types: Arr.map(columns, (c) => c.type),
+			unstated: { kind: "none" },
+			rows: Arr.map(rows, textOf)
 		}
-		let most = best(i + 1, used)
-		for (const [j, other] of right.entries()) {
-			if (!used.has(j) && mayPair(row, other, loose)) {
-				most = Math.max(most, 1 + best(i + 1, new Set([...used, j])))
-			}
-		}
-		return most
-	}
-	return best(0, new Set())
-}
-
-/** Pairs each left row with the first free right row it may be, never undoing a choice. */
-const greedyPairing = (
-	left: ReadonlyArray<ReadonlyArray<CellSketch>>,
-	right: ReadonlyArray<ReadonlyArray<CellSketch>>
-): number => {
-	const used = new Set<number>()
-	for (const row of left) {
-		const j = Arr.findFirstIndex(right, (other, k) => !used.has(k) && mayPair(row, other, false))
-		if (Option.isSome(j)) {
-			used.add(j.value)
-		}
-	}
-	return used.size
-}
-
-const cellGen: Gen<CellSketch> = (source) => ({
-	cls: source.draw(int(0, classes.length - 1)),
-	spelling: source.draw(int(0, 2)),
-	merged: source.draw(boolean)
+	]
 })
 
-type MergedSketch = readonly [
-	number,
-	ReadonlyArray<ReadonlyArray<CellSketch>>,
-	ReadonlyArray<ReadonlyArray<CellSketch>>
-]
+/** The oracle's identity of a row: its cells' value classes, which read no spelling. */
+const valueKey = (row: Row): string =>
+	`${row[0].cls % numericClasses.length}/${row[1].cls % floatClasses.length}`
 
-const mergedSketchGen: Gen<MergedSketch> = (source) => {
-	const width = source.draw(int(1, 2))
-	const rows = array(array(cellGen, { min: width, max: width }), { min: 0, max: 3 })
-	return [width, source.draw(rows), source.draw(rows)] as const
-}
-
-const cell = (cls: number, spelling: number, merged: boolean): CellSketch => ({
-	cls,
-	spelling,
-	merged
-})
-
-/** The value classes of several spellings, the only ones whose cells a run can state by value alone. */
-const mergeable = nonEmptyList(
-	Arr.filter(indices(classes.length), (cls) => classAt(cls).length > 1),
-	"the value classes of several spellings"
-)
-
-/** Two different spellings of the class `cls`, in either order. */
-const twoSpellings =
-	(cls: number): Gen<readonly [number, number]> =>
-	(source) => {
-		const count = classAt(cls).length
-		const first = source.draw(int(0, count - 1))
-		return [first, (first + source.draw(int(1, count - 1))) % count] as const
-	}
-
-/** A cell that may be one row with `base` as written: its class and spelling, or its class merged in any spelling. */
-const agreeing =
-	(base: CellSketch): Gen<CellSketch> =>
-	(source) => {
-		const merged = source.draw(boolean)
-		return { cls: base.cls, spelling: merged ? source.draw(int(0, 2)) : base.spelling, merged }
-	}
-
-/**
- * The columns of a constructed case: a base cell for each of one or two columns, and the column `at` whose cells decide
- * the situation. In every other column each row holds a cell agreeing with the column's base, so all rows agree there.
- */
-interface Columns {
-	readonly at: number
-	readonly bases: ReadonlyArray<CellSketch>
-}
-
-const columnsGen: Gen<Columns> = (source) => {
-	const bases = source.draw(array(cellGen, { min: 1, max: 2 }))
-	return { at: source.draw(int(0, bases.length - 1)), bases }
-}
-
-/** A row over `columns`: `decides` at the deciding column, and a cell agreeing with the base in every other. */
-const rowOf =
-	(columns: Columns, decides: CellSketch): Gen<ReadonlyArray<CellSketch>> =>
-	(source) =>
-		Arr.map(columns.bases, (base, i) => (i === columns.at ? decides : source.draw(agreeing(base))))
-
-/**
- * Two rows on each side that only an augmenting path pairs whole, which the population draws about one case in 6,000.
- * At the deciding column: the first left row a merged cell of a class of several spellings, the second the class in one
- * spelling as written, the first right row a cell agreeing with the second left row, and the second right row another
- * spelling as written. The first left row may be either right row and the second only the first, so pairing in order
- * strands the second left row.
- */
-const augmentingGen: Gen<MergedSketch> = (source) => {
-	const columns = source.draw(columnsGen)
-	const cls = source.draw(element(mergeable))
-	const [first, second] = source.draw(twoSpellings(cls))
-	const written = cell(cls, first, false)
-	const row = (decides: CellSketch) => source.draw(rowOf(columns, decides))
-	return [
-		columns.bases.length,
-		[row(cell(cls, source.draw(int(0, 2)), true)), row(written)],
-		[row(source.draw(agreeing(written))), row(cell(cls, second, false))]
-	] as const
-}
-
-/**
- * A row on each side told apart only by the sign of a zero neither states by value alone, which the population draws
- * about one case in 130: at the deciding column a zero (the first class) of one sign against the other.
- */
-const signGen: Gen<MergedSketch> = (source) => {
-	const columns = source.draw(columnsGen)
-	const [left, right] = source.draw(twoSpellings(0))
-	return [
-		columns.bases.length,
-		[source.draw(rowOf(columns, cell(0, left, false)))],
-		[source.draw(rowOf(columns, cell(0, right, false)))]
-	] as const
-}
-
-/** The population, and beside it, each one case in 22, the two situations it draws too rarely for a run's cases. */
-const mergedDrawGen: Gen<MergedSketch> = weighted([
-	[20, mergedSketchGen],
-	[1, augmentingGen],
-	[1, signGen]
-])
-
-/**
- * Planted: a sign lost and a sign invented in an unmerged cell, alone and beside a merged cell, a merged zero against
- * the other sign, and two merged rows of which the first agrees with both rows of the other run, so pairing it first
- * with the wrong one strands the second.
- */
-const mergedKept: ReadonlyArray<Kept<MergedSketch, MergedFeature>> = [
-	{
-		note: "an unmerged -0 against 0",
-		sketch: [1, [[cell(0, 1, false)]], [[cell(0, 0, false)]]],
-		draws: "",
-		reaches: ["a zero's sign told apart in an unmerged cell"]
-	},
-	{
-		note: "an unmerged 0 against -0",
-		sketch: [1, [[cell(0, 0, false)]], [[cell(0, 1, false)]]],
-		draws: "",
-		reaches: ["a zero's sign told apart in an unmerged cell"]
-	},
-	{
-		note: "(merged 1, -0) against (1.0, 0)",
-		sketch: [2, [[cell(1, 0, true), cell(0, 1, false)]], [[cell(1, 1, false), cell(0, 0, false)]]],
-		draws: "",
-		reaches: ["a zero's sign told apart in an unmerged cell"]
-	},
-	{
-		note: "(merged 1, 0) against (1.0, -0)",
-		sketch: [2, [[cell(1, 0, true), cell(0, 0, false)]], [[cell(1, 1, false), cell(0, 1, false)]]],
-		draws: "",
-		reaches: ["a zero's sign told apart in an unmerged cell"]
-	},
-	{
-		note: "a merged 0 against -0",
-		sketch: [1, [[cell(0, 0, true)]], [[cell(0, 1, false)]]],
-		draws: "",
-		reaches: ["paired only up to a merged spelling"]
-	},
-	{
-		note: "(merged 1, 1.0) and (1.0, merged 1) against (1.0, 1.0) and (1.00, 1.0)",
-		sketch: [
-			2,
-			[
-				[cell(1, 0, true), cell(1, 1, false)],
-				[cell(1, 1, false), cell(1, 0, true)]
-			],
-			[
-				[cell(1, 1, false), cell(1, 1, false)],
-				[cell(1, 2, false), cell(1, 1, false)]
-			]
-		],
-		draws: "",
-		reaches: ["paired only up to a merged spelling", "a pairing only an augmenting path finds"]
-	}
-]
-
-const texts = (run: Run) =>
-	Arr.sort(
-		Arr.flatMap(run.statements, (s) => Arr.map(s.rows, (r) => Arr.join(r, "\u0000"))),
-		Order.String
-	)
-
-describe("raw text runs with merged cells", () => {
+describe("canonical cell multisets", () => {
 	it.effect(
-		"pair rows one to one where they agree, a merged cell up to its spelling and every other cell as written",
+		"agree exactly when the runs' cells spell one multiset of values, whatever the spellings",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
-						suite: "unit/oracle-runner/compare-merged",
-						draw: sketched(mergedDrawGen, (s) => s),
+						suite: "unit/oracle-runner/compare-canonical",
+						draw: drawn(pairGen),
 						literal: Formatter.format,
-						features: features<MergedFeature>([
-							"paired only up to a merged spelling",
-							"a zero's sign told apart in an unmerged cell",
-							"a pairing only an augmenting path finds"
-						]),
-						kept: mergedKept,
-						runs: 300,
+						coverage: required<CanonicalFeature>(
+							["agree across spellings", "a value told apart", "a count told apart"],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
-					([width, left, right], c) =>
+					({ left, right }, c) =>
 						Effect.sync(() => {
-							const comparison = compareRuns(
-								runOf("left", width, left),
-								runOf("right", width, right)
-							)
-							const paired = largestPairing(left, right, false)
-							const missing = Arr.reduce(
-								comparison.diffs,
-								0,
-								(n, d) => n + Arr.reduce(d.missing, 0, (m, e) => m + e.count)
-							)
-							const extra = Arr.reduce(
-								comparison.diffs,
-								0,
-								(n, d) => n + Arr.reduce(d.extra, 0, (m, e) => m + e.count)
-							)
-							assert.deepEqual(comparison.structural, [])
-							assert.equal(comparison.equal, paired === left.length && paired === right.length)
-							assert.equal(missing, left.length - paired)
-							assert.equal(extra, right.length - paired)
-							if (
-								comparison.equal &&
-								Arr.join(texts(runOf("left", width, left)), "\u0001") !==
-									Arr.join(texts(runOf("right", width, right)), "\u0001")
-							) {
-								c.note("paired only up to a merged spelling")
-							}
-							if (largestPairing(left, right, true) > paired) {
-								c.note("a zero's sign told apart in an unmerged cell")
-							}
-							if (greedyPairing(left, right) < paired) {
-								c.note("a pairing only an augmenting path finds")
+							const count = (rows: ReadonlyArray<Row>) =>
+								Arr.reduce(rows, new Map<string, number>(), (m, row) =>
+									m.set(valueKey(row), (m.get(valueKey(row)) ?? 0) + 1)
+								)
+							const a = count(left)
+							const b = count(right)
+							const same = a.size === b.size && Arr.every([...a], ([k, n]) => b.get(k) === n)
+							assert.equal(compareRuns(runOf("left", left), runOf("right", right)).equal, same)
+							if (same) {
+								c.note("agree across spellings")
+							} else if (left.length === right.length) {
+								c.note("a value told apart")
+							} else {
+								c.note("a count told apart")
 							}
 						})
 				)

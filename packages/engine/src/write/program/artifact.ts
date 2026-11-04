@@ -1,4 +1,4 @@
-import { indices } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
@@ -22,7 +22,7 @@ import {
 	writeSlotOf
 } from "#compiler/lower/template.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { type NameMap, renderNameMap } from "#compiler/sql/naming.ts"
 import type { Carrier } from "#compiler/write/carriers/carriers.ts"
 import { groupBy } from "#compiler/write/defined.ts"
@@ -202,7 +202,7 @@ export interface ReadBackDelivery {
 /** A form of a statement as one execution sends it: its text, the encoder of each placeholder ($n is paramSlots[n - 1])
  * and its AST. */
 export interface SentForm {
-	readonly sql: string
+	readonly sql: EmittedText
 	readonly paramSlots: ReadonlyArray<WriteSlot>
 	readonly ast: SqlStatement
 }
@@ -374,9 +374,12 @@ export const byStratum = <S extends { readonly step: WriteStep }>(
 		const stratum = stratumOf(statement.step)
 		return stratum === undefined ? [] : [{ stratum, statement }]
 	})
-	return indices(Math.max(0, ...placed.map((p) => p.stratum + 1))).map((s) =>
-		placed.filter((p) => p.stratum === s).map((p) => p.statement)
-	)
+	return indices(
+		maxOf(
+			placed.map((p) => p.stratum + 1),
+			0
+		)
+	).map((s) => placed.filter((p) => p.stratum === s).map((p) => p.statement))
 }
 
 /** The artifact of the statements `placed`, in position order, and its carriers: its strata, deltas, read-backs and

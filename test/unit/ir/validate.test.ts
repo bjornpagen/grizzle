@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { type Corrupted, type CorruptedFeature, corruptedFeature } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec, String as Str } from "effect"
@@ -191,7 +192,6 @@ const generatedRules: ReadonlyArray<DagFeature> = Arr.flatMap(
 		"the empty key needs at most one row",
 		"a literal fits its type",
 		"an expression's dependencies are the computed ones",
-		"an expression can fail when an argument can",
 		"a column reference keeps its column's type",
 		"a node or expression holds its kind's properties only",
 		"no field holds null"
@@ -232,7 +232,7 @@ describe("validateDag", () => {
 						literal: Formatter.format,
 						generator: element(cases),
 						limit: 50_000,
-						features: features<DagFeature>([
+						coverage: requiredInSpace<DagFeature>([
 							"live",
 							...ruleFeatures,
 							...Arr.map(relKinds, (k): DagFeature => `node ${k}`)
@@ -266,11 +266,13 @@ describe("validateDag", () => {
 						draw: drawn(generatedCaseGen),
 						runs: 500,
 						shrink: completeShrink,
-						features: features<DagFeature>(["live", ...generatedRules]),
+						coverage: required<DagFeature>(["live", ...generatedRules], {
+							cases: 500,
+							sense: notesOnly
+						}),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([dag, variant, site], n) =>
@@ -360,7 +362,7 @@ describe("validateDag over a DAG of direct references", () => {
 					literal: Formatter.format,
 					generator: element(clashes),
 					limit: clashes.length,
-					features: features<Clash>(clashes),
+					coverage: requiredInSpace<Clash>(clashes),
 					caseHang: Duration.minutes(2)
 				},
 				(clash, c) =>

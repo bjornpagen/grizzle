@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { array, element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -107,14 +107,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								] as const
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						/** Each case installs a schema; its twelve bindings vary inside it, as before. */
 						runs: 1,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([facts, bindings]) =>
@@ -127,7 +126,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							const s = opened.schema
 							const top = query(s)
 								.rule((r) => {
-									const { id, score } = v(Item)
+									const { id, score } = v(Item, "item")
 									return r
 										.match(Item, { id, grp: r.param("grp", Item.fields.grp), score })
 										.where(
@@ -146,7 +145,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								for (const b of bindings) {
 									const imported = query(s).rule((r) => {
 										const bound = top.bind({ grp: b.grp, lo: b.lo, k: b.k, tag: b.tag })
-										const { id, score } = v(bound)
+										const { id, score } = v(bound, "bound")
 										return r.match(bound, { id, score }).find({ id, score })
 									})
 									const direct = yield* (yield* db.execute(top, b)).collect

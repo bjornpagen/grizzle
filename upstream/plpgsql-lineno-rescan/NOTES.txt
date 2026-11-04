@@ -1,0 +1,55 @@
+NOTES: plpgsql-lineno-rescan
+
+Status: ready to file, NOT filed. Nothing has been sent to any list or posted anywhere. The owner files it by hand.
+
+1. What this is.
+   - PL/pgSQL compiles a body of N IF, ELSIF and CASE WHEN statements in O(N * length of the source).
+     plpgsql_location_to_lineno() rescans the function source from its first byte whenever a location goes backwards.
+     A location goes backwards for every compound statement, because the grammar computes the statement's line number
+     after its body's statements have computed theirs.
+   - Found through grizzle issue #5. An alternatives law's parent unit is one CASE over the roster, so its compile grew
+     with the square of the roster.
+   - After grizzle's #5 cutover, that residue is milliseconds at 128 handles, so nothing in grizzle waits on this.
+     bench/write/first-call.bench.ts allows the parent's first COMMIT to grow up to 6 times from 43 to 85 handles for
+     exactly this reason.
+   - Not known upstream as far as a search finds (CHECKLIST.txt A): no pgsql-hackers or pgsql-bugs thread, commit or
+     commitfest entry. master's pl_scanner.c still has the rescan.
+
+2. When the owner files it.
+   - Send it to pgsql-hackers with a commitfest entry, not to pgsql-bugs. It is a performance defect in existing
+     behaviour, with a fix, and no wrong result.
+   - email.txt is the plain-text draft. Attach the patch file; never paste it inline.
+   - Set the author address before sending. The patch's From line is the repository's git identity, the GitHub noreply
+     address. pgsql-hackers credits the author line, so replace it with the address you send from. In a PostgreSQL
+     master checkout:
+         git am v1-0001-*.patch
+         git commit --amend --reset-author --no-edit
+         git format-patch -1 -v1
+     Or edit the From: line by hand. The sending address is deliberately not written anywhere in this public repository.
+   - Mind the release cycle (CHECKLIST.txt A). PostgreSQL 19 is between RC1 (2026-10-15) and RC2 (2026-11-12). A
+     performance patch for master belongs to the 20 cycle, and a reviewer may ask it to wait for the next commitfest.
+     That costs grizzle nothing.
+   - If master moves before filing, rebase and re-run the checks in EVIDENCE.txt 5. The dedicated checkout is ready
+     (item 5).
+
+3. Grizzle carries no pin patch for this.
+   - Per issue #5 §11.6, it becomes a pin patch only if it is accepted for a release grizzle pins.
+   - The repin process (scripts/pg/pin.env, scripts/pg/patches/) is unchanged by this folder.
+
+4. Files.
+   - v1-0001-...patch       The fix and its regression test, one commit on master b6178c942e (2026-11-03).
+                            git format-patch output.
+   - repro.sql              psql -X script. It measures the quadratic at 10000, 20000 and 40000 WHENs, an IF/ELSIF
+                            chain, and the first call in a fresh backend, then checks line numbers 80002 and 4.
+   - profile-19rc1.txt      sample(1) of the 40000-WHEN compile on 19rc1: 98% of the time is under
+                            plpgsql_location_to_lineno.
+   - EVIDENCE.txt           Timings before and after, the build, the regression runs, and the line-number checks.
+   - CHECKLIST.txt          The contribution policy, item by item.
+   - email.txt              The pgsql-hackers draft.
+
+5. Where the commit lives.
+   - ~/Documents/postgres-upstream-plpgsql-lineno-rescan, branch plpgsql-lineno-rescan, commit 34ed71b90b, on
+     origin/master b6178c942e. It is a partial clone of github.com/postgres/postgres. Its build directory build-check
+     (cassert) holds the verified build.
+   - The owner's other PostgreSQL checkouts (~/Documents/postgres-upstream*) were never modified.
+   - The scratch databases used for the measurements (lane_5_upstream, upstream_lineno_check) were dropped.

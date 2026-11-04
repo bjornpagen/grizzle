@@ -123,11 +123,13 @@ export const f = {
 	regex: (source: string, flags: "u" | "su"): FieldDesc => ({ kind: "text", source, flags }),
 	/** str.regex("^.*$", "su"): the explicit wildcard. */
 	wildcard: fieldDesc({ kind: "text", source: "^.*$", flags: "su" }),
+	/** A contract that declares no fact its predicate proves, as contract(name, base, predicate) without `proves`. */
 	contract: (name: string, base: FieldDesc, predicate: ExprDesc | undefined): FieldDesc => ({
 		kind: "contract",
 		name,
 		base,
-		predicate
+		predicate,
+		facts: []
 	}),
 	span: (endpoint: FieldDesc, width: bigint | undefined): FieldDesc => ({
 		kind: "span",

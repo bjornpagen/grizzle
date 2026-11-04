@@ -5,6 +5,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { AnyLoginRole, LevelsOf, Schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -39,7 +40,7 @@ export interface Attempt {
 const members = (s: PayrollInstalled) => ({
 	/** Approve an employee's shifts of a week. */
 	approveShifts: query(s).rule((r) => {
-		const { during } = v(P.Shift)
+		const { during } = v(P.Shift, "shift")
 		return r
 			.match(P.Shift, {
 				employee: r.param("employee", P.Shift.fields.employee),
@@ -51,39 +52,39 @@ const members = (s: PayrollInstalled) => ({
 				employee: r.param("employee", P.Shift.fields.employee),
 				during,
 				week: r.param("week", P.Shift.fields.week),
-				status: r.literal("approved")
+				status: "approved"
 			})
 	}),
 	postings: query(s)
 		.rule((r) => {
-			const { id, gross } = v(P.PayLine)
+			const { id, gross } = v(P.PayLine, "payLine")
 			return r.match(P.PayLine, { id, run: r.param("run", P.PayLine.fields.run), gross }).find({
 				line: id,
-				account: r.literal("GrossWages"),
-				side: r.literal("debit"),
+				account: "GrossWages",
+				side: "debit",
 				amount: gross
 			})
 		})
 		.rule((r) => {
-			const { id, net } = v(P.PayLine)
+			const { id, net } = v(P.PayLine, "payLine")
 			return r
 				.match(P.PayLine, { id, run: r.param("run", P.PayLine.fields.run), net })
-				.find({ line: id, account: r.literal("NetPay"), side: r.literal("credit"), amount: net })
+				.find({ line: id, account: "NetPay", side: "credit", amount: net })
 		})
 		.rule((r) => {
-			const { id, gross, net } = v(P.PayLine)
+			const { id, gross, net } = v(P.PayLine, "payLine")
 			return r
 				.match(P.PayLine, { id, run: r.param("run", P.PayLine.fields.run), gross, net })
 				.find({
 					line: id,
-					account: r.literal("Withholding"),
-					side: r.literal("credit"),
+					account: "Withholding",
+					side: "credit",
 					amount: Compute.cast(Compute.sub(gross, net), Cents)
 				})
 		}),
 	/** The pay run put. */
 	payPut: query(s).rule((r) => {
-		const { employer, period } = v(P.PayRun)
+		const { employer, period } = v(P.PayRun, "payRun")
 		return r
 			.match(P.PayRun, {
 				id: r.param("run", P.PayRun.fields.id),
@@ -91,7 +92,7 @@ const members = (s: PayrollInstalled) => ({
 				period,
 				stage: "approved"
 			})
-			.find({ id: r.param("run", P.PayRun.fields.id), employer, period, stage: r.literal("paid") })
+			.find({ id: r.param("run", P.PayRun.fields.id), employer, period, stage: "paid" })
 	}),
 	payPayment: query(s).rule((r) =>
 		r
@@ -161,5 +162,5 @@ export const openPayroll: Effect.Effect<
 })
 
 /** Fresh uuids for the facts the ChangeSets add, beside the golden ones. */
-export const fresh = (n: number): string =>
+export const fresh = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x9000 + n).toString(16), Str.padStart(12, "0"))}`

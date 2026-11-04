@@ -47,7 +47,7 @@ const certify = (
 		rule,
 		inputs: [m.cell.id, through],
 		outputs,
-		premises: nodePremises(through),
+		premises: nodePremises([through]),
 		context: "queryLocal",
 		preservedHeading: m.semi.heading.map((c) => c.name),
 		equality: [],
@@ -213,8 +213,8 @@ const semiMeasure: Measure = (cx) => {
 /**
  * The semi-join movement pass.
  *
- * Semi-join movement: push a semi-join toward the rows it restricts, where the move preserves the set and the error
- * frontier, so an aggregate below a semi-join on its group key folds only the groups the semi-join keeps.
+ * Semi-join movement: push a semi-join toward the rows it restricts, where the move preserves the set, so an aggregate
+ * below a semi-join on its group key folds only the groups the semi-join keeps.
  *
  * - pushdown.semiSource: a semi-join over a region, each of whose left columns is a variable an occurrence of a group
  *   binds, moves onto that occurrence's source: a region row survives exactly when that occurrence's row, whose bound
@@ -228,9 +228,8 @@ const semiMeasure: Measure = (cx) => {
  *   grouping columns delivers one row even over no input, so nothing moves below it.
  *
  * A semi-join without a column pair moves nowhere. The right side is evaluated as before, and a semi-join's condition
- * is equality on columns, which evaluates nothing, so every failure the answer needs stays: below a group the semi-join
- * removes only whole groups the answer never delivers, whose aggregates go unevaluated, and a removed group's failure
- * is one the answer does not need (test/support/oracle/reference/frontier.ts states which it needs). Each move needs
+ * is equality on columns: below a group the semi-join removes only whole groups the answer never delivers, whose
+ * aggregates go unevaluated. Each move needs
  * the node it moves through to be the semi-join's left alone, one reference (simplify/rules.ts exclusive), uncorrelated
  * and off any recursive step, and the right side uncorrelated: a semi-join of a node with itself references it twice,
  * so it never moves below that node, which would then read itself.

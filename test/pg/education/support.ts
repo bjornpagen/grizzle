@@ -1,11 +1,12 @@
 import type { Vitest } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features, type Reached } from "@grizzle/testing/features"
+import { required, type Situations } from "@grizzle/testing/features"
 import { constant } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record, String as Str } from "effect"
 import { sameValue } from "#test/pg/laws/families/model.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	educationInstall,
@@ -26,6 +27,8 @@ import {
 	everyWriterWrites,
 	type Focus,
 	type Lead,
+	noteNaming,
+	type ProgramCase,
 	programCaseGen,
 	type Seen,
 	type StepCheck,
@@ -1105,9 +1108,9 @@ const liveOpen = (weights: Weights, role: EducationRole): Weights => ({
  * closes, the open and the apply aimed, while one is pending, at the outcomes of that role's applies `required` names
  * (`<role> apply <outcome>`), as roleOutcome reads an outcome.
  */
-export const everyWriterApplies = (required: ReadonlyArray<string>): Lead =>
+export const everyWriterApplies = (requiredSituations: ReadonlyArray<string>): Lead =>
 	everyWriterWrites(
-		(role) => Arr.filter(required, Str.startsWith(`${role.name} apply `)),
+		(role) => Arr.filter(requiredSituations, Str.startsWith(`${role.name} apply `)),
 		roleOutcome
 	)
 
@@ -1248,9 +1251,17 @@ type EducationSuite = Realization & {
 	readonly lead: Lead
 	readonly steps: number
 	readonly cases: number
-	readonly required: ReadonlyArray<Reached<Feature>>
+	readonly required: Situations<Feature>
 	readonly properties: Arr.NonEmptyReadonlyArray<Property>
 }
+
+/** A case's own realization of the installation, under the ambient session it drew, which the case notes. */
+const realizedUnder = (pc: ProgramCase, c: Case<Feature>) =>
+	Effect.tap(realize(pc.install, pc.ambient), () =>
+		Effect.sync(() => {
+			noteNaming(pc, c)
+		})
+	)
 
 /**
  * Registers an education suite's test. Each case stages a drawn reality on the installation, then runs its program,
@@ -1270,7 +1281,7 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 				)
 				const once: Option.Option<RealWorld> =
 					spec.realization === "once"
-						? Option.some(yield* realize(educationInstall))
+						? Option.some(yield* realize(educationInstall, ordinarySession))
 						: Option.none()
 				return yield* searched(
 					ctx,
@@ -1285,19 +1296,18 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 								)
 							),
 							literal: Formatter.format,
-							features: features<Feature>(spec.required),
+							coverage: required<Feature>(spec.required, { cases: spec.cases, sense: notesOnly }),
 							kept: [],
 							runs: spec.cases,
 							shrink: { kind: "bounded", candidates: 200 },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "mutate", cases: spec.cases, sense: notesOnly },
 							caseHang: Duration.minutes(2)
 						},
 						(pc, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
-									const world = Option.isSome(once) ? once.value : yield* realize(pc.install)
+									const world = Option.isSome(once) ? once.value : yield* realizedUnder(pc, c)
 									const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
 									const checks = Arr.map(spec.properties, checkOf)
 									yield* driveProgram(staged, pc, c, ({ seen, earlier }) => {

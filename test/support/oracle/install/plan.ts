@@ -26,6 +26,7 @@ import type {
 	ColumnDef,
 	Ddl,
 	Expr,
+	GrantObjects,
 	InlineConstraint,
 	ObjectName,
 	PrimaryKey,
@@ -74,6 +75,7 @@ import {
 } from "#test/support/oracle/install/model.ts"
 import { IdentifierScope } from "#test/support/oracle/install/names.ts"
 import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
+import { testTypeSchema } from "#test/support/sql.ts"
 
 import { regex } from "arkregex"
 /**
@@ -145,13 +147,13 @@ type CheckConstraint = TableConstraint & { readonly kind: "check" }
  */
 const spanShape = (column: string): Expr => {
 	const c = tableCol(column)
-	return and(
+	return and([
 		not(call("isempty", [c])),
 		not(call("lower_inf", [c])),
 		not(call("upper_inf", [c])),
 		call("lower_inc", [c]),
 		not(call("upper_inc", [c]))
-	)
+	])
 }
 
 /** The documented fixed width over a column: its upper endpoint less its lower, both as numeric, is the width. */
@@ -417,7 +419,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					const { domain } = existing
 					return plain({
 						...domain.base,
-						sql: namedType(domain.name.schema, domain.name.name, []),
+						sql: namedType(testTypeSchema(domain.name.schema), domain.name.name, []),
 						contract: { kind: "contract", name: field.name }
 					})
 				}
@@ -440,7 +442,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				domains.set(field.name, { identity: identity(field), domain })
 				return plain({
 					...base.type,
-					sql: namedType(schema, name, []),
+					sql: namedType(testTypeSchema(schema), name, []),
 					contract: { kind: "contract", name: field.name }
 				})
 			}
@@ -467,7 +469,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					)
 				}
 				return plain(
-					builtin(namedType(schema, target.name.name, []), {
+					builtin(namedType(testTypeSchema(schema), target.name.name, []), {
 						kind: "enum",
 						closed: field.roster,
 						labels: target.labels
@@ -483,7 +485,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					refuse("MalformedDescription", location, "a vector has 1..16000 dimensions")
 				}
 				return plain(
-					builtin(namedType(vectorSchema, "vector", [field.dimensions]), {
+					builtin(namedType(testTypeSchema(vectorSchema), "vector", [field.dimensions]), {
 						kind: "vector",
 						dimensions: field.dimensions
 					})
@@ -512,7 +514,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		relation: string,
 		columns: ReadonlyArray<OracleColumn>,
 		name: string,
-		fields: ReadonlyArray<string>,
+		fields: Arr.NonEmptyReadonlyArray<string>,
 		location: string
 	): OracleKey => {
 		const label = `key (${Arr.join(fields, ", ")}) of ${relation}`
@@ -888,22 +890,34 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			constraints: []
 		})
 	}
-	const foreignKeyColumns = (table: OracleTable, fields: ReadonlyArray<string>, period: boolean) =>
-		Arr.map(fields, (f, i) => ({
+	const foreignKeyColumns = (
+		table: OracleTable,
+		fields: ReadonlyArray<string>,
+		period: boolean
+	): Arr.NonEmptyReadonlyArray<{ readonly column: string; readonly period: boolean }> => {
+		const columns = Arr.map(fields, (f, i) => ({
 			column: columnOfField(table, f),
 			period: period && i === fields.length - 1
 		}))
-	const keyColumns = (table: OracleTable, key: OracleKey) => {
+		if (!Arr.isReadonlyArrayNonEmpty(columns)) {
+			throw new Error(`a foreign key of ${table.relation} has no column`)
+		}
+		return columns
+	}
+	const keyColumns = (
+		table: OracleTable,
+		key: OracleKey
+	): Arr.NonEmptyReadonlyArray<{ readonly column: string; readonly withoutOverlaps: boolean }> => {
 		const span = key.span
 		return span.kind === "none"
 			? Arr.map(key.fields, (f) => ({ column: columnOfField(table, f), withoutOverlaps: false }))
-			: [
-					...Arr.map(
+			: Arr.append(
+					Arr.map(
 						Arr.filter(key.fields, (f) => f !== span.field),
 						(f) => ({ column: columnOfField(table, f), withoutOverlaps: false })
 					),
 					{ column: columnOfField(table, span.field), withoutOverlaps: true }
-				]
+				)
 	}
 	for (const table of Rec.values(finalTables)) {
 		const columns = Arr.map(table.columns, (c): ColumnDef => ({
@@ -911,8 +925,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			type: c.type.sql,
 			collation: takesCollation(c.type.sql) ? cUtf8Collation : undefined,
 			generated:
-				c.sequence.kind === "none" ? undefined : { kind: "identity", sequence: c.sequence.name },
-			default: undefined
+				c.sequence.kind === "none" ? undefined : { kind: "identity", sequence: c.sequence.name }
 		}))
 		if (!Arr.isReadonlyArrayNonEmpty(columns)) {
 			throw new Error(`${table.relation} has no column`)
@@ -975,38 +988,25 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	const sequenceNames = Arr.flatMap(Rec.values(finalTables), (t) =>
 		Arr.flatMap(t.columns, (c) => (c.sequence.kind === "none" ? [] : [c.sequence.name]))
 	)
-	const publicOnly = [{ kind: "PUBLIC" as const }]
-	if (tableNames.length > 0) {
-		ddl.push({
-			kind: "revoke",
-			privileges: ["ALL"],
-			on: { kind: "TABLE", names: tableNames },
-			from: publicOnly
-		})
+	const enumNames = Arr.map([...enums.values()], (e) => e.name)
+	const domainNames = Arr.map([...domains.values()], (d) => d.domain.name)
+	const revokeFromPublic = (on: GrantObjects): Ddl => ({
+		kind: "revoke",
+		privileges: ["ALL"],
+		on,
+		from: [{ kind: "PUBLIC" }]
+	})
+	if (Arr.isReadonlyArrayNonEmpty(tableNames)) {
+		ddl.push(revokeFromPublic({ kind: "TABLE", names: tableNames }))
 	}
-	if (sequenceNames.length > 0) {
-		ddl.push({
-			kind: "revoke",
-			privileges: ["ALL"],
-			on: { kind: "SEQUENCE", names: sequenceNames },
-			from: publicOnly
-		})
+	if (Arr.isReadonlyArrayNonEmpty(sequenceNames)) {
+		ddl.push(revokeFromPublic({ kind: "SEQUENCE", names: sequenceNames }))
 	}
-	if (enums.size > 0) {
-		ddl.push({
-			kind: "revoke",
-			privileges: ["ALL"],
-			on: { kind: "TYPE", names: Arr.map([...enums.values()], (e) => e.name) },
-			from: publicOnly
-		})
+	if (Arr.isReadonlyArrayNonEmpty(enumNames)) {
+		ddl.push(revokeFromPublic({ kind: "TYPE", names: enumNames }))
 	}
-	if (domains.size > 0) {
-		ddl.push({
-			kind: "revoke",
-			privileges: ["ALL"],
-			on: { kind: "DOMAIN", names: Arr.map([...domains.values()], (d) => d.domain.name) },
-			from: publicOnly
-		})
+	if (Arr.isReadonlyArrayNonEmpty(domainNames)) {
+		ddl.push(revokeFromPublic({ kind: "DOMAIN", names: domainNames }))
 	}
 
 	const sql = Arr.map(ddl, (statement) => unwrap(emit(statement, emptyNameMap, unmetered)).text)

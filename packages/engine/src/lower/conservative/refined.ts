@@ -8,22 +8,23 @@ import type {
 	Cte,
 	Expr,
 	FromItem,
+	FromSource,
 	ObjectName,
 	Select,
 	SelectBody,
 	SelectCore,
+	SetOperand,
 	Target,
 	TypeRef,
 	With
 } from "#compiler/sql/ast.ts"
-import { cast } from "#compiler/sql/build.ts"
-import { printType } from "#compiler/sql/print.ts"
+import { cast, mapTargets, sameTypeRef } from "#compiler/sql/build.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 
 type Verdict = "proved" | "unproved"
 
-/** A FROM item that names a relation: every item but a join, which names none and whose sides are the items. */
-export type NamedItem = Exclude<FromItem, { readonly kind: "join" | "crossJoin" }>
+/** A FROM item that names a relation: a source; a join chain names none, and its sources are the items. */
+export type NamedItem = FromSource
 
 /**
  * The FROM items one SELECT core reads, by alias, and the scope it is nested in: the WITH lists in force, the CTE
@@ -42,9 +43,8 @@ export const emptyScope: Scope = { items: new Map(), ctes: [], active: new Set()
 const collectItems = (items: ReadonlyArray<FromItem>, into: Map<string, NamedItem>): void => {
 	for (const item of items) {
 		switch (item.kind) {
-			case "join":
-			case "crossJoin":
-				collectItems([item.left, item.right], into)
+			case "joins":
+				collectItems([item.first, ...item.steps.map((step) => step.source)], into)
 				continue
 			case "cte":
 				into.set(item.alias ?? item.name, item)
@@ -75,8 +75,9 @@ export const withScope = (select: Select, enclosing: Scope): Scope =>
 const storedKey = (table: ObjectName, column: string): string =>
 	`${table.schema}\u0000${table.name}\u0000${column}`
 
-export const sameType = (a: TypeRef, b: TypeRef | undefined): boolean =>
-	b !== undefined && printType(a) === printType(b)
+/** Whether `type` is the claim's domain: never, when the installation names none. */
+const isDomain = (type: TypeRef, claim: Claim): boolean =>
+	claim.domain !== undefined && sameTypeRef(type, claim.domain)
 
 /** What one refined delivered column is traced against. */
 interface Claim {
@@ -105,10 +106,7 @@ export class Tracer {
 				return t === undefined ? ["unproved"] : this.expr(t.expr, coreScope(body, scope), claim)
 			}
 			case "setOp":
-				return [
-					...this.body(body.left, position, scope, claim),
-					...this.body(body.right, position, scope, claim)
-				]
+				return body.arms.flatMap((arm) => this.body(arm, position, scope, claim))
 			case "select":
 				return this.select(body, position, scope, claim)
 		}
@@ -118,14 +116,14 @@ export class Tracer {
 	expr(e: Expr, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
 		switch (e.kind) {
 			case "param":
-				return [sameType(e.type, claim.domain) ? "proved" : "unproved"]
+				return [isDomain(e.type, claim) ? "proved" : "unproved"]
 			case "literal":
-				return [sameType(e.type, claim.domain) ? "proved" : "unproved"]
+				return [isDomain(e.type, claim) ? "proved" : "unproved"]
 			case "cast":
-				if (sameType(e.type, claim.domain)) {
+				if (isDomain(e.type, claim)) {
 					return ["proved"]
 				}
-				return sameType(e.type, claim.base) ? this.expr(e.expr, scope, claim) : ["unproved"]
+				return sameTypeRef(e.type, claim.base) ? this.expr(e.expr, scope, claim) : ["unproved"]
 			case "column":
 				return e.table === undefined ? ["unproved"] : this.column(e.table, e.column, scope, claim)
 			case "call": {
@@ -172,6 +170,7 @@ export class Tracer {
 			case "plVar":
 			case "plSpecial":
 			case "field":
+			case "regclass":
 				return ["unproved"]
 		}
 	}
@@ -307,19 +306,30 @@ export const domainOf = (cx: LowerContext, t: ScalarType): TypeRef | undefined =
 export const castBody = (body: SelectBody, casts: ReadonlyMap<number, TypeRef>): SelectBody => {
 	switch (body.kind) {
 		case "core":
+			return castOperand(body, casts)
+		case "setOp": {
+			const [first, second, ...rest] = body.arms
 			return {
 				...body,
-				targets: body.targets.map((t, i): Target => {
-					const domain = casts.get(i)
-					return domain === undefined ? t : { ...t, expr: cast(t.expr, domain) }
-				})
+				arms: [
+					castOperand(first, casts),
+					castOperand(second, casts),
+					...rest.map((a) => castOperand(a, casts))
+				]
 			}
-		case "setOp":
-			return { ...body, left: castBody(body.left, casts), right: castBody(body.right, casts) }
+		}
 		case "select":
-			return { ...body, body: castBody(body.body, casts) }
+			return castOperand(body, casts)
 	}
 }
+
+const castOperand = (operand: SetOperand, casts: ReadonlyMap<number, TypeRef>): SetOperand =>
+	operand.kind === "core"
+		? mapTargets(operand, (t, i): Target => {
+				const domain = casts.get(i)
+				return domain === undefined ? t : { ...t, expr: cast(t.expr, domain) }
+			})
+		: { ...operand, body: castBody(operand.body, casts) }
 
 /** The claim one refined column is traced against. */
 export const claimOf = (cx: LowerContext, column: HeadingColumn): Claim => ({
@@ -395,7 +405,7 @@ export const refineConservative = (
 			continue
 		}
 		const base = cx.baseTypeRef(slot.type)
-		if (sameType(base, slot.sqlType)) {
+		if (sameTypeRef(base, slot.sqlType)) {
 			continue
 		}
 		retyped.set(slot.number, cx.params.retype(slot, base))

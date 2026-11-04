@@ -1,11 +1,9 @@
-import { printsAlike, resultTextCasts } from "#compiler/codec/scalar.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { concatNonEmpty, isNonEmpty, lastNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type DeliverySpine, deliverySpine } from "#compiler/ir/dag.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
@@ -39,26 +37,18 @@ import {
 	statementOutput
 } from "#compiler/lower/conservative/types.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
-import type {
-	CountStar,
-	Cte,
-	Expr,
-	FromItem,
-	OrderItem,
-	Select,
-	SelectCore
-} from "#compiler/sql/ast.ts"
+import type { CountStar, Cte, Expr, FromItem, OrderItem, Select } from "#compiler/sql/ast.ts"
 
 import {
 	and,
 	asc,
-	cast,
 	col,
 	conjunction,
 	core,
 	countStar,
 	cteRef,
 	derived,
+	distinctCore,
 	eq,
 	gt,
 	lit,
@@ -278,38 +268,25 @@ export const parentRowsSource = (
 	}
 }
 
-/** A value as its result text, the text the host reads it by (codec resultTextCasts): money through numeric. */
-const resultText = (e: Expr, type: ScalarType): Expr =>
-	resultTextCasts(type).reduce(
-		(acc, t) => cast(acc, t === "numeric" ? types.numeric : types.text),
-		e
-	)
-
-/**
- * A parent key cell as the host stitches children by it (packages/grizzle/src/adapter/reader/execution.ts keyCellOf): its result text
- * where equal values of the type always print alike, and otherwise the value itself, whose equality is the type's, so
- * 1.0 and 1.00 are one key, as are -0 and 0.
- */
-const keyIdentity = (e: Expr, type: ScalarType): Expr =>
-	printsAlike(type) ? resultText(e, type) : e
-
 /**
  * The statement `query` of an attachment that delivers its child as a bare child or an option, in a read-back, which
  * checks that type itself (types.ts ReadBackLowering); any other statement as it is. Its output columns are the parent
  * key `parentKey`, then the child's of heading `child`, and `rows` are the parent's rows.
  *
  *   WITH "rv"("c7", "c8", "c9") AS MATERIALIZED (
- *     SELECT "r5"."c4", "r5"."c6", count(*) OVER (PARTITION BY "r5"."c4"::text) FROM (<the statement>) AS "r5"("c4", "c6")
+ *     SELECT "r5"."c4", "r5"."c6", count(*) OVER (PARTITION BY "r5"."c4") FROM (<the statement>) AS "r5"("c4", "c6")
  *   ), "rw"(...) AS (
  *     SELECT 5, '21Z01', 'one', <DETAIL> FROM "rv" WHERE "rv"."c9" > 1
  *     UNION ALL SELECT 5, '21Z01', 'one', <DETAIL> FROM (<the parent's rows>) AS "r10"("c11", "c12")
- *       WHERE NOT EXISTS (SELECT 1 FROM "rv" WHERE "rv"."c7"::text = "r10"."c12"::text)
+ *       WHERE NOT EXISTS (SELECT 1 FROM "rv" WHERE "rv"."c7" = "r10"."c12")
  *     ORDER BY ... LIMIT 1
  *   )
  *   SELECT "rv"."c7", "rv"."c8" FROM "rv" WHERE NOT EXISTS (SELECT 1 FROM "rw" WHERE "s"."__refuse"(...))
  *
  * Each parent key's children are counted as the host groups the rows: the statement's rows after its DISTINCT, by the
- * parent key's identity (keyIdentity). More than one breaks either type; a bare child also needs one at every parent key
+ * parent key's native equality, which is the host's stitch identity, since every value has one form on the host and
+ * no reading grizzle emits sees a display scale (packages/grizzle/src/adapter/reader/execution.ts stitches by each
+ * carrier's cell text). More than one breaks either type; a bare child also needs one at every parent key
  * of the parent's rows, computed again, since a parent without a child has no row here. A bare child and an option
  * have no order, so the statement has no ORDER BY to keep.
  */
@@ -340,7 +317,7 @@ export const checkedAttachment = (
 	const children: CountStar = {
 		...countStar(),
 		over: windowOf(
-			keys.map((c) => keyIdentity(col(inner, c.inner), c.type)),
+			keys.map((c) => col(inner, c.inner)),
 			[]
 		)
 	}
@@ -369,9 +346,7 @@ export const checkedAttachment = (
 	}
 	const none = (): DeliveredBreach => {
 		const parent = parentRowsSource(cx, rows, origin)
-		const matches = keys.map((c) =>
-			eq(keyIdentity(col(rv, c.kept), c.type), keyIdentity(parent.column(c.name), c.type))
-		)
+		const matches = keys.map((c) => eq(col(rv, c.kept), parent.column(c.name)))
 		return {
 			from: parent.item,
 			when: notExists(
@@ -680,23 +655,23 @@ export class Delivery<Own extends PageParamSlot = never> {
 				"UNION",
 				mapNonEmpty(group.arms, (arm) => armCore(this.cx, arm, group.heading, emptyEnv))
 			)
-			const [innermost] = plan.filters.slice(-1)
-			if (innermost !== undefined) {
+			const filters = plan.filters
+			if (isNonEmpty(filters)) {
+				const innermost = lastNonEmpty(filters)
 				const input = this.cx.wrap(rows, group.heading, { kind: "node", node: innermost.id })
 				const scope: Env = new Map<NodeId, ColumnMap>(scopeNodes.map((n) => [n.id, input.map]))
 				rows = distinctSelect(
 					headingTargets(group.heading, input.map),
 					[input.item],
-					[and(...plan.filters.map((f) => lowerExpr(this.cx, f.pred, scope)))]
+					[and(mapNonEmpty(filters, (f) => lowerExpr(this.cx, f.pred, scope)))]
 				)
 			}
 			if (take !== undefined) {
 				const bounded = this.cx.wrap(rows, group.heading, { kind: "node", node: take.id })
 				rows = {
-					...select({
-						...core(headingTargets(group.heading, bounded.map), [bounded.item], undefined),
-						distinct: true
-					}),
+					...select(
+						distinctCore(headingTargets(group.heading, bounded.map), [bounded.item], undefined)
+					),
 					orderBy: completedOrderItems(take.order, group.heading, bounded.map),
 					limit: this.cx.boundExpr(take.bound)
 				}
@@ -825,10 +800,11 @@ export class Delivery<Own extends PageParamSlot = never> {
 						...parentExprs.map((p) => asc(p.expr)),
 						...completedOrderItems(attach.order, child.heading, source.map)
 					]
-		const body: SelectCore = {
-			...core([...parentTargets, ...childTargets], [parent.item, source.item], conjunction(where)),
-			distinct: true
-		}
+		const body = distinctCore(
+			concatNonEmpty(parentTargets, childTargets),
+			[parent.item, source.item],
+			conjunction(where)
+		)
 		return {
 			rows: select(body),
 			delivered: { ...select(body), orderBy },

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -37,7 +37,7 @@ const filterAtoms = (q: unknown) => {
 
 const allenQuery = (mask: number) =>
 	query(Sp.Schedule).rule((r) => {
-		const { room, during } = v(Sp.Booking)
+		const { room, during } = v(Sp.Booking, "booking")
 		return r
 			.match(Sp.Booking, { room, during })
 			.where(r.allen(during, mask, r.param("window", Sp.Booking.fields.during)))
@@ -58,7 +58,7 @@ describe("Allen masks", () => {
 							generator: int(1, allenMaskMax),
 							literal: Formatter.format,
 							limit: allenMaskMax,
-							features: features<Mask>(["a partial mask", "the full mask"]),
+							coverage: requiredInSpace<Mask>(["a partial mask", "the full mask"]),
 							caseHang: Duration.minutes(2)
 						},
 						(mask, c) =>

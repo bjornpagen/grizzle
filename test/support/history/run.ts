@@ -376,7 +376,6 @@ const resolveBelow = (
 export const resolveHistory = (
 	host: HostSchema,
 	domains: Domains,
-	isMutable: boolean,
 	sketch: HistorySketch
 ): Resolved => {
 	let initial = emptyState(host)
@@ -412,7 +411,7 @@ export const resolveHistory = (
 			actor,
 			immediate: w.immediacy,
 			ops: Arr.filter(
-				Arr.map(ops, (o) => directOps(host, o, [], isMutable)),
+				Arr.map(ops, (o) => directOps(host, o, [])),
 				(o) => o.length > 0
 			)
 		}
@@ -497,8 +496,7 @@ const unreadBelow: BelowSketch = {
 
 export const plantedHistories = (
 	host: HostSchema,
-	domains: Domains,
-	isMutable: boolean
+	domains: Domains
 ): PlantedHistories | undefined => {
 	const empty = emptyState(host)
 	const members = [
@@ -525,7 +523,7 @@ export const plantedHistories = (
 		}
 	)
 	for (const direct of steps) {
-		const ops = directOps(host, direct.ops, [], isMutable)
+		const ops = directOps(host, direct.ops, [])
 		if (ops.length === 0) {
 			continue
 		}
@@ -556,7 +554,6 @@ export const plantedHistories = (
 export interface HistoryEnv {
 	readonly host: HostSchema
 	readonly domains: Domains
-	readonly isMutable: boolean
 	readonly rig: HistoryRig
 	/** The installation's names, through the naming door: tables, constraints' laws and law triggers. */
 	readonly names: Names

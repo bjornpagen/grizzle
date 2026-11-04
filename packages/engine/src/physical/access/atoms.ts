@@ -252,9 +252,7 @@ export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom
 		case "least":
 		case "greatest":
 		case "widthBucket":
-		case "scale":
 		case "minScale":
-		case "trimScale":
 		case "lower":
 		case "upper":
 		case "charLength":

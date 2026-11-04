@@ -2,7 +2,7 @@ import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { describe, it } from "vitest"
 import { count } from "#enumerate.ts"
 import { drawn, explore, Run } from "#explore.ts"
-import { noFeatures } from "#features.ts"
+import { noCoverage } from "#features.ts"
 import { array, boolean, type Gen, int, weighted } from "#gen.ts"
 import { wordsOf } from "#random.ts"
 import { boundedShrink, completeShrink, shrink } from "#shrink.ts"
@@ -38,13 +38,12 @@ const explored = (concurrency: number, property: () => Effect.Effect<void>) =>
 				suite: "bench",
 				draw: drawn(composite),
 				literal: Formatter.format,
-				features: noFeatures,
+				coverage: noCoverage,
 				kept: [],
 				runs: 100,
 				shrink: boundedShrink(500),
 				concurrency,
 				steerEvery: 64,
-				steering: { kind: "none" },
 				caseHang: Duration.minutes(1)
 			},
 			property

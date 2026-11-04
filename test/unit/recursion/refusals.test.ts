@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, filter, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record as Rec } from "effect"
@@ -26,6 +26,7 @@ import type {
 	VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
 
+import { argumentsOf } from "#test/support/list.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
 	approximateNearest,
@@ -142,14 +143,14 @@ const seed = (
 	more: ReadonlyArray<string>
 ): RuleDesc =>
 	rule({
-		vars: vars("Vertex", "id", ...more),
+		vars: vars("Vertex", "id", ...argumentsOf(more)),
 		matches: [
 			match(
 				relationSource("Vertex"),
 				Rec.fromEntries(Arr.map(["id", ...more], (f) => [f, ref("Vertex", f)]))
 			)
 		],
-		where: [eq(ref("Vertex", "id"), param("start"))],
+		where: [eq(ref("Vertex", "id"), param("start", { kind: "uuid" }))],
 		head,
 		interiors: [],
 		attach: []
@@ -163,9 +164,9 @@ const step = (
 	more: { readonly vars: ReadonlyArray<VarDesc>; readonly matches: ReadonlyArray<MatchDesc> }
 ): RuleDesc =>
 	rule({
-		vars: [...selfVars(...columns), ...vars("Edge", "to", "cost"), ...more.vars],
+		vars: [...selfVars(...argumentsOf(columns)), ...vars("Edge", "to", "cost"), ...more.vars],
 		matches: [
-			readSelf(...columns),
+			readSelf(...argumentsOf(columns)),
 			match(relationSource("Edge"), {
 				from: s("node"),
 				to: ref("Edge", "to"),
@@ -205,7 +206,7 @@ describe("arm heads", () => {
 							generator: (source) => [source.draw(heads), source.draw(heads)] as const,
 							literal: Formatter.format,
 							limit: 9,
-							features: features<HeadFeature>([
+							coverage: requiredInSpace<HeadFeature>([
 								"admitted",
 								"base missing",
 								"base extra",
@@ -442,7 +443,7 @@ describe("the state heading", () => {
 						),
 						literal: Formatter.format,
 						limit: 200,
-						features: features<StateFeature>([
+						coverage: requiredInSpace<StateFeature>([
 							"admitted same",
 							"admitted cast",
 							"refused unhashable",
@@ -609,7 +610,7 @@ describe("the feedback's shape", () => {
 			[
 				...(m.negatesSelf ? [not({ kind: "self" }, { node: ref("Edge", "to") })] : []),
 				...(m.negatesBlocked ? [not(relationSource("Blocked"), { id: ref("Edge", "to") })] : []),
-				...(m.avoids ? [ne(ref("Edge", "to"), param("avoid"))] : [])
+				...(m.avoids ? [ne(ref("Edge", "to"), param("avoid", { kind: "uuid" }))] : [])
 			],
 			{ node: ref("Edge", "to"), n: m.aggregates ? count() : s("n") },
 			{
@@ -755,7 +756,7 @@ describe("the feedback's shape", () => {
 								] as const,
 							literal: Formatter.format,
 							limit: 2000,
-							features: features<ShapeFeature>([
+							coverage: requiredInSpace<ShapeFeature>([
 								"admitted",
 								"admitted with an aggregate base",
 								"admitted with an arm reading no self",
@@ -870,7 +871,7 @@ describe("r.pack over a recursive arm", () => {
 			row,
 			base: [
 				(r: Rule<typeof Spans>) => {
-					const { from, during } = v(Link)
+					const { from, during } = v(Link, "link")
 					return r
 						.match(Link, { from, during })
 						.where(r.eq(from, r.param("start", uuid)))
@@ -879,8 +880,8 @@ describe("r.pack over a recursive arm", () => {
 			],
 			rec: [
 				(r: Rule<typeof Spans>, self: SelfSource<typeof row>) => {
-					const { node } = v(self)
-					const { to, during } = v(Link)
+					const { node } = v(self, "self")
+					const { to, during } = v(Link, "link")
 					return r
 						.match(self, { node })
 						.match(Link, { from: node, to, during })
@@ -899,7 +900,7 @@ describe("r.pack over a recursive arm", () => {
 						generator: boolean,
 						literal: Formatter.format,
 						limit: 2,
-						features: features<"packed" | "plain">(["packed", "plain"]),
+						coverage: requiredInSpace<"packed" | "plain">(["packed", "plain"]),
 						caseHang: Duration.minutes(2)
 					},
 					(pack, c) =>
@@ -959,7 +960,7 @@ describe("unbounded computed state", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 16,
-						features: features<UnboundedFeature>([
+						coverage: requiredInSpace<UnboundedFeature>([
 							"a bounded counter",
 							"refused integer current above plus one",
 							"refused integer either of two plus one",
@@ -1038,7 +1039,7 @@ describe("unbounded computed state", () => {
 							generator: (source) => [source.draw(terms), source.draw(terms)] as const,
 							literal: Formatter.format,
 							limit: 16,
-							features: features<"a cycle" | "acyclic">(["a cycle", "acyclic"]),
+							coverage: requiredInSpace<"a cycle" | "acyclic">(["a cycle", "acyclic"]),
 							caseHang: Duration.minutes(2)
 						},
 						([aTerm, bTerm], c) =>
@@ -1126,10 +1127,10 @@ const vertexRule = (where: ReadonlyArray<ExprDesc>, y: ExprDesc): QueryDesc =>
 
 describe("unbounded computed state through a correlated import", () => {
 	const Inc = vertexRule(
-		[eq(ref("Vertex", "id"), param("at"))],
-		compute("add", typedLit(1, integer), param("x"))
+		[eq(ref("Vertex", "id"), param("at", { kind: "uuid" }))],
+		compute("add", typedLit(1, integer), param("x", integer))
 	)
-	const Echo = vertexRule([], compute("add", typedLit(0, integer), param("x")))
+	const Echo = vertexRule([], compute("add", typedLit(0, integer), param("x", integer)))
 	/** What the step binds an import's x to, and Inc's at. */
 	type X = "the hop count" | "the edge's cost" | "a parameter"
 	type At = "the state's node" | "the edge's end"
@@ -1167,7 +1168,7 @@ describe("unbounded computed state through a correlated import", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 50,
-						features: features<ImportFeature>([
+						coverage: requiredInSpace<ImportFeature>([
 							"admitted Inc",
 							"refused Inc",
 							"admitted Echo then Inc",
@@ -1184,7 +1185,7 @@ describe("unbounded computed state through a correlated import", () => {
 									? s("hops")
 									: x === "the edge's cost"
 										? ref("Edge", "cost")
-										: param("x0")
+										: param("x0", integer)
 							const atTerm = at === "the state's node" ? s("node") : ref("Edge", "to")
 							const guard = guarded ? [lt(s("hops"), typedLit(4, integer))] : []
 							/** The step reads the state and any edge: no data match binds the state's node, so it stays state. */
@@ -1300,7 +1301,7 @@ describe("the seen-state bound", () => {
 						generator: element<Seed>(["data", 0, 2, recursionMaxStates - 1, recursionMaxStates]),
 						literal: Formatter.format,
 						limit: 5,
-						features: features<"admitted" | "refused data" | "refused literal">([
+						coverage: requiredInSpace<"admitted" | "refused data" | "refused literal">([
 							"admitted",
 							"refused data",
 							"refused literal"

@@ -8,7 +8,9 @@ import { isValueFault } from "#compiler/scalar/values/fault.ts"
 
 const codecFaults: { readonly [F in Exclude<CodecFault, ValueFault>]: string } = {
 	/** The null ban: no parameter or member field is ever null. */
-	nullValue: "a non-null value: grizzle has no NULL, and absence is zero rows"
+	nullValue: "a non-null value: grizzle has no NULL, and absence is zero rows",
+	/** A parameter's refinements, checked at bind: its type's facts hold of every bound value. */
+	refinedValue: "a value of the parameter's contract and pattern, which its uses type it by"
 }
 
 export const isCodecFault = (value: unknown): value is CodecFault =>

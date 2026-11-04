@@ -102,7 +102,7 @@ const Attach = schema("Attach", { Account, Task, Person, Follows }, [
 /** R36. */
 const regionCards = query(Attach)
 	.rule((r) => {
-		const { id, region } = v(Account)
+		const { id, region } = v(Account, "account")
 		return r
 			.match(Account, { id, region })
 			.where(r.eq(region, r.param("region", pg.integer)))
@@ -112,7 +112,7 @@ const regionCards = query(Attach)
 		"ids",
 		(a) =>
 			query(Attach).rule((r) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return r.match(Task, { id, account: a.id }).find({ id })
 			}),
 		"array"
@@ -121,7 +121,7 @@ const regionCards = query(Attach)
 		"priorities",
 		(a) =>
 			query(Attach).rule((r) => {
-				const { id, priority } = v(Task)
+				const { id, priority } = v(Task, "task")
 				return r.match(Task, { id, account: a.id, priority }).find({ id, priority })
 			}),
 		"array"
@@ -130,7 +130,7 @@ const regionCards = query(Attach)
 		"sheet",
 		(a) =>
 			query(Attach).rule((r) => {
-				const { id, title, priority, due, points } = v(Task)
+				const { id, title, priority, due, points } = v(Task, "task")
 				return r
 					.match(Task, { id, account: a.id, title, priority, due, points })
 					.find({ id, title, priority, due, points })
@@ -144,7 +144,7 @@ const regionCards = query(Attach)
  */
 const regionTitles = query(Attach)
 	.rule((r) => {
-		const { id, region } = v(Account)
+		const { id, region } = v(Account, "account")
 		return r
 			.match(Account, { id, region })
 			.where(r.eq(region, r.param("region", pg.integer)))
@@ -154,7 +154,7 @@ const regionTitles = query(Attach)
 		"titles",
 		(a) =>
 			query(Attach).rule((r) => {
-				const { title } = v(Task)
+				const { title } = v(Task, "task")
 				return r.match(Task, { account: a.id, title }).find({ title })
 			}),
 		"array"
@@ -166,7 +166,7 @@ const regionTitles = query(Attach)
  */
 const reachCards = query(Attach)
 	.rule((r) => {
-		const { id } = v(Person)
+		const { id } = v(Person, "person")
 		return r
 			.match(Person, { id })
 			.where(r.ge(id, r.param("lo", pg.bigint)), r.le(id, r.param("hi", pg.bigint)))
@@ -179,14 +179,14 @@ const reachCards = query(Attach)
 				row: { person: pg.bigint },
 				base: [
 					(r) => {
-						const { to } = v(Follows)
+						const { to } = v(Follows, "follows")
 						return r.match(Follows, { from: p.id, to }).find({ person: to })
 					}
 				],
 				rec: [
 					(r, self) => {
-						const { person } = v(self)
-						const { to } = v(Follows)
+						const { person } = v(self, "self")
+						const { to } = v(Follows, "follows")
 						return r
 							.match(self, { person })
 							.match(Follows, { from: person, to })

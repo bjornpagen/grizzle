@@ -1,4 +1,4 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { and, binary, or, row } from "#compiler/sql/build.ts"
@@ -37,10 +37,8 @@ export const typedEq = (type: ScalarType, left: Expr, right: Expr, vectorSchema:
 	compare("=", type, left, right, vectorSchema)
 
 /** A row of `items`, or the one item alone. */
-export const rowOrSingle = (items: ReadonlyArray<Expr>): Expr => {
-	const [only] = items
-	return items.length === 1 && only !== undefined ? only : row(...items)
-}
+export const rowOrSingle = (items: NonEmptyReadonlyArray<Expr>): Expr =>
+	items.length === 1 ? items[0] : row(items)
 
 /**
  * Two rows of one heading compared column by column: each of `fields`, at least one, read as `left` and as `right`, of
@@ -56,10 +54,14 @@ interface RowSides<F> {
 const rowCompare = <F>(op: "=" | "<>", sides: RowSides<F>, vectorSchema: string): Expr => {
 	const { fields, typeOf, left, right } = sides
 	if (!fields.some((f) => isVectorType(typeOf(f)))) {
-		return binary(op, rowOrSingle(fields.map(left)), rowOrSingle(fields.map(right)))
+		return binary(
+			op,
+			rowOrSingle(mapNonEmpty(fields, left)),
+			rowOrSingle(mapNonEmpty(fields, right))
+		)
 	}
-	const terms = fields.map((f) => compare(op, typeOf(f), left(f), right(f), vectorSchema))
-	return op === "=" ? and(...terms) : or(...terms)
+	const terms = mapNonEmpty(fields, (f) => compare(op, typeOf(f), left(f), right(f), vectorSchema))
+	return op === "=" ? and(terms) : or(terms)
 }
 
 /** `(left) = (right)` over the fields; one field compares as a scalar. */

@@ -3,13 +3,12 @@ import type { AttachmentFacts, AttachmentScope } from "#adapter/reader/analysis.
 import type { InputRefusal, RelationInputs } from "#adapter/reader/relations.ts"
 import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
 import { type Cell, factCells, recordsetJson } from "#compiler/codec/recordset.ts"
-import { printsAlike, scalarCodec } from "#compiler/codec/scalar.ts"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { type AttachmentLayout, type Layout, type Row, rowText } from "#compiler/core/decoder.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnPosition } from "#compiler/lower/conservative/context.ts"
 import {
 	type AttachedTree,
@@ -39,6 +38,7 @@ import {
 	type ValuesInput
 } from "#compiler/lower/shapes/relparam/index.ts"
 import { executableQuery } from "#compiler/lower/template.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 
 /**
  * One statement execution and the Rows it delivers: what reads, read-backs, pages and db.explain share.
@@ -65,10 +65,10 @@ import { executableQuery } from "#compiler/lower/template.ts"
  *   (core/decoder.ts): each row's texts, and per attachment slot the child Rows under it, which the value's decoder
  *   reads through the statement's layout. An attachment statement's rows lead with the parent key texts; each parent
  *   row gets the child Rows whose parent key equals its own under the key's type, in the statement's row order, which
- *   is the child's completed order when the child is ordered. Equality is the type's, never the text's: the statement
- *   correlates and deduplicates the parent key by the type's equality, so of two parent rows whose keys are equal but
- *   print differently (1.0 and 1.00, -0 and 0) it keeps one spelling, and both parents own the children it delivers
- *   under it. Attachments nest: a child row's own attachments are grouped under it the same way. A fused attachment's
+ *   is the child's completed order when the child is ordered. Equality is the type's, never the raw text's: each key
+ *   cell is read as its carrier's cell text (codec/scalar.ts cellText), one text per value, so of two parent rows whose
+ *   keys are equal but print differently (1.0 and 1.00, -0 and 0) both own the children the statement delivers under
+ *   its one spelling. Attachments nest: a child row's own attachments are grouped under it the same way. A fused attachment's
  *   column is parsed into its children's texts (lower/shapes/attach/decode.ts), its correlated columns copied from the
  *   parent row's texts.
  * - Layouts. A statement's layout names each public column's position (a rows statement's whole heading, an attachment
@@ -217,6 +217,11 @@ export const readBinding = (
 	}
 }
 
+/** A statement of a flight the engine printed: its text and its parameters' texts, in placeholder order. */
+export interface EmittedStatement extends BatchStatement {
+	readonly sql: EmittedText
+}
+
 /**
  * The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`: the statement as
  * emitted, or its VALUES form, the text-cast statement with every input that travels as VALUES written into its
@@ -225,7 +230,7 @@ export const readBinding = (
 export const executionOf = <S extends LoweredStatement, Slot, E>(
 	form: StatementForm<S, Slot>,
 	bind: (slot: Slot) => Result.Result<Binding, E>
-): Result.Result<BatchStatement, E> => {
+): Result.Result<EmittedStatement, E> => {
 	const encoded: Array<string> = []
 	const values: Array<ValuesInput> = []
 	for (const slot of form.slots) {
@@ -267,27 +272,14 @@ export type StatementRun = ReadonlyArray<ReadonlyArray<string>>
 export type SentRuns = ReadonlyArray<StatementRun>
 
 /**
- * How one parent key cell identifies its value: the text itself where equal values of the type always print alike
- * (codec/scalar.ts printsAlike), and otherwise the value's one identity text
- * (scalar/values/identity.ts), so 1.0 and 1.00 are one key, as are -0 and 0.
- */
-type KeyCell = (text: string) => string
-
-const asPrinted: KeyCell = (text) => text
-
-/**
- * The key cell of a column of `type`, which the statement's read-back check partitions by alike
- * (lower/conservative/deliver.ts checkedAttachment).
- */
-const keyCellOf = (type: ScalarType): KeyCell =>
-	printsAlike(type) ? asPrinted : scalarCodec(type).textIdentity
-
-/**
- * One parent key column as a row holds it: its position among the row's texts, and how its cell identifies its value.
+ * One parent key column as a row holds it: its position among the row's texts, and its type's cell text
+ * (codec/scalar.ts cellText), the one text of the value a cell spells, so 1.0 and 1.00 are one key, as are -0 and 0:
+ * the identity the statement's read-back check partitions by natively (lower/conservative/deliver.ts
+ * checkedAttachment).
  */
 interface KeyRead {
 	readonly at: number
-	readonly cell: KeyCell
+	readonly cell: (cell: string) => string
 }
 
 /**
@@ -474,8 +466,11 @@ const attachedOf = <Run extends Arrived>(
 		name: attach.name,
 		plan: {
 			record,
-			parent: Arr.map(parentKey, (c) => ({ at: parent.own(c.at), cell: keyCellOf(c.type) })),
-			child: Arr.map(parentKey, (c, at) => ({ at, cell: keyCellOf(c.type) }))
+			parent: Arr.map(parentKey, (c) => ({
+				at: parent.own(c.at),
+				cell: scalarCodec(c.type).cellText
+			})),
+			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarCodec(c.type).cellText }))
 		},
 		layout: { layouts: [record.layout], proved: facts.delivered(attach.id, attach.name) }
 	}

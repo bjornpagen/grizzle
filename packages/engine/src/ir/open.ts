@@ -1,6 +1,7 @@
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type {
 	BindingsDesc,
+	BindTermDesc,
 	ExprDesc,
 	HeadTermDesc,
 	Located,
@@ -21,13 +22,24 @@ export interface BuilderScope {
 }
 
 /**
+ * One call to v: the scope name it was given and where it was called. Its identity is the object: a rule holds one
+ * scope of each name (query/build/rule.ts finishRule).
+ */
+export interface VarScope {
+	readonly name: string
+	readonly loc: SourceLoc
+}
+
+/**
  * A variable v minted, until its rule finishes and spells it: the build and the rule callback it was minted in, or
- * `adopted` for one minted in an attachment child outside its rules, which the child's rules adopt; the heading field
- * v took it from; its origin; and where v was called. Its identity is the object.
+ * `adopted` for one minted in an attachment child outside its rules, which the child's rules adopt; the call to v that
+ * minted it, its scope; the heading field v took it from; its origin; and where v was called. Its identity is the
+ * object, one per field of its scope.
  */
 export interface VarRef {
 	readonly build: BuilderScope
 	readonly owner: BuilderScope | "adopted"
+	readonly scope: VarScope
 	readonly field: string
 	readonly origin: VarDesc["origin"]
 	readonly loc: SourceLoc
@@ -59,6 +71,7 @@ interface Open extends Refs {
 		| { readonly kind: "value" }
 		| { readonly kind: "parent"; readonly column: ParentRef }
 	readonly param: Spelled["param"]
+	readonly paramType: Spelled["paramType"]
 	readonly nested: Spelled
 }
 
@@ -66,6 +79,8 @@ interface Open extends Refs {
 export type OpenExpr = ExprDesc<Located, Open>
 
 export type OpenBindings = BindingsDesc<Located, Open>
+
+export type OpenBound = BindTermDesc<Located, Open>
 
 export type OpenSource = SourceDesc<Located, Open>
 

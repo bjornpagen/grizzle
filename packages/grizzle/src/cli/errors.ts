@@ -1,5 +1,5 @@
 import { Array as Arr, Config, Formatter, Schema } from "effect"
-import { CompileErrorSchema } from "#adapter/errors/failures.ts"
+import { CompileErrorSchema, ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import { compileReasonText, isCompileError } from "#compiler/core/errors.ts"
 import { maxMigrationNameLength, metaFileName } from "#compiler/deploy/render/folder.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
@@ -16,7 +16,7 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
  * - `usage`: the command line does not name one of the commands, or names it with a malformed argument, a migration
  *   name of no folder's shape, or a schema choice the configuration does not allow;
  * - `config`: grizzle.config.ts is missing, fails to load, or is not a configuration (config.ts), or migrate finds no
- *   connection it accepts (connection.ts);
+ *   connection it accepts, or a process environment that would send a startup variable at its sessions (connection.ts);
  * - `filesystem`: the migrations directory could not be read or written, or holds what no generator wrote;
  * - `snapshot`: a schema's committed snapshot.json is not the generator's (edited, or of another schema), or it and the
  *   schema's folders disagree, so neither a draft nor an apply could continue the chain;
@@ -695,6 +695,7 @@ const CliReasonSchema = Schema.Union([
 	ConnectionRefused,
 	ConnectionUnnamed,
 	EnvironmentUnread,
+	ConnectionEnvironmentRefused,
 	DatabaseUrlRefused,
 	CaRefused,
 	CaUnread,
@@ -726,6 +727,7 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	ConnectionRefused: "config",
 	ConnectionUnnamed: "config",
 	EnvironmentUnread: "config",
+	ConnectionEnvironmentRefused: "config",
 	DatabaseUrlRefused: "config",
 	CaRefused: "config",
 	CaUnread: "config",

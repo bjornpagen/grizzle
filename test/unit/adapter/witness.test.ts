@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -207,7 +207,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 						]),
 						literal: Formatter.format,
 						limit: 5,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					(constraint) =>
@@ -295,7 +295,10 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 							generator: element<ConcurrentChangeTag>(["PutTargetConflict", "SpanKeyChange"]),
 							literal: Formatter.format,
 							limit: 2,
-							features: features<ConcurrentChangeTag>(["PutTargetConflict", "SpanKeyChange"]),
+							coverage: requiredInSpace<ConcurrentChangeTag>([
+								"PutTargetConflict",
+								"SpanKeyChange"
+							]),
 							caseHang: Duration.minutes(2)
 						},
 						(reason, c) =>
@@ -429,7 +432,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 								generator: element<readonly [Reported, LawId]>(cases),
 								literal: (row) => Formatter.format(row[0].constraint),
 								limit: cases.length,
-								features: noFeatures,
+								coverage: noCoverage,
 								caseHang: Duration.minutes(2)
 							},
 							(row) =>
@@ -484,7 +487,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 							generator: element<typeof code>([code, email]),
 							literal: (r) => Formatter.format(r.constraint),
 							limit: 2,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						(r) =>
@@ -516,7 +519,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 						]),
 						literal: (row) => Formatter.format(row[1]),
 						limit: 7,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					([witness, constraint]) =>
@@ -543,7 +546,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 								generator: nameLengths,
 								literal: Formatter.format,
 								limit: maxIdentifierBytes,
-								features: noFeatures,
+								coverage: noCoverage,
 								caseHang: Duration.minutes(2)
 							},
 							(n) =>

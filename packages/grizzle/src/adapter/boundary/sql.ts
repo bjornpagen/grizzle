@@ -1,4 +1,5 @@
-import { Array as Arr, Option, Schema, SchemaGetter } from "effect"
+import { Array as Arr, Option, Predicate, Schema, SchemaGetter } from "effect"
+import { nominal } from "#compiler/core/brand.ts"
 import {
 	type AlterDatabaseDefault,
 	type AlterDefaultPrivileges,
@@ -59,6 +60,7 @@ import {
 	type ForeignKeyColumn,
 	type FrameBound,
 	type FromItem,
+	type FromSource,
 	type RecordsetPlaceholder,
 	type FunctionCall,
 	type FunctionName,
@@ -71,8 +73,8 @@ import {
 	type GrantRole,
 	type IndexKey,
 	type InlineConstraint,
+	type JoinStep,
 	type Insert,
-	type InsertSource,
 	type KeyColumn,
 	type LiteralValue,
 	type LockTable,
@@ -81,6 +83,7 @@ import {
 	type ObjectName,
 	type OnConflict,
 	type OrderItem,
+	type PerformQuery,
 	type PlBlock,
 	type PlDeclaration,
 	type PlRecord,
@@ -95,18 +98,23 @@ import {
 	type RenameObject,
 	type Revoke,
 	type RevokeRole,
+	type RoleSetting,
 	type Select,
 	type SelectBody,
 	type SelectCore,
+	type SetOperand,
 	type SetOperation,
 	type SqlStatement,
 	type TableConstraint,
 	type TableName,
 	type Target,
+	textParameters,
 	type TriggerEvent,
 	type Txn,
 	type TypeRef,
+	type TypeSchema,
 	type Update,
+	type Using,
 	type ValuePlaceholder,
 	type WindowSpec,
 	type With
@@ -213,7 +221,6 @@ const parallelSafety = Schema.optionalKey(Schema.Literal("SAFE")).pipe(
  * it is.
  */
 const ObjectNameSchema = exact<ObjectName>()(Schema.Struct({ schema: Ident, name: Ident }))
-const ObjectNames = Schema.Array(ObjectNameSchema)
 
 const CarrierNameSchema: Schema.Codec<CarrierName> = Schema.declare(isCarrierName)
 
@@ -224,6 +231,22 @@ const CollationSchema = exact<Collation>()(
 		schema: Schema.Literal("pg_catalog"),
 		name: Schema.Literal("pg_c_utf8")
 	})
+)
+
+/**
+ * A named type's schema, admitted as the engine's TypeSchema (sql/ast.ts): a snapshot's statements name only the
+ * installation's and the vector extension's schemas for a type, and the brand is unchecked, as every brand is.
+ */
+const mintTypeSchema = nominal<string, TypeSchema>()
+const TypeSchemaSchema = Schema.String.pipe(
+	Schema.decodeTo(
+		Schema.String.pipe(
+			Schema.refine((text: string): text is TypeSchema => Predicate.isString(text), {
+				expected: "TypeSchema"
+			})
+		),
+		{ decode: SchemaGetter.transform(mintTypeSchema), encode: SchemaGetter.passthrough() }
+	)
 )
 
 const TypeRefSchema = exact<TypeRef>()(
@@ -244,7 +267,7 @@ const TypeRefSchema = exact<TypeRef>()(
 		}),
 		Schema.Struct({
 			kind: Schema.Literal("named"),
-			schema: Ident,
+			schema: TypeSchemaSchema,
 			name: Ident,
 			typmod: list(Schema.Finite),
 			array: flag
@@ -434,8 +457,8 @@ const ExprSchema = exact<Expr>()(
 			schema: maybe(Ident)
 		}),
 		Schema.Struct({ kind: Schema.Literal("negate"), expr: ExprRef }),
-		Schema.Struct({ kind: Schema.Literal("and"), args: Exprs }),
-		Schema.Struct({ kind: Schema.Literal("or"), args: Exprs }),
+		Schema.Struct({ kind: Schema.Literal("and"), args: Schema.NonEmptyArray(ExprRef) }),
+		Schema.Struct({ kind: Schema.Literal("or"), args: Schema.NonEmptyArray(ExprRef) }),
 		Schema.Struct({ kind: Schema.Literal("not"), expr: ExprRef }),
 		Schema.Struct({ kind: Schema.Literal("isTrue"), expr: ExprRef }),
 		Schema.Struct({
@@ -445,12 +468,17 @@ const ExprSchema = exact<Expr>()(
 			high: ExprRef,
 			not: flag
 		}),
-		Schema.Struct({ kind: Schema.Literal("inList"), expr: ExprRef, list: Exprs, not: flag }),
+		Schema.Struct({
+			kind: Schema.Literal("inList"),
+			expr: ExprRef,
+			list: Schema.NonEmptyArray(ExprRef),
+			not: flag
+		}),
 		Schema.Struct({ kind: Schema.Literal("inQuery"), expr: ExprRef, query: SelectRef, not: flag }),
 		Schema.Struct({ kind: Schema.Literal("exists"), query: SelectRef, not: flag }),
 		Schema.Struct({ kind: Schema.Literal("subquery"), query: SelectRef }),
 		Schema.Struct({ kind: Schema.Literal("array"), query: SelectRef }),
-		Schema.Struct({ kind: Schema.Literal("row"), items: Exprs }),
+		Schema.Struct({ kind: Schema.Literal("row"), items: Schema.NonEmptyArray(ExprRef) }),
 		Schema.Struct({
 			kind: Schema.Literal("case"),
 			operand: maybe(ExprRef),
@@ -458,7 +486,10 @@ const ExprSchema = exact<Expr>()(
 			else: ExprRef
 		}),
 		FunctionCallSchema,
-		Schema.Struct({ kind: Schema.Literals(["greatest", "least"]), args: Exprs }),
+		Schema.Struct({
+			kind: Schema.Literals(["greatest", "least"]),
+			args: Schema.NonEmptyArray(ExprRef)
+		}),
 		Schema.Struct({ kind: Schema.Literal("mergeAction") }),
 		Schema.Struct({ kind: Schema.Literal("domainValue") }),
 		Schema.Struct({
@@ -468,9 +499,10 @@ const ExprSchema = exact<Expr>()(
 		PlRecordSchema,
 		Schema.Struct({
 			kind: Schema.Literal("plSpecial"),
-			name: Schema.Literals(["TG_OP", "TG_TABLE_NAME", "TG_TABLE_SCHEMA", "FOUND"])
+			name: Schema.Literals(["TG_TABLE_NAME", "TG_TABLE_SCHEMA"])
 		}),
-		Schema.Struct({ kind: Schema.Literal("field"), record: PlRecordSchema, field: Ident })
+		Schema.Struct({ kind: Schema.Literal("field"), record: PlRecordSchema, field: Ident }),
+		Schema.Struct({ kind: Schema.Literal("regclass"), relation: ObjectNameSchema })
 	])
 )
 
@@ -489,7 +521,7 @@ const ContextColumnSchema = exact<ContextColumn>()(
 	Schema.Struct({ field: Schema.String, column: ColumnDefinitionSchema })
 )
 
-const FromItemSchema = exact<FromItem>()(
+const FromSourceSchema = exact<FromSource>()(
 	Schema.Union([
 		Schema.Struct({ kind: Schema.Literal("table"), table: TableNameSchema, alias: Ident }),
 		Schema.Struct({ kind: Schema.Literal("cte"), name: Ident, alias: maybe(Ident) }),
@@ -516,9 +548,9 @@ const FromItemSchema = exact<FromItem>()(
 		}),
 		Schema.Struct({
 			kind: Schema.Literal("values"),
-			rows: Schema.Array(Exprs),
+			rows: Schema.NonEmptyArray(Exprs),
 			alias: Ident,
-			columns: Idents
+			columns: Schema.NonEmptyArray(Ident)
 		}),
 		Schema.Struct({
 			kind: Schema.Literal("context"),
@@ -526,47 +558,60 @@ const FromItemSchema = exact<FromItem>()(
 			columns: Schema.NonEmptyArray(ContextColumnSchema),
 			refusal: QualifiedFunctionRefSchema,
 			alias: Ident
-		}),
-		Schema.Struct({
-			kind: Schema.Literal("join"),
-			left: FromItemRef,
-			right: FromItemRef,
-			on: ExprRef
-		}),
-		Schema.Struct({ kind: Schema.Literal("crossJoin"), left: FromItemRef, right: FromItemRef })
+		})
 	])
 )
-/** Whether a clause that is false when none is set. */
-const isSet = <A>(d: false | A): d is A => d !== false
 
-/** DISTINCT, DISTINCT ON its expressions, or neither: false, left out of the JSON form. */
-const distinct = Schema.optionalKey(
-	Schema.Union([True, Schema.Struct({ on: Schema.Array(Present) })])
-).pipe(
-	Schema.decodeTo(Schema.Union([Schema.Boolean, Schema.Struct({ on: Exprs })]), {
-		decode: SchemaGetter.transformOptional((o) => Option.some(Option.getOrElse(o, () => false))),
-		encode: SchemaGetter.transformOptional((o) => Option.filter(o, isSet))
-	})
+const JoinStepSchema = exact<JoinStep>()(
+	Schema.Union([
+		Schema.Struct({ kind: Schema.Literal("on"), source: FromSourceSchema, on: ExprRef }),
+		Schema.Struct({ kind: Schema.Literal("cross"), source: FromSourceSchema })
+	])
 )
 
+const FromItemSchema = exact<FromItem>()(
+	Schema.Union([
+		FromSourceSchema,
+		Schema.Struct({
+			kind: Schema.Literal("joins"),
+			first: FromSourceSchema,
+			steps: Schema.NonEmptyArray(JoinStepSchema)
+		})
+	])
+)
+/** A core's clauses beside its projection. */
+const coreClauses = {
+	kind: Schema.Literal("core"),
+	from: list(FromItemRef),
+	where: maybe(ExprRef),
+	groupBy: list(ExprRef),
+	having: maybe(ExprRef)
+} as const
+
+/**
+ * A core by its projection (sql/ast.ts CoreProjection): no DISTINCT, left out of the JSON form, over any targets, or
+ * DISTINCT, or DISTINCT ON at least one expression, over at least one target.
+ */
 const SelectCoreSchema = exact<SelectCore>()(
-	Schema.Struct({
-		kind: Schema.Literal("core"),
-		distinct,
-		targets: Targets,
-		from: list(FromItemRef),
-		where: maybe(ExprRef),
-		groupBy: list(ExprRef),
-		having: maybe(ExprRef)
-	})
+	Schema.Union([
+		Schema.Struct({ ...coreClauses, distinct: unset, targets: Targets }),
+		Schema.Struct({
+			...coreClauses,
+			distinct: Schema.Union([True, Schema.Struct({ on: Schema.NonEmptyArray(ExprRef) })]),
+			targets: Schema.NonEmptyArray(TargetSchema)
+		})
+	])
 )
+
+const SetOperandSchema = exact<SetOperand>()(Schema.Union([SelectCoreSchema, SelectRef]))
 
 const SetOperationSchema = exact<SetOperation>()(
 	Schema.Struct({
 		kind: Schema.Literal("setOp"),
 		op: Schema.Literals(["UNION", "UNION ALL", "INTERSECT", "EXCEPT"]),
-		left: SelectBodyRef,
-		right: SelectBodyRef
+		arms: Schema.TupleWithRest(Schema.Tuple([SetOperandSchema, SetOperandSchema]), [
+			SetOperandSchema
+		])
 	})
 )
 
@@ -583,7 +628,9 @@ const CteSchema = exact<Cte>()(
 	})
 )
 
-const WithSchema = exact<With>()(Schema.Struct({ recursive: flag, ctes: Schema.Array(CteSchema) }))
+const WithSchema = exact<With>()(
+	Schema.Struct({ recursive: flag, ctes: Schema.NonEmptyArray(CteSchema) })
+)
 
 const SelectSchema = exact<Select>()(
 	Schema.Struct({
@@ -596,8 +643,17 @@ const SelectSchema = exact<Select>()(
 	})
 )
 
+const PerformQuerySchema = exact<PerformQuery>()(
+	Schema.Struct({
+		body: SelectCoreSchema,
+		orderBy: list(OrderItemSchema),
+		limit: maybe(ExprRef),
+		offset: maybe(ExprRef)
+	})
+)
+
 const AssignmentSchema = exact<Assignment>()(Schema.Struct({ column: Ident, value: ExprRef }))
-const Assignments = Schema.Array(AssignmentSchema)
+const Assignments = Schema.NonEmptyArray(AssignmentSchema)
 
 const DoNothingSchema = exact<DoNothing>()(Schema.Struct({ kind: Schema.Literal("doNothing") }))
 
@@ -616,7 +672,7 @@ const OnConflictSchema = exact<OnConflict>()(
 	Schema.Union([
 		Schema.Struct({
 			kind: Schema.Literal("columns"),
-			columns: Idents,
+			columns: Schema.NonEmptyArray(Ident),
 			action: ConflictActionSchema
 		}),
 		Schema.Struct({
@@ -627,25 +683,40 @@ const OnConflictSchema = exact<OnConflict>()(
 	])
 )
 
-const InsertSourceSchema = exact<InsertSource>()(
-	Schema.Union([
-		Schema.Struct({ kind: Schema.Literal("query"), query: SelectRef }),
-		Schema.Struct({ kind: Schema.Literal("values"), rows: Schema.Array(Exprs) })
-	])
-)
+/** An INSERT's clauses beside its columns and source. */
+const insertHead = {
+	kind: Schema.Literal("insert"),
+	with: maybe(WithSchema),
+	table: TableNameSchema,
+	alias: maybe(Ident)
+} as const
 
+const insertTail = {
+	onConflict: maybe(OnConflictSchema),
+	returning: list(TargetSchema)
+} as const
+
+/** An INSERT by its source: a query into any columns, or VALUES rows into at least one. */
 const InsertSchema = exact<Insert>()(
-	Schema.Struct({
-		kind: Schema.Literal("insert"),
-		with: maybe(WithSchema),
-		table: TableNameSchema,
-		alias: maybe(Ident),
-		columns: Idents,
-		overriding: maybe(Schema.Literals(["SYSTEM VALUE", "USER VALUE"])),
-		source: InsertSourceSchema,
-		onConflict: maybe(OnConflictSchema),
-		returning: list(TargetSchema)
-	})
+	Schema.Union([
+		Schema.Struct({
+			...insertHead,
+			columns: Idents,
+			overriding: maybe(Schema.Literal("SYSTEM VALUE")),
+			source: Schema.Struct({ kind: Schema.Literal("query"), query: SelectRef }),
+			...insertTail
+		}),
+		Schema.Struct({
+			...insertHead,
+			columns: Schema.NonEmptyArray(Ident),
+			overriding: maybe(Schema.Literal("SYSTEM VALUE")),
+			source: Schema.Struct({
+				kind: Schema.Literal("values"),
+				rows: Schema.NonEmptyArray(Exprs)
+			}),
+			...insertTail
+		})
+	])
 )
 
 const UpdateSchema = exact<Update>()(
@@ -693,6 +764,7 @@ const MergeWhenSchema = exact<MergeWhen>()(
 					overriding: maybe(Schema.Literal("SYSTEM VALUE")),
 					row: Assignments
 				}),
+				Schema.Struct({ kind: Schema.Literal("insertDefault") }),
 				DoNothingSchema
 			])
 		})
@@ -728,8 +800,7 @@ const ColumnDefSchema = exact<ColumnDef>()(
 		name: Ident,
 		type: TypeRefSchema,
 		collation: maybe(CollationSchema),
-		generated: maybe(ColumnGenerationSchema),
-		default: maybe(ExprRef)
+		generated: maybe(ColumnGenerationSchema)
 	})
 )
 
@@ -758,7 +829,7 @@ const PrimaryKeySchema = exact<PrimaryKey>()(
 	Schema.Struct({
 		kind: Schema.Literal("primaryKey"),
 		name: Ident,
-		columns: Schema.Array(KeyColumnSchema)
+		columns: Schema.NonEmptyArray(KeyColumnSchema)
 	})
 )
 
@@ -767,14 +838,14 @@ const InlineConstraintSchema = exact<InlineConstraint>()(
 		Schema.Struct({
 			kind: Schema.Literal("unique"),
 			name: Ident,
-			columns: Schema.Array(KeyColumnSchema)
+			columns: Schema.NonEmptyArray(KeyColumnSchema)
 		}),
 		Schema.Struct({ kind: Schema.Literal("check"), name: Ident, predicate: ExprRef }),
 		Schema.Struct({
 			kind: Schema.Literal("exclude"),
 			name: Ident,
 			method: Schema.Literal("gist"),
-			elements: Schema.Array(ExclusionElementSchema)
+			elements: Schema.NonEmptyArray(ExclusionElementSchema)
 		})
 	])
 )
@@ -786,9 +857,9 @@ const TableConstraintSchema = exact<TableConstraint>()(
 		Schema.Struct({
 			kind: Schema.Literal("foreignKey"),
 			name: Ident,
-			columns: Schema.Array(ForeignKeyColumnSchema),
+			columns: Schema.NonEmptyArray(ForeignKeyColumnSchema),
 			references: ObjectNameSchema,
-			referencedColumns: Schema.Array(ForeignKeyColumnSchema),
+			referencedColumns: Schema.NonEmptyArray(ForeignKeyColumnSchema),
 			deferrable: maybe(Schema.Literals(["INITIALLY DEFERRED", "INITIALLY IMMEDIATE"]))
 		})
 	])
@@ -812,9 +883,17 @@ const CreateTableSchema = exact<CreateTable>()(
 	})
 )
 
+const UsingSchema = exact<Using>()(
+	Schema.Union([
+		Schema.Struct({ kind: Schema.Literal("expr"), expr: ExprRef }),
+		Schema.Struct({ kind: Schema.Literal("placeholder") })
+	])
+)
+
 const AlterTableActionSchema = exact<AlterTableAction>()(
 	Schema.Union([
 		Schema.Struct({ kind: Schema.Literal("addColumn"), column: ColumnDefSchema }),
+		Schema.Struct({ kind: Schema.Literal("addColumnPlaceholder"), column: ColumnDefSchema }),
 		Schema.Struct({ kind: Schema.Literal("dropColumn"), column: Ident }),
 		Schema.Struct({ kind: Schema.Literal("dropDefault"), column: Ident }),
 		Schema.Struct({
@@ -822,7 +901,7 @@ const AlterTableActionSchema = exact<AlterTableAction>()(
 			column: Ident,
 			type: TypeRefSchema,
 			collation: maybe(CollationSchema),
-			using: ExprRef
+			using: UsingSchema
 		}),
 		Schema.Struct({
 			kind: Schema.Literal("addIdentity"),
@@ -991,7 +1070,7 @@ const CreateIndexSchema = exact<CreateIndex>()(
 		unique: flag,
 		concurrently: flag,
 		method: Schema.Literals(["btree", "gist", "hnsw"]),
-		keys: Schema.Array(IndexKeySchema),
+		keys: Schema.NonEmptyArray(IndexKeySchema),
 		include: list(Ident),
 		where: maybe(ExprRef)
 	})
@@ -1010,7 +1089,7 @@ const CreateMaterializedViewSchema = exact<CreateMaterializedView>()(
 	Schema.Struct({
 		kind: Schema.Literal("createMaterializedView"),
 		name: ObjectNameSchema,
-		columns: Idents,
+		columns: Schema.NonEmptyArray(Ident),
 		query: SelectRef
 	})
 )
@@ -1104,7 +1183,8 @@ const CreateConstraintTriggerSchema = exact<CreateConstraintTrigger>()(
 		kind: Schema.Literal("createConstraintTrigger"),
 		name: Ident,
 		table: ObjectNameSchema,
-		events: Schema.NonEmptyArray(TriggerEventSchema),
+		event: TriggerEventSchema,
+		when: maybe(ExprRef),
 		function: ObjectNameSchema
 	})
 )
@@ -1134,12 +1214,18 @@ const CreateRoleSchema = exact<CreateRole>()(
 	})
 )
 
+const RoleSettingSchema = exact<RoleSetting>()(
+	Schema.Union([
+		Schema.Struct({ parameter: Schema.Literals(textParameters), value: Schema.String }),
+		Schema.Struct({ parameter: Schema.Literal("search_path") })
+	])
+)
+
 const AlterRoleActionSchema = exact<AlterRoleAction>()(
 	Schema.Union([
 		Schema.Struct({
 			kind: Schema.Literal("set"),
-			parameter: Schema.Literals(configurationParameters),
-			value: Schema.String
+			setting: RoleSettingSchema
 		}),
 		Schema.Struct({
 			kind: Schema.Literal("reset"),
@@ -1172,16 +1258,20 @@ const RevokeRoleSchema = exact<RevokeRole>()(
 	})
 )
 
-const Privileges = Schema.Array(Schema.Literals(privileges))
+const Privileges = Schema.NonEmptyArray(Schema.Literals(privileges))
+const SomeObjectNames = Schema.NonEmptyArray(ObjectNameSchema)
 
 const GrantObjectsSchema = exact<GrantObjects>()(
 	Schema.Union([
-		Schema.Struct({ kind: Schema.Literal("TABLE"), names: ObjectNames }),
-		Schema.Struct({ kind: Schema.Literal("SEQUENCE"), names: ObjectNames }),
-		Schema.Struct({ kind: Schema.Literal("SCHEMA"), names: Idents }),
-		Schema.Struct({ kind: Schema.Literal("TYPE"), names: ObjectNames }),
-		Schema.Struct({ kind: Schema.Literal("DOMAIN"), names: ObjectNames }),
-		Schema.Struct({ kind: Schema.Literal("FUNCTION"), names: Schema.Array(FunctionNameSchema) })
+		Schema.Struct({ kind: Schema.Literal("TABLE"), names: SomeObjectNames }),
+		Schema.Struct({ kind: Schema.Literal("SEQUENCE"), names: SomeObjectNames }),
+		Schema.Struct({ kind: Schema.Literal("SCHEMA"), names: Schema.NonEmptyArray(Ident) }),
+		Schema.Struct({ kind: Schema.Literal("TYPE"), names: SomeObjectNames }),
+		Schema.Struct({ kind: Schema.Literal("DOMAIN"), names: SomeObjectNames }),
+		Schema.Struct({
+			kind: Schema.Literal("FUNCTION"),
+			names: Schema.NonEmptyArray(FunctionNameSchema)
+		})
 	])
 )
 
@@ -1191,7 +1281,7 @@ const GranteeSchema = exact<Grantee>()(
 		Schema.Struct({ kind: Schema.Literal("PUBLIC") })
 	])
 )
-const Grantees = Schema.Array(GranteeSchema)
+const Grantees = Schema.NonEmptyArray(GranteeSchema)
 
 const GrantSchema = exact<Grant>()(
 	Schema.Struct({
@@ -1245,7 +1335,7 @@ const CreateStatisticsSchema = exact<CreateStatistics>()(
 		kind: Schema.Literal("createStatistics"),
 		name: ObjectNameSchema,
 		statistics: Schema.Array(Schema.Literals(["ndistinct", "dependencies", "mcv"])),
-		columns: Idents,
+		columns: Schema.TupleWithRest(Schema.Tuple([Ident, Ident]), [Ident]),
 		table: ObjectNameSchema
 	})
 )
@@ -1253,7 +1343,7 @@ const CreateStatisticsSchema = exact<CreateStatistics>()(
 const LockTableSchema = exact<LockTable>()(
 	Schema.Struct({
 		kind: Schema.Literal("lockTable"),
-		tables: ObjectNames,
+		tables: SomeObjectNames,
 		mode: Schema.Literals([
 			"ACCESS SHARE",
 			"SHARE",
@@ -1336,12 +1426,18 @@ const PlStatementSchema = exact<PlStatement>()(
 			query: SelectRef,
 			body: PlStatements
 		}),
-		Schema.Struct({ kind: Schema.Literal("perform"), query: SelectRef }),
+		Schema.Struct({ kind: Schema.Literal("perform"), query: PerformQuerySchema }),
+		Schema.Struct({
+			kind: Schema.Literal("whenAbsent"),
+			probe: PerformQuerySchema,
+			body: Schema.NonEmptyArray(PlStatementRef)
+		}),
 		Schema.Struct({
 			kind: Schema.Literal("case"),
 			operand: ExprRef,
-			whens: Schema.Array(Schema.Struct({ values: Exprs, body: PlStatements })),
-			else: maybe(PlStatements)
+			whens: Schema.NonEmptyArray(
+				Schema.Struct({ values: Schema.NonEmptyArray(ExprRef), body: PlStatements })
+			)
 		}),
 		Schema.Struct({
 			kind: Schema.Literal("raise"),
@@ -1366,7 +1462,6 @@ const plpgsqlHeader = {
 	volatility: Schema.Literal("VOLATILE"),
 	parallel: parallelSafety,
 	security: Schema.Literal("DEFINER"),
-	searchPath: Schema.NonEmptyArray(Ident),
 	planCacheMode: Schema.Literal("force_custom_plan"),
 	body: PlBlockSchema
 } as const
@@ -1397,7 +1492,6 @@ const CreateFunctionSchema = exact<CreateFunction>()(
 			volatility: Schema.Literal("STABLE"),
 			parallel: parallelSafety,
 			security: Schema.Literal("DEFINER"),
-			searchPath: Schema.NonEmptyArray(Ident),
 			planCacheMode: Schema.Literal("force_generic_plan"),
 			returns: Schema.Literal("boolean"),
 			params: Schema.Array(FunctionParamSchema),
@@ -1429,14 +1523,14 @@ const CreateCarrierSchema = exact<CreateCarrier>()(
 	Schema.Struct({
 		kind: Schema.Literal("createCarrier"),
 		name: CarrierNameSchema,
-		columns: Schema.NonEmptyArray(ColumnDefSchema)
+		columns: Schema.Array(ColumnDefSchema)
 	})
 )
 
 const AnalyzeSchema = exact<Analyze>()(
 	Schema.Struct({
 		kind: Schema.Literal("analyze"),
-		carriers: Schema.Array(CarrierNameSchema)
+		carriers: Schema.NonEmptyArray(CarrierNameSchema)
 	})
 )
 

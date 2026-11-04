@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
-import { constant, element, oneOf } from "@grizzle/testing/gen"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -74,40 +74,13 @@ const totalsOf = (q: Q, region: RelNode) =>
 		conservativeMeta
 	)
 
-type Failure = "total" | "canFail"
+/** amount > 6. */
+const onAmount = (q: Q, node: RelNode): ScalarExpr =>
+	q.op("int8gt", [q.col(node, "amount"), q.int(6, T.int8)], T.bool)
 
-/** amount > 6, or amount + 1 > 6, which can fail. */
-const onAmount = (q: Q, node: RelNode, failure: Failure): ScalarExpr =>
-	failure === "total"
-		? q.op("int8gt", [q.col(node, "amount"), q.int(6, T.int8)], T.bool, "total")
-		: q.op(
-				"int8gt",
-				[
-					q.op("int8pl", [q.col(node, "amount"), q.int(1, T.int8)], T.int8, "canFail"),
-					q.int(6, T.int8)
-				],
-				T.bool,
-				"canFail"
-			)
-
-/** total > 10, or total + 1 > 10, which can fail. */
-const onTotal = (q: Q, node: RelNode, column: string, failure: Failure): ScalarExpr =>
-	failure === "total"
-		? q.op("numeric_gt", [q.col(node, column), q.decimal("10", T.numeric)], T.bool, "total")
-		: q.op(
-				"numeric_gt",
-				[
-					q.op(
-						"numeric_add",
-						[q.col(node, column), q.decimal("1", T.numeric)],
-						T.numeric,
-						"canFail"
-					),
-					q.decimal("10", T.numeric)
-				],
-				T.bool,
-				"canFail"
-			)
+/** total > 10. */
+const onTotal = (q: Q, node: RelNode, column: string): ScalarExpr =>
+	q.op("numeric_gt", [q.col(node, column), q.decimal("10", T.numeric)], T.bool)
 
 /**
  * The node a filter sits on: a projection, a group (filtered on its key or on its aggregate), a union, a take, a
@@ -123,8 +96,8 @@ type Site =
 	| "group source"
 	| "correlated group source"
 
-/** The filter over its site, with a total predicate or one that can fail, and the query delivering it. */
-const filtered = (site: Site, failure: Failure): RelDag => {
+/** The filter over its site, and the query delivering it. */
+const filtered = (site: Site): RelDag => {
 	const q = new Q()
 	const deliver = (f: RelNode, column: string) =>
 		q.build(q.project(f, [[column, column]], conservativeMeta)).dag
@@ -138,27 +111,24 @@ const filtered = (site: Site, failure: Failure): RelDag => {
 				],
 				conservativeMeta
 			)
-			return deliver(q.filter(p, onAmount(q, p, failure)), "id")
+			return deliver(q.filter(p, onAmount(q, p)), "id")
 		}
 		case "group key": {
 			const g = totalsOf(q, postings(q))
 			return deliver(
-				q.filter(g, q.op("uuid_eq", [q.col(g, "account"), q.lit(u(10), T.uuid)], T.bool, "total")),
+				q.filter(g, q.op("uuid_eq", [q.col(g, "account"), q.lit(u(10), T.uuid)], T.bool)),
 				"total"
 			)
 		}
 		case "group aggregate": {
 			const g = totalsOf(q, postings(q))
-			return deliver(q.filter(g, onTotal(q, g, "total", failure)), "account")
+			return deliver(q.filter(g, onTotal(q, g, "total")), "account")
 		}
 		case "union": {
 			const arm = (filterAmount: number) => {
 				const p = postings(q)
 				return q.project(
-					q.filter(
-						p,
-						q.op("int8ge", [q.col(p, "amount"), q.int(filterAmount, T.int8)], T.bool, "total")
-					),
+					q.filter(p, q.op("int8ge", [q.col(p, "amount"), q.int(filterAmount, T.int8)], T.bool)),
 					[
 						["id", "id"],
 						["amount", "amount"]
@@ -167,7 +137,7 @@ const filtered = (site: Site, failure: Failure): RelDag => {
 				)
 			}
 			const u2 = q.union([arm(5), arm(7)], [])
-			return deliver(q.filter(u2, onAmount(q, u2, failure)), "id")
+			return deliver(q.filter(u2, onAmount(q, u2)), "id")
 		}
 		case "take": {
 			const take = q.take(
@@ -177,14 +147,14 @@ const filtered = (site: Site, failure: Failure): RelDag => {
 				[],
 				conservativeMeta
 			)
-			return deliver(q.filter(take, onAmount(q, take, failure)), "id")
+			return deliver(q.filter(take, onAmount(q, take)), "id")
 		}
 		case "semi-join": {
 			const right = q.region([
 				{ source: q.base(Account, conservativeMeta), bind: { id: "account" }, constants: {} }
 			])
 			const semi = q.semi(postings(q), right, [["account", "account"]])
-			return deliver(q.filter(semi, onAmount(q, semi, failure)), "id")
+			return deliver(q.filter(semi, onAmount(q, semi)), "id")
 		}
 		case "group source":
 		case "correlated group source": {
@@ -211,24 +181,22 @@ const filtered = (site: Site, failure: Failure): RelDag => {
 				{ source: accounts, bind: { id: "acct", name: "name" }, constants: {} },
 				{ source: totalsOf(q, inner), bind: { account: "acct", total: "total" }, constants: {} }
 			])
-			return deliver(q.filter(region, onTotal(q, region, "total", failure)), "name")
+			return deliver(q.filter(region, onTotal(q, region, "total")), "name")
 		}
 	}
 }
 
 /**
  * The documented rule as the oracle: whether the rule that would move the filter off its site fires. A filter moves
- * through a projection, a union and a group key whatever it may raise, since it meets the same values; it moves below
- * a semi-join's left side or onto a region's source only when total, since there it meets rows it never met; a
- * restriction on an aggregate result and a correlated source keep it where it is, and below a take nothing moves at
- * all.
+ * through a projection, a union and a group key, below a semi-join's left side and onto a region's source, since no
+ * predicate raises on the rows it meets there (scalar/compute/registry.ts Totality); a restriction on an aggregate
+ * result and a correlated source keep it where it is, and below a take nothing moves at all.
  */
 type Movement =
 	| { readonly kind: "moves" | "stays"; readonly rule: CertificateRule }
 	| { readonly kind: "nothing moves" }
 
-const movementOf = (site: Site, failure: Failure): Movement => {
-	const totalOnly = failure === "total" ? "moves" : "stays"
+const movementOf = (site: Site): Movement => {
 	switch (site) {
 		case "projection":
 			return { kind: "moves", rule: "pushdown.project" }
@@ -237,9 +205,9 @@ const movementOf = (site: Site, failure: Failure): Movement => {
 		case "union":
 			return { kind: "moves", rule: "pushdown.union" }
 		case "semi-join":
-			return { kind: totalOnly, rule: "pushdown.left" }
+			return { kind: "moves", rule: "pushdown.left" }
 		case "group source":
-			return { kind: totalOnly, rule: "pushdown.source" }
+			return { kind: "moves", rule: "pushdown.source" }
 		case "group aggregate":
 			return { kind: "stays", rule: "pushdown.group" }
 		case "correlated group source":
@@ -249,28 +217,19 @@ const movementOf = (site: Site, failure: Failure): Movement => {
 	}
 }
 
-/** A group key restriction is total: no key predicate here can fail. */
-const sites = oneOf<readonly [Site, Failure]>([
-	(source) =>
-		[
-			source.draw(
-				element<Site>([
-					"projection",
-					"group aggregate",
-					"union",
-					"take",
-					"semi-join",
-					"group source",
-					"correlated group source"
-				])
-			),
-			source.draw(element<Failure>(["total", "canFail"]))
-		] as const,
-	constant<readonly [Site, Failure]>(["group key", "total"])
+const sites = element<Site>([
+	"projection",
+	"group key",
+	"group aggregate",
+	"union",
+	"take",
+	"semi-join",
+	"group source",
+	"correlated group source"
 ])
 
 describe("legal predicate movement", () => {
-	it.effect("moves a filter exactly where the move keeps its set and its error frontier", (ctx) =>
+	it.effect("moves a filter exactly where the move keeps its set", (ctx) =>
 		searched(
 			ctx,
 			exhaust(
@@ -279,23 +238,21 @@ describe("legal predicate movement", () => {
 					literal: Formatter.format,
 					generator: sites,
 					limit: 15,
-					features: features<`${Site} ${"moved" | "stays"}`>([
+					coverage: requiredInSpace<`${Site} ${"moved" | "stays"}`>([
 						"projection moved",
 						"group key moved",
 						"group aggregate stays",
 						"union moved",
 						"take stays",
 						"semi-join moved",
-						"semi-join stays",
 						"group source moved",
-						"group source stays",
 						"correlated group source stays"
 					]),
 					caseHang: Duration.minutes(2)
 				},
-				([site, failure], c) =>
+				(site, c) =>
 					Effect.sync(() => {
-						const dag = filtered(site, failure)
+						const dag = filtered(site)
 						const query = queryOf(dag, [])
 						const ran = succeeded(
 							runPasses(
@@ -304,7 +261,7 @@ describe("legal predicate movement", () => {
 								passContext({ catalog: ledgerCatalog, evidence: "snapshot" })
 							)
 						)
-						const movement = movementOf(site, failure)
+						const movement = movementOf(site)
 						c.note(`${site} ${movement.kind === "moves" ? "moved" : "stays"}`)
 						if (movement.kind === "nothing moves") {
 							assert.deepEqual(ran.certificates, [])

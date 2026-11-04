@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import type { Reached } from "@grizzle/testing/features"
+import type { Situations } from "@grizzle/testing/features"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	dbSession,
@@ -43,7 +43,7 @@ const deleted = (f: WorldFeature): boolean =>
 	opIn({ kinds: ["apply"], writers: ["db"], observations: ["applied"] })(f) ||
 	opIn({ kinds: ["direct", "direct-end"], writers: everyWriter, observations: ["ok"] })(f)
 
-const required: ReadonlyArray<Reached<WorldFeature>> = [
+const required: Situations<WorldFeature> = [
 	"deletion:base-gone",
 	"deletion:world-gone",
 	"deletion:derived-kept",

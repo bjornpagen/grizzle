@@ -1,9 +1,10 @@
 import type { Built, Phantom, phantom } from "#compiler/core/phantom.ts"
 import type {
 	ComputedOrigin,
+	ConstantOrigin,
 	InputOrigin,
 	IsOneLiteral,
-	IsUntypedInput,
+	IsInputValue,
 	Literal,
 	LiteralOrigin,
 	Origin,
@@ -12,8 +13,8 @@ import type {
 	ParamsOfTerm,
 	Refusal,
 	TermBase,
-	TypeOfTerm,
-	UnionToIntersection
+	UnionToIntersection,
+	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
@@ -36,12 +37,13 @@ type Card = "many" | "atMostOne" | "one"
  * authoritative (analysis/logical), and a stated delivery is bound against the delivery the IR computes for the
  * attachment (logical/attach.ts), so the two read the same proofs.
  *
- * Under R1 a rule that matches no source twice binds one variable per origin, so a variable's origin is its identity
- * and the type level reads the engine's key rule (HeadKeys): each match states that a key of its relation determines
- * every variable it binds, a filter's equality with an input fixes its variable and one between two variables makes
- * each determine the other (Stating), a computation is determined by the variables it reads (Needs), and a set of head
- * fields is a key when the variables it holds, with the inputs and the fixed variables, determine every head term. A key's variables may be bound through other matches, so a projection
- * keeps a key through a join. From that and the head's shape:
+ * An origin names one variable of its rule, the field of one scope (core/phantom.ts Origin), so a variable's origin is
+ * its identity, a self-join's two scopes included, and the type level reads the engine's key rule (HeadKeys): each
+ * match states that a key of its relation determines every variable it binds, a filter's equality with an input fixes
+ * its variable and one between two variables makes each determine the other (Stating), a computation is determined by
+ * the variables it reads (Needs), and a set of head fields is a key when the variables it holds, with the inputs and
+ * the fixed variables, determine every head term. A key's variables may be bound through other matches, so a
+ * projection keeps a key through a join. From that and the head's shape:
  *
  * - a plain head is keyed by its whole heading, which a set always is, and by every key HeadKeys proves; the empty key,
  *   a pinned head, is atMostOne, and anything else many;
@@ -54,11 +56,15 @@ type Card = "many" | "atMostOne" | "one"
  *
  * - a containment (ContainmentProof): the child's only clause is a match of a stored or closed relation whose
  *   parent-bound fields are exactly a declared key of it, each bound to the parent variable whose origin is the
- *   matching field of a declared `contained`'s source, in order, and every other binding a fresh variable at its own
- *   field, so nothing filters the match. Composite keys and ordinary relations included;
+ *   matching field of a declared `contained`'s source, in order, all of one scope, and every other binding a fresh
+ *   variable at its own field, so nothing filters the match. Composite keys and ordinary relations included;
  * - a reflexive self-match (ReflexiveProof): the child is an aggregate grouped only by parent variables over one
- *   match of the relation the parent's fact was read from, whose filters that very fact satisfies, so its group is
- *   never empty.
+ *   match of the relation the parent's fact was read from, every parent variable it reads of one scope, whose filters
+ *   that very fact satisfies, so its group is never empty.
+ *
+ * A parent's origins are kept per scope, and a scope's are fields of one fact (terms.ts HeadOrigins), so each proof
+ * reads the origins of one scope: over a self-join parent, the fields of each scope prove what that scope's fact
+ * proves, and no proof joins a field of one scope with a field of the other.
  *
  * The query type serves Db's reads, which may rely on lawful committed snapshots. A read inside a write transaction, a
  * read-back (changes.read), uses immediate evidence only. Of the two proofs, only a containment that is not immediate
@@ -94,16 +100,19 @@ export type Evidence = {
 
 /**
  * The arm of handle Handle of a mirrors from the facts of Parent whose Discriminator is Handle: a fact of
- * the arm exists exactly for the parent facts of that handle.
+ * the arm exists exactly for the parent facts of that handle, the fact of the parent's scope Scope whose key the arm's
+ * key is bound to.
  */
 interface ArmProof<
 	Parent extends string = string,
 	Discriminator extends string = string,
-	Handle = unknown
+	Handle = unknown,
+	Scope extends string = string
 > {
 	readonly parent: Parent
 	readonly discriminator: Discriminator
 	readonly handle: Handle
+	readonly scope: Scope
 }
 
 /** Each head field's provenance: a witnessed variable origin. */
@@ -125,7 +134,8 @@ type KeyOver<K extends string> = ReadonlyArray<K>
  * an array; an Option needs a child proved at most one per parent, and the one child a child proved exactly one, card
  * "one" including an aggregate child whose group a reflexive self-match on parent-bound variables proves nonempty.
  * arm(F, Hd) needs the child to be the arm of handle Hd of an alternatives law keyed by the parent's key (ArmProof),
- * F the one parent head field that holds the parent's discriminator, and Hd one literal of F's type: the arm's
+ * F the one parent head field that holds the discriminator of the parent's fact the key is of, its scope's, and Hd one
+ * literal of F's type: the arm's
  * records whose F is not Hd are narrowed by `row[F] !== Hd`, a true predicate of Exclude<Head[F], Hd> only when Hd is
  * one value.
  */
@@ -149,10 +159,10 @@ interface Claims<F, Hd, ChildEv, ParentEv, Head> {
 }
 
 type ArmClaim<F, Hd, ChildEv, ParentEv, Head> = ChildEv extends {
-	readonly arm: ArmProof<infer PN, infer D, infer ArmHandle>
+	readonly arm: ArmProof<infer PN, infer D, infer ArmHandle, infer N>
 }
-	? [HandleField<OriginsOf<ParentEv>, PN, D>] extends [F]
-		? [F] extends [HandleField<OriginsOf<ParentEv>, PN, D>]
+	? [HandleField<OriginsOf<ParentEv>, PN, D, N>] extends [F]
+		? [F] extends [HandleField<OriginsOf<ParentEv>, PN, D, N>]
 			? IsOneLiteral<Hd> extends true
 				? [Hd] extends [ArmHandle]
 					? [ArmHandle] extends [Hd]
@@ -166,9 +176,9 @@ type ArmClaim<F, Hd, ChildEv, ParentEv, Head> = ChildEv extends {
 		: Refusal<"the arm's field is the parent's head field that holds its discriminator">
 	: Refusal<"an arm needs a child that is the arm of one handle of an alternatives law, keyed by the parent's key">
 
-/** The one parent head field whose origin is the parent relation's discriminator. */
-type HandleField<O, PN, D> = {
-	[K in keyof O]-?: O[K] extends Origin<PN & string, D & string> ? K : never
+/** The one parent head field whose origin is the parent relation's discriminator in scope N, the arm key's. */
+type HandleField<O, PN, D, N> = {
+	[K in keyof O]-?: O[K] extends Origin<PN & string, D & string, N & string> ? K : never
 }[keyof O] extends infer F
 	? [F] extends [never]
 		? never
@@ -177,15 +187,46 @@ type HandleField<O, PN, D> = {
 			: never
 	: never
 
-/** The `relation.field` key of a variable's origin; never for an input, a computed term, or a variable of a source. */
+/** The key of origin (R, F, N), `relation.scope.field`: the one variable of its rule it names. */
+export type ScopedKey<R extends string, F extends string, N extends string> = `${R}.${N}.${F}`
+
+/** The key of a variable's origin (ScopedKey); never for an input, a computed term, or a variable of a source. */
 type OriginKey<X> =
 	X extends Phantom<{ readonly origin: infer O }>
 		? [O] extends [InputOrigin]
 			? never
-			: O extends Origin<infer R, infer F>
-				? `${R}.${F}`
+			: O extends Origin<infer R, infer F, infer N>
+				? ScopedKey<R, F, N>
 				: never
 		: never
+
+/**
+ * The matches whose fact holds the variable of origin O: the places, among a rule's occurrences, of the matches of O's
+ * relation that bind it at its own field. The engine's provenance of a column bound at a scan names that scan
+ * (logical/props.ts provenanceOf), so variables with a holding match in common are fields of that match's one fact.
+ */
+export type HoldingMatches<Os extends ReadonlyArray<unknown>, O> =
+	O extends Origin<infer R, infer F, infer N>
+		? {
+				[I in keyof Os & `${number}`]-?: BindsAt<Os[I], R, F, ScopedKey<R, F, N>> extends true
+					? I
+					: never
+			}[keyof Os & `${number}`]
+		: never
+
+/** Whether a match is of relation R and binds the variable of origin key Key at R's field F. */
+type BindsAt<M, R, F, Key> =
+	M extends SoleMatch<infer Src, infer B>
+		? Src extends AnyRelation | AnyClosed | AnyDerived | AnyWorld | AnyContext
+			? R extends NameOf<Src>
+				? F extends keyof B
+					? Key extends OriginKey<B[F]>
+						? true
+						: false
+					: false
+				: false
+			: false
+		: false
 
 /**
  * What determines a term, by origin key, once the rule's filters are read: nothing for an input (a literal, a
@@ -207,8 +248,8 @@ type OriginNeeds<O, FixedFields extends string> = unknown extends O
 		? never
 		: O extends ComputedOrigin<infer Operands>
 			? OriginNeeds<Operands, FixedFields>
-			: O extends Origin<infer R, infer F>
-				? Exclude<`${R}.${F}`, FixedFields>
+			: O extends Origin<infer R, infer F, infer N>
+				? Exclude<ScopedKey<R, F, N>, FixedFields>
 				: Lost
 /** Whether a term's needs lie within the origins Known: never for an input, false for Lost. */
 type DeterminedBy<Need, Known> = Lost extends Need ? false : [Need] extends [Known] ? true : false
@@ -255,12 +296,15 @@ type Equal<A, B> = [A] extends [never]
 		? never
 		: Dep<A & string, B & string> | Dep<B & string, A & string>
 
-/** The value an input or a literal fixes a variable to, where the types name it. */
+/**
+ * The value an input or a JavaScript value fixes a variable to, where the types name it: a constant's own value, from
+ * its column.
+ */
 type ValueOf<X> = X extends TermBase
 	? [OriginOfTerm<X>] extends [ParamOrigin]
 		? ParamValue<keyof ParamsOfTerm<X>>
-		: [OriginOfTerm<X>] extends [LiteralOrigin]
-			? OneValue<TypeOfTerm<X>>
+		: [OriginOfTerm<X>] extends [ConstantOrigin | LiteralOrigin]
+			? OneValue<ValueOfTerm<X>>
 			: [ParentOriginOf<X>] extends [never]
 				? unknown
 				: ParentValue<ParentOriginOf<X>>
@@ -322,18 +366,6 @@ export type StatesOf<Ps> = Ps extends readonly [infer H, ...infer Rest]
 type FixedBy<St> = St extends Fixed<infer K, unknown> ? K : never
 type StatedDeps<St> = St extends Fixed<infer K, unknown> ? Dep<never, K> : EqualitiesOf<St>
 
-/**
- * A statement goes by origin: under R1 a rule that matches no source twice binds one variable per origin, so an origin
- * key names the one variable the filter compared (RuleFacts in query/rule.ts). A rule matching a source twice may bind
- * two variables of one origin, which share a position spelling, so it states nothing by origin.
- */
-export type SourceName<R> = [NameOf<R>] extends [never] ? "(source)" : NameOf<R>
-export type PositionsOf<R, B> = {
-	[K in keyof B]-?: [OriginKey<B[K]>] extends [never]
-		? never
-		: `${OriginKey<B[K]>}@${SourceName<R>}.${K & string}`
-}[keyof B]
-
 type IsSingle<U> = [U] extends [never]
 	? false
 	: [UnionToIntersection<U>] extends [never]
@@ -387,8 +419,8 @@ export type EvidenceOf<
 type ValuesPart<V> = [keyof V] extends [never] ? unknown : { readonly values: V }
 
 /**
- * Each head field's value where the rule fixes it per binding and the types name it: a head literal's or a typed
- * handle's; a parameter's by name; a parent variable's field; and the value the rule's filters fix its variable to,
+ * Each head field's value where the rule fixes it per binding and the types name it: a constant's own value, from its
+ * column; a parameter's by name; a parent variable's field; and the value the rule's filters fix its variable to,
  * directly or through equalities (Stated). The engine reads a fixed column's value the same way (logical/props.ts
  * fixedValue), which a union compares across its arms.
  */
@@ -401,15 +433,13 @@ export type HeadValues<H, Stated> = {
 type ValueAt<X, St> = X extends TermBase
 	? [OriginOfTerm<X>] extends [ParamOrigin]
 		? ParamValue<keyof ParamsOfTerm<X>>
-		: [OriginOfTerm<X>] extends [LiteralOrigin]
-			? OneValue<TypeOfTerm<X>>
-			: [OriginOfTerm<X>] extends [InputOrigin]
-				? [ParentOriginOf<X>] extends [never]
-					? OneValue<TypeOfTerm<X>>
-					: ParentValue<ParentOriginOf<X>>
-				: [OriginKey<X>] extends [never]
+		: [OriginOfTerm<X>] extends [ConstantOrigin | LiteralOrigin]
+			? OneValue<ValueOfTerm<X>>
+			: [ParentOriginOf<X>] extends [never]
+				? [OriginKey<X>] extends [never]
 					? unknown
 					: OrUnknown<AgreedValue<FixedValues<St, Closure<EqualitiesOf<St>, OriginKey<X>>>>>
+				: ParentValue<ParentOriginOf<X>>
 	: unknown
 type OrUnknown<V> = [V] extends [never] ? unknown : V
 
@@ -526,18 +556,17 @@ type Beside<Keys, G> = Keys extends readonly [infer X]
  * fields that determine every field of the head but its aggregates, each wrapped as `readonly [Fields]`, the empty set
  * when the inputs and the fixed origins alone determine them (the head is pinned, at most one row per input binding).
  *
- * Under R1 a rule that matches no source twice binds one variable per origin, so an origin key `R.f` names one variable
- * and the type level reads the engine's rule (logical/props.ts): each match of a relation, closed, derived, world or
- * context relation states one dependency per key of it, from what the terms bound at the key's fields need (Needs:
+ * An origin key `R.n.f` names one variable, field f of the rule's scope n of R, so the type level reads the engine's
+ * rule (logical/props.ts), a self-join's included: each match of a relation, closed, derived, world or context
+ * relation states one dependency per key of it, from what the terms bound at the key's fields need (Needs:
  * inputs and fixed variables nothing, a computation the variables it reads) to every variable it binds; a head field
  * set is a key when the closure of its variables and the fixed ones under those dependencies holds what every head term
- * needs. The candidates are, per match, nothing or one of its keys' head fields, combined across matches. A rule
- * matching a source twice, a relation parameter, an imported query and an interior stage carry no origins, and the
- * head's whole heading is its only key.
+ * needs. The candidates are, per match, nothing or one of its keys' head fields, combined across matches. The variables
+ * of a relation parameter, an imported query and an interior stage carry no origin, and their matches state no
+ * dependency.
  */
-export type HeadKeys<S, Occurrences, H, Repeated extends boolean, Stated> = Repeated extends true
-	? never
-	: Occurrences extends ReadonlyArray<unknown>
+export type HeadKeys<S, Occurrences, H, Stated> =
+	Occurrences extends ReadonlyArray<unknown>
 		? KeysUnder<S, Occurrences, H, FixedBy<Stated>, StatedDeps<Stated>>
 		: never
 
@@ -716,27 +745,44 @@ export interface SoleMatch<R, B> {
 /**
  * Parent variables and fresh variables, as the attach proofs read a binding.
  *
- * A parent variable is an input whose origin names the relation field its parent head field was matched at
- * (terms.ts ParentVars); a fresh variable is a non-input variable whose origin is the bound relation at the very field
- * it is bound to, which matches every fact and so filters nothing.
+ * A parent variable is an input whose origin names the relation field its parent head field was matched at, and its
+ * scope (terms.ts ParentVars); a fresh variable is a non-input variable whose origin is the bound relation at the very
+ * field it is bound to, which matches every fact and so filters nothing.
  */
 type ParentOriginOf<X> =
 	X extends Phantom<{ readonly origin: infer O }>
 		? [O] extends [InputOrigin]
-			? O extends Origin<infer R, infer F>
-				? Origin<R, F>
+			? O extends Origin<infer R, infer F, infer N>
+				? Origin<R, F, N>
 				: never
 			: never
 		: never
 
-type IsParentAt<X, PN, F> =
+type IsParentAt<X, PN, F, N> =
 	X extends Phantom<{ readonly origin: infer O }>
 		? [O] extends [InputOrigin]
-			? O extends Origin<PN & string, F & string>
+			? O extends Origin<PN & string, F & string, N & string>
 				? true
 				: false
 			: false
 		: false
+
+/**
+ * The scope every parent variable bound at the fields Fs shares, one literal: never where they are of two scopes. A
+ * scope's origins are fields of one fact of the parent (terms.ts HeadOrigins), so a proof that reads the parent
+ * variables of one scope reads one fact.
+ */
+type SharedScope<B, Fs> =
+	Fs extends ReadonlyArray<infer G>
+		? ScopeOf<B[G & keyof B]> extends infer N
+			? IsOneLiteral<N> extends true
+				? N
+				: never
+			: never
+		: never
+/** The scopes of the parent variables among X. */
+type ScopeOf<X> = ScopeOfOrigin<ParentOriginOf<X>>
+type ScopeOfOrigin<O> = O extends Origin<string, string, infer N> ? N : never
 
 type IsFreeAt<X, RN, K> =
 	X extends Phantom<{ readonly origin: infer O }>
@@ -768,12 +814,12 @@ type KeyEquals<Keys, U> = 0 extends 1 & Keys
 		? SameSet<F, U>
 		: false
 
-/** Each field RF[i] is bound to the parent variable of origin PN.LF[i], position by position. */
-type ParentsAt<B, RF, PN, LF> = RF extends readonly [infer G, ...infer RRest]
+/** Each field RF[i] is bound to the parent variable of origin PN.LF[i] in scope N, position by position. */
+type ParentsAt<B, RF, PN, LF, N> = RF extends readonly [infer G, ...infer RRest]
 	? LF extends readonly [infer F, ...infer LRest]
 		? G extends keyof B
-			? IsParentAt<B[G], PN, F> extends true
-				? ParentsAt<B, RRest, PN, LRest>
+			? IsParentAt<B[G], PN, F, N> extends true
+				? ParentsAt<B, RRest, PN, LRest, N>
 				: false
 			: false
 		: false
@@ -812,9 +858,9 @@ type KeyedByParent<S, R, B, H> = R extends AnyRelation | AnyClosed
 /**
  * The containment row of the attach table: the child's only clause is a match keyed by the parent (KeyedByParent), and
  * S declares contained(on(Parent, ...from), on(R, ...to)) with `to` exactly the parent-bound fields and each `to` field
- * bound to the parent variable of origin Parent.from at the same position. The result is true where one proves the
- * child, never otherwise. A span coverage law proves coverage, not scalar existence, and a selected source needs the
- * parent's selection, so neither proves.
+ * bound to the parent variable of origin Parent.from at the same position, every one of one scope, so of one fact of
+ * Parent. The result is true where one proves the child, never otherwise. A span coverage law proves coverage, not
+ * scalar existence, and a selected source needs the parent's selection, so neither proves.
  */
 export type ContainmentProof<S, Sole, H> =
 	Sole extends SoleMatch<infer R, infer B>
@@ -829,7 +875,7 @@ type ContainmentsInto<C, RN, B> =
 			? RRel extends AnyRelation | AnyClosed
 				? NameOf<RRel> extends RN
 					? SameSet<RF extends ReadonlyArray<infer F> ? F : never, ParentFields<B, RN>> extends true
-						? ParentsAt<B, RF, NameOf<PRel>, LF> extends true
+						? ParentsAt<B, RF, NameOf<PRel>, LF, SharedScope<B, RF>> extends true
 							? true extends CoversSpan<PRel, LF>
 								? never
 								: true
@@ -861,8 +907,9 @@ type HeadingFieldOf<R, G> = R extends { readonly heading: infer C }
  * The alternatives row of the attach table: the child's only clause is a match of an arm relation keyed by the parent
  * (KeyedByParent), and S declares mirrors(on(select(Parent, { [D]: handle }), ...parentKey), on(Arm, ...armKey)), in
  * either order, with the arm key exactly the parent-bound fields, each bound to the parent variable of origin
- * Parent.parentKey at the same position. The arm exists exactly for the parent facts of that handle. An alternatives
- * statement declares its arms' mirrors, which LawsOf reads from the Alternatives value's type.
+ * Parent.parentKey at the same position, every one of one scope, whose fact's discriminator the arm's handle is read
+ * against (ArmClaim). The arm exists exactly for the parent facts of that handle. An alternatives statement declares
+ * its arms' mirrors, which LawsOf reads from the Alternatives value's type.
  */
 export type ArmProofOf<S, Sole, H> =
 	Sole extends SoleMatch<infer R, infer B>
@@ -883,8 +930,8 @@ type ArmOfSides<Sel, Arm, RN, B> =
 							AKF extends ReadonlyArray<infer F> ? F : never,
 							ParentFields<B, RN>
 						> extends true
-						? ParentsAt<B, AKF, NameOf<P>, PKF> extends true
-							? HandleOfSelection<NameOf<P>, Bs>
+						? ParentsAt<B, AKF, NameOf<P>, PKF, SharedScope<B, AKF>> extends true
+							? HandleOfSelection<NameOf<P>, Bs, SharedScope<B, AKF>>
 							: never
 						: never
 					: never
@@ -892,14 +939,14 @@ type ArmOfSides<Sel, Arm, RN, B> =
 			: never
 		: never
 
-/** A selection of exactly one field by a literal handle. */
-type HandleOfSelection<PN, Bs> = keyof Bs extends infer D extends string
+/** A selection of exactly one field by a literal handle, over the parent's fact of scope N. */
+type HandleOfSelection<PN, Bs, N> = keyof Bs extends infer D extends string
 	? IsSingle<D> extends true
 		? Bs[D & keyof Bs] extends infer Hd extends string
 			? IsSingle<Hd> extends true
 				? string extends Hd
 					? never
-					: ArmProof<PN & string, D, Hd>
+					: ArmProof<PN & string, D, Hd, N & string>
 				: never
 			: never
 		: never
@@ -909,10 +956,11 @@ type HandleOfSelection<PN, Bs> = keyof Bs extends infer D extends string
  * The reflexive row of the attach table, as logical/attach.ts reflexiveOne reads it: the
  * child's only match is of a stored or derived relation R; every binding is a parent variable at the field its origin
  * names, or a variable of the child no other binding shares; the head's group terms are all parent variables; at least
- * one parent variable is read; every parent variable read has its origin in R; and every filter is true when the
- * child's fact is the parent's own: a variable bound at field f, and a parent variable of origin R.f, both read the
- * fact's f, so `r.le(t.id, s.id)` holds and `r.lt(t.at, s.at)` fails. The parent's origins are kept only
- * for a single occurrence of each relation (terms.ts HeadOrigins), so every parent variable of origin R reads one fact.
+ * one parent variable is read; every parent variable read has its origin in R, all in one scope; and every filter is
+ * true when the child's fact is the parent's own: a variable bound at field f, and a parent variable of origin R.f,
+ * both read the fact's f, so `r.le(t.id, s.id)` holds and `r.lt(t.at, s.at)` fails. A scope's origins are fields of
+ * one fact (terms.ts HeadOrigins), so every parent variable of origin R in that scope reads the one fact, and over a
+ * self-join parent each scope proves its own fact's group.
  */
 export type ReflexiveProof<Occurrences, Filters, H> = Occurrences extends readonly [
 	SoleMatch<infer R, infer B>
@@ -927,11 +975,19 @@ type ReflexiveOf<RN, B, Filters, H> =
 		? GroupTermsAreParents<H, RN> extends true
 			? Filters extends ReadonlyArray<unknown>
 				? true extends ReadsParent<B, H, Filters>
-					? AllTrue<Filters, { readonly relation: RN; readonly bindings: B }>
+					? IsOneLiteral<ScopesRead<B, H, Filters>> extends true
+						? AllTrue<Filters, { readonly relation: RN; readonly bindings: B }>
+						: false
 					: false
 				: false
 			: false
 		: false
+
+/** The scopes of every parent variable the child reads: in its bindings, its head and its filters. */
+type ScopesRead<B, H, Filters> =
+	| ScopeOf<B[keyof B]>
+	| ScopeOf<H[keyof H]>
+	| (Filters extends ReadonlyArray<infer P> ? ShapeScopes<ShapeOf<P>> : never)
 
 /**
  * A parent variable at the field of R its origin names, or a child variable whose origin key no other binding shares.
@@ -941,7 +997,7 @@ type ReflexiveBindings<B, RN> = false extends {
 		? [OriginKey<B[K]>] extends [never]
 			? false
 			: IsSingle<SharedOriginFields<B, OriginKey<B[K]>>>
-		: IsParentAt<B[K], RN, K>
+		: IsParentAt<B[K], RN, K, string>
 }[keyof B]
 	? false
 	: true
@@ -1080,26 +1136,28 @@ type Compare<Op, A, B> = "X" extends A | B
 
 /**
  * The field of the parent's fact an operand reads, as `f:<field>`: a parent variable of origin R.f reads f, a child
- * variable its binding field. A parameter or a literal is unknown; a parent variable from elsewhere, a variable bound
- * nowhere in the match, or a computed term fails the proof.
+ * variable its binding field. A parameter, a JavaScript value or a typed constant is unknown; a parent variable from
+ * elsewhere, a variable bound nowhere in the match, or a computed term fails the proof.
  */
 type Sym<X, Cx extends ReflexiveContext> =
-	IsUntypedInput<X> extends true
+	IsInputValue<X> extends true
 		? "U"
 		: X extends Literal
 			? "U"
 			: X extends Phantom<{ readonly origin: infer O }>
-				? [O] extends [InputOrigin]
-					? O extends Origin<Cx["relation"] & string, infer F>
-						? `f:${F}`
-						: "X"
-					: [OriginKey<X>] extends [never]
-						? "X"
-						: BindingFieldOf<Cx["bindings"], OriginKey<X>> extends infer K extends string
-							? [K] extends [never]
-								? "X"
-								: `f:${K}`
+				? [O] extends [ConstantOrigin]
+					? "U"
+					: [O] extends [InputOrigin]
+						? O extends Origin<Cx["relation"] & string, infer F>
+							? `f:${F}`
 							: "X"
+						: [OriginKey<X>] extends [never]
+							? "X"
+							: BindingFieldOf<Cx["bindings"], OriginKey<X>> extends infer K extends string
+								? [K] extends [never]
+									? "X"
+									: `f:${K}`
+								: "X"
 				: "X"
 type BindingFieldOf<B, Key> = SharedOriginFields<B, Key> & string
 type SymsOf<Terms, Cx extends ReflexiveContext> = Terms extends readonly [infer T, ...infer Rest]
@@ -1123,3 +1181,18 @@ type ShapeReadsParent<Sh> =
 					: false
 type ListReadsParent<Ps> = Ps extends ReadonlyArray<infer P> ? ShapeReadsParent<ShapeOf<P>> : false
 type IsParentVar<X> = [ParentOriginOf<X>] extends [never] ? false : true
+
+/** The scopes of the parent variables a shape reads. */
+type ShapeScopes<Sh> =
+	Sh extends Comparison<ComparisonOp, infer A, infer B>
+		? ScopeOf<A> | ScopeOf<B>
+		: Sh extends Conjunction<infer Ps>
+			? ListScopes<Ps>
+			: Sh extends Disjunction<infer Ps>
+				? ListScopes<Ps>
+				: Sh extends Opaque<infer Terms>
+					? Terms extends ReadonlyArray<infer T>
+						? ScopeOf<T>
+						: never
+					: never
+type ListScopes<Ps> = Ps extends ReadonlyArray<infer P> ? ShapeScopes<ShapeOf<P>> : never

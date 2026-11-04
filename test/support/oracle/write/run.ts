@@ -23,6 +23,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
+import type { AmbientSession } from "#test/support/ambient.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, reportedLawId } from "#test/support/kernel/naming.ts"
 import type { Fact, OracleState } from "#test/support/oracle/addwins.ts"
@@ -141,12 +142,14 @@ type TargetError = CompileError | SqlError | TransactionRolledBack | OpenError
  */
 export const openTarget = (
 	schema: WSchema,
-	statistics: Statistics
+	statistics: Statistics,
+	ambient: AmbientSession
 ): Effect.Effect<WriteTarget, TargetError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const built = buildSchema(schema, "Wo")
 		const done = yield* install(built.value, {
+			ambient,
 			label: "real",
 			logins: [built.worldOf(built.value).server],
 			extensions: []

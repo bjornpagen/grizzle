@@ -31,7 +31,7 @@ import {
 	scalarOfSpec,
 	type ValueSketch
 } from "#test/support/oracle/gen/domain.ts"
-import { cyclicAt, elementAt, nonEmptyList, indices } from "#test/support/oracle/pick.ts"
+import { cyclicAt, elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 
 /**
  * The features a case's data swarm turns on, off or thins: closed rosters, candidate keys, containments,
@@ -69,7 +69,7 @@ export interface GenRelation {
 /** A closed relation: its roster of handles and its payload facts. Its rows are [handle, ...payload]. */
 export interface GenClosed {
 	readonly name: string
-	readonly handles: ReadonlyArray<string>
+	readonly handles: Arr.NonEmptyReadonlyArray<string>
 	readonly payload: ReadonlyArray<GenColumn>
 	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
 }
@@ -178,7 +178,7 @@ export const schemaDesc = (schema: GenSchema): SchemaDesc => {
 		return {
 			kind: "closed",
 			name: c.name,
-			handles: nonEmptyList(c.handles, "a closed relation's handles"),
+			handles: c.handles,
 			payload,
 			facts
 		}
@@ -251,7 +251,7 @@ interface RelationSketch {
 }
 
 export interface SchemaSketch {
-	/** Picks into baseTypeSpecs; the case's palette. */
+	/** Picks into allTypeSpecs, the base specs first; the case's palette. */
 	readonly palette: ReadonlyArray<number>
 	readonly closed: ReadonlyArray<ClosedSketch>
 	readonly relations: ReadonlyArray<RelationSketch>
@@ -265,8 +265,8 @@ export interface SchemaLimits {
 	/** The most palette entries a case draws its column types from (the closed rosters' enums are added to it). */
 	readonly maxPalette: number
 	/**
-	 * Whether the palette draws the extended types too (domain.ts extendedTypeSpecs): contracts over bigint and over
-	 * refined text, unbounded text with TOAST-sized values, spans over integer and bigint, and vectors.
+	 * Whether the palette draws the extended flavors too (domain.ts carrierDraws): contracts over bigint and over refined
+	 * text, and unbounded text with TOAST-sized values.
 	 */
 	readonly extended: boolean
 	/**
@@ -286,12 +286,6 @@ export interface SchemaLimits {
 	 * PERIOD foreign key. "scalar" keys every span field by its endpoint's type.
 	 */
 	readonly keys: "scalar" | "spanKeys"
-	/**
-	 * The palette the column types come from: the types the limits draw ("drawn"), or only the numeric types whose value
-	 * classes have more than one spelling ("multiSpelling": numeric, numeric(5,2), numeric(3,1), float4 and float8), so
-	 * independently drawn spellings of one class meet at a merge.
-	 */
-	readonly palette: "drawn" | "multiSpelling"
 }
 
 export const defaultSchemaLimits: SchemaLimits = {
@@ -303,8 +297,7 @@ export const defaultSchemaLimits: SchemaLimits = {
 	extended: false,
 	wide: "none",
 	containments: "drawn",
-	keys: "scalar",
-	palette: "drawn"
+	keys: "scalar"
 }
 
 export const valueSketchGen: Gen<ValueSketch> = (source) => ({
@@ -317,7 +310,7 @@ const closedSketchGen: Gen<ClosedSketch> = (source) => ({
 	payload: source.draw(
 		array(
 			(payload) => ({
-				type: payload.draw(int(0, 11)),
+				type: payload.draw(int(0, baseTypeSpecs.length - 1)),
 				values: payload.draw(array(valueSketchGen, { min: 3, max: 3 }))
 			}),
 			{ min: 0, max: 2 }
@@ -368,20 +361,7 @@ const widePicks = (wide: "text" | "textAndVectors"): ReadonlyArray<number> =>
 		t.carrier === "longText" || (wide === "textAndVectors" && t.carrier === "vector") ? [i] : []
 	)
 
-/** The palette picks of the numeric types whose value classes have more than one spelling, into allTypeSpecs. */
-const multiSpellingPicks: ReadonlyArray<number> = Arr.flatMap(allTypeSpecs, (t, i) =>
-	t.carrier === "numeric" ||
-	t.carrier === "numericTypmod" ||
-	t.carrier === "float4" ||
-	t.carrier === "float8"
-		? [i]
-		: []
-)
-
 const palettePickGen = (limits: SchemaLimits): Gen<number> => {
-	if (limits.palette === "multiSpelling") {
-		return element(nonEmptyList(multiSpellingPicks, "the multi-spelling picks"))
-	}
 	const pick = int(0, (limits.extended ? allTypeSpecs.length : baseTypeSpecs.length) - 1)
 	return limits.wide === "none"
 		? pick
@@ -434,7 +414,7 @@ export const resolveSchema =
 		const rosters = weightOf(swarm, "closed") > 0 ? sketch.closed : []
 		const closed: Array<GenClosed> = Arr.map(rosters, (c, ci) => {
 			const name = `K${ci}`
-			const handles = Arr.map(indices(c.handles), (h) => `H${h}`)
+			const handles = Arr.makeBy(c.handles, (h) => `H${h}`)
 			const payload: Array<GenColumn> = Arr.map(c.payload, (p, pi) => ({
 				name: `p${pi}`,
 				type: scalarOfSpec(cyclicAt(baseTypeSpecs, p.type, "the base type specs"))
@@ -443,12 +423,7 @@ export const resolveSchema =
 				{ kind: "enum", handle } satisfies TypedLiteral,
 				...Arr.map(payload, (col, pi) => {
 					const values = elementAt(c.payload, pi, "a closed sketch's payload").values
-					return resolveValue(
-						col.type,
-						cyclicAt(values, h, "a payload's values"),
-						spelling,
-						"stored"
-					)
+					return resolveValue(col.type, cyclicAt(values, h, "a payload's values"), spelling.edge)
 				})
 			])
 			return { name, handles, payload, rows }

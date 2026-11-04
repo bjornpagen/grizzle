@@ -22,7 +22,7 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -38,6 +38,7 @@ import {
 } from "effect"
 import type { TestContext } from "vitest"
 import { Db } from "#adapter/public/db.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -177,10 +178,10 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 					suite: `pg/e2e-work/plans ${sizes.tasks}`,
 					draw: drawn(pickGen),
 					literal: Formatter.format,
-					features: features<WorkFeature>([
-						"a read by a busy account",
-						"a read by another account"
-					]),
+					coverage: required<WorkFeature>(
+						["a read by a busy account", "a read by another account"],
+						{ cases: 10 * runs, sense: notesOnly }
+					),
 					kept: [],
 					runs,
 					shrink: completeShrink,
@@ -188,12 +189,6 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 					/** Windows of four cases, so the steered phase stops within four cases of reaching both reads: every case
 					 * plans its reads at volume. */
 					steerEvery: 4,
-					/**
-					 * A read by a busy account is one pick in four, which the floor's two cases (fixed by the label) and eight
-					 * rotating ones miss about once in thirteen runs. The steered phase may spend ten times the cases, and
-					 * stops once both reads are reached, after one window in nearly every run.
-					 */
-					steering: { kind: "mutate", cases: 10 * runs, sense: notesOnly },
 					caseHang: Duration.minutes(2)
 				},
 				(pick, cx) =>
@@ -216,7 +211,7 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 								counts.sent.slice(before),
 								judge
 							)
-							problems.push(...judged.problems)
+							appendAll(problems, judged.problems)
 							for (const index of judged.read) {
 								used.add(index)
 							}

@@ -1,3 +1,4 @@
+import { nominal } from "#compiler/core/brand.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
@@ -16,7 +17,7 @@ import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { baseTypeRef, qualifiedType } from "#compiler/lower/conservative/base-type.ts"
 import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import type { Owned, OwnedEntry, OwnedRole } from "#compiler/schema/own.ts"
-import type { Collation, FunctionName, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
+import type { Collation, FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import { cUtf8Collation } from "#compiler/sql/build.ts"
 import { type OutsideProbe, probeIdentity } from "#compiler/write/insert/unique.ts"
 
@@ -26,11 +27,22 @@ export function missing(capability: string): never {
 	throw new Refusal(malformedDescription(SourceLoc("physical names", []), capability))
 }
 
+const typeSchema = nominal<string, TypeSchema>()
+
+/** The schema of the types an installation holds, its enums and domains: its own, by its identity. */
+export const installationTypes = (installation: Identity<"schema">): TypeSchema =>
+	typeSchema(identifierOf(installation))
+
+/** The schema of the vector extension's types, the one the installation was given for the extension. */
+export const vectorTypes = (schema: string): TypeSchema => typeSchema(schema)
+
 export interface InstallNames extends PhysicalNames {
 	/** The identity of the PostgreSQL schema every object is created in, which every role installed beside it embeds. */
 	readonly installation: Identity<"schema">
 	/** The PostgreSQL schema every object is created in, the installation's identifier. */
 	readonly schema: string
+	/** The same schema as the schema of the types it holds, its enums and domains. */
+	readonly types: TypeSchema
 	/** The identity sequence of a serial field. */
 	readonly sequence: (relation: string, field: string) => ObjectName
 	/** A serial field's advance function, which takes the bigint to advance past. */
@@ -230,10 +242,12 @@ const relationOf = (owned: Owned, relation: string) => {
 export const installNames = (input: NamesInput): InstallNames => {
 	const { owned, installation } = input
 	const schema = identifierOf(installation)
+	const types = installationTypes(installation)
 	return {
 		installation,
 		schema,
-		vectorSchema: input.vectorSchema,
+		types,
+		vectorSchema: vectorTypes(input.vectorSchema),
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) },
 		relation: (relation) => ({ schema, name: relationOf(owned, relation).ident }),
 		column: (relation, field) => {
@@ -247,16 +261,16 @@ export const installNames = (input: NamesInput): InstallNames => {
 			}
 			return f.column
 		},
-		enumType: (closed) => ({ schema, name: identifierOf(identity.enumType(closed)) }),
+		enumType: (closed) => ({ schema: types, name: identifierOf(identity.enumType(closed)) }),
 		/** A contract's domain by its name, whether the base declares it or a context field does: ownership named a base
 		 * contract's, the installer a context contract's (`contextContracts`). */
 		contractDomain: (contract) => ({
-			schema,
+			schema: types,
 			name: identifierOf(identity.contractDomain(contract))
 		}),
 		textDomain: (regex) =>
 			input.textDomains.has(regex.key)
-				? { schema, name: identifierOf(identity.textDomain(regex.key)) }
+				? { schema: types, name: identifierOf(identity.textDomain(regex.key)) }
 				: undefined,
 		sequence: (relation, field) => {
 			const sequence = relationOf(owned, relation).fields[field]?.sequence

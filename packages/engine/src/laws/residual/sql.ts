@@ -1,9 +1,8 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -11,7 +10,9 @@ import type { DetailCodec, FieldSelector, LawField, LawRelation } from "#compile
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { KeyValue } from "#compiler/laws/families/plugin.ts"
 import { detailExpr, withheldDetailExpr } from "#compiler/laws/model/detail.ts"
-import type { Expr, FromItem, PlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import { baseTypeRef } from "#compiler/lower/conservative/base-type.ts"
+import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
+import type { Expr, FromItem, PlStatement } from "#compiler/sql/ast.ts"
 import {
 	and,
 	call,
@@ -20,8 +21,6 @@ import {
 	core,
 	eq,
 	lit,
-	namedType,
-	numericType,
 	objectName,
 	or,
 	select,
@@ -36,48 +35,6 @@ const refuseLaw = (law: LawId, tag: ProseTag, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, SourceLoc(`law ${law}`, []), capability)))
 }
 
-/** The PostgreSQL type a value of `t` is compared as against a stored column: its base, unrefined, a roster's the enum
- * the naming door mints from its declared name. */
-export const baseTypeRef = (t: ScalarType, schema: string, law: LawId): TypeRef => {
-	const b = baseOf(t)
-	switch (b.carrier) {
-		case "int2":
-			return types.smallint
-		case "int4":
-			return types.integer
-		case "int8":
-			return types.bigint
-		case "numeric":
-			return b.typmod === undefined
-				? types.numeric
-				: numericType(b.typmod.precision, b.typmod.scale)
-		case "float4":
-			return types.real
-		case "float8":
-			return types.double
-		case "money":
-			return types.money
-		case "bool":
-			return types.boolean
-		case "uuid":
-			return types.uuid
-		case "text":
-			return types.text
-		case "range4":
-			return types.int4range
-		case "range8":
-			return types.int8range
-		case "enum":
-			return namedType(schema, identifierOf(identity.enumType(b.roster.closed)), [])
-		case "vector":
-			return refuseLaw(
-				law,
-				"UnsupportedOperation",
-				"a residual law comparing a vector with a literal; a selector is a literal-comparable scalar"
-			)
-	}
-}
-
 /** Minor units as the exact decimal text of the amount under the fixed C.UTF-8 monetary context. */
 const moneyText = (minor: bigint): string => {
 	const negative = minor < 0n
@@ -86,14 +43,15 @@ const moneyText = (minor: bigint): string => {
 	return `${negative ? "-" : ""}${(magnitude / 100n).toString()}.${cents}`
 }
 
-/** A typed literal of `t`'s base. */
+/** A typed literal of `t`'s base, the type a value of `t` is compared as against a stored column: unrefined, a
+ * roster's the enum the naming door mints from its declared name. */
 export const literalExpr = (
 	literal: TypedLiteral,
 	t: ScalarType,
-	schema: string,
+	names: PhysicalNames,
 	law: LawId
 ): Expr => {
-	const type = baseTypeRef(t, schema, law)
+	const type = baseTypeRef(names, t)
 	switch (literal.kind) {
 		case "int":
 			return lit.int(literal.value, type)
@@ -130,11 +88,15 @@ export const literalExpr = (
  * field order, each literal typed by its field. */
 export const selectedBy = (
 	law: LawId,
-	schema: string,
+	names: PhysicalNames,
 	selection: NonEmptyReadonlyArray<FieldSelector>,
 	column: (field: LawField) => Expr
 ): Expr =>
-	and(...selection.map((s) => eq(column(s.field), literalExpr(s.value, s.field.type, schema, law))))
+	and(
+		mapNonEmpty(selection, (s) =>
+			eq(column(s.field), literalExpr(s.value, s.field.type, names, law))
+		)
+	)
 
 /** The role the transaction took on, `none` when it took on none. */
 const roleSetting: Expr = call("current_setting", [lit.text("role", types.text)])
@@ -161,7 +123,7 @@ const actingAs: Expr = {
  * COMMIT is withheld the keys, as its role is. Db.open and the drift check refuse a theory role any member but its login
  * and any member of a login, so nothing acts as a theory role without taking it on (`memberDifferences`). */
 export const witnessShown = (holders: ReadonlyArray<string>): Expr =>
-	or(
+	or([
 		eq(call("current_setting", [lit.text("is_superuser", types.text)]), lit.text("on", types.text)),
 		{
 			kind: "inList",
@@ -172,7 +134,7 @@ export const witnessShown = (holders: ReadonlyArray<string>): Expr =>
 			],
 			not: false
 		}
-	)
+	])
 
 /** Step 3's refusal: 23000 with the law's identity as the constraint name and the violating
  * fact's key columns, `value(key, i)` the value of the codec's i-th key field, as the DetailCodec DETAIL when `shown`
@@ -275,7 +237,7 @@ export const anchorRow = <A>(
  * the other case is none. */
 type AnchorObligation =
 	| { readonly when: "present"; readonly row: AnchorRow<ReadonlyArray<PlStatement>> }
-	| { readonly when: "absent"; readonly body: ReadonlyArray<PlStatement> }
+	| { readonly when: "absent"; readonly body: NonEmptyReadonlyArray<PlStatement> }
 
 interface AnchorRead {
 	readonly schema: string
@@ -292,7 +254,8 @@ interface AnchorRead {
  *     <body>
  *   END LOOP;
  *
- * An absent anchor's obligation tests for the row and runs its body when the key holds none:
+ * An absent anchor's obligation probes for the row and runs its body when the key holds none, one statement
+ * (`whenAbsent`):
  *
  *   PERFORM 1 FROM <anchor> AS r1 WHERE r1.<k1> = <v1> AND ...;
  *   IF NOT FOUND THEN <body> END IF;
@@ -300,7 +263,7 @@ interface AnchorRead {
  * Both read the transaction's snapshot, which is SERIALIZABLE, as the family's step 3 does after them, so the anchor and
  * the probe are one consistent state. */
 export const readAnchor = (a: AnchorRead): ReadonlyArray<PlStatement> => {
-	const at = and(...a.key.map((k) => eq(col("r1", k.pair.anchor.column), k.value)))
+	const at = and(mapNonEmpty(a.key, (k) => eq(col("r1", k.pair.anchor.column), k.value)))
 	const anchor: FromItem = {
 		kind: "table",
 		table: objectName(a.schema, a.relation.ident),
@@ -325,13 +288,15 @@ export const readAnchor = (a: AnchorRead): ReadonlyArray<PlStatement> => {
 			]
 		case "absent":
 			return [
-				{ kind: "perform", query: select(core([target(lit.int(1, types.integer))], [anchor], at)) },
 				{
-					kind: "if",
-					branches: [
-						{ condition: { kind: "not", expr: { kind: "plSpecial", name: "FOUND" } }, body: o.body }
-					],
-					else: []
+					kind: "whenAbsent",
+					probe: {
+						body: core([target(lit.int(1, types.integer))], [anchor], at),
+						orderBy: [],
+						limit: undefined,
+						offset: undefined
+					},
+					body: o.body
 				}
 			]
 	}

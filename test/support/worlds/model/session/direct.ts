@@ -1011,13 +1011,15 @@ export const directBranches = (
 			const at = write(statement.relation)
 			const keyed = new Set(keysOf(base, statement.relation).flat())
 			const payload = Arr.filter(Record.keys(statement.fact), (f) => !keyed.has(f))
-			/** A fact with no field outside every key sets its primary key's fields to the proposed row's. */
+			/**
+			 * A fact with no field outside every key sets its primary key's fields to the proposed row's, an identity's
+			 * drawn value where the fact leaves a serial key field to it.
+			 */
 			const sets =
-				payload.length > 0
-					? payload
-					: Arr.filter(relationSpecOf(base, statement.relation)?.key ?? [], (f) =>
-							Record.has(statement.fact, f)
-						)
+				payload.length > 0 ? payload : (relationSpecOf(base, statement.relation)?.key ?? [])
+			if (statement.onConflict === "update" && namesSerial(statement.relation, sets)) {
+				return [refused("428C9")]
+			}
 			if (at === undefined) {
 				return [refused("42501")]
 			}

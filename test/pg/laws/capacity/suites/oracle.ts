@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, Schema } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -41,7 +42,25 @@ const poolItems = capacity(on("Pool", ["id"]), on("Item", ["pool"]), within(0n, 
 	kind: "count"
 })
 
-const pools = (isMutable: boolean): SchemaDesc => ({
+/** Which of Pool and Item a variant declares mutable: a relation not mutable takes no UPDATE. */
+interface PoolsMutability {
+	readonly Pool: boolean
+	readonly Item: boolean
+}
+
+/** A variant of the suite: its name, the mutability of its relations, and the schema name it installs under. */
+interface PoolsVariant {
+	readonly name: "immutable" | "mutable"
+	readonly mutable: PoolsMutability
+	readonly installAs: string
+}
+
+const variants: Arr.NonEmptyReadonlyArray<PoolsVariant> = [
+	{ name: "immutable", mutable: { Pool: false, Item: false }, installAs: "cappooli" },
+	{ name: "mutable", mutable: { Pool: true, Item: true }, installAs: "cappoolm" }
+]
+
+const pools = (m: PoolsMutability): SchemaDesc => ({
 	name: "Pools",
 	relations: [
 		relation("Pool", { id: f.integer, low: f.integer, high: f.integer, open: f.boolean }, ["id"]),
@@ -51,14 +70,15 @@ const pools = (isMutable: boolean): SchemaDesc => ({
 		poolWeights,
 		poolItems,
 		contained(on("Item", ["pool"]), on("Pool", ["id"])),
-		...(isMutable ? [mutable("Pool"), mutable("Item")] : [])
+		...(m.Pool ? [mutable("Pool")] : []),
+		...(m.Item ? [mutable("Item")] : [])
 	],
 	extends: undefined
 })
 
 /** The two laws, each read through the naming door from the capacity statement that declares it. */
-const sumLaw: LawId = lawNamesOf(pools(false)).lawOfDesc(poolWeights)
-const countLaw: LawId = lawNamesOf(pools(false)).lawOfDesc(poolItems)
+const sumLaw: LawId = lawNamesOf(pools(variants[0].mutable)).lawOfDesc(poolWeights)
+const countLaw: LawId = lawNamesOf(pools(variants[0].mutable)).lawOfDesc(poolItems)
 
 type Op =
 	| {
@@ -97,7 +117,8 @@ const poolId = int(1, 4)
 /** A pick of an item, resolved against the items stored when its transaction begins. */
 const itemPick = int(0, 20)
 
-const opGen = (isMutable: boolean): Gen<Op> => {
+/** A transaction's operations: insertions, deletions, and UPDATEs of the relations a variant declares mutable. */
+const opGen = (m: PoolsMutability): Gen<Op> => {
 	const base: Arr.NonEmptyReadonlyArray<Gen<Op>> = [
 		(source) => ({
 			op: "insertPool",
@@ -115,7 +136,7 @@ const opGen = (isMutable: boolean): Gen<Op> => {
 		(source) => ({ op: "deletePool", id: source.draw(poolId) }),
 		(source) => ({ op: "deleteItem", pick: source.draw(itemPick) })
 	]
-	const updates: ReadonlyArray<Gen<Op>> = [
+	const poolUpdates: ReadonlyArray<Gen<Op>> = [
 		(source) => ({
 			op: "updatePool",
 			id: source.draw(poolId),
@@ -123,7 +144,9 @@ const opGen = (isMutable: boolean): Gen<Op> => {
 			span: source.draw(int(-1, 6)),
 			open: source.draw(boolean)
 		}),
-		(source) => ({ op: "rekeyPool", id: source.draw(poolId), to: source.draw(poolId) }),
+		(source) => ({ op: "rekeyPool", id: source.draw(poolId), to: source.draw(poolId) })
+	]
+	const itemUpdates: ReadonlyArray<Gen<Op>> = [
 		(source) => ({ op: "moveItem", pick: source.draw(itemPick), pool: source.draw(poolId) }),
 		(source) => ({
 			op: "updateItem",
@@ -133,7 +156,9 @@ const opGen = (isMutable: boolean): Gen<Op> => {
 			live: source.draw(boolean)
 		})
 	]
-	return oneOf(isMutable ? [...base, ...updates] : base)
+	return oneOf(
+		Arr.appendAll(base, [...(m.Pool ? poolUpdates : []), ...(m.Item ? itemUpdates : [])])
+	)
 }
 
 /** A case: whether it starts from the populated lawful state, and its transactions. */
@@ -142,8 +167,8 @@ interface CapacityCase {
 	readonly transactions: ReadonlyArray<ReadonlyArray<Op>>
 }
 
-const capacityCaseGen = (isMutable: boolean): Gen<CapacityCase> => {
-	const transaction = array(opGen(isMutable), { min: 1, max: 6 })
+const capacityCaseGen = (m: PoolsMutability): Gen<CapacityCase> => {
+	const transaction = array(opGen(m), { min: 1, max: 6 })
 	return (source) => ({
 		populated: source.draw(boolean),
 		transactions: source.draw(array(transaction, { min: 1, max: 4 }))
@@ -212,29 +237,27 @@ const violated = (
  * - The containment the schema declares beside them: every item's pool exists, a deferred foreign key whose violation
  *   is a 23503 at COMMIT.
  *
- * Both relations are `mutable` in one variant and immutable in the other, where the generator emits no UPDATE. The
- * mutable variant also moves items between pools alone, so an old group left below its lower bound is judged: the
+ * Both relations are `mutable` in one variant and immutable in the other; the generator emits UPDATEs of a relation
+ * only where the variant declares it mutable. The mutable variant also moves items between pools alone, so an old group left below its lower bound is judged: the
  * lower bounds are mostly positive, and a function that checked only a mover's new group would commit violations.
  * Cases are explored each from the empty state or a populated lawful one, and the population must reach
  * both starts and both outcomes.
  */
 export const capacityOracleSuite = (): void => {
 	layer(Substrate.layer)("capacity laws over generated transactions", (it) => {
-		it.effect("immutable: a transaction commits iff its final state is lawful", (ctx) =>
-			searched(ctx, capacityOracle(false))
-		)
-		it.effect("mutable: a transaction commits iff its final state is lawful", (ctx) =>
-			searched(ctx, capacityOracle(true))
-		)
+		for (const variant of variants) {
+			it.effect(`${variant.name}: a transaction commits iff its final state is lawful`, (ctx) =>
+				searched(ctx, capacityOracle(variant))
+			)
+		}
 	})
 }
 
 /** One variant's search: its schema installed, and its cases run by one writer. */
-const capacityOracle = (isMutable: boolean) =>
+const capacityOracle = (variant: PoolsVariant) =>
 	Effect.gen(function* () {
-		const mode = isMutable ? "mutable" : "immutable"
 		const { admin } = yield* Substrate
-		const install = yield* installCapacity(pools(isMutable), isMutable ? "cappoolm" : "cappooli")
+		const install = yield* installCapacity(pools(variant.mutable), variant.installAs)
 		const residuals: ReadonlyArray<string> = Arr.sort(
 			Arr.map(install.installation.laws.residuals, (r) => r.lawId),
 			Order.String
@@ -255,25 +278,22 @@ const capacityOracle = (isMutable: boolean) =>
 				 *
 				 * A case that fails inside a transaction leaves none open for the next case's TRUNCATE.
 				 */
-				suite: `laws/capacity-oracle/${mode}`,
-				draw: drawn(capacityCaseGen(isMutable)),
+				suite: `laws/capacity-oracle/${variant.name}`,
+				draw: drawn(capacityCaseGen(variant.mutable)),
 				literal: Formatter.format,
 				kept: [],
 				runs: 40,
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "none" },
 				/**
 				 * Each candidate is a case against the server: a complete shrink of a failure only some runs reproduce never
 				 * ends (laws/families/suites/family.ts), so it stops after 300.
 				 */
 				shrink: { kind: "bounded", candidates: 300 },
-				features: features<CapacityOracleFeature>([
-					"accepted",
-					"rejected",
-					"populated start",
-					"empty start"
-				]),
+				coverage: required<CapacityOracleFeature>(
+					["accepted", "rejected", "populated start", "empty start"],
+					{ cases: 40, sense: notesOnly }
+				),
 				caseHang: Duration.minutes(2)
 			},
 			(k, c) =>

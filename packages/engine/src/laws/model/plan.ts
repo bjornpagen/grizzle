@@ -3,6 +3,7 @@ import type {
 	ResolvedPair,
 	ResolvedSelector,
 	ResolvedSide,
+	TheoryArm,
 	TheoryLaw,
 	Weighed
 } from "#compiler/analysis/theory/laws.ts"
@@ -24,23 +25,27 @@ import * as Order from "#compiler/core/order.ts"
 import type { LiteralDesc, Refs } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
+	type AlternativesArm,
+	type AlternativesCheck,
 	type Anchor,
 	type AnchorPair,
 	type CapacityBound,
 	type CheckedBound,
 	type ClosedTheoryRelation,
 	type DetailCodec,
+	type EventsOf,
+	type FamilyDetail,
 	fieldNames,
 	type FieldSelector,
 	type FieldValue,
 	type ImageGuard,
-	isKeyField,
 	isSpanField,
 	type KeyField,
 	type KeyName,
 	type LawField,
 	type LawWeight,
-	type ResidualDetail,
+	participantEvents,
+	type RosterHandle,
 	type SelectedSide,
 	type Selector,
 	type SpanField,
@@ -135,7 +140,7 @@ export type NativePlan =
 	| {
 			readonly kind: "GeneratedCheck"
 			readonly relation: TheoryRelation
-			/** The predicate over the table's own columns, lowered in the total fragment. */
+			/** The predicate over the table's own columns, lowered in "check" mode, where no operation raises. */
 			readonly predicate: CheckPredicate
 	  }
 	| { readonly kind: "Enum"; readonly name: string; readonly handles: ReadonlyArray<string> }
@@ -233,9 +238,8 @@ export interface KeyColumn {
 
 /** One row image of an event, each participant field that gives the anchor key from it with the anchor-key column it
  * gives, in anchor-key order, and its guard: the selection of the side the image plays, which a row outside it fails
- * (`ImageGuard`). */
+ * (`ImageGuard`). An INSERT's image is of NEW and a DELETE's of OLD, so the event it belongs to is its side. */
 export interface ImagePlan {
-	readonly side: "old" | "new"
 	readonly key: NonEmptyReadonlyArray<KeyColumn>
 	readonly guard: ImageGuard
 }
@@ -271,34 +275,67 @@ const guardBy = (selection: ReadonlyArray<ResolvedSelector>): ImageGuard =>
 		? { kind: "selected", selections: [mapNonEmpty(selection, fieldSelector)] }
 		: always
 
-/** One participating table of a residual law: its threatening events and the affected anchor keys each
- * event's row images give. */
+/** A participant's threatening events as planned: an INSERT, a DELETE or both, each with the row images that give its
+ * affected anchor keys, and for a mutable relation the fields whose UPDATE matters, an UPDATE being the deletion of OLD
+ * and the insertion of NEW, so its images are theirs. */
+export type PlanEvents = EventsOf<NonEmptyReadonlyArray<ImagePlan>, NonEmptyReadonlyArray<LawField>>
+
+/** One participating table of a residual law and its threatening events. */
 export interface ParticipantPlan {
 	readonly relation: TheoryRelation
-	readonly insert: ReadonlyArray<ImagePlan>
-	readonly delete: ReadonlyArray<ImagePlan>
-	/** The UPDATE OF fields and the images an update checks, for a mutable participant; none for an immutable one. */
-	readonly update:
-		| {
-				readonly of: NonEmptyReadonlyArray<LawField>
-				readonly images: NonEmptyReadonlyArray<ImagePlan>
-		  }
-		| undefined
+	readonly events: PlanEvents
 }
 
-/** The participant each residual law leads with: one whose INSERT threatens the law, so the law has a trigger. */
-export type LeadParticipant = ParticipantPlan & {
-	readonly insert: NonEmptyReadonlyArray<ImagePlan>
+/** An alternatives law's participant plan, with what its writes can leave unpaid. */
+export interface AlternativesPlan extends ParticipantPlan {
+	readonly check: AlternativesCheck
 }
 
-/** A residual law's participants, its lead first. */
-export type ResidualParticipants = readonly [LeadParticipant, ...ReadonlyArray<ParticipantPlan>]
+/** What an arm relation's writes can leave unpaid: its own arms. */
+type ArmsCheck = Extract<AlternativesCheck, { readonly kind: "arms" }>
+
+/** An arm relation's participant plan, re-checking its own arms. */
+interface ArmPlan extends ParticipantPlan {
+	readonly check: ArmsCheck
+}
+
+/** The UPDATE OF fields of a participant: only a mutable relation has an UPDATE, no role holding UPDATE on an
+ * immutable relation. Its images are its DELETE's and its INSERT's (ir/law.ts updateImages). */
+const updateOf = (
+	relation: TheoryRelation,
+	of: NonEmptyReadonlyArray<LawField>
+): NonEmptyReadonlyArray<LawField> | undefined => (relation.mutable ? of : undefined)
+
+/** A participant whose INSERT threatens, at `image` of NEW, and whose UPDATE OF `of` does for a mutable relation. */
+const inserting = (
+	relation: TheoryRelation,
+	image: ImagePlan,
+	of: NonEmptyReadonlyArray<LawField>
+): ParticipantPlan => ({
+	relation,
+	events: { insert: [image], delete: undefined, update: updateOf(relation, of) }
+})
+
+/** A participant whose DELETE threatens, at `image` of OLD, and whose UPDATE OF `of` does for a mutable relation. */
+const deleting = (
+	relation: TheoryRelation,
+	image: ImagePlan,
+	of: NonEmptyReadonlyArray<LawField>
+): ParticipantPlan => ({
+	relation,
+	events: { insert: undefined, delete: [image], update: updateOf(relation, of) }
+})
+
+/** What each family checks beyond its anchor, with its participants as planned: one per relation. */
+export type PlannedDetail = FamilyDetail<
+	NonEmptyReadonlyArray<ParticipantPlan>,
+	NonEmptyReadonlyArray<AlternativesPlan>
+>
 
 interface ResidualPlan {
-	/** The family and what it checks beyond the anchor. */
-	readonly checks: ResidualDetail
+	/** The family, what it checks beyond the anchor, and its participants. */
+	readonly checks: PlannedDetail
 	readonly anchor: Anchor
-	readonly participants: ResidualParticipants
 	readonly violation: RelNode
 	readonly indexes: NonEmptyReadonlyArray<Omit<LawIndexRequest, "justification">>
 	readonly detail: DetailCodec
@@ -378,8 +415,8 @@ export type CheckPredicate =
 			readonly left: CheckTerm
 			readonly right: CheckTerm
 	  }
-	| { readonly kind: "and"; readonly args: ReadonlyArray<CheckPredicate> }
-	| { readonly kind: "or"; readonly args: ReadonlyArray<CheckPredicate> }
+	| { readonly kind: "and"; readonly args: NonEmptyReadonlyArray<CheckPredicate> }
+	| { readonly kind: "or"; readonly args: NonEmptyReadonlyArray<CheckPredicate> }
 	| { readonly kind: "not"; readonly arg: CheckPredicate }
 
 const field = (column: LawField): FieldTerm => ({ kind: "field", field: column.name, column })
@@ -451,8 +488,10 @@ const andP = (ps: ReadonlyArray<Pred>): Pred => {
 		return false
 	}
 	const rest = ps.flatMap((p) => (typeof p === "boolean" ? [] : [p]))
-	const [first, second] = rest
-	return first === undefined ? true : second === undefined ? first : { kind: "and", args: rest }
+	if (!isNonEmpty(rest)) {
+		return true
+	}
+	return rest.length === 1 ? headNonEmpty(rest) : { kind: "and", args: rest }
 }
 
 const orP = (ps: ReadonlyArray<Pred>): Pred => {
@@ -460,8 +499,10 @@ const orP = (ps: ReadonlyArray<Pred>): Pred => {
 		return true
 	}
 	const rest = ps.flatMap((p) => (typeof p === "boolean" ? [] : [p]))
-	const [first, second] = rest
-	return first === undefined ? false : second === undefined ? first : { kind: "or", args: rest }
+	if (!isNonEmpty(rest)) {
+		return false
+	}
+	return rest.length === 1 ? headNonEmpty(rest) : { kind: "or", args: rest }
 }
 
 const notP = (p: Pred): Pred => (typeof p === "boolean" ? !p : { kind: "not", arg: p })
@@ -603,57 +644,79 @@ export class Recognizer {
 		]
 	}
 
-	/** The alternatives family's reverse obligation, anchored on the parent row; the native half is the
-	 * arms' tagged references (their own laws). */
+	/** The alternatives family's reverse obligation, anchored on the parent row; the native half is the arms' tagged
+	 * references (their own laws). The violation is a union of one term per armed handle, each reading the parent and
+	 * that handle's arm relation alone, so a write to an arm relation can break only its own arms' terms: the parent
+	 * re-checks the whole roster, each arm relation its own arms. A parent deletion and an arm insertion break no term.
+	 * The parent is no arm relation (the theory refuses its own arm), so its participant is its own, and an arm relation
+	 * of several handles is one participant re-checking each of its arms. */
 	#alternatives(
 		law: TheoryLaw,
 		family: Extract<TheoryLaw["detail"], { readonly kind: "alternatives" }>
 	): ResidualPlan {
 		const parentKey = anchorColumns(ownPairs(family.parentFields))
-		const parent: LeadParticipant = {
-			relation: family.parentRel,
-			insert: [{ side: "new", key: parentKey, guard: always }],
-			delete: [],
-			update: this.#update(
-				family.parentRel,
-				inHeadingOrder([...family.parentFields, family.discriminatorField]),
-				[{ side: "new", key: parentKey, guard: always }]
+		const armOf = (arm: TheoryArm): AlternativesArm => ({
+			handle: arm.handle,
+			relation: arm.rel,
+			pairs: anchorPairs(
+				arm.key,
+				(p) => p.armColumn,
+				(p) => p.parentColumn
 			)
+		})
+		const parent: AlternativesPlan = {
+			...inserting(
+				family.parentRel,
+				{ key: parentKey, guard: always },
+				inHeadingOrder([...family.parentFields, family.discriminatorField])
+			),
+			check: {
+				kind: "roster",
+				handles: mapNonEmpty(family.handles, (h): RosterHandle => {
+					switch (h.kind) {
+						case "armed":
+							return { kind: "armed", arm: armOf(h.arm) }
+						case "unarmed":
+							return h
+					}
+				})
+			}
 		}
-		const arms = mapNonEmpty(family.arms, (arm): ParticipantPlan => {
+		const arms = family.handles.flatMap((h): ReadonlyArray<ArmPlan> => {
+			if (h.kind === "unarmed") {
+				return []
+			}
+			const arm = h.arm
 			const key = mapNonEmpty(arm.key, (p) => ({
 				field: p.armColumn,
 				pair: { field: p.parentColumn, anchor: p.parentColumn }
 			}))
-			return {
-				relation: arm.rel,
-				insert: [],
-				delete: [{ side: "old", key, guard: always }],
-				...this.#moving(
-					arm.rel,
-					inHeadingOrder(mapNonEmpty(arm.key, (p) => p.armColumn)),
-					key,
-					always
-				)
-			}
+			return [
+				{
+					...deleting(
+						arm.rel,
+						{ key, guard: always },
+						inHeadingOrder(mapNonEmpty(arm.key, (p) => p.armColumn))
+					),
+					check: { kind: "arms", arms: [armOf(arm)] }
+				}
+			]
 		})
 		return {
 			checks: {
 				family: "alternativesReverse",
 				discriminator: family.discriminatorField,
-				arms: mapNonEmpty(family.arms, (arm) => ({
-					handle: arm.handle,
-					relation: arm.rel,
-					pairs: anchorPairs(
-						arm.key,
-						(p) => p.armColumn,
-						(p) => p.parentColumn
-					)
-				})),
-				unarmed: family.unarmed
+				participants: [
+					parent,
+					...(isNonEmpty(arms)
+						? mergeParticipants(arms, (prior, p) => ({
+								...mergeTwo(prior, p),
+								check: uniteArms(prior.check, p.check)
+							}))
+						: [])
+				]
 			},
 			anchor: { relation: family.parentRel, key: family.parentFields },
-			participants: [parent, ...arms],
 			violation: law.violation,
 			indexes: [
 				this.#indexRequest(family.parent, family.parentKey, "btree", "anchor read", allRows)
@@ -954,8 +1017,8 @@ export class Recognizer {
 	}
 
 	/** Every selected source fact's projection is the key of a target row, the anchor, of the relation `target`, each
-	 * source field paired with the target field it meets. Source insertion and target deletion threaten; a mutable
-	 * side's move checks both anchors. */
+	 * source field paired with the target field it meets. Source insertion and target deletion threaten, so a mutable
+	 * source's UPDATE checks its new anchor and a mutable target's its old key. */
 	#selectedSourceContainment(
 		law: TheoryLaw,
 		from: ResolvedSide,
@@ -974,22 +1037,18 @@ export class Recognizer {
 		const sourceUpdate = inHeadingOrder([...from.columns, ...from.selection.map((s) => s.col)])
 		const source: SelectedSide = { relation: fromRel, pairs: sourcePairs, selection }
 		return {
-			checks: { family: "selectedSourceContainment", source },
+			checks: {
+				family: "selectedSourceContainment",
+				source,
+				participants: mergeParticipants(
+					[
+						inserting(fromRel, { key: sourceKey, guard: guardBy(from.selection) }, sourceUpdate),
+						deleting(toRel, { key: anchorColumns(sourcePairs), guard: always }, inHeadingOrder(key))
+					],
+					mergeTwo
+				)
+			},
 			anchor: { relation: toRel, key },
-			participants: [
-				{
-					relation: fromRel,
-					insert: [{ side: "new", key: sourceKey, guard: guardBy(from.selection) }],
-					delete: [],
-					...this.#moving(fromRel, sourceUpdate, sourceKey, guardBy(from.selection))
-				},
-				{
-					relation: toRel,
-					insert: [],
-					delete: [{ side: "old", key: anchorColumns(sourcePairs), guard: always }],
-					...this.#moving(toRel, inHeadingOrder(key), anchorColumns(sourcePairs), always)
-				}
-			],
 			violation: law.violation,
 			indexes: [
 				this.#indexRequest(
@@ -1001,32 +1060,6 @@ export class Recognizer {
 				)
 			],
 			detail: detailOf(fromRel, from.columns)
-		}
-	}
-
-	/** The UPDATE event of a participant, its UPDATE OF fields and the images it checks: only a mutable relation has one,
-	 * no role holding UPDATE on an immutable relation. */
-	#update(
-		relation: TheoryRelation,
-		of: NonEmptyReadonlyArray<LawField>,
-		images: NonEmptyReadonlyArray<ImagePlan>
-	): ParticipantPlan["update"] {
-		return relation.mutable ? { of, images } : undefined
-	}
-
-	/** An UPDATE of a mutable participant that moves a fact between groups checks both anchors, each image under the
-	 * guard of the side the participant plays. */
-	#moving(
-		relation: TheoryRelation,
-		of: NonEmptyReadonlyArray<LawField>,
-		key: NonEmptyReadonlyArray<KeyColumn>,
-		guard: ImageGuard
-	): Pick<ParticipantPlan, "update"> {
-		return {
-			update: this.#update(relation, of, [
-				{ side: "old", key, guard },
-				{ side: "new", key, guard }
-			])
 		}
 	}
 
@@ -1043,8 +1076,8 @@ export class Recognizer {
 	}
 
 	/** The parent, the anchor, requires its selected child of the relation `child`, each parent field paired with the
-	 * child field it meets. Parent insertion and child deletion threaten; a mutable parent's key or selector update fires
-	 * and checks the parent; a mutable child's move checks both parents. */
+	 * child field it meets. Parent insertion and child deletion threaten, so a mutable parent's key or selector update
+	 * checks the parent's new key, and a mutable child's move its old parent. */
 	#conditionalMirrors(
 		law: TheoryLaw,
 		parent: ResolvedSide,
@@ -1066,27 +1099,20 @@ export class Recognizer {
 			checks: {
 				family: "conditionalMirrors",
 				selection,
-				child: { relation: childRel, pairs: childPairs }
+				child: { relation: childRel, pairs: childPairs },
+				participants: mergeParticipants(
+					[
+						inserting(
+							parentRel,
+							{ key: parentKey, guard: guardBy(parent.selection) },
+							inHeadingOrder([...parent.columns, ...parent.selection.map((s) => s.col)])
+						),
+						deleting(childRel, { key: childKey, guard: always }, inHeadingOrder(childFields))
+					],
+					mergeTwo
+				)
 			},
 			anchor: { relation: parentRel, key },
-			participants: [
-				{
-					relation: parentRel,
-					insert: [{ side: "new", key: parentKey, guard: guardBy(parent.selection) }],
-					delete: [],
-					update: this.#update(
-						parentRel,
-						inHeadingOrder([...parent.columns, ...parent.selection.map((s) => s.col)]),
-						[{ side: "new", key: parentKey, guard: guardBy(parent.selection) }]
-					)
-				},
-				{
-					relation: childRel,
-					insert: [],
-					delete: [{ side: "old", key: childKey, guard: always }],
-					...this.#moving(childRel, inHeadingOrder(childFields), childKey, always)
-				}
-			],
 			violation: law.violation,
 			indexes: [this.#indexRequest(parentRel.name, parent.fields, "btree", "anchor read", allRows)],
 			detail: detailOf(parentRel, parent.columns)
@@ -1157,23 +1183,20 @@ export class Recognizer {
 						/** The residual accumulates the target spans into a multirange of the target span's carrier. */
 						carrier: span.to.type.carrier
 					},
-					source: { relation: fromRel, pairs: sourcePairs, span: span.from, selection }
+					source: { relation: fromRel, pairs: sourcePairs, span: span.from, selection },
+					participants: mergeParticipants(
+						[
+							inserting(fromRel, { key: sourceKey, guard: guardBy(from.selection) }, sourceUpdate),
+							deleting(
+								toRel,
+								{ key: anchorColumns(sourcePairs), guard: always },
+								inHeadingOrder(to.columns)
+							)
+						],
+						mergeTwo
+					)
 				},
 				anchor: { relation: toRel, key: toScalarFields },
-				participants: [
-					{
-						relation: fromRel,
-						insert: [{ side: "new", key: sourceKey, guard: guardBy(from.selection) }],
-						delete: [],
-						...this.#moving(fromRel, sourceUpdate, sourceKey, guardBy(from.selection))
-					},
-					{
-						relation: toRel,
-						insert: [],
-						delete: [{ side: "old", key: anchorColumns(sourcePairs), guard: always }],
-						...this.#moving(toRel, inHeadingOrder(to.columns), anchorColumns(sourcePairs), always)
-					}
-				],
 				violation: law.violation,
 				indexes: [
 					this.#indexRequest(toRel.name, [...toScalars, pair.to], "gist", "group listing", allRows),
@@ -1227,7 +1250,7 @@ export class Recognizer {
 		const targetColumns = appendNonEmpty(toScalarFields, selector.col)
 		/** The temporal unique compares its scalar fields through btree_gist, which has no operator class for a vector. */
 		const temporal = mapNonEmpty(targetColumns, (f) =>
-			isKeyField(f)
+			f.type.carrier !== "vector"
 				? f
 				: unrepresentable(
 						loc,
@@ -1322,35 +1345,26 @@ export class Recognizer {
 		)
 		const sourceKey = pairedColumns(sourcePairs)
 		const key = mapNonEmpty(d.pairs, (p) => p.targetColumn)
-		const sourcePlan: ParticipantPlan = {
-			relation: source,
-			insert: adds ? [{ side: "new", key: sourceKey, guard: sourceGuard }] : [],
-			delete: removes ? [{ side: "old", key: sourceKey, guard: sourceGuard }] : [],
-			...(adds || removes
-				? this.#moving(
-						source,
-						inHeadingOrder([
-							...d.from.columns,
-							...weightFields(d.weighed),
-							...d.from.selection.map((s) => s.col)
-						]),
-						sourceKey,
-						sourceGuard
-					)
-				: { update: undefined })
-		}
-		const targetGuard = guardBy(d.target.selection)
-		const targetPlan: LeadParticipant = {
-			relation: target,
-			insert: [{ side: "new", key: anchorColumns(sourcePairs), guard: targetGuard }],
-			delete: [],
-			...this.#moving(
-				target,
-				inHeadingOrder([...key, ...refs, ...d.target.selection.map((s) => s.col)]),
-				anchorColumns(sourcePairs),
-				targetGuard
+		/** A source's insertion threatens a bound above and its deletion one below; a source neither threatens is no
+		 * participant. */
+		const sourceImage: ImagePlan = { key: sourceKey, guard: sourceGuard }
+		const sourceEvents: PlanEvents | undefined = participantEvents(
+			adds ? [sourceImage] : undefined,
+			removes ? [sourceImage] : undefined,
+			updateOf(
+				source,
+				inHeadingOrder([
+					...d.from.columns,
+					...weightFields(d.weighed),
+					...d.from.selection.map((s) => s.col)
+				])
 			)
-		}
+		)
+		const targetPlan = inserting(
+			target,
+			{ key: anchorColumns(sourcePairs), guard: guardBy(d.target.selection) },
+			inHeadingOrder([...key, ...refs, ...d.target.selection.map((s) => s.col)])
+		)
 		return done(natives, {
 			checks: {
 				family: "scalarCapacity",
@@ -1362,10 +1376,15 @@ export class Recognizer {
 				},
 				weight: lawWeight(d.weighed),
 				aggregate: d.aggregate,
-				bounds
+				bounds,
+				participants: mergeParticipants(
+					sourceEvents === undefined
+						? [targetPlan]
+						: [targetPlan, { relation: source, events: sourceEvents }],
+					mergeTwo
+				)
 			},
 			anchor: { relation: target, key },
-			participants: [targetPlan, sourcePlan],
 			violation: law.violation,
 			indexes: [
 				this.#indexRequest(
@@ -1449,4 +1468,99 @@ const boundPred = (value: MetTerm | 0n | 1n, bound: CapacityBound, op: "ge" | "l
 		return compareLiteral(flip[op], field(bound.field), { kind: "int", value })
 	}
 	return { kind: "compare", op, left: value, right: field(bound.field) }
+}
+
+/** The guard of one image two sides of a relation share: always when either side's image is, else the union of their
+ * selections, the earlier plan's first. */
+const uniteGuards = (a: ImageGuard, b: ImageGuard): ImageGuard =>
+	a.kind === "always" || b.kind === "always"
+		? { kind: "always" }
+		: { kind: "selected", selections: [...a.selections, ...b.selections] }
+
+const imageKey = (i: ImagePlan) => i.key.map((c) => c.field.name).join("\u0000")
+
+/** `a`'s images of one event with `b`'s: each of `a`'s under the union of its guard and its twin's in `b`, then the ones
+ * of `b` that `a` lacks, each under its own. */
+const extend = (
+	a: NonEmptyReadonlyArray<ImagePlan>,
+	b: NonEmptyReadonlyArray<ImagePlan> | undefined
+): NonEmptyReadonlyArray<ImagePlan> => {
+	if (b === undefined) {
+		return a
+	}
+	const twins = new Map(b.map((x) => [imageKey(x), x] as const))
+	const known = new Set(a.map(imageKey))
+	return [
+		...mapNonEmpty(a, (i) => {
+			const twin = twins.get(imageKey(i))
+			return twin === undefined ? i : { key: i.key, guard: uniteGuards(i.guard, twin.guard) }
+		}),
+		...b.filter((i) => !known.has(imageKey(i)))
+	]
+}
+
+/** Two image lists of one event as one (`extend`), none when neither has any. */
+const uniteImages = (
+	a: NonEmptyReadonlyArray<ImagePlan> | undefined,
+	b: NonEmptyReadonlyArray<ImagePlan> | undefined
+): NonEmptyReadonlyArray<ImagePlan> | undefined => (a === undefined ? b : extend(a, b))
+
+/** Two UPDATE OF lists of one relation as one: the fields of either, in heading order. */
+const uniteUpdates = (
+	a: NonEmptyReadonlyArray<LawField> | undefined,
+	b: NonEmptyReadonlyArray<LawField> | undefined
+): NonEmptyReadonlyArray<LawField> | undefined =>
+	a === undefined
+		? b
+		: b === undefined
+			? a
+			: sortNonEmpty(
+					dedupeNonEmpty([...a, ...b]),
+					Order.mapInput(Order.compareNumbers, (f: LawField) => f.position)
+				)
+
+/** Two plans' events of one relation as one, each kind united. */
+const uniteEvents = (a: PlanEvents, b: PlanEvents): PlanEvents => {
+	const update = uniteUpdates(a.update, b.update)
+	if (a.insert !== undefined) {
+		return { insert: extend(a.insert, b.insert), delete: uniteImages(a.delete, b.delete), update }
+	}
+	if (b.insert !== undefined) {
+		return { insert: b.insert, delete: extend(a.delete, b.delete), update }
+	}
+	return { insert: undefined, delete: extend(a.delete, b.delete), update }
+}
+
+/** Two plans of one relation as one. */
+const mergeTwo = (prior: ParticipantPlan, p: ParticipantPlan): ParticipantPlan => ({
+	relation: p.relation,
+	events: uniteEvents(prior.events, p.events)
+})
+
+/** What two arm plans of one relation re-check, as one: the earlier plan's arms, then the later's. The planner visits
+ * the arms in roster order, so these are too. */
+const uniteArms = (a: ArmsCheck, b: ArmsCheck): ArmsCheck => ({
+	kind: "arms",
+	arms: [...a.arms, ...b.arms]
+})
+
+/** One participant per participating table, in the order each relation is first planned: the plans of one relation
+ * merged by `merge`, events and images united. Two images of one event and fields are one image, under the union of
+ * their guards; an image one plan has and the other lacks keeps its own guard. */
+const mergeParticipants = <P extends ParticipantPlan>(
+	plans: NonEmptyReadonlyArray<P>,
+	merge: (prior: P, p: P) => P
+): NonEmptyReadonlyArray<P> => {
+	const [first, ...rest] = plans
+	let head = first
+	const byRelation = new Map<string, P>()
+	for (const p of rest) {
+		if (p.relation.name === head.relation.name) {
+			head = merge(head, p)
+			continue
+		}
+		const prior = byRelation.get(p.relation.name)
+		byRelation.set(p.relation.name, prior === undefined ? p : merge(prior, p))
+	}
+	return [head, ...byRelation.values()]
 }

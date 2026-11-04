@@ -56,7 +56,8 @@ const endpointFieldDesc = (endpoint: SpanEndpointKind): FieldDesc => {
 					op: "ge",
 					left: { kind: "value" },
 					right: { kind: "literal", value: tickContract.low, type: undefined }
-				}
+				},
+				facts: []
 			}
 	}
 }
@@ -445,12 +446,12 @@ const variable = (id: string): ExprDesc => ({ kind: "var", var: id })
 
 const spanOperandDesc = (endpoint: SpanEndpointKind, operand: SpanOperand): ExprDesc =>
 	operand.kind === "param"
-		? { kind: "param", name: "window" }
+		? { kind: "param", name: "window", type: spanFieldDesc(endpoint) }
 		: { kind: "literal", value: { span: spanHost(endpoint, operand.span) }, type: undefined }
 
 const pointOperandDesc = (endpoint: SpanEndpointKind, operand: PointOperand): ExprDesc =>
 	operand.kind === "param"
-		? { kind: "param", name: "point" }
+		? { kind: "param", name: "point", type: endpointFieldDesc(endpoint) }
 		: { kind: "literal", value: endpointHost(endpoint, operand.point), type: undefined }
 
 /** One rule over one relation: its group and span bound to variables `g` and `s`. */

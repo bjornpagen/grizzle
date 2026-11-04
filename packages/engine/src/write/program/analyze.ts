@@ -1,3 +1,9 @@
+import {
+	extendNonEmpty,
+	isNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "#compiler/core/nonempty.ts"
 import { oneForm } from "#compiler/lower/shapes/index.ts"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -58,25 +64,25 @@ const nextJoinedWithoutWrite = (
 /** Per position of `access`, the carriers to analyze just before the statement there. */
 const pointsOf = (
 	access: ReadonlyArray<CarrierAccess>
-): ReadonlyMap<number, ReadonlyArray<CarrierName>> => {
-	const points = new Map<number, ReadonlyArray<CarrierName>>()
+): ReadonlyMap<number, NonEmptyReadonlyArray<CarrierName>> => {
+	const points = new Map<number, NonEmptyReadonlyArray<CarrierName>>()
 	/** Created or written since the last ANALYZE. */
 	const stale = new Set<CarrierName>()
 	for (const [i, a] of access.entries()) {
 		const needed = [...joined(a)].filter((c) => stale.has(c))
-		if (needed.length > 0) {
+		if (isNonEmpty(needed)) {
 			const after = access.slice(i + 1)
-			const batch = new Set([
-				...needed,
-				...[...stale].filter((c) => nextJoinedWithoutWrite(c, a, after))
-			])
+			const others = [...stale].filter(
+				(c) => !needed.includes(c) && nextJoinedWithoutWrite(c, a, after)
+			)
+			const batch = sortNonEmpty(
+				extendNonEmpty(needed, others),
+				(x, y) => carrierNumber(x) - carrierNumber(y)
+			)
 			for (const c of batch) {
 				stale.delete(c)
 			}
-			points.set(
-				i,
-				[...batch].toSorted((x, y) => carrierNumber(x) - carrierNumber(y))
-			)
+			points.set(i, batch)
 		}
 		for (const c of a.writes) {
 			stale.add(c)

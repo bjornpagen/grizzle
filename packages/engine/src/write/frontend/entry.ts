@@ -51,7 +51,8 @@ export const entryFillable = (entry: CheckedEntry, claims: EntryClaims): boolean
  * read. An addition is checked against the filter before its insert, and the identity default draws a serial value
  * only at the insert, so a generated value cannot be checked: a serial field the filter reads is one every fact
  * carries, and a fact omitting it is refused where any fact missing a field is (the host's encoder, or checkMember's
- * heading check for a described member). */
+ * heading check for a described member). Every head field may be such a field, so a generated addition may carry no
+ * field: the unit relation, one new fact of T's fixed fields with its serial fields drawn. */
 export const entryRelation = (entry: CheckedEntry): MemberRelation => {
 	const checked = new Set(entry.filter.kind === "query" ? entry.filter.fields : [])
 	return {
@@ -66,7 +67,9 @@ export const entryRelation = (entry: CheckedEntry): MemberRelation => {
 const varOf = (id: string): ExprDesc => ({ kind: "var", var: id })
 
 /** The fill of `entry` over a relation parameter carrying `input`, the head fields its source delivers (every one, or
- * every one but those writing a serial field of T for a generated addition), as a query over the base (see `entryFacts`). */
+ * every one but those writing a serial field of T for a generated addition), as a query over the base (see `entryFacts`).
+ * A generated fill may declare `entryRows` of no field, the unit relation, when every head field writes such a serial
+ * field. */
 export const fillQuery = (entry: CheckedEntry, input: Heading, loc: SourceLoc): QueryDesc => {
 	const carried = new Set(input.map((c) => c.name))
 	const heading: Record<string, FieldDesc> = {}
@@ -139,10 +142,10 @@ export const entryKey = <V>(
 	return Object.freeze(out)
 }
 
-/** The host's view of a query entry's facts (`SlotFacts`): the entry by its name, the head fields that
- * write a serial field of its target, and each same-key check of the target over the head fields that write it. A fixed
- * field holds one value in every fact of one Db, so a key leaves it out and still holds two facts apart exactly when the
- * target's key does; a span check whose span field is fixed is left to the statement, which probes it.
+/** The host's view of a query entry's facts (`SlotFacts`): the entry by its name, and each same-key check of the target
+ * over the head fields that write it. A fixed field holds one value in every fact of one Db, so a key leaves it out
+ * and still holds two facts apart exactly when the target's key does; a span check whose span field is fixed is left
+ * to the statement, which probes it.
  *
  * A write into a writable query entry, as the write front end lowers it.
  *
@@ -167,9 +170,8 @@ export const entryKey = <V>(
  * it writes. */
 export const entryFacts = (
 	entry: CheckedEntry,
-	member: MemberRelation,
 	target: HostChecks
-): { readonly name: string; readonly serial: ReadonlyArray<string>; readonly host: HostChecks } => {
+): { readonly name: string; readonly host: HostChecks } => {
 	const headOf = new Map([...entry.head].map(([head, { field }]) => [field.name, head] as const))
 	const mapped = (fields: ReadonlyArray<HostKeyField>): ReadonlyArray<HostKeyField> =>
 		fields.flatMap((f) => {
@@ -178,7 +180,6 @@ export const entryFacts = (
 		})
 	return {
 		name: entry.entry,
-		serial: member.serial,
 		host: {
 			keys: target.keys.map((k) => ({
 				law: k.law,

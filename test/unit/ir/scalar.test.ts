@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -21,6 +21,7 @@ import {
 	corruptedFeature
 } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint, double, float } from "@grizzle/testing/values"
@@ -50,7 +51,6 @@ import {
 	type TypedLiteral,
 	literalProblem,
 	normalizeExprTable,
-	OpId,
 	predicateProblems,
 	type TableExpr
 } from "#compiler/ir/expr.ts"
@@ -62,9 +62,11 @@ import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, defined, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
+import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { fail, scalarTypes } from "#test/unit/ir/fixture.ts"
 
 import { regex } from "arkregex"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 /** The largest finite 32-bit float. */
 const floatMax = 3.4028234663852886e38
 
@@ -81,7 +83,9 @@ const decimalText = (units: bigint, scale: number): string => {
  * A valid type of every carrier, the serials, and contracts over a plain, a typmod, a roster and a regex base, each the
  * one the registry builds.
  */
-const kinds = { Kind: ["Automatic", "Manual"] }
+const kinds: Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> = {
+	Kind: ["Automatic", "Manual"]
+}
 const numeric102 = scalarOf(f.numeric(10, 2), {})
 const slugDesc = f.regex("^[a-z]+$", "u")
 const validTypes: ReadonlyArray<ScalarType> = [
@@ -285,7 +289,7 @@ describe("ScalarType", () => {
 						literal: Formatter.format,
 						generator: element(nonEmpty(cases, "the scalar types and their corruptions")),
 						limit: 1_000,
-						features: features<CorruptedFeature<ScalarRule>>([
+						coverage: requiredInSpace<CorruptedFeature<ScalarRule>>([
 							"live",
 							...Arr.map(
 								scalarCorruptions,
@@ -369,7 +373,7 @@ describe("literals", () => {
 		),
 		map(
 			oneOf([element([0.5, 0.1, 1e300]), double(-Number.MAX_VALUE, Number.MAX_VALUE)]),
-			(value): TypedLiteral => ({ kind: "float", value })
+			(value): TypedLiteral => ({ kind: "float", value: canonicalZero(value) })
 		),
 		map(element(["NaN", "Infinity", "-Infinity"] as const), (value): TypedLiteral => ({
 			kind: "floatSpecial",
@@ -377,10 +381,8 @@ describe("literals", () => {
 		})),
 		(source): TypedLiteral => ({
 			kind: "numeric",
-			value: succeeded(
-				DecimalText.make(
-					decimalText(source.draw(bigint(-(10n ** 12n), 10n ** 12n)), source.draw(int(0, 4)))
-				)
+			value: Decimal.of(
+				decimalText(source.draw(bigint(-(10n ** 12n), 10n ** 12n)), source.draw(int(0, 4)))
 			)
 		}),
 		map(bigint(-(2n ** 63n), 2n ** 63n - 1n), (v): TypedLiteral => ({
@@ -547,28 +549,30 @@ describe("literals", () => {
 					],
 					runs: 3000,
 					shrink: completeShrink,
-					features: features<LiteralFeature>([
-						...Arr.flatMap(
-							[
-								"int",
-								"float",
-								"floatSpecial",
-								"numeric",
-								"money",
-								"bool",
-								"text",
-								"uuid",
-								"enum",
-								"span",
-								"vector"
-							] as const,
-							(kind): ReadonlyArray<LiteralFeature> => [`${kind} admitted`, `${kind} refused`]
-						),
-						"under a contract"
-					]),
+					coverage: required<LiteralFeature>(
+						[
+							"under a contract",
+							...Arr.flatMap(
+								[
+									"int",
+									"float",
+									"floatSpecial",
+									"numeric",
+									"money",
+									"bool",
+									"text",
+									"uuid",
+									"enum",
+									"span",
+									"vector"
+								] as const,
+								(kind): ReadonlyArray<LiteralFeature> => [`${kind} admitted`, `${kind} refused`]
+							)
+						],
+						{ cases: 3000, sense: notesOnly }
+					),
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([literal, type], c) =>
@@ -622,19 +626,21 @@ describe("literals", () => {
 						),
 						runs: 2000,
 						shrink: completeShrink,
-						features: features<TypmodFeature>([
-							"an infinity refused",
-							"NaN admitted",
-							"a negative scale",
-							"a scale above the precision",
-							"an overflow refused",
-							"a rounding refused",
-							"a value admitted"
-						]),
+						coverage: required<TypmodFeature>(
+							[
+								"an infinity refused",
+								"NaN admitted",
+								"a negative scale",
+								"a scale above the precision",
+								"an overflow refused",
+								"a rounding refused",
+								"a value admitted"
+							],
+							{ cases: 2000, sense: notesOnly }
+						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([text, precision, scale], c) =>
@@ -677,7 +683,7 @@ describe("literals", () => {
  * The fields every predicate expression shares, each defaulted; a kind's own fields, its arguments and its
  * non-null proof among them, are given.
  */
-type Shared = "id" | "volatility" | "failure" | "deps"
+type Shared = "id" | "volatility" | "deps"
 type PredicateFields = TableExpr extends infer E
 	? E extends TableExpr
 		? Omit<E, Shared> & Partial<Pick<E, Exclude<Shared, "id">>>
@@ -687,7 +693,6 @@ type PredicateFields = TableExpr extends infer E
 const predicateExpr = (id: ExprId, fields: PredicateFields): TableExpr => ({
 	id,
 	volatility: "immutable",
-	failure: "total",
 	deps: { params: [], nodes: [] },
 	...fields
 })
@@ -700,7 +705,7 @@ const allocated = (ids: readonly [string, string, string]): ExprTable => {
 		exprs: {
 			[root]: predicateExpr(root, {
 				kind: "op",
-				op: OpId("int8ge"),
+				op: definedOpOf("int8ge"),
 				args: [value, zero],
 				type: scalarTypes.bool,
 				nonNull: "strict"
@@ -728,7 +733,7 @@ const nonNegative: ExprTable = allocated(["e#0", "e#1", "e#2"])
 const contractOver = (predicate: ExprTable): unknown => ({
 	carrier: "int8",
 	caps: scalarTypes.int8.caps,
-	contract: { name: "Cents", base: scalarTypes.int8, predicate }
+	contract: { name: "Cents", base: scalarTypes.int8, predicate, facts: [] }
 })
 
 describe("contract predicates", () => {
@@ -740,8 +745,8 @@ describe("contract predicates", () => {
 	 * The rules of a contract predicate (expr.ts predicateProblems), each broken once on VALUE >= 0: the table is in
 	 * normal form, so its canonical text cannot depend on allocation; its root and every argument resolve, every entry is
 	 * reachable and none is its own argument; it reads only VALUE, of the base type, and literals, with no column, no
-	 * parameter and no dependency; it is total, immutable and boolean, so no checked cast or domain cast lies in it; its
-	 * literals fit the base. A contract decoded with a broken predicate is MalformedDescription.
+	 * parameter and no dependency; it is immutable and boolean, and no domain cast lies in it; its literals fit the
+	 * base. A contract decoded with a broken predicate is MalformedDescription.
 	 */
 	const broken: Arr.NonEmptyReadonlyArray<readonly [string, ExprTable]> = [
 		["not in normal form", allocated(["e3", "e1", "e2"])],
@@ -765,7 +770,7 @@ describe("contract predicates", () => {
 			edited("e#2", (e) => ({
 				...e,
 				kind: "op",
-				op: OpId("int8pl"),
+				op: definedOpOf("int8pl"),
 				args: [ExprId("e#0")],
 				nonNull: "strict"
 			}))
@@ -793,22 +798,20 @@ describe("contract predicates", () => {
 		],
 		["a dependency", edited("e#1", (e) => ({ ...e, deps: { params: [ParamId("p")], nodes: [] } }))],
 		["VALUE of another type", edited("e#1", (e) => ({ ...e, type: scalarTypes.int4 }))],
-		["a root that can fail", edited("e#0", (e) => ({ ...e, failure: "canFail" }))],
 		["a stable root", edited("e#0", (e) => ({ ...e, volatility: "stable" }))],
 		["a root that is no boolean", edited("e#0", (e) => ({ ...e, type: scalarTypes.int8 }))],
 		[
-			"a checked cast",
+			"a domain cast",
 			edited("e#1", (e) => ({
 				...e,
-				kind: "cast",
-				checked: true,
+				kind: "domainCast",
 				args: [ExprId("e#2")],
-				nonNull: "strict"
+				nonNull: "strict",
+				proof: {
+					precondition: { kind: "contract" },
+					premises: [{ kind: "checked", operand: 0, by: "literal" }]
+				}
 			}))
-		],
-		[
-			"a domain cast",
-			edited("e#1", (e) => ({ ...e, kind: "domainCast", args: [ExprId("e#2")], nonNull: "strict" }))
 		],
 		[
 			"a literal outside the base",
@@ -846,7 +849,7 @@ describe("contract predicates", () => {
 							}))
 						]),
 						limit: 300,
-						features: features<PredicateFeature>([
+						coverage: requiredInSpace<PredicateFeature>([
 							"an allocation normalized",
 							...Arr.map(broken, ([rule]): PredicateFeature => `broken: ${rule}`)
 						]),
@@ -892,11 +895,10 @@ describe("money and vector values", () => {
 						draw: drawn(bigint(-(2n ** 63n), 2n ** 63n - 1n)),
 						runs: 500,
 						shrink: completeShrink,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(units) =>
@@ -939,11 +941,10 @@ describe("money and vector values", () => {
 						),
 						runs: 1000,
 						shrink: completeShrink,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -967,11 +968,10 @@ describe("money and vector values", () => {
 						draw: drawn(array(float(-floatMax, floatMax), { min: 1, max: 8 })),
 						runs: 500,
 						shrink: completeShrink,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(components) =>
@@ -1033,11 +1033,10 @@ describe("money and vector values", () => {
 						draw: drawn(near),
 						runs: 1000,
 						shrink: completeShrink,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -1094,15 +1093,13 @@ describe("decimals", () => {
 						draw: drawn(texts),
 						runs: 2000,
 						shrink: completeShrink,
-						features: features<"a payload" | "a special value" | "no payload">([
-							"a payload",
-							"a special value",
-							"no payload"
-						]),
+						coverage: required<"a payload" | "a special value" | "no payload">(
+							["a payload", "a special value", "no payload"],
+							{ cases: 2000, sense: notesOnly }
+						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text, c) =>

@@ -47,7 +47,7 @@ export const Blog = schema("Blog", { Status, Post, Comment, PostViews }, [
 /** A published post by its id, with its comments nested inside it. */
 export const postPage = query(Blog)
 	.rule((r) => {
-		const { id, title, body } = v(Post)
+		const { id, title, body } = v(Post, "post")
 		return r
 			.match(Post, { id, title, body, status: "Published" })
 			.where(r.eq(id, r.param("id", uuid)))
@@ -57,7 +57,7 @@ export const postPage = query(Blog)
 		"comments",
 		(post) =>
 			query(Blog).rule((r) => {
-				const { id, author, body } = v(Comment)
+				const { id, author, body } = v(Comment, "comment")
 				return r.match(Comment, { id, post: post.id, author, body }).find({ id, author, body })
 			}),
 		"array"
@@ -65,17 +65,18 @@ export const postPage = query(Blog)
 ```
 
 Three tables, a status enum and two foreign keys: `contained(on(Comment, "post"), on(Post, "id"))` reads "every
-comment's `post` is some post's `id`". A query is made of rules: `v(Post)` makes one variable per column, `r.match`
-binds them to a table's rows, `.where` filters, `.find` picks the columns, and `.attach` nests a child query in each
-row. `postPage` takes one parameter, `id: string`, and its rows are typed from the query itself, the nested comments
-included:
+comment's `post` is some post's `id`". A query is made of rules: `v(Post, "post")` makes one variable per column, in
+a scope named `post`, `r.match` binds them to a table's rows, `.where` filters, `.find` picks the columns, and
+`.attach` nests a child query in each row. `postPage` takes one parameter, `id: Uuid`, and its rows are typed from the
+query itself, the nested comments included. A `Uuid` is a uuid's hyphenated spelling as a type: a uuid literal or
+`crypto.randomUUID()` is one as it is, and a plain string becomes one through `Uuid.parse`:
 
 ```text
 {
-  readonly id: string
+  readonly id: Uuid
   readonly title: string
   readonly body: string
-  readonly comments: ReadonlyArray<{ readonly id: string; readonly author: string; readonly body: string }>
+  readonly comments: ReadonlyArray<{ readonly id: Uuid; readonly author: string; readonly body: string }>
 }
 ```
 
@@ -198,7 +199,7 @@ export const Tenant = context("Tenant", { org: ClerkOrg })
 
 /** The keys of the caller's organization. An insert takes `org` from the token. */
 export const orgKeys = query(Keys).rule((r) => {
-	const { id, org, name } = v(ApiKey)
+	const { id, org, name } = v(ApiKey, "apiKey")
 	return r.match(ApiKey, { id, org, name }).match(Tenant, { org }).find({ id, name })
 })
 
@@ -207,7 +208,7 @@ export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 ```
 
 **What you get.** The app's queries and writes are written over `KeyAdmin`, where `ApiKey` already means "this
-organization's keys", with rows `{ id: string; name: string }`. There is no `where` to forget, and no `org` to pass:
+organization's keys", with rows `{ id: Uuid; name: string }`. There is no `where` to forget, and no `org` to pass:
 inserting `{ id, name }` stores the caller's organization, and deleting another organization's key does nothing.
 `Db.open(Dashboard.roles.key_admin, ...)` doesn't compile without a token. The rule lives in PostgreSQL, so psql meets
 it too:
@@ -295,7 +296,7 @@ export const Usage = schema("Usage", { Call, Refund }, [
 /** Each workspace's spend, and its three costliest models, leaving out refunded calls. */
 export const topModels = query(Usage)
 	.rule((r) => {
-		const { id, workspace, cost } = v(Call)
+		const { id, workspace, cost } = v(Call, "call")
 		return r
 			.match(Call, { id, workspace, cost })
 			.where(r.not(Refund, { call: id }))
@@ -306,7 +307,7 @@ export const topModels = query(Usage)
 		(w) =>
 			query(Usage)
 				.rule((r) => {
-					const { id, model, cost } = v(Call)
+					const { id, model, cost } = v(Call, "call")
 					return r
 						.match(Call, { id, workspace: w.workspace, model, cost })
 						.where(r.not(Refund, { call: id }))
@@ -322,7 +323,7 @@ export const topModels = query(Usage)
 
 ```text
 {
-  readonly workspace: string
+  readonly workspace: Uuid
   readonly spend: Decimal
   readonly models: ReadonlyArray<{ readonly model: string; readonly calls: bigint; readonly spend: Decimal }>
 }
@@ -369,7 +370,7 @@ const below = query(Resellers).recursive("Below", {
 	row: { account: uuid },
 	base: [
 		(r) => {
-			const { id } = v(Account)
+			const { id } = v(Account, "account")
 			return r
 				.match(Account, { id })
 				.where(r.eq(id, r.param("root", uuid)))
@@ -378,8 +379,8 @@ const below = query(Resellers).recursive("Below", {
 	],
 	rec: [
 		(r, self) => {
-			const { account } = v(self)
-			const { child } = v(BillsThrough)
+			const { account } = v(self, "self")
+			const { child } = v(BillsThrough, "billsThrough")
 			return r
 				.match(self, { account })
 				.match(BillsThrough, { child, parent: account })
@@ -391,8 +392,8 @@ const below = query(Resellers).recursive("Below", {
 /** What each account under a reseller spent. */
 export const treeSpend = query(Resellers).rule((r) => {
 	const tree = below.bind({ root: r.param("root", uuid) })
-	const { account } = v(tree)
-	const { id, amount } = v(Charge)
+	const { account } = v(tree, "tree")
+	const { id, amount } = v(Charge, "charge")
 	return r
 		.match(tree, { account })
 		.match(Charge, { id, account, amount })
@@ -400,7 +401,7 @@ export const treeSpend = query(Resellers).rule((r) => {
 })
 ```
 
-**What you get.** `treeSpend` takes `{ root: string }`, and its rows are `{ account: string; spend: Decimal }`. A
+**What you get.** `treeSpend` takes `{ root: Uuid }`, and its rows are `{ account: Uuid; spend: Decimal }`. A
 recursive query is used like a table: `below.bind(...)` passes it a parameter, and `r.match` joins it to `Charge` and
 feeds an aggregate. Its result is a set, so a cycle in `BillsThrough` ends the walk instead of looping forever.
 
@@ -448,8 +449,8 @@ PostgreSQL's own constraints, a temporal primary key and a PERIOD foreign key:
 
 ```sql
 CREATE TABLE "rooms"."booking" (
-  "room" uuid NOT NULL,
-  "during" int8range NOT NULL,
+  "room" "pg_catalog"."uuid" NOT NULL,
+  "during" "pg_catalog"."int8range" NOT NULL,
   "by" "rooms"."__text_yicusjkvtp" NOT NULL,
   CONSTRAINT "__booking_pk_tzyi2pgieq" PRIMARY KEY ("room", "during" WITHOUT OVERLAPS)
 );
@@ -511,16 +512,22 @@ export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit
 		.pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 3 }))
 ```
 
-**What you get.** The rule holds at commit, for every writer. `grizzle generate` compiles it to a function behind
-deferred constraint triggers on both tables, and adds the index the check reads; abridged:
+**What you get.** The rule holds at commit, for every writer. `grizzle generate` compiles it to one deferred constraint
+trigger per table and event, each running its own function, which checks only what that event can break, and adds
+the index the check reads; abridged:
 
 ```sql
 CREATE INDEX "__debit_ix_grant_lezu4zd4ln" ON "credits"."debit" USING btree ("grant");
 
-CREATE CONSTRAINT TRIGGER "__law_grant_capacity_debit_6kmbelifbg"
-  AFTER INSERT OR DELETE ON "credits"."debit"
+CREATE CONSTRAINT TRIGGER "__law_grant_capacity_debit_…"
+  AFTER INSERT ON "credits"."debit"
   DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW EXECUTE FUNCTION "credits"."__law_grant_capacity_debit_7a6fjwtdy2"();
+  FOR EACH ROW EXECUTE FUNCTION "credits"."__law_grant_capacity_debit_…"();
+
+CREATE CONSTRAINT TRIGGER "__law_grant_capacity_debit_…"
+  AFTER DELETE ON "credits"."debit"
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION "credits"."__law_grant_capacity_debit_…"();
 ```
 
 Every transaction is SERIALIZABLE, so two calls that each fit, but together overdraw, can't both commit. One fails
@@ -589,9 +596,9 @@ export const Books = schema("Books", { Entry, Posting }, [
 
 **What you get.** The rule is checked at commit, so an entry and its postings go in one ChangeSet, and one that leaves
 an entry unbalanced comes back `invariant-rejected`, naming the rule and the entry. It compiles like the grant's rule,
-to a function behind deferred constraint triggers on both tables, and every writer meets it, psql included.
-`within(0n, 0n)` is an exact total; `within(ref("amount"), ref("amount"))` makes a total equal a column instead, as
-in "an invoice's lines add up to its amount".
+to one deferred constraint trigger per table and event, each running its own function, and every writer meets it,
+psql included. `within(0n, 0n)` is an exact total; `within(ref("amount"), ref("amount"))` makes a total equal a column
+instead, as in "an invoice's lines add up to its amount".
 
 ### 7. States that carry their own data
 
@@ -642,7 +649,7 @@ export const Invoices = schema("Invoices", { InvoiceState, Invoice, Payment, Voi
 /** An invoice, with its payment when it is paid and its voiding when it is void. */
 export const invoiceCard = query(Invoices)
 	.rule((r) => {
-		const { id, state } = v(Invoice)
+		const { id, state } = v(Invoice, "invoice")
 		return r
 			.match(Invoice, { id, state })
 			.where(r.eq(id, r.param("id", uuid)))
@@ -652,7 +659,7 @@ export const invoiceCard = query(Invoices)
 		"payment",
 		(i) =>
 			query(Invoices).rule((r) => {
-				const { charge } = v(Payment)
+				const { charge } = v(Payment, "payment")
 				return r.match(Payment, { invoice: i.id, charge }).find({ charge })
 			}),
 		arm("state", "paid")
@@ -661,7 +668,7 @@ export const invoiceCard = query(Invoices)
 		"voiding",
 		(i) =>
 			query(Invoices).rule((r) => {
-				const { reason } = v(Voiding)
+				const { reason } = v(Voiding, "voiding")
 				return r.match(Voiding, { invoice: i.id, reason }).find({ reason })
 			}),
 		arm("state", "void")
@@ -672,7 +679,7 @@ export const pay = ChangeSet.empty(Invoices)
 	.put(
 		Invoice,
 		query(Invoices).rule((r) => {
-			const { org } = v(Invoice)
+			const { org } = v(Invoice, "invoice")
 			return r
 				.match(Invoice, { id: r.param("invoice", uuid), org, state: "open" })
 				.find({ id: r.param("invoice", uuid), org, state: InvoiceState.handle("paid") })
@@ -693,20 +700,21 @@ export const pay = ChangeSet.empty(Invoices)
 `invoiceCard`'s row is a union on `state`, in which `payment` is an `Option.Some` exactly when the invoice is paid.
 
 ```text
-  | { readonly id: string; readonly state: "open"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.None<{ readonly reason: string }> }
-  | { readonly id: string; readonly state: "paid"; readonly payment: Option.Some<{ readonly charge: string }>; readonly voiding: Option.None<{ readonly reason: string }> }
-  | { readonly id: string; readonly state: "void"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.Some<{ readonly reason: string }> }
+  | { readonly id: Uuid; readonly state: "open"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.None<{ readonly reason: string }> }
+  | { readonly id: Uuid; readonly state: "paid"; readonly payment: Option.Some<{ readonly charge: string }>; readonly voiding: Option.None<{ readonly reason: string }> }
+  | { readonly id: Uuid; readonly state: "void"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.Some<{ readonly reason: string }> }
 ```
 
-`pay` takes `{ invoice: string; charge: string }`. It reads the invoice as it stood and, if it was open, marks it paid
+`pay` takes `{ invoice: Uuid; charge: string }`. It reads the invoice as it stood and, if it was open, marks it paid
 and inserts its payment, in one transaction; on an invoice that is no longer open both parts are empty, so a payment
 webhook delivered twice answers `no-change` the second time. A paid invoice without its payment is refused at commit,
 whoever writes it. In PostgreSQL, abridged from `grizzle generate`, a payment can only point at a paid invoice, and a
-function behind deferred constraint triggers checks the other direction:
+deferred constraint trigger on each table checks the other direction: the invoice's checks the payment its state
+names, and each payment's, when deleted, checks only a paid invoice:
 
 ```sql
 CREATE TABLE "invoices"."invoice" (
-  "id" uuid NOT NULL,
+  "id" "pg_catalog"."uuid" NOT NULL,
   "org" "invoices"."__text_mzl7g73bdv" NOT NULL,
   "state" "invoices"."invoice_state" NOT NULL,
   CONSTRAINT "__invoice_pk_6v4xjquwn3" PRIMARY KEY ("id"),
@@ -746,12 +754,12 @@ backward page, and both indexes are yours.
 **With grizzle**, continuing the `Usage` schema of [showcase 2](#2-top-three-per-group-with-exact-types):
 
 ```ts
-import { derived, type PageCursor, workload } from "@bjornpagen/grizzle"
+import { derived, type PageCursor, type Uuid, workload } from "@bjornpagen/grizzle"
 
 /** A workspace's calls, newest first. */
 export const callLog = query(Usage)
 	.rule((r) => {
-		const { id, model, at, cost } = v(Call)
+		const { id, model, at, cost } = v(Call, "call")
 		return r
 			.match(Call, { id, workspace: r.param("workspace", uuid), model, at, cost })
 			.find({ id, model, at, cost })
@@ -762,7 +770,7 @@ export const callLog = query(Usage)
 export const ModelSpend = derived(
 	"ModelSpend",
 	query(Usage).rule((r) => {
-		const { id, workspace, model, cost } = v(Call)
+		const { id, workspace, model, cost } = v(Call, "call")
 		return r
 			.match(Call, { id, workspace, model, cost })
 			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
@@ -780,17 +788,17 @@ and the reads:
 
 ```ts
 /** The first 50 calls, and the 50 after a cursor the client sent back. */
-export const firstCalls = (db: Db<typeof Analyst, unknown>, workspace: string) =>
+export const firstCalls = (db: Db<typeof Analyst, unknown>, workspace: Uuid) =>
 	db.page(callLog, { workspace }, { first: 50 })
 export const moreCalls = (
 	db: Db<typeof Analyst, unknown>,
-	workspace: string,
+	workspace: Uuid,
 	after: PageCursor<typeof callLog>
 ) => db.page(callLog, { workspace }, { first: 50, after })
 
 /** One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). */
 export const modelSpend = query(Reporting).rule((r) => {
-	const { calls, spend } = v(ModelSpend)
+	const { calls, spend } = v(ModelSpend, "modelSpend")
 	return r
 		.match(ModelSpend, {
 			workspace: r.param("workspace", uuid),
@@ -801,7 +809,7 @@ export const modelSpend = query(Reporting).rule((r) => {
 		.find({ calls, spend })
 })
 
-export const spendOn = (db: Db<typeof Analyst, unknown>, workspace: string, model: string) =>
+export const spendOn = (db: Db<typeof Analyst, unknown>, workspace: Uuid, model: string) =>
 	db.get(modelSpend, { workspace, model })
 export const nightly = (db: Db<typeof Analyst, unknown>) => db.refresh(ModelSpend)
 ```
@@ -838,7 +846,7 @@ run `grizzle generate` again.
 | `relation(...)`                             | a table, every column NOT NULL, with its primary key                                                                          |
 | `str.regex(...)`, `contract(...)`           | a domain whose CHECK every writer meets                                                                                      |
 | `closed(...)`                               | an enum                                                                                                                      |
-| a rule: `contained`, `key`, `check`, ...    | a foreign key, unique key, no-overlap key or CHECK; for a rule PostgreSQL has no constraint for, a function behind a deferred constraint trigger |
+| a rule: `contained`, `key`, `check`, ...    | a foreign key, unique key, no-overlap key or CHECK; for a rule PostgreSQL has no constraint for, a deferred constraint trigger per table and event the rule reads, each with its own function |
 | `role(...)`                                 | a PostgreSQL role with its own schema of views, its grants, and row-level security on the tables it writes                   |
 | `login(...)`                                | a login role that can switch to its roles and holds no table privilege of its own                                            |
 | `workload(...)`                             | the indexes and statistics its queries need; its queries compiled when the app starts and prepared on each connection        |
@@ -870,7 +878,10 @@ You need:
 - **A migration role that owns the database.** It owns the schema and the database, has CREATEROLE to create the
   PostgreSQL roles of your logins and roles, and SET on `lc_messages`. It needs no superuser. Any other role fails
   the first migration with 42501, because only the database's owner may set its default isolation level.
-- **A password for each login role**, which you set, or for an RDS IAM login, membership in `rds_iam`.
+- **A password for each login role**, which you set, or for an RDS IAM login, membership in `rds_iam`. Each grizzle
+  connection authenticates with exactly the password its configuration names, and node-postgres never reads
+  `PGPASSWORD` or `~/.pgpass` for one (a `grizzle migrate` URL without a password takes `PGPASSWORD`'s, which grizzle
+  reads itself).
 - **TLS with verify-full.** It is the only mode; plaintext is refused.
 - **A direct connection.** PgBouncer is not supported.
 - **`max_pred_locks_per_transaction = 2048`** on the server, recommended (a server-start setting, about 115 MB of
@@ -908,20 +919,20 @@ outside any organization has a `Session` row and no `Org` row; a signed-out visi
 import { role } from "@bjornpagen/grizzle"
 
 export const published = query(Blog).rule((r) => {
-	const { id, title, body } = v(Post)
+	const { id, title, body } = v(Post, "post")
 	return r.match(Post, { id, title, body, status: "Published" }).find({ id, title, body })
 })
 
 /** A member reads every published post, and every post of their active organization. */
 export const memberPosts = query(Blog)
 	.rule((r) => {
-		const { id, title, body } = v(Post)
+		const { id, title, body } = v(Post, "post")
 		return r
 			.match(Post, { id, title, body, status: "Published" })
 			.find({ id, title, body, status: Status.handle("Published") })
 	})
 	.rule((r) => {
-		const { id, org, title, body, status } = v(Post)
+		const { id, org, title, body, status } = v(Post, "post")
 		return r
 			.match(Post, { id, org, title, body, status })
 			.match(Org, { id: org })
@@ -930,7 +941,7 @@ export const memberPosts = query(Blog)
 
 /** The member's own posts in their active organization; an insert fills `author` and `org` from the token. */
 export const myPosts = query(Blog).rule((r) => {
-	const { id, org, author, title, body, status } = v(Post)
+	const { id, org, author, title, body, status } = v(Post, "post")
 	return r
 		.match(Post, { id, org, author, title, body, status })
 		.match(Session, { sub: author })
@@ -939,7 +950,7 @@ export const myPosts = query(Blog).rule((r) => {
 })
 
 export const comments = query(Blog).rule((r) => {
-	const { id, post, author, body } = v(Comment)
+	const { id, post, author, body } = v(Comment, "comment")
 	return r
 		.match(Comment, { id, post, author, body })
 		.match(Post, { id: post, status: "Published" })
@@ -947,7 +958,7 @@ export const comments = query(Blog).rule((r) => {
 })
 
 export const myComments = query(Blog).rule((r) => {
-	const { id, post, author, body } = v(Comment)
+	const { id, post, author, body } = v(Comment, "comment")
 	return r
 		.match(Comment, { id, post, author, body })
 		.match(Session, { sub: author })
@@ -956,7 +967,7 @@ export const myComments = query(Blog).rule((r) => {
 })
 
 export const postIds = query(Blog).rule((r) => {
-	const { id } = v(Post)
+	const { id } = v(Post, "post")
 	return r.match(Post, { id }).find({ id })
 })
 
@@ -992,14 +1003,14 @@ import { login, workload } from "@bjornpagen/grizzle"
 const { Post: AnonPost } = AnonBlog.relations
 const { Post: MemberPost, MyPost } = MemberBlog.relations
 
-/** The feed each kind of user reads; the rows of both are { readonly id: string; readonly title: string }. */
+/** The feed each kind of user reads; the rows of both are { readonly id: Uuid; readonly title: string }. */
 export const anonFeed = query(AnonBlog).rule((r) => {
-	const { id, title } = v(AnonPost)
+	const { id, title } = v(AnonPost, "anonPost")
 	return r.match(AnonPost, { id, title }).find({ id, title })
 })
 
 export const memberFeed = query(MemberBlog).rule((r) => {
-	const { id, title } = v(MemberPost)
+	const { id, title } = v(MemberPost, "memberPost")
 	return r.match(MemberPost, { id, title }).find({ id, title })
 })
 
@@ -1072,8 +1083,21 @@ size, isolation level, timeout or retry policy to set.
 import { ChangeSet, Db } from "@bjornpagen/grizzle"
 import { ManagedRuntime, Schema } from "effect"
 
+/** A post's id: a uuid's text, typed Uuid (five hyphenated groups) and checked to be a uuid. */
+const PostId = Schema.TemplateLiteral([
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String
+]).check(Schema.isUUID())
+
 /** The client names a draft's id, so a POST sent twice inserts it once. */
-const Draft = Schema.Struct({ id: Schema.String, title: Schema.String, body: Schema.String })
+const Draft = Schema.Struct({ id: PostId, title: Schema.String, body: Schema.String })
 
 export const draft = (post: typeof Draft.Type) =>
 	ChangeSet.empty(MemberBlog).insert(MyPost, [{ ...post, status: "Draft" }])
@@ -1158,7 +1182,7 @@ const etl = ManagedRuntime.make(EtlLayer)
 
 /** No token and no claims: it writes view counts, and never reads a title. */
 export const loadViews = (
-	views: ReadonlyArray<{ readonly post: string; readonly views: bigint }>
+	views: ReadonlyArray<{ readonly post: Uuid; readonly views: bigint }>
 ) =>
 	etl.runPromise(
 		Effect.gen(function* () {
@@ -1187,15 +1211,15 @@ becomes one PostgreSQL schema.
 
 | Field                                              | PostgreSQL                                    | TypeScript                                                          |
 | -------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------- |
-| `uuid`                                             | uuid                                          | `string`                                                            |
+| `uuid`                                             | uuid                                          | `Uuid`, its hyphenated spelling; `Uuid.parse` reads a string        |
 | `pg.smallint`, `pg.integer`                        | smallint, integer                             | `number`                                                            |
 | `pg.bigint`                                        | bigint                                        | `bigint`                                                            |
-| `pg.numeric`, `pg.numeric(p, s)`                   | numeric                                       | `Decimal`, exact                                                    |
+| `pg.numeric`, `pg.numeric(p, s)`                   | numeric                                       | `Decimal`, exact, no display scale                                  |
 | `pg.real`, `pg["double precision"]`, `pg.float(p)` | real, double precision                        | `number`                                                            |
 | `pg.money`                                         | money                                         | `Money`                                                             |
 | `pg.boolean`                                       | boolean                                       | `boolean`                                                           |
 | `pg.smallserial`, `pg.serial`, `pg.bigserial`      | an identity column                            | `number`, `number`, `bigint`                                        |
-| `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern | `string`; a finite pattern such as `^(yes\|no)$` is `"yes" \| "no"` |
+| `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `closedId(X)`, for `X = closed("X", [...])`        | an enum                                       | the union of its names                                              |
 | `contract(name, base, check?)`                     | a domain with that CHECK                      | the base type, branded with the name                                |
 | `span(pg.integer)`, over any integer type          | a range                                       | `{ start, end }`, start included, end excluded                      |
@@ -1250,8 +1274,8 @@ in code, with a race between the check and the write; here they hold in the data
 | Count or total | `capacity(on(Show, "id"), { from, weight?, within })`     | each target's count of rows, or exact total of a `weight` field, stays in bounds |
 
 Every rule holds at commit, for every writer. Where PostgreSQL has a constraint for a rule, grizzle uses it; otherwise
-it installs a function behind a deferred constraint trigger. A write that breaks a rule comes back as an outcome that
-names the rule and the offending key, never as a message to parse.
+it installs a deferred constraint trigger per table and event the rule reads, each with its own function. A write that
+breaks a rule comes back as an outcome that names the rule and the offending key, never as a message to parse.
 
 ## Permissions
 
@@ -1265,11 +1289,10 @@ Three declarations, all in the [example](#example):
 - **`role(schema, name, entries, { write?, refresh? })`** is what one kind of user sees. An entry is a table of the
   schema, whole, or a query over the schema. A query entry becomes a security-barrier view, so its filter runs before
   anything that could fail on a row outside it. It has one flat set of columns, no parameters, no nested results and
-  no vector search; aggregates, negation, span comparisons, `take`, recursion and contexts are all allowed. Its
-  expressions must not be able to fail (no division, no integer arithmetic that can overflow, no failing cast, no sum
-  over numeric, float or money), because a view evaluates them on rows outside the role too; a query you run over the
-  role can compute those instead. Its keys are the ones its query provably has. A role declares no rules of its own:
-  the schema's rules hold, whoever writes.
+  no vector search; aggregates, negation, span comparisons, `take`, recursion, contexts and every Compute operation
+  are all allowed, since no expression fails on a value (see [Queries](#queries)), on the rows outside the role a view
+  evaluates it on included. Its keys are the ones its query provably has. A role declares no rules of its own: the
+  schema's rules hold, whoever writes.
 - **`login(schema, name, roles, { workload? })`** is one PostgreSQL user and one pool for some roles of one schema,
   and owns their workloads, each over the schema or one of the login's roles. Every role is in exactly one login, and
   is reached through it by name, `Web.roles.member`. Two programs of one name across a login's workloads are a type
@@ -1297,8 +1320,11 @@ column of that table the entry leaves out, a key column included, is fixed by th
 every other match only filters. `myPosts` qualifies: its columns come from `Post`, and `author` and `org` are fixed
 by the token. A role whose `write` names any other entry is refused when you build it, with the reason.
 
-- An insert fills the fixed columns. A row the query could never return (a filter it fails, a claim that is absent)
-  is the outcome `outside-world`.
+- An insert fills the fixed columns, and may leave out the entry's serial columns as an insert into a table may, also
+  when every column of the entry is serial: `[{}]` is one new row of the fixed columns. A serial column the query
+  filters on is one every inserted row carries, since the row is checked against the query before its identity is
+  drawn. A row the query could never return (a filter it fails, a claim that is absent) is the outcome
+  `outside-world`.
 - A delete of a row outside the entry does nothing: for this role, that row does not exist.
 - A put or insert that collides with a row outside the entry, on a key or an at-most-one limit, is
   `invariant-rejected` on that rule, and the witness is the key you submitted, in the entry's fields, never the other
@@ -1316,7 +1342,7 @@ by the token. A role whose `write` names any other entry is refused when you bui
 ```ts
 /** Comments per author on published posts. */
 export const commentsPerAuthor = query(Blog).rule((r) => {
-	const { id, post, author } = v(Comment)
+	const { id, post, author } = v(Comment, "comment")
 	return r
 		.match(Comment, { id, post, author })
 		.match(Post, { id: post, status: "Published" })
@@ -1325,7 +1351,7 @@ export const commentsPerAuthor = query(Blog).rule((r) => {
 
 /** Published posts nobody has commented on. */
 export const unanswered = query(Blog).rule((r) => {
-	const { id, title } = v(Post)
+	const { id, title } = v(Post, "post")
 	return r
 		.match(Post, { id, title, status: "Published" })
 		.where(r.not(Comment, { post: id }))
@@ -1334,8 +1360,8 @@ export const unanswered = query(Blog).rule((r) => {
 
 /** Total views per organization. */
 export const viewsPerOrg = query(Blog).rule((r) => {
-	const { post, views } = v(PostViews)
-	const { org } = v(Post)
+	const { post, views } = v(PostViews, "postViews")
+	const { org } = v(Post, "post")
 	return r
 		.match(PostViews, { post, views })
 		.match(Post, { id: post, org })
@@ -1345,18 +1371,33 @@ export const viewsPerOrg = query(Blog).rule((r) => {
 /** An organization's posts by title, ready for paging. */
 export const orgPosts = query(Blog)
 	.rule((r) => {
-		const { id, title, org } = v(Post)
+		const { id, title, org } = v(Post, "post")
 		return r
 			.match(Post, { id, title, org })
 			.where(r.eq(org, r.param("org", ClerkOrg)))
 			.find({ id, title })
 	})
 	.orderBy(["title", "asc"])
+
+/** Two posts of one organization under one title: Post matched twice, in two scopes. */
+export const sameTitle = query(Blog).rule((r) => {
+	const post = v(Post, "post")
+	const twin = v(Post, "twin")
+	return r
+		.match(Post, { id: post.id, org: post.org, title: post.title })
+		.match(Post, { id: twin.id, org: post.org, title: post.title })
+		.where(r.ne(post.id, twin.id))
+		.find({ post: post.id, twin: twin.id, title: post.title })
+})
 ```
 
-A rule reads like a pattern. `v(Post)` makes one variable per column. `r.match(Post, { ... })` binds variables and
-constants to a table's columns, and a variable used in two matches joins them. `.where(...)` filters, and `.find(...)`
-picks the result columns: variables, aggregates, parameters, constants and computed values.
+A rule reads like a pattern. `v(Post, "post")` makes one variable per column, in a scope named `post`.
+`r.match(Post, { ... })` binds variables and constants to a table's columns, and a variable used in two matches joins
+them. `.where(...)` filters, and `.find(...)` picks the result columns: variables, aggregates, parameters, constants
+and computed values. Two scopes of one table are two names: in `sameTitle`, `v(Post, "post")` and `v(Post, "twin")`
+are two sets of variables of two types, so the keys a self-join's type proves are its own, as for any join. A rule
+holds one scope of each name: a second `v` with a name the rule already holds is refused with `DuplicateIdentity` when
+the rule is built, because no type tells two calls of one name apart.
 
 The rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comments: bigint }`, and `viewsPerOrg`
 gives `{ org: string; views: Decimal }`, because PostgreSQL's `sum` of a bigint is a numeric. `orgPosts` takes the
@@ -1365,20 +1406,21 @@ parameter `{ org: string }`.
 | To               | Write                                                                                                                  |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | join             | one variable in two matches                                                                                            |
-| filter           | `r.eq`, `r.ne`, `r.lt`, `r.le`, `r.gt`, `r.ge`, `r.between`, `r.inSet`, `r.and`, `r.or`                                |
+| self-join        | two scopes of one table under two names, `v(Post, "post")` and `v(Post, "twin")`                                       |
+| filter           | `r.eq`, `r.ne`, `r.lt`, `r.le`, `r.gt`, `r.ge`, `r.between`, `r.inSet` (of an empty list, false: no row), `r.and` (of no predicate, true: every row), `r.or` (of no predicate, false: no row) |
 | exclude          | `r.not(Table, { ... })`: no matching row exists                                                                        |
-| take a parameter | `r.param("name", type)`; a query's parameter type is inferred from its uses                                           |
+| take a parameter | `r.param("name", type)`: a term of that type, which stands wherever such a term does                                  |
 | pass a row list  | `r.relation("name", fields)`: a parameter that is a list of rows, matched like a table                                 |
-| aggregate        | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`                   |
-| combine          | a second `.rule(...)`: the union of both rules' rows; rules of different columns need a constant that tells them apart |
+| aggregate        | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`; a sum of real or double precision values is their exact total rounded once, of money values exact money, a mean that total over the count |
+| combine          | a second `.rule(...)`: the union of both rules' rows; rules of different columns need a constant that tells them apart, a rule with an attachment shares its columns with no other rule, and a take or an attachment over a union of several headings is no rule of a further union, takes once and is never paged |
 | nest             | `.attach(name, (parent) => child, delivery)`: `"array"`, `"option"`, `"one"`, or `arm(field, name)`                    |
 | order and limit  | `.orderBy(["title", "asc"])`, then `.take(10)` or `db.page`                                                            |
 | recurse          | `query(S).recursive(...)`                                                                                              |
 | compare spans    | `r.allen` with `ALLEN` masks, `r.pointIn`, and `r.intersection`, `r.difference`, `r.pack`                              |
-| compute          | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond` and the rest of `Compute`                                |
+| compute          | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond`, `Compute.when` and the rest of `Compute`                |
 | search vectors   | `.approximateNearest(...)`, with pgvector                                                                              |
 
-Four things work differently from SQL:
+Six things work differently from SQL:
 
 - **A query returns a set.** Identical rows are one row, and `r.count()` counts distinct matches. Bind a key when
   every record should count, as `commentsPerAuthor` binds the comment's `id`.
@@ -1389,10 +1431,54 @@ Four things work differently from SQL:
 - **Variables belong to their columns.** In one rule, two variables made from the same column of a table the rule
   matches once are refused, and the error shows the rewrite: make the variable where it is bound, or match the table
   again.
-- **Constants are typed by where they go.** A constant in a column takes that column's type, and
-  `Status.handle("Published")` is the enum's typed name. `r.literal(x)` anywhere else takes x's own type: a string is
-  text, a safe integer an integer, a bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean;
-  any other value is refused.
+- **A constant is a JavaScript value or a typed term.** A JavaScript value takes the type of what it meets: the
+  column it is bound to, the term it is compared with, the field a write puts it in, or the type a union's other
+  arms give its head field. With nothing to meet it takes its own: a string is text, a safe integer an integer, a
+  bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean; any other value is refused. It
+  never stands first in a comparison, and a list such as `r.inSet`'s holds JavaScript values only. A typed term
+  states its type and stands wherever a term of that type stands: `Status.handle("Published")` is a member of the
+  `Status` roster, and `Compute.literal(F, x)` is x at the type of any other descriptor F. A head keeps a handle's
+  member in its rows, so `find({ status: Status.handle("Published") })` delivers `status: "Published"`;
+  `Compute.literal` delivers F's type. Wherever a term meets a column or another term, both are of one type: one SQL
+  type, one contract and one roster, so a text term never meets a uuid column and two rosters of the same members
+  never meet. A pattern is no part of a text's type: texts of any two patterns meet, as PostgreSQL compares them. A
+  JavaScript value opposite a term, at a column, for a parameter or in a fact is one of its type's values: a pattern's
+  language, a uuid's hyphenated spelling, a roster's names, so `"abc"` at a uuid column is a type error, and so is a
+  plain `string` until `Uuid.parse` reads it. The rules of one query deliver each field they share at one type, and a JavaScript value takes the type
+  the other rules give its field.
+- **A value is only its value.** Under every plan a query delivers the same values. A `Decimal` has no display scale:
+  `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field rounds what it stores to two
+  places but delivers `12.5`, not `12.50`; print it at the field's scale with
+  `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())`, which formats the decimal
+  string exactly. A float's zero is `0`, never `-0`. A numeric quotient, power, square root or mean is PostgreSQL's
+  for the values alone, as if every operand were written without trailing zeros: `Compute.div(x, 3n)` is the same number
+  whatever scale `x` was stored at. A sum of `real` or `double precision` values is their exact total rounded once to
+  the result type, a sum of `Money` values their exact total, and a mean of floats that total over the count, rounded
+  once: the same rows give the same sum in any order, under any plan. Every answer is a function of the facts, with
+  two declared exceptions, both pgvector's: `.approximateNearest` returns candidates from pgvector's index, so which
+  rows it returns depends on the index as well as the facts; and `Compute.cosineDistance` is pgvector's own float
+  arithmetic, the same for the same vectors on every evaluation by one server, but it may differ in the last place
+  between pgvector builds or CPUs.
+- **No read fails on a value.** Every Compute operation is defined on every value its operands' types admit, or its
+  precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row.
+  Integer arithmetic is exact and delivers `bigint`, an *exact integer*; money arithmetic delivers exact `Money`; both
+  never overflow. Float arithmetic is IEEE 754: `x / 0.0` is ±Infinity and `sqrt(-1.0)` is NaN. A partial operation, a
+  division or remainder by a value that may be zero, a numeric square root of one that may be negative, a power,
+  `widthBucket` and `minScale` of values that may be infinite, a cast that narrows, needs its precondition proved: by
+  a literal's own type, as in `Compute.div(x, 7n)`; by a contract that declares it,
+  `contract("Divisor", pg.bigint, (v) => v.ne(0n), { proves: ["nonzero"] })`; or by a guard,
+  `Compute.when(Compute.nonzero(b), (b) => Compute.div(a, b), 0n)`, whose function receives `b` proved nonzero and
+  whose last argument is the value where the guard does not hold. The guards are `Compute.nonzero`,
+  `Compute.nonnegative`, `Compute.positive`, `Compute.isFinite` and `Compute.within(x, low, high)`, and each is a
+  predicate too. A guard's subject is any term, a parameter among them:
+  `Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n)` over `d = r.param("d", pg.bigint)` delivers `0n`
+  where `d` is bound to zero, under every plan, since PostgreSQL computes a branch only where its condition holds. A
+  parameter of a contract has the facts it declares, its binding checking every value, so
+  `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard. An unproved divisor is a type error that names
+  the guard to write. A precondition that rests on
+  magnitudes, a narrowing's range or a power's, compilation proves from `Compute.within`'s bounds, or refuses as
+  `PartialOperation`: narrow an exact integer into an integer field with
+  `Compute.when(Compute.within(x, 0n, 1000000n), (x) => Compute.cast(x, pg.integer), 0)`.
 
 There are no outer joins. Where SQL would LEFT JOIN and fill the gaps with NULL, a second rule covers the rows that
 have no match:
@@ -1401,23 +1487,23 @@ have no match:
 /** Tickets sold per show, zero included: the second rule covers the shows a LEFT JOIN would pad with NULL. */
 export const sold = query(BoxOffice)
 	.rule((r) => {
-		const { id } = v(Show)
-		const { id: ticket } = v(Ticket)
+		const { id } = v(Show, "show")
+		const { id: ticket } = v(Ticket, "ticket")
 		return r
 			.match(Show, { id })
 			.match(Ticket, { id: ticket, show: id })
 			.find({ show: id, sold: r.count() })
 	})
 	.rule((r) => {
-		const { id } = v(Show)
+		const { id } = v(Show, "show")
 		return r
 			.match(Show, { id })
 			.where(r.not(Ticket, { show: id }))
-			.find({ show: id, sold: r.literal(0n) })
+			.find({ show: id, sold: 0n })
 	})
 ```
 
-Its rows are `{ show: string; sold: bigint }`, one per show, since `r.literal(0n)` is a bigint like the count.
+Its rows are `{ show: Uuid; sold: bigint }`, one per show, since `0n` takes the count's type, bigint.
 
 ## Reading
 
@@ -1453,6 +1539,9 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
 
 - **Rows** are an array, an Effect `Stream`, or a query. A query reads the state before the change, in the same
   transaction, which is how a write depends on a read: there are no interactive transactions.
+- **Serial columns** may be left out of an insert's rows, all of a row's serial columns or none of them. A row that
+  leaves them out is a new row whose serial values the identity draws, and equal such rows are one new row; a row
+  that leaves out only some is an `EncodingFailure`. A table whose every column is serial takes `[{}]`: one new row.
 - **`read`** runs a query after the change and before COMMIT; `delta.added(T)` and `delta.removed(T)` are the rows
   this change added and removed.
 - **`ChangeSet.union(a, b)`** applies both as one change; **`ChangeSet.sequence(a, b)`** applies `b` after `a`, in the
@@ -1467,7 +1556,7 @@ Two writes over the blog, each one transaction and one round trip:
 export const publish = ChangeSet.empty(Blog).put(
 	Post,
 	query(Blog).rule((r) => {
-		const { id, org, author, title, body } = v(Post)
+		const { id, org, author, title, body } = v(Post, "post")
 		return r
 			.match(Post, { id, org, author, title, body, status: "Draft" })
 			.where(r.eq(id, r.param("id", uuid)))
@@ -1480,7 +1569,7 @@ export const purge = ChangeSet.empty(Blog)
 	.delete(
 		Comment,
 		query(Blog).rule((r) => {
-			const { id, post, author, body } = v(Comment)
+			const { id, post, author, body } = v(Comment, "comment")
 			return r
 				.match(Comment, { id, post, author, body })
 				.where(r.eq(author, r.param("author", ClerkUser)))
@@ -1489,13 +1578,13 @@ export const purge = ChangeSet.empty(Blog)
 	)
 	.read("removed", (delta) =>
 		query(Blog).rule((r) => {
-			const { id } = v(delta.removed(Comment))
+			const { id } = v(delta.removed(Comment), "removedComment")
 			return r.match(delta.removed(Comment), { id }).find({ comments: r.count() })
 		})
 	)
 ```
 
-`publish` takes `{ id: string }`. Applied twice, the second answers `no-change`: the post is no longer a draft, so
+`publish` takes `{ id: Uuid }`. Applied twice, the second answers `no-change`: the post is no longer a draft, so
 the query finds nothing to put. `purge` takes `{ author: string }`, and its `accepted` outcome carries
 `reads.removed`, typed `ReadonlyArray<{ comments: bigint }>`: what `RETURNING` would give you, as a query over what
 the change removed.
@@ -1550,7 +1639,8 @@ The loop: change the schema in code, run `grizzle generate`, read the SQL it dra
 - **`check` reads no database.** It refuses a schema change you haven't generated, a workload program whose index
   needs differ from the snapshot's (naming it), an unresolved marker, an undecided data loss, and an edited
   `snapshot.json` or `meta.json`.
-- **`migrate` connects with `DATABASE_URL`** as the role that owns the schema and the database, applies the pending
+- **`migrate` connects with `DATABASE_URL`** as the role that owns the schema and the database, in a process
+  environment that sets neither `PGOPTIONS` nor `PGREPLICATION` (refused at stage `config`), applies the pending
   files, records each in the schema's ledger, and then refuses drift: a database that is not exactly the snapshot's.
   It judges drift after its files, so on a database changed by hand it applies them, then refuses. `drift` runs that
   check alone, for CI or a schedule. Both judge the database as it stands, not the statements that made it: a grant
@@ -1561,7 +1651,10 @@ The loop: change the schema in code, run `grizzle generate`, read the SQL it dra
   starting with `_`, one longer than 63 bytes once converted (a login's or role's with its schema's), and a schema
   name starting with `pg_`. Everything else (keys, foreign keys, indexes, functions, triggers) is named
   `__<readable part>_<digest>`, carries a COMMENT saying what it is, and is listed by `grizzle names`. PostgreSQL roles
-  are cluster-wide, so one schema name is one installation per cluster.
+  are cluster-wide, so one schema name is one installation per cluster. Every name grizzle's SQL holds names its
+  schema: a table as `"shop"."task"`, a PostgreSQL type as `"pg_catalog"."text"` or its keyword (`integer`), a
+  PostgreSQL function as `"pg_catalog"."count"`. So a relation may be called `Text` or `Uuid`, and no search_path, the
+  database's, a role's or a session's, changes what a migration or a query means.
 - **Indexes follow the code.** Every index comes from a rule, from a workload program's queries through the roles they
   read, or from a role's write filter. An edit to a workload program that needs no other index just takes effect; one
   that does, or a program added, renamed or removed, is refused by `check` and by `DbLayer.make` until you run
@@ -1653,7 +1746,7 @@ the contract's or pattern's rule, witness `unreported`.
 | `authentication`, `connect` | `StartupRefused`, with the server's report (`authentication` for SQLSTATE class 28)                                                    |
 | `connect`                   | `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`                                                   |
 | `wait`, `released`          | the pool's `AcquisitionBudgetExceeded`, `LayerReleased`                                                                                 |
-| `config`                    | `DbConfigRefused`                                                                                                                       |
+| `config`                    | `DbConfigRefused`; `ConnectionEnvironmentRefused`, a process environment that sets `PGREPLICATION`                                     |
 | `role`                      | `RoleOutsideLayers`, `LoginNameRefused`                                                                                                 |
 | `token`                     | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts, or a claim PostgreSQL refused |
 | `schema`                    | `CompileError`; `WorkloadUngenerated`, a workload out of step with the snapshot                                                        |
@@ -1718,7 +1811,13 @@ yields:
 - the server is PostgreSQL 19, and the database UTF8 with the builtin `C.UTF-8` locale;
 - the extensions the schema needs are installed;
 - no migration is running or stopped part-way, and the latest complete one reached the snapshot's fingerprint;
-- the login's and the role's settings and privileges are exactly what the snapshot installs;
+- the login's and the role's settings and privileges are exactly what the snapshot installs. Every login's own
+  defaults pin its sessions: `search_path = pg_catalog, pg_temp`, `jit = off`, `extra_float_digits = 1`, and
+  `lc_monetary`, `lc_numeric`, `lc_time` and `lc_messages` at `C.UTF-8`. A role's own default outranks the database's
+  and the server's, so neither reaches a `Db`'s sessions, and a login with one of them missing, changed, or set for it
+  in this database alone is refused. Every session of the login's pool also sends them, all but `lc_messages`, as its
+  startup options, so the environment's `PGOPTIONS` never reaches it, and `DbLayer.make` refuses a process environment
+  that sets `PGREPLICATION` with an `OpenError` at stage `config`;
 - the login is LOGIN NOINHERIT and the role NOLOGIN, neither with SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or
   BYPASSRLS, and a role's members are its login and the migration role (any other membership of the login confers
   nothing, and a membership fault refuses every role of the login);
@@ -1823,6 +1922,9 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 - **COMMIT** of a transaction a refusal aborted rolls it back, without an error. A rule PostgreSQL has no constraint
   for is judged as whoever the transaction acts as at COMMIT, the role it took on or else the login, and shows its
   witness keys only to an identity that holds the witness table whole; a login after `RESET ROLE` holds nothing.
+- **Spellings** are not values. A direct writer may store `1.50` in a bare numeric field, or `-0` in a float or
+  vector field. grizzle reads each as its value (`1.5`, `0`), and no query result depends on which spelling is stored.
+  A key holds one fact per value: `[-0,1]` and `[0,1]` stored in a vector key field collide on it (23505).
 - **Serial columns** draw their identity default with no sequence privilege. A writer that inserts explicit serial
   values (`OVERRIDING SYSTEM VALUE`) calls the field's advance function,
   `SELECT <schema>.<advance function>(<largest value inserted>)`, in the same transaction, as grizzle does, so a later
@@ -1888,9 +1990,15 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **No nullable columns, outer joins, window functions, SKIP LOCKED or raw SQL at run time.** A query is written in
   grizzle's query language or not at all.
 - **No timestamp type.** An instant is a bigint contract.
+- **A bare `pg.numeric` holds at most 1,000 integer digits**, NaN and the infinities; its column's installed CHECK
+  refuses a longer value from any writer, so every numeric expression has a known digit bound. One expression's digit
+  bound is at most 131,072 digits, PostgreSQL's numeric limit, or compilation refuses it with `ResourceBound`.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
 - **No bulk loads.** One ChangeSet input holds at most 100,000 rows.
+- **One generated text is at most 536,870,888 characters**, JavaScript's longest string (2^29 − 24 UTF-16 code
+  units, about 512 MiB of ASCII): each SQL statement, migration file, `snapshot.json` and fingerprint text grizzle
+  builds. `generate` and `check` refuse a schema whose texts would exceed it with `ResourceBound`.
 - **No PgBouncer, and no LISTEN/NOTIFY.**
 - **No browser connections.** A browser cannot connect straight to PostgreSQL; a server runs `verify`.
 - **The login is the trust boundary.** Anyone with its password can act as any of its roles, with any claims.
@@ -1944,7 +2052,8 @@ pnpm test <file>                  # some files
 pnpm check                        # the gate (turbo, cached): typecheck, superlint, oxlint, format, fallow, dedupe
 ```
 
-Every generated suite draws from one seed, `TEST_SEED`, which a run prints first; setting it reproduces a run.
+Every generated suite draws from one seed, `TEST_SEED`, which a run prints first; setting it reproduces a run, and
+whether a suite reaches what it requires never depends on it.
 [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules, how the tests use the testing library, and the oracles.
 
 ## Repository

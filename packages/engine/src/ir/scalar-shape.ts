@@ -13,16 +13,30 @@ import {
 import { DecimalText, type DecimalValue, decimalTag } from "#compiler/ir/decimal.ts"
 import {
 	type ColumnRef,
+	definedOp,
 	type ExprDeps,
 	type ExprTable,
 	type TypedLiteral,
 	OpId,
+	partialOp,
 	predicateProblems,
 	type RangeOpParts,
 	rangeOp,
 	rangeOpCodes,
-	type TableExpr
+	type TableExpr,
+	type TableExprOf
 } from "#compiler/ir/expr.ts"
+import {
+	type Exact,
+	type Fact,
+	type FactSource,
+	factNames,
+	factsSorted,
+	type OperandIndex,
+	type Precondition,
+	type PreconditionProof,
+	type Premise
+} from "#compiler/ir/proof.ts"
 
 import {
 	type Capability,
@@ -58,7 +72,17 @@ interface WireContract {
 	readonly name: DeclaredName
 	readonly base: ScalarType
 	readonly predicate: ExprTable | undefined
+	readonly facts: ReadonlyArray<Fact>
 }
+
+const factShape: S.Shape<Fact> = S.literalsShape(factNames)
+
+/** A contract's facts: distinct, in the one order. */
+const factListShape: S.Shape<ReadonlyArray<Fact>> = S.refine(
+	S.uniqueArray(factShape, (f) => f, "facts"),
+	factsSorted,
+	"a contract's facts sorted, each once"
+)
 
 interface WireTypmod {
 	readonly precision: number | undefined
@@ -80,9 +104,10 @@ interface WireScalarType {
 	readonly roster: Roster | undefined
 	readonly span: WireSpan | undefined
 	readonly serial: "always" | undefined
+	readonly digits: number | undefined
 }
 
-const capabilityShape: S.Shape<Capability> = S.literalsShape(...capabilities)
+const capabilityShape: S.Shape<Capability> = S.literalsShape(capabilities)
 
 const capabilitySetShape: S.Shape<CapabilitySet> = S.refine(
 	S.array(capabilityShape),
@@ -102,14 +127,14 @@ const typmodShape: S.Shape<WireTypmod> = S.structStated(
 
 const regexRefShape: S.Shape<RegexRef> = S.struct({
 	source: S.string,
-	flags: S.literalsShape("u", "su"),
+	flags: S.literalsShape(["u", "su"]),
 	key: S.branded(RegexKey, S.nonEmptyString)
 })
 
-const regexShape = S.unionShape(S.literalsShape("wildcard"), regexRefShape)
+const regexShape = S.unionShape(S.literalsShape(["wildcard"]), regexRefShape)
 
 /** Bounds both stated, or both left out: a field whose every value is refused is one an input can only leave out. */
-const unstated: S.Shape<never> = S.literalsShape()
+const unstated: S.Shape<never> = S.literalsShape([])
 
 const textInfoShape: S.Shape<TextInfo> = S.unionShape(
 	S.struct({
@@ -140,14 +165,15 @@ const rosterShape: S.Shape<Roster> = S.struct({
 
 const wireShape: S.Shape<WireScalarType> = S.lazy("a scalar type", () =>
 	S.structStated(
-		{ carrier: S.literalsShape(...carriers), caps: capabilitySetShape },
+		{ carrier: S.literalsShape(carriers), caps: capabilitySetShape },
 		{
 			typmod: typmodShape,
 			contract: contractShape,
 			text: textInfoShape,
 			roster: rosterShape,
 			span: spanShape,
-			serial: S.literalsShape("always")
+			serial: S.literalsShape(["always"]),
+			digits: S.nonNegativeInteger
 		},
 		{}
 	)
@@ -175,7 +201,7 @@ export const scalarTypeShape: S.Shape<ScalarType> = S.plain({
 })
 
 const contractShape: S.Shape<WireContract> = S.structStated(
-	{ name: declaredNameShape, base: scalarTypeShape },
+	{ name: declaredNameShape, base: scalarTypeShape, facts: factListShape },
 	{ predicate: S.lazy("an expression table", () => exprTableShape) },
 	{}
 )
@@ -229,7 +255,7 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo
 			return `contract ${name}: ${problem}`
 		}
 	}
-	return Object.freeze({ name, base, predicate })
+	return Object.freeze({ name, base, predicate, facts: contract.facts })
 }
 
 const narrowSpan = (carrier: SpanCarrier, span: WireSpan): SpanInfo | string => {
@@ -313,6 +339,9 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 	if (carrier !== "numeric" && carrier !== "vector" && t.typmod !== undefined) {
 		return `${carrier} has no typmod`
 	}
+	if (t.digits !== undefined && carrier !== "exactInteger" && carrier !== "exactMoney") {
+		return "only an exact type carries a digit bound"
+	}
 	if (t.serial !== undefined && carrier !== "int2" && carrier !== "int4" && carrier !== "int8") {
 		return "serial generation applies to int2, int4 and int8 only"
 	}
@@ -366,6 +395,14 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 				? typmod
 				: Object.freeze({ carrier, caps, typmod, contract })
 		}
+		case "exactInteger":
+		case "exactMoney":
+			if (contract !== undefined) {
+				return `${carrier} is an arithmetic result, never a contract's base`
+			}
+			return t.digits === undefined
+				? `${carrier} carries its digit bound`
+				: Object.freeze({ carrier, caps, digits: t.digits })
 	}
 }
 
@@ -405,8 +442,8 @@ export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
 			"an exact decimal (canonical tag d)"
 		)
 	}),
-	float: S.struct({ value: S.finiteNumber }),
-	floatSpecial: S.struct({ value: S.literalsShape("NaN", "Infinity", "-Infinity") }),
+	float: S.struct({ value: S.canonicalFloat }),
+	floatSpecial: S.struct({ value: S.literalsShape(["NaN", "Infinity", "-Infinity"]) }),
 	money: S.struct({
 		value: S.canonicalParsed<MoneyValue>(
 			moneyTag,
@@ -450,12 +487,47 @@ const opIdShape: S.Shape<OpId> = S.unionShape(
 	S.branded(OpId, S.nonEmptyString),
 	S.interned(
 		S.struct({
-			code: S.literalsShape(...rangeOpCodes),
-			carrier: S.literalsShape("range4", "range8")
+			code: S.literalsShape(rangeOpCodes),
+			carrier: S.literalsShape(["range4", "range8"])
 		}),
 		(parts: RangeOpParts) => rangeOp(parts.code, parts.carrier)
 	)
 )
+
+const exactShape: S.Shape<Exact> = S.struct({ units: S.bigint, scale: S.nonNegativeInteger })
+
+const operandIndexShape: S.Shape<OperandIndex> = S.literalsShape([0, 1, 2, 3])
+
+const preconditionShape: S.Shape<Precondition> = S.tagged("kind", {
+	nonzero: S.struct({ operand: operandIndexShape }),
+	nonnegative: S.struct({ operand: operandIndexShape }),
+	finite: S.struct({ operand: operandIndexShape }),
+	fits: S.struct({}),
+	contract: S.struct({}),
+	powerDomain: S.struct({}),
+	bucketDomain: S.struct({})
+})
+
+const factSourceShape: S.Shape<FactSource> = S.tagged("kind", {
+	literal: S.struct({}),
+	contract: S.struct({ name: S.nonEmptyString }),
+	guard: S.struct({}),
+	type: S.struct({})
+})
+
+const premiseShape: S.Shape<Premise> = S.tagged("kind", {
+	fact: S.struct({ operand: operandIndexShape, fact: factShape, source: factSourceShape }),
+	interval: S.struct({ operand: operandIndexShape, low: exactShape, high: exactShape }),
+	checked: S.struct({
+		operand: operandIndexShape,
+		by: S.literalsShape(["literal", "parameter", "write"])
+	})
+})
+
+const proofShape: S.Shape<PreconditionProof> = S.struct({
+	precondition: preconditionShape,
+	premises: S.nonEmptyArray(premiseShape)
+})
 
 /**
  * Every expression has the common fields, its kind's inputs and non-null proof among them in that order, then its
@@ -467,31 +539,47 @@ const common = <A, N>(args: S.Shape<A>, nonNull: S.Shape<N>) =>
 		args,
 		type: lazyScalarType,
 		nonNull,
-		volatility: S.literalsShape("immutable", "stable"),
-		failure: S.literalsShape("total", "canFail"),
+		volatility: S.literalsShape(["immutable", "stable"]),
 		deps: depsShape
 	}) as const
 const leaf = S.empty(exprIdShape)
 const operand = S.single(exprIdShape)
-const strict = S.literalsShape("strict")
+const strict = S.literalsShape(["strict"])
+
+/** A case of a tagged union as its case decodes it: each variant without the discriminator, which the union adds. */
+type CaseFields<E> = E extends unknown ? Omit<E, "kind"> : never
 
 /** The shape of an expression's outside form, its arguments by identifier: a table entry (ExprTable, dag.ts toTable). */
 export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 	column: S.struct({
-		...common(leaf, S.literalsShape("storage", "codec")),
+		...common(leaf, S.literalsShape(["storage", "codec"])),
 		column: columnRefShape
 	}),
-	value: S.struct(common(leaf, S.literalsShape("storage"))),
+	value: S.struct(common(leaf, S.literalsShape(["storage"]))),
 	param: S.struct({
-		...common(leaf, S.literalsShape("codec")),
+		...common(leaf, S.literalsShape(["codec"])),
 		param: paramIdShape,
-		role: S.literalsShape("compare", "write", "emit")
+		role: S.literalsShape(["compare", "write", "emit"])
 	}),
-	literal: S.struct({ ...common(leaf, S.literalsShape("literal")), value: literalShape }),
-	op: S.struct({ ...common(S.array(exprIdShape), strict), op: opIdShape }),
-	cast: S.struct({ ...common(operand, strict), checked: S.boolean }),
-	domainCast: S.struct(common(operand, strict)),
-	cond: S.struct(common(S.tripleShape(exprIdShape), S.literalsShape("cond")))
+	literal: S.struct({ ...common(leaf, S.literalsShape(["literal"])), value: literalShape }),
+	op: S.normalized(
+		S.structStated(
+			{ ...common(S.array(exprIdShape), strict), op: opIdShape },
+			{ proof: proofShape },
+			{}
+		),
+		({ proof, ...e }): CaseFields<TableExprOf<"op">> =>
+			proof === undefined ? { ...e, op: definedOp(e.op) } : { ...e, op: partialOp(e.op), proof }
+	),
+	cast: S.normalized(
+		S.structStated({ ...common(operand, strict), cast: opIdShape }, { proof: proofShape }, {}),
+		({ proof, ...e }): CaseFields<TableExprOf<"cast">> =>
+			proof === undefined
+				? { ...e, cast: definedOp(e.cast) }
+				: { ...e, cast: partialOp(e.cast), proof }
+	),
+	domainCast: S.struct({ ...common(operand, strict), proof: proofShape }),
+	cond: S.struct(common(S.tripleShape(exprIdShape), S.literalsShape(["cond"])))
 })
 
 export const exprTableShape: S.Shape<ExprTable> = S.struct({

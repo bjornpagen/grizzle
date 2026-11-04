@@ -49,14 +49,14 @@ const Note = relation("Note", { id: uuid, author: uuid, text: str.regex("^.{1,20
 export const App = schema("App", { Note }, [key(Note, ["id"])])
 const Session = context("Session", { sub: uuid })
 export const mine = query(App).rule((r) => {
-	const { id, author, text } = v(Note)
+	const { id, author, text } = v(Note, "note")
 	return r.match(Note, { id, author, text }).match(Session, { sub: author }).find({ id, text })
 })
 export const Reader = role(App, "reader", { Note })
 export const Member = role(App, "member", { Mine: mine }, { write: ["Mine"] })
 export const Web = login(App, "web", [Reader, Member])
 export const texts = query(Reader).rule((r) => {
-	const { text } = v(Note)
+	const { text } = v(Note, "note")
 	return r.match(Note, { text }).find({ text })
 })
 declare const snapshot: { readonly fingerprint: string }

@@ -1,7 +1,8 @@
 import * as Result from "#compiler/core/result.ts"
 import { fromUnits, toInteger } from "#compiler/scalar/compute/numeric.ts"
-import type { FailureCode } from "#compiler/scalar/compute/registry.ts"
+import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { fround } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 
 export type IntCarrier = "int2" | "int4" | "int8"
@@ -12,11 +13,12 @@ const intRange: { readonly [C in IntCarrier]: readonly [bigint, bigint] } = {
 	int8: [-(2n ** 63n), 2n ** 63n - 1n]
 }
 
-type IntResult = Result.Result<bigint, FailureCode>
+type IntResult = Result.Result<bigint, Undefined>
 
+/** An exact integer narrowed into an integer carrier: defined where it fits. */
 const inIntRange = (value: bigint, c: IntCarrier): IntResult => {
 	const [lo, hi] = intRange[c]
-	return value < lo || value > hi ? Result.err("22003") : Result.ok(value)
+	return value < lo || value > hi ? Result.err("fits") : Result.ok(value)
 }
 
 const pow2 = (n: number): bigint => 1n << BigInt(n)
@@ -62,25 +64,22 @@ const roundRational = (num: bigint, den: bigint, width: "float4" | "float8"): nu
 	return width === "float4" ? Math.fround(value) : value
 }
 
-/** An exact signed rational as a float of `width`, or 22003 on overflow or on underflow of a nonzero value. */
-const toFloat = (
+/**
+ * An exact signed rational as a float of `width`, rounded once as IEEE 754 rounds: ±Infinity past the largest finite
+ * value, the correctly rounded subnormal, and the one zero below half the least subnormal.
+ */
+export const toFloat = (
 	negative: boolean,
 	num: bigint,
 	den: bigint,
 	width: "float4" | "float8"
-): Result.Result<number, FailureCode> => {
+): number => {
 	const magnitude = roundRational(num, den, width)
-	if (magnitude === Number.POSITIVE_INFINITY) {
-		return Result.err("22003")
-	}
-	if (magnitude === 0 && num !== 0n) {
-		return Result.err("22003")
-	}
-	return Result.ok(negative ? -magnitude : magnitude)
+	return magnitude === 0 ? 0 : negative ? -magnitude : magnitude
 }
 
 /** The exact rational value of a finite double: sign, numerator, denominator (a power of two). */
-const doubleParts = (
+export const doubleParts = (
 	x: number
 ): { readonly negative: boolean; readonly num: bigint; readonly den: bigint } => {
 	const view = new DataView(new ArrayBuffer(8))
@@ -103,9 +102,9 @@ const ge = (a: bigint, b: bigint, p: number): boolean =>
 
 /**
  * %.*g of a finite double as an exact Decimal: `digits` significant digits rounded half to even on the exact binary
- * value, trailing zeros dropped, read back by numeric_in (display scale max(0, -exponent of the last digit)).
+ * value, read back by numeric_in, in the Decimal's one form.
  */
-const gDecimal = (x: number, digits: number): Result.Result<Decimal, FailureCode> => {
+const gDecimal = (x: number, digits: number): Result.Result<Decimal, Undefined> => {
 	if (x === 0) {
 		return fromUnits(0n, 0)
 	}
@@ -126,15 +125,10 @@ const gDecimal = (x: number, digits: number): Result.Result<Decimal, FailureCode
 	if (r * 2n > d || (r * 2n === d && (q & 1n) === 1n)) {
 		q += 1n
 	}
-	/** value = q * 10^-p; drop trailing zeros. */
-	let exponent = -p
-	while (q !== 0n && q % 10n === 0n) {
-		q /= 10n
-		exponent++
-	}
-	const scale = Math.max(0, -exponent)
-	const coefficient = q * 10n ** BigInt(exponent + scale)
-	return fromUnits(negative ? -coefficient : coefficient, scale)
+	/** value = q * 10^-p, which fromUnits writes in its one form. */
+	return p >= 0
+		? fromUnits(negative ? -q : q, p)
+		: fromUnits((negative ? -q : q) * 10n ** BigInt(-p), 0)
 }
 
 /**
@@ -143,22 +137,26 @@ const gDecimal = (x: number, digits: number): Result.Result<Decimal, FailureCode
  */
 export type CastValue = bigint | Decimal | number | Money
 
-type CastResult = Result.Result<CastValue, FailureCode>
+type CastResult = Result.Result<CastValue, Undefined>
 
 type FloatCarrier = "float4" | "float8"
 
 /**
- * PostgreSQL's casts among the numeric family and money. Casts follow pg_cast's functions:
+ * PostgreSQL's casts among the numeric family, money and the exact carriers, each defined on every value or where its
+ * precondition holds (registry.ts castOverloads), the precondition a value fails named:
  *
- * - integer narrowing and numeric to an integer refuse an out-of-range value with 22003; numeric rounds half away from
- *   zero (numeric_int4) and refuses NaN and the infinities with 0A000, a float rounds half to even (rint in dtoi4) and
- *   refuses NaN and the infinities with 22003;
- * - an integer, numeric or float8 to a float rounds the exact value once to the target's binary precision, half to
- *   even, refusing an overflow to infinity or an underflow of a nonzero value to zero (dtof, float4in, float8in);
+ * - integer narrowing, an exact integer and numeric to an integer are defined where the value fits ("fits"); numeric
+ *   rounds half away from zero (numeric_int4) and is defined on finite values only ("finite"), a float rounds half to
+ *   even (rint in dtoi4) and likewise;
+ * - an integer, an exact integer, numeric or float8 to a float rounds the exact value once to the target's binary
+ *   precision as IEEE 754 does, half to even: past the largest finite value it is ±Infinity, below half the least
+ *   subnormal the one zero, and NaN and the infinities are themselves;
  * - a float to numeric is the decimal its %.*g text names, FLT_DIG = 6 or DBL_DIG = 15 significant digits rounded
  *   half to even, NaN and the infinities kept (float4_numeric, float8_numeric);
  * - money is the signed 64-bit count of minor units in the fixed C.UTF-8 monetary context, two fractional digits:
- * numeric to money rounds amount * 100 half away from zero, money to numeric has display scale 2.
+ *   numeric to money rounds amount * 100 half away from zero, money to numeric is the amount exactly, and an exact
+ *   integer or an exact amount into money is defined where it fits the count;
+ * - an integer into an exact integer, and money into exact money, is the value itself.
  *
  * A cast's host conversion, over the host value of its source's family (literal.ts CarrierValue): each registered
  * cast carries its own (registry.ts castOverloads), and the evaluator calls it on the operand's value of that family.
@@ -187,31 +185,33 @@ const rint = (x: number): number => {
  */
 const floatToInt = (x: number, c: IntCarrier): IntResult => {
 	if (!Number.isFinite(x)) {
-		return Result.err("22003")
+		return Result.err("finite")
 	}
 	const r = rint(x)
 	const [lo, hi] = intRange[c]
 	if (r < Number(lo) || r >= -Number(lo)) {
-		return Result.err("22003")
+		return Result.err("fits")
 	}
 	const value = BigInt(r)
-	return value < lo || value > hi ? Result.err("22003") : Result.ok(value)
+	return value < lo || value > hi ? Result.err("fits") : Result.ok(value)
 }
 
-const decimalToFloat = (d: Decimal, width: FloatCarrier): Result.Result<number, FailureCode> => {
-	if (d.isNaN()) {
-		return Result.ok(Number.NaN)
+/** A numeric as a float of `width`, rounded once as IEEE 754 rounds; NaN and the infinities are themselves. */
+export const decimalToFloat = (d: Decimal, width: FloatCarrier): number => {
+	const p = d.parts
+	switch (p.kind) {
+		case "nan":
+			return Number.NaN
+		case "infinity":
+			return Number.POSITIVE_INFINITY
+		case "-infinity":
+			return Number.NEGATIVE_INFINITY
+		case "finite":
+			return toFloat(p.negative, p.coefficient, 10n ** BigInt(p.minScale), width)
 	}
-	if (d.kind === "infinity") {
-		return Result.ok(Number.POSITIVE_INFINITY)
-	}
-	if (d.kind === "-infinity") {
-		return Result.ok(Number.NEGATIVE_INFINITY)
-	}
-	return toFloat(d.negative, d.coefficient, 10n ** BigInt(d.scale), width)
 }
 
-const floatToDecimal = (x: number, width: FloatCarrier): Result.Result<Decimal, FailureCode> => {
+const floatToDecimal = (x: number, width: FloatCarrier): Result.Result<Decimal, Undefined> => {
 	if (Number.isNaN(x)) {
 		return Result.ok(Decimal.nan)
 	}
@@ -224,27 +224,33 @@ const floatToDecimal = (x: number, width: FloatCarrier): Result.Result<Decimal, 
 	return gDecimal(x, width === "float4" ? 6 : 15)
 }
 
-export const integerCast = (target: IntCarrier | "numeric" | FloatCarrier | "money"): HostCast => {
+/** A count of minor units as money: defined where it fits the signed 64-bit count. */
+const storedMoney = (minor: bigint): CastResult =>
+	minor < intRange.int8[0] || minor > intRange.int8[1]
+		? Result.err("fits")
+		: Result.ok(Money.of(minor))
+
+/** The cast of an integer or an exact integer to `target`. */
+export const integerCast = (
+	target: IntCarrier | "numeric" | FloatCarrier | "money" | "exactInteger"
+): HostCast => {
 	switch (target) {
 		case "int2":
 		case "int4":
 		case "int8":
 			return { from: "integer", convert: (x) => inIntRange(x, target) }
+		case "exactInteger":
+			return { from: "integer", convert: Result.ok }
 		case "numeric":
 			return { from: "integer", convert: (x) => fromUnits(x, 0) }
 		case "float4":
 		case "float8":
-			return { from: "integer", convert: (x) => toFloat(x < 0n, x < 0n ? -x : x, 1n, target) }
-		case "money":
 			return {
 				from: "integer",
-				convert: (x) => {
-					const minor = x * 100n
-					return minor < intRange.int8[0] || minor > intRange.int8[1]
-						? Result.err("22003")
-						: Result.ok(Money.of(minor))
-				}
+				convert: (x) => Result.ok(toFloat(x < 0n, x < 0n ? -x : x, 1n, target))
 			}
+		case "money":
+			return { from: "integer", convert: (x) => storedMoney(x * 100n) }
 	}
 }
 
@@ -264,17 +270,17 @@ export const numericCast = (target: IntCarrier | "numeric" | FloatCarrier | "mon
 			return { from: "numeric", convert: Result.ok }
 		case "float4":
 		case "float8":
-			return { from: "numeric", convert: (d) => decimalToFloat(d, target) }
+			return { from: "numeric", convert: (d) => Result.ok(decimalToFloat(d, target)) }
 		case "money":
 			return {
 				from: "numeric",
 				convert: (d) => {
-					/** amount * 100, then numeric_int8's rounding and refusals. */
+					/** amount * 100, then numeric_int8's rounding and its preconditions. */
 					const scaled = d.isFinite()
-						? Decimal.fromParts(d.negative, d.coefficient * 100n, d.scale)
+						? Decimal.fromParts(d.parts.negative, d.parts.coefficient * 100n, d.parts.minScale)
 						: Result.ok(d)
 					if (!scaled.ok) {
-						return Result.err("22003")
+						return Result.err("fits")
 					}
 					const minor = toInteger(scaled.value, intRange.int8[0], intRange.int8[1])
 					return Result.map(minor, (m) => Money.of(m))
@@ -298,24 +304,21 @@ export const floatCast = (
 		case "float8":
 			return { from: "float", convert: Result.ok }
 		case "float4":
-			return {
-				from: "float",
-				convert: (x) => {
-					const r = Math.fround(x)
-					if (!Number.isFinite(r) && Number.isFinite(x)) {
-						return Result.err("22003")
-					}
-					if (r === 0 && x !== 0) {
-						return Result.err("22003")
-					}
-					return Result.ok(r)
-				}
-			}
+			return { from: "float", convert: (x) => Result.ok(fround(x)) }
 	}
 }
 
-/** The cast of money to numeric, at display scale 2. */
-export const moneyToNumeric: HostCast = {
-	from: "money",
-	convert: (m) => fromUnits(m.minorUnits, 2)
+/**
+ * The cast of money or exact money to `target`: numeric, the amount exactly, in its one form; exact money, the amount
+ * itself; money, the amount where it fits the signed 64-bit count.
+ */
+export const moneyCast = (target: "numeric" | "money" | "exactMoney"): HostCast => {
+	switch (target) {
+		case "numeric":
+			return { from: "money", convert: (m) => fromUnits(m.minorUnits, 2) }
+		case "exactMoney":
+			return { from: "money", convert: Result.ok }
+		case "money":
+			return { from: "money", convert: (m) => storedMoney(m.minorUnits) }
+	}
 }

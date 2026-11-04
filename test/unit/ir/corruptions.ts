@@ -1,8 +1,8 @@
 import type { Broken, Corruption } from "@grizzle/testing/lsw"
-import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, VarId } from "#compiler/core/ids.ts"
-import { DecimalText, decimalPayload } from "#compiler/ir/decimal.ts"
-import { sortedUnique, type TableExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import { sortedUnique, type TableExpr } from "#compiler/ir/expr.ts"
 import { claimedColumns, claimedKeyIn, rewriteClaim } from "#compiler/ir/keys.ts"
 import {
 	type DagTable,
@@ -88,13 +88,12 @@ export type DagRule =
 	| "a literal fits its type"
 	| "a comparison parameter is bound as its base type"
 	| "an expression's dependencies are the computed ones"
-	| "an expression can fail when an argument can"
 	| "an expression is stable when an argument is"
 	| "a conditional has a boolean condition and branches of its type"
 	| "VALUE appears only in a contract predicate"
 	| "a column reference keeps its column's type"
-	| "a checked cast can fail"
-	| "a domain cast targets a refined type and can fail"
+	| "a partial operation stands with a proof the kernel re-derives"
+	| "a domain cast targets a refined type"
 	| "a node or expression holds its kind's properties only"
 	| "no field holds null"
 
@@ -110,7 +109,7 @@ const exprClosure = (dag: DagTable, roots: ReadonlyArray<ExprId>): ReadonlyArray
 	for (const id of queue) {
 		if (!seen.has(id)) {
 			seen.add(id)
-			queue.push(...(Rec.has(dag.exprs, id) ? (dag.exprs[id]?.args ?? []) : []))
+			appendAll(queue, Rec.has(dag.exprs, id) ? (dag.exprs[id]?.args ?? []) : [])
 		}
 	}
 	return [...seen]
@@ -269,25 +268,6 @@ const armHead = (dag: DagTable, arm: NodeId): TableOf<"ProjectSet"> | undefined 
 	return undefined
 }
 
-/**
- * The same literal spelled another way that native equality holds equal: a numeric with one more display digit, a
- * float zero of the other sign.
- */
-const respelled = (literal: TypedLiteral): TypedLiteral | undefined => {
-	if (literal.kind === "numeric") {
-		const payload = decimalPayload(literal.value)
-		if (payload === "NaN" || payload === "Infinity" || payload === "-Infinity") {
-			return undefined
-		}
-		const text = DecimalText.make(Str.includes(".")(payload) ? `${payload}0` : `${payload}.0`)
-		return text.ok ? { kind: "numeric", value: text.value } : undefined
-	}
-	if (literal.kind === "float" && literal.value === 0) {
-		return { kind: "float", value: Object.is(literal.value, -0) ? 0 : -0 }
-	}
-	return undefined
-}
-
 /** Whether an attachment's correlated child columns cover a key of its child. */
 const keyBound = (child: TableNode, correlated: ReadonlyArray<string>): boolean => {
 	const bound = new Set(correlated)
@@ -352,7 +332,7 @@ const reachedFromRoots = (dag: DagTable): ReadonlySet<NodeId> => {
 		seen.add(id)
 		const node = nodeAt(dag, id)
 		if (node !== undefined) {
-			queue.push(...inputsOf(node))
+			appendAll(queue, inputsOf(node))
 		}
 	}
 	return seen
@@ -539,7 +519,10 @@ const identities: ReadonlyArray<DagCorruption> = [
 					claims.push(n.occurrence)
 				}
 				if (n.kind === "MatchRegion") {
-					claims.push(...Arr.map(n.occurrences, (o) => o.id))
+					appendAll(
+						claims,
+						Arr.map(n.occurrences, (o) => o.id)
+					)
 				}
 				return broken
 			})
@@ -775,10 +758,10 @@ const unions: ReadonlyArray<DagCorruption> = [
 						return []
 					}
 					/**
-					 * Group 0's literals into this group's arm, as they are, and respelled where native equality admits
-					 * another spelling.
+					 * Group 0's literals into this group's arm, as they are: a literal holds its value in its one form,
+					 * so no other spelling of it exists to copy.
 					 */
-					const copied = (spell: (l: TypedLiteral) => TypedLiteral) => {
+					const copied = () => {
 						const exprs: Array<readonly [string, TableExpr]> = []
 						const out = Arr.map(head.out, (o, k) => {
 							const literalId = taken[u.discriminant.indexOf(o.name)]
@@ -787,7 +770,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 								return o
 							}
 							const id = ExprId(`e-copied-${k}`)
-							exprs.push([id, { ...literal, id, value: spell(literal.value) }])
+							exprs.push([id, { ...literal, id }])
 							return { name: o.name, expr: id }
 						})
 						return {
@@ -796,26 +779,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 						}
 					}
 					const refusal = refused(["nodes", u.id, "groups", i + 1], "within")
-					const respellable = Arr.some(taken, (id) => {
-						const literal = id === undefined ? undefined : exprAt(dag, id)
-						return literal?.kind === "literal" && respelled(literal.value) !== undefined
-					})
-					return [
-						site(
-							copied((l) => l),
-							refusal,
-							"the same literal"
-						),
-						...(respellable
-							? [
-									site(
-										copied((l) => respelled(l) ?? l),
-										refusal,
-										"a respelled literal"
-									)
-								]
-							: [])
-					]
+					return [site(copied(), refusal, "the same literal")]
 				})
 			})
 	},
@@ -1109,23 +1073,12 @@ const kinds: ReadonlyArray<DagCorruption> = [
 				if (row === undefined) {
 					return []
 				}
-				const spelled = Arr.map(row, (v) => respelled(v) ?? v)
-				const changed = Arr.some(spelled, (v, i) => v !== row[i])
 				return [
 					site(
 						withNode(dag, c.id, { ...c, rows: [...c.rows, row] }),
 						atNode(c.id, "rows", c.rows.length),
 						"the same fact"
-					),
-					...(changed
-						? [
-								site(
-									withNode(dag, c.id, { ...c, rows: [...c.rows, spelled] }),
-									atNode(c.id, "rows", c.rows.length),
-									"a respelled fact"
-								)
-							]
-						: [])
+					)
 				]
 			})
 	}
@@ -1199,7 +1152,6 @@ const scope: ReadonlyArray<DagCorruption> = [
 					type: column.type,
 					nonNull: "storage",
 					volatility: "immutable",
-					failure: "total",
 					id: ExprId("e-foreign"),
 					deps: { params: [], nodes: [foreign.id] }
 				}
@@ -1673,7 +1625,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 						withNode(dag, g.id, {
 							...g,
 							aggs: Arr.map(g.aggs, (b, j) =>
-								j === i ? { ...b, fn: a.args.length === 2 ? "count" : "regrSlope" } : b
+								j === i ? { ...b, fn: a.args.length === 0 ? "sum" : "count" } : b
 							)
 						}),
 						atNode(g.id, "aggs", i),
@@ -1777,11 +1729,9 @@ const expressions: ReadonlyArray<DagCorruption> = [
 							)
 						]
 					case "numeric": {
-						/** A value with a nonzero fraction digit, under a typmod of scale 0, which would round it. */
-						const payload = decimalPayload(e.value.value)
-						const fractional = Option.exists(Str.indexOf(".")(payload), (point) =>
-							Arr.some(Str.split(Str.slice(point + 1)(payload), ""), (digit) => digit !== "0")
-						)
+						/** A value with a fraction, under a typmod of scale 0, which would round it. */
+						const parts = e.value.value.parts
+						const fractional = parts.kind === "finite" && parts.minScale > 0
 						const rounding = scalarOf(field.numeric(38, 0), {})
 						return fractional
 							? [site(withExpr(dag, e.id, { ...e, type: rounding }), atExpr(e.id), "numeric")]
@@ -1829,23 +1779,6 @@ const expressions: ReadonlyArray<DagCorruption> = [
 					atExpr(e.id),
 					e.kind
 				)
-			)
-	},
-	{
-		rule: "an expression can fail when an argument can",
-		from: "wild",
-		sites: (dag) =>
-			Arr.map(
-				Arr.filter(
-					parents(dag),
-					({ parent, arg }) => parent.failure === "total" && arg.failure === "total"
-				),
-				({ parent, arg }) =>
-					site(
-						withExpr(dag, arg.id, { ...arg, failure: "canFail" }),
-						atExpr(parent.id),
-						parent.kind
-					)
 			)
 	},
 	{
@@ -1899,7 +1832,6 @@ const expressions: ReadonlyArray<DagCorruption> = [
 						nonNull: "storage",
 						type: e.type,
 						volatility: e.volatility,
-						failure: e.failure,
 						deps: e.deps
 					}),
 					atExpr(e.id),
@@ -1916,21 +1848,41 @@ const expressions: ReadonlyArray<DagCorruption> = [
 			)
 	},
 	{
-		rule: "a checked cast can fail",
+		rule: "a partial operation stands with a proof the kernel re-derives",
 		from: "wild",
 		sites: (dag) =>
-			Arr.map(ofExprKind(dag, "cast"), (e) =>
-				site(withExpr(dag, e.id, { ...e, checked: true, failure: "total" }), atExpr(e.id), "cast")
+			Arr.flatMap(ofExprKind(dag, "cast"), (e) =>
+				"proof" in e
+					? [
+							site(
+								withExpr(dag, e.id, {
+									...e,
+									proof: {
+										precondition: { kind: "fits" },
+										premises: [
+											{
+												kind: "interval",
+												operand: 0,
+												low: { units: -(10n ** 40n), scale: 0 },
+												high: { units: 10n ** 40n, scale: 0 }
+											}
+										]
+									}
+								}),
+								atExpr(e.id),
+								"an interval past the target"
+							)
+						]
+					: []
 			)
 	},
 	{
-		rule: "a domain cast targets a refined type and can fail",
+		rule: "a domain cast targets a refined type",
 		from: "wild",
 		sites: (dag) =>
-			Arr.flatMap(ofExprKind(dag, "domainCast"), (e) => [
-				site(withExpr(dag, e.id, { ...e, type: baseOf(e.type) }), atExpr(e.id), "unrefined target"),
-				site(withExpr(dag, e.id, { ...e, failure: "total" }), atExpr(e.id), "total")
-			])
+			Arr.map(ofExprKind(dag, "domainCast"), (e) =>
+				site(withExpr(dag, e.id, { ...e, type: baseOf(e.type) }), atExpr(e.id), "unrefined target")
+			)
 	}
 ]
 

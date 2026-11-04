@@ -1,12 +1,23 @@
 import type { Brand } from "effect"
-import type { Column } from "#compiler/core/decoder.ts"
-import type { Built } from "#compiler/core/phantom.ts"
+import type { Column, FieldHost } from "#compiler/core/decoder.ts"
+import type {
+	Built,
+	Domained,
+	domain,
+	Languaged,
+	language,
+	Proving
+} from "#compiler/core/phantom.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
-import type { BaseOf } from "#compiler/types/core/phantom.ts"
+import type { BaseOf, DomainOf, Facts, FactsOf, Rostered } from "#compiler/types/core/phantom.ts"
 
-/** Any descriptor: the members every runtime descriptor has, its PostgreSQL type name and its column. */
-export interface FieldBase extends Built {
+/**
+ * Any descriptor: the members every runtime descriptor has, its PostgreSQL type name and its column, and the domain
+ * and language it states, which are any for a descriptor of unknown type: a variable minted over one is of unknown
+ * type, never of none.
+ */
+export interface FieldBase extends Built, Domained<unknown>, Languaged<unknown> {
 	readonly sql: SqlTag
 	readonly column: Column<unknown>
 }
@@ -24,19 +35,29 @@ export interface FieldBase extends Built {
  * signed 64-bit count of minor units. Each has an `of` convenience, which throws CompileError on a malformed value.
  * The values are the public barrel's (public/fields.ts).
  *
- * A descriptor: its PostgreSQL type name, and its column, whose values are its host type.
+ * A descriptor: its PostgreSQL type name Sql, its column, whose values are its host type, and the descriptor of its
+ * type it states (types/core/phantom.ts Term): its domain D, the host type with every identity the checker reads (a
+ * closed reference's roster brand), the facts F its values are proved to have, and its language, every value of its
+ * type, which is its host type: a descriptor's column delivers all of them.
  */
-export interface Field<out Host, out Sql extends SqlTag> extends FieldBase {
+export interface Field<out Host, out Sql extends SqlTag, out D = Host, out F extends Facts = Facts>
+	extends FieldBase, Proving<F> {
+	readonly [domain]?: D | undefined
+	readonly [language]?: Host | undefined
 	readonly sql: Sql
 	readonly column: Column<Host>
 }
 
-/** Every text field carries a regex; S and F are its literal source and flags. */
+/**
+ * Every text field carries a regex; S and F are its literal source and flags. Its host type and language are the
+ * pattern's (RegexInfer), and its domain is text: the checker meets text with text whatever their patterns, as
+ * PostgreSQL compares them, and checks a JavaScript value against the pattern (ContractLiteral), as the language does.
+ */
 export interface TextField<
 	out Host extends string,
 	out S extends string,
 	out F extends string
-> extends Field<Host, "text"> {
+> extends Field<Host, "text", string> {
 	readonly pattern: { readonly source: S; readonly flags: F }
 }
 
@@ -85,18 +106,30 @@ export type Span<E> = { readonly start: E; readonly end: E }
 export type LiteralOf<T> =
 	BaseOf<T> extends infer B ? (B extends Decimal ? Decimal | bigint | string : B) : never
 
-export type Infer<F> = F extends Field<infer Host, SqlTag> ? Host : never
+export type Infer<F> = FieldHost<F>
 export type SqlOf<F> = F extends Field<unknown, infer Sql> ? Sql : never
+
+/** The facts a contract declares: each named fact proved; none declared is the empty declaration. */
+export type DeclaredFacts<Proved extends ReadonlyArray<keyof Facts>> = {
+	readonly [K in Proved[number]]: true
+}
 
 /**
  * A nominal contract: base descriptor, optional total predicate, PostgreSQL domain. Its host type is
  * the base host type branded with the contract's name, so two contracts over one base are distinct types.
  * The contract is its brand's minting function: `Cents(1500n)` brands without checking, and the database validates on
- * write.
+ * write. Its values have its base's facts and the facts it declares its predicate proves (Proved), which compilation
+ * proves from the predicate.
  */
-export interface Contract<Name extends string, B extends FieldBase> extends Field<
+export interface Contract<
+	Name extends string,
+	B extends FieldBase,
+	Proved extends Facts = DeclaredFacts<readonly []>
+> extends Field<
 	Infer<B> & Brand.Brand<Name>,
-	B["sql"]
+	B["sql"],
+	DomainOf<B> & Brand.Brand<Name>,
+	FactsOf<B> & Proved
 > {
 	(unbranded: Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>): Infer<B> & Brand.Brand<Name>
 	readonly name: Name
@@ -115,6 +148,14 @@ export interface NotSerial {
 }
 
 /**
+ * Not a roster's descriptor: closedId(X) carries its roster under `roster`, which an absent optional `never` refuses,
+ * so a member of a roster is X.handle(member). A contract over a closedId carries its base, never a roster, and passes.
+ */
+export interface NotRoster {
+	readonly roster?: never
+}
+
+/**
  * A plain integer descriptor: an integer field that is not a serial generation declaration, nor a contract over one.
  */
 type PlainIntegerField<Host, Sql extends SqlTag> = Field<Host, Sql> & NotSerial
@@ -127,10 +168,22 @@ type PlainIntegerField<Host, Sql extends SqlTag> = Field<Host, Sql> & NotSerial
  */
 export type IntegerLike = PlainIntegerField<number, "integer"> | PlainIntegerField<bigint, "bigint">
 
-/** A closed reference: the roster's handles as a PostgreSQL enum. */
-export interface ClosedIdField<out C> extends Field<HandleOf<C>, "enum"> {
+/**
+ * A closed reference: the roster's handles as a PostgreSQL enum, whose domain is its handles under the roster's
+ * identity (Rostered), so two rosters of one member set never meet.
+ */
+export interface ClosedIdField<out C> extends Field<
+	HandleOf<C>,
+	"enum",
+	HandleOf<C> & Rostered<RosterName<C>>
+> {
 	readonly roster: C
 }
+
+/** A closed relation's name, its roster's identity. */
+type RosterName<C> = C extends { readonly kind: "closed"; readonly name: infer N extends string }
+	? N
+	: never
 
 /** The roster handles of a closed relation, read from its `handles` member. */
 export type HandleOf<C> = C extends {

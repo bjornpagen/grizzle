@@ -1,10 +1,11 @@
-import { Array as Arr, Effect, type Scope } from "effect"
+import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { closedId, pg, span, uuid } from "#compiler/public/fields.ts"
 import {
+	type AnyRelation,
 	type AnySchema,
 	alternatives,
 	capacity,
@@ -12,6 +13,7 @@ import {
 	contained,
 	duration,
 	key,
+	type Mutable,
 	mirrors,
 	mutable,
 	on,
@@ -34,6 +36,7 @@ import {
 	type HostSide,
 	type HostValue
 } from "#test/pg/laws/families/model.ts"
+import type { AmbientSession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 
 import {
@@ -69,8 +72,11 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  *   a residual law anchored on the target row;
  * - conditional mirrors: `mirrors(on(select(Line, { flagged: sel }), "id"), on(Reason, "line"))`, a tagged native
  *   foreign key for the child half and a residual obligation on the parent;
- * - alternatives: `alternatives(Run, "stage", Stage, { paid: Payment, voided: Voiding })`, a partial arm map whose
- *   `draft` and `approved` carry no payload: the arms' tagged foreign keys and the reverse obligation;
+ * - alternatives: `alternatives(Run, "stage", Stage, { s0: key(Pay0, ["run"]), ... })` over the boundary rosters of
+ *   two to five handles: every handle armed, one unarmed, a payload relation two handles share, one armed of five: the
+ *   arms' tagged foreign keys and the reverse obligation, which the parent's units check over the whole roster and
+ *   each payload relation's over its own arms; each roster with every relation immutable and with every one mutable,
+ *   and two with a mutable arm beside an immutable parent and an immutable arm beside a mutable one;
  * - scalar-group capacity: `capacity(on([select(]Team[, { open })], "id"), { from: on([select(]Member[, { active })],
  *   "team"), [weight: weigh("weight"),] within: within(low, high) })`, drawing a count or a sum of the member's weight,
  *   literal bounds or `ref("cap")`, the team's own field, a selector on either side or both, and the declared
@@ -101,18 +107,22 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  *   two pins per badge `id` and at most two tags per badge `code`, so the two residual laws' DETAILs name Badge by
  *   different fields and each is read only by the codec of the law that raised it.
  *
- * Every family draws `mutable` for all of its relations or for none, so a put is an UPDATE in place or the
- * DELETE-then-insert pair. Every schema installs with the same writers (support.ts familyWriters): `app`, the grizzle
- * writer of the family suites and, opened twice, the histories' two grizzle writers, in the login `server`, and
- * `direct`, the role their psql writers take on, in the login `psql`, each writing every ordinary relation.
+ * Mutability is a coordinate of each relation, which the host states per relation (model.ts HostRelation `mutable`):
+ * a put on a mutable relation is an UPDATE in place, on an immutable one the DELETE-then-insert pair, and a direct
+ * writer's UPDATE of an immutable relation is refused by privilege. Most families draw it for all of their relations
+ * or for none; the alternatives family draws it per relation too, an arm's apart from its parent's. A family's box
+ * splits into its populations by mode (populationsOf), each a test of its own. Every schema installs with the same
+ * writers (support.ts familyWriters): `app`, the grizzle writer of the family suites and, opened twice, the histories'
+ * two grizzle writers, in the login `server`, and `direct`, the role their psql writers take on, in the login `psql`,
+ * each writing every ordinary relation.
  */
 export interface Family<P> {
 	readonly label: string
 	/**
-	 * Every schema of one mutability, each with distinct parameters, in a fixed order: the family's whole parameter space,
-	 * which a suite draws from per case.
+	 * Every schema of the family, each with distinct parameters, every relation's mutability among them, in a fixed
+	 * order: the family's whole parameter space, which a suite draws from per case within one population.
 	 */
-	readonly variants: (isMutable: boolean) => ReadonlyArray<P>
+	readonly variants: Arr.NonEmptyReadonlyArray<P>
 	readonly describe: (p: P) => string
 	/**
 	 * The coordinates of a schema in the family's box that the suite steers by: each must meet a refusal by every kind
@@ -141,23 +151,58 @@ export interface Family<P> {
  */
 export const installFamily = <P>(
 	family: Family<P>,
-	p: P
+	p: P,
+	ambient: AmbientSession
 ): Effect.Effect<
 	Installed,
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
-> => installLaws(family.schema(p))
+> => installLaws(family.schema(p), ambient)
+
+/**
+ * A population of a family's box: its schemas no relation of which is mutable, or those with a mutable relation. A
+ * population's writers meet different statements (a privilege refusal of every UPDATE, or UPDATEs in place), so each
+ * is a test of its own.
+ */
+export type Mode = "immutable" | "mutable"
+
+/** The population of a schema, by its relations' mutability. */
+export const modeOf = (host: HostSchema): Mode =>
+	Arr.some(host.relations, (r) => r.mutable) ? "mutable" : "immutable"
+
+/** The schemas of one population of a family's box, in box order. */
+export const variantsOf = <P>(family: Family<P>, mode: Mode): ReadonlyArray<P> =>
+	Arr.filter(family.variants, (p) => modeOf(family.host(p)) === mode)
+
+/** One population of a family's box: its mode and its schemas, in box order. */
+export interface Population<P> {
+	readonly mode: Mode
+	readonly variants: Arr.NonEmptyReadonlyArray<P>
+}
+
+/** The populations of a family's box that hold a schema: its first schema's, then the other mode's when it has one. */
+export const populationsOf = <P>(family: Family<P>): Arr.NonEmptyReadonlyArray<Population<P>> => {
+	const [first, ...rest] = family.variants
+	const mode = modeOf(family.host(first))
+	const other: Mode = mode === "immutable" ? "mutable" : "immutable"
+	const own: Population<P> = {
+		mode,
+		variants: [first, ...Arr.filter(rest, (p) => modeOf(family.host(p)) === mode)]
+	}
+	const [next, ...more] = Arr.filter(rest, (p) => modeOf(family.host(p)) === other)
+	return next === undefined ? [own] : [own, { mode: other, variants: [next, ...more] }]
+}
 
 const label = str.regex("^[a-z]{0,8}$")
 /** The traits of a family of a few fixed schemas. */
 const noTraits = (): ReadonlyArray<string> => []
-const mode = (isMutable: boolean): string => (isMutable ? "mutable" : "immutable")
 
 /** A relation as the host sees it: its table and columns named by the naming door (core/identity.ts). */
 const hostRelation = (
 	name: string,
 	fields: ReadonlyArray<string>,
-	keyFields: ReadonlyArray<string>
+	keyFields: ReadonlyArray<string>,
+	mutable: boolean
 ): HostRelation => ({
 	name,
 	table: identity.table(parsedName(name)).identifier,
@@ -165,10 +210,44 @@ const hostRelation = (
 		name: field,
 		column: identity.column(parsedName(field)).identifier
 	})),
-	key: keyFields
+	key: keyFields,
+	mutable
 })
 
-const booleans: ReadonlyArray<boolean> = [false, true]
+const booleans: Arr.NonEmptyReadonlyArray<boolean> = [false, true]
+
+/**
+ * Which relations of a schema are declared `mutable`, by name: the mutability of each relation a family draws, which
+ * its schema states and its host reads relation by relation.
+ */
+export type Mutability<R extends string> = Readonly<Record<R, boolean>>
+
+/** The uniform mutabilities of a family's relations: none of them mutable, then every one. */
+const uniformly = <R extends string>(
+	relations: Readonly<Record<R, unknown>>
+): Arr.NonEmptyReadonlyArray<Mutability<R>> =>
+	Arr.map(booleans, (declared) => Rec.map(relations, () => declared))
+
+/** The `mutable` statements of the relations a mutability declares mutable. */
+export const mutables = <R extends string, V extends AnyRelation>(
+	m: Mutability<R>,
+	relations: Readonly<Record<R, V>>
+): ReadonlyArray<Mutable<V>> =>
+	Arr.flatMap(Rec.toEntries(relations), ([name, r]) => (m[name] ? [mutable(r)] : []))
+
+/** A mutability as a schema's description names it: every relation's, or the mutable ones'. */
+export const describeMutability = (m: Readonly<Record<string, boolean>>): string => {
+	const all = Rec.toEntries(m)
+	const declared = Arr.filter(all, ([, x]) => x)
+	return declared.length === 0
+		? "immutable"
+		: declared.length === all.length
+			? "mutable"
+			: `${Arr.join(
+					Arr.map(declared, ([name]) => name),
+					" and "
+				)} mutable`
+}
 
 export const Worker = relation("Worker", { id: pg.integer, name: label }, ["id"])
 export const Assignment = relation(
@@ -177,8 +256,10 @@ export const Assignment = relation(
 	["id"]
 )
 
+const staffingRelations = { Worker, Assignment }
+
 export interface StaffingParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<keyof typeof staffingRelations>
 	readonly selector: boolean
 }
 
@@ -186,15 +267,15 @@ const staffed = (p: StaffingParams) =>
 	contained(on(select(Assignment, { active: p.selector }), "worker"), on(Worker, "id"))
 
 export const staffing = (p: StaffingParams) => (name: string) =>
-	schema(name, { Worker, Assignment }, [
-		staffed(p),
-		...(p.mutable ? [mutable(Worker), mutable(Assignment)] : [])
-	])
+	schema(name, staffingRelations, [staffed(p), ...mutables(p.mutable, staffingRelations)])
 
 export const selectedSource: Family<StaffingParams> = {
 	label: "selected-source containment",
-	variants: (isMutable) => Arr.map(booleans, (selector) => ({ mutable: isMutable, selector })),
-	describe: (p) => `${mode(p.mutable)}, Assignment selected by active = ${p.selector}`,
+	variants: Arr.flatMap(uniformly(staffingRelations), (mutable) =>
+		Arr.map(booleans, (selector): StaffingParams => ({ mutable, selector }))
+	),
+	describe: (p) =>
+		`${describeMutability(p.mutable)}, Assignment selected by active = ${p.selector}`,
 	traits: noTraits,
 	domains: {
 		Worker: { id: [1, 2, 3], name: ["a", "b"] },
@@ -204,8 +285,8 @@ export const selectedSource: Family<StaffingParams> = {
 		const laws = lawNamesOf(staffing(p)("families"))
 		return {
 			relations: [
-				hostRelation("Worker", ["id", "name"], ["id"]),
-				hostRelation("Assignment", ["id", "worker", "active"], ["id"])
+				hostRelation("Worker", ["id", "name"], ["id"], p.mutable.Worker),
+				hostRelation("Assignment", ["id", "worker", "active"], ["id"], p.mutable.Assignment)
 			],
 			laws: [
 				{ kind: "key", law: laws.primaryKeyLaw(Worker), relation: "Worker", fields: ["id"] },
@@ -228,15 +309,17 @@ export const selectedSource: Family<StaffingParams> = {
 	schema: staffing,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: staffing(p)(installed.declared) }), (o) =>
-			runtimeSession(selectedSource.host(p), o, { Worker, Assignment })
+			runtimeSession(selectedSource.host(p), o, staffingRelations)
 		)
 }
 
 export const Line = relation("Line", { id: pg.integer, flagged: pg.boolean, note: label }, ["id"])
 export const Reason = relation("Reason", { id: pg.integer, line: pg.integer, text: label }, ["id"])
 
+const ledgerRelations = { Line, Reason }
+
 export interface LedgerParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<keyof typeof ledgerRelations>
 	readonly selector: boolean
 }
 
@@ -244,15 +327,14 @@ const flaggedReasons = (p: LedgerParams) =>
 	mirrors(on(select(Line, { flagged: p.selector }), "id"), on(Reason, "line"))
 
 export const ledger = (p: LedgerParams) => (name: string) =>
-	schema(name, { Line, Reason }, [
-		flaggedReasons(p),
-		...(p.mutable ? [mutable(Line), mutable(Reason)] : [])
-	])
+	schema(name, ledgerRelations, [flaggedReasons(p), ...mutables(p.mutable, ledgerRelations)])
 
 export const conditionalMirrors: Family<LedgerParams> = {
 	label: "conditional mirrors",
-	variants: (isMutable) => Arr.map(booleans, (selector) => ({ mutable: isMutable, selector })),
-	describe: (p) => `${mode(p.mutable)}, Line selected by flagged = ${p.selector}`,
+	variants: Arr.flatMap(uniformly(ledgerRelations), (mutable) =>
+		Arr.map(booleans, (selector): LedgerParams => ({ mutable, selector }))
+	),
+	describe: (p) => `${describeMutability(p.mutable)}, Line selected by flagged = ${p.selector}`,
 	traits: noTraits,
 	domains: {
 		Line: { id: [1, 2, 3], flagged: [true, false], note: ["a", "b"] },
@@ -267,8 +349,8 @@ export const conditionalMirrors: Family<LedgerParams> = {
 		const halves = laws.mirrorsOf(flaggedReasons(p))
 		return {
 			relations: [
-				hostRelation("Line", ["id", "flagged", "note"], ["id"]),
-				hostRelation("Reason", ["id", "line", "text"], ["id"])
+				hostRelation("Line", ["id", "flagged", "note"], ["id"], p.mutable.Line),
+				hostRelation("Reason", ["id", "line", "text"], ["id"], p.mutable.Reason)
 			],
 			laws: [
 				{ kind: "key", law: laws.primaryKeyLaw(Line), relation: "Line", fields: ["id"] },
@@ -292,84 +374,220 @@ export const conditionalMirrors: Family<LedgerParams> = {
 	schema: ledger,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: ledger(p)(installed.declared) }), (o) =>
-			runtimeSession(conditionalMirrors.host(p), o, { Line, Reason })
+			runtimeSession(conditionalMirrors.host(p), o, ledgerRelations)
 		)
 }
 
 const stages = ["draft", "approved", "paid", "voided"] as const
 const Stage = closed("Stage", stages)
-export const Run = relation("Run", { id: pg.integer, stage: closedId(Stage), note: label }, ["id"])
-export const Payment = relation("Payment", { run: pg.integer, amount: pg.integer }, ["run"])
-export const Voiding = relation("Voiding", { run: pg.integer, reason: label }, ["run"])
-
-export interface RunsParams {
+/** A payload relation of a drawn alternatives schema: the roster positions it is the payload of, its mutability. */
+export interface PayArm {
+	readonly handles: Arr.NonEmptyReadonlyArray<number>
 	readonly mutable: boolean
 }
 
-const runStages = alternatives(Run, "stage", Stage, { paid: Payment, voided: Voiding })
+/**
+ * A drawn alternatives schema: a roster of `roster` handles `s0`.., the mutability of its parent Run, and its payload
+ * relations `Pay0`.., each the payload of its own roster positions, no position of two, each with its own mutability.
+ * A payload is keyed by its own `id`, with its parent's `run` a candidate key, so a `mutable` payload's move to another
+ * parent is an UPDATE of `run`, and a `mutable` run's kind switch an UPDATE of `stage`.
+ */
+export interface RunsParams {
+	readonly roster: number
+	readonly runMutable: boolean
+	readonly arms: Arr.NonEmptyReadonlyArray<PayArm>
+}
 
-export const runs = (p: RunsParams) => (name: string) =>
-	schema(name, { Stage, Run, Payment, Voiding }, [
-		runStages,
-		...(p.mutable ? [mutable(Run), mutable(Payment), mutable(Voiding)] : [])
+const stageName = (i: number): string => `s${i}`
+
+/** The values of a drawn alternatives schema: its roster, parent and payload relations, and its statements. */
+const drawnRuns = (p: RunsParams) => {
+	const names: readonly [string, ...Array<string>] = [
+		stageName(0),
+		...Arr.makeBy(p.roster - 1, (i) => stageName(i + 1))
+	]
+	const DrawnStage = closed("Stage", names)
+	const Run = relation("Run", { id: pg.integer, stage: closedId(DrawnStage), note: label }, ["id"])
+	const pays = Arr.map(p.arms, (arm, j) => {
+		const value = relation(`Pay${j}`, { id: pg.integer, run: pg.integer, amount: pg.integer }, [
+			"id"
+		])
+		return { handles: arm.handles, mutable: arm.mutable, value, runKey: key(value, ["run"]) }
+	})
+	const byHandle: Record<string, ReturnType<typeof key>> = {}
+	for (const pay of pays) {
+		for (const h of pay.handles) {
+			byHandle[stageName(h)] = pay.runKey
+		}
+	}
+	const stage = alternatives(Run, "stage", DrawnStage, byHandle)
+	const relations: Record<string, AnyRelation | typeof DrawnStage> = { Stage: DrawnStage, Run }
+	for (const pay of pays) {
+		relations[pay.value.name] = pay.value
+	}
+	return { DrawnStage, Run, pays, stage, relations }
+}
+
+/** A drawn alternatives schema under a name. */
+export const runs = (p: RunsParams) => (name: string) => {
+	const d = drawnRuns(p)
+	return schema(name, d.relations, [
+		d.stage,
+		...Arr.map(d.pays, (pay) => pay.runKey),
+		...(p.runMutable ? [mutable(d.Run)] : []),
+		...Arr.flatMap(d.pays, (pay) => (pay.mutable ? [mutable(pay.value)] : []))
 	])
+}
+
+/** The relation values of a drawn alternatives schema, by name, as a ChangeSet names them. */
+export const runsRelations = (p: RunsParams): Readonly<Record<string, unknown>> =>
+	drawnRuns(p).relations
+
+/** A boundary roster: its size and the roster positions of its payload relations, in payload order. */
+interface RosterShape {
+	readonly roster: number
+	readonly arms: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<number>>
+}
+
+/**
+ * The boundary rosters, over two to five handles. A run's stage draws `s0` and `s1`, which every roster holds, so each
+ * roster's arming shows at them: every handle armed (two handles); `s1` unarmed (three); `s0` and `s1` the payload of
+ * one relation, beside an unarmed `s3` (four); and `s0` the one armed handle of five.
+ */
+const everyHandleArmed: RosterShape = { roster: 2, arms: [[0], [1]] }
+const sharedPayload: RosterShape = { roster: 4, arms: [[0, 1], [2]] }
+const rosterShapes: Arr.NonEmptyReadonlyArray<RosterShape> = [
+	everyHandleArmed,
+	{ roster: 3, arms: [[0], [2]] },
+	sharedPayload,
+	{ roster: 5, arms: [[0]] }
+]
+
+/** A roster shape with its run's mutability and each payload relation's, in payload order. */
+const runsOf = (
+	shape: RosterShape,
+	runMutable: boolean,
+	armMutable: (j: number) => boolean
+): RunsParams => ({
+	roster: shape.roster,
+	runMutable,
+	arms: Arr.map(shape.arms, (handles, j) => ({ handles, mutable: armMutable(j) }))
+})
+
+/**
+ * The family's whole box, each a schema the suite installs: every boundary roster with every relation immutable, and
+ * with every relation mutable; and two rosters whose relations differ, every handle armed with an immutable run beside
+ * a mutable `Pay0` and an immutable `Pay1`, and the shared payload relation's roster with a mutable run beside an
+ * immutable shared `Pay0` and a mutable `Pay1`, so a mutable arm meets an immutable parent and an immutable arm a
+ * mutable one.
+ */
+const runsBox: Arr.NonEmptyReadonlyArray<RunsParams> = Arr.appendAll(
+	Arr.flatMap(booleans, (declared) =>
+		Arr.map(rosterShapes, (shape) => runsOf(shape, declared, () => declared))
+	),
+	[runsOf(everyHandleArmed, false, (j) => j === 0), runsOf(sharedPayload, true, (j) => j !== 0)]
+)
+
+const armedCount = (p: RunsParams): number => Arr.flatten(Arr.map(p.arms, (a) => a.handles)).length
+
+/** The mutability of a drawn schema's relations, as its description names them. */
+const runsMutability = (p: RunsParams): Readonly<Record<string, boolean>> => ({
+	Run: p.runMutable,
+	...Rec.fromEntries(Arr.map(p.arms, (a, j) => [`Pay${j}`, a.mutable] as const))
+})
+
+const describeRuns = (p: RunsParams): string => {
+	const armed = armedCount(p)
+	const roster =
+		armed === p.roster
+			? "every handle armed"
+			: armed === 1
+				? "one handle armed"
+				: `${p.roster - armed} unarmed`
+	const shared = Arr.some(p.arms, (a) => a.handles.length > 1) ? ", a payload relation shared" : ""
+	return `${describeMutability(runsMutability(p))}, ${p.roster} handles, ${roster}${shared}`
+}
+
+/**
+ * The traits of an alternatives schema whose arms' mutability is not its parent's: a mutable arm beside an immutable
+ * parent, an immutable arm beside a mutable one.
+ */
+const armMutabilityTraits = (
+	parent: boolean,
+	arms: ReadonlyArray<boolean>
+): ReadonlyArray<string> => [
+	...(!parent && arms.includes(true) ? ["a mutable arm beside an immutable parent"] : []),
+	...(parent && arms.includes(false) ? ["an immutable arm beside a mutable parent"] : [])
+]
+
+/**
+ * The shape of a drawn roster its schema bears: an unarmed handle, a shared payload relation; and an arm whose
+ * mutability is not its parent's.
+ */
+const runsTraits = (p: RunsParams): ReadonlyArray<string> => [
+	...(armedCount(p) < p.roster ? ["an unarmed handle"] : []),
+	...(Arr.some(p.arms, (a) => a.handles.length > 1) ? ["a shared payload relation"] : []),
+	...armMutabilityTraits(
+		p.runMutable,
+		Arr.map(p.arms, (a) => a.mutable)
+	)
+]
 
 export const alternativesFamily: Family<RunsParams> = {
 	label: "alternatives",
-	variants: (isMutable) => [{ mutable: isMutable }],
-	describe: (p) => `${mode(p.mutable)}, arms paid: Payment and voided: Voiding`,
-	traits: noTraits,
+	variants: runsBox,
+	describe: describeRuns,
+	traits: runsTraits,
 	domains: {
-		Run: { id: [1, 2, 3], stage: stages, note: ["a", "b"] },
-		Payment: { run: [1, 2, 3], amount: [1, 2] },
-		Voiding: { run: [1, 2, 3], reason: ["x", "y"] }
+		Run: { id: [1, 2, 3], stage: ["s0", "s1"], note: ["a", "b"] },
+		...Rec.fromEntries(
+			Arr.makeBy(2, (j) => [`Pay${j}`, { id: [1, 2, 3], run: [1, 2, 3], amount: [1, 2] }] as const)
+		)
 	},
 	host: (p) => {
+		const d = drawnRuns(p)
 		const laws = lawNamesOf(runs(p)("families"))
-		const stage = laws.alternativesOf(runStages)
+		const stage = laws.alternativesOf(d.stage)
 		return {
 			relations: [
-				hostRelation("Run", ["id", "stage", "note"], ["id"]),
-				hostRelation("Payment", ["run", "amount"], ["run"]),
-				hostRelation("Voiding", ["run", "reason"], ["run"])
+				hostRelation("Run", ["id", "stage", "note"], ["id"], p.runMutable),
+				...Arr.map(d.pays, (pay) =>
+					hostRelation(pay.value.name, ["id", "run", "amount"], ["id"], pay.mutable)
+				)
 			],
 			laws: [
-				{ kind: "key", law: laws.primaryKeyLaw(Run), relation: "Run", fields: ["id"] },
-				{ kind: "key", law: laws.primaryKeyLaw(Payment), relation: "Payment", fields: ["run"] },
-				{ kind: "key", law: laws.primaryKeyLaw(Voiding), relation: "Voiding", fields: ["run"] },
-				{
-					kind: "contained",
-					law: defined(stage.arms["paid"], "the paid arm's law"),
-					source: { relation: "Payment", fields: ["run"], where: everyFact },
-					target: { relation: "Run", fields: ["id"], where: { stage: "paid" } },
-					residual: false
-				},
-				{
-					kind: "contained",
-					law: defined(stage.arms["voided"], "the voided arm's law"),
-					source: { relation: "Voiding", fields: ["run"], where: everyFact },
-					target: { relation: "Run", fields: ["id"], where: { stage: "voided" } },
-					residual: false
-				},
-				{
-					kind: "obliged",
-					law: stage.reverse,
-					anchor: { relation: "Run", fields: ["id"], where: { stage: "paid" } },
-					dependent: { relation: "Payment", fields: ["run"], where: everyFact }
-				},
-				{
-					kind: "obliged",
-					law: stage.reverse,
-					anchor: { relation: "Run", fields: ["id"], where: { stage: "voided" } },
-					dependent: { relation: "Voiding", fields: ["run"], where: everyFact }
-				}
+				{ kind: "key", law: laws.primaryKeyLaw(d.Run), relation: "Run", fields: ["id"] },
+				...Arr.flatMap(d.pays, (pay): HostSchema["laws"] => [
+					{
+						kind: "key",
+						law: laws.primaryKeyLaw(pay.value),
+						relation: pay.value.name,
+						fields: ["id"]
+					},
+					{ kind: "key", law: laws.lawOf(pay.runKey), relation: pay.value.name, fields: ["run"] },
+					...Arr.flatMap(pay.handles, (h): HostSchema["laws"] => [
+						{
+							kind: "contained",
+							law: defined(stage.arms[stageName(h)], `the ${stageName(h)} arm's law`),
+							source: { relation: pay.value.name, fields: ["run"], where: everyFact },
+							target: { relation: "Run", fields: ["id"], where: { stage: stageName(h) } },
+							residual: false
+						},
+						{
+							kind: "obliged",
+							law: stage.reverse,
+							anchor: { relation: "Run", fields: ["id"], where: { stage: stageName(h) } },
+							dependent: { relation: pay.value.name, fields: ["run"], where: everyFact }
+						}
+					])
+				])
 			]
 		}
 	},
 	schema: runs,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: runs(p)(installed.declared) }), (o) =>
-			runtimeSession(alternativesFamily.host(p), o, { Run, Payment, Voiding })
+			runtimeSession(alternativesFamily.host(p), o, runsRelations(p))
 		)
 }
 
@@ -391,13 +609,15 @@ type DrawnBound = bigint | "cap"
 /** A side's selector as drawn: none, or the value its boolean field must hold. */
 type Selector = { readonly kind: "every" } | { readonly kind: "selected"; readonly value: boolean }
 const every: Selector = { kind: "every" }
-const selectors: ReadonlyArray<Selector> = Arr.map(booleans, (value) => ({
+const selectors: Arr.NonEmptyReadonlyArray<Selector> = Arr.map(booleans, (value) => ({
 	kind: "selected",
 	value
 }))
 
+const teamsRelations = { Team, Member }
+
 export interface TeamsParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<keyof typeof teamsRelations>
 	/** A sum of the member's weight, or a count. */
 	readonly weighted: boolean
 	readonly low: DrawnBound
@@ -430,10 +650,10 @@ const teamCapacity = (p: TeamsParams) =>
 const memberTeam = contained(on(Member, "team"), on(Team, "id"))
 
 export const teams = (p: TeamsParams) => (name: string) =>
-	schema(name, { Team, Member }, [
+	schema(name, teamsRelations, [
 		teamCapacity(p),
 		...(p.governed ? [memberTeam] : []),
-		...(p.mutable ? [mutable(Team), mutable(Member)] : [])
+		...mutables(p.mutable, teamsRelations)
 	])
 
 /** A selector's facts: every one, or those whose `field` holds its value. */
@@ -441,10 +661,10 @@ const where = (field: string, s: Selector): Readonly<Record<string, HostValue>> 
 	s.kind === "every" ? everyFact : { [field]: s.value }
 
 /**
- * Every schema of one mutability, shape by shape, which together hold every value of each dimension: count and sum,
- * literal and `ref` bounds on either side, no selector, a selected source, a selected target and both, with and without
- * the containment of the members into their teams. Every shape keeps the law residual: no upper bound of one over an
- * unselected count.
+ * Every schema of one uniform mutability, shape by shape, which together hold every value of each dimension: count and
+ * sum, literal and `ref` bounds on either side, no selector, a selected source, a selected target and both, with and
+ * without the containment of the members into their teams. Every shape keeps the law residual: no upper bound of one
+ * over an unselected count.
  *
  * A count within literal bounds, nothing selected.
  *
@@ -457,65 +677,70 @@ const where = (field: string, s: Selector): Readonly<Record<string, HostValue>> 
  * At most two selected members per team, and no containment of members into teams: a member of no team is lawful,
  * so one writer can insert a team while another inserts members into its group, each alone within the bound.
  */
-const capacityVariants = (isMutable: boolean): ReadonlyArray<TeamsParams> => [
-	...Arr.flatMap([0n, 1n, 2n], (low) =>
-		Arr.flatMap([2n, 3n], (high): ReadonlyArray<TeamsParams> =>
-			low <= high
-				? [
-						{
-							mutable: isMutable,
-							weighted: false,
-							low,
-							high,
-							team: every,
-							member: every,
-							governed: true
-						}
-					]
-				: []
-		)
-	),
-	...Arr.flatMap([0n, 1n], (low) =>
-		Arr.flatMap(selectors, (team) =>
-			Arr.map(selectors, (member): TeamsParams => ({
-				mutable: isMutable,
-				weighted: true,
-				low,
-				high: "cap",
+const capacityVariants = (
+	mutable: Mutability<keyof typeof teamsRelations>
+): Arr.NonEmptyReadonlyArray<TeamsParams> =>
+	Arr.appendAll(
+		[
+			...Arr.flatMap([0n, 1n, 2n], (low) =>
+				Arr.flatMap([2n, 3n], (high): ReadonlyArray<TeamsParams> =>
+					low <= high
+						? [
+								{
+									mutable,
+									weighted: false,
+									low,
+									high,
+									team: every,
+									member: every,
+									governed: true
+								}
+							]
+						: []
+				)
+			),
+			...Arr.flatMap([0n, 1n], (low) =>
+				Arr.flatMap(selectors, (team) =>
+					Arr.map(selectors, (member): TeamsParams => ({
+						mutable,
+						weighted: true,
+						low,
+						high: "cap",
+						team,
+						member,
+						governed: true
+					}))
+				)
+			),
+			...Arr.map(selectors, (team): TeamsParams => ({
+				mutable,
+				weighted: false,
+				low: 0n,
+				high: 1n,
 				team,
+				member: every,
+				governed: true
+			})),
+			...Arr.map(selectors, (member): TeamsParams => ({
+				mutable,
+				weighted: true,
+				low: "cap",
+				high: "*",
+				team: every,
 				member,
 				governed: true
 			}))
-		)
-	),
-	...Arr.map(selectors, (team): TeamsParams => ({
-		mutable: isMutable,
-		weighted: false,
-		low: 0n,
-		high: 1n,
-		team,
-		member: every,
-		governed: true
-	})),
-	...Arr.map(selectors, (member): TeamsParams => ({
-		mutable: isMutable,
-		weighted: true,
-		low: "cap",
-		high: "*",
-		team: every,
-		member,
-		governed: true
-	})),
-	...Arr.map(selectors, (member): TeamsParams => ({
-		mutable: isMutable,
-		weighted: false,
-		low: 0n,
-		high: 2n,
-		team: every,
-		member,
-		governed: false
-	}))
-]
+		],
+		Arr.map(selectors, (member): TeamsParams => ({
+			mutable,
+			weighted: false,
+			low: 0n,
+			high: 2n,
+			team: every,
+			member,
+			governed: false
+		}))
+	)
 
 const describeSelector = (field: string, s: Selector): string =>
 	s.kind === "every" ? "" : ` ${field} = ${s.value}`
@@ -523,7 +748,7 @@ const describeSelector = (field: string, s: Selector): string =>
 const describeTeams = (p: TeamsParams): string =>
 	Arr.join(
 		[
-			mode(p.mutable),
+			describeMutability(p.mutable),
 			`${p.weighted ? "member weight" : "members"} per${describeSelector("open", p.team)} team within [${p.low}, ${p.high}]`,
 			...(p.member.kind === "every"
 				? []
@@ -535,7 +760,7 @@ const describeTeams = (p: TeamsParams): string =>
 
 export const capacityFamily: Family<TeamsParams> = {
 	label: "scalar-group capacity",
-	variants: capacityVariants,
+	variants: Arr.flatMap(uniformly(teamsRelations), capacityVariants),
 	describe: describeTeams,
 	traits: noTraits,
 	domains: {
@@ -551,8 +776,8 @@ export const capacityFamily: Family<TeamsParams> = {
 		const laws = lawNamesOf(teams(p)("families"))
 		return {
 			relations: [
-				hostRelation("Team", ["id", "name", "open", "cap"], ["id"]),
-				hostRelation("Member", ["id", "team", "active", "weight"], ["id"])
+				hostRelation("Team", ["id", "name", "open", "cap"], ["id"], p.mutable.Team),
+				hostRelation("Member", ["id", "team", "active", "weight"], ["id"], p.mutable.Member)
 			],
 			laws: [
 				{ kind: "key", law: laws.primaryKeyLaw(Team), relation: "Team", fields: ["id"] },
@@ -583,7 +808,7 @@ export const capacityFamily: Family<TeamsParams> = {
 	schema: teams,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: teams(p)(installed.declared) }), (o) =>
-			runtimeSession(capacityFamily.host(p), o, { Team, Member })
+			runtimeSession(capacityFamily.host(p), o, teamsRelations)
 		)
 }
 
@@ -599,8 +824,10 @@ export const Duty = relation(
 	["tenant", "id"]
 )
 
+const crewsRelations = { Crew, Duty }
+
 export interface CrewsParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<keyof typeof crewsRelations>
 	readonly selector: boolean
 	/** A sum of hours against a literal upper bound, or a count against the crew's cap. */
 	readonly weighted: boolean
@@ -619,22 +846,26 @@ const crewCapacity = (p: CrewsParams) =>
 	})
 
 export const crews = (p: CrewsParams) => (name: string) =>
-	schema(name, { Crew, Duty }, [
+	schema(name, crewsRelations, [
 		crewDuties(p),
 		crewCapacity(p),
-		...(p.mutable ? [mutable(Crew), mutable(Duty)] : [])
+		...mutables(p.mutable, crewsRelations)
 	])
 
+const lowBounds: Arr.NonEmptyReadonlyArray<bigint> = [0n, 1n]
+
 /**
- * Every schema of one mutability: a count against the crew's cap, or a sum of hours against a literal, each selector
- * value and each lower bound.
+ * Every schema of one uniform mutability: a count against the crew's cap, or a sum of hours against a literal, each
+ * selector value and each lower bound.
  */
-const crewVariants = (isMutable: boolean): ReadonlyArray<CrewsParams> =>
+const crewVariants = (
+	mutable: Mutability<keyof typeof crewsRelations>
+): Arr.NonEmptyReadonlyArray<CrewsParams> =>
 	Arr.flatMap(booleans, (selector) =>
-		Arr.flatMap([0n, 1n], (low): ReadonlyArray<CrewsParams> => [
-			{ mutable: isMutable, selector, weighted: false, low, high: "cap" },
+		Arr.flatMap(lowBounds, (low): Arr.NonEmptyReadonlyArray<CrewsParams> => [
+			{ mutable, selector, weighted: false, low, high: "cap" },
 			...Arr.map([2n, 3n], (high): CrewsParams => ({
-				mutable: isMutable,
+				mutable,
 				selector,
 				weighted: true,
 				low,
@@ -645,9 +876,9 @@ const crewVariants = (isMutable: boolean): ReadonlyArray<CrewsParams> =>
 
 export const sharedTablesFamily: Family<CrewsParams> = {
 	label: "selected-source containment and capacity sharing tables, tenant keys",
-	variants: crewVariants,
+	variants: Arr.flatMap(uniformly(crewsRelations), crewVariants),
 	describe: (p) =>
-		`${mode(p.mutable)}, Duty selected by active = ${p.selector}, ${p.weighted ? "hours" : "duties"} per crew within [${p.low}, ${p.high}]`,
+		`${describeMutability(p.mutable)}, Duty selected by active = ${p.selector}, ${p.weighted ? "hours" : "duties"} per crew within [${p.low}, ${p.high}]`,
 	traits: noTraits,
 	/** A tenant holds up to six duties, so a crew of the largest cap, three, can be overfilled by duties of its own. */
 	domains: {
@@ -664,8 +895,13 @@ export const sharedTablesFamily: Family<CrewsParams> = {
 		const laws = lawNamesOf(crews(p)("families"))
 		return {
 			relations: [
-				hostRelation("Crew", ["tenant", "id", "cap", "name"], ["tenant", "id"]),
-				hostRelation("Duty", ["tenant", "id", "crew", "active", "hours"], ["tenant", "id"])
+				hostRelation("Crew", ["tenant", "id", "cap", "name"], ["tenant", "id"], p.mutable.Crew),
+				hostRelation(
+					"Duty",
+					["tenant", "id", "crew", "active", "hours"],
+					["tenant", "id"],
+					p.mutable.Duty
+				)
 			],
 			laws: [
 				{ kind: "key", law: laws.primaryKeyLaw(Crew), relation: "Crew", fields: ["tenant", "id"] },
@@ -692,7 +928,7 @@ export const sharedTablesFamily: Family<CrewsParams> = {
 	schema: crews,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: crews(p)(installed.declared) }), (o) =>
-			runtimeSession(sharedTablesFamily.host(p), o, { Crew, Duty })
+			runtimeSession(sharedTablesFamily.host(p), o, crewsRelations)
 		)
 }
 
@@ -716,7 +952,8 @@ export const Roster = relation(
 )
 
 export interface VisitsParams {
-	readonly mutable: boolean
+	/** The mutability of the coverage's sides: Visit, its source, and the rota or the roster, its target. */
+	readonly mutable: Mutability<"source" | "target">
 	/** Every visit covered, a PERIOD foreign key, or the visits whose `billable` holds the value, a residual law. */
 	readonly visits: Selector
 	/**
@@ -759,17 +996,18 @@ export const visits = (p: VisitsParams) => (name: string) =>
 	schema(name, { Rota, Visit }, [
 		visitSpanKey,
 		rotaCoverage(p),
-		...(p.mutable ? [mutable(Rota), mutable(Visit)] : [])
+		...mutables(p.mutable, { source: Visit, target: Rota })
 	])
 
 export const rosterVisits = (p: VisitsParams) => (name: string) =>
 	schema(name, { Roster, Visit }, [
 		visitSpanKey,
 		rosterCoverage(p),
-		...(p.mutable ? [mutable(Roster), mutable(Visit)] : [])
+		...mutables(p.mutable, { source: Visit, target: Roster })
 	])
 
-const visitRelation = hostRelation("Visit", ["id", "site", "during", "billable"], ["id"])
+const visitRelation = (p: VisitsParams): HostRelation =>
+	hostRelation("Visit", ["id", "site", "during", "billable"], ["id"], p.mutable.source)
 const visitKey = (laws: LawNames): HostLaw => ({
 	kind: "key",
 	law: laws.primaryKeyLaw(Visit),
@@ -793,8 +1031,13 @@ const coverageHost = (p: VisitsParams): HostSchema => {
 			const laws = lawNamesOf(visits(p)("families"))
 			return {
 				relations: [
-					hostRelation("Rota", ["site", "during", "crew", "open"], ["site", "during"]),
-					visitRelation
+					hostRelation(
+						"Rota",
+						["site", "during", "crew", "open"],
+						["site", "during"],
+						p.mutable.target
+					),
+					visitRelation(p)
 				],
 				laws: [
 					{
@@ -821,8 +1064,13 @@ const coverageHost = (p: VisitsParams): HostSchema => {
 			const laws = lawNamesOf(rosterVisits(p)("families"))
 			return {
 				relations: [
-					hostRelation("Roster", ["shift", "crew", "place", "open"], ["place", "shift"]),
-					visitRelation
+					hostRelation(
+						"Roster",
+						["shift", "crew", "place", "open"],
+						["place", "shift"],
+						p.mutable.target
+					),
+					visitRelation(p)
 				],
 				laws: [
 					{
@@ -852,24 +1100,26 @@ const coverageHost = (p: VisitsParams): HostSchema => {
  * The selected sides a containment admits, at most one: a selected visit into every target fact, or every visit into
  * the target facts a selector picks.
  */
-const coverageSides: ReadonlyArray<Pick<VisitsParams, "visits" | "cover">> = [
-	...Arr.map([every, ...selectors], (seen) => ({ visits: seen, cover: every })),
-	...Arr.map(selectors, (cover) => ({ visits: every, cover }))
-]
+const coverageSides: Arr.NonEmptyReadonlyArray<Pick<VisitsParams, "visits" | "cover">> =
+	Arr.appendAll(
+		Arr.map(Arr.prepend(selectors, every), (seen) => ({ visits: seen, cover: every })),
+		Arr.map(selectors, (cover) => ({ visits: every, cover }))
+	)
 
 export const spanCoverage: Family<VisitsParams> = {
 	label: "span coverage",
-	/** Every side in coverageSides, covered by the rota or by the roster. */
-	variants: (isMutable) =>
+	/** Every side in coverageSides, covered by the rota or by the roster, each uniform mutability. */
+	variants: Arr.flatMap(uniformly({ source: Visit, target: Rota }), (mutable) =>
 		Arr.flatMap(coverageSides, (sides) =>
 			Arr.map(["rota", "roster"] as const, (target): VisitsParams => ({
-				mutable: isMutable,
+				mutable,
 				target,
 				...sides
 			}))
-		),
+		)
+	),
 	describe: (p) =>
-		`${mode(p.mutable)}, ${p.visits.kind === "every" ? "every visit" : `visits selected by billable = ${p.visits.value}`}${p.target === "rota" ? " covered by the rota" : " covered by the roster, across renamed fields"}${p.cover.kind === "every" ? "" : ` facts selected by open = ${p.cover.value}`}`,
+		`${describeMutability(p.mutable)}, ${p.visits.kind === "every" ? "every visit" : `visits selected by billable = ${p.visits.value}`}${p.target === "rota" ? " covered by the rota" : " covered by the roster, across renamed fields"}${p.cover.kind === "every" ? "" : ` facts selected by open = ${p.cover.value}`}`,
 	traits: noTraits,
 	/**
 	 * Adjacent rota spans cover a visit across their boundary only together; [3, 7) needs both [0, 5) and [5, 10). The
@@ -939,8 +1189,10 @@ export const Seat = relation("Seat", { resource: pg.integer, seat: pg.integer, l
 	"seat"
 ])
 
+const queueRelations = { Work, Wanted, Leased, Done, Seat }
+
 export interface QueueParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<keyof typeof queueRelations>
 }
 
 const workStanding = alternatives(Work, "standing", Standing, {
@@ -956,9 +1208,7 @@ export const queue = (p: QueueParams) => (name: string) =>
 		workStanding,
 		leaseSeatKey,
 		leaseSeat,
-		...(p.mutable
-			? [mutable(Work), mutable(Wanted), mutable(Leased), mutable(Done), mutable(Seat)]
-			: [])
+		...mutables(p.mutable, queueRelations)
 	])
 
 /** Each armed handle's foreign key into the work item standing at it, and its obligation. */
@@ -984,8 +1234,9 @@ const armLaws = (
 
 export const queueFamily: Family<QueueParams> = {
 	label: "work queue",
-	variants: (isMutable) => [{ mutable: isMutable }],
-	describe: (p) => `${mode(p.mutable)}, every standing armed, a lease's seat a candidate key`,
+	variants: Arr.map(uniformly(queueRelations), (mutable): QueueParams => ({ mutable })),
+	describe: (p) =>
+		`${describeMutability(p.mutable)}, every standing armed, a lease's seat a candidate key`,
 	traits: noTraits,
 	/** Two resources of two seats each: two leases meet at a seat as often as they miss it. */
 	domains: {
@@ -1000,11 +1251,11 @@ export const queueFamily: Family<QueueParams> = {
 		const standing = laws.alternativesOf(workStanding)
 		return {
 			relations: [
-				hostRelation("Work", ["item", "standing", "epoch"], ["item"]),
-				hostRelation("Wanted", ["item", "attempts"], ["item"]),
-				hostRelation("Leased", ["item", "resource", "seat"], ["item"]),
-				hostRelation("Done", ["item", "outcome"], ["item"]),
-				hostRelation("Seat", ["resource", "seat", "label"], ["resource", "seat"])
+				hostRelation("Work", ["item", "standing", "epoch"], ["item"], p.mutable.Work),
+				hostRelation("Wanted", ["item", "attempts"], ["item"], p.mutable.Wanted),
+				hostRelation("Leased", ["item", "resource", "seat"], ["item"], p.mutable.Leased),
+				hostRelation("Done", ["item", "outcome"], ["item"], p.mutable.Done),
+				hostRelation("Seat", ["resource", "seat", "label"], ["resource", "seat"], p.mutable.Seat)
 			],
 			laws: [
 				...Arr.map([Work, Wanted, Leased, Done, Seat], (r): HostLaw => ({
@@ -1035,7 +1286,7 @@ export const queueFamily: Family<QueueParams> = {
 	schema: queue,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: queue(p)(installed.declared) }), (o) =>
-			runtimeSession(queueFamily.host(p), o, { Work, Wanted, Leased, Done, Seat })
+			runtimeSession(queueFamily.host(p), o, queueRelations)
 		)
 }
 
@@ -1057,8 +1308,10 @@ export const Shift = relation(
 	["employee", "during"]
 )
 
+const timekeepingRelations = { Employment, Timesheet, Shift }
+
 export interface TimekeepingParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<keyof typeof timekeepingRelations>
 	/** The `approved` value of the shifts the three laws judge. */
 	readonly selector: boolean
 }
@@ -1083,18 +1336,20 @@ const timesheetHours = (p: TimekeepingParams) =>
 	})
 
 export const timekeeping = (p: TimekeepingParams) => (name: string) =>
-	schema(name, { Employment, Timesheet, Shift }, [
+	schema(name, timekeepingRelations, [
 		shiftTimesheet(p),
 		shiftEmployment(p),
 		timesheetHours(p),
-		...(p.mutable ? [mutable(Employment), mutable(Timesheet), mutable(Shift)] : [])
+		...mutables(p.mutable, timekeepingRelations)
 	])
 
 export const timekeepingFamily: Family<TimekeepingParams> = {
 	label: "timekeeping",
-	variants: (isMutable) => Arr.map(booleans, (selector) => ({ mutable: isMutable, selector })),
+	variants: Arr.flatMap(uniformly(timekeepingRelations), (mutable) =>
+		Arr.map(booleans, (selector): TimekeepingParams => ({ mutable, selector }))
+	),
 	describe: (p) =>
-		`${mode(p.mutable)}, shifts with approved = ${p.selector} within their timesheet's ceiling and covered by employment`,
+		`${describeMutability(p.mutable)}, shifts with approved = ${p.selector} within their timesheet's ceiling and covered by employment`,
 	traits: noTraits,
 	/** Shift spans of widths 2 and 4 fill a ceiling of 2, 4 or 8 exactly, or past it; employment spans meet at 8. */
 	domains: {
@@ -1116,9 +1371,24 @@ export const timekeepingFamily: Family<TimekeepingParams> = {
 		const approved = { approved: p.selector }
 		return {
 			relations: [
-				hostRelation("Employment", ["employee", "during", "basis"], ["employee", "during"]),
-				hostRelation("Timesheet", ["employee", "week", "ceiling"], ["employee", "week"]),
-				hostRelation("Shift", ["employee", "during", "week", "approved"], ["employee", "during"])
+				hostRelation(
+					"Employment",
+					["employee", "during", "basis"],
+					["employee", "during"],
+					p.mutable.Employment
+				),
+				hostRelation(
+					"Timesheet",
+					["employee", "week", "ceiling"],
+					["employee", "week"],
+					p.mutable.Timesheet
+				),
+				hostRelation(
+					"Shift",
+					["employee", "during", "week", "approved"],
+					["employee", "during"],
+					p.mutable.Shift
+				)
 			],
 			laws: [
 				{
@@ -1171,7 +1441,7 @@ export const timekeepingFamily: Family<TimekeepingParams> = {
 	schema: timekeeping,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: timekeeping(p)(installed.declared) }), (o) =>
-			runtimeSession(timekeepingFamily.host(p), o, { Employment, Timesheet, Shift })
+			runtimeSession(timekeepingFamily.host(p), o, timekeepingRelations)
 		)
 }
 
@@ -1185,8 +1455,10 @@ export const Deposit = relation(
 	["line", "account"]
 )
 
+const depositsRelations = { PayLine, Deposit }
+
 export interface DepositsParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<keyof typeof depositsRelations>
 	/** The most deposits a line may have. */
 	readonly most: bigint
 }
@@ -1208,13 +1480,16 @@ const netWithin = capacity(on(PayLine, "id"), {
 const depositLine = contained(on(Deposit, "line"), on(PayLine, "id"))
 
 export const deposits = (p: DepositsParams) => (name: string) =>
-	schema(name, { PayLine, Deposit }, [
+	schema(name, depositsRelations, [
 		depositAmount,
 		depositCount(p),
 		netWithin,
 		depositLine,
-		...(p.mutable ? [mutable(PayLine), mutable(Deposit)] : [])
+		...mutables(p.mutable, depositsRelations)
 	])
+
+/** The most deposits per line a schema draws. */
+const mostDeposits: Arr.NonEmptyReadonlyArray<bigint> = [2n, 3n]
 
 /** A line's own net within [0, gross], as its row check reads it. */
 const netWithinGross = (f: HostFact): boolean =>
@@ -1225,9 +1500,11 @@ const netWithinGross = (f: HostFact): boolean =>
 
 export const depositsFamily: Family<DepositsParams> = {
 	label: "deposits",
-	variants: (isMutable) => Arr.map([2n, 3n], (most) => ({ mutable: isMutable, most })),
+	variants: Arr.flatMap(uniformly(depositsRelations), (mutable) =>
+		Arr.map(mostDeposits, (most): DepositsParams => ({ mutable, most }))
+	),
 	describe: (p) =>
-		`${mode(p.mutable)}, deposits summing to the line's net, at most ${p.most} per line`,
+		`${describeMutability(p.mutable)}, deposits summing to the line's net, at most ${p.most} per line`,
 	traits: noTraits,
 	/** Deposits of 1 and 2 sum to a net of 0, 2 or 3 in one or two deposits, and a net of 3 exceeds a gross of 2. */
 	domains: {
@@ -1238,8 +1515,13 @@ export const depositsFamily: Family<DepositsParams> = {
 		const laws = lawNamesOf(deposits(p)("families"))
 		return {
 			relations: [
-				hostRelation("PayLine", ["id", "gross", "net"], ["id"]),
-				hostRelation("Deposit", ["line", "account", "amount"], ["line", "account"])
+				hostRelation("PayLine", ["id", "gross", "net"], ["id"], p.mutable.PayLine),
+				hostRelation(
+					"Deposit",
+					["line", "account", "amount"],
+					["line", "account"],
+					p.mutable.Deposit
+				)
 			],
 			laws: [
 				{ kind: "key", law: laws.primaryKeyLaw(PayLine), relation: "PayLine", fields: ["id"] },
@@ -1281,7 +1563,7 @@ export const depositsFamily: Family<DepositsParams> = {
 	schema: deposits,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: deposits(p)(installed.declared) }), (o) =>
-			runtimeSession(depositsFamily.host(p), o, { PayLine, Deposit })
+			runtimeSession(depositsFamily.host(p), o, depositsRelations)
 		)
 }
 
@@ -1289,8 +1571,10 @@ const Badge = relation("Badge", { id: pg.integer, code: label }, ["id"])
 const Pin = relation("Pin", { id: pg.integer, badge: pg.integer }, ["id"])
 const Tag = relation("Tag", { id: pg.integer, code: label }, ["id"])
 
+const badgesRelations = { Badge, Pin, Tag }
+
 export interface BadgesParams {
-	readonly mutable: boolean
+	readonly mutable: Mutability<keyof typeof badgesRelations>
 }
 
 const badgeCode = key(Badge, ["code"])
@@ -1300,19 +1584,20 @@ const pinsPerBadge = capacity(on(Badge, "id"), { from: on(Pin, "badge"), within:
 const tagsPerBadge = capacity(on(Badge, "code"), { from: on(Tag, "code"), within: within(0n, 2n) })
 
 const badges = (p: BadgesParams) => (name: string) =>
-	schema(name, { Badge, Pin, Tag }, [
+	schema(name, badgesRelations, [
 		badgeCode,
 		pinBadge,
 		tagBadge,
 		pinsPerBadge,
 		tagsPerBadge,
-		...(p.mutable ? [mutable(Badge), mutable(Pin), mutable(Tag)] : [])
+		...mutables(p.mutable, badgesRelations)
 	])
 
 export const badgesFamily: Family<BadgesParams> = {
 	label: "two capacities on one relation by keys of one arity",
-	variants: (isMutable) => [{ mutable: isMutable }],
-	describe: (p) => `${mode(p.mutable)}, at most two pins per badge id and two tags per badge code`,
+	variants: Arr.map(uniformly(badgesRelations), (mutable): BadgesParams => ({ mutable })),
+	describe: (p) =>
+		`${describeMutability(p.mutable)}, at most two pins per badge id and two tags per badge code`,
 	traits: noTraits,
 	/** Six pins or tags over three badges: three of one badge's id or code overfill it. */
 	domains: {
@@ -1324,9 +1609,9 @@ export const badgesFamily: Family<BadgesParams> = {
 		const laws = lawNamesOf(badges(p)("families"))
 		return {
 			relations: [
-				hostRelation("Badge", ["id", "code"], ["id"]),
-				hostRelation("Pin", ["id", "badge"], ["id"]),
-				hostRelation("Tag", ["id", "code"], ["id"])
+				hostRelation("Badge", ["id", "code"], ["id"], p.mutable.Badge),
+				hostRelation("Pin", ["id", "badge"], ["id"], p.mutable.Pin),
+				hostRelation("Tag", ["id", "code"], ["id"], p.mutable.Tag)
 			],
 			laws: [
 				{ kind: "key", law: laws.primaryKeyLaw(Badge), relation: "Badge", fields: ["id"] },
@@ -1371,7 +1656,7 @@ export const badgesFamily: Family<BadgesParams> = {
 	schema: badges,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: badges(p)(installed.declared) }), (o) =>
-			runtimeSession(badgesFamily.host(p), o, { Badge, Pin, Tag })
+			runtimeSession(badgesFamily.host(p), o, badgesRelations)
 		)
 }
 
@@ -1398,10 +1683,17 @@ const tenantRunStages = alternatives(TenantRun, "stage", Stage, {
 	voided: TenantVoiding
 })
 
-const tenantRuns = (p: RunsParams) => (name: string) =>
-	schema(name, { Stage, TenantRun, TenantPayment, TenantVoiding }, [
+const tenantRunsRelations = { TenantRun, TenantPayment, TenantVoiding }
+
+/** The composite-key alternatives schema's parameters: each of its relations' mutability. */
+export interface TenantRunsParams {
+	readonly mutable: Mutability<keyof typeof tenantRunsRelations>
+}
+
+const tenantRuns = (p: TenantRunsParams) => (name: string) =>
+	schema(name, { Stage, ...tenantRunsRelations }, [
 		tenantRunStages,
-		...(p.mutable ? [mutable(TenantRun), mutable(TenantPayment), mutable(TenantVoiding)] : [])
+		...mutables(p.mutable, tenantRunsRelations)
 	])
 
 /**
@@ -1428,11 +1720,20 @@ const tenantArmLaws = (
 	}
 ]
 
-export const compositeAlternatives: Family<RunsParams> = {
+export const compositeAlternatives: Family<TenantRunsParams> = {
 	label: "alternatives over a composite key",
-	variants: (isMutable) => [{ mutable: isMutable }],
-	describe: (p) => `${mode(p.mutable)}, runs keyed (tenant, id), arms paid and voided`,
-	traits: noTraits,
+	/** Every relation immutable, every one mutable, and each arm's mutability apart from the run's. */
+	variants: Arr.appendAll(
+		Arr.map(uniformly(tenantRunsRelations), (mutable): TenantRunsParams => ({ mutable })),
+		[
+			{ mutable: { TenantRun: false, TenantPayment: true, TenantVoiding: false } },
+			{ mutable: { TenantRun: true, TenantPayment: false, TenantVoiding: true } }
+		]
+	),
+	describe: (p) =>
+		`${describeMutability(p.mutable)}, runs keyed (tenant, id), arms paid and voided`,
+	traits: (p) =>
+		armMutabilityTraits(p.mutable.TenantRun, [p.mutable.TenantPayment, p.mutable.TenantVoiding]),
 	/** Two tenants share both ids, so an arm meets a run of its id under the other tenant as often as its own. */
 	domains: {
 		TenantRun: { tenant: [1, 2], id: [1, 2], stage: stages, note: ["a", "b"] },
@@ -1444,9 +1745,24 @@ export const compositeAlternatives: Family<RunsParams> = {
 		const stage = laws.alternativesOf(tenantRunStages)
 		return {
 			relations: [
-				hostRelation("TenantRun", ["tenant", "id", "stage", "note"], ["tenant", "id"]),
-				hostRelation("TenantPayment", ["tenant", "run", "amount"], ["tenant", "run"]),
-				hostRelation("TenantVoiding", ["tenant", "run", "reason"], ["tenant", "run"])
+				hostRelation(
+					"TenantRun",
+					["tenant", "id", "stage", "note"],
+					["tenant", "id"],
+					p.mutable.TenantRun
+				),
+				hostRelation(
+					"TenantPayment",
+					["tenant", "run", "amount"],
+					["tenant", "run"],
+					p.mutable.TenantPayment
+				),
+				hostRelation(
+					"TenantVoiding",
+					["tenant", "run", "reason"],
+					["tenant", "run"],
+					p.mutable.TenantVoiding
+				)
 			],
 			laws: [
 				{
@@ -1475,7 +1791,7 @@ export const compositeAlternatives: Family<RunsParams> = {
 	schema: tenantRuns,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: tenantRuns(p)(installed.declared) }), (o) =>
-			runtimeSession(compositeAlternatives.host(p), o, { TenantRun, TenantPayment, TenantVoiding })
+			runtimeSession(compositeAlternatives.host(p), o, tenantRunsRelations)
 		)
 }
 
@@ -1516,7 +1832,8 @@ export type MirrorShape =
 	| { readonly kind: "selector"; readonly field: TicketSelector; readonly side: "left" | "right" }
 
 export interface MirrorShapesParams {
-	readonly mutable: boolean
+	/** The mutability of the mirrors' sides: the selected parent, Batch or Ticket, and its child, Note or Escalation. */
+	readonly mutable: Mutability<"parent" | "child">
 	readonly shape: MirrorShape
 }
 
@@ -1553,20 +1870,21 @@ const ticketMirrors = (field: TicketSelector, side: "left" | "right") => {
 const batchNotes = (selector: boolean) =>
 	mirrors(on(select(Batch, { urgent: selector }), "id", "tenant"), on(Note, "batch", "account"))
 
-const batches = (isMutable: boolean, selector: boolean) => (name: string) =>
+const batches = (m: MirrorShapesParams["mutable"], selector: boolean) => (name: string) =>
 	schema(name, { Batch, Note }, [
 		batchNotes(selector),
-		...(isMutable ? [mutable(Batch), mutable(Note)] : [])
+		...mutables(m, { parent: Batch, child: Note })
 	])
 
 const tickets =
-	(isMutable: boolean, field: TicketSelector, side: "left" | "right") => (name: string) =>
+	(m: MirrorShapesParams["mutable"], field: TicketSelector, side: "left" | "right") =>
+	(name: string) =>
 		schema(name, { Priority, Ticket, Escalation }, [
 			ticketMirrors(field, side),
-			...(isMutable ? [mutable(Ticket), mutable(Escalation)] : [])
+			...mutables(m, { parent: Ticket, child: Escalation })
 		])
 
-const ticketSelectors: ReadonlyArray<TicketSelector> = ["level", "lang", "priority"]
+const ticketSelectors: Arr.NonEmptyReadonlyArray<TicketSelector> = ["level", "lang", "priority"]
 const sides = ["left", "right"] as const
 
 const describeMirrorShape = (shape: MirrorShape): string =>
@@ -1605,8 +1923,8 @@ const mirrorShapesHost = (p: MirrorShapesParams): HostSchema => {
 		const laws = lawNamesOf(batches(p.mutable, shape.selector)("families"))
 		return {
 			relations: [
-				hostRelation("Batch", ["tenant", "id", "urgent"], ["tenant", "id"]),
-				hostRelation("Note", ["id", "account", "batch", "text"], ["id"])
+				hostRelation("Batch", ["tenant", "id", "urgent"], ["tenant", "id"], p.mutable.parent),
+				hostRelation("Note", ["id", "account", "batch", "text"], ["id"], p.mutable.child)
 			],
 			laws: [
 				{
@@ -1628,8 +1946,8 @@ const mirrorShapesHost = (p: MirrorShapesParams): HostSchema => {
 	const laws = lawNamesOf(tickets(p.mutable, shape.field, shape.side)("families"))
 	return {
 		relations: [
-			hostRelation("Ticket", ["id", "level", "lang", "priority"], ["id"]),
-			hostRelation("Escalation", ["ticket", "note"], ["ticket"])
+			hostRelation("Ticket", ["id", "level", "lang", "priority"], ["id"], p.mutable.parent),
+			hostRelation("Escalation", ["ticket", "note"], ["ticket"], p.mutable.child)
 		],
 		laws: [
 			{ kind: "key", law: laws.primaryKeyLaw(Ticket), relation: "Ticket", fields: ["id"] },
@@ -1651,19 +1969,21 @@ const mirrorShapesHost = (p: MirrorShapesParams): HostSchema => {
 
 export const mirrorShapes: Family<MirrorShapesParams> = {
 	label: "conditional mirrors over a composite projection and non-boolean selectors",
-	variants: (isMutable) => [
-		...Arr.map(booleans, (selector): MirrorShapesParams => ({
-			mutable: isMutable,
-			shape: { kind: "projection", selector }
-		})),
-		...Arr.flatMap(ticketSelectors, (field) =>
-			Arr.map(sides, (side): MirrorShapesParams => ({
-				mutable: isMutable,
-				shape: { kind: "selector", field, side }
-			}))
+	variants: Arr.flatMap(uniformly({ parent: Batch, child: Note }), (mutable) =>
+		Arr.appendAll(
+			Arr.map(booleans, (selector): MirrorShapesParams => ({
+				mutable,
+				shape: { kind: "projection", selector }
+			})),
+			Arr.flatMap(ticketSelectors, (field) =>
+				Arr.map(sides, (side): MirrorShapesParams => ({
+					mutable,
+					shape: { kind: "selector", field, side }
+				}))
+			)
 		)
-	],
-	describe: (p) => `${mode(p.mutable)}, ${describeMirrorShape(p.shape)}`,
+	),
+	describe: (p) => `${describeMutability(p.mutable)}, ${describeMirrorShape(p.shape)}`,
 	traits: noTraits,
 	/**
 	 * Batch ids and tenants range over the same values, so a projection paired in the wrong order meets another batch.
@@ -1713,12 +2033,21 @@ const Stint = relation("Stint", { id: uuid, employee: uuid, week, status: closed
 /** A node selected by `live`, whose parent is a node. */
 const Node = relation("Node", { id: pg.integer, parent: pg.integer, live: pg.boolean }, ["id"])
 
+const sheetsRelations = { Sheet, Stint }
+
+/** A source shape, with the mutability of the relations it declares. */
 export type SourceShape =
-	| { readonly kind: "composite"; readonly status: (typeof statuses)[number] }
-	| { readonly kind: "self"; readonly live: boolean }
+	| {
+			readonly kind: "composite"
+			readonly status: (typeof statuses)[number]
+			readonly mutable: Mutability<keyof typeof sheetsRelations>
+	  }
+	| { readonly kind: "self"; readonly live: boolean; readonly mutable: Mutability<"Node"> }
+
+type CompositeShape = Extract<SourceShape, { readonly kind: "composite" }>
+type SelfShape = Extract<SourceShape, { readonly kind: "self" }>
 
 export interface SourceShapesParams {
-	readonly mutable: boolean
 	readonly shape: SourceShape
 }
 
@@ -1728,23 +2057,28 @@ const stintSheet = (status: (typeof statuses)[number]) =>
 const nodeParent = (live: boolean) =>
 	contained(on(select(Node, { live }), "parent"), on(Node, "id"))
 
-const sheets = (isMutable: boolean, status: (typeof statuses)[number]) => (name: string) =>
-	schema(name, { Status, Sheet, Stint }, [
-		stintSheet(status),
-		...(isMutable ? [mutable(Sheet), mutable(Stint)] : [])
+const sheets = (shape: CompositeShape) => (name: string) =>
+	schema(name, { Status, ...sheetsRelations }, [
+		stintSheet(shape.status),
+		...mutables(shape.mutable, sheetsRelations)
 	])
 
-const nodes = (isMutable: boolean, live: boolean) => (name: string) =>
-	schema(name, { Node }, [nodeParent(live), ...(isMutable ? [mutable(Node)] : [])])
+const nodes = (shape: SelfShape) => (name: string) =>
+	schema(name, { Node }, [nodeParent(shape.live), ...mutables(shape.mutable, { Node })])
 
 const sourceShapesHost = (p: SourceShapesParams): HostSchema => {
 	const shape = p.shape
 	if (shape.kind === "composite") {
-		const laws = lawNamesOf(sheets(p.mutable, shape.status)("families"))
+		const laws = lawNamesOf(sheets(shape)("families"))
 		return {
 			relations: [
-				hostRelation("Sheet", ["employee", "week", "ceiling"], ["employee", "week"]),
-				hostRelation("Stint", ["id", "employee", "week", "status"], ["id"])
+				hostRelation(
+					"Sheet",
+					["employee", "week", "ceiling"],
+					["employee", "week"],
+					shape.mutable.Sheet
+				),
+				hostRelation("Stint", ["id", "employee", "week", "status"], ["id"], shape.mutable.Stint)
 			],
 			laws: [
 				{
@@ -1768,9 +2102,9 @@ const sourceShapesHost = (p: SourceShapesParams): HostSchema => {
 			]
 		}
 	}
-	const laws = lawNamesOf(nodes(p.mutable, shape.live)("families"))
+	const laws = lawNamesOf(nodes(shape)("families"))
 	return {
-		relations: [hostRelation("Node", ["id", "parent", "live"], ["id"])],
+		relations: [hostRelation("Node", ["id", "parent", "live"], ["id"], shape.mutable.Node)],
 		laws: [
 			{ kind: "key", law: laws.primaryKeyLaw(Node), relation: "Node", fields: ["id"] },
 			{
@@ -1794,18 +2128,18 @@ const weeks = ['W\'1 "q"', "\\ [x],", "W2"] as const
 export const sourceShapes: Family<SourceShapesParams> = {
 	label:
 		"selected-source containment over a composite text and uuid anchor and into its own relation",
-	variants: (isMutable) => [
-		...Arr.map(statuses, (status): SourceShapesParams => ({
-			mutable: isMutable,
-			shape: { kind: "composite", status }
-		})),
-		...Arr.map(booleans, (live): SourceShapesParams => ({
-			mutable: isMutable,
-			shape: { kind: "self", live }
-		}))
-	],
+	variants: Arr.flatMap(booleans, (declared) =>
+		Arr.appendAll(
+			Arr.map(statuses, (status): SourceShapesParams => ({
+				shape: { kind: "composite", status, mutable: { Sheet: declared, Stint: declared } }
+			})),
+			Arr.map(booleans, (live): SourceShapesParams => ({
+				shape: { kind: "self", live, mutable: { Node: declared } }
+			}))
+		)
+	),
 	describe: (p) =>
-		`${mode(p.mutable)}, ${p.shape.kind === "composite" ? `Stint selected by status = ${p.shape.status} into Sheet (employee, week)` : `Node selected by live = ${p.shape.live} into its own id`}`,
+		`${describeMutability(p.shape.mutable)}, ${p.shape.kind === "composite" ? `Stint selected by status = ${p.shape.status} into Sheet (employee, week)` : `Node selected by live = ${p.shape.live} into its own id`}`,
 	traits: noTraits,
 	domains: {
 		Sheet: { employee: employees, week: weeks, ceiling: [1, 2] },
@@ -1823,21 +2157,16 @@ export const sourceShapes: Family<SourceShapesParams> = {
 		Node: { id: [1, 2, 3], parent: [1, 2, 3], live: [true, false] }
 	},
 	host: sourceShapesHost,
-	schema: (p) =>
-		p.shape.kind === "composite"
-			? sheets(p.mutable, p.shape.status)
-			: nodes(p.mutable, p.shape.live),
+	schema: (p) => (p.shape.kind === "composite" ? sheets(p.shape) : nodes(p.shape)),
 	connect: (p, installed) => {
 		const host = sourceShapesHost(p)
 		const shape = p.shape
 		return shape.kind === "composite"
-			? Effect.flatMap(
-					openWriter({ installed, schema: sheets(p.mutable, shape.status)(installed.declared) }),
-					(o) => runtimeSession(host, o, { Sheet, Stint })
+			? Effect.flatMap(openWriter({ installed, schema: sheets(shape)(installed.declared) }), (o) =>
+					runtimeSession(host, o, sheetsRelations)
 				)
-			: Effect.flatMap(
-					openWriter({ installed, schema: nodes(p.mutable, shape.live)(installed.declared) }),
-					(o) => runtimeSession(host, o, { Node })
+			: Effect.flatMap(openWriter({ installed, schema: nodes(shape)(installed.declared) }), (o) =>
+					runtimeSession(host, o, { Node })
 				)
 	}
 }

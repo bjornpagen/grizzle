@@ -20,6 +20,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { fullRoleDesc, type OwnedLogin, ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
+import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -141,6 +142,9 @@ const valueKind = (t: ScalarType): ValueKind => {
 			return { kind: "span", carrier: b.carrier }
 		case "vector":
 			return { kind: "vector", dimensions: b.typmod.dims }
+		case "exactInteger":
+		case "exactMoney":
+			throw new Error(`a stored column of the exact carrier ${b.carrier}, which no field has`)
 	}
 }
 
@@ -248,7 +252,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 			)
 			return {
 				name: k.value.constraint,
-				fields,
+				fields: k.value.fields,
 				span: Option.match(span, {
 					onNone: () => ({ kind: "none" as const }),
 					onSome: (field) => ({ kind: "span" as const, field })
@@ -382,7 +386,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 		domains,
 		loadOrder,
 		ddl: [],
-		sql: installation.sql,
+		sql: installationSql(installation),
 		vectorSchema: installation.names.vectorSchema,
 		skipped: [],
 		installation,

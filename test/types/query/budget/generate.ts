@@ -23,49 +23,49 @@ const relationBlock = (i: number, relations: number): string => {
 	const child = (i + 1) % relations
 	return `
 export const byParent${i} = query(S).rule((r) => {
-	const { id, parent, amount, kind } = v(R${i})
+	const { id, parent, amount, kind } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, parent, amount, kind }).where(r.eq(parent, r.param("parent", uuid)), r.ge(amount, 0n)).find({ id, amount, kind })
 }).attach("children", (p) => query(S).rule((r) => {
-	const { id } = v(R${child})
+	const { id } = v(R${child}, "r${child}")
 	return r.match(R${child}, { id, parent: p.id }).find({ id })
 }), "array")
 export const byId${i} = query(S).rule((r) => {
-	const { amount, label } = v(R${i})
+	const { amount, label } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id: r.param("id", uuid), amount, label }).find({ amount, label })
 })
 export const byFilter${i} = query(S).rule((r) => {
-	const { id, label } = v(R${i})
+	const { id, label } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, label }).where(r.eq(id, r.param("id", uuid))).find({ label })
 })
 export const total${i} = query(S).rule((r) => {
-	const { id, kind, qty } = v(R${i})
+	const { id, kind, qty } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, kind, qty }).find({ kind, total: r.sum(qty), n: r.count() })
 })
 export const arms${i} = query(S).rule((r) => {
-	const { id, amount } = v(R${i})
+	const { id, amount } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, kind: "A", amount }).find({ id, kind: Kind.handle("A"), amount })
 }).rule((r) => {
-	const { id, label } = v(R${i})
+	const { id, label } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, kind: "B", label }).find({ id, kind: Kind.handle("B"), label })
 }).orderBy(["kind", "asc"], ["id", "desc"])
 export const imported${i} = query(S).rule((r) => {
-	const { id: parent } = v(R${child})
+	const { id: parent } = v(R${child}, "r${child}")
 	const top = byParent${i}.bind({ parent })
-	const { id, amount } = v(top)
+	const { id, amount } = v(top, "top")
 	return r.match(R${child}, { id: parent }).match(top, { id, amount }).find({ parent, id, amount })
 })
 export const owned${i} = query(S).rule((r) => {
-	const { id, parent, kind } = v(R${i})
+	const { id, parent, kind } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, parent, kind }).find({ id, parent, kind })
 }).attach("owner", (p) => query(S).rule((r) => {
-	const { label } = v(R${(i + relations - 1) % relations})
+	const { label } = v(R${(i + relations - 1) % relations}, "r${(i + relations - 1) % relations}")
 	return r.match(R${(i + relations - 1) % relations}, { id: p.parent, label }).find({ label })
 }), ${i > 0 ? '"one"' : '"option"'}).attach("handle", (p) => query(S).rule((r) => r.match(Kind, { id: p.kind }).find({ handle: p.kind })), "one")
 export const reads${i} = (db: DbOf<typeof Reader, unknown>) => [
-	db.get(byId${i}, { id: "x" }),
-	db.get(byFilter${i}, { id: "x" }),
-	db.get(R${i}, { id: "x" }),
-	db.execute(byParent${i}, { parent: "p" }),
+	db.get(byId${i}, { id: "00000000-0000-4000-8000-000000000001" }),
+	db.get(byFilter${i}, { id: "00000000-0000-4000-8000-000000000001" }),
+	db.get(R${i}, { id: "00000000-0000-4000-8000-000000000001" }),
+	db.execute(byParent${i}, { parent: "00000000-0000-4000-8000-000000000002" }),
 	db.execute(arms${i}, {}),
 	db.execute(total${i}.orderBy(["kind", "asc"]).take(1), {})
 ] as const
@@ -102,15 +102,15 @@ const statements = (relations: number): string => {
  * relation, which no containment states, so R0's owner is an Option by its key.
  */
 const assertions = (i: number): string => `
-export type Params${i} = Expect<Equals<ParamsOf<typeof byParent${i}>, { readonly parent: string }>>
+export type Params${i} = Expect<Equals<ParamsOf<typeof byParent${i}>, { readonly parent: ParamType<Uuid, "uuid"> }>>
 export type Head${i} = Expect<
 	Equals<
 		HeadOf<typeof byParent${i}>,
 		{
-			readonly id: string
+			readonly id: Uuid
 			readonly amount: bigint
 			readonly kind: "A" | "B" | "C"
-			readonly children: ReadonlyArray<{ readonly id: string }>
+			readonly children: ReadonlyArray<{ readonly id: Uuid }>
 		}
 	>
 >
@@ -129,8 +129,8 @@ export type ByParentKeys${i} = Expect<
 export type Arms${i} = Expect<
 	Equals<
 		HeadOf<typeof arms${i}>,
-		| { readonly id: string; readonly kind: "A"; readonly amount: bigint }
-		| { readonly id: string; readonly kind: "B"; readonly label: string }
+		| { readonly id: Uuid; readonly kind: "A"; readonly amount: bigint }
+		| { readonly id: Uuid; readonly kind: "B"; readonly label: string }
 	>
 >
 export type Imported${i} = Expect<Equals<keyof ParamsOf<typeof imported${i}>, never>>
@@ -138,8 +138,8 @@ export type Owned${i} = Expect<
 	Equals<
 		HeadOf<typeof owned${i}>,
 		{
-			readonly id: string
-			readonly parent: string
+			readonly id: Uuid
+			readonly parent: Uuid
 			readonly kind: "A" | "B" | "C"
 			readonly owner: ${i > 0 ? "{ readonly label: string }" : "Option.Option<{ readonly label: string }>"}
 			readonly handle: { readonly handle: "A" | "B" | "C" }
@@ -148,7 +148,7 @@ export type Owned${i} = Expect<
 >
 export const refusals${i} = (db: DbOf<typeof Reader, unknown>) => [
 	// @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-	db.get(byParent${i}, { parent: "p" }),
+	db.get(byParent${i}, { parent: "00000000-0000-4000-8000-000000000002" }),
 	// @ts-expect-error -- TS2322: the parameters are the ones the query's uses inferred
 	db.execute(byParent${i}, { parent: 1 }),
 	// @ts-expect-error -- TS2322: label is not common to every arm
@@ -203,8 +203,8 @@ export const generateQuerySource = (relations: number, entries: BudgetEntries): 
 	)
 	return `// Generated by test/types/query/budget/generate.ts with ${relations} relations.
 import type { Option } from "effect"
-import { closedId, pg, uuid } from ${JSON.stringify(entries.fields)}
-import { type EvidenceOfQuery, type HeadOf, type ParamsOf, query, v } from ${JSON.stringify(entries.query)}
+import { closedId, pg, type Uuid, uuid } from ${JSON.stringify(entries.fields)}
+import { type EvidenceOfQuery, type HeadOf, type ParamsOf, type ParamType, query, v } from ${JSON.stringify(entries.query)}
 import { closed, contained, key, mutable, on, relation, role, schema } from ${JSON.stringify(entries.schema)}
 import { str } from ${JSON.stringify(entries.text)}
 import type { DbOf } from ${JSON.stringify(entries.db)}

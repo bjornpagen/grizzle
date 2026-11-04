@@ -1,0 +1,52 @@
+To: pgsql-hackers@lists.postgresql.org
+Subject: [PATCH] Make plpgsql_location_to_lineno O(log n) for locations out of order
+
+Hi,
+
+PL/pgSQL compile time is quadratic in the number of IF, ELSIF and CASE WHEN
+statements in one function body.  The grammar computes each of their line
+numbers when it reduces the statement (pl_gram.y stmt_if, stmt_elsifs,
+case_when), after the statements of its body have already computed theirs, so
+the location passed to plpgsql_location_to_lineno() goes backwards.  When it
+does, location_lineno_init() resets the cursor to the start of the source and
+the lookup walks forward again with strchr().  A body of N such statements
+therefore costs O(N * length of the source).
+
+A single CASE of 10000, 20000 and 40000 WHENs takes 1.4 s, 5.0 s and 16.7 s to
+compile on 19rc1 (CREATE FUNCTION with check_function_bodies on), and an
+IF/ELSIF chain of 40000 arms 29 s.  The compile is paid again at the first call
+in every backend, and for a trigger function once per trigger.  A profile of
+the 40000-WHEN compile puts 98% of the samples in plpgsql_location_to_lineno()
+under case_when, two thirds of them in strchr().
+
+The attached patch records where each line of the source starts once, at
+scanner setup, and resolves every location by binary search.  The line numbers
+are unchanged, and plpgsql_latest_lineno() still returns the most recently
+computed one.  With it the same bodies compile in 20 ms, 32 ms and 62 ms, and
+the IF/ELSIF chain in 57 ms.
+
+The patch adds a test to plpgsql_misc of the line numbers reported for errors
+raised by IF, ELSIF and CASE, and by a statement in a CASE arm, whose locations
+reach the scanner out of order; they are the same as on an unpatched build.
+It is against master (b6178c942e), builds with assertions without warnings,
+passes the plpgsql and core regression suites, and is pgindent clean.
+
+Reproduction, against a scratch database with psql -X (it builds the
+functions with \gexec):
+
+    SET check_function_bodies = on;
+    \timing on
+    SELECT format(
+        'CREATE OR REPLACE FUNCTION lineno_case(k int) RETURNS int LANGUAGE plpgsql AS %L',
+        E'BEGIN\n  CASE k\n'
+            || string_agg(format(E'    WHEN %s THEN\n      RETURN %s;', i, i), E'\n' ORDER BY i)
+            || E'\n  END CASE;\n  RETURN 0;\nEND'
+    ) FROM generate_series(1, 40000) AS i \gexec
+
+We met this in generated trigger functions that dispatch over a large closed
+set of values; a function with a few hundred compound statements already shows
+it.  The array costs one int per line of the source, in the compile's memory
+context.
+
+Thanks,
+Bjorn Pagen

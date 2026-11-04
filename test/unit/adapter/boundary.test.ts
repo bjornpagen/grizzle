@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	codePoint,
 	constant,
@@ -21,6 +21,7 @@ import {
 	WILD_KINDS,
 	type WildKind
 } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Result, Schema } from "effect"
@@ -194,7 +195,7 @@ type PageFeature =
 	| "refused request"
 	| "refused cursorType"
 
-const pageFeatures: ReadonlyArray<PageFeature> = [
+const pageFeatures: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	"live",
 	"stale a larger limit",
 	...Arr.map(pageWildKinds, (k: WildKind): PageFeature => `wild ${k}`),
@@ -220,13 +221,12 @@ describe("the public boundary", () => {
 						suite: "unit/adapter/boundary-page",
 						draw: drawn(pageCaseGen),
 						literal: Formatter.format,
-						features: features<PageFeature>(pageFeatures),
+						coverage: required<PageFeature>(pageFeatures, { cases: 2_000, sense: notesOnly }),
 						kept: [],
 						runs: 2_000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c, k) =>
@@ -307,16 +307,15 @@ describe("the public boundary", () => {
 								})
 							),
 							literal: Formatter.format,
-							features: features<DoorFeature>([
-								"live",
-								...Arr.map(WILD_KINDS, (k: WildKind): DoorFeature => `wild ${k}`)
-							]),
+							coverage: required<DoorFeature>(
+								["live", ...Arr.map(WILD_KINDS, (k: WildKind): DoorFeature => `wild ${k}`)],
+								{ cases: 500, sense: notesOnly }
+							),
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(d, k) =>

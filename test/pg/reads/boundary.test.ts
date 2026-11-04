@@ -2,9 +2,10 @@ import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
 import { type Machine, program, type Real, runProgram } from "@grizzle/testing/commands"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, int } from "@grizzle/testing/gen"
 import { passed, WILD_KINDS, type Wild, wild } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -430,7 +431,7 @@ const Newer = schema.extend(W.Work, { Label: relation("Label", { task: uuid }, [
 
 /** A read of Work's tasks by account built over Newer: stale for a Db over Work. */
 const staleRead = query(Newer).rule((r) => {
-	const { id, account } = v(W.Task)
+	const { id, account } = v(W.Task, "task")
 	return r
 		.match(W.Task, { id, account })
 		.where(r.eq(account, r.param("account", uuid)))
@@ -458,8 +459,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 					const s = o.schema
 					const ordered = query(s)
 						.rule((r) => {
-							const { id } = v(W.Task)
-							const { budget } = v(W.AutomaticTask)
+							const { id } = v(W.Task, "task")
+							const { budget } = v(W.AutomaticTask, "automaticTask")
 							return r
 								.match(W.Task, {
 									id,
@@ -472,7 +473,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 						.orderBy(["budget", "desc"])
 					const other = query(s)
 						.rule((r) => {
-							const { id } = v(W.Task)
+							const { id } = v(W.Task, "task")
 							return r.match(W.Task, { id }).find({ id })
 						})
 						.orderBy(["id", "asc"])
@@ -482,20 +483,22 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 							/** Up to twelve commands, so a case can compile, dispose and execute a stale handle among its other calls. */
 							draw: drawn(program(boundaryMachine, { min: 0, max: 12 })),
 							literal: Formatter.format,
-							features: features<BoundaryFeature>([
-								"refused before SQL: encode",
-								"refused before SQL: compile",
-								"refused before SQL: CursorError",
-								"compiled execute",
-								"compiled execute, disposed",
-								"disposed"
-							]),
+							coverage: required<BoundaryFeature>(
+								[
+									"refused before SQL: encode",
+									"refused before SQL: compile",
+									"refused before SQL: CursorError",
+									"compiled execute",
+									"compiled execute, disposed",
+									"disposed"
+								],
+								{ cases: 40, sense: notesOnly }
+							),
 							kept: [],
 							runs: 40,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(commands, c) =>

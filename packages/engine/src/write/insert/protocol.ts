@@ -1,5 +1,11 @@
-import type { LawId } from "#compiler/core/ids.ts"
-import { type NonEmptyReadonlyArray, isNonEmpty } from "#compiler/core/nonempty.ts"
+import { appendAll } from "#compiler/core/array.ts"
+import type { RaisedLawId } from "#compiler/core/ids.ts"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { fieldNames, type LawField, type RelationInfo, type SpanField } from "#compiler/ir/law.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
@@ -12,6 +18,7 @@ import {
 	binary,
 	col,
 	conjunction,
+	continued,
 	core,
 	countStar,
 	cte,
@@ -39,7 +46,6 @@ import {
 	inputSharing,
 	keyUniqueBy,
 	readInput,
-	type RelationInput,
 	skipWhenEmptyOf,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
@@ -166,8 +172,8 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * - Generated additions, which omit the relation's serial fields: a plain INSERT ... RETURNING of the complete row,
  *   taking the identity default, with no arbiter, probed at every unique object that reads no serial field (see the
  *   probe below). Equal generated additions are one: a carried
- *   or described one is read through SELECT DISTINCT over its head. A generated addition into a relation whose every
- *   field is serial supplies no column and is its own statement (`buildDefaultsInsert`).
+ *   or described one is read through SELECT DISTINCT over its head. A generated class of no field reads the unit
+ *   input and assigns no column, so every column takes its identity: `INSERT INTO ... AS "r3" SELECT FROM "r1"`.
  * - Explicit serial values: the protocol with OVERRIDING SYSTEM VALUE, because the column is GENERATED ALWAYS;
  * the sequence advance that follows is serial/.
  * - Carriers and described members, which nobody normalized on the host, read SELECT DISTINCT over the input and gate
@@ -308,7 +314,7 @@ export const buildInsert = (
 		const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
 		const retCol = returned.of
 		const column = (f: LawField) => w.names.column(relation.name, f.name)
-		const ctes: Array<Cte> = [cte(r1, inputs.columns, read.select)]
+		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
 		if (r4 !== undefined) {
 			ctes.push(
 				cte(r4, keys.columns, {
@@ -335,7 +341,7 @@ export const buildInsert = (
 			normalized: input.kind === "relation"
 		})
 		if (probe !== undefined) {
-			ctes.push(...probe.ctes)
+			appendAll(ctes, probe.ctes)
 		}
 		/** The probe's arms, one per sign of each object's ordinal (`buildProbe`), the refused fact's values read by
 		 * `value` at the object's fields. */
@@ -423,7 +429,7 @@ export const buildInsert = (
 							}
 						: {
 								kind: "columns",
-								columns: pk.map(column),
+								columns: mapNonEmpty(pk, column),
 								action:
 									shape.variant === "pureSet"
 										? { kind: "doNothing" }
@@ -466,7 +472,11 @@ export const buildInsert = (
 					...zero
 				],
 				[
-					join(cteRef(r2), cteRef(r1), and(...pk.map((f) => same(f, inCol(f), col(r2, retCol(f))))))
+					join(
+						cteRef(r2),
+						cteRef(r1),
+						and(mapNonEmpty(pk, (f) => same(f, inCol(f), col(r2, retCol(f)))))
+					)
 				],
 				undefined
 			)
@@ -485,24 +495,20 @@ export const buildInsert = (
 					join(
 						cteRef(r1),
 						cteRef(r4),
-						and(...pk.map((f) => same(f, inCol(f), r4Col(f))))
+						and(mapNonEmpty(pk, (f) => same(f, inCol(f), r4Col(f))))
 					) satisfies FromItem
 				],
 				undefined
 			)
-			return { kind: "setOp", op: "UNION ALL", left, right }
+			return { kind: "setOp", op: "UNION ALL", arms: [left, right] }
 		}
 		const verdicts: Select["body"] =
 			marker === undefined
 				? core([...factOf(r2, retCol), ...zero], [cteRef(r2)], undefined)
 				: markedBody(marker)
 		/** The verdict rows, and the probe's refusal after them when it is one of them. */
-		const withRefusal = (refused: SelectCore): Select["body"] => ({
-			kind: "setOp",
-			op: "UNION ALL",
-			left: verdicts,
-			right: refused
-		})
+		const withRefusal = (refused: SelectCore): Select["body"] =>
+			continued("UNION ALL", verdicts, refused)
 		const body: Select["body"] =
 			unique.kind !== "verdict"
 				? verdicts
@@ -538,7 +544,7 @@ export const buildInsert = (
 				expr: verdict(retCol(f)),
 				type: rowType(f)
 			}))
-		const keyLaw = (keyFields: ReadonlyArray<LawField>, law: LawId): ArmRefusal => ({
+		const keyLaw = (keyFields: ReadonlyArray<LawField>, law: RaisedLawId): ArmRefusal => ({
 			kind: "law",
 			law,
 			relation: relation.name,
@@ -562,16 +568,19 @@ export const buildInsert = (
 			})
 		}
 		if (unique.kind === "verdict") {
-			arms.push(...probeArms(unique.probe, verdict(unique.marker), (f) => verdict(retCol(f))))
+			appendAll(
+				arms,
+				probeArms(unique.probe, verdict(unique.marker), (f) => verdict(retCol(f)))
+			)
 		}
 		if (marker !== undefined) {
 			arms.push({
 				rank: refusalRank.conflict,
-				when: and(
+				when: and([
 					not(verdict(marker.column)),
 					...(c9 === undefined ? [] : [not(verdict(c9))]),
 					...noOrdinal
-				),
+				]),
 				refusal: spec.of === "put" ? change("PutTargetConflict") : keyLaw(pk, arbiterLaw(relation))
 			})
 		}
@@ -607,98 +616,6 @@ export const buildInsert = (
 			returning: { cte: r2, kind: "added", added: { columns: returned, conditions: [] } }
 		}
 	})
-}
-
-/** A generated addition into a relation whose every field is serial (`ActionReads` "defaults"), read from its slot
- * `input` alone. The INSERT has nothing to list but the serial columns, of which PostgreSQL's INSERT ... SELECT needs at
- * least one, so it lists them with OVERRIDING USER VALUE, under which PostgreSQL ignores the value supplied for an
- * identity column and takes its identity default: it draws every value from the identity and needs no sequence grant.
- * Every generated addition the slot holds is the one empty fact, which the host codec makes one, so the statement
- * inserts exactly one row, and it is skipped when the slot holds no fact, as every statement of an empty enumerated
- * member is. It has no arbiter and probes nothing, every unique object reading a serial field, and its verdict rows are
- * the fact it inserted (see `buildInsert`). */
-export const buildDefaultsInsert = (
-	w: WriteContext,
-	spec: { readonly relation: WrittenRelation; readonly input: RelationInput }
-): ModifyingStatement<InsertResult> => {
-	const { relation, input } = spec
-	const at = `insert ${relation.name}`
-	const all = keyFirst(relation)
-	return buildStatement(
-		w,
-		{ kind: "shared", memo: w.share.inserts, key: [relation, input] },
-		(supply) => {
-			const r2 = supply.relation(internal("insert"))
-			const r3 = supply.relation(internal(`target ${relation.name}`))
-			const returned = fieldColumns(all, () => supply.column(internal("returned column")))
-			const column = (f: LawField) => w.names.column(relation.name, f.name)
-			const insert: Insert = {
-				kind: "insert",
-				with: undefined,
-				table: w.names.relation(relation.name),
-				alias: r3,
-				columns: all.map(column),
-				overriding: "USER VALUE",
-				source: {
-					kind: "query",
-					query: simpleSelect(
-						all.map((f) => target(lit.int(0, w.cx.typeRef(rowType(f), at)))),
-						[],
-						undefined
-					)
-				},
-				onConflict: undefined,
-				returning: all.map((f) => targetAs(col(r3, column(f)), returned.of(f)))
-			}
-			const rv = supply.relation(internal("verdicts"))
-			const columns: ReadonlyArray<ResultColumn> = all.map((f) => ({
-				name: f.name,
-				type: rowType(f)
-			}))
-			const result: InsertResult = {
-				kind: "insert",
-				relation: relation.name,
-				variant: "generated",
-				of: "insert",
-				columns,
-				fields: fieldNames(all),
-				key: fieldNames(relation.primaryFields)
-			}
-			return {
-				ast: {
-					...simpleSelect(
-						all.map((f) =>
-							targetAs(resultText(col(rv, returned.of(f)), rowType(f)), returned.of(f))
-						),
-						[cteRef(rv)],
-						undefined
-					),
-					with: {
-						ctes: [
-							cte(r2, [], insert),
-							{
-								name: rv,
-								columns: returned.columns,
-								materialized: "MATERIALIZED",
-								query: select(
-									core(
-										all.map((f) => targetAs(col(r2, returned.of(f)), returned.of(f))),
-										[cteRef(r2)],
-										undefined
-									)
-								)
-							}
-						],
-						recursive: false
-					}
-				},
-				role: "member",
-				result,
-				skipWhenEmpty: input.slot,
-				returning: { cte: r2, kind: "added", added: { columns: returned, conditions: [] } }
-			}
-		}
-	)
 }
 
 /** The statement that follows a spanKey insert, an insert of every field into a primary key that holds a span, and
@@ -757,11 +674,13 @@ export const buildSpanClassify = (
 		/** A fact at `left` overlapping the requested fact at the same scalar key: equal scalars, overlapping spans. */
 		const overlapping = (left: (f: LawField) => Expr): Expr =>
 			and(
-				...scalars.map((f) => same(f, left(f), inCol(r1, f))),
-				binary("&&", left(span), inCol(r1, span))
+				appendNonEmpty(
+					scalars.map((f) => same(f, left(f), inCol(r1, f))),
+					binary("&&", left(span), inCol(r1, span))
+				)
 			)
 		const one = [target(lit.int(1, types.integer))]
-		const ctes: Array<Cte> = [cte(r1, inputs.columns, read.select)]
+		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
 		const equalStored = simpleSelect(
 			one,
 			[table(stored)],
@@ -776,22 +695,22 @@ export const buildSpanClassify = (
 			one,
 			[table(occupant)],
 			spec.of === "put"
-				? and(
+				? and([
 						overlapping((f) => col(occupant, column(f))),
 						ne(col(occupant, column(span)), inCol(r1, span))
-					)
+					])
 				: overlapping((f) => col(occupant, column(f)))
 		)
 		const requestedOverlap = simpleSelect(
 			one,
 			[cteRefAs(r1, other)],
-			and(
+			and([
 				overlapping((f) => inCol(other, f)),
 				rowNe(
 					{ fields: all, typeOf, left: (f) => inCol(other, f), right: (f) => inCol(r1, f) },
 					vectorSchema
 				)
-			)
+			])
 		)
 		/** The verdict rows: every requested fact no equal stored fact accounts for, each a refusal (see `buildInsert`). */
 		const rv = supply.relation(internal("verdicts"))
@@ -827,10 +746,10 @@ export const buildSpanClassify = (
 			verdicts: rv,
 			arms: [
 				{ rank: refusalRank.sameKey, when: col(rv, c9), refusal: keyLaw },
-				{ rank: refusalRank.conflict, when: and(col(rv, c8), not(col(rv, c9))), refusal: keyLaw },
+				{ rank: refusalRank.conflict, when: and([col(rv, c8), not(col(rv, c9))]), refusal: keyLaw },
 				{
 					rank: refusalRank.change,
-					when: and(not(col(rv, c8)), not(col(rv, c9))),
+					when: and([not(col(rv, c8)), not(col(rv, c9))]),
 					refusal: {
 						kind: "change",
 						reason: "SpanKeyChange",

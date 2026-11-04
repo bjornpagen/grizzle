@@ -64,7 +64,7 @@ interface KeyLawInput {
 	/** Every installed constraint with its owner and its law, described (physical/install Installation.constraintLaws). */
 	readonly constraintLaws: SchemaArtifacts["constraintLaws"]
 	/** Every law of the theory, described (physical/install Installation.theoryLaws). */
-	readonly theoryLaws: ReadonlyArray<DescribedLaw>
+	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
 }
 
 /** The laws of one kind of owner's constraint, under `owner`, created empty on its first constraint. */

@@ -16,10 +16,7 @@ interface VectorDescriptor<N extends number = number> extends Descriptor<"vector
  * The admission core: a JavaScript caller can pass anything, so the dimensions are checked and any
  * further argument is refused.
  */
-export const admitVectorDimensions = (
-	dimensions: unknown,
-	...extra: ReadonlyArray<unknown>
-): void => {
+export const admitVectorDimensions = (dimensions: unknown, extra: ReadonlyArray<unknown>): void => {
 	if (extra.length > 0) {
 		throw malformedDescription(captureLoc("pg.vector", []), "pg.vector(n): the dimensions alone")
 	}
@@ -49,7 +46,7 @@ export const vector = <const N extends number>(
 	dimensions: N,
 	...extra: ReadonlyArray<never>
 ): VectorDescriptor<N> => {
-	admitVectorDimensions(dimensions, ...extra)
+	admitVectorDimensions(dimensions, extra)
 	return defineField(
 		{},
 		carrierSql.vector,

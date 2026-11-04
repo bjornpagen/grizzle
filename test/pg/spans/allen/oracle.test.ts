@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
@@ -81,15 +82,15 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 						{
 							suite: "spans/allen-oracle",
 							literal: Formatter.format,
-							features: features<AllenOracleFeature>(
+							coverage: required<AllenOracleFeature>(
 								Arr.flatMap(kinds, (k) =>
 									Arr.map(spanEndpointKinds, (e): AllenOracleFeature => `${k}:${e}`)
-								)
+								),
+								{ cases: cases, sense: notesOnly }
 							),
 							kept: [],
 							runs: cases,
 							shrink: completeShrink,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},

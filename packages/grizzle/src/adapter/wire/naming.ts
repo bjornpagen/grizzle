@@ -1,5 +1,6 @@
 import type { FlightStatement } from "#adapter/wire/batch.ts"
 import { type ServerStatement, serverStatement } from "#adapter/wire/session.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 
 /**
  * The server statements of one compiled program, by the SQL text each runs: what the program's flights run named.
@@ -30,7 +31,7 @@ export const nameStatements = (
 }
 
 /** The naming of `texts`: one server statement minted for each distinct text, in first-seen order. */
-export const mintNaming = (texts: Iterable<string>): StatementNaming => {
+export const mintNaming = (texts: Iterable<EmittedText>): StatementNaming => {
 	const naming = new Map<string, ServerStatement>()
 	for (const sql of texts) {
 		if (!naming.has(sql)) {

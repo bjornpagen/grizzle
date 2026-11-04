@@ -1,5 +1,6 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { recursionUnrollMax } from "#compiler/core/policy.ts"
 import { makeCertificate } from "#compiler/ir/certificate.ts"
 import type { NodeOf, RelDag } from "#compiler/ir/rel.ts"
@@ -21,8 +22,8 @@ import {
 } from "#compiler/lower/shapes/recursion/bound.ts"
 import { stateColumns, stateTerm } from "#compiler/lower/shapes/recursion/terms.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import type { Cte, Select, SelectBody } from "#compiler/sql/ast.ts"
-import { core, cteRefAs, select } from "#compiler/sql/build.ts"
+import type { Cte, Select, SelectCore } from "#compiler/sql/ast.ts"
+import { cteRefAs, distinctCoreWhen, select, setOp } from "#compiler/sql/build.ts"
 
 export { type CounterAnalysis, counterBound } from "#compiler/lower/shapes/recursion/bound.ts"
 
@@ -101,16 +102,14 @@ const readState = (
 	rec: NodeOf<"Recursive">,
 	cte: StateCte,
 	distinct: boolean
-): SelectBody => {
+): SelectCore => {
 	const alias = cx.relationAlias({ kind: "node", node: rec.id })
-	return {
-		...core(
-			headingTargets(rec.heading, namedMap(alias, cte.columns)),
-			[cteRefAs(cte.name, alias)],
-			undefined
-		),
-		distinct
-	}
+	return distinctCoreWhen(
+		distinct,
+		headingTargets(rec.heading, namedMap(alias, cte.columns)),
+		[cteRefAs(cte.name, alias)],
+		undefined
+	)
 }
 
 /** The scope of the step, whose SelfRef reads `cte`: the recursive CTE, or the previous level. */
@@ -130,7 +129,7 @@ const recursiveForm = (rec: NodeOf<"Recursive">, cx: LowerContext, env: Env): Se
 				{
 					name: cte.name,
 					columns: cte.columns.map((c) => c.column),
-					query: select({ kind: "setOp", op: "UNION", left: base, right: step }),
+					query: select({ kind: "setOp", op: "UNION", arms: [base, step] }),
 					materialized: undefined
 				}
 			]
@@ -157,11 +156,11 @@ const unrolledForm = (
 		below = level(() => select(stateTerm(stepScope(cx, rec, feedback), rec, rec.step, env)))
 		steps.push(below)
 	}
-	const body = steps.reduce<SelectBody>(
-		(left, l) => ({ kind: "setOp", op: "UNION", left, right: readState(cx, rec, l, false) }),
-		readState(cx, rec, base, steps.length === 0)
-	)
-	const ctes: ReadonlyArray<Cte> = [base, ...steps].map((l) => ({
+	const body = setOp("UNION", [
+		readState(cx, rec, base, steps.length === 0),
+		...steps.map((l) => readState(cx, rec, l, false))
+	])
+	const ctes = mapNonEmpty([base, ...steps], (l): Cte => ({
 		name: l.name,
 		columns: l.columns.map((c) => c.column),
 		materialized: "NOT MATERIALIZED",

@@ -1,4 +1,9 @@
 import { Array as Arr, Option, String as Str } from "effect"
+import {
+	appendNonEmpty,
+	type NonEmptyReadonlyArray,
+	replaceNonEmpty
+} from "#compiler/core/nonempty.ts"
 import type {
 	AlterTableAction,
 	Call,
@@ -17,6 +22,8 @@ import type {
 	PlStatement,
 	Select,
 	SelectCore,
+	SetOperand,
+	SetOperation,
 	SqlStatement,
 	TableConstraint,
 	Target,
@@ -46,7 +53,7 @@ import { printsQuoted, printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import type { Holes, WildOperator } from "#test/support/kernel/sqlgen.ts"
 import { noHoles } from "#test/support/kernel/sqlgen.ts"
-import type { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
+import { type auditStatementViolations, isUnitRead } from "#test/support/oracle/verify/sql.ts"
 
 /**
  * The Wild operators of the structural audit (test/support/oracle/verify/sql.ts), and its faithful rewrites.
@@ -102,14 +109,13 @@ export const auditRuleReason: {
 	scope: "MalformedDescription",
 	context: "MalformedDescription",
 	positional: "MalformedDescription",
-	lex: "MalformedDescription"
+	lex: "MalformedDescription",
+	emptyList: "MalformedDescription"
 }
 
 export interface StatementBreak extends WildOperator {
 	readonly name: StatementBreakName
 	readonly rule: AuditRule
-	/** Whether the Live population must reach it: a break of a form only some installations hold may go unreached. */
-	readonly required: boolean
 }
 
 export interface FaithfulRewrite {
@@ -117,7 +123,6 @@ export interface FaithfulRewrite {
 	/** The print of a variant against the original statement's. */
 	readonly print: "different" | "any"
 	readonly holes: Holes
-	readonly required: boolean
 }
 
 export interface TextBreak {
@@ -136,7 +141,7 @@ const storedColumn = "ctid"
 
 const values = (
 	alias: string,
-	columns: ReadonlyArray<string>,
+	columns: NonEmptyReadonlyArray<string>,
 	row: ReadonlyArray<Expr>
 ): FromItem => ({
 	kind: "values",
@@ -165,7 +170,7 @@ const hasParam = (e: Expr): boolean => {
 			}
 			return x
 		},
-		fromItem: (item) => {
+		fromSource: (item) => {
 			if (item.kind === "recordset") {
 				found = true
 			}
@@ -192,6 +197,12 @@ const paramCounts = (s: SqlStatement): ReadonlyMap<number, number> => {
 	return counts
 }
 
+/** A set operation's arms with its last arm replaced. */
+const withLastArm = (arms: SetOperation["arms"], arm: SetOperand): SetOperation["arms"] => {
+	const [a, b, ...rest] = arms
+	return Arr.isReadonlyArrayNonEmpty(rest) ? [a, b, ...rest.slice(0, -1).concat([arm])] : [a, arm]
+}
+
 /** The aliases a FROM item defines, in order. */
 const aliasesOf = (item: FromItem): ReadonlyArray<string> => {
 	switch (item.kind) {
@@ -205,9 +216,11 @@ const aliasesOf = (item: FromItem): ReadonlyArray<string> => {
 			return [item.alias]
 		case "cte":
 			return [item.alias ?? item.name]
-		case "join":
-		case "crossJoin":
-			return [...aliasesOf(item.left), ...aliasesOf(item.right)]
+		case "joins":
+			return [
+				...aliasesOf(item.first),
+				...Arr.flatMap(item.steps, (step) => aliasesOf(step.source))
+			]
 	}
 }
 
@@ -216,7 +229,7 @@ const tableAliases = (s: SqlStatement): ReadonlyArray<string> => {
 	const out: Array<string> = []
 	transformStatement(s, {
 		...identityHooks,
-		fromItem: (item) => {
+		fromSource: (item) => {
 			if (item.kind === "table") {
 				out.push(item.alias)
 			}
@@ -231,7 +244,7 @@ const someTable = (s: SqlStatement): ObjectName | undefined => {
 	const tables: Array<ObjectName> = []
 	transformStatement(s, {
 		...identityHooks,
-		fromItem: (item) => {
+		fromSource: (item) => {
 			if (item.kind === "table" && typeof item.table !== "string") {
 				tables.push(item.table)
 			}
@@ -257,7 +270,9 @@ interface WriteSite {
 const isWrite = (body: CteBody): body is Write => body.kind !== "select"
 
 const withCte = (s: Select | Write, i: number, cte: Cte) =>
-	s.with === undefined ? s : { ...s, with: { ...s.with, ctes: s.with.ctes.with(i, cte) } }
+	s.with === undefined
+		? s
+		: { ...s, with: { ...s.with, ctes: replaceNonEmpty(s.with.ctes, i, cte) } }
 
 const writeSites = (s: SqlStatement): ReadonlyArray<WriteSite> => {
 	if (
@@ -436,52 +451,75 @@ const isDdl = (s: SqlStatement): boolean =>
 	s.kind === "createDomain" ||
 	s.kind === "alterDomain"
 
-/** The first PL/pgSQL statement of a body that `f` rewrites, depth first, with the body rebuilt around it. */
+/** The first statement of a body, at any depth, that `f` rewrites: its position in the body, and the statement there
+ * rebuilt around the rewrite. */
 const firstPl = (
 	body: ReadonlyArray<PlStatement>,
 	f: (s: PlStatement) => PlStatement | undefined
-): ReadonlyArray<PlStatement> | undefined => {
-	for (const [i, s] of body.entries()) {
+): { readonly at: number; readonly statement: PlStatement } | undefined => {
+	for (const [at, s] of body.entries()) {
 		const replaced = f(s)
 		if (replaced !== undefined) {
-			return body.with(i, replaced)
+			return { at, statement: replaced }
 		}
 		const inner = innerPl(s, f)
 		if (inner !== undefined) {
-			return body.with(i, inner)
+			return { at, statement: inner }
 		}
 	}
 	return undefined
 }
 
-/** A body a PL/pgSQL statement holds, with the statement rebuilt around a replacement of it. */
+/** A body a PL/pgSQL statement holds, with the statement rebuilt around the statement at a position of it replaced. */
 interface PlBody {
 	readonly body: ReadonlyArray<PlStatement>
-	readonly rebuild: (body: ReadonlyArray<PlStatement>) => PlStatement
+	readonly rebuild: (at: number, statement: PlStatement) => PlStatement
 }
 
-/** The bodies a PL/pgSQL statement holds, in order: an IF's branches and ELSE, a loop's body, a CASE's WHENs and ELSE. */
+/** A nonempty list with the item at `at` replaced. */
+const replacedAt = <A>(
+	list: Arr.NonEmptyReadonlyArray<A>,
+	at: number,
+	item: A
+): Arr.NonEmptyReadonlyArray<A> => Arr.map(list, (x, i) => (i === at ? item : x))
+
+/** The bodies a PL/pgSQL statement holds, in order: an IF's branches and ELSE, a loop's body, an absent probe's
+ * obligation, a CASE's WHENs. */
 const bodiesOf = (s: PlStatement): ReadonlyArray<PlBody> => {
 	switch (s.kind) {
 		case "if":
 			return [
 				...Arr.map(s.branches, (branch, i): PlBody => ({
 					body: branch.body,
-					rebuild: (body) => replaceBranch(s, i, { ...branch, body })
+					rebuild: (at, statement) => ({
+						...s,
+						branches: replacedAt(s.branches, i, {
+							...branch,
+							body: branch.body.with(at, statement)
+						})
+					})
 				})),
-				{ body: s.else, rebuild: (body) => ({ ...s, else: body }) }
+				{ body: s.else, rebuild: (at, statement) => ({ ...s, else: s.else.with(at, statement) }) }
 			]
 		case "forQuery":
-			return [{ body: s.body, rebuild: (body) => ({ ...s, body }) }]
-		case "case": {
-			const whens = Arr.map(s.whens, (when, i): PlBody => ({
+			return [
+				{ body: s.body, rebuild: (at, statement) => ({ ...s, body: s.body.with(at, statement) }) }
+			]
+		case "whenAbsent":
+			return [
+				{
+					body: s.body,
+					rebuild: (at, statement) => ({ ...s, body: replacedAt(s.body, at, statement) })
+				}
+			]
+		case "case":
+			return Arr.map(s.whens, (when, i): PlBody => ({
 				body: when.body,
-				rebuild: (body) => ({ ...s, whens: s.whens.with(i, { ...when, body }) })
+				rebuild: (at, statement) => ({
+					...s,
+					whens: replacedAt(s.whens, i, { ...when, body: when.body.with(at, statement) })
+				})
 			}))
-			return s.else === undefined
-				? whens
-				: [...whens, { body: s.else, rebuild: (body) => ({ ...s, else: body }) }]
-		}
 		case "assign":
 		case "perform":
 		case "raise":
@@ -498,23 +536,10 @@ const innerPl = (
 	for (const { body, rebuild } of bodiesOf(s)) {
 		const inner = firstPl(body, f)
 		if (inner !== undefined) {
-			return rebuild(inner)
+			return rebuild(inner.at, inner.statement)
 		}
 	}
 	return undefined
-}
-
-type IfStatement = Extract<PlStatement, { readonly kind: "if" }>
-
-const replaceBranch = (
-	s: IfStatement,
-	i: number,
-	branch: IfStatement["branches"][number]
-): IfStatement => {
-	const [first, ...rest] = s.branches
-	return i === 0
-		? { ...s, branches: [branch, ...rest] }
-		: { ...s, branches: [first, ...rest.with(i - 1, branch)] }
 }
 
 const plFunctions =
@@ -523,9 +548,10 @@ const plFunctions =
 		if (s.kind !== "createFunction" || s.language !== "plpgsql") {
 			return []
 		}
-		const body = firstPl(s.body.body, f)
-		const [first, ...rest] = body ?? []
-		return first === undefined ? [] : [{ ...s, body: { ...s.body, body: [first, ...rest] } }]
+		const found = firstPl(s.body.body, f)
+		return found === undefined
+			? []
+			: [{ ...s, body: { ...s.body, body: replacedAt(s.body.body, found.at, found.statement) } }]
 	}
 
 /** The NULL-on-empty aggregates the audit refuses in an ungrouped core. */
@@ -541,9 +567,7 @@ const nullOnEmpty: ReadonlySet<string> = new Set([
 	"jsonb_agg",
 	"percentile_disc",
 	"percentile_cont",
-	"mode",
-	"regr_slope",
-	"regr_sxx"
+	"mode"
 ])
 
 const any = (list: ReadonlyArray<Expr>): boolean => Arr.some(list, holdsNullOnEmpty)
@@ -601,6 +625,7 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 		case "plVar":
 		case "plSpecial":
 		case "field":
+		case "regclass":
 			return false
 	}
 }
@@ -609,11 +634,9 @@ const aliasNearMisses = ["v1", "r01", "R1", "r1a", "r-1", "c1", "r"] as const
 
 const refusedIdentifiers = [Str.repeat(64)("t"), "", "a\u0000b", "\ud800"] as const
 
-/** The statement breaks as written, each name the literal its entry spells: what StatementBreakName unions. */
+/** A table of statement breaks as written, each name the literal its entry spells: what StatementBreakName unions. */
 const breakTable = <const N extends string>(
-	table: ReadonlyArray<
-		WildOperator & { readonly name: N; readonly rule: AuditRule; readonly required: boolean }
-	>
+	table: Arr.NonEmptyReadonlyArray<WildOperator & { readonly name: N; readonly rule: AuditRule }>
 ) => table
 
 /**
@@ -648,11 +671,10 @@ const breakTable = <const N extends string>(
  *
  * naming
  */
-const statementBreakTable = breakTable([
+const requiredBreakTable = breakTable([
 	{
 		name: "a relation alias that is not a generated r<n>",
 		rule: "naming",
-		required: true,
 		holes: {
 			...noHoles,
 			core: (c) =>
@@ -665,7 +687,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a relation alias defined twice",
 		rule: "naming",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: (s) => {
@@ -679,7 +700,7 @@ const statementBreakTable = breakTable([
 				return [
 					transformStatement(s, {
 						...identityHooks,
-						fromItem: (item) =>
+						fromSource: (item) =>
 							item.kind === "table" && item.alias === x ? { ...item, alias: y } : item,
 						expr: (e) => (e.kind === "column" && e.table === x ? { ...e, table: y } : e)
 					})
@@ -690,10 +711,9 @@ const statementBreakTable = breakTable([
 	{
 		name: "a nested output named with a public name",
 		rule: "naming",
-		required: true,
 		holes: {
 			...noHoles,
-			fromItem: (item) => {
+			fromSource: (item) => {
 				if (item.kind !== "derived" || item.query.body.kind !== "core") {
 					return []
 				}
@@ -707,10 +727,10 @@ const statementBreakTable = breakTable([
 						["Total", "c07", "col1", "r1", "c", "C1"],
 						(alias) => !Arr.some(rest, (t) => t.alias === alias)
 					),
-					(alias) => ({
-						...item,
-						query: { ...item.query, body: { ...body, targets: [{ ...first, alias }, ...rest] } }
-					})
+					(alias) => {
+						const targets: NonEmptyReadonlyArray<Target> = [{ ...first, alias }, ...rest]
+						return { ...item, query: { ...item.query, body: { ...body, targets } } }
+					}
 				)
 			}
 		}
@@ -718,14 +738,16 @@ const statementBreakTable = breakTable([
 	{
 		name: "a set operation's arm naming a column other than the set operation's",
 		rule: "naming",
-		required: true,
 		holes: {
 			...noHoles,
 			select: (q) => {
-				if (q.body.kind !== "setOp" || q.body.right.kind !== "core") {
+				if (q.body.kind !== "setOp") {
 					return []
 				}
-				const right = q.body.right
+				const right = Arr.lastNonEmpty(q.body.arms)
+				if (right.kind !== "core") {
+					return []
+				}
 				const [first, ...rest] = right.targets
 				if (first === undefined || Arr.some(right.targets, (t) => t.alias === undefined)) {
 					return []
@@ -735,7 +757,10 @@ const statementBreakTable = breakTable([
 						...q,
 						body: {
 							...q.body,
-							right: { ...right, targets: [{ ...first, alias: freshColumn }, ...rest] }
+							arms: withLastArm(q.body.arms, {
+								...right,
+								targets: [{ ...first, alias: freshColumn }, ...rest]
+							})
 						}
 					}
 				]
@@ -743,15 +768,8 @@ const statementBreakTable = breakTable([
 		}
 	},
 	{
-		name: "a VALUES list with an empty column list",
-		rule: "columnList",
-		required: true,
-		holes: injected(values(freshRelation, [], []))
-	},
-	{
 		name: "a VALUES list naming a column twice",
 		rule: "columnList",
-		required: true,
 		holes: injected(
 			values(freshRelation, ["c1", "c1"], [lit.int(1, types.integer), lit.int(2, types.integer)])
 		)
@@ -759,22 +777,30 @@ const statementBreakTable = breakTable([
 	{
 		name: "a query CTE without its column list",
 		rule: "columnList",
-		required: true,
 		holes: {
 			...noHoles,
 			select: (q) =>
 				Arr.flatMap(q.with?.ctes ?? [], (cte, i) => {
-					if (cte.query.kind !== "select" || cte.columns.length === 0 || q.with === undefined) {
+					if (
+						cte.query.kind !== "select" ||
+						cte.columns.length === 0 ||
+						isUnitRead(cte.query) ||
+						q.with === undefined
+					) {
 						return []
 					}
-					return [{ ...q, with: { ...q.with, ctes: q.with.ctes.with(i, { ...cte, columns: [] }) } }]
+					return [
+						{
+							...q,
+							with: { ...q.with, ctes: replaceNonEmpty(q.with.ctes, i, { ...cte, columns: [] }) }
+						}
+					]
 				})
 		}
 	},
 	{
 		name: "a query CTE listing one column more than its query has",
 		rule: "columnList",
-		required: true,
 		holes: {
 			...noHoles,
 			select: (q) =>
@@ -786,7 +812,10 @@ const statementBreakTable = breakTable([
 									...q,
 									with: {
 										...q.with,
-										ctes: q.with.ctes.with(i, { ...cte, columns: [...cte.columns, freshColumn] })
+										ctes: replaceNonEmpty(q.with.ctes, i, {
+											...cte,
+											columns: [...cte.columns, freshColumn]
+										})
 									}
 								}
 							]
@@ -796,17 +825,15 @@ const statementBreakTable = breakTable([
 	{
 		name: "a derived table listing one column more than its query has",
 		rule: "columnList",
-		required: true,
 		holes: {
 			...noHoles,
-			fromItem: (item) =>
+			fromSource: (item) =>
 				item.kind === "derived" ? [{ ...item, columns: [...item.columns, freshColumn] }] : []
 		}
 	},
 	{
 		name: "a data-modifying CTE with an unnamed RETURNING column and no column list",
 		rule: "columnList",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: dataModifying((cte, body) => {
@@ -825,7 +852,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a data-modifying CTE listing a column more than it returns",
 		rule: "columnList",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: dataModifying((cte, body) => {
@@ -839,7 +865,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a RETURNING naming one output twice",
 		rule: "columnList",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -849,74 +874,16 @@ const statementBreakTable = breakTable([
 		}
 	},
 	{
-		name: "PERIOD on one side of a foreign key",
-		rule: "columnList",
-		required: false,
-		holes: {
-			...noHoles,
-			statement: constraints((c) => {
-				if (c.kind !== "foreignKey") {
-					return []
-				}
-				const own = Arr.some(c.columns, (x) => x.period)
-				const referenced = Arr.some(c.referencedColumns, (x) => x.period)
-				if (own !== referenced) {
-					return []
-				}
-				if (own) {
-					const last = c.referencedColumns.length - 1
-					return [
-						{
-							...c,
-							referencedColumns: Arr.map(c.referencedColumns, (x, i) =>
-								i === last ? { column: x.column, period: false } : x
-							)
-						}
-					]
-				}
-				const last = c.columns.length - 1
-				return [
-					{
-						...c,
-						columns: Arr.map(c.columns, (x, i) =>
-							i === last ? { ...x, period: true as const } : x
-						)
-					}
-				]
-			})
-		}
-	},
-	{
 		name: "a table column declared twice",
 		rule: "columnList",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: createTables((t) => [{ ...t, columns: [...t.columns, ...t.columns.slice(0, 1)] }])
 		}
 	},
 	{
-		name: "a span that is not its key's last column",
-		rule: "columnList",
-		required: false,
-		holes: {
-			...noHoles,
-			statement: constraints((c) => {
-				if (c.kind !== "primaryKey" && c.kind !== "unique") {
-					return []
-				}
-				const span = c.columns.at(-1)
-				if (span?.withoutOverlaps !== true || c.columns.length < 2) {
-					return []
-				}
-				return [{ ...c, columns: [span, ...c.columns.slice(0, -1)] }]
-			})
-		}
-	},
-	{
 		name: "an enum label declared twice",
 		rule: "columnList",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: (s) =>
@@ -928,7 +895,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a scalar literal typed as an array",
 		rule: "literal",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) =>
@@ -940,7 +906,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a quoted number typed as an array",
 		rule: "literal",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) =>
@@ -952,7 +917,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a boolean literal typed integer",
 		rule: "literal",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) =>
@@ -962,7 +926,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a decimal literal typed integer",
 		rule: "literal",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) =>
@@ -977,7 +940,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "an integer literal outside its type",
 		rule: "literal",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) => {
@@ -995,7 +957,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a text literal holding NUL or a lone surrogate",
 		rule: "literal",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) =>
@@ -1008,20 +969,8 @@ const statementBreakTable = breakTable([
 		}
 	},
 	{
-		name: "a RAISE message with a % placeholder",
-		rule: "literal",
-		required: false,
-		holes: {
-			...noHoles,
-			statement: plFunctions((s) =>
-				s.kind === "raise" ? { ...s, message: `${s.message} %` } : undefined
-			)
-		}
-	},
-	{
 		name: "a numeric precision outside 1..1000",
 		rule: "type",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) =>
@@ -1042,10 +991,9 @@ const statementBreakTable = breakTable([
 	{
 		name: "a table name the identifier rules refuse",
 		rule: "identifier",
-		required: true,
 		holes: {
 			...noHoles,
-			fromItem: (f) => {
+			fromSource: (f) => {
 				if (f.kind !== "table" || typeof f.table === "string") {
 					return []
 				}
@@ -1057,7 +1005,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "one use of a repeated parameter cast to another type",
 		rule: "param",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: (s) => {
@@ -1092,7 +1039,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a parameter numbered past a gap",
 		rule: "param",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) => (e.kind === "param" ? [{ ...e, slot: { ...e.slot, number: 9001 } }] : [])
@@ -1101,7 +1047,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a parameter in DDL",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: (s) => {
@@ -1116,7 +1061,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a subquery in DDL",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: (s) => {
@@ -1124,7 +1068,7 @@ const statementBreakTable = breakTable([
 					return []
 				}
 				const one = select(core([targetAs(lit.int(1, types.integer), "c1")], [], undefined))
-				const out = firstExpr(s, (e) => (e.kind === "binary" ? and(e, exists(one)) : undefined))
+				const out = firstExpr(s, (e) => (e.kind === "binary" ? and([e, exists(one)]) : undefined))
 				return out === undefined ? [] : [out]
 			}
 		}
@@ -1132,7 +1076,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "EXCLUDED in a query",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
 			select: (q) => {
@@ -1151,7 +1094,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "old. in an INSERT's RETURNING, which an inserted row lacks",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1178,7 +1120,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "new. in a DELETE's RETURNING, which a deleted row lacks",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1205,7 +1146,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a MERGE's RETURNING naming a row image some returned row lacks",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1228,9 +1168,8 @@ const statementBreakTable = breakTable([
 		}
 	},
 	{
-		name: "merge_action(), VALUE or TG_OP where PostgreSQL does not define it",
+		name: "merge_action(), VALUE or TG_TABLE_NAME where PostgreSQL does not define it",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: (s) => {
@@ -1240,7 +1179,7 @@ const statementBreakTable = breakTable([
 				const misplaced: ReadonlyArray<Expr> = [
 					{ kind: "mergeAction" },
 					{ kind: "domainValue" },
-					{ kind: "plSpecial", name: "TG_OP" }
+					{ kind: "plSpecial", name: "TG_TABLE_NAME" }
 				]
 				return Arr.flatMap(misplaced, (m) => {
 					const out = firstExpr(s, (e) => (e.kind === "literal" ? m : undefined))
@@ -1252,10 +1191,9 @@ const statementBreakTable = breakTable([
 	{
 		name: "a data-modifying CTE in a WITH that is not the statement's own",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
-			fromItem: (item) => {
+			fromSource: (item) => {
 				if (item.kind !== "derived") {
 					return []
 				}
@@ -1274,7 +1212,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a parenthesized query body whose clauses PostgreSQL would merge with the enclosing query's",
 		rule: "context",
-		required: true,
 		holes: {
 			...noHoles,
 			select: (q) =>
@@ -1286,7 +1223,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a literal ORDER BY item",
 		rule: "positional",
-		required: true,
 		holes: {
 			...noHoles,
 			select: (q) =>
@@ -1302,7 +1238,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a literal GROUP BY item",
 		rule: "positional",
-		required: true,
 		holes: {
 			...noHoles,
 			core: (c) =>
@@ -1312,19 +1247,17 @@ const statementBreakTable = breakTable([
 	{
 		name: "a literal DISTINCT ON item",
 		rule: "positional",
-		required: true,
 		holes: {
 			...noHoles,
 			core: (c) =>
-				typeof c.distinct === "object" && c.distinct.on.length > 0
-					? [{ ...c, distinct: { on: [...c.distinct.on, lit.int(1, types.integer)] } }]
+				typeof c.distinct === "object"
+					? [{ ...c, distinct: { on: appendNonEmpty(c.distinct.on, lit.int(1, types.integer)) } }]
 					: []
 		}
 	},
 	{
 		name: "a column qualified by a relation nothing defines",
 		rule: "scope",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) => (e.kind === "column" && e.table !== undefined ? [{ ...e, table: "r9999" }] : [])
@@ -1333,7 +1266,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "an unqualified column in a query",
 		rule: "scope",
-		required: true,
 		holes: {
 			...noHoles,
 			expr: (e) => (e.kind === "column" && e.table !== undefined ? [tableCol(e.column)] : [])
@@ -1342,13 +1274,11 @@ const statementBreakTable = breakTable([
 	{
 		name: "a derived table that is not LATERAL naming an earlier FROM entry",
 		rule: "scope",
-		required: true,
 		holes: { ...noHoles, core: (c) => siblingReferences(c, false) }
 	},
 	{
 		name: "a write's FROM or USING reading the write's target",
 		rule: "scope",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1371,7 +1301,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a MERGE WHEN naming the side its match lacks",
 		rule: "scope",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1391,7 +1320,7 @@ const statementBreakTable = breakTable([
 					const condition =
 						when.condition === undefined
 							? eq(reference, reference)
-							: and(when.condition, eq(reference, reference))
+							: and([when.condition, eq(reference, reference)])
 					const [first, ...rest] = w.whens
 					const replaced = { ...when, condition }
 					return [
@@ -1402,9 +1331,288 @@ const statementBreakTable = breakTable([
 		}
 	},
 	{
+		name: "an ORDER BY over a set operation naming no output",
+		rule: "scope",
+		holes: {
+			...noHoles,
+			select: (q) => {
+				if (
+					q.body.kind === "core" ||
+					q.orderBy.length === 0 ||
+					Arr.some(bodyPositionNames(q.body), (n) => n === undefined)
+				) {
+					return []
+				}
+				const [first, ...rest] = q.orderBy
+				return first === undefined
+					? []
+					: [{ ...q, orderBy: [{ ...first, expr: tableCol(freshColumn) }, ...rest] }]
+			}
+		}
+	},
+	{
+		name: "a key column that is not a column of the table",
+		rule: "scope",
+		holes: {
+			...noHoles,
+			statement: createTables((t) => {
+				const [first, ...rest] = t.primaryKey.columns
+				return first === undefined
+					? []
+					: [
+							{
+								...t,
+								primaryKey: {
+									...t.primaryKey,
+									columns: [{ ...first, column: "no_such_column" }, ...rest]
+								}
+							}
+						]
+			})
+		}
+	},
+	{
+		name: "AND or OR of one operand",
+		rule: "arity",
+		holes: {
+			...noHoles,
+			expr: (e) => {
+				if (e.kind !== "and" && e.kind !== "or") {
+					return []
+				}
+				const [first, ...rest] = e.args
+				return anyParam(rest) ? [] : [{ ...e, args: [first] }]
+			}
+		}
+	},
+	{
+		name: "set operation arms of different widths",
+		rule: "arity",
+		holes: {
+			...noHoles,
+			select: (q) => {
+				if (q.body.kind !== "setOp") {
+					return []
+				}
+				const right = Arr.lastNonEmpty(q.body.arms)
+				if (right.kind !== "core") {
+					return []
+				}
+				const [first, ...rest] = right.targets
+				const last = rest.at(-1)
+				if (first === undefined || last === undefined || hasParam(last.expr)) {
+					return []
+				}
+				const kept: NonEmptyReadonlyArray<Target> = [first, ...rest.slice(0, -1)]
+				return [
+					{ ...q, body: { ...q.body, arms: withLastArm(q.body.arms, { ...right, targets: kept }) } }
+				]
+			}
+		}
+	},
+	{
+		name: "a VALUES row wider than its column list",
+		rule: "arity",
+		holes: {
+			...noHoles,
+			fromSource: (item) => {
+				if (item.kind !== "values") {
+					return []
+				}
+				const [first, ...rest] = item.rows
+				return first === undefined
+					? []
+					: [{ ...item, rows: [[...first, lit.int(1, types.integer)], ...rest] }]
+			}
+		}
+	},
+	{
+		name: "an INSERT whose columns and source differ in width",
+		rule: "arity",
+		holes: {
+			...noHoles,
+			statement: writes((w) => {
+				if (w.kind !== "insert") {
+					return []
+				}
+				const [first, ...rest] = w.columns
+				if (first === undefined || !Arr.isReadonlyArrayNonEmpty(rest)) {
+					return []
+				}
+				const narrower: NonEmptyReadonlyArray<string> = [first, ...rest.slice(0, -1)]
+				return [{ ...w, columns: narrower }]
+			})
+		}
+	},
+	{
+		name: "a negative frame offset",
+		rule: "arity",
+		holes: {
+			...noHoles,
+			expr: (e) => {
+				if (e.kind !== "call" || e.over?.frame === undefined) {
+					return []
+				}
+				const frame = e.over.frame
+				const negated = (b: typeof frame.start): typeof frame.start =>
+					b.kind === "offset" ? { ...b, offset: -1n } : b
+				const over: WindowSpec = {
+					...e.over,
+					frame: { start: negated(frame.start), end: negated(frame.end) }
+				}
+				return frame.start.kind === "offset" || frame.end.kind === "offset" ? [{ ...e, over }] : []
+			}
+		}
+	},
+	{
+		name: "an enum without labels",
+		rule: "arity",
+		holes: { ...noHoles, statement: (s) => (s.kind === "createEnum" ? [{ ...s, labels: [] }] : []) }
+	},
+	{
+		name: "LEAD or LAG without its default",
+		rule: "null",
+		holes: {
+			...noHoles,
+			expr: (e) =>
+				e.kind === "call" &&
+				!e.star &&
+				e.fn.kind === "builtin" &&
+				(e.fn.name === "lead" || e.fn.name === "lag") &&
+				e.args.length === 3 &&
+				!anyParam(e.args.slice(2))
+					? [{ ...e, args: e.args.slice(0, 2) }]
+					: []
+		}
+	},
+	{
+		name: "a NULL-on-empty aggregate in an ungrouped core",
+		rule: "null",
+		holes: {
+			...noHoles,
+			core: (c) => {
+				if (c.groupBy.length === 0 || anyParam(c.groupBy)) {
+					return []
+				}
+				const holds =
+					Arr.some(c.targets, (t) => holdsNullOnEmpty(t.expr)) ||
+					(c.having !== undefined && holdsNullOnEmpty(c.having))
+				return holds ? [{ ...c, groupBy: [] }] : []
+			}
+		}
+	},
+	{
+		name: "the fixed collation on a column of a named type",
+		rule: "collation",
+		holes: {
+			...noHoles,
+			statement: columnDefs((c) =>
+				c.type.kind === "named" && c.collation === undefined
+					? [{ ...c, collation: cUtf8Collation }]
+					: []
+			)
+		}
+	},
+	{
+		name: "a text column without the fixed collation",
+		rule: "collation",
+		holes: {
+			...noHoles,
+			statement: columnDefs((c) => {
+				if (c.type.kind !== "builtin" || c.type.name !== "text" || c.collation === undefined) {
+					return []
+				}
+				return [{ ...c, collation: undefined }]
+			})
+		}
+	},
+	{
+		name: "a recordset's text column without the fixed collation",
+		rule: "collation",
+		holes: {
+			...noHoles,
+			fromSource: (item) =>
+				item.kind === "recordset"
+					? Arr.flatMap(item.columns, (c, i) => {
+							if (c.collation === undefined) {
+								return []
+							}
+							return [{ ...item, columns: item.columns.with(i, { ...c, collation: undefined }) }]
+						})
+					: []
+		}
+	}
+])
+
+/** The statement breaks of a form only some installations hold, which a Live population may leave unreached. */
+const unrequiredBreakTable = breakTable([
+	{
+		name: "PERIOD on one side of a foreign key",
+		rule: "columnList",
+		holes: {
+			...noHoles,
+			statement: constraints((c) => {
+				if (c.kind !== "foreignKey") {
+					return []
+				}
+				const own = Option.isSome(Arr.findFirst(c.columns, (x) => x.period))
+				const referenced = Option.isSome(Arr.findFirst(c.referencedColumns, (x) => x.period))
+				if (own !== referenced) {
+					return []
+				}
+				if (own) {
+					const last = c.referencedColumns.length - 1
+					return [
+						{
+							...c,
+							referencedColumns: Arr.map(c.referencedColumns, (x, i) =>
+								i === last ? { column: x.column, period: false } : x
+							)
+						}
+					]
+				}
+				const last = c.columns.length - 1
+				return [
+					{
+						...c,
+						columns: Arr.map(c.columns, (x, i) =>
+							i === last ? { ...x, period: true as const } : x
+						)
+					}
+				]
+			})
+		}
+	},
+	{
+		name: "a span that is not its key's last column",
+		rule: "columnList",
+		holes: {
+			...noHoles,
+			statement: constraints((c) => {
+				if (c.kind !== "primaryKey" && c.kind !== "unique") {
+					return []
+				}
+				const span = c.columns.at(-1)
+				if (span?.withoutOverlaps !== true || c.columns.length < 2) {
+					return []
+				}
+				return [{ ...c, columns: [span, ...c.columns.slice(0, -1)] }]
+			})
+		}
+	},
+	{
+		name: "a RAISE message with a % placeholder",
+		rule: "literal",
+		holes: {
+			...noHoles,
+			statement: plFunctions((s) =>
+				s.kind === "raise" ? { ...s, message: `${s.message} %` } : undefined
+			)
+		}
+	},
+	{
 		name: "a MERGE's RETURNING naming the source past a NOT MATCHED BY SOURCE",
 		rule: "scope",
-		required: false,
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1431,196 +1639,13 @@ const statementBreakTable = breakTable([
 		}
 	},
 	{
-		name: "an ORDER BY over a set operation naming no output",
-		rule: "scope",
-		required: true,
-		holes: {
-			...noHoles,
-			select: (q) => {
-				if (
-					q.body.kind === "core" ||
-					q.orderBy.length === 0 ||
-					Arr.some(bodyPositionNames(q.body), (n) => n === undefined)
-				) {
-					return []
-				}
-				const [first, ...rest] = q.orderBy
-				return first === undefined
-					? []
-					: [{ ...q, orderBy: [{ ...first, expr: tableCol(freshColumn) }, ...rest] }]
-			}
-		}
-	},
-	{
 		name: "a PL/pgSQL variable that is not declared",
 		rule: "scope",
-		required: false,
 		holes: { ...noHoles, expr: (e) => (e.kind === "plVar" ? [{ ...e, name: "undeclared" }] : []) }
-	},
-	{
-		name: "a key column that is not a column of the table",
-		rule: "scope",
-		required: true,
-		holes: {
-			...noHoles,
-			statement: createTables((t) => {
-				const [first, ...rest] = t.primaryKey.columns
-				return first === undefined
-					? []
-					: [
-							{
-								...t,
-								primaryKey: {
-									...t.primaryKey,
-									columns: [{ ...first, column: "no_such_column" }, ...rest]
-								}
-							}
-						]
-			})
-		}
-	},
-	{
-		name: "an empty DISTINCT ON",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			core: (c) =>
-				typeof c.distinct === "object" && !anyParam(c.distinct.on)
-					? [{ ...c, distinct: { on: [] } }]
-					: []
-		}
-	},
-	{
-		name: "an UPDATE without SET",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			statement: writes((w) =>
-				w.kind === "update" && !anyParam(Arr.map(w.set, (a) => a.value)) ? [{ ...w, set: [] }] : []
-			)
-		}
-	},
-	{
-		name: "an empty IN list",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			expr: (e) => (e.kind === "inList" && !anyParam(e.list) ? [{ ...e, list: [] }] : [])
-		}
-	},
-	{
-		name: "AND or OR of one operand",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			expr: (e) => {
-				if (e.kind !== "and" && e.kind !== "or") {
-					return []
-				}
-				const [first, ...rest] = e.args
-				return first === undefined || anyParam(rest) ? [] : [{ ...e, args: [first] }]
-			}
-		}
-	},
-	{
-		name: "set operation arms of different widths",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			select: (q) => {
-				if (q.body.kind !== "setOp" || q.body.right.kind !== "core") {
-					return []
-				}
-				const right = q.body.right
-				const last = right.targets.at(-1)
-				if (last === undefined || right.targets.length < 2 || hasParam(last.expr)) {
-					return []
-				}
-				return [
-					{ ...q, body: { ...q.body, right: { ...right, targets: right.targets.slice(0, -1) } } }
-				]
-			}
-		}
-	},
-	{
-		name: "a VALUES row wider than its column list",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			fromItem: (item) => {
-				if (item.kind !== "values") {
-					return []
-				}
-				const [first, ...rest] = item.rows
-				return first === undefined
-					? []
-					: [{ ...item, rows: [[...first, lit.int(1, types.integer)], ...rest] }]
-			}
-		}
-	},
-	{
-		name: "an INSERT whose columns and source differ in width",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			statement: writes((w) =>
-				w.kind === "insert" && w.columns.length > 1
-					? [{ ...w, columns: w.columns.slice(0, -1) }]
-					: []
-			)
-		}
-	},
-	{
-		name: "ON CONFLICT without an arbiter",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			statement: writes((w) =>
-				w.kind === "insert" && w.onConflict?.kind === "columns"
-					? [{ ...w, onConflict: { ...w.onConflict, columns: [] } }]
-					: []
-			)
-		}
-	},
-	{
-		name: "a negative frame offset",
-		rule: "arity",
-		required: true,
-		holes: {
-			...noHoles,
-			expr: (e) => {
-				if (e.kind !== "call" || e.over?.frame === undefined) {
-					return []
-				}
-				const frame = e.over.frame
-				const negated = (b: typeof frame.start): typeof frame.start =>
-					b.kind === "offset" ? { ...b, offset: -1n } : b
-				const over: WindowSpec = {
-					...e.over,
-					frame: { start: negated(frame.start), end: negated(frame.end) }
-				}
-				return frame.start.kind === "offset" || frame.end.kind === "offset" ? [{ ...e, over }] : []
-			}
-		}
-	},
-	{
-		name: "an enum without labels",
-		rule: "arity",
-		required: true,
-		holes: { ...noHoles, statement: (s) => (s.kind === "createEnum" ? [{ ...s, labels: [] }] : []) }
 	},
 	{
 		name: "a RAISE option given twice",
 		rule: "arity",
-		required: false,
 		holes: {
 			...noHoles,
 			statement: plFunctions((s) => {
@@ -1633,70 +1658,8 @@ const statementBreakTable = breakTable([
 		}
 	},
 	{
-		name: "LEAD or LAG without its default",
-		rule: "null",
-		required: true,
-		holes: {
-			...noHoles,
-			expr: (e) =>
-				e.kind === "call" &&
-				!e.star &&
-				e.fn.kind === "builtin" &&
-				(e.fn.name === "lead" || e.fn.name === "lag") &&
-				e.args.length === 3 &&
-				!anyParam(e.args.slice(2))
-					? [{ ...e, args: e.args.slice(0, 2) }]
-					: []
-		}
-	},
-	{
-		name: "a NULL-on-empty aggregate in an ungrouped core",
-		rule: "null",
-		required: true,
-		holes: {
-			...noHoles,
-			core: (c) => {
-				if (c.groupBy.length === 0 || anyParam(c.groupBy)) {
-					return []
-				}
-				const holds =
-					Arr.some(c.targets, (t) => holdsNullOnEmpty(t.expr)) ||
-					(c.having !== undefined && holdsNullOnEmpty(c.having))
-				return holds ? [{ ...c, groupBy: [] }] : []
-			}
-		}
-	},
-	{
-		name: "the fixed collation on a column of a named type",
-		rule: "collation",
-		required: true,
-		holes: {
-			...noHoles,
-			statement: columnDefs((c) =>
-				c.type.kind === "named" && c.collation === undefined
-					? [{ ...c, collation: cUtf8Collation }]
-					: []
-			)
-		}
-	},
-	{
-		name: "a text column without the fixed collation",
-		rule: "collation",
-		required: true,
-		holes: {
-			...noHoles,
-			statement: columnDefs((c) => {
-				if (c.type.kind !== "builtin" || c.type.name !== "text" || c.collation === undefined) {
-					return []
-				}
-				return [{ ...c, collation: undefined }]
-			})
-		}
-	},
-	{
 		name: "a column converted to text without the fixed collation",
 		rule: "collation",
-		required: false,
 		holes: {
 			...noHoles,
 			statement: (s) =>
@@ -1714,7 +1677,6 @@ const statementBreakTable = breakTable([
 	{
 		name: "a text domain without the fixed collation",
 		rule: "collation",
-		required: false,
 		holes: {
 			...noHoles,
 			statement: (s) => {
@@ -1724,30 +1686,25 @@ const statementBreakTable = breakTable([
 				return [{ ...s, collation: undefined }]
 			}
 		}
-	},
-	{
-		name: "a recordset's text column without the fixed collation",
-		rule: "collation",
-		required: true,
-		holes: {
-			...noHoles,
-			fromItem: (item) =>
-				item.kind === "recordset"
-					? Arr.flatMap(item.columns, (c, i) => {
-							if (c.collation === undefined) {
-								return []
-							}
-							return [{ ...item, columns: item.columns.with(i, { ...c, collation: undefined }) }]
-						})
-					: []
-		}
 	}
 ])
 
 /** The name of a statement break: a misspelt one is a compile error wherever a break is named. */
-export type StatementBreakName = (typeof statementBreakTable)[number]["name"]
+export type StatementBreakName =
+	| (typeof requiredBreakTable)[number]["name"]
+	| (typeof unrequiredBreakTable)[number]["name"]
 
-export const statementBreaks: ReadonlyArray<StatementBreak> = statementBreakTable
+/** The statement breaks a Live population must reach. */
+export const requiredStatementBreaks: Arr.NonEmptyReadonlyArray<StatementBreak> = requiredBreakTable
+
+/** The statement breaks a Live population may leave unreached: of a form only some installations hold. */
+export const unrequiredStatementBreaks: ReadonlyArray<StatementBreak> = unrequiredBreakTable
+
+/** Every statement break: the required ones, then the ones a population may leave unreached. */
+export const statementBreaks: Arr.NonEmptyReadonlyArray<StatementBreak> = Arr.appendAll(
+	requiredStatementBreaks,
+	unrequiredStatementBreaks
+)
 
 /**
  * The statement breaks whose rule mirrors a refusal of PostgreSQL's, with the class of SQLSTATE it refuses with: each,
@@ -1772,11 +1729,7 @@ const mirroredClasses: ReadonlyMap<StatementBreakName, Refusal> = new Map<
 		"42"
 	],
 	["set operation arms of different widths", "42"],
-	["an empty IN list", "42"],
-	["an empty DISTINCT ON", "42"],
-	["an UPDATE without SET", "42"],
 	["an INSERT whose columns and source differ in width", "42"],
-	["ON CONFLICT without an arbiter", "42"],
 	["a scalar literal typed as an array", "42"],
 	["a quoted number typed as an array", "22P02"]
 ])
@@ -1809,7 +1762,10 @@ const withDelete = (q: Select, table: ObjectName): Select => {
 	const cte: Cte = { name: freshRelation, query: del, columns: [], materialized: undefined }
 	return {
 		...q,
-		with: { recursive: q.with?.recursive === true, ctes: [...(q.with?.ctes ?? []), cte] }
+		with: {
+			recursive: q.with?.recursive === true,
+			ctes: appendNonEmpty(q.with === undefined ? [] : q.with.ctes, cte)
+		}
 	}
 }
 
@@ -1836,9 +1792,8 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 		case "cte":
 		case "enclosing":
 			return undefined
-		case "join":
-		case "crossJoin":
-			return columnOfItem(item.left)
+		case "joins":
+			return columnOfItem(item.first)
 	}
 }
 
@@ -1860,7 +1815,7 @@ const siblingReferences = (c: SelectCore, lateral: boolean): ReadonlyArray<Selec
 		const where =
 			body.where === undefined
 				? eq(reference, reference)
-				: and(body.where, eq(reference, reference))
+				: and([body.where, eq(reference, reference)])
 		const rewritten: FromItem = {
 			...item,
 			lateral,
@@ -1886,11 +1841,10 @@ const plainCalls = (f: (c: Call) => ReadonlyArray<Call>): Holes =>
 const aggregates: ReadonlySet<string> = new Set(["count", ...nullOnEmpty])
 
 /** A list's every item removed: the print differs. */
-const cleared = (name: string, holes: Holes, required: boolean): FaithfulRewrite => ({
+const cleared = (name: string, holes: Holes): FaithfulRewrite => ({
 	name,
 	print: "different",
-	holes,
-	required
+	holes
 })
 
 /**
@@ -1912,28 +1866,23 @@ const ordered = (items: ReadonlyArray<OrderItem>): boolean =>
 export const lateralRewrite: FaithfulRewrite = {
 	name: "a later derived FROM entry made LATERAL, reading an earlier one",
 	print: "different",
-	required: true,
 	holes: { ...noHoles, core: (c) => siblingReferences(c, true) }
 }
 
-export const faithfulRewrites: ReadonlyArray<FaithfulRewrite> = [
-	cleared(
-		"a query ORDER BY's items removed",
-		{
-			...noHoles,
-			select: (q) =>
-				q.orderBy.length > 0 && orderWithoutParams(q.orderBy) ? [{ ...q, orderBy: [] }] : []
-		},
-		true
-	),
+/** The faithful rewrites a Live population must reach. */
+export const requiredFaithfulRewrites: Arr.NonEmptyReadonlyArray<FaithfulRewrite> = [
+	cleared("a query ORDER BY's items removed", {
+		...noHoles,
+		select: (q) =>
+			q.orderBy.length > 0 && orderWithoutParams(q.orderBy) ? [{ ...q, orderBy: [] }] : []
+	}),
 	cleared(
 		"a window PARTITION BY's items removed",
 		calls((c) =>
 			c.over !== undefined && c.over.partitionBy.length > 0 && !anyParam(c.over.partitionBy)
 				? [{ ...c, over: { ...c.over, partitionBy: [] } }]
 				: []
-		),
-		true
+		)
 	),
 	cleared(
 		"a window ORDER BY's items removed",
@@ -1941,27 +1890,11 @@ export const faithfulRewrites: ReadonlyArray<FaithfulRewrite> = [
 			c.over !== undefined && ordered(c.over.orderBy)
 				? [{ ...c, over: { ...c.over, orderBy: [] } }]
 				: []
-		),
-		true
-	),
-	cleared(
-		"an aggregate ORDER BY's items removed",
-		plainCalls((c) => (ordered(c.orderBy) ? [{ ...c, orderBy: [] }] : [])),
-		false
-	),
-	cleared(
-		"an index INCLUDE's columns removed",
-		{
-			...noHoles,
-			statement: (s) =>
-				s.kind === "createIndex" && s.include.length > 0 ? [{ ...s, include: [] }] : []
-		},
-		false
+		)
 	),
 	{
 		name: "an aggregate ordered by its first argument",
 		print: "different",
-		required: true,
 		holes: plainCalls((c) => {
 			const first = c.args[0]
 			return c.fn.kind === "builtin" &&
@@ -1977,7 +1910,6 @@ export const faithfulRewrites: ReadonlyArray<FaithfulRewrite> = [
 	{
 		name: "a data-modifying CTE named by a column list instead of its RETURNING aliases",
 		print: "any",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: dataModifying((cte, body) => {
@@ -1989,7 +1921,6 @@ export const faithfulRewrites: ReadonlyArray<FaithfulRewrite> = [
 	{
 		name: "a query parenthesized as the body of a query with an empty ORDER BY",
 		print: "any",
-		required: true,
 		holes: {
 			...noHoles,
 			statement: (s) => {
@@ -2000,6 +1931,25 @@ export const faithfulRewrites: ReadonlyArray<FaithfulRewrite> = [
 	},
 	lateralRewrite
 ]
+
+/** The faithful rewrites a Live population may leave unreached: of a form only some statements hold. */
+export const unrequiredFaithfulRewrites: ReadonlyArray<FaithfulRewrite> = [
+	cleared(
+		"an aggregate ORDER BY's items removed",
+		plainCalls((c) => (ordered(c.orderBy) ? [{ ...c, orderBy: [] }] : []))
+	),
+	cleared("an index INCLUDE's columns removed", {
+		...noHoles,
+		statement: (s) =>
+			s.kind === "createIndex" && s.include.length > 0 ? [{ ...s, include: [] }] : []
+	})
+]
+
+/** Every faithful rewrite: the required ones, then the ones a population may leave unreached. */
+export const faithfulRewrites: Arr.NonEmptyReadonlyArray<FaithfulRewrite> = Arr.appendAll(
+	requiredFaithfulRewrites,
+	unrequiredFaithfulRewrites
+)
 
 const tokensOf = (text: string): ReadonlyArray<Token> => lex(text).tokens
 
@@ -2081,16 +2031,47 @@ const appended =
 
 const functionNames: ReadonlySet<string> = new Set(builtinFunctionNames)
 
-/** A builtin function's name before its argument list, other than count(*). */
-const callNames = (tokens: ReadonlyArray<Token>): ReadonlyArray<Extract<Token, { kind: "word" }>> =>
-	Arr.flatMap(tokens, (t, i) =>
-		t.kind === "word" &&
-		functionNames.has(Str.toLowerCase(t.text)) &&
-		isPunct(tokens[i + 1], "(") &&
-		!isStar(tokens[i + 2])
-			? [t]
+/** Where a part of a text lies: from its first character up to, not including, `end`. */
+interface Span {
+	readonly start: number
+	readonly end: number
+}
+
+/**
+ * A builtin function's name as the printer spells it, `"pg_catalog"."<name>"`, before its argument list, other than
+ * count(*): the span from its schema to its "(".
+ */
+const callNames = (tokens: ReadonlyArray<Token>): ReadonlyArray<Span> =>
+	Arr.flatMap(tokens, (t, i) => {
+		const name = tokens[i + 2]
+		const open = tokens[i + 3]
+		return t.kind === "quotedIdent" &&
+			t.text === "pg_catalog" &&
+			isPunct(tokens[i + 1], ".") &&
+			name?.kind === "quotedIdent" &&
+			functionNames.has(name.text) &&
+			open !== undefined &&
+			isPunct(open, "(") &&
+			!isStar(tokens[i + 4])
+			? [{ start: t.start, end: open.start }]
 			: []
+	})
+
+/** Whether the token at `at` is pg_catalog's `name`, as the printer qualifies it: `"pg_catalog"."<name>"`. */
+const isCatalogName = (tokens: ReadonlyArray<Token>, at: number, name: string): boolean => {
+	const t = tokens[at]
+	const schema = tokens[at - 2]
+	return (
+		t?.kind === "quotedIdent" &&
+		t.text === name &&
+		isPunct(tokens[at - 1], ".") &&
+		schema?.kind === "quotedIdent" &&
+		schema.text === "pg_catalog"
 	)
+}
+
+const replaceSpan = (text: string, span: Span, by: string): string =>
+	`${Str.slice(0, span.start)(text)}${by}${Str.slice(span.end)(text)}`
 
 /** The index of the ")" closing the "(" at `open`. */
 const closing = (tokens: ReadonlyArray<Token>, open: number): number => {
@@ -2109,7 +2090,7 @@ const closing = (tokens: ReadonlyArray<Token>, open: number): number => {
 	return -1
 }
 
-export const textBreaks: ReadonlyArray<TextBreak> = [
+export const textBreaks: Arr.NonEmptyReadonlyArray<TextBreak> = [
 	{
 		name: "NOT NULL after a name, outside a column definition",
 		rule: "null",
@@ -2227,7 +2208,7 @@ export const textBreaks: ReadonlyArray<TextBreak> = [
 				t.kind === "operator" &&
 				t.text === "*" &&
 				isPunct(tokens[i - 1], "(") &&
-				word(tokens[i - 2]) === "COUNT" &&
+				isCatalogName(tokens, i - 2, "count") &&
 				isPunct(tokens[i + 1], ")")
 					? [insertBefore(text, tokens, i + 1, ", 1")]
 					: []
@@ -2240,13 +2221,15 @@ export const textBreaks: ReadonlyArray<TextBreak> = [
 		variants: (text) => {
 			const tokens = tokensOf(text)
 			return Arr.flatMap(tokens, (t, i) => {
+				const open = tokens[i + 1]
 				const star = tokens[i + 2]
-				return t.kind === "word" &&
-					t.upper === "COUNT" &&
-					isPunct(tokens[i + 1], "(") &&
+				return t.kind === "quotedIdent" &&
+					isCatalogName(tokens, i, "count") &&
+					open !== undefined &&
+					isPunct(open, "(") &&
 					star?.kind === "operator" &&
 					star.text === "*"
-					? [replaceWord(text, t, "sum")]
+					? [replaceSpan(text, { start: t.start, end: open.start }, '"sum"')]
 					: []
 			})
 		}
@@ -2314,6 +2297,27 @@ export const textBreaks: ReadonlyArray<TextBreak> = [
 					? [
 							`${Str.slice(0, t.start)(text)}(${Str.slice(t.start, cast.start)(text)})${Str.slice(cast.start)(text)}`
 						]
+					: []
+			})
+		}
+	},
+	{
+		name: "an alias's column list emptied",
+		rule: "emptyList",
+		variants: (text) => {
+			const tokens = tokensOf(text)
+			return Arr.flatMap(tokens, (t, i) => {
+				if (
+					!isPunct(t, "(") ||
+					tokens[i - 1]?.kind !== "quotedIdent" ||
+					word(tokens[i - 2]) !== "AS"
+				) {
+					return []
+				}
+				const first = tokens[i + 1]
+				const close = tokens[closing(tokens, i)]
+				return first !== undefined && close !== undefined && close.start > first.start
+					? [`${Str.slice(0, first.start)(text)}${Str.slice(close.start)(text)}`]
 					: []
 			})
 		}
@@ -2393,16 +2397,16 @@ export const textBreaks: ReadonlyArray<TextBreak> = [
 		name: "a builtin call renamed COALESCE",
 		rule: "coalesce",
 		variants: (text) =>
-			Arr.flatMap(callNames(tokensOf(text)), (t) =>
-				Arr.map(["COALESCE", "coalesce", "Coalesce"], (by) => replaceWord(text, t, by))
+			Arr.flatMap(callNames(tokensOf(text)), (span) =>
+				Arr.map(["COALESCE", "coalesce", "Coalesce"], (by) => replaceSpan(text, span, by))
 			)
 	},
 	{
 		name: "a builtin call renamed NULLIF",
 		rule: "nullif",
 		variants: (text) =>
-			Arr.flatMap(callNames(tokensOf(text)), (t) =>
-				Arr.map(["NULLIF", "nullif"], (by) => replaceWord(text, t, by))
+			Arr.flatMap(callNames(tokensOf(text)), (span) =>
+				Arr.map(["NULLIF", "nullif"], (by) => replaceSpan(text, span, by))
 			)
 	},
 	{

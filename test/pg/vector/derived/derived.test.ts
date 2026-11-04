@@ -7,7 +7,7 @@ import * as Result from "#compiler/core/result.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -19,6 +19,7 @@ import {
 	vectorParam,
 	vectorText
 } from "#test/pg/vector/ann/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refused } from "#test/support/assert.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
@@ -42,8 +43,8 @@ const build = (name: string) => {
 	const Embeddings = derived(
 		"Embeddings",
 		query(Core).rule((r) => {
-			const { document, value } = v(DocumentEmbedding)
-			const { account } = v(Document)
+			const { document, value } = v(DocumentEmbedding, "documentEmbedding")
+			const { account } = v(Document, "document")
 			return r
 				.match(DocumentEmbedding, { document, value })
 				.match(Document, { id: document, account })
@@ -56,7 +57,7 @@ const build = (name: string) => {
 	const server = login(Reports, "server", [viewer, refresher])
 	/** The exact scoring of an account's documents through the view, the viewer's one relation. */
 	const scored = query(viewer).rule((r) => {
-		const { document, value } = v(Embeddings)
+		const { document, value } = v(Embeddings, "embeddings")
 		return r.match(Embeddings, { document, account: r.param("account", uuid), value }).find({
 			document,
 			distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
@@ -73,7 +74,7 @@ const build = (name: string) => {
 	}
 }
 
-const id = (prefix: number, n: number): string =>
+const id = (prefix: number, n: number): Uuid =>
 	`${pipe(prefix.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const accountA = id(0xa, 1)
@@ -114,6 +115,7 @@ const opened = Effect.gen(function* () {
 	const documents = documentsOf(probe)
 	const declared = build("VectorView")
 	const installed = yield* install(declared.Reports, {
+		ambient: ordinarySession,
 		label: "vecview",
 		logins: [declared.server],
 		extensions: []
@@ -212,7 +214,10 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 						policySettings
 					)
 					const rows = yield* (yield* db.execute(o.fixture.scored, o.params)).collect
-					const pairs = Arr.map(rows, (r) => [r.document, r.distance])
+					const pairs: ReadonlyArray<ReadonlyArray<string | number>> = Arr.map(rows, (r) => [
+						r.document,
+						r.distance
+					])
 					assert.deepEqual(
 						Arr.sortWith(pairs, (row) => String(row[0]), Order.String),
 						Arr.map(oracle, ([document, distance]) => [

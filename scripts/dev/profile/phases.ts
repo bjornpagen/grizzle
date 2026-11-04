@@ -1,5 +1,6 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { identity, parseSchemaName } from "#compiler/core/identity.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
@@ -65,7 +66,7 @@ export interface Fixture {
  * justifies a workload index on its materialized view.
  */
 const busyAccounts = query(workApi.Reports).rule((r) => {
-	const { account, tasks, budget } = v(workApi.AccountBudget)
+	const { account, tasks, budget } = v(workApi.AccountBudget, "accountBudget")
 	return r
 		.match(workApi.AccountBudget, { account, tasks, budget })
 		.where(r.ge(tasks, r.param("least", pg.bigint)))
@@ -118,11 +119,11 @@ const genericChangeSets = (
 	const all = (vars: Readonly<Record<string, unknown>>) =>
 		Rec.fromEntries(Arr.map(fields, (f) => [f, vars[f]]))
 	const fromParam = queryOver(schema).rule((r: RuleValue) => {
-		const b = all(varsOver(relation))
+		const b = all(varsOver(relation, "relation"))
 		return r.match(r.relation("facts", relation), b).find(b)
 	})
 	const stored = queryOver(schema).rule((r: RuleValue) => {
-		const b = all(varsOver(relation))
+		const b = all(varsOver(relation, "relation"))
 		return r.match(relation, b).find(b)
 	})
 	return [
@@ -137,7 +138,7 @@ const genericChangeSets = (
 				.insert(relation, [])
 				.read("added", (delta: DeltaValue) =>
 					queryOver(schema).rule((r: RuleValue) => {
-						const b = all(varsOver(delta.added(relation)))
+						const b = all(varsOver(delta.added(relation), "addedRelation"))
 						return r.match(delta.added(relation), b).find(b)
 					})
 				)
@@ -171,7 +172,7 @@ const writeChangeSets = (f: Fixture): ReadonlyArray<readonly [string, unknown]> 
 			relationValue(f.schema, r.name),
 			() => new Error(`${f.label}: the schema value holds no relation ${r.name}`)
 		)
-		sets.push(...genericChangeSets(f.schema, relation, r.name, Rec.keys(r.fields)))
+		appendAll(sets, genericChangeSets(f.schema, relation, r.name, Rec.keys(r.fields)))
 	}
 	return sets
 }

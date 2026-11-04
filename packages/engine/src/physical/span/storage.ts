@@ -17,7 +17,6 @@ import {
 	type LiveArgs,
 	mapArgs,
 	predicateTree,
-	rangeOp,
 	sameArgs,
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
@@ -35,6 +34,7 @@ import {
 	noContribution
 } from "#compiler/physical/install/extension.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
+import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, TableConstraint } from "#compiler/sql/ast.ts"
 import { and, binary, call, cast, eq, lit, not, tableCol, types } from "#compiler/sql/build.ts"
 
@@ -77,13 +77,13 @@ const spanColumnInfo = (t: ScalarType): SpanColumnInfo | undefined => {
 /** The span shape over the column: nonempty, bounded on both sides, lower bound inclusive and upper bound exclusive. */
 const spanShapePredicate = (column: string): Expr => {
 	const c = tableCol(column)
-	return and(
+	return and([
 		not(call("isempty", [c])),
 		not(call("lower_inf", [c])),
 		not(call("upper_inf", [c])),
 		call("lower_inc", [c]),
 		not(call("upper_inc", [c]))
-	)
+	])
 }
 
 /** The fixed width over the column: upper(c)::numeric - lower(c)::numeric = <width>. */
@@ -146,12 +146,11 @@ const substituteEndpoint = (
 			return builtExpr(
 				{
 					kind: "op",
-					op: rangeOp(endpointFunctions[bound], carrier),
+					op: definedRangeOp(endpointFunctions[bound], carrier),
 					args: [column],
 					type: e.type,
 					nonNull: "strict",
-					volatility: "immutable",
-					failure: "total"
+					volatility: "immutable"
 				},
 				e.id
 			)
@@ -186,7 +185,7 @@ const spanEndpointPredicate = (
 			)
 		})
 	}
-	return and(side("lower"), side("upper"))
+	return and([side("lower"), side("upper")])
 }
 
 /** The laws of a contract: those its domain's native object enforces. */

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -125,7 +125,7 @@ const preserves = (inst: Installed, plan: Plan, c: Case<UniverseFeature>): void 
  * The rewrites the universe's queries must keep firing: an existential match made a semi-join, a key match an
  * immediate foreign key makes redundant removed, and a witness column pruned; and the contexts that break evidence.
  */
-const required: ReadonlyArray<UniverseFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<UniverseFeature> = [
 	"R02.semiJoin",
 	"R03.elimination",
 	"prune.heading",
@@ -151,7 +151,7 @@ const exhaustUpTo = (
 				[source.draw(element(among)), source.draw(plansUpTo(grammar, operators))] as const,
 			literal: Formatter.format,
 			limit,
-			features: features<UniverseFeature>(required),
+			coverage: requiredInSpace<UniverseFeature>(situations),
 			caseHang: Duration.minutes(2)
 		},
 		([variant, plan], c) =>

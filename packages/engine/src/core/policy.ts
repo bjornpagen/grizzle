@@ -56,3 +56,10 @@ export const pageMaxSize = 1_000
 
 /** A cursor token above this many bytes is a CursorError. */
 export const cursorMaxBytes = 1_024
+
+/**
+ * The longest text grizzle builds as one string, in UTF-16 code units: V8's longest string (String::kMaxLength,
+ * 2^29 - 24 on Node 24, node:buffer's constants.MAX_STRING_LENGTH). A statement, drafted file, snapshot.json, meta.json
+ * or canonical text that would be longer is refused as ResourceBound before it is built.
+ */
+export const textMaxLength = 2 ** 29 - 24

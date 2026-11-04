@@ -1,12 +1,23 @@
 import type { ParamId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import { columnType, emptyEnv, extendEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { regionParts } from "#compiler/lower/conservative/match-region/index.ts"
 import { rowEq, rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Cte, Delete, Expr, FromItem, SelectBody } from "#compiler/sql/ast.ts"
-import { and, col, conjunction, core, cte, cteRef, select, targetAs } from "#compiler/sql/build.ts"
+import type { Cte, Delete, Expr, FromItem } from "#compiler/sql/ast.ts"
+import {
+	and,
+	asOperand,
+	col,
+	conjunction,
+	core,
+	cte,
+	cteRef,
+	select,
+	setOp,
+	targetAs
+} from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import type { DeleteAnchor } from "#compiler/write/delete/anchor.ts"
@@ -110,7 +121,7 @@ const deletion = (
 	return {
 		ast: {
 			...select(outer),
-			with: { recursive: false, ctes: [...match.leading, cte(r2, [], del)] }
+			with: { recursive: false, ctes: appendNonEmpty(match.leading, cte(r2, [], del)) }
 		},
 		role: "member" as const,
 		result,
@@ -151,15 +162,12 @@ const buildDelete = (
 			{ kind: "input", fields: all, distinct: false, alias: scan, keys: inputs, into },
 			at
 		)
-		let body: SelectBody = read.select.body
-		for (const addition of except) {
-			body = {
-				kind: "setOp",
-				op: "EXCEPT",
-				left: body,
-				right: readInput(w, addition, { kind: "except", fields: all, into }, at).select.body
-			}
-		}
+		const body = setOp("EXCEPT", [
+			asOperand(read.select.body),
+			...except.map((addition) =>
+				asOperand(readInput(w, addition, { kind: "except", fields: all, into }, at).select.body)
+			)
+		])
 		const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
 		const stored = (f: LawField): Expr => col(r3, w.names.column(relation.name, f.name))
 		/** Each comparison is at its fields' types: a row holding a vector is spelled column by column through the
@@ -170,8 +178,10 @@ const buildDelete = (
 			mode.kind === "exact"
 				? rowEq({ fields: all, typeOf, left: stored, right: inCol }, vectorSchema)
 				: and(
-						...pk.map((f) => typedEq(typeOf(f), stored(f), inCol(f), vectorSchema)),
-						rowNe({ fields: mode.payload, typeOf, left: stored, right: inCol }, vectorSchema)
+						appendNonEmpty(
+							pk.map((f) => typedEq(typeOf(f), stored(f), inCol(f), vectorSchema)),
+							rowNe({ fields: mode.payload, typeOf, left: stored, right: inCol }, vectorSchema)
+						)
 					)
 		return deletion(
 			w,
@@ -282,11 +292,10 @@ export const buildAnchoredDelete = (
 				conditions.push(w.cx.equal(b.var.type, stored(b.column), value))
 			}
 		}
-		const scope = extendEnv(
-			emptyEnv,
+		const scope = extendEnv(emptyEnv, [
 			[region.id, columns],
 			...anchor.filters.map((f) => [f.id, columns] as const)
-		)
+		])
 		for (const c of occurrence.constants) {
 			conditions.push(
 				w.cx.equal(

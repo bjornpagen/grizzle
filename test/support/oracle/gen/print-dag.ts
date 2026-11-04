@@ -26,7 +26,7 @@ export const printLiteral = (literal: TypedLiteral, type: ScalarType): string =>
 		case "numeric":
 			return `${decimalPayload(literal.value)}::${label}`
 		case "float":
-			return `${Object.is(literal.value, -0) ? "-0" : String(literal.value)}::${label}`
+			return `${String(literal.value)}::${label}`
 		case "floatSpecial":
 			return `'${literal.value}'::${label}`
 		case "money":
@@ -141,7 +141,7 @@ class ExprPrinter {
 					""
 				)})`
 			case "cast":
-				return `(${expr.checked ? "checked " : ""}cast ${args[0]} ${typeLabel(expr.type)})`
+				return `(${"proof" in expr ? `${expr.proof.precondition.kind} ` : ""}cast ${args[0]} ${typeLabel(expr.type)})`
 			case "domainCast":
 				return `(domain ${args[0]} ${typeLabel(expr.type)})`
 			case "cond":

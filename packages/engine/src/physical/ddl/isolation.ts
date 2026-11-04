@@ -76,7 +76,6 @@ const isolationFunctionDdl = (schema: string): readonly [PlFunction, Revoke] => 
 			volatility: "VOLATILE",
 			parallel: "UNSAFE",
 			security: "DEFINER",
-			searchPath: ["pg_catalog", "pg_temp"],
 			planCacheMode: "force_custom_plan",
 			body: {
 				declare: [],

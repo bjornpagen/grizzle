@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
@@ -44,7 +44,7 @@ describe("the share key", () => {
 						generator: (source) =>
 							[source.draw(params), source.draw(params), source.draw(int(0, 3))] as const,
 						limit: 16,
-						features: features<"shared" | "apart">(["shared", "apart"]),
+						coverage: requiredInSpace<"shared" | "apart">(["shared", "apart"]),
 						caseHang: Duration.minutes(2)
 					},
 					([first, second, burned], c) =>

@@ -1,9 +1,10 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, codePoint, element, int, map, oneOf, string } from "@grizzle/testing/gen"
 import { lsw, passed, WILD_KINDS, type WildKind } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { json } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -20,6 +21,7 @@ import { describeField, fieldIdentity } from "#compiler/scalar/registry.ts"
 import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
 
 import { regex } from "arkregex"
+import { argumentsOf } from "#test/support/list.ts"
 /**
  * A contract over a base drawn from the descriptor kinds a contract takes, with a predicate that bounds the value or
  * none: a domain over its base (the base's SQL type, carrier, typmod and capabilities),
@@ -97,19 +99,21 @@ describe("contract identity", () => {
 						})),
 						literal: Formatter.format,
 						/** A predicate is built over the integer-like bases, whose value a comparison reads. */
-						features: features<IdentityFeature>([
-							...Arr.map(baseNames, (b): IdentityFeature => `${b} without a predicate`),
-							"integer with a predicate",
-							"bigint with a predicate",
-							"serial refused",
-							"no predicate built"
-						]),
+						coverage: required<IdentityFeature>(
+							[
+								...Arr.map(baseNames, (b): IdentityFeature => `${b} without a predicate`),
+								"integer with a predicate",
+								"bigint with a predicate",
+								"serial refused",
+								"no predicate built"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ kind, base: baseName, precision, name, other, value, withPredicate }, c) =>
@@ -143,7 +147,7 @@ describe("contract identity", () => {
 									"MalformedDescription"
 								)
 								throwsRefused(
-									() => admitContract(name, pgDescriptors.bigint, 5),
+									() => admitContract(name, pgDescriptors.bigint, [5]),
 									"MalformedDescription"
 								)
 								return
@@ -152,7 +156,9 @@ describe("contract identity", () => {
 							const predicate = predicateFor(baseName, withPredicate)
 							c.note(`${baseName} ${predicate === undefined ? "without" : "with"} a predicate`)
 							const make = (n: string) =>
-								predicate === undefined ? admitContract(n, base) : admitContract(n, base, predicate)
+								predicate === undefined
+									? admitContract(n, base, [])
+									: admitContract(n, base, [predicate])
 							const declared = make(name)
 							const described = succeeded(describeField(base, SourceLoc("base", [])))
 							assert.equal(declared.sql, described.sql)
@@ -186,7 +192,7 @@ describe("contract identity", () => {
 								)
 							}
 							if (predicate !== undefined) {
-								const unpredicated = admitContract(name, base)
+								const unpredicated = admitContract(name, base, [])
 								assert.notEqual(
 									succeeded(fieldIdentity(declared)),
 									succeeded(fieldIdentity(unpredicated))
@@ -255,22 +261,24 @@ describe("contract admission", () => {
 							extra: source.draw(array(json(2), { min: 0, max: 1 }))
 						})),
 						literal: Formatter.format,
-						features: features<AdmissionFeature>([
-							"live",
-							"a string name the declared-name rule refuses",
-							...Arr.flatMap(WILD_KINDS, (kind): ReadonlyArray<AdmissionFeature> => [
-								`wild name ${kind}`,
-								`wild base ${kind}`
-							]),
-							"extra argument"
-						]),
+						coverage: required<AdmissionFeature>(
+							[
+								"live",
+								"a string name the declared-name rule refuses",
+								...Arr.flatMap(WILD_KINDS, (kind): ReadonlyArray<AdmissionFeature> => [
+									`wild name ${kind}`,
+									`wild base ${kind}`
+								]),
+								"extra argument"
+							],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ name, base, extra }, c) =>
@@ -296,7 +304,7 @@ describe("contract admission", () => {
 									c.note("a string name the declared-name rule refuses")
 								}
 								throwsRefused(
-									() => contractDescriptor(n, b, undefined, ...extra),
+									() => contractDescriptor(n, b, undefined, ...argumentsOf(extra)),
 									"MalformedDescription"
 								)
 							}

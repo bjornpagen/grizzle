@@ -1,4 +1,8 @@
 import { Array as Arr, Option } from "effect"
+import type { Gen } from "#gen.ts"
+import { floorSeed } from "#random.ts"
+import type { Sense } from "#sense.ts"
+import { sample } from "#source.ts"
 
 /** A situation a suite must reach: one feature, or an ordered pair of features noted by one case. */
 export type Reached<F extends string> = F | readonly [first: F, second: F]
@@ -10,32 +14,96 @@ export type Reached<F extends string> = F | readonly [first: F, second: F]
 export type ClosedVocabulary<F extends string> = string extends F ? never : F
 
 /**
- * The situations a suite must reach, and its reach margin. Features are the suite's own model of what matters, so they
- * steer and count, but never constrain what is generated: a feature is a fact about a case worth noticing, never noise
- * such as an id, a count or a piece of SQL text, which would make every case look new. Any generated case reaching a
- * requirement meets it; the reach margin also asks that many of the cases that sample the generator (an exploration's
- * independent cases, an exhaustion's every case) reach each requirement, so a requirement met only by a floor or a
- * steered case, or by a lucky handful of rotating ones, fails the run with ReachBelowMargin before a fresh seed misses
- * it. A margin of zero asks nothing more.
+ * A search's required situations: one or more, each a feature or an ordered pair. Features are the suite's own model of
+ * what matters, so they steer and count, but never constrain what is generated: a feature is a fact about a case worth
+ * noticing, never noise such as an id, a count or a piece of SQL text, which would make every case look new.
  */
-export type Features<F extends string> = Readonly<{
-	required: ReadonlyArray<Reached<F>>
-	reachMargin: number
+export type Situations<F extends string> = Arr.NonEmptyReadonlyArray<Reached<F>>
+
+/**
+ * The steered phase of an exploration that requires situations: up to `cases` cases grown from the floor's finds by
+ * `sense`, on a stream the suite's label fixes, run only while a required situation is unreached. A budget of zero is
+ * the floor stream alone.
+ */
+export type SteeredPhase = Readonly<{ cases: number; sense: Sense }>
+
+/**
+ * What an exploration must reach: nothing, or situations together with the steered phase that reaches what the floor
+ * stream misses. Only the floor's and the steered phase's cases count, and the suite's label fixes both, so a
+ * requirement is met on every run seed or on none. The rotating stream is the run's sample: it finds failures and
+ * feeds the residual, and never meets or misses a requirement. A kept case never counts either. A required coverage
+ * also names the features whose rate among the independent cases the residual reports (`rated`), none unless a suite
+ * rates some (rating).
+ */
+export type Coverage<F extends string> = Readonly<{ kind: "none" }> | RequiredCoverage<F>
+
+/** A coverage that requires situations, and the features whose rate it reports. */
+export type RequiredCoverage<F extends string> = Readonly<{
+	kind: "required"
+	situations: Situations<F>
+	steered: SteeredPhase
+	rated: ReadonlyArray<F>
 }>
 
-/** Declares a suite's required situations, with no reach margin. */
-export const features = <F extends string>(
-	required: ReadonlyArray<Reached<ClosedVocabulary<F>>>
-): Features<F> => ({ required, reachMargin: 0 })
+/** What an exhaustion must reach: every case of its space is a witness, so it has no steered phase. */
+export type SpaceCoverage<F extends string> =
+	| Readonly<{ kind: "none" }>
+	| Readonly<{ kind: "required"; situations: Situations<F> }>
 
-/** A suite's required situations, each of which at least `cases` of the cases that sample its generator must reach. */
-export const withReachMargin = <F extends string>(
-	declared: Features<F>,
-	cases: number
-): Features<F> => ({ ...declared, reachMargin: cases })
+/** An exploration's required situations, and the steered phase that reaches what its floor stream misses. */
+export const required = <F extends string>(
+	situations: Arr.NonEmptyReadonlyArray<Reached<ClosedVocabulary<F>>>,
+	steered: SteeredPhase
+): RequiredCoverage<F> => ({ kind: "required", situations, steered, rated: [] })
 
-/** A suite that requires no situation. */
-export const noFeatures: Features<never> = { required: [], reachMargin: 0 }
+/**
+ * A required coverage that also reports, beside the residual, how many independent cases reached each of `features`:
+ * what a suite whose oracle may decline to judge a case counts, so a class of cases it stops judging is a rate on
+ * screen, never silence.
+ */
+export const rating = <F extends string>(
+	coverage: RequiredCoverage<F>,
+	features: Arr.NonEmptyReadonlyArray<ClosedVocabulary<F>>
+): RequiredCoverage<F> => ({ ...coverage, rated: features })
+
+/** How many of an exploration's independent cases reached a feature its coverage rates. */
+export type Rate = Readonly<{ feature: string; cases: number }>
+
+/** The rates an independent tally gives the features a coverage rates, in their order. */
+export const ratesOf = <F extends string>(
+	coverage: Coverage<F>,
+	tally: Tally<"independent">
+): ReadonlyArray<Rate> => {
+	switch (coverage.kind) {
+		case "none":
+			return []
+		case "required":
+			return Arr.map(coverage.rated, (feature) => ({
+				feature,
+				cases: tally.counts.get(feature) ?? 0
+			}))
+	}
+}
+
+/** An exhaustion's required situations, judged on every case of its space. */
+export const requiredInSpace = <F extends string>(
+	situations: Arr.NonEmptyReadonlyArray<Reached<ClosedVocabulary<F>>>
+): SpaceCoverage<F> => ({ kind: "required", situations })
+
+/** A search that requires no situation, and so runs no steered phase. */
+export const noCoverage: Readonly<{ kind: "none" }> = { kind: "none" }
+
+/** The situations a search requires, in declared order: none under `none`. */
+export const situationsOf = <F extends string>(
+	coverage: Coverage<F> | SpaceCoverage<F>
+): ReadonlyArray<Reached<F>> => {
+	switch (coverage.kind) {
+		case "none":
+			return []
+		case "required":
+			return coverage.situations
+	}
+}
 
 const PAIR_SEPARATOR = " → "
 
@@ -44,42 +112,55 @@ export const keyOf = <F extends string>(reached: Reached<F>): string =>
 	typeof reached === "string" ? reached : `${reached[0]}${PAIR_SEPARATOR}${reached[1]}`
 
 /**
- * Where a tally's cases came from. Kept cases replay by value; floor cases come from the label's fixed stream; steered
- * cases were chosen because they reached something new; independent cases are fresh draws from the run's own stream.
- * Only independent cases are a sample of the generator's distribution, so only they estimate what is still unseen.
+ * The phases a suite's label fixes: the floor stream, the steered phase grown from it, and an exhaustion's every case.
+ * They are the suite's witnesses: a requirement, a stall and a required kill are judged on these alone, so no such
+ * verdict moves with TEST_SEED.
  */
-export type Phase = "kept" | "floor" | "steered" | "independent" | "exhaustive"
+export type WitnessPhase = "floor" | "steered" | "exhaustive"
 
-/** The phases whose cases a generator produced, so they may satisfy a required situation. */
-export type GeneratedPhase = Exclude<Phase, "kept">
+/**
+ * Every phase whose cases are tallied: the witnesses; the rotating stream's independent cases, fresh draws from the
+ * run's own stream and the only sample of the generator's distribution, so the only estimate of what is still unseen;
+ * and a fuzz run's run-seeded cases, which steer that run and decide nothing.
+ */
+export type Phase = WitnessPhase | "independent" | "fuzzed"
 
-/** How often each situation was reached, by the cases of one phase. */
+/** The phases whose tallies steer: what a steered case's Pending and a seed's pick read. */
+export type SteeringPhase = Exclude<Phase, "independent">
+
+/** How often each situation was reached, and how many cases gave themselves up, by the cases of one phase. */
 export type Tally<P extends Phase> = Readonly<{
 	phase: P
 	cases: number
+	discards: number
 	counts: ReadonlyMap<string, number>
 }>
 
-/** A tally being filled. */
+/** A tally being filled: a passing case adds its notes, a case that gave itself up is a discard. */
 export type TallyBuilder<P extends Phase> = Readonly<{
+	phase: P
 	add: (notes: ReadonlySet<string>) => void
-	has: (key: string) => boolean
+	discard: () => void
 	tally: () => Tally<P>
 }>
 
 /** Starts a tally of one phase. */
 export const tallyOf = <P extends Phase>(phase: P): TallyBuilder<P> => {
 	let cases = 0
+	let discards = 0
 	const counts = new Map<string, number>()
 	return {
+		phase,
 		add: (notes) => {
 			cases += 1
 			for (const key of notes) {
 				counts.set(key, (counts.get(key) ?? 0) + 1)
 			}
 		},
-		has: (key) => counts.has(key),
-		tally: () => ({ phase, cases, counts: new Map(counts) })
+		discard: () => {
+			discards += 1
+		},
+		tally: () => ({ phase, cases, discards, counts: new Map(counts) })
 	}
 }
 
@@ -98,8 +179,8 @@ export type Residual = Readonly<{
 	unseen: Option.Option<number>
 }>
 
-/** The residual of an independent tally. Only an independent tally is accepted: steered, kept and floor cases are not a
- * sample of the generator's distribution. */
+/** The residual of an independent tally. Only an independent tally is accepted: witness, fuzzed and kept cases are not
+ * a sample of the generator's distribution. */
 export const residualOf = (tally: Tally<"independent">): Residual => {
 	const counts = Arr.fromIterable(tally.counts.values())
 	const singletons = Arr.filter(counts, (count) => count === 1).length
@@ -121,49 +202,56 @@ export const residualOf = (tally: Tally<"independent">): Residual => {
 	}
 }
 
-/** How many cases of a tally reached a situation, by its key. */
-const countIn = (tally: Tally<Phase>, key: string): number => tally.counts.get(key) ?? 0
+/** Whether no case of these tallies reached a situation. */
+const unreachedIn = <F extends string>(
+	tallies: ReadonlyArray<Tally<Phase>>,
+	situation: Reached<F>
+): boolean => Arr.every(tallies, (tally) => !tally.counts.has(keyOf(situation)))
 
 /**
- * The places among a suite's requirements of those no generated case reached, ascending. Kept cases never count: a
- * kept case can hide a generator that stopped drawing a situation, which is exactly what this check exists to catch.
+ * The places among a search's required situations of those no case of these steering tallies reached, ascending: what
+ * a window's Pending snapshots. Kept cases never count: a kept case can hide a generator that stopped drawing a
+ * situation, which is exactly what a requirement exists to catch.
  */
 export const pendingOf = <F extends string>(
-	declared: Features<F>,
-	generated: ReadonlyArray<Tally<GeneratedPhase>>
+	situations: ReadonlyArray<Reached<F>>,
+	steering: ReadonlyArray<Tally<SteeringPhase>>
 ): ReadonlyArray<number> =>
-	Arr.flatMap(declared.required, (situation, place) =>
-		Arr.every(generated, (tally) => countIn(tally, keyOf(situation)) === 0) ? [place] : []
-	)
-
-/** The keys of the requirements at these places. */
-export const keysAt = <F extends string>(
-	declared: Features<F>,
-	places: ReadonlyArray<number>
-): ReadonlyArray<string> =>
-	Arr.map(places, (place) => keyOf(Arr.getUnsafe(declared.required, place)))
+	Arr.flatMap(situations, (situation, place) => (unreachedIn(steering, situation) ? [place] : []))
 
 /**
- * What a steered case may read of its run, of the required situations no generated case had reached when its window
- * began: whether a situation is among them, and whether a feature is named by one of them, alone or in a pair. Both
- * take a situation and answer, so a case of a suite's features is a case of any narrower feature set, as `note` and
- * `pair` already make it. A situation the suite does not require is never pending. A replay token records exactly
- * this, by the places of the pending requirements, so a replayed case steers as its case did.
+ * The keys of the required situations no witness reached, in declared order: the coverage verdict. It takes witness
+ * tallies alone, so no independent case can enter it, and the verdict is the same on every run seed.
+ */
+export const unreachedOf = <F extends string>(
+	situations: Situations<F>,
+	witnessed: ReadonlyArray<Tally<WitnessPhase>>
+): ReadonlyArray<string> =>
+	Arr.flatMap(situations, (situation) =>
+		unreachedIn(witnessed, situation) ? [keyOf(situation)] : []
+	)
+
+/**
+ * What a steered case may read of its run, of the required situations no case of the steering tallies had reached when
+ * its window began: whether a situation is among them, and whether a feature is named by one of them, alone or in a
+ * pair. Both take a situation and answer, so a case of a suite's features is a case of any narrower feature set, as
+ * `note` and `pair` already make it. A situation the suite does not require is never pending. A replay token records
+ * exactly this, by the places of the pending requirements, so a replayed case steers as its case did.
  */
 export type Pending<F extends string> = Readonly<{
 	has: (situation: Reached<F>) => boolean
 	names: (feature: F) => boolean
 }>
 
-/** The pending requirements at these places among a suite's own. */
+/** The pending requirements at these places among a search's required situations. */
 export const pendingAt = <F extends string>(
-	declared: Features<F>,
+	situations: ReadonlyArray<Reached<F>>,
 	places: ReadonlyArray<number>
 ): Pending<F> => {
-	const situations = Arr.map(places, (place) => Arr.getUnsafe(declared.required, place))
-	const keys = new Set(Arr.map(situations, keyOf))
+	const pending = Arr.map(places, (place) => Arr.getUnsafe(situations, place))
+	const keys = new Set(Arr.map(pending, keyOf))
 	const named = new Set(
-		Arr.flatMap(situations, (situation): ReadonlyArray<F> =>
+		Arr.flatMap(pending, (situation): ReadonlyArray<F> =>
 			typeof situation === "string" ? [situation] : situation
 		)
 	)
@@ -174,50 +262,24 @@ export const pendingAt = <F extends string>(
 }
 
 /**
- * How a passing exploration reached one requirement: how many of its floor, steered and independent cases reached it,
- * and `miss`, the estimated chance that a run with a fresh seed reaches it in no generated case. The floor stream is
- * fixed by the suite's label, so a requirement a floor case reached is reached on every seed, and its miss is 0.
- * Otherwise the estimate is (1 − k/n)^n, the chance that n fresh independent cases all miss a requirement that k of
- * the run's n independent cases reached, taking k/n as the chance one case reaches it: about e^−k, so a reach margin
- * of m bounds it near e^−m. A steered phase only adds reaches, so where one runs the estimate is an upper bound.
+ * A population a suite draws ahead of time on its label's floor stream, and the tally of what it reached: the witness
+ * an ahead-of-time suite (a type batch) judges its requirements on with `unreachedOf`. The label fixes the population,
+ * so its verdict is the same on every run seed.
  */
-export type Reach = Readonly<{
-	requirement: string
-	floor: number
-	steered: number
-	independent: number
-	miss: number
-}>
-
-/** Every requirement's reach, in the order the suite declares them. */
-export const reachOf = <F extends string>(
-	declared: Features<F>,
-	floor: Tally<"floor">,
-	steered: Tally<"steered">,
-	independent: Tally<"independent">
-): ReadonlyArray<Reach> =>
-	Arr.map(declared.required, (situation) => {
-		const requirement = keyOf(situation)
-		const reached = countIn(independent, requirement)
-		const n = independent.cases
-		return {
-			requirement,
-			floor: countIn(floor, requirement),
-			steered: countIn(steered, requirement),
-			independent: reached,
-			miss: countIn(floor, requirement) > 0 ? 0 : n === 0 ? 1 : (1 - reached / n) ** n
+export const floorPopulation = <A, F extends string>(
+	label: string,
+	generator: Gen<A>,
+	count: number,
+	reached: (value: A) => Iterable<Reached<F>>
+): Readonly<{ values: ReadonlyArray<A>; tally: Tally<"floor"> }> => {
+	const values = sample(generator, floorSeed(label), count)
+	const tally = tallyOf("floor")
+	for (const value of values) {
+		const keys = new Set<string>()
+		for (const situation of reached(value)) {
+			keys.add(keyOf(situation))
 		}
-	})
-
-/** A requirement the cases that sample its generator reached fewer times than the suite's reach margin asks. */
-export type Short = Readonly<{ requirement: string; reached: number }>
-
-/** The requirements under the suite's reach margin in a tally of the cases that sample its generator. */
-export const shortOf = <F extends string>(
-	declared: Features<F>,
-	sampled: Tally<"independent" | "exhaustive">
-): ReadonlyArray<Short> =>
-	Arr.flatMap(declared.required, (situation) => {
-		const reached = countIn(sampled, keyOf(situation))
-		return reached < declared.reachMargin ? [{ requirement: keyOf(situation), reached }] : []
-	})
+		tally.add(keys)
+	}
+	return { values, tally: tally.tally() }
+}

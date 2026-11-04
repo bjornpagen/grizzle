@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, codePoint, type Gen, int, map, oneOf, string, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -250,7 +251,6 @@ const evaluatorSchema = Effect.gen(function* () {
 const contractSearch = (f: Fixture) =>
 	Effect.gen(function* () {
 		const { db, s } = yield* evaluatorSchema
-		const domain = (contract: string) => ({ schema: s, name: Str.toLowerCase(contract) })
 		const type = f.field.scalar
 		const predicate = contractOf(type)?.predicate
 		if (predicate === undefined) {
@@ -271,41 +271,42 @@ const contractSearch = (f: Fixture) =>
 			`CREATE DOMAIN "${s}"."${Str.toLowerCase(f.name)}" AS ${baseType}${collate} CONSTRAINT "${f.name}_check" CHECK ((${check}) IS TRUE)`,
 			[]
 		)
-		/** The domain cast of each value from the base's value type, on both sides. */
+		/**
+		 * The domain cast of each value from the base's value type, on both sides: PostgreSQL's CAST into the domain over
+		 * the value's literal, and compilation's, which judges a literal cast into a contract before any SQL
+		 * (ContractLiteral) and, where it admits it, the host evaluator's.
+		 */
 		const cast = spelled(Compute.cast(v("x", f.base), f.field).expr)
+		const operand = spelled(v("x", f.base).expr)
+		const target = `"${s}"."${Str.toLowerCase(f.name)}"`
 		return yield* explore(
 			{
 				suite: `pg/compute/contract/${f.name}`,
 				draw: drawn(array(f.values, { min: 1, max: f.batch })),
 				literal: Formatter.format,
-				features: features<DomainFeature>(["admitted", "refused"]),
+				coverage: required<DomainFeature>(["admitted", "refused"], {
+					cases: domainRuns,
+					sense: notesOnly
+				}),
 				kept: [],
 				runs: domainRuns,
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "none" },
 				caseHang: Duration.minutes(2)
 			},
 			(batch, c) =>
 				Effect.gen(function* () {
 					const cases = Arr.map([...f.edges, ...batch], (value) => {
-						const lowered = succeeded(
-							lowerWith(
-								"query",
-								cast,
-								{ x: { kind: "literal", type: f.base.scalar, value } },
-								false,
-								baseParams
-							)
-						)
-						const sql = renderSql(lowered.root.expr, {
-							domain: () => domain(f.name),
-							vectorSchema: "vector_ext"
-						})
+						const bindings = { x: { kind: "literal", type: f.base.scalar, value } } as const
+						const lowered = lowerWith("query", cast, bindings, false, baseParams)
+						if (!lowered.ok && lowered.error.reason._tag !== "ContractLiteral") {
+							throw new Error(`${f.name}: ${lowered.error.message}`)
+						}
+						const literal = succeeded(lowerWith("query", operand, bindings, false, baseParams))
 						return {
-							sql,
-							host: evaluate(lowered.root.expr, constantEnv),
+							sql: `CAST((${renderSql(literal.root.expr, plainRender)}) AS ${target})`,
+							host: lowered.ok ? evaluate(lowered.value.root.expr, constantEnv) : undefined,
 							admitted: adoptedLiteral(value, f.field.scalar).ok
 						}
 					})
@@ -315,20 +316,23 @@ const contractSearch = (f: Fixture) =>
 					)
 					const problems = Arr.flatMap(cases, (k, i): ReadonlyArray<Problem> => {
 						const answer = parseAnswer(String(rows[i]?.[0]))
-						const hostAdmits = k.host._tag === "Success"
-						const hostCode =
-							k.host._tag === "Failure" && k.host.failure.kind === "failure"
-								? k.host.failure.code
-								: undefined
+						const hostAdmits = k.host !== undefined && k.host._tag === "Success"
 						const problem: Problem = {
 							sql: k.sql,
 							answer,
-							host: k.host._tag === "Success" ? carrierText(k.host.success) : String(hostCode),
+							host:
+								k.host === undefined
+									? "refused at compilation"
+									: k.host._tag === "Success"
+										? carrierText(k.host.success)
+										: Formatter.format(k.host.failure),
 							admitted: k.admitted
 						}
 						if (answer.kind === "error") {
 							c.note("refused")
-							return hostAdmits || hostCode !== answer.sqlstate || k.admitted ? [problem] : []
+							return k.host !== undefined || answer.sqlstate !== "23514" || k.admitted
+								? [problem]
+								: []
 						}
 						c.note("admitted")
 						return hostAdmits && k.admitted ? [] : [problem]
@@ -386,13 +390,12 @@ layer(Substrate.layer)("contract predicates against PostgreSQL 19 domains", (it)
 							suite: "pg/compute/contract/rounding",
 							draw: drawn(array(literal, { min: 1, max: 300 })),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: domainRuns,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(batch) =>

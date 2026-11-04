@@ -1,5 +1,6 @@
 import { endpointMask } from "#compiler/allen/endpoints.ts"
 import { AllenMask, converseMask, intersectMasks, uniteMasks } from "#compiler/allen/mask.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
 /**
  * The nine range operators by their pg_operator.oprcode. A range operator's identity in the IR is its code with the
@@ -107,7 +108,7 @@ const atomOrder = [
 	bFirst("&>", operatorHolds["&>"])
 ] as const
 
-export const allenAtoms: ReadonlyArray<AllenAtom> = atomOrder
+export const allenAtoms: NonEmptyReadonlyArray<AllenAtom> = atomOrder
 
 /**
  * The range operator an IR node names by its implementing function, with the relations it holds for with its first

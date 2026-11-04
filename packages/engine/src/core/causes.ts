@@ -134,7 +134,6 @@ const datumUnboundedText: Readonly<Record<DatumUnbounded, string>> = {
  * - `columns`: more fields than PostgreSQL admits in one index, `limit` (INDEX_MAX_KEYS).
  * - `unbounded`: a field whose datum has no bound.
  * - `btreeEntry`: an entry that can reach `bytes`, above the B-tree limit `limit` (BTMaxItemSize).
- * - `vector`: a vector field, whose float32 equality, -0 equal to 0, is no identity a key rests on.
  * - `spans`: more than one span field, which no native lowering serves.
  * - `gistEntry`: a span key's GiST entry that can reach `bytes`, above the limit `limit` of a GiST page.
  * - `gistOperatorClass`: a span key's scalar field with no btree_gist operator class.
@@ -145,7 +144,6 @@ export type KeyFault =
 	| { readonly kind: "columns"; readonly limit: number }
 	| { readonly kind: "unbounded"; readonly field: string; readonly datum: DatumUnbounded }
 	| { readonly kind: "btreeEntry"; readonly bytes: number; readonly limit: number }
-	| { readonly kind: "vector"; readonly field: string }
 	| { readonly kind: "spans"; readonly fields: Names }
 	| { readonly kind: "gistEntry"; readonly bytes: number; readonly limit: number }
 	| { readonly kind: "gistOperatorClass"; readonly field: string }
@@ -159,6 +157,8 @@ export type KeyFault =
  * - `emptyHeading`: the definition delivers no field: the unique index REFRESH MATERIALIZED VIEW CONCURRENTLY needs
  *   has a column.
  * - `undeclaredContract`: a field whose type is a contract the schema declares nowhere.
+ * - `exactField`: a field whose head term is an exact value (an exact integer or exact money), which no field's
+ *   type holds: the head narrows it with Compute.cast into the field type it fits.
  * - `inheritedKey`: an inherited key narrower than the heading whose unique index entry is unrepresentable.
  * - `wholeHeading`: the whole heading, the one key when no narrower key is proven, whose unique index entry is
  *   unrepresentable.
@@ -174,6 +174,12 @@ export type DerivedRefusal =
 			readonly relation: string
 			readonly field: string
 			readonly contract: string
+	  }
+	| {
+			readonly kind: "exactField"
+			readonly relation: string
+			readonly field: string
+			readonly type: string
 	  }
 	| {
 			readonly kind: "inheritedKey"
@@ -345,8 +351,6 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 			return `${name}: field ${fault.field} is ${datumUnboundedText[fault.datum]}`
 		case "btreeEntry":
 			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit`
-		case "vector":
-			return `${name}: field ${fault.field} is a vector, whose float32 equality, -0 equal to 0, is no identity a key rests on`
 		case "spans":
 			return `${name}: a key with more than one span field (${fault.fields.join(", ")}) has no native lowering`
 		case "gistEntry":
@@ -369,6 +373,8 @@ export const derivedRefusalText = (cause: DerivedRefusal): string => {
 			return `derived relation ${cause.relation} with at least one field: a definition with an empty head is the unit relation, and the unique index REFRESH MATERIALIZED VIEW CONCURRENTLY needs has a column`
 		case "undeclaredContract":
 			return `a contract the schema declares; ${cause.contract} is none`
+		case "exactField":
+			return `field ${cause.field} of derived relation ${cause.relation} of a field's type: its head is an ${cause.type}, which no stored field holds; narrow it with Compute.cast into the type it fits`
 		case "inheritedKey":
 			return keyFaultText(
 				`inherited key (${list(cause.key)}) of derived relation ${cause.relation}`,

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -16,6 +16,7 @@ import {
 	unicodeScalar,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint, double, float } from "@grizzle/testing/values"
@@ -50,6 +51,7 @@ import {
 } from "#test/pg/sql/evaluated.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import { testTypeSchema } from "#test/support/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -95,7 +97,6 @@ const booleanFunction = (
 	volatility: "VOLATILE",
 	parallel: "UNSAFE",
 	security: "DEFINER",
-	searchPath: ["pg_catalog", "pg_temp"],
 	planCacheMode: "force_custom_plan",
 	body: { declare: [], body }
 })
@@ -261,20 +262,22 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
-							features: features<RelationalFeature>([
-								"cross join",
-								"in",
-								"not in",
-								"empty subquery",
-								"frame unboundedPreceding to currentRow",
-								"frame currentRow to unboundedFollowing",
-								"frame offset to offset",
-								"partitioned window",
-								"descending window",
-								"empty frame"
-							])
+							coverage: required<RelationalFeature>(
+								[
+									"cross join",
+									"in",
+									"not in",
+									"empty subquery",
+									"frame unboundedPreceding to currentRow",
+									"frame currentRow to unboundedFollowing",
+									"frame offset to offset",
+									"partitioned window",
+									"descending window",
+									"empty frame"
+								],
+								{ cases: 2 * casesPerTest, sense: notesOnly }
+							)
 						},
 						(c, notes) =>
 							Effect.gen(function* () {
@@ -356,18 +359,15 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							suite: "pg/sql/evaluated",
 							draw: drawn(array(evaluatedGen, { min: 1, max: 40 })),
 							literal: Formatter.format,
-							features: features<Evaluated["type"] | "collated between bound">([
-								"int",
-								"bool",
-								"text",
-								"collated between bound"
-							]),
+							coverage: required<Evaluated["type"] | "collated between bound">(
+								["int", "bool", "text", "collated between bound"],
+								{ cases: casesPerTest, sense: notesOnly }
+							),
 							kept: [],
 							runs: casesPerTest,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(cases, c) =>
@@ -409,13 +409,12 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							suite: "pg/sql/set-trees",
 							draw: drawn(setCaseGen),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 3 * casesPerTest,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(c) =>
@@ -444,13 +443,12 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							suite: "pg/sql/aggregates",
 							draw: drawn(aggregateCaseGen),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 2 * casesPerTest,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(c) =>
@@ -481,13 +479,12 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							suite: "pg/sql/raise",
 							draw: drawn(raiseGen),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 24,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ message, code, detail, hint }) =>
@@ -556,7 +553,9 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 
 				assert.deepEqual(
 					yield* values(
-						Arr.map(labels, (l) => asText(lit.text(l, namedType(schema, "label", []))))
+						Arr.map(labels, (l) =>
+							asText(lit.text(l, namedType(testTypeSchema(schema), "label", [])))
+						)
 					),
 					labels
 				)
@@ -594,13 +593,12 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 						suite: "pg/sql/literals",
 						draw: drawn(literalsGen),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: casesPerTest,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sample) =>

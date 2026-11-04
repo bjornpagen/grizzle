@@ -3,7 +3,7 @@ import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { count, type Enumerated, enumerated, firstBranch } from "#enumerate.ts"
 import { drawn, type Exploration, explore } from "#explore.ts"
-import { features, noFeatures } from "#features.ts"
+import { noCoverage, required } from "#features.ts"
 import {
 	array,
 	boolean,
@@ -17,8 +17,9 @@ import {
 	subarray,
 	weighted
 } from "#gen.ts"
-import { between, wordsOf } from "#random.ts"
+import { between, floorSeed, rotatingSeed, wordsOf } from "#random.ts"
 import { type Drawn, type ReplayCase, replayOf, replayTokenOf } from "#replay.ts"
+import { notesOnly } from "#sense.ts"
 import { completeShrink, shrink } from "#shrink.ts"
 import { forcedChooser, type Generated, generate, randomChooser, sample } from "#source.ts"
 import { tokenOf, valuesFromToken } from "#tape.ts"
@@ -90,13 +91,12 @@ const seedSearch = (suite: string): Exploration<number, number, never> => ({
 	suite,
 	draw: drawn(int(0, 0xffff_ffff)),
 	literal: String,
-	features: noFeatures,
+	coverage: noCoverage,
 	kept: [],
 	runs: 40,
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 40,
-	steering: { kind: "none" },
 	caseHang: Duration.seconds(30)
 })
 
@@ -148,17 +148,15 @@ describe("a tape", () => {
 					suite: "tape/token",
 					draw: drawn(array(int(0, 2 ** 52), { min: 0, max: 8 })),
 					literal: Formatter.format,
-					features: features<"an empty tape" | "one value" | "several values">([
-						"an empty tape",
-						"one value",
-						"several values"
-					]),
+					coverage: required<"an empty tape" | "one value" | "several values">(
+						["an empty tape", "one value", "several values"],
+						{ cases: 300, sense: notesOnly }
+					),
 					kept: [],
 					runs: 300,
 					shrink: { kind: "bounded", candidates: 100 },
 					concurrency: 1,
 					steerEvery: 300,
-					steering: { kind: "none" },
 					caseHang: Duration.seconds(10)
 				},
 				(values, c) =>
@@ -187,27 +185,29 @@ describe("a tape", () => {
 						suite: "replay/token",
 						draw: drawn(replayTokens),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							| "unsteered"
 							| "steered, nothing pending"
 							| "steered, past the first digit"
 							| "a colon in the suite"
 							| "a negative value"
 							| "an empty tape"
-						>([
-							"unsteered",
-							"steered, nothing pending",
-							"steered, past the first digit",
-							"a colon in the suite",
-							"a negative value",
-							"an empty tape"
-						]),
+						>(
+							[
+								"unsteered",
+								"steered, nothing pending",
+								"steered, past the first digit",
+								"a colon in the suite",
+								"a negative value",
+								"an empty tape"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: { kind: "bounded", candidates: 100 },
 						concurrency: 1,
 						steerEvery: 300,
-						steering: { kind: "none" },
 						caseHang: Duration.seconds(10)
 					},
 					([suite, replayed], c) =>
@@ -395,7 +395,8 @@ describe("sampling", () => {
 			ctx,
 			explore(seedSearch("one sample per seed"), (seed) =>
 				Effect.sync(() => {
-					deepStrictEqual(sample(composite, seed, 20), sample(composite, seed, 20))
+					const stream = rotatingSeed(seed, floorSeed("sampling"))
+					deepStrictEqual(sample(composite, stream, 20), sample(composite, stream, 20))
 				})
 			)
 		)

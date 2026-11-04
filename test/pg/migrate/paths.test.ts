@@ -1,11 +1,15 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, Record } from "effect"
 import {
 	carryChain,
+	catalogRenamedDrawGen,
+	holdsCatalogName,
 	type IntentSketch,
 	keyCarriedOverRetyped,
 	keyRenamedOntoPrimary,
@@ -38,9 +42,18 @@ import {
 	sameCatalog,
 	type Traced
 } from "#test/pg/migrate/support.ts"
+import {
+	type AmbientFeature,
+	type AmbientSession,
+	ambientFeatures,
+	ambientOwner,
+	ambientSessionGen,
+	grizzleFirstSession
+} from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
+import { installedSchemas } from "#test/support/install-migrate.ts"
 import { messageOf } from "#test/support/message.ts"
-import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
+import type { ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { PropertyFailed } from "#test/support/oracle/runner.ts"
@@ -75,8 +88,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *     reviewer converts a serial field to bigint by its cast, so a widened serial keeps its values and its advance
  *     is judged against them.
  *
+ * Every path runs under a drawn ambient session (test/support/ambient.ts): the defaults of the path's own owner login,
+ * which every migration session starts under, its search path PostgreSQL's own or the installation's schemas first. A
+ * renamed path also draws, beside the generator's renames, an arm whose B renames a relation or a closed roster to the
+ * name of a PostgreSQL type; the renamed stream requires that name under the installation-first path, the pairing
+ * where a bare type name resolves to the installation's row type or enum, and a steered case takes that path while
+ * the pairing is pending.
+ *
  * Every verdict is PostgreSQL's: its refusal of a statement, its catalog of both installations, and its reading of the
- * rows. The features are the rename kinds a path made by successor, the intents it made, and what the review chose. */
+ * rows. The features are the rename kinds a path made by successor, the intents it made, what the review chose, the
+ * ambient session, and whether a version names a relation or a closed roster as PostgreSQL names a type or function. */
 const runs = 4
 const shrink: ShrinkBudget = { kind: "bounded", candidates: 100 }
 /** A path is a handful of migrations; one that has not finished in this long is hung. */
@@ -93,7 +114,11 @@ const featureNames = [
 	"a field retyped in B",
 	"a roster rebuilt in C"
 ] as const
-type Feature = (typeof featureNames)[number] | `the intent ${LegalIntentKind}`
+type Feature =
+	| (typeof featureNames)[number]
+	| `the intent ${LegalIntentKind}`
+	| AmbientFeature
+	| "catalog-type name"
 
 const failed = (report: string) => Effect.fail(PropertyFailed.make({ report: report }))
 
@@ -126,15 +151,46 @@ const noteRenames = (c: Case<Feature>, p: RenamedPath): void => {
 	}
 }
 
+/**
+ * The ambient session a case's migrations start under, drawn: its path the installation-first one while a steered
+ * case's pairing of that path with a catalog type's name is pending.
+ */
+const ambientOf = (notes: Case<Feature>): AmbientSession => {
+	const drawn = notes.draw(ambientSessionGen)
+	return Option.exists(notes.steering, (pending) => pending.names("grizzle-first path"))
+		? { ...drawn, path: grizzleFirstSession.path }
+		: drawn
+}
+
 const property = (p: RenamedPath, notes: Case<Feature>) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			const owner = substrate.owner.role
-			const m = yield* openMigrator(substrate, substrate.owner)
+			const ambient = ambientOf(notes)
+			const x = yield* substrate.schema({ create: false, label: "paths_x" })
+			const y = yield* substrate.schema({ create: false, label: "paths_y" })
+			const login = yield* ambientOwner(
+				ambient,
+				Arr.dedupe(
+					Arr.appendAll(installedSchemas(planOf(p.path.a, x, owner).installation), [
+						...installedSchemas(planOf(p.path.b, x, owner).installation),
+						...installedSchemas(planOf(p.path.c, x, owner).installation),
+						...installedSchemas(planOf(p.path.a, y, owner).installation),
+						...installedSchemas(planOf(p.path.c, y, owner).installation)
+					])
+				)
+			)
+			const m = yield* openMigrator(substrate, login.credentials)
 			const a: Traced = { version: p.path.a, origins: p.origins.a }
 			const b: Traced = { version: p.path.b, origins: p.origins.b }
 			const c: Traced = { version: p.path.c, origins: p.origins.c }
+			for (const feature of ambientFeatures(ambient)) {
+				notes.note(feature)
+			}
+			if (Arr.some([p.path.a, p.path.b, p.path.c], holdsCatalogName)) {
+				notes.note("catalog-type name")
+			}
 			noteRenames(notes, p)
 			notes.note(p.choose ? "the path's renames chosen" : "every candidate kept")
 			/** The facts A holds: those whose carried forms are lawful through both chains, A to B to C and A to C. */
@@ -144,7 +200,7 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 				{ ab: carried(a, b, p.choose), bc: carried(b, c, p.choose), ac: carried(a, c, p.choose) },
 				{ b: serialFields(p.path.b), c: serialFields(p.path.c) }
 			)
-			const load = (schema: string, v: Version, facts: GenFacts) =>
+			const load = (schema: string, v: Version, facts: ValueFacts) =>
 				Effect.gen(function* () {
 					const statements = factStatements(planOf(v, schema, owner), factSetOf(v, facts))
 					if (!statements.ok) {
@@ -171,7 +227,6 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 				)
 
 			/** X: A, its facts, B, then C. (a) at every apply. */
-			const x = yield* substrate.schema({ create: false, label: "paths_x" })
 			const dx = yield* Effect.fromResult(drafted([a, b, c], x, owner, p.choose))
 			if (dx.kind === "inexpressible") {
 				notes.note("an inexpressible review")
@@ -202,7 +257,6 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 			yield* identitiesPast(planOf(p.path.c, x, owner), "(d) A to B to C")
 
 			/** (c) Y: A, then C directly. */
-			const y = yield* substrate.schema({ create: false, label: "paths_y" })
 			const dy = yield* Effect.fromResult(drafted([a, c], y, owner, p.choose))
 			if (dy.kind === "inexpressible") {
 				notes.note("an inexpressible review")
@@ -215,6 +269,12 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 			yield* identitiesPast(planOf(p.path.c, y, owner), "(d) A to C")
 		})
 	)
+
+/** A renamed path: the generator's, or, one time in four, one whose B also takes a catalog type's name. */
+const pathDrawGen = weighted<RenamedDraw>([
+	[3, renamedDrawGen],
+	[1, catalogRenamedDrawGen]
+])
 
 const planted = (
 	path: RenamedDraw & { readonly kind: "stated" },
@@ -282,15 +342,17 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 				explore(
 					{
 						suite: "pg/migrate/paths",
-						draw: drawn(renamedDrawGen),
+						draw: drawn(pathDrawGen),
 						literal: Formatter.format,
-						features: features<Feature>([]),
+						coverage: required<Feature>([["grizzle-first path", "catalog-type name"]], {
+							cases: 4 * runs,
+							sense: notesOnly
+						}),
 						kept,
 						runs,
 						shrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang
 					},
 					(d, notes) => property(notes.draw(resolveRenamedDraw(d)), notes)
@@ -307,13 +369,12 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 						suite: "pg/migrate/intents",
 						draw: drawn(legalIntentSketchGen),
 						literal: Formatter.format,
-						features: features<Feature>([]),
+						coverage: noCoverage,
 						kept: keptIntents,
 						runs,
 						shrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang
 					},
 					(sketch, notes) => {

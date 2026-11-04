@@ -23,7 +23,7 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -43,7 +43,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { namedDetail } from "#compiler/ir/law.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import {
 	capacity,
 	contained,
@@ -186,7 +186,7 @@ const caseGen: Gen<WitnessCase> = (source) => ({
 	moves: source.draw(array(moveGen, { min: 0, max: 3 }))
 })
 
-const idOf = (n: number): string => `00000000-0000-4000-8000-${Str.padStart(12, "0")(String(n))}`
+const idOf = (n: number): Uuid => `00000000-0000-4000-8000-${Str.padStart(12, "0")(String(n))}`
 
 /** A Slot's third Claim made by claimer, then the identity moves of `moves`. */
 const claimed = (moves: ReadonlyArray<Move>): WitnessCase => ({
@@ -437,17 +437,19 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "mutate", cases: 480, sense: notesOnly },
 								caseHang: Duration.minutes(2),
-								features: features<WitnessFeature>([
-									"selected-source shown to a holder",
-									"selected-source withheld",
-									"capacity shown to a holder",
-									"capacity withheld",
-									"judged as the login",
-									"judged as another role of the login",
-									"a move undone"
-								])
+								coverage: required<WitnessFeature>(
+									[
+										"selected-source shown to a holder",
+										"selected-source withheld",
+										"capacity shown to a holder",
+										"capacity withheld",
+										"judged as the login",
+										"judged as another role of the login",
+										"a move undone"
+									],
+									{ cases: 480, sense: notesOnly }
+								)
 							},
 							(c, cx) =>
 								Effect.gen(function* () {

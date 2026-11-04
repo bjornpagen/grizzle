@@ -25,6 +25,7 @@ import {
 	col,
 	core,
 	derived,
+	mapTargets,
 	sameTypeRef,
 	select,
 	target,
@@ -139,10 +140,7 @@ const withColumnTypes = (
 		closing: closings[i],
 		column: supply.column(origin)
 	}))
-	const inner: Select = {
-		...ast,
-		body: { ...outer, targets: outer.targets.map((t) => target(t.expr)) }
-	}
+	const inner: Select = { ...ast, body: mapTargets(outer, (t) => target(t.expr)) }
 	const targets = columns.map((c): Target =>
 		targetAs(closed(col(alias, c.column), c.closing), c.name)
 	)

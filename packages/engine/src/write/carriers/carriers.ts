@@ -1,9 +1,9 @@
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
-import { defined, invariant } from "#compiler/core/invariant.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
@@ -17,9 +17,9 @@ import type {
 	FromItem,
 	Insert,
 	Select,
-	SelectBody
+	SelectCore
 } from "#compiler/sql/ast.ts"
-import { col, cUtf8Collation, select, simpleSelect, target } from "#compiler/sql/build.ts"
+import { col, core, cUtf8Collation, select, simpleSelect, target } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { type CarrierName, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
 import {
@@ -37,7 +37,7 @@ export interface CarrierColumn extends HeadingColumn {
 	readonly column: string
 }
 
-/** A carrier: its declaration, each field of its heading with its column.
+/** A carrier: its declaration, each field of its heading with its column; a carrier of the unit relation has none.
  *
  * Transaction-scoped carriers filled by INSERT ... SELECT.
  *
@@ -64,14 +64,27 @@ export interface CarrierColumn extends HeadingColumn {
  * typmod, no contract or refinement domain (`compareHeading`, `CastInto` "compare").
  *
  * A carrier is filled only by INSERT ... SELECT: from a described member, from a stored relation (the conservative
- * realization's state snapshot), or from the difference of two such relations (a delta by state comparison). */
+ * realization's state snapshot), or from the difference of two such relations (a delta by state comparison). A carrier
+ * of no column, which PostgreSQL holds, is the unit relation's: filled by `INSERT INTO "__carrier_<n>" SELECT FROM ...`,
+ * one row of no column per row its source reads, and read through the unit marker. */
 export interface Carrier extends CarrierDecl {
-	readonly heading: NonEmptyReadonlyArray<CarrierColumn>
+	readonly heading: ReadonlyArray<CarrierColumn>
 }
 
 /** A carrier's columns, in heading order. */
-export const carrierColumns = (carrier: Carrier): NonEmptyReadonlyArray<string> =>
-	mapNonEmpty(carrier.heading, (c) => c.column)
+export const carrierColumns = (carrier: Carrier): ReadonlyArray<string> =>
+	carrier.heading.map((c) => c.column)
+
+/**
+ * A carrier's row as a comparison of facts or a RETURNING target reads it: the unit row of a carrier of no column,
+ * whose every row is the unit relation's one fact, read through the unit marker; or its columns, at least one.
+ */
+export type CarrierRow =
+	| { readonly kind: "unit" }
+	| { readonly kind: "columns"; readonly columns: NonEmptyReadonlyArray<CarrierColumn> }
+
+export const carrierRow = (carrier: Carrier): CarrierRow =>
+	isNonEmpty(carrier.heading) ? { kind: "columns", columns: carrier.heading } : { kind: "unit" }
 
 /** How many carriers of one heading's column types one program may hold: a carrier number's low bits. */
 const ordinalSpan = 0x1_0000
@@ -104,12 +117,8 @@ export class CarrierSupply {
 	readonly #ordinals = new Map<number, number>()
 	readonly #all: Array<Carrier> = []
 
-	/** A carrier of `heading`. The one site of the fact "a carrier carries at least one column": a relation's carrier
-	 * passes its nonempty heading, but a carried share's node, a described member's delivered fields and a world
-	 * relation's delta are IR headings, which the IR types as possibly empty though the share selection skips an empty
-	 * node, the front end refuses a member delivering no field, and a world relation's definition heads a field. */
+	/** A carrier of `heading`, of any width. */
 	next(heading: Heading): Carrier {
-		invariant(isNonEmpty(heading), "a carrier carries at least one column")
 		const types = typesDigest(heading)
 		const ordinal = (this.#ordinals.get(types) ?? 0) + 1
 		if (ordinal >= ordinalSpan) {
@@ -124,7 +133,7 @@ export class CarrierSupply {
 		const carrier: Carrier = Object.freeze({
 			name: carrierName(carrierNumber(types, ordinal)),
 			heading: Object.freeze(
-				mapNonEmpty(heading, (c, i): CarrierColumn =>
+				heading.map((c, i): CarrierColumn =>
 					Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
 				)
 			),
@@ -159,17 +168,16 @@ const createAst = (w: WriteContext, carrier: Carrier): CreateCarrier => {
 	return {
 		kind: "createCarrier",
 		name: carrier.name,
-		columns: mapNonEmpty(carrier.heading, (c): ColumnDef => {
+		columns: carrier.heading.map((c): ColumnDef => {
 			const type = w.cx.typeRef(c.type, at)
 			return type.kind === "builtin" && type.name === "text"
 				? {
 						name: c.column,
 						type,
 						collation: cUtf8Collation,
-						generated: undefined,
-						default: undefined
+						generated: undefined
 					}
-				: { name: c.column, type, collation: undefined, generated: undefined, default: undefined }
+				: { name: c.column, type, collation: undefined, generated: undefined }
 		})
 	}
 }
@@ -190,7 +198,7 @@ export const buildCreateCarrier = (
  * never analyzed (placement in). A carrier is the session's own,
  * so the lock it takes is uncontended, and the statement reads no stored relation. */
 export const buildAnalyzeCarriers = (
-	carriers: ReadonlyArray<CarrierName>
+	carriers: NonEmptyReadonlyArray<CarrierName>
 ): WriteStatement<AnalyzeResult> => {
 	const ast: Analyze = { kind: "analyze", carriers: Object.freeze([...carriers]) }
 	const sql = emitText(ast, emptyNameMap)
@@ -224,23 +232,23 @@ type CarrierSource =
 	  }
 
 /** A relation's stored facts, its fields in heading order, read under `names`. */
-const storedBody = (w: WriteContext, relation: RelationInfo, names: PhysicalNames): SelectBody => {
+const storedBody = (w: WriteContext, relation: RelationInfo, names: PhysicalNames): SelectCore => {
 	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
-	return simpleSelect(
+	return core(
 		relation.heading.map((f) => target(col(alias, names.column(relation.name, f.name)))),
 		[{ kind: "table", table: names.relation(relation.name), alias }],
 		undefined
-	).body
+	)
 }
 
 /** A carrier's rows, its columns in heading order. */
-const carrierBody = (w: WriteContext, carrier: Carrier): SelectBody => {
+const carrierBody = (w: WriteContext, carrier: Carrier): SelectCore => {
 	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
-	return simpleSelect(
+	return core(
 		carrier.heading.map((c) => target(col(alias, c.column))),
 		[carrierScan(carrier, alias)],
 		undefined
-	).body
+	)
 }
 
 /** The rows of the described node `node` as a carrier of `heading`, the node's own fields, holds them: each column cast
@@ -280,7 +288,7 @@ const fillQuery = (
 			const snapshot = () => carrierBody(w, source.snapshot)
 			const [left, right] = source.side === "added" ? [stored, snapshot] : [snapshot, stored]
 			const leftBody = left()
-			return select({ kind: "setOp", op: "EXCEPT", left: leftBody, right: right() })
+			return select({ kind: "setOp", op: "EXCEPT", arms: [leftBody, right()] })
 		}
 	}
 }
@@ -315,4 +323,4 @@ export const buildFillCarrier = (
 /** A carrier for the facts of a relation, its fields in heading order, serial generation flags dropped, the order a
  * read-back's Delta node reads position by position. */
 export const relationCarrier = (supply: CarrierSupply, relation: RelationInfo): Carrier =>
-	supply.next(mapNonEmpty(relation.heading, (f) => ({ name: f.name, type: withoutSerial(f.type) })))
+	supply.next(relation.heading.map((f) => ({ name: f.name, type: withoutSerial(f.type) })))

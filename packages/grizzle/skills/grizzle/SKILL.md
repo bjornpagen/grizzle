@@ -73,7 +73,10 @@ export default defineConfig({
      loss is neither written in nor carried by a chosen rename, naming what it would lose, and refuse a loss decided
      both ways. The two comment lines may stay.
 4. Tune if needed: batch a large backfill, add a data fix, reorder within a file. The catalog must end where the
-   snapshot says.
+   snapshot says. Name a PostgreSQL type or function the way the drafts do, by its schema
+   (`"pg_catalog"."text"`, `"pg_catalog"."count"(*)`) or its keyword (`integer`, `bigint`, `boolean`): a statement
+   of yours runs under the session's search_path, where a relation of yours named `Text` is the type `text`, and the
+   drift check judges what it built.
 5. Run `grizzle check` until it passes. It prints `<schema>: ok (<n> migrations, snapshot <fingerprint>)`.
 6. Commit the folder and `snapshot.json`.
 7. Run `grizzle migrate` from CI or the deploy, with `DATABASE_URL` set. It prints `<schema>: applied <n>
@@ -123,7 +126,9 @@ briefly break older application instances that are still running.
 - **publish**: the closed facts' payloads cast to their domains, so each is judged by the target's CHECK (one it
   refuses rolls the whole file back); the worlds: logins and roles, their memberships and settings, each role's
   schema of views (a security-barrier view for a query entry, a plain one for a whole entry), its grants, row-security
-  policies and filter functions; and last every object the schema no longer has, dropped: indexes, roles, statistics,
+  policies and filter functions; the triggers and functions of a law whose meaning stays (the roles that see its
+  witness changed, or `mutable` was declared or removed), changed without revalidating it; and last every object the
+  schema no longer has, dropped: indexes, roles, statistics,
   views, functions, columns, tables, then types. A drop of a stored relation or field is drafted commented, a data loss
   you decide. A world object holds no data, so a changed world needs no marker; a role the migration creates gets its
   views, policies and functions here, after the role.
@@ -149,20 +154,24 @@ commented at the end of the migration. Choosing the rename keeps the rows, and t
   this one"). They are what the new relation would otherwise create again, the old one's drop and what it would drop,
   and the revokes and trigger drops that name it.
 - **Several candidates for one name** say so: choose at most one rename for each added and each removed name. meta.json
-  records what each candidate renames, so `check` refuses two chosen candidates that rename one name.
+  records what each candidate renames, so `check` refuses two chosen candidates that rename one name. A field's rename
+  nested in a relation's rename belongs to that rename: rival renames onto one name may each offer the same
+  `RENAME COLUMN`, and the one you choose decides it.
 - **Write each choice as drafted.** `check` reads every marked statement back against meta.json as PostgreSQL's
   scanner reads it, so whitespace, comments and the case of unquoted words are yours, but a rename written otherwise
   than drafted (another name, a quoted name left bare, an added `IF EXISTS`) is a candidate decided two ways, and
   refused.
-- **Decide each candidate the same way everywhere.** meta.json records every statement a candidate marks, and every
-  group a marker confirms, so `check` refuses a candidate chosen at one statement and kept at another, a marked
-  statement deleted or edited when no choice says so, and a confirmed group kept in part, before any file runs.
+- **Decide each candidate the same way everywhere.** meta.json records every drafted statement of every file in its
+  place, each choice with its offers, each rename's alternative and every group a marker confirms, so `check` refuses
+  a candidate chosen at one statement and kept at another, a marked statement deleted or edited when no choice says
+  so, a confirmed group kept in part, and a statement of a branch you did not take written in, wherever you write it,
+  before any file runs. A drafted statement no candidate decides, at the top of a file, is yours to keep or edit.
   Several chosen candidates may mark one statement (two renamed relations that both drop a foreign key between them):
   that is fine when they decide it the same way, and `check` refuses only a statement they decide in different ways.
 - **A relation renamed while fields are added or removed** is a candidate whose alternative renames the table and its
   constraints, adds the new fields, each with a placeholder, and drops the removed ones last, each a data loss. Each
-  added field that may be a removed one renamed is a candidate of its own, nested in that alternative; see
-  [A field renamed with its relation](#a-field-renamed-with-its-relation).
+  added field that may be a removed one renamed is a candidate of its own, nested in that alternative and decided only
+  with its relation's rename; see [A field renamed with its relation](#a-field-renamed-with-its-relation).
 - **A field renamed while its type changes** is offered as a candidate too, against each removed field of another
   type when no removed field has the new one's type: its alternative renames the column and converts it in place,
   `ALTER COLUMN ... TYPE ... USING` with a placeholder for the conversion (such as `"<new>"::<type>`), or by its cast
@@ -193,7 +202,7 @@ commented at the end of the migration. Choosing the rename keeps the rows, and t
   a candidate: `ALTER TYPE ... RENAME TO` or `ALTER DOMAIN ... RENAME TO` (with its constraint dropped and added under
   the new name), so every column it types keeps its rows in place. Choosing it deletes each field's marked conversion.
   Kept, the drop and add converts each field in place: a closed id with a placeholder,
-  `"<field>"::text::"<schema>"."<new enum>"`, and a contract by its cast, which keeps every value.
+  `"<field>"::"pg_catalog"."text"::"<schema>"."<new enum>"`, and a contract by its cast, which keeps every value.
 - **A name moving to an object of another kind** (a closed relation or a contract taking a removed relation's name, a
   relation taking a removed type's, a derived relation taking a stored one's, or two of them swapping names) sets the
   old holder aside first, in Setup, under its aside name, with every index, identity sequence and statistics object a
@@ -209,8 +218,9 @@ commented at the end of the migration. Choosing the rename keeps the rows, and t
 - **Closed handles removed or reordered** rebuild the enum in one Structure transaction, under a marker to confirm: a
   new type under the enum's rebuild name with the new roster, every column converted to it, the old type dropped and the new one
   renamed. A reorder keeps every row's handle. A removal has a placeholder per column: write the expression mapping
-  each removed handle to one of the new roster, such as `CASE "<field>"::text WHEN '<removed>' THEN '<kept>' ELSE
-  "<field>"::text END::"<schema>"."<rebuilt enum>"`. Each table holding the type is rewritten under an ACCESS
+  each removed handle to one of the new roster, such as `CASE "<field>"::"pg_catalog"."text" WHEN
+  '<removed>'::"pg_catalog"."text" THEN '<kept>'::"pg_catalog"."text" ELSE "<field>"::"pg_catalog"."text"
+  END::"<schema>"."<rebuilt enum>"`. Each table holding the type is rewritten under an ACCESS
   EXCLUSIVE lock. CHECKs, foreign keys, partial indexes and stored tags over the type are dropped first and created
   again after. A domain or a materialized view over the type, or a materialized view reading a table of it, stops the
   draft: remove it first, change the handles, then declare it again. So does a field whose type moves from one closed
@@ -224,7 +234,9 @@ commented at the end of the migration. Choosing the rename keeps the rows, and t
 - **A login renamed:** each added login is offered every removed login as a candidate, `ALTER ROLE ... RENAME TO`,
   which keeps its password. Kept, the drop and add creates a new login, which needs its password again. A role is never
   renamed: it holds no data and no password, so its role, schema, views, policies and grants are dropped and created
-  again under the new name.
+  again under the new name. A name never moves between a login and a role in one migration, as when the two exchange
+  names: its PostgreSQL role would turn from a login into a role, or back, which no statement does, so the draft stops.
+  Give the name up in one migration and take it in the next.
 
 ### A field renamed with its relation
 
@@ -239,14 +251,14 @@ with a column rename (a hashed name's digest shown as `…`):
 -- Keep the drafted statements and delete this line, or replace the addition below with this rename and delete this line:
 -- ALTER TABLE "shop"."note" RENAME TO "remark";
 -- ALTER TABLE "shop"."remark" RENAME CONSTRAINT "__note_pk_…" TO "__remark_pk_…";
--- -- grizzle: rename candidate: "shop"."remark".text has the type of the removed column body, which is dropped by its relation's rename.
+-- -- grizzle: rename candidate: "shop"."remark"."text" has the type of the removed column "shop"."note"."body", which the rename of "shop"."note" drops.
 -- -- Keep the drafted statements and delete this line, or replace the addition below with this rename and delete this line:
 -- -- ALTER TABLE "shop"."remark" RENAME COLUMN "body" TO "text";
 --
--- -- grizzle: placeholder: every existing row of "shop"."remark" needs a value for the new column "text" (text); ...
--- ALTER TABLE "shop"."remark" ADD COLUMN "text" text COLLATE "pg_catalog"."pg_c_utf8" DEFAULT __GRIZZLE_PLACEHOLDER__ NOT NULL;
+-- -- grizzle: placeholder: every existing row of "shop"."remark" needs a value for the new column "text" ("pg_catalog"."text"); ...
+-- ALTER TABLE "shop"."remark" ADD COLUMN "text" "pg_catalog"."text" COLLATE "pg_catalog"."pg_c_utf8" DEFAULT __GRIZZLE_PLACEHOLDER__ NOT NULL;
 -- ALTER TABLE "shop"."remark" ALTER COLUMN "text" DROP DEFAULT;
--- -- grizzle: data loss: the statement below drops the field "shop"."remark"."body" with its values; the candidate rename of "shop"."remark"."body" to "text" carries them instead.
+-- -- grizzle: data loss: the statement below drops the field "shop"."note"."body" with its values; the candidate rename of "shop"."note"."body" to "shop"."remark"."text" carries them instead.
 -- -- To drop it with its values, uncomment the statement below; to keep them, choose a candidate rename that carries them and leave the statement commented. grizzle never decides a loss for you.
 -- -- ALTER TABLE "shop"."remark" DROP COLUMN "body";
 
@@ -272,8 +284,8 @@ grizzle never chooses a field rename for you. A kept field candidate leaves the 
 inside the alternative, and the new column holds the placeholder's value, or what an `UPDATE <table> SET <new> =
 <old>` you add before its `DROP DEFAULT` computes. A
 nested candidate counts only inside its relation's rename: if you choose a field rename while keeping its relation's
-drop and add, `grizzle check` refuses the folder at that file, saying which candidate is chosen inside which rename
-that is not chosen.
+drop and add, `grizzle check` refuses the folder at that file, naming the rename that is not chosen and the statement
+written inside it.
 
 ## Legal edits
 
@@ -287,7 +299,8 @@ that is not chosen.
 
 - `snapshot.json`: it is the diff base, and its fingerprint is what `Db.open` and the drift check compare with.
   `check` says: snapshot.json does not decode as a snapshot, or is the snapshot of another schema; restore it from
-  git.
+  git. It lists each installed statement compact on a line of its own, so a review of its diff reads each changed
+  statement as one changed line.
 - `meta.json`: it records the folder's place in the chain, and in `decisions` the candidates, confirmed groups and data
   losses its files mark, which `check` reads every reviewed file against. `check` says: meta.json does not decode as a
   migration's meta.json, or names another schema; restore it from git, or broken chain: this migration does not start
@@ -356,9 +369,12 @@ Applied files, which only `migrate` can check against the ledger:
 | record | run grizzle migrate again: the failed file rolled back with its ledger row |
 | commit | run grizzle migrate again: the ledger tells whether the file committed |
 | drift | undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate --custom) |
+| unchecked | the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way |
 
 Before `statement`, nothing ran. At `statement`, `record` or `commit`, the files before the failed one stay applied
-and a rerun resumes at it. At `drift`, every folder applied but the catalog differs from the snapshot. A refusal
+and a rerun resumes at it. At `drift`, every folder applied but the catalog differs from the snapshot. At `unchecked`,
+the drift check reached no verdict: the snapshot did not render, the ledger or the catalog could not be read, or the
+snapshot could not be built beside the schema to compare; the check changed nothing, since it rolls back. A refusal
 the server raised carries its SQLSTATE, the constraint it names, and PostgreSQL's message, DETAIL and HINT as given.
 
 A direct SQL writer, psql included, meets these refusals of its own, among the others README's Direct SQL access lists:
@@ -432,6 +448,21 @@ The command line's own refusals, by stage:
   facts from its reason (a `CompileError`'s `OutsideRole` names the `role` and the `access`), never from its message. Retry only `TransientFailure`, and `Db.open`'s `OpenError`
   whose reason is `AdmissionTransient`, with `Effect.retry` and your own `Schedule`; after `CommitUnknown`, read back
   before running the call again.
+- No read raises an arithmetic error on a row: never catch 22003, 22012 or 2201F around a query. Integer arithmetic is
+  exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
+  partial operation needs its precondition proved, by a literal's type (`Compute.div(x, 7n)`), by a contract that
+  declares it (`contract("Divisor", pg.bigint, (v) => v.ne(0n), { proves: ["nonzero"] })`) or by a guard:
+  `Compute.when(Compute.nonzero(b), (b) => Compute.div(a, b), 0n)`, the guards `Compute.nonzero`,
+  `Compute.nonnegative`, `Compute.positive`, `Compute.isFinite` and `Compute.within(x, low, high)`. A guard's subject
+  may be a parameter (`Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n)` over `r.param("d",
+  pg.bigint)`), and a parameter of a contract that declares a fact has it, so
+  `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard. A parameter is a term of its declared type
+  everywhere, first operand included. An unproved
+  divisor is a type error naming the guard; an unproved narrowing or power is `CompileError` reason
+  `PartialOperation`, whose `guard` is the code to write. Narrow an exact integer into an integer field with
+  `Compute.cast` under `Compute.within`.
+- Every bare `pg.numeric` column carries a bound CHECK, `__<table>_bound_<column>_<digest>`: at most 1,000 integer
+  digits. A direct SQL writer's longer value is refused by it, reporting the law `numericBound`.
 - Each login is a PostgreSQL role, `<schema>__<login>`, and each world a role that cannot log in, `<schema>__<role>`.
   The migration that adds a login creates it; the operator gives it a password, or, for an RDS IAM login, `GRANT
   rds_iam TO <login> WITH INHERIT TRUE, SET FALSE`. grizzle never sets either. A login holds only USAGE on the

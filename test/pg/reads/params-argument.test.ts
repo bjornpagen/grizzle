@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Exit, Formatter, Option } from "effect"
@@ -108,7 +108,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's parameter argume
 					const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 					const s = o.schema
 					const tasks = query(s).rule((r) => {
-						const { id } = v(W.Task)
+						const { id } = v(W.Task, "task")
 						return r.match(W.Task, { id }).find({ id })
 					})
 					const ordered = tasks.orderBy(["id", "asc"])
@@ -135,8 +135,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's parameter argume
 									[source.draw(element(calls)), source.draw(element(argumentKinds))] as const,
 								literal: Formatter.format,
 								limit: calls.length * argumentKinds.length,
-								features: features<ArgumentFeature>([
-									...Arr.flatMap(calls, (call): ReadonlyArray<ArgumentFeature> => [
+								coverage: requiredInSpace<ArgumentFeature>([
+									...Arr.flatMap(calls, (call): Arr.NonEmptyReadonlyArray<ArgumentFeature> => [
 										`${call}: a record answered`,
 										`${call}: no record refused`
 									]),

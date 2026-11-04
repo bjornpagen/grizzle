@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -25,8 +25,15 @@ import {
 } from "#test/support/oracle/allen.ts"
 
 const types = ["int4range", "int8range"] as const satisfies ReadonlyArray<RangeType>
-const ends: ReadonlyArray<SpanEndpoint> = ["lower", "upper"]
-const comparisons: ReadonlyArray<EndpointComparison> = ["eq", "ne", "lt", "le", "gt", "ge"]
+const ends: Arr.NonEmptyReadonlyArray<SpanEndpoint> = ["lower", "upper"]
+const comparisons: Arr.NonEmptyReadonlyArray<EndpointComparison> = [
+	"eq",
+	"ne",
+	"lt",
+	"le",
+	"gt",
+	"ge"
+]
 /** Every endpoint predicate: an endpoint of A, a comparison, an endpoint of B. */
 const predicates = Arr.flatMap(ends, (x) =>
 	Arr.flatMap(comparisons, (cmp) => Arr.map(ends, (y) => [x, cmp, y] as const))
@@ -62,7 +69,7 @@ const placeOf = (point: bigint, span: HalfOpen): AllenPlace =>
 	point < span.lo ? 0 : point === span.lo ? 1 : point < span.hi ? 2 : point === span.hi ? 3 : 4
 
 const holds = (mask: AllenMask, relation: AllenRelation): boolean =>
-	(mask & allenMaskOf(relation)) !== 0
+	(mask & allenMaskOf([relation])) !== 0
 
 type PlaceFeature = `${RangeType} ${AllenRelation}`
 type PredicateFeature =
@@ -81,7 +88,7 @@ describe("the relations' places", () => {
 						generator: typedPairs,
 						literal: Formatter.format,
 						limit: pairLimit,
-						features: features<PlaceFeature>(
+						coverage: requiredInSpace<PlaceFeature>(
 							Arr.flatMap(types, (type) =>
 								Arr.map(allenRelations, (r): PlaceFeature => `${type} ${r}`)
 							)
@@ -112,8 +119,8 @@ describe("the endpoint masks", () => {
 	it.effect(
 		"hold exactly for the pairs whose endpoints satisfy the predicate, over every ordered pair of both universes",
 		(ctx) => {
-			const required: ReadonlyArray<PredicateFeature> = [
-				...Arr.flatMap(predicates, ([x, cmp, y]): ReadonlyArray<PredicateFeature> => [
+			const situations: Arr.NonEmptyReadonlyArray<PredicateFeature> = [
+				...Arr.flatMap(predicates, ([x, cmp, y]): Arr.NonEmptyReadonlyArray<PredicateFeature> => [
 					`${x} ${cmp} ${y} held`,
 					`${x} ${cmp} ${y} failed`
 				]),
@@ -130,7 +137,7 @@ describe("the endpoint masks", () => {
 						generator: typedPairs,
 						literal: Formatter.format,
 						limit: pairLimit,
-						features: features<PredicateFeature>(required),
+						coverage: requiredInSpace<PredicateFeature>(situations),
 						caseHang: Duration.minutes(2)
 					},
 					({ pair }, c) =>

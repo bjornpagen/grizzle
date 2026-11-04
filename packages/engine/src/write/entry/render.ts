@@ -11,8 +11,8 @@ import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
-import type { Expr, Select, SelectBody } from "#compiler/sql/ast.ts"
-import { exists, lit } from "#compiler/sql/build.ts"
+import type { Expr, Select, SelectBody, SetOperand } from "#compiler/sql/ast.ts"
+import { exists, lit, mapTargets } from "#compiler/sql/build.ts"
 
 export interface MembershipOptions {
 	/** The base the entry's role is over, checked: the filter query reads its relations. */
@@ -42,13 +42,23 @@ export const filterReadsOther = (entry: CheckedEntry): boolean =>
 const unaliasedBody = (body: SelectBody): SelectBody => {
 	switch (body.kind) {
 		case "core":
-			return { ...body, targets: body.targets.map((t) => ({ ...t, alias: undefined })) }
-		case "setOp":
-			return { ...body, left: unaliasedBody(body.left), right: unaliasedBody(body.right) }
 		case "select":
-			return unaliased(body)
+			return unaliasedOperand(body)
+		case "setOp": {
+			const [first, second, ...rest] = body.arms
+			return {
+				...body,
+				arms: [unaliasedOperand(first), unaliasedOperand(second), ...rest.map(unaliasedOperand)]
+			}
+		}
 	}
 }
+
+const unaliasedOperand = (operand: SetOperand): SetOperand =>
+	operand.kind === "core"
+		? mapTargets(operand, (t) => ({ ...t, alias: undefined }))
+		: unaliased(operand)
+
 const unaliased = (query: Select): Select => ({ ...query, body: unaliasedBody(query.body) })
 
 /** The membership of the row `options.row` names in `entry` (see `renderMembership`).

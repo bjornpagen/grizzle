@@ -75,7 +75,7 @@ const Workload = schema("Workload", { Account, Task }, [
 ])
 
 const urgentTasks = query(Workload).rule((r) => {
-	const { id, priority } = v(Task)
+	const { id, priority } = v(Task, "task")
 	return r
 		.match(Task, { id, priority })
 		.where(r.ge(priority, r.param("min", pg.integer)))
@@ -83,7 +83,7 @@ const urgentTasks = query(Workload).rule((r) => {
 })
 
 const regionAccounts = query(Workload).rule((r) => {
-	const { id, region } = v(Account)
+	const { id, region } = v(Account, "account")
 	return r
 		.match(Account, { id, region })
 		.where(r.eq(region, r.param("region", pg.integer)))
@@ -92,7 +92,7 @@ const regionAccounts = query(Workload).rule((r) => {
 
 const topOfAccount = query(Workload)
 	.rule((r) => {
-		const { id, priority } = v(Task)
+		const { id, priority } = v(Task, "task")
 		return r
 			.match(Task, { id, account: r.param("account", Task.fields.account), priority })
 			.find({ id, priority })
@@ -102,7 +102,7 @@ const topOfAccount = query(Workload)
 
 /** Outside the workload: tasks by title. */
 const tasksTitled = query(Workload).rule((r) => {
-	const { id, title } = v(Task)
+	const { id, title } = v(Task, "task")
 	return r
 		.match(Task, { id, title })
 		.where(r.eq(title, r.param("title", Task.fields.title)))

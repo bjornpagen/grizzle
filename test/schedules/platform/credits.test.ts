@@ -22,6 +22,8 @@
 import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
+import { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import {
 	amountOf,
@@ -43,7 +45,7 @@ import {
 	writersGen
 } from "#test/schedules/platform/support.ts"
 import * as W from "#test/schedules/platform/world.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { FAR, JAN } from "#test/support/platform/generate.ts"
 import { rowsIn, type State } from "#test/support/platform/laws.ts"
@@ -124,8 +126,8 @@ const creditSketchGen: Gen<CreditSketch> = (source) => {
 /** The grants of a state, as the host model reads them. */
 const grantsIn = (s: State): ReadonlyArray<GrantM> =>
 	Arr.map(rowsIn(s, "CreditGrant"), (g) => ({
-		id: textOf(g, "id"),
-		org: textOf(g, "org"),
+		id: succeeded(Uuid.parse(textOf(g, "id")), "a stored grant's id"),
+		org: succeeded(Uuid.parse(textOf(g, "org")), "a stored grant's organization"),
 		amount: amountOf(g, "amount"),
 		valid: spanOf(g, "valid")
 	}))
@@ -239,8 +241,9 @@ const judgeCredits = (
 		const grants = grantsIn(before)
 		const debits = q.record.debits
 		if (observed.kind === "refused") {
-			reached.push(
-				...Arr.flatMap(debits, (d): ReadonlyArray<RaceFeature> =>
+			appendAll(
+				reached,
+				Arr.flatMap(debits, (d): ReadonlyArray<RaceFeature> =>
 					Option.match(
 						Arr.findFirst(grants, (x) => x.id === d.grant),
 						{

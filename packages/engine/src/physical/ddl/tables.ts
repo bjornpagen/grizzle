@@ -1,8 +1,15 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	extendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
@@ -10,7 +17,8 @@ import {
 	fieldNames,
 	type LawField,
 	type NativeObject,
-	type Selector
+	type Selector,
+	type SpanField
 } from "#compiler/ir/law.ts"
 import { allRows, type IndexRows } from "#compiler/ir/products.ts"
 import { type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
@@ -37,7 +45,7 @@ import type {
 	KeyColumn,
 	PrimaryKey
 } from "#compiler/sql/ast.ts"
-import { and, columnKey, eq, tableCol } from "#compiler/sql/build.ts"
+import { and, columnKey, eq, or, tableCol } from "#compiler/sql/build.ts"
 
 type Native<K extends NativeObject["kind"]> = Extract<NativeObject, { readonly kind: K }>
 
@@ -62,7 +70,7 @@ const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 		name: identifierOf(pk.named),
 		columns:
 			o.kind === "PrimaryKey"
-				? keyColumns(b, relation, fieldNames(o.columns))
+				? keyColumns(b, relation, keyNames(o.columns))
 				: periodKeyColumns(b, relation, fieldNames(o.key.scalars), o.span.name)
 	}
 }
@@ -76,7 +84,7 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 			const after: Array<Node<"setup">> = [b.schemaNode]
 			const columns = mapNonEmpty(r.fields, (c): ColumnDef => {
 				const { type, collation } = columnType(b.names, c.type)
-				after.push(...typeNodes(b, c.type))
+				appendAll(after, typeNodes(b, c.type))
 				return {
 					name: b.names.column(name, c.name),
 					type,
@@ -84,8 +92,7 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 					generated:
 						"serial" in c.type
 							? { kind: "identity", sequence: b.names.sequence(name, c.name) }
-							: undefined,
-					default: undefined
+							: undefined
 				}
 			})
 			if (r.fields.some((c) => isVectorType(c.type))) {
@@ -107,13 +114,18 @@ const typeNodes = (b: InstallBuilder, t: ScalarType): ReadonlyArray<Node<"setup"
 	return node === undefined ? [] : [node]
 }
 
+/** The names of a key's fields, at least one, as a key has. */
+const keyNames = (
+	fields: NonEmptyReadonlyArray<{ readonly name: string }>
+): NonEmptyReadonlyArray<string> => mapNonEmpty(fields, (f) => f.name)
+
 /** A scalar key's columns. */
 const keyColumns = (
 	b: InstallBuilder,
 	relation: string,
-	columns: ReadonlyArray<string>
-): ReadonlyArray<KeyColumn> =>
-	columns.map((f) => ({ column: b.names.column(relation, f), withoutOverlaps: false }))
+	columns: NonEmptyReadonlyArray<string>
+): NonEmptyReadonlyArray<KeyColumn> =>
+	mapNonEmpty(columns, (f) => ({ column: b.names.column(relation, f), withoutOverlaps: false }))
 
 /** A span key's columns: its scalar fields, then its span field WITHOUT OVERLAPS. */
 const periodKeyColumns = (
@@ -121,21 +133,48 @@ const periodKeyColumns = (
 	relation: string,
 	scalars: ReadonlyArray<string>,
 	span: string
-): ReadonlyArray<KeyColumn> => [
-	...keyColumns(b, relation, scalars),
-	{ column: b.names.column(relation, span), withoutOverlaps: true }
-]
+): NonEmptyReadonlyArray<KeyColumn> =>
+	appendNonEmpty(
+		scalars.map((f): KeyColumn => ({
+			column: b.names.column(relation, f),
+			withoutOverlaps: false
+		})),
+		{ column: b.names.column(relation, span), withoutOverlaps: true }
+	)
 
 const fkColumns = (
 	b: InstallBuilder,
 	relation: string,
-	columns: ReadonlyArray<string>,
-	/** The columns after the fields: a selector's tag, or a period foreign key's span. */
+	columns: NonEmptyReadonlyArray<string>,
+	/** The columns after the fields: a selector's tag. */
 	extra: ReadonlyArray<ForeignKeyColumn>
-): ReadonlyArray<ForeignKeyColumn> => [
-	...columns.map((f) => ({ column: b.names.column(relation, f), period: false })),
-	...extra
-]
+): NonEmptyReadonlyArray<ForeignKeyColumn> =>
+	extendNonEmpty(
+		mapNonEmpty(columns, (f): ForeignKeyColumn => ({
+			column: b.names.column(relation, f),
+			period: false
+		})),
+		extra
+	)
+
+/** A period foreign key's columns: its scalar fields, then the columns after them (a selector's tag), its span last. */
+const periodFkColumns = (
+	b: InstallBuilder,
+	relation: string,
+	fields: ReadonlyArray<LawField>,
+	extra: ReadonlyArray<ForeignKeyColumn>,
+	span: SpanField
+): NonEmptyReadonlyArray<ForeignKeyColumn> =>
+	appendNonEmpty(
+		[
+			...fields.map((f): ForeignKeyColumn => ({
+				column: b.names.column(relation, f.name),
+				period: false
+			})),
+			...extra
+		],
+		{ column: b.names.column(relation, span.name), period: true }
+	)
 
 /** A literal selector of the rows an index holds, its field typed: the field's name and type, and the literal. */
 interface TypedSelector {
@@ -156,7 +195,7 @@ const selectionPredicate = (
 	const terms = mapNonEmpty(selection, (w) =>
 		eq(tableCol(b.names.column(relation, w.column)), persistentLiteral(b.names, w.value, w.type))
 	)
-	return terms.length === 1 ? terms[0] : and(...terms)
+	return terms.length === 1 ? terms[0] : and(terms)
 }
 
 /** The rows of a relation an index holds (`IndexRows`) as a partial index's WHERE (`selectionPredicate`), each
@@ -186,8 +225,9 @@ const rowsOfWhere = (where: ReadonlyArray<Selector>): IndexRows =>
 /** The predicate of a finite closed-facts containment: membership of the row's projection in the facts, `c IN (...)`
  * for one column and a disjunction of conjunctions for several, never independent per-column lists. */
 const finitePredicate = (b: InstallBuilder, n: Native<"FiniteCheck">): Expr => {
-	const [first, ...rest] = n.facts
-	if (first === undefined) {
+	/** Each fact as its checked fields' values: the law model projects a fact onto exactly the checked fields. */
+	const facts = n.facts
+	if (!isNonEmpty(facts)) {
 		return refuse(
 			"MalformedDescription",
 			SourceLoc(`finite check on ${n.relation.name}`, []),
@@ -196,22 +236,16 @@ const finitePredicate = (b: InstallBuilder, n: Native<"FiniteCheck">): Expr => {
 	}
 	const column = (field: LawField): Expr => tableCol(b.names.column(n.relation.name, field.name))
 	const value = (v: FieldValue): Expr => persistentLiteral(b.names, v.value, v.field.type)
-	/** Each fact as its checked fields' values: the law model projects a fact onto exactly the checked fields. */
-	const facts = [first, ...rest]
-	const [only, ...more] = first
+	const [[only, ...more]] = facts
 	if (more.length === 0) {
 		return {
 			kind: "inList",
 			expr: column(only.field),
-			list: facts.flatMap((f) => f.map(value)),
+			list: mapNonEmpty(facts, ([v]) => value(v)),
 			not: false
 		}
 	}
-	const disjuncts = facts.map((f) => and(...f.map((v) => eq(column(v.field), value(v)))))
-	const [onlyDisjunct, ...moreDisjuncts] = disjuncts
-	return onlyDisjunct !== undefined && moreDisjuncts.length === 0
-		? onlyDisjunct
-		: { kind: "or", args: disjuncts }
+	return or(mapNonEmpty(facts, (f) => and(mapNonEmpty(f, (v) => eq(column(v.field), value(v))))))
 }
 
 /** Each table's secondary constraints, which its CREATE TABLE declares inline beside its primary key, as a
@@ -443,7 +477,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 				declare(
 					o.relation.name,
 					named,
-					{ kind: "unique", name, columns: keyColumns(b, o.relation.name, fieldNames(o.columns)) },
+					{ kind: "unique", name, columns: keyColumns(b, o.relation.name, keyNames(o.columns)) },
 					o.lawIds,
 					keyShape("btree", fieldNames(o.columns), allRows),
 					false
@@ -543,7 +577,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 						unique: true,
 						concurrently: false,
 						method: "btree",
-						keys: o.columns.map((f) => columnKey(b.names.column(o.relation.name, f.name))),
+						keys: mapNonEmpty(o.columns, (f) => columnKey(b.names.column(o.relation.name, f.name))),
 						include: [],
 						where
 					},
@@ -598,8 +632,7 @@ const addNatives = (
 									name: column,
 									type,
 									collation,
-									generated: { kind: "stored", expr: persistentLiteral(b.names, o.value, t) },
-									default: undefined
+									generated: { kind: "stored", expr: persistentLiteral(b.names, o.value, t) }
 								}
 							}
 						]
@@ -690,9 +723,9 @@ const addNatives = (
 					{
 						kind: "foreignKey",
 						name,
-						columns: fkColumns(b, o.relation.name, fieldNames(o.columns), []),
+						columns: fkColumns(b, o.relation.name, keyNames(o.columns), []),
 						references: b.names.relation(o.target.name),
-						referencedColumns: fkColumns(b, o.target.name, fieldNames(o.targetColumns), []),
+						referencedColumns: fkColumns(b, o.target.name, keyNames(o.targetColumns), []),
 						deferrable: o.deferrable ? "INITIALLY DEFERRED" : undefined
 					},
 					o.lawIds,
@@ -710,11 +743,11 @@ const addNatives = (
 					{
 						kind: "foreignKey",
 						name,
-						columns: fkColumns(b, o.relation.name, fieldNames(o.columns), [
+						columns: fkColumns(b, o.relation.name, keyNames(o.columns), [
 							{ column: o.tag, period: false }
 						]),
 						references: b.names.relation(o.target.name),
-						referencedColumns: fkColumns(b, o.target.name, fieldNames(o.targetColumns), []),
+						referencedColumns: fkColumns(b, o.target.name, keyNames(o.targetColumns), []),
 						deferrable: "INITIALLY DEFERRED"
 					},
 					o.lawIds,
@@ -736,14 +769,15 @@ const addNatives = (
 					{
 						kind: "foreignKey",
 						name,
-						columns: fkColumns(b, o.relation.name, fieldNames(o.columns), [
-							...tagColumns.map((column) => ({ column, period: false })),
-							{ column: b.names.column(o.relation.name, o.span.name), period: true }
-						]),
+						columns: periodFkColumns(
+							b,
+							o.relation.name,
+							o.columns,
+							tagColumns.map((column) => ({ column, period: false })),
+							o.span
+						),
 						references: b.names.relation(o.target.name),
-						referencedColumns: fkColumns(b, o.target.name, fieldNames(o.targetColumns), [
-							{ column: b.names.column(o.target.name, o.targetSpan.name), period: true }
-						]),
+						referencedColumns: periodFkColumns(b, o.target.name, o.targetColumns, [], o.targetSpan),
 						deferrable: "INITIALLY DEFERRED"
 					},
 					o.lawIds,

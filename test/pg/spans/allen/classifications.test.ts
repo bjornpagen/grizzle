@@ -1,8 +1,9 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace, type Situations } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
@@ -51,8 +52,8 @@ const Universe = schema("Universe", { U4, U8, P4, P8, Stay, Moment }, [])
 const pairQuery = (type: RangeType, mask: number) =>
 	type === "int4range"
 		? query(Universe).rule((r) => {
-				const { s } = v(U4)
-				const { s: theirs } = v(U4)
+				const { s } = v(U4, "u4")
+				const { s: theirs } = v(U4, "theirs")
 				return r
 					.match(U4, { s })
 					.match(U4, { s: theirs })
@@ -60,8 +61,8 @@ const pairQuery = (type: RangeType, mask: number) =>
 					.find({ s, theirs })
 			})
 		: query(Universe).rule((r) => {
-				const { s } = v(U8)
-				const { s: theirs } = v(U8)
+				const { s } = v(U8, "u8")
+				const { s: theirs } = v(U8, "theirs")
 				return r
 					.match(U8, { s })
 					.match(U8, { s: theirs })
@@ -73,19 +74,19 @@ const pairQuery = (type: RangeType, mask: number) =>
 const pointQuery = (type: RangeType) =>
 	type === "int4range"
 		? query(Universe).rule((r) => {
-				const { s } = v(U4)
-				const { p } = v(P4)
+				const { s } = v(U4, "u4")
+				const { p } = v(P4, "p4")
 				return r.match(U4, { s }).match(P4, { p }).where(r.pointIn(p, s)).find({ s, p })
 			})
 		: query(Universe).rule((r) => {
-				const { s } = v(U8)
-				const { p } = v(P8)
+				const { s } = v(U8, "u8")
+				const { p } = v(P8, "p8")
 				return r.match(U8, { s }).match(P8, { p }).where(r.pointIn(p, s)).find({ s, p })
 			})
 
 const contractPointQuery = query(Universe).rule((r) => {
-	const { stay } = v(Stay)
-	const { at } = v(Moment)
+	const { stay } = v(Stay, "stay")
+	const { at } = v(Moment, "moment")
 	return r.match(Stay, { stay }).match(Moment, { at }).where(r.pointIn(at, stay)).find({ stay, at })
 })
 
@@ -93,14 +94,14 @@ const contractPointQuery = query(Universe).rule((r) => {
 const windowQuery = (type: RangeType) =>
 	type === "int4range"
 		? query(Universe).rule((r) => {
-				const { p } = v(P4)
+				const { p } = v(P4, "p4")
 				return r
 					.match(P4, { p })
 					.where(r.pointIn(p, r.param("window", span(pg.integer))))
 					.find({ p })
 			})
 		: query(Universe).rule((r) => {
-				const { p } = v(P8)
+				const { p } = v(P8, "p8")
 				return r
 					.match(P8, { p })
 					.where(r.pointIn(p, r.param("window", span(pg.bigint))))
@@ -108,7 +109,7 @@ const windowQuery = (type: RangeType) =>
 			})
 
 const contractWindowQuery = query(Universe).rule((r) => {
-	const { at } = v(Moment)
+	const { at } = v(Moment, "moment")
 	return r
 		.match(Moment, { at })
 		.where(r.pointIn(at, r.param("window", span(Instant))))
@@ -353,7 +354,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 						generator: element(rangeTypes),
 						literal: Formatter.format,
 						limit: rangeTypes.length,
-						features: features<RangeType>(rangeTypes),
+						coverage: requiredInSpace<RangeType>(rangeTypes),
 						caseHang: Duration.minutes(2)
 					},
 					(type, c) =>
@@ -388,8 +389,9 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							}
 						}
 					}
-					const maskFeatures = features<MaskFeature>(
-						Arr.map(allenRelations, (r): MaskFeature => `includes ${r}`)
+					const maskFeatures: Situations<MaskFeature> = Arr.map(
+						allenRelations,
+						(r): MaskFeature => `includes ${r}`
 					)
 					yield* exhaust(
 						{
@@ -400,7 +402,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							}),
 							literal: Formatter.format,
 							limit: rangeTypes.length * fixedMasks.length,
-							features: maskFeatures,
+							coverage: requiredInSpace<MaskFeature>(maskFeatures),
 							caseHang: Duration.minutes(2)
 						},
 						({ type, mask }, c) =>
@@ -414,13 +416,12 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							suite: "spans/allen-masks",
 							draw: drawn(int(1, fullAllenMask)),
 							literal: Formatter.format,
-							features: maskFeatures,
+							coverage: required<MaskFeature>(maskFeatures, { cases: 24, sense: notesOnly }),
 							kept: [],
 							runs: 24,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(mask, c) =>
@@ -452,7 +453,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							}),
 							literal: Formatter.format,
 							limit: windowTypes.length * artifacts.length,
-							features: features<PointFeature>(
+							coverage: requiredInSpace<PointFeature>(
 								Arr.flatMap(windowTypes, (point) =>
 									Arr.map(artifacts, (artifact): PointFeature => `${point} ${artifact}`)
 								)
@@ -489,17 +490,17 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							suite: "spans/allen-window",
 							draw: drawn(windowSketchGen),
 							literal: Formatter.format,
-							features: features<WindowFeature>(
+							coverage: required<WindowFeature>(
 								Arr.flatMap(windowTypes, (type) =>
 									Arr.map(windowEdges, (edge): WindowFeature => `${type} window ${edge}`)
-								)
+								),
+								{ cases: 48, sense: notesOnly }
 							),
 							kept: windowKept,
 							runs: 48,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(sketch, c) =>

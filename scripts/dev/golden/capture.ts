@@ -41,6 +41,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 
 /** Node's file system and paths, taken once from a runtime of their layers: the capture writes through them. */
 const { files, paths } = await ManagedRuntime.make(
@@ -73,8 +74,16 @@ const exported = (module: unknown, name: string, from: string): unknown => {
 	return module[name]
 }
 
+/** The arguments the capture calls a function value with: at most four, each call's own. */
+type CallArguments =
+	| readonly []
+	| readonly [unknown]
+	| readonly [unknown, unknown]
+	| readonly [unknown, unknown, unknown]
+	| readonly [unknown, unknown, unknown, unknown]
+
 /** Calls a function value with arguments, its answer read as unknown. */
-const call = (fn: unknown, ...args: ReadonlyArray<unknown>): unknown => {
+const call = (fn: unknown, args: CallArguments): unknown => {
 	if (typeof fn !== "function") {
 		throw new Error("not a function")
 	}
@@ -190,6 +199,11 @@ const generateMigration = exported(
 	"generateMigration",
 	"deploy/render/generate.ts"
 )
+const printStatement = exported(
+	await Effect.runPromise(load("#compiler/sql/print.ts")),
+	"printStatement",
+	"sql/print.ts"
+)
 const snapshotBuild = await Effect.runPromise(load("#compiler/deploy/snapshot/build.ts"))
 const emptySnapshot = exported(snapshotBuild, "emptySnapshot", "deploy/snapshot/build.ts")
 const noWorkload = exported(snapshotBuild, "noWorkload", "deploy/snapshot/build.ts")
@@ -255,12 +269,12 @@ const isQuery = (value: unknown): boolean =>
 
 /** The query's Description and lowered statements, or its refusal. */
 const captureQuery = (write: Write, path: string, query: unknown): void => {
-	const described = attempt(() => ({ ok: true, value: call(describeQuery, query) }))
+	const described = attempt(() => ({ ok: true, value: call(describeQuery, [query]) }))
 	write(
 		`describe/${path}.json`,
 		described.ok ? canonical(described.value) : refusal(described.error)
 	)
-	const lowered = attempt(() => settle(call(lowerQuery, query)))
+	const lowered = attempt(() => settle(call(lowerQuery, [query])))
 	if (!lowered.ok) {
 		write(`lower/${path}.sql`, refusal(lowered.error))
 		return
@@ -287,7 +301,7 @@ const sqlTexts = (value: unknown, depth: number): ReadonlyArray<string> => {
 		if (key === "sql" && typeof inner === "string") {
 			found.push(inner)
 		} else if (key !== "ast") {
-			found.push(...sqlTexts(inner, depth + 1))
+			appendAll(found, sqlTexts(inner, depth + 1))
 		}
 	}
 	return found
@@ -325,19 +339,19 @@ const artifactText = (artifact: unknown): string => {
 }
 
 /** Whether a query lowers: a fixture's workload takes the queries that do as its programs. */
-const lowers = (query: unknown): boolean => attempt(() => settle(call(lowerQuery, query))).ok
+const lowers = (query: unknown): boolean => attempt(() => settle(call(lowerQuery, [query]))).ok
 
 /** A ChangeSet value compiled as the runtime compiles it in reality, or its refusal. */
 const captureWrite = (write: Write, path: string, value: unknown): void => {
 	const compiled = attempt(() => {
-		const parsed = call(parseChangeSet, value)
+		const parsed = call(parseChangeSet, [value])
 		const schema = isRecord(parsed) ? parsed["schema"] : undefined
-		const input = settle(call(parseSchemaInput, schema))
+		const input = settle(call(parseSchemaInput, [schema]))
 		if (!input.ok) {
 			return input
 		}
 		const artifacts = settle(
-			call(schemaArtifacts, input.value, { installation: undefined, vectorSchema: undefined })
+			call(schemaArtifacts, [input.value, { installation: undefined, vectorSchema: undefined }])
 		)
 		if (!artifacts.ok) {
 			return artifacts
@@ -345,8 +359,7 @@ const captureWrite = (write: Write, path: string, value: unknown): void => {
 		const a = artifacts.value
 		const derived = isRecord(a) ? a["derived"] : undefined
 		return settle(
-			call(
-				compileWrite,
+			call(compileWrite, [
 				isRecord(derived) ? derived["schema"] : undefined,
 				isRecord(parsed) ? parsed["desc"] : undefined,
 				{
@@ -357,7 +370,7 @@ const captureWrite = (write: Write, path: string, value: unknown): void => {
 					viewKeys: isRecord(a) ? a["viewKeys"] : undefined,
 					world: { kind: "reality" }
 				}
-			)
+			])
 		)
 	})
 	if (!compiled.ok) {
@@ -443,13 +456,13 @@ const installationOf = (version: Version): Settled =>
 		const subject =
 			version.renamed === undefined
 				? version.subject
-				: renamedDesc(call(schemaDescOf, version.subject), version.renamed)
-		const owned = call(owning, subject)
+				: renamedDesc(call(schemaDescOf, [version.subject]), version.renamed)
+		const owned = call(owning, [subject])
 		/** The installation's identity the ownership minted (core/identity.ts), which installs it under its schema. */
 		const identity = isRecord(owned) ? owned["installation"] : undefined
 		const logins: Array<unknown> = []
 		for (const login of version.logins) {
-			const ownedLogin = settle(call(ownLogin, call(loginDescOf, login)))
+			const ownedLogin = settle(call(ownLogin, [call(loginDescOf, [login])]))
 			if (!ownedLogin.ok) {
 				return ownedLogin
 			}
@@ -464,31 +477,30 @@ const installationOf = (version: Version): Settled =>
 			let artifacts: unknown
 			const planned = chainOf([
 				() => {
-					const r = settle(call(parseSchemaInput, owned))
+					const r = settle(call(parseSchemaInput, [owned]))
 					input = r.ok ? r.value : undefined
 					return r
 				},
 				() => {
 					const r = settle(
-						call(schemaArtifacts, input, { installation: undefined, vectorSchema: undefined })
+						call(schemaArtifacts, [input, { installation: undefined, vectorSchema: undefined }])
 					)
 					artifacts = r.ok ? r.value : undefined
 					return r
 				},
-				() => settle(call(compileWorkload, version.workloads, input, { artifacts, roles }))
+				() => settle(call(compileWorkload, [version.workloads, input, { artifacts, roles }]))
 			])
 			if (!planned.ok) {
 				return planned
 			}
 			plan = planned.value
 		}
-		const extensions = plan === undefined ? [] : [call(workloadExtension, plan)]
+		const extensions = plan === undefined ? [] : [call(workloadExtension, [plan])]
 		const installation = settle(
-			call(
-				compileInstallation,
+			call(compileInstallation, [
 				owned,
-				call(completeInstallOptions, owned, identity, logins, extensions)
-			)
+				call(completeInstallOptions, [owned, identity, logins, extensions])
+			])
 		)
 		if (!installation.ok) {
 			return installation
@@ -522,34 +534,38 @@ const captureDraft = (
 			canonical({ access: plan["access"], requests: plan["requests"] })
 		)
 	}
-	const installSql = isRecord(value) ? value["sql"] : undefined
+	const installStatements = isRecord(value) ? value["statements"] : undefined
 	write(
 		`${path}/install.sql`,
-		Arr.isArray(installSql)
+		Arr.isArray(installStatements)
 			? Arr.join(
-					Arr.map(installSql, (s: unknown) => String(s)),
+					Arr.map(installStatements, (s: unknown) => String(call(printStatement, [s]))),
 					"\n;\n"
 				)
-			: String(installSql)
+			: String(installStatements)
 	)
 	const owned = isRecord(value) ? value["owned"] : undefined
 	const ownedInstallation = isRecord(owned) ? owned["installation"] : undefined
 	const from =
 		previous ??
-		call(emptySnapshot, {
-			schemaName: isRecord(owned) ? owned["name"] : undefined,
-			schema: isRecord(ownedInstallation) ? ownedInstallation["identifier"] : undefined
-		})
+		call(emptySnapshot, [
+			{
+				schemaName: isRecord(owned) ? owned["name"] : undefined,
+				schema: isRecord(ownedInstallation) ? ownedInstallation["identifier"] : undefined
+			}
+		])
 	const drafted = attempt(() =>
 		settle(
-			call(generateMigration, {
-				previous: from,
-				installation: value,
-				workload: isRecord(holder) ? holder["workload"] : noWorkload,
-				naming: { kind: "named", name },
-				timestamp,
-				abandoned: []
-			})
+			call(generateMigration, [
+				{
+					previous: from,
+					installation: value,
+					workload: isRecord(holder) ? holder["workload"] : noWorkload,
+					naming: { kind: "named", name },
+					timestamp,
+					abandoned: []
+				}
+			])
 		)
 	)
 	if (!drafted.ok) {
@@ -655,12 +671,12 @@ const fixtureExport = (module: string, key: string): unknown => {
 /** A schema value rebuilt under `name` from its own relations and statements, as an installation under a name builds it. */
 const rebuilt = (fixture: unknown, name: string): unknown =>
 	isRecord(fixture)
-		? call(schemaBuilder, name, fixture["relations"], fixture["statements"])
+		? call(schemaBuilder, [name, fixture["relations"], fixture["statements"]])
 		: undefined
 
 /** The `server` login of a fixture's worlds over the schema rebuilt under `name`. */
 const serverOf = (worlds: unknown, rebuiltSchema: unknown): ReadonlyArray<unknown> => {
-	const made = call(worlds, rebuiltSchema)
+	const made = call(worlds, [rebuiltSchema])
 	return isRecord(made) && made["server"] !== undefined ? [made["server"]] : []
 }
 
@@ -714,7 +730,7 @@ const captured: Effect.Effect<ReadonlyMap<string, string>> = Effect.gen(function
 		for (const [key, value] of byName(Rec.toEntries(module))) {
 			if (isQuery(value)) {
 				captureQuery(write, `${name}/${key}`, value)
-			} else if (call(isChangeSetValue, value) === true) {
+			} else if (call(isChangeSetValue, [value]) === true) {
 				captureWrite(write, `${name}/${key}`, value)
 			} else if (
 				isSchema(value) ||
@@ -824,7 +840,7 @@ const captured: Effect.Effect<ReadonlyMap<string, string>> = Effect.gen(function
 				continue
 			}
 			guarded(write, `workload/${name}/${key}`, () => {
-				const workloadValue = call(workloadBuilder, value, programs)
+				const workloadValue = call(workloadBuilder, [value, programs])
 				captureDraft(
 					write,
 					`workload/${name}/${key}`,
@@ -844,11 +860,10 @@ const captured: Effect.Effect<ReadonlyMap<string, string>> = Effect.gen(function
 	const cliFixture = yield* loadFixture("#test/pg/cli/fixture.ts")
 	if (isRecord(cliFixture)) {
 		const shopAt = (version: 1 | 2, byName: boolean): Version => {
-			const built = call(
-				cliFixture[version === 1 ? "shopV1" : "shopV2"],
+			const built = call(cliFixture[version === 1 ? "shopV1" : "shopV2"], [
 				"golden_shop",
 				byName ? "full" : "withoutByName"
-			)
+			])
 			const server = isRecord(built) ? built["server"] : undefined
 			return {
 				subject: isRecord(built) ? built["schema"] : undefined,
@@ -865,7 +880,7 @@ const captured: Effect.Effect<ReadonlyMap<string, string>> = Effect.gen(function
 			])
 		)
 		guarded(write, "history/cli-ledger", () => {
-			const built = call(cliFixture["ledger"], "golden_ledger")
+			const built = call(cliFixture["ledger"], ["golden_ledger"])
 			const server = isRecord(built) ? built["server"] : undefined
 			const version: Version = {
 				subject: isRecord(built) ? built["schema"] : undefined,
@@ -889,7 +904,7 @@ const captured: Effect.Effect<ReadonlyMap<string, string>> = Effect.gen(function
 			}
 			const [label, build] = entry
 			guarded(write, `scenario/${String(label)}`, () => {
-				const versions = call(build)
+				const versions = call(build, [])
 				if (!Arr.isArray(versions)) {
 					return
 				}

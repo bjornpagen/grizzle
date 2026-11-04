@@ -163,18 +163,13 @@ const unionAll = (body: SelectBody, count: () => void): SelectBody => {
 		return body
 	}
 	count()
-	return {
-		...body,
-		op: "UNION ALL",
-		left: unionAll(body.left, () => {}),
-		right: unionAll(body.right, () => {})
-	}
+	return { ...body, op: "UNION ALL" }
 }
 
 /** The reads of a set union's arms: the CTE each core reads, or undefined for any other arm. */
 const armReads = (body: SelectBody): ReadonlyArray<string | undefined> => {
 	if (body.kind === "setOp") {
-		return [...armReads(body.left), ...armReads(body.right)]
+		return Arr.flatMap(body.arms, armReads)
 	}
 	if (body.kind !== "core") {
 		return [undefined]
@@ -192,7 +187,7 @@ const isUnrolled = (query: Select): boolean => {
 	if (
 		w === undefined ||
 		w.recursive ||
-		Arr.some(w.ctes, (c) => c.materialized !== "NOT MATERIALIZED")
+		!Arr.every(w.ctes, (c) => c.materialized === "NOT MATERIALIZED")
 	) {
 		return false
 	}

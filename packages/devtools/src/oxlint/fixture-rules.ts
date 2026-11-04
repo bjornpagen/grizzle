@@ -27,8 +27,11 @@ export const FIXTURE_RULES: Readonly<{
 			}
 		]
 	},
-	"names-sole-mint": {
-		mints: [{ module: "names-sole-mint/clean.tsx", brands: ["TableName", "ColumnName"] }]
+	"brands-sole-mint": {
+		mints: [
+			{ doors: ["brands-sole-mint/clean.tsx"], brands: ["TableName", "ColumnName"] },
+			{ doors: ["brands-sole-mint/clean.tsx"], brands: ["SqlText"] }
+		]
 	},
 	"no-default-parameter": null,
 	"no-dynamic-imports": {
@@ -41,6 +44,7 @@ export const FIXTURE_RULES: Readonly<{
 	"no-overload": null,
 	"no-pointless-type-alias": null,
 	"no-raw-regexp": null,
+	"no-raw-sql": { sources: ["no-raw-sql"], writers: [] },
 	"no-switch-default-bailout": null,
 	"no-try": null,
 	"no-useless-continue": null,

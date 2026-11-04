@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Exploration } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -15,6 +15,7 @@ import {
 	uniqueArray,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
@@ -85,7 +86,13 @@ const scalars = {
 	vector3: scalarOf({ kind: "vector", dimensions: 3 }, {}),
 	vector16: scalarOf({ kind: "vector", dimensions: 16 }, {}),
 	cents: scalarOf(
-		{ kind: "contract", name: "Cents", base: { kind: "pg", type: "bigint" }, predicate: undefined },
+		{
+			kind: "contract",
+			name: "Cents",
+			base: { kind: "pg", type: "bigint" },
+			predicate: undefined,
+			facts: []
+		},
 		{}
 	)
 }
@@ -179,7 +186,7 @@ const vectorGen = (dims: number) => {
 	const component = oneOf([float(-bound, bound), double(-bound, bound)])
 	return map(array(component, { min: dims, max: dims }), (xs) => {
 		const v = Vector.make(Float32Array.from(xs), dims)
-		return Vector.inCosineDomain(v) ? v : Vector.make(Float32Array.of(1, ...xs.slice(1)), dims)
+		return Vector.inCosineDomain(v) ? v : Vector.make(Float32Array.from([1, ...xs.slice(1)]), dims)
 	})
 }
 
@@ -251,21 +258,18 @@ const roundTripGen: Gen<RoundTrip> = (source) => {
 type RoundTripFeature = `round-trips ${string}`
 
 /**
- * The exact comparison of a sent value with its conversion: the conversion's text form is the text the sent value
- * encodes to, and it is the same fact identity. The sent value is encodable by construction; the conversion is
+ * The exact comparison of a sent value with its conversion: the conversion's canonical text is the text the sent
+ * value encodes to, which is its fact identity's part. The sent value is encodable by construction; the conversion is
  * compared as it is, never admitted.
  */
 const sameValue = (codec: ScalarCodec, sent: unknown, decoded: CarrierHost[Carrier]): boolean => {
 	const admitted = succeeded(admitValue(codec.spec, sent))
-	return (
-		codec.text(decoded) === codec.text(admitted) &&
-		codec.identity(decoded) === codec.identity(admitted)
-	)
+	return codec.text(decoded) === codec.text(admitted)
 }
 
 /**
  * PostgreSQL's output text of a value: admitted by the kernel's strict reader, and converted by the library to the value
- * the strict reader reads, the same text form and identity (no admission: PostgreSQL's value may lie outside what the
+ * the strict reader reads, the same canonical text (no admission: PostgreSQL's value may lie outside what the
  * encoder admits).
  */
 const read = (codec: TestCodec, text: unknown): Result.Result<CarrierHost[Carrier], string> => {
@@ -277,8 +281,7 @@ const read = (codec: TestCodec, text: unknown): Result.Result<CarrierHost[Carrie
 		return Result.err(strict.failure)
 	}
 	const converted = codec.convert(text)
-	return codec.text(strict.success) === codec.text(converted) &&
-		codec.identity(strict.success) === codec.identity(converted)
+	return codec.text(strict.success) === codec.text(converted)
 		? Result.ok(converted)
 		: Result.err("conversion differs")
 }
@@ -359,13 +362,12 @@ const batches = <A>(
 	suite,
 	draw: drawn(batchOf(values)),
 	literal: Formatter.format,
-	features: noFeatures,
+	coverage: noCoverage,
 	kept: [],
 	runs,
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(2)
 })
 
@@ -380,8 +382,9 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						suite: "pg/codec/scalar/round-trip",
 						draw: drawn(roundTripGen),
 						literal: Formatter.format,
-						features: features<RoundTripFeature>(
-							Arr.map(cases, (c): RoundTripFeature => `round-trips ${c.label}`)
+						coverage: required<RoundTripFeature>(
+							Arr.map(cases, (c): RoundTripFeature => `round-trips ${c.label}`),
+							{ cases: roundTripRuns * cases.length, sense: notesOnly }
 						),
 						kept: [],
 						/** Each carrier's 15 batches, as when every carrier searched on its own. */
@@ -389,7 +392,6 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ label, batch }, c) =>
@@ -421,13 +423,15 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 									] as const
 							),
 							literal: Formatter.format,
-							features: features<TypmodFeature>(Arr.map(typmods, typmodName)),
+							coverage: required<TypmodFeature>(Arr.map(typmods, typmodName), {
+								cases: 60,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: 60,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						([typmod, batch], notes) =>
@@ -626,13 +630,12 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						suite: "pg/codec/scalar/stored-row",
 						draw: drawn(uniqueArray(fact, (f) => Str.toLowerCase(f.id), { min: 1, max: 100 }, 10)),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 3,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(facts) =>

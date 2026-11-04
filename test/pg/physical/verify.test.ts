@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record as Rec } from "effect"
@@ -36,6 +36,7 @@ import {
 	projectCatalog
 } from "#test/support/catalog/expected.ts"
 
+import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	checkInstalled,
 	type InstalledProblem,
@@ -69,7 +70,7 @@ const driftBase = (name: string) => {
 	const DocCount = derived(
 		"DocCount",
 		query(base).rule((r) => {
-			const { id, org } = v(Doc)
+			const { id, org } = v(Doc, "doc")
 			return r.match(Doc, { id, org }).find({ org, docs: r.count() })
 		})
 	)
@@ -106,8 +107,8 @@ const driftBase = (name: string) => {
 const driftWorlds = (name: string) => {
 	const base = driftBase(name)
 	const mine = query(base).rule((r) => {
-		const { no, doc, author } = v(Note)
-		const { owner } = v(Doc)
+		const { no, doc, author } = v(Note, "note")
+		const { owner } = v(Doc, "doc")
 		return r
 			.match(Note, { no, doc, author })
 			.match(Doc, { id: doc, owner })
@@ -425,7 +426,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							generator: element(drifts),
 							literal: Formatter.format,
 							limit: drifts.length,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						([statements, expected]) =>
@@ -496,6 +497,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 				Effect.gen(function* () {
 					const declared = driftWorlds("Drift")
 					const installed = yield* install(declared.base, {
+						ambient: ordinarySession,
 						label: "drift",
 						logins: [declared.desk],
 						extensions: []
@@ -631,7 +633,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 								generator: element(drifts),
 								literal: Formatter.format,
 								limit: drifts.length,
-								features: noFeatures,
+								coverage: noCoverage,
 								caseHang: Duration.minutes(2)
 							},
 							([statements, expected]) =>

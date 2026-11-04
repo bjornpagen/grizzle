@@ -8,11 +8,9 @@ import type { Plan } from "#adapter/types/db.ts"
  * the root node. Each node has "Node Type", "Startup Cost", "Total Cost", "Plan Rows", "Plan Width" and, when it has
  * children, "Plans". The Plan keeps exactly those, recursively, and drops every other field PostgreSQL reports
  * ("Relation Name", "Index Cond", ...), so the typed plan is the same across server minor versions. No EXPLAIN here
- * is ever ANALYZE, so no node carries actual times or rows: the library never runs EXPLAIN ANALYZE.
- *
- * The EXPLAIN statement of one emitted statement: estimate-only, never ANALYZE, never executing the statement.
+ * is ever ANALYZE, so no node carries actual times or rows: the library never runs EXPLAIN ANALYZE. The EXPLAIN statement of
+ * one emitted statement is the engine's (sql/emit.ts explainOf): estimate-only, never executing the statement.
  */
-export const explainStatement = (sql: string): string => `EXPLAIN (FORMAT JSON) ${sql}`
 
 /**
  * One plan node as PostgreSQL prints it, admitted with only the members the Plan keeps. A leaf prints no "Plans", which

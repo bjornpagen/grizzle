@@ -116,7 +116,7 @@ const Unions = schema("Unions", { Kind, Account, Task, Note, Memo }, [
 ])
 
 const openArm = query(Unions).rule((r) => {
-	const { id, account, title } = v(Task)
+	const { id, account, title } = v(Task, "task")
 	return r
 		.match(Task, { id, account, kind: "Open", title })
 		.where(r.eq(account, r.param("account", pg.bigint)))
@@ -124,8 +124,8 @@ const openArm = query(Unions).rule((r) => {
 })
 
 const doneArm = query(Unions).rule((r) => {
-	const { id, account } = v(Task)
-	const { text } = v(Memo)
+	const { id, account } = v(Task, "task")
+	const { text } = v(Memo, "memo")
 	return r
 		.match(Task, { id, account, kind: "Done" })
 		.match(Memo, { task: id, text })
@@ -136,15 +136,15 @@ const doneArm = query(Unions).rule((r) => {
 /** The heterogeneous union of the two arms, discriminated by kind. */
 const activity = query(Unions)
 	.rule((r) => {
-		const { id, account, title } = v(Task)
+		const { id, account, title } = v(Task, "task")
 		return r
 			.match(Task, { id, account, kind: "Open", title })
 			.where(r.eq(account, r.param("account", pg.bigint)))
 			.find({ id, kind: Kind.handle("Open"), title })
 	})
 	.rule((r) => {
-		const { id, account } = v(Task)
-		const { text } = v(Memo)
+		const { id, account } = v(Task, "task")
+		const { text } = v(Memo, "memo")
 		return r
 			.match(Task, { id, account, kind: "Done" })
 			.match(Memo, { task: id, text })
@@ -158,15 +158,15 @@ const firstActivity = activity.orderBy(["id", "asc"]).take(10)
  */
 const noteActivity = query(Unions)
 	.rule((r) => {
-		const { id, account, title } = v(Task)
+		const { id, account, title } = v(Task, "task")
 		return r
 			.match(Task, { id, account, kind: "Open", title })
 			.where(r.eq(account, r.param("account", pg.bigint)))
 			.find({ id, kind: Kind.handle("Open"), title })
 	})
 	.rule((r) => {
-		const { id, account } = v(Task)
-		const { text } = v(Note)
+		const { id, account } = v(Task, "task")
+		const { text } = v(Note, "note")
 		return r
 			.match(Task, { id, account, kind: "Done" })
 			.match(Note, { task: id, text })
@@ -179,14 +179,14 @@ const noteActivity = query(Unions)
 /** The bounded union consumed by another query: the ids of the first ten. */
 const firstIds = query(Unions).rule((r) => {
 	const first = firstActivity.bind({ account: r.param("account", pg.bigint) })
-	const { id } = v(first)
+	const { id } = v(first, "first")
 	return r.match(first, { id }).find({ id })
 })
 
 /** R25: two identical pipelined attachments of one parent. */
 const twice = query(Unions)
 	.rule((r) => {
-		const { id, region } = v(Account)
+		const { id, region } = v(Account, "account")
 		return r
 			.match(Account, { id, region })
 			.where(r.eq(region, r.param("region", pg.integer)))
@@ -196,7 +196,7 @@ const twice = query(Unions)
 		"tasks",
 		(a) =>
 			query(Unions).rule((r) => {
-				const { id, kind, title, priority, due } = v(Task)
+				const { id, kind, title, priority, due } = v(Task, "task")
 				return r
 					.match(Task, { id, account: a.id, kind, title, priority, due })
 					.find({ id, kind, title, priority, due })
@@ -207,7 +207,7 @@ const twice = query(Unions)
 		"again",
 		(a) =>
 			query(Unions).rule((r) => {
-				const { id, kind, title, priority, due } = v(Task)
+				const { id, kind, title, priority, due } = v(Task, "task")
 				return r
 					.match(Task, { id, account: a.id, kind, title, priority, due })
 					.find({ id, kind, title, priority, due })

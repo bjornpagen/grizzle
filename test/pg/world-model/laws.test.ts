@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import type { Reached } from "@grizzle/testing/features"
+import type { Situations } from "@grizzle/testing/features"
 import { Array as Arr, Option } from "effect"
 import { isImmediate } from "#test/pg/laws/families/model.ts"
 import { assert } from "#test/support/assert.ts"
@@ -28,8 +28,10 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * Every law of the documents base (a foreign key, a candidate key, a capacity, a row check, a contract's domain CHECK,
  * and every relation's primary key) under every writer: grizzle's Db through whole and query entries, and direct SQL writers that took on a
  * role. Programs draw writes, live, stale and wild, with laws broken by the facts they submit, by facts outside the
- * writer's world, by references to hidden or deleted facts and by duplicates within one input; the worlds model judges
- * each outcome, and the driver holds every committed state, read as the owner, to the model's lawful reality.
+ * writer's world, by references to hidden or deleted facts and by duplicates within one input, and insertions whose
+ * facts leave out their serial fields, through an entry whose every carried field is serial among them; the worlds
+ * model judges each outcome, and the driver holds every committed state, read as the owner, to the model's lawful
+ * reality.
  *
  * Beside the model, two rules of the README are held directly: a refusal's shown witness carries only keys the writer
  * submitted (in its transaction, or through its claims) and keys of relations its role holds whole; and a law a direct
@@ -38,7 +40,10 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  */
 const writes: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
 
-/** The invalid inputs a law meets: facts that break it, outside the world, colliding with or naming hidden facts. */
+/**
+ * The invalid inputs a law meets: facts that break it, outside the world, colliding with or naming hidden facts, and
+ * insertions that leave out some of their serial fields and not all, or one their entry's filter reads.
+ */
 const lawInputs = invalidFeatures([
 	"fact:law-broken",
 	"fact:outside-world",
@@ -47,8 +52,21 @@ const lawInputs = invalidFeatures([
 	"fact:hidden-reference",
 	"fact:deleted-reference",
 	"fact:duplicate-in-input",
-	"fact:domain-refused"
+	"fact:domain-refused",
+	"fact:partial-serial",
+	"fact:filtered-serial-omitted"
 ])
+
+/**
+ * Insertions whose every carried field is serial, the unit relation's generated class, through a query entry and into a
+ * relation written whole: complete facts, and generated ones, which carry no field.
+ */
+const unitAdditions: ReadonlyArray<WorldFeature> = [
+	"addition:generated:entry:unit",
+	"addition:complete:entry:unit",
+	"addition:generated:whole:unit",
+	"addition:complete:whole:unit"
+]
 
 const refusedByLaw = opIn({
 	kinds: ["apply", "direct", "direct-end"],
@@ -85,9 +103,10 @@ const deferredAtCommit: StepCheck = ({ seen }) => {
 	)
 }
 
-const required: ReadonlyArray<Reached<WorldFeature>> = [
+const required: Situations<WorldFeature> = [
 	...requiredWhere((f: WorldFeature) => refusedByLaw(f) || committed(f) || lawFunction(f)),
-	...lawInputs
+	...lawInputs,
+	...unitAdditions
 ]
 
 /** Both rules the README states beside the model, held over every action of the suite. */

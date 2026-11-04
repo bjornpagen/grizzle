@@ -103,12 +103,14 @@ export const planStatistics = (
 				`statistics on a stored or derived relation; ${r.relation} is none`
 			)
 		}
+		const [first, second, ...more] = r.columns
 		if (
-			r.columns.length < 2 ||
+			first === undefined ||
+			second === undefined ||
 			r.columns.length > 8 ||
 			new Set(r.columns).size !== r.columns.length
 		) {
-			refuse(
+			return refuse(
 				"MalformedDescription",
 				SourceLoc(label, []),
 				"two to eight distinct statistics columns"
@@ -128,7 +130,11 @@ export const planStatistics = (
 			kind: "createStatistics",
 			name: { schema: b.schema, name },
 			statistics: r.kinds,
-			columns: r.columns.map((f) => b.names.column(r.relation, f)),
+			columns: [
+				b.names.column(r.relation, first),
+				b.names.column(r.relation, second),
+				...more.map((f) => b.names.column(r.relation, f))
+			],
 			table: b.names.relation(r.relation)
 		}
 		const reasons: ReadonlyArray<PhysicalReason> = [{ kind: "access" }]

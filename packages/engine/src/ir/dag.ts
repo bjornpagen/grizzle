@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, omitSourceLocs, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -389,7 +390,10 @@ const named = (index: ReadonlyMap<NodeId, RelNode>, refs: OuterRefs): ReadonlyAr
 	for (const [id, columns] of refs) {
 		const node = index.get(id)
 		if (node?.kind === "MatchRegion") {
-			vars.push(...node.vars.filter((v) => columns.has(v.name)).map((v) => v.id))
+			appendAll(
+				vars,
+				node.vars.filter((v) => columns.has(v.name)).map((v) => v.id)
+			)
 		}
 	}
 	return sortedUnique(vars)
@@ -706,7 +710,6 @@ const tableExprOf = (e: ScalarExpr): TableExpr => {
 	return Object.freeze({
 		...spec,
 		volatility: e.volatility,
-		failure: e.failure,
 		id: e.id,
 		deps: e.deps
 	})
@@ -879,7 +882,7 @@ export const normalizeWithin = (
 				params: expr.deps.params,
 				nodes: sortedUnique(expr.deps.nodes.map((label) => n.named(label, ["exprs", id, "deps"])))
 			}
-			exprs[id] = { ...spec, volatility: expr.volatility, failure: expr.failure, id, deps }
+			exprs[id] = { ...spec, volatility: expr.volatility, id, deps }
 		}
 		return deepFreeze({ roots: tableRoots, nodes, exprs })
 	})

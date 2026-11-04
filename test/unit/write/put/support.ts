@@ -111,7 +111,7 @@ export const shopCompiled = (value: unknown, options: ShopCompile): CompiledWrit
  * stored relation. */
 export const stockFromParam = (relationValue: unknown, name: string): QueryValue =>
 	query(Shop).rule((r: RuleValue) => {
-		const { id, label: l, qty } = v(relationValue)
+		const { id, label: l, qty } = v(relationValue, "relationValue")
 		return r
 			.match(r.relation(name, relationValue), { id, label: l, qty })
 			.find({ id, label: l, qty })
@@ -120,6 +120,6 @@ export const stockFromParam = (relationValue: unknown, name: string): QueryValue
 /** Every Stock fact with label `from` moved to label `to`: a described put that reads only existing keys. */
 export const relabel = (from: string, to: string): QueryValue =>
 	query(Shop).rule((r: RuleValue) => {
-		const { id, qty } = v(Stock)
-		return r.match(Stock, { id, label: from, qty }).find({ id, label: r.literal(to), qty })
+		const { id, qty } = v(Stock, "stock")
+		return r.match(Stock, { id, label: from, qty }).find({ id, label: to, qty })
 	})

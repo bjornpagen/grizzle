@@ -1,11 +1,13 @@
 import { fail } from "#compiler/check/fail.ts"
 import { ParamId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
 import {
 	type AttachDesc,
 	type BindingsDesc,
+	type BindTermDesc,
 	type ExprDesc,
+	type FieldDesc,
 	type HeadTermDesc,
 	type InteriorDesc,
 	type Located,
@@ -26,8 +28,8 @@ import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { commonType, compatible, withoutSerial } from "#compiler/scalar/compute/types.ts"
 
 /**
- * A parameter is of one kind once a use types it: a scalar of the type its uses adopt, or a relation of the heading
- * every use declares. Until then it is untyped.
+ * A parameter is of one kind once a use types it: a scalar of the type its uses declare, or a relation of the heading
+ * every use declares. Until its first use is checked it is untyped.
  */
 type Entry =
 	| { readonly kind: "untyped" }
@@ -44,16 +46,16 @@ const sameHeading = (a: Heading, b: Heading): boolean =>
 	})
 
 /**
- * One parameter of a namespace the checker's walk resolves (resolveQuery): one of the query's own, typed by its uses,
- * or one of an imported query's, which its import's bind map replaces at every use, so nothing types it.
+ * One parameter of a namespace the checker's walk resolves (resolveQuery): one of the query's own, typed by the
+ * declarations of its uses, or one of an imported query's, which its import's bind map replaces at every use, so
+ * nothing types it.
  *
- * `r.param("name")` is typed from its uses, and compatible uses of one parameter unify within a query. A scalar
- * parameter takes the type of the term it meets: a comparison against a contract field types it by the contract, so its
- * host type carries the brand, and against a regex-refined field by the refinement, while the placeholder is bound as
- * the base type, plain text for regex text. Two uses must be compatible (scalar/compute/types.ts compatible); where they
- * differ only in a numeric typmod or a text refinement, the declared type widens to their common type, as PostgreSQL's
- * own common-type rule does. A relation parameter has a declared heading, and every use declares the same one. One
- * parameter is never both a scalar and a relation parameter. `take("batch")` joins the parameters as pg.integer.
+ * `r.param(name, descriptor)` declares a scalar parameter of the descriptor's type at each of its uses, and the
+ * declarations of one parameter unify within a query: they must be compatible (scalar/compute/types.ts compatible), and
+ * where they differ only in a numeric typmod or a text refinement, the parameter widens to their common type, as
+ * PostgreSQL's own common-type rule does. Its placeholder is bound as the base type, plain text for regex text. A
+ * relation parameter has a declared heading, and every use declares the same one. One parameter is never both a
+ * scalar and a relation parameter. `take("batch")` joins the parameters as pg.integer.
  */
 export class ParamCell {
 	readonly name: string
@@ -66,12 +68,7 @@ export class ParamCell {
 		this.#entry = entry
 	}
 
-	/** The type the parameter has so far as a scalar, if any use has fixed it. */
-	typeOf(): ScalarType | undefined {
-		return this.#entry.kind === "scalar" ? this.#entry.type : undefined
-	}
-
-	/** Records a use of the parameter as a scalar at `type`, the type it adopts. */
+	/** Records a use of the parameter as a scalar at `type`, the type the use declares. */
 	use(type: ScalarType, loc: SourceLoc): ParamId {
 		const prior = this.#entry
 		const adopted = withoutSerial(type)
@@ -135,7 +132,7 @@ export class ParamCell {
 				return fail(
 					"MalformedDescription",
 					loc,
-					`a type for parameter ${this.name}: no comparison, member field or bound types it`
+					`a use of parameter ${this.name}: the query names it where none of its uses is checked`
 				)
 		}
 	}
@@ -152,8 +149,15 @@ export class ParamCell {
  */
 export const boundParam = (name: string): ParamCell => new ParamCell(name, untyped)
 
+/**
+ * What a resolved scalar parameter reference states of its type: the field descriptor the Description declares, or,
+ * for a parameter the checker itself writes (recursion/factor.ts), a channel, which its import's bind map binds to a
+ * column whose type it has.
+ */
+export type ParamTyping = FieldDesc | { readonly kind: "channel" }
+
 /** A description's references once the checker resolves them: each parameter reference carries its cell. */
-export type Resolved = ParamsAs<{ readonly cell: ParamCell }>
+export type Resolved = ParamsAs<{ readonly cell: ParamCell }, ParamTyping>
 
 export type ResolvedQuery = QueryDesc<Located, Resolved>
 export type ResolvedStage = QueryStageDesc<Located, Resolved>
@@ -165,6 +169,7 @@ export type ResolvedRule = RuleDesc<Located, Resolved>
 export type ResolvedMatch = MatchDesc<Located, Resolved>
 export type ResolvedSource = SourceDesc<Located, Resolved>
 export type ResolvedBindings = BindingsDesc<Located, Resolved>
+export type ResolvedBound = BindTermDesc<Located, Resolved>
 export type ResolvedHead = HeadTermDesc<Located, Resolved>
 export type ResolvedExpr = ExprDesc<Located, Resolved>
 
@@ -182,19 +187,7 @@ export class ParamTable {
 		this.size = cells.length
 	}
 
-	scalarTypes(): ReadonlyMap<string, ScalarType> {
-		return new Map(
-			this.#cells.flatMap((c) => {
-				const type = c.typeOf()
-				return type === undefined ? [] : [[c.name, type] as const]
-			})
-		)
-	}
-
-	/**
-	 * The declared parameters of a final pass, in name order, refused at `loc` for a parameter no use typed (a pass that
-	 * leaves a head parameter untyped is run again or refused first, check/index.ts).
-	 */
+	/** The declared parameters, in name order, refused at `loc` for a parameter no checked use typed. */
 	decls(loc: SourceLoc): ReadonlyArray<ParamDecl> {
 		return this.#cells.map((c) => c.decl(loc))
 	}
@@ -232,26 +225,15 @@ const importedNamespace = (): ParamSpelling<Resolved["param"]> => {
 }
 
 /**
- * A query description resolved for one checker pass, in the one walk over its parameters (ir/desc.ts mapQueryParams):
- * each parameter reference carries its cell, and the table holds the query's own. `seed` types the head parameters a
- * previous pass learned (check/index.ts); empty on the first pass.
+ * A query description resolved for the checker, in the one walk over its parameters (ir/desc.ts mapQueryParams): each
+ * parameter reference carries its cell, and the table holds the query's own.
  */
 export const resolveQuery = (
-	q: QueryDesc,
-	seed: ReadonlyMap<string, ScalarType>
+	q: QueryDesc
 ): { readonly query: ResolvedQuery; readonly params: ParamTable } => {
 	const own = new Map<string, ParamCell>()
-	const seeded = (name: string): ParamCell => {
-		const type = seed.get(name)
-		return new ParamCell(
-			name,
-			type === undefined
-				? untyped
-				: { kind: "scalar", type, loc: SourceLoc("parameter", ["parameters", name]) }
-		)
-	}
 	const query = mapQueryParams(q, {
-		param: (name) => ({ cell: cellIn(own, name, () => seeded(name)) }),
+		param: (name) => ({ cell: cellIn(own, name, () => new ParamCell(name, untyped)) }),
 		imported: importedNamespace
 	})
 	return { query, params: new ParamTable([...own.values()]) }

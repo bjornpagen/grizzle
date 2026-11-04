@@ -33,7 +33,7 @@ import {
 } from "#compiler/physical/ddl/roles.ts"
 import {
 	compileInstallation,
-	type DescribedLaw,
+	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
@@ -82,7 +82,7 @@ export interface SchemaArtifacts {
 	/** Each owner's installed constraint names to the law a violation reports. */
 	readonly constraintToLaw: ConstraintLaws
 	/** Every law of the theory with its description (physical/install Installation). */
-	readonly theoryLaws: ReadonlyArray<DescribedLaw>
+	readonly theoryLaws: Installation["theoryLaws"]
 	/** Every law a violation can report, by its LawId, as an outcome names it (physical/install Installation). */
 	readonly described: ReadonlyMap<LawId, Law>
 }
@@ -153,7 +153,7 @@ export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, Com
 		return Result.ok(parsed({ kind: "built", value, desc: built }))
 	}
 	return Result.flatMap(
-		catchCompileError(() => hostArguments("schema", value)),
+		catchCompileError(() => hostArguments("schema", [value])),
 		() => Result.map(decodeDesc("schema", value), (desc) => parsed({ kind: "desc", desc }))
 	)
 }
@@ -324,7 +324,7 @@ const worldTextNames = (
 				textDomain: (regex) =>
 					base.textDomain(regex) ??
 					(patterns.has(regex.key)
-						? { schema: base.schema, name: identifierOf(identity.textDomain(regex.key)) }
+						? { schema: base.types, name: identifierOf(identity.textDomain(regex.key)) }
 						: undefined)
 			}
 		}

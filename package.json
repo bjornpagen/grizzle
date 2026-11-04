@@ -81,6 +81,13 @@
 					"packages/testing/src/vitest/coverage.ts",
 					"test/support/substrate/shared.ts"
 				]
+			},
+			{
+				"rule": "no-spread-argument",
+				"files": [
+					"packages/grizzle/src/adapter/wire/releasing-pool.ts",
+					"test/unit/deps/runtime-probe.ts"
+				]
 			}
 		],
 		"sqlTextAssertion": {

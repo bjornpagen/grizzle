@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -14,7 +15,7 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
-import { columnRefs, DagEditor, total } from "#compiler/lower/optimize/demand/editor.ts"
+import { columnRefs, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type Measure,
 	multiset,
@@ -53,7 +54,7 @@ const certify = (
 		rule,
 		inputs: [m.cell.id, through],
 		outputs,
-		premises: nodePremises(through),
+		premises: nodePremises([through]),
 		context: "queryLocal",
 		preservedHeading: m.filter.heading.map((c) => c.name),
 		equality: [],
@@ -147,7 +148,7 @@ const throughLeft = (
 	x: KindOver<"SemiJoin" | "AntiJoin" | "Intersect" | "Difference", EditRefs>
 ): boolean => {
 	const ed = cx.editor
-	if (!total([m.filter.pred]) || cx.demand().lateral(x.left)) {
+	if (cx.demand().lateral(x.left)) {
 		return false
 	}
 	const moved = filterOver(ed, x.left, ed.copyExpr(m.filter.pred, ed.retarget(xCell, x.left)))
@@ -228,9 +229,6 @@ const intoSource = (
 		return true
 	}
 	for (const part of parts) {
-		if (!total([part])) {
-			continue
-		}
 		const refs = columnRefs([part])
 		if (refs.length === 0 || !refs.every((r) => r.node === regionCell.id)) {
 			continue
@@ -303,7 +301,10 @@ const pushdownMeasure: Measure = (cx) => {
 		const below = [...cx.editor.subtree(node.input)].filter(
 			(c) => c.current.kind !== "Filter"
 		).length
-		weights.push(...conjuncts(node.pred).map(() => below))
+		appendAll(
+			weights,
+			conjuncts(node.pred).map(() => below)
+		)
 	}
 	return multiset(weights)
 }
@@ -311,8 +312,8 @@ const pushdownMeasure: Measure = (cx) => {
 /**
  * The predicate movement pass.
  *
- * Legal predicate movement: push a filter toward its sources where the move
- * preserves both the set and the error frontier.
+ * Legal predicate movement: push a filter toward its sources where the move preserves the set. No expression raises
+ * (scalar/compute/registry.ts Totality), so where a filter is evaluated changes nothing but which rows reach it.
  *
  * A filter moves below one node at a time, and only below a node it alone reads (one reference, no root, no lateral
  * reference), so no other consumer's set changes and no shared stage is copied:
@@ -326,11 +327,11 @@ const pushdownMeasure: Measure = (cx) => {
  *   an input filter");
  * - pushdown.union: sigma_p(A u B) = sigma_p(A) u sigma_p(B), each arm filtered on its own columns;
  * - pushdown.left: a semi-join, anti-join, intersection or difference keeps rows of its left side, so
- *   sigma_p(L op R) = sigma_p(L) op R. The filter then sees left rows the right side would have removed, so the
- *   predicate must be total;
+ *   sigma_p(L op R) = sigma_p(L) op R. The filter then sees left rows the right side would have removed, which it
+ *   evaluates without raising, as every expression does;
  * - pushdown.source: a conjunct over a region's variables that one occurrence binds moves onto that occurrence's
  *   source, when the source is a stage the filter can be pushed through further (a group, union, set comparison or
- *   semi- or anti-join). The conjunct is then evaluated on every source row, so it must be total.
+ *   semi- or anti-join). The conjunct is then evaluated on every source row, which it does without raising.
  *
  * A filter never moves below a take (the first k of a filtered set are not the filtered first k), a page, recursion,
  * an attachment, or an approximate candidate set ("moving a predicate changes approximate candidate

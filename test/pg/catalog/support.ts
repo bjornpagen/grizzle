@@ -6,6 +6,7 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -19,7 +20,7 @@ import { plainType } from "#compiler/scalar/compute/types.ts"
 import { defined } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
-import { spellingChoiceCount } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { type GenSchema, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import type { LabelledCase, Lowering } from "#test/support/oracle/runner.ts"
@@ -80,7 +81,7 @@ export const lab: GenSchema = {
 export const labOptions: CatalogOptions = { catalog: genCatalog(lab), parents: "auto" }
 
 const i = (value: number): TypedLiteral => ({ kind: "int", value: BigInt(value) })
-const d = (value: number): TypedLiteral => ({ kind: "float", value })
+const d = (value: number): TypedLiteral => ({ kind: "float", value: canonicalZero(value) })
 
 /**
  * Sittings: student 1 has ties on the day broken by id; student 2 one sitting; student 3 ties on the score; student 4
@@ -165,9 +166,8 @@ const rowsOf = (
 	])
 
 /**
- * Drawn lab facts: five students, days 1 to 12, dyadic scores and integer amounts, so every sum is exact and the native
- * targets and their compositions compare as raw text; points over five groups with dyadic coordinates, a group whose
- * every x is equal (a degenerate slope) planted by the small x domain.
+ * Drawn lab facts: five students, days 1 to 12, small domains of dyadic scores and integer amounts, so ties come up;
+ * points over five groups with dyadic coordinates, many sharing an x, the score a match reads them at.
  */
 export const factsGen: Gen<Facts> = (source) => ({
 	sittings: source.draw(
@@ -202,13 +202,9 @@ export const oracleCase = (label: string, desc: QueryDesc, f: Facts): LabelledCa
 	return {
 		label,
 		schema: lab,
-		facts: facts(f),
+		facts: canonicalFacts(facts(f)),
 		query: { dag: q.dag, params: {} },
-		spelling: {
-			mode: "perCase",
-			choices: Array.from({ length: spellingChoiceCount }, () => 0),
-			edge: false
-		}
+		spelling: { mode: "drawn", edge: false }
 	}
 }
 

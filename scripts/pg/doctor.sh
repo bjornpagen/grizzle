@@ -31,8 +31,7 @@ fi
 
 check "server version is $PG_PIN_VERSION" "$PG_PIN_VERSION" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SHOW server_version")"
-# LLVM is built but not required, since grizzle runs with jit = off; OpenSSL is covered by the TLS checks; lz4 and
-# zstd are probed through settings that require them.
+# OpenSSL is covered by the TLS checks; lz4 and zstd are probed through settings that require them.
 check "built with lz4" "lz4" "$(dev "$PG_DEV_ROLE" -At -c "SET default_toast_compression = lz4" -c "SHOW default_toast_compression")"
 check "built with zstd" "zstd" "$(admin_psql -d postgres -At -c "SET wal_compression = zstd" -c "SHOW wal_compression" 2>&1)"
 

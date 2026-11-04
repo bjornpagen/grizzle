@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, filter, subarray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -179,7 +180,7 @@ const planted: Arr.NonEmptyReadonlyArray<{
 		schema: Items,
 		read: query(Items)
 			.rule((r) => {
-				const { id, x } = v(Item)
+				const { id, x } = v(Item, "item")
 				return r.match(Item, { id, x }).find({ id })
 			})
 			.orderBy(["id", "asc"])
@@ -190,7 +191,7 @@ const planted: Arr.NonEmptyReadonlyArray<{
 		schema: Items,
 		read: query(Items)
 			.rule((r) => {
-				const { id, x } = v(Item)
+				const { id, x } = v(Item, "item")
 				return r.match(Item, { id, x }).where(r.lt(x, 3)).find({ id, x })
 			})
 			.orderBy(["x", "desc"], ["id", "asc"])
@@ -201,14 +202,14 @@ const planted: Arr.NonEmptyReadonlyArray<{
 		schema: Routes,
 		read: query(Routes)
 			.rule((r) => {
-				const { route } = v(Stop)
+				const { route } = v(Stop, "stop")
 				return r.match(Stop, { route }).find({ route })
 			})
 			.attach(
 				"stops",
 				(p) =>
 					query(Routes).rule((r) => {
-						const { route } = v(Stop)
+						const { route } = v(Stop, "stop")
 						return r.match(Stop, { route: p.route }).match(Stop, { route }).find({})
 					}),
 				"array"
@@ -225,9 +226,10 @@ describe("the optimized lowering of checked public programs", () => {
 					suite: "unit/lower/public-programs",
 					draw: drawn(caseSketchGen),
 					literal: Formatter.format,
-					features: features<IdentityFeature>([
-						"an option or bare child over an identity projection's input"
-					]),
+					coverage: required<IdentityFeature>(
+						["an option or bare child over an identity projection's input"],
+						{ cases: 300, sense: notesOnly }
+					),
 					kept: [],
 					/**
 					 * Each read compiles once without a database; an option child over an identity projection's input is
@@ -237,7 +239,6 @@ describe("the optimized lowering of checked public programs", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(sketch, n) =>
@@ -265,7 +266,7 @@ describe("the optimized lowering of checked public programs", () => {
 					generator: element(planted),
 					literal: Formatter.format,
 					limit: planted.length,
-					features: features<IdentityFeature>([
+					coverage: requiredInSpace<IdentityFeature>([
 						"an option or bare child over an identity projection's input",
 						"a take over an identity projection's input"
 					]),
@@ -300,17 +301,19 @@ describe("the optimized lowering of checked public programs", () => {
 							return { handles, twin: source.draw(boolean) }
 						}),
 						literal: Formatter.format,
-						features: features<RosterFeature>([
-							"an import bound to a variable only a roster match binds",
-							"roster match dropped beside a plain binder"
-						]),
+						coverage: required<RosterFeature>(
+							[
+								"an import bound to a variable only a roster match binds",
+								"roster match dropped beside a plain binder"
+							],
+							{ cases: 40, sense: notesOnly }
+						),
 						kept: [],
-						/** Each case lowers one read; a coin decides the twin, so 40 cases reach both forms many times. */
+						/** The rotating stream's sample, each case one read lowered and a coin deciding the twin. */
 						runs: 40,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ handles, twin }, n) =>
@@ -320,16 +323,16 @@ describe("the optimized lowering of checked public programs", () => {
 							const Plant = schema("Plant", { Tier, Item }, [])
 							/** The items of the tier a parameter names, by their tier. */
 							const ofTier = query(Plant).rule((r) => {
-								const { tier } = v(Item)
+								const { tier } = v(Item, "item")
 								return r
 									.match(Item, { tier })
 									.where(r.eq(tier, r.param("k", closedId(Tier))))
 									.find({ tier })
 							})
 							const read = query(Plant).rule((r) => {
-								const { id: x } = v(Tier)
+								const { id: x } = v(Tier, "tier")
 								const matched = r.match(Tier, { id: x })
-								const { id } = v(Item)
+								const { id } = v(Item, "item")
 								return (twin ? matched.match(Item, { id, tier: x }) : matched)
 									.match(ofTier.bind({ k: x }), { tier: x })
 									.find({ x })

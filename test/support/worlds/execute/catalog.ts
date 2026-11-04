@@ -15,15 +15,17 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { lawUnits } from "#compiler/ir/law.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { roleIdentity, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import type { OwnedRole } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import type { CreatePolicy, CreateView } from "#compiler/sql/ast.ts"
+import type { CreatePolicy, CreateView, RoleSetting } from "#compiler/sql/ast.ts"
 import { and, col, derived, lit, simpleSelect, target } from "#compiler/sql/build.ts"
-import { printStatement, quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { printStatement, quoteIdent, quoteString, storedSettingValue } from "#compiler/sql/print.ts"
+import type { AmbientOwner } from "#test/support/ambient.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { fromSnapshot, generate, draftedAt } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
@@ -177,12 +179,14 @@ const killedAt = (session: Session, at: KillPoint): MigrationSession => {
 }
 
 /**
- * Runs the migration runner on the substrate owner's migration session in the substrate's database with `folders`
- * (applied or pending): what `grizzle migrate` sends, its drift check after it, ended as `end` says. Nothing pending
- * runs the drift check alone, as `grizzle drift` does.
+ * Runs the migration runner in the substrate's database with `folders` (applied or pending) on a migration session of
+ * `owner`, the installation's owner login, under the ambient session it was installed under: what `grizzle migrate`
+ * sends, its drift check after it, ended as `end` says. Nothing pending runs the drift check alone, as `grizzle drift`
+ * does.
  */
 export const runFolders = (
 	substrate: SubstrateShape,
+	owner: AmbientOwner,
 	snapshot: DeploySnapshot,
 	folders: ReadonlyArray<FolderSource>,
 	end: RunEnd
@@ -192,8 +196,8 @@ export const runFolders = (
 			const connection = yield* Effect.orDie(
 				wireSession(substrate.cluster, {
 					database: substrate.database,
-					username: substrate.owner.role,
-					password: substrate.owner.password,
+					username: owner.credentials.role,
+					password: owner.credentials.password,
 					applicationName: migrateApplicationName
 				})
 			)
@@ -212,10 +216,11 @@ export const runFolders = (
 /** `grizzle drift`: the applied folders run again, nothing pending, so only the drift check runs. */
 export const drift = (
 	substrate: SubstrateShape,
+	owner: AmbientOwner,
 	snapshot: DeploySnapshot,
 	folders: ReadonlyArray<FolderSource>
 ): Effect.Effect<Seen> =>
-	Effect.flatMap(runFolders(substrate, snapshot, folders, { kind: "runner" }), (outcome) => {
+	Effect.flatMap(runFolders(substrate, owner, snapshot, folders, { kind: "runner" }), (outcome) => {
 		switch (outcome.kind) {
 			case "applied":
 				return Effect.succeed(seen({ kind: "drift", objects: [] }))
@@ -340,15 +345,19 @@ const settingRole = (names: InstalledNames, who: SettingWho): Effect.Effect<stri
 type SettingWho = Extract<CatalogPerturbation, { readonly kind: "role-setting" }>["who"]
 
 /** The role-level defaults the installation stores for a PostgreSQL role, in install order. */
-const installedDefaults = (
-	installation: Installation,
-	role: string
-): ReadonlyArray<{ readonly parameter: string; readonly value: string }> =>
+const installedDefaults = (installation: Installation, role: string): ReadonlyArray<RoleSetting> =>
 	Arr.filterMap(installation.statements, (s) =>
 		s.kind === "alterRole" && s.name === role && s.action.kind === "set"
-			? Result.succeed({ parameter: s.action.parameter, value: s.action.value })
+			? Result.succeed(s.action.setting)
 			: Result.failVoid
 	)
+
+/**
+ * The server's default of `setting`'s parameter, `boot`, as ALTER ROLE ... SET spells it: pg_settings spells a
+ * search_path as the list it is, each schema as quote_identifier does; any other value is one string literal.
+ */
+const bootSql = (setting: RoleSetting, boot: string): string =>
+	setting.parameter === "search_path" ? boot : quoteString(boot)
 
 /** The value the server gives a parameter no setting names. */
 const bootValue = (admin: PgConnection, parameter: string): Effect.Effect<string, SqlError> =>
@@ -395,12 +404,12 @@ const roleSettingStatements = (
 						p.scope === "own"
 							? Effect.succeed([`${at} RESET ${d.parameter}`])
 							: Effect.map(bootValue(admin, d.parameter), (value) => [
-									`${at} SET ${d.parameter} = ${quoteString(value)}`
+									`${at} SET ${d.parameter} = ${bootSql(d, value)}`
 								])
 				})
 			case "default-changed": {
 				const installed = Arr.findFirst(defaults, (d) => d.parameter === "extra_float_digits")
-				const value = Option.exists(installed, (d) => d.value === "0") ? "1" : "0"
+				const value = Option.exists(installed, (d) => storedSettingValue(d) === "0") ? "1" : "0"
 				return [`${at} SET extra_float_digits = ${quoteString(value)}`]
 			}
 			case "extra":
@@ -524,11 +533,14 @@ const defaultOf = (domain: FieldDomain): Effect.Effect<string> => {
 	}
 }
 
-/** The function a trigger the installation defines runs, and the table it is on when that names it. */
-const triggerFunction = (
+/** The functions the triggers of a trigger reference run, each with the table it is on when that names it: every unit
+ * function of a residual law, or a table's isolation guard. */
+const triggerFunctions = (
 	catalog: Catalog,
 	trigger: TriggerRef
-): Effect.Effect<{ readonly name: string; readonly table: Option.Option<string> }> => {
+): Effect.Effect<
+	Arr.NonEmptyReadonlyArray<{ readonly name: string; readonly table: Option.Option<string> }>
+> => {
 	switch (trigger.kind) {
 		case "law":
 			return Option.match(
@@ -537,14 +549,18 @@ const triggerFunction = (
 					onNone: () =>
 						Effect.die(new Error(`the installation has no residual law ${trigger.law}`)),
 					onSome: (residual) =>
-						Effect.succeed({ name: identifierOf(residual.function), table: Option.none() })
+						Effect.succeed(
+							Arr.map(lawUnits(residual), (u) => ({
+								name: identifierOf(u.unit.function),
+								table: Option.none()
+							}))
+						)
 				}
 			)
 		case "isolation-guard":
-			return Effect.map(rawName(catalog.names.tables, trigger.relation, "table"), (table) => ({
-				name: isolationGuardName,
-				table: Option.some(table)
-			}))
+			return Effect.map(rawName(catalog.names.tables, trigger.relation, "table"), (table) => [
+				{ name: isolationGuardName, table: Option.some(table) }
+			])
 	}
 }
 
@@ -561,27 +577,31 @@ const disabledTriggers = (
 	trigger: TriggerRef
 ): Effect.Effect<ReadonlyArray<string>, SqlError> =>
 	Effect.gen(function* () {
-		const fn = yield* triggerFunction(catalog, trigger)
 		const schema = catalog.names.schema
-		const rows = yield* Option.match(fn.table, {
-			onNone: () => admin.queryValues(`${triggersQuery} ORDER BY 1, 2`, [schema, fn.name]),
-			onSome: (table) =>
-				admin.queryValues(`${triggersQuery} AND c.relname = $3::name ORDER BY 1, 2`, [
-					schema,
-					fn.name,
-					table
-				])
-		})
-		const statements = yield* Effect.forEach(rows, ([table, name]) =>
-			typeof table === "string" && typeof name === "string"
-				? Effect.succeed(
-						`ALTER TABLE ${quoteIdent(schema)}.${quoteIdent(table)} DISABLE TRIGGER ${quoteIdent(name)}`
-					)
-				: Effect.die(new Error("a trigger row without its table and name"))
+		const statements = yield* Effect.forEach(yield* triggerFunctions(catalog, trigger), (fn) =>
+			Effect.gen(function* () {
+				const rows = yield* Option.match(fn.table, {
+					onNone: () => admin.queryValues(`${triggersQuery} ORDER BY 1, 2`, [schema, fn.name]),
+					onSome: (table) =>
+						admin.queryValues(`${triggersQuery} AND c.relname = $3::name ORDER BY 1, 2`, [
+							schema,
+							fn.name,
+							table
+						])
+				})
+				const disabled = yield* Effect.forEach(rows, ([table, name]) =>
+					typeof table === "string" && typeof name === "string"
+						? Effect.succeed(
+								`ALTER TABLE ${quoteIdent(schema)}.${quoteIdent(table)} DISABLE TRIGGER ${quoteIdent(name)}`
+							)
+						: Effect.die(new Error("a trigger row without its table and name"))
+				)
+				return Arr.isReadonlyArrayNonEmpty(disabled)
+					? disabled
+					: yield* Effect.die(new Error(`the installation has no trigger running ${fn.name}`))
+			})
 		)
-		return Arr.isReadonlyArrayNonEmpty(statements)
-			? statements
-			: yield* Effect.die(new Error(`the installation has no trigger running ${fn.name}`))
+		return Arr.flatten(statements)
 	})
 
 /** The statements that make one perturbation, as the owner, in order. */
@@ -681,7 +701,7 @@ const perturbationStatements = (
 					onNone: () => [],
 					onSome: (policy) => [
 						printStatement({ kind: "dropPolicy", name: policy.name, table: policy.table }),
-						printStatement({ ...policy, filter: and(policy.filter, lit.bool(true)) })
+						printStatement({ ...policy, filter: and([policy.filter, lit.bool(true)]) })
 					]
 				})
 			case "view-redefined":

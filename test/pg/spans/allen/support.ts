@@ -10,7 +10,7 @@ import {
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, paramTexts, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, installationSql, paramTexts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -70,7 +70,7 @@ export const installSpans = (
 		const s = yield* Substrate
 		const schema = yield* s.schema({ create: false, label: options.label })
 		const installation = compileSpans(desc, schema, s.owner.role, options)
-		yield* transaction(s.admin, installation.sql)
+		yield* transaction(s.admin, installationSql(installation))
 		const out: InstalledSpans = { schema, installation, world: yield* oracleWorld(installation) }
 		return out
 	})

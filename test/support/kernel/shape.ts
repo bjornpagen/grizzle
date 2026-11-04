@@ -4,7 +4,8 @@ import type {
 	Cte,
 	CteBody,
 	Expr,
-	FromItem,
+	FromSource,
+	JoinChain,
 	Select,
 	SelectCore,
 	SetOperator,
@@ -29,9 +30,7 @@ const aggregateNames = [
 	"jsonb_agg",
 	"percentile_disc",
 	"percentile_cont",
-	"mode",
-	"regr_slope",
-	"regr_sxx"
+	"mode"
 ] as const
 export type Aggregate = (typeof aggregateNames)[number]
 
@@ -47,6 +46,9 @@ export type ShapeFeature =
 	| "from recordset"
 	| "from values"
 	| "from context"
+	| `${"derived" | "function" | "recordset" | "cte"} of no column`
+	| "core of no target"
+	| "insert of no column"
 	| "join"
 	| "cross join"
 	| "lateral"
@@ -136,6 +138,7 @@ const roleOf = (e: Expr): Role => {
 		case "plSpecial":
 		case "field":
 		case "user":
+		case "regclass":
 			return "expression"
 	}
 }
@@ -153,7 +156,7 @@ const bound = (clause: "limit" | "offset", e: Expr): ShapeFeature => {
 	}
 }
 
-const fromFeature = (item: FromItem): ReadonlyArray<ShapeFeature> => {
+const fromFeature = (item: FromSource): ReadonlyArray<ShapeFeature> => {
 	switch (item.kind) {
 		case "table":
 		case "enclosing":
@@ -161,21 +164,41 @@ const fromFeature = (item: FromItem): ReadonlyArray<ShapeFeature> => {
 		case "cte":
 			return ["from cte"]
 		case "derived":
-			return item.lateral ? ["from derived", "lateral"] : ["from derived"]
+			return [
+				"from derived",
+				...(item.lateral ? (["lateral"] as const) : []),
+				...(item.columns.length === 0 ? (["derived of no column"] as const) : [])
+			]
 		case "function":
-			return item.lateral ? ["from function", "lateral"] : ["from function"]
+			return [
+				"from function",
+				...(item.lateral ? (["lateral"] as const) : []),
+				...(item.columns.length === 0 ? (["function of no column"] as const) : [])
+			]
 		case "recordset":
-			return ["from recordset"]
+			return item.columns.length === 0
+				? ["from recordset", "recordset of no column"]
+				: ["from recordset"]
 		case "values":
 			return ["from values"]
 		case "context":
 			return ["from context"]
-		case "join":
-			return ["join"]
-		case "crossJoin":
-			return ["cross join"]
 	}
 }
+
+/** A set operation's operator once per arm it adds to the first; a parenthesized query arm is a select of its own and
+ * counted where the traversal meets it. */
+const setOpFeatures = (body: Select["body"]): ReadonlyArray<ShapeFeature> => {
+	if (body.kind !== "setOp") {
+		return []
+	}
+	const feature = setOperatorFeature[body.op]
+	return Arr.map(Arr.drop(body.arms, 1), () => feature)
+}
+
+/** A join chain: one join per step, on a condition or crosswise. */
+const joinFeatures = (chain: JoinChain): ReadonlyArray<ShapeFeature> =>
+	Arr.map(chain.steps, (step): ShapeFeature => (step.kind === "on" ? "join" : "cross join"))
 
 const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 	switch (e.kind) {
@@ -231,6 +254,7 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 		case "plSpecial":
 		case "field":
 		case "user":
+		case "regclass":
 			return []
 	}
 }
@@ -239,6 +263,7 @@ const coreFeatures = (core: SelectCore): ReadonlyArray<ShapeFeature> => [
 	...(core.distinct === false
 		? []
 		: ([core.distinct === true ? "distinct" : "distinct on"] as const)),
+	...(core.targets.length === 0 ? (["core of no target"] as const) : []),
 	...(core.groupBy.length === 0 ? [] : (["group by"] as const)),
 	...(core.having === undefined ? [] : (["having"] as const))
 ]
@@ -247,8 +272,20 @@ const cteFeatures = (cte: Cte): ReadonlyArray<ShapeFeature> => [
 	...(cte.materialized === undefined
 		? []
 		: ([`cte ${materializedFeature[cte.materialized]}`] as const)),
-	...(cte.query.kind === "select" ? [] : ([`cte ${cte.query.kind}`] as const))
+	...(cte.query.kind === "select"
+		? cte.columns.length === 0
+			? (["cte of no column"] as const)
+			: []
+		: ([`cte ${cte.query.kind}`] as const)),
+	...(insertsNoColumn(cte.query) ? (["insert of no column"] as const) : [])
 ]
+
+/** Whether a write inserts a row of no column: an INSERT that lists none, or a MERGE's INSERT DEFAULT VALUES. */
+const insertsNoColumn = (statement: SqlStatement): boolean =>
+	statement.kind === "insert"
+		? statement.columns.length === 0
+		: statement.kind === "merge" &&
+			Arr.some(statement.whens, (w) => w.action.kind === "insertDefault")
 
 const selectFeatures = (s: Select): ReadonlyArray<ShapeFeature> => [
 	...(s.with === undefined
@@ -257,24 +294,10 @@ const selectFeatures = (s: Select): ReadonlyArray<ShapeFeature> => [
 				s.with.recursive ? "with recursive" : "with",
 				...Arr.flatMap(s.with.ctes, cteFeatures)
 			] as const)),
-	...(s.body.kind === "setOp" ? setOps(s.body.op, s.body.left, s.body.right) : []),
+	...setOpFeatures(s.body),
 	...(s.orderBy.length === 0 ? [] : (["order by"] as const)),
 	...(s.limit === undefined ? [] : [bound("limit", s.limit)]),
 	...(s.offset === undefined ? [] : [bound("offset", s.offset)])
-]
-
-/**
- * A chain of set operations, each operator once per arm it joins; a parenthesized query arm is a select of its own
- * and counted where the traversal meets it.
- */
-const setOps = (
-	op: SetOperator,
-	left: Select["body"],
-	right: Select["body"]
-): ReadonlyArray<ShapeFeature> => [
-	setOperatorFeature[op],
-	...(left.kind === "setOp" ? setOps(left.op, left.left, left.right) : []),
-	...(right.kind === "setOp" ? setOps(right.op, right.left, right.right) : [])
 ]
 
 /**
@@ -291,6 +314,8 @@ const setOps = (
  *
  * - FROM items by kind (`from table`, `from derived`, `from recordset`, `from values`, `join`, `cross join`) and
  *   `lateral` for a lateral derived table or function;
+ * - the zero-width forms PostgreSQL spells by absence: a derived table, function, recordset or query CTE of no column
+ *   (`derived of no column`, ...), a `core of no target`, an `insert of no column`;
  * - set operations (`union all`, `except`, ...), WITH (`with`, `with recursive`, `cte materialized`, a data-modifying
  *   `cte insert`), `distinct`, `distinct on`, `group by`, `having`, `order by`;
  * - LIMIT and OFFSET by what bounds them (`limit param`, `limit literal`, `limit expression`);
@@ -321,9 +346,13 @@ export const shapeOf = (statement: SqlStatement): Shape => {
 			add(exprFeature(e))
 			return e
 		},
-		fromItem: (item) => {
+		fromSource: (item) => {
 			add(fromFeature(item))
 			return item
+		},
+		joins: (chain) => {
+			add(joinFeatures(chain))
+			return chain
 		},
 		core: (core) => {
 			add(coreFeatures(core))
@@ -334,6 +363,9 @@ export const shapeOf = (statement: SqlStatement): Shape => {
 			return s
 		}
 	})
+	if (insertsNoColumn(statement)) {
+		add(["insert of no column"])
+	}
 	return { statement: statement.kind, counts }
 }
 

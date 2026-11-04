@@ -1,4 +1,5 @@
 import type { Option } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -24,11 +25,13 @@ interface HandleColumn<out A> {
 }
 
 /**
- * A pattern-refined text column (str.regex): the cell's text is its value, read without a check under the record
- * assembly's one claim. PostgreSQL holds every stored text to the pattern (the field's domain or CHECK), and A, the
- * pattern's inferred language (ArkRegex over the same source and flags), overapproximates it. A is a phantom of the
- * descriptor's own pattern, and the brand keeps a plain object from claiming it: textColumn, whose one caller is
- * str.regex (text/field.ts), and brandColumn are its only builders.
+ * A column whose cell's text is its value, a member of a language A, read without a check under the record assembly's
+ * one claim: a pattern-refined text's (str.regex), where PostgreSQL holds every stored text to the pattern (the
+ * field's domain or CHECK) and A is the pattern's inferred language (ArkRegex over the same source and flags), and a
+ * uuid's, whose every cell is uuid_out's canonical spelling and A its language (scalar/values/uuid.ts Uuid). A
+ * overapproximates the texts PostgreSQL writes. It is a phantom of the descriptor's own pattern, and the brand keeps a
+ * plain object from claiming it: textColumn, whose callers are str.regex (text/field.ts) and the uuid descriptor
+ * (scalar/uuid.ts), and brandColumn are its only builders.
  */
 interface TextColumn<out A> extends Phantom<{ readonly host: A }> {
 	readonly kind: "text"
@@ -38,13 +41,15 @@ interface TextColumn<out A> extends Phantom<{ readonly host: A }> {
  * Head literals' column: a head literal's own, or a union's whose arms deliver head literals alone at the key. Every
  * cell is the output text of one of the literals under their one SQL type (the checker types a union's column alike in
  * every arm), and is the literal equal to its conversion: `convert` is that type's conversion
- * (scalar/values/convert.ts), so a cell is read by its column's type and compared by its host value, never by its
- * spelling.
+ * (scalar/values/convert.ts) and `equal` that type's equality of host values (`===` for a string, number, bigint or
+ * boolean, `equals` for a Decimal or a Money), so a cell is read by its column's type and compared by its host value,
+ * never by its spelling.
  */
 interface ConstantColumn<out A> {
 	readonly kind: "constant"
 	readonly values: NonEmptyReadonlyArray<A>
 	readonly convert: (text: string) => unknown
+	readonly equal: (literal: unknown, host: unknown) => boolean
 }
 
 export type Column<A> = ConvertColumn<A> | HandleColumn<A> | TextColumn<A> | ConstantColumn<A>
@@ -60,7 +65,7 @@ export const convertColumn = <A>(convert: (text: string) => A): Column<A> =>
 export const handleColumn = <A>(handles: NonEmptyReadonlyArray<A>): Column<A> =>
 	Object.freeze({ kind: "handle", handles })
 
-/** A pattern-refined text column over the pattern's inferred language A (str.regex). */
+/** A text column over the language A its cells are in: a refined text's pattern's (str.regex), or uuid_out's. */
 export const textColumn = <A extends string>(): Column<A> =>
 	Object.freeze({ ...builtMark, kind: "text" })
 
@@ -80,19 +85,27 @@ export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Colu
 		case "constant":
 			return constants(
 				mapNonEmpty(base.values, (value) => brand(value)),
-				base.convert
+				base.convert,
+				base.equal
 			)
 	}
 }
 
 const constants = <A>(
 	values: NonEmptyReadonlyArray<A>,
-	convert: (text: string) => unknown
-): Column<A> => Object.freeze({ kind: "constant", values, convert })
+	convert: (text: string) => unknown,
+	equal: (literal: unknown, host: unknown) => boolean
+): Column<A> => Object.freeze({ kind: "constant", values, convert, equal })
 
-/** A head literal's column (r.literal), read by `convert`, the conversion of the literal's SQL type. */
-export const constantColumn = <A>(value: A, convert: (text: string) => unknown): Column<A> =>
-	constants([value], convert)
+/**
+ * A head literal's column, a JavaScript value's in a head: read by `convert`, the conversion of the literal's SQL type,
+ * and matched by `equal`, that type's equality of host values.
+ */
+export const constantColumn = <A>(
+	value: A,
+	convert: (text: string) => unknown,
+	equal: (literal: unknown, host: unknown) => boolean
+): Column<A> => constants([value], convert, equal)
 
 /**
  * The literal a cell of head literals' column is: the one its text converts to (see ConstantColumn). The one site of
@@ -100,11 +113,11 @@ export const constantColumn = <A>(value: A, convert: (text: string) => unknown):
  * set no type of a text carries.
  */
 export const constantOf = <A>(column: ConstantColumn<A>): ((text: string) => A) => {
-	const { values, convert } = column
+	const { values, convert, equal } = column
 	return (text) => {
 		const host = convert(text)
 		for (const value of values) {
-			if (value === host) {
+			if (equal(value, host)) {
 				return value
 			}
 		}
@@ -127,7 +140,7 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 	if (a.kind === "constant") {
 		switch (b.kind) {
 			case "constant":
-				return constants<A | B>([...a.values, ...b.values], a.convert)
+				return constants<A | B>([...a.values, ...b.values], a.convert, a.equal)
 			case "convert":
 				return b
 			case "handle":
@@ -400,7 +413,10 @@ const largestIn = (
 	const delivered = headings.filter((heading) => heading.every((key) => names.has(key)))
 	return delivered.length === 0
 		? undefined
-		: Math.max(...delivered.map((heading) => heading.length))
+		: maxOf(
+				delivered.map((heading) => heading.length),
+				0
+			)
 }
 
 /** Whether a size the layout delivers beats another, where an undelivered one beats nothing. */

@@ -11,7 +11,6 @@ const verificationRules = [
 	"unprovedUnionAll",
 	"unrealizableDistinct",
 	"unprovedMultiplicity",
-	"hiddenFailure",
 	"certificate",
 	"missingCertificate",
 	"statementRoles",

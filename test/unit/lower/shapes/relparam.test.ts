@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
@@ -34,7 +34,7 @@ describe("the R22 size rule", () => {
 						 * cases under core/policy.ts valuesMaxRows of 16.
 						 */
 						limit: 64,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					({ limits, n }) =>

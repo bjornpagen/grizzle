@@ -1,6 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
@@ -78,17 +79,19 @@ describe("the scalar types of lowered statements", () => {
 							})
 						),
 						/**
-						 * Each case lowers twice without a database; 200 rotating cases reach the attached and heterogeneous roots
-						 * (2 and 4 of the 8 root weights) many times, as the page totality suite measured.
+						 * The rotating stream's sample, each case lowered twice without a database: the attached and
+						 * heterogeneous roots are 2 and 4 of the 8 root weights.
 						 */
 						runs: 200,
 						literal: Formatter.format,
-						features: features<RootFeature>(["plain root", "attached root", "heterogeneous union"]),
+						coverage: required<RootFeature>(
+							["plain root", "attached root", "heterogeneous union"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c, n) =>

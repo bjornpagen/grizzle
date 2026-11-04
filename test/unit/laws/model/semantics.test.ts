@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust, explore, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -93,7 +94,7 @@ const space: Gen<CheckCase> = oneOf([
 	}))
 ])
 
-const required: ReadonlyArray<CheckFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<CheckFeature> = [
 	"shape field weight",
 	"shape count",
 	"shape closed payload",
@@ -245,7 +246,7 @@ describe("generated CHECKs accept exactly the lawful rows", () => {
 						 * The space's exact size, 4 shapes × 4 carriers + 2 span endpoints: a space grown unnoticed is over-limit.
 						 */
 						limit: 18,
-						features: features<CheckFeature>(required),
+						coverage: requiredInSpace<CheckFeature>(situations),
 						caseHang: Duration.minutes(2)
 					},
 					(k, c) =>
@@ -335,17 +336,15 @@ describe("a schema that states no law", () => {
 							)
 					),
 					literal: Formatter.format,
-					features: features<"no relation" | "handles only" | "payload">([
-						"no relation",
-						"handles only",
-						"payload"
-					]),
+					coverage: required<"no relation" | "handles only" | "payload">(
+						["no relation", "handles only", "payload"],
+						{ cases: 30, sense: notesOnly }
+					),
 					kept: [],
 					runs: 30,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(desc, n) =>

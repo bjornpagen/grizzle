@@ -1,9 +1,11 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { type Coverage, noCoverage, required, type Situations } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -87,7 +89,7 @@ type GraphFeature = RecursiveFeature | GraphOptimizedFeature | "nonempty"
  * and consumer, both forms of a bounded recursion (unrolled into joins, kept a recursive CTE), an attachment seeded
  * from its parents' keys, an origin filter pushed into the seed, and rows.
  */
-const generalRequired = [
+const generalRequired: Situations<GraphFeature> = [
 	...Arr.map(graphShapes, (s): RecursiveFeature => `shape:${s}`),
 	...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`),
 	"self-loop",
@@ -121,7 +123,7 @@ const generalRequired = [
 	"seeded attachment",
 	"graph.seedPushdown.filter",
 	"nonempty"
-] as const satisfies ReadonlyArray<GraphFeature>
+]
 
 /**
  * A per-case requirement beyond agreement: a message when the case breaks it, given its program and the features its
@@ -142,7 +144,7 @@ interface Population {
 	readonly limits: RecursiveLimits
 	readonly runs: number
 	readonly suite: string
-	readonly required: ReadonlyArray<GraphFeature>
+	readonly coverage: Coverage<GraphFeature>
 	readonly check: CaseCheck
 }
 
@@ -155,11 +157,10 @@ const agreeOn = (population: Population) =>
 			{
 				suite: population.suite,
 				literal: Formatter.format,
-				features: features<GraphFeature>(population.required),
+				coverage: population.coverage,
 				kept: [],
 				runs: population.runs,
 				shrink: completeShrink,
-				steering: { kind: "none" },
 				caseHang: Duration.minutes(2),
 				perturb: "all"
 			},
@@ -169,7 +170,7 @@ const agreeOn = (population: Population) =>
 					const noted: Array<GraphOptimizedFeature> = []
 					const left = optimizedLoweringWith((fs) => {
 						notes.noteAll(fs)
-						noted.push(...fs)
+						appendAll(noted, fs)
 					}, "snapshot")
 					const outcome = yield* runOracle(hostNormalized(c), left, conservative, {
 						...defaultRunOptions,
@@ -204,7 +205,7 @@ const generalPopulation: Population = {
 	limits: defaultRecursiveLimits,
 	runs: general,
 	suite: "recursion/graph",
-	required: generalRequired,
+	coverage: required<GraphFeature>(generalRequired, { cases: general, sense: notesOnly }),
 	check: agreementOnly
 }
 
@@ -255,7 +256,10 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 					},
 					runs: attached,
 					suite: "recursion/graph-attach",
-					required: ["seeded attachment"],
+					coverage: required<GraphFeature>(["seeded attachment"], {
+						cases: attached,
+						sense: notesOnly
+					}),
 					check: ({ c, program }) => {
 						const seeded = seededStatements(program)
 						const statements = Arr.filter(
@@ -284,7 +288,10 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 					},
 					runs: filtered / 2,
 					suite: "recursion/graph-origin-filter",
-					required: ["graph.seedPushdown.filter"],
+					coverage: required<GraphFeature>(["graph.seedPushdown.filter"], {
+						cases: filtered / 2,
+						sense: notesOnly
+					}),
 					check: agreementOnly
 				})
 			),
@@ -303,7 +310,7 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 					},
 					runs: filtered / 2,
 					suite: "recursion/graph-endpoint-filter",
-					required: [],
+					coverage: noCoverage,
 					check: ({ noted }) => {
 						const moved = Arr.filter(noted, isGraphRule)
 						return moved.length === 0 ? [] : [`the graph pass fired ${Arr.join(moved, ", ")}`]
@@ -326,11 +333,13 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 						{
 							suite: "recursion/graph-fixed-length",
 							literal: Formatter.format,
-							features: features<GraphFeature>(["unrolled recursion", "recursive CTE"]),
+							coverage: required<GraphFeature>(["unrolled recursion", "recursive CTE"], {
+								cases: fixedLength,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: fixedLength,
 							shrink: completeShrink,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							perturb: "all"
 						},
@@ -343,7 +352,7 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 									(which: 0 | 1): Note =>
 									(fs) => {
 										notes.noteAll(fs)
-										noted[which].push(...fs)
+										appendAll(noted[which], fs)
 									}
 								const both = yield* runOracle(
 									c,

@@ -2,7 +2,7 @@ import { constantColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
-import type { CompareOp, LiteralDesc } from "#compiler/ir/desc.ts"
+import { type CompareOp, connectiveExpr, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr, OpenHead } from "#compiler/ir/open.ts"
 import { spanCarrierOf, spanOf } from "#compiler/ir/scalar.ts"
 import { buildLoc } from "#compiler/query/build/scope.ts"
@@ -37,21 +37,24 @@ import {
 import { compatible, withoutSerial } from "#compiler/scalar/compute/types.ts"
 import { describeField, literalDescFor, type SqlTag } from "#compiler/scalar/registry.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
+import type { HeadValue } from "#compiler/types/query/terms.ts"
 
 /**
  * Head-only values: aggregates and producers. Their Description and result type live here, keyed by the value, and
  * each carries the column and SQL type of what it delivers.
  */
-interface HeadValue {
+interface HeadDesc {
 	readonly desc: OpenHead
 	readonly typing: Typing
 }
-const headValues = new WeakMap<object, HeadValue>()
+const headValues = new WeakMap<object, HeadDesc>()
 
-export const headValueOf = (value: unknown): HeadValue | undefined =>
+export const headValueOf = (value: unknown): HeadDesc | undefined =>
 	hasProperties(value) ? headValues.get(value) : undefined
 
 /** An aggregate: its fold, and the carrier of its result. */
@@ -60,7 +63,7 @@ interface AggregateValue<out T, out S extends SqlTag> extends Built, TermCarrier
 }
 
 /** A producer: its function, and the carrier of the spans it yields, its operand's. */
-interface ProducerValue<out T> extends Built, TermCarrier<T> {
+interface ProducerValue<out T, out S extends SqlTag> extends Built, TermCarrier<T, S> {
 	readonly produces: "intersection" | "difference" | "pack"
 }
 
@@ -100,8 +103,8 @@ export const untypedTerm = (expr: OpenExpr): UntypedTerm => {
 }
 
 /**
- * A carried term: its carrier is known, but its type the checker reads from the term it meets. A head literal is one, and
- * so is a variable over a union's field whose arms disagree on its type.
+ * A carried term: its carrier is known, but its type the checker reads from the term it meets. A JavaScript value in a
+ * head is one, and so is a variable over a union's field whose arms disagree on its type.
  */
 interface CarriedTerm<out T, out S extends SqlTag> extends UntypedTerm, TermCarrier<T, S> {}
 
@@ -132,7 +135,7 @@ const carriedTerm = <T, S extends SqlTag>(
  *
  * Terms and predicates follow the term protocol of scalar/compute/term.ts: a term is a frozen value with an `expr`
  * member holding its expression (ir/open.ts OpenExpr), its type, when known, registered with it; a predicate has `predicate: true` and an
- * `expr`; a parameter is a term over `{ kind: "param", name }` of its descriptor's type. Every term and predicate made here is
+ * `expr`; a parameter is a term over `{ kind: "param", name, type }` of its descriptor's type. Every term and predicate made here is
  * registered by identity in that module's registry, which is what termExpr reads, so a copy of one is no term. A
  * variable or parent variable whose type the builder knows is a Compute term (Compute's scalarTerm), so Compute
  * arithmetic, casts and comparisons compose with it and type their literal operands by it; one whose type the builder
@@ -158,58 +161,86 @@ export const fieldTerm = <T, S extends SqlTag>(
 
 export const isTerm = (value: unknown): boolean => termExpr(value) !== undefined
 
-/**
- * The SQL type a literal's host kind gives it, and that type's conversion of its output text: a JavaScript number is an
- * integer, a bigint a bigint.
- */
-const literalType = (
-	value: string | number | bigint | boolean
-): { readonly sql: SqlTag; readonly convert: (text: string) => unknown } => {
-	if (typeof value === "string") {
-		return { sql: "text", convert: convertByCarrier.text({ carrier: "text" }) }
-	}
-	if (typeof value === "number") {
-		return { sql: "integer", convert: convertByCarrier.int4({ carrier: "int4" }) }
-	}
-	if (typeof value === "bigint") {
-		return { sql: "bigint", convert: convertByCarrier.int8({ carrier: "int8" }) }
-	}
-	return { sql: "boolean", convert: convertByCarrier.bool({ carrier: "bool" }) }
+/** The equality of a primitive's host values. */
+const samePrimitive = (literal: unknown, host: unknown): boolean => literal === host
+
+const sameDecimal = (literal: unknown, host: unknown): boolean =>
+	literal instanceof Decimal && host instanceof Decimal && literal.equals(host)
+
+const sameMoney = (literal: unknown, host: unknown): boolean =>
+	literal instanceof Money && host instanceof Money && literal.equals(host)
+
+/** A head literal's SQL type, that type's conversion of its output text, and its equality of host values. */
+interface LiteralType {
+	readonly sql: SqlTag
+	readonly convert: (text: string) => unknown
+	readonly equal: (literal: unknown, host: unknown) => boolean
 }
 
 /**
- * A head literal, r.literal(x): a carried term over the literal, a string, number, bigint or boolean, whose column is
- * the literal itself, read by its SQL type's conversion, and whose type the checker reads from the term it meets, as it
- * types a parameter.
+ * The SQL type a JavaScript value's kind gives it when it meets nothing, as the checker types it (check/checker.ts
+ * bareLiteralType): a string is text, a number an integer, a bigint a bigint, a Decimal a numeric, a Money money and a
+ * boolean a boolean.
  */
-export const literalTerm = <const X extends string | number | bigint | boolean>(
+const literalType = (value: HeadValue): LiteralType => {
+	if (typeof value === "string") {
+		return {
+			sql: "text",
+			convert: convertByCarrier.text({ carrier: "text" }),
+			equal: samePrimitive
+		}
+	}
+	if (typeof value === "number") {
+		return {
+			sql: "integer",
+			convert: convertByCarrier.int4({ carrier: "int4" }),
+			equal: samePrimitive
+		}
+	}
+	if (typeof value === "bigint") {
+		return {
+			sql: "bigint",
+			convert: convertByCarrier.int8({ carrier: "int8" }),
+			equal: samePrimitive
+		}
+	}
+	if (typeof value === "boolean") {
+		return {
+			sql: "boolean",
+			convert: convertByCarrier.bool({ carrier: "bool" }),
+			equal: samePrimitive
+		}
+	}
+	if (value instanceof Decimal) {
+		return {
+			sql: "numeric",
+			convert: convertByCarrier.numeric({ carrier: "numeric", typmod: undefined }),
+			equal: sameDecimal
+		}
+	}
+	return { sql: "money", convert: convertByCarrier.money({ carrier: "money" }), equal: sameMoney }
+}
+
+/**
+ * A JavaScript value in a head (schema/record.ts headRecord): a carried term over the value, a string, number, bigint,
+ * boolean, Decimal or Money, whose column is the value itself, read by its SQL type's conversion and matched by that
+ * type's equality, and whose type the checker reads from what it meets, as it types a parameter.
+ */
+export const literalTerm = <const X extends HeadValue>(
 	value: X,
 	label: string
 ): CarriedTerm<X, SqlTag> => {
-	/** A JavaScript caller can pass any value: its kind is checked on the unknown value it may be. */
-	const host: unknown = value
-	if (
-		typeof host !== "string" &&
-		typeof host !== "number" &&
-		typeof host !== "bigint" &&
-		typeof host !== "boolean"
-	) {
-		throw malformed(
-			label,
-			"a string, number, bigint or boolean literal; Compute.literal gives any other type"
-		)
-	}
-	const { sql, convert } = literalType(value)
+	const { sql, convert, equal } = literalType(value)
 	return carriedTerm(
 		{ kind: "literal", value: untypedLiteral(value, label), type: undefined },
-		{ column: constantColumn(value, convert), sql }
+		{ column: constantColumn(value, convert, equal), sql }
 	)
 }
 
 /**
  * A scalar parameter, r.param(name, descriptor): a term over the parameter of the descriptor's type, a serial's being
- * its integer's, carried by the descriptor. The Description records it by name, and the checker types it from the term
- * it meets.
+ * its integer's, carried by the descriptor. The Description records it by name and descriptor, and it stands wherever a
+ * term of that type stands, first included.
  */
 export const paramTerm = <H, S extends SqlTag>(
 	name: string,
@@ -220,10 +251,11 @@ export const paramTerm = <H, S extends SqlTag>(
 	if (!described.ok) {
 		throw described.error
 	}
-	return scalarTerm({ kind: "param", name }, withoutSerial(described.value.scalar), {
-		column: descriptor.column,
-		sql: descriptor.sql
-	})
+	return scalarTerm(
+		{ kind: "param", name, type: described.value.desc },
+		withoutSerial(described.value.scalar),
+		{ column: descriptor.column, sql: descriptor.sql }
+	)
 }
 
 const isUntypedTerm = (value: unknown): boolean => termOf(value)?.typing.kind === "untyped"
@@ -264,11 +296,8 @@ const firstTerm = (value: unknown, label: string): TermOf => {
 		}
 		throw malformed(
 			label,
-			"a term first: a variable, a parent variable or a Compute term; a literal never stands first"
+			"a term first: a variable, a parent variable, a parameter or a Compute term; a literal never stands first"
 		)
-	}
-	if (term.expr.kind === "param") {
-		throw malformed(label, "a term first: a parameter takes its place opposite a term")
 	}
 	if (term.expr.kind === "literal" && term.expr.type === undefined) {
 		throw malformed(label, "a term first: a literal takes its place opposite a term")
@@ -314,8 +343,8 @@ export const inSet = (a: unknown, values: unknown): PredicateValue => {
 		return computeCore.in(a, values)
 	}
 	const x = firstTerm(a, "r.inSet")
-	if (!isList(values) || values.length === 0) {
-		throw malformed("r.inSet", "a nonempty finite list of literals")
+	if (!isList(values)) {
+		throw malformed("r.inSet", "a finite list of literals")
 	}
 	const literals = values.map((v) => literalAgainst(x.typing, v, "r.inSet"))
 	return predicateValue({ kind: "in", arg: x.expr, values: literals })
@@ -332,15 +361,16 @@ export const predicateOperand = (value: unknown, label: string): OpenExpr => {
 	throw malformed(label, "a predicate built from comparisons, r.and, r.or, r.not or Compute")
 }
 
+/** r.and and r.or, total: of no predicate the constant true and false, of one that predicate (connectiveExpr). */
 const connective =
 	(kind: "and" | "or") =>
-	(...ps: ReadonlyArray<unknown>): PredicateValue => {
-		if (ps.length === 0) {
-			throw malformed(`r.${kind}`, `at least one predicate for r.${kind}`)
-		}
-		const args = ps.map((p) => predicateOperand(p, `r.${kind}`))
-		return predicateValue({ kind, args })
-	}
+	(ps: ReadonlyArray<unknown>): PredicateValue =>
+		predicateValue(
+			connectiveExpr(
+				kind,
+				ps.map((p) => predicateOperand(p, `r.${kind}`))
+			)
+		)
 
 export const and = connective("and")
 export const or = connective("or")
@@ -433,11 +463,11 @@ const carried = (value: unknown, label: string): TermCarrier => {
 }
 
 /** Producers: head terms yielding zero or more spans per binding, of their left operand's span type. */
-const producer = <T>(
+const producer = <T, S extends SqlTag>(
 	fn: "intersection" | "difference",
-	left: TermCarrier<T>,
+	left: TermCarrier<T, S>,
 	right: unknown
-): ProducerValue<T> => {
+): ProducerValue<T, S> => {
 	const l = spanTerm(left, `r.${fn}`)
 	carried(left, `r.${fn}`)
 	const r = spanOperand(right, l.typing, `r.${fn}`)
@@ -448,13 +478,17 @@ const producer = <T>(
 	)
 }
 
-export const intersection = <T>(left: TermCarrier<T>, right: unknown): ProducerValue<T> =>
-	producer("intersection", left, right)
+export const intersection = <T, S extends SqlTag>(
+	left: TermCarrier<T, S>,
+	right: unknown
+): ProducerValue<T, S> => producer("intersection", left, right)
 
-export const difference = <T>(left: TermCarrier<T>, right: unknown): ProducerValue<T> =>
-	producer("difference", left, right)
+export const difference = <T, S extends SqlTag>(
+	left: TermCarrier<T, S>,
+	right: unknown
+): ProducerValue<T, S> => producer("difference", left, right)
 
-export const pack = <T>(spans: TermCarrier<T>): ProducerValue<T> => {
+export const pack = <T, S extends SqlTag>(spans: TermCarrier<T, S>): ProducerValue<T, S> => {
 	const s = spanTerm(spans, "r.pack")
 	carried(spans, "r.pack")
 	return headValue(
@@ -469,7 +503,7 @@ export const pack = <T>(spans: TermCarrier<T>): ProducerValue<T> => {
  * as the Compute builders refuse an undefined operation. Its Description, and its result type when the argument's is
  * known.
  */
-const aggregateHead = (fn: AggregateName, arg: unknown): HeadValue => {
+const aggregateHead = (fn: AggregateName, arg: unknown): HeadDesc => {
 	const label = `r.${fn}`
 	if (fn === "count") {
 		const overload = aggregateOverload({ name: "count" }, buildLoc(label, []))
@@ -492,7 +526,7 @@ const aggregateHead = (fn: AggregateName, arg: unknown): HeadValue => {
 
 const aggregateValue = <T, S extends SqlTag>(
 	fn: AggregateName,
-	head: HeadValue,
+	head: HeadDesc,
 	carrier: TermCarrier<T, S>
 ): AggregateValue<T, S> =>
 	headValue(
@@ -505,7 +539,7 @@ const aggregateValue = <T, S extends SqlTag>(
  * count is bigint; sum and mean take their result type's plain column off the SUM and AVG tables keyed by their
  * argument's SQL type (scalar/compute/tables.ts); min and max deliver their argument's column, contract included.
  */
-export const count = (...extra: ReadonlyArray<unknown>): AggregateValue<bigint, "bigint"> => {
+export const count = (extra: ReadonlyArray<unknown>): AggregateValue<bigint, "bigint"> => {
 	if (extra.length > 0) {
 		throw malformed(
 			"r.count",
@@ -546,10 +580,11 @@ interface OfSql<S extends SqlTag> {
 }
 
 /**
- * A head term: a term (a parameter, or a head literal r.literal(x), typically a discriminant, among them), an aggregate
- * or a producer. A predicate is not a head term: Compute.cond(p, flag, false) states a computed boolean.
+ * A head term, as find holds its head (schema/record.ts headRecord): a term (a parameter, a typed constant, or the
+ * head literal of a JavaScript value, typically a discriminant, among them), an aggregate or a producer. A predicate
+ * is not a head term: Compute.cond(p, flag, false) states a computed boolean.
  */
-export const headTerm = (value: unknown, label: string): HeadValue => {
+export const headTerm = (value: unknown, label: string): HeadDesc => {
 	const head = headValueOf(value)
 	if (head !== undefined) {
 		return head
@@ -566,6 +601,6 @@ export const headTerm = (value: unknown, label: string): HeadValue => {
 	}
 	throw malformed(
 		label,
-		"a head term: a term, an aggregate or a producer; r.literal(x) states a literal, X.handle(m) a handle of roster X, Compute.literal(F, x) one of F's type"
+		"a head term: a term, an aggregate, a producer or a JavaScript value; a roster's member is X.handle(m), any other typed constant Compute.literal(F, x)"
 	)
 }

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
@@ -243,7 +243,7 @@ describe("the delivered type of an attachment", () => {
 						generator: cases,
 						literal: Formatter.format,
 						limit: 100,
-						features: features<BareFeature>([
+						coverage: requiredInSpace<BareFeature>([
 							"a plain scan one",
 							"a plain scan of the run one",
 							"the run copied one",
@@ -446,7 +446,7 @@ describe("the delivered type of an attachment", () => {
 						generator: variants,
 						literal: Formatter.format,
 						limit: 100,
-						features: features<OrdinalFeature>([
+						coverage: requiredInSpace<OrdinalFeature>([
 							"one",
 							"option",
 							"inclusive varied",
@@ -521,7 +521,7 @@ describe("the delivered type of an attachment", () => {
 						]),
 						literal: Formatter.format,
 						limit: 8,
-						features: features<Planted>([
+						coverage: requiredInSpace<Planted>([
 							"a span coverage",
 							"both fields from one shift",
 							"the fields from two shifts",

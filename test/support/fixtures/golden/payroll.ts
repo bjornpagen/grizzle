@@ -8,7 +8,7 @@
  * the direct writers start from, after onboard, logShifts and draftRun.
  */
 import { Array as Arr, String as Str } from "effect"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import type { ConstraintName, RaisedLawId } from "#compiler/core/ids.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
 import { capacity, contained, on, onSelected, within } from "#test/support/fixtures/ir/desc.ts"
@@ -219,7 +219,7 @@ type DirectOutcome =
 	| {
 			readonly kind: "violated"
 			readonly at: "statement" | "commit"
-			readonly law: LawId
+			readonly law: RaisedLawId
 			readonly detail: Arr.NonEmptyReadonlyArray<string>
 	  }
 

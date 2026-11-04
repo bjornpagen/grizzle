@@ -25,23 +25,23 @@ const declaredTypes = (b: InstallBuilder, fn: PlFunction): ReadonlyArray<Node<"s
 		return node === undefined ? [] : [node]
 	})
 
-/** The objects of one emitted residual law: its function after the schema and the types its declarations name, and
- * each trigger after the function, its own table and the law's anchor table. */
+/** The objects of one emitted residual law: each unit's function after the schema and the types its declarations name,
+ * and its trigger after its own function, its own table and the law's anchor table. */
 const addResidualLaw = (b: InstallBuilder, law: ResidualLaw, objects: ResidualLawObjects): void => {
 	const reasons: ReadonlyArray<PhysicalReason> = lawReasons([law.lawId])
-	const fn = b.add(
-		{
-			kind: "lawFunction",
-			ident: b.qualified("function", law.function),
-			ddl: [objects.function, objects.revoke],
-			reasons,
-			phase: "setup"
-		},
-		[b.schemaNode, ...declaredTypes(b, objects.function)]
-	)
 	const anchor = b.table(law.anchor.relation.name)
-	for (const t of objects.triggers) {
-		const relation = t.participant.relation.name
+	for (const unit of objects.units) {
+		const relation = unit.participant.relation.name
+		const fn = b.add(
+			{
+				kind: "lawFunction",
+				ident: b.qualified("function", unit.unit.function),
+				ddl: [unit.function, unit.revoke],
+				reasons,
+				phase: "setup"
+			},
+			[b.schemaNode, ...declaredTypes(b, unit.function)]
+		)
 		b.add(
 			{
 				kind: "lawTrigger",
@@ -49,9 +49,9 @@ const addResidualLaw = (b: InstallBuilder, law: ResidualLaw, objects: ResidualLa
 					kind: "trigger",
 					schema: b.settings.installation,
 					relation: b.names.relationNamed(relation),
-					name: t.participant.trigger
+					name: unit.unit.trigger
 				},
-				ddl: [t.trigger],
+				ddl: [unit.trigger],
 				reasons,
 				phase: "validate"
 			},
@@ -60,32 +60,32 @@ const addResidualLaw = (b: InstallBuilder, law: ResidualLaw, objects: ResidualLa
 	}
 }
 
-/** The installer extension that adds every residual law's function and triggers to the obligation graph and claims the
- * law, so the installation does not report it deferred.
+/** The installer extension that adds every residual law's units to the obligation graph and claims the law, so the
+ * installation does not report it deferred.
  *
- * Residual law objects in the installation manifest. Each residual law the law model records lowers to exactly one function and one deferred
- * constraint trigger per participating table, which the residual skeleton emits, plus its
- * supporting indexes. This module turns them into physical objects of the one obligation graph, through the
- * installer's extensions, so they share the graph's install order, its manifest and its
- * determinism with every native object:
+ * Residual law objects in the installation manifest. Each residual law the law model records lowers to one deferred
+ * constraint trigger and one function per participating table and threatening event, which the residual skeleton
+ * emits, plus its supporting indexes. This module turns them into physical objects of the one obligation graph, through
+ * the installer's extensions, so they share the graph's install order, its manifest and its determinism with every
+ * native object:
  *
- * - the function `function:<schema>.<law function>` (identity.lawFunction), kind lawFunction, in Setup; a migration replaces a changed one
- *   in place, in the law's Validate transaction. Its DDL is the CREATE OR REPLACE FUNCTION and the
- *   REVOKE EXECUTE ... FROM PUBLIC that follows it at
- *   once, so PUBLIC never holds EXECUTE even before Publish resets the owner's default privileges. The function is
- *   owned by the role that runs the installation, the migration identity that owns the schema. It is created after
- *   the schema and after any enum or domain its declarations name; its SQL statements are parsed, not resolved, at
- *   creation, so it needs no table;
- * - one trigger `trigger:<schema>.<table>.<law trigger>` (identity.lawTrigger) per participating table, kind lawTrigger, in
- *   Validate, after its function, its own table and the law's anchor table;
+ * - each unit's function `function:<schema>.<unit function>` (identity.lawFunction), kind lawFunction, in Setup; a
+ *   migration replaces a changed one in place, in the law's Validate transaction. Its DDL is the CREATE OR REPLACE
+ *   FUNCTION and the REVOKE EXECUTE ... FROM PUBLIC that follows it at once, so PUBLIC never holds EXECUTE even before
+ *   Publish resets the owner's default privileges. The function is owned by the role that runs the installation, the
+ *   migration identity that owns the schema. It is created after the schema and after any enum or domain its
+ *   declarations name; its SQL statements are parsed, not resolved, at creation, so it needs no table;
+ * - each unit's trigger `trigger:<schema>.<table>.<unit trigger>` (identity.lawTrigger), kind lawTrigger, in Validate,
+ *   after its own function, its own table and the law's anchor table; it alone executes its function;
  * - the supporting indexes are the law's IndexRequests (`ResidualLaw.indexes`), one per probe, which the installer already
  *   hands the index engine with every other law-maintenance and workload request: each lands on a
  *   key or enforcement index that serves it, merging the law id into that object's reasons, or becomes an access index
  *   justified by the law, partial with the law's selection when its probe reads only the
  *   selected rows. Indexes are built in the Indexes phase, so they precede the law's triggers.
  *
- * Every object's reason is the law's identity, the constraint name the function raises; the
- * constraint-to-law map already carries the law's identity to the law.
+ * Every object's reason is the law's identity, the constraint name every unit raises; the constraint-to-law map already
+ * carries the law's identity to the law. The COMMENT of each function and trigger spells its identity: its law, its
+ * table and its event.
  *
  * The phases are the migration phases, which refine the installation's dependency order. On a
  * fresh install every phase runs in the one install transaction, and the triggers are created in
@@ -106,6 +106,7 @@ const contribute = (b: InstallBuilder): Result.Result<InstallContribution, Compi
 	for (const law of b.model.residuals) {
 		const emitted = emitResidualLaw(law, {
 			schema: b.schema,
+			names: b.names,
 			holders: (relation) => b.wholeHolders(relation)
 		})
 		if (!emitted.ok) {

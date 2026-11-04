@@ -7,6 +7,8 @@ import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	BaseOf,
+	DomainOf,
+	Facts,
 	IsOneLiteral,
 	Parameterless,
 	Predicate,
@@ -16,6 +18,7 @@ import type {
 import type {
 	ClosedIdField,
 	Contract,
+	DeclaredFacts,
 	Field,
 	FieldBase,
 	FloatField,
@@ -83,23 +86,31 @@ export interface Pg {
 
 /**
  * A nominal contract over a base descriptor, with an optional total predicate over one value. The predicate receives
- * the base's scalar, of the base's host and SQL type, so `contract("Cents", pg.bigint, (v) => v.ge(0n))` reads
- * naturally.
+ * the base's scalar, of the base's domain and SQL type, whose language is the base's host type, so
+ * `contract("Cents", pg.bigint, (v) => v.ge(0n))` reads naturally.
  * A contract is a value domain and lowers to a PostgreSQL domain; a serial is a column generation declaration, not a
  * value domain, and PostgreSQL admits an identity column only over smallint, integer or bigint, never
  * over a domain. So the base is never a serial; a contract over the underlying integer type is the value domain.
  * The contract's column is the base's, branded by the contract's own constructor, which takes the unbranded host value:
  * the base's column delivers it (ContractBase). The name is one literal, the one brand its values carry.
+ *
+ * After the predicate, `{ proves: ["nonzero"] }` declares the facts it proves, which the contract's type then states
+ * of its values, so a divisor of the contract needs no guard; compilation proves each from the predicate, else refuses
+ * the declaration: `contract("Divisor", pg.bigint, (v) => v.ne(0n), { proves: ["nonzero"] })`.
  */
 export type ContractConstructor = <
 	const Name extends string,
 	B extends FieldBase,
-	Pr extends Predicate = Predicate
+	Pr extends Predicate = Predicate,
+	const Proved extends ReadonlyArray<keyof Facts> = readonly []
 >(
 	name: Name,
 	base: B & NotSerialBase<B> & ContractBase<NoInfer<Name>, B> & OneContractName<NoInfer<Name>>,
-	predicate?: (v: Scalar<Infer<B>, unknown, unknown, B["sql"]>) => Pr & Parameterless<Pr>
-) => Contract<Name, B>
+	predicate?: (
+		v: Scalar<DomainOf<B>, unknown, unknown, B["sql"], Infer<B>>
+	) => Pr & Parameterless<Pr>,
+	declared?: { readonly proves: Proved }
+) => Contract<Name, B, DeclaredFacts<Proved>>
 
 /**
  * A contract's name is one literal: a union of names would brand its values with every one of them, and a wider string

@@ -8,6 +8,7 @@ import {
 import { hostRead } from "#compiler/core/host.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -20,6 +21,7 @@ import {
 	type LiteralDesc
 } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
+import type { Fact } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
 	type Capability,
@@ -128,14 +130,18 @@ export const nativeCapabilities = {
 	 * pgvector's B-tree vector_ops gives equality and vector_cmp order; there is no hash or GiST class,
 	 * and its sum and avg are not language aggregates. vectorDistance is cosine_distance over the cosine domain.
 	 */
-	vector: ["equality", "ordering", "storage", "vectorDistance"]
+	vector: ["equality", "ordering", "storage", "vectorDistance"],
+	/** Numeric's operations over integers, never a field's: no storage, no GiST. */
+	exactInteger: ["avg", "equality", "expressionIndex", "hashing", "minMax", "ordering", "sum"],
+	/** Numeric's over amounts at scale 2, reached through money's STABLE cast: no expression index, no avg. */
+	exactMoney: ["equality", "hashing", "minMax", "ordering", "sum"]
 } as const satisfies { readonly [C in Carrier]: ReadonlyArray<Capability> }
 
 /** The capability set of a carrier; a serial generation declaration has no span endpoint. */
 export const capabilitiesOf = (carrier: Carrier, serial: boolean): CapabilitySet => {
 	const native: ReadonlyArray<Capability> = nativeCapabilities[carrier]
 	const caps = native.filter((c) => !(serial && c === "spanEndpoint"))
-	return capabilitySet(...caps)
+	return capabilitySet(caps)
 }
 
 export const hasCapability = (t: ScalarType, capability: Capability): boolean =>
@@ -175,7 +181,9 @@ export const carrierSql = {
 	enum: "enum",
 	range4: "range",
 	range8: "range",
-	vector: "vector"
+	vector: "vector",
+	exactInteger: "exact integer",
+	exactMoney: "exact money"
 } as const satisfies { readonly [C in Carrier]: string }
 
 /** A descriptor's SQL type name, the `sql` member of every descriptor and term: one of carrierSql's. */
@@ -435,7 +443,7 @@ export const fieldIdentity = (value: unknown): Result.Result<string, CompileErro
  * The handles of a closed relation by its declared name: a closedId desc names its roster only (ir/desc.ts), which the
  * registry parses as a declared name before it asks.
  */
-type RosterLookup = (name: DeclaredName) => ReadonlyArray<string> | undefined
+type RosterLookup = (name: DeclaredName) => NonEmptyReadonlyArray<string> | undefined
 
 /**
  * The regex metadata of a text pattern: the text analysis's (text/refinement.ts textLookup), which computes its
@@ -463,7 +471,8 @@ export type ScalarEnv =
 			readonly contractPredicate: (
 				predicate: ExprDesc,
 				base: ScalarType,
-				contract: string
+				contract: string,
+				facts: ReadonlyArray<Fact>
 			) => Result.Result<ExprTable, CompileError>
 	  }
 
@@ -500,10 +509,8 @@ const pgCarriers = {
 	boolean: "bool"
 } as const
 
-/** The environment's metadata, deeply frozen as a decoded descriptor holds it: a part already frozen is shared. */
-const frozenArray = <A>(items: ReadonlyArray<A>): ReadonlyArray<A> =>
-	Object.isFrozen(items) ? items : Object.freeze([...items])
-
+/** A regex reference as the environment holds it, deeply frozen as a decoded descriptor holds it: one already frozen is
+ * shared. */
 const ownedRegex = (regex: RegexRef): RegexRef =>
 	Object.isFrozen(regex)
 		? regex
@@ -580,7 +587,10 @@ const scalarAt = (
 					carrier: "enum",
 					caps: capabilitiesOf("enum", false),
 					contract: undefined,
-					roster: Object.freeze({ closed: name.value, handles: frozenArray(handles) })
+					roster: Object.freeze({
+						closed: name.value,
+						handles: Object.isFrozen(handles) ? handles : Object.freeze(handles)
+					})
 				})
 			)
 		}
@@ -650,9 +660,9 @@ const withContract = (base: ValueType, contract: ContractInfo): ValueType =>
 
 /**
  * A nominal contract over `base`: the base's carrier, typmod, refinements and capabilities, the contract's
- * name, and the predicate table when the checker supplies one (undefined from a builder,
- * which needs none). A contract over a serial is refused UnsupportedOperation: a serial is a generation declaration,
- * not a value domain.
+ * name, the facts it declares it proves, and the predicate table when the checker supplies one (undefined from a
+ * builder, which needs none). A contract over a serial is refused UnsupportedOperation: a serial is a generation
+ * declaration, not a value domain.
  *
  * A serial is a generation declaration, not a value domain: no registry capability is missing, so the refusal is
  * an unsupported operation in its own words, never a capability diagnostic.
@@ -661,16 +671,20 @@ export const contractType = (
 	name: DeclaredName,
 	base: ScalarType,
 	loc: SourceLoc,
-	predicate: ExprTable | undefined
+	predicate: ExprTable | undefined,
+	facts: ReadonlyArray<Fact>
 ): Result.Result<ScalarType, CompileError> =>
-	Result.map(contractOver(name, base, loc, predicate), (info) => withContract(info.base, info))
+	Result.map(contractOver(name, base, loc, predicate, facts), (info) =>
+		withContract(info.base, info)
+	)
 
 /** The contract `name` over `base` with `predicate`'s table: a contract over a serial is a generation refusal. */
 const contractOver = (
 	name: DeclaredName,
 	base: ScalarType,
 	loc: SourceLoc,
-	predicate: ExprTable | undefined
+	predicate: ExprTable | undefined,
+	facts: ReadonlyArray<Fact>
 ): Result.Result<ContractInfo, CompileError> => {
 	if ("serial" in base) {
 		return Result.err(
@@ -680,7 +694,7 @@ const contractOver = (
 			)
 		)
 	}
-	return Result.ok(Object.freeze({ name, base, predicate }))
+	return Result.ok(Object.freeze({ name, base, predicate, facts }))
 }
 
 /**
@@ -704,9 +718,10 @@ export const contractInfoOf = (
 	}
 	return Result.flatMap(scalarAt(desc.base, env, childLoc(loc, "base")), (base) =>
 		env.kind === "builder" || desc.predicate === undefined
-			? contractOver(name.value, base, loc, undefined)
-			: Result.flatMap(env.contractPredicate(desc.predicate, base, desc.name), (predicate) =>
-					contractOver(name.value, base, loc, predicate)
+			? contractOver(name.value, base, loc, undefined, desc.facts)
+			: Result.flatMap(
+					env.contractPredicate(desc.predicate, base, desc.name, desc.facts),
+					(predicate) => contractOver(name.value, base, loc, predicate, desc.facts)
 				)
 	)
 }
@@ -806,6 +821,10 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 		}
 		case "vector":
 			return Result.flatMap(Vector.admit(value, base.typmod.dims), Vector.canonical)
+		case "exactInteger":
+			return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")
+		case "exactMoney":
+			return value instanceof Money ? Result.ok(value) : Result.err("moneyType")
 	}
 }
 

@@ -12,7 +12,7 @@ import {
 } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { Expr, Insert, SqlStatement } from "#compiler/sql/ast.ts"
-import { and, col, eq } from "#compiler/sql/build.ts"
+import { and, col, eq, lit, simpleSelect } from "#compiler/sql/build.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { type OracleState, oracleState, type SequenceState } from "#test/support/oracle/addwins.ts"
@@ -166,7 +166,8 @@ type Statement =
 			readonly kind: "update"
 			readonly relation: WRelation
 			readonly key: Fact
-			readonly set: Fact
+			/** The fields the UPDATE sets, each with its value: at least one, as a SET clause holds. */
+			readonly set: Arr.NonEmptyReadonlyArray<readonly [field: string, value: unknown]>
 	  }
 	| { readonly kind: "truncate"; readonly relation: WRelation }
 
@@ -299,7 +300,7 @@ const resolveStatement = (
 				relation.columns,
 				(c) => !relation.primaryKey.includes(c.name) && !serial.includes(c)
 			)
-			if (payload.length === 0 || storedFact === undefined) {
+			if (!Arr.isReadonlyArrayNonEmpty(payload) || storedFact === undefined) {
 				return undefined
 			}
 			const set = wilded(Rec.fromEntries(Arr.map(payload, (c) => [c.name, fresh[c.name]])))
@@ -308,7 +309,7 @@ const resolveStatement = (
 				kind: "update",
 				relation,
 				key,
-				set: Rec.fromEntries(Arr.map(payload, (c) => [c.name, set[c.name]]))
+				set: Arr.map(payload, (c): readonly [string, unknown] => [c.name, set[c.name]])
 			}
 		}
 		case "update identity": {
@@ -317,7 +318,7 @@ const resolveStatement = (
 				return undefined
 			}
 			const key = Rec.fromEntries(Arr.map(relation.primaryKey, (k) => [k, storedFact[k]]))
-			return { kind: "update", relation, key, set: { [identity.name]: fresh[identity.name] } }
+			return { kind: "update", relation, key, set: [[identity.name, fresh[identity.name]]] }
 		}
 		case "truncate":
 			return { kind: "truncate", relation }
@@ -525,6 +526,7 @@ const predictStep = (
 		case "truncate":
 			return { kind: "fails", at, answer: error("42501", nothing) }
 		case "update": {
+			const set = Rec.fromEntries(s.set)
 			/** The fact the UPDATE matches, with its position among the current facts. */
 			const matched = Arr.findFirstWithIndex(
 				current,
@@ -536,12 +538,12 @@ const predictStep = (
 			 * whatever it matches.
 			 */
 			const fault = firstFault([
-				wildFault(r, s.set, "parse"),
-				Arr.some(serial, (c) => Rec.has(s.set, c.name)) ? error("428C9", nothing) : ok,
-				wildFault(r, s.set, "plan"),
+				wildFault(r, set, "parse"),
+				Arr.some(serial, (c) => Rec.has(set, c.name)) ? error("428C9", nothing) : ok,
+				wildFault(r, set, "plan"),
 				r.mutable ? ok : error("42501", nothing),
 				belowSerializable(r, level),
-				Option.isNone(matched) ? ok : wildFault(r, s.set, "row")
+				Option.isNone(matched) ? ok : wildFault(r, set, "row")
 			])
 			if (fault.kind === "error") {
 				return { kind: "fails", at, answer: fault }
@@ -550,7 +552,7 @@ const predictStep = (
 				return { kind: "held", held }
 			}
 			const [old, i] = matched.value
-			const next = { ...old, ...s.set }
+			const next = { ...old, ...set }
 			const others = Arr.flatMap(current, (f, j) => (j === i ? [] : [f]))
 			const laws = uniqueLaws(t, group, r, others, next)
 			return laws.length > 0
@@ -689,95 +691,62 @@ const columnOf = (table: OracleTable, field: string): string => {
 	return column.value.column
 }
 
-/** Every field of `fact` equal to its value, the WHERE of an exact DELETE or a keyed UPDATE. */
-const matching = (table: OracleTable, fact: Fact): Expr =>
-	and(
-		...Arr.map(Rec.toEntries(fact), ([f, x]) =>
-			eq(col("r1", columnOf(table, f)), literalOf(table, f, x))
-		)
+/** Every field of `fact` equal to its value, the WHERE of an exact DELETE or a keyed UPDATE: true for no field. */
+const matching = (table: OracleTable, fact: Fact): Expr => {
+	const parts = Arr.map(Rec.toEntries(fact), ([f, x]) =>
+		eq(col("r1", columnOf(table, f)), literalOf(table, f, x))
 	)
+	return Arr.isReadonlyArrayNonEmpty(parts) ? and(parts) : lit.bool(true)
+}
 
 /**
  * A statement's SQL, built as a typed AST and emitted.
  *
- * An INSERT that leaves out a relation's one field lists no column: PostgreSQL's DEFAULT VALUES, which no INSERT
- * node states, so the field is NULL.
+ * An INSERT of no field lists no column, so every column takes its default: the one row of no column of a SELECT of
+ * no target. An INSERT that leaves out a relation's one field so stores NULL there; one into a relation whose every
+ * field is an identity column stores each column's next value.
  */
 const sqlOf = (t: WriteTarget, s: Statement): string => {
 	if (s.kind === "truncate") {
 		return `TRUNCATE ${t.laws.table(s.relation.name)}`
 	}
-	if (s.kind === "insert" && Rec.keys(s.fact).length === 0) {
-		return `INSERT INTO ${t.laws.table(s.relation.name)} DEFAULT VALUES`
-	}
 	const table = t.installed.plan.tables[s.relation.name]
 	if (table === undefined) {
 		throw new Error(`no table for ${s.relation.name}`)
 	}
-	const ast = ((): SqlStatement => {
-		switch (s.kind) {
-			case "insert": {
-				const fields = Rec.keys(s.fact)
-				const insert: Insert = {
+	/** The INSERT of a fact's fields, SYSTEM VALUE overriding its identity columns where `overriding`. */
+	const inserted = (fact: Fact, overriding: boolean): Insert => {
+		const fields = Rec.keys(fact)
+		return Arr.isReadonlyArrayNonEmpty(fields)
+			? {
 					kind: "insert",
 					with: undefined,
 					table: table.name,
 					alias: undefined,
 					columns: Arr.map(fields, (f) => columnOf(table, f)),
-					overriding:
-						s.overriding && serialColumns(s.relation).length > 0 ? "SYSTEM VALUE" : undefined,
-					source: {
-						kind: "values",
-						rows: [Arr.map(fields, (f) => literalOf(table, f, s.fact[f]))]
-					},
+					overriding: overriding ? "SYSTEM VALUE" : undefined,
+					source: { kind: "values", rows: [Arr.map(fields, (f) => literalOf(table, f, fact[f]))] },
 					onConflict: undefined,
 					returning: []
 				}
-				return insert
-			}
-			case "insert generated": {
-				const fields = Rec.keys(s.fact)
-				/**
-				 * A relation whose every field is an identity column lists them under OVERRIDING USER VALUE, which
-				 * takes each one's default whatever value it is given.
-				 */
-				const serial = serialColumns(s.relation)
-				const insert: Insert =
-					fields.length > 0
-						? {
-								kind: "insert",
-								table: table.name,
-								columns: Arr.map(fields, (f) => columnOf(table, f)),
-								source: {
-									kind: "values",
-									rows: [Arr.map(fields, (f) => literalOf(table, f, s.fact[f]))]
-								},
-								with: undefined,
-								alias: undefined,
-								overriding: undefined,
-								onConflict: undefined,
-								returning: []
-							}
-						: {
-								kind: "insert",
-								table: table.name,
-								columns: Arr.map(serial, (c) => columnOf(table, c.name)),
-								overriding: "USER VALUE",
-								source: {
-									kind: "values",
-									rows: [
-										Arr.map(serial, (c) =>
-											literalOf(table, c.name, c.kind === "bigserial" ? 1n : 1)
-										)
-									]
-								},
-								with: undefined,
-								alias: undefined,
-								onConflict: undefined,
-								returning: []
-							}
-				return insert
-			}
+			: {
+					kind: "insert",
+					with: undefined,
+					table: table.name,
+					alias: undefined,
+					columns: [],
+					overriding: undefined,
+					source: { kind: "query", query: simpleSelect([], [], undefined) },
+					onConflict: undefined,
+					returning: []
+				}
+	}
+	const ast = ((): SqlStatement => {
+		switch (s.kind) {
+			case "insert":
+				return inserted(s.fact, s.overriding && serialColumns(s.relation).length > 0)
+			case "insert generated":
+				return inserted(s.fact, false)
 			case "delete":
 				return {
 					kind: "delete",
@@ -793,7 +762,7 @@ const sqlOf = (t: WriteTarget, s: Statement): string => {
 					kind: "update",
 					table: table.name,
 					alias: "r1",
-					set: Arr.map(Rec.toEntries(s.set), ([f, x]) => ({
+					set: Arr.map(s.set, ([f, x]) => ({
 						column: columnOf(table, f),
 						value: literalOf(table, f, x)
 					})),

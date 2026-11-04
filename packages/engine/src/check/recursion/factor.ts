@@ -2,6 +2,7 @@ import {
 	boundParam,
 	type ParamCell,
 	type ResolvedBindings,
+	type ResolvedBound,
 	type ResolvedExpr,
 	type ResolvedHead,
 	type ResolvedMatch,
@@ -19,7 +20,12 @@ import { mapProducer } from "#compiler/ir/desc.ts"
 /** Parent variables replaced by the variables an arm reads them through. */
 type Subst = ReadonlyMap<string, ResolvedExpr>
 
-const param = (cell: ParamCell): ResolvedExpr => ({ kind: "param", cell })
+/** A channel: a parameter the factored step writes, which its import's bind map binds to a column. */
+const channel = (cell: ParamCell): ResolvedExpr => ({
+	kind: "param",
+	type: { kind: "channel" },
+	cell
+})
 const variable = (id: string): ResolvedExpr => ({ kind: "var", var: id })
 
 const substExpr = (e: ResolvedExpr, s: Subst): ResolvedExpr => {
@@ -37,7 +43,7 @@ const substExpr = (e: ResolvedExpr, s: Subst): ResolvedExpr => {
 			return { ...e, args: e.args.map(sub) }
 		case "and":
 		case "or":
-			return { ...e, args: e.args.map(sub) }
+			return { ...e, args: mapNonEmpty(e.args, sub) }
 		case "cast":
 		case "base":
 		case "not":
@@ -45,6 +51,8 @@ const substExpr = (e: ResolvedExpr, s: Subst): ResolvedExpr => {
 			return { ...e, arg: sub(e.arg) }
 		case "cond":
 			return { ...e, pred: sub(e.pred), onTrue: sub(e.onTrue), onFalse: sub(e.onFalse) }
+		case "when":
+			return { ...e, subject: sub(e.subject), proved: sub(e.proved), otherwise: sub(e.otherwise) }
 		case "compare":
 		case "allen":
 			return { ...e, left: sub(e.left), right: sub(e.right) }
@@ -67,7 +75,14 @@ const substBindings = (b: ResolvedBindings, s: Subst): ResolvedBindings => {
 
 /** An imported query's bind map is read in the importing rule's scope; the query itself is its own scope. */
 const substSource = (src: ResolvedSource, s: Subst): ResolvedSource =>
-	src.kind === "query" ? { ...src, bind: substBindings(src.bind, s) } : src
+	src.kind === "query"
+		? {
+				...src,
+				bind: Object.fromEntries(
+					entries(src.bind).map(([k, b]) => [k, b.kind === "relationParam" ? b : substExpr(b, s)])
+				)
+			}
+		: src
 
 const substHead = (h: ResolvedHead, s: Subst): ResolvedHead => {
 	if (h.kind === "aggregate") {
@@ -77,23 +92,30 @@ const substHead = (h: ResolvedHead, s: Subst): ResolvedHead => {
 }
 
 /**
- * The names a rule reads in its parameter scope: its scalar parameters, its relation parameters and its parent
- * variables, through its interiors, which share that scope.
+ * The names a rule reads in its parameter scope: its scalar parameters, each bound to itself under its declared type,
+ * its relation parameters and its parent variables, through its interiors, which share that scope.
  */
 const scopeNames = (
 	rule: ResolvedRule,
-	into: { readonly params: Set<ParamCell>; readonly parents: Set<string> }
+	into: { readonly params: Map<ParamCell, ResolvedBound>; readonly parents: Set<string> }
 ): void => {
 	const leaves = ruleLeaves(rule, true)
 	for (const p of leaves.params) {
-		into.params.add(p.cell)
+		if (!into.params.has(p.cell)) {
+			into.params.set(
+				p.cell,
+				p.kind === "param"
+					? { kind: "param", type: p.type, cell: p.cell }
+					: { kind: "relationParam", cell: p.cell }
+			)
+		}
 	}
 	for (const p of leaves.parents) {
 		into.parents.add(p)
 	}
 	const source = (src: ResolvedSource) => {
-		if (src.kind === "param" || src.kind === "paramOf") {
-			into.params.add(src.cell)
+		if ((src.kind === "param" || src.kind === "paramOf") && !into.params.has(src.cell)) {
+			into.params.set(src.cell, { kind: "relationParam", cell: src.cell })
 		}
 	}
 	for (const m of rule.matches) {
@@ -159,11 +181,11 @@ export const factorArms = (
 	row: ReadonlyArray<string>,
 	at: SourceLoc
 ): ResolvedRule => {
-	const outer = { params: new Set<ParamCell>(), parents: new Set<string>() }
+	const outer = { params: new Map<ParamCell, ResolvedBound>(), parents: new Set<string>() }
 	for (const arm of arms) {
 		scopeNames(arm.rule, outer)
 	}
-	const params = new Set([...outer.params].map((p) => p.name))
+	const params = new Set([...outer.params.keys()].map((p) => p.name))
 	/**
 	 * The parameter each state column and each parent variable is passed under, and the column of the current-state
 	 * interior that delivers it.
@@ -183,8 +205,8 @@ export const factorArms = (
 		matches: [],
 		where: [],
 		head: Object.fromEntries([
-			...[...stateParams].map(([c, p]) => [c, param(p)] as const),
-			...parents.map((p) => [p.column, param(p.param)] as const)
+			...[...stateParams].map(([c, p]) => [c, channel(p)] as const),
+			...parents.map((p) => [p.column, channel(p.param)] as const)
 		]),
 		interiors: [],
 		attach: [],
@@ -239,12 +261,12 @@ export const factorArms = (
 			({ column, param: stateParam, var: freshName(`__state_${column}`, varIds) }) as const
 	)
 	const outputs = new Map(row.map((c) => [c, freshName(`__next_${c}`, varIds)] as const))
-	const bind: Record<string, ResolvedExpr> = {}
+	const bind: Record<string, ResolvedBound> = {}
 	for (const scanVar of scanVars) {
 		bind[scanVar.param.name] = variable(scanVar.var)
 	}
-	for (const p of outer.params) {
-		bind[p.name] = param(p)
+	for (const [p, bound] of outer.params) {
+		bind[p.name] = bound
 	}
 	for (const p of parents) {
 		bind[p.param.name] = { kind: "parent", column: p.parent }

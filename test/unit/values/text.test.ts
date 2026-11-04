@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	constant,
 	element,
@@ -11,6 +11,7 @@ import {
 	string,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -84,25 +85,26 @@ describe("text validation", () => {
 				Effect.gen(function* () {
 					const kinds = ["nul", "lone high", "lone low", "reversed pair"] as const
 					const positions = ["first", "middle", "last"] as const
-					const required = features<PlantedFeature>([
-						"live",
-						"not a string",
-						...Arr.flatMap(kinds, (kind) =>
-							Arr.map(positions, (position): PlantedFeature => `${kind} ${position}`)
-						)
-					])
 					return yield* explore(
 						{
 							suite: "unit/values/text-validation",
 							draw: drawn(plantedTextGen),
 							literal: Formatter.format,
-							features: required,
+							coverage: required<PlantedFeature>(
+								[
+									"live",
+									"not a string",
+									...Arr.flatMap(kinds, (kind) =>
+										Arr.map(positions, (position): PlantedFeature => `${kind} ${position}`)
+									)
+								],
+								{ cases: 1000, sense: notesOnly }
+							),
 							kept: [],
 							runs: 1000,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(planted, c) =>
@@ -135,13 +137,12 @@ describe("code point order", () => {
 					suite: "unit/values/text-1",
 					draw: drawn((source) => [source.draw(text), source.draw(text)] as const),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 10000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([a, b]) =>
@@ -172,13 +173,12 @@ describe("code point order", () => {
 						suite: "unit/values/text-2",
 						draw: drawn((source) => [source.draw(text), source.draw(text)] as const),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 5000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([a, b]) =>

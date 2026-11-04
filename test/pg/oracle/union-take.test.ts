@@ -17,17 +17,18 @@
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
-import { closedId, uuid } from "#compiler/public/fields.ts"
+import { closedId, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
@@ -46,12 +47,12 @@ const Unions = schema("Unions", { Kind, Task, Memo }, [
 
 const activity = query(Unions)
 	.rule((r) => {
-		const { id, title } = v(Task)
+		const { id, title } = v(Task, "task")
 		return r.match(Task, { id, kind: "Open", title }).find({ id, kind: Kind.handle("Open"), title })
 	})
 	.rule((r) => {
-		const { id } = v(Task)
-		const { text } = v(Memo)
+		const { id } = v(Task, "task")
+		const { text } = v(Memo, "memo")
 		return r
 			.match(Task, { id, kind: "Done" })
 			.match(Memo, { task: id, text })
@@ -62,18 +63,18 @@ const firstOf = (k: number) => activity.orderBy(["id", "asc"]).take(k)
 const idsOf = (k: number) =>
 	query(Unions).rule((r) => {
 		const first = firstOf(k)
-		const { id } = v(first)
+		const { id } = v(first, "first")
 		return r.match(first, { id }).find({ id })
 	})
 
 const memosOf = (k: number) =>
 	query(Unions).rule((r) => {
 		const first = firstOf(k)
-		const { id, text } = v(first)
+		const { id, text } = v(first, "first")
 		return r.match(first, { id, kind: "Done", text }).find({ id, text })
 	})
 
-const id = (n: number): string =>
+const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** Twelve tasks cycling Open, Done, Held; every other done task has a memo, so some done tasks are in no arm. */
@@ -172,7 +173,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const installed = yield* install(Unions, { label: "real", logins: [], extensions: [] })
+						const installed = yield* install(Unions, {
+							ambient: ordinarySession,
+							label: "real",
+							logins: [],
+							extensions: []
+						})
 						yield* load(installed, { Task: tasks, Memo: memos })
 						return yield* exhaust(
 							{
@@ -180,7 +186,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								generator: element(bounds),
 								literal: Formatter.format,
 								limit: bounds.length,
-								features: features<BoundFeature>(Arr.map(bounds, (k): BoundFeature => `take ${k}`)),
+								coverage: requiredInSpace<BoundFeature>(
+									Arr.map(bounds, (k): BoundFeature => `take ${k}`)
+								),
 								caseHang: Duration.minutes(2)
 							},
 							(k, c) =>

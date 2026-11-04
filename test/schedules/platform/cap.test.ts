@@ -22,6 +22,7 @@
 import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { fullSwarm, keep, type Swarm, swarm } from "@grizzle/testing/swarm"
 import { Array as Arr, Option } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import {
 	beforeOf,
 	committedOf,
@@ -178,8 +179,9 @@ const judgeCap = (
 		if (q === undefined) {
 			continue
 		}
-		reached.push(
-			...Option.match(cap, {
+		appendAll(
+			reached,
+			Option.match(cap, {
 				onNone: (): ReadonlyArray<RaceFeature> => [
 					"planted: a request refused for the month a merge removed"
 				],

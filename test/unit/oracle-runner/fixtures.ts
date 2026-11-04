@@ -1,6 +1,7 @@
 import { Array as Arr, Option } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	conservativeMeta,
@@ -13,7 +14,7 @@ import {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { int4, numeric, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
-import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
+import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, type GenSchema, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -24,7 +25,7 @@ export const text: ScalarType = scalarOfSpec({ carrier: "text" })
 export const int = (v: number | bigint): TypedLiteral => ({ kind: "int", value: BigInt(v) })
 export const dec = (v: string): TypedLiteral => ({ kind: "numeric", value: Decimal.of(v) })
 export const str = (v: string): TypedLiteral => ({ kind: "text", value: v })
-export const flt = (v: number): TypedLiteral => ({ kind: "float", value: v })
+export const flt = (v: number): TypedLiteral => ({ kind: "float", value: canonicalZero(v) })
 
 export const relation = (
 	name: string,
@@ -77,7 +78,7 @@ export const schema: GenSchema = {
 	containments: []
 }
 
-export const facts: GenFacts = {
+export const facts: GenFacts = canonicalFacts({
 	Account: [[str("A")], [str("B")], [str("C")]],
 	Posting: [
 		[int(1), str("A"), dec("10")],
@@ -94,7 +95,7 @@ export const facts: GenFacts = {
 		[int(2), str("\u{1F600}")],
 		[int(3), str("a")]
 	]
-}
+})
 
 type Bind = string | { readonly literal: TypedLiteral } | null
 
@@ -241,7 +242,7 @@ export class Q {
 			schema: caseSchema,
 			facts: caseFacts,
 			query: { dag: normalQuery(this.b.build(Arr.of(root))), params: this.params },
-			spelling: { mode: "perCase", choices: [], edge: false },
+			spelling: { mode: "drawn", edge: false },
 			label
 		}
 	}

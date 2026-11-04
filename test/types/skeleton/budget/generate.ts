@@ -24,37 +24,37 @@ const relationBlock = (i: number, relations: number): string => {
 	const child = (i + 1) % relations
 	return `
 export const byParent${i} = query(S).rule((r) => {
-	const { id, parent, amount, kind } = v(R${i})
+	const { id, parent, amount, kind } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, parent, amount, kind }).where(r.eq(parent, r.param("parent", uuid)), r.ge(amount, 0n)).find({ id, amount, kind })
 }).attach("children", (p) => query(S).rule((r) => {
-	const { id } = v(R${child})
+	const { id } = v(R${child}, "r${child}")
 	return r.match(R${child}, { id, parent: p.id }).find({ id })
 }), "array")
 export const byId${i} = query(S).rule((r) => {
-	const { amount, label } = v(R${i})
+	const { amount, label } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id: r.param("id", uuid), amount, label }).find({ amount, label })
 })
 export const total${i} = query(S).rule((r) => {
-	const { id, kind, qty } = v(R${i})
+	const { id, kind, qty } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, kind, qty }).find({ kind, total: r.sum(qty), n: r.count() })
 })
 export const owned${i} = query(S).rule((r) => {
-	const { id, parent, kind } = v(R${i})
+	const { id, parent, kind } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, parent, kind }).find({ id, parent, kind })
 }).attach("owner", (p) => query(S).rule((r) => {
-	const { label } = v(R${(i + relations - 1) % relations})
+	const { label } = v(R${(i + relations - 1) % relations}, "r${(i + relations - 1) % relations}")
 	return r.match(R${(i + relations - 1) % relations}, { id: p.parent, label }).find({ label })
 }), ${i > 0 ? '"one"' : '"option"'}).attach("handle", (p) => query(S).rule((r) => r.match(Kind, { id: p.kind }).find({ handle: p.kind })), "one")
 export const change${i} = ChangeSet.empty(S)
-	.insert(R${i}, [{ id: "x", parent: "y", amount: Cents(1n), label: "abc", kind: "A", qty: 1 }])
+	.insert(R${i}, [{ id: "00000000-0000-4000-8000-000000000001", parent: "00000000-0000-4000-8000-000000000002", amount: Cents(1n), label: "abc", kind: "A", qty: 1 }])
 	.read("added", (d) => query(S).rule((r) => {
-		const { id } = v(d.added(R${i}))
+		const { id } = v(d.added(R${i}), "addedR${i}")
 		return r.match(d.added(R${i}), { id }).find({ id })
 	}))
 export const run${i} = [
-	db.get(byId${i}, { id: "x" }),
-	db.get(R${i}, { id: "x" }),
-	db.execute(byParent${i}, { parent: "p" }),
+	db.get(byId${i}, { id: "00000000-0000-4000-8000-000000000001" }),
+	db.get(R${i}, { id: "00000000-0000-4000-8000-000000000001" }),
+	db.execute(byParent${i}, { parent: "00000000-0000-4000-8000-000000000002" }),
 	db.execute(total${i}.orderBy(["kind", "asc"]).take(1), {}),
 	db.apply(change${i}, {})
 ] as const
@@ -92,15 +92,15 @@ const statements = (relations: number): string => {
 const assertions = (i: number, relations: number): string => {
 	const owner = (i + relations - 1) % relations
 	return `
-export type Params${i} = Expect<Equals<ParamsOf<typeof byParent${i}>, { readonly parent: string }>>
+export type Params${i} = Expect<Equals<ParamsOf<typeof byParent${i}>, { readonly parent: ParamType<Uuid, "uuid"> }>>
 export type Head${i} = Expect<
 	Equals<
 		HeadOf<typeof byParent${i}>,
 		{
-			readonly id: string
+			readonly id: Uuid
 			readonly amount: Cents
 			readonly kind: "A" | "B" | "C"
-			readonly children: ReadonlyArray<{ readonly id: string }>
+			readonly children: ReadonlyArray<{ readonly id: Uuid }>
 		}
 	>
 >
@@ -113,8 +113,8 @@ export type Owned${i} = Expect<
 	Equals<
 		HeadOf<typeof owned${i}>,
 		{
-			readonly id: string
-			readonly parent: string
+			readonly id: Uuid
+			readonly parent: Uuid
 			readonly kind: "A" | "B" | "C"
 			readonly owner: ${i > 0 ? "{ readonly label: string }" : "Option.Option<{ readonly label: string }>"}
 			readonly handle: { readonly handle: "A" | "B" | "C" }
@@ -127,7 +127,7 @@ export type ChangeWrites${i} = Expect<Equals<WritesOf<typeof change${i}>, "R${i}
 // @ts-expect-error -- TS2345 refusal: a ChangeSet writes only relations its role's write list names
 export const readerApply${i} = reader.apply(change${i}, {})
 // @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-export const manyGet${i} = db.get(byParent${i}, { parent: "p" })
+export const manyGet${i} = db.get(byParent${i}, { parent: "00000000-0000-4000-8000-000000000002" })
 // @ts-expect-error -- TS2322: the parameters are the ones the query's uses inferred
 export const wrongParams${i} = db.execute(byParent${i}, { parent: 1 })
 // @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
@@ -163,9 +163,9 @@ import type { WritesOf } from ${JSON.stringify(entries.changesetTypes)}
 import type { DbOf } from ${JSON.stringify(entries.db)}
 import { closed, contained, type Fact, key, type KeysOf, mutable, on, relation, role, schema } from ${JSON.stringify(entries.schema)}
 import { ChangeSet } from ${JSON.stringify(entries.changeset)}
-import { closedId, contract, pg, uuid } from ${JSON.stringify(entries.fields)}
+import { closedId, contract, pg, type Uuid, uuid } from ${JSON.stringify(entries.fields)}
 import { str } from ${JSON.stringify(entries.text)}
-import { type EvidenceOfQuery, type HeadOf, type ParamsOf, query, v } from ${JSON.stringify(entries.query)}
+import { type EvidenceOfQuery, type HeadOf, type ParamsOf, type ParamType, query, v } from ${JSON.stringify(entries.query)}
 
 type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false
 type Expect<T extends true> = T

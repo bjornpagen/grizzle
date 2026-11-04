@@ -29,6 +29,7 @@ import {
 import { decodeProbeResult, encodeProbeInput } from "#bench/cold/protocol.ts"
 import { elapsed, type Summary, summarize, summarizePhases } from "#bench/cold/stats.ts"
 import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { pgPin } from "#test/support/env.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -253,6 +254,7 @@ const databaseRun = Effect.fn("databaseRun")(function* (options: ColdOptions) {
 	const s = yield* Substrate
 	const server = yield* serverIdentity(s.admin)
 	const work = yield* install(W.Work, {
+		ambient: ordinarySession,
 		label: "cold",
 		logins: [W.workWorlds(W.Work).server],
 		extensions: []

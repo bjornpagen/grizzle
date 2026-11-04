@@ -3,7 +3,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { recursionUnrollMax } from "#compiler/core/policy.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import { OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import { type DefinedOp, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	conservativeMeta,
 	type Heading,
@@ -14,20 +14,24 @@ import {
 	type Rooted,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { castOf } from "#compiler/scalar/compute/registry.ts"
+import { exactType } from "#compiler/scalar/compute/types.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import {
 	bool,
 	compareParamType,
 	int4,
+	canonicallySpelled,
 	type Spelling,
 	type SpellingMode,
+	type SpelledValue,
 	scalarOfSpec,
-	spellingChoiceCount,
+	spelledAt,
 	valueClasses
 } from "#test/support/oracle/gen/domain.ts"
-import type { GenFacts, LiteralRow } from "#test/support/oracle/gen/facts.ts"
-import { type CompareOp, compareOpId } from "#test/support/oracle/gen/ops.ts"
+import type { GenFacts, StoredRow } from "#test/support/oracle/gen/facts.ts"
+import { type CompareOp, compareOpId, definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import {
 	column,
 	type GenParam,
@@ -43,7 +47,7 @@ import {
 	type GenSchema,
 	relationHeading
 } from "#test/support/oracle/gen/schema.ts"
-import { at, elementAt, nonEmptyList, indices } from "#test/support/oracle/pick.ts"
+import { at, cyclicAt, elementAt, nonEmptyList, indices } from "#test/support/oracle/pick.ts"
 import { pickGen } from "#test/support/pick.ts"
 
 export const graphShapes = ["chain", "tree", "diamond", "selfLoop", "denseCycle", "random"] as const
@@ -53,7 +57,16 @@ type GraphShape = (typeof graphShapes)[number]
 export const vertexKinds = ["int4", "text", "int8", "uuid", "int2", "float8", "enum"] as const
 type VertexKind = (typeof vertexKinds)[number]
 
-const rosterHandles: ReadonlyArray<string> = ["H0", "H1", "H2", "H3", "H4", "H5", "H6", "H7"]
+const rosterHandles: Arr.NonEmptyReadonlyArray<string> = [
+	"H0",
+	"H1",
+	"H2",
+	"H3",
+	"H4",
+	"H5",
+	"H6",
+	"H7"
+]
 
 const vertexRoster: GenClosed = {
 	name: "K0",
@@ -238,20 +251,12 @@ export const firstGraphSketch: GraphSketch = {
 }
 
 /**
- * The value of vertex i: the i-th value class of the type, from the rotating offset, under the case's spelling. An
- * index past the domain wraps; an index at or past n names a value outside the graph (a root that is no vertex).
+ * The value of vertex i: the i-th value class of the type, from the rotating offset. An index past the domain wraps;
+ * an index at or past n names a value outside the graph (a root that is no vertex).
  */
-const vertexValue = (
-	graph: Pick<GenGraph, "vertexType" | "offset">,
-	i: number,
-	spelling: Spelling
-): TypedLiteral => {
+const vertexValue = (graph: Pick<GenGraph, "vertexType" | "offset">, i: number): TypedLiteral => {
 	const classes = valueClasses(graph.vertexType, false)
-	const k = (i + graph.offset) % classes.length
-	const cls = elementAt(classes, k, "a vertex type's classes")
-	const sp =
-		spelling.mode !== "perCase" || spelling.choices.length === 0 ? 0 : at(spelling.choices, k)
-	return at(cls, sp)
+	return elementAt(classes, (i + graph.offset) % classes.length, "a vertex type's classes")
 }
 
 const domainSize = (type: ScalarType): number => valueClasses(type, false).length
@@ -435,13 +440,24 @@ const graphSchema = (graph: GenGraph): GenSchema => {
 	}
 }
 
-const graphFacts = (graph: GenGraph, spelling: Spelling): GenFacts => {
-	const v = (i: number) => vertexValue(graph, i, spelling)
-	const facts: Record<string, ReadonlyArray<LiteralRow>> = {
+/**
+ * The graph's stored facts, each stored vertex value in the spelling its occurrence picks: the j-th stored occurrence
+ * takes the sketch's picks at j, cyclically, so one vertex's occurrences in V, E, B and F meet in different spellings
+ * wherever its type has twins, and every join, closure step and collapse over them must still see one value.
+ */
+const graphFacts = (graph: GenGraph, picks: Arr.NonEmptyReadonlyArray<number>): GenFacts => {
+	let occurrence = 0
+	const v = (i: number): SpelledValue =>
+		spelledAt(
+			graph.vertexType,
+			vertexValue(graph, i),
+			cyclicAt(picks, occurrence++, "the spelling picks")
+		)
+	const facts: Record<string, ReadonlyArray<StoredRow>> = {
 		V: Arr.map(graph.present, (i) => [v(i)]),
 		E: Arr.map(graph.edges, (e) =>
 			graph.keyed
-				? [{ kind: "int", value: BigInt(e.id) } satisfies TypedLiteral, v(e.from), v(e.to)]
+				? [canonicallySpelled({ kind: "int", value: BigInt(e.id) }), v(e.from), v(e.to)]
 				: [v(e.from), v(e.to)]
 		),
 		B: Arr.map(graph.blocked, (i) => [v(i)])
@@ -684,7 +700,7 @@ export const defaultRecursiveLimits: RecursiveLimits = {
 	viaSecond: true,
 	rootPick: { kind: "drawn" },
 	maxBound: 4,
-	spelling: "perCase",
+	spelling: "drawn",
 	paramNames: "numbered"
 }
 
@@ -793,14 +809,12 @@ class GraphQueryBuilder {
 	readonly notes: Array<RecursionNote> = []
 	readonly graph: GenGraph
 	readonly schema: GenSchema
-	readonly spelling: Spelling
 	readonly #names: ParamNames
 	#recursions = 0
 
-	constructor(graph: GenGraph, spelling: Spelling, names: ParamNames) {
+	constructor(graph: GenGraph, names: ParamNames) {
 		this.graph = graph
 		this.schema = graphSchema(graph)
-		this.spelling = spelling
 		this.#names = names
 	}
 
@@ -809,7 +823,7 @@ class GraphQueryBuilder {
 	}
 
 	vertex(i: number): TypedLiteral {
-		return vertexValue(this.graph, i, this.spelling)
+		return vertexValue(this.graph, i)
 	}
 
 	col(b: Built, name: string): ScalarExpr {
@@ -837,20 +851,55 @@ class GraphQueryBuilder {
 		return this.lit({ kind: "int", value: BigInt(value) }, type)
 	}
 
-	op(op: OpId, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
+	op(op: DefinedOp, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
 		return this.b.expr({
 			kind: "op",
 			op,
 			args,
 			type,
 			nonNull: "strict",
-			volatility: "immutable",
-			failure: "total"
+			volatility: "immutable"
 		})
 	}
 
 	compare(op: CompareOp, left: ScalarExpr, right: ScalarExpr, operand: ScalarType): ScalarExpr {
 		return this.op(compareOpId(operand, op), [left, right], bool)
+	}
+
+	/**
+	 * A hop counter's step, as the checker's recursion conform emits it (check/recursion/state.ts counterNarrowing): the
+	 * exact sum hops + 1, narrowed into the counter's integer type with the interval the bound proves, [1, bound], since
+	 * the step runs only where hops < bound.
+	 */
+	hopStep(hopKind: string, hops: ScalarExpr, bound: number, type: ScalarType): ScalarExpr {
+		const sum = this.op(
+			definedOpOf(`${hopKind}pl`),
+			[hops, this.int(1, type)],
+			exactType("exactInteger", 20)
+		)
+		const narrowing = castOf("exactInteger", baseOf(type).carrier)
+		if (narrowing === undefined || !narrowing.partial) {
+			throw new Error(`the generators narrow an exact hop count into ${baseOf(type).carrier}`)
+		}
+		return this.b.expr({
+			kind: "cast",
+			cast: narrowing.id,
+			args: [sum],
+			type,
+			nonNull: "strict",
+			volatility: "immutable",
+			proof: {
+				precondition: { kind: "fits" },
+				premises: [
+					{
+						kind: "interval",
+						operand: 0,
+						low: { units: 1n, scale: 0 },
+						high: { units: BigInt(bound), scale: 0 }
+					}
+				]
+			}
+		})
 	}
 
 	/** A scalar parameter bound as its base type, under a minted name. */
@@ -1150,9 +1199,7 @@ class GraphQueryBuilder {
 				this.params[param] = {
 					kind: "relation",
 					heading,
-					rows: Arr.map(picks, (p) => [
-						vertexValue(this.graph, p % (this.graph.n + 1), this.spelling)
-					])
+					rows: Arr.map(picks, (p) => [vertexValue(this.graph, p % (this.graph.n + 1))])
 				}
 				return {
 					node: this.b.node({
@@ -1485,18 +1532,17 @@ const buildRecursion = (
 			let region = q.region(vars, occ)
 			if (walks) {
 				/** The bound is answer semantics: checked on the current state before it is advanced. */
-				const lt = OpId(`${parts.hopKind}lt`)
+				const lt = definedOpOf(`${parts.hopKind}lt`)
 				region = q.filter(region, (i) => q.op(lt, [q.col(i, "hops"), q.int(parts.bound, ht)], bool))
 			}
 			region = block(
 				q.filter(region, (i) => stepFilter(i, "node", "next")),
 				"next"
 			)
-			const pl = OpId(`${parts.hopKind}pl`)
 			return stepOut(
 				q.project(
 					region,
-					out("origin", "next", (i) => q.op(pl, [q.col(i, "hops"), q.int(1, ht)], ht))
+					out("origin", "next", (i) => q.hopStep(parts.hopKind, q.col(i, "hops"), parts.bound, ht))
 				)
 			)
 		}
@@ -1606,7 +1652,7 @@ const buildConsumer = (
 			const ht = hopType(parts.hopKind)
 			const lower = parts.lower % (parts.bound + 1)
 			const filtered = q.filter(rec, (i) =>
-				q.op(OpId(`${parts.hopKind}ge`), [q.col(i, "hops"), q.int(lower, ht)], bool)
+				q.op(definedOpOf(`${parts.hopKind}ge`), [q.col(i, "hops"), q.int(lower, ht)], bool)
 			)
 			return q.rename(filtered, [
 				...(parts.origin ? [["origin", "origin"] as const] : []),
@@ -1822,13 +1868,17 @@ export interface RecursiveCase extends QueryCase {
 interface RecursiveCaseSketch {
 	readonly graph: GraphSketch
 	readonly recursion: RecursionSketch
-	readonly spelling: ReadonlyArray<number>
+	/** The spelling picks of the stored vertex occurrences, in order (graphFacts). */
+	readonly spelling: Arr.NonEmptyReadonlyArray<number>
 }
 
-const spellingGen: Gen<ReadonlyArray<number>> = array(int(0, 2), {
-	min: spellingChoiceCount,
-	max: spellingChoiceCount
-})
+/** How many spelling picks a recursive case draws, for the stored vertex occurrences in turn. */
+const spellingPicks = 8
+
+const spellingGen: Gen<Arr.NonEmptyReadonlyArray<number>> = (source) => [
+	source.draw(int(0, 4)),
+	...source.draw(array(int(0, 4), { min: spellingPicks - 1, max: spellingPicks - 1 }))
+]
 
 export const recursiveCaseSketchGen: Gen<RecursiveCaseSketch> = (source) => ({
 	graph: source.draw(graphSketchGen),
@@ -1906,12 +1956,11 @@ export const resolveRecursiveCase = (
 	limits: RecursiveLimits,
 	mutation: RecursionMove
 ): RecursiveCase => {
-	const spelling: Spelling = { mode: limits.spelling, choices: sketch.spelling, edge: false }
+	const spelling: Spelling = { mode: limits.spelling, edge: false }
 	const graph = resolveGraph(sketch.graph, limits.graph)
 	const parts = resolveParts(sketch.recursion, limits)
 	const q = new GraphQueryBuilder(
 		graph,
-		spelling,
 		new ParamNames(limits.paramNames, sketch.recursion.paramNames)
 	)
 	const root = buildConsumer(q, parts, sketch.recursion, limits, mutation)
@@ -1924,7 +1973,7 @@ export const resolveRecursiveCase = (
 	const label = `${printGraph(graph)}\nrecursion ${JSON.stringify(parts)}`
 	return {
 		schema: q.schema,
-		facts: graphFacts(graph, spelling),
+		facts: graphFacts(graph, sketch.spelling),
 		query,
 		spelling,
 		graph,
@@ -1956,7 +2005,8 @@ interface FixedLengthSketch {
 	readonly exists: boolean
 	readonly reverse: boolean
 	readonly hopKind: number
-	readonly spelling: ReadonlyArray<number>
+	/** The spelling picks of the stored vertex occurrences, in order (graphFacts). */
+	readonly spelling: Arr.NonEmptyReadonlyArray<number>
 }
 
 const fixedLengthSketchGen: Gen<FixedLengthSketch> = (source) => ({
@@ -1974,10 +2024,10 @@ const resolveFixedLengthCase = (
 	sketch: FixedLengthSketch,
 	graphLimits: GraphLimits
 ): FixedLengthCase => {
-	const spelling: Spelling = { mode: "perCase", choices: sketch.spelling, edge: false }
+	const spelling: Spelling = { mode: "drawn", edge: false }
 	const graph = resolveGraph(sketch.graph, graphLimits)
 	/** Its one parameter is named p1 by hand, both forms reading it; it mints no other. */
-	const q = new GraphQueryBuilder(graph, spelling, new ParamNames("numbered", []))
+	const q = new GraphQueryBuilder(graph, new ParamNames("numbered", []))
 	const t = q.vertexType
 	const k = sketch.length
 	const hopKind = at(hopKinds, sketch.hopKind)
@@ -2085,21 +2135,17 @@ const resolveFixedLengthCase = (
 				step.push({ source: q.relation("V"), bind: { id: x } })
 			}
 			const region = q.filter(q.region([...(sketch.allRoots ? [o] : []), c, h, x], step), (i) =>
-				q.op(OpId(`${hopKind}lt`), [q.col(i, "hops"), q.int(k, ht)], bool)
+				q.op(definedOpOf(`${hopKind}lt`), [q.col(i, "hops"), q.int(k, ht)], bool)
 			)
 			return q.project(region, [
 				...(sketch.allRoots ? [["origin", (i: Built) => q.col(i, "origin"), t] as const] : []),
 				["node", (i: Built) => q.col(i, "next"), t] as const,
-				[
-					"hops",
-					(i: Built) => q.op(OpId(`${hopKind}pl`), [q.col(i, "hops"), q.int(1, ht)], ht),
-					ht
-				] as const
+				["hops", (i: Built) => q.hopStep(hopKind, q.col(i, "hops"), k, ht), ht] as const
 			])
 		}
 	)
 	const exact = q.filter(rec, (i) =>
-		q.op(OpId(`${hopKind}eq`), [q.col(i, "hops"), q.int(k, ht)], bool)
+		q.op(definedOpOf(`${hopKind}eq`), [q.col(i, "hops"), q.int(k, ht)], bool)
 	)
 	const recursive = q.rename(exact, head("origin", "node"))
 	const query = finishQuery(q, [joins.node, recursive.node])
@@ -2116,7 +2162,7 @@ const resolveFixedLengthCase = (
 	}
 	return {
 		schema: q.schema,
-		facts: graphFacts(graph, spelling),
+		facts: graphFacts(graph, sketch.spelling),
 		query,
 		spelling,
 		graph,

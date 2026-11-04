@@ -12,6 +12,7 @@ import type { DbConfigShape, DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { candidateLabel, candidatesOf } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
@@ -35,6 +36,7 @@ import { loginDescOf } from "#compiler/schema/world.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
+import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { pgPin } from "#test/support/env.ts"
@@ -49,7 +51,6 @@ import {
 } from "#test/support/migrate/kit.ts"
 import { type Decisions, type Placeholder, review } from "#test/support/migrate/review.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { compileRuntime, dbReader } from "#test/support/runtime-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -290,7 +291,8 @@ export const migrated = (options: MigrateOptions) =>
 			...Arr.map(options.later, (f) => f(name))
 		]
 		const session = yield* substrate.session({ ...ownerSession(), label: `owner ${options.label}` })
-		const migrator = yield* openMigrator(substrate, substrate.owner)
+		const ownerLogin = yield* ambientOwner(ordinarySession, [identifierOf(installation)])
+		const migrator = yield* openMigrator(substrate, ownerLogin.credentials)
 		const placeholderValue =
 			options.apply.kind === "values" ? options.apply.value : noValue(options.label)
 		const folders: Array<FolderSource> = []
@@ -321,14 +323,14 @@ export const migrated = (options: MigrateOptions) =>
 				})
 			)
 			const decisions: Decisions = {
-				chosen: new Set(options.renames === "chosen" ? indices(g.plan.candidates.length) : []),
+				chosen: new Set(options.renames === "chosen" ? candidatesOf(g.plan) : []),
 				losses: "written",
 				value: placeholderValue
 			}
 			const reviewed = review(g, decisions)
 			if (Result.isFailure(reviewed)) {
 				throw new Error(
-					`migrated: the review of ${g.folder.name} is inexpressible: candidates ${Arr.join(Arr.map(reviewed.failure.candidates, String), ", ")} decide one statement of ${reviewed.failure.file}`
+					`migrated: the review of ${g.folder.name} is inexpressible: ${Arr.join(Arr.map(reviewed.failure.candidates, candidateLabel), ", ")} decide one statement of ${reviewed.failure.file}`
 				)
 			}
 			folders.push({
@@ -351,7 +353,13 @@ export const migrated = (options: MigrateOptions) =>
 			succeeded(registerSnapshot(version.schema, snapshot))
 		}
 		const history = nonEmpty(folders, "a migrated schema has its first migration")
-		const installed = yield* installedOf({ plan, declared: name, folders: history, snapshot })
+		const installed = yield* installedOf({
+			plan,
+			declared: name,
+			folders: history,
+			snapshot,
+			ambientOwner: ownerLogin
+		})
 		const quoted = quoteIdent(installed.schema)
 		const result: Migrated = {
 			...installed,

@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, map, oneOf, option } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -12,7 +13,7 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -42,18 +43,26 @@ const dictionaryDecimal: Gen<Decimal> = (source) =>
 
 const anyDecimal: Gen<Decimal> = oneOf([dictionaryDecimal, decimalGen])
 
-const signed = (d: Decimal): bigint => (d.negative ? -d.coefficient : d.coefficient)
+const signed = (p: FiniteParts): bigint => (p.negative ? -p.coefficient : p.coefficient)
 
 /**
- * The exact rational value of a finite Decimal as a signed coefficient over 10^scale, compared by cross
- * multiplication; the specials by their rank, NaN equal to NaN.
+ * The exact rational value of a finite Decimal as a signed coefficient over 10^minScale, compared by cross
+ * multiplication, which reads no canonical form; the specials by their kind, NaN equal to NaN.
  */
 const sameDecimal = (a: Decimal, b: Decimal): boolean => {
-	if (a.kind !== "finite" || b.kind !== "finite") {
-		return a.kind === b.kind
+	const x = a.parts
+	const y = b.parts
+	if (x.kind !== "finite" || y.kind !== "finite") {
+		return x.kind === y.kind
 	}
-	return signed(a) * 10n ** BigInt(b.scale) === signed(b) * 10n ** BigInt(a.scale)
+	return signed(x) * 10n ** BigInt(y.minScale) === signed(y) * 10n ** BigInt(x.minScale)
 }
+
+/** Two Decimals' parts field by field: one form means equal values hold identical parts. */
+const sameParts = (a: DecimalParts, b: DecimalParts): boolean =>
+	a.kind === "finite" && b.kind === "finite"
+		? a.negative === b.negative && a.coefficient === b.coefficient && a.minScale === b.minScale
+		: a.kind === b.kind
 
 const minorUnits: Gen<bigint> = oneOf([
 	element([0n, 1n, -1n, 5n, 6n, 2n ** 63n - 1n, -(2n ** 63n)]),
@@ -91,9 +100,10 @@ const judgedDecimal = (a: Decimal, b: Decimal): Judged => ({
 	sides: [
 		["equals", a.equals(b)],
 		["compare", a.compare(b) === 0],
-		["identityText", a.identityText() === b.identityText()]
+		["toString", a.toString() === b.toString()],
+		["parts", sameParts(a.parts, b.parts)]
 	],
-	identities: [a.identityText(), b.identityText()]
+	identities: [a.text, b.text]
 })
 
 const judgedMoney = (x: bigint, y: bigint): Judged => {
@@ -293,49 +303,48 @@ describe("the value carriers' laws", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				Effect.gen(function* () {
-					const required = features<`${Judged["carrier"]} ${"equal" | "unequal"}`>([
-						"decimal equal",
-						"decimal unequal",
-						"money equal",
-						"money unequal",
-						"vector equal",
-						"vector unequal"
-					])
-					return yield* explore(
-						{
-							suite: "unit/values/laws-equality",
-							draw: drawn(pairGen),
-							literal: Formatter.format,
-							features: required,
-							kept: [],
-							runs: 2000,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							steering: { kind: "none" },
-							caseHang: Duration.minutes(2)
-						},
-						(j, c) =>
-							Effect.sync(() => {
-								c.note(`${j.carrier} ${j.oracle ? "equal" : "unequal"}`)
-								for (const [side, verdict] of j.sides) {
-									assert.equal(
-										verdict,
-										j.oracle,
-										`${j.carrier}: ${side} says ${verdict}, the value oracle ${j.oracle}`
-									)
-								}
-								if (j.oracle) {
-									assert.equal(
-										j.identities[0],
-										j.identities[1],
-										`${j.carrier}: equal values have different identity texts`
-									)
-								}
-							})
-					)
-				})
+				explore(
+					{
+						suite: "unit/values/laws-equality",
+						draw: drawn(pairGen),
+						literal: Formatter.format,
+						coverage: required<`${Judged["carrier"]} ${"equal" | "unequal"}`>(
+							[
+								"decimal equal",
+								"decimal unequal",
+								"money equal",
+								"money unequal",
+								"vector equal",
+								"vector unequal"
+							],
+							{ cases: 2000, sense: notesOnly }
+						),
+						kept: [],
+						runs: 2000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					(j, c) =>
+						Effect.sync(() => {
+							c.note(`${j.carrier} ${j.oracle ? "equal" : "unequal"}`)
+							for (const [side, verdict] of j.sides) {
+								assert.equal(
+									verdict,
+									j.oracle,
+									`${j.carrier}: ${side} says ${verdict}, the value oracle ${j.oracle}`
+								)
+							}
+							if (j.oracle) {
+								assert.equal(
+									j.identities[0],
+									j.identities[1],
+									`${j.carrier}: equal values have different identity texts`
+								)
+							}
+						})
+				)
 			)
 	)
 
@@ -344,95 +353,93 @@ describe("the value carriers' laws", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				Effect.gen(function* () {
-					const required = features<Constructor>([
-						"Decimal.fromString",
-						"Money.fromCanonical",
-						"makeSpan",
-						"Vector.canonical",
-						"scalarTypeOf",
-						"a public field descriptor",
-						"str.regex"
-					])
-					return yield* explore(
-						{
-							suite: "unit/values/laws-frozen",
-							draw: drawn(constructedGen),
-							literal: Formatter.format,
-							features: required,
-							kept: [],
-							runs: 400,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							steering: { kind: "none" },
-							caseHang: Duration.minutes(2)
-						},
-						(made, c) =>
-							Effect.sync(() => {
-								c.note(made.by)
-								for (const object of reached(made.value)) {
-									if (!ArrayBuffer.isView(object)) {
-										assert.equal(
-											Object.isFrozen(object),
-											true,
-											`${made.by} returns an object reaching an unfrozen one`
-										)
-									}
+				explore(
+					{
+						suite: "unit/values/laws-frozen",
+						draw: drawn(constructedGen),
+						literal: Formatter.format,
+						coverage: required<Constructor>(
+							[
+								"Decimal.fromString",
+								"Money.fromCanonical",
+								"makeSpan",
+								"Vector.canonical",
+								"scalarTypeOf",
+								"a public field descriptor",
+								"str.regex"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 400,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					(made, c) =>
+						Effect.sync(() => {
+							c.note(made.by)
+							for (const object of reached(made.value)) {
+								if (!ArrayBuffer.isView(object)) {
+									assert.equal(
+										Object.isFrozen(object),
+										true,
+										`${made.by} returns an object reaching an unfrozen one`
+									)
 								}
-							})
-					)
-				})
+							}
+						})
+				)
 			)
 	)
 
 	it.effect("a written payload revives to its value, and only a written payload revives", (ctx) =>
 		searched(
 			ctx,
-			Effect.gen(function* () {
-				const required = features<`${Tag} ${"written" | "near miss refused"}`>([
-					"d written",
-					"d near miss refused",
-					"m written",
-					"m near miss refused",
-					"v written",
-					"v near miss refused"
-				])
-				return yield* explore(
-					{
-						suite: "unit/values/laws-revival",
-						draw: drawn(offeredGen),
-						literal: Formatter.format,
-						features: required,
-						kept: [],
-						runs: 3000,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						steering: { kind: "none" },
-						caseHang: Duration.minutes(2)
-					},
-					(o, c) =>
-						Effect.sync(() => {
-							const back = rewritten(o.tag, o.payload)
-							if (o.written) {
-								c.note(`${o.tag} written`)
-								assert.ok(back.ok, `the written ${o.tag} payload ${o.payload} is refused`)
-								assert.equal(back.value, o.payload)
-								return
-							}
-							if (back.ok) {
-								assert.equal(
-									back.value,
-									o.payload,
-									`~${o.tag}:${o.payload} revives to a value writing ${back.value}`
-								)
-							} else {
-								c.note(`${o.tag} near miss refused`)
-							}
-						})
-				)
-			})
+			explore(
+				{
+					suite: "unit/values/laws-revival",
+					draw: drawn(offeredGen),
+					literal: Formatter.format,
+					coverage: required<`${Tag} ${"written" | "near miss refused"}`>(
+						[
+							"d written",
+							"d near miss refused",
+							"m written",
+							"m near miss refused",
+							"v written",
+							"v near miss refused"
+						],
+						{ cases: 3000, sense: notesOnly }
+					),
+					kept: [],
+					runs: 3000,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang: Duration.minutes(2)
+				},
+				(o, c) =>
+					Effect.sync(() => {
+						const back = rewritten(o.tag, o.payload)
+						if (o.written) {
+							c.note(`${o.tag} written`)
+							assert.ok(back.ok, `the written ${o.tag} payload ${o.payload} is refused`)
+							assert.equal(back.value, o.payload)
+							return
+						}
+						if (back.ok) {
+							assert.equal(
+								back.value,
+								o.payload,
+								`~${o.tag}:${o.payload} revives to a value writing ${back.value}`
+							)
+						} else {
+							c.note(`${o.tag} near miss refused`)
+						}
+					})
+			)
 		)
 	)
 })

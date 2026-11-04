@@ -1,3 +1,4 @@
+import type { Array as Arr } from "effect"
 import type { Ddl, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
 
 /**
@@ -61,8 +62,8 @@ export interface OracleForeignKey {
  */
 export interface OracleKey {
 	readonly name: string
-	/** Declared order. */
-	readonly fields: ReadonlyArray<string>
+	/** Declared order, at least one, as a key has. */
+	readonly fields: Arr.NonEmptyReadonlyArray<string>
 	/** The span field of a span key; a key of scalar fields has none. */
 	readonly span: { readonly kind: "none" } | { readonly kind: "span"; readonly field: string }
 }

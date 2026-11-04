@@ -5,7 +5,17 @@ import { toResult } from "#adapter/engine.ts"
 import { decode, noRevivers } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { CandidatePath } from "#compiler/deploy/diff/plan.ts"
 import {
+	type MetaFile,
+	type MetaLosses,
+	type MetaNestedRename,
+	type MetaPlainOffer,
+	type MetaRelationStep,
+	type MetaRequires,
+	type MetaRootRenames,
+	type MetaSealedStep,
+	type MetaTopOffer,
 	type MigrationMeta,
 	type ReadMeta,
 	readDecodedMeta
@@ -16,66 +26,133 @@ const Fingerprint: Schema.Codec<SchemaFingerprint, string> = NonEmptyText.pipe(
 	Schema.decodeTo(fingerprintSchemas.schema)
 )
 
-const CandidateIndex = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))
+const Ends = { removed: NonEmptyText, added: NonEmptyText } as const
 
-const Within = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("top") }),
-	Schema.Struct({ kind: Schema.Literal("within"), candidate: CandidateIndex })
-])
+const RelationPath = Schema.Struct({ kind: Schema.Literal("relation"), ...Ends })
+const TypePath = Schema.Struct({ kind: Schema.Literal("type"), ...Ends })
+const LoginPath = Schema.Struct({ kind: Schema.Literal("login"), ...Ends })
 
-const MetaDecisionsSchema = Schema.Struct({
-	candidates: Schema.Array(
+const CandidatePathSchema = exact<CandidatePath>()(
+	Schema.Union([
+		RelationPath,
+		TypePath,
+		LoginPath,
+		Schema.Struct({ kind: Schema.Literal("field"), relation: NonEmptyText, ...Ends }),
+		Schema.Struct({ kind: Schema.Literal("nested field"), parent: RelationPath, ...Ends })
+	])
+)
+
+const RequiresSchema = exact<MetaRequires>()(
+	Schema.Union([Schema.Struct({ kind: Schema.Literal("nothing") }), TypePath])
+)
+
+const RootRenamesSchema = exact<MetaRootRenames>()(
+	Schema.Union([
+		LoginPath,
 		Schema.Struct({
-			label: NonEmptyText,
-			renames: Schema.Struct({
-				kind: Schema.Literals(["relation", "field", "type", "login"]),
-				removed: NonEmptyText,
-				added: NonEmptyText
-			}),
-			requires: Schema.Array(CandidateIndex),
-			witness: Schema.Struct({ choice: CandidateIndex, statement: CandidateIndex })
+			kind: Schema.Literal("type"),
+			object: Schema.Literals(["TYPE", "DOMAIN"]),
+			...Ends
+		}),
+		Schema.Struct({
+			kind: Schema.Literal("field"),
+			relation: NonEmptyText,
+			...Ends,
+			requires: RequiresSchema
 		})
-	),
-	choices: Schema.Array(
+	])
+)
+
+const LossesSchema = exact<MetaLosses>()(
+	Schema.Union([
+		Schema.Struct({ kind: Schema.Literal("relation"), relation: NonEmptyText }),
 		Schema.Struct({
-			file: NonEmptyText,
-			within: Within,
-			keep: NonEmptyText,
-			offers: Schema.Array(
-				Schema.Struct({
-					candidate: CandidateIndex,
-					statements: Schema.Array(NonEmptyText)
-				})
+			kind: Schema.Literal("field"),
+			relation: NonEmptyText,
+			field: NonEmptyText
+		}),
+		Schema.Struct({
+			kind: Schema.Literal("schema"),
+			schema: NonEmptyText,
+			abandoned: Schema.NonEmptyArray(
+				Schema.Struct({ schema: NonEmptyText, directory: NonEmptyText })
 			)
 		})
-	),
-	confirms: Schema.Array(
-		Schema.Struct({ file: NonEmptyText, statements: Schema.NonEmptyArray(NonEmptyText) })
-	),
-	losses: Schema.Array(
+	])
+)
+
+const PlainOfferSchema = exact<MetaPlainOffer>()(
+	Schema.Union([
 		Schema.Struct({
-			file: NonEmptyText,
-			within: Within,
-			loses: Schema.Union([
-				Schema.Struct({ kind: Schema.Literal("relation"), relation: NonEmptyText }),
-				Schema.Struct({
-					kind: Schema.Literal("field"),
-					relation: NonEmptyText,
-					field: NonEmptyText
-				}),
-				Schema.Struct({
-					kind: Schema.Literal("schema"),
-					schema: NonEmptyText,
-					abandoned: Schema.NonEmptyArray(
-						Schema.Struct({ schema: NonEmptyText, directory: NonEmptyText })
-					)
-				})
-			]),
+			kind: Schema.Literal("replace"),
+			candidate: CandidatePathSchema,
+			statements: Schema.NonEmptyArray(NonEmptyText)
+		}),
+		Schema.Struct({ kind: Schema.Literal("delete"), candidate: CandidatePathSchema })
+	])
+)
+
+/** The steps of one place in a drafted file, a choice there offering what `offer` decodes: the depth of nesting is the
+ * form's, a relation's alternative under a file's top and a sealed one under either, so no form recurses. */
+const stepsOf = <O, E>(offer: Schema.Codec<O, E>) =>
+	Schema.Union([
+		Schema.Struct({ kind: Schema.Literal("statement"), statement: NonEmptyText }),
+		Schema.Struct({
+			kind: Schema.Literal("choice"),
+			keep: NonEmptyText,
+			offers: Schema.NonEmptyArray(offer),
+			follows: Schema.Array(NonEmptyText)
+		}),
+		Schema.Struct({
+			kind: Schema.Literal("loss"),
+			loses: LossesSchema,
 			statement: NonEmptyText,
-			carriers: Schema.Array(CandidateIndex)
+			carriers: Schema.Array(CandidatePathSchema)
+		}),
+		Schema.Struct({
+			kind: Schema.Literal("confirm"),
+			statements: Schema.NonEmptyArray(NonEmptyText)
 		})
-	)
-})
+	])
+
+const SealedStepSchema = PlainOfferSchema.pipe(stepsOf, exact<MetaSealedStep>())
+
+const NestedRenameSchema = exact<MetaNestedRename>()(
+	Schema.Struct({
+		kind: Schema.Literal("nested rename"),
+		...Ends,
+		requires: RequiresSchema,
+		head: NonEmptyText,
+		alternative: Schema.Array(SealedStepSchema)
+	})
+)
+
+const RelationStepSchema = Schema.Union([NestedRenameSchema, PlainOfferSchema]).pipe(
+	stepsOf,
+	exact<MetaRelationStep>()
+)
+
+const TopOfferSchema = exact<MetaTopOffer>()(
+	Schema.Union([
+		Schema.Struct({
+			kind: Schema.Literal("rename"),
+			renames: RootRenamesSchema,
+			head: NonEmptyText,
+			alternative: Schema.Array(SealedStepSchema)
+		}),
+		Schema.Struct({
+			kind: Schema.Literal("relation rename"),
+			...Ends,
+			head: NonEmptyText,
+			alternative: Schema.Array(RelationStepSchema)
+		}),
+		PlainOfferSchema
+	])
+)
+
+const MetaFileSchema = exact<MetaFile>()(
+	Schema.Struct({ name: NonEmptyText, steps: Schema.Array(stepsOf(TopOfferSchema)) })
+)
 
 /** meta.json as the generator writes it. */
 const metaFields = {
@@ -91,7 +168,7 @@ const MigrationMetaSchema = exact<MigrationMeta>()(
 		Schema.Struct({
 			kind: Schema.Literal("drafted"),
 			...metaFields,
-			decisions: MetaDecisionsSchema
+			files: Schema.Array(MetaFileSchema)
 		}),
 		Schema.Struct({ kind: Schema.Literal("custom"), ...metaFields })
 	])

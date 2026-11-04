@@ -39,13 +39,7 @@ import {
 	type Owed,
 	type PhysicalKey
 } from "#compiler/ir/multiplicity.ts"
-import {
-	failingColumns,
-	inputsOf,
-	type KeySet,
-	type RelDag,
-	type RelNode
-} from "#compiler/ir/rel.ts"
+import { inputsOf, type KeySet, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 
 export interface PhysicalEnv {
 	/**
@@ -97,8 +91,6 @@ export interface PhysicalNode {
 	readonly observed: boolean
 	/** A fold's contribution (a Group with aggregates, an OrderedSetAggregate, a Window); no other node has one. */
 	readonly contribution: Contribution | undefined
-	/** The columns whose computation can raise (ir/rel.ts failingColumns). */
-	readonly failing: ReadonlySet<string>
 }
 
 export interface PhysicalAnalysis {
@@ -152,15 +144,6 @@ export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis
 		return physicalPropsOf(node, rules)
 	})
 	const rules: RuleContext = { props: (input) => props.of(input), catalog, placed: env.realization }
-	/** Each node's failing columns, its inputs' first. */
-	const failing: Fold<RelNode, ReadonlySet<string>> = new Fold(function* (
-		node: RelNode
-	): Generator<RelNode, ReadonlySet<string>, ReadonlySet<string>> {
-		for (const input of inputsOf(node)) {
-			yield input
-		}
-		return failingColumns(node, (input) => failing.of(input))
-	})
 	const edges = classifyEdges(dag, order, {
 		props: (node) => props.of(node),
 		realization,
@@ -185,7 +168,7 @@ export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis
 		/** An attached child is judged per parent binding. */
 		const proof =
 			consumerIn(edge.consumer, "child") !== undefined
-				? withReason(found.just, "perParentAttachment")
+				? withReason(found.just, ["perParentAttachment"])
 				: found.just
 		return [{ edge, heading, discharged: true, proof }]
 	})
@@ -204,8 +187,7 @@ export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis
 			props: props.of(node),
 			realization: realization(node),
 			observed: observed.has(node),
-			contribution: contributionAt(node),
-			failing: failing.of(node)
+			contribution: contributionAt(node)
 		}),
 		edges,
 		obligations

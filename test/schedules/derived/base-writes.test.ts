@@ -85,7 +85,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								sql(
 									"writer",
 									weekly(o, o.seen.writer),
-									rowSet(...weeklyRows(labels, initial)),
+									rowSet(weeklyRows(labels, initial)),
 									complete
 								),
 								sql("writer", addSitting(o, during), ok(), complete),
@@ -94,8 +94,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								awaits("refresher", complete),
 								check(freshSql(o, "StudentWeekly"), fresh),
 								check(freshSql(o, "WeekBusy"), fresh),
-								check(weekly(o, o.view), rowSet(...weeklyRows(labels, all))),
-								check(weekBusy(o, o.view), rowSet(...busyRows(labels, all)))
+								check(weekly(o, o.view), rowSet(weeklyRows(labels, all))),
+								check(weekBusy(o, o.view), rowSet(busyRows(labels, all)))
 							]),
 							actors
 						)

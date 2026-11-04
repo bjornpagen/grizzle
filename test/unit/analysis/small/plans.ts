@@ -461,7 +461,7 @@ const extend = (plan: Plan, step: Step): Plan => {
 							right:
 								step.value === "literal"
 									? { kind: "literal", value: 1, type: integer }
-									: { kind: "param", name: "p" }
+									: { kind: "param", name: "p", type: integer }
 						}
 					]
 				},

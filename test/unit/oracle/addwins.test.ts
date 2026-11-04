@@ -9,7 +9,7 @@
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -21,6 +21,7 @@ import {
 	subarray,
 	uniqueArray
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record } from "effect"
@@ -184,13 +185,12 @@ describe("the add-wins transition", () => {
 						suite: "unit/oracle/addwins-24932",
 						draw: drawn((source) => [source.draw(taskState), source.draw(strata)] as const),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([initial, layers]) =>
@@ -248,13 +248,12 @@ describe("build-order independence", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([initial, layers, order]) =>
@@ -312,13 +311,12 @@ describe("put", () => {
 								[source.draw(taskState), source.draw(array(taskFact, { min: 0, max: 4 }))] as const
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([initial, raw]) =>
@@ -475,16 +473,15 @@ describe("counts across strata, netted over the per-stratum changes", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: features<"multi-stratum" | "differs from pooled">([
-							"multi-stratum",
-							"differs from pooled"
-						]),
+						coverage: required<"multi-stratum" | "differs from pooled">(
+							["multi-stratum", "differs from pooled"],
+							{ cases: 4000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 4000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([initial, layers], c) =>
@@ -583,17 +580,15 @@ describe("generated additions", () => {
 						suite: "unit/oracle/addwins-generated",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						features: features<Feature>([
-							"a draw repeating a kept fact",
-							"a generated addition at a kept key",
-							"given draws"
-						]),
+						coverage: required<Feature>(
+							["a draw repeating a kept fact", "a generated addition at a kept key", "given draws"],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ stored, at, called, deleted, codes }, c) =>

@@ -1,9 +1,13 @@
 import { type Equivalence, exact, multiset, ordered, type Side } from "@grizzle/testing/oracle"
 import { Array as Arr, Formatter, Option, Record, Result } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
+import { VectorText } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { isVector } from "#compiler/scalar/values/vector.ts"
+import { defined } from "#test/support/assert.ts"
+import { indices } from "#test/support/oracle/pick.ts"
 import type {
 	Column,
 	MixedRoot,
@@ -11,7 +15,7 @@ import type {
 	Query,
 	StatedDelivery
 } from "#test/support/oracle/public/program.ts"
-import { compare, Unstated, type Value } from "#test/support/oracle/reference/values.ts"
+import { Declined, type Value, valueKey } from "#test/support/oracle/reference/values.ts"
 
 /** The columns and attachments a delivered row carries, each attachment in its stated delivery. */
 export interface Shape {
@@ -60,11 +64,13 @@ export interface Nested {
  * nested records alike.
  *
  * Rule: a delivered row is its head values in heading order and, for each attachment in order, the rows of its child.
- * Values are the reference's exact carriers (reference/values.ts): an integer a bigint, numeric a Decimal with its
- * display scale, a float a double, a handle its name. The contract fixes exactly this much of an answer:
+ * Values are the reference's exact carriers (reference/values.ts), each in its one form: an integer a bigint, numeric a
+ * Decimal with no display scale, a float a double with one zero, a handle its name. The contract fixes exactly this
+ * much of an answer:
  *
  * - a set is a multiset with each row once, compared as a multiset; an ordered root is compared in order;
- * - a column's values are equal by the type's own equality, PostgreSQL's: 1.0 = 1.00, NaN = NaN, -0 = 0;
+ * - a column's values are compared exactly: equal values are identical (1.0 and 1.00 are one Decimal, NaN is NaN, a
+ *   float's zero is 0), so a delivered value that is equal but not identical, a -0 among them, is a difference;
  * - an attachment's children are a set per parent, compared as a multiset with exact multiplicities: a child missing
  *   from one parent, repeated, or given to another parent is a difference;
  * - get's Option is the set of its one row or none.
@@ -100,8 +106,8 @@ export const showValue = (v: Value): string => {
 	if ("start" in v && "end" in v) {
 		return `[${v.start},${v.end})`
 	}
-	if (v instanceof Unstated) {
-		return "an unstated value"
+	if (v instanceof Declined) {
+		return "a declined value"
 	}
 	return `vector ${Formatter.format(v.vector)}`
 }
@@ -144,19 +150,70 @@ export const answersReport = (
 		"\n"
 	)
 
+/**
+ * Whether two values are one exactly: a double by Object.is, so a delivered -0 is no 0, and every other value by its
+ * canonical text (reference/values.ts valueKey): a Decimal by its one text, as `equals` compares it, Money by its minor
+ * units, a span by its endpoints, a vector by its components, a declined value by its identity.
+ */
+const sameValue = (a: Value, b: Value, type: ScalarType): boolean =>
+	typeof a === "number" && typeof b === "number"
+		? Object.is(a, b)
+		: valueKey(a, type) === valueKey(b, type)
+
 const value =
 	(column: Column): Equivalence<Value> =>
 	(a, b) =>
-		compare(a, b, column.type) === 0
+		sameValue(a, b, column.type)
 			? Option.none()
 			: Option.some(`${column.name}: ${showValue(a)} is not ${showValue(b)}`)
 
-/** Two rows of one shape: every column by its type's equality, every attachment's children as a multiset. */
-const nestedEquivalence = (shape: Shape): Equivalence<Nested> => {
+/** The columns of a shape, at every depth, that an answer's rows declined at least once (a reference's Declined). */
+interface Declines {
+	readonly columns: ReadonlySet<number>
+	readonly attachments: ReadonlyArray<Declines>
+}
+
+const declinesOf = (shape: Shape, rows: ReadonlyArray<Nested>): Declines => ({
+	columns: new Set(
+		Arr.filter(indices(shape.columns.length), (i) =>
+			Arr.some(rows, (r) => r.values[i] instanceof Declined)
+		)
+	),
+	attachments: Arr.map(shape.attachments, (a, i) =>
+		declinesOf(
+			a.shape,
+			Arr.flatMap(rows, (r) => r.attachments[i] ?? [])
+		)
+	)
+})
+
+/**
+ * The columns two answers compare by type alone: those exactly one of them declines, a reference's term PostgreSQL alone
+ * computes against a delivery, which states every value. A column both decline is compared by the declined values'
+ * identities, and every other column exactly.
+ */
+const unstated = (left: Declines, right: Declines): Declines => ({
+	columns: new Set([
+		...Arr.filter([...left.columns], (i) => !right.columns.has(i)),
+		...Arr.filter([...right.columns], (i) => !left.columns.has(i))
+	]),
+	attachments: Arr.map(left.attachments, (a, i) =>
+		unstated(a, defined(right.attachments[i], `the declines of attachment ${i}`))
+	)
+})
+
+/**
+ * Two rows of one shape, exactly: every column's value one value (sameValue), but for the columns `skip` holds, and
+ * every attachment's children as a multiset. Every side delivers each value in its one form, so equal is identical,
+ * and anything a plan, a storage order or a stored spelling could change is a difference.
+ */
+const nestedEquivalence = (shape: Shape, skip: Declines): Equivalence<Nested> => {
 	const columns = Arr.map(shape.columns, value)
-	const children = Arr.map(shape.attachments, (a) => ({
+	const children = Arr.map(shape.attachments, (a, i) => ({
 		name: a.name,
-		rows: multiset(nestedEquivalence(a.shape))
+		rows: multiset(
+			nestedEquivalence(a.shape, defined(skip.attachments[i], `the declines of ${a.name}`))
+		)
 	}))
 	return (a, b) => {
 		for (const [i, equal] of columns.entries()) {
@@ -164,6 +221,9 @@ const nestedEquivalence = (shape: Shape): Equivalence<Nested> => {
 			const y = b.values[i]
 			if (x === undefined || y === undefined) {
 				return Option.some(`column ${i} is missing`)
+			}
+			if (skip.columns.has(i)) {
+				continue
 			}
 			const difference = equal(x, y)
 			if (Option.isSome(difference)) {
@@ -195,44 +255,21 @@ const result =
 		)
 	}
 
-/** The equivalence of a read's answers: its rows as a multiset, or in order where the root is ordered. */
-export const answerEquivalence = (shape: Shape, inOrder: boolean): Equivalence<Answer> =>
-	result(inOrder ? ordered(nestedEquivalence(shape)) : multiset(nestedEquivalence(shape)), exact)
-
 /**
- * Two rows of one shape spelled alike: every column's value printed alike, so 1.0 is not 1.00 and -0 is not 0, every
- * attachment's children a multiset of rows spelled alike. Two deliveries of one read over one state convert the same
- * cell texts, so they agree exactly, not only by the type's equality.
+ * The equivalence of a read's answers: its rows as a multiset, or in order where the root is ordered, every column
+ * exactly but those one answer declines and the other states (unstated), which no reference judges: there the sides
+ * judge each other (pg/oracle/public/run.ts, against itself).
  */
-const spelledEquivalence = (shape: Shape): Equivalence<Nested> => {
-	const children = Arr.map(shape.attachments, (a) => ({
-		name: a.name,
-		rows: multiset(spelledEquivalence(a.shape))
-	}))
-	return (a, b) => {
-		for (const [i, c] of shape.columns.entries()) {
-			const x = a.values[i]
-			const y = b.values[i]
-			if (x === undefined || y === undefined) {
-				return Option.some(`column ${i} is missing`)
-			}
-			if (showValue(x) !== showValue(y)) {
-				return Option.some(`${c.name}: ${showValue(x)} is spelled otherwise than ${showValue(y)}`)
-			}
-		}
-		for (const [i, child] of children.entries()) {
-			const difference = child.rows(a.attachments[i] ?? [], b.attachments[i] ?? [])
-			if (Option.isSome(difference)) {
-				return Option.some(`${child.name}: ${difference.value}`)
-			}
-		}
-		return Option.none()
+export const answerEquivalence =
+	(shape: Shape, inOrder: boolean): Equivalence<Answer> =>
+	(left, right) => {
+		const skip =
+			Result.isSuccess(left) && Result.isSuccess(right)
+				? unstated(declinesOf(shape, left.success), declinesOf(shape, right.success))
+				: declinesOf(shape, [])
+		const rows = nestedEquivalence(shape, skip)
+		return result(inOrder ? ordered(rows) : multiset(rows), exact)(left, right)
 	}
-}
-
-/** The equivalence of two deliveries of one read: its rows spelled alike, as a multiset or in order. */
-export const spelledAnswerEquivalence = (shape: Shape, inOrder: boolean): Equivalence<Answer> =>
-	result(inOrder ? ordered(spelledEquivalence(shape)) : multiset(spelledEquivalence(shape)), exact)
 
 const endpoint = (x: unknown): bigint | undefined =>
 	typeof x === "bigint"
@@ -252,6 +289,7 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 				? Result.succeed(BigInt(host))
 				: wrong()
 		case "int8":
+		case "exactInteger":
 			return typeof host === "bigint" ? Result.succeed(host) : wrong()
 		case "numeric":
 			return host instanceof Decimal ? Result.succeed(host) : wrong()
@@ -259,6 +297,7 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 		case "float8":
 			return typeof host === "number" ? Result.succeed(host) : wrong()
 		case "money":
+		case "exactMoney":
 			return host instanceof Money ? Result.succeed(host) : wrong()
 		case "bool":
 			return typeof host === "boolean" ? Result.succeed(host) : wrong()
@@ -276,8 +315,13 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 			const e = endpoint(end)
 			return s === undefined || e === undefined ? wrong() : Result.succeed({ start: s, end: e })
 		}
-		case "vector":
-			return wrong()
+		case "vector": {
+			if (!isVector(host) || Arr.some(Array.from(host), (x) => Object.is(x, -0))) {
+				return wrong()
+			}
+			const read = VectorText.of(host)
+			return read.ok ? Result.succeed({ vector: read.value }) : wrong()
+		}
 	}
 }
 

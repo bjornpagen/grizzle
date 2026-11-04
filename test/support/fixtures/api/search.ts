@@ -57,7 +57,7 @@ export const searchWorlds = (installed: SearchNamed<string>) => {
 
 /** Exact scoring of the current revisions of an account's documents, and its ordered form. */
 export const scoredDocuments = query(Search).rule((r) => {
-	const { document, revision, value } = v(DocumentEmbedding)
+	const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 	return r
 		.match(DocumentEmbedding, { document, revision, value })
 		.match(DocumentCurrent, { document, revision })
@@ -79,8 +79,8 @@ export const titles = query(Search).rule((r) => {
 		account: r.param("account", Document.fields.account),
 		vector: r.param("vector", DocumentEmbedding.fields.value)
 	})
-	const { document, distance } = v(source)
-	const { title } = v(Document)
+	const { document, distance } = v(source, "source")
+	const { title } = v(Document, "document")
 	return r
 		.match(source, { document, distance })
 		.match(Document, { id: document, title })

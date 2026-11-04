@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Result, Schema } from "effect"
@@ -133,15 +134,17 @@ describe("the EXPLAIN readers", () => {
 						suite: "unit/bench/plan-readers",
 						draw: drawn((source) => ({ plan: source.draw(planGen), text: source.draw(boolean) })),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							"json text" | "parsed value" | "nested" | "an index" | "a join type" | "a strategy"
-						>(["json text", "parsed value", "nested", "an index", "a join type", "a strategy"]),
+						>(["json text", "parsed value", "nested", "an index", "a join type", "a strategy"], {
+							cases: 200,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ plan, text }, c) =>
@@ -203,19 +206,21 @@ describe("the EXPLAIN readers", () => {
 						)
 					})),
 					literal: Formatter.format,
-					features: features<Break>([
-						"no node type",
-						"two plans",
-						"a number for an index",
-						"a number for a strategy",
-						"no array"
-					]),
+					coverage: required<Break>(
+						[
+							"no node type",
+							"two plans",
+							"a number for an index",
+							"a number for a strategy",
+							"no array"
+						],
+						{ cases: 100, sense: notesOnly }
+					),
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ plan, break: broken }, c) =>

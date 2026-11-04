@@ -24,16 +24,16 @@ export const switchToManualDescribed = ChangeSet.empty(W.Work)
 	.put(
 		W.Task,
 		query(W.Work).rule((r) => {
-			const { account } = v(W.Task)
+			const { account } = v(W.Task, "task")
 			return r
 				.match(W.Task, { id: r.param("task", W.Task.fields.id), account, kind: "Automatic" })
-				.find({ id: r.param("task", W.Task.fields.id), account, kind: r.literal("Manual") })
+				.find({ id: r.param("task", W.Task.fields.id), account, kind: "Manual" })
 		})
 	)
 	.delete(
 		W.AutomaticTask,
 		query(W.Work).rule((r) => {
-			const { budget } = v(W.AutomaticTask)
+			const { budget } = v(W.AutomaticTask, "automaticTask")
 			return r
 				.match(W.AutomaticTask, { task: r.param("task", W.AutomaticTask.fields.task), budget })
 				.find({ task: r.param("task", W.AutomaticTask.fields.task), budget })
@@ -50,7 +50,7 @@ export const switchToManualDescribed = ChangeSet.empty(W.Work)
 	)
 	.read("previous", (delta) =>
 		query(W.Work).rule((r) => {
-			const { task, budget } = v(delta.removed(W.AutomaticTask))
+			const { task, budget } = v(delta.removed(W.AutomaticTask), "removedAutomaticTask")
 			return r.match(delta.removed(W.AutomaticTask), { task, budget }).find({ task, budget })
 		})
 	)
@@ -84,7 +84,7 @@ const BoardTask = relation(
 export const Board = schema("Board", { Task: BoardTask }, [])
 
 export const tasksForAccount = query(Board).rule((r) => {
-	const { id, account, priority, title } = v(BoardTask)
+	const { id, account, priority, title } = v(BoardTask, "boardTask")
 	return r
 		.match(BoardTask, { id, account, priority, title })
 		.where(r.eq(account, r.param("account", uuid)))
@@ -97,7 +97,7 @@ export const orderedTasks = tasksForAccount.orderBy(["priority", "desc"])
 /** A take bound per group requests the same shape with the group key as the equality prefix. */
 export const topThree = query(Board)
 	.rule((r) => {
-		const { id, priority } = v(BoardTask)
+		const { id, priority } = v(BoardTask, "boardTask")
 		return r
 			.match(BoardTask, { id, account: r.param("account", BoardTask.fields.account), priority })
 			.find({ id, priority })
@@ -106,7 +106,7 @@ export const topThree = query(Board)
 	.take(3)
 
 export const urgentAtLeast = query(Board).rule((r) => {
-	const { id, account, priority } = v(BoardTask)
+	const { id, account, priority } = v(BoardTask, "boardTask")
 	return r
 		.match(BoardTask, { id, account, priority })
 		.where(r.eq(account, r.param("account", uuid)), r.ge(priority, r.param("floor", pg.integer)))
@@ -114,7 +114,7 @@ export const urgentAtLeast = query(Board).rule((r) => {
 })
 
 export const titlesByPrefix = query(Board).rule((r) => {
-	const { id, title } = v(BoardTask)
+	const { id, title } = v(BoardTask, "boardTask")
 	return r
 		.match(BoardTask, { id, title })
 		.where(
@@ -129,7 +129,7 @@ export const titlesByPrefix = query(Board).rule((r) => {
  * no byte bound.
  */
 export const operatorsByPrefix = query(W.Work).rule((r) => {
-	const { task, operator } = v(W.ManualTask)
+	const { task, operator } = v(W.ManualTask, "manualTask")
 	return r
 		.match(W.ManualTask, { task, operator })
 		.where(

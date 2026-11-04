@@ -1,18 +1,18 @@
 import type { LawId } from "#compiler/core/ids.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { CapacityBound, FieldSelector, LawField } from "#compiler/ir/law.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { type CapacityCheck, capacityCheck } from "#compiler/laws/families/capacity/bounds.ts"
-import type { FamilyPlugin, FamilyVariable } from "#compiler/laws/families/plugin.ts"
+import type { FamilyPlugin, FamilyUnit, FamilyVariable } from "#compiler/laws/families/plugin.ts"
 import {
 	anchorRow,
-	baseTypeRef,
 	literalExpr,
 	raiseViolation,
 	readAnchor,
 	recordField,
 	selectedBy
 } from "#compiler/laws/residual/sql.ts"
+import { baseTypeRef } from "#compiler/lower/conservative/base-type.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { Expr, PlStatement, Select, SelectCore } from "#compiler/sql/ast.ts"
 import {
@@ -79,23 +79,24 @@ const groupVariable: FamilyVariable = "g"
  * key: its projection when that is a key of T, otherwise, for a strict superkey, its primary key,
  * read from the target row.
  *
- * The 1..1 existence variant replaces step 4 by one existence probe through the same index:
+ * The 1..1 existence variant replaces step 4 by one existence probe through the same index, and its refusal:
  *
  *     PERFORM 1 FROM <S> AS r1 WHERE r1.<sk1> = t.c1 AND ... AND <the source selector over r1> LIMIT 1;
  *     IF NOT FOUND THEN RAISE ... END IF;
  *
- * The event table: a source insertion and deletion check the target at the source's projection,
- * dropped when the bounds make them harmless for a count or a duration weight; a target insertion checks its own new
- * row, because a lower bound above zero is violated by an empty group and a `ref` bound meets the sources already
- * present; a `mutable` source's UPDATE OF its projection, weight or selector checks the old and the new targets, a
- * `mutable` target's UPDATE OF its key, `ref` bound fields or selector the new key and the old, both in key order.
- * The skeleton skips an image outside the selection of the side it plays, so an unselected
- * source or target checks nothing. The probes are served by the law's index on S (sk...): over a selected source,
+ * The event table: a source insertion and deletion check the target at the source's projection, dropped when the
+ * bounds make them harmless for a count or a duration weight; a target insertion checks its own new row, because a
+ * lower bound above zero is violated by an empty group and a `ref` bound meets the sources already present. A
+ * `mutable` participant's UPDATE is its deletion of OLD and its insertion of NEW: a source's UPDATE OF its projection,
+ * weight or selector checks the old target when a deletion threatens and the new one when an insertion does, a
+ * target's UPDATE OF its key, `ref` bound fields or selector its new key, since its old key keeps no target. An image
+ * outside the selection of the side it plays fires nothing, so an unselected source or target checks nothing. The one
+ * term reads both relations, so every participant's units run the whole check. The probes are served by the law's index on S (sk...): over a selected source,
  * partial with its selection, which both probes' WHERE implies, unless an index of every
  * row of S already serves it, such as the reverse index a containment of every source into the target creates. Two
  * writers of one group read what the other writes, so SSI commits them in one order or fails one with 40001: a hot
  * target's cost, which stating its bound as seat facts avoids. */
-export const capacityFamily: FamilyPlugin<"scalarCapacity"> = ({ law, schema, shown }) => {
+export const capacityFamily: FamilyPlugin<"scalarCapacity"> = ({ law, schema, names, shown }) => {
 	const lawId: LawId = law.lawId
 	const { anchor, source, detail } = law
 	const what = capacityCheck(law)
@@ -103,7 +104,7 @@ export const capacityFamily: FamilyPlugin<"scalarCapacity"> = ({ law, schema, sh
 	const weighed = (field: LawField): Expr => col("r1", field.column)
 	/** A side's selectors over one row, or undefined for an unselected side. */
 	const selectors = (selection: ReadonlyArray<FieldSelector>, column: (field: LawField) => Expr) =>
-		isNonEmpty(selection) ? selectedBy(lawId, schema, selection, column) : undefined
+		isNonEmpty(selection) ? selectedBy(lawId, names, selection, column) : undefined
 	const refs = law.bounds.flatMap((b) => (b.value.kind === "ref" ? [b.value.field] : []))
 	/** The fields the anchor read returns, each once, in this order: the target's projection, the rest of its DETAIL key,
 	 * its `ref` bounds, its selector fields; `targetField` is a field of the target row read. */
@@ -115,10 +116,12 @@ export const capacityFamily: FamilyPlugin<"scalarCapacity"> = ({ law, schema, sh
 			 * value of the anchor key field it meets. */
 			const group = (alias: string): Expr => {
 				const selected = selectors(source.selection, (f) => col(alias, f.column))
-				return and(
-					...source.pairs.map((p) => eq(col(alias, p.field.column), targetField(p.anchor))),
+				return and([
+					...mapNonEmpty(source.pairs, (p) =>
+						eq(col(alias, p.field.column), targetField(p.anchor))
+					),
 					...(selected === undefined ? [] : [selected])
-				)
+				])
 			}
 			const raise = raiseViolation(lawId, detail, targetField, shown(detail.relation.name))
 			/** The group aggregate with its zero branch, then the comparison with the bounds (see `capacityFamily`). */
@@ -168,25 +171,27 @@ export const capacityFamily: FamilyPlugin<"scalarCapacity"> = ({ law, schema, sh
 				/** One side of the comparison: the aggregate against a literal of its type, or against a cast `ref` bound. */
 				const outside = (bound: CapacityBound, op: "<" | ">"): Expr => {
 					if (bound.kind === "literal") {
-						const value = literalExpr(bound.literal, aggregated.type, schema, lawId)
+						const value = literalExpr(bound.literal, aggregated.type, names, lawId)
 						return op === "<" ? lt(total, value) : gt(total, value)
 					}
 					const at =
 						bound.carrier === baseOf(aggregated.type).carrier
 							? aggregated.type
 							: plainType(bound.carrier)
-					const atRef = baseTypeRef(at, schema, lawId)
+					const atRef = baseTypeRef(names, at)
 					const left = at === aggregated.type ? total : cast(total, atRef)
 					const right = cast(targetField(bound.field), atRef)
 					return op === "<" ? lt(left, right) : gt(left, right)
 				}
-				const sides = aggregated.bounds.map((b) => outside(b.value, b.side === "low" ? "<" : ">"))
+				const sides = mapNonEmpty(aggregated.bounds, (b) =>
+					outside(b.value, b.side === "low" ? "<" : ">")
+				)
 				return [
 					{
 						kind: "forQuery",
 						variable: groupVariable,
-						query: select({ kind: "setOp", op: "UNION ALL", left: nonempty, right: empty }),
-						body: [{ kind: "if", branches: [{ condition: or(...sides), body: [raise] }], else: [] }]
+						query: select({ kind: "setOp", op: "UNION ALL", arms: [nonempty, empty] }),
+						body: [{ kind: "if", branches: [{ condition: or(sides), body: [raise] }], else: [] }]
 					}
 				]
 			}
@@ -194,27 +199,18 @@ export const capacityFamily: FamilyPlugin<"scalarCapacity"> = ({ law, schema, sh
 				what.kind === "existence"
 					? [
 							{
-								kind: "perform",
-								query: {
-									...select(
-										core(
-											[target(lit.int(1, types.integer))],
-											[{ kind: "table", table: sourceTable, alias: "r1" }],
-											group("r1")
-										)
+								kind: "whenAbsent",
+								probe: {
+									body: core(
+										[target(lit.int(1, types.integer))],
+										[{ kind: "table", table: sourceTable, alias: "r1" }],
+										group("r1")
 									),
-									limit: lit.int(1, types.integer)
-								}
-							},
-							{
-								kind: "if",
-								branches: [
-									{
-										condition: { kind: "not", expr: { kind: "plSpecial", name: "FOUND" } },
-										body: [raise]
-									}
-								],
-								else: []
+									orderBy: [],
+									limit: lit.int(1, types.integer),
+									offset: undefined
+								},
+								body: [raise]
 							}
 						]
 					: aggregateCheck(what)
@@ -224,15 +220,15 @@ export const capacityFamily: FamilyPlugin<"scalarCapacity"> = ({ law, schema, sh
 				: [{ kind: "if", branches: [{ condition: selected, body: probe }], else: [] }]
 		}
 	)
-	return {
+	const unit: FamilyUnit = {
 		declare: [
 			{ name: targetVariable, type: types.record },
 			...(what.kind === "aggregate" ? [{ name: groupVariable, type: types.record }] : [])
 		],
-		/** Steps 2 and 3 for one affected key (see `capacityFamily`). */
 		check: (key) =>
 			readAnchor({ schema, relation: anchor.relation, key, obligation: { when: "present", row } })
 	}
+	return () => unit
 }
 
 /** The zero an empty group counts or weighs, typed as the aggregate. */

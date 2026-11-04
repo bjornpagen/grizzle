@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -13,6 +13,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { lsw, passed, type WildKind } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint, double, uuid } from "@grizzle/testing/values"
@@ -38,6 +39,7 @@ import {
 	type HeadingField
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -186,7 +188,7 @@ const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 			if (!finite) {
 				return { fault: "vectorNonFinite" }
 			}
-			const norm = Math.hypot(...value)
+			const norm = Math.sqrt(value.reduce((sum, x) => sum + x * x, 0))
 			if (norm === 0 || norm > 2 ** 17) {
 				return { fault: "vectorNorm" }
 			}
@@ -295,7 +297,7 @@ type AdmissionFeature = `${CarrierSpec["carrier"]} ${"stored" | "refused"}`
 
 describe("admitValue", () => {
 	it.effect(
-		"stores every value of each carrier as its host type and range say, and refuses every other by its fault, never throwing",
+		"stores every value of each carrier as its host type and range say, and refuses every other by its fault, never throwing; Uuid.parse admits exactly as the uuid carrier does",
 		(ctx) =>
 			searched(
 				ctx,
@@ -324,18 +326,18 @@ describe("admitValue", () => {
 							)
 						),
 						literal: Formatter.format,
-						features: features<AdmissionFeature>(
-							Arr.flatMap(carriers, (c): ReadonlyArray<AdmissionFeature> => [
+						coverage: required<AdmissionFeature>(
+							Arr.flatMap(carriers, (c): Arr.NonEmptyReadonlyArray<AdmissionFeature> => [
 								`${c.spec.carrier} stored`,
 								`${c.spec.carrier} refused`
-							])
+							]),
+							{ cases: 3000, sense: notesOnly }
 						),
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([carrier, drawnValue], c) =>
@@ -344,6 +346,13 @@ describe("admitValue", () => {
 							const verdict = carrier.judge(value)
 							const result = admitValue(carrier.spec, value)
 							c.note(`${carrier.spec.carrier} ${result.ok ? "stored" : "refused"}`)
+							if (carrier.spec.carrier === "uuid") {
+								assert.deepEqual(
+									result,
+									Uuid.parse(value),
+									"Uuid.parse is the uuid carrier's admission"
+								)
+							}
 							if (verdict === "a fault of the vocabulary") {
 								if (!result.ok) {
 									assert.ok(isValueFault(result.error))
@@ -444,16 +453,18 @@ describe("factIdentity", () => {
 							digit: source.draw(int(0, 4))
 						})),
 						literal: Formatter.format,
-						features: features<`same: ${FactRewrite}` | `changed: ${FactChange}`>([
-							...Arr.map(factRewrites, (r) => `same: ${r}` as const),
-							...Arr.map(factChanges, (r) => `changed: ${r}` as const)
-						]),
+						coverage: required<`same: ${FactRewrite}` | `changed: ${FactChange}`>(
+							[
+								...Arr.map(factRewrites, (r) => `same: ${r}` as const),
+								...Arr.map(factChanges, (r) => `changed: ${r}` as const)
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ fact: drawnFact, same, pick, digit }, c) =>
@@ -513,13 +524,12 @@ describe("factIdentity", () => {
 							shuffled(Rec.keys(fact), { min: Rec.keys(fact).length, max: Rec.keys(fact).length })
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(order) =>
@@ -576,13 +586,12 @@ describe("factIdentity", () => {
 							extra: source.draw(boolean)
 						})),
 						literal: Formatter.format,
-						features: features<Malformed>(malformations),
+						coverage: required<Malformed>(malformations, { cases: 300, sense: notesOnly }),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ fact: drawnFact, malformed, extra }, c) =>

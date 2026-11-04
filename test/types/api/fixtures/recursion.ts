@@ -7,10 +7,12 @@ import {
 	type HeadOf,
 	type Origin,
 	type ParamsOf,
+	type ParamType,
 	query,
 	type ReadError,
 	type SelfSource,
 	type Term,
+	type Uuid,
 	uuid,
 	v
 } from "#index.ts"
@@ -26,9 +28,12 @@ import type { Equals, Expect } from "#test/types/api/support.ts"
 declare const reader: Db<typeof WorkReader, unknown>
 
 /** A variable minted in a rule callback: its term carries the relation's origin and the field's host type. */
-const edgeVars = () => v(Edge)
+const edgeVars = () => v(Edge, "edge")
 export type MintedVariable = Expect<
-	Equals<ReturnType<typeof edgeVars>["to"], Term<string, unknown, Origin<"Edge", "to">, "uuid">>
+	Equals<
+		ReturnType<typeof edgeVars>["to"],
+		Term<Uuid, unknown, Origin<"Edge", "to", "edge">, "uuid">
+	>
 >
 
 export const reach = query(Work).recursive("Reach", {
@@ -43,7 +48,7 @@ export const reach = query(Work).recursive("Reach", {
 	],
 	rec: [
 		(r, self) => {
-			const prior = v(self)
+			const prior = v(self, "self")
 			const step = edgeVars()
 			return r
 				.match(self, { from: prior.from, to: prior.to })
@@ -55,18 +60,23 @@ export const reach = query(Work).recursive("Reach", {
 })
 
 export type ReachHead = Expect<
-	Equals<HeadOf<typeof reach>, { readonly from: string; readonly to: string }>
+	Equals<HeadOf<typeof reach>, { readonly from: Uuid; readonly to: Uuid }>
 >
 
 /** The parameters of the base and recursive arms join. */
 export type ReachParams = Expect<
-	Equals<ParamsOf<typeof reach>, { readonly start: string; readonly avoid: string }>
+	Equals<
+		ParamsOf<typeof reach>,
+		{ readonly start: ParamType<Uuid, "uuid">; readonly avoid: ParamType<Uuid, "uuid"> }
+	>
 >
 /** A fixpoint proves no key or cardinality, so it is read as rows, never by get. */
 export type ReachEvidence = Expect<Equals<EvidenceOfQuery<typeof reach>, Evidence.Unknown>>
-export const reached = reader.execute(reach, { start: "a", avoid: "b" })
+const start = "0193d8f2-7c1e-7000-8000-0000000000e1"
+const avoid = "0193d8f2-7c1e-7000-8000-0000000000e2"
+export const reached = reader.execute(reach, { start, avoid })
 // @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-export const reachOne = reader.get(reach, { start: "a", avoid: "b" })
+export const reachOne = reader.get(reach, { start, avoid })
 export type Reached = Expect<
 	Equals<
 		Effect.Success<typeof reached>["collect"],
@@ -77,7 +87,7 @@ export type Reached = Expect<
 /** self is a source of the row signature, its variables typed by the row's descriptors. */
 export const selfSource = (
 	self: SelfSource<{ readonly from: typeof uuid; readonly to: typeof uuid }>
-) => v(self)
+) => v(self, "self")
 export type SelfVars = Expect<Equals<keyof ReturnType<typeof selfSource>, "from" | "to">>
 
 /** Every arm's head is the row signature: no field missing, none added, none of another type. */
@@ -86,7 +96,7 @@ export const missingField = query(Work).recursive("Short", {
 	base: [
 		// @ts-expect-error -- TS2322: a base arm's head is the whole row
 		(r) => {
-			const { from, to } = v(Edge)
+			const { from, to } = v(Edge, "edge")
 			return r.match(Edge, { from, to }).find({ from })
 		}
 	],
@@ -99,8 +109,8 @@ export const wrongType = query(Work).recursive("Kinds", {
 	rec: [
 		// @ts-expect-error -- TS2322: a recursive arm's head has the row's field types; a roster handle is no uuid
 		(r, self) => {
-			const prior = v(self)
-			const { kind } = v(Task)
+			const prior = v(self, "self")
+			const { kind } = v(Task, "task")
 			return r
 				.match(self, { from: prior.from, to: prior.to })
 				.match(Task, { id: prior.to, kind })
@@ -114,7 +124,7 @@ export const selfBinding = query(Work).recursive("Bound", {
 	base: [],
 	rec: [
 		(r, self) => {
-			const prior = v(self)
+			const prior = v(self, "self")
 			return (
 				r
 					// @ts-expect-error -- TS2322 refusal: not a field of the arms the bindings select
@@ -127,4 +137,4 @@ export const selfBinding = query(Work).recursive("Bound", {
 /** The row signature is a record of descriptors, never host values. */
 // @ts-expect-error -- TS2322: a row field is a descriptor
 export const hostRow = query(Work).recursive("Host", { row: { from: "uuid" }, base: [], rec: [] })
-export type RowDescriptor = Field<string, "uuid">
+export type RowDescriptor = Field<Uuid, "uuid">

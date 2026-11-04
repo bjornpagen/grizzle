@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { Array as Arr, Option, String as Str } from "effect"
+import { Array as Arr, Option } from "effect"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import {
@@ -61,14 +61,14 @@ describe("GiST span indexes of workload programs", () => {
 	const Visits = schema("V", { Visit }, [])
 	/** Each relation's rows of one room meeting a window: `room = $room AND during && $w`. */
 	const visitsInRoom = query(S).rule((r) => {
-		const { id, during } = v(Visit)
+		const { id, during } = v(Visit, "visit")
 		return r
 			.match(Visit, { id, room: r.param("room", Visit.fields.room), during })
 			.where(r.allen(during, ALLEN.intersects, r.param("w", Visit.fields.during)))
 			.find({ id })
 	})
 	const bookingsInRoom = query(S).rule((r) => {
-		const { during, guest } = v(Booking)
+		const { during, guest } = v(Booking, "booking")
 		return r
 			.match(Booking, { room: r.param("room", Booking.fields.room), during, guest })
 			.where(r.allen(during, ALLEN.intersects, r.param("w", Booking.fields.during)))
@@ -76,7 +76,7 @@ describe("GiST span indexes of workload programs", () => {
 	})
 	/** The visits meeting a window, in any room: `during && $w`. */
 	const visitsInWindow = query(Visits).rule((r) => {
-		const { id, during } = v(Visit)
+		const { id, during } = v(Visit, "visit")
 		return r
 			.match(Visit, { id, during })
 			.where(r.allen(during, ALLEN.intersects, r.param("w", Visit.fields.during)))
@@ -91,7 +91,7 @@ describe("GiST span indexes of workload programs", () => {
 			[["Visit", "gist", ["room", "during"]]]
 		)
 		assert.ok(
-			Arr.some(i.sql, (s) => Str.includes('CREATE EXTENSION IF NOT EXISTS "btree_gist"')(s))
+			Arr.some(i.statements, (s) => s.kind === "createExtension" && s.name === "btree_gist")
 		)
 		/** The span key's WITHOUT OVERLAPS index serves Booking's span predicate and records its justification. */
 		const pk = Option.getOrThrowWith(
@@ -113,7 +113,7 @@ describe("GiST span indexes of workload programs", () => {
 			[["Visit", "gist", ["during"]]]
 		)
 		assert.equal(
-			Arr.some(j.sql, (s) => Str.includes("btree_gist")(s)),
+			Arr.some(j.statements, (s) => s.kind === "createExtension" && s.name === "btree_gist"),
 			false
 		)
 	})

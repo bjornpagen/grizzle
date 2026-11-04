@@ -3,8 +3,8 @@ import { Array as Arr, Effect, Option, Schema, String as Str } from "effect"
 import { tokenOf, valuesFromToken } from "#tape.ts"
 
 /**
- * What a case was drawn under: steered by the required situations no generated case had reached when its window
- * began, named by their places among the suite's declared requirements in ascending order, or unsteered, as a rotating
+ * What a case was drawn under: steered by the required situations still pending when its window began, named by
+ * their places among the suite's declared requirements in ascending order, or unsteered, as a rotating
  * case and a kept case are. A property that steers decodes one tape into different programs under different steering,
  * so a replay draws under exactly what its case was drawn under.
  */

@@ -12,11 +12,11 @@ const Posting = relation("Posting", { id: uuid, account: uuid, amount: pg.bigint
 export const Ledger = schema("Ledger", { Posting }, [])
 
 export const byFact = query(Ledger).rule((r) => {
-	const { id, account, amount } = v(Posting)
+	const { id, account, amount } = v(Posting, "posting")
 	return r.match(Posting, { id, account, amount }).find({ account, total: r.sum(amount) })
 })
 
 export const byAmount = query(Ledger).rule((r) => {
-	const { account, amount } = v(Posting)
+	const { account, amount } = v(Posting, "posting")
 	return r.match(Posting, { account, amount }).find({ account, total: r.sum(amount) })
 })

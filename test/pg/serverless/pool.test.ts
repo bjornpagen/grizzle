@@ -1,9 +1,10 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
+	Array as Arr,
 	Deferred,
 	Duration,
 	Effect,
@@ -19,6 +20,7 @@ import { TestClock } from "effect/testing"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { AcquisitionBudgetExceeded, LayerReleased } from "#adapter/errors/failures.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import {
 	backendPidOf,
 	defaultPool,
@@ -90,7 +92,7 @@ const waiters: Gen<Waiter> = (source) => {
 	return { max, held, waitMs, ending }
 }
 
-const required: ReadonlyArray<WaiterFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<WaiterFeature> = [
 	"saturated budget expires",
 	"saturated interrupted",
 	"saturated released within budget",
@@ -106,16 +108,16 @@ const acquire = (pool: SessionPool) => pool.lease
 
 /**
  * Counts the calls of pg's Pool#connect on `native` from now on: an own property in front of the method its class
- * defines, which the pool's lease calls on this very object.
+ * defines, which the pool's lease calls on this very object, with its one callback.
  */
 const connectCalls = (native: SessionPool["native"]): (() => number) => {
 	let calls = 0
 	const connect = native.connect.bind(native)
 	Object.defineProperty(native, "connect", {
 		configurable: true,
-		value: (...args: ReadonlyArray<unknown>): unknown => {
+		value: (callback: unknown): unknown => {
 			calls++
-			return Reflect.apply(connect, native, args)
+			return Reflect.apply(connect, native, [callback])
 		}
 	})
 	return () => calls
@@ -168,7 +170,7 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 							generator: waiters,
 							literal: Formatter.format,
 							limit: 72,
-							features: features<WaiterFeature>(required),
+							coverage: requiredInSpace<WaiterFeature>(situations),
 							caseHang: Duration.minutes(2)
 						},
 						(w, c) =>
@@ -308,7 +310,8 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 										} else {
 											assert.ok(pid > 0)
 										}
-										held.splice(0, held.length, ...rest)
+										held.splice(0, held.length)
+										appendAll(held, rest)
 										leased = w.held - 1
 										break
 									}

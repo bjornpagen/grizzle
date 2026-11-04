@@ -9,8 +9,14 @@ import {
 	type ViolationBuilder
 } from "#compiler/analysis/theory/build.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
+import type { Identifier } from "#compiler/core/ids.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "#compiler/core/nonempty.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import type {
@@ -34,6 +40,7 @@ import {
 	type LawShape,
 	type NormalizedLaw,
 	type RelationInfo,
+	type RosterHandleOf,
 	type Selector,
 	type SpanField,
 	type TheoryRelation
@@ -128,9 +135,9 @@ type LawDetail =
 			readonly discriminator: string
 			readonly discriminatorField: LawField
 			readonly roster: string
-			readonly arms: NonEmptyReadonlyArray<AlternativesArm>
-			/** Handles without an arm: no payload relation and no further law. */
-			readonly unarmed: ReadonlyArray<string>
+			/** Every handle of the roster, in roster order: armed with its arm, or unarmed, owing no payload and no
+			 * further law. At least one is armed. */
+			readonly handles: NonEmptyReadonlyArray<RosterHandleOf<TheoryArm>>
 	  }
 	| {
 			readonly kind: "capacity"
@@ -205,7 +212,7 @@ export interface ResolvedSide extends DeclaredSide {
  * One arm of an alternatives family: the payload relation of a handle, its key, each field paired with the parent key
  * field it meets, in parent key order, and the mirrors statement that declares it.
  */
-interface AlternativesArm {
+export interface TheoryArm {
 	readonly handle: string
 	readonly relation: string
 	readonly rel: TheoryRelation
@@ -283,6 +290,8 @@ export interface ContractUse {
  * rejects, which law specialization decides.
  */
 export interface TheoryLaw extends NormalizedLaw {
+	/** A theory law's own identifier, never a text pattern's. */
+	readonly id: Identifier<"law">
 	/** The law's identity at the naming door (theory.ts lawIdentityOf), whose identifier is its `id`. */
 	readonly named: Identity<"law">
 	readonly statements: ReadonlyArray<number>
@@ -1003,9 +1012,12 @@ export class Normalizer {
 			return { m, ...arm }
 		})
 		const parentKey = mapNonEmpty(resolved[0].key, (p) => p.parent)
+		const parentKeyText = parentKey.join("\u0000")
+		const position = new Map(handles.map((h, i) => [h, i] as const))
 		const seen = new Set<string>()
-		for (const a of resolved) {
-			if (!handles.includes(a.handle) || seen.has(a.handle)) {
+		const placed = mapNonEmpty(resolved, (a) => {
+			const at = position.get(a.handle)
+			if (at === undefined || seen.has(a.handle)) {
 				throw refusal(
 					"MalformedDescription",
 					a.m.s.loc,
@@ -1013,17 +1025,27 @@ export class Normalizer {
 				)
 			}
 			seen.add(a.handle)
-			if (mapNonEmpty(a.key, (p) => p.parent).join("\u0000") !== parentKey.join("\u0000")) {
+			if (a.armSide.relation === parent.name) {
+				throw refusal(
+					"MalformedDescription",
+					a.m.s.loc,
+					`an alternatives arm of ${id} on a relation other than its parent ${parent.name}`
+				)
+			}
+			if (mapNonEmpty(a.key, (p) => p.parent).join("\u0000") !== parentKeyText) {
 				throw refusal(
 					"MalformedDescription",
 					a.m.s.loc,
 					`every arm of ${id} keyed by one parent key`
 				)
 			}
-		}
-		type Resolved = (typeof resolved)[number]
-		const ordered: [Resolved, ...Array<Resolved>] = [...resolved]
-		ordered.sort(mapInput(compareNumbers, (a: Resolved) => handles.indexOf(a.handle)))
+			return { ...a, at }
+		})
+		type Placed = (typeof placed)[number]
+		const ordered = sortNonEmpty(
+			placed,
+			mapInput(compareNumbers, (a: Placed) => a.at)
+		)
 		const containment = this.containment(
 			headStatement.left,
 			headStatement.right,
@@ -1055,7 +1077,7 @@ export class Normalizer {
 				mapNonEmpty(a.key, (p) => p.arm),
 				a.m.s.loc
 			)
-			const arm: AlternativesArm = {
+			const arm: TheoryArm = {
 				handle: a.handle,
 				relation: a.armSide.relation,
 				rel: side.rel,
@@ -1069,6 +1091,11 @@ export class Normalizer {
 			return { side, arm }
 		})
 		const familyArms = mapNonEmpty(armed, (a) => a.arm)
+		const armOf = new Map(familyArms.map((arm) => [arm.handle, arm] as const))
+		const rosterHandles = mapNonEmpty(handles, (handle): RosterHandleOf<TheoryArm> => {
+			const arm = armOf.get(handle)
+			return arm === undefined ? { kind: "unarmed", handle } : { kind: "armed", arm }
+		})
 		const discriminatorField = this.#column(parent, discriminator, loc)
 		const reverse = this.#push(
 			{
@@ -1086,8 +1113,7 @@ export class Normalizer {
 						discriminator,
 						discriminatorField,
 						roster: roster.name,
-						arms: familyArms,
-						unarmed: handles.filter((h) => !seen.has(h))
+						handles: rosterHandles
 					}
 				},
 				sources: ordered.map((a) => ({ index: a.m.index, loc: a.m.s.loc })),
@@ -1115,6 +1141,8 @@ const mentions = (e: ExprDesc, field: string): boolean => {
 			return mentions(e.arg, field)
 		case "cond":
 			return mentions(e.pred, field) || mentions(e.onTrue, field) || mentions(e.onFalse, field)
+		case "when":
+			return mentions(e.subject, field) || mentions(e.proved, field) || mentions(e.otherwise, field)
 		case "compare":
 			return mentions(e.left, field) || mentions(e.right, field)
 		case "between":
@@ -1216,7 +1244,7 @@ const lowerTotal = (
 		Result.map(
 			lowerPredicate(predicate, {
 				...env.lowerEnv,
-				mode: "total",
+				mode: "check",
 				loc,
 				emit: (spec) => b.expr(spec),
 				leaf,
@@ -1409,7 +1437,7 @@ const alternativesViolation = (
 	b: ViolationBuilder,
 	parent: TheoryRelation,
 	discriminator: LawField,
-	arms: NonEmptyReadonlyArray<AlternativesArm>
+	arms: NonEmptyReadonlyArray<TheoryArm>
 ): RelNode => {
 	/** The type a parent key field meets every arm's field paired with it as. */
 	const metType = (field: LawField): ScalarType =>

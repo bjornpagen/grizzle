@@ -79,10 +79,10 @@ export const keyQuery = (schema: object, target: KeyPosition): unknown => {
 		 * dependency audit, test/unit/deps, refuses a `.match(` call under src/ as a possible String.prototype.match).
 		 */
 		const { match, eq, param } = r
-		const vars = varsOver(value)
+		const vars = varsOver(value, "value")
 		const matched = match(value, vars)
-		return matched
-			.where(...target.fields.map((f) => eq(vars[f], param(f, descriptor(f)))))
+		return target.fields
+			.reduce((rule, f) => rule.where(eq(vars[f], param(f, descriptor(f)))), matched)
 			.find(vars)
 	})
 }

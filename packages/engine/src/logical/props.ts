@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -10,6 +11,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
+import { comparedValue } from "#compiler/ir/injective.ts"
 
 import {
 	armsAgree,
@@ -275,8 +277,10 @@ const fixedOf = (e: ScalarExpr, locals: ReadonlySet<NodeId>): Fixed | undefined 
 	}
 }
 
-const localColumn = (e: ScalarExpr, node: NodeId): string | undefined =>
-	e.kind === "column" && e.column.node === node ? e.column.name : undefined
+const localColumn = (e: ScalarExpr, node: NodeId): string | undefined => {
+	const u = comparedValue(e)
+	return u.kind === "column" && u.column.node === node ? u.column.name : undefined
+}
 
 /** The columns of `node` an expression reads, in first-visit order of its closure (expr.ts exprClosure). */
 export const readColumns = (e: ScalarExpr, node: NodeId): ReadonlyArray<string> => {
@@ -309,7 +313,7 @@ const localRefs = (e: ScalarExpr, locals: ReadonlySet<NodeId>): ReadonlyArray<No
 const refsTo = (refs: OuterRefs, locals: ReadonlySet<NodeId>): ReadonlyArray<NodeColumn> => {
 	const out: Array<NodeColumn> = []
 	for (const [node, columns] of refs) {
-		out.push(...(locals.has(node) ? [...columns].map((column) => ({ node, column })) : []))
+		appendAll(out, locals.has(node) ? [...columns].map((column) => ({ node, column })) : [])
 	}
 	return out
 }
@@ -1184,8 +1188,9 @@ export const propsOf = (node: RelNode, reading: PropsReading, env: PropsEnv): Pr
 			if (reading.kind === "SemiJoin") {
 				/** A left column paired with a right column the right side fixes is fixed too, by the pair. */
 				const rightFixed = closureOf(right, [])
-				deps.push(
-					...reading.on.flatMap((pair, index) =>
+				appendAll(
+					deps,
+					reading.on.flatMap((pair, index) =>
 						rightFixed.columns.has(pair.right)
 							? [
 									fixedColumn(pair.left, {
@@ -1407,7 +1412,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 		}
 		const lateral = refsTo(env.scope(sourceNode).outer, locals)
 		if (lateral.length === 0) {
-			equal.push(...sourceEqualities(src, o.id, varsAt))
+			appendAll(equal, sourceEqualities(src, o.id, varsAt))
 		}
 		const reads = lateral.length === 0 ? [] : varsOf(lateral)
 		if (reads === undefined) {

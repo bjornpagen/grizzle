@@ -13,6 +13,7 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { DbOf } from "#adapter/types/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -27,10 +28,12 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { indices } from "#test/support/oracle/pick.ts"
@@ -39,13 +42,7 @@ import {
 	expectedStatements
 } from "#test/support/oracle/reference/deliver.ts"
 import { Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
-import {
-	distinctRows,
-	equal,
-	type Row,
-	type Value,
-	ignoreMerges
-} from "#test/support/oracle/reference/values.ts"
+import { distinctRows, equal, type Row, type Value } from "#test/support/oracle/reference/values.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, noFacts, type PlatformFacts } from "#test/support/platform/generate.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -112,6 +109,7 @@ export const openPlatform = (
 		const s = yield* Substrate
 		const declared = P.platformAt("Platform")
 		const installed = yield* install(declared.Billing, {
+			ambient: ordinarySession,
 			label,
 			logins: [declared.server],
 			extensions: [workloadExtension(workloadPlan)]
@@ -301,7 +299,7 @@ const batches = (f: PlatformFacts, limit: number): ReadonlyArray<PlatformFacts> 
 	const revocations = new Map(Arr.map(f.Revocation, (r) => [r.key, r]))
 	for (const r of setup) {
 		if (r === "ApiKeyActive") {
-			out.push(...keyBatches(f, limit, revocations))
+			appendAll(out, keyBatches(f, limit, revocations))
 		}
 		const rows = f[r]
 		for (let i = 0; i < rows.length; i += limit) {
@@ -337,8 +335,8 @@ const batches = (f: PlatformFacts, limit: number): ReadonlyArray<PlatformFacts> 
 			flushUsage()
 		}
 		usage.events.push(e)
-		usage.charges.push(...c)
-		usage.debits.push(...d)
+		appendAll(usage.charges, c)
+		appendAll(usage.debits, d)
 		if (t !== undefined) {
 			usage.totals.push(t)
 		}
@@ -478,7 +476,7 @@ const referenceOf = (
 		closed: [],
 		containments: []
 	}
-	const genFacts = Rec.fromEntries(
+	const valueFacts = Rec.fromEntries(
 		Arr.map([...headings], ([name, heading]) => [
 			name,
 			Arr.map(facts[name] ?? [], (fact) =>
@@ -510,7 +508,7 @@ const referenceOf = (
 	}
 	return Reference.of(q.dag, {
 		schema,
-		facts: genFacts,
+		facts: canonicalFacts(valueFacts),
 		params: genParams,
 		observer: unobserved
 	})
@@ -669,7 +667,7 @@ export const flattened = (
 			)
 			return {
 				...statement,
-				rows: distinctRows(values, statement.heading, statement.label, ignoreMerges)
+				rows: distinctRows(values, statement.heading, statement.label)
 			}
 		}
 		const path = Str.split(statement.label, "/")
@@ -706,7 +704,7 @@ export const flattened = (
 		delivered.set(statement.label, children)
 		return {
 			...statement,
-			rows: distinctRows(out, statement.heading, statement.label, ignoreMerges)
+			rows: distinctRows(out, statement.heading, statement.label)
 		}
 	})
 }

@@ -111,10 +111,9 @@ interface PlanExplanation {
 }
 
 /**
- * Why a fold with aggregates takes its input as `input` does: a fold deduplicating an input whose obligation its keys
- * discharge does so to compute a bound column it reads nowhere else, which can fail (place.ts); one deduplicating an
- * outstanding obligation, because its input may repeat; one folding plainly, because its contribution identity is
- * removable or its obligation is discharged.
+ * Why a fold with aggregates takes its input as `input` does: one deduplicating an outstanding obligation, because its
+ * input may repeat (place.ts foldOf); one folding plainly, because its contribution identity is removable or its
+ * obligation is discharged.
  */
 export const foldReasons = (
 	a: PhysicalAnalysis,
@@ -125,9 +124,7 @@ export const foldReasons = (
 	const owed = a.obligations.find((o) => edgeFold(o.edge) === group)
 	const discharged = owed?.discharged === true ? owed : undefined
 	return input === "distinct"
-		? discharged !== undefined
-			? ["unreadBoundCanFail"]
-			: lossReasons(a, group.input)
+		? lossReasons(a, group.input)
 		: identity?.kind === "removable"
 			? evidence(identity.removal.reasons)
 			: evidence(discharged === undefined ? [] : discharged.proof.reasons)

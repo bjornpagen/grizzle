@@ -3,7 +3,6 @@ import { RUN_KEY } from "@grizzle/testing/vitest/run"
 import {
 	Array as Arr,
 	Cause,
-	Clock,
 	Console,
 	Effect,
 	Exit,
@@ -46,15 +45,9 @@ const startBatch = Effect.fn("startBatch")(function* (
 	const { writeBatch } = yield* Effect.promise(() => import("#test/types/batch/batch.ts"))
 	const dir = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-types-" })
 	const file = path.join(dir, "batch.json")
-	const started = yield* Clock.currentTimeMillis
 	yield* Effect.forkScoped(
 		writeBatch(groups, seed, file).pipe(
-			Effect.andThen(Clock.currentTimeMillis),
-			Effect.flatMap((now) =>
-				Console.log(
-					`types: the batch of ${groups.length} group(s) typechecked in ${((now - started) / 1000).toFixed(1)} s`
-				)
-			),
+			Effect.andThen(Console.log(`types: the batch of ${groups.length} group(s) typechecked`)),
 			Effect.catchCause((cause) =>
 				Console.error(`types: the type-test batch failed\n${Cause.pretty(cause)}`)
 			)

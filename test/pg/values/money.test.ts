@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -33,7 +34,6 @@ const spec = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(2)
 } as const
 
@@ -59,7 +59,7 @@ layer(Substrate.layer)("money agreement with PostgreSQL", (it) => {
 						...spec,
 						suite: "pg/values/money/round-trip",
 						draw: drawn(batchOf(units, 5000)),
-						features: noFeatures
+						coverage: noCoverage
 					},
 					(sample) =>
 						Effect.gen(function* () {
@@ -120,7 +120,10 @@ layer(Substrate.layer)("money agreement with PostgreSQL", (it) => {
 						...spec,
 						suite: "pg/values/money/rounding",
 						draw: drawn(batchOf(value, 4000)),
-						features: features<"out of range">(["out of range"])
+						coverage: required<"out of range">(["out of range"], {
+							cases: spec.runs,
+							sense: notesOnly
+						})
 					},
 					(sample, c) =>
 						Effect.gen(function* () {
@@ -165,7 +168,7 @@ layer(Substrate.layer)("money agreement with PostgreSQL", (it) => {
 						...spec,
 						suite: "pg/values/money/order",
 						draw: drawn(batchOf(bigint(-50n, 50n), 500)),
-						features: noFeatures
+						coverage: noCoverage
 					},
 					(sample) =>
 						Effect.gen(function* () {

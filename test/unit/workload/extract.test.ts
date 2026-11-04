@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, filter, type Gen, subarray, uniqueArray } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
@@ -82,17 +83,19 @@ describe("the workload plan", () => {
 						suite: "unit/workload/extract-planned",
 						draw: drawn(workloadGen),
 						literal: Formatter.format,
-						features: features<PlanFeature>([
-							"a program under two names",
-							"a path several programs request",
-							"statistics several programs request"
-						]),
+						coverage: required<PlanFeature>(
+							[
+								"a program under two names",
+								"a path several programs request",
+								"statistics several programs request"
+							],
+							{ cases: 30, sense: notesOnly }
+						),
 						kept: [],
 						runs: 30,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(entries, c) =>
@@ -209,13 +212,12 @@ describe("mergeStatistics", () => {
 						suite: "unit/workload/extract-merge",
 						draw: drawn(array(statisticsGen, { min: 0, max: 6 })),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(requests) =>
@@ -281,7 +283,10 @@ describe("extraction", () => {
 								] as const,
 							literal: Formatter.format,
 							limit: queries.length * 2,
-							features: features<Bound>(["below what it charges", "exactly what it charges"]),
+							coverage: requiredInSpace<Bound>([
+								"below what it charges",
+								"exactly what it charges"
+							]),
 							caseHang: Duration.minutes(2)
 						},
 						([[name, program], bound], c) =>

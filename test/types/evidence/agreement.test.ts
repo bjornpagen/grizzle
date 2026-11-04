@@ -1,43 +1,49 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect } from "effect"
+import { type Situations, unreachedOf } from "@grizzle/testing/features"
+import { Effect } from "effect"
+import { admissionSize } from "#test/support/agreement/admission.ts"
 import {
 	type AgreementNote,
-	agreementCases,
 	agreementCount,
 	agreementFeatures,
-	repeatedScope
+	agreementPairs,
+	agreementWitnesses
 } from "#test/support/agreement/queries.ts"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/groups.ts"
-import { typeRun } from "#test/types/batch/provided.ts"
 
 /**
- * The type/engine agreement (TODO 0b keys, follow-up K): the types accept a get exactly when the engine proves the
- * query at most one row per parameter binding, and every key the types claim lies over a key the engine proves.
+ * The type/engine agreements (TODO 0b keys, follow-up K; issue #7 admission), one program the type batch checks:
  *
- * 1. The run's drawn queries (test/support/agreement/queries.ts), one program with the engine's verdict on each stated
- *    as types: each get is written as db.get, under a refusal directive where the engine refuses it, and each query's
- *    claimed keys are asserted to lie over the engine's. The type-test batch checks the program disarmed, so it raises
- *    exactly its directives' refusals: a get the types refuse and the engine proves is a diagnostic no directive
- *    names, a get the types accept and the engine refuses is a directive whose refusal never comes, and a claimed key
- *    the engine does not prove fails its assertion.
- * 2. Out of scope (repeatedScope): a rule that matches a relation twice, whose two variables of one
- *    origin no type tells apart. The program asserts no get the engine proves of a query with such a rule, and still
- *    asserts every get the engine refuses and every key the types claim.
- * 3. The population reaches every construct the evidence types reason about and both verdicts, so the program is never
- *    vacuous.
+ * 1. Evidence: the drawn queries (test/support/agreement/queries.ts), the engine's verdict on each stated as types:
+ *    each get is written as db.get, under a refusal directive where the engine refuses it, and each query's claimed
+ *    keys are asserted to lie over the engine's. The batch checks the program disarmed, so it raises exactly its
+ *    directives' refusals: a get the types refuse and the engine proves is a diagnostic no directive names, a get the
+ *    types accept and the engine refuses is a directive whose refusal never comes, and a claimed key the engine does
+ *    not prove fails its assertion. A constant stands in every term position of the draw, and a rule may match a
+ *    relation twice: a self-join's two scopes are named apart, two types, so its get and keys agree as any join's do.
+ * 2. Order invariance: the same queries in a second drawn order, as a second module, and every query's head and keys
+ *    asserted equal across the two, so TypeScript's evidence never depends on unrelated statements' order.
+ * 3. Admission (test/support/agreement/admission.ts): every position a constant stands in against every constant
+ *    kind, a self-join's second scope among them, the program admitting exactly what the engine admits.
+ *
+ * The floor's witnesses (agreementWitnesses), the same in every run, reach every construct the evidence types reason
+ * about, a constant in each position, both verdicts and a self-join whose get the engine proves, which pinnedSelfJoin
+ * draws by construction, so the program is never vacuous on any seed; the admission matrix holds every position and
+ * kind by construction.
  */
-const required: ReadonlyArray<AgreementNote> = [
+const required: Situations<AgreementNote> = [
 	...agreementFeatures,
 	"get proved",
 	"get refused",
-	"a key below the heading"
+	"a key below the heading",
+	...agreementPairs
 ]
 
 layer(NodeServices.layer, { excludeTestServices: true })("the type/engine agreement", (it) => {
 	it.effect(
-		`over ${agreementCount} drawn queries, the types accept a get exactly as the engine proves it, and its keys`,
+		`over ${agreementCount} drawn queries in two orders and ${admissionSize} admission cells, the types accept a get exactly as the engine proves it, its keys, and every constant exactly where the engine admits it`,
 		() =>
 			Effect.gen(function* () {
 				const { expected, actual } = yield* checked("evidence/agreement")
@@ -45,13 +51,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type/engine agreem
 			})
 	)
 
-	it(`draws every construct and both verdicts; out of scope: ${repeatedScope}`, () => {
-		const cases = agreementCases(typeRun().seed)
-		const reached = new Set(Arr.flatMap(cases, (c) => [...c.notes]))
+	it("the floor's witnesses reach every construct, both verdicts and a proved self-join", () => {
 		assert.deepEqual(
-			Arr.filter(required, (note) => !reached.has(note)),
+			unreachedOf(required, [agreementWitnesses().tally]),
 			[],
-			"constructs or verdicts no drawn query reached"
+			"constructs or verdicts no floor witness reached"
 		)
 	})
 })

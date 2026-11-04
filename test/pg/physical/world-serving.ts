@@ -41,6 +41,7 @@ import {
 	parsePlan,
 	planNodes
 } from "#bench/harness/explain.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
@@ -72,6 +73,7 @@ import {
 	touchedBy,
 	type VolumeLoad
 } from "#test/pg/physical/serving.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { workloadOf } from "#test/support/installed.ts"
@@ -1151,6 +1153,7 @@ export const judgeCase = (
 		const built = yield* buildInstall(spec, base.name)
 		const logins = Rec.values(built.logins)
 		const installed = yield* installMigrated(built.base, {
+			ambient: ordinarySession,
 			label: "world_serving",
 			logins,
 			extensions: workloadOf({ schema: built.base, logins }).extensions
@@ -1181,7 +1184,7 @@ export const judgeCase = (
 		)
 		const problems: Array<string> = []
 		for (const [call, reading] of readings) {
-			problems.push(...reading.problems)
+			appendAll(problems, reading.problems)
 			for (const feature of callFeatures(cx, call, reading)) {
 				note(feature)
 			}
@@ -1196,7 +1199,7 @@ export const judgeCase = (
 				args.row,
 				Option.map(filterAtRow, ([, reading]) => reading)
 			)
-			problems.push(...policy.problems)
+			appendAll(problems, policy.problems)
 			note(
 				Option.isSome(entry.filter)
 					? "a policy row calling the filter function"
@@ -1209,7 +1212,7 @@ export const judgeCase = (
 					(sum, [, reading]) => sum + reading.bound
 				)
 				const checked = yield* precheck(cx, base, entry, fact, calls)
-				problems.push(...checked.problems)
+				appendAll(problems, checked.problems)
 				if (Option.isSome(entry.filter)) {
 					note("a precheck calling the filter function")
 				}

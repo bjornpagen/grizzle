@@ -88,7 +88,7 @@ type RewriteRule =
 	| "cte.recursive"
 
 /** The catalog's rewrites of aggregate and window shapes (lower/shapes/catalog). */
-export type CatalogRule = "R26" | "R27" | "R28" | "R29" | "R30" | "R31" | "R32" | "R41" | "R42"
+export type CatalogRule = "R26" | "R27" | "R28" | "R29" | "R30" | "R31" | "R41" | "R42"
 
 /** The shape choices that rest on a proof (lower/shapes). */
 type ShapeRule =

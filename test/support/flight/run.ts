@@ -35,7 +35,7 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
 const answerOf = (planned: Planned): StatementAnswer => {
 	switch (planned.kind) {
 		case "rows":
-			return rows([planned.label])
+			return rows([[planned.label]])
 		case "doomed":
 			return { _tag: "doomed", rows: [[planned.label]] }
 		case "refused":
@@ -69,7 +69,7 @@ export const plannedBySql = (
 const prologueAnswerOf = (step: FenceStep, answer: StepAnswer): StatementAnswer => {
 	switch (answer) {
 		case "answered":
-			return step === "lock" ? rows() : rows(["", flightPrologue.role, flightPrologue.claims])
+			return step === "lock" ? rows([]) : rows([["", flightPrologue.role, flightPrologue.claims]])
 		case "refused":
 			return refusedAnswer(prologueRefusal)
 		case "migrating":

@@ -24,5 +24,6 @@ export default defineTestConfig({
 		test: { kind: "bounded", millis: 3_600_000 },
 		hook: { kind: "unbounded" }
 	},
-	maxWorkers: Option.some(networkWorkers)
+	maxWorkers: Option.some(networkWorkers),
+	smallStack: []
 })

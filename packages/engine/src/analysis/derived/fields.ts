@@ -4,14 +4,14 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 import { wildcardFlags, wildcardSource } from "#compiler/text/refinement.ts"
 
-/** A field type's contract that the owned schema does not declare. */
-interface UndeclaredContract {
-	readonly contract: string
-}
+/** Why a column type has no field descriptor: a contract the owned schema does not declare, or an exact value. */
+type Undescribed =
+	| { readonly kind: "undeclared"; readonly contract: string }
+	| { readonly kind: "exact"; readonly type: string }
 
 /**
  * The field descriptor of one inferred column type. `contracts` are the owned schema's contracts: a contract column's
@@ -21,12 +21,12 @@ interface UndeclaredContract {
 export const fieldDescOf = (
 	type: ScalarType,
 	contracts: Readonly<Record<string, OwnedContract>>
-): Result.Result<FieldDesc, UndeclaredContract> => {
+): Result.Result<FieldDesc, Undescribed> => {
 	const contract = contractOf(type)
 	if (contract !== undefined) {
 		const declared = contracts[contract.name]
 		if (declared === undefined) {
-			return Result.err({ contract: contract.name })
+			return Result.err({ kind: "undeclared", contract: contract.name })
 		}
 		return Result.ok(declared.desc)
 	}
@@ -75,6 +75,9 @@ export const fieldDescOf = (
 		}
 		case "vector":
 			return Result.ok({ kind: "vector", dimensions: type.typmod.dims })
+		case "exactInteger":
+		case "exactMoney":
+			return Result.err({ kind: "exact", type: typeLabel(type) })
 	}
 }
 
@@ -90,7 +93,8 @@ export const fieldDescOf = (
  *
  * - `r.count()` is `pg.bigint`;
  * - `r.sum` is the native SUM result type: smallint and integer give bigint, bigint and numeric give numeric, real and
- *   double precision keep their type, money keeps money; `r.mean` is the native AVG result type:
+ *   double precision keep their type; money gives exact money, which no field holds (a stored money total sums the
+ *   amounts cast to numeric); `r.mean` is the native AVG result type:
  *   numeric over the integers and numeric, double precision over the floats. A numeric result carries no typmod, since
  *   SUM and AVG do not inherit an input precision or scale;
  * - a contract field, or its `min` or `max`, keeps its brand and its domain; its `sum` or `mean` has its base's result
@@ -132,13 +136,15 @@ const describedColumn = <C extends HeadingColumn>(
 ): Result.Result<C & { readonly desc: FieldDesc }, CompileError> => {
 	const desc = fieldDescOf(c.type, contracts)
 	if (!desc.ok) {
+		const at = SourceLoc(`derived ${relation} field ${c.name}`, [])
+		const error = desc.error
 		return Result.err(
-			derivedRefused(SourceLoc(`derived ${relation} field ${c.name}`, []), {
-				kind: "undeclaredContract",
-				relation,
-				field: c.name,
-				contract: desc.error.contract
-			})
+			derivedRefused(
+				at,
+				error.kind === "undeclared"
+					? { kind: "undeclaredContract", relation, field: c.name, contract: error.contract }
+					: { kind: "exactField", relation, field: c.name, type: error.type }
+			)
 		)
 	}
 	return Result.ok({ ...c, desc: desc.value })

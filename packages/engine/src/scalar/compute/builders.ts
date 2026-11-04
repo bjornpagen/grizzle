@@ -1,7 +1,6 @@
 import { handleColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { ParamId } from "#compiler/core/ids.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -9,9 +8,11 @@ import * as Result from "#compiler/core/result.ts"
 import {
 	type CompareOp,
 	type ComputeFn,
+	connectiveExpr,
 	decodeDesc,
 	type ExprDesc,
 	type FieldDesc,
+	type GuardDesc,
 	type LiteralDesc,
 	type ScaledComputeFn
 } from "#compiler/ir/desc.ts"
@@ -24,10 +25,13 @@ import {
 	type LowerEnv,
 	type Lowered,
 	lowerPredicate,
-	lowerTerm
+	lowerTerm,
+	noParams
 } from "#compiler/scalar/compute/lower.ts"
 
 import {
+	arithmeticSql,
+	divisorSql,
 	type EndpointSql,
 	type IntegralSql,
 	type NumericSql,
@@ -36,20 +40,25 @@ import {
 	type PowerSql,
 	plainColumns,
 	quotientSql,
+	remainderSql,
 	type SignedSql
 } from "#compiler/scalar/compute/tables.ts"
 
 import {
+	type GuardValue,
+	guarded,
+	guardOf,
 	type PredicateValue,
 	predicateExpr,
 	predicateValue,
+	registerGuard,
 	registerTerm,
 	type ScalarTerm,
 	type TermCarrier,
 	termOf,
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
-import { compatible, plainType, valueType, withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { compatible, plainType, withoutSerial } from "#compiler/scalar/compute/types.ts"
 import {
 	carrierSql,
 	describeField,
@@ -58,7 +67,9 @@ import {
 	literalDescFor,
 	type SqlTag
 } from "#compiler/scalar/registry.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
 
 const malformed = (loc: SourceLoc, capability: string): never => {
 	throw malformedDescription(loc, capability)
@@ -222,7 +233,7 @@ class Call {
 		return { kind: "var", var: `#${this.types.length - 1}` }
 	}
 
-	/** A term, which stands first: never a literal, nor a parameter, which the checker types from the term it meets. */
+	/** A term, which stands first, a parameter among them: never a literal, which takes the type of the term it meets. */
 	term(
 		value: unknown,
 		what: string
@@ -239,9 +250,6 @@ class Call {
 			}
 			return malformed(this.loc, `a term as ${what}: a literal never stands first`)
 		}
-		if (term.expr.kind === "param") {
-			return malformed(this.loc, `a term as ${what}: a parameter takes its place opposite a term`)
-		}
 		return {
 			real: term.expr,
 			ph: this.placeholder(term.type),
@@ -250,14 +258,14 @@ class Call {
 		}
 	}
 
-	/** A predicate, or a boolean term, which is a predicate here; never a parameter. */
+	/** A predicate, or a boolean term, a parameter among them, which is a predicate here. */
 	predicate(value: unknown, what: string): { readonly real: OpenExpr; readonly ph: ExprDesc } {
 		const expr = predicateExpr(value)
 		if (expr !== undefined) {
 			return { real: expr, ph: this.placeholder(plainType("bool")) }
 		}
 		const term = termOf(value)
-		if (term?.typing.kind === "typed" && term.expr.kind !== "param") {
+		if (term?.typing.kind === "typed") {
 			return { real: term.expr, ph: this.placeholder(term.typing.type) }
 		}
 		return malformed(this.loc, `a predicate as ${what}`)
@@ -321,18 +329,7 @@ class Call {
 				}
 				return Result.ok({ kind: "value", args: [], type, nonNull: "storage" })
 			},
-			params: {
-				kind: "scope",
-				lower: ({ name }, type) =>
-					Result.ok({
-						kind: "param",
-						param: ParamId(name),
-						role: "compare",
-						args: [],
-						type: valueType(type),
-						nonNull: "codec"
-					})
-			},
+			params: noParams,
 			fieldType: (desc) => {
 				const type = this.fields.get(desc)
 				return type === undefined
@@ -400,15 +397,11 @@ const between = (a: unknown, low: unknown, high: unknown): PredicateValue => {
 const inList = (a: unknown, values: unknown): PredicateValue => {
 	const call = new Call("Compute.in")
 	const x = call.term(a, "in's operand")
-	if (!isList(values) || values.length === 0) {
-		return malformed(call.loc, "a nonempty finite list of literals")
+	if (!isList(values)) {
+		return malformed(call.loc, "a finite list of literals")
 	}
 	const list: ReadonlyArray<unknown> = values
-	const [first, ...rest] = list.map((v) => call.literal(v, x.type))
-	if (first === undefined) {
-		return malformed(call.loc, "a nonempty finite list of literals")
-	}
-	const literals: readonly [LiteralDesc, ...Array<LiteralDesc>] = [first, ...rest]
+	const literals: ReadonlyArray<LiteralDesc> = list.map((v) => call.literal(v, x.type))
 	return call.finishPredicate(
 		{ kind: "in", arg: x.real, values: literals },
 		{ kind: "in", arg: x.ph, values: literals }
@@ -467,7 +460,7 @@ const computeCall = (
 
 const unary =
 	(fn: Exclude<ComputeFn, ScaledComputeFn>) =>
-	(a: unknown, ...extra: ReadonlyArray<unknown>): PlainChecked => {
+	(a: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
 		const call = new Call(`Compute.${fn}`)
 		if (extra.length > 0) {
 			return malformed(call.loc, `one operand for ${fn}`)
@@ -492,7 +485,7 @@ const binary =
 /** round and trunc, with no scale (none given, or undefined) or an integer one. */
 const scaled =
 	(fn: ScaledComputeFn) =>
-	(a: unknown, ...scale: ReadonlyArray<unknown>): PlainChecked => {
+	(a: unknown, scale: ReadonlyArray<unknown>): PlainChecked => {
 		const call = new Call(`Compute.${fn}`)
 		const x = call.term(a, `${fn}'s operand`)
 		const [digits, ...extra] = scale
@@ -510,7 +503,7 @@ const scaled =
 
 const variadic =
 	(fn: "least" | "greatest") =>
-	(...xs: ReadonlyArray<unknown>): CarriedChecked => {
+	(xs: ReadonlyArray<unknown>): CarriedChecked => {
 		if (xs.length === 0) {
 			return malformed(captureLoc(`Compute.${fn}`, []), `at least one term for ${fn}`)
 		}
@@ -518,26 +511,27 @@ const variadic =
 		return { ...call.finish(real, ph), carrier }
 	}
 
+/** Compute.and and Compute.or, total: of no predicate the constant true and false, of one that predicate. */
 const boolean =
 	(kind: "and" | "or") =>
-	(...ps: ReadonlyArray<unknown>): PredicateValue => {
+	(ps: ReadonlyArray<unknown>): PredicateValue => {
 		const call = new Call(`Compute.${kind}`)
-		if (ps.length === 0) {
-			return malformed(call.loc, `at least one predicate for ${kind}`)
-		}
-		const [first, ...rest] = ps.map((p, i) => call.predicate(p, `${kind}'s operand ${i + 1}`))
-		if (first === undefined) {
-			return malformed(call.loc, `at least one predicate for ${kind}`)
-		}
+		const operands = ps.map((p, i) => call.predicate(p, `${kind}'s operand ${i + 1}`))
 		return call.finishPredicate(
-			{ kind, args: [first.real, ...rest.map((p) => p.real)] },
-			{ kind, args: [first.ph, ...rest.map((p) => p.ph)] }
+			connectiveExpr(
+				kind,
+				operands.map((p) => p.real)
+			),
+			connectiveExpr(
+				kind,
+				operands.map((p) => p.ph)
+			)
 		)
 	}
 
 /**
- * A conditional: its first branch is a term, never a literal or a parameter, and types the conditional; the other is a
- * term of its type, a parameter among them, or a literal of it.
+ * A conditional: its first branch is a term, a parameter among them, never a literal, and types the conditional; the
+ * other is a term of its type or a literal of it.
  */
 const cond = (p: unknown, then: unknown, otherwise: unknown): CarriedChecked => {
 	const call = new Call("Compute.cond")
@@ -551,26 +545,224 @@ const cond = (p: unknown, then: unknown, otherwise: unknown): CarriedChecked => 
 	return { ...checked, carrier: t.carrier }
 }
 
-/** A literal of a descriptor's type, built by the call `label` names: the value is checked as a value of that type. */
-const typedLiteral = (label: string, type: unknown, value: unknown): Checked => {
-	const call = new Call(label)
-	const field = call.field(type, "the literal's type")
+/** Zero as the host value of a subject's type, which a guard compares it with. */
+const zeroOf = (t: ScalarType): unknown => {
+	switch (baseOf(t).carrier) {
+		case "int8":
+		case "exactInteger":
+			return 0n
+		case "numeric":
+			return Decimal.zero
+		case "money":
+		case "exactMoney":
+			return Money.zero
+		case "int2":
+		case "int4":
+		case "float4":
+		case "float8":
+		case "bool":
+		case "uuid":
+		case "text":
+		case "enum":
+		case "range4":
+		case "range8":
+		case "vector":
+			return 0
+	}
+}
+
+/** An infinity as the host value of a numeric or float subject's type, -1 for the negative one. */
+const infinityOf = (t: ScalarType, sign: 1 | -1): unknown =>
+	baseOf(t).carrier === "numeric"
+		? sign > 0
+			? Decimal.infinity
+			: Decimal.negativeInfinity
+		: sign > 0
+			? Number.POSITIVE_INFINITY
+			: Number.NEGATIVE_INFINITY
+
+/** A guard builder's name, as its diagnostics spell it. */
+const guardNames = {
+	nonzero: "Compute.nonzero",
+	nonnegative: "Compute.nonnegative",
+	positive: "Compute.positive",
+	finite: "Compute.isFinite"
+} as const
+
+/**
+ * What a guard builder records: its test, the guard Compute.when reads, its subject term, and the subject's expression,
+ * type and carrier, from which the term its branch receives is made.
+ */
+interface GuardParts {
+	readonly expr: OpenExpr
+	readonly guard: GuardDesc
+	readonly subject: object
+	readonly real: OpenExpr
+	readonly type: ScalarType
+	readonly carrier: TermCarrier
+}
+
+/**
+ * A guard over one subject term: the predicate it tests (`<> 0`, `>= 0`, `> 0`, `> -Infinity AND < Infinity`), usable
+ * wherever a predicate is, and the guard Compute.when reads to refine the subject inside its branch.
+ */
+const factGuard =
+	(kind: "nonzero" | "nonnegative" | "positive" | "finite") =>
+	(subject: unknown): GuardParts => {
+		const call = new Call(guardNames[kind])
+		const s = call.term(subject, `${guardNames[kind]}'s subject`)
+		if (!hasProperties(subject)) {
+			return malformed(call.loc, "a term as a guard's subject")
+		}
+		const literal = (value: unknown): LiteralExpr => ({
+			kind: "literal",
+			value: call.literal(value, s.type),
+			type: undefined
+		})
+		const comparisons = (): ReadonlyArray<readonly [CompareOp, LiteralExpr]> => {
+			switch (kind) {
+				case "nonzero":
+					return [["ne", literal(zeroOf(s.type))]]
+				case "nonnegative":
+					return [["ge", literal(zeroOf(s.type))]]
+				case "positive":
+					return [["gt", literal(zeroOf(s.type))]]
+				case "finite":
+					return [
+						["gt", literal(infinityOf(s.type, -1))],
+						["lt", literal(infinityOf(s.type, 1))]
+					]
+			}
+		}
+		const atoms = comparisons()
+		const real: ReadonlyArray<OpenExpr> = atoms.map(([op, right]) => ({
+			kind: "compare",
+			op,
+			left: s.real,
+			right
+		}))
+		const ph: ReadonlyArray<ExprDesc> = atoms.map(([op, right]) => ({
+			kind: "compare",
+			op,
+			left: s.ph,
+			right
+		}))
+		const realTest = connectiveExpr("and", real)
+		const phTest = connectiveExpr("and", ph)
+		call.finishPredicate(realTest, phTest)
+		return {
+			expr: realTest,
+			guard: { kind },
+			subject,
+			real: s.real,
+			type: s.type,
+			carrier: s.carrier
+		}
+	}
+
+/** A guard that its subject lies within two literal bounds: `BETWEEN low AND high`, and so finite. */
+const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
+	const call = new Call("Compute.within")
+	const s = call.term(subject, "Compute.within's subject")
+	if (!hasProperties(subject)) {
+		return malformed(call.loc, "a term as a guard's subject")
+	}
+	const lo = call.literal(low, s.type)
+	const hi = call.literal(high, s.type)
+	const lowLit: LiteralExpr = { kind: "literal", value: lo, type: undefined }
+	const highLit: LiteralExpr = { kind: "literal", value: hi, type: undefined }
+	const real: OpenExpr = { kind: "between", arg: s.real, low: lowLit, high: highLit }
+	const ph: ExprDesc = { kind: "between", arg: s.ph, low: lowLit, high: highLit }
+	call.finishPredicate(real, ph)
+	return {
+		expr: real,
+		guard: { kind: "within", low: lo, high: hi },
+		subject,
+		real: s.real,
+		type: s.type,
+		carrier: s.carrier
+	}
+}
+
+/**
+ * A guard's predicate value, registered with its guard and its subject term, holding under `guarded` the term its
+ * Compute.when branch receives: the subject's expression, carried by `carrier`, which a guard refines inside the branch.
+ */
+const guardValue = <T, S extends SqlTag>(
+	parts: GuardParts,
+	carrier: TermCarrier<T, S>
+): GuardValue<ScalarTerm<T, S>> =>
+	registerGuard(
+		Object.freeze({
+			...builtMark,
+			predicate: true,
+			expr: parts.expr,
+			[guarded]: scalarTerm(parts.real, parts.type, carrier)
+		}),
+		parts.expr,
+		parts.guard,
+		parts.subject
+	)
+
+const guardRequired =
+	"a guard a Compute guard builder made: Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite or Compute.within"
+
+/**
+ * Compute.when: the one guard of a partial operation, over the branch its function of the guard's subject built from
+ * the term the guard refines; CASE WHEN <guard> THEN <branch> ELSE <otherwise> END, so the branch is computed only where
+ * the guard holds, and the other branch is the caller's value for the rest.
+ */
+const when = (guard: unknown, branch: unknown, otherwise: unknown): CarriedChecked => {
+	const call = new Call("Compute.when")
+	const g = guardOf(guard)
+	if (g === undefined) {
+		return malformed(call.loc, guardRequired)
+	}
+	const s = call.term(g.subject, "when's subject")
+	const t = call.term(branch, "when's branch, which types the conditional")
+	const e = call.operand(otherwise, t.type, "literal")
+	const checked = call.finish(
+		{ kind: "when", guard: g.guard, subject: s.real, proved: t.real, otherwise: e.real },
+		{ kind: "when", guard: g.guard, subject: s.ph, proved: t.ph, otherwise: e.ph }
+	)
+	return { ...checked, carrier: t.carrier }
+}
+
+/** A literal of a descriptor's type, built by `call`: the value is checked as a value of that type. */
+const typedLiteral = (call: Call, field: DescribedField, value: unknown): Checked => {
 	const t = withoutSerial(field.scalar)
 	const desc: LiteralExpr = { kind: "literal", value: call.literal(value, t), type: field.desc }
 	return call.finish(desc, desc)
 }
 
-const literal = (type: unknown, value: unknown): Checked =>
-	typedLiteral("Compute.literal", type, value)
+/**
+ * Compute.literal(F, x): x at F's type. A roster's descriptor is refused, MalformedDescription: a member of roster X is
+ * X.handle(member), the one typed constant of a member, whose column delivers the member.
+ */
+const literal = (type: unknown, value: unknown): Checked => {
+	const call = new Call("Compute.literal")
+	const field = call.field(type, "the literal's type")
+	if (field.desc.kind === "closedId") {
+		return malformed(
+			call.loc,
+			`a descriptor that is no roster's: a member of roster ${field.desc.roster} is ${field.desc.roster}.handle(member)`
+		)
+	}
+	return typedLiteral(call, field, value)
+}
 
 /**
- * X.handle(member), a roster's typed handle: the literal Compute.literal(closedId(X), member) records, at X's enum,
- * whose column is that one handle. A member off the roster, or anything but a string from a JavaScript caller, is
- * refused as that literal is, MalformedDescription.
+ * X.handle(member): the member's literal at X's enum, whose column is that one handle. A member off the roster, or
+ * anything but a string from a JavaScript caller, is refused, MalformedDescription.
  */
 export const handleTerm = <M extends string>(closed: unknown, member: M): ScalarTerm<M, "enum"> => {
 	const { roster } = closedIdParts(closed)
-	const checked = typedLiteral(`${roster.closed}.handle`, admittedClosedId(closed), member)
+	const call = new Call(`${roster.closed}.handle`)
+	const checked = typedLiteral(
+		call,
+		call.field(admittedClosedId(closed), "the literal's type"),
+		member
+	)
 	return scalarTerm(checked.expr, checked.type, { column: handleColumn<M>([member]), sql: "enum" })
 }
 
@@ -614,7 +806,7 @@ const widthBucket = (x: unknown, low: unknown, high: unknown, count: unknown): P
  */
 const spanPart =
 	(fn: "lower" | "upper" | "width") =>
-	(s: unknown, endpoint: unknown, ...extra: ReadonlyArray<unknown>): PlainChecked => {
+	(s: unknown, endpoint: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
 		const call = new Call(`Compute.${fn}`)
 		if (extra.length > 0) {
 			return malformed(call.loc, `${fn}(span, endpoint)`)
@@ -660,10 +852,14 @@ const checks = Object.freeze({
 	least: variadic("least"),
 	greatest: variadic("greatest"),
 	widthBucket,
-	scale: unary("scale"),
 	minScale: unary("minScale"),
-	trimScale: unary("trimScale"),
 	cond,
+	when,
+	nonzero: factGuard("nonzero"),
+	nonnegative: factGuard("nonnegative"),
+	positive: factGuard("positive"),
+	isFinite: factGuard("finite"),
+	within,
 	lower: spanPart("lower"),
 	upper: spanPart("upper"),
 	width: spanPart("width"),
@@ -671,7 +867,7 @@ const checks = Object.freeze({
 	cosineDistance: binary("cosineDistance", "literal")
 })
 
-/** The predicates, the same for a typed and a JavaScript caller. */
+/** The predicates, the same for a typed and a JavaScript caller, and's and or's operands as one list. */
 const predicates = Object.freeze({
 	not,
 	and: boolean("and"),
@@ -716,8 +912,8 @@ interface OfSql<S extends SqlTag> {
  *
  * Literal operands are recorded as the host value of the base of the term they meet (scalar/registry.ts literalDescFor), so a
  * JavaScript number is refused where a numeric literal is required and an exact decimal string is parsed
- * at construction. A parameter is a term of its descriptor's type, recorded by name: the checker types it from the term
- * it meets, so it never stands first.
+ * at construction. A parameter is a term of its descriptor's type, recorded by name and descriptor, so it stands
+ * wherever a term of that type stands, first included.
  *
  * Each member is checked once (`checks`), and its term is carried by a column: the column of the operand or descriptor
  * whose value it returns (LEAST, GREATEST, a conditional, a cast, a literal, a span's endpoints), or the plain column of
@@ -737,52 +933,66 @@ export const compute = Object.freeze({
 		plain(checks.base(x), x.sql),
 	cast: <T, S extends SqlTag>(x: unknown, to: TermCarrier<T, S>): ScalarTerm<T, S> =>
 		carried(checks.cast(x, to), to),
-	add: <S extends NumericSql>(a: OfSql<S>, b: unknown) => plain(checks.add(a, b), a.sql),
-	sub: <S extends NumericSql>(a: OfSql<S>, b: unknown) => plain(checks.sub(a, b), a.sql),
-	mul: <S extends SignedSql>(a: OfSql<S>, b: unknown) => plain(checks.mul(a, b), a.sql),
+	add: <S extends NumericSql>(a: OfSql<S>, b: unknown) =>
+		plain(checks.add(a, b), arithmeticSql[a.sql]),
+	sub: <S extends NumericSql>(a: OfSql<S>, b: unknown) =>
+		plain(checks.sub(a, b), arithmeticSql[a.sql]),
+	mul: <S extends SignedSql>(a: OfSql<S>, b: unknown) =>
+		plain(checks.mul(a, b), arithmeticSql[a.sql]),
 	div: <S extends NumericSql>(a: OfSql<S>, b: unknown) =>
 		plain(checks.div(a, b), quotientSql[a.sql]),
-	mod: <S extends IntegralSql>(a: OfSql<S>, b: unknown) => plain(checks.mod(a, b), a.sql),
-	neg: <S extends SignedSql>(a: OfSql<S>) => plain(checks.neg(a), a.sql),
+	mod: <S extends IntegralSql>(a: OfSql<S>, b: unknown) =>
+		plain(checks.mod(a, b), remainderSql[a.sql]),
+	neg: <S extends SignedSql>(a: OfSql<S>) => plain(checks.neg(a, []), arithmeticSql[a.sql]),
 	quot: (a: unknown, b: unknown) => plain(checks.quot(a, b), "numeric"),
 	rem: (a: unknown, b: unknown) => plain(checks.rem(a, b), "numeric"),
-	abs: <S extends SignedSql>(a: OfSql<S>) => plain(checks.abs(a), a.sql),
-	sign: <S extends SignedSql>(a: OfSql<S>) => plain(checks.sign(a), a.sql),
-	round: (a: unknown, ...scale: ReadonlyArray<unknown>) =>
-		plain(checks.round(a, ...scale), "numeric"),
-	trunc: (a: unknown, ...scale: ReadonlyArray<unknown>) =>
-		plain(checks.trunc(a, ...scale), "numeric"),
-	ceil: (a: unknown) => plain(checks.ceil(a), "numeric"),
-	floor: (a: unknown) => plain(checks.floor(a), "numeric"),
-	gcd: <S extends IntegralSql>(a: OfSql<S>, b: unknown) => plain(checks.gcd(a, b), a.sql),
-	lcm: <S extends IntegralSql>(a: OfSql<S>, b: unknown) => plain(checks.lcm(a, b), a.sql),
+	abs: <S extends SignedSql>(a: OfSql<S>) => plain(checks.abs(a, []), arithmeticSql[a.sql]),
+	sign: <S extends SignedSql>(a: OfSql<S>) => plain(checks.sign(a, []), a.sql),
+	round: (a: unknown, ...scale: ReadonlyArray<unknown>) => plain(checks.round(a, scale), "numeric"),
+	trunc: (a: unknown, ...scale: ReadonlyArray<unknown>) => plain(checks.trunc(a, scale), "numeric"),
+	ceil: (a: unknown) => plain(checks.ceil(a, []), "numeric"),
+	floor: (a: unknown) => plain(checks.floor(a, []), "numeric"),
+	gcd: <S extends IntegralSql>(a: OfSql<S>, b: unknown) =>
+		plain(checks.gcd(a, b), divisorSql[a.sql]),
+	lcm: <S extends IntegralSql>(a: OfSql<S>, b: unknown) =>
+		plain(checks.lcm(a, b), divisorSql[a.sql]),
 	power: <S extends PowerSql>(a: OfSql<S>, b: unknown) => plain(checks.power(a, b), a.sql),
-	sqrt: <S extends PowerSql>(a: OfSql<S>) => plain(checks.sqrt(a), a.sql),
+	sqrt: <S extends PowerSql>(a: OfSql<S>) => plain(checks.sqrt(a, []), a.sql),
 	least: <T, S extends SqlTag>(
 		first: TermCarrier<T, S>,
-		...rest: ReadonlyArray<unknown>
-	): ScalarTerm<T, S> => carried(checks.least(first, ...rest), first),
+		rest: ReadonlyArray<unknown>
+	): ScalarTerm<T, S> => carried(checks.least([first, ...rest]), first),
 	greatest: <T, S extends SqlTag>(
 		first: TermCarrier<T, S>,
-		...rest: ReadonlyArray<unknown>
-	): ScalarTerm<T, S> => carried(checks.greatest(first, ...rest), first),
+		rest: ReadonlyArray<unknown>
+	): ScalarTerm<T, S> => carried(checks.greatest([first, ...rest]), first),
 	widthBucket: (x: unknown, low: unknown, high: unknown, count: unknown) =>
 		plain(checks.widthBucket(x, low, high, count), "integer"),
-	scale: (a: unknown) => plain(checks.scale(a), "integer"),
-	minScale: (a: unknown) => plain(checks.minScale(a), "integer"),
-	trimScale: (a: unknown) => plain(checks.trimScale(a), "numeric"),
+	minScale: (a: unknown) => plain(checks.minScale(a, []), "integer"),
 	cond: <T, S extends SqlTag>(
 		p: unknown,
 		then: TermCarrier<T, S>,
 		otherwise: unknown
 	): ScalarTerm<T, S> => carried(checks.cond(p, then, otherwise), then),
+	/** The branch is the term the caller's function built from the guard's `guarded` term (public/compute.ts). */
+	when: <T, S extends SqlTag>(
+		guard: unknown,
+		branch: TermCarrier<T, S>,
+		otherwise: unknown
+	): ScalarTerm<T, S> => carried(checks.when(guard, branch, otherwise), branch),
+	nonzero: <T, S extends SqlTag>(x: TermCarrier<T, S>) => guardValue(checks.nonzero(x), x),
+	nonnegative: <T, S extends SqlTag>(x: TermCarrier<T, S>) => guardValue(checks.nonnegative(x), x),
+	positive: <T, S extends SqlTag>(x: TermCarrier<T, S>) => guardValue(checks.positive(x), x),
+	isFinite: <T, S extends SqlTag>(x: TermCarrier<T, S>) => guardValue(checks.isFinite(x), x),
+	within: <T, S extends SqlTag>(x: TermCarrier<T, S>, low: unknown, high: unknown) =>
+		guardValue(checks.within(x, low, high), x),
 	lower: <T, S extends EndpointSql>(s: unknown, endpoint: TermCarrier<T, S>): ScalarTerm<T, S> =>
-		carried(checks.lower(s, endpoint), endpoint),
+		carried(checks.lower(s, endpoint, []), endpoint),
 	upper: <T, S extends EndpointSql>(s: unknown, endpoint: TermCarrier<T, S>): ScalarTerm<T, S> =>
-		carried(checks.upper(s, endpoint), endpoint),
+		carried(checks.upper(s, endpoint, []), endpoint),
 	width: <S extends EndpointSql>(s: unknown, endpoint: OfSql<S>) =>
-		plain(checks.width(s, endpoint), endpoint.sql),
-	charLength: (s: unknown) => plain(checks.charLength(s), "integer"),
+		plain(checks.width(s, endpoint, []), "exact integer"),
+	charLength: (s: unknown) => plain(checks.charLength(s, []), "integer"),
 	cosineDistance: (a: unknown, b: unknown) => plain(checks.cosineDistance(a, b), "double precision")
 })
 
@@ -793,6 +1003,9 @@ const plainBy = (checked: PlainChecked): ScalarTerm => {
 }
 
 /** A JavaScript caller's descriptor's carrier, which the checks admitted as a descriptor. */
+/** A JavaScript caller's guard: its branch's term carried by the subject's own carrier. */
+const guardBy = (parts: GuardParts): GuardValue<ScalarTerm> => guardValue(parts, parts.carrier)
+
 const fieldCarrier = (value: unknown): TermCarrier =>
 	describedField(value, SourceLoc("a checked descriptor", [])).carrier
 
@@ -803,6 +1016,8 @@ const fieldCarrier = (value: unknown): TermCarrier =>
  */
 export const computeCore = Object.freeze({
 	...predicates,
+	and: (...ps: ReadonlyArray<unknown>) => predicates.and(ps),
+	or: (...ps: ReadonlyArray<unknown>) => predicates.or(ps),
 	literal: (type: unknown, value: unknown): ScalarTerm => {
 		const checked = checks.literal(type, value)
 		return scalarTerm(checked.expr, checked.type, fieldCarrier(type))
@@ -817,48 +1032,66 @@ export const computeCore = Object.freeze({
 	mul: (a: unknown, b: unknown) => plainBy(checks.mul(a, b)),
 	div: (a: unknown, b: unknown) => plainBy(checks.div(a, b)),
 	mod: (a: unknown, b: unknown) => plainBy(checks.mod(a, b)),
-	neg: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.neg(a, ...extra)),
+	neg: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.neg(a, extra)),
 	quot: (a: unknown, b: unknown) => plainBy(checks.quot(a, b)),
 	rem: (a: unknown, b: unknown) => plainBy(checks.rem(a, b)),
-	abs: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.abs(a, ...extra)),
-	sign: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.sign(a, ...extra)),
-	round: (a: unknown, ...scale: ReadonlyArray<unknown>) => plainBy(checks.round(a, ...scale)),
-	trunc: (a: unknown, ...scale: ReadonlyArray<unknown>) => plainBy(checks.trunc(a, ...scale)),
-	ceil: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.ceil(a, ...extra)),
-	floor: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.floor(a, ...extra)),
+	abs: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.abs(a, extra)),
+	sign: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.sign(a, extra)),
+	round: (a: unknown, ...scale: ReadonlyArray<unknown>) => plainBy(checks.round(a, scale)),
+	trunc: (a: unknown, ...scale: ReadonlyArray<unknown>) => plainBy(checks.trunc(a, scale)),
+	ceil: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.ceil(a, extra)),
+	floor: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.floor(a, extra)),
 	gcd: (a: unknown, b: unknown) => plainBy(checks.gcd(a, b)),
 	lcm: (a: unknown, b: unknown) => plainBy(checks.lcm(a, b)),
 	power: (a: unknown, b: unknown) => plainBy(checks.power(a, b)),
-	sqrt: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.sqrt(a, ...extra)),
+	sqrt: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.sqrt(a, extra)),
 	least: (...xs: ReadonlyArray<unknown>): ScalarTerm => {
-		const checked = checks.least(...xs)
+		const checked = checks.least(xs)
 		return scalarTerm(checked.expr, checked.type, checked.carrier)
 	},
 	greatest: (...xs: ReadonlyArray<unknown>): ScalarTerm => {
-		const checked = checks.greatest(...xs)
+		const checked = checks.greatest(xs)
 		return scalarTerm(checked.expr, checked.type, checked.carrier)
 	},
 	widthBucket: (x: unknown, low: unknown, high: unknown, count: unknown) =>
 		plainBy(checks.widthBucket(x, low, high, count)),
-	scale: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.scale(a, ...extra)),
-	minScale: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.minScale(a, ...extra)),
-	trimScale: (a: unknown, ...extra: ReadonlyArray<unknown>) =>
-		plainBy(checks.trimScale(a, ...extra)),
+	minScale: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.minScale(a, extra)),
 	cond: (p: unknown, then: unknown, otherwise: unknown): ScalarTerm => {
 		const checked = checks.cond(p, then, otherwise)
 		return scalarTerm(checked.expr, checked.type, checked.carrier)
 	},
+	/** A JavaScript caller's branch: its function, applied to the guard's subject. */
+	when: (guard: unknown, then: unknown, otherwise: unknown): ScalarTerm => {
+		const subject = guardOf(guard)?.subject
+		if (subject === undefined) {
+			return malformed(captureLoc("Compute.when", []), guardRequired)
+		}
+		if (typeof then !== "function") {
+			return malformed(
+				captureLoc("Compute.when", []),
+				"a function of the guarded subject as when's branch"
+			)
+		}
+		const branch: unknown = Reflect.apply(then, undefined, [subject])
+		const checked = checks.when(guard, branch, otherwise)
+		return scalarTerm(checked.expr, checked.type, checked.carrier)
+	},
+	nonzero: (x: unknown) => guardBy(checks.nonzero(x)),
+	nonnegative: (x: unknown) => guardBy(checks.nonnegative(x)),
+	positive: (x: unknown) => guardBy(checks.positive(x)),
+	isFinite: (x: unknown) => guardBy(checks.isFinite(x)),
+	within: (x: unknown, low: unknown, high: unknown) => guardBy(checks.within(x, low, high)),
 	lower: (s: unknown, endpoint: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
-		const checked = checks.lower(s, endpoint, ...extra)
+		const checked = checks.lower(s, endpoint, extra)
 		return scalarTerm(checked.expr, checked.type, fieldCarrier(endpoint))
 	},
 	upper: (s: unknown, endpoint: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
-		const checked = checks.upper(s, endpoint, ...extra)
+		const checked = checks.upper(s, endpoint, extra)
 		return scalarTerm(checked.expr, checked.type, fieldCarrier(endpoint))
 	},
 	width: (s: unknown, endpoint: unknown, ...extra: ReadonlyArray<unknown>) =>
-		plainBy(checks.width(s, endpoint, ...extra)),
+		plainBy(checks.width(s, endpoint, extra)),
 	charLength: (s: unknown, ...extra: ReadonlyArray<unknown>) =>
-		plainBy(checks.charLength(s, ...extra)),
+		plainBy(checks.charLength(s, extra)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b))
 })

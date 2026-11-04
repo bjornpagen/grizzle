@@ -5,6 +5,7 @@ import { type TLSSocket, connect as tlsConnect } from "node:tls"
 import { Array as Arr, Deferred, Effect, Exit, type Redacted, type Scope } from "effect"
 import type { ConnectRefusal } from "#adapter/errors/failures.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 
@@ -78,7 +79,7 @@ const windowOf = (events: ReadonlyArray<WireEvent>): WireWindow => {
 				roundTrips++
 			}
 			readSinceWrite = false
-			frontend.push(...event.messages)
+			appendAll(frontend, event.messages)
 		} else {
 			readSinceWrite = true
 			backend.push(event.message)

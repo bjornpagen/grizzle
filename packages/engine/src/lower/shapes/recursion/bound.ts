@@ -1,15 +1,8 @@
-import { firstIndex } from "#compiler/core/array.ts"
+import { firstIndex, appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
-import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
-import {
-	exprsOf,
-	inputsOf,
-	type NodeOf,
-	type RelDag,
-	type RelNode,
-	type VarDecl
-} from "#compiler/ir/rel.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { inputsOf, type NodeOf, type RelDag, type RelNode, type VarDecl } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
 
@@ -20,8 +13,18 @@ const integerRanges: Readonly<Record<string, readonly [bigint, bigint]>> = {
 	int8: [-9223372036854775808n, 9223372036854775807n]
 }
 
-const integerRange = (t: ScalarType): readonly [bigint, bigint] | undefined =>
-	integerRanges[baseOf(t).carrier]
+/**
+ * The values a counter of type `t` can hold: an integer carrier's range, or an exact integer's, below 10^digits, which
+ * no step overflows.
+ */
+const integerRange = (t: ScalarType): readonly [bigint, bigint] | undefined => {
+	const base = baseOf(t)
+	if (base.carrier === "exactInteger") {
+		const bound = 10n ** BigInt(base.digits)
+		return [-bound + 1n, bound - 1n]
+	}
+	return integerRanges[base.carrier]
+}
 
 /** A bounded counter that proves the recursion's iteration bound. */
 export interface CounterProof {
@@ -41,18 +44,14 @@ export interface CounterProof {
 }
 
 /** Why no counter proves a bound, for diagnostics and tests. */
-type UnrollRefusal =
-	| "noCounter"
-	| "unboundedSeeds"
-	| "noLiteralBound"
-	| "failingExpression"
-	| "counterOverflow"
+type UnrollRefusal = "noCounter" | "unboundedSeeds" | "noLiteralBound" | "counterOverflow"
 
 export type CounterAnalysis =
 	| { readonly kind: "bounded"; readonly proof: CounterProof }
 	| { readonly kind: "unbounded"; readonly reason: UnrollRefusal }
 
-type Rec = NodeOf<"Recursive">
+/** What a counter analysis reads of a recursion: its seeds, its step, its feedback and its state heading. */
+export type RecursionParts = Pick<NodeOf<"Recursive">, "base" | "step" | "self" | "heading">
 
 /** One side of what holds of the current counter: no bound on that side, or an inclusive bound. */
 type Bound = { readonly kind: "unbounded" } | { readonly kind: "at"; readonly value: bigint }
@@ -179,24 +178,22 @@ const closedSeeds = (node: NodeOf<"Closed">, column: string): ReadonlySet<bigint
 }
 
 class CounterReader {
-	readonly rec: Rec
+	readonly rec: RecursionParts
 	/**
 	 * The recursion's DAG's nodes by label, for the node a column reference names: a name, read tolerantly, a label no
 	 * node holds knowing no seed and no step.
 	 */
 	readonly labels: ReadonlyMap<NodeId, RelNode>
-	/** The canFail expressions the proof accounts for: the counter's steps and the literal casts of its seeds. */
-	readonly accounted = new Set<ScalarExpr>()
 	/** Every integer carrier the counter's steps compute in. */
 	readonly carriers: Array<readonly [bigint, bigint]> = []
 
-	constructor(labels: ReadonlyMap<NodeId, RelNode>, rec: Rec) {
+	constructor(labels: ReadonlyMap<NodeId, RelNode>, rec: RecursionParts) {
 		this.labels = labels
 		this.rec = rec
 	}
 
 	/** The integer value of a literal, or of a literal cast within the integer carriers in range of its target. */
-	literal(e: ScalarExpr, account: boolean): bigint | undefined {
+	literal(e: ScalarExpr): bigint | undefined {
 		if (e.kind === "literal") {
 			return e.value.kind === "int" ? e.value.value : undefined
 		}
@@ -204,12 +201,9 @@ class CounterReader {
 			return undefined
 		}
 		const range = integerRange(e.type)
-		const inner = this.literal(e.args[0], account)
+		const inner = this.literal(e.args[0])
 		if (range === undefined || inner === undefined || inner < range[0] || inner > range[1]) {
 			return undefined
-		}
-		if (account) {
-			this.accounted.add(e)
 		}
 		return inner
 	}
@@ -308,13 +302,13 @@ class CounterReader {
 			const source = this.labels.get(e.column.node)
 			return source === undefined ? undefined : this.seeds(source, e.column.name, depth + 1)
 		}
-		const v = this.literal(e, true)
+		const v = this.literal(e)
 		return v === undefined ? undefined : new Set([v])
 	}
 
 	/**
 	 * The step d such that every row of `node` has `column` = the current state's counter + d, when one holds. With
-	 * `collect`, the counter's step expressions are accounted and their carriers recorded.
+	 * `collect`, the carriers of the counter's step expressions are recorded.
 	 *
 	 * A node that steps no counter by a constant.
 	 */
@@ -422,7 +416,7 @@ class CounterReader {
 				: this.advance(source, e.column.name, counter, collect, depth + 1)
 		}
 		if (e.kind === "cast") {
-			if (e.failure !== "total" || integerRange(e.type) === undefined) {
+			if (integerRange(e.type) === undefined) {
 				return undefined
 			}
 			return this.exprAdvance(e.args[0], counter, collect, depth + 1)
@@ -444,7 +438,6 @@ class CounterReader {
 		}
 		const delta = this.stepOf(op.fn, a, b, counter, collect, depth)
 		if (delta !== undefined && collect) {
-			this.accounted.add(e)
 			this.carriers.push(range)
 		}
 		return delta
@@ -460,7 +453,7 @@ class CounterReader {
 		depth: number
 	): bigint | undefined {
 		const left = this.exprAdvance(a, counter, collect, depth + 1)
-		const kb = this.literal(b, collect)
+		const kb = this.literal(b)
 		if (left !== undefined && kb !== undefined) {
 			return fn === "add" ? left + kb : left - kb
 		}
@@ -468,7 +461,7 @@ class CounterReader {
 			return undefined
 		}
 		const right = this.exprAdvance(b, counter, collect, depth + 1)
-		const ka = this.literal(a, collect)
+		const ka = this.literal(a)
 		return right === undefined || ka === undefined ? undefined : right + ka
 	}
 
@@ -557,8 +550,8 @@ class CounterReader {
 			) {
 				return anyCounter
 			}
-			const low = this.literal(lo, false)
-			const high = this.literal(hi, false)
+			const low = this.literal(lo)
+			const high = this.literal(hi)
 			return {
 				upper: high === undefined ? unbounded : at(high),
 				lower: low === undefined ? unbounded : at(low)
@@ -570,11 +563,11 @@ class CounterReader {
 			return anyCounter
 		}
 		if (this.isCurrent(a, counter, depth + 1)) {
-			const bound = this.literal(b, false)
+			const bound = this.literal(b)
 			return bound === undefined ? anyCounter : comparisonGuard[guardOp](bound)
 		}
 		if (this.isCurrent(b, counter, depth + 1)) {
-			const bound = this.literal(a, false)
+			const bound = this.literal(a)
 			return bound === undefined ? anyCounter : comparisonGuard[flipped[guardOp]](bound)
 		}
 		return anyCounter
@@ -586,7 +579,7 @@ class CounterReader {
  *
  * The iterator reads the length at every step, so the inputs pushed below are visited too.
  */
-const reachable = (roots: ReadonlyArray<RelNode>): ReadonlyArray<RelNode> => {
+export const reachable = (roots: ReadonlyArray<RelNode>): ReadonlyArray<RelNode> => {
 	const seen = new Set<RelNode>()
 	const out: Array<RelNode> = []
 	const queue = [...roots]
@@ -596,15 +589,15 @@ const reachable = (roots: ReadonlyArray<RelNode>): ReadonlyArray<RelNode> => {
 		}
 		seen.add(node)
 		out.push(node)
-		queue.push(...inputsOf(node))
+		appendAll(queue, inputsOf(node))
 	}
 	return out
 }
 
 /** The depth of one candidate counter column, or why it proves none. */
-const counterDepth = (
+export const counterDepth = (
 	labels: ReadonlyMap<NodeId, RelNode>,
-	rec: Rec,
+	rec: RecursionParts,
 	column: string
 ): CounterAnalysis => {
 	const counterColumn = rec.heading.find((c) => c.name === column)
@@ -645,18 +638,24 @@ const counterDepth = (
 			return { kind: "unbounded", reason: "counterOverflow" }
 		}
 	}
-	/** No other expression of the seeds or the step can fail. */
-	const nodes = reachable([rec.base, rec.step])
-	const exprs = exprClosure(nodes.flatMap((n) => exprsOf(n)))
-	for (const e of exprs) {
-		if (e.failure === "canFail" && !reader.accounted.has(e)) {
-			return { kind: "unbounded", reason: "failingExpression" }
-		}
-	}
 	if (depth > BigInt(Number.MAX_SAFE_INTEGER)) {
 		return { kind: "unbounded", reason: "noLiteralBound" }
 	}
 	return { kind: "bounded", proof: { column, delta, limit, seeds, depth: Number(depth) } }
+}
+
+/**
+ * Every value a bounded counter's step computes, from its seeds through the step past its bound, which PostgreSQL may
+ * compute on the working table's last rows before the step's filter drops them: [low, high].
+ */
+export const counterInterval = (p: CounterProof): readonly [bigint, bigint] => {
+	const ends = p.seeds.flatMap((s) => [s, s + BigInt(p.depth + 1) * p.delta])
+	const [first, ...rest] = ends
+	const start = first ?? 0n
+	return [
+		rest.reduce((m, x) => (x < m ? x : m), start),
+		rest.reduce((m, x) => (x > m ? x : m), start)
+	]
 }
 
 /**
@@ -690,13 +689,12 @@ const counterDepth = (
  * does not read the feedback, whose rows recur in every iteration.
  *
  * An unrolled level is inlined into its successors, so PostgreSQL may evaluate an expression of a later level on a row
- * an earlier level's filter would have removed, which the recursive CTE's working table never shows it. Unrolling is
- * therefore admitted only when no expression of the seeds or the step can fail, except the counter's own `c + k`
- * steps and literal casts, and when every value those steps compute for every seed, s + j·k for j up to N, lies in
- * the range of every integer carrier the counter passes through: then no evaluation order can raise an error the
- * recursive CTE would not.
+ * an earlier level's filter would have removed, which the recursive CTE's working table never shows it. No expression
+ * raises on such a row (every operation is total, scalar/compute/registry.ts Totality); unrolling is admitted when
+ * every value the counter's steps compute for every seed, s + j·k for j up to N, lies in the range of every integer
+ * carrier the counter passes through.
  */
-export const counterBound = (dag: RelDag, rec: Rec): CounterAnalysis => {
+export const counterBound = (dag: RelDag, rec: NodeOf<"Recursive">): CounterAnalysis => {
 	const labels = nodesByLabel(dag)
 	const analyses = rec.heading
 		.filter((c) => integerRange(c.type) !== undefined)

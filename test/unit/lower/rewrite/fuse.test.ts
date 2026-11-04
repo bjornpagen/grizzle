@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
@@ -41,8 +41,8 @@ import {
 /**
  * R01 fusion: an imported stage written as a region under filters and renames is inlined into the region that matches
  * it, preserving the complete bound tuple and every aggregate boundary, with the (account, amount) versus (id, account,
- * amount) counterexample held to the reference; a boundary, a failing predicate, a correlated stage or two constants on
- * one inner variable is never fused.
+ * amount) counterexample held to the reference; a boundary, a correlated stage or two constants on one inner variable
+ * is never fused.
  */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
@@ -111,7 +111,7 @@ describe("the complete bound tuple survives fusion", () => {
 								source.draw(element<Reader>(["a fold", "the query"]))
 							] as const,
 						limit: 4,
-						features: features<`${Bound} read by ${Reader}`>([
+						coverage: requiredInSpace<`${Bound} read by ${Reader}`>([
 							"account, amount read by a fold",
 							"account, amount read by the query",
 							"id, account, amount read by a fold",
@@ -192,7 +192,7 @@ describe("fixed columns in R01 fusion", () => {
 						literal: Formatter.format,
 						generator: (source) => [source.draw(uses), source.draw(uses)] as const,
 						limit: 16,
-						features: features<"fused" | "refused">(["fused", "refused"]),
+						coverage: requiredInSpace<"fused" | "refused">(["fused", "refused"]),
 						caseHang: Duration.minutes(2)
 					},
 					([first, second], c) =>
@@ -238,13 +238,14 @@ describe("fixed columns in R01 fusion", () => {
 })
 
 /**
- * What the imported stage holds or how it is read: a plain projection, a total filter, a filter that can fail, an
- * aggregate, a region correlated with the outer region, or a stage whose column a later source reads laterally.
+ * What the imported stage holds or how it is read: a plain projection, a filter of a column, a filter of a computed
+ * value, an aggregate, a region correlated with the outer region, or a stage whose column a later source reads
+ * laterally.
  */
 type Chain =
 	| "a projection"
-	| "a total filter"
-	| "a filter that can fail"
+	| "a plain filter"
+	| "a computed filter"
 	| "an aggregate boundary"
 	| "a correlated inner region"
 	| "a stage read laterally"
@@ -335,21 +336,15 @@ const chained = (chain: Chain): RelDag => {
 						? inner
 						: q.filter(
 								inner,
-								chain === "a total filter"
-									? q.op("int8gt", [q.col(inner, "amount"), q.int(5, T.int8)], T.bool, "total")
+								chain === "a plain filter"
+									? q.op("int8gt", [q.col(inner, "amount"), q.int(5, T.int8)], T.bool)
 									: q.op(
 											"int8gt",
 											[
-												q.op(
-													"int8pl",
-													[q.col(inner, "amount"), q.int(1, T.int8)],
-													T.int8,
-													"canFail"
-												),
+												q.op("int8pl", [q.col(inner, "amount"), q.int(1, T.int8)], T.int8),
 												q.int(5, T.int8)
 											],
-											T.bool,
-											"canFail"
+											T.bool
 										)
 							),
 					[["account", "account"]],
@@ -364,7 +359,7 @@ const chained = (chain: Chain): RelDag => {
 
 describe("boundaries and refusals", () => {
 	it.effect(
-		"fuses a chain of projections and total filters, and nothing that would change scope or error behavior",
+		"fuses a chain of projections and filters, and nothing that would change scope",
 		(ctx) =>
 			searched(
 				ctx,
@@ -374,17 +369,17 @@ describe("boundaries and refusals", () => {
 						literal: Formatter.format,
 						generator: element<Chain>([
 							"a projection",
-							"a total filter",
-							"a filter that can fail",
+							"a plain filter",
+							"a computed filter",
 							"an aggregate boundary",
 							"a correlated inner region",
 							"a stage read laterally"
 						]),
 						limit: 6,
-						features: features<Chain>([
+						coverage: requiredInSpace<Chain>([
 							"a projection",
-							"a total filter",
-							"a filter that can fail",
+							"a plain filter",
+							"a computed filter",
 							"an aggregate boundary",
 							"a correlated inner region",
 							"a stage read laterally"
@@ -397,7 +392,9 @@ describe("boundaries and refusals", () => {
 							const ran = fused(chained(chain))
 							assert.equal(
 								rulesOf(ran.certificates).includes("R01.fusion"),
-								chain === "a projection" || chain === "a total filter"
+								chain === "a projection" ||
+									chain === "a plain filter" ||
+									chain === "a computed filter"
 							)
 						})
 				)

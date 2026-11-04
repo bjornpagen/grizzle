@@ -5,7 +5,7 @@
  * its definition visits: reading columns by position, and looking a stable source's candidate rows up by the identity
  * of one join value. NestedLoops refuses every plan, so the reference evaluates each region and existence test by the
  * nested loops of its definition; on the oracle populations, both readings agree on every delivered row in order, on
- * every merge the reference observes, and on every refusal. The hash identity they rely on, indexKey, agrees with
+ * every decline the reference observes, and on every refusal. The hash identity they rely on, indexKey, agrees with
  * native comparison wherever it gives one.
  *
  * An enum handle outside its roster compares equal to every other such handle.
@@ -14,7 +14,7 @@
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -59,7 +59,7 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 
-import { equal, indexKey, rowSpelling, type Value } from "#test/support/oracle/reference/values.ts"
+import { equal, indexKey, rowKey, type Value } from "#test/support/oracle/reference/values.ts"
 
 class NestedLoops extends Reference {
 	static nested(dag: RelDag, input: ReferenceInput): NestedLoops {
@@ -76,7 +76,7 @@ class NestedLoops extends Reference {
 }
 
 /**
- * Everything the reference makes of a case, in order: the root's rows, each delivered statement's rows, every merge,
+ * Everything the reference makes of a case, in order: the root's rows, each delivered statement's rows, every decline,
  * and the refusal or defect that stops it.
  */
 const transcript = (c: QueryCase, nested: boolean): string => {
@@ -87,8 +87,8 @@ const transcript = (c: QueryCase, nested: boolean): string => {
 		params: c.query.params,
 		observer: {
 			...unobserved,
-			merge: (heading, kept, merged, at) => {
-				lines.push(`merge ${at}: ${rowSpelling(kept, heading)} ${rowSpelling(merged, heading)}`)
+			decline: (reason) => {
+				lines.push(`declined ${reason}`)
 			}
 		}
 	}
@@ -97,14 +97,14 @@ const transcript = (c: QueryCase, nested: boolean): string => {
 		const rel = ref.eval(c.query.dag.roots[0], noBindings)
 		lines.push(
 			`root ${Arr.join(
-				Arr.map(rel.rows, (r) => rowSpelling(r, rel.heading)),
+				Arr.map(rel.rows, (r) => rowKey(r, rel.heading)),
 				" "
 			)}`
 		)
 		for (const s of expectedStatements(ref, c.query.dag.roots[0])) {
 			lines.push(
 				`${s.label} ${Arr.join(
-					Arr.map(s.rows, (r) => rowSpelling(r, s.heading)),
+					Arr.map(s.rows, (r) => rowKey(r, s.heading)),
 					" "
 				)}`
 			)
@@ -127,13 +127,12 @@ const agree = (suite: string, generator: Gen<QueryCase>) =>
 			suite,
 			draw: drawn(generator),
 			literal: Formatter.format,
-			features: noFeatures,
+			coverage: noCoverage,
 			kept: [],
 			runs: 480,
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2)
 		},
 		(c) =>
@@ -162,16 +161,16 @@ describe("the reference evaluator's plans", () => {
 	)
 
 	it.effect(
-		"agree with its nested loops where merges see two spellings",
+		"agree with its nested loops where joins and merges meet twin spellings",
 		(ctx) =>
 			Effect.gen(function* () {
 				yield* searched(
 					ctx,
 					agree(
-						"unit/oracle-runner/reference-plans-per-fact",
+						"unit/oracle-runner/reference-plans-twinned",
 						queryCaseGen({
 							...defaultGenConfig,
-							spelling: "perFact"
+							spelling: "twinned"
 						})
 					)
 				)
@@ -181,7 +180,7 @@ describe("the reference evaluator's plans", () => {
 						"unit/oracle-runner/reference-plans-one-palette",
 						queryCaseGen({
 							...defaultGenConfig,
-							spelling: "perFact",
+							spelling: "twinned",
 							schema: {
 								...defaultGenConfig.schema,
 								maxPalette: 1
@@ -280,7 +279,7 @@ describe("indexKey", () => {
 					literal: Formatter.format,
 					/** The squares of the samples' counts: 4, 3, 3, 11, 5, 7, 3, 2, 6, 2 and 2 values. */
 					limit: 286,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
 				([type, a, b]) =>

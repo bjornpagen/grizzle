@@ -283,7 +283,7 @@ export type PayrollNamed<N extends string> = Schema<
 /** RunTotal's definition over the Payroll it is given. */
 const runTotalsOver = <const N extends string>(installed: PayrollNamed<N>) =>
 	query(installed).rule((r) => {
-		const { id, run, gross, net } = v(PayLine)
+		const { id, run, gross, net } = v(PayLine, "payLine")
 		return r
 			.match(PayLine, { id, run, gross, net })
 			.find({ run, lines: r.count(), gross: r.sum(gross), net: r.sum(net) })
@@ -350,7 +350,7 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 
 export const payslip = query(Payroll)
 	.rule((r) => {
-		const { id, run, employee, gross, net, offCycle } = v(PayLine)
+		const { id, run, employee, gross, net, offCycle } = v(PayLine, "payLine")
 		return r
 			.match(PayLine, { id, run, employee, gross, net, offCycle })
 			.where(r.eq(id, r.param("line", uuid)))
@@ -360,7 +360,7 @@ export const payslip = query(Payroll)
 		"person",
 		(l) =>
 			query(Payroll).rule((r) => {
-				const { code, name } = v(Employee)
+				const { code, name } = v(Employee, "employee")
 				return r.match(Employee, { id: l.employee, code, name }).find({ code, name })
 			}),
 		"one"
@@ -370,7 +370,7 @@ export const payslip = query(Payroll)
 		(l) =>
 			query(Payroll)
 				.rule((r) => {
-					const { account, amount, remainder } = v(Deposit)
+					const { account, amount, remainder } = v(Deposit, "deposit")
 					return r
 						.match(Deposit, { line: l.id, account, amount, remainder })
 						.find({ account, amount, remainder })
@@ -382,7 +382,7 @@ export const payslip = query(Payroll)
 		"levies",
 		(l) =>
 			query(Payroll).rule((r) => {
-				const { levy, employeeRate, withheld } = v(LevyLine)
+				const { levy, employeeRate, withheld } = v(LevyLine, "levyLine")
 				return r
 					.match(LevyLine, { line: l.id, levy, employeeRate, withheld })
 					.find({ levy, employeeRate, withheld })
@@ -393,7 +393,7 @@ export const payslip = query(Payroll)
 		"offCycleReason",
 		(l) =>
 			query(Payroll).rule((r) => {
-				const { reason } = v(OffCycleReason)
+				const { reason } = v(OffCycleReason, "offCycleReason")
 				return r.match(OffCycleReason, { line: l.id, reason }).find({ reason })
 			}),
 		"option"
@@ -401,7 +401,7 @@ export const payslip = query(Payroll)
 
 export const employeeCard = query(Payroll)
 	.rule((r) => {
-		const { id, code, name } = v(Employee)
+		const { id, code, name } = v(Employee, "employee")
 		return r
 			.match(Employee, { id, employer: r.param("employer", Employee.fields.employer), code, name })
 			.find({ id, code, name })
@@ -410,7 +410,7 @@ export const employeeCard = query(Payroll)
 		"profile",
 		(e) =>
 			query(Payroll).rule((r) => {
-				const { filing, extra } = v(TaxProfile)
+				const { filing, extra } = v(TaxProfile, "taxProfile")
 				return r.match(TaxProfile, { employee: e.id, filing, extra }).find({ filing, extra })
 			}),
 		"option"
@@ -419,7 +419,7 @@ export const employeeCard = query(Payroll)
 		"manager",
 		(e) =>
 			query(Payroll).rule((r) => {
-				const { manager } = v(ReportsTo)
+				const { manager } = v(ReportsTo, "reportsTo")
 				return r.match(ReportsTo, { employee: e.id, manager }).find({ manager })
 			}),
 		"option"
@@ -427,14 +427,14 @@ export const employeeCard = query(Payroll)
 
 export const runStages = query(Payroll)
 	.rule((r) => {
-		const { id } = v(PayRun)
+		const { id } = v(PayRun, "payRun")
 		return r
 			.match(PayRun, { id, employer: r.param("employer", PayRun.fields.employer), stage: "draft" })
 			.find({ id, stage: Stage.handle("draft") })
 	})
 	.rule((r) => {
-		const { id } = v(PayRun)
-		const { approver, at } = v(Approval)
+		const { id } = v(PayRun, "payRun")
+		const { approver, at } = v(Approval, "approval")
 		return r
 			.match(PayRun, {
 				id,
@@ -445,16 +445,16 @@ export const runStages = query(Payroll)
 			.find({ id, stage: Stage.handle("approved"), approver, at })
 	})
 	.rule((r) => {
-		const { id } = v(PayRun)
-		const { settled } = v(Payment)
+		const { id } = v(PayRun, "payRun")
+		const { settled } = v(Payment, "payment")
 		return r
 			.match(PayRun, { id, employer: r.param("employer", PayRun.fields.employer), stage: "paid" })
 			.match(Payment, { run: id, settled })
 			.find({ id, stage: Stage.handle("paid"), settled })
 	})
 	.rule((r) => {
-		const { id } = v(PayRun)
-		const { reason } = v(Voiding)
+		const { id } = v(PayRun, "payRun")
+		const { reason } = v(Voiding, "voiding")
 		return r
 			.match(PayRun, { id, employer: r.param("employer", PayRun.fields.employer), stage: "voided" })
 			.match(Voiding, { run: id, reason })
@@ -463,8 +463,8 @@ export const runStages = query(Payroll)
 
 export const ledger = query(Payroll)
 	.rule((r) => {
-		const { entry, line, account, side, amount } = v(Posting)
-		const { run } = v(PayLine)
+		const { entry, line, account, side, amount } = v(Posting, "posting")
+		const { run } = v(PayLine, "payLine")
 		return r
 			.match(Posting, { entry, line, account, side, amount })
 			.match(PayLine, { id: line, run })
@@ -474,8 +474,8 @@ export const ledger = query(Payroll)
 	.orderBy(["entry", "asc"])
 
 export const ledgerBalance = query(Payroll).rule((r) => {
-	const { entry, line, side, amount } = v(Posting)
-	const { run } = v(PayLine)
+	const { entry, line, side, amount } = v(Posting, "posting")
+	const { run } = v(PayLine, "payLine")
 	return r
 		.match(Posting, { entry, line, side, amount })
 		.match(PayLine, { id: line, run })
@@ -487,8 +487,8 @@ export const ledgerBalance = query(Payroll).rule((r) => {
 })
 
 export const splitSegments = query(Payroll).rule((r) => {
-	const { id: run, employer, period } = v(PayRun)
-	const { employee, during, annual } = v(Salary)
+	const { id: run, employer, period } = v(PayRun, "payRun")
+	const { employee, during, annual } = v(Salary, "salary")
 	return r
 		.match(PayRun, { id: run, employer, period })
 		.match(Employee, { id: employee, employer })
@@ -501,8 +501,8 @@ export const splitSegments = query(Payroll).rule((r) => {
 })
 
 export const withholdingFor = query(Payroll).rule((r) => {
-	const { id, gross } = v(PayLine)
-	const { id: levy, employeeRate } = v(Levy)
+	const { id, gross } = v(PayLine, "payLine")
+	const { id: levy, employeeRate } = v(Levy, "levy")
 	return r
 		.match(PayLine, { id, run: r.param("run", PayLine.fields.run), gross })
 		.match(Levy, { id: levy, employeeRate })
@@ -510,9 +510,14 @@ export const withholdingFor = query(Payroll).rule((r) => {
 			line: id,
 			levy,
 			employeeRate,
-			withheld: Compute.cast(
-				Compute.round(Compute.mul(Compute.cast(gross, pg.numeric), Compute.base(employeeRate))),
-				Cents
+			withheld: Compute.when(
+				Compute.within(
+					Compute.round(Compute.mul(Compute.cast(gross, pg.numeric), Compute.base(employeeRate))),
+					0n,
+					9223372036854775807n
+				),
+				(cents) => Compute.cast(cents, Cents),
+				0n
 			)
 		})
 })
@@ -525,7 +530,7 @@ export const Org = query(Payroll).recursive("Org", {
 	row: { employee: uuid },
 	base: [
 		(r) => {
-			const { employee } = v(ReportsTo)
+			const { employee } = v(ReportsTo, "reportsTo")
 			return r
 				.match(ReportsTo, { employee, manager: r.param("manager", ReportsTo.fields.manager) })
 				.find({ employee })
@@ -533,8 +538,8 @@ export const Org = query(Payroll).recursive("Org", {
 	],
 	rec: [
 		(r, self) => {
-			const { employee: middle } = v(self)
-			const { employee } = v(ReportsTo)
+			const { employee: middle } = v(self, "self")
+			const { employee } = v(ReportsTo, "reportsTo")
 			return r
 				.match(self, { employee: middle })
 				.match(ReportsTo, { employee, manager: middle })
@@ -545,20 +550,20 @@ export const Org = query(Payroll).recursive("Org", {
 
 export const orgOf = query(Payroll).rule((r) => {
 	const source = Org.bind({ manager: r.param("manager", ReportsTo.fields.manager) })
-	const { employee } = v(source)
+	const { employee } = v(source, "source")
 	return r.match(source, { employee }).find({ employee })
 })
 
 export const withinTwo = query(Payroll)
 	.rule((r) => {
-		const { employee } = v(ReportsTo)
+		const { employee } = v(ReportsTo, "reportsTo")
 		return r
 			.match(ReportsTo, { employee, manager: r.param("manager", ReportsTo.fields.manager) })
 			.find({ employee })
 	})
 	.rule((r) => {
-		const { employee: middle } = v(ReportsTo)
-		const { employee } = v(ReportsTo)
+		const { employee: middle } = v(ReportsTo, "middle")
+		const { employee } = v(ReportsTo, "reportsTo")
 		return r
 			.match(ReportsTo, { employee: middle, manager: r.param("manager", ReportsTo.fields.manager) })
 			.match(ReportsTo, { employee, manager: middle })
@@ -566,14 +571,14 @@ export const withinTwo = query(Payroll)
 	})
 
 export const runTotalOf = query(Reporting).rule((r) => {
-	const { lines, gross, net } = v(RunTotal)
+	const { lines, gross, net } = v(RunTotal, "runTotal")
 	return r
 		.match(RunTotal, { run: r.param("run", uuid), lines, gross, net })
 		.find({ lines, gross, net })
 })
 
 export const employeesByPrefix = query(Payroll).rule((r) => {
-	const { id, code, name } = v(Employee)
+	const { id, code, name } = v(Employee, "employee")
 	return r
 		.match(Employee, { id, employer: r.param("employer", Employee.fields.employer), code, name })
 		.where(r.ge(name, r.param("lo", LegalName)), r.lt(name, r.param("hi", LegalName)))
@@ -586,7 +591,7 @@ export const employeesByPrefix = query(Payroll).rule((r) => {
  * approveShifts' put of Shift.
  */
 export const approveShiftsMember = query(Payroll).rule((r) => {
-	const { during } = v(Shift)
+	const { during } = v(Shift, "shift")
 	return r
 		.match(Shift, {
 			employee: r.param("employee", Shift.fields.employee),
@@ -598,40 +603,40 @@ export const approveShiftsMember = query(Payroll).rule((r) => {
 			employee: r.param("employee", Shift.fields.employee),
 			during,
 			week: r.param("week", Shift.fields.week),
-			status: r.literal("approved")
+			status: "approved"
 		})
 })
 
 /** withhold's insert of Posting; its insert of LevyLine is withholdingFor. */
 export const postingMember = query(Payroll)
 	.rule((r) => {
-		const { id, gross } = v(PayLine)
+		const { id, gross } = v(PayLine, "payLine")
 		return r
 			.match(PayLine, { id, run: r.param("run", PayLine.fields.run), gross })
-			.find({ line: id, account: r.literal("GrossWages"), side: r.literal("debit"), amount: gross })
+			.find({ line: id, account: "GrossWages", side: "debit", amount: gross })
 	})
 	.rule((r) => {
-		const { id, net } = v(PayLine)
+		const { id, net } = v(PayLine, "payLine")
 		return r
 			.match(PayLine, { id, run: r.param("run", PayLine.fields.run), net })
-			.find({ line: id, account: r.literal("NetPay"), side: r.literal("credit"), amount: net })
+			.find({ line: id, account: "NetPay", side: "credit", amount: net })
 	})
 	.rule((r) => {
-		const { id, gross, net } = v(PayLine)
+		const { id, gross, net } = v(PayLine, "payLine")
 		return r.match(PayLine, { id, run: r.param("run", PayLine.fields.run), gross, net }).find({
 			line: id,
-			account: r.literal("Withholding"),
-			side: r.literal("credit"),
+			account: "Withholding",
+			side: "credit",
 			amount: Compute.cast(Compute.sub(gross, net), Cents)
 		})
 	})
 
 /** pay's put of PayRun and its insert of Payment. */
 export const payPutMember = query(Payroll).rule((r) => {
-	const { employer, period } = v(PayRun)
+	const { employer, period } = v(PayRun, "payRun")
 	return r
 		.match(PayRun, { id: r.param("run", PayRun.fields.id), employer, period, stage: "approved" })
-		.find({ id: r.param("run", uuid), employer, period, stage: r.literal("paid") })
+		.find({ id: r.param("run", uuid), employer, period, stage: "paid" })
 })
 
 export const payPaymentMember = query(Payroll).rule((r) =>
@@ -642,14 +647,14 @@ export const payPaymentMember = query(Payroll).rule((r) =>
 
 /** reverse's put of PayRun, its deletion of Payment and its insert of Voiding. */
 export const reversePutMember = query(Payroll).rule((r) => {
-	const { employer, period } = v(PayRun)
+	const { employer, period } = v(PayRun, "payRun")
 	return r
 		.match(PayRun, { id: r.param("run", PayRun.fields.id), employer, period, stage: "paid" })
-		.find({ id: r.param("run", uuid), employer, period, stage: r.literal("voided") })
+		.find({ id: r.param("run", uuid), employer, period, stage: "voided" })
 })
 
 export const reverseDeleteMember = query(Payroll).rule((r) => {
-	const { settled } = v(Payment)
+	const { settled } = v(Payment, "payment")
 	return r
 		.match(Payment, { run: r.param("run", Payment.fields.run), settled })
 		.find({ run: r.param("run", uuid), settled })

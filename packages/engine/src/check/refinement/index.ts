@@ -62,7 +62,7 @@ const combine = (a: ScalarType, b: ScalarType): ScalarType => {
 	if (sameScalarType(x, y)) {
 		return x
 	}
-	if (x.contract !== undefined) {
+	if (contractOf(x) !== undefined) {
 		return x
 	}
 	if (x.carrier === "text" && y.carrier === "text") {

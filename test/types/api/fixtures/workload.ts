@@ -8,13 +8,13 @@ import type { Equals, Expect } from "#test/types/api/support.ts"
  * diagnostic the harness requires on the next line.
  */
 const tasksOf = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id, account: r.param("account", Task.fields.account) }).find({ id })
 })
 const newest = tasksOf.orderBy(["id", "desc"])
 const addTasks = ChangeSet.empty(Work).insert(Task, [])
 const costs = query(Reports).rule((r) => {
-	const { account, total } = v(AccountCost)
+	const { account, total } = v(AccountCost, "accountCost")
 	return r.match(AccountCost, { account, total }).find({ account, total })
 })
 
@@ -43,7 +43,7 @@ export type ReportsPrograms = Expect<
 export const aboveBase = workload(Work, { costs })
 const Other = schema("Other", { Thing: relation("Thing", { id: uuid }, ["id"]) }, [])
 const things = query(Other).rule((r) => {
-	const { id } = v(Other.relations.Thing)
+	const { id } = v(Other.relations.Thing, "thing")
 	return r.match(Other.relations.Thing, { id }).find({ id })
 })
 // @ts-expect-error -- TS2322: a program over another schema

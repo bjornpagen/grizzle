@@ -1,6 +1,14 @@
 import type { Brand } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, Decimal, Money, pg, span, type uuid } from "#compiler/public/fields.ts"
+import {
+	contract,
+	Decimal,
+	Money,
+	pg,
+	span,
+	type Uuid,
+	type uuid
+} from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import type { ComputedOrigin, Term, TypeOfTerm } from "#compiler/types/core/phantom.ts"
 import type {
@@ -24,7 +32,7 @@ export type CentsHost = Expect<Equals<Infer<typeof Cents>, bigint & Brand.Brand<
 export type RateHost = Expect<Equals<Infer<typeof Rate>, Decimal & Brand.Brand<"Rate">>>
 /** The base is str.regex("^\\d{2}-\\d{7}$"), whose host type ArkRegex infers as a template. */
 export type EinHost = Expect<Equals<Infer<typeof Ein>, `${number}-${number}` & Brand.Brand<"Ein">>>
-export type UuidHost = Expect<Equals<Infer<typeof uuid>, string>>
+export type UuidHost = Expect<Equals<Infer<typeof uuid>, Uuid>>
 export type MoneyHost = Expect<Equals<Infer<typeof pg.money>, Money>>
 export type NumericHost = Expect<Equals<Infer<ReturnType<typeof pg.numeric>>, Decimal>>
 export type BigserialHost = Expect<Equals<Infer<typeof pg.bigserial>, bigint>>
@@ -113,13 +121,16 @@ export type NumberIsNotANumericLiteral = Expect<Not<IsAssignable<number, Literal
 export const rateCheck = contract("BadRate", pg.numeric(7, 6), (v) => v.between(0, 1))
 export const rateOk = contract("GoodRate", pg.numeric(7, 6), (v) => v.between("0.000000", 1n))
 
-/** Arithmetic on contract values yields the base type; a cast re-enters the contract. */
+/**
+ * Arithmetic on contract values drops the brand: over bigint it is the exact integer, delivered as bigint; a cast
+ * re-enters the contract.
+ */
 declare const cents: Term<Infer<typeof Cents>, unknown, unknown, "bigint">
 declare const plainBigint: Term<bigint, unknown, unknown, "bigint">
 declare const rate: Term<Infer<typeof Rate>, unknown, unknown, "numeric">
 export const doubled = Compute.mul(cents, 2n)
 export type ArithmeticYieldsBase = Expect<
-	Equals<typeof doubled, Term<bigint, unknown, ComputedOrigin<unknown>, "bigint">>
+	Equals<typeof doubled, Term<bigint, unknown, ComputedOrigin<unknown>, "exact integer">>
 >
 export const reentered = Compute.cast(doubled, Cents)
 export type CastReenters = Expect<Equals<TypeOfTerm<typeof reentered>, Infer<typeof Cents>>>

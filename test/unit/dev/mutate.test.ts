@@ -45,7 +45,16 @@ const worldProbes: ReadonlyArray<{ readonly file: string; readonly text: string 
 				`export const view = (barrier: boolean) => \`CREATE VIEW v\${barrier ? " WITH (security_barrier)" : ""} AS\``,
 				`export const header = (fn: Fn) => \`LANGUAGE sql STABLE SECURITY \${fn.security} SET search_path = \${list(fn.path)}\``,
 				`export const member = (role: string, to: string) => \`GRANT \${role} TO \${to} WITH INHERIT FALSE, SET TRUE\``,
-				`export const login = (name: string, on: boolean) => \`CREATE ROLE \${name} \${on ? "LOGIN NOINHERIT" : "NOLOGIN"}\``
+				`export const login = (name: string, on: boolean) => \`CREATE ROLE \${name} \${on ? "LOGIN NOINHERIT" : "NOLOGIN"}\``,
+				"export const printCatalogType = (name: CatalogTypeName): string => {",
+				"\tswitch (catalogSpelling[name]) {",
+				'\t\tcase "keyword":',
+				"\t\t\treturn name",
+				'\t\tcase "qualified":',
+				"\t\t\treturn inCatalog(name)",
+				"\t}",
+				"}",
+				'const printFunctionName = (fn: FunctionRef): string => fn.kind === "builtin" ? inCatalog(fn.name) : printObjectName(fn)'
 			],
 			"\n"
 		)
@@ -81,6 +90,23 @@ const worldProbes: ReadonlyArray<{ readonly file: string; readonly text: string 
 	{
 		file: "packages/engine/src/physical/ddl/isolation.ts",
 		text: 'export const body = [refuseBelowSerializable, { kind: "return", value: next }]'
+	},
+	{
+		file: "packages/engine/src/scalar/compute/registry.ts",
+		text: Arr.join(
+			[
+				'export type OperandReading = "value" | "displayScale"',
+				"const divisor = requires([nonzero(1)])",
+				'export const div = infix("div", "/", "numeric", "numeric", divisor, "displayScale")',
+				'export const add = infix("add", "+", "int4", "int4", exactInteger, "value")',
+				'export const mul = infix("mul", "*", "float8", "float8", ieee("mul"), "value")'
+			],
+			"\n"
+		)
+	},
+	{
+		file: "packages/engine/src/scalar/aggregate.ts",
+		text: 'export const sums = { float8: { lowering: exactSum("float8") }, int4: { lowering: native } }'
 	}
 ]
 
@@ -115,6 +141,8 @@ const faults: Readonly<Record<WorldOperator, (mutated: string) => boolean>> = {
 		!Str.includes('" WITH (security_barrier)"')(t) || Str.includes("barrier: false")(t),
 	"world-definer": (t) => Str.includes("SECURITY INVOKER")(t),
 	"world-search-path": (t) => !Str.includes("search_path")(t),
+	"world-catalog-bare": (t) =>
+		!Str.includes("return inCatalog(name)")(t) || !Str.includes("? inCatalog(fn.name)")(t),
 	"world-grant": (t) => regex('"(?:TRUNCATE|UPDATE|SELECT)"\\]').test(t),
 	"world-public-execute": (t) =>
 		Str.includes('{ kind: "grant", privileges: ["EXECUTE"]')(t) &&
@@ -128,7 +156,11 @@ const faults: Readonly<Record<WorldOperator, (mutated: string) => boolean>> = {
 		Str.includes("columns: columns.map((c) => ({ ...c, field: context }))")(t),
 	"world-witness": (t) => Str.includes("when: lit.bool(true)")(t),
 	"world-advance-max": (t) => Str.endsWith(", undefined)")(t),
-	"world-isolation-guard": (t) => !Str.includes("refuseBelowSerializable")(t)
+	"world-isolation-guard": (t) => !Str.includes("refuseBelowSerializable")(t),
+	"world-reads-flip": (t) =>
+		Str.includes('divisor, "value")')(t) || Str.includes("float8: { lowering: native }")(t),
+	"world-precondition-drop": (t) =>
+		Str.includes("const divisor = total")(t) || Str.includes(', total, "')(t)
 }
 
 describe("mutation operators", () => {

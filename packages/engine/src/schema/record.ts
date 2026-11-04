@@ -17,6 +17,8 @@ import {
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
 import type {
 	Carrier,
 	Carriers,
@@ -27,6 +29,7 @@ import type {
 	UnionHeading
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
+import type { HeadLiteral, HeadShape, HeadTerms, HeadValue } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnyWorld, EntryValue, RoleRelations } from "#compiler/types/schema/world.ts"
 
@@ -125,7 +128,10 @@ const assembled = <R, I>(
  *   record holds exactly the parts' keys, which are distinct, each with its field's value: Decoded<Ps>.
  * - mint(fields, make): a record of fresh terms, one per carrier of a heading (a descriptor or a term), each made by
  *   `make` from its carrier, its column and SQL type, which TypeScript checks as a generic function of the column's
- *   host type and the SQL type: Minted<F, Origins> (types/core/phantom.ts), whose origins are phantoms.
+ *   host type and the SQL type: Minted<F, Origins> (types/core/phantom.ts), whose origins and domains are phantoms.
+ * - headRecord(head, literal): a head as find holds it, each entry under its own key: a JavaScript value as the head
+ *   literal `literal` makes of it, which TypeScript checks as a generic function of the value's type, and every other
+ *   entry, a term, an aggregate or a producer, itself: HeadTerms<H> (types/query/terms.ts).
  * - sameHeadingRecord(carriers): the records of a union whose two arms deliver one heading key set, through one
  *   statement whose rows no binding tells apart: one record over `carriers`, the union of the arms' carriers, each
  *   column reading either arm's cell by the key's type (unionColumn). Each row is one arm's record,
@@ -165,6 +171,27 @@ export const mint = <Origins, const F extends Carriers>(
 ): Minted<F, Origins> =>
 	assembled<Minted<F, Origins>, undefined>(
 		Object.entries(fields).map(([key, carrier]) => [key, () => make(carrier, key)] as const),
+		undefined
+	)
+
+/** Whether a head entry is a JavaScript value: a string, a number, a bigint, a boolean, a Decimal or a Money. */
+const isHeadValue = (entry: unknown) =>
+	typeof entry === "string" ||
+	typeof entry === "number" ||
+	typeof entry === "bigint" ||
+	typeof entry === "boolean" ||
+	entry instanceof Decimal ||
+	entry instanceof Money
+
+/** A head as find holds it (see the header): a JavaScript value made the head literal `literal` gives it. */
+export const headRecord = <const H extends HeadShape>(
+	head: H,
+	literal: <X extends HeadValue>(value: X, key: string) => HeadLiteral<X>
+): HeadTerms<H> =>
+	assembled<HeadTerms<H>, undefined>(
+		Object.entries(head).map(
+			([key, entry]) => [key, () => (isHeadValue(entry) ? literal(entry, key) : entry)] as const
+		),
 		undefined
 	)
 

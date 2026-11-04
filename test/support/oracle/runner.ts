@@ -4,14 +4,14 @@ import {
 	type Draw,
 	type Explored,
 	explore,
+	isWitness,
 	type Kept,
 	type PropertyFalsified,
 	type Run as SearchRun,
 	type SearchFailure,
-	type Steering,
 	sketched
 } from "@grizzle/testing/explore"
-import type { Features } from "@grizzle/testing/features"
+import type { Coverage } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import {
@@ -35,6 +35,7 @@ import * as Engine from "#compiler/core/result.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	conservativeInput,
@@ -58,16 +59,28 @@ import {
 	statementLabels
 } from "#test/support/oracle/compare.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
-import { typedLiteralDesc } from "#test/support/oracle/gen/domain.ts"
+import { type SpelledValue, typedLiteralDesc } from "#test/support/oracle/gen/domain.ts"
+import type { StoredRow } from "#test/support/oracle/gen/facts.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
+import {
+	CurrentRestorage,
+	onceRotated,
+	permuted,
+	type Restorage,
+	restorageGen,
+	restoredFacts,
+	spelledRespelling,
+	type StoredRelation
+} from "#test/support/oracle/gen/restorage.ts"
 import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { captureRows } from "#test/support/oracle/install/capture.ts"
-import { moneyText } from "#test/support/oracle/install/literal.ts"
+import { InputSpelling, moneyText } from "#test/support/oracle/install/literal.ts"
 import { type FactSet, factStatements } from "#test/support/oracle/install/load.ts"
 import type { InstallPlan } from "#test/support/oracle/install/model.ts"
 import { oraclePlan, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
+	complementOf,
 	CurrentPerturbation,
 	isPerturbed,
 	multiplyFacts,
@@ -85,7 +98,7 @@ import {
 } from "#test/support/oracle/reference/deliver.ts"
 import { statingReference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { renderExpected } from "#test/support/oracle/reference/render.ts"
-import { ReferenceUnsupported } from "#test/support/oracle/reference/values.ts"
+import { type DeclineReason, ReferenceUnsupported } from "#test/support/oracle/reference/values.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
@@ -149,6 +162,7 @@ export const conservative: Lowering = {
 		)
 }
 
+/** A failure of the harness to run a case: planning, lowering, executing or rendering the reference. */
 class OracleFailure extends Schema.TaggedError<OracleFailure, { readonly brand: unique symbol }>()(
 	"OracleFailure",
 	{
@@ -158,6 +172,41 @@ class OracleFailure extends Schema.TaggedError<OracleFailure, { readonly brand: 
 	}
 ) {}
 
+/** Which side of a comparison a lowered run is: the baseline, or the side judged against it. */
+const sideRoles = ["left", "right"] as const
+type SideRole = (typeof sideRoles)[number]
+
+/**
+ * A side's two readings of a case (runOracle step 5): the case as generated, the run over its facts, the run over its
+ * facts stored otherwise under the complement plan, their comparison (the first reading on the left), and how the second
+ * reading was stored.
+ */
+class Readings extends Data.Class<{
+	readonly case: QueryCase
+	readonly first: Run
+	readonly again: Run
+	readonly comparison: Comparison
+	readonly reading: SecondReading
+}> {}
+
+/**
+ * A verdict on a side, never a failure of the harness: its second reading (runOracle step 5) delivered otherwise than
+ * its first, so its answer depends on something other than the facts.
+ */
+class InvarianceFailed extends Schema.TaggedError<
+	InvarianceFailed,
+	{ readonly brand: unique symbol }
+>()("InvarianceFailed", {
+	role: Schema.Literals(sideRoles),
+	side: Schema.String,
+	report: Schema.String,
+	readings: Schema.instanceOf(Readings)
+}) {
+	override get message(): string {
+		return this.report
+	}
+}
+
 /** A Lowering's run, with the program it produced. */
 interface LoweredRun {
 	readonly kind: "lowered"
@@ -165,8 +214,33 @@ interface LoweredRun {
 	readonly program: ConservativeProgram
 }
 
-/** A side's run: a Lowering's, or the reference's, which has no program. */
-type SideRun = LoweredRun | { readonly kind: "reference"; readonly run: Run }
+/**
+ * A side's run: a Lowering's, or the reference's, which has no program and names every term it declined to state
+ * (reference/values.ts DeclineReason), so a suite notes how often and why its reference gave up instead of judging.
+ */
+type SideRun =
+	| LoweredRun
+	| {
+			readonly kind: "reference"
+			readonly run: Run
+			readonly declines: ReadonlyArray<DeclineReason>
+	  }
+
+/** The reference's statements of a case, and every decline its evaluation met, by reason. */
+interface Stated {
+	readonly statements: ReadonlyArray<ExpectedStatement>
+	readonly declines: ReadonlyArray<DeclineReason>
+}
+
+/**
+ * How a case was read a second time, against itself: its facts stored otherwise (gen/restorage.ts), whether that moved
+ * some relation's order and a value's spelling, and the plan the second reading ran under (perturb.ts complementOf).
+ */
+export interface SecondReading {
+	readonly reordered: boolean
+	readonly respelled: boolean
+	readonly plan: Perturbation
+}
 
 export class OracleOutcome extends Data.Class<{
 	/** The case as generated; its facts ran repeated when the perturbation multiplies them. */
@@ -179,6 +253,8 @@ export class OracleOutcome extends Data.Class<{
 	readonly left: LoweredRun
 	readonly right: SideRun
 	readonly comparison: Comparison
+	/** The second reading every lowered side delivered exactly what it delivered the first time. */
+	readonly again: SecondReading
 }> {}
 
 export interface RunOptions {
@@ -195,7 +271,62 @@ export const defaultRunOptions: RunOptions = { schema: { kind: "fresh" } }
 /** The harness's per-statement guard. */
 const statementTimeout = "30s"
 
-/** The case's facts as the loader's records: each row a field-to-value record of the relation's authored values. */
+/** A stored value as the loader takes it: its authored value, or its twin spelling (install/literal.ts InputSpelling). */
+export const storedInput = (stored: SpelledValue, type: ScalarType): unknown => {
+	switch (stored.spelling.kind) {
+		case "canonical":
+			return typedLiteralDesc(stored.literal, type)
+		case "twin":
+			return new InputSpelling(stored.spelling.text)
+	}
+}
+
+/** A case with its facts stored otherwise, and what its restorage changed: some relation's order, a value's spelling. */
+interface RestoredCase {
+	readonly case: QueryCase
+	readonly reordered: boolean
+	readonly respelled: boolean
+}
+
+/** A case's stored facts of `name`; a relation without its facts is a defect of the case. */
+const factsOf = (c: QueryCase, name: string): ReadonlyArray<StoredRow> => {
+	const rows = c.facts[name]
+	if (rows === undefined) {
+		throw new Error(`a case with no facts of its relation ${name}`)
+	}
+	return rows
+}
+
+/** The case with its facts stored otherwise (gen/restorage.ts restoredFacts), each in another order. */
+const restoredCase = (c: QueryCase, r: Restorage): RestoredCase => {
+	const restored = restoredFacts(
+		Arr.map(c.schema.relations, (relation): StoredRelation<SpelledValue> => ({
+			name: relation.name,
+			columns: Arr.map(relation.columns, (col) => spelledRespelling(col.type)),
+			rows: factsOf(c, relation.name)
+		})),
+		permuted,
+		r
+	)
+	const facts = Rec.fromEntries(
+		Arr.map(restored.relations, (relation): readonly [string, ReadonlyArray<StoredRow>] => [
+			relation.name,
+			relation.rows
+		])
+	)
+	return { case: { ...c, facts }, reordered: restored.reordered, respelled: restored.respelled }
+}
+
+/** What an explored case runs under beside its sketch: its plan perturbation, and its second reading's restorage. */
+interface Conditions {
+	readonly perturbation: Perturbation
+	readonly restorage: Restorage
+}
+
+/**
+ * The case's facts as the loader's records: each row a field-to-value record of the relation's authored values, each
+ * in the spelling the case drew for it.
+ */
 export const factSet = (c: QueryCase): FactSet => {
 	const out: Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>> = {}
 	for (const relation of c.schema.relations) {
@@ -204,7 +335,7 @@ export const factSet = (c: QueryCase): FactSet => {
 			Rec.fromEntries(
 				Arr.map(relation.columns, (col, i) => [
 					col.name,
-					typedLiteralDesc(elementAt(row, i, "a fact row"), col.type)
+					storedInput(elementAt(row, i, "a fact row"), col.type)
 				])
 			)
 		)
@@ -215,7 +346,7 @@ export const factSet = (c: QueryCase): FactSet => {
 /**
  * A literal as the text its type's input function reads: what a placeholder or a recordset field carries.
  *
- * A double as its input function reads it: -0 keeps its sign, which String drops.
+ * A double as its shortest round-trip text; a literal holds the one zero.
  *
  * The canonical text of the components, [c1,...,cn], which is pgvector's input form.
  */
@@ -226,7 +357,7 @@ export const inputText = (literal: TypedLiteral): string => {
 		case "numeric":
 			return decimalPayload(literal.value)
 		case "float":
-			return Object.is(literal.value, -0) ? "-0" : String(literal.value)
+			return String(literal.value)
 		case "floatSpecial":
 			return literal.value
 		case "money":
@@ -376,17 +507,25 @@ const lowerSide = (
  * is the ReferenceUnsupported it throws; over facts repeated `multiplier` times, so is one past the scaled reference's
  * rows (evaluate.ts ScaledReference).
  */
-const referenceStatements = (
-	c: QueryCase,
-	multiplier: number
-): Result.Result<ReadonlyArray<ExpectedStatement>, unknown> => {
+const referenceStatements = (c: QueryCase, multiplier: number): Result.Result<Stated, unknown> => {
+	const declines: Array<DeclineReason> = []
 	try {
 		const ref = statingReference(
 			c.query.dag,
-			{ schema: c.schema, facts: c.facts, params: c.query.params, observer: unobserved },
+			{
+				schema: c.schema,
+				facts: c.facts,
+				params: c.query.params,
+				observer: {
+					...unobserved,
+					decline: (reason) => {
+						declines.push(reason)
+					}
+				}
+			},
 			multiplier
 		)
-		return Result.succeed(expectedStatements(ref, c.query.dag.roots[0]))
+		return Result.succeed({ statements: expectedStatements(ref, c.query.dag.roots[0]), declines })
 	} catch (e) {
 		return Result.fail(e)
 	}
@@ -406,10 +545,10 @@ const referenceRun = (
 	)
 
 /** Runs the body in one transaction on a pinned owner session and rolls it back. */
-const inRolledBackTransaction = <A>(
-	body: (session: PgConnection) => Effect.Effect<A, OracleFailure>,
+const inRolledBackTransaction = <A, E>(
+	body: (session: PgConnection) => Effect.Effect<A, E>,
 	timeout: string
-): Effect.Effect<A, OracleFailure, Substrate> =>
+): Effect.Effect<A, E | OracleFailure, Substrate> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
@@ -442,7 +581,13 @@ const inRolledBackTransaction = <A>(
  *    query's delivery defines from the IR alone (one per heading group and per attachment), computes their rows on the
  *    host by definition and spells them by PostgreSQL's output functions at the query's own column types (reference/);
  * 4. compare the two runs statement by statement as raw text multisets, and count the rows the right side repeats
- *    (compare.ts).
+ *    (compare.ts);
+ * 5. read the case a second time against itself, with no reference in the judgment: the first reading's facts and
+ *    settings rolled back to a savepoint, the facts stored otherwise through a fresh load (CurrentRestorage: another
+ *    storage order, one value in its next twin spelling), and every lowered side run again under the complement of the
+ *    first plan's settings (perturb.ts complementOf). An answer is a function of the facts, so where the two sides
+ *    agree, a side whose second reading differs from its first fails the case with the verdict InvarianceFailed, never a
+ *    harness failure.
  *
  * Everything runs in one transaction on one pinned owner session and is rolled back, so a case leaves nothing behind
  * and the next case reuses the schema name. The transaction carries a statement_timeout as a test harness guard against a mutant
@@ -462,7 +607,7 @@ export const runOracle = (
 	left: Lowering,
 	right: RunnerSide,
 	options: RunOptions
-): Effect.Effect<OracleOutcome, OracleFailure | SqlError, Substrate> =>
+): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, Substrate> =>
 	runNamed(input, { kind: "unlabelled" }, left, right, options)
 
 /** runOracle of a hand-built case its suite names: the outcome's report opens with the case's label. */
@@ -471,7 +616,7 @@ export const runLabelledOracle = (
 	left: Lowering,
 	right: RunnerSide,
 	options: RunOptions
-): Effect.Effect<OracleOutcome, OracleFailure | SqlError, Substrate> =>
+): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, Substrate> =>
 	runNamed(input, { kind: "labelled", label: input.label }, left, right, options)
 
 /** The perturbation's planner settings, for every statement of both sides. */
@@ -481,7 +626,7 @@ const runNamed = (
 	left: Lowering,
 	right: RunnerSide,
 	options: RunOptions
-): Effect.Effect<OracleOutcome, OracleFailure | SqlError, Substrate> =>
+): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		/**
@@ -494,9 +639,8 @@ const runNamed = (
 			facts: multiplyFacts(input.schema, input.facts, perturbation.multiplier)
 		}
 		/**
-		 * The reference's statements, computed on the host before any SQL. The evaluator sums a float aggregate only over
-		 * as many values as it sums exactly, and completes only so many region rows over repeated facts, which repeated
-		 * facts can pass: such a case runs with its facts as generated.
+		 * The reference's statements, computed on the host before any SQL. The evaluator completes only so many region
+		 * rows, which repeated facts can pass: such a case runs with its facts as generated.
 		 */
 		const first = isReference(right)
 			? referenceStatements(multiplied, perturbation.multiplier)
@@ -533,6 +677,12 @@ const runNamed = (
 		if (!facts.ok) {
 			return yield* failure("plan", "facts", facts.error.message)
 		}
+		const restoration = restoredCase(c, yield* CurrentRestorage)
+		const restoredStatements = factStatements(plan, factSet(restoration.case))
+		if (!restoredStatements.ok) {
+			return yield* failure("plan", "facts stored otherwise", restoredStatements.error.message)
+		}
+		const secondPlan = complementOf(perturbation)
 		/** The lowerings emit the installation's own physical names, structural text domains included. */
 		const names = plan.installation.names
 		const leftProgram = yield* lowerSide(left, c, names)
@@ -547,9 +697,6 @@ const runNamed = (
 					for (const sql of plan.sql) {
 						yield* exec(sql, "install")
 					}
-					for (const sql of facts.value) {
-						yield* exec(sql, "facts")
-					}
 					/**
 					 * Tables created and filled in this transaction have no statistics, so the planner assumes some
 					 * thousand rows each and a few cross-joined scans estimate billions; the executor sizes its startup
@@ -557,17 +704,86 @@ const runNamed = (
 					 * rows. ANALYZE sees this transaction's own rows and is rolled back with it; results are unchanged.
 					 */
 					const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
-					if (tables.length > 0) {
-						yield* exec(`ANALYZE ${Arr.join(tables, ", ")}`, "facts")
-					}
-					for (const sql of plannerStatements(perturbation)) {
-						yield* exec(sql, "perturbation")
-					}
+					/** Stores `statements`, analyzes the tables and sets `under`'s planner settings. */
+					const stored = (
+						statements: ReadonlyArray<string>,
+						under: Perturbation,
+						stage: string
+					): Effect.Effect<void, OracleFailure> =>
+						Effect.gen(function* () {
+							for (const sql of statements) {
+								yield* exec(sql, stage)
+							}
+							if (tables.length > 0) {
+								yield* exec(`ANALYZE ${Arr.join(tables, ", ")}`, stage)
+							}
+							for (const sql of plannerStatements(under)) {
+								yield* exec(sql, stage)
+							}
+						})
+					yield* exec("SAVEPOINT stored", "facts")
+					yield* stored(facts.value, perturbation, "facts")
 					const leftRun = yield* runProgram(session, c, leftProgram, left.name)
 					const rightRun =
 						rightProgram !== undefined
 							? yield* runProgram(session, c, rightProgram, right.name)
-							: yield* referenceRun(session, expected?.success ?? [], plan)
+							: yield* referenceRun(session, expected?.success.statements ?? [], plan)
+					const comparison = compareRuns(leftRun, rightRun)
+					yield* exec("ROLLBACK TO SAVEPOINT stored", "facts stored otherwise")
+					yield* stored(restoredStatements.value, secondPlan, "facts stored otherwise")
+					const lowered: ReadonlyArray<{
+						readonly role: SideRole
+						readonly name: string
+						readonly program: ConservativeProgram
+						readonly first: Run
+					}> = [
+						{ role: "left", name: left.name, program: leftProgram, first: leftRun },
+						...(rightProgram === undefined
+							? []
+							: [
+									{
+										role: "right" as const,
+										name: right.name,
+										program: rightProgram,
+										first: rightRun
+									}
+								])
+					]
+					const second: SecondReading = {
+						reordered: restoration.reordered,
+						respelled: restoration.respelled,
+						plan: secondPlan
+					}
+					const order = second.reordered ? "reordered" : "in their order"
+					const spelling = second.respelled ? "one value respelled" : "no value respelled"
+					for (const side of lowered) {
+						const again = yield* runProgram(session, restoration.case, side.program, side.name)
+						const itself = compareRuns(side.first, again)
+						if (comparison.equal && !itself.equal) {
+							return yield* InvarianceFailed.make({
+								role: side.role,
+								side: side.name,
+								readings: new Readings({
+									case: input,
+									first: side.first,
+									again,
+									comparison: itself,
+									reading: second
+								}),
+								report: Arr.join(
+									[
+										`${side.name}: the facts stored otherwise (${order}, ${spelling}) under another plan deliver otherwise`,
+										printOracleCase(input),
+										printPerturbation(secondPlan),
+										printComparison(itself, "the first reading", "the second reading"),
+										printRun(side.first),
+										printRun(again)
+									],
+									"\n"
+								)
+							})
+						}
+					}
 					return new OracleOutcome({
 						case: input,
 						name,
@@ -576,9 +792,10 @@ const runNamed = (
 						left: { kind: "lowered", run: leftRun, program: leftProgram },
 						right:
 							rightProgram === undefined
-								? { kind: "reference", run: rightRun }
+								? { kind: "reference", run: rightRun, declines: expected?.success.declines ?? [] }
 								: { kind: "lowered", run: rightRun, program: rightProgram },
-						comparison: compareRuns(leftRun, rightRun)
+						comparison,
+						again: second
 					})
 				}),
 			statementTimeout
@@ -645,11 +862,10 @@ export const comparisonFailed = (outcome: OracleOutcome): ComparisonFailed =>
 export interface CheckOptions<S, F extends string> {
 	readonly suite: string
 	readonly literal: (sketch: S) => string
-	readonly features: Features<F>
+	readonly coverage: Coverage<F>
 	readonly kept: ReadonlyArray<Kept<S, F>>
 	readonly runs: number
 	readonly shrink: ShrinkBudget
-	readonly steering: Steering
 	readonly caseHang: Duration.Input
 	/** The plan perturbation each case draws: the facts repeated and planner settings, the settings alone, or none. */
 	readonly perturb: "all" | "planner" | "none"
@@ -661,9 +877,11 @@ export interface CheckOptions<S, F extends string> {
  */
 const underPerturbation = <E, R>(
 	property: Effect.Effect<void, E, R>,
-	perturbation: Perturbation
-): Effect.Effect<void, PropertyFailed | ComparisonFailed | CaseDiscarded, R> =>
-	Effect.provideService(property, CurrentPerturbation, perturbation).pipe(
+	conditions: Conditions
+): Effect.Effect<void, PropertyFailed | ComparisonFailed | CaseDiscarded, R> => {
+	const perturbation = conditions.perturbation
+	return Effect.provideService(property, CurrentPerturbation, perturbation).pipe(
+		Effect.provideService(CurrentRestorage, conditions.restorage),
 		Effect.catchCause(
 			(cause): Effect.Effect<never, PropertyFailed | ComparisonFailed | CaseDiscarded> => {
 				if (Cause.hasInterruptsOnly(cause)) {
@@ -689,6 +907,7 @@ const underPerturbation = <E, R>(
 			}
 		)
 	)
+}
 
 /** The perturbations a case of a check draws. */
 const perturbations = (perturb: CheckOptions<unknown, string>["perturb"]): Gen<Perturbation> => {
@@ -715,26 +934,28 @@ const checked = <S, T, F extends string, E, R>(
 		{
 			suite: options.suite,
 			draw: sketched(
-				(source): readonly [S, Perturbation] => [
+				(source): readonly [S, Conditions] => [
 					source.draw(draw.generator),
-					source.draw(perturbations(options.perturb))
+					{
+						perturbation: source.draw(perturbations(options.perturb)),
+						restorage: source.draw(restorageGen)
+					}
 				],
-				([sketch, perturbation]): readonly [T, Perturbation] => [draw.resolve(sketch), perturbation]
+				([sketch, conditions]): readonly [T, Conditions] => [draw.resolve(sketch), conditions]
 			),
 			literal: ([sketch]) => options.literal(sketch),
-			features: options.features,
-			kept: Arr.map(options.kept, (k): Kept<readonly [S, Perturbation], F> => ({
+			coverage: options.coverage,
+			kept: Arr.map(options.kept, (k): Kept<readonly [S, Conditions], F> => ({
 				...k,
-				sketch: [k.sketch, unperturbed]
+				sketch: [k.sketch, { perturbation: unperturbed, restorage: onceRotated }]
 			})),
 			runs: options.runs,
 			shrink: options.shrink,
 			concurrency: 1,
 			steerEvery: 16,
-			steering: options.steering,
 			caseHang: options.caseHang
 		},
-		([value, perturbation], c) => underPerturbation(property(value, c), perturbation)
+		([value, conditions], c) => underPerturbation(property(value, c), conditions)
 	)
 
 /**
@@ -752,9 +973,12 @@ export const oracleCheck = <S, T, F extends string, E, R>(
 
 /**
  * What a kill search ends with: every case passed, so the population survived; or a case failed, with the library's
- * report (the shrunk case and how to replay it) and the last case whose property failed, with its outcome when an
- * oracle comparison failed. Shrinking runs failing cases until the shrunk one, so the last failing case is the shrunk
- * case unless a later candidate failed without drawing fewer decisions.
+ * report (the shrunk case and how to replay it) and the last case whose property failed, with the verdict its typed
+ * failure carried. A verdict is a kill only when a witness found it (the floor stream or the steered phase, which the
+ * suite's label fixes), so a kill search passes or fails alike on every run seed; one only a case the run's seed drew
+ * found is unwitnessed, its counterexample carried so the population gains an arm that reaches it. A failure that
+ * carries no verdict, a harness's, is no kill. Shrinking runs failing cases until the shrunk one, so the last failing
+ * case is the shrunk case unless a later candidate failed without drawing fewer decisions.
  */
 export type KillResult<T> =
 	| { readonly kind: "survived"; readonly explored: Explored }
@@ -762,7 +986,12 @@ export type KillResult<T> =
 			readonly kind: "killed"
 			readonly report: string
 			readonly counterexample: T
-			readonly outcome: OracleOutcome
+			readonly verdict: KillVerdict
+	  }
+	| {
+			readonly kind: "unwitnessed"
+			readonly report: string
+			readonly counterexample: T
 	  }
 	| {
 			readonly kind: "failed"
@@ -770,18 +999,41 @@ export type KillResult<T> =
 			readonly counterexample: Option.Option<T>
 	  }
 
-/** The last case a kill search's property failed on, and the outcome when an oracle comparison failed. */
-type LastFailure<T> = { readonly value: T; readonly outcome: Option.Option<OracleOutcome> }
+/**
+ * What a failing case was caught by, as its typed failure says: the two sides' comparison, with its outcome, or one
+ * side's second reading against its first (InvarianceFailed), with that verdict.
+ */
+export type KillVerdict =
+	| { readonly kind: "comparison"; readonly outcome: OracleOutcome }
+	| { readonly kind: "invariance"; readonly failure: InvarianceFailed }
+
+/**
+ * What a kill population's property may fail with: a verdict on the population, the two sides' comparison or one
+ * side's second reading. A harness failure is the property's to record, never a kill, and a defect is no verdict.
+ */
+type Verdict = ComparisonFailed | InvarianceFailed
+
+const verdictOf = (failure: Verdict): KillVerdict => {
+	switch (failure._tag) {
+		case "ComparisonFailed":
+			return { kind: "comparison", outcome: failure.outcome }
+		case "InvarianceFailed":
+			return { kind: "invariance", failure }
+	}
+}
+
+/** The last case a kill search's property failed on, and the verdict its failure carried. */
+type LastFailure<T> = { readonly value: T; readonly verdict: Option.Option<KillVerdict> }
 
 /**
  * oracleCheck for a population that must be killed (a mutant's): a failing case is the result rather than the search's
- * failure, so the suite can judge the kill's outcome. Every other way the search fails (a hang, a stall, an unreached
- * feature, a stale kept case) fails it still.
+ * failure, so the suite can judge the kill's verdict and where it was found. Every other way the search fails (a hang,
+ * a stall, an unreached feature, a stale kept case) fails it still.
  */
-export const oracleKill = <S, T, F extends string, E, R>(
+export const oracleKill = <S, T, F extends string, R>(
 	draw: Draw<S, T>,
 	options: CheckOptions<S, F>,
-	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>
+	property: (value: T, c: Case<F>) => Effect.Effect<void, Verdict, R>
 ): Effect.Effect<
 	KillResult<T>,
 	Exclude<SearchFailure, PropertyFalsified>,
@@ -793,13 +1045,10 @@ export const oracleKill = <S, T, F extends string, E, R>(
 			property(value, c).pipe(
 				Effect.tapCause((cause) =>
 					Effect.sync(() => {
-						const error = Cause.squash(cause)
-						if (!Cause.hasInterruptsOnly(cause) && !Schema.is(CaseDiscarded)(error)) {
+						if (!Cause.hasInterruptsOnly(cause) && !Schema.is(CaseDiscarded)(Cause.squash(cause))) {
 							last = Option.some({
 								value,
-								outcome: Schema.is(ComparisonFailed)(error)
-									? Option.some(error.outcome)
-									: Option.none()
+								verdict: Option.map(Cause.findErrorOption(cause), verdictOf)
 							})
 						}
 					})
@@ -811,7 +1060,7 @@ export const oracleKill = <S, T, F extends string, E, R>(
 				Effect.succeed(
 					Option.match(
 						Option.flatMap(last, (failure) =>
-							Option.map(failure.outcome, (outcome) => ({ value: failure.value, outcome }))
+							Option.map(failure.verdict, (verdict) => ({ value: failure.value, verdict }))
 						),
 						{
 							onNone: (): KillResult<T> => ({
@@ -819,12 +1068,10 @@ export const oracleKill = <S, T, F extends string, E, R>(
 								report: falsified.message,
 								counterexample: Option.map(last, (failure) => failure.value)
 							}),
-							onSome: ({ value, outcome }): KillResult<T> => ({
-								kind: "killed",
-								report: falsified.message,
-								counterexample: value,
-								outcome
-							})
+							onSome: ({ value, verdict }): KillResult<T> =>
+								isWitness(falsified.phase)
+									? { kind: "killed", report: falsified.message, counterexample: value, verdict }
+									: { kind: "unwitnessed", report: falsified.message, counterexample: value }
 						}
 					)
 				)
@@ -832,10 +1079,17 @@ export const oracleKill = <S, T, F extends string, E, R>(
 		)
 	})
 
-/** The report of a failed property: its own report, an oracle failure's stage and message, or the cause. */
+/**
+ * The report of a failed property: its own report, an invariance verdict's, an oracle failure's stage and message, or
+ * the cause.
+ */
 const reportOf = (cause: Cause.Cause<unknown>): string => {
 	const error = Cause.squash(cause)
-	if (Schema.is(PropertyFailed)(error) || Schema.is(ComparisonFailed)(error)) {
+	if (
+		Schema.is(PropertyFailed)(error) ||
+		Schema.is(ComparisonFailed)(error) ||
+		Schema.is(InvarianceFailed)(error)
+	) {
 		return error.report
 	}
 	if (Schema.is(OracleFailure)(error)) {

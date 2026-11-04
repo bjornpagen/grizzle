@@ -7,7 +7,7 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { toReal } from "#compiler/scalar/values/float.ts"
+import { canonicalZero, toReal } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 
@@ -190,7 +190,8 @@ export const irLiteral = (
 				return Result.err(`a number for ${base.carrier}`)
 			}
 			if (base.carrier === "float8") {
-				return finish({ kind: "float", value: value === 0 ? 0 : value }, value === 0 ? 0 : value)
+				const double = canonicalZero(value)
+				return finish({ kind: "float", value: double }, double)
 			}
 			const real = toReal(value)
 			if (!real.ok) {
@@ -247,5 +248,10 @@ export const irLiteral = (
 				? Result.err("a Vector of the field's dimensions")
 				: finish({ kind: "vector", value: vector }, { vector })
 		}
+		case "exactInteger":
+		case "exactMoney":
+			return Result.err(
+				"a literal of an exact value's family: opposite an exact integer a bigint literal, opposite exact money a Money"
+			)
 	}
 }

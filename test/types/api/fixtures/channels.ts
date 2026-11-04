@@ -28,6 +28,7 @@ import {
 	type TransportFailure,
 	type TransportStage,
 	type UnseenOccupant,
+	type Uuid,
 	v,
 	type Witness
 } from "#index.ts"
@@ -194,6 +195,7 @@ export type OpenErrorReasonTags = Expect<
 		Types.ReasonTags<OpenError>,
 		| AcquisitionTags
 		| "DbConfigRefused"
+		| "ConnectionEnvironmentRefused"
 		| "RoleOutsideLayers"
 		| "LoginNameRefused"
 		| "TokenError"
@@ -219,19 +221,22 @@ export type StaleSnapshotReasonTags = Expect<
 >
 
 const tasks = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id, account: r.param("account", Task.fields.account) }).find({ id })
 })
 
+const taskId = "0193d8f2-7c1e-7000-8000-0000000000a2"
+const accountId = "0193d8f2-7c1e-7000-8000-0000000000a1"
+
 const addTask = ChangeSet.empty(Work)
-	.insert(Task, [{ id: "t", account: "a", kind: "Manual", cost: Cents(1n) }])
+	.insert(Task, [{ id: taskId, account: accountId, kind: "Manual", cost: Cents(1n) }])
 	.read("added", (delta) =>
 		query(Work).rule((r) => {
-			const { id } = v(delta.added(Task))
+			const { id } = v(delta.added(Task), "addedTask")
 			return r.match(delta.added(Task), { id }).find({ id })
 		})
 	)
-type AddReads = { readonly added: ReadonlyArray<{ readonly id: string }> }
+type AddReads = { readonly added: ReadonlyArray<{ readonly id: Uuid }> }
 
 /** Writes fail only with ApplyError. */
 export const applied = writer.apply(addTask, {})
@@ -277,16 +282,16 @@ export type CompiledApplyChannel = Expect<
 >
 
 /** A direct read has no CompileError channel: a query that does not compile is ReadError stage compile. */
-export const executed = writer.execute(tasks, { account: "a" })
+export const executed = writer.execute(tasks, { account: accountId })
 export type ExecuteChannel = Expect<Equals<Effect.Error<typeof executed>, ReadError>>
 declare const result: Effect.Success<typeof executed>
 export const collected = result.collect
 export type CollectChannel = Expect<
-	Equals<typeof collected, Effect.Effect<ReadonlyArray<{ readonly id: string }>, ReadError>>
+	Equals<typeof collected, Effect.Effect<ReadonlyArray<{ readonly id: Uuid }>, ReadError>>
 >
-export const got = writer.get(Task, { id: "t" })
+export const got = writer.get(Task, { id: taskId })
 export type GetChannel = Expect<Equals<Effect.Error<typeof got>, ReadError>>
-export const paged = writer.page(tasks.orderBy(["id", "asc"]), { account: "a" }, { first: 2 })
+export const paged = writer.page(tasks.orderBy(["id", "asc"]), { account: accountId }, { first: 2 })
 export type PageChannel = Expect<Equals<Effect.Error<typeof paged>, ReadError | CursorError>>
 export const explained = writer.explain(addTask, {})
 export type ExplainChannel = Expect<Equals<Effect.Error<typeof explained>, ReadError>>
@@ -350,7 +355,7 @@ export type WitnessShape = Expect<
 	>
 >
 
-export const reading = (outcome: Outcome): ReadonlyArray<{ readonly id: string }> => {
+export const reading = (outcome: Outcome): ReadonlyArray<{ readonly id: Uuid }> => {
 	switch (outcome.kind) {
 		case "accepted":
 		case "no-change":

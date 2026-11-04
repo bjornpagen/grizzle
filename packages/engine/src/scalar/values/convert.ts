@@ -48,6 +48,9 @@ const identity = (text: string): string => text
 /**
  * The conversion of PostgreSQL's output text of a column into its host value, one per carrier.
  *
+ * A conversion yields the value in its carrier's one form, so equal values PostgreSQL spells differently (1.50 and 1.5,
+ * -0 and 0) convert to one host value: decode is conversion only, into the canonical form.
+ *
  * A conversion trusts its text. Every text it meets is PostgreSQL's own output of a value of the column's type in the
  * fixed execution context Db.open verifies (extra_float_digits = 1, the C.UTF-8 monetary context), written by grizzle's
  * own SQL, whose outermost SELECT casts every column to text: so a conversion checks no syntax, range, typmod, roster or
@@ -57,7 +60,7 @@ const identity = (text: string): string => text
  * | --- | --- | --- |
  * | int2, int4 | int2out, int4out | Number |
  * | int8 | int8out | BigInt |
- * | numeric | numeric_out, display scale kept | Decimal.fromOutput, the text kept as the value's text |
+ * | numeric | numeric_out, at any display scale | Decimal.fromOutput, the one form: trailing fractional zeros dropped |
  * | float8 | float8out | Number, -0 as +0 |
  * | float4 | float4out, shortest binary32 text | the binary32 value exactly (float.ts convertReal), -0 as +0 |
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
@@ -65,6 +68,8 @@ const identity = (text: string): string => text
  * | uuid, text, enum | uuid_out, the string, the handle | the text itself |
  * | range4, range8 | range_out of a bounded half-open range, [start,end) | a frozen { start, end } |
  * | vector | vector_out, [c1,...,cn] | a Float32Array of the column's dimensions, components exactly binary32 |
+ * | exactInteger | int8out or numeric_out of an integer | BigInt, the exact integer |
+ * | exactMoney | numeric_out of an amount at scale 2 | Money.fromOutput, an exact count of any size |
  *
  * Every converter is a per-row hot path, run on each value of each row a statement returns: native string methods and
  * index loops, no Option or closure per character, and one allocation for the value itself.
@@ -84,5 +89,7 @@ export const convertByCarrier: { readonly [C in Carrier]: (spec: SpecOf<C>) => C
 	enum: () => identity,
 	range4: () => convertSpan(Number),
 	range8: () => convertSpan(BigInt),
-	vector: (spec) => convertVector(spec.dimensions)
+	vector: (spec) => convertVector(spec.dimensions),
+	exactInteger: () => BigInt,
+	exactMoney: () => (text) => Money.fromOutput(text)
 }

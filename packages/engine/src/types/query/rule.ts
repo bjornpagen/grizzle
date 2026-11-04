@@ -3,8 +3,8 @@ import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
 import type { AvgSql, NumericSql, PlainHost, SumSql } from "#compiler/scalar/compute/tables.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
-	FirstOrigin,
 	FirstTerm,
+	FirstValue,
 	IsSpan,
 	Operand,
 	Requires
@@ -13,12 +13,15 @@ import type {
 import type {
 	Carriers,
 	ComputedOrigin,
+	Facts as ProvedFacts,
+	InputTerm,
 	Invariant,
-	Literal,
-	LiteralOrigin,
+	LanguageOf,
+	Meets,
 	OperandOrigin,
 	ParamOrigin,
 	ParamsContribution,
+	ParamType,
 	ParamsOfTerm,
 	Predicate,
 	Refusal,
@@ -47,12 +50,10 @@ import type {
 	HeadValues,
 	Negation,
 	Opaque,
-	PositionsOf,
 	Proofs,
 	ReflexiveProof,
 	Shaped,
-	SoleMatch,
-	SourceName
+	SoleMatch
 } from "#compiler/types/evidence/evidence.ts"
 import type { Field, FieldBase, LiteralOf, Span } from "#compiler/types/fields/field.ts"
 import type { BoundSource, ContextsOf, Finished } from "#compiler/types/query/query.ts"
@@ -60,9 +61,12 @@ import type {
 	Aggregate,
 	BindingParams,
 	Bindings,
+	CarriersOf,
+	DeadConstants,
 	HeadOrigins,
 	HeadParams,
 	HeadShape,
+	HeadTerms,
 	NoExcess,
 	ParamSource,
 	Producer,
@@ -74,6 +78,25 @@ import type { AnyContext, AnyWorld } from "#compiler/types/schema/world.ts"
 
 type T<A> = TypeOfTerm<A>
 type P<A> = ParamsOfTerm<A>
+/**
+ * What find returns over a head of terms H, a head whose JavaScript values are its literal terms (HeadTerms): an arm
+ * that attaches nothing yet.
+ */
+type FinishedHead<S, Params, Sole, Facts, Cx, H extends Carriers> = Finished<
+	ResultOf<H>,
+	EvidenceOf<
+		H,
+		HeadKeys<S, OccurrencesOf<Facts>, H, StatedAt<Facts>>,
+		HeadValues<H, StatedAt<Facts>>,
+		HeadOrigins<H, OccurrencesOf<Facts>>,
+		ProofsAt<S, Sole, Facts, H>
+	>,
+	Simplify<Params & HeadParams<H>>,
+	S,
+	ResultOf<H>,
+	H,
+	Cx
+>
 /** A predicate's origin: a computation over its operands, terms or predicates. */
 type Reads<Os extends ReadonlyArray<unknown>> = ComputedOrigin<OperandOrigin<Os[number]>>
 
@@ -151,24 +174,13 @@ type Compared<Op extends ComparisonOp, A, B> = Compare<A, B> & Shaped<Comparison
 
 /**
  * What a rule records beyond its parameters and its pinned, sole and only states, for the evidence its find reads
- * (../evidence/evidence.ts): every occurrence it matched, in order; the binding position of each variable with an
- * origin, `<origin>@<source>.<field>`; the names of the sources it matched and whether one repeats; what its filters
- * state (evidence/evidence.ts Stating): a variable compared with r.eq against a value fixed per binding is fixed, two
- * variables compared are equal; and its filters in order, or UnknownFilters once a where spreads an array of unknown
- * length.
+ * (../evidence/evidence.ts): every occurrence it matched, in order, which the head's keys and origins are read from
+ * (HeadKeys, HeadOrigins); what its filters state (evidence/evidence.ts Stating): a variable compared with r.eq against
+ * a value fixed per binding is fixed, two variables compared are equal; and its filters in order, or UnknownFilters
+ * once a where spreads an array of unknown length.
  */
-interface RuleFacts<
-	Occurrences extends ReadonlyArray<unknown>,
-	Positions extends string,
-	Names extends string,
-	Repeated extends boolean,
-	Stated,
-	Filters = readonly []
-> {
+interface RuleFacts<Occurrences extends ReadonlyArray<unknown>, Stated, Filters = readonly []> {
 	readonly occurrences: Occurrences
-	readonly positions: Positions
-	readonly names: Names
-	readonly repeated: Repeated
 	readonly stated: Stated
 	readonly filters: Filters
 }
@@ -176,36 +188,15 @@ interface RuleFacts<
 interface UnknownFilters {
 	readonly unknownFilters: true
 }
-export type NoFacts = RuleFacts<readonly [], never, never, false, never>
+export type NoFacts = RuleFacts<readonly [], never>
 type AfterMatch<F, R, B> =
-	F extends RuleFacts<
-		infer O extends ReadonlyArray<unknown>,
-		infer Po extends string,
-		infer N extends string,
-		infer Re extends boolean,
-		infer St,
-		infer Fl
-	>
-		? RuleFacts<
-				readonly [...O, SoleMatch<R, B>],
-				Po | PositionsOf<R, B>,
-				N | SourceName<R>,
-				Re extends true ? true : SourceName<R> extends N ? true : false,
-				St,
-				Fl
-			>
+	F extends RuleFacts<infer O extends ReadonlyArray<unknown>, infer St, infer Fl>
+		? RuleFacts<readonly [...O, SoleMatch<R, B>], St, Fl>
 		: never
 
 type AfterWhere<F, Ps> =
-	F extends RuleFacts<
-		infer O extends ReadonlyArray<unknown>,
-		infer Po extends string,
-		infer N extends string,
-		infer Re extends boolean,
-		infer St,
-		infer Fl
-	>
-		? RuleFacts<O, Po, N, Re, St | StatesOf<Ps>, FiltersAfter<Fl, Ps>>
+	F extends RuleFacts<infer O extends ReadonlyArray<unknown>, infer St, infer Fl>
+		? RuleFacts<O, St | StatesOf<Ps>, FiltersAfter<Fl, Ps>>
 		: never
 
 type FiltersAfter<Fl, Ps> =
@@ -217,21 +208,11 @@ type FiltersAfter<Fl, Ps> =
 			: UnknownFilters
 		: UnknownFilters
 
-/**
- * What the rule's filters state of its variables by origin: under R1 of the one variable of each origin, in a rule that
- * matches no source twice.
- */
-type StatedAt<F> = F extends {
-	readonly repeated: infer Re extends boolean
-	readonly stated: infer St
-}
-	? Re extends true
-		? never
-		: St
-	: never
-type OccurrencesOf<F> = F extends { readonly occurrences: infer O } ? O : readonly []
-type PositionsAt<F> = F extends { readonly positions: infer Po extends string } ? Po : never
-type RepeatedAt<F> = F extends { readonly repeated: infer Re extends boolean } ? Re : true
+/** What the rule's filters state of its variables by origin, each origin the one variable of its scope's field. */
+type StatedAt<F> = F extends { readonly stated: infer St } ? St : never
+type OccurrencesOf<F> = F extends { readonly occurrences: infer O extends ReadonlyArray<unknown> }
+	? O
+	: readonly []
 type FiltersAt<F> = F extends { readonly filters: infer Fl } ? Fl : UnknownFilters
 /** What the rule's clauses prove of a head H (../evidence/evidence.ts Proofs). */
 type ProofsAt<S, Sole, F, H> = Proofs<
@@ -240,19 +221,31 @@ type ProofsAt<S, Sole, F, H> = Proofs<
 	ArmProofOf<S, Sole, H>
 >
 
-/** What may stand opposite a span term: a span term of exactly its type, a span parameter among them. */
-type SpanOperand<Sp> = Term<Sp>
+/** What may stand opposite a span term: a span term that meets its type, a span parameter among them. */
+type SpanOperand<Sp> = Meets<Sp, "range">
 
-/** A scalar parameter of a descriptor's host type H and SQL type Sql: an input term the caller binds by name. */
-type ParamTerm<Name extends string, H, Sql extends SqlTag> = Term<
-	H,
-	{ readonly [K in Name]: H },
+/**
+ * A scalar parameter of a descriptor of values H, SQL type Sql, domain D and facts F: an input term the caller binds by
+ * name to one of the values, whose map entry is the descriptor's type (ParamType), which a term binding it meets and
+ * whose language the caller's value is in. It has its descriptor's facts, a contract's declared ones among them, which
+ * the binding checks of every value (codec/scalar.ts refinedValue), so a partial operation over it stands unguarded.
+ */
+type ParamTerm<Name extends string, H, Sql extends SqlTag, D, F extends ProvedFacts> = Term<
+	D,
+	{ readonly [K in Name]: ParamType<D, Sql, H> },
 	ParamOrigin,
-	Sql
+	Sql,
+	H,
+	F
 >
 
 /** What r.relation takes as a heading: a heading of fields C, or a relation, whose heading C is. */
 export type RelationHeading<C> = C | { readonly kind: "relation"; readonly heading: C }
+
+/** The refusal a relation parameter's heading carries: none for a heading of at least one field, as a relation has. */
+export type ParamFields<C> = [keyof C] extends [never]
+	? Refusal<"a relation parameter has at least one field, as a relation does">
+	: unknown
 
 /**
  * The SQL types min and max are defined over: the numeric family and money, booleans (bool_and and bool_or), text and
@@ -270,9 +263,9 @@ type MinMaxSql = NumericSql | "boolean" | "text" | "enum"
  * is what find reads of every match and filter (RuleFacts), from which the head's keys follow (HeadKeys).
  */
 export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, Cx = never> {
-	match<R extends Matchable, const B extends Partial<Bindings<HeadingOf<R>>>>(
+	match<R extends Matchable, const B extends Partial<Bindings<HeadingOf<R>, CarriersOf<R>>>>(
 		source: R & MatchCheck<S, R>,
-		bindings: B & NoExcess<B, HeadingOf<R>>
+		bindings: B & NoExcess<B, HeadingOf<R>> & DeadConstants<B, HeadingOf<R>, CarriersOf<R>>
 	): Rule<
 		S,
 		Params & SourceParamsOf<R> & BindingParams<B>,
@@ -289,88 +282,68 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		AfterWhere<Facts, Ps>,
 		Cx | PredicateContexts<Ps>
 	>
-	find<const H extends HeadShape>(
-		head: H
-	): Finished<
-		ResultOf<H>,
-		EvidenceOf<
-			H,
-			HeadKeys<S, OccurrencesOf<Facts>, H, RepeatedAt<Facts>, StatedAt<Facts>>,
-			HeadValues<H, StatedAt<Facts>>,
-			HeadOrigins<H, PositionsAt<Facts>, RepeatedAt<Facts>>,
-			ProofsAt<S, Sole, Facts, H>
-		>,
-		Simplify<Params & HeadParams<H>>,
-		S,
-		ResultOf<H>,
-		H,
-		Cx
-	>
+	find<const H extends HeadShape>(head: H): FinishedHead<S, Params, Sole, Facts, Cx, HeadTerms<H>>
 	/** A stage over the rule's own schema, so it carries S like the query it is part of. */
 	interior<Head, Ev extends Evidence, P2, IHead, Hc extends Carriers, Cx2>(
 		rule: (r: Rule<S>) => Finished<Head, Ev, P2, S, IHead, Hc, Cx2>
 	): BoundSource<S, Head, P2, Hc, Cx2>
 
-	/** A scalar parameter of the descriptor's host type, which the caller binds by name. */
-	param<const Name extends string, H, Sql extends SqlTag>(
+	/** A scalar parameter of the descriptor's type and facts, which the caller binds by name; a term, first included. */
+	param<const Name extends string, H, Sql extends SqlTag, D, F extends ProvedFacts>(
 		name: Name,
-		type: Field<H, Sql>
-	): ParamTerm<Name, H, Sql>
+		type: Field<H, Sql, D, F>
+	): ParamTerm<Name, H, Sql, D, F>
 	/** A relation-valued parameter over a heading of fields, or over a relation, whose heading it takes. */
 	relation<const Name extends string, C extends Record<string, FieldBase>>(
 		name: Name,
-		heading: RelationHeading<C>
+		heading: RelationHeading<C> & ParamFields<C>
 	): ParamSource<Name, C>
-	/**
-	 * A literal a head holds, typically a discriminant: a term of the value's own literal type. The checker types it by
-	 * the field it writes, else by the type its union's term-typed arms agree on when that type admits it, else by its
-	 * value's JavaScript default; X.handle(member) is a roster's typed handle.
-	 */
-	literal<const X extends Literal>(value: X): Term<X, unknown, LiteralOrigin>
 
 	/**
 	 * An equality between a variable and a value fixed per binding fixes the variable, and one between two variables
 	 * makes each determine the other (EqualityStates): a key bound to a fixed variable pins its occurrence, and a group
-	 * term holding it is one group per binding. A literal operand keeps its own type, the value it fixes the variable
-	 * to, which a union compares across its arms (evidence/evidence.ts UnionEvidence).
-	 * Every predicate records its shape for the reflexive proof (../evidence/evidence.ts Shaped).
+	 * term holding it is one group per binding. A JavaScript value keeps its own type and a typed constant its column's
+	 * value, the value it fixes the variable to, which a union compares across its arms (evidence/evidence.ts
+	 * UnionEvidence).
+	 * Every predicate records its shape for the reflexive proof (../evidence/evidence.ts Shaped). A first operand admits
+	 * a JavaScript value beside a term only to refuse it by name (FirstTerm).
 	 */
-	eq<A extends TermBase, const B extends Operand<T<A>, SqlOfTerm<A>>>(
+	eq<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"eq", A, B> & Stating<EqualityStates<A, B>>
-	ne<A extends TermBase, B extends Operand<T<A>, SqlOfTerm<A>>>(
+	ne<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"ne", A, B>
-	lt<A extends TermBase, B extends Operand<T<A>, SqlOfTerm<A>>>(
+	lt<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"lt", A, B>
-	le<A extends TermBase, B extends Operand<T<A>, SqlOfTerm<A>>>(
+	le<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"le", A, B>
-	gt<A extends TermBase, B extends Operand<T<A>, SqlOfTerm<A>>>(
+	gt<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"gt", A, B>
-	ge<A extends TermBase, B extends Operand<T<A>, SqlOfTerm<A>>>(
+	ge<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"ge", A, B>
 	between<
-		A extends TermBase,
-		L extends Operand<T<A>, SqlOfTerm<A>>,
-		H extends Operand<T<A>, SqlOfTerm<A>>
+		A extends TermBase | FirstValue,
+		L extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>,
+		H extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>
 	>(
 		a: A & FirstTerm<A>,
 		low: L,
 		high: H
 	): Predicate<P<A> & P<L> & P<H>, Reads<readonly [A, L, H]>> & Shaped<Opaque<readonly [A, L, H]>>
-	inSet<A extends TermBase>(
+	inSet<A extends TermBase | FirstValue>(
 		a: A & FirstTerm<A>,
-		values: ReadonlyArray<LiteralOf<T<A>>>
+		values: ReadonlyArray<LiteralOf<LanguageOf<A>>>
 	): Predicate<P<A>, Reads<readonly [A]>> & Shaped<Opaque<readonly [A]>>
 	/** A conjunction states what each conjunct states; a disjunction states nothing. */
 	and<const Ps extends ReadonlyArray<Predicate>>(
@@ -385,9 +358,9 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		Shaped<Disjunction<Ps>> &
 		ReadsContexts<PredicateContexts<Ps>>
 	/** Relational negation only. It reads a relation, no computation over its operands, so its origin is unknown. */
-	not<R extends Matchable, const B extends Partial<Bindings<HeadingOf<R>>>>(
+	not<R extends Matchable, const B extends Partial<Bindings<HeadingOf<R>, CarriersOf<R>>>>(
 		relation: R & MatchCheck<S, R>,
-		bindings: B & NoExcess<B, HeadingOf<R>>
+		bindings: B & NoExcess<B, HeadingOf<R>> & DeadConstants<B, HeadingOf<R>, CarriersOf<R>>
 	): Predicate<SourceParamsOf<R> & BindingParams<B>> &
 		Shaped<Negation> &
 		ReadsContexts<SourceContexts<R>>
@@ -397,45 +370,50 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * A mask is any union of ALLEN's members: a bitwise OR of two masks is a number, and `ALLEN.after | ALLEN.metBy`
 	 * is a valid mask, so the compiler, not the brand, checks the thirteen-bit range.
 	 */
-	allen<A extends TermBase, B extends SpanOperand<T<A>>>(
+	allen<A extends TermBase | FirstValue, B extends SpanOperand<T<A>>>(
 		left: A & Requires<IsSpan<A>, "a span term is required"> & FirstTerm<A>,
 		mask: AllenMask | number,
 		right: B
 	): Predicate<P<A> & P<B>, Reads<readonly [A, B]>> & Shaped<Opaque<readonly [A, B]>>
 	/** `s @> t`; the span may be a parameter of the point's span type. */
-	pointIn<Pt extends TermBase, Sp extends SpanOperand<Span<T<Pt>>>>(
+	pointIn<Pt extends TermBase | FirstValue, Sp extends SpanOperand<Span<T<Pt>>>>(
 		point: Pt & FirstTerm<Pt>,
 		span: Sp
 	): Predicate<P<Pt> & P<Sp>, Reads<readonly [Pt, Sp]>> & Shaped<Opaque<readonly [Pt, Sp]>>
 	/** Zero or one fact, of the left span's type. */
-	intersection<X, PA, OA, B extends SpanOperand<X>>(
-		left: Term<X, PA, OA, "range"> & FirstOrigin<OA>,
+	intersection<A extends TermBase | FirstValue, X, PA, OA, V, L, B extends SpanOperand<X>>(
+		left: A & FirstTerm<A> & Term<X, PA, OA, "range", V, ProvedFacts, L>,
 		right: B
-	): Producer<X, PA & P<B>>
+	): Producer<V, PA & P<B>, X, L>
 	/** Zero, one, or two facts, of the left span's type. */
-	difference<X, PA, OA, B extends SpanOperand<X>>(
-		left: Term<X, PA, OA, "range"> & FirstOrigin<OA>,
+	difference<A extends TermBase | FirstValue, X, PA, OA, V, L, B extends SpanOperand<X>>(
+		left: A & FirstTerm<A> & Term<X, PA, OA, "range", V, ProvedFacts, L>,
 		right: B
-	): Producer<X, PA & P<B>>
+	): Producer<V, PA & P<B>, X, L>
 	/** Maximal covered segments. */
-	pack<X, PA, OA>(spans: Term<X, PA, OA, "range"> & FirstOrigin<OA>): Producer<X, PA>
+	pack<A extends TermBase | FirstValue, X, PA, OA, V, L>(
+		spans: A & FirstTerm<A> & Term<X, PA, OA, "range", V, ProvedFacts, L>
+	): Producer<V, PA, X, L>
 
 	/**
 	 * count is bigint; sum and mean take PostgreSQL's result type over their argument's SQL type
 	 * (scalar/compute/tables.ts).
 	 */
 	count(): Aggregate<bigint, unknown, "bigint">
-	sum<X, PA, OA, S extends NumericSql>(
-		term: Term<X, PA, OA, S> & FirstOrigin<OA>
+	sum<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql>(
+		term: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
 	): Aggregate<PlainHost[SumSql[S]], PA, SumSql[S]>
-	mean<X, PA, OA, S extends keyof AvgSql>(
-		term: Term<X, PA, OA, S> & FirstOrigin<OA>
+	mean<A extends TermBase | FirstValue, X, PA, OA, S extends keyof AvgSql>(
+		term: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
 	): Aggregate<PlainHost[AvgSql[S]], PA, AvgSql[S]>
-	/** min and max return an input unchanged, so they keep a contract. */
-	min<X, PA, OA, S extends MinMaxSql>(
-		term: Term<X, PA, OA, S> & FirstOrigin<OA>
-	): Aggregate<X, PA, S>
-	max<X, PA, OA, S extends MinMaxSql>(
-		term: Term<X, PA, OA, S> & FirstOrigin<OA>
-	): Aggregate<X, PA, S>
+	/**
+	 * min and max return an input unchanged, so they keep its type, a contract and a roster included, its values and
+	 * its language.
+	 */
+	min<A extends TermBase | FirstValue, X, PA, OA, S extends MinMaxSql, V, L>(
+		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L>
+	): Aggregate<V, PA, S, X, L>
+	max<A extends TermBase | FirstValue, X, PA, OA, S extends MinMaxSql, V, L>(
+		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L>
+	): Aggregate<V, PA, S, X, L>
 }

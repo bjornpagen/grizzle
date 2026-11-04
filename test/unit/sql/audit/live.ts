@@ -9,14 +9,19 @@ import {
 	map,
 	weighted
 } from "@grizzle/testing/gen"
-import { fullSwarm } from "@grizzle/testing/swarm"
 import { Array as Arr, Option } from "effect"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Action, Draft, Offer } from "#compiler/deploy/diff/plan.ts"
+import {
+	type Action,
+	type AlternativeStep,
+	type Draft,
+	headOf,
+	type Offer
+} from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -35,7 +40,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { parseSchemaInput, schemaArtifacts, schemaCatalog } from "#compiler/program/schema.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
-import { and, core, eq, lit, select, target, types } from "#compiler/sql/build.ts"
+import { and, eq, lit, types } from "#compiler/sql/build.ts"
 import { batches, ledger, signals } from "#test/pg/laws/alternatives/schemas.ts"
 import { rota, staffing, tree } from "#test/pg/laws/selected-source/schemas.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -43,14 +48,7 @@ import * as payroll from "#test/support/fixtures/ir/payroll.ts"
 import * as queue from "#test/support/fixtures/ir/queue.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import {
-	noHoles,
-	oneHole,
-	resolveStatement,
-	type StatementFeature,
-	selectGen,
-	statementGen
-} from "#test/support/kernel/sqlgen.ts"
+import { noHoles, oneHole, selectGen, statementGen } from "#test/support/kernel/sqlgen.ts"
 import { fromEmpty, fromSnapshot, generate, type Previous } from "#test/support/migrate/kit.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
@@ -69,7 +67,7 @@ import {
 	untaggedUnionRoot,
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
-import { elementAt, indices } from "#test/support/oracle/pick.ts"
+import { elementAt } from "#test/support/oracle/pick.ts"
 import { inputText } from "#test/support/oracle/runner.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"
@@ -102,7 +100,7 @@ import {
  * The Live statements of the audit suite: what the statement and text audits must admit, and what their Wild
  * operators break.
  *
- * Five sources, each drawn per case:
+ * Six sources, each drawn per case:
  *
  * - generated: a statement of the kernel's SQL generator (sqlgen.ts statementGen), over a catalog whose names are
  *   words SQL reserves and spellings only quoting keeps names, or, for the text breaks, an ALTER TYPE ... ADD VALUE IF
@@ -113,9 +111,10 @@ import {
  *   construct each), lowered conservatively and optimized under a drawn template context, with the R20
  *   variants, the VALUES transport of every relation parameter it admits and the executable form of every statement,
  *   beside the installation of the case's schema;
- * - installed: the installation of a fixture schema, or the statements the migrations drafted along the fixture
- *   chains hold, read from each draft's typed plan: the dictionary of real DDL, PL/pgSQL law functions, triggers,
- *   grants and drafted migrations that seeds the search with what grizzle ships;
+ * - installed: the installation of a fixture schema: the dictionary's real DDL, PL/pgSQL law functions, triggers and
+ *   grants, which seed the search with what grizzle ships;
+ * - drafted: the statements a migration drafted along a fixture chain holds, read from its draft's typed plan: the
+ *   dictionary's other half, a source of its own so a generator weights it apart from the installations;
  * - written: a write program over the shop fixture (test/unit/write/put/support.ts), one drawn action or none on each
  *   of its relations that cover the put targets and a described put of Stock on top or not, compiled: every statement
  *   of its optimized and its conservative artifact.
@@ -151,7 +150,7 @@ export type LiveFeature =
  */
 export interface Live {
 	readonly label: string
-	readonly statements: ReadonlyArray<Twinned>
+	readonly statements: Arr.NonEmptyReadonlyArray<Twinned>
 	readonly features: ReadonlyArray<LiveFeature>
 	/** For a lowered case: each statement's AST beside the text the lowering emitted for it. */
 	readonly emitted: ReadonlyArray<{ readonly ast: SqlStatement; readonly text: string }>
@@ -162,17 +161,22 @@ export interface Live {
 const nothingAgain = (): ReadonlyArray<ReadonlyArray<string>> => []
 
 /**
- * Each statement beside the one at its index among statements built apart. Lists of different lengths are a
- * nondeterministic lowering, installer or drafter: thrown inside the property, a counterexample.
+ * Each statement beside the one at its index among statements built apart: the boundary every compiled source's
+ * statements cross into a Live draw. Lists of different lengths are a nondeterministic lowering, installer or drafter,
+ * and an empty one a source that built nothing to audit: each thrown inside the property, a counterexample.
  */
 const twinned = (
 	a: ReadonlyArray<SqlStatement>,
 	b: ReadonlyArray<SqlStatement>
-): ReadonlyArray<Twinned> => {
+): Arr.NonEmptyReadonlyArray<Twinned> => {
 	if (a.length !== b.length) {
 		throw new Error(`a twin built apart has ${b.length} statements, not ${a.length}`)
 	}
-	return Arr.zipWith(a, b, (statement, twin): Twinned => ({ statement, twin }))
+	const [first, ...rest] = Arr.zipWith(a, b, (statement, twin): Twinned => ({ statement, twin }))
+	if (first === undefined) {
+		throw new Error("a Live source built no statement")
+	}
+	return [first, ...rest]
 }
 
 const generatedLive = (statement: SqlStatement, twin: SqlStatement): Live => ({
@@ -193,7 +197,7 @@ const plantedQuery = (query: Select, pick: number): SqlStatement => {
 	const [first, ...rest] = oneHole(query, {
 		...noHoles,
 		core: (c) => [
-			{ ...c, where: c.where === undefined ? negativeZero : and(c.where, negativeZero) }
+			{ ...c, where: c.where === undefined ? negativeZero : and([c.where, negativeZero]) }
 		]
 	})
 	if (first === undefined) {
@@ -416,9 +420,14 @@ const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 const offerStatements = (o: Offer): ReadonlyArray<SqlStatement> => {
 	switch (o.kind) {
 		case "rename":
-			return Arr.flatMap(o.alternative, (a) =>
-				a.kind === "choice" || a.kind === "loss" ? draftStatements(a) : actionStatements(a)
-			)
+		case "relation rename":
+		case "nested rename":
+			return [
+				headOf(o.candidate),
+				...Arr.flatMap(o.alternative, (a) =>
+					a.kind === "choice" || a.kind === "loss" ? draftStatements(a) : actionStatements(a)
+				)
+			]
 		case "rewrite":
 			return o.statements
 		case "convert":
@@ -432,10 +441,13 @@ const offerStatements = (o: Offer): ReadonlyArray<SqlStatement> => {
  * The statements a drafted step holds: its action's, a choice's kept action and every offer's, the statements a
  * reviewer confirms, or the statement of a loss a reviewer writes in.
  */
-const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
+const draftStatements = (d: Draft | AlternativeStep): ReadonlyArray<SqlStatement> => {
 	switch (d.kind) {
 		case "choice":
-			return [...actionStatements(d.keep), ...Arr.flatMap(d.offers, offerStatements)]
+			return [
+				...actionStatements(d.keep),
+				...Arr.flatMap(d.offers, (o: Offer) => offerStatements(o))
+			]
 		case "confirm":
 			return d.keep
 		case "loss":
@@ -474,8 +486,10 @@ const draftedMigrations = (
 	return out
 }
 
+/** The dictionary of real output: the fixture schemas' installations, and the migrations drafted along the chains. */
 interface Dictionary {
 	readonly installed: Arr.NonEmptyReadonlyArray<Live>
+	readonly drafted: Arr.NonEmptyReadonlyArray<Live>
 }
 
 const installedEntry = ([name, desc]: readonly [string, unknown]): Live => ({
@@ -520,16 +534,17 @@ const draftedEntries = ([name, steps]: readonly [
 
 /**
  * The dictionary of real output, built when the module loads, once per process: it draws nothing, so every run holds
- * the same entries.
+ * the same entries. Chains that drafted no migration holding a statement are a drafter regression, refused when the
+ * module loads rather than leaving the drafted source with nothing to draw.
  */
 const realOutput: Dictionary = ((): Dictionary => {
-	const [first, ...rest] = fixtureSchemas
+	const [drafted, ...moreDrafted] = Arr.flatMap(chains, draftedEntries)
+	if (drafted === undefined) {
+		throw new Error("the fixture chains drafted no migration that holds a statement")
+	}
 	return {
-		installed: [
-			installedEntry(first),
-			...Arr.map(rest, installedEntry),
-			...Arr.flatMap(chains, draftedEntries)
-		]
+		installed: Arr.map(fixtureSchemas, installedEntry),
+		drafted: [drafted, ...moreDrafted]
 	}
 })()
 
@@ -632,6 +647,7 @@ export type LiveSketch =
 			readonly context: TemplateContext
 	  }
 	| { readonly kind: "installed"; readonly index: number }
+	| { readonly kind: "drafted"; readonly index: number }
 	| { readonly kind: "written"; readonly sketch: WriteSketch }
 
 /**
@@ -657,10 +673,16 @@ const loweredSketchGen: Gen<LiveSketch> = (source) => {
 	return { kind: "lowered", c, twin, context: source.draw(element(contexts)) }
 }
 
-/** An entry of the dictionary of real output, by its index. */
+/** A fixture schema's installation in the dictionary of real output, by its index. */
 const installedSketchGen: Gen<LiveSketch> = map(
 	int(0, realOutput.installed.length - 1),
 	(index): LiveSketch => ({ kind: "installed", index })
+)
+
+/** A migration drafted along a fixture chain in the dictionary of real output, by its index. */
+const draftedSketchGen: Gen<LiveSketch> = map(
+	int(0, realOutput.drafted.length - 1),
+	(index): LiveSketch => ({ kind: "drafted", index })
 )
 
 /** A generated query with -0 planted in one of its cores, picked: the cores are known only once the query is drawn. */
@@ -670,13 +692,15 @@ const plantedSketchGen: Gen<LiveSketch> = (source) => {
 }
 
 /**
- * A Live draw: a generated statement first, so a failure shrinks toward one. A planted query is one draw in 13, so a
- * run of 120 holds about 9.
+ * A Live draw: a generated statement first, so a failure shrinks toward one; then a lowered case, an installation, a
+ * drafted migration and a planted query, each a source of its own, so the rarer forms each holds are drawn at its own
+ * weight rather than diluted among the others.
  */
 export const liveSketchGen: Gen<LiveSketch> = weighted([
 	[6, generatedSketchGen],
 	[4, loweredSketchGen],
 	[2, installedSketchGen],
+	[1, draftedSketchGen],
 	[1, plantedSketchGen]
 ])
 
@@ -729,94 +753,25 @@ const addValueSketchGen: Gen<LiveSketch> = map(
 
 /**
  * A Live draw for the break suites: real output carries the DDL, PL/pgSQL and drafted forms a generated statement
- * never holds, so it is drawn as often as the generated and lowered sources together.
+ * never holds, so its installations and drafted migrations are drawn as often as the generated and lowered sources
+ * together.
  */
 export const breakSketchGen: Gen<LiveSketch> = weighted([
 	[2, generatedSketchGen],
 	[1, loweredSketchGen],
-	[3, installedSketchGen]
+	[2, installedSketchGen],
+	[1, draftedSketchGen]
 ])
 
 /**
- * A Live draw for the text breaks: a break suite's, or one draw in 7 a generated ALTER TYPE ... ADD VALUE IF NOT
- * EXISTS, the form a migration that adds a label drafts, which real output holds only in the few migrations that add
- * one, beside the other kinds each holds, and whose label a text break reaches.
+ * A Live draw for the text breaks: a break suite's, or a generated ALTER TYPE ... ADD VALUE IF NOT EXISTS, the form a
+ * migration that adds a label drafts, which real output holds only in the few migrations that add one, beside the
+ * other kinds each holds, and whose label a text break reaches.
  */
 export const textBreakSketchGen: Gen<LiveSketch> = weighted([
 	[6, breakSketchGen],
 	[1, addValueSketchGen]
 ])
-
-/**
- * Planted Live draws, which the suites keep: the forms a drawn population holds only a few times in a run.
- *
- * - The generated SELECT of NaN, Infinity and -Infinity, each compared with itself: the float literals the persisted
- *   forms once lost.
- * - Generated statements, each a statement sketch found by a search over short tapes: a swarm of exactly the features
- *   it names, and the decisions statementGen takes after it. Each holds a form no installation or write program does
- *   (MERGE, DISTINCT ON, an IN list, a window, CASE, a reused parameter, a cast literal, UPDATE, DELETE, LATERAL, WITH
- *   RECURSIVE).
- * - Every real output, by its index, and the write programs of every relation inserted, put or deleted, described or
- *   not.
- */
-const specialsQuery = (): SqlStatement =>
-	select(
-		core(
-			Arr.map([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY], (x) =>
-				target(eq(lit.float(x, types.double), lit.float(x, types.double)))
-			),
-			[],
-			undefined
-		)
-	)
-
-export const plantedSpecials: LiveSketch = {
-	kind: "generated",
-	statement: specialsQuery(),
-	twin: specialsQuery()
-}
-
-const plantedTapes: ReadonlyArray<{
-	readonly on: ReadonlyArray<StatementFeature>
-	readonly tape: ReadonlyArray<number>
-}> = [
-	{ on: ["literal", "cast", "where"], tape: [0, 3, 0, 2] },
-	{ on: ["param", "param reuse", "where"], tape: [0, 1, 0, 0, 1, 1, 2, 0, 0, 1] },
-	{ on: ["merge", "returning"], tape: [1, 0, 0, 0, 1, 2, 1] },
-	{ on: ["merge"], tape: [1, 0, 0, 2] },
-	{ on: ["distinct on", "literal"], tape: [] },
-	{ on: ["in list", "where", "literal"], tape: [0, 1, 0, 0, 65535] },
-	{ on: ["window", "frame"], tape: [] },
-	{ on: ["window"], tape: [0, 2] },
-	{ on: ["case", "literal"], tape: [0, 0, 0, 1] },
-	{ on: ["update"], tape: [1] },
-	{ on: ["delete"], tape: [1] },
-	{ on: ["insert"], tape: [1, 0, 0, 65535] },
-	{ on: ["lateral", "join"], tape: [0, 2] },
-	{ on: ["cte", "recursive"], tape: [] }
-]
-
-export const plantedSketches = (): ReadonlyArray<LiveSketch> => [
-	plantedSpecials,
-	...Arr.map(plantedTapes, ({ on, tape }): LiveSketch => {
-		const sketch = { swarm: fullSwarm(on), tape }
-		return {
-			kind: "generated",
-			statement: resolveStatement(sqlCatalog, sketch),
-			twin: resolveStatement(sqlCatalog, sketch)
-		}
-	}),
-	...Arr.map(indices(realOutput.installed.length), (index): LiveSketch => ({
-		kind: "installed",
-		index
-	})),
-	...Arr.flatMap(["insert", "put", "delete"] as const, (op) =>
-		Arr.map([false, true], (described): LiveSketch => ({
-			kind: "written",
-			sketch: { ops: Arr.map(writeTargets, () => op), described }
-		}))
-	)
-]
 
 /** The Live statements of a draw. */
 export const resolveLive = (sketch: LiveSketch): Live => {
@@ -831,7 +786,13 @@ export const resolveLive = (sketch: LiveSketch): Live => {
 			return elementAt(
 				realOutput.installed,
 				sketch.index,
-				"an entry of the dictionary of real output"
+				"an installation in the dictionary of real output"
+			)
+		case "drafted":
+			return elementAt(
+				realOutput.drafted,
+				sketch.index,
+				"a drafted migration in the dictionary of real output"
 			)
 		case "written":
 			return writtenLive(sketch.sketch)

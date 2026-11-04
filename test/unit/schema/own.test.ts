@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -14,6 +14,7 @@ import {
 	shuffled
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -44,6 +45,7 @@ import type {
 	SchemaDesc,
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	bareContract,
@@ -65,27 +67,33 @@ import { regex as arkregex } from "arkregex"
  * breaks it, or one rewrite that keeps its meaning, over drawn names and shapes, and asserts the documented reason or
  * the documented invariance.
  */
-const Kind = closed("Kind", ["Automatic", "Manual"])
-const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"])
-const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
-const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: rawPg.bigint }, ["task"])
-const ManualTask = relation("ManualTask", { task: uuid, assignee: uuid }, ["task"])
+const Kind = closed("Kind", ["Automatic", "Manual"], [])
+const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
+const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"], [])
+const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: rawPg.bigint }, ["task"], [])
+const ManualTask = relation("ManualTask", { task: uuid, assignee: uuid }, ["task"], [])
 
-const Work = schema("Work", { Kind, Account, Task, AutomaticTask, ManualTask }, [
-	contained(on(Task, "account"), on(Account, "id")),
-	key(Account, ["name"]),
-	mutable(Account),
-	alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
-])
+const Work = schema(
+	"Work",
+	{ Kind, Account, Task, AutomaticTask, ManualTask },
+	[
+		contained(on(Task, ["account"]), on(Account, ["id"])),
+		key(Account, ["name"]),
+		mutable(Account),
+		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
+	],
+	[]
+)
 
 const TaskIds = derived(
 	"TaskIds",
 	queryOver(Work).rule((r: RuleValue) => {
-		const { id, account } = varsOver(Task)
+		const { id, account } = varsOver(Task, "task")
 		return r.match(Task, { id, account }).find({ id, account })
-	})
+	}),
+	[]
 )
-const Reports = schema.extend(Work, { TaskIds }, [])
+const Reports = schema.extend(Work, { TaskIds }, [], [])
 
 const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
 
@@ -184,7 +192,7 @@ const limitsPredicate = (r: LimitsRow, p: LimitsPredicate, rewrite: boolean): un
 		case "and":
 		case "or": {
 			const args = Arr.map(p.args, (a) => limitsPredicate(r, a, rewrite))
-			return r[p.kind](...(rewrite ? rotated(args, p.rotate) : args))
+			return r[p.kind](...argumentsOf(rewrite ? rotated(args, p.rotate) : args))
 		}
 	}
 }
@@ -195,11 +203,14 @@ const hasOrder = (p: LimitsPredicate): boolean =>
 type MeaningChange = "none" | "roster order" | "check predicate"
 
 describe("the owned product", () => {
-	const Limits = relation("Limits", { id: uuid, limit: rawPg.bigint, maximum: rawPg.bigint }, [
-		"id"
-	])
+	const Limits = relation(
+		"Limits",
+		{ id: uuid, limit: rawPg.bigint, maximum: rawPg.bigint },
+		["id"],
+		[]
+	)
 	const optional: Arr.NonEmptyReadonlyArray<Statement> = [
-		contained(on(Task, "account"), on(Account, "id")),
+		contained(on(Task, ["account"]), on(Account, ["id"])),
 		key(Account, ["name"]),
 		mutable(Account)
 	]
@@ -231,19 +242,21 @@ describe("the owned product", () => {
 							)
 						})),
 						literal: Formatter.format,
-						features: features<FingerprintFeature>([
-							"roster order",
-							"check predicate",
-							"reordered check operands",
-							"repeated statements",
-							"an extension"
-						]),
+						coverage: required<FingerprintFeature>(
+							[
+								"roster order",
+								"check predicate",
+								"reordered check operands",
+								"repeated statements",
+								"an extension"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -267,7 +280,7 @@ describe("the owned product", () => {
 								const changed = form === "changed"
 								const roster =
 									changed && s.change === "roster order"
-										? closed("Kind", ["Manual", "Automatic"])
+										? closed("Kind", ["Manual", "Automatic"], [])
 										: Kind
 								const record = Record.fromEntries(
 									rewrite
@@ -283,18 +296,19 @@ describe("the owned product", () => {
 									rewrite && s.repeats
 										? [...statements, ...statements, bounded(false, false)]
 										: statements
-								const root = schema("Work", record, rewrite ? Arr.reverse([...all]) : all)
+								const root = schema("Work", record, rewrite ? Arr.reverse([...all]) : all, [])
 								if (!s.extended) {
 									return root
 								}
 								const Ids = derived(
 									"TaskIds",
 									queryOver(root).rule((r: RuleValue) => {
-										const { id } = varsOver(Task)
+										const { id } = varsOver(Task, "task")
 										return r.match(Task, { id }).find({ id })
-									})
+									}),
+									[]
 								)
-								return schema.extend(root, { Ids }, [])
+								return schema.extend(root, { Ids }, [], [])
 							}
 							if (s.extended) {
 								c.note("an extension")
@@ -373,32 +387,34 @@ describe("conflicting declarations", () => {
 							arm: source.draw(element<"Automatic" | "Manual">(["Automatic", "Manual"]))
 						})),
 						literal: Formatter.format,
-						features: features<`${Conflict}: ${"refused" | "one declaration"}`>(
+						coverage: required<`${Conflict}: ${"refused" | "one declaration"}`>(
 							Arr.flatMap(conflicts, (k) => [
 								`${k}: refused` as const,
 								`${k}: one declaration` as const
-							])
+							]),
+							{ cases: 300, sense: notesOnly }
 						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
 						Effect.sync(() => {
 							c.note(`${s.conflict}: ${s.agree ? "one declaration" : "refused"}`)
 							const armRelation = s.arm === "Automatic" ? AutomaticTask : ManualTask
-							const armKey = on(armRelation, "task")
-							const selected = on(select(Task, { kind: s.arm }), "id")
+							const armKey = on(armRelation, ["task"])
+							const selected = on(select(Task, { kind: s.arm }), ["id"])
 							const helper = alternatives(Task, "kind", Kind, {
 								Automatic: AutomaticTask,
 								Manual: ManualTask
 							})
 							const helped = (...more: ReadonlyArray<Statement>) =>
-								ownValue(schema("W", { Kind, Task, AutomaticTask, ManualTask }, [helper, ...more]))
+								ownValue(
+									schema("W", { Kind, Task, AutomaticTask, ManualTask }, [helper, ...more], [])
+								)
 							const owned = (() => {
 								switch (s.conflict) {
 									case "a contract name over another base":
@@ -411,25 +427,26 @@ describe("conflicting declarations", () => {
 											: s.conflict === "a contract name over another base"
 												? rawContract(s.name, rawPg.integer, atLeast(s.n))
 												: rawContract(s.name, rawPg.bigint, atLeast(s.n + 1n))
-										const A = relation("A", { id: uuid, amount: first }, ["id"])
-										const B = relation("B", { id: uuid, amount: second }, ["id"])
-										return ownValue(schema("Pay", { A, B }, []))
+										const A = relation("A", { id: uuid, amount: first }, ["id"], [])
+										const B = relation("B", { id: uuid, amount: second }, ["id"], [])
+										return ownValue(schema("Pay", { A, B }, [], []))
 									}
 									case "a relation name across levels":
 										return ownValue(
 											schema.extend(
 												Work,
-												{ Again: s.agree ? Task : relation("Task", { id: uuid }, ["id"]) },
+												{ Again: s.agree ? Task : relation("Task", { id: uuid }, ["id"], []) },
+												[],
 												[]
 											)
 										)
 									case "the alternatives head written out":
 										return s.agree
-											? helped(contained(on(Task, "account"), on(Task, "id")))
-											: helped(contained(on(Task, "kind"), on(Kind, "id")))
+											? helped(contained(on(Task, ["account"]), on(Task, ["id"])))
+											: helped(contained(on(Task, ["kind"]), on(Kind, ["id"])))
 									case "an arm's mirrors written out":
 										return s.agree
-											? helped(mirrors(on(Task, "account"), armKey))
+											? helped(mirrors(on(Task, ["account"]), armKey))
 											: helped(s.swapped ? mirrors(armKey, selected) : mirrors(selected, armKey))
 									case "an arm written as its two containments":
 										return s.agree
@@ -496,21 +513,23 @@ describe("closed relations", () => {
 							)
 						})),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							`${HandleSite}: ${"on the roster" | "off the roster"}` | "nested contracts"
-						>([
-							...Arr.flatMap(handleSites, (site) => [
-								`${site}: on the roster` as const,
-								`${site}: off the roster` as const
-							]),
-							"nested contracts"
-						]),
+						>(
+							[
+								...Arr.flatMap(handleSites, (site) => [
+									`${site}: on the roster` as const,
+									`${site}: off the roster` as const
+								]),
+								"nested contracts"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -521,16 +540,19 @@ describe("closed relations", () => {
 								c.note("nested contracts")
 							}
 							const grade = wrapped(s.depth)
-							const Graded = closed("Graded", ["Low", "High"]).with(
+							const Graded = closed("Graded", ["Low", "High"], []).with(
 								{ grade },
 								{ Low: { grade: "Automatic" }, High: { grade: "Manual" } }
 							)
-							const Rated = relation("Rated", { id: uuid, grade }, ["id"])
-							const valid = descOf(schema("W", { Kind, Graded, Rated, Task }, []))
+							const Rated = relation("Rated", { id: uuid, grade }, ["id"], [])
+							const valid = descOf(schema("W", { Kind, Graded, Rated, Task }, [], []))
 							const build = (): unknown => {
 								switch (s.site) {
 									case "a built fact":
-										return closed("Graded", ["Low"]).with({ grade }, { Low: { grade: s.handle } })
+										return closed("Graded", ["Low"], []).with(
+											{ grade },
+											{ Low: { grade: s.handle } }
+										)
 									case "a built selection":
 										return select(Rated, { grade: s.handle })
 									case "a built check literal":
@@ -623,22 +645,24 @@ describe("closed relations", () => {
 							decoded: source.draw(boolean)
 						})),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							`${"built" | "decoded"} ${"within" | "above"}` | "at 63 bytes" | "at 64 bytes"
-						>([
-							"built within",
-							"built above",
-							"decoded within",
-							"decoded above",
-							"at 63 bytes",
-							"at 64 bytes"
-						]),
+						>(
+							[
+								"built within",
+								"built above",
+								"decoded within",
+								"decoded above",
+								"at 63 bytes",
+								"at 64 bytes"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -656,15 +680,15 @@ describe("closed relations", () => {
 								c.note("at 64 bytes")
 							}
 							if (!s.decoded) {
-								const build = () => closed("Long", [handle])
+								const build = () => closed("Long", [handle], [])
 								if (within) {
-									succeeded(ownValue(schema("W", { Long: build() }, [])))
+									succeeded(ownValue(schema("W", { Long: build() }, [], [])))
 								} else {
 									throwsRefused(build, "MalformedDescription")
 								}
 								return
 							}
-							const d = descOf(schema("W", { Kind }, []))
+							const d = descOf(schema("W", { Kind }, [], []))
 							const owned = ownValue({
 								...d,
 								relations: Arr.map(d.relations, (r) =>
@@ -727,7 +751,7 @@ describe("LawOnDerived", () => {
 							generator: space,
 							literal: Formatter.format,
 							limit: 36,
-							features: features<`${LawOnDerivedKind} ${"description" | "builder"}`>(
+							coverage: requiredInSpace<`${LawOnDerivedKind} ${"description" | "builder"}`>(
 								Arr.flatMap(lawKinds, (k) => [`${k} description` as const, `${k} builder` as const])
 							),
 							caseHang: Duration.minutes(2)
@@ -804,10 +828,10 @@ describe("LawOnDerived", () => {
 									return
 								}
 								const [left, right] = swapped
-									? [on(Task, "id"), on(TaskIds, "id")]
-									: [on(TaskIds, "id"), on(Task, "id")]
+									? [on(Task, ["id"]), on(TaskIds, ["id"])]
+									: [on(TaskIds, ["id"]), on(Task, ["id"])]
 								const extended = (statement: Statement) =>
-									ownValue(schema.extend(Work, { TaskIds }, [statement]))
+									ownValue(schema.extend(Work, { TaskIds }, [statement], []))
 								switch (kind) {
 									case "check":
 										throwsRefused(
@@ -828,10 +852,16 @@ describe("LawOnDerived", () => {
 										refused(extended(mutable(TaskIds)), "LawOnDerived")
 										return
 									case "contained from":
-										refused(extended(contained(on(TaskIds, "id"), on(Task, "id"))), "LawOnDerived")
+										refused(
+											extended(contained(on(TaskIds, ["id"]), on(Task, ["id"]))),
+											"LawOnDerived"
+										)
 										return
 									case "contained into":
-										refused(extended(contained(on(Task, "id"), on(TaskIds, "id"))), "LawOnDerived")
+										refused(
+											extended(contained(on(Task, ["id"]), on(TaskIds, ["id"]))),
+											"LawOnDerived"
+										)
 										return
 									case "mirrors":
 										refused(extended(mirrors(left, right)), "LawOnDerived")
@@ -839,8 +869,8 @@ describe("LawOnDerived", () => {
 									case "capacity target":
 										refused(
 											extended(
-												capacity(on(TaskIds, "id"), {
-													from: on(Task, "id"),
+												capacity(on(TaskIds, ["id"]), {
+													from: on(Task, ["id"]),
 													within: within(0n, 1n)
 												})
 											),
@@ -850,8 +880,8 @@ describe("LawOnDerived", () => {
 									case "capacity source":
 										refused(
 											extended(
-												capacity(on(Task, "id"), {
-													from: on(TaskIds, "id"),
+												capacity(on(Task, ["id"]), {
+													from: on(TaskIds, ["id"]),
 													within: within(0n, "*")
 												})
 											),
@@ -918,8 +948,8 @@ describe("scope and structure", () => {
 			? "owned"
 			: "MalformedDescription"
 
-	const Pool = relation("Pool", { id: uuid, budget: rawPg.bigint }, ["id"])
-	const Claim = relation("Claim", { id: uuid, pool: uuid, units: rawPg.bigint }, ["id"])
+	const Pool = relation("Pool", { id: uuid, budget: rawPg.bigint }, ["id"], [])
+	const Claim = relation("Claim", { id: uuid, pool: uuid, units: rawPg.bigint }, ["id"], [])
 	const capacityOf = (target: string, weight: string, low: bigint): StatementDesc => ({
 		kind: "capacity",
 		target: { relation: "Pool", fields: ["id"], selection: {} },
@@ -954,13 +984,12 @@ describe("scope and structure", () => {
 							description: source.draw(element<unknown>([42, { name: "X" }, null, "Work"]))
 						})),
 						literal: Formatter.format,
-						features: features<Structure>(structures),
+						coverage: required<Structure>(structures, { cases: 400, sense: notesOnly }),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -976,7 +1005,7 @@ describe("scope and structure", () => {
 								return assert.fail("Reports declares TaskIds")
 							}
 							const taskIds = found.value
-							const capacities = descOf(schema("P", { Pool, Claim }, []))
+							const capacities = descOf(schema("P", { Pool, Claim }, [], []))
 							const owned = (() => {
 								switch (s.structure) {
 									case "Reports as written":
@@ -999,7 +1028,7 @@ describe("scope and structure", () => {
 											})
 										)
 									case "a closedId over an undeclared roster":
-										return ownValue(schema(s.name, { Task }, []))
+										return ownValue(schema(s.name, { Task }, [], []))
 									case "a key over a closed relation":
 										return ownValue(
 											withStatements({ kind: "key", relation: "Kind", fields: ["id"] })
@@ -1021,15 +1050,18 @@ describe("scope and structure", () => {
 													right:
 														s.structure === "a check over a closed relation"
 															? { kind: "field", field: "id" }
-															: { kind: "param", name: s.field }
+															: { kind: "param", name: s.field, type: { kind: "uuid" } }
 												}
 											})
 										)
 									case "a check over its own row":
 										return ownValue(
-											schema.extend(Work, {}, [
-												check(s.name, Task, (row: Row) => row.account.ne(row.id))
-											])
+											schema.extend(
+												Work,
+												{},
+												[check(s.name, Task, (row: Row) => row.account.ne(row.id))],
+												[]
+											)
 										)
 									case "a capacity bound naming no target field":
 										return ownValue({
@@ -1066,7 +1098,7 @@ describe("scope and structure", () => {
 													...taskIds,
 													query: definition(
 														queryOver(Reports).rule((r: RuleValue) => {
-															const { id } = varsOver(TaskIds)
+															const { id } = varsOver(TaskIds, "taskIds")
 															return r.match(TaskIds, { id }).find({ id })
 														})
 													)
@@ -1081,7 +1113,7 @@ describe("scope and structure", () => {
 													...taskIds,
 													query: definition(
 														queryOver(Work).rule((r: RuleValue) => {
-															const { id } = varsOver(Task)
+															const { id } = varsOver(Task, "task")
 															return r
 																.match(Task, { id, account: r.param(s.field, uuid) })
 																.find({ id })

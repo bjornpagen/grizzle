@@ -10,6 +10,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { type ConstraintLaws, constraintLaw } from "#compiler/ir/products.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
@@ -179,7 +180,7 @@ export const plantedUpdate = (
 const none: ReadonlyArray<never> = []
 
 /**
- * Two transactions in three update nothing: on an immutable schema each UPDATE ends its transaction at once.
+ * Two transactions in three update nothing: an UPDATE of an immutable relation ends its transaction at once.
  */
 const updatesGen: Gen<ReadonlyArray<UpdateSketch>> = weighted([
 	[2, constant(none)],
@@ -675,13 +676,12 @@ type Expected =
 
 const expected = (
 	host: HostSchema,
-	isMutable: boolean,
 	state: HostState,
 	statements: ReadonlyArray<Statement>
 ): Expected => {
 	let reached = state
 	for (const [at, st] of statements.entries()) {
-		if (st.kind === "update" && !isMutable) {
+		if (st.kind === "update" && !relationOf(host, st.relation).mutable) {
 			return { kind: "privilege", at }
 		}
 		reached = after(host, reached, st)
@@ -930,7 +930,7 @@ const statementFeatures = (
 	for (const st of statements) {
 		const features: ReadonlyArray<DirectFeature> =
 			st.kind === "update" ? updateFeatures(host, reached, st) : [`statement ${st.kind}`]
-		out.push(...features)
+		appendAll(out, features)
 		reached = after(host, reached, st)
 	}
 	return out
@@ -1088,7 +1088,6 @@ export const runDirect = (
 	direct: SubstrateWorld,
 	host: HostSchema,
 	domains: Domains,
-	isMutable: boolean,
 	k: DirectCase,
 	c: Case<DirectFeature>,
 	ended: (f: DirectFeature) => void
@@ -1148,7 +1147,7 @@ export const runDirect = (
 			}
 			for (const t of k.transactions) {
 				const statements = resolveTransaction(host, domains, state, t)
-				const e = expected(host, isMutable, state, statements)
+				const e = expected(host, state, statements)
 				const reached = statementFeatures(host, state, statements)
 				c.noteAll(reached)
 				const moving = Arr.filter(reached, isMoving)

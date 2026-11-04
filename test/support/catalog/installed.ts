@@ -337,7 +337,8 @@ const vectorSchemaOf = (catalog: Catalog, type: NamedType): Option.Option<string
 
 /**
  * Each login's fixed defaults, `name=value` as pg_db_role_setting stores them: no JIT, float text in shortest
- * round-trip form (only when extra_float_digits is positive), and every locale category at C.UTF-8.
+ * round-trip form (only when extra_float_digits is positive), every locale category at C.UTF-8, and the search path of
+ * pg_catalog and the session's temporary schema alone, a list PostgreSQL stores with its schemas bare.
  */
 export const fixedDefaults: ReadonlyArray<string> = [
 	"extra_float_digits=1",
@@ -345,7 +346,8 @@ export const fixedDefaults: ReadonlyArray<string> = [
 	"lc_messages=C.UTF-8",
 	"lc_monetary=C.UTF-8",
 	"lc_numeric=C.UTF-8",
-	"lc_time=C.UTF-8"
+	"lc_time=C.UTF-8",
+	"search_path=pg_catalog, pg_temp"
 ]
 
 /** The search policy's session parameters, stored the same way. */
@@ -460,9 +462,10 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  * - the vector type, by the same derivation: a world's role holds USAGE on a schema outside the installation exactly
  *   when a column it reads (of its world's views, or of its whole closed relations' payloads) or a column of a table it
  *   inserts into is, or rests through the schema's domains on, that schema's `vector`, so it can name the type a search
- *   binds; and each login stores exactly the fixed defaults (`jit = off`, `extra_float_digits = 1` and the four locale
- *   categories at C.UTF-8) plus, exactly when one of its roles names the vector type, the HNSW search policy's session
- *   parameters (check/approximate/policy.ts), which PostgreSQL applies at login and never on SET ROLE.
+ *   binds; and each login stores exactly the fixed defaults (`search_path = pg_catalog, pg_temp`, `jit = off`,
+ *   `extra_float_digits = 1` and the four locale categories at C.UTF-8) plus, exactly when one of its roles names the
+ *   vector type, the HNSW search policy's session parameters (check/approximate/policy.ts), which PostgreSQL applies at
+ *   login and never on SET ROLE.
  *
  * The derivation reads the catalog's own grants and types; the declaration supplies only what the catalog cannot show:
  * which closed relations a world holds and which derived relations it refreshes, from the installation's owned logins

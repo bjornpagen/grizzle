@@ -1,9 +1,10 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
-import type { ColumnRef, OpId, ScalarExpr } from "#compiler/ir/expr.ts"
+import type { ColumnRef, DefinedOp, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditNode, EditRefs, HeadingColumn, KindOver } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
-import { columnRefs, DagEditor, paramRefs, total } from "#compiler/lower/optimize/demand/editor.ts"
+import { columnRefs, DagEditor, paramRefs } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type Measure,
 	multiset,
@@ -12,12 +13,8 @@ import {
 	type Rule
 } from "#compiler/lower/optimize/demand/frame.ts"
 import { conjuncts } from "#compiler/lower/optimize/simplify/boolean.ts"
-import {
-	carriedColumns,
-	positiveLinear,
-	printsAlike
-} from "#compiler/lower/shapes/attach-recursive/carried.ts"
-import { overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
+import { definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 
 /**
@@ -43,10 +40,9 @@ import { plainType } from "#compiler/scalar/compute/types.ts"
  * - graph.seedPushdown.region: a conjunct of a filter over a region that reads only region variables bound by one
  *   occurrence of R, `match(R, { root, node }).where(r.eq(root, p))`.
  *
- * Each conjunct must be total, so evaluating it on the seed raises nothing the consumer would not; it
- * reads R's columns or its region variables and parameters, nothing correlated; and every column it reads must be
- * carried and of a type whose equal values print alike, so the predicate on the seed's spelling is the predicate on
- * the state's (carried.ts printsAlike). R must be read only by the site's node, through one data input (a region
+ * Each conjunct reads R's columns or its region variables and parameters, nothing correlated; and every column it reads must be
+ * carried, so the predicate on the seed is the predicate on the state: a predicate over carried columns is a function
+ * of their values, since no reading grizzle emits sees more than a value (I2, registry.ts OperandReading). R must be read only by the site's node, through one data input (a region
  * matching R twice reads it twice, DagEditor.readers), so restricting R changes no other consumer; it is never a
  * root, never on another recursion's step (the frame skips the feedback region), and its feedback is positive and
  * linear. The predicate is added to R's base as a filter and also stays where it was: the consumer's predicate is then
@@ -84,7 +80,7 @@ interface Site {
  */
 type SiteForm =
 	| { readonly kind: "conjunct"; readonly column: (ref: ColumnRef) => string | undefined }
-	| { readonly kind: "constant"; readonly column: HeadingColumn; readonly op: OpId }
+	| { readonly kind: "constant"; readonly column: HeadingColumn; readonly op: DefinedOp }
 
 /**
  * The recursion `cell` holds when `reader` reads it as its one consumer, provably restrictable at its seed, with its
@@ -116,23 +112,18 @@ const restrictable = (cx: RewriteCx, cell: Cell, reader: Cell): ReadonlySet<stri
 		return undefined
 	}
 	const carried = carriedColumns(finished)
-	return new Set(
-		node.heading.filter((c) => carried.has(c.name) && printsAlike(c.type)).map((c) => c.name)
-	)
+	return new Set(node.heading.filter((c) => carried.has(c.name)).map((c) => c.name))
 }
 
 /**
  * Whether a conjunct reads, apart from parameters and literals, only columns `column` maps to `allowed` state
- * columns, at least one of them, and cannot fail.
+ * columns, at least one of them.
  */
 const readsOnly = (
 	expr: ScalarExpr,
 	column: (ref: ColumnRef) => string | undefined,
 	allowed: ReadonlySet<string>
 ): boolean => {
-	if (!total([expr])) {
-		return false
-	}
 	const refs = columnRefs([expr])
 	return (
 		refs.length > 0 &&
@@ -192,8 +183,9 @@ const filterSites = (
 		)
 		const column = (ref: ColumnRef) =>
 			ref.node === inputCell.id ? byName.get(ref.name) : undefined
-		out.push(
-			...conjuncts(f.pred)
+		appendAll(
+			out,
+			conjuncts(f.pred)
 				.filter((expr) => readsOnly(expr, column, allowed))
 				.map((expr): Site => ({
 					rule: seedRules.region,
@@ -224,9 +216,10 @@ const constantSites = (
 			continue
 		}
 		const baseHeading = rec.base.current.heading
-		out.push(
-			...o.constants.flatMap((c): ReadonlyArray<Site> => {
-				if (!allowed.has(c.column) || columnRefs([c.expr]).length > 0 || !total([c.expr])) {
+		appendAll(
+			out,
+			o.constants.flatMap((c): ReadonlyArray<Site> => {
+				if (!allowed.has(c.column) || columnRefs([c.expr]).length > 0) {
 					return []
 				}
 				const stateColumn = rec.heading.find((h) => h.name === c.column)
@@ -235,7 +228,8 @@ const constantSites = (
 					stateColumn === undefined
 						? undefined
 						: overloadOf("eq", [baseOf(stateColumn.type).carrier, baseOf(c.expr.type).carrier])
-				return eq === undefined || seedColumn === undefined
+				const eqId = eq === undefined ? undefined : definedIdOf(eq)
+				return eqId === undefined || seedColumn === undefined
 					? []
 					: [
 							{
@@ -244,7 +238,7 @@ const constantSites = (
 								recursive: o.source,
 								rec,
 								expr: c.expr,
-								form: { kind: "constant", column: seedColumn, op: eq.id }
+								form: { kind: "constant", column: seedColumn, op: eqId }
 							}
 						]
 			})
@@ -268,7 +262,7 @@ const sitesAt = (cx: RewriteCx, cell: Cell): ReadonlyArray<Site> => {
 const seedConjuncts = (rec: Recursive): ReadonlyArray<ScalarExpr> => {
 	const out: Array<ScalarExpr> = []
 	for (let n: EditNode = rec.base.current; n.kind === "Filter"; n = n.input.current) {
-		out.push(...conjuncts(n.pred))
+		appendAll(out, conjuncts(n.pred))
 	}
 	return out
 }
@@ -327,7 +321,7 @@ const sameAtSeed = (
 		case "op":
 			return y.kind === "op" && x.op === y.op && argsAlike()
 		case "cast":
-			return y.kind === "cast" && x.checked === y.checked && argsAlike()
+			return y.kind === "cast" && x.cast === y.cast && argsAlike()
 		case "value":
 		case "domainCast":
 		case "cond":
@@ -373,7 +367,10 @@ const openSites = (cx: RewriteCx): ReadonlyArray<Site> => {
 		if (ed.readsFeedback(cell)) {
 			continue
 		}
-		out.push(...sitesAt(cx, cell).filter((s) => !pushed(s)))
+		appendAll(
+			out,
+			sitesAt(cx, cell).filter((s) => !pushed(s))
+		)
 	}
 	return out
 }
@@ -396,8 +393,7 @@ const seedPredicate = (cx: RewriteCx, site: Site): ScalarExpr => {
 			args: [ed.column(base, form.column), site.expr],
 			type: plainType("bool"),
 			nonNull: "strict",
-			volatility: "immutable",
-			failure: "total"
+			volatility: "immutable"
 		})
 	}
 	return ed.copyExpr(site.expr, (ref, e) => {
@@ -436,7 +432,7 @@ const push = (cx: RewriteCx, site: Site): void => {
 		inputs: [site.at.id, site.recursive.id],
 		outputs: [site.recursive.id, filter.id],
 		/** The proof reads the step and its feedback scan: which columns the step carries, and that it is linear. */
-		premises: nodePremises(rec.step.id, rec.self.id),
+		premises: nodePremises([rec.step.id, rec.self.id]),
 		context: "queryLocal",
 		preservedHeading: rec.heading.map((c) => c.name),
 		equality: site.form.kind === "constant" ? [site.form.op] : [],

@@ -1,4 +1,4 @@
-import { Array as Arr, Result } from "effect"
+import { Array as Arr, Option, Result } from "effect"
 import type { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
 import {
@@ -9,6 +9,7 @@ import {
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
 
+import type { VectorText } from "#compiler/ir/carriers.ts"
 import {
 	baseOf,
 	type Carrier,
@@ -25,13 +26,13 @@ import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import * as TotalNumeric from "#compiler/scalar/compute/numeric.ts"
 import {
 	castOf,
-	type FailureCode,
 	firstOperand,
 	type NativeOp,
 	nativeOp,
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import * as F from "#test/support/oracle/evaluate/float.ts"
 import {
@@ -43,7 +44,6 @@ import {
 	intMod,
 	intMul,
 	intNeg,
-	intRange,
 	intSub
 } from "#test/support/oracle/evaluate/integer.ts"
 import * as N from "#test/support/oracle/evaluate/numeric.ts"
@@ -88,9 +88,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "least":
 		case "greatest":
 		case "widthBucket":
-		case "scale":
 		case "minScale":
-		case "trimScale":
 		case "lower":
 		case "upper":
 		case "charLength":
@@ -122,14 +120,20 @@ export const declinedOps: ReadonlySet<OpId> = new Set(
 )
 
 /**
- * Why an evaluation has no value: PostgreSQL's failure; an expression the oracle does not evaluate (a read its
- * environment has not, an operand of another kind); or a node it declines by design (declinedOps), whose value
- * PostgreSQL alone computes.
+ * Why an evaluation has no value: an operation evaluated where its precondition fails, which no admitted expression
+ * meets (every partial operation stands with its proof), and which the oracle's consumers treat as a defect; an
+ * expression the oracle does not evaluate (a read its environment has not, an operand of another kind); or a node it
+ * declines by design (declinedOps), whose value PostgreSQL alone computes.
  */
 export type CatalogStop =
-	| { readonly kind: "failure"; readonly code: FailureCode }
+	| { readonly kind: "undefined"; readonly what: string }
 	| { readonly kind: "unsupported"; readonly what: string }
-	| { readonly kind: "declined"; readonly op: OpId; readonly what: string }
+	| {
+			readonly kind: "declined"
+			readonly op: OpId
+			readonly evaluation: Exclude<Evaluation, "exact">
+			readonly what: string
+	  }
 
 export type CatalogResult = Result.Result<CarrierValue, CatalogStop>
 
@@ -148,19 +152,25 @@ export type EvalEnv =
 
 export const constantEnv: EvalEnv = Object.freeze({ kind: "constant" })
 
-const failure = (code: FailureCode): CatalogResult => Result.fail({ kind: "failure", code })
+const undefinedAt = (what: string): CatalogResult => Result.fail({ kind: "undefined", what })
 const unsupported = (what: string): CatalogResult => Result.fail({ kind: "unsupported", what })
 
-/** A node the oracle declines: PostgreSQL alone computes its value, which the host does not reproduce bit for bit. */
-const declined = (op: NativeOp, why: string): CatalogResult =>
-	Result.fail({ kind: "declined", op: op.id, what: why })
+/**
+ * A node the oracle declines: PostgreSQL alone computes its value, which the host does not reproduce bit for bit,
+ * under the evaluation that declines it: a libm estimate, or the database's own computation.
+ */
+const declined = (
+	op: NativeOp,
+	evaluation: Exclude<Evaluation, "exact">,
+	why: string
+): CatalogResult => Result.fail({ kind: "declined", op: op.id, evaluation, what: why })
 
-const lift = <A extends CarrierValue>(r: Result.Result<A, FailureCode>): CatalogResult =>
-	Result.isSuccess(r) ? Result.succeed(r.success) : failure(r.failure)
+const lift = <A extends CarrierValue>(r: Result.Result<A, string>): CatalogResult =>
+	Result.isSuccess(r) ? Result.succeed(r.success) : undefinedAt(r.failure)
 
 /** A compiler Compute operation's answer, or the numeric port's, which answer the engine's Result. */
-const liftEngine = <A extends CarrierValue>(r: Engine.Result<A, FailureCode>): CatalogResult =>
-	r.ok ? Result.succeed(r.value) : failure(r.error)
+const liftEngine = <A extends CarrierValue>(r: Engine.Result<A, string>): CatalogResult =>
+	r.ok ? Result.succeed(r.value) : undefinedAt(r.error)
 
 /**
  * The host kinds of the exact carriers, checked: an operand of another kind reaches `unsupported`, never a wrong answer.
@@ -179,17 +189,12 @@ const isSpanValue = (v: unknown): v is SpanValue =>
 	isBigint(v.start) &&
 	isBigint(v.end)
 
-const isIntCarrier = (c: string | undefined): c is IntCarrier =>
-	c === "int2" || c === "int4" || c === "int8"
+const isIntCarrier = (c: string | undefined): c is IntCarrier | "exactInteger" =>
+	c === "int2" || c === "int4" || c === "int8" || c === "exactInteger"
 
 /** An operand of a kind the IR's typing rules out. */
 const mismatch = (op: NativeOp): CatalogResult =>
 	unsupported(`${op.fn} over operands that are not values of ${firstOperand(op.operands)}`)
-
-const moneyFit = (minor: bigint): CatalogResult =>
-	minor < intRange.int8[0] || minor > intRange.int8[1]
-		? failure("22003")
-		: Result.succeed(Money.of(minor))
 
 /**
  * A value's membership in a regex refinement, by the environment's NFA: a constant evaluation has none, so a regex
@@ -208,6 +213,45 @@ const regexHolds = (
 		: Result.fail({ kind: "unsupported", what: "regex membership of a value that is not text" })
 }
 
+/** A carried value's vector, where it is one. */
+const vectorOf = (v: CarrierValue): VectorText | undefined =>
+	typeof v === "object" && "vector" in v ? v.vector : undefined
+
+/**
+ * pgvector's vector_cmp: component by component as binary32 values, the first that differ deciding, then the shorter
+ * vector first. A vector holds the one zero, so two vectors compare 0 exactly when they are one value.
+ */
+const compareVectors = (a: CarrierValue, b: CarrierValue): -1 | 0 | 1 | undefined => {
+	const x = vectorOf(a)
+	const y = vectorOf(b)
+	if (x === undefined || y === undefined) {
+		return undefined
+	}
+	return Option.match(
+		Arr.findFirst(Arr.zip(x.components, y.components), ([p, q]) => p !== q),
+		{
+			onSome: ([p, q]): -1 | 1 => (p < q ? -1 : 1),
+			onNone: (): -1 | 0 | 1 =>
+				x.components.length < y.components.length
+					? -1
+					: x.components.length > y.components.length
+						? 1
+						: 0
+		}
+	)
+}
+
+/**
+ * PostgreSQL's comparison of two values of one type: the host's total orders (scalar/compute/evaluate.ts
+ * compareValues), and pgvector's order over vectors, the extension's, which the host leaves to the database.
+ */
+export const compareCarried = (
+	a: CarrierValue,
+	b: CarrierValue,
+	t: ScalarType
+): -1 | 0 | 1 | undefined =>
+	baseOf(t).carrier === "vector" ? compareVectors(a, b) : compareValues(a, b, t)
+
 /** PostgreSQL's comparison of two values under `holds`, unsupported when the host claims no order between them. */
 const compared = (
 	op: NativeOp,
@@ -219,13 +263,16 @@ const compared = (
 	if (a === undefined || b === undefined || t === undefined) {
 		return mismatch(op)
 	}
-	const cmp = compareValues(a, b, t)
+	const cmp = compareCarried(a, b, t)
 	return cmp === undefined
 		? unsupported(`${op.fn} over ${firstOperand(op.operands)}`)
 		: Result.succeed(holds(cmp))
 }
 
-/** The four arithmetic operators and the remainder over two operands of the carrier `c`. */
+/**
+ * The four arithmetic operators and the remainder over two operands of the carrier `c`: exact over the integers and
+ * money, an exact integer and exact money, IEEE 754 over the floats, and numeric's own over numeric.
+ */
 const arithmetic = (
 	op: NativeOp,
 	fn: "add" | "sub" | "mul" | "div" | "mod",
@@ -239,13 +286,13 @@ const arithmetic = (
 		}
 		switch (fn) {
 			case "add":
-				return lift(intAdd(a, b, c))
+				return Result.succeed(intAdd(a, b))
 			case "sub":
-				return lift(intSub(a, b, c))
+				return Result.succeed(intSub(a, b))
 			case "mul":
-				return lift(intMul(a, b, c))
+				return Result.succeed(intMul(a, b))
 			case "div":
-				return lift(intDiv(a, b, c))
+				return lift(intDiv(a, b))
 			case "mod":
 				return lift(intMod(a, b))
 		}
@@ -257,23 +304,22 @@ const arithmetic = (
 		if (fn === "mod") {
 			return unsupported("float %")
 		}
-		const f = F.floatArithmetic[fn]
-		return lift(f(a, b, c))
+		return Result.succeed(F.floatArithmetic[fn](a, b, c))
 	}
-	if (c === "money") {
+	if (c === "money" || c === "exactMoney") {
 		if (!isMoney(a) || !isMoney(b)) {
 			return mismatch(op)
 		}
 		const x = a.minorUnits
 		const y = b.minorUnits
 		if (fn === "add") {
-			return moneyFit(x + y)
+			return Result.succeed(Money.exact(x + y))
 		}
 		if (fn === "sub") {
-			return moneyFit(x - y)
+			return Result.succeed(Money.exact(x - y))
 		}
 		if (fn === "div") {
-			return y === 0n ? failure("22012") : Result.succeed(Number(x) / Number(y))
+			return y === 0n ? undefinedAt("nonzero") : Result.succeed(Number(x) / Number(y))
 		}
 		return unsupported(`${fn} over ${c}`)
 	}
@@ -303,7 +349,7 @@ const catalogApply = (
 	argTypes: ReadonlyArray<ScalarType>
 ): CatalogResult => {
 	if (evaluationOf(op) === "database") {
-		return declined(op, "PostgreSQL alone evaluates it")
+		return declined(op, "database", "PostgreSQL alone evaluates it")
 	}
 	const [a, b] = args
 	const [t] = argTypes
@@ -320,7 +366,7 @@ const catalogApply = (
 		case "neg":
 		case "abs":
 			if (isIntCarrier(c)) {
-				return isBigint(a) ? lift(op.fn === "neg" ? intNeg(a, c) : intAbs(a, c)) : mismatch(op)
+				return isBigint(a) ? Result.succeed(op.fn === "neg" ? intNeg(a) : intAbs(a)) : mismatch(op)
 			}
 			if (c === "float4" || c === "float8") {
 				return isNumber(a) ? Result.succeed(totalFloat[op.fn](a)) : mismatch(op)
@@ -331,6 +377,9 @@ const catalogApply = (
 		case "sign":
 			if (c === "float8") {
 				return isNumber(a) ? Result.succeed(totalFloat.sign(a)) : mismatch(op)
+			}
+			if (isBigint(a)) {
+				return Result.succeed(a > 0n ? 1n : a < 0n ? -1n : 0n)
 			}
 			return isDecimal(a) ? liftEngine(TotalNumeric.sign(a)) : mismatch(op)
 		case "rem":
@@ -352,12 +401,12 @@ const catalogApply = (
 			return isDecimal(a) ? liftEngine(N.floor(a)) : mismatch(op)
 		case "gcd":
 			if (isIntCarrier(c)) {
-				return isBigint(a) && isBigint(b) ? lift(intGcd(a, b, c)) : mismatch(op)
+				return isBigint(a) && isBigint(b) ? Result.succeed(intGcd(a, b)) : mismatch(op)
 			}
 			return isDecimal(a) && isDecimal(b) ? liftEngine(N.gcd(a, b)) : mismatch(op)
 		case "lcm":
 			if (isIntCarrier(c)) {
-				return isBigint(a) && isBigint(b) ? lift(intLcm(a, b, c)) : mismatch(op)
+				return isBigint(a) && isBigint(b) ? Result.succeed(intLcm(a, b)) : mismatch(op)
 			}
 			return isDecimal(a) && isDecimal(b) ? liftEngine(N.lcm(a, b)) : mismatch(op)
 		case "power": {
@@ -370,12 +419,12 @@ const catalogApply = (
 			}
 			const stop = p.failure
 			return stop.kind === "failure"
-				? failure(stop.code)
-				: declined(op, `its result hangs on ${stop.what}`)
+				? undefinedAt(stop.code)
+				: declined(op, "estimated", `its result hangs on ${stop.what}`)
 		}
 		case "sqrt":
 			if (c === "float8") {
-				return isNumber(a) ? lift(F.floatSqrt(a)) : mismatch(op)
+				return isNumber(a) ? Result.succeed(F.floatSqrt(a)) : mismatch(op)
 			}
 			return isDecimal(a) ? liftEngine(N.sqrt(a)) : mismatch(op)
 		case "widthBucket": {
@@ -385,12 +434,8 @@ const catalogApply = (
 			}
 			return liftEngine(N.widthBucket(x, low, high, count))
 		}
-		case "scale":
-			return isDecimal(a) ? liftEngine(Engine.map(N.scaleOf(a), BigInt)) : mismatch(op)
 		case "minScale":
 			return isDecimal(a) ? liftEngine(Engine.map(N.minScaleOf(a), BigInt)) : mismatch(op)
-		case "trimScale":
-			return isDecimal(a) ? liftEngine(N.trimScale(a)) : mismatch(op)
 		case "least":
 		case "greatest": {
 			if (a === undefined || t === undefined) {
@@ -399,7 +444,7 @@ const catalogApply = (
 			const seed: CatalogResult = Result.succeed(a)
 			return Arr.reduce(args.slice(1), seed, (acc, v) =>
 				Result.flatMap(acc, (best) => {
-					const cmp = compareValues(best, v, t)
+					const cmp = compareCarried(best, v, t)
 					if (cmp === undefined) {
 						return unsupported(`${op.fn} over ${c}`)
 					}
@@ -430,8 +475,8 @@ const catalogApply = (
 			if (a === undefined || b === undefined || high === undefined || t === undefined) {
 				return mismatch(op)
 			}
-			const lo = compareValues(a, b, t)
-			const hi = compareValues(a, high, t)
+			const lo = compareCarried(a, b, t)
+			const hi = compareCarried(a, high, t)
 			if (lo === undefined || hi === undefined) {
 				return unsupported(`BETWEEN over ${c}`)
 			}
@@ -441,7 +486,7 @@ const catalogApply = (
 			if (a === undefined || t === undefined) {
 				return mismatch(op)
 			}
-			const comparisons = Arr.map(args.slice(1), (v) => compareValues(a, v, t))
+			const comparisons = Arr.map(args.slice(1), (v) => compareCarried(a, v, t))
 			return comparisons.includes(undefined)
 				? unsupported(`IN over ${c}`)
 				: Result.succeed(comparisons.includes(0))
@@ -449,7 +494,7 @@ const catalogApply = (
 		case "not":
 			return typeof a === "boolean" ? Result.succeed(!a) : mismatch(op)
 		case "cosineDistance":
-			return declined(op, "PostgreSQL alone evaluates it")
+			return declined(op, "database", "PostgreSQL alone evaluates it")
 		case "and":
 		case "or":
 		case "cast":
@@ -457,8 +502,8 @@ const catalogApply = (
 	}
 }
 
-const converted = (r: Engine.Result<CastValue, FailureCode>): CatalogResult =>
-	r.ok ? Result.succeed(r.value) : failure(r.error)
+const converted = (r: Engine.Result<CastValue, string>): CatalogResult =>
+	r.ok ? Result.succeed(r.value) : undefinedAt(r.error)
 
 /**
  * A registered cast's host conversion of `v`, a value of the cast's source family; a value of another kind is
@@ -500,7 +545,7 @@ const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): CatalogResul
 		}
 		const normalized = normalizeNumeric(out, typmod)
 		if (!normalized.ok) {
-			return failure("22003")
+			return undefinedAt("fits")
 		}
 		out = normalized.value
 	}
@@ -514,15 +559,16 @@ const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): CatalogResul
  *
  * It evaluates every node the registry holds: comparisons, BETWEEN, IN, boolean composition and conditionals; integer,
  * numeric, float and money arithmetic (integer.ts, src's scalar/compute/numeric.ts, float.ts); rounding, gcd and lcm,
- * square roots, width_bucket and the scale functions (numeric.ts); numeric power (power.ts, PostgreSQL's numeric_power
+ * square roots, width_bucket and min_scale (numeric.ts); numeric power (power.ts, PostgreSQL's numeric_power
  * step for step); char_length, span endpoints, LEAST and GREATEST; and the registry's casts and domain casts. The host
  * never claims a value it cannot reproduce bit for bit: a node PostgreSQL alone computes (Evaluation "database": a
  * float's pow through the platform libm, pgvector's operations), and numeric power where a libm estimate decides it and
  * the host's may not agree, answer "declined" rather than an approximation, and their consumers leave them to
  * PostgreSQL.
  *
- * Values are exact carriers (src's scalar/compute/literal.ts CarrierValue), compared by PostgreSQL's total orders
- * (src's compareValues, which constant folding reads). A regex refinement's membership is the text package's NFA, which
+ * Values are exact carriers (src's scalar/compute/literal.ts CarrierValue), each in its one form: a Decimal has no
+ * display scale and every operation and cast result's float zero is 0 (oneZero), as grizzle delivers them. They are
+ * compared by PostgreSQL's total orders (src's compareValues, which constant folding reads). A regex refinement's membership is the text package's NFA, which
  * the caller supplies.
  *
  * Evaluates the expression tree `root` (a DAG's expression, or a contract predicate parsed from its table) under `env`,
@@ -530,6 +576,12 @@ const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): CatalogResul
  */
 export const evaluate = (root: ScalarExpr, env: EvalEnv): CatalogResult =>
 	evaluateOver(root, env, unsupported("a VALUE"))
+
+/**
+ * A value with the one zero: a float operation's -0 (a negation, a product, a root) as 0, the value grizzle delivers
+ * and every float the oracle holds; any other value as it is.
+ */
+const oneZero = (v: CarrierValue): CarrierValue => (typeof v === "number" ? canonicalZero(v) : v)
 
 /** `root` under `env`, the VALUE (a contract predicate's only read) evaluating to `value`. */
 const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): CatalogResult => {
@@ -593,7 +645,7 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 				if (Result.isFailure(v)) {
 					return v
 				}
-				return castTo(v.success, operand.type, expr.type)
+				return Result.map(castTo(v.success, operand.type, expr.type), oneZero)
 			}
 			case "domainCast": {
 				const [operand] = expr.args
@@ -609,7 +661,7 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 				if (Result.isFailure(member)) {
 					return Result.fail(member.failure)
 				}
-				return member.success ? coerced : failure("23514")
+				return member.success ? coerced : undefinedAt("contract")
 			}
 			case "op": {
 				const op = nativeOp(expr.op)
@@ -619,8 +671,11 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 				if (op.fn === "and" || op.fn === "or") {
 					return connective(op.fn === "or", expr.args)
 				}
-				return Result.flatMap(operands(expr.args), ({ values, types }) =>
-					catalogApply(op, values, types)
+				return Result.map(
+					Result.flatMap(operands(expr.args), ({ values, types }) =>
+						catalogApply(op, values, types)
+					),
+					oneZero
 				)
 			}
 		}

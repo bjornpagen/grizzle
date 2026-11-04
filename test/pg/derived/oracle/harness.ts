@@ -24,11 +24,16 @@ import type { AnyLogin, AnyLoginRole } from "#compiler/public/schema.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { CurrentPerturbation, perturbedContext } from "#test/support/oracle/perturb.ts"
+import {
+	complementOf,
+	CurrentPerturbation,
+	perturbedContext
+} from "#test/support/oracle/perturb.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { contextOf, dbReader } from "#test/support/runtime-db.ts"
@@ -126,7 +131,7 @@ export const installDerived = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const installed = yield* Effect.mapError(
-			install(declared, { extensions: [], label, logins }),
+			install(declared, { ambient: ordinarySession, extensions: [], label, logins }),
 			(e) => (e._tag === "CompileError" ? compileFailed(e) : e)
 		)
 		const analyzed = Result.map(checkedIn(installed.installation.owned), derivedAnalysis)
@@ -211,16 +216,16 @@ const dbContextAs = (
 
 /** Opens `role`, a role reached through its login over the schema rebuilt under the installed name, in the scope, through the runtime
  * Db.open runs: a generated schema's type is known only at run time, and the typed facade is
- * the type tests' subject. It yields the Db's reader, the one db.execute dispatches to, and the Db's context for
+ * the type tests' subject. It yields the Db's reader, the one db.execute dispatches to, and the Db's contexts for
  * refresh reports.
  *
- * The returned context carries the case's plan perturbation: every refresh through it
- * sets the case's planner settings in its transaction. */
+ * `ctx` carries the case's plan perturbation, so every refresh through it sets the case's planner settings in its
+ * transaction, and `again` its complement (perturb.ts complementOf), the plan of a second reading. */
 export const openCaseDb = (
 	o: Opened,
 	role: AnyLoginRole
 ): Effect.Effect<
-	{ readonly db: ReaderValue; readonly ctx: DbContext },
+	{ readonly db: ReaderValue; readonly ctx: DbContext; readonly again: DbContext },
 	OpenError,
 	Substrate | Scope.Scope
 > =>
@@ -228,7 +233,11 @@ export const openCaseDb = (
 		const perturbation = yield* CurrentPerturbation
 		const context = yield* dbContextAs(o, role.login)
 		const db = yield* openRuntime(role, { token: tokenOf({}) }).pipe(Effect.provideContext(context))
-		return { db: dbReader(db), ctx: perturbedContext(contextOf(db), perturbation) }
+		return {
+			db: dbReader(db),
+			ctx: perturbedContext(contextOf(db), perturbation),
+			again: perturbedContext(contextOf(db), complementOf(perturbation))
+		}
 	})
 
 /** Every fact of a derived relation, read through the Db: a query matching each of its fields. */
@@ -241,7 +250,7 @@ export const readAll = (
 	Effect.flatMap(
 		db.execute(
 			query(top).rule((r: RuleValue) => {
-				const vars = v(value)
+				const vars = v(value, "value")
 				const bound = Rec.fromEntries(Arr.map(columns, (c) => [c, vars[c]]))
 				return r.match(value, bound).find(bound)
 			}),

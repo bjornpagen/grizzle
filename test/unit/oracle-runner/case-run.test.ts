@@ -9,7 +9,7 @@
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -50,13 +50,12 @@ describe("a generated suite's case that never finishes", () => {
 								suite: "unit/oracle-runner/case-hangs",
 								draw: drawn(int(0, 2 ** 31 - 1)),
 								literal: Formatter.format,
-								features: noFeatures,
+								coverage: noCoverage,
 								kept: [],
 								runs: 1,
 								shrink: neverShrunk,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.millis(50)
 							},
 							() => holdForever(counts)
@@ -86,13 +85,12 @@ describe("a generated suite's case that never finishes", () => {
 								suite: "unit/oracle-runner/case-interrupted",
 								draw: drawn(int(0, 2 ** 31 - 1)),
 								literal: Formatter.format,
-								features: noFeatures,
+								coverage: noCoverage,
 								kept: [],
 								runs: 1,
 								shrink: neverShrunk,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.minutes(2)
 							},
 							() =>

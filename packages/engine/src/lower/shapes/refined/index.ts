@@ -18,7 +18,6 @@ import {
 	castDomain,
 	retypePlaceholders,
 	type Scope,
-	sameType,
 	storedColumns,
 	Tracer,
 	withScope
@@ -31,12 +30,10 @@ import type {
 	Select,
 	SelectBody,
 	SelectCore,
-	SetOperation,
 	Target,
 	TypeRef
 } from "#compiler/sql/ast.ts"
-import { cast, col, simpleSelect, targetAs } from "#compiler/sql/build.ts"
-import { printType } from "#compiler/sql/print.ts"
+import { cast, col, mapTargets, sameTypeRef, simpleSelect, targetAs } from "#compiler/sql/build.ts"
 import {
 	identityHooks,
 	inertVisitor,
@@ -70,7 +67,8 @@ const relabelRefinedPlaceholders = (
 		if (slot.kind !== "scalar" || type?.kind !== "named" || !isRefined(slot.type)) {
 			continue
 		}
-		if (!sameType(type, domainOf(cx, slot.type))) {
+		const domain = domainOf(cx, slot.type)
+		if (domain === undefined || !sameTypeRef(type, domain)) {
 			continue
 		}
 		retyped.set(slot.number, cx.params.retype(slot, cx.baseTypeRef(slot.type)))
@@ -95,18 +93,14 @@ const positionsOf = <K>(map: Map<K, Positions>, key: K): Positions => {
 
 /** Whether `e` already carries exactly `type`, so a cast to it would restate it. */
 const carries = (e: Expr, type: TypeRef): boolean =>
-	(e.kind === "param" || e.kind === "literal" || e.kind === "cast") && sameType(type, e.type)
-
-/** The arms of a set operation, nested set operations flattened: cores and parenthesized queries. */
-const armsOf = (body: SetOperation): ReadonlyArray<SelectCore | Select> =>
-	[body.left, body.right].flatMap((side) => (side.kind === "setOp" ? armsOf(side) : [side]))
+	(e.kind === "param" || e.kind === "literal" || e.kind === "cast") && sameTypeRef(type, e.type)
 
 const widthOf = (body: SelectBody): number => {
 	switch (body.kind) {
 		case "core":
 			return body.targets.length
 		case "setOp":
-			return widthOf(body.left)
+			return widthOf(body.arms[0])
 		case "select":
 			return widthOf(body.body)
 	}
@@ -155,8 +149,7 @@ class Agreement {
 					case "cte":
 						this.#items.set(item.alias ?? item.name, item)
 						return
-					case "join":
-					case "crossJoin":
+					case "joins":
 						return
 				}
 			},
@@ -205,27 +198,24 @@ class Agreement {
 				const arm = this.#arms.get(original)
 				return arm === undefined
 					? node
-					: {
-							...node,
-							targets: node.targets.map((t, i) => {
-								const base = arm.get(i)
-								return base === undefined ? t : { ...t, expr: cast(t.expr, base) }
-							})
-						}
+					: mapTargets(node, (t, i) => {
+							const base = arm.get(i)
+							return base === undefined ? t : { ...t, expr: cast(t.expr, base) }
+						})
 			},
 			select: (node, original) => {
 				const arm = this.#arms.get(original)
 				return arm === undefined ? node : { ...node, body: castBody(node.body, arm) }
 			},
 			/** A VALUES list is rebuilt as a VALUES list. */
-			fromItem: (item, original) => {
+			fromSource: (item, original) => {
 				const cells = this.#cells.get(original)
 				if (cells === undefined || item.kind !== "values") {
 					return item
 				}
 				return {
 					...item,
-					rows: item.rows.map((row, r) => {
+					rows: mapNonEmpty(item.rows, (row, r) => {
 						const at = cells.get(r)
 						return at === undefined
 							? row
@@ -253,7 +243,7 @@ class Agreement {
 					}
 				}
 				if (e.kind === "greatest" || e.kind === "least") {
-					return { ...e, args: e.args.map(castAt) }
+					return { ...e, args: mapNonEmpty(e.args, castAt) }
 				}
 				return e
 			}
@@ -344,6 +334,7 @@ class Agreement {
 			case "plVar":
 			case "plSpecial":
 			case "field":
+			case "regclass":
 				return undefined
 		}
 	}
@@ -443,7 +434,7 @@ class Agreement {
 		p: number,
 		active: ReadonlySet<string>
 	): TypeRef | undefined {
-		const arms = armsOf(body)
+		const arms = body.arms
 		const shifts = arms.map((arm) => this.#body(arm, p, active))
 		const out = shifts.find((s) => s !== undefined)
 		if (out === undefined) {
@@ -536,7 +527,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 				return args.every((a, i) => a === e.args[i]) ? e : { ...e, args }
 			}
 			case "row": {
-				const items = e.items.map(fields)
+				const items = mapNonEmpty(e.items, fields)
 				return items.every((x, i) => x === e.items[i]) ? e : { ...e, items }
 			}
 			case "excluded":
@@ -565,6 +556,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 			case "plVar":
 			case "plSpecial":
 			case "field":
+			case "regclass":
 				return e
 		}
 	}
@@ -656,11 +648,11 @@ export const refineDelivered = (cx: LowerContext, query: Select, heading: Headin
 	if (out.body.kind === "core" && out.body.targets.length > heading.length) {
 		const body = out.body
 		const outer = coreScope(body, withScope(out, emptyScope))
-		const targets = body.targets.map((t, i) =>
+		const fused = mapTargets(body, (t, i) =>
 			i < heading.length ? t : refineFused(cx, tracer, t, outer)
 		)
-		if (targets.some((t, i) => t !== body.targets[i])) {
-			out = { ...out, body: { ...body, targets } }
+		if (fused.targets.some((t, i) => t !== body.targets[i])) {
+			out = { ...out, body: fused }
 		}
 	}
 	return out
@@ -676,31 +668,31 @@ const constantValidations = (
 	constants: ReadonlyArray<RefinedConstant>
 ): Result.Result<ReadonlyArray<Select>, CompileError> =>
 	catchRefusal(() => {
-		const groups = new Map<string, { domain: TypeRef; rows: Array<Expr>; seen: Set<string> }>()
+		/** Each domain with its distinct constants, a group made with its first. */
+		const groups: Array<{ domain: TypeRef; rows: [Expr, ...Array<Expr>]; seen: Set<string> }> = []
 		for (const c of constants) {
 			if (!hasConstraint(c.type)) {
 				continue
 			}
 			const at = c.site
 			const domain = physicalTypeRef(names, c.type, at)
-			const key = printType(domain)
-			let group = groups.get(key)
-			if (group === undefined) {
-				group = { domain, rows: [], seen: new Set() }
-				groups.set(key, group)
-			}
+			const group = groups.find((g) => sameTypeRef(g.domain, domain))
 			const value = lowerLiteral(names, c.literal, c.type)
 			const text = canonicalTextOf(value)
+			if (group === undefined) {
+				groups.push({ domain, rows: [value], seen: new Set([text]) })
+				continue
+			}
 			if (group.seen.has(text)) {
 				continue
 			}
 			group.seen.add(text)
 			group.rows.push(value)
 		}
-		return [...groups.values()].map((g) =>
+		return groups.map((g) =>
 			simpleSelect(
 				[targetAs(cast(col("r1", "c1"), g.domain), "value")],
-				[{ kind: "values", rows: g.rows.map((r) => [r]), alias: "r1", columns: ["c1"] }],
+				[{ kind: "values", rows: mapNonEmpty(g.rows, (r) => [r]), alias: "r1", columns: ["c1"] }],
 				undefined
 			)
 		)

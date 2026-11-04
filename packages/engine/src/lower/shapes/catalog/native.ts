@@ -1,4 +1,6 @@
+import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { FrameBound, NodeOf, RelKind, RelNode, WindowFrame } from "#compiler/ir/rel.ts"
 import {
@@ -16,6 +18,8 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { aggregateExpr } from "#compiler/lower/conservative/group/index.ts"
+import { type AggregateOverload, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import type {
 	Expr,
 	FromItem,
@@ -26,18 +30,7 @@ import type {
 	WindowSpec
 } from "#compiler/sql/ast.ts"
 
-import {
-	asc,
-	call,
-	col,
-	core,
-	countStar,
-	derived,
-	desc,
-	lit,
-	select,
-	target
-} from "#compiler/sql/build.ts"
+import { asc, call, col, core, derived, desc, lit, select, target } from "#compiler/sql/build.ts"
 
 const frameBound = (b: FrameBound): SqlFrameBound => {
 	if (b === "unboundedPreceding") {
@@ -75,20 +68,39 @@ const orderItems = (
 		return k.dir === "asc" ? asc(e) : desc(e)
 	})
 
-/** A window's call over its input's columns `map`: its partition and order are columns of its input (valid DAG). */
-const windowCall = (
-	cx: LowerContext,
+/**
+ * A running aggregate's overload over its argument's type, as a Group's is (conservative/group groupAggregateOverload),
+ * refused where PostgreSQL defines none.
+ */
+const windowOverload = (
+	fn: "sum" | "avg" | "min" | "max",
 	w: NodeOf<"Window">,
-	map: ColumnMap,
-	scope: Env
-): FunctionCall => {
+	at: string
+): AggregateOverload => {
+	const [arg] = w.args
+	if (arg === undefined) {
+		return refuse("MalformedDescription", at, `${fn} over one argument`)
+	}
+	const overload = unaryOverload(fn === "avg" ? "mean" : fn, arg.type, SourceLoc(at, []))
+	if (!overload.ok) {
+		throw new Refusal(overload.error)
+	}
+	return overload.value
+}
+
+/**
+ * A window's call over its input's columns `map`: its partition and order are columns of its input (valid DAG). A
+ * running aggregate is its overload's lowering (conservative/group aggregateExpr) under the window, so a running sum or
+ * mean over real, double precision or money accumulates exactly and is a function of the frame's multiset, never of
+ * the window's order.
+ */
+const windowCall = (cx: LowerContext, w: NodeOf<"Window">, map: ColumnMap, scope: Env): Expr => {
 	const at = nodeLabel(w)
 	const partitionBy = w.partition.map((c) => columnIn(map, c))
 	const orderBy = orderItems(w.order.keys, map)
 	const frame = frameOf(w.frame)
 	const over: WindowSpec = { partitionBy, orderBy, frame }
 	const args = w.args.map((a) => lowerExpr(cx, a, scope))
-	const isBool = () => w.args[0]?.type.carrier === "bool"
 	switch (w.fn) {
 		case "rowNumber":
 			return { ...call("row_number", []), over }
@@ -97,17 +109,17 @@ const windowCall = (
 		case "denseRank":
 			return { ...call("dense_rank", []), over }
 		case "count":
-			return w.filter === undefined
-				? { ...countStar(), over }
-				: { ...countStar(), filter: lowerExpr(cx, w.filter, scope), over }
+			return aggregateExpr(
+				countOverload(),
+				[],
+				w.filter === undefined ? undefined : lowerExpr(cx, w.filter, scope),
+				over
+			)
 		case "sum":
-			return { ...call("sum", args), over }
 		case "avg":
-			return { ...call("avg", args), over }
 		case "min":
-			return { ...call(isBool() ? "bool_and" : "min", args), over }
 		case "max":
-			return { ...call(isBool() ? "bool_or" : "max", args), over }
+			return aggregateExpr(windowOverload(w.fn, w, at), args, undefined, over)
 		case "lag":
 		case "lead":
 			if (args.length !== 3) {
@@ -124,8 +136,8 @@ const windowCall = (
 /**
  * The Window plug-in: the node and every window below it that it can share a SELECT with.
  *
- * The native targets of the compile-target catalog: SQL for the internal Window and OrderedSetAggregate nodes, and the
- * guarded regression slope of R32 (R41, R42).
+ * The native targets of the compile-target catalog: SQL for the internal Window and OrderedSetAggregate nodes (R41,
+ * R42).
  *
  * Both nodes exist only as the products of the catalog's rewrites (rewrite.ts), and each lowers to exactly the form
  * its entry names, over an input that is already the established distinct set the entry requires: the
@@ -146,15 +158,6 @@ const windowCall = (
  * an empty input creates no group and no NULL-bearing row, exactly as an aggregate-only Group does.
  * Several fractions are one call each over the same WITHIN GROUP order, which PostgreSQL evaluates over one sorted
  * input; the array overload of PERCENTILE_DISC needs an array constructor and a subscript the SQL AST does not have.
- *
- * Group carrying R32's regrSlope: whichever grouped core the dispatch lowers (the conservative core in the catalog
- * dispatch, the aggregate shapes in the optimized table) builds each regr_slope(y, x) evaluated only under the
- * test that makes it a value (conservative/group guardedSlope), `CASE WHEN regr_sxx(y, x) <> 0 THEN regr_slope(y, x) ELSE 0 END` (slope.ts). PostgreSQL's
- * regr_slope is NULL exactly where its transition state's Sxx, which regr_sxx returns, is zero (float8_regr_slope:
- * `if (Sxx == 0) PG_RETURN_NULL()`, and a nonempty group has N >= 1), so the guard is that condition and the grouped
- * stage's column has a non-null proof: the NULL is never a column of any relation the statement builds, which
- * projection or a later filter could not repair. The ELSE value is never delivered: every
- * read of the column lies under an arm test of regr_sxx that excludes zero (slope.ts).
  */
 const lowerWindowNative: NodeLowerer<"Window"> = (node, cx, env) => {
 	const at = nodeLabel(node)
@@ -175,7 +178,10 @@ const lowerWindowNative: NodeLowerer<"Window"> = (node, cx, env) => {
 	const source = cx.source(base, env)
 	/** Every window of the chain reads its own input's columns, which are the base's: none reads another's output. */
 	const scopeIds: Array<NodeId> = [base.id, ...chain.slice(0, -1).map((w) => w.id)]
-	const scope = extendEnv(env, ...scopeIds.map((id) => [id, source.map] as const))
+	const scope = extendEnv(
+		env,
+		scopeIds.map((id) => [id, source.map] as const)
+	)
 	const targets = [
 		...headingTargets(base.heading, source.map),
 		...chain.map((w) => target(windowCall(cx, w, source.map, scope)))
@@ -212,7 +218,7 @@ const lowerOrderedSetAggregateNative: NodeLowerer<"OrderedSetAggregate"> = (node
 		from = input.item
 		map = input.map
 	}
-	const scope = extendEnv(env, [node.input.id, map])
+	const scope = extendEnv(env, [[node.input.id, map]])
 	const within = orderItems(node.order.keys, map)
 	/** One call per output: mode's one, or one per fraction for a percentile, subscripted from the array overload. */
 	const aggregates = (): ReadonlyArray<FunctionCall> => {

@@ -25,6 +25,7 @@ import {
 	on,
 	type PageCursor,
 	type ParamsOf,
+	type ParamType,
 	pg,
 	query,
 	ref,
@@ -35,6 +36,7 @@ import {
 	str,
 	TokenError,
 	uuid,
+	type Uuid,
 	v,
 	weigh,
 	within,
@@ -92,7 +94,7 @@ export const Blog = schema("Blog", { Status, Post, Comment, PostViews }, [
 /** A published post by its id, with its comments nested inside it. */
 export const postPage = query(Blog)
 	.rule((r) => {
-		const { id, title, body } = v(Post)
+		const { id, title, body } = v(Post, "post")
 		return r
 			.match(Post, { id, title, body, status: "Published" })
 			.where(r.eq(id, r.param("id", uuid)))
@@ -102,7 +104,7 @@ export const postPage = query(Blog)
 		"comments",
 		(post) =>
 			query(Blog).rule((r) => {
-				const { id, author, body } = v(Comment)
+				const { id, author, body } = v(Comment, "comment")
 				return r.match(Comment, { id, post: post.id, author, body }).find({ id, author, body })
 			}),
 		"array"
@@ -117,7 +119,7 @@ export const Tenant = context("Tenant", { org: ClerkOrg })
 
 /** The keys of the caller's organization. An insert takes `org` from the token. */
 export const orgKeys = query(Keys).rule((r) => {
-	const { id, org, name } = v(ApiKey)
+	const { id, org, name } = v(ApiKey, "apiKey")
 	return r.match(ApiKey, { id, org, name }).match(Tenant, { org }).find({ id, name })
 })
 
@@ -143,7 +145,7 @@ export const Usage = schema("Usage", { Call, Refund }, [
 /** Each workspace's spend, and its three costliest models, leaving out refunded calls. */
 export const topModels = query(Usage)
 	.rule((r) => {
-		const { id, workspace, cost } = v(Call)
+		const { id, workspace, cost } = v(Call, "call")
 		return r
 			.match(Call, { id, workspace, cost })
 			.where(r.not(Refund, { call: id }))
@@ -154,7 +156,7 @@ export const topModels = query(Usage)
 		(w) =>
 			query(Usage)
 				.rule((r) => {
-					const { id, model, cost } = v(Call)
+					const { id, model, cost } = v(Call, "call")
 					return r
 						.match(Call, { id, workspace: w.workspace, model, cost })
 						.where(r.not(Refund, { call: id }))
@@ -181,7 +183,7 @@ const below = query(Resellers).recursive("Below", {
 	row: { account: uuid },
 	base: [
 		(r) => {
-			const { id } = v(Account)
+			const { id } = v(Account, "account")
 			return r
 				.match(Account, { id })
 				.where(r.eq(id, r.param("root", uuid)))
@@ -190,8 +192,8 @@ const below = query(Resellers).recursive("Below", {
 	],
 	rec: [
 		(r, self) => {
-			const { account } = v(self)
-			const { child } = v(BillsThrough)
+			const { account } = v(self, "self")
+			const { child } = v(BillsThrough, "billsThrough")
 			return r
 				.match(self, { account })
 				.match(BillsThrough, { child, parent: account })
@@ -203,8 +205,8 @@ const below = query(Resellers).recursive("Below", {
 /** What each account under a reseller spent. */
 export const treeSpend = query(Resellers).rule((r) => {
 	const tree = below.bind({ root: r.param("root", uuid) })
-	const { account } = v(tree)
-	const { id, amount } = v(Charge)
+	const { account } = v(tree, "tree")
+	const { id, amount } = v(Charge, "charge")
 	return r
 		.match(tree, { account })
 		.match(Charge, { id, account, amount })
@@ -287,7 +289,7 @@ export const Invoices = schema("Invoices", { InvoiceState, Invoice, Payment, Voi
 /** An invoice, with its payment when it is paid and its voiding when it is void. */
 export const invoiceCard = query(Invoices)
 	.rule((r) => {
-		const { id, state } = v(Invoice)
+		const { id, state } = v(Invoice, "invoice")
 		return r
 			.match(Invoice, { id, state })
 			.where(r.eq(id, r.param("id", uuid)))
@@ -297,7 +299,7 @@ export const invoiceCard = query(Invoices)
 		"payment",
 		(i) =>
 			query(Invoices).rule((r) => {
-				const { charge } = v(Payment)
+				const { charge } = v(Payment, "payment")
 				return r.match(Payment, { invoice: i.id, charge }).find({ charge })
 			}),
 		arm("state", "paid")
@@ -306,7 +308,7 @@ export const invoiceCard = query(Invoices)
 		"voiding",
 		(i) =>
 			query(Invoices).rule((r) => {
-				const { reason } = v(Voiding)
+				const { reason } = v(Voiding, "voiding")
 				return r.match(Voiding, { invoice: i.id, reason }).find({ reason })
 			}),
 		arm("state", "void")
@@ -317,7 +319,7 @@ export const pay = ChangeSet.empty(Invoices)
 	.put(
 		Invoice,
 		query(Invoices).rule((r) => {
-			const { org } = v(Invoice)
+			const { org } = v(Invoice, "invoice")
 			return r
 				.match(Invoice, { id: r.param("invoice", uuid), org, state: "open" })
 				.find({ id: r.param("invoice", uuid), org, state: InvoiceState.handle("paid") })
@@ -337,7 +339,7 @@ export const pay = ChangeSet.empty(Invoices)
 /** A workspace's calls, newest first. */
 export const callLog = query(Usage)
 	.rule((r) => {
-		const { id, model, at, cost } = v(Call)
+		const { id, model, at, cost } = v(Call, "call")
 		return r
 			.match(Call, { id, workspace: r.param("workspace", uuid), model, at, cost })
 			.find({ id, model, at, cost })
@@ -348,7 +350,7 @@ export const callLog = query(Usage)
 export const ModelSpend = derived(
 	"ModelSpend",
 	query(Usage).rule((r) => {
-		const { id, workspace, model, cost } = v(Call)
+		const { id, workspace, model, cost } = v(Call, "call")
 		return r
 			.match(Call, { id, workspace, model, cost })
 			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
@@ -362,17 +364,17 @@ export const UsageApi = login(Reporting, "usage_api", [Analyst], {
 })
 
 /** The first 50 calls, and the 50 after a cursor the client sent back. */
-export const firstCalls = (db: Db<typeof Analyst, unknown>, workspace: string) =>
+export const firstCalls = (db: Db<typeof Analyst, unknown>, workspace: Uuid) =>
 	db.page(callLog, { workspace }, { first: 50 })
 export const moreCalls = (
 	db: Db<typeof Analyst, unknown>,
-	workspace: string,
+	workspace: Uuid,
 	after: PageCursor<typeof callLog>
 ) => db.page(callLog, { workspace }, { first: 50, after })
 
 /** One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). */
 export const modelSpend = query(Reporting).rule((r) => {
-	const { calls, spend } = v(ModelSpend)
+	const { calls, spend } = v(ModelSpend, "modelSpend")
 	return r
 		.match(ModelSpend, {
 			workspace: r.param("workspace", uuid),
@@ -383,7 +385,7 @@ export const modelSpend = query(Reporting).rule((r) => {
 		.find({ calls, spend })
 })
 
-export const spendOn = (db: Db<typeof Analyst, unknown>, workspace: string, model: string) =>
+export const spendOn = (db: Db<typeof Analyst, unknown>, workspace: Uuid, model: string) =>
 	db.get(modelSpend, { workspace, model })
 export const nightly = (db: Db<typeof Analyst, unknown>) => db.refresh(ModelSpend)
 
@@ -394,20 +396,20 @@ export const Org = context("Org", { id: ClerkOrg }, { claim: "o" })
 
 /** README: "Example", "What each kind of user sees". */
 export const published = query(Blog).rule((r) => {
-	const { id, title, body } = v(Post)
+	const { id, title, body } = v(Post, "post")
 	return r.match(Post, { id, title, body, status: "Published" }).find({ id, title, body })
 })
 
 /** A member reads every published post, and every post of their active organization. */
 export const memberPosts = query(Blog)
 	.rule((r) => {
-		const { id, title, body } = v(Post)
+		const { id, title, body } = v(Post, "post")
 		return r
 			.match(Post, { id, title, body, status: "Published" })
 			.find({ id, title, body, status: Status.handle("Published") })
 	})
 	.rule((r) => {
-		const { id, org, title, body, status } = v(Post)
+		const { id, org, title, body, status } = v(Post, "post")
 		return r
 			.match(Post, { id, org, title, body, status })
 			.match(Org, { id: org })
@@ -416,7 +418,7 @@ export const memberPosts = query(Blog)
 
 /** The member's own posts in their active organization; an insert fills `author` and `org` from the token. */
 export const myPosts = query(Blog).rule((r) => {
-	const { id, org, author, title, body, status } = v(Post)
+	const { id, org, author, title, body, status } = v(Post, "post")
 	return r
 		.match(Post, { id, org, author, title, body, status })
 		.match(Session, { sub: author })
@@ -425,7 +427,7 @@ export const myPosts = query(Blog).rule((r) => {
 })
 
 export const comments = query(Blog).rule((r) => {
-	const { id, post, author, body } = v(Comment)
+	const { id, post, author, body } = v(Comment, "comment")
 	return r
 		.match(Comment, { id, post, author, body })
 		.match(Post, { id: post, status: "Published" })
@@ -433,7 +435,7 @@ export const comments = query(Blog).rule((r) => {
 })
 
 export const myComments = query(Blog).rule((r) => {
-	const { id, post, author, body } = v(Comment)
+	const { id, post, author, body } = v(Comment, "comment")
 	return r
 		.match(Comment, { id, post, author, body })
 		.match(Session, { sub: author })
@@ -442,7 +444,7 @@ export const myComments = query(Blog).rule((r) => {
 })
 
 export const postIds = query(Blog).rule((r) => {
-	const { id } = v(Post)
+	const { id } = v(Post, "post")
 	return r.match(Post, { id }).find({ id })
 })
 
@@ -459,14 +461,14 @@ export const Etl = role(Blog, "etl", { Post: postIds, PostViews }, { write: ["Po
 const { Post: AnonPost } = AnonBlog.relations
 const { Post: MemberPost, MyPost } = MemberBlog.relations
 
-/** The feed each kind of user reads; the rows of both are { readonly id: string; readonly title: string }. */
+/** The feed each kind of user reads; the rows of both are { readonly id: Uuid; readonly title: string }. */
 export const anonFeed = query(AnonBlog).rule((r) => {
-	const { id, title } = v(AnonPost)
+	const { id, title } = v(AnonPost, "anonPost")
 	return r.match(AnonPost, { id, title }).find({ id, title })
 })
 
 export const memberFeed = query(MemberBlog).rule((r) => {
-	const { id, title } = v(MemberPost)
+	const { id, title } = v(MemberPost, "memberPost")
 	return r.match(MemberPost, { id, title }).find({ id, title })
 })
 
@@ -512,8 +514,21 @@ export const WebLayer = DbLayer.make({
 })
 
 /** README: "Example", "The route handler". */
+/** A post's id: a uuid's text, typed Uuid (five hyphenated groups) and checked to be a uuid. */
+const PostId = Schema.TemplateLiteral([
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String
+]).check(Schema.isUUID())
+
 /** The client names a draft's id, so a POST sent twice inserts it once. */
-const Draft = Schema.Struct({ id: Schema.String, title: Schema.String, body: Schema.String })
+const Draft = Schema.Struct({ id: PostId, title: Schema.String, body: Schema.String })
 
 export const draft = (post: typeof Draft.Type) =>
 	ChangeSet.empty(MemberBlog).insert(MyPost, [{ ...post, status: "Draft" }])
@@ -577,9 +592,7 @@ export const EtlLayer = DbLayer.make({
 const etl = ManagedRuntime.make(EtlLayer)
 
 /** No token and no claims: it writes view counts, and never reads a title. */
-export const loadViews = (
-	views: ReadonlyArray<{ readonly post: string; readonly views: bigint }>
-) =>
+export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly views: bigint }>) =>
 	etl.runPromise(
 		Effect.gen(function* () {
 			const db = yield* Db.open(EtlJob.roles.etl, {})
@@ -610,7 +623,7 @@ export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
 /** README: "Queries". */
 /** Comments per author on published posts. */
 export const commentsPerAuthor = query(Blog).rule((r) => {
-	const { id, post, author } = v(Comment)
+	const { id, post, author } = v(Comment, "comment")
 	return r
 		.match(Comment, { id, post, author })
 		.match(Post, { id: post, status: "Published" })
@@ -619,7 +632,7 @@ export const commentsPerAuthor = query(Blog).rule((r) => {
 
 /** Published posts nobody has commented on. */
 export const unanswered = query(Blog).rule((r) => {
-	const { id, title } = v(Post)
+	const { id, title } = v(Post, "post")
 	return r
 		.match(Post, { id, title, status: "Published" })
 		.where(r.not(Comment, { post: id }))
@@ -628,8 +641,8 @@ export const unanswered = query(Blog).rule((r) => {
 
 /** Total views per organization. */
 export const viewsPerOrg = query(Blog).rule((r) => {
-	const { post, views } = v(PostViews)
-	const { org } = v(Post)
+	const { post, views } = v(PostViews, "postViews")
+	const { org } = v(Post, "post")
 	return r
 		.match(PostViews, { post, views })
 		.match(Post, { id: post, org })
@@ -639,7 +652,7 @@ export const viewsPerOrg = query(Blog).rule((r) => {
 /** An organization's posts by title, ready for paging. */
 export const orgPosts = query(Blog)
 	.rule((r) => {
-		const { id, title, org } = v(Post)
+		const { id, title, org } = v(Post, "post")
 		return r
 			.match(Post, { id, title, org })
 			.where(r.eq(org, r.param("org", ClerkOrg)))
@@ -647,23 +660,34 @@ export const orgPosts = query(Blog)
 	})
 	.orderBy(["title", "asc"])
 
+/** Two posts of one organization under one title: Post matched twice, in two scopes. */
+export const sameTitle = query(Blog).rule((r) => {
+	const post = v(Post, "post")
+	const twin = v(Post, "twin")
+	return r
+		.match(Post, { id: post.id, org: post.org, title: post.title })
+		.match(Post, { id: twin.id, org: post.org, title: post.title })
+		.where(r.ne(post.id, twin.id))
+		.find({ post: post.id, twin: twin.id, title: post.title })
+})
+
 /** README: "Queries", no outer joins. */
 /** Tickets sold per show, zero included: the second rule covers the shows a LEFT JOIN would pad with NULL. */
 export const sold = query(BoxOffice)
 	.rule((r) => {
-		const { id } = v(Show)
-		const { id: ticket } = v(Ticket)
+		const { id } = v(Show, "show")
+		const { id: ticket } = v(Ticket, "ticket")
 		return r
 			.match(Show, { id })
 			.match(Ticket, { id: ticket, show: id })
 			.find({ show: id, sold: r.count() })
 	})
 	.rule((r) => {
-		const { id } = v(Show)
+		const { id } = v(Show, "show")
 		return r
 			.match(Show, { id })
 			.where(r.not(Ticket, { show: id }))
-			.find({ show: id, sold: r.literal(0n) })
+			.find({ show: id, sold: 0n })
 	})
 
 /** README: "Writes". */
@@ -671,7 +695,7 @@ export const sold = query(BoxOffice)
 export const publish = ChangeSet.empty(Blog).put(
 	Post,
 	query(Blog).rule((r) => {
-		const { id, org, author, title, body } = v(Post)
+		const { id, org, author, title, body } = v(Post, "post")
 		return r
 			.match(Post, { id, org, author, title, body, status: "Draft" })
 			.where(r.eq(id, r.param("id", uuid)))
@@ -684,7 +708,7 @@ export const purge = ChangeSet.empty(Blog)
 	.delete(
 		Comment,
 		query(Blog).rule((r) => {
-			const { id, post, author, body } = v(Comment)
+			const { id, post, author, body } = v(Comment, "comment")
 			return r
 				.match(Comment, { id, post, author, body })
 				.where(r.eq(author, r.param("author", ClerkUser)))
@@ -693,7 +717,7 @@ export const purge = ChangeSet.empty(Blog)
 	)
 	.read("removed", (delta) =>
 		query(Blog).rule((r) => {
-			const { id } = v(delta.removed(Comment))
+			const { id } = v(delta.removed(Comment), "removedComment")
 			return r.match(delta.removed(Comment), { id }).find({ comments: r.count() })
 		})
 	)
@@ -736,11 +760,11 @@ export type PostPageHead = Expect<
 	Equals<
 		HeadOf<typeof postPage>,
 		{
-			readonly id: string
+			readonly id: Uuid
 			readonly title: string
 			readonly body: string
 			readonly comments: ReadonlyArray<{
-				readonly id: string
+				readonly id: Uuid
 				readonly author: string
 				readonly body: string
 			}>
@@ -748,7 +772,9 @@ export type PostPageHead = Expect<
 	>
 >
 
-export type PostPageParams = Expect<Equals<ParamsOf<typeof postPage>, { readonly id: string }>>
+export type PostPageParams = Expect<
+	Equals<ParamsOf<typeof postPage>, { readonly id: ParamType<Uuid, "uuid"> }>
+>
 
 /** "grizzle knows postPage returns at most one row, so db.get accepts it": on a role holding the schema whole. */
 const Staff = role(Blog, "staff", Blog.relations)
@@ -763,11 +789,11 @@ export type OnePage = Expect<
 export const manyPages = staff.get(published, {})
 
 export type AnonFeedHead = Expect<
-	Equals<HeadOf<typeof anonFeed>, { readonly id: string; readonly title: string }>
+	Equals<HeadOf<typeof anonFeed>, { readonly id: Uuid; readonly title: string }>
 >
 
 export type MemberFeedHead = Expect<
-	Equals<HeadOf<typeof memberFeed>, { readonly id: string; readonly title: string }>
+	Equals<HeadOf<typeof memberFeed>, { readonly id: Uuid; readonly title: string }>
 >
 
 export type CommentsPerAuthorHead = Expect<
@@ -778,7 +804,9 @@ export type ViewsPerOrgHead = Expect<
 	Equals<HeadOf<typeof viewsPerOrg>, { readonly org: string; readonly views: Decimal }>
 >
 
-export type OrgPostsParams = Expect<Equals<ParamsOf<typeof orgPosts>, { readonly org: string }>>
+export type OrgPostsParams = Expect<
+	Equals<ParamsOf<typeof orgPosts>, { readonly org: ParamType<string, "text"> }>
+>
 
 /** "a finite pattern such as ^(yes|no)$ is "yes" | "no"". */
 const YesNo = str.regex("^(yes|no)$")
@@ -859,7 +887,7 @@ export const webWithoutVerify = DbLayer.make({
 
 /** The gallery's types, as its prose states them. */
 export type OrgKeysHead = Expect<
-	Equals<HeadOf<typeof orgKeys>, { readonly id: string; readonly name: string }>
+	Equals<HeadOf<typeof orgKeys>, { readonly id: Uuid; readonly name: string }>
 >
 
 /** "Db.open(Dashboard.roles.key_admin, ...) does not compile without the token". */
@@ -870,7 +898,7 @@ export type TopModelsHead = Expect<
 	Equals<
 		HeadOf<typeof topModels>,
 		{
-			readonly workspace: string
+			readonly workspace: Uuid
 			readonly spend: Decimal
 			readonly models: ReadonlyArray<{
 				readonly model: string
@@ -882,27 +910,29 @@ export type TopModelsHead = Expect<
 >
 
 export type TreeSpendHead = Expect<
-	Equals<HeadOf<typeof treeSpend>, { readonly account: string; readonly spend: Decimal }>
+	Equals<HeadOf<typeof treeSpend>, { readonly account: Uuid; readonly spend: Decimal }>
 >
-export type TreeSpendParams = Expect<Equals<ParamsOf<typeof treeSpend>, { readonly root: string }>>
+export type TreeSpendParams = Expect<
+	Equals<ParamsOf<typeof treeSpend>, { readonly root: ParamType<Uuid, "uuid"> }>
+>
 
 export type InvoiceCardHead = Expect<
 	Equals<
 		HeadOf<typeof invoiceCard>,
 		| {
-				readonly id: string
+				readonly id: Uuid
 				readonly state: "open"
 				readonly payment: Option.None<{ readonly charge: string }>
 				readonly voiding: Option.None<{ readonly reason: string }>
 		  }
 		| {
-				readonly id: string
+				readonly id: Uuid
 				readonly state: "paid"
 				readonly payment: Option.Some<{ readonly charge: string }>
 				readonly voiding: Option.None<{ readonly reason: string }>
 		  }
 		| {
-				readonly id: string
+				readonly id: Uuid
 				readonly state: "void"
 				readonly payment: Option.None<{ readonly charge: string }>
 				readonly voiding: Option.Some<{ readonly reason: string }>
@@ -911,14 +941,17 @@ export type InvoiceCardHead = Expect<
 >
 
 export type PayParams = Expect<
-	Equals<ParamsOf<typeof pay>, { readonly invoice: string; readonly charge: string }>
+	Equals<
+		ParamsOf<typeof pay>,
+		{ readonly invoice: ParamType<Uuid, "uuid">; readonly charge: ParamType<string, "text"> }
+	>
 >
 
 export type CallLogHead = Expect<
 	Equals<
 		HeadOf<typeof callLog>,
 		{
-			readonly id: string
+			readonly id: Uuid
 			readonly model: string
 			readonly at: Infer<typeof Millis>
 			readonly cost: Infer<typeof Micros>
@@ -941,9 +974,11 @@ export type SpendOn = Expect<
 /** Each rule's rows are a { show, sold } of its own; together they are exactly that row type, both ways. */
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 export type SoldHead = Expect<
-	Same<HeadOf<typeof sold>, { readonly show: string; readonly sold: bigint }>
+	Same<HeadOf<typeof sold>, { readonly show: Uuid; readonly sold: bigint }>
 >
-export type PublishParams = Expect<Equals<ParamsOf<typeof publish>, { readonly id: string }>>
+export type PublishParams = Expect<
+	Equals<ParamsOf<typeof publish>, { readonly id: ParamType<Uuid, "uuid"> }>
+>
 
 /** "the outcome's reads hold the count": on a role that writes Comment. */
 const Moderator = role(Blog, "moderator", Blog.relations, { write: ["Comment"] })

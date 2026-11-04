@@ -1,3 +1,5 @@
+import { Brand } from "effect"
+
 /**
  * The 32-bit finalizer of MurmurHash3: a bijection that spreads every input bit over the output. Stream seeds are mixed
  * from seeds with it, so neighbouring seeds draw unrelated streams.
@@ -24,15 +26,40 @@ export const fnv1a32 = (label: string): number => {
 	return h >>> 0
 }
 
+/** A stream the suite's label alone fixes: the same cases on every run seed. */
+export type LabelStream = number & Brand.Brand<"LabelStream">
+
+/** A stream the run's seed draws: new cases on every run. */
+export type RunStream = number & Brand.Brand<"RunStream">
+
+/** Either kind of stream, where a case only needs one to regenerate from. */
+export type Stream = LabelStream | RunStream
+
+const labelStream = Brand.nominal<LabelStream>()
+
+const runStream = Brand.nominal<RunStream>()
+
+/** Separates the steered phase's stream from the floor stream it grows from. */
+const STEER_SALT = 0x5bd1_e995
+
+/** Separates a fuzz run's stream from the rotating stream it is derived from. */
+const FUZZ_SALT = 0x27d4_eb2f
+
 /** A suite's floor seed: derived from its label alone, the same on every run, so its floor stream is a fixed baseline. */
-export const floorSeed = (label: string): number => mix(fnv1a32(label))
+export const floorSeed = (label: string): LabelStream => labelStream(mix(fnv1a32(label)))
+
+/** The steered phase's stream: derived from the floor's, so a suite's label fixes it too. */
+export const steeredSeed = (floor: LabelStream): LabelStream => labelStream(mix(floor ^ STEER_SALT))
 
 /** A suite's rotating seed: a different stream for every run seed and every floor seed. */
-export const rotatingSeed = (run: number, floor: number): number =>
-	mix(mix(run) ^ Math.imul(floor >>> 0, 0x9e37_79b1))
+export const rotatingSeed = (run: number, floor: LabelStream): RunStream =>
+	runStream(mix(mix(run) ^ Math.imul(floor >>> 0, 0x9e37_79b1)))
+
+/** A fuzz run's stream: derived from the rotating one, so every fuzz run searches afresh. */
+export const fuzzSeed = (rotating: RunStream): RunStream => runStream(mix(rotating ^ FUZZ_SALT))
 
 /** One case's seed within a stream: every case regenerates from its stream's seed and its index alone. */
-export const caseSeed = (stream: number, index: number): number =>
+export const caseSeed = (stream: Stream, index: number): number =>
 	mix(stream ^ Math.imul(index + 1, 0x9e37_79b9))
 
 /** A deterministic source of unsigned 32-bit words. */

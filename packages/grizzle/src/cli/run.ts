@@ -12,7 +12,12 @@ import {
 	String as Str
 } from "effect"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
-import { MigrateError, type MigrationPlace, refusalStages } from "#adapter/migrate/errors.ts"
+import {
+	MigrateError,
+	type MigrationPlace,
+	type Outcome,
+	stageOutcome
+} from "#adapter/migrate/errors.ts"
 import { parseArgs, usageText } from "#cli/args.ts"
 import { check, findingText, type SchemaCheck } from "#cli/check.ts"
 import { type ConfigFile, resolveConfig } from "#cli/config.ts"
@@ -188,6 +193,24 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 	}
 }
 
+/** What the database holds after a refused migrate or drift, as its report's outcome line says it. */
+const outcomeLine = (command: "migrate" | "drift", outcome: Outcome): string => {
+	switch (outcome) {
+		case "nothingRan":
+			return "No statement of any folder ran; the ledger and the catalog are unchanged."
+		case "resumes":
+			return "The files before it stay applied and recorded; a rerun resumes at the failed file."
+		case "drifted":
+			return command === "drift"
+				? "Nothing was applied; the catalog differs from the snapshot."
+				: "Every folder applied, but the catalog differs from the snapshot."
+		case "noVerdict":
+			return command === "drift"
+				? "Nothing was applied; the drift check reached no verdict."
+				: "Every folder applied; the drift check reached no verdict."
+	}
+}
+
 /**
  * The report of a refused migrate or drift: one line naming the stage, where it stopped (the schema, folder, file and statement,
  * and the server's SQLSTATE and constraint) and the reason's message, which carries the server's message; then each
@@ -212,18 +235,11 @@ const renderMigrateError = (
 		...(s.detail === undefined ? [] : [`  DETAIL: ${s.detail}`]),
 		...(s.hint === undefined ? [] : [`  HINT: ${s.hint}`])
 	])
-	const outcome = refusalStages.has(e.stage)
-		? "No statement of any folder ran; the ledger and the catalog are unchanged."
-		: e.stage === "drift"
-			? command === "drift"
-				? "Nothing was applied; the catalog differs from the snapshot."
-				: "Every folder applied, but the catalog differs from the snapshot."
-			: "The files before it stay applied and recorded; a rerun resumes at the failed file."
 	return [
 		`grizzle ${command}: refused at stage ${e.stage}${where.length === 0 ? "" : ` (${Arr.join(where, ", ")})`}: ${e.reason.message}`,
 		...reasonLines(e),
 		...said,
-		outcome,
+		outcomeLine(command, stageOutcome[e.stage]),
 		`fix: ${migrateStageFix[e.stage]}`
 	]
 }

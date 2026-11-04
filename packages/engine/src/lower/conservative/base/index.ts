@@ -1,9 +1,10 @@
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	distinctSelect,
 	type Lowerers,
 	type NodeLowerer
 } from "#compiler/lower/conservative/context.ts"
-import { col, lit, table, target } from "#compiler/sql/build.ts"
+import { col, table, target, unitTargets } from "#compiler/sql/build.ts"
 
 /**
  * Base: a scan of a stored relation, or of a derived relation's materialized view.
@@ -22,10 +23,9 @@ const lowerBase: NodeLowerer<"Base"> = (node, cx) => {
 		occurrence: node.occurrence,
 		relation: node.relation
 	})
-	const targets =
-		node.heading.length === 0
-			? [target(lit.bool(true))]
-			: node.heading.map((c) => target(col(alias, cx.names.column(node.relation, c.name))))
+	const targets = isNonEmpty(node.heading)
+		? mapNonEmpty(node.heading, (c) => target(col(alias, cx.names.column(node.relation, c.name))))
+		: unitTargets
 	return distinctSelect(targets, [table(name.schema, name.name, alias)], [])
 }
 

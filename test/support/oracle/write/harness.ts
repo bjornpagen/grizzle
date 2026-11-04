@@ -13,11 +13,13 @@ import {
 } from "effect"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
+import type { AmbientFeature } from "#test/support/ambient.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
 	type AppliedOutcome,
@@ -26,7 +28,12 @@ import {
 	type OracleState,
 	type SequenceState
 } from "#test/support/oracle/addwins.ts"
-import { CurrentPerturbation } from "#test/support/oracle/perturb.ts"
+import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
+import {
+	complementOf,
+	CurrentPerturbation,
+	printPerturbation
+} from "#test/support/oracle/perturb.ts"
 import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import {
@@ -74,6 +81,7 @@ import {
 	keyOf,
 	multiplyWriteFacts,
 	resolveFacts,
+	restoredWriteFacts,
 	type WFacts
 } from "#test/support/oracle/write/facts.ts"
 
@@ -219,6 +227,7 @@ type RefusalFeature =
  * and the run's statistics.
  */
 export type WriteOracleFeature =
+	| AmbientFeature
 	| `strata:${number}`
 	| `${MemberOp} ${WSourceKind}`
 	| `read ${ReadSource}`
@@ -237,6 +246,7 @@ export type WriteOracleFeature =
 	| "a member reads a relation its stratum writes"
 	| "insert generated"
 	| "insert generated project"
+	| "a unit addition described and enumerated"
 	| "numeric cast between typmods"
 	| "mutable relation"
 	| "identity column"
@@ -269,6 +279,8 @@ export type WriteOracleFeature =
 	| "a generated repeat of a kept fact refused"
 	| "counts under the realization's draws"
 	| "an UPDATE ... FROM put advancing its sequence"
+	| "facts reordered on a second reading"
+	| "a fact respelled on a second reading"
 
 const identityOf = (group: WGroup, relation: string, fact: unknown): string => {
 	const r = relationIn(group, relation)
@@ -396,8 +408,9 @@ const pairGenerated = (
 			),
 			([, f]) => f
 		)
-		problems.push(
-			...Arr.flatMap([...serial], (field) => {
+		appendAll(
+			problems,
+			Arr.flatMap([...serial], (field) => {
 				const values = Arr.map(committed, (f) => String(f[field]))
 				return new Set(values).size === values.length
 					? []
@@ -651,7 +664,7 @@ export const judgeWrite = (
 		} else if (outcome.success.kind !== "invariant-rejected") {
 			problems.push(`expected a domain's law or one of ${laws}, got ${outcome.success.kind}`)
 		} else {
-			problems.push(...refusalProblems(group, expected.refusals, outcome.success))
+			appendAll(problems, refusalProblems(group, expected.refusals, outcome.success))
 		}
 		stateIs(expected.initial, "after a domain's refusal the initial state stays:", noRenaming)
 		return problems
@@ -670,13 +683,13 @@ export const judgeWrite = (
 				)}, got ${o.kind}`
 			)
 		} else {
-			problems.push(...refusalProblems(group, expected.refusals, o))
+			appendAll(problems, refusalProblems(group, expected.refusals, o))
 		}
 		stateIs(expected.initial, "after a refusal the initial state stays:", noRenaming)
 		return problems
 	}
 	const { expected: pinned, paired } = judgedExpectation(group, expected, state)
-	problems.push(...paired.problems)
+	appendAll(problems, paired.problems)
 	if (pinned.kind !== "applied") {
 		problems.push(`under the realization's draws, expected ${printExpected(pinned)}, got ${o.kind}`)
 		return problems
@@ -690,7 +703,7 @@ export const judgeWrite = (
 		return problems
 	}
 	if (o.kind === "accepted" && want.kind === "accepted") {
-		problems.push(...countProblems(o.counts, want.counts))
+		appendAll(problems, countProblems(o.counts, want.counts))
 	}
 	for (const read of c.reads) {
 		const delivered = o.reads[read.name]
@@ -715,7 +728,10 @@ export const judgeWrite = (
 			)
 		}
 		if (read.parent.kind === "one") {
-			problems.push(...parentProblems(group, read.name, read.parent.containment, delivered, state))
+			appendAll(
+				problems,
+				parentProblems(group, read.name, read.parent.containment, delivered, state)
+			)
 		}
 	}
 	stateIs(want.state, "final state:", renaming)
@@ -749,36 +765,29 @@ const sameCounts = (a: AppliedOutcome["counts"], b: AppliedOutcome["counts"]): b
 		)
 	)
 
-/** The two database sides agree exactly on an applied outcome. */
-const agreement = (
-	a: Result.Result<WriteOutcome, unknown>,
-	b: Result.Result<WriteOutcome, unknown>
-): ReadonlyArray<string> => {
+/** A relation's counts, as a failure report prints them. */
+const printCounts = (counts: AppliedOutcome["counts"]): string =>
+	Arr.join(
+		Arr.map(counts, (c) => `${c.relation}(+${c.added} -${c.deleted} put ${c.put})`),
+		" "
+	)
+
+/** One database reading of a case: its name in a report, and its outcome. */
+type Reading = readonly [name: string, outcome: Result.Result<WriteOutcome, unknown>]
+
+/** Two database readings agree exactly on an applied outcome: its kind and every relation's counts. */
+const agreement = ([aName, a]: Reading, [bName, b]: Reading): ReadonlyArray<string> => {
 	if (Result.isFailure(a) || Result.isFailure(b)) {
 		return []
 	}
 	const x = a.success
 	const y = b.success
 	if (x.kind !== y.kind) {
-		return [`optimized ${x.kind}, conservative ${y.kind}`]
+		return [`${aName} ${x.kind}, ${bName} ${y.kind}`]
 	}
-	if (x.kind === "accepted" && y.kind === "accepted") {
-		const counts = (o: typeof x) =>
-			Arr.join(
-				Arr.map(
-					Arr.sort(
-						o.counts,
-						Order.mapInput(Order.String, (c: { readonly relation: string }) => c.relation)
-					),
-					(c) => `${c.relation}(+${c.added} -${c.deleted} put ${c.put})`
-				),
-				" "
-			)
-		if (counts(x) !== counts(y)) {
-			return [`optimized counts ${counts(x)}, conservative ${counts(y)}`]
-		}
-	}
-	return []
+	return x.kind === "accepted" && y.kind === "accepted" && !sameCounts(x.counts, y.counts)
+		? [`${aName} counts ${printCounts(x.counts)}, ${bName} counts ${printCounts(y.counts)}`]
+		: []
 }
 
 /**
@@ -824,6 +833,9 @@ const refusalKind = (t: WriteTarget, group: WGroup, law: LawId): Option.Option<R
  * projection that reads a numeric of one typmod into another, so the value is rounded by the cast into the
  * relation's type before the write compares it; and one that reads the wide text into the narrow text, whose domain
  * refuses a value outside it, a deletion's comparison among them.
+ *
+ * A unit addition described and enumerated: into one relation in one stratum, a described generated addition of no
+ * field beside an enumerated empty fact.
  */
 const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>["note"]): void => {
 	note(`strata:${c.strata.length}`)
@@ -848,6 +860,20 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 	for (const m of generating) {
 		if (m.source.kind === "project") {
 			note("insert generated project")
+		}
+	}
+	for (const s of c.strata) {
+		const unit = (m: (typeof s)[number]): boolean =>
+			m.source.kind === "project"
+				? Rec.size(m.source.head) === 0
+				: m.source.kind === "array" && Arr.some(m.source.facts, (f) => Rec.size(f) === 0)
+		const described = Arr.filter(s, (m) => m.source.kind === "project" && unit(m))
+		if (
+			Arr.some(described, (d) =>
+				Arr.some(s, (m) => m.relation === d.relation && m.source.kind === "array" && unit(m))
+			)
+		) {
+			note("a unit addition described and enumerated")
 		}
 	}
 	for (const r of c.reads) {
@@ -1065,6 +1091,13 @@ export interface Ran {
  * that violates that containment is refused at COMMIT with its law, never a defect of the read-back. The two database
  * sides must also agree with each other exactly on an applied outcome.
  *
+ * Then the case is read a second time, by the three invariance relations: its facts stored otherwise through a fresh
+ * reset, each relation's facts in another order and one value in its next spelling (../gen/restorage.ts, written by
+ * the owner's SERIALIZABLE reset as a direct writer), and the side db.apply runs applied again under the complement of
+ * the case's planner settings (../perturb.ts complementOf). The facts are the same, so it must give the oracle's
+ * outcome again and agree exactly with its first reading. The conservative realization is the oracle's baseline, not
+ * an answer an application receives, so only db.apply's side is read again.
+ *
  * Generated additions are compared up to renaming of their serial values. Within one attempt the realization draws
  * values from the identity sequences as the add-wins calculator does, but which generated fact takes which value is
  * the order the statement inserts them in, which nothing fixes, and an attempt that runs again draws fresh values,
@@ -1211,7 +1244,41 @@ export const runCase = (
 		}
 		const [optimized, conservative, ...others] = outcomes
 		if (optimized !== undefined && conservative !== undefined && others.length === 0) {
-			problems.push(...agreement(optimized, conservative))
+			appendAll(problems, agreement(["optimized", optimized], ["conservative", conservative]))
+		}
+		/**
+		 * The second reading: the facts stored otherwise through a fresh reset, another order and one value in its next
+		 * spelling, and the side db.apply runs applied again under the complement of the case's plan. Its answer is a
+		 * function of the facts, so it gives the oracle's outcome again and agrees exactly with its first reading.
+		 */
+		const restored = restoredWriteFacts(group, facts, yield* CurrentRestorage)
+		noteIf(restored.reordered, "facts reordered on a second reading")
+		noteIf(restored.respelled, "a fact respelled on a second reading")
+		const secondPlan = complementOf(perturbation)
+		yield* resetGroup(t, group, restored.facts, expected.initial)
+		const again = yield* applyWith(
+			t,
+			entry.success,
+			changes,
+			params,
+			"optimized",
+			expected.collisions,
+			secondPlan,
+			c.entry
+		)
+		const againState = yield* readGroup(t, group)
+		const readAgain = `optimized, read again over its facts stored otherwise (${restored.reordered ? "reordered" : "in their order"}, ${restored.respelled ? "one value respelled" : "no value respelled"}), ${printPerturbation(secondPlan)}`
+		const againProblems = [
+			...judgeWrite(group, c, expected, again.outcome, againState),
+			...(optimized === undefined
+				? []
+				: agreement(["optimized", optimized], ["optimized read again", again.outcome]))
+		]
+		for (const p of againProblems) {
+			problems.push(`${readAgain}: ${p}`)
+		}
+		if (againProblems.length > 0) {
+			problems.push(`${readAgain} outcome: ${printOutcome(again.outcome)}`)
 		}
 		for (const choice of program.choices) {
 			note(`put target ${choice.target}`)

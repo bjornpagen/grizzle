@@ -13,6 +13,12 @@ export type Timeout =
 	| Readonly<{ kind: "unbounded" }>
 	| Readonly<{ kind: "bounded"; millis: number }>
 
+/**
+ * The stack the small-stack project runs under: about a tenth of Node's default, so a per-element use of the stack (a
+ * spread argument, a recursion over a list) fails at the widths ordinary generators reach.
+ */
+const SMALL_STACK = "--stack-size=96"
+
 /** Vitest's form of a timeout, where zero means none. */
 const millisOf = (timeout: Timeout) => (timeout.kind === "unbounded" ? 0 : timeout.millis)
 
@@ -22,9 +28,12 @@ const millisOf = (timeout: Timeout) => (timeout.kind === "unbounded" ? 0 : timeo
  * steer by V8's block coverage, so their processes count blocks from the start, before the code under test loads; its own
  * global setup files, which run after the library's, beside the run seed; the export conditions its code resolves with;
  * how long a test and a hook may take; and how many files may run at once, when something the files share (a pool of
- * database connections, a set of worker databases) holds fewer than Vitest's default of one per core. A package with
- * none of a list states it empty, and one with no such limit states none. The exclusive and guided lists are projects
- * of their own, so each names its files outright: a glob there reaches every file it matches, inside `include` or not.
+ * database connections, a set of worker databases) holds fewer than Vitest's default of one per core; and `smallStack`,
+ * the files whose suites run a second time under `--stack-size=96`, about a tenth of Node's default stack, so a
+ * per-element use of the stack (a spread argument, a recursion over a list) fails at the widths ordinary generators
+ * reach. A package with none of a list states it empty, and one with no such limit states none. The exclusive, guided
+ * and small-stack lists are projects of their own, so each names its files outright: a glob there reaches every file it
+ * matches, inside `include` or not.
  */
 export type TestConfig = Readonly<{
 	include: ReadonlyArray<string>
@@ -34,6 +43,7 @@ export type TestConfig = Readonly<{
 	conditions: ReadonlyArray<string>
 	timeouts: Readonly<{ test: Timeout; hook: Timeout }>
 	maxWorkers: Option.Option<number>
+	smallStack: ReadonlyArray<string>
 }>
 
 /**
@@ -45,14 +55,15 @@ export type TestConfig = Readonly<{
 export const defineTestConfig = (config: TestConfig) => {
 	const fuzzing = Option.isSome(Effect.runSync(Config.option(Config.String("TEST_FUZZ"))))
 	const timeoutOf = (timeout: Timeout) => millisOf(fuzzing ? { kind: "unbounded" } : timeout)
+	const execArgv = [
+		...HARDENED_FLAGS,
+		...Arr.map(config.conditions, (condition) => `--conditions=${condition}`)
+	]
 	return defineConfig({
 		test: {
 			pool: "forks",
 			isolate: true,
-			execArgv: [
-				...HARDENED_FLAGS,
-				...Arr.map(config.conditions, (condition) => `--conditions=${condition}`)
-			],
+			execArgv,
 			experimental: { viteModuleRunner: false, nodeLoader: false },
 			globalSetup: [`${import.meta.dirname}/global-setup.ts`, ...config.setup],
 			projects: [
@@ -73,6 +84,19 @@ export const defineTestConfig = (config: TestConfig) => {
 									name: "guided",
 									include: Arr.copy(config.guided),
 									setupFiles: [`${import.meta.dirname}/coverage.ts`],
+									sequence: { groupOrder: 0 }
+								}
+							}
+						]
+					: []),
+				...(Arr.isReadonlyArrayNonEmpty(config.smallStack)
+					? [
+							{
+								extends: true,
+								test: {
+									name: "small-stack",
+									include: Arr.copy(config.smallStack),
+									execArgv: Arr.append(execArgv, SMALL_STACK),
 									sequence: { groupOrder: 0 }
 								}
 							}

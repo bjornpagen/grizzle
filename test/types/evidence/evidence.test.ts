@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
@@ -84,7 +84,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("evidence types", (it) 
 						}),
 						literal: Formatter.format,
 						limit: queryNames.length * contexts.length,
-						features: features<QueryName | Context>([...queryNames, ...contexts]),
+						coverage: requiredInSpace<QueryName | Context>([...queryNames, ...contexts]),
 						caseHang: Duration.minutes(2)
 					},
 					({ name, context }, c) =>

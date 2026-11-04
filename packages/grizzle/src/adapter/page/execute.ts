@@ -221,7 +221,9 @@ const fetchOrder = (
 		if (candidates.length > limit) {
 			return Result.fail(contradicted(answerOf(rows.record.arrival)))
 		}
-		out.push(...candidates)
+		for (const candidate of candidates) {
+			out.push(candidate)
+		}
 	}
 	return Result.succeed(out)
 }

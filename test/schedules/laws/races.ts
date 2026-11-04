@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features, type Reached } from "@grizzle/testing/features"
+import { required, type Situations } from "@grizzle/testing/features"
 import { array, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -10,6 +10,12 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter, Option, String as Str } from "effect"
 import { Cause, Effect, Record, Schema, type Scope } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
+import {
+	type Mode,
+	modeOf,
+	type Population,
+	populationsOf
+} from "#test/pg/laws/families/families.ts"
 import {
 	emptyState,
 	expect,
@@ -25,7 +31,6 @@ import {
 	selected,
 	type HostValue
 } from "#test/pg/laws/families/model.ts"
-
 import {
 	type CaseSketch,
 	caseSketchGen,
@@ -237,10 +242,10 @@ const threatened = (law: HostLaw): ReadonlyArray<Threatened> => {
 }
 
 /**
- * What a race's resolve reads of its installation: the host model, the drawn domains and the mutability; never a
- * connection.
+ * What a race's resolve reads of its installation: the host model, each relation's mutability among it, and the drawn
+ * domains; never a connection.
  */
-type RaceModel = Pick<HistoryEnv, "host" | "domains" | "isMutable">
+type RaceModel = Pick<HistoryEnv, "host" | "domains">
 
 /** The most facts a seed closes over: a closure past it is a defect of a family's laws. */
 const seedBound = 32
@@ -455,7 +460,7 @@ const replace = (env: RaceModel, relation: string, old: HostFact, next: HostFact
 	sameKey(env, relation, old, next)
 		? { kind: "rewrite", relation, old, next }
 		: written(
-				env.isMutable
+				relationOf(env.host, relation).mutable
 					? [{ relation, kind: "put", facts: [next] }]
 					: [
 							{ relation, kind: "delete", facts: [old] },
@@ -932,8 +937,7 @@ const raceOf = (
 			ops: directOps(
 				env.host,
 				Arr.flatMap(done, (w) => w.ops),
-				replacements,
-				env.isMutable
+				replacements
 			),
 			after: undefined
 		}
@@ -1093,16 +1097,12 @@ const keptRace = (
  *   a deletion and a concurrent insertion at one key;
  * - a grizzle writer's threat while a planted writer below SERIALIZABLE inserts the fact its threat writes.
  */
-const plantedRaces = <P extends { readonly mutable: boolean }>(
+const plantedRaces = <P>(
 	h: HistoryFamily<P>,
 	variants: Arr.NonEmptyReadonlyArray<P>
 ): ReadonlyArray<Kept<RaceCase, RaceFeature>> => {
 	for (const [v, p] of variants.entries()) {
-		const env: RaceModel = {
-			host: h.family.host(p),
-			domains: h.family.domains,
-			isMutable: p.mutable
-		}
+		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
 		const laws = Arr.flatMap(env.host.laws, threatened)
 		for (const [l, t] of laws.entries()) {
 			const law = pickOf(l, laws.length)
@@ -1255,7 +1255,7 @@ const skewPairs = (
 					writer: "a",
 					session: "a",
 					immediate: "deferred",
-					ops: directOps(env.host, writing.ops, writing.replacements, env.isMutable),
+					ops: directOps(env.host, writing.ops, writing.replacements),
 					after: undefined
 				}
 				return writeSkew(env, standing.state, grizzle, direct)
@@ -1280,16 +1280,12 @@ interface SkewStart {
  * its races threaten, each planted initial state of the law and each strided redraw of the direct writer's payload, the
  * pairs of threats skewPairs finds. Computed once, when the suite is built; plantedWriteSkew plants the first.
  */
-const skewStartsOf = <P extends { readonly mutable: boolean }>(
+const skewStartsOf = <P>(
 	h: HistoryFamily<P>,
 	variants: ReadonlyArray<P>
 ): ReadonlyArray<SkewStart> =>
 	Arr.flatMap(variants, (p, variant) => {
-		const env: RaceModel = {
-			host: h.family.host(p),
-			domains: h.family.domains,
-			isMutable: p.mutable
-		}
+		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
 		const laws = Arr.flatMap(env.host.laws, threatened).length
 		return Arr.flatMap(
 			Arr.makeBy(laws, (l) => pickOf(l, laws)),
@@ -1346,16 +1342,12 @@ interface WindowStart {
  * the direct writer's replacement of the anchor that changes it and that the host model accepts from that state.
  * Computed once, when the suite is built: the planted replacement is the first, and the window arm draws among them.
  */
-const windowStartsOf = <P extends { readonly mutable: boolean }>(
+const windowStartsOf = <P>(
 	h: HistoryFamily<P>,
 	variants: Arr.NonEmptyReadonlyArray<P>
 ): Arr.NonEmptyReadonlyArray<WindowStart> => {
 	const starts = Arr.flatMap(variants, (p, variant) => {
-		const env: RaceModel = {
-			host: h.family.host(p),
-			domains: h.family.domains,
-			isMutable: p.mutable
-		}
+		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
 		const laws = Arr.flatMap(env.host.laws, threatened).length
 		return Arr.flatMap(
 			Arr.makeBy(laws, (l) => pickOf(l, laws)),
@@ -1375,11 +1367,8 @@ const windowStartsOf = <P extends { readonly mutable: boolean }>(
 							})
 							const [replacement] = writtenBy(env, "direct", w, "replacement").replacements
 							return replacement !== undefined &&
-								expectDirect(
-									env.host,
-									standing.state,
-									directOps(env.host, [], [replacement], env.isMutable)
-								).kind === "accepted"
+								expectDirect(env.host, standing.state, directOps(env.host, [], [replacement]))
+									.kind === "accepted"
 								? [{ variant, law, initial, redraw }]
 								: []
 						}
@@ -1389,7 +1378,7 @@ const windowStartsOf = <P extends { readonly mutable: boolean }>(
 	})
 	if (!Arr.isReadonlyArrayNonEmpty(starts)) {
 		throw new Error(
-			`no law of a ${modeOf(Arr.headNonEmpty(variants).mutable)} schema of ${h.family.label} has an anchor a direct writer can replace`
+			`no law of a ${modeOf(h.family.host(Arr.headNonEmpty(variants)))} schema of ${h.family.label} has an anchor a direct writer can replace`
 		)
 	}
 	return starts
@@ -1460,17 +1449,13 @@ const raceCaseGen = (
  * interleaving, and one of them runs the grizzle writer's operation, and every law it checks, between the
  * replacement's two statements. It is the first window start of a mode's schemas (windowStartsOf).
  */
-const plantedReplacement = <P extends { readonly mutable: boolean }>(
+const plantedReplacement = <P>(
 	h: HistoryFamily<P>,
 	variants: Arr.NonEmptyReadonlyArray<P>,
 	start: WindowStart
 ): Kept<RaceCase, RaceFeature> => {
 	const p = elementAt(variants, start.variant, "the mode's schemas")
-	const env: RaceModel = {
-		host: h.family.host(p),
-		domains: h.family.domains,
-		isMutable: p.mutable
-	}
+	const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
 	const planted = plantedRace(start.law, start.initial, [
 		[
 			plantedTxn("direct", "replacement", strided(zeros, start.redraw), everyThreat),
@@ -1497,16 +1482,12 @@ const plantedReplacement = <P extends { readonly mutable: boolean }>(
  */
 const writeSkewRedraws = 8
 
-const plantedWriteSkew = <P extends { readonly mutable: boolean }>(
+const plantedWriteSkew = <P>(
 	h: HistoryFamily<P>,
 	variants: Arr.NonEmptyReadonlyArray<P>
 ): Kept<RaceCase, RaceFeature> | undefined => {
 	for (const [v, p] of variants.entries()) {
-		const env: RaceModel = {
-			host: h.family.host(p),
-			domains: h.family.domains,
-			isMutable: p.mutable
-		}
+		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
 		const laws = Arr.flatMap(env.host.laws, threatened)
 		for (const l of laws.keys()) {
 			const law = pickOf(l, laws.length)
@@ -1535,7 +1516,7 @@ const plantedWriteSkew = <P extends { readonly mutable: boolean }>(
 								writer: "a",
 								session: "a",
 								immediate: "deferred",
-								ops: directOps(env.host, writing.ops, writing.replacements, env.isMutable),
+								ops: directOps(env.host, writing.ops, writing.replacements),
 								after: undefined
 							}
 							if (!writeSkew(env, standing.state, grizzle, direct)) {
@@ -1595,7 +1576,7 @@ type RaceFeature =
  * both kinds of writer accepted, a deletion beside an insertion at one key for the anchor and for a source, a direct
  * replacement with another writer's step inside its window, and a planted writer refused by the guard.
  */
-const required: ReadonlyArray<RaceFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	...Arr.map(threatKinds, (k) => `threat: ${k}` as const),
 	"moved out of the anchor's group",
 	"blocked",
@@ -1632,7 +1613,7 @@ const insideReplacement = (i: Interleaving, replacing: ReadonlySet<string>): boo
  * interleaving covers runs under a PCT schedule it draws on `c` over its sessions: three levels of priority, so up to
  * two change points among its moves.
  */
-const runRace = <P extends { readonly mutable: boolean }>(
+const runRace = <P>(
 	h: HistoryFamily<P>,
 	install: HistoryInstall<P>,
 	race: Resolved,
@@ -1656,7 +1637,7 @@ const runRace = <P extends { readonly mutable: boolean }>(
 		}
 		for (const x of race.txns) {
 			if (x.kind === "below") {
-				c.noteAll(belowFeaturesOf(env.host, x.below, env.isMutable))
+				c.noteAll(belowFeaturesOf(env.host, x.below))
 			}
 		}
 		const [first, second] = race.threats
@@ -1773,28 +1754,16 @@ const runRace = <P extends { readonly mutable: boolean }>(
  * explaining every outcome, each refusal naming a law violated at its place. Which writer is refused or aborted, the
  * lock waits, the deadlock victim and the lock order are never asserted: they are the database's.
  *
- * The generated races of one law family, for each mutability, as explorations. A test installs each variant
- * the first time a case draws it and keeps the installation; every case opens and closes its own connections, so a
- * test holds one case's connections at a time whatever the variant count.
+ * The generated races of one law family, over each population of its box (families.ts populationsOf), as one
+ * exploration. A test installs each variant the first time a case draws it and keeps the installation; every case
+ * opens and closes its own connections, so a test holds one case's connections at a time whatever the variant count.
  */
-/** Whether a variant's installation is mutable: each a population of its own within one race suite. */
-type Mode = "immutable" | "mutable"
-
-const modeOf = (isMutable: boolean): Mode => (isMutable ? "mutable" : "immutable")
-
 /**
- * A mode's schemas, window starts, kept races and requirements: its variants, the starts that open a replacement's
- * window (windowStartsOf), its planted races, and whether it plants a write skew.
+ * A population's schemas, window starts, kept races and requirements: its mode and variants, the starts that open a
+ * replacement's window (windowStartsOf), its planted races, and whether it plants a write skew.
  */
-const modeRaces = <P extends { readonly mutable: boolean }>(
-	h: HistoryFamily<P>,
-	isMutable: boolean
-) => {
-	const [first, ...rest] = h.family.variants(isMutable)
-	if (first === undefined) {
-		throw new Error(`${h.family.label} draws no ${modeOf(isMutable)} schema`)
-	}
-	const variants: Arr.NonEmptyReadonlyArray<P> = [first, ...rest]
+const modeRaces = <P>(h: HistoryFamily<P>, population: Population<P>) => {
+	const variants = population.variants
 	const windows = windowStartsOf(h, variants)
 	const skew = plantedWriteSkew(h, variants)
 	const kept = [
@@ -1803,41 +1772,41 @@ const modeRaces = <P extends { readonly mutable: boolean }>(
 		...(skew === undefined ? [] : [skew])
 	]
 	/** A family with a write skew must break it in its population too. */
-	const reach: ReadonlyArray<RaceFeature> =
-		skew === undefined ? required : [...required, "write skew"]
-	return { variants, windows, kept, reach }
+	const reach: Arr.NonEmptyReadonlyArray<RaceFeature> =
+		skew === undefined ? situations : Arr.append(situations, "write skew")
+	return { mode: population.mode, variants, windows, kept, reach }
 }
 
 /**
- * The generated law races of one family, over its immutable and its mutable schemas in one population: a case's variant
- * names its schema and so its mode, every feature a race notes is paired with its mode, and each mode must reach, in
- * its own races, everything a family requires, its write skew included when it plants one. The kept races of the
- * mutable schemas name them past the immutable ones.
+ * The generated law races of one family, over every population of its box in one exploration: a case's variant names
+ * its schema and so its population, every feature a race notes is paired with its population's mode, and each
+ * population must reach, in its own races, everything a family requires, its write skew included when it plants one.
+ * Each population's kept races and window starts name its schemas past those of the populations before it.
  */
-export const raceSuite = <P extends { readonly mutable: boolean }>(h: HistoryFamily<P>): void => {
+export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
 		`generated law races: ${h.family.label}`,
 		(it) => {
-			const immutable = modeRaces(h, false)
-			const mutable = modeRaces(h, true)
-			const variants = Arr.appendAll(immutable.variants, mutable.variants)
-			const offset = immutable.variants.length
-			const kept = [
-				...immutable.kept,
-				...Arr.map(mutable.kept, (k) => ({
+			const populations = Arr.map(populationsOf(h.family), (population) => modeRaces(h, population))
+			/** Each population with the number of schemas before it, which its kept races and windows are offset by. */
+			const placed = Arr.map(populations, (population, i) => ({
+				...population,
+				offset: Arr.reduce(Arr.take(populations, i), 0, (n, q) => n + q.variants.length)
+			}))
+			const variants = Arr.flatMap(placed, (q) => q.variants)
+			const kept = Arr.flatMap(placed, (q) =>
+				Arr.map(q.kept, (k) => ({
 					...k,
-					sketch: { ...k.sketch, variant: k.sketch.variant + offset }
+					sketch: { ...k.sketch, variant: k.sketch.variant + q.offset }
 				}))
-			]
-			/** Each mode's window starts, the mutable ones naming their schemas past the immutable ones. */
-			const windows: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>> = [
-				immutable.windows,
-				Arr.map(mutable.windows, (w) => ({ ...w, variant: w.variant + offset }))
-			]
-			const reach: ReadonlyArray<Reached<RaceFeature>> = [
-				...Arr.map(immutable.reach, (f) => ["immutable", f] as const),
-				...Arr.map(mutable.reach, (f) => ["mutable", f] as const)
-			]
+			)
+			const windows: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>> = Arr.map(
+				placed,
+				(q) => Arr.map(q.windows, (w) => ({ ...w, variant: w.variant + q.offset }))
+			)
+			const reach: Situations<RaceFeature> = Arr.flatMap(placed, (q) =>
+				Arr.map(q.reach, (f) => [q.mode, f] as const)
+			)
 			const races = Effect.gen(function* () {
 				/** Every variant's installation, made before the first race and checked against its host. */
 				const installs = yield* Effect.forEach(variants, (p) =>
@@ -1863,20 +1832,19 @@ export const raceSuite = <P extends { readonly mutable: boolean }>(h: HistoryFam
 						suite: `races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(h.family.label)}`,
 						draw: drawn(raceCaseGen(variants.length, windows, skewStartsOf(h, variants))),
 						literal: Formatter.format,
-						features: features<RaceFeature>(reach),
+						coverage: required<RaceFeature>(reach, { cases: 8 * runsPerTest, sense: notesOnly }),
 						kept,
 						runs: 2 * runsPerTest,
 						shrink: { kind: "bounded", candidates: 300 },
 						concurrency: 1,
 						steerEvery: 16,
-						/** Steered only while a required situation is unreached, for four times the rotating cases at most. */
-						steering: { kind: "mutate", cases: 8 * runsPerTest, sense: notesOnly },
 						caseHang: Duration.minutes(2)
 					},
 					(rc, c) =>
 						Effect.gen(function* () {
 							const variant = elementAt(variants, rc.variant, "the family's schemas")
-							const mode = modeOf(variant.mutable)
+							const host = h.family.host(variant)
+							const mode = modeOf(host)
 							/** The case as the race sees it: every feature it notes is also noted beside its mode. */
 							const modal: Case<RaceFeature> = {
 								...c,
@@ -1895,16 +1863,7 @@ export const raceSuite = <P extends { readonly mutable: boolean }>(h: HistoryFam
 							}
 							modal.note(`variant: ${h.family.describe(variant)}`)
 							/** The race on its variant's model, the one the variant's installation holds. */
-							const race = c.draw(
-								resolveRaceGen(
-									{
-										host: h.family.host(variant),
-										domains: h.family.domains,
-										isMutable: variant.mutable
-									},
-									rc.race
-								)
-							)
+							const race = c.draw(resolveRaceGen({ host, domains: h.family.domains }, rc.race))
 							const i = elementAt(installs, rc.variant, "the family's installations")
 							yield* Effect.scoped(runRace(h, i, race, modal))
 						})

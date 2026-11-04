@@ -8,6 +8,7 @@ import {
 	traceApproximate
 } from "#compiler/check/approximate/trace.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type CertificateRule, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import {
@@ -25,7 +26,7 @@ import type { Expr, OrderItem } from "#compiler/sql/ast.ts"
 import {
 	asc,
 	conjunction,
-	core,
+	distinctCoreWhen,
 	eq,
 	exists,
 	lit,
@@ -33,7 +34,8 @@ import {
 	select,
 	simpleSelect,
 	target,
-	types
+	types,
+	unitTargets
 } from "#compiler/sql/build.ts"
 
 /** Which form the shape chose: the direct indexed shape, or the one that deduplicates before the bound. */
@@ -73,14 +75,17 @@ const deduplicates = (
 
 /**
  * The order columns after the distance: with a proved key, the fewest leading heading columns that determine one; with
- * a DISTINCT, the whole heading, so the order is total over the deduplicated rows.
+ * a DISTINCT, the whole heading, so the order is total over the deduplicated rows. A column the projection holds
+ * constant, a head literal or a parameter, is one value in every row, so it settles no tie and is no order item: a
+ * literal there would be a positional reference.
  */
 const tieColumns = (
 	facts: ShapeFacts,
 	node: NodeOf<"ApproximateNearest">,
-	distinct: boolean
+	distinct: boolean,
+	constant: ReadonlySet<string>
 ): ReadonlyArray<string> => {
-	const rest = node.heading.map((c) => c.name).filter((c) => c !== node.score)
+	const rest = node.heading.map((c) => c.name).filter((c) => c !== node.score && !constant.has(c))
 	if (distinct) {
 		return rest
 	}
@@ -189,7 +194,7 @@ export const approximateLowerer =
 			}
 		}
 		const input = cx.source(projection.input, env)
-		const scope = extendEnv(env, [projection.input.id, input.map])
+		const scope = extendEnv(env, [[projection.input.id, input.map]])
 		/** The traced column is the score's column reference, a column of the projection's input (valid DAG). */
 		const column = columnIn(input.map, trace.column)
 		const distance: Expr = {
@@ -210,20 +215,19 @@ export const approximateLowerer =
 		const expr = (name: string): Expr => columnIn(outputs, name)
 		const where = eligibility(cx, env, trace, outputs, at)
 		const distinct = deduplicates(facts, node, [projection, ...trace.upper])
+		const constant = new Set(
+			projection.out.filter((o) => o.expr.deps.nodes.length === 0).map((o) => o.name)
+		)
 		const orderBy: ReadonlyArray<OrderItem> = [
 			asc(distance),
-			...tieColumns(facts, node, distinct).map((c) => asc(expr(c)))
+			...tieColumns(facts, node, distinct, constant).map((c) => asc(expr(c)))
 		]
 		certify(facts, node, distinct ? "deduplicated" : "indexed")
+		const targets = isNonEmpty(node.heading)
+			? mapNonEmpty(node.heading, (c) => target(expr(c.name)))
+			: unitTargets
 		return {
-			...select({
-				...core(
-					node.heading.map((c) => target(expr(c.name))),
-					[input.item],
-					conjunction(where)
-				),
-				distinct
-			}),
+			...select(distinctCoreWhen(distinct, targets, [input.item], conjunction(where))),
 			orderBy,
 			limit: cx.boundExpr({ kind: "literal", k: node.take })
 		}
@@ -244,7 +248,7 @@ const eligibility = (
 	const conditions: Array<Expr> = []
 	let below: RelNode = trace.projection
 	for (const u of [...trace.upper].toReversed()) {
-		const scope = extendEnv(env, [below.id, outputs])
+		const scope = extendEnv(env, [[below.id, outputs]])
 		if (u.kind !== "Filter" && cx.readsFeedback(u.right)) {
 			refuse(
 				"UnsupportedOperation",

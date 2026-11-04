@@ -1,3 +1,4 @@
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { inputSetPlaceholder, type NodeOf, type PlaceholderInput } from "#compiler/ir/rel.ts"
 import {
 	type ColumnMap,
@@ -10,8 +11,8 @@ import {
 	relationColumns
 } from "#compiler/lower/conservative/context.ts"
 import type { RecordsetSlot, RelationColumn } from "#compiler/lower/conservative/types.ts"
-import type { Expr, FromItem } from "#compiler/sql/ast.ts"
-import { cast, col, recordset } from "#compiler/sql/build.ts"
+import type { Expr, FromSource } from "#compiler/sql/ast.ts"
+import { cast, col, recordset, unitRow } from "#compiler/sql/build.ts"
 
 /**
  * The jsonb placeholder a placeholder input reads, by what fills it: the declared relation parameter its caller binds,
@@ -63,6 +64,13 @@ const rowCell = (value: Expr, column: RelationColumn): Expr => {
  * recordset of its one fact would:
  *
  *   SELECT r2.c1, r2.c2 FROM (VALUES ("t"."doc"::uuid, "t"."user"::text COLLATE pg_catalog.pg_c_utf8)) AS r2(c1, c2)
+ *
+ * An input of no field is the unit relation, read by the unit marker. PostgreSQL spells neither a recordset nor a VALUES
+ * of no column, so a placeholder input of no field is one row of no column per fact, the placeholder's array elements
+ * (sql/print.ts), and a row of no field is the derived `(SELECT)`:
+ *
+ *   SELECT DISTINCT true FROM jsonb_array_elements($1::jsonb) AS r2
+ *   SELECT DISTINCT true FROM (SELECT) AS r2
  */
 export const inputSetSource = (node: NodeOf<"InputSet">, cx: LowerContext): InputSource => {
 	const input = node.input
@@ -71,7 +79,7 @@ export const inputSetSource = (node: NodeOf<"InputSet">, cx: LowerContext): Inpu
 
 /** The FROM item of an InputSet and its columns by heading name. */
 interface InputSource {
-	readonly item: FromItem
+	readonly item: FromSource
 	readonly map: ColumnMap
 }
 
@@ -100,7 +108,8 @@ const recordsetSource = (
 	}
 }
 
-/** The one-row VALUES of a membership's row under a fresh alias (see `inputSetSource`). */
+/** The one-row VALUES of a membership's row under a fresh alias, the derived `(SELECT)` for a row of no field (see
+ * `inputSetSource`). */
 const rowSource = (node: NodeOf<"InputSet">, cx: LowerContext): InputSource => {
 	const value = cx.membershipRow(nodeLabel(node))
 	const origin = { kind: "node", node: node.id } as const
@@ -111,12 +120,14 @@ const rowSource = (node: NodeOf<"InputSet">, cx: LowerContext): InputSource => {
 	)
 	const alias = cx.relationAlias(origin)
 	return {
-		item: {
-			kind: "values",
-			rows: [columns.map((c) => rowCell(value(c.name), c))],
-			alias,
-			columns: columns.map((c) => c.definition.name)
-		},
+		item: isNonEmpty(columns)
+			? {
+					kind: "values",
+					rows: [columns.map((c) => rowCell(value(c.name), c))],
+					alias,
+					columns: mapNonEmpty(columns, (c) => c.definition.name)
+				}
+			: unitRow(alias),
 		map: new Map(columns.map((c) => [c.name, col(alias, c.definition.name)]))
 	}
 }

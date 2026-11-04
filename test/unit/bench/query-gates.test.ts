@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -68,21 +69,23 @@ describe("the query kit's keyed numeric agreement", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					features: features<WithinFeature>([
-						"repeated key left",
-						"repeated key right",
-						"key only left",
-						"key only right",
-						"difference above tolerance",
-						"agree within tolerance",
-						"agree exactly"
-					]),
+					coverage: required<WithinFeature>(
+						[
+							"repeated key left",
+							"repeated key right",
+							"key only left",
+							"key only right",
+							"difference above tolerance",
+							"agree within tolerance",
+							"agree exactly"
+						],
+						{ cases: 200, sense: notesOnly }
+					),
 					kept: [],
 					runs: 200,
 					shrink: { kind: "bounded", candidates: 150 },
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([left, right, tolerance], c) =>
@@ -163,17 +166,15 @@ describe("the query kit's delivered agreement", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<DeliveredFeature>([
-							"permutation",
-							"nested permutation",
-							"changed field"
-						]),
+						coverage: required<DeliveredFeature>(
+							["permutation", "nested permutation", "changed field"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: { kind: "bounded", candidates: 150 },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([rows, n, reverse], c) =>

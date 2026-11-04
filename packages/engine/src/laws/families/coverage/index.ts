@@ -1,9 +1,15 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { SelectedSide } from "#compiler/ir/law.ts"
-import type { FamilyPlugin, FamilyVariable, KeyValue } from "#compiler/laws/families/plugin.ts"
+import type {
+	FamilyPlugin,
+	FamilyUnit,
+	FamilyVariable,
+	KeyValue
+} from "#compiler/laws/families/plugin.ts"
 import { raiseViolation, recordField, selectedBy } from "#compiler/laws/residual/sql.ts"
 import { covers, coverWith, emptyCover, multirangeTypeOf } from "#compiler/laws/span/cover.ts"
+import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import type { Expr, PlStatement, Select } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -26,8 +32,8 @@ const witnessVariable: FamilyVariable = "w"
 const coverVariable: FamilyVariable = "cover"
 
 /** The source's selection over the probed source row r1. */
-const sourceSelected = (law: LawId, schema: string, source: SelectedSide): Expr =>
-	selectedBy(law, schema, source.selection, (f) => col("r1", f.column))
+const sourceSelected = (law: LawId, names: PhysicalNames, source: SelectedSide): Expr =>
+	selectedBy(law, names, source.selection, (f) => col("r1", f.column))
 
 const output = (i: number): string => `c${i + 1}`
 
@@ -57,18 +63,23 @@ const output = (i: number): string => `c${i + 1}`
  * witness, its DETAIL the violating fact's key (the projection when it is a key of A, otherwise A's primary key). The probe is served by the law's index on A (f...), partial with the source's selection, which
  * the probe's WHERE implies, unless an index of every row of A already serves it.
  *
- * The event table: an A insertion checks its group; a B deletion checks the deleted
- * row's group; a `mutable` A's UPDATE OF its span, selector or scalar fields, and a `mutable` B's UPDATE OF its span or
- * scalar fields, check the old and the new groups in key order. Every A image is guarded by the source's selection
- * (`ImageGuard`), so an event of an A row outside the selection checks nothing. An A deletion and a B
- * insertion can only repair coverage and fire nothing. */
-export const coverageFamily: FamilyPlugin<"selectedSourceCoverage"> = ({ law, schema, shown }) => {
+ * The event table: an A insertion checks its group; a B deletion checks the deleted row's group; a `mutable` A's UPDATE
+ * OF its span, selector or scalar fields checks its new group, and a `mutable` B's UPDATE OF its span or scalar fields
+ * its old group. Every A image is guarded by the source's selection (`ImageGuard`), so an event of an A row outside
+ * the selection fires nothing. An A deletion and a B insertion can only repair coverage and fire nothing. The one term
+ * reads both relations, so every participant's units run the whole check. */
+export const coverageFamily: FamilyPlugin<"selectedSourceCoverage"> = ({
+	law,
+	schema,
+	names,
+	shown
+}) => {
 	const lawId: LawId = law.lawId
 	const { source, target, detail } = law
 	const d = mapNonEmpty(detail.keys, (k) => k.column)
 	const targetTable = objectName(schema, target.relation.ident)
 	const cover: Expr = { kind: "plVar", name: coverVariable }
-	const selected = sourceSelected(lawId, schema, source)
+	const selected = sourceSelected(lawId, names, source)
 	const raise = raiseViolation(
 		lawId,
 		detail,
@@ -82,7 +93,7 @@ export const coverageFamily: FamilyPlugin<"selectedSourceCoverage"> = ({ law, sc
 			core(
 				[targetAs(col("r1", target.span.column), "c1")],
 				[{ kind: "table", table: targetTable, alias: "r1" }],
-				and(...key.map((k) => eq(col("r1", k.pair.anchor.column), k.value)))
+				and(mapNonEmpty(key, (k) => eq(col("r1", k.pair.anchor.column), k.value)))
 			)
 		)
 		const probe: Select = {
@@ -90,11 +101,11 @@ export const coverageFamily: FamilyPlugin<"selectedSourceCoverage"> = ({ law, sc
 				core(
 					d.map((c, i) => targetAs(col("r1", c), output(i))),
 					[{ kind: "table", table: objectName(schema, source.relation.ident), alias: "r1" }],
-					and(
-						...key.map((k) => eq(col("r1", k.pair.field.column), k.value)),
+					and([
+						...mapNonEmpty(key, (k) => eq(col("r1", k.pair.field.column), k.value)),
 						selected,
 						not(covers(cover, col("r1", source.span.column)))
-					)
+					])
 				)
 			),
 			orderBy: d.map((c) => asc(col("r1", c))),
@@ -117,7 +128,7 @@ export const coverageFamily: FamilyPlugin<"selectedSourceCoverage"> = ({ law, sc
 			{ kind: "forQuery", variable: witnessVariable, query: probe, body: [raise] }
 		]
 	}
-	return {
+	const unit: FamilyUnit = {
 		declare: [
 			{ name: listVariable, type: types.record },
 			{ name: witnessVariable, type: types.record },
@@ -125,4 +136,5 @@ export const coverageFamily: FamilyPlugin<"selectedSourceCoverage"> = ({ law, sc
 		],
 		check
 	}
+	return () => unit
 }

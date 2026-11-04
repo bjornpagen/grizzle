@@ -1,6 +1,6 @@
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { namedDetail, type RelationInfo } from "#compiler/ir/law.ts"
+import { namedDetail, type NamedDetailCodec, type RelationInfo } from "#compiler/ir/law.ts"
 import { decodeDetail } from "#compiler/laws/model/detail.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { withoutSerial } from "#compiler/scalar/compute/types.ts"
@@ -224,7 +224,9 @@ export const witnessDecoder = (context: OutcomeContext, laws: LawModel): KeyDeco
 		}
 		return keyWitness(relation, values)
 	}
-	const codecOf = new Map(laws.residuals.map((l) => [l.lawId, namedDetail(l.detail)] as const))
+	const codecOf = new Map<LawId, NamedDetailCodec>(
+		laws.residuals.map((l) => [l.lawId, namedDetail(l.detail)] as const)
+	)
 	return {
 		fromRefusal: convertKey,
 		fromDetail: (detail, law) => {

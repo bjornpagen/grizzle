@@ -237,7 +237,7 @@ const parseArray = (text: string, element: (text: string) => unknown): unknown =
 					Option.toArray
 				)
 			)
-			const stop = Math.min(...end)
+			const stop = Arr.reduce(end, Number.POSITIVE_INFINITY, (least, x) => Math.min(least, x))
 			const raw = Str.slice(at, stop)(text)
 			out.push(raw === "NULL" ? null : element(raw))
 			at = stop
@@ -407,6 +407,27 @@ const numberOf = (client: Client, field: string): number => {
 	return Predicate.isNumber(value) ? value : 0
 }
 
+/**
+ * The startup options of every harness session: the closed search path and fixed values of every setting an ambient
+ * session draws (test/support/ambient.ts), so an oracle's, a fixture's or a direct writer's SQL never runs, parses or
+ * prints under the defaults a suite draws for the subject, whatever the database's or a role's defaults say.
+ */
+const harnessSessionOptions = Arr.join(
+	Arr.map(
+		[
+			"search_path=pg_catalog,pg_temp",
+			"extra_float_digits=1",
+			"lc_monetary=C.UTF-8",
+			"TimeZone=UTC",
+			"DateStyle=ISO,MDY",
+			"IntervalStyle=postgres",
+			"bytea_output=hex"
+		],
+		(setting) => `-c ${setting}`
+	),
+	" "
+)
+
 const connectOnce = (
 	ca: string,
 	options: SessionOptions
@@ -419,6 +440,7 @@ const connectOnce = (
 			database: options.database,
 			user: options.username,
 			password: Redacted.value(options.password),
+			options: harnessSessionOptions,
 			...Option.match(options.applicationName, {
 				onNone: () => ({}),
 				onSome: (name) => ({ application_name: name })

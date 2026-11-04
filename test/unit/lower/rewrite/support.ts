@@ -20,6 +20,7 @@ import { ownedFixture } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, genParamDecls } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -36,8 +37,7 @@ import {
 	distinctRows,
 	equal,
 	ReferenceUnsupported,
-	type Row,
-	ignoreMerges
+	type Row
 } from "#test/support/oracle/reference/values.ts"
 import { ledgerSchema, type Q, type RelationSpec } from "#test/unit/lower/conservative/fixtures.ts"
 
@@ -132,8 +132,8 @@ const statementEquivalence: Equivalence<ExpectedStatement> = (left, right) => {
 		)
 	}
 	const difference = multiset(rowEquivalence(left.heading))(
-		distinctRows(left.rows, left.heading, `the left statement ${left.label}`, ignoreMerges),
-		distinctRows(right.rows, right.heading, `the right statement ${right.label}`, ignoreMerges)
+		distinctRows(left.rows, left.heading, `the left statement ${left.label}`),
+		distinctRows(right.rows, right.heading, `the right statement ${right.label}`)
 	)
 	return Option.map(difference, (found) => `${left.label}: ${found}`)
 }
@@ -251,7 +251,7 @@ const handInput = (
 		closed: [],
 		containments
 	},
-	facts,
+	facts: canonicalFacts(facts),
 	params,
 	observer: unobserved
 })

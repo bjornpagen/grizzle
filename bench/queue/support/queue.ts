@@ -117,8 +117,8 @@ type QueueOf<St extends ReadonlyArray<Statement>> = Schema<string, QueueRelation
 const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 	const claimable = query(s)
 		.rule((r) => {
-			const { key, kind, slot, epoch, enqueued } = v(QueueWork)
-			const { due, attempts } = v(Wanted)
+			const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+			const { due, attempts } = v(Wanted, "wanted")
 			return r
 				.match(QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
 				.match(Wanted, { key, due, attempts })
@@ -135,14 +135,14 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 					standing: Standing.handle("wanted"),
 					epoch,
 					enqueued,
-					wrap: r.literal(0),
+					wrap: 0,
 					due,
 					attempts
 				})
 		})
 		.rule((r) => {
-			const { key, kind, slot, epoch, enqueued } = v(QueueWork)
-			const { due, attempts } = v(Wanted)
+			const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+			const { due, attempts } = v(Wanted, "wanted")
 			return r
 				.match(QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
 				.match(Wanted, { key, due, attempts })
@@ -159,14 +159,14 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 					standing: Standing.handle("wanted"),
 					epoch,
 					enqueued,
-					wrap: r.literal(1),
+					wrap: 1,
 					due,
 					attempts
 				})
 		})
 		.rule((r) => {
-			const { key, kind, slot, epoch, enqueued } = v(QueueWork)
-			const { seat, expires } = v(Leased)
+			const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+			const { seat, expires } = v(Leased, "leased")
 			return r
 				.match(QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
 				.match(Leased, {
@@ -188,14 +188,14 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 					standing: Standing.handle("leased"),
 					epoch,
 					enqueued,
-					wrap: r.literal(0),
+					wrap: 0,
 					seat,
 					expires
 				})
 		})
 		.rule((r) => {
-			const { key, kind, slot, epoch, enqueued } = v(QueueWork)
-			const { seat, expires } = v(Leased)
+			const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+			const { seat, expires } = v(Leased, "leased")
 			return r
 				.match(QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
 				.match(Leased, {
@@ -217,7 +217,7 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 					standing: Standing.handle("leased"),
 					epoch,
 					enqueued,
-					wrap: r.literal(1),
+					wrap: 1,
 					seat,
 					expires
 				})
@@ -226,7 +226,7 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 		.take(1)
 	const freeSeat = query(s)
 		.rule((r) => {
-			const { resource, seat } = v(Seat)
+			const { resource, seat } = v(Seat, "seat")
 			return r
 				.match(Seat, { resource, seat })
 				.where(
@@ -234,10 +234,10 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 					r.ge(seat, r.param("fromSeat", SeatNo)),
 					r.not(Leased, { resource, seat })
 				)
-				.find({ seat, wrap: r.literal(0) })
+				.find({ seat, wrap: 0 })
 		})
 		.rule((r) => {
-			const { resource, seat } = v(Seat)
+			const { resource, seat } = v(Seat, "seat")
 			return r
 				.match(Seat, { resource, seat })
 				.where(
@@ -245,7 +245,7 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 					r.lt(seat, r.param("fromSeat", SeatNo)),
 					r.not(Leased, { resource, seat })
 				)
-				.find({ seat, wrap: r.literal(1) })
+				.find({ seat, wrap: 1 })
 		})
 		.orderBy(["wrap", "asc"], ["seat", "asc"])
 		.take(1)
@@ -262,8 +262,8 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 				resource: r.param("resource", Leased.fields.resource),
 				fromSeat: r.param("fromSeat", SeatNo)
 			})
-			const { key, kind, slot, epoch, enqueued } = v(items)
-			const { seat } = v(seats)
+			const { key, kind, slot, epoch, enqueued } = v(items, "items")
+			const { seat } = v(seats, "seats")
 			return r
 				.match(items, { standing: "wanted", key, kind, slot, epoch, enqueued })
 				.match(seats, { seat })
@@ -277,8 +277,8 @@ const picking = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => {
 				from: r.param("from", Digest),
 				resource: r.param("resource", Leased.fields.resource)
 			})
-			const { key, kind, slot, epoch, enqueued } = v(items)
-			const { seat } = v(Leased)
+			const { key, kind, slot, epoch, enqueued } = v(items, "items")
+			const { seat } = v(Leased, "leased")
 			return r
 				.match(items, { standing: "leased", key, kind, slot, epoch, enqueued })
 				.match(Leased, { key, seat })
@@ -301,12 +301,12 @@ export const claimOf = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => 
 					resource: r.param("resource", Leased.fields.resource),
 					fromSeat: r.param("fromSeat", SeatNo)
 				})
-				const x = v(p)
+				const x = v(p, "p")
 				return r.match(p, x).find({
 					key: x.key,
 					kind: x.kind,
 					slot: x.slot,
-					standing: r.literal("leased"),
+					standing: "leased",
 					epoch: Compute.add(x.epoch, 1n),
 					enqueued: x.enqueued
 				})
@@ -323,8 +323,8 @@ export const claimOf = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => 
 					resource: r.param("resource", Leased.fields.resource),
 					fromSeat: r.param("fromSeat", SeatNo)
 				})
-				const { key } = v(p)
-				const { due, attempts } = v(Wanted)
+				const { key } = v(p, "p")
+				const { due, attempts } = v(Wanted, "wanted")
 				return r
 					.match(p, { key })
 					.match(Wanted, { key, due, attempts })
@@ -342,7 +342,7 @@ export const claimOf = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => 
 					resource: r.param("resource", Leased.fields.resource),
 					fromSeat: r.param("fromSeat", SeatNo)
 				})
-				const { key, epoch, seat } = v(p)
+				const { key, epoch, seat } = v(p, "p")
 				return r.match(p, { key, epoch, seat }).find({
 					key,
 					resource: r.param("resource", Leased.fields.resource),
@@ -354,8 +354,8 @@ export const claimOf = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => 
 		)
 		.read("claimed", (delta) =>
 			query(s).rule((r) => {
-				const l = v(delta.added(Leased))
-				const { kind, slot, enqueued } = v(QueueWork)
+				const l = v(delta.added(Leased), "addedLeased")
+				const { kind, slot, enqueued } = v(QueueWork, "queueWork")
 				return r
 					.match(delta.added(Leased), l)
 					.match(QueueWork, {
@@ -385,7 +385,7 @@ const settleBase = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) =>
 		.delete(
 			Leased,
 			query(s).rule((r) => {
-				const { key, resource, seat, epoch, expires } = v(Leased)
+				const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 				return r
 					.match(Leased, { key, resource, seat, epoch, expires })
 					.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
@@ -395,13 +395,13 @@ const settleBase = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) =>
 		.put(
 			QueueWork,
 			query(s).rule((r) => {
-				const { key, resource, seat, epoch, expires } = v(Leased)
-				const { kind, slot, enqueued } = v(QueueWork)
+				const { key, resource, seat, epoch, expires } = v(Leased, "leased")
+				const { kind, slot, enqueued } = v(QueueWork, "queueWork")
 				return r
 					.match(Leased, { key, resource, seat, epoch, expires })
 					.match(QueueWork, { key, kind, slot, epoch, enqueued })
 					.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
-					.find({ key, kind, slot, standing: r.literal("done"), epoch, enqueued })
+					.find({ key, kind, slot, standing: "done", epoch, enqueued })
 			})
 		)
 
@@ -416,7 +416,7 @@ export const settleOf = (s: MutableQueue) =>
 	settleBase(s).insert(
 		Done,
 		query(s).rule((r) => {
-			const { key, resource, seat, epoch, expires } = v(Leased)
+			const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 			return r
 				.match(Leased, { key, resource, seat, epoch, expires })
 				.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
@@ -428,7 +428,7 @@ export const settleOfImmutable = (s: ImmutableQueue) =>
 	settleBase(s).insert(
 		Done,
 		query(s).rule((r) => {
-			const { key, resource, seat, epoch, expires } = v(Leased)
+			const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 			return r
 				.match(Leased, { key, resource, seat, epoch, expires })
 				.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))

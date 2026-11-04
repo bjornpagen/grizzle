@@ -22,7 +22,7 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
-import { columnRefs, type DagEditor, total } from "#compiler/lower/optimize/demand/editor.ts"
+import type { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
 	type Measure,
@@ -54,16 +54,6 @@ const simplifyRules = {
 const isEmptyRelation = (node: EditNode): boolean =>
 	node.kind === "Closed" && node.rows.length === 0
 
-/** Whether every expression any node of the subtree evaluates is total. */
-const subtreeTotal = (editor: DagEditor, cell: Cell): boolean => {
-	for (const c of editor.subtree(cell)) {
-		if (!total(exprsOf(c.current))) {
-			return false
-		}
-	}
-	return true
-}
-
 /**
  * Whether `cell` is read through exactly one input position and named by no root and no lateral reference: a rewrite
  * may then change its set as long as that one reader's set is unchanged. A node one reader reads twice (a semi-join's
@@ -85,7 +75,7 @@ const certify = (
 		rule,
 		inputs,
 		outputs,
-		premises: nodePremises(...inputs),
+		premises: nodePremises(inputs),
 		context: "queryLocal",
 		preservedHeading: heading.map((c) => c.name),
 		equality: [],
@@ -234,12 +224,12 @@ const finiteFold: Rule = {
 }
 
 /**
- * Whether `cell` may be replaced by a closed relation of its heading: it lies on no discriminant spine, every
- * evaluation the replacement drops is total, and no attachment hangs below it, since an attachment is a delivered
- * statement of its own that an empty parent would silently drop.
+ * Whether `cell` may be replaced by a closed relation of its heading: it lies on no discriminant spine and no
+ * attachment hangs below it, since an attachment is a delivered statement of its own that an empty parent would
+ * silently drop.
  */
 const replaceable = (ed: DagEditor, cell: Cell, spine: ReadonlySet<Cell>): boolean => {
-	if (spine.has(cell) || !subtreeTotal(ed, cell)) {
+	if (spine.has(cell)) {
 		return false
 	}
 	for (const c of ed.subtree(cell)) {
@@ -333,7 +323,7 @@ const emptyRule: Rule = {
 		const spine = ed.discriminantSpine()
 		if (node.kind === "Union") {
 			const memo = new Map<Cell, boolean>()
-			const gone = (a: Cell) => vacuous(a, memo) && subtreeTotal(ed, a)
+			const gone = (a: Cell) => vacuous(a, memo)
 			if (
 				node.groups.length === 1 &&
 				node.groups.every((g) => g.arms.every(gone)) &&
@@ -390,7 +380,7 @@ const mergeFilters: Rule = {
 		}
 		const innerCell = outer.input
 		const inner = innerCell.current
-		if (inner.kind !== "Filter" || !exclusive(cx, innerCell) || !total([outer.pred])) {
+		if (inner.kind !== "Filter" || !exclusive(cx, innerCell)) {
 			return false
 		}
 		const moved = ed.copyExpr(outer.pred, ed.retarget(innerCell, inner.input))
@@ -412,11 +402,6 @@ const mergeProjections: Rule = {
 		const innerCell = outer.input
 		const inner = innerCell.current
 		if (inner.kind !== "ProjectSet" || !exclusive(cx, innerCell)) {
-			return false
-		}
-		const used = new Set(columnRefs(outer.out.map((o) => o.expr)).map((r) => r.name))
-		const dropped = inner.out.filter((o) => !used.has(o.name)).map((o) => o.expr)
-		if (!total(dropped)) {
 			return false
 		}
 		const byName = new Map(inner.out.map((o) => [o.name, o.expr]))
@@ -599,13 +584,12 @@ const equality: Rule = {
  * - simplify.empty: branch removal. An operator over the empty relation that yields the empty relation is the empty
  *   relation; an anti-join or difference whose right side is empty is its left side where it is the left side's one
  *   reference; an empty union arm is dropped
- *   while its heading group keeps another arm. Only where every dropped evaluation is total, so removing
- *   it can never hide an error the program would raise;
- * - simplify.mergeFilters: a filter over a filter read by nothing else is one filter over the conjunction, when the
- *   outer predicate is total (moving it to rows the inner predicate rejects cannot raise);
+ *   while its heading group keeps another arm. No dropped evaluation could raise, since none does;
+ * - simplify.mergeFilters: a filter over a filter read by nothing else is one filter over the conjunction (the outer
+ *   predicate then meets rows the inner one rejects, which raise nothing);
  * - simplify.mergeProjections: a projection of a projection read by nothing else is one projection of the composed
  *   expressions ("successive ordinary projections may sometimes be combined"): under set semantics
- *   pi_g(pi_f(X)) = pi_(g . f)(X), and every input expression the composition no longer evaluates is total;
+ *   pi_g(pi_f(X)) = pi_(g . f)(X);
  * - simplify.identityProjection: a projection that copies every input column in order, and is its input's one
  *   reference, is its input, which takes over the projection's evidence;
  * - simplify.equality: a `var = var` conjunct of a filter over a region read by nothing else becomes a region

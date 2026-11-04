@@ -1,4 +1,5 @@
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
@@ -20,9 +21,9 @@ import { textLookup } from "#compiler/text/refinement.ts"
  * attachments, which are nested sets and no scalar.
  *
  * Types come from the field descriptors of relations, closed relations, relation parameters and recursive rows, and
- * from the head terms of finished rules: a variable's or Compute term's type, an aggregate's native result type. A
- * parameter or a bare literal in a head has no type until the checker unifies it, nor does a field of a query rebuilt
- * from its Description alone. A union's field keeps a type only when every arm that has it agrees on a compatible one
+ * from the head terms of finished rules: a variable's, parameter's or Compute term's type, an aggregate's native result
+ * type. A bare literal in a head has no type until the checker types it, nor does a field of a query rebuilt from its
+ * Description alone. A union's field keeps a type only when every arm that has it agrees on a compatible one
  * (a union retains only guarantees shared by every arm).
  */
 export interface Heading {
@@ -88,7 +89,7 @@ export const unionHeading = (arms: ReadonlyArray<Heading>): Heading => {
  */
 export const schemaInfo = (value: unknown): SchemaInfo => {
 	const desc = schemaDescOf(value) ?? roleDescOf(value)?.base
-	const rosters = new Map<string, ReadonlyArray<string>>()
+	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
 	for (let at = desc; at !== undefined; at = at.extends) {
 		for (const r of at.relations) {
 			if (r.kind === "closed" && !rosters.has(r.name)) {

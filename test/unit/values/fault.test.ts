@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
@@ -26,13 +27,15 @@ describe("value faults", () => {
 						refused: source.draw(element<Refused>(["out of range", "misspelt"]))
 					})),
 					literal: Formatter.format,
-					features: features<Refused>(["out of range", "misspelt"]),
+					coverage: required<Refused>(["out of range", "misspelt"], {
+						cases: 100,
+						sense: notesOnly
+					}),
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ secret, refused }, c) =>

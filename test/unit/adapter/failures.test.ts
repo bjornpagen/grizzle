@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	characterOf,
 	codePoint,
@@ -11,9 +11,10 @@ import {
 	oneOf,
 	string
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, Schema, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Schema, String as Str } from "effect"
 import { DatabaseError } from "pg"
 import { admissionFailure } from "#adapter/admission/admit.ts"
 import { OpenError, ReadFailure, TransientFailure } from "#adapter/errors/execution.ts"
@@ -266,7 +267,7 @@ type Feature =
 	| "admission transient"
 	| "unparsed"
 
-const allFeatures: ReadonlyArray<Feature> = [
+const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"code branched on",
 	"code well-formed",
 	"code lowercase",
@@ -314,13 +315,12 @@ describe("the failure vocabulary", () => {
 						suite: "unit/adapter/failure-vocabulary",
 						draw: drawn(reportGen),
 						literal: Formatter.format,
-						features: features<Feature>(allFeatures),
+						coverage: required<Feature>(allFeatures, { cases: 2_000, sense: notesOnly }),
 						kept: [],
 						runs: 2_000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(r, c) =>

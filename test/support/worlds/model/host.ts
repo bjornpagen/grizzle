@@ -23,7 +23,6 @@ import type {
 	FieldSpec,
 	Fill,
 	HeadField,
-	HeadTerm,
 	HostFact,
 	HostSchema,
 	HostState,
@@ -374,7 +373,7 @@ export const fieldDomain = (
 }
 
 /** The domain of a term: a variable's, a context field's, a typed handle's roster; a literal has none of its own. */
-const termDomain = (base: BaseSpec, typing: Typing, term: HeadTerm): FieldDomain | undefined => {
+const termDomain = (base: BaseSpec, typing: Typing, term: Term): FieldDomain | undefined => {
 	switch (term.kind) {
 		case "var":
 			return typing.get(term.name)
@@ -410,13 +409,18 @@ type FactsAt = (occurrence: Occurrence, index: number) => ReadonlyArray<HostFact
 
 const factOf = (fact: HostFact, field: string): HostValue | undefined => own(fact, field)
 
-/** A term's value under an assignment: a bound variable's, a literal, a present context's field; otherwise none. */
+/**
+ * A term's value under an assignment: a bound variable's, a literal, a typed handle's member, a present context's
+ * field; otherwise none.
+ */
 const termValue = (reading: Reading, term: Term, at: Assignment): HostValue | undefined => {
 	switch (term.kind) {
 		case "var":
 			return at.get(term.name)
 		case "literal":
 			return term.value
+		case "handle":
+			return term.member
 		case "context": {
 			const fact = own(reading.facts, term.context)
 			return fact === undefined ? undefined : factOf(fact, term.field)
@@ -492,19 +496,15 @@ const holdsUnder = (reading: Reading, typing: Typing, c: Comparison, at: Assignm
 	return comparisonHolds(c.op, domain, left, right)
 }
 
-/** A head term's value under an assignment: a typed handle's member, any other term's value (termValue). */
-const headValue = (reading: Reading, term: HeadTerm, at: Assignment): HostValue | undefined =>
-	term.kind === "handle" ? term.member : termValue(reading, term, at)
-
 /** The head's row under an assignment, or none when a head term has no value there. */
 const project = (
 	reading: Reading,
-	head: Readonly<Record<string, HeadTerm>>,
+	head: Readonly<Record<string, Term>>,
 	at: Assignment
 ): HostFact | undefined => {
 	const values = Arr.map(
 		Rec.toEntries(head),
-		([field, term]) => [field, headValue(reading, term, at)] as const
+		([field, term]) => [field, termValue(reading, term, at)] as const
 	)
 	return Arr.every(values, (entry): entry is readonly [string, HostValue] => entry[1] !== undefined)
 		? Rec.fromEntries(values)
@@ -630,13 +630,27 @@ const sourceKnown = (base: BaseSpec, source: Source): boolean => {
 	}
 }
 
-/** The faults of one term met where a field of `domain` is: an unknown context field, a domain apart, a literal outside. */
+/**
+ * The faults of one term met where a field of `domain` is: an unknown context field or roster, a domain apart, a
+ * literal or a handle outside.
+ */
 const termFaults = (
 	base: BaseSpec,
 	typing: Typing,
 	term: Term,
 	domain: FieldDomain | undefined
 ): ReadonlyArray<RuleFault> => {
+	if (term.kind === "handle") {
+		const roster = named(base.closed, term.closed)
+		if (roster === undefined) {
+			return [{ kind: "unknown-source", source: { kind: "closed", name: term.closed } }]
+		}
+		const own: FieldDomain = { kind: "handle", closed: roster.name, members: roster.members }
+		if (!Arr.contains(roster.members, term.member)) {
+			return [{ kind: "literal-outside-domain", value: term.member, domain: own }]
+		}
+		return sameClass(own, domain) ? [] : [{ kind: "domain-mismatch", term }]
+	}
 	if (term.kind === "context") {
 		const declared = fieldDomain(base, { kind: "context", name: term.context }, term.field)
 		if (declared === undefined) {
@@ -677,32 +691,8 @@ const occurrenceFaults = (
 	})
 
 /** The variables a term reads. */
-const termVariables = (term: HeadTerm): ReadonlyArray<string> =>
+const termVariables = (term: Term): ReadonlyArray<string> =>
 	term.kind === "var" ? [term.name] : []
-
-/** The faults of a head term: a typed handle's, a roster the base holds and a member of it; any other term's own. */
-const headTermFaults = (
-	base: BaseSpec,
-	typing: Typing,
-	term: HeadTerm
-): ReadonlyArray<RuleFault> => {
-	if (term.kind !== "handle") {
-		return termFaults(base, typing, term, undefined)
-	}
-	const roster = named(base.closed, term.closed)
-	if (roster === undefined) {
-		return [{ kind: "unknown-source", source: { kind: "closed", name: term.closed } }]
-	}
-	return Arr.contains(roster.members, term.member)
-		? []
-		: [
-				{
-					kind: "literal-outside-domain",
-					value: term.member,
-					domain: { kind: "handle", closed: roster.name, members: roster.members }
-				}
-			]
-}
 
 const oneRuleFaults = (base: BaseSpec, rule: Rule): ReadonlyArray<RuleFault> => {
 	const typing = typingOf(base, rule)
@@ -738,7 +728,7 @@ const oneRuleFaults = (base: BaseSpec, rule: Rule): ReadonlyArray<RuleFault> => 
 		...occurrenceFaults(base, typing, rule.matches),
 		...negated,
 		...compared,
-		...Arr.flatMap(Rec.values(rule.head), (term) => headTermFaults(base, typing, term)),
+		...Arr.flatMap(Rec.values(rule.head), (term) => termFaults(base, typing, term, undefined)),
 		...Arr.map([...new Set(unbound)], (variable): RuleFault => ({
 			kind: "unbound-variable",
 			variable
@@ -803,7 +793,7 @@ const sortedEntries = <A>(
  * context's match binds, one per context field, as grizzle states a context field; a literal or a typed handle names
  * none.
  */
-const ruleVariable = (term: HeadTerm): string | undefined => {
+const ruleVariable = (term: Term): string | undefined => {
 	switch (term.kind) {
 		case "var":
 			return namedVariable(term.name)
@@ -895,6 +885,8 @@ const useOf = (
 	switch (term.kind) {
 		case "literal":
 			return { kind: "fixed", fill: { kind: "literal", value: term.value } }
+		case "handle":
+			return { kind: "fixed", fill: { kind: "literal", value: term.member } }
 		case "context": {
 			const variable = contextVariable(term.context, term.field)
 			return head.has(variable)
@@ -1166,7 +1158,8 @@ const hostRelation = (names: InstalledNames, relation: RelationSpec): HostRelati
 			name: f.name,
 			column: required(own(columns, f.name), `the column of ${relation.name}.${f.name}`)
 		})),
-		key: relation.key
+		key: relation.key,
+		mutable: relation.mutability === "mutable"
 	}
 }
 
@@ -1518,7 +1511,8 @@ export const judgedSchemaOf = (base: BaseSpec): HostSchema => ({
 		name: r.name,
 		table: r.name,
 		fields: Arr.map(r.fields, (f) => ({ name: f.name, column: f.name })),
-		key: r.key
+		key: r.key,
+		mutable: r.mutability === "mutable"
 	})),
 	laws: [
 		...Arr.map(base.relations, (r) => primaryKeyLawAs(judgedLabel(`primary ${r.name}`), r)),

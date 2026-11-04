@@ -1,10 +1,12 @@
 import { layer } from "@effect/vitest"
 import { explore, drawn, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
 import type { CreateTable, SqlStatement } from "#compiler/sql/ast.ts"
 import { builtinType, cUtf8Collation } from "#compiler/sql/build.ts"
 import { lex } from "#compiler/sql/lexer.ts"
@@ -39,13 +41,14 @@ import {
  * printer or the audit.
  *
  * The audit rules that mirror PostgreSQL's own (scope, the visibility of ON, LATERAL, a write's target and a MERGE
- * WHEN, a data-modifying CTE's placement, clauses merged across a parenthesized body, a set operation's widths, the
- * lists SQL requires to be nonempty) are checked from the other side: each Wild operator of such a rule
- * (test/unit/sql/audit/operators.ts), at a drawn site, is refused by PostgreSQL as well, with a SQLSTATE of the
- * expected class; and the faithful rewrite that makes a derived table LATERAL is planned.
+ * WHEN, a data-modifying CTE's placement, clauses merged across a parenthesized body, a set operation's widths) are
+ * checked from the other side: each Wild operator of such a rule (test/unit/sql/audit/operators.ts), at a drawn site,
+ * is refused by PostgreSQL as well, with a SQLSTATE of the expected class; and the faithful rewrite that makes a
+ * derived table LATERAL is planned. The lists SQL requires to be nonempty are NonEmpty by type (sql/ast.ts), and the
+ * zero-width forms PostgreSQL spells by absence, which the generator draws, are each required to plan here.
  *
  * What a case reaches: each statement kind it plans, each Wild operator of a mirrored rule PostgreSQL refuses, the
- * LATERAL rewrite planned, and the shape of every statement it plans.
+ * LATERAL rewrite planned, each zero-width form planned, and the shape of every statement it plans.
  */
 type AuditFeature =
 	| `statement ${SqlStatement["kind"]}`
@@ -53,13 +56,19 @@ type AuditFeature =
 	| `refused ${StatementBreakName}`
 	| ShapeFeature
 
-const required: ReadonlyArray<AuditFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<AuditFeature> = [
 	"statement select",
 	"statement insert",
 	"statement update",
 	"statement delete",
 	"statement merge",
 	"lateral planned",
+	"derived of no column",
+	"function of no column",
+	"recordset of no column",
+	"cte of no column",
+	"core of no target",
+	"insert of no column",
 	...Arr.map(mirroredBreaks, (b) => `refused ${b.operator.name}` as const)
 ]
 
@@ -87,8 +96,7 @@ const installation = (catalog: SqlCatalog): ReadonlyArray<SqlStatement> =>
 			name: c.name,
 			type: columnTypes[c.type],
 			collation: c.type === "text" ? cUtf8Collation : undefined,
-			generated: undefined,
-			default: undefined
+			generated: undefined
 		})),
 		primaryKey: {
 			kind: "primaryKey",
@@ -112,9 +120,9 @@ const nulls = (text: string): ReadonlyArray<null> => {
 			`the lexer refuses a printed statement at ${lexed.error.offset}: ${lexed.error.message}\n${text}`
 		)
 	}
-	const highest = Math.max(
-		0,
-		...Arr.flatMap(lexed.tokens, (t) => (t.kind === "param" ? [t.index] : []))
+	const highest = maxOf(
+		Arr.flatMap(lexed.tokens, (t) => (t.kind === "param" ? [t.index] : [])),
+		0
 	)
 	return Array.from({ length: highest }, () => null)
 }
@@ -203,13 +211,12 @@ layer(Substrate.layer)("generated SQL on PostgreSQL 19", (it) => {
 							suite: "pg/sql/generated",
 							draw: drawn(auditCaseGen(catalog)),
 							literal: Formatter.format,
-							features: features<AuditFeature>(required),
+							coverage: required<AuditFeature>(situations, { cases: cases, sense: notesOnly }),
 							kept: keptOver(catalog),
 							runs: cases,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ statement, sites }, c) =>

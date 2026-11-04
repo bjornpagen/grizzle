@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { LawSchema } from "#adapter/boundary/law.ts"
 import { nameSchemas, SqlstateSchema } from "#adapter/boundary/names.ts"
+import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
 import { EncodingFailure, isCompileError } from "#compiler/core/errors.ts"
 
 /**
@@ -259,6 +260,26 @@ export class DbConfigRefused extends Schema.TaggedError<
 >()("DbConfigRefused", { detail: Schema.String }) {
 	override get message(): string {
 		return this.detail
+	}
+}
+
+/** What a startup variable would do to every session pg starts with it. */
+const variableEffect: { readonly [V in StartupVariable]: string } = {
+	PGOPTIONS: "its settings outrank every default a session starts under",
+	PGREPLICATION: "it makes each session a replication connection"
+}
+
+/**
+ * A variable of the process environment that node-postgres would send at the startup of every session of a kind
+ * grizzle opens, and that no value grizzle configures turns off (connection/environment.ts): DbLayer.make's refusal
+ * for a login's sessions, the command line's for an owner's. Its value is never quoted.
+ */
+export class ConnectionEnvironmentRefused extends Schema.TaggedError<
+	ConnectionEnvironmentRefused,
+	{ readonly brand: unique symbol }
+>()("ConnectionEnvironmentRefused", { variable: Schema.Literals(startupVariableNames) }) {
+	override get message(): string {
+		return `the environment sets ${this.variable}, which node-postgres would send at the startup of every session it opens, where ${variableEffect[this.variable]}: unset it`
 	}
 }
 

@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer"
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import {
 	array,
 	bytes,
@@ -42,13 +42,12 @@ describe("base64url (RFC 4648 section 5)", () => {
 					suite: "unit/cursor/primitives-16",
 					draw: drawn(bytes({ min: 0, max: 300 })),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(bytes) =>
@@ -80,13 +79,12 @@ describe("base64url (RFC 4648 section 5)", () => {
 						)
 					),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 5000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(text) =>
@@ -126,13 +124,12 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 						suite: "unit/cursor/primitives-18",
 						draw: drawn(int(0, varintMax)),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(n) =>
@@ -161,7 +158,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 						] as const),
 						literal: Formatter.format,
 						limit: 6,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					([n, len]) =>
@@ -222,7 +219,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 							generator: short,
 							literal: Formatter.format,
 							limit: 70_000,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						(bytes) => Effect.sync(() => check(bytes))
@@ -237,13 +234,12 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 								array(oneOf([int(0, 255), element([0x80, 0xff, 0x00, 0x7f])]), { min: 3, max: 6 })
 							),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 5000,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(bytes) => Effect.sync(() => check(bytes))
@@ -260,13 +256,12 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 					suite: "unit/cursor/varint-write",
 					draw: drawn(int(0, varintMax)),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(n) =>
@@ -295,13 +290,12 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([body, bound, cut]) =>
@@ -333,13 +327,12 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 						suite: "unit/cursor/primitives-19",
 						draw: drawn(wellFormed),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -393,13 +386,12 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 5000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(bytes) =>

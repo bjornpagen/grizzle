@@ -3,10 +3,11 @@ import { type IdSupply, ParamId } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
-import { type Failure, type TypedLiteral, OpId, type ParamRole } from "#compiler/ir/expr.ts"
+import { type TypedLiteral, OpId, type ParamRole } from "#compiler/ir/expr.ts"
 import { rewriteClaim } from "#compiler/ir/keys.ts"
 import {
 	conservativeMeta,
@@ -17,10 +18,12 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { castOf } from "#compiler/scalar/compute/registry.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { castOpOf, definedOpOf } from "#test/support/oracle/gen/ops.ts"
 
 /**
  * Shared IR fixtures: scalar types, expression helpers, and one valid DAG containing every RelNode
@@ -90,15 +93,14 @@ export class Exprs {
 			nonNull: "codec"
 		})
 	}
-	op(op: string, args: ReadonlyArray<ScalarExpr>, type: ScalarType, failure: Failure) {
+	op(op: string, args: ReadonlyArray<ScalarExpr>, type: ScalarType) {
 		return this.b.expr({
 			kind: "op",
-			op: OpId(op),
+			op: definedOpOf(op),
 			args,
 			type,
 			nonNull: "strict",
-			volatility: "immutable",
-			failure
+			volatility: "immutable"
 		})
 	}
 	spec(spec: ExprSpec) {
@@ -245,8 +247,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 	const positive = x.op(
 		"int8gt",
 		[x.col(match, "amount", scalarTypes.int8), x.lit({ kind: "int", value: 0n }, scalarTypes.int8)],
-		scalarTypes.bool,
-		"total"
+		scalarTypes.bool
 	)
 	const filter = b.node({
 		kind: "Filter",
@@ -473,8 +474,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 						x.col(doc, "embedding", scalarTypes.vector3),
 						x.param("q", scalarTypes.vector3, "compare")
 					],
-					scalarTypes.float8,
-					"total"
+					scalarTypes.float8
 				)
 			}
 		],
@@ -595,8 +595,8 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		op: OpId("percentile_disc_multi"),
 		order: { keys: [{ column: "amount", dir: "asc" }] },
 		fractions: [
-			x.lit({ kind: "float", value: 0.5 }, scalarTypes.float8),
-			x.lit({ kind: "float", value: 0.75 }, scalarTypes.float8)
+			x.lit({ kind: "float", value: canonicalZero(0.5) }, scalarTypes.float8),
+			x.lit({ kind: "float", value: canonicalZero(0.75) }, scalarTypes.float8)
 		],
 		outs: ["median", "p75"],
 		rule: "R29" satisfies CertificateRule,
@@ -652,8 +652,15 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		meta: conservativeMeta
 	})
 
-	/** Casts, a domain cast, a conditional, a numeric literal and the remaining literal kinds. */
+	/**
+	 * Casts, a narrowing that stands with its proof, a domain cast, a conditional, a numeric literal and the remaining
+	 * literal kinds.
+	 */
 	const amount = x.col(match, "amount", scalarTypes.int8)
+	const narrowing = castOf("int8", "int4")
+	if (narrowing === undefined || !narrowing.partial) {
+		throw new Error("the every-kind fixture narrows bigint into integer, a partial cast")
+	}
 	const exprs = b.node({
 		kind: "ProjectSet",
 		input: match,
@@ -662,11 +669,33 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 				name: "asNumeric",
 				expr: x.spec({
 					kind: "cast",
-					checked: false,
+					cast: castOpOf("int8", "numeric"),
 					args: [amount],
 					type: scalarTypes.numeric,
 					nonNull: "strict",
 					volatility: "immutable"
+				})
+			},
+			{
+				name: "narrowed",
+				expr: x.spec({
+					kind: "cast",
+					cast: narrowing.id,
+					args: [amount],
+					type: scalarTypes.int4,
+					nonNull: "strict",
+					volatility: "immutable",
+					proof: {
+						precondition: { kind: "fits" },
+						premises: [
+							{
+								kind: "interval",
+								operand: 0,
+								low: { units: -100n, scale: 0 },
+								high: { units: 100n, scale: 0 }
+							}
+						]
+					}
 				})
 			},
 			{
@@ -675,7 +704,11 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 					kind: "domainCast",
 					args: [amount],
 					type: scalarTypes.cents,
-					nonNull: "strict"
+					nonNull: "strict",
+					proof: {
+						precondition: { kind: "contract" },
+						premises: [{ kind: "checked", operand: 0, by: "write" }]
+					}
 				})
 			},
 			{

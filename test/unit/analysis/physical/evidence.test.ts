@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
@@ -70,7 +70,7 @@ describe("catalogs", () => {
 						literal: Formatter.format,
 						/** The space: 2 execution contexts, 8 sets of columns. */
 						limit: 16,
-						features: features<CatalogFeature>([
+						coverage: requiredInSpace<CatalogFeature>([
 							"no key proves the scan",
 							"a key proves the scan",
 							"a key not read"

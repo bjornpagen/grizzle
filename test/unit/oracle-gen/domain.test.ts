@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { boolean, element, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -10,7 +11,8 @@ import { SourceLoc } from "#compiler/core/loc.ts"
  * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
  * type's value classes hold only values the type stores exactly, one native-equality value per class, its edges
  * included; text carries the metadata its pattern derives and admits every generated text; a key field's type is
- * representable as a key; and a stored value is spelled once per case while a comparison operand spells itself.
+ * representable as a key; and a stored value is its class's one value, written in its canonical spelling or one of its
+ * twins (gen/domain.ts twinSpellings).
  *
  * A comparison parameter binds as the unrefined base.
  */
@@ -19,20 +21,19 @@ import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { isRefined, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { btreeEntryBytes, btreeMaxItemSize, datumBound } from "#compiler/schema/representability.ts"
 import { accepts, analyzeText, textInfo } from "#compiler/text/refinement.ts"
-import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
 	allTypeSpecs,
 	compareParamType,
 	fieldDescOf,
 	keyFieldType,
+	literalEqualityKey,
+	resolveStored,
 	resolveValue,
-	type Spelling,
-	type SpellingMode,
 	scalarOfSpec,
-	valueClasses,
-	literalEqualityKey
+	twinsOf,
+	valueClasses
 } from "#test/support/oracle/gen/domain.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 const roster = scalarOfSpec({
 	carrier: "enum",
@@ -45,12 +46,9 @@ const types: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.append(
 
 /**
  * Whether a type passes the key representability check as a one-field key (schema/representability.ts): its datum
- * bounded, its B-tree entry within BTMaxItemSize, and no vector, whose float32 equality is no key identity.
+ * bounded and its B-tree entry within BTMaxItemSize.
  */
 const representableKey = (type: ScalarType): boolean => {
-	if (type.carrier === "vector") {
-		return false
-	}
 	const bound = datumBound(fieldDescOf(type))
 	return bound.ok && btreeEntryBytes([bound.value]) <= btreeMaxItemSize
 }
@@ -78,7 +76,7 @@ describe("generated scalar types", () => {
 								] as const,
 							literal: Formatter.format,
 							limit: types.length * 4,
-							features: features<TypeFeature>([
+							coverage: requiredInSpace<TypeFeature>([
 								"text",
 								"numeric",
 								"enum",
@@ -93,15 +91,11 @@ describe("generated scalar types", () => {
 							Effect.sync(() => {
 								const classes = valueClasses(t, edge)
 								assert.ok(classes.length > 1, "a domain of one class tells nothing apart")
-								const keys = Arr.map(classes, (cls) => {
-									for (const literal of cls) {
-										assert.equal(literalProblem(literal, t), undefined)
-									}
-									const own = [...new Set(Arr.map(cls, literalEqualityKey))]
-									assert.equal(own.length, 1, "one native-equality value per class")
-									return own
-								})
-								assert.equal(new Set(keys.flat()).size, classes.length, "distinct classes")
+								for (const literal of classes) {
+									assert.equal(literalProblem(literal, t), undefined)
+								}
+								const keys = Arr.map(classes, literalEqualityKey)
+								assert.equal(new Set(keys).size, classes.length, "distinct classes")
 								assert.equal(isRefined(compareParamType(t)), false)
 								const desc = fieldDescOf(t)
 								if (desc.kind === "text") {
@@ -109,7 +103,7 @@ describe("generated scalar types", () => {
 										analyzeText(desc.source, desc.flags, SourceLoc("test", []))
 									)
 									assert.deepEqual(textOf(t), textInfo(refinement))
-									for (const l of classes.flat()) {
+									for (const l of classes) {
 										assert.ok(l.kind === "text" && accepts(refinement, l.value))
 									}
 								}
@@ -194,81 +188,63 @@ describe("value domains", () => {
 						generator: element(nonEmpty(edges, "the edges")),
 						literal: Formatter.format,
 						limit: edges.length,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					(e) =>
 						Effect.sync(() => {
-							assert.equal(Arr.some(valueClasses(e.type, false).flat(), e.holds), e.held, e.what)
+							assert.equal(Arr.some(valueClasses(e.type, false), e.holds), e.held, e.what)
 						})
 				)
 			)
 	)
 
 	it.effect(
-		"spell a stored value once per case under perCase, and a comparison operand or a perFact value every way",
+		"spell every stored value as its one value, in each of its twin spellings, a text the column's input reads",
 		(ctx) =>
-			Effect.gen(function* () {
-				type SpellFeature = SpellingMode | "stored" | "compare"
-				const spellingGen: Gen<Spelling> = (source) => ({
-					mode: source.draw(element<SpellingMode>(["perCase", "perFact", "twinned"])),
-					choices: source.draw(array(int(0, 5), { min: 0, max: 4 })),
-					edge: source.draw(boolean)
-				})
-				yield* searched(
-					ctx,
-					explore(
-						{
-							suite: "unit/oracle-gen/domain-spelling",
-							draw: drawn(
-								(source) =>
-									[
-										source.draw(element(types)),
-										source.draw(int(0, 12)),
-										source.draw(spellingGen),
-										source.draw(element<"stored" | "compare">(["stored", "compare"]))
-									] as const
-							),
-							literal: Formatter.format,
-							features: features<SpellFeature>([
-								"perCase",
-								"perFact",
-								"twinned",
-								"stored",
-								"compare"
-							]),
-							kept: [],
-							runs: 300,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							steering: { kind: "none" },
-							caseHang: Duration.minutes(2)
-						},
-						([type, cls, spelling, role], c) =>
-							Effect.sync(() => {
-								const classes = valueClasses(type, spelling.edge)
-								const own = defined(classes[cls % classes.length], "the class")
-								const spelled = Arr.map(indices(own.length), (sp) =>
-									resolveValue(type, { cls, sp }, spelling, role)
-								)
-								for (const l of spelled) {
-									assert.ok(Arr.some(own, (o) => literalEqualityKey(o) === literalEqualityKey(l)))
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/oracle-gen/domain-spelling",
+						draw: drawn(
+							(source) =>
+								[
+									source.draw(element(types)),
+									source.draw(int(0, 12)),
+									source.draw(int(0, 6)),
+									source.draw(boolean)
+								] as const
+						),
+						literal: Formatter.format,
+						coverage: required<"canonical" | "twin">(["canonical", "twin"], {
+							cases: 300,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					([type, cls, sp, edge], c) =>
+						Effect.sync(() => {
+							const value = resolveValue(type, { cls, sp }, edge)
+							const stored = resolveStored(type, { cls, sp }, edge)
+							assert.deepEqual(stored.literal, value, "a spelling changes no value")
+							switch (stored.spelling.kind) {
+								case "canonical":
+									c.note("canonical")
+									return
+								case "twin": {
+									c.note("twin")
+									assert.ok(Arr.contains(twinsOf(type, value), stored.spelling.text))
+									return
 								}
-								if (role === "stored" && spelling.mode === "perCase") {
-									/** One spelling, whatever the value's own spelling index. */
-									const first = defined(spelled[0], "a spelling")
-									for (const l of spelled) {
-										assert.deepEqual(l, first)
-									}
-								} else {
-									unorderedEqual(spelled, own)
-								}
-								c.note(spelling.mode)
-								c.note(role)
-							})
-					)
+							}
+						})
 				)
-			})
+			)
 	)
 })

@@ -1,8 +1,9 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -53,7 +54,7 @@ type Kind =
 	| "meta.json source edited"
 	| "stray file"
 
-const kinds: ReadonlyArray<Kind> = [
+const kinds: Arr.NonEmptyReadonlyArray<Kind> = [
 	"snapshot of another schema",
 	"snapshot removed",
 	"folder misnamed",
@@ -289,13 +290,12 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 								Arr.map(kinds, (kind) => ({ ...source.draw(shapeGen), kind }))
 							),
 							literal: Formatter.format,
-							features: features<Kind>(kinds),
+							coverage: required<Kind>(kinds, { cases: 2, sense: notesOnly }),
 							kept: [],
 							runs: 2,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(cases, c) =>

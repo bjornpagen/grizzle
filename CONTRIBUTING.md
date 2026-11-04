@@ -35,7 +35,7 @@ Everything runs natively on one macOS machine through Homebrew. There is no Dock
 CI. The git hook lefthook installs (`lefthook.yml`) is the CI: pre-commit runs `pnpm check`, except during a merge or a
 rebase, and only refuses a failing commit; it never formats or stages a file.
 
-- **Toolchain:** `brew install node pnpm meson ninja pkgconf bison flex llvm@22 openssl@3 lz4 zstd readline`. You need
+- **Toolchain:** `brew install node pnpm meson ninja pkgconf bison flex openssl@3 lz4 zstd readline`. You need
   Node 24 or later, and pnpm at the version `packageManager` pins; `pnpm install` patches TypeScript 7.1 beta for
   `@effect/tsgo` (the `prepare` script). Development has no build step: Node runs each package's `src/*.ts` directly
   through type stripping, and tests and scripts import src. The repository resolves its own package names to their
@@ -121,9 +121,14 @@ a run; `TEST_REPLAY='<suite>:<steering>:<tape>'` replays one case as its failure
 1. its kept cases: values promoted from failure reports into the suite's source, each replayed by value with the draws
    it records and required to still reach the situations it names;
 2. a floor stream whose seed derives from the suite's label, a quarter of its cases;
-3. for a suite that steers, a steered phase that mutates the cases that found something new until every required
-   situation is reached;
+3. for a suite that requires situations, a steered phase on a stream its label fixes, which grows the floor's finds
+   until every required situation is reached;
 4. a rotating stream drawn fresh from the run seed.
+
+The floor stream and the steered phase are the suite's witnesses: the same cases on every run seed, so whether a suite
+reaches what it requires, or stalls, depends on its label and its code alone, and a coverage failure fails every seed
+alike. The rotating stream is the run's fresh sample: it finds what a fixed baseline cannot, feeds the residual
+estimate, and never meets or misses a requirement.
 
 A failure shrinks by editing its tape, to its end or for a bounded count of candidates, never for a span of wall time,
 so `TEST_SEED` reproduces the shrunk case on any machine. A run never writes into the tree: the report ends with a
@@ -191,10 +196,16 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   `Object.create(null)`, a key from outside is read with `Object.hasOwn`, and a record of such keys is a Map or a
   null-prototype object (oxlint `no-proto`). Nothing sends SIGUSR1.
 - **Names come from the naming door.** `packages/engine/src/core/identity.ts` is the one module that mints the
-  installed identifiers' brands (oxlint `names-sole-mint`, whose options in `oxlint.config.ts` name the module and its
-  brands); elsewhere a name is admitted from text only at a decode
+  installed identifiers' brands (oxlint `brands-sole-mint`, whose options in `oxlint.config.ts` name each brand's doors);
+  elsewhere a name is admitted from text only at a decode
   boundary, the IR and snapshot decoders and the server's error reader. A test or a bench names a production
   identifier through the door, never by spelling it (oxlint `test-no-spelled-names`).
+- **SQL is printed, never written.** Every SQL text grizzle sends is the engine printer's print of an AST
+  (`EmittedText`, minted by `sql/emit.ts` alone) or a reviewed migration file's statement (`MigrationText`, minted by
+  `adapter/migrate/input.ts`), and the printer names every type, function and relation by its schema, so no
+  search_path changes what a statement means. The shell's catalog reads are catalog-read ASTs (`sql/catalog.ts`). A
+  string holding a `::` cast in `packages/*/src` outside the printer and the lexer is refused (oxlint `no-raw-sql`); a
+  test's SQL that neither AST expresses is minted in `test/support/sql.ts`.
 - **Tests go through the doors.** Assertions come from `#test/support/assert.ts`, whose equalities type the expected
   value by the actual one; oxlint's `import-doors` refuses `node:assert` and `isDeepStrictEqual` elsewhere. Emitted SQL
   is asserted by its structure, never its text, except the migration DDL a person reviews (superlint
@@ -294,20 +305,20 @@ Tests that inject such faults are not written.
 Vitest: a choice-stream engine, where every case is a tape of bounded choices that one generator searches at random,
 enumerates exhaustively, replays, mutates and shrinks. grizzle's own primitives, which know its engine and PostgreSQL, live in `test/support`. Use one
 primitive per job; a suite never grows its own runner, coverage counter, seed parser, PRNG, fixed-seed sample or SQL
-text match.
+text match. A type batch's population judges its requirements on `floorPopulation`, its witnesses, with `unreachedOf`.
 
 | Job | Primitive |
 | --- | --- |
 | Search: kept cases, floor, steered and rotating streams, shrinking bounded by a count of candidates, one failure report with its replay token and kept-case literal | `@grizzle/testing/explore`: `explore` (`drawn`, `sketched`), `exhaust` |
 | Generators on the choice stream: bounded whole numbers, elements, weighted and proportional choices, collections that state their bounds, recursion, patterns, Unicode scalars, doubles and their special values | `@grizzle/testing/gen`, `pattern`, `values` |
-| What the cases reached: required situations and pairs, the Good–Turing residual over independent cases | `@grizzle/testing/features` |
+| What the cases reached: required situations and pairs, judged on the label-fixed witnesses; the Good–Turing residual over independent cases | `@grizzle/testing/features` |
 | A state machine judged by a pure model, its programs shrunk step by step | `@grizzle/testing/commands` |
 | Schedules: every order under sleep sets, PCT, drawn and scripted, over a driver of the system | `@grizzle/testing/interleave` |
 | Steering by a suite's notes or by V8 block coverage | `@grizzle/testing/sense` |
 | Choosing features and options with a floor for every choice; Live, Stale and Wild values at a public boundary | `@grizzle/testing/swarm`, `lsw` |
 | A wait that observes a fact | `@grizzle/testing/fact` |
 | N implementations agreeing modulo a declared equivalence (exact, order, multiset, set, a projection) | `@grizzle/testing/oracle` |
-| grizzle's delivered values compared exactly, a Decimal by numeric equality | `test/support/equivalence.ts` |
+| grizzle's delivered values compared exactly: a Decimal by `equals`, its one form | `test/support/equivalence.ts` |
 | Picks over 0..0xffff, a choice's floor among options | `test/support/pick.ts` |
 | Identifier and literal dictionaries, admitted by the production validators | `test/support/kernel/dict.ts` |
 | A threshold drawn per case, production's constant first, then small values, passed through the deciding function's own parameter | `test/support/kernel/policy.ts` |
@@ -321,13 +332,16 @@ text match.
 
 - **Features are semantic:** rules fired, shapes chosen, refusal reasons, plan node kinds, state-machine states, and
   pairs of them. Never SQL text, allocated names, costs or parameter values. A suite declares the features its
-  population must reach, and fails when it stops reaching one.
+  population must reach, and fails when its witnesses stop reaching one.
 - **Residual risk** is counted over the rotating stream, the only one that samples the generator afresh, and the
   library's reporter prints it, one line per suite.
-- **Coverage steering** has two phases (`steering: { kind: "mutate" }`, `Case.steering`). While a required situation
-  is unreached, a suite that steers mutates the cases that found something new and aims its draws at what is pending. Once every one is reached, its
-  draws are independent again, and only those independent cases enter the residual-risk estimate, whose Good-Turing
-  assumption needs them: a steered case's notes never reach that tally, by its type.
+- **Coverage steering** is part of a requirement: `coverage: required(situations, { cases, sense })`, or
+  `noCoverage`, and `requiredInSpace(situations)` for an exhaustion. Every suite that requires situations states its
+  steered phase, which runs only while one is unreached, on a stream its label fixes. Floor and steered cases see what
+  is pending (`Case.steering`) and may aim their draws at it. Rotating and kept cases are plain draws: they never meet
+  a requirement, and only the rotating stream's independent cases enter the residual-risk estimate, whose Good-Turing
+  assumption needs them; a witness's notes never reach that tally, by its type. Never raise `runs` to reach coverage:
+  give the generator an arm, aim the draws, or give the steered phase more cases.
 - **The connection-leak check runs everywhere:** a role's release waits until its backends are gone from
   pg_stat_activity. A closed session's backend always goes; a session the test never closed holds the release, its
   backends named on stderr, until the hang guard reports the test.
@@ -351,15 +365,15 @@ text match.
   through three implementations on PostgreSQL, which must agree. They are the conservative lowering, the optimized
   lowering, and the reference evaluator.
 - **The write oracle** (`test/pg/write/oracle`, `test/support/oracle/write`): each run draws a schema (pure sets,
-  candidate keys, identity columns, mutable relations, deferred and immediate foreign keys, references into candidate
-  keys, capacities, numerics at typmods that round onto each other, and texts of two lengths), planner statistics and
-  a perturbation. Its ChangeSets draw Stream members, bound parameters (`ChangeSet.bind`) and compiled handles
-  (`db.compile`). Each ChangeSet runs through `db.apply` and through the conservative realization of the same
-  program, and both must give the add-wins model's outcome, including the host's refusals, which write nothing, and a
-  domain's refusal of a value its field does not admit, such as a longer text read into a shorter field. Every
-  artifact is held to its position invariants, and no statement updates an immutable relation's rows in place. A
-  TransientFailure is legitimate only where the model's collisions allow one, and every flight must begin
-  SERIALIZABLE.
+  candidate keys, identity columns, a relation whose every column is an identity, mutable relations, deferred and
+  immediate foreign keys, references into candidate keys, capacities, numerics at typmods that round onto each other,
+  and texts of two lengths), planner statistics and a perturbation. Its ChangeSets draw Stream members, described
+  additions of no field, bound parameters (`ChangeSet.bind`) and compiled handles (`db.compile`). Each ChangeSet runs
+  through `db.apply` and through the conservative realization of the same program, and both must give the add-wins
+  model's outcome, including the host's refusals, which write nothing, and a domain's refusal of a value its field
+  does not admit, such as a longer text read into a shorter field. Every artifact is held to its position invariants,
+  and no statement updates an immutable relation's rows in place. A TransientFailure is legitimate only where the
+  model's collisions allow one, and every flight must begin SERIALIZABLE.
 - **The history checker** (`test/support/history`): generated concurrent writers, run in an order a PCT schedule
   chooses, so a history is seeded, shrinkable and replayable. It's checked after the fact:
     - every law must hold on the committed state;
@@ -375,11 +389,19 @@ text match.
   waits on the server until each blocked step's deadlock check is past. Law races are generated per family
   (`test/schedules/laws/races.ts`).
 - **The law families** (`test/pg/laws/families`): each family (selected-source containment, conditional mirrors,
-  alternatives, capacity, two capacities on one relation by keys of one arity, two laws sharing tables, span coverage,
-  also into a target whose fields are named apart and declared in another heading order, a work queue, timekeeping,
-  deposits) draws schemas from its whole parameter space and judges writes against a host model of the laws,
-  including span keys, span coverage and row checks. The same schemas drive concurrent histories, generated races and
-  a direct SQL writer (`direct-*.test.ts`).
+  alternatives, which draws its roster, its armed handles and shared arm relations, capacity, two capacities on one
+  relation by keys of one arity, two laws sharing tables, span coverage, also into a target whose fields are named apart
+  and declared in another heading order, a work queue, timekeeping, deposits) draws schemas from its whole parameter
+  space and judges writes against a host model of the laws, including span keys, span coverage and row checks. A law's
+  refusal names which side's write broke it, so the parent's and the payload's checks are each required. The same
+  schemas drive concurrent histories, generated races and a direct SQL writer (`direct-*.test.ts`).
+- **The residual law structure** (`test/unit/laws`): each participant of a drawn residual law re-checks exactly the
+  terms of the law's violation query that read its relation, each unit's trigger filters exactly its event's row
+  images, and each unit raises once per term (`participant-checks.test.ts`); an installation's objects, its total and
+  its snapshot grow at most linearly in every schema dimension, compared at n and 2n as AST node counts
+  (`scaling.test.ts`); and a migration revalidates a law exactly when the law's normalized violation query changed
+  (`digest.test.ts`). The catalog verifier holds every installed law trigger to one event and every law function to one
+  trigger (`test/support/catalog/verify.ts`).
 - **The direct-writer model** (`test/pg/direct-writers`): psql writers' statements, built as typed SQL ASTs over
   generated schemas, drawing missing fields (23502), unknown handles (22P02) and transactions below SERIALIZABLE
   (25000). For each transaction it predicts which step fails, with its SQLSTATE and the laws allowed, or the committed

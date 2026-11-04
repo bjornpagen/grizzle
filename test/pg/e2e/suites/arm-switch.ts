@@ -1,11 +1,12 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { alternatives } from "#compiler/public/schema.ts"
 import { quoteString } from "#compiler/sql/print.ts"
@@ -27,8 +28,8 @@ type Work = W.WorkNamed<string>
 const switchToManual = (
 	s: Work,
 	p: {
-		readonly taskId: string
-		readonly accountId: string
+		readonly taskId: Uuid
+		readonly accountId: Uuid
 		readonly previousBudget: bigint
 		readonly operatorName: string
 	}
@@ -44,27 +45,27 @@ const withReads = <P, Writes extends string>(s: Work, changes: ChangeSet<Work, P
 		.read("tasks", (d) =>
 			query(s)
 				.rule((r) => {
-					const { id, account, kind } = v(W.Task)
+					const { id, account, kind } = v(W.Task, "task")
 					return r
 						.match(d.added(W.Task), { id, account, kind })
-						.find({ side: r.literal("added"), id, account, kind })
+						.find({ side: "added", id, account, kind })
 				})
 				.rule((r) => {
-					const { id, account, kind } = v(W.Task)
+					const { id, account, kind } = v(W.Task, "task")
 					return r
 						.match(d.removed(W.Task), { id, account, kind })
-						.find({ side: r.literal("removed"), id, account, kind })
+						.find({ side: "removed", id, account, kind })
 				})
 		)
 		.read("previous", (d) =>
 			query(s).rule((r) => {
-				const { task, budget } = v(d.removed(W.AutomaticTask))
+				const { task, budget } = v(d.removed(W.AutomaticTask), "removedAutomaticTask")
 				return r.match(d.removed(W.AutomaticTask), { task, budget }).find({ task, budget })
 			})
 		)
 		.read("manual", (d) =>
 			query(s).rule((r) => {
-				const { task, operator } = v(W.ManualTask)
+				const { task, operator } = v(W.ManualTask, "manualTask")
 				return r.match(d.added(W.ManualTask), { task, operator }).find({ task, operator })
 			})
 		)
@@ -77,16 +78,16 @@ const switchToManualDescribed = (s: Work) =>
 			.put(
 				W.Task,
 				query(s).rule((r) => {
-					const { account } = v(W.Task)
+					const { account } = v(W.Task, "task")
 					return r
 						.match(W.Task, { id: r.param("task", W.Task.fields.id), account, kind: "Automatic" })
-						.find({ id: r.param("task", W.Task.fields.id), account, kind: r.literal("Manual") })
+						.find({ id: r.param("task", W.Task.fields.id), account, kind: "Manual" })
 				})
 			)
 			.delete(
 				W.AutomaticTask,
 				query(s).rule((r) => {
-					const { budget } = v(W.AutomaticTask)
+					const { budget } = v(W.AutomaticTask, "automaticTask")
 					return r
 						.match(W.AutomaticTask, { task: r.param("task", W.AutomaticTask.fields.task), budget })
 						.find({ task: r.param("task", W.AutomaticTask.fields.task), budget })
@@ -108,7 +109,7 @@ type Form = "enumerated" | "described"
 type Budget = "stored" | "stale"
 
 interface Switch {
-	readonly task: string
+	readonly task: Uuid
 	readonly form: Form
 	readonly budget: Budget
 	readonly operator: "Ruth" | "Sam"
@@ -241,7 +242,7 @@ export const armSwitchSuite = (): void => {
 										literal: Formatter.format,
 										limit: 30,
 										caseHang: Duration.minutes(2),
-										features: features<SwitchFeature>([
+										coverage: requiredInSpace<SwitchFeature>([
 											"enumerated automatic accepted",
 											"enumerated automatic rejected",
 											"enumerated manual no-change",

@@ -180,7 +180,7 @@ export class RegexBuilder {
 		}
 		arms.forEach(visit)
 		if (sets.length > 0) {
-			flat.push(Object.freeze({ kind: "set", set: union(...sets) }))
+			flat.push(Object.freeze({ kind: "set", set: union(sets) }))
 		}
 		const byKey = new Map<string, LiveNode>()
 		for (const arm of flat) {

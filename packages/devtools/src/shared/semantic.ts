@@ -46,7 +46,9 @@ export const prepareSemantics = (
 	const batched = (): Map<ts.Node, NativeSymbol | undefined> => {
 		const symbolNodes: Array<ts.Node> = []
 		const collect = (node: ts.Node): void => {
-			symbolNodes.push(...symbolNodesAt(node))
+			for (const at of symbolNodesAt(node)) {
+				symbolNodes.push(at)
+			}
 			node.forEachChild(collect)
 		}
 		collect(input.sourceFile)

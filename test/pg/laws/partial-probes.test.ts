@@ -22,12 +22,13 @@
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Option, Schema } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {
 	capacity,
@@ -207,7 +208,7 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 							generator: plantedGen,
 							literal: (p: Planted) => p.family,
 							limit: 3,
-							features: features<Family>([
+							coverage: requiredInSpace<Family>([
 								"a selected-source containment",
 								"a capacity over a selected source",
 								"a selected-source span coverage"
@@ -219,6 +220,7 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 							Effect.gen(function* () {
 								const login = oracleLogin(p.desc)
 								const installed: Installed = yield* install(p.desc, {
+									ambient: ordinarySession,
 									label: "partial_probe",
 									extensions: [],
 									logins: [login]

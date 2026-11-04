@@ -1,5 +1,5 @@
 import { Array as Arr } from "effect"
-import { biased, caseSeed, type Words, wordsOf } from "#random.ts"
+import { biased, caseSeed, type Stream, type Words, wordsOf } from "#random.ts"
 import type { Status, Tape } from "#tape.ts"
 
 /** Whether what the system decided matches the tape being replayed: always, on a fresh tape. */
@@ -227,12 +227,13 @@ export const generate = <A>(generator: (source: Source) => A, chooser: Chooser):
 }
 
 /**
- * The first `count` cases of a stream, by value. A pure function of the generator and the seed, so another process
- * given the same seed draws the same cases: a type batch or an agreement suite can generate its inputs ahead of time.
+ * The first `count` cases of a stream, by value. A pure function of the generator and the stream, so another process
+ * given the same stream draws the same cases: a type batch or an agreement suite can generate its inputs ahead of
+ * time. A stream is minted only by random.ts, from a suite's label or from the run's seed, never written as a literal.
  */
 export const sample = <A>(
 	generator: (source: Source) => A,
-	stream: number,
+	stream: Stream,
 	count: number
 ): ReadonlyArray<A> =>
 	Arr.makeBy(

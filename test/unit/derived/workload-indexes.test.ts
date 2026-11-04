@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -39,7 +39,7 @@ import { owning } from "#test/support/policy.ts"
  * read off the typed plan a draft states, never its SQL text. That the index is the one the
  * program's statement uses on PostgreSQL is the database suite's. */
 const busyAccounts = query(W.Reports).rule((r) => {
-	const { account, tasks, budget } = v(W.AccountBudget)
+	const { account, tasks, budget } = v(W.AccountBudget, "accountBudget")
 	return r
 		.match(W.AccountBudget, { account, tasks, budget })
 		.where(r.ge(tasks, r.param("least", pg.bigint)))
@@ -48,7 +48,7 @@ const busyAccounts = query(W.Reports).rule((r) => {
 
 /** A range on the view's `budget`, an unbounded numeric sum, which no B-tree entry is certain to hold. */
 const richAccounts = query(W.Reports).rule((r) => {
-	const { account, tasks, budget } = v(W.AccountBudget)
+	const { account, tasks, budget } = v(W.AccountBudget, "accountBudget")
 	return r
 		.match(W.AccountBudget, { account, tasks, budget })
 		.where(r.ge(budget, r.param("least", pg.numeric)))
@@ -57,8 +57,8 @@ const richAccounts = query(W.Reports).rule((r) => {
 
 /** Reports with AccountBudget redefined: the automatic tasks with a budget above 10 only. */
 const automaticBudgetOfBusy = query(W.Work).rule((r) => {
-	const { id, account } = v(W.Task)
-	const { budget } = v(W.AutomaticTask)
+	const { id, account } = v(W.Task, "task")
+	const { budget } = v(W.AutomaticTask, "automaticTask")
 	return r
 		.match(W.Task, { id, account, kind: "Automatic" })
 		.match(W.AutomaticTask, { task: id, budget })
@@ -68,7 +68,7 @@ const automaticBudgetOfBusy = query(W.Work).rule((r) => {
 const BusyBudget = derived("AccountBudget", automaticBudgetOfBusy)
 const Redefined = schema.extend(W.Work, { AccountBudget: BusyBudget }, [])
 const busyRedefined = query(Redefined).rule((r) => {
-	const { account, tasks, budget } = v(BusyBudget)
+	const { account, tasks, budget } = v(BusyBudget, "busyBudget")
 	return r
 		.match(BusyBudget, { account, tasks, budget })
 		.where(r.ge(tasks, r.param("least", pg.bigint)))
@@ -125,7 +125,7 @@ describe("workload indexes on a derived relation", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 4,
-						features: features<"indexed" | "refused" | "deferred">([
+						coverage: requiredInSpace<"indexed" | "refused" | "deferred">([
 							"indexed",
 							"refused",
 							"deferred"
@@ -186,7 +186,7 @@ describe("workload indexes on a derived relation", () => {
 						]),
 						literal: Formatter.format,
 						limit: 2,
-						features: features<"program added" | "view redefined">([
+						coverage: requiredInSpace<"program added" | "view redefined">([
 							"program added",
 							"view redefined"
 						]),

@@ -22,8 +22,7 @@ const multiplicityReasons = [
 	"disjointArms",
 	"injectiveRepresentation",
 	"noninjectiveExpression",
-	"uniqueOrdinal",
-	"unreadBoundCanFail"
+	"uniqueOrdinal"
 ] as const
 export type MultiplicityReason = (typeof multiplicityReasons)[number]
 
@@ -53,8 +52,7 @@ const elisionRank: {
 	projectedKeyLoss: "cause",
 	overlappingArms: "cause",
 	unknownEvidence: "cause",
-	noninjectiveExpression: "cause",
-	unreadBoundCanFail: "cause"
+	noninjectiveExpression: "cause"
 }
 
 /** Whether a reason may lead an elision: its rank says so. */
@@ -90,8 +88,7 @@ export const leadingReason = (
  * evidence, which an explanation must be able to cite as well: a relation parameter deduplicated on entry, canonical
  * finite facts, an exact duplicate-eliminating operator, a proved zero-or-one-row result, arms told apart by a retained
  * literal discriminant (the positive side of overlapping arms), a key represented through an injective coercion and a
- * key lost through a noninjective one, an ordinal unique per partition, and a bound column a fold reads nowhere else
- * that can fail, which its contributions' DISTINCT computes. They follow the twelve.
+ * key lost through a noninjective one, and an ordinal unique per partition. They follow the twelve.
  *
  * A reason is either evidence for elision (the duplicate elimination is absent because of it) or a cause of a
  * retained boundary (it is present because of it). A reason never selects a strategy.
@@ -116,8 +113,7 @@ export const reasonEffect: { readonly [R in MultiplicityReason]: "absent" | "pre
 	disjointArms: "absent",
 	injectiveRepresentation: "absent",
 	noninjectiveExpression: "present",
-	uniqueOrdinal: "absent",
-	unreadBoundCanFail: "present"
+	uniqueOrdinal: "absent"
 }
 
 /** The phrase each reason renders as, a constant (diagnostics carry no free text, core/diag.ts). */
@@ -143,9 +139,7 @@ const reasonPhrase: { readonly [R in MultiplicityReason]: string } = {
 		"every union arm is unique and the arms are told apart by a retained literal discriminant",
 	injectiveRepresentation: "a key column is represented through an injective coercion",
 	noninjectiveExpression: "a key column is replaced by a noninjective expression",
-	uniqueOrdinal: "the ordinal is unique per partition",
-	unreadBoundCanFail:
-		"a bound column the fold reads nowhere else can fail, and the DISTINCT computes it"
+	uniqueOrdinal: "the ordinal is unique per partition"
 }
 
 /** The stable code of a multiplicity explanation. */

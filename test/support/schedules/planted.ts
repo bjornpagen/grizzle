@@ -5,8 +5,9 @@ import {
 	explore,
 	type SearchFailure
 } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, type Scope } from "effect"
 import type { TestContext } from "vitest"
@@ -52,7 +53,7 @@ const noteTrace = (trace: Trace, c: Case<PlantedFeature>): void => {
  * observed waiting, the window itself.
  *
  * A planted property: `property` runs the planted schedules on one drawn value and answers their traces; every schedule
- * named in `ran` must have run to its end over the run's cases.
+ * named in `ran` must have run to its end over the run's cases, and a property that names none requires no coverage.
  */
 export const planted =
 	<T, E, R>(
@@ -69,15 +70,17 @@ export const planted =
 					suite,
 					draw: drawn(draw),
 					literal: Formatter.format,
-					features: features<PlantedFeature>(
-						Arr.map(ran, (name): PlantedFeature => `ran: ${name}`)
-					),
+					coverage: Arr.isReadonlyArrayNonEmpty(ran)
+						? required<PlantedFeature>(
+								Arr.map(ran, (name): PlantedFeature => `ran: ${name}`),
+								{ cases: plantedRuns, sense: notesOnly }
+							)
+						: noCoverage,
 					kept: [],
 					runs: plantedRuns,
 					shrink: { kind: "bounded", candidates: plantedShrink },
 					concurrency: 1,
 					steerEvery: plantedRuns,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(value, c) =>

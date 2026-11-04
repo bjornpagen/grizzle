@@ -11,6 +11,7 @@ import {
 	SessionStatements,
 	type TxControl
 } from "#adapter/wire/session.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 
 export type Rows = ReadonlyArray<ReadonlyArray<string>>
@@ -31,7 +32,7 @@ export type StatementAnswer =
 	| { readonly _tag: "wedged" }
 	| { readonly _tag: "lose" }
 
-export const rows = (...cells: Rows): StatementAnswer => ({ _tag: "rows", rows: cells })
+export const rows = (cells: Rows): StatementAnswer => ({ _tag: "rows", rows: cells })
 
 export const refusedAnswer = (sqlstate: string): StatementAnswer => ({
 	_tag: "refused",
@@ -64,7 +65,7 @@ export interface ScriptedOptions {
  * scenario spreads it and overrides what it scripts.
  */
 export const answeringScript: Script = {
-	statement: (query) => rows([query.sql]),
+	statement: (query) => rows([[query.sql]]),
 	begin: () => undefined,
 	commit: () => undefined
 }
@@ -266,7 +267,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 				pending = []
 				return { _tag: "answer", answer: refusal(answer) }
 			}
-			committed.push(...pending)
+			appendAll(committed, pending)
 			pending = []
 			return { _tag: "answer", answer: completed("COMMIT") }
 		}

@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -25,37 +26,29 @@ import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
 import { accepts, analyzeText } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
-import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
+import { type GenFacts, rowValues } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
-import { elementAt } from "#test/support/oracle/pick.ts"
 import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
 import {
-	agreedOutcome,
 	asBigint,
 	asSpan,
 	coerce,
 	compare,
+	Declined,
+	type DeclineReason,
 	decidedKeys,
 	distinctRows,
 	equal,
-	ignoreMerges,
-	ignoreReadings,
 	indexKey,
 	joinedKey,
 	literalOf,
-	type MergeObserver,
-	mergedRow,
-	mergedValue,
-	possibleOutcomes,
-	type ReadingObserver,
-	referenceFails,
+	outcomeOf,
 	referenceUnsupported,
 	type Row,
-	spellingKey,
-	Unstated,
 	type Value,
-	valueAt
+	valueAt,
+	valueKey
 } from "#test/support/oracle/reference/values.ts"
 
 /** The range operators an Allen atom lowers to; range_eq is also the span equality the Compute evaluator compares. */
@@ -109,10 +102,10 @@ interface Tuple {
 
 /**
  * A predicate's value as a truth: true or false. A predicate's value the reference does not state (a declined term's,
- * or one the possibilities of what it reads disagree on, values.ts) has none it states: it refuses to judge the row.
+ * values.ts) has none it states: it refuses to judge the row.
  */
 const truthOf = (v: Value): boolean => {
-	if (v instanceof Unstated) {
+	if (v instanceof Declined) {
 		throw referenceUnsupported("a predicate over a declined term's value")
 	}
 	return v === true
@@ -127,19 +120,18 @@ const truthOf = (v: Value): boolean => {
 type NearestObserver = (node: NodeOf<"ApproximateNearest">, source: Relation) => void
 
 /**
- * What a test observes of its reference's evaluation: every merge (values.ts MergeObserver), every reading of a merged
- * value (values.ts ReadingObserver), and every evaluation of an ApproximateNearest node.
+ * What a test observes of its reference's evaluation: every decline, by its reason (values.ts DeclineReason), so a
+ * suite notes how often and why its reference gave up instead of judging, and every evaluation of an
+ * ApproximateNearest node.
  */
 export interface ReferenceObserver {
-	readonly merge: MergeObserver
-	readonly reading: ReadingObserver
+	readonly decline: (reason: DeclineReason) => void
 	readonly nearest: NearestObserver
 }
 
 /** The observer of a reference no test observes. */
 export const unobserved: ReferenceObserver = {
-	merge: ignoreMerges,
-	reading: ignoreReadings,
+	decline: () => {},
 	nearest: () => {}
 }
 
@@ -252,7 +244,7 @@ class Extended implements Bindings {
 	}
 }
 
-const bind = (scope: Bindings, ...entries: ReadonlyArray<readonly [NodeId, Tuple]>): Bindings =>
+const bind = (scope: Bindings, entries: ReadonlyArray<readonly [NodeId, Tuple]>): Bindings =>
 	new Extended(scope, entries)
 
 export const columnIndex = (heading: Heading, name: string, at: string): number => {
@@ -393,14 +385,12 @@ const equatePass = (
 
 /**
  * The region's variable values extended by what an occurrence's `bindings` bind, each read by `read`: a variable bound
- * again is merged with its earlier value, the merge given to `onMerge`; none when one disagrees with it.
+ * again keeps its earlier value, which is the new one in its one form; none when one disagrees with it.
  */
 const extended = <B extends { readonly var: VarDecl; readonly column: string }>(
-	node: NodeOf<"MatchRegion">,
 	values: ReadonlyMap<VarDecl, Value>,
 	bindings: ReadonlyArray<B>,
-	read: (b: B) => { readonly value: Value; readonly type: ScalarType },
-	onMerge: MergeObserver
+	read: (b: B) => { readonly value: Value; readonly type: ScalarType }
 ): Option.Option<ReadonlyMap<VarDecl, Value>> => {
 	const next = new Map(values)
 	for (const b of bindings) {
@@ -413,13 +403,6 @@ const extended = <B extends { readonly var: VarDecl; readonly column: string }>(
 		if (!equal(prior, value, type)) {
 			return Option.none()
 		}
-		onMerge(
-			[{ name: b.column, type }],
-			[prior],
-			[value],
-			`the join variable ${b.var.id} of ${node.id}`
-		)
-		next.set(b.var, mergedValue(prior, value, type))
 	}
 	return Option.some(next)
 }
@@ -671,7 +654,7 @@ const isClosed = (root: RelNode): boolean => {
  * recursion state a SelfRef reads) looks its candidate rows up in a hash index on the native-equality identity of one
  * join value (values.ts indexKey), built from that set as the region or the test is evaluated. An index only skips the
  * rows the nested loop would reject at that value before anything else could happen to them: the rows it does visit it
- * visits in the same order through the same checks, so results, their order, every merge observed and every refusal
+ * visits in the same order through the same checks, so results, their order, every decline observed and every refusal
  * are the nested loop's. Wherever the identity is not known to agree with native equality for the values at hand, or a
  * node is shaped outside what the faster path checks, the nested loop runs as written.
  */
@@ -745,7 +728,7 @@ export class Reference {
 		return {
 			...layoutOf(node.heading),
 			rows: this.deduplicates(node)
-				? distinctRows(rows, node.heading, `${node.kind} ${node.id}`, this.input.observer.merge)
+				? distinctRows(rows, node.heading, `${node.kind} ${node.id}`)
 				: rows
 		}
 	}
@@ -878,65 +861,51 @@ export class Reference {
 	}
 
 	/**
-	 * The value of a term by the Compute evaluator, read by the one rule for unstated values (values.ts): over every
-	 * combination of what the unstated values it reads may be, stated where they all give one outcome, and otherwise
-	 * declined, the term's value over its reads, which PostgreSQL alone computes. A term the oracle declines
-	 * (oracle/evaluate/catalog.ts declinedOps), or one reading a declined term's value, is declined alike.
+	 * The value of a term by the Compute evaluator, run once (values.ts outcomeOf): every value is in its one form, so
+	 * the one run is the term's value. A term the oracle declines (oracle/evaluate/catalog.ts declinedOps), or one
+	 * reading a declined term's value, is declined, its value the term's over its reads, which PostgreSQL alone
+	 * computes; the decline is observed by its reason. A term that fails fails with its code.
 	 *
-	 * A column read is the column's value as it is: a declined term's the same value, a merged numeric's the same
-	 * spellings.
-	 *
-	 * Every possibility fails: with one code, the term fails with it; with several, which one PostgreSQL meets
-	 * is its own.
+	 * A column read is the column's value as it is: a declined term's the same value.
 	 */
 	computed(expr: ScalarExpr, scope: Bindings): Value {
 		const param = (pid: ParamId): Value | undefined => {
 			const p = this.param(pid)
 			return p.kind === "scalar" ? literalOf(p.value, p.type) : undefined
 		}
-		const unstated = (): Unstated =>
-			new Unstated({ kind: "declined", identity: this.readsOf(expr, scope, param) })
 		const column = (ref: ColumnRef) => scope.get(ref.node)?.get(ref.name)
 		if (expr.kind === "column") {
 			const v = column(expr.column)
-			if (v instanceof Unstated) {
-				return coerce(v, expr.type)
+			if (v instanceof Declined) {
+				return v
 			}
 		}
-		const outcomes = possibleOutcomes(
-			(read) =>
-				evaluate(expr, {
-					kind: "row",
-					column: (ref) => {
-						const v = column(ref)
-						return v === undefined ? undefined : read(columnKey(ref), v)
-					},
-					param: (pid) => {
-						const v = param(pid)
-						return v instanceof Unstated ? undefined : v
-					},
-					regexMember: patternMember
-				}),
-			this.input.observer.reading
+		const outcome = outcomeOf((read) =>
+			evaluate(expr, {
+				kind: "row",
+				column: (ref) => {
+					const v = column(ref)
+					return v === undefined ? undefined : read(v)
+				},
+				param: (pid) => {
+					const v = param(pid)
+					return v === undefined ? undefined : read(v)
+				},
+				regexMember: patternMember
+			})
 		)
-		const agreed = agreedOutcome(outcomes, expr.type)
-		switch (agreed.kind) {
+		switch (outcome.kind) {
 			case "value":
-				return coerce(agreed.value, expr.type)
-			case "failure":
-				if (agreed.codes.length === 1) {
-					throw referenceFails(Arr.headNonEmpty(agreed.codes))
-				}
-				return unstated()
-			case "open":
-				return unstated()
+				return coerce(outcome.value, expr.type)
+			case "declined":
+				this.input.observer.decline(outcome.reason)
+				return new Declined(this.readsOf(expr, scope, param), outcome.reason)
 		}
 	}
 
 	/**
-	 * The identity of a term over what it reads in `scope`: its expression, and each column's and parameter's value.
-	 * A read is identified by its spelling, not native equality alone: PostgreSQL's numeric power takes its result's
-	 * scale from its operand's display scale, so natively equal reads of other scales may give natively unequal results.
+	 * The identity of a term over what it reads in `scope`: its expression, and each column's and parameter's value,
+	 * by native equality, which every reading is a function of (values.ts).
 	 */
 	readsOf(root: ScalarExpr, scope: Bindings, param: (pid: ParamId) => Value | undefined): string {
 		const parts: Array<string> = [root.id]
@@ -946,10 +915,10 @@ export class Reference {
 					scope.get(expr.column.node)?.get(expr.column.name),
 					`the column ${expr.column.name}`
 				)
-				parts.push(`${expr.column.node}.${expr.column.name}=${spellingKey(v, expr.type)}`)
+				parts.push(`${expr.column.node}.${expr.column.name}=${valueKey(v, expr.type)}`)
 			} else if (expr.kind === "param") {
 				const v = stated(param(expr.param), `a value for the parameter ${expr.param}`)
-				parts.push(`$${expr.param}=${spellingKey(v, expr.type)}`)
+				parts.push(`$${expr.param}=${valueKey(v, expr.type)}`)
 			}
 		}
 		return joinedKey(parts)
@@ -992,13 +961,13 @@ export class Reference {
 			case "Filter": {
 				const input = this.eval(node.input, scope)
 				return Arr.filter(input.rows, (row) =>
-					this.truth(node.pred, bind(scope, [node.input.id, tupleOf(input, row)]))
+					this.truth(node.pred, bind(scope, [[node.input.id, tupleOf(input, row)]]))
 				)
 			}
 			case "ProjectSet": {
 				const input = this.eval(node.input, scope)
 				return Arr.map(input.rows, (row) => {
-					const inner = bind(scope, [node.input.id, tupleOf(input, row)])
+					const inner = bind(scope, [[node.input.id, tupleOf(input, row)]])
 					return Arr.map(node.heading, (c) => {
 						const out = Arr.findFirst(node.out, (o) => o.name === c.name)
 						if (Option.isNone(out)) {
@@ -1046,11 +1015,7 @@ export class Reference {
 					if ((matched !== undefined) !== keep) {
 						return []
 					}
-					if (matched === undefined) {
-						return [row]
-					}
-					this.input.observer.merge(left.heading, row, matched, `Intersect ${node.id}`)
-					return [mergedRow(left.heading, row, matched)]
+					return [row]
 				})
 			}
 			case "Take":
@@ -1129,7 +1094,7 @@ export class Reference {
 			if (e === undefined) {
 				throw referenceUnsupported(`an argument of the window ${node.id}`)
 			}
-			return this.expr(e, bind(scope, [node.input.id, tupleOf(input, row)]))
+			return this.expr(e, bind(scope, [[node.input.id, tupleOf(input, row)]]))
 		}
 		const type = (e: ScalarExpr | undefined): ScalarType => {
 			if (e === undefined) {
@@ -1149,7 +1114,7 @@ export class Reference {
 				)
 			}
 			for (const [i, row] of rows.entries()) {
-				/** A partition's extreme, as the aggregate computes it: the arguments equal to it merge into one. */
+				/** A partition's extreme, as the aggregate computes it. */
 				const value = ((): Value => {
 					switch (node.fn) {
 						case "rowNumber":
@@ -1172,9 +1137,7 @@ export class Reference {
 							return aggregate(
 								node.fn,
 								Arr.map(rows, (r) => at(arg, r)),
-								type(arg),
-								{ node: node.id, column: node.out },
-								this.input.observer.merge
+								type(arg)
 							)
 						}
 						case "lag":
@@ -1213,7 +1176,7 @@ export class Reference {
 				if (at === undefined) {
 					throw referenceUnsupported(`a column ${c.name} of ${node.relation}`)
 				}
-				return literalOf(literalAt(fact, at), c.type)
+				return literalOf(literalAt(rowValues(fact), at), c.type)
 			})
 		)
 	}
@@ -1280,10 +1243,10 @@ export class Reference {
 			values: ReadonlyMap<VarDecl, Value>,
 			sources: ReadonlyArray<readonly [NodeId, Tuple]>
 		): void => {
-			const inner = bind(scope, ...sources, [node.id, regionTuple(values)])
+			const inner = bind(scope, [...sources, [node.id, regionTuple(values)]])
 			const stage = staged[i]
 			if (stage === undefined) {
-				out.push(...Option.toArray(this.finishMatch(node, values, inner)))
+				appendAll(out, Option.toArray(this.finishMatch(node, values, inner)))
 				return
 			}
 			const { plan, index } = stage
@@ -1301,20 +1264,17 @@ export class Reference {
 				if (row.length < plan.width) {
 					valueAt(row, row.length)
 				}
-				const next = extended(
-					node,
-					values,
-					plan.bindings,
-					(b) => ({ value: valueAt(row, b.index), type: b.type }),
-					this.input.observer.merge
-				)
+				const next = extended(values, plan.bindings, (b) => ({
+					value: valueAt(row, b.index),
+					type: b.type
+				}))
 				if (Option.isNone(next)) {
 					continue
 				}
 				const placed = [...sources, [plan.source.id, tupleOf(source, row)] as const]
 				const holds =
 					plan.constants.length === 0 ||
-					constantsHold(plan, row, bind(scope, ...placed, [node.id, regionTuple(next.value)]))
+					constantsHold(plan, row, bind(scope, [...placed, [node.id, regionTuple(next.value)]]))
 				if (holds) {
 					step(i + 1, next.value, placed)
 				}
@@ -1339,30 +1299,24 @@ export class Reference {
 			values: ReadonlyMap<VarDecl, Value>,
 			sources: ReadonlyArray<readonly [NodeId, Tuple]>
 		): void => {
-			const inner = bind(scope, ...sources, [node.id, regionTuple(values)])
+			const inner = bind(scope, [...sources, [node.id, regionTuple(values)]])
 			const o = node.occurrences[i]
 			if (o === undefined) {
-				out.push(...Option.toArray(this.finishMatch(node, values, inner)))
+				appendAll(out, Option.toArray(this.finishMatch(node, values, inner)))
 				return
 			}
 			const source = this.eval(o.source, inner)
 			for (const row of source.rows) {
 				const tuple = tupleOf(source, row)
-				const next = extended(
-					node,
-					values,
-					o.bindings,
-					(b) => ({
-						value: lookup(tuple, b.column, `a bound column ${b.column}`),
-						type: b.var.type
-					}),
-					this.input.observer.merge
-				)
+				const next = extended(values, o.bindings, (b) => ({
+					value: lookup(tuple, b.column, `a bound column ${b.column}`),
+					type: b.var.type
+				}))
 				if (Option.isNone(next)) {
 					continue
 				}
 				const placed = [...sources, [o.source.id, tuple] as const]
-				const at = bind(scope, ...placed, [node.id, regionTuple(next.value)])
+				const at = bind(scope, [...placed, [node.id, regionTuple(next.value)]])
 				const holds = Arr.every(o.constants, (c) => {
 					const column = Arr.findFirst(source.heading, (h) => h.name === c.column)
 					if (Option.isNone(column)) {
@@ -1438,7 +1392,7 @@ export class Reference {
 				: Option.none()
 			return Arr.filter(left.rows, (row) => {
 				const tuple = tupleOf(left, row)
-				const rel = this.eval(node.right, bind(scope, [node.left.id, tuple]))
+				const rel = this.eval(node.right, bind(scope, [[node.left.id, tuple]]))
 				const found = Option.match(
 					Option.flatMap(matches, (keys) =>
 						Option.map(
@@ -1464,7 +1418,7 @@ export class Reference {
 		}
 		return Arr.filter(left.rows, (row) => {
 			const tuple = tupleOf(left, row)
-			const right = this.eval(node.right, bind(scope, [node.left.id, tuple]))
+			const right = this.eval(node.right, bind(scope, [[node.left.id, tuple]]))
 			const found = Arr.some(right.rows, (r) => {
 				const other = tupleOf(right, r)
 				return Arr.every(node.on, (p) => {
@@ -1532,8 +1486,7 @@ export class Reference {
 		const tuples = distinctRows(
 			Arr.map(input.rows, (row) => project(input.heading, heading, row, node.id)),
 			heading,
-			`the bound tuples of ${node.id}`,
-			this.input.observer.merge
+			`the bound tuples of ${node.id}`
 		)
 		const keyHeading: Heading = Arr.map(node.keys, (k) =>
 			columnAt(heading, columnIndex(heading, k, node.id))
@@ -1551,8 +1504,6 @@ export class Reference {
 			if (g === undefined) {
 				groups.set(k, { key, members: [t] })
 			} else {
-				this.input.observer.merge(keyHeading, g.key, key, `a group key of ${node.id}`)
-				g.key = mergedRow(keyHeading, g.key, key)
 				g.members.push(t)
 			}
 		}
@@ -1575,18 +1526,9 @@ export class Reference {
 					const values = Arr.map(members, (m) =>
 						arg === undefined
 							? true
-							: this.expr(arg, bind(scope, [node.input.id, tupleOf(boundLayout, m)]))
+							: this.expr(arg, bind(scope, [[node.input.id, tupleOf(boundLayout, m)]]))
 					)
-					return coerce(
-						aggregate(
-							agg.value.fn,
-							values,
-							argType,
-							{ node: node.id, column: c.name },
-							this.input.observer.merge
-						),
-						c.type
-					)
+					return coerce(aggregate(agg.value.fn, values, argType), c.type)
 				})
 			)
 		}
@@ -1609,8 +1551,7 @@ export class Reference {
 		let state = distinctRows(
 			cast(this.eval(node.base, scope)),
 			node.heading,
-			`the base of ${node.id}`,
-			this.input.observer.merge
+			`the base of ${node.id}`
 		)
 		const seen = new Map<string, number>()
 		for (let i = 0; ; i++) {
@@ -1632,9 +1573,7 @@ export class Reference {
 				}
 				return key
 			}
-			/**
-			 * Each key's row by its index in the state and fresh rows, so a merge replaces the representative in place.
-			 */
+			/** Each key's row by its index in the state and fresh rows. */
 			const rows: Array<Row> = [...state]
 			const keyed: ReadonlyArray<readonly [string, number]> = Arr.map(
 				[...state.keys()],
@@ -1651,11 +1590,7 @@ export class Reference {
 			let fresh = 0
 			for (const [j, row] of step.entries()) {
 				const k = keyAt(state.length + j)
-				const kept = seen.get(k)
-				if (kept !== undefined) {
-					const prior = elementAt(rows, kept, "the recursion's rows")
-					this.input.observer.merge(node.heading, prior, row, `the state of ${node.id}`)
-					rows[kept] = mergedRow(node.heading, prior, row)
+				if (seen.has(k)) {
 					continue
 				}
 				seen.set(k, rows.length)

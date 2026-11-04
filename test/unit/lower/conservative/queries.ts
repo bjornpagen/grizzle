@@ -382,7 +382,7 @@ const reachNode = (q: Q): RelNode => {
 	)
 	const seed = q.filter(
 		seedRegion,
-		q.op("int4eq", [q.col(seedRegion, "src"), q.param("start", T.int4, "compare")], T.bool, "total")
+		q.op("int4eq", [q.col(seedRegion, "src"), q.param("start", T.int4, "compare")], T.bool)
 	)
 	const rec = q.b.reserve()
 	const self = q.node({

@@ -1,7 +1,7 @@
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { describeOp, type TypedLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import { baseTypeRef as physicalBaseType } from "#compiler/lower/conservative/base-type.ts"
 import {
 	type Env,
@@ -10,9 +10,11 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
+import { bindOperands, ieeeCastForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
+import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { cast, lit } from "#compiler/sql/build.ts"
 
@@ -82,10 +84,11 @@ const exprLabel = (expr: ScalarExpr): string => `expression ${expr.id} (${expr.k
  *
  * Scalar expressions.
  *
- * One IR node is one PostgreSQL operator, function or cast, so each lowers to exactly one SQL node: a column becomes
- * its qualified reference in the environment, a parameter its typed placeholder, a literal a typed literal, an
- * operator its catalog form, a cast `x::type`, a domain cast `x::domain`, and a conditional CASE with its ELSE. No
- * NULL, NULLIF or COALESCE is produced, and nothing is added that the IR does not state.
+ * One IR node is one Compute operation, so each lowers to its SQL: a column becomes its qualified reference in the
+ * environment, a parameter its typed placeholder, a literal a typed literal, an operator its catalog form (an exact
+ * one in its exact space and an IEEE 754 one by its fast and exact paths, ops.ts totalForm), a cast `x::type` (a
+ * rounding into a float by total.ts ieeeCastForm), a domain cast `x::domain`, and a conditional CASE with its ELSE. No
+ * NULL, NULLIF or COALESCE is produced.
  *
  * Types: a comparison parameter is cast to its base type and a written or emitted one to
  * its domain, which the IR records as the parameter's type; a literal is typed by its base, since its refinement was
@@ -113,7 +116,23 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 			return cx.params.scalar(expr.param, expr.type, cx.typeRef(expr.type, at))
 		case "literal":
 			return lowerLiteral(cx.names, expr.value, expr.type)
-		case "cast":
+		case "cast": {
+			const [arg] = expr.args
+			const inner = lower(arg)
+			const native = nativeOp(expr.cast)
+			const target = baseOf(expr.type).carrier
+			if (
+				native !== undefined &&
+				native.totality.kind === "ieee" &&
+				(target === "float4" || target === "float8")
+			) {
+				return (
+					bindOperands([arg], [inner], ([x]) => ieeeCastForm(x, arg.type, target)) ??
+					refuse("UnsupportedOperation", at, `an IEEE 754 rounding into ${target}`)
+				)
+			}
+			return cast(inner, cx.typeRef(expr.type, at))
+		}
 		case "domainCast":
 			return cast(lower(expr.args[0]), cx.typeRef(expr.type, at))
 		case "cond": {

@@ -10,9 +10,9 @@ import {
 	uniteMasks
 } from "#compiler/allen/mask.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { type ExprSpec, OpId, rangeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { type DefinedOp, type ExprSpec, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { type ScalarType, type SpanCarrier, spanCarrierOf } from "#compiler/ir/scalar.ts"
-import { nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { connectiveOps, definedRangeOp, nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 /**
  * What a span operand denotes: a column of a node, a parameter, a literal span, or any other span expression by its
@@ -302,23 +302,22 @@ export const allenExpr = (
 				nonNull: "literal"
 			})
 		case "formula": {
-			const node = (op: OpId, args: ReadonlyArray<ScalarExpr>): ScalarExpr =>
+			const node = (op: DefinedOp, args: ReadonlyArray<ScalarExpr>): ScalarExpr =>
 				emit({
 					kind: "op",
 					op,
 					args,
 					type: bool,
 					nonNull: "strict",
-					volatility: "immutable",
-					failure: "total"
+					volatility: "immutable"
 				})
 			return buildFormula(form.formula, a, b, {
 				literal: (op, negated, first, second) => {
-					const positive = node(rangeOp(rangeOperatorCodes[op], carrier), [first, second])
-					return negated ? node(OpId("not"), [positive]) : positive
+					const positive = node(definedRangeOp(rangeOperatorCodes[op], carrier), [first, second])
+					return negated ? node(connectiveOps.not, [positive]) : positive
 				},
-				and: (parts) => node(OpId("and"), parts),
-				or: (parts) => node(OpId("or"), parts)
+				and: (parts) => node(connectiveOps.and, parts),
+				or: (parts) => node(connectiveOps.or, parts)
 			})
 		}
 	}

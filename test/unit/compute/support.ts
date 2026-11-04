@@ -4,10 +4,12 @@ import { type Column, convertColumn, handleColumn } from "#compiler/core/decoder
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, Spelled } from "#compiler/ir/desc.ts"
 import { describeOp, type ExprSpec, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
+import type { Fact } from "#compiler/ir/proof.ts"
 import { baseOf, type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { spellExpr } from "#compiler/query/build/walk.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
@@ -19,13 +21,15 @@ import {
 	type LowerParams,
 	lowerPredicate,
 	lowerTerm,
-	noExtension
+	noExtension,
+	type ParamRef
 } from "#compiler/scalar/compute/lower.ts"
 import { exprEmitter } from "#compiler/scalar/compute/lower.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import { withoutSerial } from "#compiler/scalar/compute/types.ts"
 import { type ScalarEnv, type SqlTag, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
@@ -52,6 +56,7 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
+import { testTypeSchema } from "#test/support/sql.ts"
 
 export interface TestField {
 	readonly sql: SqlTag
@@ -61,9 +66,10 @@ export interface TestField {
 }
 
 /** The closed types a test field's handle names, by name: Mood, the aggregate suite's (test/pg/compute). */
-const rosters: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
-	["Mood", ["sad", "ok", "happy"]]
-])
+const rosters: ReadonlyMap<string, NonEmptyReadonlyArray<string>> = new Map<
+	string,
+	NonEmptyReadonlyArray<string>
+>([["Mood", ["sad", "ok", "happy"]]])
 
 /**
  * A schema's environment over the declared rosters: every pattern as written, and each contract's predicate table as
@@ -73,8 +79,8 @@ const testEnv: ScalarEnv = {
 	kind: "schema",
 	roster: (name) => rosters.get(name),
 	text: textLookup,
-	contractPredicate: (predicate, base, name) =>
-		contractPredicateTable(predicate, base, name, {
+	contractPredicate: (predicate, base, name, facts) =>
+		contractPredicateTable(predicate, base, name, facts, {
 			loc: SourceLoc(`contract ${name}`, []),
 			fieldType: (d) => scalarTypeOf(d, testEnv, SourceLoc(`contract ${name}`, [])),
 			regexMember: patternMember
@@ -107,7 +113,7 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			return plainColumns.text
 		case "closedId": {
 			const handles = rosters.get(desc.roster)
-			if (handles === undefined || !Arr.isReadonlyArrayNonEmpty(handles)) {
+			if (handles === undefined) {
 				throw new Error(`no roster ${desc.roster}`)
 			}
 			return handleColumn(handles)
@@ -169,11 +175,15 @@ export const spelled = (expr: OpenExpr): ExprDesc =>
 		interior: (ref) => ref.id
 	})
 
-/** A contract over a base with a predicate built from the value's comparisons, or none. */
+/**
+ * A contract over a base with a predicate built from the value's comparisons, or none, declaring the facts its
+ * predicate proves (none unless given).
+ */
 export const testContract = (
 	name: string,
 	base: TestField,
-	predicate: ((v: ScalarTerm) => { readonly expr: OpenExpr }) | undefined
+	predicate: ((v: ScalarTerm) => { readonly expr: OpenExpr }) | undefined,
+	facts: ReadonlyArray<Fact> = []
 ): TestField => {
 	const built = predicate?.(scalarTerm({ kind: "value" }, base.scalar, base)).expr
 	return field(
@@ -181,7 +191,8 @@ export const testContract = (
 			kind: "contract",
 			name,
 			base: base.desc,
-			predicate: built === undefined ? undefined : spelled(built)
+			predicate: built === undefined ? undefined : spelled(built),
+			facts
 		},
 		base.sql
 	)
@@ -201,6 +212,7 @@ export const v = (name: string, of: TestField): ScalarTerm =>
 			var: {
 				build: testBuild,
 				owner: "adopted",
+				scope: { name, loc: SourceLoc(`v ${name}`, []) },
 				field: name,
 				origin: undefined,
 				loc: SourceLoc(`v ${name}`, [])
@@ -212,7 +224,7 @@ export const v = (name: string, of: TestField): ScalarTerm =>
 
 /** A parameter, as r.param makes one: a term over the parameter, of its declared type. */
 export const param = (name: string, of: TestField): ScalarTerm =>
-	scalarTerm({ kind: "param", name }, of.scalar, of)
+	scalarTerm({ kind: "param", name, type: of.desc }, of.scalar, of)
 
 /** An env's variables: each a column of node n0 or a literal value. */
 export type LeafBinding =
@@ -238,23 +250,27 @@ export const sink = (): Sink => {
 	}
 }
 
-/**
- * A lowering environment over `vars`: a query and the total fragment check a regex refinement with the oracle's NFA, and
- * a query lowers no predicate of another package.
- * A parameter bound as its base type.
- */
-export const bindAsBase = (
-	{ name }: Spelled["param"],
-	type: ScalarType
-): Result.Result<ExprSpec, CompileError> =>
-	Result.ok({
-		kind: "param",
-		param: ParamId(name),
-		role: "compare",
-		args: [],
-		type: baseOf(type),
-		nonNull: "codec"
+/** A parameter of its declared type, bound as the type's base. */
+export const bindAsBase = ({
+	name,
+	type
+}: ParamRef<Spelled>): Result.Result<
+	{ readonly spec: ExprSpec; readonly type: ScalarType },
+	CompileError
+> => {
+	const declared = withoutSerial(scalarOfDesc(type))
+	return Result.ok({
+		spec: {
+			kind: "param",
+			param: ParamId(name),
+			role: "compare",
+			args: [],
+			type: baseOf(declared),
+			nonNull: "codec"
+		},
+		type: declared
 	})
+}
 
 export const baseParams: LowerParams<Spelled> = { kind: "scope", lower: bindAsBase }
 
@@ -268,7 +284,7 @@ const env = (
 	switch (mode) {
 		case "query":
 			return { ...common, mode, regexMember: patternMember, extension: noExtension }
-		case "total":
+		case "check":
 			return { ...common, mode, regexMember: patternMember }
 		case "build":
 			return { ...common, mode }
@@ -384,13 +400,13 @@ const typeRef = (t: ScalarType, options: RenderOptions): TypeRef => {
 			throw new Error(`no domain for contract ${contract.name}`)
 		}
 		const d = options.domain(contract.name)
-		return namedType(d.schema, d.name, [])
+		return namedType(testTypeSchema(d.schema), d.name, [])
 	}
 	if (t.carrier === "numeric") {
 		return t.typmod === undefined ? types.numeric : numericType(t.typmod.precision, t.typmod.scale)
 	}
 	if (t.carrier === "vector") {
-		return namedType(options.vectorSchema, "vector", [t.typmod.dims])
+		return namedType(testTypeSchema(options.vectorSchema), "vector", [t.typmod.dims])
 	}
 	const ref = builtinNames[t.carrier]
 	if (ref === undefined) {
@@ -529,13 +545,18 @@ const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 					case "between":
 						return { kind: "between", expr: arg(0), low: arg(1), high: arg(2), not: false }
 					case "in":
-						return { kind: "inList", expr: arg(0), list: args.slice(1), not: false }
+						return {
+							kind: "inList",
+							expr: arg(0),
+							list: [arg(1), ...args.slice(2)],
+							not: false
+						}
 					case "least":
 					case "greatest":
-						return { kind: sql.kind, args }
+						return { kind: sql.kind, args: [arg(0), ...args.slice(1)] }
 					case "and":
 					case "or":
-						return { kind: sql.kind, args }
+						return { kind: sql.kind, args: [arg(0), ...args.slice(1)] }
 					case "not":
 						return { kind: "not", expr: arg(0) }
 					case "cast":

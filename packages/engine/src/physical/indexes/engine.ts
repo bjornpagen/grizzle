@@ -5,10 +5,12 @@ import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, IndexName, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
+	extendNonEmpty,
 	isNonEmpty,
 	lastNonEmpty,
 	mapNonEmpty,
-	type NonEmptyReadonlyArray
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
 } from "#compiler/core/nonempty.ts"
 
 import {
@@ -414,7 +416,7 @@ const serves = (index: PlannedIndex, planned: Planned): boolean =>
 interface Draft {
 	readonly methods: Methods
 	readonly rows: IndexRows
-	readonly blocks: ReadonlyArray<Block>
+	readonly blocks: NonEmptyReadonlyArray<Block>
 	readonly directed: Keys | undefined
 }
 
@@ -422,9 +424,9 @@ interface Draft {
  * `leading` must lead it. Of the two current blocks the smaller leads and must lie within the larger, whose rest stays
  * current; a block of `leading` left over names a column the index does not hold. */
 const mergeBlocks = (
-	draft: ReadonlyArray<Block>,
-	leading: ReadonlyArray<Block>
-): ReadonlyArray<Block> | undefined => {
+	draft: NonEmptyReadonlyArray<Block>,
+	leading: NonEmptyReadonlyArray<Block>
+): NonEmptyReadonlyArray<Block> | undefined => {
 	const out: Array<Block> = []
 	const restA = [...draft]
 	const restB = [...leading]
@@ -451,7 +453,8 @@ const mergeBlocks = (
 	if (b !== undefined) {
 		return undefined
 	}
-	return a === undefined ? out : [...out, a, ...restA]
+	const merged = a === undefined ? out : [...out, a, ...restA]
+	return isNonEmpty(merged) ? merged : undefined
 }
 
 /** Where each column stands in the order a created index's own request states them, which a block keeps among its
@@ -468,11 +471,11 @@ const rankIn =
  * request states first leads, alone, and the rest of the block follows; none when the first block holds no column of
  * `lead` or the draft misses one of `held`. */
 const leadDraft = (
-	draft: ReadonlyArray<Block>,
+	draft: NonEmptyReadonlyArray<Block>,
 	lead: Keys,
 	held: ReadonlyArray<IndexKey>,
 	rank: Rank
-): ReadonlyArray<Block> | undefined => {
+): NonEmptyReadonlyArray<Block> | undefined => {
 	const [first, ...rest] = draft
 	if (
 		first === undefined ||
@@ -590,12 +593,17 @@ const refined = (draft: Draft, ahead: Ahead, rank: Rank): Draft | undefined => {
 
 /** A draft's keys (see `planIndexes`): its blocks in order, each block's columns in the request's own order, the keys an
  * ordered request directs in its directions and every other in the first key's, canonical under reversal. */
-const keysOf = (draft: Draft, rank: Rank): ReadonlyArray<IndexKey> => {
-	const keys = draft.blocks.flatMap((block) => block.toSorted(mapInput(compareNumbers, rank)))
+const keysOf = (draft: Draft, rank: Rank): NonEmptyReadonlyArray<IndexKey> => {
+	const byRank = mapInput(compareNumbers, rank)
+	const [leading, ...following] = draft.blocks
+	const keys = extendNonEmpty(
+		sortNonEmpty(leading, byRank),
+		following.flatMap((block) => block.toSorted(byRank))
+	)
 	const directed = draft.directed
 	const first = directed === undefined ? "asc" : directed[0].dir
 	return canonicalKeys(
-		keys.map((k, i): IndexKey => {
+		mapNonEmpty(keys, (k, i): IndexKey => {
 			const along = directed?.[i]
 			return { field: k.field, dir: along === undefined ? first : along.dir, opclass: k.opclass }
 		})
@@ -954,8 +962,8 @@ const draftFor = (planned: Planned, reads: ReadonlyArray<Ahead>): Draft => {
 const opposite = (dir: "asc" | "desc"): "asc" | "desc" => (dir === "asc" ? "desc" : "asc")
 
 /** A request's keys canonical under reversal: reversed when the first descends, so the first ascends. */
-const canonicalKeys = (keys: ReadonlyArray<IndexKey>): ReadonlyArray<IndexKey> =>
-	keys[0]?.dir === "desc" ? keys.map((k) => ({ ...k, dir: opposite(k.dir) })) : keys
+const canonicalKeys = (keys: NonEmptyReadonlyArray<IndexKey>): NonEmptyReadonlyArray<IndexKey> =>
+	keys[0].dir === "desc" ? mapNonEmpty(keys, (k) => ({ ...k, dir: opposite(k.dir) })) : keys
 
 /** A new index for an unserved request, as drafted for it (draftFor): the draft's first method, its rows, and its keys in
  * the order the draft fixes, its entry checked against the access method's limit. */
@@ -1023,7 +1031,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 		name,
 		table: b.names.relation(request.relation),
 		method,
-		keys: keys.map((k) => ({
+		keys: mapNonEmpty(keys, (k) => ({
 			...columnKey(b.names.column(request.relation, k.field)),
 			opclass:
 				k.opclass.kind === "default"

@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { ConstraintName, DomainName } from "#compiler/core/ids.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -206,8 +207,9 @@ export const probeTextDomains = (
 					`SELECT $1::text::${schema}.${quoteIdent(model.domain)}`,
 					[text]
 				)
-				problems.push(
-					...judged(`${Formatter.format(text)} as ${model.domain}`, holds, verdict, model.check)
+				appendAll(
+					problems,
+					judged(`${Formatter.format(text)} as ${model.domain}`, holds, verdict, model.check)
 				)
 				admitted ||= holds
 				refused ||= !holds

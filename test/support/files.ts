@@ -1,5 +1,5 @@
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
-import { Effect, FileSystem, Layer, ManagedRuntime, Path } from "effect"
+import { Array as Arr, Effect, FileSystem, Layer, ManagedRuntime, Path } from "effect"
 
 /**
  * Node's file system and paths, taken once from a runtime of their layers: test code reads the files it loads through
@@ -19,7 +19,8 @@ export const fileText = (path: string): Effect.Effect<string> =>
 	Effect.orDie(files.readFileString(path))
 
 /** `segments` joined into one normalized path, as Effect's Path joins them. */
-export const joinPath = (...segments: ReadonlyArray<string>): string => paths.join(...segments)
+export const joinPath = (...segments: ReadonlyArray<string>): string =>
+	Arr.reduce(segments, "", (path, segment) => paths.join(path, segment))
 
 /** The repository's root directory, ending in a slash. */
 export const repoRoot = `${joinPath(import.meta.dirname, "../..")}/`

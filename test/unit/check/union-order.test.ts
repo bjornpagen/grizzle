@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { type Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -80,10 +80,16 @@ const arms = (common: "id" | "account", account: ExprDesc): readonly [RuleDesc, 
 	})
 ]
 
+/** The union of the automatic and manual arms (arms). */
+const armsUnion = (common: "id" | "account", account: ExprDesc): QueryDesc => {
+	const [automatic, manual] = arms(common, account)
+	return query(automatic, manual)
+}
+
 /** Keyed: id is a key of each arm, so (id, kind) keys the union. */
-const keyed = query(...arms("id", ref("Task", "account")))
+const keyed = armsUnion("id", ref("Task", "account"))
 /** Keyless: an account has many tasks of one kind, so (account, kind) keys no arm. */
-const keyless = query(...arms("account", ref("Task", "account")))
+const keyless = armsUnion("account", ref("Task", "account"))
 
 const accounts = query(
 	rule({
@@ -127,7 +133,7 @@ const refusals: Arr.NonEmptyReadonlyArray<Refused> = [
 		query: attach(
 			accounts,
 			"tasks",
-			take(orderBy(query(...arms("account", parent("id"))), ["kind", "asc"]), 2)
+			take(orderBy(armsUnion("account", parent("id")), ["kind", "asc"]), 2)
 		),
 		reason: "UnsupportedOperation"
 	},
@@ -159,7 +165,7 @@ describe("a union of different headings", () => {
 						generator: element(refusals),
 						literal: Formatter.format,
 						limit: refusals.length,
-						features: features<never>([]),
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					(r) =>

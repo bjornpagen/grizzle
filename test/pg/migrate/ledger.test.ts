@@ -7,12 +7,12 @@ import {
 	runProgram
 } from "@grizzle/testing/commands"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
-import { type SchemaApplyReport, applyLockKey, applyLockKeySql } from "#adapter/migrate/apply.ts"
+import { type SchemaApplyReport, applyLockKey, applyLockKeyExpr } from "#adapter/migrate/apply.ts"
 import type {
 	AppliedEdit,
 	MigrateError,
@@ -41,7 +41,7 @@ import {
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { printCatalogExpr, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	apply,
 	folderSource,
@@ -363,8 +363,10 @@ const unreviewedOf = (g: GenerateResult) => ({
 			line: mk.line
 		}))
 	),
-	losses: Arr.flatMap(g.folder.meta.decisions.losses, (l) =>
-		l.within.kind === "top" ? [{ folder: g.folder.name, file: l.file }] : []
+	losses: Arr.flatMap(g.folder.meta.files, (f) =>
+		Arr.flatMap(f.steps, (s) =>
+			s.kind === "loss" ? [{ folder: g.folder.name, file: f.name }] : []
+		)
 	)
 })
 
@@ -821,9 +823,10 @@ const realOf = (
 	busy: (_none, model) =>
 		Effect.gen(function* () {
 			c.note("busy")
-			yield* r.holder.values(`SELECT pg_catalog.pg_advisory_lock(${applyLockKeySql})`, [
-				applyLockKey(r.schema)
-			])
+			yield* r.holder.values(
+				`SELECT pg_catalog.pg_advisory_lock(${printCatalogExpr(applyLockKeyExpr)})`,
+				[applyLockKey(r.schema)]
+			)
 			yield* Effect.ensuring(
 				refusedBeforeRunning(
 					r,
@@ -832,9 +835,10 @@ const realOf = (
 					apply(r.m, directory(r, Math.min(3, model.recorded + 1), asReviewed), noFurther)
 				),
 				Effect.ignore(
-					r.holder.values(`SELECT pg_catalog.pg_advisory_unlock(${applyLockKeySql})`, [
-						applyLockKey(r.schema)
-					])
+					r.holder.values(
+						`SELECT pg_catalog.pg_advisory_unlock(${printCatalogExpr(applyLockKeyExpr)})`,
+						[applyLockKey(r.schema)]
+					)
 				)
 			)
 		}),
@@ -1115,13 +1119,12 @@ const ledgerSearch = Effect.gen(function* () {
 			suite: "migrate/ledger",
 			draw: drawn(program(machineOf(shape), { min: 0, max: 12 })),
 			literal: Formatter.format,
-			features: features<Feature>(commandKinds),
+			coverage: required<Feature>(commandKinds, { cases: steeredCases, sense: notesOnly }),
 			kept: planted,
 			runs,
 			shrink: { kind: "bounded", candidates: 150 },
 			concurrency: 1,
 			steerEvery: 16,
-			steering: { kind: "mutate", cases: steeredCases, sense: notesOnly },
 			caseHang: Duration.minutes(20)
 		},
 		runOn(shape)

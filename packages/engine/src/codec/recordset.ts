@@ -3,7 +3,7 @@
  * and writes each of its facts here, so the per-fact work is native loops with no closure or Option per element.
  */
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
-import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
+import { refinedMember, type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
@@ -141,23 +141,6 @@ interface Entry {
 	readonly row: ReadonlyArray<string>
 }
 
-/** Code point order on text rows, field by field: rows of one heading, so of one length. */
-const compareRows = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): number => {
-	let i = 0
-	for (const x of a) {
-		const y = b[i]
-		i++
-		if (y === undefined) {
-			return 1
-		}
-		const c = compareCodePoints(x, y)
-		if (c !== 0) {
-			return c
-		}
-	}
-	return a.length - b.length
-}
-
 /** A fact's row: each column's text of the fact's value, in column order, written by a native loop. */
 const rowOf = (
 	columns: ReadonlyArray<BuiltColumn>,
@@ -205,7 +188,7 @@ export type NormalForm = (entries: ReadonlyArray<IdentifiedFact>) => NormalFacts
  * - it deduplicates complete facts by fact identity (values/identity.ts factIdentity: numeric 1.0 = 1.00, NaN = NaN,
  *   -0 = +0, uuid case), so the recordset is a set without a DISTINCT;
  * - it encodes canonically: facts in code point order of their identities, fields in column order, every value a
- *   JSON string holding its text form (scalar.ts), so equal inputs give byte-identical parameters whatever their
+ *   JSON string holding its canonical text (scalar.ts), so equal inputs give byte-identical parameters whatever their
  *   order, and NaN, the infinities and money's numeric text reach the column's input function exactly.
  *
  * The recordset's column list names base types; money's column is numeric and the statement converts
@@ -224,9 +207,8 @@ export const normalForm = (spec: RelationSpec): NormalForm => {
 
 /**
  * The normalizer of one relation input: admission, the null ban, deduplication, and canonical order. Facts of one
- * identity can still differ in text, because bare numeric keeps a display scale that identity ignores: 1.0 and 1.00
- * are one fact. The representative whose text row is least in code point order travels, which for numeric is the
- * least display scale, so the parameter bytes, the facts and the rows never depend on input order.
+ * identity have one row, because every field's text is its value's canonical text, so the parameter bytes, the facts
+ * and the rows never depend on input order.
  */
 export const relationNormalizer = (spec: RelationSpec): RelationNormalizer =>
 	normalizerOf(buildSpec(spec))
@@ -255,10 +237,8 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 				return Result.err(encodeFailure(admitted.error.fault, placeOf(s, admitted.error.field)))
 			}
 			const { identity, fact: value } = admitted.value
-			const row = rowOf(columns, value)
-			const seen = byIdentity.get(identity)
-			if (seen === undefined || compareRows(row, seen.row) < 0) {
-				byIdentity.set(identity, { identity, fact: value, row })
+			if (!byIdentity.has(identity)) {
+				byIdentity.set(identity, { identity, fact: value, row: rowOf(columns, value) })
 			}
 		}
 		const entries = [...byIdentity.values()]
@@ -349,15 +329,30 @@ export const recordsetJson = (
 	return `${json}]`
 }
 
-/** The recordset parameter encoder of one relation input (ir/products.ts RelationParamEncoder). */
+/**
+ * The recordset parameter encoder of one relation input (ir/products.ts RelationParamEncoder): its normal facts, each
+ * value of a refined column checked against its refinements (scalar.ts refinedMember), as a scalar parameter is, since
+ * the recordset carries it as its base type.
+ */
 export const recordsetEncoder = (spec: RelationSpec): RelationParamEncoder => {
 	const built = buildSpec(spec)
 	const normalize = normalizerOf(built)
 	const wires = built.columns.map((c) => c.wire)
+	const refined = built.columns.flatMap((c) => {
+		const member = refinedMember(c.codec.type)
+		return member === undefined ? [] : [{ field: c.field, member }]
+	})
 	return (facts) => {
 		const normalized = normalize(facts)
 		if (!normalized.ok) {
 			return Result.err(normalized.error)
+		}
+		for (const fact of normalized.value.facts) {
+			for (const { field, member } of refined) {
+				if (!member(fact[field])) {
+					return Result.err(encodeFailure("refinedValue", placeOf(built, field)))
+				}
+			}
 		}
 		return Result.ok({
 			json: recordsetJson(wires, normalized.value.rows),

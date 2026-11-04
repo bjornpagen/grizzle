@@ -1,5 +1,8 @@
-import { compareText } from "#compiler/core/canonical.ts"
+import { maxOf } from "#compiler/core/array.ts"
+import { compareText, Refusal } from "#compiler/core/canonical.ts"
+import { CompileError } from "#compiler/core/errors.ts"
 import { allocatedKinds, ExprId, NodeId, type ParamId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { assembledDag, emptyDag, mergeDags, relNode, topoOrder } from "#compiler/ir/dag.ts"
 import {
@@ -30,8 +33,17 @@ import {
 	type SpecRefs,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import { isRefined, sameScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	isRefined,
+	type ScalarType,
+	sameScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
 import { columnType } from "#compiler/lower/conservative/context.ts"
+import { typeFitProof } from "#compiler/scalar/compute/lower.ts"
+import { castOf } from "#compiler/scalar/compute/registry.ts"
+import { widening, wideningOf } from "#compiler/scalar/compute/types.ts"
 
 /** Queries' DAGs merged into one, each added in turn.
  *
@@ -79,12 +91,13 @@ export class GlueBuilder {
 
 	constructor(dag: RelDag) {
 		const nodes = topoOrder(dag)
-		this.#node = Math.max(0, ...nodes.map((n) => suffixOf(allocatedKinds.node, n.id)))
-		this.#expr = Math.max(
-			0,
-			...exprClosure(nodes.flatMap((n) => exprsOf(n))).map((e) =>
-				suffixOf(allocatedKinds.expr, e.id)
-			)
+		this.#node = maxOf(
+			nodes.map((n) => suffixOf(allocatedKinds.node, n.id)),
+			0
+		)
+		this.#expr = maxOf(
+			exprClosure(nodes.flatMap((n) => exprsOf(n))).map((e) => suffixOf(allocatedKinds.expr, e.id)),
+			0
 		)
 	}
 
@@ -135,15 +148,17 @@ export class GlueBuilder {
 			}
 			const cast = this.#expression(
 				isRefined(c.type)
-					? { kind: "domainCast", args: [column], type: c.type, nonNull: "strict" }
-					: {
-							kind: "cast",
-							checked: true,
+					? {
+							kind: "domainCast",
 							args: [column],
 							type: c.type,
 							nonNull: "strict",
-							volatility: "immutable"
+							proof: {
+								precondition: { kind: "contract" },
+								premises: [{ kind: "checked", operand: 0, by: "write" }]
+							}
 						}
+					: writtenCast(column, type, c.type, SourceLoc("described write", [c.name]))
 			)
 			return { name: c.name, expr: cast }
 		})
@@ -246,4 +261,63 @@ export const deltaSources = (start: RelNode): ReadonlyArray<NodeOf<"Delta">> => 
 		}
 	}
 	return [...out.entries()].toSorted(([a], [b]) => compareText(a, b)).map(([, d]) => d)
+}
+
+/**
+ * A delivered value cast into the column a described write writes: the one widening (types.ts wideningOf), or a
+ * narrowing whose fit the delivered type's bounds prove (an exact integer's digits);
+ * else PartialOperation, since a narrowing is a read's evaluation, which is never refused on a value, not a value check
+ * of the write.
+ */
+const writtenCast = (
+	column: ScalarExpr,
+	from: ScalarType,
+	to: ScalarType,
+	loc: SourceLoc
+): ExprSpec => {
+	const how = wideningOf(from, to)
+	const widened = widening(from, to)
+	if (how !== undefined && widened !== undefined) {
+		return {
+			kind: "cast",
+			cast: widened,
+			args: [column],
+			type: to,
+			nonNull: "strict",
+			volatility: how.kind === "coercion" ? "immutable" : how.op.volatility
+		}
+	}
+	const op = castOf(baseOf(from).carrier, baseOf(to).carrier)
+	const proof = typeFitProof(from, to)
+	if (op === undefined || proof === undefined) {
+		throw new Refusal(
+			CompileError.make({
+				_tag: "PartialOperation",
+				at: loc,
+				operation: `the written ${typeLabel(from)}, narrowed into ${typeLabel(to)}`,
+				precondition: "fits",
+				operand: "the written value",
+				guard:
+					"Compute.when(Compute.within(x, <low>, <high>), (x) => Compute.cast(x, <the field>), <your value>) in the described head"
+			})
+		)
+	}
+	return op.partial
+		? {
+				kind: "cast",
+				cast: op.id,
+				args: [column],
+				type: to,
+				nonNull: "strict",
+				volatility: op.volatility,
+				proof
+			}
+		: {
+				kind: "cast",
+				cast: op.id,
+				args: [column],
+				type: to,
+				nonNull: "strict",
+				volatility: op.volatility
+			}
 }

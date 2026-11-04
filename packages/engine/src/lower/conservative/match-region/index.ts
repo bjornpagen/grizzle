@@ -1,4 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { HeadingColumn, NodeOf, Occurrence, VarDecl } from "#compiler/ir/rel.ts"
 import {
@@ -15,8 +16,8 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import type { Expr, FromItem, Target } from "#compiler/sql/ast.ts"
-import { lit, target } from "#compiler/sql/build.ts"
+import type { Expr, FromSource, Target } from "#compiler/sql/ast.ts"
+import { target, unitTargets } from "#compiler/sql/build.ts"
 
 type Region = NodeOf<"MatchRegion">
 
@@ -103,7 +104,7 @@ const readsLocal = (
 /** One occurrence of a lowered region: its derived table, the table's alias, and the source's columns through it. */
 export interface PlacedOccurrence {
 	readonly occurrence: Occurrence
-	readonly item: FromItem
+	readonly item: FromSource
 	readonly alias: string
 	readonly map: ColumnMap
 }
@@ -114,7 +115,7 @@ export interface PlacedOccurrence {
  * FROM list under WHERE; the optimized one may order them as a JOIN chain (shapes/region).
  */
 interface RegionParts {
-	readonly targets: ReadonlyArray<Target>
+	readonly targets: NonEmptyReadonlyArray<Target>
 	/** The value of each column of the region's heading, in heading order. */
 	readonly columns: ReadonlyArray<{ readonly column: HeadingColumn; readonly value: Expr }>
 	readonly occurrences: ReadonlyArray<PlacedOccurrence>
@@ -191,7 +192,7 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		}
 		return map
 	}
-	const scope = (): Env => extendEnv(env, ...placedSources.entries(), [node.id, regionColumns()])
+	const scope = (): Env => extendEnv(env, [...placedSources.entries(), [node.id, regionColumns()]])
 
 	const bound = new Set(node.occurrences.flatMap((o) => o.bindings.map((b) => b.var)))
 	/** A variable bound by no occurrence takes its correlation's value when that reads nothing local. */
@@ -300,8 +301,7 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		}
 		return { column, value: e }
 	})
-	const targets =
-		columns.length === 0 ? [target(lit.bool(true))] : columns.map((c) => target(c.value))
+	const targets = isNonEmpty(columns) ? mapNonEmpty(columns, (c) => target(c.value)) : unitTargets
 	return { targets, columns, occurrences: from, conditions: where }
 }
 

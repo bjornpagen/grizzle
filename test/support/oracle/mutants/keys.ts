@@ -1,5 +1,6 @@
 import { exact, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Option } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
@@ -211,8 +212,9 @@ export class KeyAnalysis {
 			if (Option.isNone(retained)) {
 				return []
 			}
-			key.push(
-				...Arr.flatMap(retained.value, (column) =>
+			appendAll(
+				key,
+				Arr.flatMap(retained.value, (column) =>
 					Option.match(
 						Arr.findFirst(o.bindings, (x) => x.column === column),
 						{

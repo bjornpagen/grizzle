@@ -1,10 +1,10 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CatalogRule } from "#compiler/ir/certificate.ts"
-import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { Grounds } from "#compiler/ir/evidence.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
-import { OpId, sortedOps, type TypedLiteral } from "#compiler/ir/expr.ts"
+import { integerLiteral, OpId, sortedOps } from "#compiler/ir/expr.ts"
 import {
 	type ClassMember,
 	claimedColumns,
@@ -88,7 +88,7 @@ const comparisonOps = (exprs: ReadonlyArray<ScalarExpr>): ReadonlyArray<OpId> =>
 			continue
 		}
 		if (v.fn === "and" || v.fn === "or" || v.fn === "not") {
-			stack.push(...v.args)
+			appendAll(stack, v.args)
 		} else {
 			out.add(v.op)
 		}
@@ -392,26 +392,7 @@ export const runningFrame: WindowFrame = {
 	end: "currentRow"
 }
 
-/**
- * The integer a literal is: an integer literal, or a numeric literal at display scale 0 (a numeric "1.0" sums to a
- * value displayed "2.0", which a count never is, so it is no conditional count).
- */
-const integerValue = (l: TypedLiteral): bigint | undefined => {
-	if (l.kind === "int") {
-		return l.value
-	}
-	if (l.kind !== "numeric") {
-		return undefined
-	}
-	const text = decimalPayload(l.value)
-	const digits = text.startsWith("-") ? text.slice(1) : text
-	if (digits.length === 0 || !digits.split("").every((ch) => ch >= "0" && ch <= "9")) {
-		return undefined
-	}
-	return BigInt(text)
-}
-
-/** sum(cond(p, 1, 0)) over integer literals, or numeric ones at scale 0: the conditional count's predicate (R24). */
+/** sum(cond(p, 1, 0)) over integer literals, or numeric ones of an integer value: the conditional count's predicate (R24). */
 const conditionalCountOf = (e: ScalarExpr): ScalarExpr | undefined => {
 	if (e.kind !== "cond") {
 		return undefined
@@ -419,7 +400,7 @@ const conditionalCountOf = (e: ScalarExpr): ScalarExpr | undefined => {
 	const [p, t, o] = e.args
 	const integer = (x: ScalarExpr, value: bigint): boolean => {
 		const l = literalOf(x)
-		return l !== undefined && integerValue(l) === value
+		return l !== undefined && integerLiteral(l) === value
 	}
 	return integer(t, 1n) && integer(o, 0n) ? p : undefined
 }
@@ -544,7 +525,7 @@ const rewriteSelfMatch = (
 				`a window output ${name}`
 			)
 			const ref = colExpr(cx.ed, post, name, col.type)
-			return { name: h.name, expr: spec.cast ? castExpr(cx.ed, ref, h.type, false) : ref }
+			return { name: h.name, expr: spec.cast ? castExpr(cx.ed, ref, h.type, undefined) : ref }
 		}
 		const c = required(
 			m.firstColumn.get(h.name),

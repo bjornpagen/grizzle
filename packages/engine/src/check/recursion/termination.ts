@@ -110,7 +110,14 @@ const bindingsOf = (rule: ResolvedRule, self: number): Bindings => {
 	}
 	const imports: ReadonlyArray<Import> = rule.matches.flatMap((m, i) =>
 		i !== self && m.source.kind === "query"
-			? [{ bind: entries(m.source.bind).map(([, e]) => e), vars: boundVars(m) }]
+			? [
+					{
+						bind: entries(m.source.bind).flatMap(([, e]) =>
+							e.kind === "relationParam" ? [] : [e]
+						),
+						vars: boundVars(m)
+					}
+				]
 			: []
 	)
 	let data: ReadonlySet<string> = new Set(
@@ -130,7 +137,7 @@ const bindingsOf = (rule: ResolvedRule, self: number): Bindings => {
 	}
 }
 
-/** An imported query a rule matches: its bind map's terms and the variables it binds. */
+/** An imported query a rule matches: its bind map's scalar terms and the variables it binds. */
 interface Import {
 	readonly bind: ReadonlyArray<ResolvedExpr>
 	readonly vars: ReadonlyArray<string>
@@ -195,6 +202,8 @@ const stateReads = (e: ResolvedExpr | ResolvedHead, b: Bindings): ReadonlyArray<
 			return sub(e.arg)
 		case "cond":
 			return [...sub(e.pred), ...sub(e.onTrue), ...sub(e.onFalse)]
+		case "when":
+			return [...sub(e.subject), ...sub(e.proved), ...sub(e.otherwise)]
 		case "compare":
 		case "allen":
 			return [...sub(e.left), ...sub(e.right)]

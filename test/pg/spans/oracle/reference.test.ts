@@ -1,8 +1,9 @@
 import { describe, it, layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
@@ -119,13 +120,12 @@ describe("the span reference on the host", () => {
 					suite: "spans/coverage-host",
 					draw: drawn(array(smallSpanGen, { min: 0, max: 6 })),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(spans) =>
@@ -217,7 +217,7 @@ const caseFeatures = (c: SpanCase): ReadonlyArray<SpanCaseFeature> => {
 	return [...out]
 }
 
-const required: ReadonlyArray<SpanCaseFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<SpanCaseFeature> = [
 	...Arr.map(spanQueryKinds, (k): SpanCaseFeature => `query:${k}`),
 	"endpoint:integer",
 	"endpoint:bigint",
@@ -247,13 +247,12 @@ describe("the span generators", () => {
 					suite: "spans/generators",
 					draw: drawn(spanCaseGen(defaultSpanCaseLimits)),
 					literal: Formatter.format,
-					features: features<SpanCaseFeature>(required),
+					coverage: required<SpanCaseFeature>(situations, { cases: 4 * cases, sense: notesOnly }),
 					kept: [],
 					runs: 4 * cases,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(c, noted) =>
@@ -379,11 +378,10 @@ layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
 						{
 							suite: "spans/reference",
 							literal: Formatter.format,
-							features: features<SpanCaseFeature>(required),
+							coverage: required<SpanCaseFeature>(situations, { cases: cases, sense: notesOnly }),
 							kept: [],
 							runs: cases,
 							shrink: completeShrink,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},

@@ -17,6 +17,7 @@ import type { LawLowering, NormalizedLaw, Selector } from "#compiler/ir/law.ts"
 import type { Heading, RootedDag, ValidDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { WriteIR } from "#compiler/ir/write.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -157,7 +158,7 @@ export type WriteSlot = Exclude<ParamSlot, { readonly kind: "page" }>
  */
 export interface StatementSpec<S extends ParamSlot = ParamSlot> {
 	/** The emitted text; placeholder $n is paramSlots[n - 1]. */
-	readonly sql: string
+	readonly sql: EmittedText
 	readonly paramSlots: ReadonlyArray<S>
 	readonly heading: Heading
 	readonly role: StatementRole

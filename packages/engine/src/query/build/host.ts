@@ -60,7 +60,7 @@ const readableArguments = (args: ReadonlyArray<unknown>): boolean => {
  *
  * Reads every argument of the entry `label` once, refusing one whose reading throws or that holds a getter or setter.
  */
-export const hostArguments = (label: string, ...args: ReadonlyArray<unknown>): void => {
+export const hostArguments = (label: string, args: ReadonlyArray<unknown>): void => {
 	if (!readableArguments(args)) {
 		throw malformed(
 			label,

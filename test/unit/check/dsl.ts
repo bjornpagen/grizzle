@@ -49,7 +49,8 @@ export const typedLit = (value: LiteralDesc, type: FieldDesc): ExprDesc => ({
 	value,
 	type
 })
-export const param = (name: string): ExprDesc => ({ kind: "param", name })
+/** A scalar parameter of its declared field descriptor. */
+export const param = (name: string, type: FieldDesc): ExprDesc => ({ kind: "param", name, type })
 export const parent = (column: string): ExprDesc => ({ kind: "parent", column })
 
 export const relationSource = (name: string): SourceDesc => ({ kind: "relation", name })
@@ -76,8 +77,14 @@ const compare =
 export const eq = compare("eq")
 export const lt = compare("lt")
 export const gt = compare("gt")
-export const and = (...args: ReadonlyArray<ExprDesc>): ExprDesc => ({ kind: "and", args })
-export const or = (...args: ReadonlyArray<ExprDesc>): ExprDesc => ({ kind: "or", args })
+export const and = (...args: Arr.NonEmptyReadonlyArray<ExprDesc>): ExprDesc => ({
+	kind: "and",
+	args
+})
+export const or = (...args: Arr.NonEmptyReadonlyArray<ExprDesc>): ExprDesc => ({
+	kind: "or",
+	args
+})
 export const not = (source: SourceDesc, bindings: BindingsDesc): ExprDesc => ({
 	kind: "absent",
 	source,

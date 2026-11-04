@@ -12,6 +12,7 @@ import {
 	Schema,
 	String as Str
 } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { assert, contains, containsText, like, matchers } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { hardenedNode, run, runOptions, sourceCondition } from "#test/support/process.ts"
@@ -67,7 +68,7 @@ const entryPoints: Effect.Effect<
 		const pkg = yield* decodePackageJson(
 			yield* fs.readFileString(`${root}packages/${directory}/package.json`)
 		)
-		targets.push(...entriesOf(directory, pkg))
+		appendAll(targets, entriesOf(directory, pkg))
 	}
 	return Arr.sort(Arr.dedupe(targets), Order.String)
 })
@@ -422,7 +423,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 						[
 							"text/field.ts",
 							"codec/scalar.ts",
-							"codec/float.ts",
+							"scalar/values/float.ts",
 							"lower/shapes/aggregate/index.ts"
 						],
 						(module) =>

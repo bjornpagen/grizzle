@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -131,7 +131,7 @@ describe("sub-queries carried across a stratum's statements", () => {
 						literal: Formatter.format,
 						generator: (source) => [source.draw(int(1, 4)), source.draw(int(2, 5))] as const,
 						limit: 16,
-						features: features<"carried" | "inline">(["carried", "inline"]),
+						coverage: requiredInSpace<"carried" | "inline">(["carried", "inline"]),
 						caseHang: Duration.minutes(2)
 					},
 					([statements, minRefs], c) =>
@@ -167,7 +167,7 @@ describe("sub-queries repeated inside one statement", () => {
 						literal: Formatter.format,
 						generator: (source) => [source.draw(int(1, 4)), source.draw(int(2, 5))] as const,
 						limit: 16,
-						features: features<"shared" | "inline">(["shared", "inline"]),
+						coverage: requiredInSpace<"shared" | "inline">(["shared", "inline"]),
 						caseHang: Duration.minutes(2)
 					},
 					([reads, minRefs], c) =>
@@ -204,7 +204,7 @@ const Job = relation(
 const Jobs = schema("Jobs", { Account, Job }, [])
 
 const accounts = query(Jobs).rule((r) => {
-	const { id, region } = v(Account)
+	const { id, region } = v(Account, "account")
 	return r
 		.match(Account, { id, region })
 		.where(r.eq(region, r.param("region", pg.integer)))
@@ -218,7 +218,7 @@ const twice = (second: Second) =>
 			"jobs",
 			(p) =>
 				query(Jobs).rule((r) => {
-					const { id, a, b, c, d } = v(Job)
+					const { id, a, b, c, d } = v(Job, "job")
 					return r.match(Job, { id, account: p.id, a, b, c, d }).find({ id, a, b, c, d })
 				}),
 			"array"
@@ -227,7 +227,7 @@ const twice = (second: Second) =>
 			"again",
 			(p) =>
 				query(Jobs).rule((r) => {
-					const { id, a, b, c, d } = v(Job)
+					const { id, a, b, c, d } = v(Job, "job")
 					const jobs = r.match(Job, { id, account: p.id, a, b, c, d })
 					return second === "the same sub-query"
 						? jobs.find({ id, a, b, c, d })
@@ -248,7 +248,7 @@ describe("attachment statements fed from an earlier one", () => {
 						literal: Formatter.format,
 						generator: element<Second>(["the same sub-query", "a different sub-query"]),
 						limit: 2,
-						features: features<"fed" | "sent">(["fed", "sent"]),
+						coverage: requiredInSpace<"fed" | "sent">(["fed", "sent"]),
 						caseHang: Duration.minutes(2)
 					},
 					(second, c) =>

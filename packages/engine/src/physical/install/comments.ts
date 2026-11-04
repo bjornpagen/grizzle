@@ -46,6 +46,7 @@ const column = (relation: ObjectName, c: ColumnDef): ReadonlyArray<Created> => [
 const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Created> => {
 	switch (a.kind) {
 		case "addColumn":
+		case "addColumnPlaceholder":
 			return column(table, a.column)
 		case "addConstraint":
 			return [

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
@@ -57,7 +57,7 @@ describe("R24 conditional aggregates", () => {
 	/** A query of the shape over integer branches, and one over numeric(5,1) branches. */
 	const integerQuery = (shape: Shape, then: Leaf, otherwise: Leaf): unknown =>
 		query(Lines).rule((r) => {
-			const { id, flag, qty } = v(Line)
+			const { id, flag, qty } = v(Line, "line")
 			const other = otherwise === "qty" ? qty : Compute.literal(pg.integer, integerOf(otherwise))
 			const conditional =
 				then === "qty"
@@ -69,7 +69,7 @@ describe("R24 conditional aggregates", () => {
 		})
 	const numericQuery = (shape: Shape, then: Leaf, otherwise: Leaf): unknown =>
 		query(Lines).rule((r) => {
-			const { id, flag, qty } = v(Line)
+			const { id, flag, qty } = v(Line, "line")
 			const conditional = Compute.cond(flag, numericOf(then), numericOf(otherwise))
 			return r
 				.match(Line, { id, flag, qty })
@@ -109,7 +109,7 @@ describe("R24 conditional aggregates", () => {
 							literal: Formatter.format,
 							/** The space: 2 shapes over 4 × 4 integer branches and 2 × 2 numeric ones. */
 							limit: 40,
-							features: features<"counted by FILTER" | "left composed">([
+							coverage: requiredInSpace<"counted by FILTER" | "left composed">([
 								"counted by FILTER",
 								"left composed"
 							]),
@@ -202,7 +202,7 @@ describe("the overload registry", () => {
 						literal: Formatter.format,
 						/** The space is the vocabulary, each word once. */
 						limit: computeFns.length + Record.values(comparisons).length + 4,
-						features: features<`word ${VocabularyWord["kind"]}`>([
+						coverage: requiredInSpace<`word ${VocabularyWord["kind"]}`>([
 							"word function",
 							"word comparison",
 							"word connective",

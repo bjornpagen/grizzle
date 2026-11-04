@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -49,7 +49,7 @@ import { checking, checkOptions } from "#test/support/policy.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
 /**
- * The compile-target catalog's recognizers, certificates and native targets without a database (rules R26-R32, R41,
+ * The compile-target catalog's recognizers, certificates and native targets without a database (rules R26-R31, R41,
  * R42).
  *
  * Every query is the language's own composition of the construct, checked by the real checker
@@ -211,7 +211,7 @@ describe("R26: the lexicographic comparison in any spelling", () => {
 								source.draw(boolean)
 							] as const,
 						limit: 40,
-						features: features<`${Spelling} ${"recognized" | "kept"}`>([
+						coverage: requiredInSpace<`${Spelling} ${"recognized" | "kept"}`>([
 							"nested recognized",
 							"nested kept",
 							"disjunctive normal form recognized",
@@ -345,7 +345,7 @@ describe("R26 and R41: the self-match's own conditions", () => {
 						literal: Formatter.format,
 						generator: selfMatchShapes,
 						limit: 30,
-						features: features<`${Head} ${"windowed" | "kept"}`>([
+						coverage: requiredInSpace<`${Head} ${"windowed" | "kept"}`>([
 							"ordinal windowed",
 							"ordinal kept",
 							"running maximum windowed",
@@ -427,7 +427,7 @@ describe("R29 and R30: percentiles", () => {
 								)
 							] as const,
 						limit: 546,
-						features: features<"rewritten" | "a fraction refused" | "a stage refused">([
+						coverage: requiredInSpace<"rewritten" | "a fraction refused" | "a stage refused">([
 							"rewritten",
 							"a fraction refused",
 							"a stage refused"
@@ -467,7 +467,7 @@ describe("R29 and R30: percentiles", () => {
 								source.draw(element<"score" | "amount">(["score", "amount"]))
 							] as const,
 						limit: 26,
-						features: features<"rewritten" | "kept">(["rewritten", "kept"]),
+						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang: Duration.minutes(2)
 					},
 					([p, over], c) =>
@@ -484,7 +484,7 @@ describe("R29 and R30: percentiles", () => {
 	)
 })
 
-describe("R31 and R32: the mode and the slope", () => {
+describe("R31: the mode", () => {
 	it.effect(
 		"takes MODE() exactly for take(1) of an unconditional count tied to the value ascending",
 		(ctx) =>
@@ -501,7 +501,7 @@ describe("R31 and R32: the mode and the slope", () => {
 								source.draw(element<"all" | "conditional">(["all", "conditional"]))
 							] as const,
 						limit: 8,
-						features: features<"rewritten" | "kept">(["rewritten", "kept"]),
+						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang: Duration.minutes(2)
 					},
 					([tiebreak, k, count], c) =>
@@ -515,53 +515,6 @@ describe("R31 and R32: the mode and the slope", () => {
 						})
 				)
 			)
-	)
-
-	it.effect(
-		"takes REGR_SLOPE exactly for a guarded double precision slope whose every denominator reader is an arm",
-		(ctx) => {
-			type Slope = "two arms" | "a cond" | "an arm rejoined" | "unguarded" | "exact x and y"
-			const slopes: Readonly<Record<Slope, () => QueryDesc>> = {
-				"two arms": () => Q.slopeArms(false),
-				"a cond": Q.slopeCond,
-				"an arm rejoined": () => Q.slopeArms(true),
-				unguarded: Q.slopeUnguarded,
-				"exact x and y": Q.slopeOfPrices
-			}
-			return searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/catalog/slope",
-						literal: Formatter.format,
-						generator: element<Slope>([
-							"two arms",
-							"a cond",
-							"an arm rejoined",
-							"unguarded",
-							"exact x and y"
-						]),
-						limit: 5,
-						features: features<Slope>([
-							"two arms",
-							"a cond",
-							"an arm rejoined",
-							"unguarded",
-							"exact x and y"
-						]),
-						caseHang: Duration.minutes(2)
-					},
-					(slope, c) =>
-						Effect.sync(() => {
-							c.note(slope)
-							assert.deepEqual(
-								appliedTo(slopes[slope](), labOptions),
-								slope === "two arms" || slope === "a cond" ? ["R32"] : []
-							)
-						})
-				)
-			)
-		}
 	)
 })
 
@@ -638,7 +591,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 						literal: Formatter.format,
 						generator: (source) => [source.draw(neighbors), source.draw(policies)] as const,
 						limit: 36,
-						features: features<`${Neighbor["kind"]} ${"rewritten" | "probed"}`>([
+						coverage: requiredInSpace<`${Neighbor["kind"]} ${"rewritten" | "probed"}`>([
 							"bound neighbor rewritten",
 							"bound neighbor probed",
 							"attached neighbor rewritten",
@@ -682,7 +635,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 								)
 							] as const,
 						limit: 9,
-						features: features<Edit>([
+						coverage: requiredInSpace<Edit>([
 							"none",
 							"the prices' day retyped bigint",
 							"the take's order reversed"
@@ -755,7 +708,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 						literal: Formatter.format,
 						generator: modes,
 						limit: 3,
-						features: features<"le" | "lt" | "ge">(["le", "lt", "ge"]),
+						coverage: requiredInSpace<"le" | "lt" | "ge">(["le", "lt", "ge"]),
 						caseHang: Duration.minutes(2)
 					},
 					(mode, c) =>
@@ -807,7 +760,7 @@ describe("R28: shares", () => {
 						literal: Formatter.format,
 						generator: shares,
 						limit: 8,
-						features: features<"rewritten" | "kept">(["rewritten", "kept"]),
+						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang: Duration.minutes(2)
 					},
 					(share, c) =>
@@ -833,7 +786,7 @@ describe("R28: shares", () => {
 
 /**
  * The compositions of every entry, under the automatic policy: the spellings' orders, percentiles, neighbors, shares,
- * modes and slopes.
+ * modes.
  */
 const compositions = oneOf<QueryDesc>([
 	map(
@@ -847,8 +800,7 @@ const compositions = oneOf<QueryDesc>([
 	map(element([0, 0.5, 1.5]), (p) => Q.continuousPercentile(p, "score")),
 	map(neighbors, neighborQuery),
 	map(boolean, (restricted) => Q.groupedShare("Sitting", restricted)),
-	map(dirs, (tiebreak) => Q.modeOfDays(tiebreak, Q.plainMode)),
-	element([Q.slopeArms(false), Q.slopeCond()])
+	map(dirs, (tiebreak) => Q.modeOfDays(tiebreak, Q.plainMode))
 ])
 
 describe("determinism and the catalog pass", () => {
@@ -862,8 +814,8 @@ describe("determinism and the catalog pass", () => {
 						suite: "unit/lower/catalog/determinism",
 						literal: Formatter.format,
 						generator: compositions,
-						limit: 46,
-						features: features<"rewritten" | "kept">(["rewritten", "kept"]),
+						limit: 44,
+						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang: Duration.minutes(2)
 					},
 					(desc, c) =>

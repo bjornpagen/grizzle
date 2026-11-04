@@ -1,4 +1,5 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
 import { inputsOf, type RelNode } from "#compiler/ir/rel.ts"
@@ -62,15 +63,13 @@ export type PlannedCheck =
 	| { readonly kind: "outside"; readonly entry: string }
 
 /** A write action's statement by what it does, with what its builder reads beyond the action's own input: an insertion
- * or a put's insert half, a generated addition into a relation whose every field is serial with its slot's relation
- * input (`ActionReads` "defaults"), an exact deletion with the stratum's additions it excepts (D EXCEPT A), a deletion whose
+ * or a put's insert half, an exact deletion with the stratum's additions it excepts (D EXCEPT A), a deletion whose
  * member is anchored on an occurrence of its relation with the anchor, a put's displacing deletion over the relation's
  * payload and its insert half, and the in-place puts with what their choice proved (an upsert reads its slot's
  * relation input, a MERGE carries the scope it was proved over); the deletion a MERGE absorbs has no statement of its
  * own. */
 type WriteOpStep =
 	| { readonly op: "insert"; readonly serial: SerialClass }
-	| { readonly op: "defaults"; readonly input: RelationInput }
 	| { readonly op: "exactDelete"; readonly except: ReadonlyArray<WriteInput> }
 	| { readonly op: "anchoredDelete"; readonly anchor: DeleteAnchor }
 	| { readonly op: "displace"; readonly payload: NonEmptyReadonlyArray<LawField> }
@@ -272,7 +271,6 @@ const plannedWrite = (
 				: { kind: "write", ...at, op: "anchoredDelete", anchor }
 		}
 		case "insert":
-		case "defaults":
 		case "putInsert":
 		case "displace":
 		case "upsert":
@@ -317,7 +315,6 @@ const statementStep = (
 			}
 		case "exactDelete":
 		case "insert":
-		case "defaults":
 		case "putInsert":
 		case "displace":
 		case "upsert":
@@ -360,14 +357,12 @@ const opsOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 		case "delete":
 			return [{ op: "exactDelete" }]
 		case "insert":
-			return action.info.reads.kind === "defaults"
-				? [{ op: "defaults", input: action.info.reads.slot.input }]
-				: [
-						...precheckOf(action, action.serial),
-						{ op: "insert", serial: action.serial },
-						...classify(action.info.relation, action.serial, "insert"),
-						...advanceOf(action.info.relation, action.serial)
-					]
+			return [
+				...precheckOf(action, action.serial),
+				{ op: "insert", serial: action.serial },
+				...classify(action.info.relation, action.serial, "insert"),
+				...advanceOf(action.info.relation, action.serial)
+			]
 		case "put":
 			return [...putOps(action), ...advanceOf(action.info.relation, "complete")]
 	}
@@ -556,7 +551,7 @@ const sequentialSteps = (
 		const except = placed
 			.filter((q) => p.draft.excepts.includes(q.draft.at.index))
 			.map((q) => q.input)
-		steps.push(...placedSteps(p, except))
+		appendAll(steps, placedSteps(p, except))
 	}
 	return steps
 }
@@ -570,8 +565,7 @@ const sequentialSteps = (
  *   either side is described; two enumerated sides the host already netted;
  * - an insertion: the insert protocol for its relation and member shape, followed, into a span primary key, by the
  *   statement that classifies each requested fact it did not insert, then one sequence advance per serial field when
- *   it carries explicit serial values; a generated addition into a relation whose every field is serial is its one row
- *   of identity defaults (`buildDefaultsInsert`);
+ *   it carries explicit serial values; a generated class of no field reads the unit input like any other;
  * - a put: its target's statements: the displacing deletion and the insert protocol as its insert half for the
  *   DELETE-then-insert pair (a pure set displaces nothing), or the one ON CONFLICT DO UPDATE, UPDATE ... FROM or MERGE
  *   statement, which absorbs the deletion it was proved with; then the sequence advances when its facts carry explicit
@@ -642,7 +636,7 @@ export const planWrite = (
 				continue
 			}
 			seen.add(node)
-			queue.push(...inputsOf(node))
+			appendAll(queue, inputsOf(node))
 		}
 		return seen
 	})
@@ -704,7 +698,7 @@ export const planWrite = (
 				})
 				break
 			case "sequential":
-				steps.push(...sequentialSteps(s, drafted, shares, supply, evidence))
+				appendAll(steps, sequentialSteps(s, drafted, shares, supply, evidence))
 				break
 		}
 	}

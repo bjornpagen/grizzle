@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
@@ -15,6 +15,7 @@ import type { CommentTarget } from "#compiler/sql/ast.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import { installationAbstraction } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
+import { installationSql } from "#test/support/compile.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { aliasGroups, refusedNames } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -101,7 +102,7 @@ describe("the naming door", () => {
 								] as const,
 							literal: Formatter.format,
 							limit: 2 * pairs.length,
-							features: features<InstallFeature>([
+							coverage: requiredInSpace<InstallFeature>([
 								"two plain names",
 								"one name a prefix of the other",
 								"a hashed object commented"
@@ -122,8 +123,8 @@ describe("the naming door", () => {
 									installed(owned, server, identity.schema(parsedSchemaName(b)))
 								]
 								assert.equal(
-									installationAbstraction(x)(Arr.join(x.sql, "\n")),
-									installationAbstraction(y)(Arr.join(y.sql, "\n")),
+									installationAbstraction(x)(Arr.join(installationSql(x), "\n")),
+									installationAbstraction(y)(Arr.join(installationSql(y), "\n")),
 									`${fixture} under ${a} and ${b}`
 								)
 								const commented = (i: typeof x) => {
@@ -196,7 +197,7 @@ describe("the naming door", () => {
 							),
 							literal: Formatter.format,
 							limit: 2 * (alike.length + refusedNames.length),
-							features: features<RuleFeature>([
+							coverage: requiredInSpace<RuleFeature>([
 								"relations alike",
 								"fields alike",
 								"a refused relation name",

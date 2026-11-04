@@ -1,11 +1,7 @@
-import { array, constant, type Gen, int } from "@grizzle/testing/gen"
+import { array, constant, type Gen } from "@grizzle/testing/gen"
 import { type Swarm, swarm } from "@grizzle/testing/swarm"
 import type { Array as Arr } from "effect"
-import {
-	type Spelling,
-	type SpellingMode,
-	spellingChoiceCount
-} from "#test/support/oracle/gen/domain.ts"
+import { type Spelling, type SpellingMode } from "#test/support/oracle/gen/domain.ts"
 
 import {
 	defaultFactLimits,
@@ -53,8 +49,8 @@ export interface GenConfig {
 	readonly facts: FactLimits
 	readonly query: QueryConfig
 	/**
-	 * "perCase" keeps raw text multisets deterministic (domain.ts); "perFact" mixes spellings within a case; "twinned"
-	 * mixes them where merges meet them (domain.ts SpellingMode).
+	 * "drawn" spells every stored value by its own draw; "twinned" besides meets two spellings of one value where merges
+	 * read them (domain.ts SpellingMode).
 	 */
 	readonly spelling: SpellingMode
 	/**
@@ -70,7 +66,7 @@ export const defaultGenConfig: GenConfig = {
 	schema: defaultSchemaLimits,
 	facts: defaultFactLimits,
 	query: defaultQueryConfig,
-	spelling: "perCase",
+	spelling: "drawn",
 	swarm: true,
 	edge: false
 }
@@ -79,10 +75,10 @@ export const defaultGenConfig: GenConfig = {
  * The optimizer's population: the generator's own, with what each rewrite family of the optimized lowering needs drawn
  * besides, every feature behind a swarm: containments most schemas declare and occurrences that read through them, wide
  * payload (unbounded TOAST-sized text and vectors) under takes whose stated order the checker completes over the
- * logical keys, total computed terms in projections and filters, equations between columns, filters read through a
- * region as the checker builds a where, closures read from one root, and more filters and takes. Computed terms are
- * total, so a runner comparing exact rows may treat an execution error as a defect; failing terms are the frontier
- * runner's, which judges error or rows against the reference.
+ * logical keys, computed terms in projections and filters, equations between columns, filters read through a
+ * region as the checker builds a where, closures read from one root, and more filters and takes. No computed term
+ * raises (gen/compute.ts guards every partial operation), so a runner comparing exact rows treats an execution error
+ * as a defect.
  * The analysis soundness population: the generator's own, with what the analyses must judge per outer tuple and per
  * reader drawn besides, every feature behind a swarm (query.ts soundnessFeatures), stated orders so nodes carry the
  * logical claims the checker records, and more takes and semi-joins, whose keys and sharing the claims turn on.
@@ -114,26 +110,12 @@ export const annGenConfig: GenConfig = {
 	}
 }
 
-/**
- * The spelling control's population: every stored value its own spelling, twinned so that the facts of one relation and
- * the first facts of different relations hold one value class in different spellings ("twinned"), the palette only the
- * numeric types whose value classes have more than one spelling, unions and groups as often as the dense population
- * draws them, and no containment, whose copies of one stored literal never meet two spellings.
- */
-export const spellingGenConfig: GenConfig = {
-	...defaultGenConfig,
-	schema: { ...defaultSchemaLimits, palette: "multiSpelling", containments: "none" },
-	spelling: "twinned",
-	query: { ...defaultQueryConfig, weights: { ...defaultQueryConfig.weights, union: 3, group: 3 } }
-}
-
 export const optimizerGenConfig: GenConfig = {
 	...defaultGenConfig,
 	schema: { ...defaultSchemaLimits, wide: "textAndVectors", containments: "often" },
 	query: {
 		...defaultQueryConfig,
 		compute: 3,
-		failing: false,
 		statedOrders: true,
 		follow: 3,
 		imported: 4,
@@ -153,8 +135,8 @@ export const optimizerGenConfig: GenConfig = {
 }
 
 /**
- * The optimizer's population for the rewrite passes: wide payload of unbounded text alone (the reference evaluator
- * computes no vector), and filters drawn directly over groups, unions and set comparisons besides, the stages the
+ * The optimizer's population for the rewrite passes: wide payload of unbounded text alone, every carrier still in its
+ * palette, and filters drawn directly over groups, unions and set comparisons besides, the stages the
  * pushdown rules move a filter below or into (pushdown.group, pushdown.union, pushdown.left, pushdown.source), and
  * semi-joins over a keyed group, which pushdown.semiSource and pushdown.semiGroup rewrite.
  */
@@ -165,25 +147,6 @@ export const rewriteGenConfig: GenConfig = {
 		...optimizerGenConfig.query,
 		weights: { ...optimizerGenConfig.query.weights, filterOver: 14, semiOver: 8 }
 	}
-}
-
-/**
- * The optimizer's population with failing terms: computed terms that divide, overflow or cast out of range on the
- * generated facts, judged by the frontier reference's must-fail and may-fail verdicts (test/pg/oracle/frontier), so
- * failure preservation is searched by the population that reaches every rewrite family, not only by the frontier's.
- */
-export const optimizerFailingGenConfig: GenConfig = {
-	...optimizerGenConfig,
-	query: { ...optimizerGenConfig.query, failing: true }
-}
-
-/**
- * The rewrite passes' population with failing terms: the frontier reference judges, host-side, that a rewrite keeps
- * every failure the answer needs and invents none (test/unit/lower/rewrite/failures.test.ts).
- */
-export const rewriteFailingGenConfig: GenConfig = {
-	...rewriteGenConfig,
-	query: { ...rewriteGenConfig.query, failing: true }
 }
 
 /**
@@ -225,7 +188,6 @@ export interface QueryCase {
 export interface QueryCaseSketch {
 	readonly schema: SchemaSketch
 	readonly facts: FactsSketch
-	readonly spelling: ReadonlyArray<number>
 	readonly root: RootSketch
 	/** The picks the minted parameters' names take under QueryConfig.paramNames "dictionary", in minting order. */
 	readonly paramNames: ReadonlyArray<number>
@@ -250,12 +212,6 @@ export const fullCaseSwarms: Pick<QueryCaseSketch, "swarm" | "data" | "rewrite" 
 	rewrite: fullRewriteSwarm,
 	soundness: fullSoundnessSwarm
 }
-
-/** One spelling choice per value class a case spells (domain.ts spellingChoiceCount), each 0..2. */
-export const spellingSketchGen: Gen<ReadonlyArray<number>> = array(int(0, 2), {
-	min: spellingChoiceCount,
-	max: spellingChoiceCount
-})
 
 /** The picks the minted parameters' names take under "dictionary" naming: eight, read in turn as names are minted. */
 export const paramNamesSketchGen: Gen<ReadonlyArray<number>> = array(pickGen, { min: 8, max: 8 })
@@ -286,7 +242,6 @@ export const queryCaseSketchGen = (config: GenConfig): Gen<QueryCaseSketch> => {
 	return (source) => ({
 		schema: source.draw(schema),
 		facts: source.draw(facts),
-		spelling: source.draw(spellingSketchGen),
 		root: source.draw(root),
 		paramNames: source.draw(paramNamesSketchGen),
 		swarm: source.draw(querySwarm),
@@ -303,11 +258,7 @@ export const queryCaseSketchGen = (config: GenConfig): Gen<QueryCaseSketch> => {
 export const resolveQueryCase =
 	(sketch: QueryCaseSketch, config: GenConfig): Gen<QueryCase> =>
 	(source) => {
-		const spelling: Spelling = {
-			mode: config.spelling,
-			choices: sketch.spelling,
-			edge: config.edge
-		}
+		const spelling: Spelling = { mode: config.spelling, edge: config.edge }
 		const schema = source.draw(resolveSchema(sketch.schema, spelling, sketch.data))
 		const facts = resolveFacts(schema, sketch.facts, spelling, sketch.data)
 		const query = source.draw(

@@ -13,13 +13,12 @@ const isFixed = (context: Context, node: AnyNode): boolean => {
 
 /**
  * The calls that take a seed, and where: the argument at an index, or any argument of a call that takes the seed in
- * either of its forms (data first or piped).
+ * either of its forms (data first or piped). A stream (`sample`'s, `caseSeed`'s) is branded by what fixes it, so a
+ * literal there is a type error, and needs no rule.
  */
 const SEEDED: ReadonlyArray<readonly [callee: string, at: number | "any"]> = [
 	["Random.withSeed", "any"],
 	["wordsOf", 0],
-	["sample", 1],
-	["caseSeed", 0],
 	["rotatingSeed", 0]
 ]
 
@@ -37,7 +36,7 @@ const isSeedArgument = (context: Context, call: AnyNode, argument: AnyNode): boo
 
 /**
  * A seed written into a test, where the library or a generator takes one: the `seed` of a run, the seed of a word
- * stream, a sample's or a case's stream, `Random.withSeed(<literal>)`. A fixed seed searches one corner forever; the run
+ * stream, a rotating stream's run seed, `Random.withSeed(<literal>)`. A fixed seed searches one corner forever; the run
  * draws the seed, and a failure replays from it. A field named `seed` anywhere else is the suite's own data (a sketch's,
  * a kept case's) and is no seed of the search.
  */

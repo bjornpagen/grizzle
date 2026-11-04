@@ -1,6 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, Result, Schema } from "effect"
@@ -171,14 +172,16 @@ describe("placement delivers the reference set with no repeats", () => {
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					runs: 400,
 					shrink: completeShrink,
-					features: features<DedupFeature>([
-						"a duplicate elimination placed",
-						"a duplicate elimination elided",
-						"a delivery evaluated"
-					]),
+					coverage: required<DedupFeature>(
+						[
+							"a duplicate elimination placed",
+							"a duplicate elimination elided",
+							"a delivery evaluated"
+						],
+						{ cases: 400, sense: notesOnly }
+					),
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(q, c) =>
@@ -206,10 +209,12 @@ describe("placement delivers the reference set with no repeats", () => {
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					runs: 200,
 					shrink: completeShrink,
-					features: features<DedupFeature>(["a duplicate elimination placed"]),
+					coverage: required<DedupFeature>(["a duplicate elimination placed"], {
+						cases: 200,
+						sense: notesOnly
+					}),
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(q, c) =>
@@ -237,10 +242,9 @@ describe("placement delivers the reference set with no repeats", () => {
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					runs: 150,
 					shrink: completeShrink,
-					features: features<DedupFeature>([]),
+					coverage: noCoverage,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(q, c) =>
@@ -284,10 +288,9 @@ describe("placement delivers the reference set with no repeats", () => {
 								draw: drawn(rootedCaseGen(root, defaultGenConfig)),
 								runs: 80,
 								shrink: completeShrink,
-								features: features<DedupFeature>([]),
+								coverage: noCoverage,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.minutes(2)
 							},
 							(q, c) =>
@@ -317,10 +320,9 @@ describe("placement delivers the reference set with no repeats", () => {
 					draw: drawn(noninjectiveKeyCaseGen),
 					runs: 100,
 					shrink: completeShrink,
-					features: features<DedupFeature>([]),
+					coverage: noCoverage,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(q, c) =>

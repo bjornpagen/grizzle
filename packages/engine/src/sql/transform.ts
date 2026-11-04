@@ -11,6 +11,7 @@ import type {
 	ColumnGeneration,
 	CommentTarget,
 	ConflictAction,
+	CoreProjection,
 	CountStar,
 	CreateDomain,
 	CreateExtension,
@@ -25,6 +26,7 @@ import type {
 	DropObject,
 	Expr,
 	FromItem,
+	FromSource,
 	FunctionCall,
 	FunctionName,
 	FunctionParam,
@@ -32,7 +34,9 @@ import type {
 	IndexKey,
 	InlineConstraint,
 	Insert,
-	InsertSource,
+	InsertTarget,
+	JoinChain,
+	JoinStep,
 	Merge,
 	MergeInsert,
 	MergeUpdate,
@@ -40,6 +44,7 @@ import type {
 	ObjectName,
 	OnConflict,
 	OrderItem,
+	PerformQuery,
 	PlBlock,
 	PlDeclaration,
 	PlStatement,
@@ -49,6 +54,7 @@ import type {
 	Select,
 	SelectBody,
 	SelectCore,
+	SetOperand,
 	SetOperation,
 	SqlStatement,
 	TableConstraint,
@@ -56,9 +62,11 @@ import type {
 	Target,
 	TypeRef,
 	Update,
+	Using,
 	WindowSpec,
 	With
 } from "#compiler/sql/ast.ts"
+import { isValuesTarget } from "#compiler/sql/ast.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -99,21 +107,23 @@ const objectSpace = (
  * Each node is rebuilt from its children: a node none of whose children changed keeps its identity, and a node whose
  * children changed is copied with the new children in their keys' places, so its other keys and their order stay as
  * they were. A hook sees a node after its children were rewritten, with the node as it was, and returns it or its
- * replacement: `expr` every expression, `fromItem` every FROM item, `core` every query core, `select` every query,
+ * replacement: `expr` every expression, `fromSource` every FROM source, a join chain's included, `core` every query
+ * core, `select` every query,
  * `objectName` every schema object name (a CREATE INDEX's own name and a USING INDEX's index among them, relations of
  * their table's schema), `constraintName` every name a table's constraint takes, with the table its statement names
  * as it was, `carrier` every carrier a statement names, `typeRef` every type reference,
- * `functionRef` every qualified function reference, and `extension` every CREATE EXTENSION. `replaceFromItem` sees a
- * FROM item before its children and may replace it whole. A collation is always pg_catalog's pg_c_utf8 and is never rewritten. Every hook is stated: a pass
+ * `functionRef` every qualified function reference, and `extension` every CREATE EXTENSION. `replaceSource` sees a
+ * FROM source before its children and may replace it whole. `joins` sees every join chain, rebuilt around its sources. A collation is always pg_catalog's pg_c_utf8 and is never rewritten. Every hook is stated: a pass
  * spreads identityHooks and states the hooks it changes.
  */
 export interface AstHooks {
 	readonly expr: (e: Expr, original: Expr) => Expr
-	readonly fromItem: (item: FromItem, original: FromItem) => FromItem
+	readonly fromSource: (source: FromSource, original: FromSource) => FromSource
+	readonly joins: (chain: JoinChain, original: JoinChain) => JoinChain
 	readonly core: (core: SelectCore, original: SelectCore) => SelectCore
 	readonly select: (select: Select, original: Select) => Select
-	/** A FROM item's replacement before its children are rewritten, or undefined to rewrite it as usual. */
-	readonly replaceFromItem: (item: FromItem) => FromItem | undefined
+	/** A FROM source's replacement before its children are rewritten, or undefined to rewrite it as usual. */
+	readonly replaceSource: (source: FromSource) => FromSource | undefined
 	readonly objectName: (name: ObjectName, namespace: NameSpace) => ObjectName
 	readonly constraintName: (table: ObjectName, name: string) => string
 	readonly carrier: (name: CarrierName) => CarrierName
@@ -143,10 +153,11 @@ const same = <A>(a: A): A => a
 /** Every hook the identity: each node as its children rebuilt it, and no FROM item replaced. */
 export const identityHooks: AstHooks = {
 	expr: same,
-	fromItem: same,
+	fromSource: same,
+	joins: same,
 	core: same,
 	select: same,
-	replaceFromItem: () => undefined,
+	replaceSource: () => undefined,
 	objectName: same,
 	constraintName: (_table, name) => name,
 	carrier: same,
@@ -162,10 +173,11 @@ export const identityHooks: AstHooks = {
  */
 class Transform {
 	readonly #expr: (e: Expr, original: Expr) => Expr
-	readonly #fromItem: (item: FromItem, original: FromItem) => FromItem
+	readonly #fromSource: (source: FromSource, original: FromSource) => FromSource
+	readonly #joins: (chain: JoinChain, original: JoinChain) => JoinChain
 	readonly #core: (core: SelectCore, original: SelectCore) => SelectCore
 	readonly #select: (select: Select, original: Select) => Select
-	readonly #replaceFromItem: (item: FromItem) => FromItem | undefined
+	readonly #replaceSource: (source: FromSource) => FromSource | undefined
 	readonly #objectName: (name: ObjectName, namespace: NameSpace) => ObjectName
 	readonly #constraintName: (table: ObjectName, name: string) => string
 	readonly #carrier: (name: CarrierName) => CarrierName
@@ -175,10 +187,11 @@ class Transform {
 
 	constructor(hooks: AstHooks) {
 		this.#expr = hooks.expr
-		this.#fromItem = hooks.fromItem
+		this.#fromSource = hooks.fromSource
+		this.#joins = hooks.joins
 		this.#core = hooks.core
 		this.#select = hooks.select
-		this.#replaceFromItem = hooks.replaceFromItem
+		this.#replaceSource = hooks.replaceSource
 		this.#objectName = hooks.objectName
 		this.#constraintName = hooks.constraintName
 		this.#carrier = hooks.carrier
@@ -188,10 +201,12 @@ class Transform {
 	}
 
 	readonly exprs = (list: ReadonlyArray<Expr>): ReadonlyArray<Expr> => mapList(list, this.expr)
+	readonly nonEmptyExprs = (list: NonEmptyReadonlyArray<Expr>): NonEmptyReadonlyArray<Expr> =>
+		mapNonEmptyKept(list, this.expr)
 	readonly names = (
-		list: ReadonlyArray<ObjectName>,
+		list: NonEmptyReadonlyArray<ObjectName>,
 		namespace: NameSpace
-	): ReadonlyArray<ObjectName> => mapList(list, (n) => this.name(n, namespace))
+	): NonEmptyReadonlyArray<ObjectName> => mapNonEmptyKept(list, (n) => this.name(n, namespace))
 	readonly name = (name: ObjectName, namespace: NameSpace): ObjectName =>
 		this.#objectName(name, namespace)
 	/** An index's bare name, a relation of its table's schema, through the name hook. */
@@ -227,6 +242,10 @@ class Transform {
 			case "plSpecial":
 			case "field":
 				return e
+			case "regclass": {
+				const relation = this.name(e.relation, "relation")
+				return relation === e.relation ? e : { ...e, relation }
+			}
 			case "param":
 			case "literal": {
 				const type = this.type(e.type)
@@ -250,10 +269,13 @@ class Transform {
 				return left === e.left && right === e.right ? e : { ...e, left, right }
 			}
 			case "and":
-			case "or":
+			case "or": {
+				const args = mapNonEmptyKept(e.args, (a) => this.expr(a))
+				return args === e.args ? e : { ...e, args }
+			}
 			case "greatest":
 			case "least": {
-				const args = this.exprs(e.args)
+				const args = this.nonEmptyExprs(e.args)
 				return args === e.args ? e : { ...e, args }
 			}
 			case "between": {
@@ -264,7 +286,7 @@ class Transform {
 			}
 			case "inList": {
 				const expr = this.expr(e.expr)
-				const list = this.exprs(e.list)
+				const list = this.nonEmptyExprs(e.list)
 				return expr === e.expr && list === e.list ? e : { ...e, expr, list }
 			}
 			case "inQuery": {
@@ -279,7 +301,7 @@ class Transform {
 				return query === e.query ? e : { ...e, query }
 			}
 			case "row": {
-				const items = this.exprs(e.items)
+				const items = mapNonEmptyKept(e.items, (a) => this.expr(a))
 				return items === e.items ? e : { ...e, items }
 			}
 			case "case": {
@@ -348,10 +370,12 @@ class Transform {
 	}
 
 	targets(list: ReadonlyArray<Target>): ReadonlyArray<Target> {
-		return mapList(list, (t) => {
-			const expr = this.expr(t.expr)
-			return expr === t.expr ? t : { ...t, expr }
-		})
+		return mapList(list, (t) => this.#target(t))
+	}
+
+	#target(t: Target): Target {
+		const expr = this.expr(t.expr)
+		return expr === t.expr ? t : { ...t, expr }
 	}
 
 	columnDefinition(c: ColumnDefinition): ColumnDefinition {
@@ -360,10 +384,29 @@ class Transform {
 	}
 
 	fromItem(item: FromItem): FromItem {
-		return this.#replaceFromItem(item) ?? this.#fromItem(this.fromItemChildren(item), item)
+		if (item.kind !== "joins") {
+			return this.source(item)
+		}
+		const first = this.source(item.first)
+		const steps = mapNonEmptyKept(item.steps, (step): JoinStep => {
+			const source = this.source(step.source)
+			if (step.kind === "cross") {
+				return source === step.source ? step : { ...step, source }
+			}
+			const on = this.expr(step.on)
+			return source === step.source && on === step.on ? step : { ...step, source, on }
+		})
+		return this.#joins(
+			first === item.first && steps === item.steps ? item : { ...item, first, steps },
+			item
+		)
 	}
 
-	fromItemChildren(item: FromItem): FromItem {
+	source(source: FromSource): FromSource {
+		return this.#replaceSource(source) ?? this.#fromSource(this.sourceChildren(source), source)
+	}
+
+	sourceChildren(item: FromSource): FromSource {
 		switch (item.kind) {
 			case "table": {
 				const table = this.table(item.table)
@@ -385,7 +428,7 @@ class Transform {
 				return columns === item.columns ? item : { ...item, columns }
 			}
 			case "values": {
-				const rows = mapList(item.rows, this.exprs)
+				const rows = mapNonEmptyKept(item.rows, this.exprs)
 				return rows === item.rows ? item : { ...item, rows }
 			}
 			case "context": {
@@ -397,19 +440,6 @@ class Transform {
 				return columns === item.columns && refusal === item.refusal
 					? item
 					: { ...item, columns, refusal }
-			}
-			case "join": {
-				const left = this.fromItem(item.left)
-				const right = this.fromItem(item.right)
-				const on = this.expr(item.on)
-				return left === item.left && right === item.right && on === item.on
-					? item
-					: { ...item, left, right, on }
-			}
-			case "crossJoin": {
-				const left = this.fromItem(item.left)
-				const right = this.fromItem(item.right)
-				return left === item.left && right === item.right ? item : { ...item, left, right }
 			}
 		}
 	}
@@ -423,22 +453,14 @@ class Transform {
 	}
 
 	coreChildren(c: SelectCore): SelectCore {
-		const distinct =
-			typeof c.distinct === "boolean"
-				? c.distinct
-				: (() => {
-						const d = c.distinct
-						const on = this.exprs(d.on)
-						return on === d.on ? d : { ...d, on }
-					})()
-		const targets = this.targets(c.targets)
+		const projection = this.#projection(c)
 		const from = this.fromItems(c.from)
 		const where = c.where === undefined ? undefined : this.expr(c.where)
 		const groupBy = this.exprs(c.groupBy)
 		const having = c.having === undefined ? undefined : this.expr(c.having)
 		if (
-			distinct === c.distinct &&
-			targets === c.targets &&
+			projection.distinct === c.distinct &&
+			projection.targets === c.targets &&
 			from === c.from &&
 			where === c.where &&
 			groupBy === c.groupBy &&
@@ -446,13 +468,37 @@ class Transform {
 		) {
 			return c
 		}
-		return { ...c, distinct, targets, from, where, groupBy, having }
+		return { kind: "core", ...projection, from, where, groupBy, having }
+	}
+
+	/** A core's projection as its children rebuilt it, distinct by distinct. */
+	#projection(c: CoreProjection): CoreProjection {
+		if (c.distinct === false) {
+			return { distinct: false, targets: this.targets(c.targets) }
+		}
+		const d = c.distinct
+		if (d === true) {
+			return { distinct: d, targets: mapNonEmptyKept(c.targets, (t) => this.#target(t)) }
+		}
+		const on = mapNonEmptyKept(d.on, (e) => this.expr(e))
+		return {
+			distinct: on === d.on ? d : { ...d, on },
+			targets: mapNonEmptyKept(c.targets, (t) => this.#target(t))
+		}
 	}
 
 	setOp(s: SetOperation): SetOperation {
-		const left = this.body(s.left)
-		const right = this.body(s.right)
-		return left === s.left && right === s.right ? s : { ...s, left, right }
+		const [first, second, ...rest] = s.arms
+		const arms = kept<SetOperation["arms"]>(s.arms, [
+			this.operand(first),
+			this.operand(second),
+			...rest.map((a) => this.operand(a))
+		])
+		return arms === s.arms ? s : { ...s, arms }
+	}
+
+	operand(o: SetOperand): SetOperand {
+		return o.kind === "core" ? this.core(o) : this.select(o)
 	}
 
 	body(b: SelectBody): SelectBody {
@@ -467,7 +513,7 @@ class Transform {
 	}
 
 	with(w: With): With {
-		const ctes = mapList(w.ctes, (c) => this.cte(c))
+		const ctes = mapNonEmptyKept(w.ctes, (c) => this.cte(c))
 		return ctes === w.ctes ? w : { ...w, ctes }
 	}
 
@@ -511,8 +557,18 @@ class Transform {
 		return { ...s, with: w, body, orderBy, limit, offset }
 	}
 
-	assignments(list: ReadonlyArray<Assignment>): ReadonlyArray<Assignment> {
-		return mapList(list, (a) => {
+	performQuery(q: PerformQuery): PerformQuery {
+		const body = this.core(q.body)
+		const orderBy = this.orderItems(q.orderBy)
+		const limit = q.limit === undefined ? undefined : this.expr(q.limit)
+		const offset = q.offset === undefined ? undefined : this.expr(q.offset)
+		return body === q.body && orderBy === q.orderBy && limit === q.limit && offset === q.offset
+			? q
+			: { body, orderBy, limit, offset }
+	}
+
+	assignments(list: NonEmptyReadonlyArray<Assignment>): NonEmptyReadonlyArray<Assignment> {
+		return mapNonEmptyKept(list, (a) => {
 			const value = this.expr(a.value)
 			return value === a.value ? a : { ...a, value }
 		})
@@ -548,35 +604,41 @@ class Transform {
 		return action === c.action ? c : { ...c, action }
 	}
 
-	insertSource(s: InsertSource): InsertSource {
-		switch (s.kind) {
-			case "query": {
-				const query = this.select(s.query)
-				return query === s.query ? s : { ...s, query }
-			}
-			case "values": {
-				const rows = mapList(s.rows, this.exprs)
-				return rows === s.rows ? s : { ...s, rows }
-			}
+	/** An INSERT's columns and source, rebuilt arm by arm, so a VALUES source keeps its columns. */
+	insertTarget(t: InsertTarget): InsertTarget {
+		if (isValuesTarget(t)) {
+			const rows = mapNonEmptyKept(t.source.rows, this.exprs)
+			return rows === t.source.rows ? t : { columns: t.columns, source: { ...t.source, rows } }
 		}
+		const query = this.select(t.source.query)
+		return query === t.source.query ? t : { columns: t.columns, source: { ...t.source, query } }
 	}
 
 	insert(i: Insert): Insert {
 		const w = i.with === undefined ? undefined : this.with(i.with)
 		const table = this.table(i.table)
-		const source = this.insertSource(i.source)
+		const target = this.insertTarget(i)
 		const onConflict = i.onConflict === undefined ? undefined : this.onConflict(i.onConflict)
 		const returning = this.targets(i.returning)
 		if (
 			w === i.with &&
 			table === i.table &&
-			source === i.source &&
+			target === i &&
 			onConflict === i.onConflict &&
 			returning === i.returning
 		) {
 			return i
 		}
-		return { ...i, with: w, table, source, onConflict, returning }
+		return {
+			kind: "insert",
+			with: w,
+			table,
+			alias: i.alias,
+			overriding: i.overriding,
+			...target,
+			onConflict,
+			returning
+		}
 	}
 
 	update(u: Update): Update {
@@ -623,6 +685,9 @@ class Transform {
 	}
 
 	mergeInsert(a: MergeInsert): MergeInsert {
+		if (a.kind === "insertDefault") {
+			return a
+		}
 		const row = this.assignments(a.row)
 		return row === a.row ? a : { ...a, row }
 	}
@@ -692,11 +757,21 @@ class Transform {
 	columnDef(c: ColumnDef): ColumnDef {
 		const type = this.type(c.type)
 		const generated = c.generated === undefined ? undefined : this.generation(c.generated)
-		const dflt = c.default === undefined ? undefined : this.expr(c.default)
-		if (type === c.type && generated === c.generated && dflt === c.default) {
+		if (type === c.type && generated === c.generated) {
 			return c
 		}
-		return { ...c, type, generated, default: dflt }
+		return { ...c, type, generated }
+	}
+
+	using(u: Using): Using {
+		switch (u.kind) {
+			case "expr": {
+				const expr = this.expr(u.expr)
+				return expr === u.expr ? u : { ...u, expr }
+			}
+			case "placeholder":
+				return u
+		}
 	}
 
 	/** A constraint of the table `table` names as its statement had it. */
@@ -733,7 +808,8 @@ class Transform {
 	/** An action of an ALTER TABLE on the table `table` names as its statement had it. */
 	alterTableAction(a: AlterTableAction, table: ObjectName): AlterTableAction {
 		switch (a.kind) {
-			case "addColumn": {
+			case "addColumn":
+			case "addColumnPlaceholder": {
 				const column = this.columnDef(a.column)
 				return column === a.column ? a : { ...a, column }
 			}
@@ -757,7 +833,7 @@ class Transform {
 			}
 			case "alterColumnType": {
 				const type = this.type(a.type)
-				const using = this.expr(a.using)
+				const using = this.using(a.using)
 				return type === a.type && using === a.using ? a : { ...a, type, using }
 			}
 			case "dropColumn":
@@ -826,7 +902,7 @@ class Transform {
 	readonly createIndex = (s: CreateIndex): CreateIndex => {
 		const name = this.indexName(s.table, s.name)
 		const table = this.name(s.table, "relation")
-		const keys = mapList(s.keys, (k) => this.indexKey(k))
+		const keys = mapNonEmptyKept(s.keys, (k) => this.indexKey(k))
 		const where = s.where === undefined ? undefined : this.expr(s.where)
 		if (name === s.name && table === s.table && keys === s.keys && where === s.where) {
 			return s
@@ -849,7 +925,7 @@ class Transform {
 				return names === o.names ? o : { ...o, names }
 			}
 			case "FUNCTION": {
-				const names = mapList(o.names, this.functionName)
+				const names = mapNonEmptyKept(o.names, this.functionName)
 				return names === o.names ? o : { ...o, names }
 			}
 		}
@@ -894,21 +970,22 @@ class Transform {
 				return query === s.query && body === s.body ? s : { ...s, query, body }
 			}
 			case "perform": {
-				const query = this.select(s.query)
+				const query = this.performQuery(s.query)
 				return query === s.query ? s : { ...s, query }
+			}
+			case "whenAbsent": {
+				const probe = this.performQuery(s.probe)
+				const body = mapNonEmptyKept(s.body, (b) => this.plStatement(b))
+				return probe === s.probe && body === s.body ? s : { ...s, probe, body }
 			}
 			case "case": {
 				const operand = this.expr(s.operand)
-				const whens = mapList(s.whens, (w) => {
-					const values = this.exprs(w.values)
+				const whens = mapNonEmptyKept(s.whens, (w) => {
+					const values = mapNonEmptyKept(w.values, (v) => this.expr(v))
 					const body = this.plStatements(w.body)
 					return values === w.values && body === w.body ? w : { ...w, values, body }
 				})
-				const otherwise = s.else === undefined ? undefined : this.plStatements(s.else)
-				if (operand === s.operand && whens === s.whens && otherwise === s.else) {
-					return s
-				}
-				return { ...s, operand, whens, else: otherwise }
+				return operand === s.operand && whens === s.whens ? s : { ...s, operand, whens }
 			}
 			case "raise": {
 				const using = mapList(s.using, (o) => this.raiseOption(o))
@@ -1038,7 +1115,14 @@ class Transform {
 			}
 			case "createFunction":
 				return this.createFunction(s)
-			case "createConstraintTrigger":
+			case "createConstraintTrigger": {
+				const table = this.name(s.table, "relation")
+				const fn = this.name(s.function, "function")
+				const when = s.when === undefined ? undefined : this.expr(s.when)
+				return table === s.table && fn === s.function && when === s.when
+					? s
+					: { ...s, table, function: fn, when }
+			}
 			case "createGuardTrigger": {
 				const table = this.name(s.table, "relation")
 				const fn = this.name(s.function, "function")
@@ -1134,7 +1218,7 @@ class Transform {
 				return view === s.view ? s : { ...s, view }
 			}
 			case "createCarrier": {
-				const columns = mapNonEmptyKept(s.columns, (c) => this.columnDef(c))
+				const columns = mapList(s.columns, (c) => this.columnDef(c))
 				return columns === s.columns ? s : { ...s, columns }
 			}
 			case "analyze":
@@ -1352,16 +1436,10 @@ class Visit {
 				this.#v.setOp(b)
 				inKeyOrder(Object.keys(b), [
 					[
-						"left",
-						() => {
-							this.body(b.left)
-						}
-					],
-					[
-						"right",
-						() => {
-							this.body(b.right)
-						}
+						"arms",
+						each(b.arms, (arm) => {
+							this.body(arm)
+						})
 					]
 				])
 				return
@@ -1482,42 +1560,34 @@ class Visit {
 				])
 				return
 			}
-			case "join": {
+			case "joins": {
 				inKeyOrder(keys, [
 					[
-						"left",
+						"first",
 						() => {
-							this.fromItem(item.left)
+							this.fromItem(item.first)
 						}
 					],
 					[
-						"right",
-						() => {
-							this.fromItem(item.right)
-						}
-					],
-					[
-						"on",
-						() => {
-							this.expr(item.on)
-						}
-					]
-				])
-				return
-			}
-			case "crossJoin": {
-				inKeyOrder(keys, [
-					[
-						"left",
-						() => {
-							this.fromItem(item.left)
-						}
-					],
-					[
-						"right",
-						() => {
-							this.fromItem(item.right)
-						}
+						"steps",
+						each(item.steps, (step) => {
+							inKeyOrder(Object.keys(step), [
+								[
+									"source",
+									() => {
+										this.fromItem(step.source)
+									}
+								],
+								[
+									"on",
+									step.kind === "on"
+										? () => {
+												this.expr(step.on)
+											}
+										: undefined
+								]
+							])
+						})
 					]
 				])
 				return
@@ -1694,6 +1764,7 @@ class Visit {
 			case "plVar":
 			case "plSpecial":
 			case "field":
+			case "regclass":
 				return
 		}
 	}

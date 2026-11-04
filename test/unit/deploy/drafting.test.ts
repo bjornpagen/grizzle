@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -17,6 +18,7 @@ import {
 	String as Str
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { CandidatePath } from "#compiler/deploy/diff/plan.ts"
 import { isNoTransaction } from "#compiler/deploy/render/markers.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -51,6 +53,7 @@ import {
 	resolveIntents,
 	resolveRenamedDraw,
 	revivedRosterRebuild,
+	rivalsOntoOne,
 	serialUnderAliasedRelation,
 	statisticsOfRenamedRelation,
 	statisticsOverRenamedField,
@@ -73,6 +76,7 @@ import {
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	checkOf,
+	choosableOf,
 	chosenFor,
 	type Drafted,
 	type DraftedLoss,
@@ -80,6 +84,7 @@ import {
 	draftOf,
 	type Finding,
 	freshStateOf,
+	holdsPath,
 	integerRows,
 	loadIntegers,
 	noRowValue,
@@ -91,7 +96,6 @@ import {
 } from "#test/support/migrate/draft.ts"
 import { catalogOf, emptyState, type State } from "#test/support/migrate/interpret.ts"
 import { fromEmpty, type Previous } from "#test/support/migrate/kit.ts"
-import { indices } from "#test/support/oracle/pick.ts"
 
 /** Generated migration paths drafted and reviewed with no database, judged by what a draft writes: its folder's SQL
  * files and meta.json as the command line writes them, `grizzle check`'s reading of a reviewed folder, and the reviewed
@@ -299,18 +303,18 @@ const ofKind = (found: ReadonlyArray<Finding>, kind: Finding["kind"]): ReadonlyA
 
 /** Whether a review choosing `chosen` decides a loss: one at the top of its file, or in a chosen candidate's
  * alternative; and whether it leaves it to the reviewer, no chosen candidate carrying it. */
-const decides = (l: DraftedLoss, chosen: ReadonlySet<number>): boolean =>
-	l.within.kind === "top" || chosen.has(l.within.candidate)
+const decides = (l: DraftedLoss, chosen: ReadonlyArray<CandidatePath>): boolean =>
+	l.within.kind === "top" || holdsPath(chosen, l.within.candidate)
 
-const leftTo = (l: DraftedLoss, chosen: ReadonlySet<number>): boolean =>
-	decides(l, chosen) && !Arr.some(l.carriers, (k) => chosen.has(k))
+const leftTo = (l: DraftedLoss, chosen: ReadonlyArray<CandidatePath>): boolean =>
+	decides(l, chosen) && !Arr.some(l.carriers, (k) => holdsPath(chosen, k))
 
 /** (h): left undecided, every loss the review decides that no chosen candidate carries is refused once, and nothing
  * else is. */
 const lossesDecided = (
 	c: Case<Feature>,
 	d: Drafted,
-	chosen: ReadonlySet<number>,
+	chosen: ReadonlyArray<CandidatePath>,
 	value: ReviewChoices["value"],
 	at: string
 ): void => {
@@ -388,10 +392,8 @@ const chain = (
 		}
 		const before = planOf(prior.version, draftingName, owner)
 		const after = planOf(step.version, draftingName, owner)
-		const chosen = choose
-			? chosenFor(d, chosenRenames(prior, step), before, after)
-			: new Set<number>()
-		c.note(chosen.size > 0 ? "the path's renames chosen" : "every candidate kept")
+		const chosen = choose ? chosenFor(d, chosenRenames(prior, step), before, after) : []
+		c.note(chosen.length > 0 ? "the path's renames chosen" : "every candidate kept")
 		const value = typedValue({ plan: after, version: step.version })
 		/** (b) */
 		const reviewed = reviewOf(d, { chosen, losses: "written", value })
@@ -492,6 +494,10 @@ const kept: ReadonlyArray<Kept<RenamedDraw, Feature>> = [
 	planted(
 		{ kind: "stated", path: referrerRetypedWithKey },
 		"the same with the referenced key converted too: the key's conversion drops the foreign key first"
+	),
+	planted(
+		{ kind: "stated", path: rivalsOntoOne },
+		"issue #8: two removed relations rival for one added one, each with its own nested field rename"
 	)
 ]
 
@@ -592,22 +598,20 @@ const ambiguous = (c: Case<Feature>, a: Version, b: Version, removed: string): v
 	const state = reaches(emptyState, plainReviewOf(first), first, "the ambiguous pair's A")
 	const d = draft(b, first.next, "second")
 	const name = `${quoteIdent(schema)}.${quoteIdent(identifierOf(identity.table(parsedName(removed))))}`
-	const pair = Arr.flatMap(d.candidates, (x, n) =>
-		x.kind === "relation" && x.removed === name ? [n] : []
-	)
+	const pair = Arr.filter(d.candidates, (x) => x.kind === "relation" && x.removed === name)
 	assert.ok(
 		pair.length >= 2,
 		`the draft offers ${pair.length} candidates for the removed ${name}, not two`
 	)
 	const value = typedValue({ plan: planOf(b, draftingName, owner), version: b })
-	const both = reviewOf(d, { chosen: new Set(pair), losses: "written", value })
+	const both = reviewOf(d, { chosen: pair, losses: "written", value })
 	assert.ok(
 		Result.isFailure(both) || ofKind(checkOf(d, both.success.files), "twice").length > 0,
 		`two candidates for ${name} both chosen pass check`
 	)
 	c.note("two candidates for one removed name refused when both are chosen")
 	for (const one of pair) {
-		const reviewed = reviewOf(d, { chosen: new Set([one]), losses: "written", value })
+		const reviewed = reviewOf(d, { chosen: [one], losses: "written", value })
 		if (Result.isFailure(reviewed)) {
 			assert.fail(`one candidate for ${name} chosen alone is inexpressible`)
 		}
@@ -632,22 +636,24 @@ describe("generated migration paths, drafted and reviewed with no database", () 
 						suite: "unit/deploy/drafting",
 						draw: drawn(renamedDrawGen),
 						literal: Formatter.format,
-						features: features<Feature>([
-							"a step drafted",
-							"a draft with candidates",
-							"every candidate kept",
-							"the path's renames chosen",
-							"a relation renamed in B",
-							"a field renamed in B",
-							"a field retyped in B",
-							"a loss left and refused"
-						]),
+						coverage: required<Feature>(
+							[
+								"a step drafted",
+								"a draft with candidates",
+								"every candidate kept",
+								"the path's renames chosen",
+								"a relation renamed in B",
+								"a field renamed in B",
+								"a field retyped in B",
+								"a loss left and refused"
+							],
+							{ cases: 40, sense: notesOnly }
+						),
 						kept,
 						runs: 40,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(drawnPath, c) =>
@@ -676,23 +682,25 @@ describe("generated migration paths, drafted and reviewed with no database", () 
 						suite: "unit/deploy/drafting-intents",
 						draw: drawn(intentSketchGen),
 						literal: Formatter.format,
-						features: features<Feature>([
-							"a step drafted",
-							"the path's renames chosen",
-							"a rename onto a taken name refused at the boundary",
-							"two candidates for one removed name refused when both are chosen",
-							"the intent retypedOffRebuilt",
-							"the intent relationRetypedOffRebuilt",
-							"the intent swapRelations",
-							"the intent chainRelations",
-							"a loss carried by a chosen candidate"
-						]),
+						coverage: required<Feature>(
+							[
+								"a step drafted",
+								"the path's renames chosen",
+								"a rename onto a taken name refused at the boundary",
+								"two candidates for one removed name refused when both are chosen",
+								"the intent retypedOffRebuilt",
+								"the intent relationRetypedOffRebuilt",
+								"the intent swapRelations",
+								"the intent chainRelations",
+								"a loss carried by a chosen candidate"
+							],
+							{ cases: 60, sense: notesOnly }
+						),
 						kept: keptIntents,
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>
@@ -1052,28 +1060,23 @@ const intentCandidates = (
 	a: ReadonlyArray<Rel>,
 	b: ReadonlyArray<Rel>,
 	at: string
-): ReadonlySet<number> =>
-	new Set(
-		Arr.flatMap(b, (r) => {
-			if (r.kind === "added") {
-				return []
-			}
-			const was = defined(a[r.origin], `the relation of A of origin ${r.origin}`)
-			const source = movedTo(a, b, was) ? asideTable(was.name) : table(was.name)
-			if (source === table(r.name)) {
-				return []
-			}
-			const n = Arr.findFirstIndex(
-				d.candidates,
-				(x) => x.kind === "relation" && x.removed === source && x.added === table(r.name)
-			)
-			assert.ok(
-				Option.isSome(n),
-				`${at}: the draft offers no candidate for the rename of ${source} to ${table(r.name)}`
-			)
-			return [n.value]
-		})
-	)
+): ReadonlyArray<CandidatePath> =>
+	Arr.flatMap(b, (r): ReadonlyArray<CandidatePath> => {
+		if (r.kind === "added") {
+			return []
+		}
+		const was = defined(a[r.origin], `the relation of A of origin ${r.origin}`)
+		const source = movedTo(a, b, was) ? asideTable(was.name) : table(was.name)
+		if (source === table(r.name)) {
+			return []
+		}
+		const path: CandidatePath = { kind: "relation", removed: source, added: table(r.name) }
+		assert.ok(
+			holdsPath(d.candidates, path),
+			`${at}: the draft offers no candidate for the rename of ${source} to ${table(r.name)}`
+		)
+		return [path]
+	})
 
 describe("losses of stored data, and the identities of swaps and chains", () => {
 	it.effect(
@@ -1086,23 +1089,25 @@ describe("losses of stored data, and the identities of swaps and chains", () => 
 						suite: "unit/deploy/identities",
 						draw: drawn(identityGen),
 						literal: Formatter.format,
-						features: features<IdentityFeature>([
-							"an intent rename",
-							"an intent swap",
-							"an intent chain",
-							"an intent remove",
-							"an intent removeField",
-							"a relation set aside",
-							"a loss carried",
-							"a loss decided both ways refused",
-							"two relations of one heading swapped"
-						]),
+						coverage: required<IdentityFeature>(
+							[
+								"an intent rename",
+								"an intent swap",
+								"an intent chain",
+								"an intent remove",
+								"an intent removeField",
+								"a relation set aside",
+								"a loss carried",
+								"a loss decided both ways refused",
+								"two relations of one heading swapped"
+							],
+							{ cases: 80, sense: notesOnly }
+						),
 						kept: keptIdentities,
 						runs: 80,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(x, c) =>
@@ -1148,7 +1153,7 @@ describe("losses of stored data, and the identities of swaps and chains", () => 
 							)
 							/** Left undecided, check refuses exactly the losses. */
 							const value = () => "0"
-							const left = reviewOf(dB, { chosen: new Set(), losses: "left", value })
+							const left = reviewOf(dB, { chosen: [], losses: "left", value })
 							if (Result.isFailure(left)) {
 								return assert.fail(`${at}: keeping every candidate is inexpressible`)
 							}
@@ -1187,7 +1192,7 @@ describe("losses of stored data, and the identities of swaps and chains", () => 
 							}
 							/** Every candidate kept, every loss written in: a relation keeps its rows only under its own name, unmoved,
 							 * a removed field's values gone; every other relation is empty. */
-							const keptReview = reviewOf(dB, { chosen: new Set(), losses: "written", value })
+							const keptReview = reviewOf(dB, { chosen: [], losses: "written", value })
 							if (Result.isFailure(keptReview)) {
 								return assert.fail(`${at}: keeping every candidate is inexpressible`)
 							}
@@ -1230,7 +1235,7 @@ describe("losses of stored data, and the identities of swaps and chains", () => 
 							/** A loss its chosen carrier leaves out, written in as well: decided both ways. */
 							const carried = Arr.findFirst(
 								dB.losses,
-								(l) => l.within.kind === "top" && Arr.some(l.carriers, (k) => chosen.has(k))
+								(l) => l.within.kind === "top" && Arr.some(l.carriers, (k) => holdsPath(chosen, k))
 							)
 							if (Option.isNone(carried)) {
 								return
@@ -1338,13 +1343,6 @@ const replacedVersions = (
 	return [version("b"), version("c")]
 }
 
-/** Every subset of `n` candidates, by index. */
-const candidateSubsets = (n: number): ReadonlyArray<ReadonlySet<number>> =>
-	Arr.map(
-		indices(2 ** n),
-		(mask) => new Set(Arr.filter(indices(n), (i) => ((mask >> i) & 1) === 1))
-	)
-
 describe("keys replaced over the same fields, whichever way the reviewer decides the renames", () => {
 	it.effect(
 		"every choice of the candidates passes check, runs from B's catalog and reaches C's installed from nothing",
@@ -1372,7 +1370,7 @@ describe("keys replaced over the same fields, whichever way the reviewer decides
 							] as const,
 						literal: Formatter.format,
 						limit: 100,
-						features: features<ReplacedFeature>([...replacedFeatures]),
+						coverage: requiredInSpace<ReplacedFeature>([...replacedFeatures]),
 						caseHang: Duration.minutes(2)
 					},
 					([shift, size, reference], c) =>
@@ -1390,9 +1388,9 @@ describe("keys replaced over the same fields, whichever way the reviewer decides
 							if (Result.isFailure(fresh)) {
 								return assert.fail(`C installed from nothing fails: ${fresh.failure.reason}`)
 							}
-							for (const chosen of candidateSubsets(dC.candidates.length)) {
+							for (const chosen of choosableOf(dC)) {
 								const at = `${shift}, S of ${size}, the reference ${reference}, choosing [${Arr.join(
-									Arr.map([...chosen], (k) => String(k)),
+									Arr.map(chosen, (k) => `${k.kind} ${k.removed} to ${k.added}`),
 									", "
 								)}]`
 								const reviewed = reviewOf(dC, { chosen, losses: "written", value: () => "0" })
@@ -1405,7 +1403,7 @@ describe("keys replaced over the same fields, whichever way the reviewer decides
 									`${at}: check refuses the review`
 								)
 								c.note(
-									chosen.size > 0
+									chosen.length > 0
 										? "a review choosing a candidate"
 										: "a review keeping every candidate"
 								)

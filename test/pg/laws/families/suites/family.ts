@@ -1,13 +1,14 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features, type Reached } from "@grizzle/testing/features"
+import { type Reached, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, type Scope, String as Str } from "effect"
-import { type Family, installFamily } from "#test/pg/laws/families/families.ts"
+import { type Family, installFamily, populationsOf } from "#test/pg/laws/families/families.ts"
 import { type HostLaw, type HostSchema, isResidual, needs } from "#test/pg/laws/families/model.ts"
 import {
+	exemptReachable,
 	type FamilyCase,
 	type FamilyFeature,
 	familyCaseGen,
@@ -17,6 +18,7 @@ import {
 	refusalFeatures,
 	runSteps
 } from "#test/pg/laws/families/support.ts"
+import { type AmbientSession, grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -49,14 +51,16 @@ const caseMillis = 4_000
 export const timeoutOf = (runs: number): number =>
 	(runs + Math.max(1, Math.ceil(runs / 4)) + shrinkCandidates) * caseMillis
 
-export const mode = (isMutable: boolean): string => (isMutable ? "mutable" : "immutable")
-
-/** Installs a variant for a case: a schema that does not install fails the case that drew it. */
+/**
+ * Installs a variant for a case, under the ambient session `ambient`: a schema that does not install fails the case that
+ * drew it.
+ */
 export const installVariant = <P>(
 	family: Family<P>,
-	p: P
+	p: P,
+	ambient: AmbientSession
 ): Effect.Effect<Installed, CaseFailed, Scope.Scope | Substrate> =>
-	Effect.mapError(installFamily(family, p), (e) =>
+	Effect.mapError(installFamily(family, p, ambient), (e) =>
 		CaseFailed.make({ report: `${family.describe(p)} did not install: ${messageOf(e)}` })
 	)
 
@@ -285,10 +289,10 @@ const plant = <P>(
 const plantedRefusals = <P>(
 	family: Family<P>,
 	variants: ReadonlyArray<P>,
-	required: ReadonlyArray<Requirement>
+	situations: ReadonlyArray<Requirement>
 ): ReadonlyArray<Kept<FamilyCase, FamilyFeature>> => {
 	const planted: Array<Planted> = []
-	for (const q of required) {
+	for (const q of situations) {
 		if (
 			!Arr.some(
 				planted,
@@ -309,7 +313,9 @@ const plantedRefusals = <P>(
 /**
  * One family's generated suite.
  *
- * For each mutability, cases explore through the library's explore, each drawing one of the family's schemas (families.ts variants, its whole parameter space) and a sequence of steps (../support.ts runSteps).
+ * For each population of the family's box (families.ts populationsOf: its schemas with no mutable relation, and those
+ * with one), cases explore through the library's explore, each drawing one of the population's schemas and a sequence
+ * of steps (../support.ts runSteps).
  * A schema installs once per test, the first time a case draws it. Its writer's connection belongs to the case: each
  * case opens it and closes it when it ends, so a test holds one case's connection whatever the number of schemas it
  * draws. That the installation enforces exactly the host's laws is judged by outcomes alone: every refusal names a law
@@ -334,36 +340,36 @@ export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): 
 	layer(Substrate.layer, { excludeTestServices: true })(
 		`law-bearing generated schemas: ${family.label}`,
 		(it) => {
-			for (const isMutable of [false, true]) {
-				const [first, ...rest] = family.variants(isMutable)
-				if (first === undefined) {
-					throw new Error(`${family.label} has no schema`)
-				}
-				const variants: Arr.NonEmptyReadonlyArray<P> = [first, ...rest]
+			for (const { mode, variants } of populationsOf(family)) {
 				const refusals = requirements(family, variants, reach)
 				const planted = plantedRefusals(family, variants, refusals)
-				const required: ReadonlyArray<Reached<FamilyFeature>> = [
+				const exempt = Arr.some(variants, (p) => exemptReachable(family.host(p), family.domains))
+				const situations: Arr.NonEmptyReadonlyArray<Reached<FamilyFeature>> = [
 					"accepted",
 					"no-change",
+					...(exempt ? (["accepted beside an anchor no obligation selects"] as const) : []),
 					...Arr.map(refusals, (q) => reachedOf(family, variants, q))
 				]
 				/** The writer's session is the case's: it closes when the case ends. */
 				const search = Effect.gen(function* () {
-					/** Every variant's installation, made before the first case; it holds no connection. */
-					const installs = yield* Effect.forEach(variants, (p) => installVariant(family, p))
+					/**
+					 * Every variant's installation, made before the first case; it holds no connection. The mutable
+					 * population installs under the installation-first path, the immutable one under the cluster's own.
+					 */
+					const installs = yield* Effect.forEach(variants, (p) =>
+						installVariant(family, p, mode === "mutable" ? grizzleFirstSession : ordinarySession)
+					)
 					return yield* explore(
 						{
-							suite: `laws/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode(isMutable)}`,
+							suite: `laws/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode}`,
 							draw: drawn(familyCaseGen(variants.length)),
 							literal: Formatter.format,
-							features: features<FamilyFeature>(required),
+							coverage: required<FamilyFeature>(situations, { cases: 4 * cases, sense: notesOnly }),
 							kept: planted,
 							runs: cases,
 							shrink,
 							concurrency: 1,
 							steerEvery: 16,
-							/** Steered only while a requirement is unreached, for four times the rotating cases at most. */
-							steering: { kind: "mutate", cases: 4 * cases, sense: notesOnly },
 							caseHang
 						},
 						(k, c) =>
@@ -403,7 +409,7 @@ export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): 
 					)
 				})
 				it.effect(
-					`${mode(isMutable)}: accepted iff every violation query is empty`,
+					`${mode}: accepted iff every violation query is empty`,
 					(ctx) => searched(ctx, search),
 					timeoutOf(cases)
 				)

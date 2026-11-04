@@ -1,5 +1,11 @@
 import { type Identity, identity } from "#compiler/core/identity.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	concatNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import {
@@ -27,6 +33,7 @@ import {
 	lit,
 	notExists,
 	select,
+	setOp,
 	simpleSelect,
 	target,
 	types
@@ -298,10 +305,13 @@ export const buildProbe = (
 		check: UniqueObject,
 		a: (f: LawField) => Expr,
 		b: (f: LawField) => Expr
-	): ReadonlyArray<Expr> => [
-		...check.equal.map((f) => same(f, a(f), b(f))),
-		...(check.kind === "span" ? [binary("&&", a(check.span), b(check.span))] : [])
-	]
+	): NonEmptyReadonlyArray<Expr> =>
+		check.kind === "span"
+			? appendNonEmpty(
+					check.equal.map((f) => same(f, a(f), b(f))),
+					binary("&&", a(check.span), b(check.span))
+				)
+			: mapNonEmpty(check.equal, (f) => same(f, a(f), b(f)))
 	const one = [target(lit.int(1, types.integer))]
 	const fact = (f: LawField) => inCol(input, f)
 	const branches: Array<SelectCore> = []
@@ -317,17 +327,20 @@ export const buildProbe = (
 					[...fields.map((f) => target(fact(f))), target(lit.int(-ordinal, types.integer))],
 					[cteRef(input)],
 					and(
-						...own,
-						exists(
-							simpleSelect(
-								one,
-								[cteRefAs(input, other)],
-								and(
-									...predicate(check, otherCol),
-									...conflict(check, otherCol, fact),
-									rowNe(
-										{ fields, typeOf: rowType, left: otherCol, right: (f) => inCol(input, f) },
-										vectorSchema
+						appendNonEmpty(
+							own,
+							exists(
+								simpleSelect(
+									one,
+									[cteRefAs(input, other)],
+									and(
+										appendNonEmpty(
+											[...predicate(check, otherCol), ...conflict(check, otherCol, fact)],
+											rowNe(
+												{ fields, typeOf: rowType, left: otherCol, right: (f) => inCol(input, f) },
+												vectorSchema
+											)
+										)
 									)
 								)
 							)
@@ -344,7 +357,7 @@ export const buildProbe = (
 				simpleSelect(
 					one,
 					[{ kind: "table", table, alias: holder }],
-					and(...conflict(arbiter, stored(holder), fact))
+					and(conflict(arbiter, stored(holder), fact))
 				)
 			)
 		}
@@ -353,15 +366,21 @@ export const buildProbe = (
 				[...fields.map((f) => target(fact(f))), target(lit.int(ordinal, types.integer))],
 				[cteRef(input)],
 				and(
-					...own,
-					exists(
-						simpleSelect(
-							one,
-							[{ kind: "table", table, alias: occupant }],
-							and(...predicate(check, stored(occupant)), ...conflict(check, stored(occupant), fact))
-						)
-					),
-					...(requested.kind === "complete" ? [free(requested.arbiter)] : [])
+					concatNonEmpty(own, [
+						exists(
+							simpleSelect(
+								one,
+								[{ kind: "table", table, alias: occupant }],
+								and(
+									concatNonEmpty(
+										predicate(check, stored(occupant)),
+										conflict(check, stored(occupant), fact)
+									)
+								)
+							)
+						),
+						...(requested.kind === "complete" ? [free(requested.arbiter)] : [])
+					])
 				)
 			)
 		)
@@ -393,16 +412,7 @@ export const buildProbe = (
 		const allCol = (f: LawField) => col(all, probed.of(f))
 		const allOrdinal = col(all, probedOrdinal)
 		ctes.push(
-			cte(
-				all,
-				[...probed.columns, probedOrdinal],
-				select(
-					rest.reduce<Select["body"]>(
-						(left, right) => ({ kind: "setOp", op: "UNION ALL", left, right }),
-						first
-					)
-				)
-			)
+			cte(all, [...probed.columns, probedOrdinal], select(setOp("UNION ALL", [first, ...rest])))
 		)
 		query = {
 			...simpleSelect(

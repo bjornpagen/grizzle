@@ -1,20 +1,18 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import { type KeySpec, keySpecOf } from "#compiler/codec/scalar.ts"
+import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
+import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type EncodingFailure, KeyConflict } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import type { KeyField } from "#compiler/ir/law.ts"
 import type { NormalFacts } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
-import {
-	admitted,
-	admittedIdentityText,
-	type CarrierSpec
-} from "#compiler/scalar/values/identity.ts"
+import { admitted, admittedText, type CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { KeyHost, Law } from "#compiler/types/changeset/changeset.ts"
-import type { SlotMember, WriteFrontend, WriteSlot } from "#compiler/write/frontend/compile.ts"
+import type { MemberSlot, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { RelationUniques } from "#compiler/write/insert/unique.ts"
 
 type Fact = { readonly [field: string]: unknown }
@@ -22,7 +20,7 @@ type Fact = { readonly [field: string]: unknown }
 /** A slot's normal facts (ir/products.ts NormalFacts): the distinct admitted facts, in canonical order of their
  * identities, which every placeholder of the slot encodes without normalizing them again. */
 export type NormalizedSlot = NormalFacts & {
-	readonly slot: WriteSlot
+	readonly slot: MemberSlot
 	readonly count: number
 }
 
@@ -52,7 +50,7 @@ export type MemberFacts = ReadonlyMap<string, Iterable<unknown>>
 /** The member slots a compiled ChangeSet reads, each once, in the order its slot groups name them: the slots whose
  * facts `MemberFacts` must hold. */
 export const memberSlots = (frontend: WriteFrontend): ReadonlyArray<string> => [
-	...new Set(frontend.slots.flatMap((g) => g.slots.flatMap((s) => s.members.map((m) => m.name))))
+	...new Set(frontend.slots.flatMap((g) => g.inputs.flatMap((i) => i.members.map((m) => m.name))))
 ]
 
 interface Entry {
@@ -80,25 +78,60 @@ const supplied = (fact: unknown, fields: ReadonlyArray<string>): number => {
 	return n
 }
 
-/** The admitted facts of `facts` against a slot's heading, refused with the codec's fault at the member slot. The codec
- * checks no key: normalization refuses a same-key pair itself (step 3).
+/** The admitted facts of `facts` against a slot's heading, by its member's normalizer, refused with the codec's fault at
+ * the member slot. The codec checks no key: normalization refuses a same-key pair itself (step 3).
  *
  * The codec's identities are factIdentity's over the slot heading, the identity this module keys facts by. */
 const admit = (
-	member: SlotMember,
-	facts: ReadonlyArray<unknown>
+	normalize: RelationNormalizer,
+	facts: Iterable<unknown>
 ): Result.Result<ReadonlyArray<Entry>, EncodingFailure> => {
-	const normalized = member.normalize(facts)
+	const normalized = normalize(facts)
 	if (!normalized.ok) {
 		return normalized
 	}
 	return Result.ok(normalized.value.entries)
 }
 
-/** A key field of a fact, by the name the fact holds it under, and its carrier's spec, never a vector's. */
+/** A classed insertion's facts of one member, each routed by its supplied serial fields: none to the generated slot,
+ * every one to the complete slot; a fact supplying some and not all is no fact of either heading. Each fact is
+ * classified once. */
+const routed = (
+	serial: NonEmptyReadonlyArray<string>,
+	member: string,
+	facts: Iterable<unknown>
+): Result.Result<
+	{ readonly complete: ReadonlyArray<unknown>; readonly generated: ReadonlyArray<unknown> },
+	EncodingFailure
+> => {
+	const complete: Array<unknown> = []
+	const generated: Array<unknown> = []
+	for (const fact of facts) {
+		const n = supplied(fact, serial)
+		if (n === 0) {
+			generated.push(fact)
+		} else if (n === serial.length) {
+			complete.push(fact)
+		} else {
+			return Result.err(encodeFailure("factShape", slotPlace(member)))
+		}
+	}
+	return Result.ok({ complete, generated })
+}
+
+/** Each admitted entry of `entries` into `set`, the first of each identity kept. */
+const collect = (set: Map<string, Entry>, entries: ReadonlyArray<Entry>): void => {
+	for (const e of entries) {
+		if (!set.has(e.identity)) {
+			set.set(e.identity, e)
+		}
+	}
+}
+
+/** A key field of a fact, by the name the fact holds it under, and its carrier's spec. */
 export interface HostKeyField {
 	readonly field: string
-	readonly spec: KeySpec
+	readonly spec: CarrierSpec
 }
 
 /** The host's same-key checks of one written relation's additions (see `normalizeChangeSet`, step 3), built with the relation:
@@ -126,7 +159,7 @@ export interface HostChecks {
 export type Range = "range4" | "range8"
 
 /** A key field of the relation's facts, by its name, with its spec. */
-const hostKeyField = (f: KeyField): HostKeyField => ({ field: f.name, spec: keySpecOf(f.type) })
+const hostKeyField = (f: KeyField): HostKeyField => ({ field: f.name, spec: carrierSpecOf(f.type) })
 
 /** The host checks of a relation's keys and span candidate keys, each field's spec its type's carrier's. */
 export const hostChecks = (
@@ -162,13 +195,13 @@ export const hostChecks = (
 		})
 	})
 
-/** The key of a fact at `fields`: each field's identity text after its length, so two facts share it exactly when they
- * share every field's identity. The fact was admitted against the same carriers, so its values are already their
+/** The key of a fact at `fields`: each field's canonical text after its length, so two facts share it exactly when they
+ * share every field's value. The fact was admitted against the same carriers, so its values are already their
  * carriers' host values and are not admitted again. */
 const keyTextOf = (fields: ReadonlyArray<HostKeyField>) => (fact: Fact) => {
 	let key = ""
 	for (const { field, spec } of fields) {
-		const text = admittedIdentityText(spec, fact[field])
+		const text = admittedText(spec, fact[field])
 		key = `${key}${text.length}:${text}`
 	}
 	return key
@@ -212,10 +245,11 @@ const names = (fields: ReadonlyArray<HostKeyField>): KeySet => fields.map((f) =>
  * property and its null ban. For each stratum and each relation, over the write front end's slots
  * (`SlotGroup`), it:
  *
- * 1. Admits every fact through its heading's exact carriers (): the null ban, the field set, each
- *    value's representation and PostgreSQL's own coercion, before fact identity is taken. An addition
- *    omits all of its relation's serial fields or none: one that omits all is a generated addition and
- *    is admitted against the heading without them, one that omits some is no fact of either heading (factShape).
+ * 1. Admits every fact through its heading's exact carriers: the null ban, the field set, each value's representation
+ *    and PostgreSQL's own coercion, before fact identity is taken. An addition into a classed target
+ *    (`EnumeratedInput` "classed") is routed once by the serial fields it supplies: one that omits all is a generated
+ *    addition, admitted against its class's heading, the unit relation's when that holds no field; one that supplies
+ *    all is complete; one that omits some is no fact of either heading (factShape).
  * 2. Collapses equal facts: the members of one operation are one set, and equal generated additions are
  *    one requested addition that yields one new fact.
  * 3. Refuses conflicting additions before any SQL is sent: two facts that one stratum adds, by insert or
@@ -239,51 +273,59 @@ export const normalizeChangeSet = (
 	inputs: MemberFacts
 ): Result.Result<Normalization, EncodingFailure> => {
 	const out = new Map<ParamId, NormalizedSlot>()
-	for (const { stratum, facts: relation, slots } of frontend.slots) {
-		const serial = relation.serial
+	for (const { stratum, facts: relation, inputs: enumerated } of frontend.slots) {
 		const sets: Record<"insert" | "generated" | "put" | "delete", Map<string, Entry>> = {
 			insert: new Map(),
 			generated: new Map(),
 			put: new Map(),
 			delete: new Map()
 		}
-		const slotOf = new Map<keyof typeof sets, WriteSlot>()
-		for (const slot of slots) {
-			const category =
-				slot.op === "insert" ? (slot.serial === "generated" ? "generated" : "insert") : slot.op
-			slotOf.set(category, slot)
-			for (const member of slot.members) {
-				const given = inputs.get(member.name)
-				if (given === undefined) {
-					return Result.err(encodeFailure("factShape", slotPlace(member.name)))
-				}
-				const facts = [...given]
-				const mine =
-					slot.op === "insert" && serial.length > 0
-						? facts.filter((fact) => {
-								const n = supplied(fact, serial)
-								return slot.serial === "generated" ? n === 0 : n === serial.length
-							})
-						: facts
-				const partial =
-					slot.op === "insert" &&
-					serial.length > 0 &&
-					slot.serial === "complete" &&
-					facts.some((fact) => {
-						const n = supplied(fact, serial)
-						return n > 0 && n < serial.length
-					})
-				if (partial) {
-					return Result.err(encodeFailure("factShape", slotPlace(member.name)))
-				}
-				const admittedFacts = admit(member, mine)
-				if (!admittedFacts.ok) {
-					return admittedFacts
-				}
-				for (const e of admittedFacts.value) {
-					if (!sets[category].has(e.identity)) {
-						sets[category].set(e.identity, e)
+		const slotOf = new Map<keyof typeof sets, MemberSlot>()
+		/** The serial fields of the group's classed input, which exclude its generated facts from the keys that read
+		 * them; a group with no classed input has no generated fact. */
+		const serial = enumerated.flatMap((input) => (input.kind === "classed" ? input.serial : []))
+		for (const input of enumerated) {
+			switch (input.kind) {
+				case "single": {
+					const category = input.act.op
+					slotOf.set(category, input.slot)
+					for (const member of input.members) {
+						const given = inputs.get(member.name)
+						if (given === undefined) {
+							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
+						}
+						const admittedFacts = admit(member.normalize, given)
+						if (!admittedFacts.ok) {
+							return admittedFacts
+						}
+						collect(sets[category], admittedFacts.value)
 					}
+					break
+				}
+				case "classed": {
+					slotOf.set("insert", input.complete)
+					slotOf.set("generated", input.generated)
+					for (const member of input.members) {
+						const given = inputs.get(member.name)
+						if (given === undefined) {
+							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
+						}
+						const byClass = routed(input.serial, member.name, given)
+						if (!byClass.ok) {
+							return byClass
+						}
+						const complete = admit(member.normalize.complete, byClass.value.complete)
+						if (!complete.ok) {
+							return complete
+						}
+						const generated = admit(member.normalize.generated, byClass.value.generated)
+						if (!generated.ok) {
+							return generated
+						}
+						collect(sets.insert, complete.value)
+						collect(sets.generated, generated.value)
+					}
+					break
 				}
 			}
 		}

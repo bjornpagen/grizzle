@@ -1,5 +1,5 @@
 import type { Brand } from "effect"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import {
 	alternatives,
 	capacity,
@@ -50,7 +50,7 @@ import type { Equals, Expect } from "#test/types/skeleton/support.ts"
 export type TaskFact = Expect<
 	Equals<
 		Fact<typeof Task>,
-		{ readonly id: string; readonly account: string; readonly kind: "Automatic" | "Manual" }
+		{ readonly id: Uuid; readonly account: Uuid; readonly kind: "Automatic" | "Manual" }
 	>
 >
 
@@ -81,7 +81,7 @@ export type AccountKeys = Expect<
 >
 export type KindKeys = Expect<Equals<KeysOf<typeof Work, typeof Kind>, readonly ["id"]>>
 export type KeyedLookup = Expect<Equals<KeyValues<typeof byName>, { readonly name: string }>>
-export type PrimaryLookup = Expect<Equals<KeyValues<typeof Task>, { readonly id: string }>>
+export type PrimaryLookup = Expect<Equals<KeyValues<typeof Task>, { readonly id: Uuid }>>
 
 /** Roles and write lists. */
 export type WriterList = Expect<Equals<WriteListOf<typeof Writer>, "Task" | "TaskNote" | "Ticket">>

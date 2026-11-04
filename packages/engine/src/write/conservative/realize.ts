@@ -24,12 +24,7 @@ import { buildEntryCheck, type EntryCheck, outsideProbes } from "#compiler/write
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import { type RereadInput, unproved, type WriteInput } from "#compiler/write/insert/input.ts"
-import {
-	buildDefaultsInsert,
-	buildInsert,
-	buildSpanClassify,
-	insertShape
-} from "#compiler/write/insert/protocol.ts"
+import { buildInsert, buildSpanClassify, insertShape } from "#compiler/write/insert/protocol.ts"
 import {
 	type CarrierResult,
 	compareHeading,
@@ -237,15 +232,9 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					statement(buildExactDelete(w, { relation, input, except: additions }))
 					break
 				}
-				case "insert": {
-					const reads = action.info.reads
-					if (reads.kind === "defaults") {
-						statement(buildDefaultsInsert(w, { relation, input: reads.slot.input }))
-						break
-					}
+				case "insert":
 					add(action.serial, "insert")
 					break
-				}
 				case "put": {
 					const payload = payloadOf(relation)
 					if (payload.kind === "keyed") {
@@ -341,8 +330,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
  *    - an insertion is the insert protocol for its relation and member shape, SELECT DISTINCT and the same-key check
  *      included for every carrier, since the baseline relies on no evidence, followed, into a span primary key, by the
  *      classification of every requested fact it did not insert, and by the sequence advances when it carries
- *      explicit serial values; a generated addition into a relation whose every field is serial is its one row of
- *      identity defaults (`buildDefaultsInsert`);
+ *      explicit serial values; a generated class of no field reads the unit input and assigns no column, so every
+ *      column takes its identity;
  *    - a put is its definition whatever its relation's mutability: the deletion of the occupants at its members' keys
  *      whose payload differs, then the insert protocol as its insert half, then the sequence advances. An occupant
  *      equal to its member is not displaced, so an identical put deletes nothing and inserts an exact repeat and is

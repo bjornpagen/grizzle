@@ -1,12 +1,12 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { type Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Witness } from "#compiler/public/changeset.ts"
-import { Decimal, type Infer, type Span } from "#compiler/public/fields.ts"
+import { Decimal, type Infer, type Span, type Uuid } from "#compiler/public/fields.ts"
 import {
 	alternatives,
 	capacity,
@@ -61,7 +61,7 @@ const span = (start: bigint, end: bigint): Span<Infer<typeof Instant>> => ({
 	end: Instant(end)
 })
 const period = span(p0, p1)
-const draftRun = (id: string): Fact<typeof P.PayRun> => ({
+const draftRun = (id: Uuid): Fact<typeof P.PayRun> => ({
 	id,
 	employer: acme,
 	period,
@@ -764,7 +764,7 @@ const everyRow = (suite: string, p: Payroll, rows: Arr.NonEmptyReadonlyArray<Cas
 			generator: element(rows),
 			literal: (c: Case) => Formatter.format(c.change),
 			limit: rows.length,
-			features: noFeatures,
+			coverage: noCoverage,
 			caseHang: Duration.minutes(2)
 		},
 		(c: Case) => runCase(p, c)

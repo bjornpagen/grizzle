@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, uuid } from "@grizzle/testing/values"
@@ -138,7 +138,7 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 						generator: element(nasty),
 						literal: Formatter.format,
 						limit: nasty.length,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					roundTrip
@@ -153,13 +153,12 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 							note: source.draw(storable)
 						})),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					roundTrip

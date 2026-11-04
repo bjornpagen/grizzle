@@ -3,6 +3,7 @@ import {
 	type PhysicalProps,
 	type Realization
 } from "#compiler/analysis/physical/props.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { ConsumerSensitivity } from "#compiler/ir/multiplicity.ts"
 import type { KeySet, RelDag, RelNode } from "#compiler/ir/rel.ts"
 
@@ -50,8 +51,8 @@ export interface NodeConsumer {
  * consumer below it still classifies its own inputs, so a bound, a grouping or a set difference under EXISTS observes
  * as it would anywhere. A node's repeats matter when some path from it upward through preserving edges reaches an
  * observing edge; that is the observation path the analysis proves or refutes, never a scan for DISTINCT keywords.
- * Error and validation frontiers are not consumers: a required validation is an unconditional
- * statement of its own, never an EXISTS target list side effect, so it never enters this graph.
+ * Validations are not consumers: a required validation is an unconditional statement of its own, never an EXISTS
+ * target list side effect, so it never enters this graph.
  */
 export type Consumer = NodeConsumer | { readonly kind: "result" }
 
@@ -291,7 +292,7 @@ export const classifyEdges = (
 ): ReadonlyArray<ConsumerEdge> => {
 	const edges: Array<ConsumerEdge> = []
 	for (const node of order) {
-		edges.push(...consumerEdges(node, env))
+		appendAll(edges, consumerEdges(node, env))
 	}
 	for (const r of dag.roots) {
 		edges.push(rootEdge(r, env))

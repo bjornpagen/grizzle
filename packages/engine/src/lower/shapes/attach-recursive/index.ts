@@ -1,4 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Heading, HeadingColumn, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -9,11 +10,7 @@ import {
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
 import { parentRowsSource } from "#compiler/lower/conservative/deliver.ts"
-import {
-	carriedFrom,
-	positiveLinear,
-	printsAlike
-} from "#compiler/lower/shapes/attach-recursive/carried.ts"
+import { carriedFrom, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import type { DeliveredRows, PipelinedAttachment } from "#compiler/lower/shapes/attach/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
@@ -38,7 +35,7 @@ type SeedDecision =
 			/** The parent columns the child reads, every one correlated, in delivered order. */
 			readonly keys: ReadonlyArray<SeedKey>
 			/** Each equation of the Attach: a parent key column and the origin column of the state it equates. */
-			readonly origin: ReadonlyArray<{ readonly parent: string; readonly child: string }>
+			readonly origin: NonEmptyReadonlyArray<{ readonly parent: string; readonly child: string }>
 	  }
 	| { readonly seeded: false; readonly why: string }
 
@@ -58,7 +55,8 @@ const seedDecision = (
 	if (cx.feedback.has(child.id)) {
 		return no("the child is the recursion being lowered")
 	}
-	if (attach.correlation.length === 0) {
+	const correlation = attach.correlation
+	if (!isNonEmpty(correlation)) {
 		return no("the attachment correlates on no parent column")
 	}
 	const origin = new Set(child.origin)
@@ -81,8 +79,8 @@ const seedDecision = (
 		if (p === undefined || k === undefined) {
 			return no(`the correlated columns ${c.parent} and ${c.child}`)
 		}
-		if (!sameScalarType(p.type, k.type) || !printsAlike(k.type)) {
-			return no(`the correlated column ${c.child} is not of a type whose equal values print alike`)
+		if (!sameScalarType(p.type, k.type)) {
+			return no(`the correlated column ${c.child} is not of its parent column's type`)
 		}
 	}
 	const spineNodes = new Set(spine.map((n) => n.id))
@@ -104,7 +102,7 @@ const seedDecision = (
 			return no(`the step does not carry the origin column ${c.child}`)
 		}
 	}
-	return { seeded: true, recursive: child, keys, origin: attach.correlation }
+	return { seeded: true, recursive: child, keys, origin: correlation }
 }
 
 /**
@@ -147,8 +145,9 @@ const seedDecision = (
  *    states with C = p.P are exactly those of S(seed(q)) for the parents q with q.P = p.P.
  * 3. The base reads no parent column but the correlated ones, P, so base(q) = base(p) when q.P = p.P, and the
  *    seeded seed for p, base(p) restricted to C = p.P, is what the pipelined filter keeps of base(p)'s states.
- * 4. Equal values of every column of C and P print alike (carried.ts printsAlike), so C, delivered as the parent key,
- *    is the parent's own key text and the stitch by key is the pipelined one. The rows are distinct: the full
+ * 4. C's canonical cell text is the parent's key's (codec/scalar.ts cellText): C equals P natively, and equal values
+ *    have one cell text, so C, delivered as the parent key, stitches as the parent's own key and the stitch by key is
+ *    the pipelined one. The rows are distinct: the full
  *    state is delivered and the recursive UNION deduplicates it, so no DISTINCT is needed, and a
  *    parent key repeated in the parent's rows only repeats a seed, which the UNION collapses.
  *
@@ -194,14 +193,14 @@ export const seededAttachment = (
 	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
 	const base = terms.sourceAs(rec.base, env, true)
 	/** Every equation of the Attach, so a parent key equated with two origin columns restricts both. */
-	const restrict = decision.origin.map((c) =>
+	const restrict = mapNonEmpty(decision.origin, (c) =>
 		eq(columnIn(base.map, c.child), parent.column(c.parent))
 	)
-	const seed: SelectCore = core(stateTargets(base.map), [parent.item, base.item], and(...restrict))
+	const seed: SelectCore = core(stateTargets(base.map), [parent.item, base.item], and(restrict))
 	/** The step: uncorrelated to any parent, it reads only the feedback and the stored relations. */
 	const stepSource = terms.source(rec.step, new Map())
 	const step: SelectCore = core(stateTargets(stepSource.map), [stepSource.item], undefined)
-	const body: Select = select({ kind: "setOp", op: "UNION", left: seed, right: step })
+	const body: Select = select({ kind: "setOp", op: "UNION", arms: [seed, step] })
 
 	/** The delivered rows: each origin column as its parent key, then the child's heading. */
 	const child = rec

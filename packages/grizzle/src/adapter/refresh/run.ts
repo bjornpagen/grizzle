@@ -21,12 +21,13 @@ import type { RefreshTarget } from "#adapter/refresh/targets.ts"
 import { type BatchStatement, type FlightFailure, runFramed } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 
 /** One refresh statement an attempt ran. */
 interface RefreshStatement {
 	readonly relation: string
 	readonly concurrently: boolean
-	readonly sql: string
+	readonly sql: EmittedText
 }
 
 /**
@@ -149,7 +150,7 @@ const bySchema = (
 const refreshFlight = (
 	ctx: Pick<DbContext, "prologue">,
 	session: Session,
-	targets: ReadonlyArray<RefreshTarget>
+	targets: Arr.NonEmptyReadonlyArray<RefreshTarget>
 ): Effect.Effect<ReadonlyArray<RefreshStatement>, FlightFailure> => {
 	const schemas = [...bySchema(targets)]
 	const statements: Array<BatchStatement> = [

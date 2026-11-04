@@ -1,8 +1,9 @@
 import { inspect } from "node:util"
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -338,33 +339,35 @@ describe("transaction control in a migration file", () => {
 						suite: "unit/adapter/transaction-control",
 						draw: drawn(statementGen),
 						literal: Formatter.format,
-						features: features<ControlFeature>([
-							"BEGIN",
-							"START TRANSACTION",
-							"COMMIT",
-							"COMMIT PREPARED",
-							"END",
-							"ABORT",
-							"ROLLBACK",
-							"ROLLBACK PREPARED",
-							"PREPARE TRANSACTION",
-							"SAVEPOINT",
-							"RELEASE",
-							"ROLLBACK TO",
-							"PREPARE a statement",
-							"DO a block that commits",
-							"a plain statement",
-							"a keyword continued past its letters",
-							"a line comment ended by a lone carriage return before a part",
-							"a nested block comment before a part",
-							"a comment between two parts"
-						]),
+						coverage: required<ControlFeature>(
+							[
+								"BEGIN",
+								"START TRANSACTION",
+								"COMMIT",
+								"COMMIT PREPARED",
+								"END",
+								"ABORT",
+								"ROLLBACK",
+								"ROLLBACK PREPARED",
+								"PREPARE TRANSACTION",
+								"SAVEPOINT",
+								"RELEASE",
+								"ROLLBACK TO",
+								"PREPARE a statement",
+								"DO a block that commits",
+								"a plain statement",
+								"a keyword continued past its letters",
+								"a line comment ended by a lone carriage return before a part",
+								"a nested block comment before a part",
+								"a comment between two parts"
+							],
+							{ cases: 600, sense: notesOnly }
+						),
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(d, c) =>
@@ -510,7 +513,7 @@ describe("the input check before any connection", () => {
 						generator: element(malformations),
 						literal: Formatter.format,
 						limit: malformations.length,
-						features: features<Malformed>(malformations),
+						coverage: requiredInSpace<Malformed>(malformations),
 						caseHang: Duration.minutes(2)
 					},
 					(malformed, c) =>
@@ -626,11 +629,13 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 
 	it("refuses an undecided loss of stored data, and plans it once its statement is written in", () => {
 		const losses = Arr.map(
-			nonEmpty(g3.folder.meta.decisions.losses, "removing a field drafts a loss"),
-			(l) => ({
-				folder: g3.folder.name,
-				file: l.file
-			})
+			nonEmpty(
+				Arr.flatMap(g3.folder.meta.files, (f) =>
+					Arr.flatMap(f.steps, (s) => (s.kind === "loss" ? [f.name] : []))
+				),
+				"removing a field drafts a loss"
+			),
+			(file) => ({ folder: g3.folder.name, file })
 		)
 		const undecided = succeeded(
 			parseTarget({

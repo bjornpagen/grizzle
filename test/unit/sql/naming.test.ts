@@ -1,13 +1,14 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
-import type { Expr, Select, SelectBody, SelectCore, SqlStatement } from "#compiler/sql/ast.ts"
-import { target } from "#compiler/sql/build.ts"
+import type { Expr, Select, SelectCore, SetOperand, SqlStatement } from "#compiler/sql/ast.ts"
+import { mapTargets, target } from "#compiler/sql/build.ts"
 import { bodyPositionNames, renameToPublicHeading } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
@@ -46,10 +47,13 @@ const admitted = (s: SqlStatement): void => {
  * column names, its ORDER BY naming those columns; undefined when the query has no such arm.
  */
 const passthrough = (q: Select): Select | undefined => {
-	if (q.body.kind !== "setOp" || q.body.left.kind !== "core") {
+	if (q.body.kind !== "setOp" || q.body.arms.length !== 2) {
 		return undefined
 	}
-	const left = q.body.left
+	const [left, right] = q.body.arms
+	if (left.kind !== "core") {
+		return undefined
+	}
 	const columns = Arr.map(left.targets, (t) =>
 		t.expr.kind === "column" ? t.expr.column : undefined
 	)
@@ -67,12 +71,8 @@ const passthrough = (q: Select): Select | undefined => {
 		const renamed: Expr = column === undefined ? e : { ...e, column }
 		return { ...item, expr: renamed }
 	})
-	const right = q.body.right
-	const unaliased = (core: SelectCore): SelectCore => ({
-		...core,
-		targets: Arr.map(core.targets, (t) => target(t.expr))
-	})
-	const bareRight: SelectBody | undefined =
+	const unaliased = (core: SelectCore): SelectCore => mapTargets(core, (t) => target(t.expr))
+	const bareRight: SetOperand | undefined =
 		right.kind === "core"
 			? unaliased(right)
 			: right.kind === "select" && right.body.kind === "core"
@@ -83,7 +83,7 @@ const passthrough = (q: Select): Select | undefined => {
 	}
 	return {
 		...q,
-		body: { ...q.body, left: unaliased(left), right: bareRight },
+		body: { ...q.body, arms: [unaliased(left), bareRight] },
 		orderBy
 	}
 }
@@ -124,18 +124,15 @@ describe("outermost-only public renaming", () => {
 						suite: "unit/sql/rename",
 						draw: drawn(renamedGen),
 						literal: Formatter.format,
-						features: features<RenameFeature>([
-							"core",
-							"set operation",
-							"passthrough arm",
-							"wrong width"
-						]),
+						coverage: required<RenameFeature>(
+							["core", "set operation", "passthrough arm", "wrong width"],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: keptRenames,
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([statement, offset], c) =>

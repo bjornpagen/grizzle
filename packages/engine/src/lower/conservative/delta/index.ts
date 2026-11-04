@@ -1,3 +1,4 @@
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	distinctSelect,
 	type Lowerers,
@@ -5,7 +6,7 @@ import {
 	nodeLabel,
 	refuse
 } from "#compiler/lower/conservative/context.ts"
-import { col, lit, target } from "#compiler/sql/build.ts"
+import { col, target, unitTargets } from "#compiler/sql/build.ts"
 
 /**
  * Delta: a read-back's netted delta.added(R) or delta.removed(R).
@@ -36,10 +37,9 @@ const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {
 		)
 	}
 	const alias = cx.relationAlias({ kind: "node", node: node.id })
-	const targets =
-		node.heading.length === 0
-			? [target(lit.bool(true))]
-			: source.columns.map((c) => target(col(alias, c)))
+	const targets = isNonEmpty(source.columns)
+		? mapNonEmpty(source.columns, (c) => target(col(alias, c)))
+		: unitTargets
 	return distinctSelect(targets, [{ kind: "table", table: source.carrier, alias }], [])
 }
 

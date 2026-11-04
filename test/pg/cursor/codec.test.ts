@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import {
 	array,
 	constant,
@@ -295,7 +295,7 @@ layer(Substrate.layer)("the cursor codec against PostgreSQL's order", (it) => {
 						suite: "cursor/codec",
 						draw: drawn(batches),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						/**
 						 * One drawn case per run besides the floor's, each a batch for every carrier: drawn afresh each run
@@ -305,7 +305,6 @@ layer(Substrate.layer)("the cursor codec against PostgreSQL's order", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(drawnBatches) =>

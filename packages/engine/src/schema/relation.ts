@@ -165,7 +165,7 @@ export const relation = <
 	name: Name,
 	fields: Fields,
 	primaryKey: PrimaryKey,
-	...extra: ReadonlyArray<unknown>
+	extra: ReadonlyArray<unknown>
 ): Relation<Name, Fields, readonly [...PrimaryKey]> => {
 	/** Admission first: a JavaScript caller's malformed argument is MalformedDescription before anything is copied. */
 	const desc = admitRelation(name, fields, primaryKey, extra)
@@ -316,8 +316,8 @@ const emptyFactsOf = <H extends string>(
  * closed(name, handles) is the enum-only form. Its `with(payload, facts)` builds a new closed relation of the same name
  * and roster with a payload fact for every handle; the enum-only form is that relation with the empty payload, one
  * Description. The id of every fact is the roster's handle column, an enum, over the caller's handles, which admission
- * read; a fact is the handle under id, beside the payload's fields. Each form's `handle(member)` is the member's typed
- * literal at the roster's enum (scalar/compute/builders.ts handleTerm), built over the value itself.
+ * read; a fact is the handle under id, beside the payload's fields. Each form's `handle(member)` is the member as a
+ * typed constant (scalar/compute/builders.ts handleTerm).
  */
 export const closed = <
 	const Name extends string,
@@ -325,7 +325,7 @@ export const closed = <
 >(
 	name: Name,
 	handles: Handles & NonEmptyReadonlyArray<Handles[number]>,
-	...extra: ReadonlyArray<unknown>
+	extra: ReadonlyArray<unknown>
 ): EnumClosed<Name, readonly [...Handles]> => {
 	const admitted = admitClosed(name, handles, undefined, extra)
 	const roster = frozenTuple<Handles>(handles)
@@ -333,7 +333,7 @@ export const closed = <
 	if (!emptyFactsOf(facts, roster)) {
 		throw malformed(`closed ${name}`, "an empty fact for every handle")
 	}
-	const id: ClosedId<Handles[number]> = Object.freeze({
+	const id: ClosedId<Handles[number], Name> = Object.freeze({
 		id: Object.freeze({ column: handleColumn<Handles[number]>(handles), sql: "enum" })
 	})
 	const withPayload = <const Payload extends Record<string, FieldBase>>(
@@ -350,7 +350,7 @@ export const closed = <
 				handles: roster,
 				payload: copied,
 				facts: frozenCopies(payloadFacts, roster),
-				fact: record<[ClosedId<Handles[number]>, Payload]>(id, copied),
+				fact: record<[ClosedId<Handles[number], Name>, Payload]>(id, copied),
 				heading: Object.freeze({ ...id, ...copied }),
 				handle: <const M extends Handles[number]>(member: M) => handleTerm(withValue, member)
 			},
@@ -367,7 +367,7 @@ export const closed = <
 			handles: roster,
 			payload: empty,
 			facts,
-			fact: record<[ClosedId<Handles[number]>]>(id),
+			fact: record<[ClosedId<Handles[number], Name>]>(id),
 			heading: id,
 			handle: <const M extends Handles[number]>(member: M) => handleTerm(value, member),
 			with: withPayload
@@ -425,7 +425,7 @@ export const admitDerived = (
 export const derived = <const Name extends string, Q extends DefinitionQuery>(
 	name: Name,
 	definition: Q,
-	...extra: ReadonlyArray<unknown>
+	extra: ReadonlyArray<unknown>
 ): Derived<Name, Q> => {
 	const draft = admitDerived(name, definition, extra)
 	const heading: Q["heading"] = definition.heading

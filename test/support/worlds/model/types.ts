@@ -10,6 +10,8 @@ import type {
 	HostValue,
 	HostWeight
 } from "#test/pg/laws/families/model.ts"
+import type { AmbientFeature } from "#test/support/ambient.ts"
+import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
 
 /**
  * The worlds model's shared vocabulary: what a base, an installation, a session, an action and an observation are, as
@@ -159,24 +161,15 @@ export interface BaseSpec {
 	readonly derived: ReadonlyArray<DerivedSpec>
 }
 
-/** A term of a rule: a variable, a literal, or a field of a context's fact. */
+/**
+ * A term of a rule: a variable, a JavaScript value, a roster's member as a typed constant (`X.handle("Member")`), or a
+ * field of a context's fact.
+ */
 export type Term =
 	| { readonly kind: "var"; readonly name: string }
 	| { readonly kind: "literal"; readonly value: HostValue }
+	| { readonly kind: "handle"; readonly closed: string; readonly member: string }
 	| { readonly kind: "context"; readonly context: string; readonly field: string }
-
-/**
- * A roster's typed handle (`X.handle("Member")`): the member's literal at the roster's enum, its type carried by the
- * value. Only a head holds one; a literal that meets a column, in a match or a comparison, keeps its plain spelling.
- */
-export interface HandleTerm {
-	readonly kind: "handle"
-	readonly closed: string
-	readonly member: string
-}
-
-/** A head term: a term, or a typed handle. */
-export type HeadTerm = Term | HandleTerm
 
 /** What an occurrence matches: an ordinary, closed or derived relation of the base, or a context, each by its kind. */
 export type Source = {
@@ -204,7 +197,7 @@ export interface Rule {
 	readonly matches: Arr.NonEmptyReadonlyArray<Occurrence>
 	readonly negations: ReadonlyArray<Arr.NonEmptyReadonlyArray<Occurrence>>
 	readonly comparisons: ReadonlyArray<Comparison>
-	readonly head: Readonly<Record<string, HeadTerm>>
+	readonly head: Readonly<Record<string, Term>>
 }
 
 /** A role relation: a base relation held whole under its own name, or a query over the base installed as a view. */
@@ -912,6 +905,8 @@ export type InvalidKind =
 	| "fact:hidden-reference"
 	| "fact:deleted-reference"
 	| "fact:duplicate-in-input"
+	| "fact:partial-serial"
+	| "fact:filtered-serial-omitted"
 	| "fact:past-input-limit"
 	| "fact:domain-refused"
 	| "handle:closed-db"
@@ -957,9 +952,14 @@ export type ObjectKind =
 
 /**
  * The closed feature vocabulary of the worlds suites: an operation in a situation with its outcome, a world object and
- * what was shown of it, an invalid input drawn, and an invariant checked.
+ * what was shown of it, an invalid input drawn, an invariant checked, the ambient session the case's owner sessions
+ * started under, a feature of a name the installation drew from the kernel dictionary, and a base object or a role
+ * entry named after a PostgreSQL type.
  */
 export type WorldFeature =
+	| AmbientFeature
+	| `name:${IdentifierFeature}`
+	| "catalog-type name"
 	| `op:${ActionKind}:${Membership}:${ClaimState}:${Writer}:${Outcome["kind"]}`
 	| `object:${ObjectKind}:${"hidden-row-absent" | "raise-suppressed" | "accepted-inside" | "refused-outside" | "attempt-refused" | "witness-shown" | "witness-withheld"}`
 	| `invalid:${InvalidKind}`
@@ -968,7 +968,16 @@ export type WorldFeature =
 	| `via:${ReadVia["kind"]}`
 	| `readback:${"empty-delta" | "projected-delta" | "refused-delta"}`
 	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
+	| AdditionFeature
 	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-transient" | "after-interrupted" | "after-stale-snapshot"}`
+
+/**
+ * An applied insertion, by its facts' serial class (complete, or generated: leaving out every classed serial field),
+ * the role relation it goes through (a whole entry or a query entry), and what its relation's generated class carries:
+ * some field, or none, the unit relation (README "Writes", "Writing through a role").
+ */
+export type AdditionFeature =
+	`addition:${"complete" | "generated"}:${"whole" | "entry"}:${"carried" | "unit"}`
 
 /** The weights a run draws its actions with: swarm testing draws a fresh set per run. */
 export type ActionWeights = Readonly<Record<ActionKind, number>>

@@ -4,7 +4,7 @@ import { compiledWrite, missingCapability, hostInputs } from "#adapter/apply/ind
 import type { DbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { LawRejected, MissingCapability, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { decodePlan, explainStatement } from "#adapter/explain/plan.ts"
+import { decodePlan } from "#adapter/explain/plan.ts"
 import { executionOf, formFor, readBinding } from "#adapter/reader/execution.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
@@ -24,6 +24,8 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
+import { explainOf } from "#compiler/sql/emit.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
 
@@ -36,8 +38,8 @@ interface Explained {
 	readonly planned: boolean
 }
 
-const planned = (sql: string, params: ReadonlyArray<string>): Explained => ({
-	statement: { sql: explainStatement(sql), params },
+const planned = (sql: EmittedText, params: ReadonlyArray<string>): Explained => ({
+	statement: { sql: explainOf(sql), params },
 	planned: true
 })
 

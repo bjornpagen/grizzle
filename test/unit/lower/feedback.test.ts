@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
@@ -20,6 +20,7 @@ import { recursionForm, recursionLowerer } from "#compiler/lower/shapes/recursio
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { heading } from "#test/unit/ir/fixture.ts"
 import {
 	asc,
@@ -126,7 +127,7 @@ const constructions = {
 			const h = p.hop([])
 			return p.q.take(
 				h,
-				asc(...Arr.map(h.heading, (c) => c.name)),
+				asc(...argumentsOf(Arr.map(h.heading, (c) => c.name))),
 				{ kind: "literal", k: 1n },
 				[],
 				conservativeMeta
@@ -141,7 +142,7 @@ const constructions = {
 				{
 					source: p.q.take(
 						p.self,
-						asc(...Arr.map(p.self.heading, (c) => c.name)),
+						asc(...argumentsOf(Arr.map(p.self.heading, (c) => c.name))),
 						{ kind: "literal", k: 1n },
 						[],
 						conservativeMeta
@@ -299,13 +300,13 @@ const closure = (c: Construction, h: Heading, depth: number): Built => {
 			{ source: q.base(Edge, conservativeMeta), bind: { src: "mid", dst: "dst" }, constants: {} },
 			...extra
 		])
-		const f = q.filter(m, q.op("int4lt", [q.col(m, "hops"), q.int(depth, T.int4)], T.bool, "total"))
+		const f = q.filter(m, q.op("int4lt", [q.col(m, "hops"), q.int(depth, T.int4)], T.bool))
 		return q.project(
 			f,
 			[
 				["src", "src"],
 				["dst", "dst"],
-				["hops", [q.op("int4pl", [q.col(f, "hops"), q.int(1, T.int4)], T.int4, "canFail"), T.int4]],
+				["hops", [q.op("int4pl", [q.col(f, "hops"), q.int(1, T.int4)], T.int4), T.int4]],
 				...(money ? [["paid", "paid"] as const] : [])
 			],
 			conservativeMeta
@@ -378,7 +379,7 @@ describe("every lowering admits exactly positive linear feedback over a hashable
 							] as const,
 						literal: Formatter.format,
 						limit: 200,
-						features: features<FeedbackFeature>([
+						coverage: requiredInSpace<FeedbackFeature>([
 							"lowered in the unrolled form",
 							"lowered in the recursive form",
 							"refused in the unrolled form",

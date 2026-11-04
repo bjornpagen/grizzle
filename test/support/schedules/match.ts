@@ -100,7 +100,7 @@ export const rows = (...expected: TextRows): Expectation<ScheduleOutcome> =>
 	)
 
 /** Success with these text rows in any order, each as many times. */
-export const rowSet = (...expected: TextRows): Expectation<ScheduleOutcome> =>
+export const rowSet = (expected: TextRows): Expectation<ScheduleOutcome> =>
 	outcomeIs(
 		`row set ${printRows(expected)}`,
 		(outcome) => outcome._tag === "Ok" && sameRowSet(outcome.rows, expected)

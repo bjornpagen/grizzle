@@ -19,8 +19,9 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
@@ -86,12 +87,10 @@ layer(Substrate.layer)("capacity law plans on skewed statistics", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
-							features: features<SkewFeature>([
-								"a generic plan scans Seat",
-								"a small group of none",
-								"a small group of some"
-							]),
+							coverage: required<SkewFeature>(
+								["a generic plan scans Seat", "a small group of none", "a small group of some"],
+								{ cases: 16, sense: notesOnly }
+							),
 							caseHang: Duration.minutes(2)
 						},
 						(sketch, c) =>

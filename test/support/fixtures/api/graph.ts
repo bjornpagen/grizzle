@@ -25,7 +25,7 @@ export const Walks = query(Network).recursive("Walks", {
 	row: { person: uuid, hops: pg.integer },
 	base: [
 		(r) => {
-			const { id } = v(Person)
+			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("start", uuid)))
@@ -34,8 +34,8 @@ export const Walks = query(Network).recursive("Walks", {
 	],
 	rec: [
 		(r, self) => {
-			const { person, hops } = v(self)
-			const { to } = v(Follows)
+			const { person, hops } = v(self, "self")
+			const { to } = v(Follows, "follows")
 			return r
 				.match(self, { person, hops })
 				.match(Follows, { from: person, to })
@@ -49,21 +49,21 @@ export const Walks = query(Network).recursive("Walks", {
 /** The parameter bound explicitly at the import. */
 export const Reachable = query(Network).rule((r) => {
 	const source = Walks.bind({ start: r.param("person", uuid) })
-	const { person } = v(source)
+	const { person } = v(source, "source")
 	return r.match(source, { person }).find({ person })
 })
 
 /** The people within two steps as connected matches, the join form a recursive lowering is compared with. */
 export const withinTwoFollows = query(Network)
 	.rule((r) => {
-		const { to } = v(Follows)
+		const { to } = v(Follows, "follows")
 		return r
 			.match(Follows, { from: r.param("person", Follows.fields.from), to })
 			.find({ person: to })
 	})
 	.rule((r) => {
-		const { to: middle } = v(Follows)
-		const { to } = v(Follows)
+		const { to: middle } = v(Follows, "middle")
+		const { to } = v(Follows, "follows")
 		return r
 			.match(Follows, { from: r.param("person", Follows.fields.from), to: middle })
 			.match(Follows, { from: middle, to })

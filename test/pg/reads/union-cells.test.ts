@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -30,6 +30,7 @@ import {
 } from "effect"
 import { type GrizzleErrorTag, ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -419,13 +420,13 @@ const kept: ReadonlyArray<Kept<Case, Feature>> = [
 
 /**
  * An arm as an application writes it: the relation matched, every field item bound to its variable and a handle item
- * bound as a match constant, and the head delivering each item, a handle as its typed handle Kind.handle, any other
- * literal as r.literal, the group's tag beside them in a two-group union.
+ * bound as a match constant, and the head delivering each item, a handle as its typed constant Kind.handle, any other
+ * literal as its JavaScript value, the group's tag beside them in a two-group union.
  */
 const armRule =
 	(arm: Arm, tag: Option.Option<string>) =>
 	(r: RuleValue): FinishedValue => {
-		const vars = varsOver(Cell)
+		const vars = varsOver(Cell, "cell")
 		const bindings: Record<string, unknown> = { id: vars["id"] }
 		const head: Record<string, unknown> = {}
 		for (const item of arm) {
@@ -440,10 +441,10 @@ const armRule =
 				head[field] = Kind.handle(item.value)
 				continue
 			}
-			head[field] = r.literal(item.value)
+			head[field] = item.value
 		}
 		if (Option.isSome(tag)) {
-			head["tag"] = r.literal(tag.value)
+			head["tag"] = tag.value
 		}
 		return r.match(Cell, bindings).find(head)
 	}
@@ -476,11 +477,11 @@ const plantedArms = (
 ): readonly [(r: RuleValue) => FinishedValue, (r: RuleValue) => FinishedValue] => {
 	const field = against === "numeric" ? "x" : "f"
 	const literal = (r: RuleValue): FinishedValue => {
-		const { id } = varsOver(Cell)
-		return r.match(Cell, { id }).find({ [field]: r.literal(1) })
+		const { id } = varsOver(Cell, "cell")
+		return r.match(Cell, { id }).find({ [field]: 1 })
 	}
 	const read = (r: RuleValue): FinishedValue => {
-		const vars = varsOver(Cell)
+		const vars = varsOver(Cell, "cell")
 		return r.match(Cell, { id: vars["id"], [field]: vars[field] }).find({ [field]: vars[field] })
 	}
 	return literalFirst ? [literal, read] : [read, literal]
@@ -544,7 +545,7 @@ type Feature =
 	| "planted literal against numeric"
 	| "planted literal against float8"
 
-const allFeatures: ReadonlyArray<Feature> = [
+const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"two heading groups",
 	...Arr.flatMap(kinds, (k): ReadonlyArray<Feature> => [
 		`${k} literals alone`,
@@ -666,13 +667,12 @@ layer(Substrate.layer)("union cells", (it) => {
 								suite: "pg/reads/union-cells",
 								draw: drawn(caseGen),
 								literal: Formatter.format,
-								features: features<Feature>(allFeatures),
+								coverage: required<Feature>(allFeatures, { cases: 240, sense: notesOnly }),
 								kept,
 								runs: 60,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "mutate", cases: 240, sense: notesOnly },
 								caseHang: Duration.minutes(2)
 							},
 							(c, notes) =>
@@ -726,7 +726,7 @@ layer(Substrate.layer)("union cells", (it) => {
 									const union = yield* records(unionOf(arms))
 									const alone: Array<unknown> = []
 									for (const arm of arms) {
-										alone.push(...(yield* records(unionOf([arm]))))
+										appendAll(alone, yield* records(unionOf([arm])))
 									}
 									assert.deepEqual(
 										set(sameRecord)(union, alone),

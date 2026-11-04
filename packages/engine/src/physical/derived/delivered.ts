@@ -5,7 +5,7 @@ import { columnType } from "#compiler/physical/ddl/names.ts"
 import type {
 	Cte,
 	Expr,
-	FromItem,
+	FromSource,
 	ObjectName,
 	Select,
 	SelectBody,
@@ -15,7 +15,7 @@ import { sameTypeRef } from "#compiler/sql/build.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 
 /** A FROM item that names a relation: every item but a join, which names none and whose sides are the items. */
-type NamedItem = Exclude<FromItem, { readonly kind: "join" | "crossJoin" }>
+type NamedItem = FromSource
 
 /** The key of an installed column: its schema, table and column. */
 const columnKey = (table: ObjectName, column: string): string =>
@@ -79,8 +79,7 @@ class Delivered {
 					case "cte":
 						this.#items.set(item.alias ?? item.name, item)
 						return
-					case "join":
-					case "crossJoin":
+					case "joins":
 						return
 				}
 			},
@@ -102,7 +101,7 @@ class Delivered {
 			case "select":
 				return this.body(body.body, p, active)
 			case "setOp":
-				return this.#common([this.body(body.left, p, active), this.body(body.right, p, active)])
+				return this.#common(body.arms.map((arm) => this.body(arm, p, active)))
 		}
 	}
 
@@ -150,6 +149,7 @@ class Delivered {
 			case "plVar":
 			case "plSpecial":
 			case "field":
+			case "regclass":
 				return undefined
 		}
 	}

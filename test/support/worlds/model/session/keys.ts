@@ -7,7 +7,6 @@ import type {
 	ClosedSpec,
 	DerivedSpec,
 	EntrySpec,
-	HeadTerm,
 	Occurrence,
 	Rule,
 	Source,
@@ -133,8 +132,12 @@ const varsOf = (o: Occurrence): ReadonlyArray<string> =>
 	Arr.flatMap(Rec.values(o.fields), (t) => (t.kind === "var" ? [t.name] : []))
 
 /** A term fixed per evaluation of the rule: a literal, a typed handle or a context's field. */
-const fixedTerm = (t: HeadTerm): boolean =>
+const fixedTerm = (t: Term): boolean =>
 	t.kind === "literal" || t.kind === "handle" || t.kind === "context"
+
+/** A constant's text: a literal's value or a typed handle's member, none for any other term. */
+const constantText = (t: Term): string | undefined =>
+	t.kind === "literal" ? valueText(t.value) : t.kind === "handle" ? valueText(t.member) : undefined
 
 /** One rule as the region and projection grizzle builds of it. */
 interface Arm {
@@ -321,14 +324,18 @@ const armOf = (base: BaseSpec, rule: Rule): Arm => {
 		}
 		return Arr.every(heading, (f) => known.has(f))
 	}
-	/** A variable an equality with a literal, or a one-member roster's scan, fixes to that literal. */
+	/** A variable an equality with a constant, or a one-member roster's scan, fixes to that constant. */
 	const literalOfVar = (name: string): string | undefined => {
 		for (const c of equalities) {
-			if (c.left.kind === "var" && c.left.name === name && c.right.kind === "literal") {
-				return valueText(c.right.value)
+			const right =
+				c.left.kind === "var" && c.left.name === name ? constantText(c.right) : undefined
+			if (right !== undefined) {
+				return right
 			}
-			if (c.right.kind === "var" && c.right.name === name && c.left.kind === "literal") {
-				return valueText(c.left.value)
+			const left =
+				c.right.kind === "var" && c.right.name === name ? constantText(c.left) : undefined
+			if (left !== undefined) {
+				return left
 			}
 		}
 		for (const s of scans) {

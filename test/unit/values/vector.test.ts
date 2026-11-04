@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, element, type Gen, map, weighted } from "@grizzle/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -90,16 +91,18 @@ describe("Vector construction", () => {
 							components: source.draw(array(anyFloat, { min: 1, max: 6 }))
 						})),
 						literal: Formatter.format,
-						features: features<`buffer ${Buffer}` | `count ${Count}`>([
-							...Arr.map(buffers, (b) => `buffer ${b}` as const),
-							...Arr.map(counts, (c) => `count ${c}` as const)
-						]),
+						coverage: required<`buffer ${Buffer}` | `count ${Count}`>(
+							[
+								...Arr.map(buffers, (b) => `buffer ${b}` as const),
+								...Arr.map(counts, (c) => `count ${c}` as const)
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ buffer, count, components }, c) =>
@@ -177,17 +180,16 @@ describe("Vector admission of a JavaScript caller's value", () => {
 							})
 						),
 						literal: Formatter.format,
-						features: features<DrawnFeature<never>>([
-							"live",
-							...Arr.map(WILD_KINDS, (kind): DrawnFeature<never> => `wild ${kind}`)
-						]),
+						coverage: required<DrawnFeature<never>>(
+							["live", ...Arr.map(WILD_KINDS, (kind): DrawnFeature<never> => `wild ${kind}`)],
+							{ cases: 500, sense: notesOnly }
+						),
 						kept: [],
-						/** Fourteen wild kinds beside the live arm: a few hundred cases reach every one many times over. */
+						/** The rotating stream's sample of fourteen wild kinds beside the live arm. */
 						runs: 500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(d, c) =>
@@ -241,13 +243,15 @@ describe("Vector in the canonical serializer", () => {
 						corruption: source.draw(element(payloadCorruptions))
 					})),
 					literal: Formatter.format,
-					features: features<PayloadCorruption>(payloadCorruptions),
+					coverage: required<PayloadCorruption>(payloadCorruptions, {
+						cases: 300,
+						sense: notesOnly
+					}),
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ xs, corruption }, c) =>
@@ -289,13 +293,12 @@ describe("Vector in the canonical serializer", () => {
 					suite: "unit/values/vector-1",
 					draw: drawn(array(finiteFloat, { min: 1, max: 8 })),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(xs) =>
@@ -321,7 +324,7 @@ describe("Vector in the canonical serializer", () => {
 						assert.equal(succeeded(encode(snapshot, everyProperty)), text)
 						refused(encode(buffer, everyProperty), "MalformedDescription")
 						faulted(
-							Vector.canonical(Vector.make(Float32Array.of(...xs, Number.NaN), xs.length + 1)),
+							Vector.canonical(Vector.make(Float32Array.from([...xs, Number.NaN]), xs.length + 1)),
 							"vectorNonFinite"
 						)
 					})

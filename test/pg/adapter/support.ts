@@ -1,4 +1,4 @@
-import { Effect, Record as Rec, Redacted, type Scope } from "effect"
+import { type Array as Arr, Effect, Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchFailure } from "#adapter/errors/failures.ts"
 import { type AcquisitionBudgets, acquisitionBudgets } from "#adapter/pool/budgets.ts"
@@ -6,9 +6,12 @@ import type { ConnectionPool } from "#adapter/types/layer.ts"
 import { runAlone } from "#adapter/wire/batch.ts"
 import { makePool, type Session, type SessionPool, type Transport } from "#adapter/wire/session.ts"
 import { poolBounds } from "#compiler/core/policy.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
+import type { RoleSetting } from "#compiler/sql/ast.ts"
+import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
 import { pgPin } from "#test/support/env.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { testSql } from "#test/support/sql.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -16,28 +19,18 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Shared helpers for the adapter tests (test/pg/adapter).
  *
  * A login here is what an installation's migration makes of a login: a role `<schema>__<name>` that logs in, whose role
- * defaults pin jit = off, the four locale categories at C.UTF-8 and extra_float_digits = 1.
+ * defaults are the installation's own for every login (physical/ddl/roles.ts roleDefaultSettings): search_path =
+ * pg_catalog, pg_temp, jit = off, the four locale categories at C.UTF-8 and extra_float_digits = 1.
  *
  * The settings an installation stores as role defaults for every login, and their values.
  */
-export const roleDefaultParameters = [
-	"jit",
-	"lc_monetary",
-	"lc_numeric",
-	"lc_time",
-	"lc_messages",
-	"extra_float_digits"
-] as const
-export type RoleDefault = (typeof roleDefaultParameters)[number]
+export const roleDefaults: Arr.NonEmptyReadonlyArray<RoleDefaultSetting> = roleDefaultSettings
 
-export const roleDefaults: { readonly [P in RoleDefault]: string } = {
-	jit: "off",
-	lc_monetary: "C.UTF-8",
-	lc_numeric: "C.UTF-8",
-	lc_time: "C.UTF-8",
-	lc_messages: "C.UTF-8",
-	extra_float_digits: "1"
-}
+/** A default every login stores. */
+export type RoleDefaultSetting = (typeof roleDefaultSettings)[number]
+
+/** A parameter every login stores a default for. */
+export type RoleDefault = RoleDefaultSetting["parameter"]
 
 /**
  * Creates the login `<schema>__<name>` with a random password and the given role defaults (an installed login's by
@@ -46,14 +39,14 @@ export const roleDefaults: { readonly [P in RoleDefault]: string } = {
 export const substrateLogin = (
 	schema: string,
 	name: string,
-	defaults: Readonly<Record<string, string>>
+	defaults: ReadonlyArray<RoleSetting>
 ): Effect.Effect<Credentials, SqlError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const credentials = yield* s.role(schema, name)
-		for (const [setting, value] of Rec.toEntries(defaults)) {
+		for (const setting of defaults) {
 			yield* s.admin.query(
-				`ALTER ROLE ${quoteIdent(credentials.role)} SET ${setting} = ${quoteString(value)}`,
+				`ALTER ROLE ${quoteIdent(credentials.role)} SET ${printRoleSetting(setting)}`,
 				[]
 			)
 		}
@@ -166,7 +159,7 @@ export const rowsOn = (
 	sql: string,
 	params: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, BatchFailure> =>
-	Effect.map(runAlone(session, { sql, params }), (outcome) => outcome.rows)
+	Effect.map(runAlone(session, { sql: testSql(sql), params }), (outcome) => outcome.rows)
 
 /** The backend a session runs on, as pg_backend_pid() reports it. */
 export const backendPidOf = (session: Session): Effect.Effect<number, BatchFailure> =>

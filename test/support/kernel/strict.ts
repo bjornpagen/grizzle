@@ -1,4 +1,4 @@
-import { Option, Result, String as Str } from "effect"
+import { Array as Arr, Option, Result, String as Str } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
@@ -94,37 +94,106 @@ const readInt8 = (text: string): Result.Result<bigint, StrictFault> => {
 }
 
 /**
- * numeric_out text: the Decimal Decimal.fromString reads writes the text back, so the text is in output form; at the
- * declared precision and scale when there is one, so the value is one the column stores.
+ * Whether `text` is numeric_out's spelling of a finite value: an optional minus sign, integer digits with no leading
+ * zero (a lone 0), and an optional point followed by at least one fractional digit, never a minus zero; with exactly
+ * `fraction` fractional digits when the column fixes them (a typmod's max(s, 0), money's 2), any number otherwise.
+ * NaN, Infinity and -Infinity pass when `special` admits them.
+ */
+const isNumericOutput = (
+	text: string,
+	fraction: number | "any",
+	special: "special" | "finite"
+): boolean => {
+	if (text === "NaN" || text === "Infinity" || text === "-Infinity") {
+		return special === "special"
+	}
+	const start = codeIs(text, 0, 0x2d) ? 1 : 0
+	let i = start
+	while (digitAt(text, i)) {
+		i++
+	}
+	const integer = i - start
+	if (integer === 0 || (integer > 1 && codeIs(text, start, 0x30))) {
+		return false
+	}
+	let digits = 0
+	if (codeIs(text, i, 0x2e)) {
+		i++
+		while (digitAt(text, i)) {
+			i++
+			digits++
+		}
+		if (digits === 0) {
+			return false
+		}
+	}
+	if (i !== text.length || (fraction !== "any" && digits !== fraction)) {
+		return false
+	}
+	const zero = Arr.every(Arr.fromIterable(Str.slice(start)(text)), (ch) => ch === "0" || ch === ".")
+	return start === 0 || !zero
+}
+
+/**
+ * numeric_out text, read without trusting it: its syntax checked here, at the declared scale's exact count of
+ * fractional digits when there is a typmod, and the value one the column stores there (normalizeNumeric leaves it
+ * alone). The value it yields is the one form, the trailing zeros of any display scale dropped.
  */
 const readNumeric =
 	(spec: SpecOf<"numeric">) =>
 	(text: string): Result.Result<Decimal, StrictFault> => {
+		const fraction = spec.typmod === undefined ? "any" : Math.max(spec.typmod.scale, 0)
+		if (!isNumericOutput(text, "any", "special")) {
+			return Result.fail("numericSyntax")
+		}
 		const parsed = Decimal.fromString(text)
-		if (!parsed.ok || parsed.value.toString() !== text) {
+		if (!parsed.ok) {
 			return Result.fail("numericSyntax")
 		}
 		if (spec.typmod === undefined) {
 			return Result.succeed(parsed.value)
 		}
+		if (!isNumericOutput(text, fraction, "special")) {
+			return Result.fail("numericShape")
+		}
 		const normalized = normalizeNumeric(parsed.value, spec.typmod)
-		return normalized.ok && normalized.value.toString() === text
+		return normalized.ok && normalized.value.equals(parsed.value)
 			? Result.succeed(parsed.value)
 			: Result.fail("numericShape")
 	}
 
-/** money::numeric text: an exact amount of at most two fractional digits (cash_numeric), read without rounding. */
+/** money::numeric text: a finite amount with exactly two fractional digits (cash_numeric), read without rounding. */
 const readMoney = (text: string): Result.Result<Money, StrictFault> => {
-	const parsed = Decimal.fromString(text)
-	if (!parsed.ok || parsed.value.toString() !== text) {
+	if (!isNumericOutput(text, "any", "finite")) {
 		return Result.fail("numericSyntax")
 	}
-	const d = parsed.value
-	if (!d.isFinite() || d.scale > moneyFractionDigits) {
+	if (!isNumericOutput(text, moneyFractionDigits, "finite")) {
 		return Result.fail("moneyShape")
 	}
-	const money = Money.fromDecimal(d)
+	const parsed = Decimal.fromString(text)
+	if (!parsed.ok || !parsed.value.isFinite() || parsed.value.parts.minScale > moneyFractionDigits) {
+		return Result.fail("moneyShape")
+	}
+	const money = Money.fromDecimal(parsed.value)
 	return money.ok ? Result.succeed(money.value) : Result.fail("moneyShape")
+}
+
+/** An exact integer's output: numeric_out (or int8out) of a value at scale 0, of any length, never -0. */
+const readExactInteger = (text: string): Result.Result<bigint, StrictFault> =>
+	isNumericOutput(text, 0, "finite") ? Result.succeed(BigInt(text)) : Result.fail("integerSyntax")
+
+/** Exact money's output: numeric_out of a finite amount with at most two fractional digits, of any magnitude. */
+const readExactMoney = (text: string): Result.Result<Money, StrictFault> => {
+	if (!isNumericOutput(text, "any", "finite")) {
+		return Result.fail("numericSyntax")
+	}
+	const parsed = Decimal.fromString(text)
+	if (!parsed.ok || !parsed.value.isFinite() || parsed.value.parts.minScale > moneyFractionDigits) {
+		return Result.fail("moneyShape")
+	}
+	const p = parsed.value.parts
+	const units = p.coefficient * 10n ** BigInt(moneyFractionDigits - p.minScale)
+	return Result.succeed(Money.exact(p.negative ? -units : units))
 }
 
 const readBool = (text: string): Result.Result<boolean, StrictFault> => {
@@ -349,7 +418,9 @@ const readers: {
 		spec.handles.includes(text) ? Result.succeed(text) : Result.fail("enumHandle"),
 	range4: () => readSpan("int4"),
 	range8: () => readSpan("int8"),
-	vector: (spec) => readVector(spec)
+	vector: (spec) => readVector(spec),
+	exactInteger: () => readExactInteger,
+	exactMoney: () => readExactMoney
 }
 
 const readerOf = <C extends Carrier>(
@@ -385,6 +456,8 @@ const readerOf = <C extends Carrier>(
  * | enum | a handle of the roster |
  * | range4, range8 | [start,end) of in-range endpoints, start < end |
  * | vector | [c1,...,cn] of exactly the dimensions, finite binary32 components |
+ * | exact integer | an optional minus sign and digits without a leading zero, of any length, no -0 |
+ * | exact money | numeric_out text of a finite amount with at most two fractional digits, of any magnitude |
  */
 export const strictReader = (
 	type: ScalarType

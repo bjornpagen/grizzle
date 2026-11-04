@@ -1,43 +1,63 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import type { AllenMask } from "#compiler/allen/mask.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, type StorageCarrier } from "#compiler/ir/scalar.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { AmbientSession } from "#test/support/ambient.ts"
 import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
-import { scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
+import { scalarOfSpec, type SpelledValue } from "#test/support/oracle/gen/domain.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
+import type { Restorage } from "#test/support/oracle/gen/restorage.ts"
 import type { Perturbation } from "#test/support/oracle/perturb.ts"
 
 /**
- * The field types a generated schema declares, each a public descriptor (build.ts) with the ScalarType the schema
- * compiler derives for it (generate.ts): integer, bigint, bare numeric (every display scale kept, so never a key),
- * numeric(5,2), double precision, money, boolean, the generated bounded text, unbounded prose (str.regex("^.*$", "su"),
- * whose values come from the literal dictionary and include what array_out must quote), uuid, and the handle of the
- * case's closed roster.
+ * The field types the general draw declares, by the storage carrier each has (ir/scalar.ts StorageCarrier), so a
+ * carrier added there without a kind fails the typecheck. Each is a public descriptor (build.ts) with the ScalarType the
+ * schema compiler derives for it (generate.ts): integer, bigint, bare numeric (every display scale kept, so never a
+ * key), numeric(5,2), double precision, money, boolean, the generated bounded text, unbounded prose (str.regex("^.*$",
+ * "su"), whose values come from the literal dictionary and include what array_out must quote), uuid, the handle of the
+ * case's closed roster, smallint, real, a span over integer and over bigint, and a vector of three dimensions
+ * (pg.vector(3)), whose -0 components are its twin spellings. A field's recorded pick names an index of fieldKinds,
+ * these kinds in this record's order, so a kind joins at the end and every kept pick keeps its kind.
  */
-export const fieldKinds = [
-	"int4",
-	"int8",
-	"numeric",
-	"fixed",
-	"float8",
-	"money",
-	"bool",
-	"text",
-	"prose",
-	"uuid",
-	"handle"
-] as const
+const drawnKinds = {
+	int4: ["int4"],
+	int8: ["int8"],
+	numeric: ["numeric", "fixed"],
+	float8: ["float8"],
+	money: ["money"],
+	bool: ["bool"],
+	text: ["text", "prose"],
+	uuid: ["uuid"],
+	enum: ["handle"],
+	int2: ["int2"],
+	float4: ["float4"],
+	range4: ["span4"],
+	range8: ["span8"],
+	vector: ["vector"]
+} as const satisfies { readonly [C in StorageCarrier]: Arr.NonEmptyReadonlyArray<string> }
+
+type DrawnKind = (typeof drawnKinds)[StorageCarrier][number]
+
+const { int4: firstKinds, ...laterKinds } = drawnKinds
+
+export const fieldKinds: Arr.NonEmptyReadonlyArray<DrawnKind> = [
+	...firstKinds,
+	...Arr.flatMap(Rec.values(laterKinds), (kinds): ReadonlyArray<DrawnKind> => kinds)
+]
 
 /**
- * Field kinds a gate adds to a relation; the general draw (fieldKinds) never draws them: a span over integer and over
- * bigint, and the contract Tick over bigint (span(pg.integer), span(pg.bigint), contract("Tick", pg.bigint)).
+ * A field's kind: a drawn one, or the contract Tick over bigint (contract("Tick", pg.bigint)), which only the gate of
+ * its parameters adds to a relation. A gate adds a span field of the case's span kind where Allen relations or point
+ * memberships are drawn.
  */
-const gatedKinds = ["span4", "span8", "tick"] as const
-export type FieldKind = (typeof fieldKinds)[number] | (typeof gatedKinds)[number]
+export type FieldKind = DrawnKind | "tick"
 
 /**
- * The kinds a key may hold: those whose values a key constraint, the codec and the reference identify alike, every
- * value one spelling or coerced to one by the column's typmod.
+ * The kinds a key may hold: every kind whose values a key constraint, the codec and the reference identify alike, each
+ * value one form (a float's -0 is its 0, NaN equal to itself, a vector's components finite with the one zero) or coerced
+ * to one by the column's typmod. A relation's
+ * first field picks its kind here by its recorded pick, so a kind joins at the end and every kept pick keeps its kind.
  */
 export const keyKinds: Arr.NonEmptyReadonlyArray<FieldKind> = [
 	"int4",
@@ -46,7 +66,9 @@ export const keyKinds: Arr.NonEmptyReadonlyArray<FieldKind> = [
 	"bool",
 	"text",
 	"uuid",
-	"handle"
+	"handle",
+	"float8",
+	"vector"
 ]
 
 export interface ProgramField {
@@ -160,11 +182,19 @@ export interface ProgramSchema {
 	readonly nameKinds: ReadonlySet<NameKind>
 }
 
-/**
- * A stored fact: one literal per field, in field order. Facts of one relation are distinct at every key by native
- * equality; their other fields spell each value as the fact drew it, so 1.0 and 1.00 meet in one column.
- */
+/** A fact's values: one literal per field, in field order, as the reference reads them and a relation parameter binds. */
 export type ProgramFact = ReadonlyArray<TypedLiteral>
+
+/**
+ * A stored fact: one value per field, in field order, each in the input spelling the case drew (gen/domain.ts
+ * SpelledValue). Facts of one relation are distinct at every key by native equality; a fact holding a twin spelling is
+ * stored by a direct SQL writer (pg/oracle/public/run.ts), since db.apply stores every value in its one form, so 1.0
+ * and 1.00 meet in one column.
+ */
+export type StoredFact = ReadonlyArray<SpelledValue>
+
+/** A stored fact's values. */
+export const factValues = (fact: StoredFact): ProgramFact => Arr.map(fact, (v) => v.literal)
 
 /** A variable, typed by the field it was minted from. */
 export interface Var {
@@ -242,10 +272,10 @@ export interface Between {
 	readonly high: Operand<never>
 }
 
-/** r.inSet(left, values): left equals one of the values. */
+/** r.inSet(left, values): left equals one of the values; of no value, it holds of no row. */
 export interface InSet {
 	readonly left: Var
-	readonly values: Arr.NonEmptyReadonlyArray<TypedLiteral>
+	readonly values: ReadonlyArray<TypedLiteral>
 }
 
 /** r.allen(left, mask, right) over two span variables: their Allen relation is one the mask holds. */
@@ -264,6 +294,15 @@ export interface PointIn {
 	readonly span: Var
 }
 
+/**
+ * r.and(...) or r.or(...) over comparisons: every one holds, or at least one does. Of no comparison, r.and() is the
+ * constant true, which holds of every row, and r.or() the constant false, which holds of none.
+ */
+export interface Connective {
+	readonly kind: "and" | "or"
+	readonly args: ReadonlyArray<Comparison>
+}
+
 /** The endpoint type of a span variable: integer for a span over integer, bigint for one over bigint. */
 export const endpointType = (span: Var): ScalarType =>
 	span.field.type.carrier === "range8"
@@ -274,8 +313,56 @@ export const aggregateFns = ["count", "sum", "mean", "min", "max"] as const
 export type AggregateFn = (typeof aggregateFns)[number]
 
 /**
+ * The padding of one numeric variable (int4, int8, numeric, numeric(5,2) or Tick) at display scale `scale`, past the
+ * least scale of every value the variable holds: within paddingBounds, Compute.cast(Compute.cast(v,
+ * pg.numeric(1000, scale)), pg.numeric), its value at that display scale, a bare numeric only a reading of the display
+ * scale tells from the variable; elsewhere Compute.cast(v, pg.numeric), since a typmod's cast is defined only where
+ * the value fits, which the guard Compute.within(v, low, high) proves.
+ */
+export interface Padding {
+	readonly arg: Var
+	readonly scale: number
+}
+
+const numericLiteral = (text: string): TypedLiteral => ({
+	kind: "numeric",
+	value: Decimal.of(text)
+})
+
+/** The bounds within which a padding casts its variable, -100 and 100, as literals of the variable's base. */
+export const paddingBounds = (type: ScalarType): readonly [TypedLiteral, TypedLiteral] =>
+	baseOf(type).carrier === "numeric"
+		? [numericLiteral("-100"), numericLiteral("100")]
+		: [
+				{ kind: "int", value: -100n },
+				{ kind: "int", value: 100n }
+			]
+
+/** The bounds within which a power is computed, 0 and 100: its base nonnegative and its result within numeric's digits. */
+export const powerBounds: readonly [TypedLiteral, TypedLiteral] = [
+	numericLiteral("0"),
+	numericLiteral("100")
+]
+
+/** What a square root or a power is where its guard does not hold: zero. */
+export const unguarded: TypedLiteral = numericLiteral("0")
+
+/**
+ * What an aggregate or a display-scale reading reads: a variable itself, or its padding. A reading's variable is a bare
+ * numeric, whose stored values have twin spellings, so a reading's operand is always a bare numeric.
+ */
+export type ArgTerm =
+	| { readonly kind: "var"; readonly var: Var }
+	| { readonly kind: "padded"; readonly padding: Padding }
+
+/**
  * A Compute term over one numeric variable (int4, int8, numeric, numeric(5,2) or Tick): Compute.base(v), a contract's
- * base value and identity elsewhere; Compute.cast(v, pg.numeric); or Compute.cond(r.<op>(v, than), v, otherwise).
+ * base value and identity elsewhere; Compute.cast(v, pg.numeric); Compute.cond(r.<op>(v, than), v, otherwise); a
+ * padding; or one of the readings PostgreSQL defines over a numeric's display scale (registry.ts "displayScale"), each
+ * a bare numeric, over a bare numeric variable or a padding: Compute.div(a, divisor), a quotient by a nonzero literal;
+ * the square root of a nonnegative value, Compute.when(Compute.nonnegative(a), (a) => Compute.sqrt(a), unguarded); and
+ * a power of a value within powerBounds, Compute.when(Compute.within(a, low, high), (a) => Compute.power(a, exponent),
+ * unguarded).
  */
 export type ComputedTerm =
 	| { readonly kind: "base"; readonly arg: Var }
@@ -287,14 +374,18 @@ export type ComputedTerm =
 			readonly than: TypedLiteral
 			readonly otherwise: TypedLiteral
 	  }
+	| { readonly kind: "padded"; readonly padding: Padding }
+	| { readonly kind: "div"; readonly dividend: ArgTerm; readonly divisor: TypedLiteral }
+	| { readonly kind: "sqrt"; readonly radicand: ArgTerm }
+	| { readonly kind: "power"; readonly base: ArgTerm; readonly exponent: TypedLiteral }
 
-/** The field kinds a head literal takes (r.literal): a JavaScript number, a bigint, a string or a boolean. */
+/** The field kinds a head literal takes, a JavaScript value: a number, a bigint, a string or a boolean. */
 export const literalKinds = ["int4", "int8", "text", "bool"] as const
 export type LiteralKind = (typeof literalKinds)[number]
 
 /**
  * A head key: a variable, an aggregate over the rule's distinct complete bindings, a Compute term, which keys an
- * aggregate's groups beside its variables, or a literal (r.literal), typed as the checker types a literal that meets no
+ * aggregate's groups beside its variables, or a JavaScript value, typed as the checker types a literal that meets no
  * term (a union's arms state one each, to tell their rows apart).
  */
 export type HeadItem =
@@ -304,7 +395,7 @@ export type HeadItem =
 			readonly kind: "fold"
 			readonly name: string
 			readonly fn: Exclude<AggregateFn, "count">
-			readonly arg: Var
+			readonly arg: ArgTerm
 			readonly type: ScalarType
 	  }
 	| {
@@ -327,20 +418,23 @@ export interface Rule<P> {
 	readonly inSets: ReadonlyArray<InSet>
 	readonly allens: ReadonlyArray<AllenAtom>
 	readonly pointIns: ReadonlyArray<PointIn>
+	readonly connectives: ReadonlyArray<Connective>
 	readonly negations: ReadonlyArray<Negation>
 	readonly head: ReadonlyArray<HeadItem>
 }
 
 /**
- * Whether a rule filters its bindings by anything but its matches: a comparison, a range, a set, an Allen atom or a
- * point membership. The delivery proofs read it where they read "no comparison".
+ * Whether a rule filters its bindings by anything but its matches: a comparison, a range, a set, an Allen atom, a
+ * point membership or a connective, even r.and(), which holds of every row. The delivery proofs read it where they read
+ * "no comparison".
  */
 export const hasFilter = <P>(rule: Rule<P>): boolean =>
 	rule.where.length > 0 ||
 	rule.between.length > 0 ||
 	rule.inSets.length > 0 ||
 	rule.allens.length > 0 ||
-	rule.pointIns.length > 0
+	rule.pointIns.length > 0 ||
+	rule.connectives.length > 0
 
 export const isAggregate = <P>(rule: Rule<P>): boolean =>
 	Arr.some(rule.head, (h) => h.kind === "count" || h.kind === "fold")
@@ -477,8 +571,15 @@ export type ProgramRead =
  */
 export interface ProgramCase {
 	readonly schema: ProgramSchema
-	readonly facts: ReadonlyMap<string, ReadonlyArray<ProgramFact>>
+	readonly facts: ReadonlyMap<string, ReadonlyArray<StoredFact>>
 	/** The planner settings one side of every read runs under (perturb.ts): plan diversity without large data. */
 	readonly perturbation: Perturbation
+	/** The defaults the case's installation's owner sessions start under (test/support/ambient.ts). */
+	readonly ambient: AmbientSession
+	/**
+	 * How the case's second reading stores its facts (gen/restorage.ts): every read of it is read again over its facts
+	 * stored otherwise, through a fresh load, and must answer exactly as it first did.
+	 */
+	readonly restorage: Restorage
 	readonly reads: Arr.NonEmptyReadonlyArray<ProgramRead>
 }

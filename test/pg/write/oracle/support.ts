@@ -1,6 +1,8 @@
 import { layer } from "@effect/vitest"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { exploreWrite, required, type WriteSuite } from "#test/support/oracle/write/index.ts"
+import { exploreWrite, type WriteSuite, writeSituations } from "#test/support/oracle/write/index.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The runs of each suite's rotating stream.
@@ -11,15 +13,14 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * The oracle is split into suites of their own, each with its own floor stream, which the library derives from its
  * label, so the runner spreads them over its workers; every suite explores the whole distribution and must reach every
- * required feature, which its plain streams reach, so no suite steers. */
+ * required feature on its floor stream or its steered phase, which spends at most as many runs as the rotating stream. */
 const runs = 40
 
 /** The suite `i`: its label, from which the library derives its floor stream. */
 export const writeOracleSuite = (i: number): WriteSuite => ({
 	suite: `write/oracle-${i}`,
 	runs,
-	required,
-	steering: { kind: "none" }
+	coverage: required(writeSituations, { cases: runs, sense: notesOnly })
 })
 
 export const writeSuite = (s: WriteSuite, title: string): void =>

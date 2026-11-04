@@ -12,19 +12,25 @@ import {
 import { Array as Arr, Order } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import { OpId, type TypedLiteral } from "#compiler/ir/expr.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type Heading, type RelNode } from "#compiler/ir/rel.ts"
+import { exactType } from "#compiler/scalar/compute/types.ts"
 import {
 	defaultGenConfig,
 	fullCaseSwarms,
 	type GenConfig,
 	paramNamesSketchGen,
 	type QueryCase,
-	resolveQueryCase,
-	spellingSketchGen
+	resolveQueryCase
 } from "#test/support/oracle/gen/case.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
-import { type FactsSketch, type LiteralRow, rowSketchGen } from "#test/support/oracle/gen/facts.ts"
+import {
+	canonicalFacts,
+	type FactsSketch,
+	type LiteralRow,
+	rowSketchGen
+} from "#test/support/oracle/gen/facts.ts"
+import { definedOpOf, partialOpOf } from "#test/support/oracle/gen/ops.ts"
 import {
 	type BindSketch,
 	normalQuery,
@@ -77,7 +83,6 @@ export const rootedCaseGen = (root: Gen<RootSketch>, config: GenConfig): Gen<Que
 				{
 					schema: source.draw(schema),
 					facts: source.draw(facts),
-					spelling: source.draw(spellingSketchGen),
 					root: source.draw(root),
 					paramNames: source.draw(paramNamesSketchGen),
 					...fullCaseSwarms
@@ -279,7 +284,7 @@ const keyedRows = (
 		])
 }
 
-const spelling = { mode: "perCase" as const, choices: [], edge: false } as const
+const spelling = { mode: "drawn", edge: false } as const
 
 const buildDag = (b: DagBuilder, root: RelNode) => normalQuery(b.build(Arr.of(root)))
 
@@ -314,8 +319,11 @@ const literalExpr = (b: DagBuilder, value: bigint) =>
 		nonNull: "literal"
 	})
 
-/** The noninjective integer functions I3 maps a key column through: k / 2, k % 3 and abs(k) over a small domain. */
-const noninjective = ["int4div", "int4mod", "abs(integer)"] as const
+/**
+ * The noninjective integer functions I3 maps a key column through: k % 2, k % 3 and abs(k) over a small domain, each
+ * remainder standing with the proof its literal divisor's own value gives.
+ */
+const noninjective = ["mod 2", "mod 3", "abs"] as const
 
 /** I3: R0(k, b) keyed by k, projected to (f(k), b) for a noninjective f. */
 export const noninjectiveKeyCaseGen: Gen<QueryCase> = map(
@@ -330,23 +338,35 @@ export const noninjectiveKeyCaseGen: Gen<QueryCase> = map(
 		const b = new DagBuilder(makeIdSupply())
 		const base = baseNode(b, r, [])
 		const k = columnExpr(b, base, "k")
-		const args = fn === "abs(integer)" ? [k] : [k, literalExpr(b, fn === "int4div" ? 2n : 3n)]
-		const f = b.expr({
-			kind: "op",
-			op: OpId(fn),
-			args,
-			type: int4,
-			nonNull: "strict",
-			volatility: "immutable",
-			failure: "total"
-		})
+		const f =
+			fn === "abs"
+				? b.expr({
+						kind: "op",
+						op: definedOpOf("abs(integer)"),
+						args: [k],
+						type: exactType("exactInteger", 10),
+						nonNull: "strict",
+						volatility: "immutable"
+					})
+				: b.expr({
+						kind: "op",
+						op: partialOpOf("int4mod"),
+						args: [k, literalExpr(b, fn === "mod 2" ? 2n : 3n)],
+						type: int4,
+						nonNull: "strict",
+						volatility: "immutable",
+						proof: {
+							precondition: { kind: "nonzero", operand: 1 },
+							premises: [{ kind: "fact", operand: 1, fact: "nonzero", source: { kind: "literal" } }]
+						}
+					})
 		const out = keepB
 			? [
 					{ name: "h", expr: f },
 					{ name: "b", expr: columnExpr(b, base, "b") }
 				]
 			: [{ name: "h", expr: f }]
-		const heading: Heading = Arr.map(out, (o) => ({ name: o.name, type: int4 }))
+		const heading: Heading = Arr.map(out, (o) => ({ name: o.name, type: o.expr.type }))
 		const dag = buildDag(
 			b,
 			b.node({
@@ -360,7 +380,7 @@ export const noninjectiveKeyCaseGen: Gen<QueryCase> = map(
 		)
 		return {
 			schema,
-			facts: { R0: rows },
+			facts: canonicalFacts({ R0: rows }),
 			query: { dag, params: {} },
 			spelling
 		} satisfies QueryCase

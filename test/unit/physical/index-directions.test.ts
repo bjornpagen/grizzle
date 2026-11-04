@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
@@ -50,7 +51,7 @@ const text = (vector: ReadonlyArray<Dir>): string => Arr.join(vector, " ")
 const program = (vector: Vector, prefixed: boolean) =>
 	query(Dirs)
 		.rule((r) => {
-			const { id, g, a, b } = v(T)
+			const { id, g, a, b } = v(T, "t")
 			const matched = r.match(T, { id, g, a, b })
 			return (prefixed ? matched.where(r.eq(g, r.param("g", uuid))) : matched).find({ id, a, b })
 		})
@@ -93,20 +94,22 @@ describe("access indexes over one column list in several directions", () => {
 						suite: "unit/physical/index-directions",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						features: features<DirectionFeature>([
-							"an exact reverse pair",
-							"a mixed vector",
-							"an all-descending vector",
-							"two classes",
-							"a prefix"
-						]),
+						coverage: required<DirectionFeature>(
+							[
+								"an exact reverse pair",
+								"a mixed vector",
+								"an all-descending vector",
+								"two classes",
+								"a prefix"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
-						/** 64 vectors in 4 classes per column set, in families of up to five: 200 cases reach each feature often. */
+						/** The rotating stream's sample of 64 vectors in 4 classes per column set, in families of up to five. */
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ vectors, prefixed }, c) =>

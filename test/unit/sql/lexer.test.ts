@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	characterOf,
@@ -15,6 +15,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
@@ -297,24 +298,26 @@ describe("lex", () => {
 						suite: "unit/sql/lex-round-trip",
 						draw: drawn(sequenceGen),
 						literal: Formatter.format,
-						features: features<RenderedKind | "a line comment ended by a lone carriage return">([
-							"word",
-							"quotedIdent",
-							"string",
-							"prefixed string",
-							"dollar",
-							"param",
-							"number",
-							"operator",
-							"punct",
-							"a line comment ended by a lone carriage return"
-						]),
+						coverage: required<RenderedKind | "a line comment ended by a lone carriage return">(
+							[
+								"word",
+								"quotedIdent",
+								"string",
+								"prefixed string",
+								"dollar",
+								"param",
+								"number",
+								"operator",
+								"punct",
+								"a line comment ended by a lone carriage return"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -352,13 +355,15 @@ describe("lex", () => {
 						suite: "unit/sql/lex-truncated",
 						draw: drawn((source) => [source.draw(sequenceGen), source.draw(tokenGen)] as const),
 						literal: Formatter.format,
-						features: features<RenderedKind>(["quotedIdent", "string", "dollar"]),
+						coverage: required<RenderedKind>(["quotedIdent", "string", "dollar"], {
+							cases: 300,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([s, last], c) =>

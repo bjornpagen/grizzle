@@ -8,20 +8,20 @@ import {
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
 import type { Expr, Select, SelectCore, Target, TypeRef } from "#compiler/sql/ast.ts"
-import { cast, core, target } from "#compiler/sql/build.ts"
-import { printType } from "#compiler/sql/print.ts"
+import { cast, core, sameTypeRef, target } from "#compiler/sql/build.ts"
 
 /**
  * An expression cast to a state column's type: unchanged when it is already a literal or a cast of exactly that type,
  * whose printed form carries the cast.
  */
 const castTo = (e: Expr, type: TypeRef): Expr =>
-	(e.kind === "cast" || e.kind === "literal") && printType(e.type) === printType(type)
-		? e
-		: cast(e, type)
+	(e.kind === "cast" || e.kind === "literal") && sameTypeRef(e.type, type) ? e : cast(e, type)
+
+/** A core of no DISTINCT. */
+type PlainCore = Extract<SelectCore, { readonly distinct: false }>
 
 /** The query's single plain core, when it has one: no DISTINCT, grouping, ordering, bound or WITH. */
-const plainCore = (query: Select): SelectCore | undefined => {
+const plainCore = (query: Select): PlainCore | undefined => {
 	if (
 		query.with !== undefined ||
 		query.orderBy.length > 0 ||
@@ -49,7 +49,7 @@ const castInPlace = (
 	rec: NodeOf<"Recursive">,
 	heading: Heading,
 	query: Select
-): SelectCore | undefined => {
+): PlainCore | undefined => {
 	const body = plainCore(query)
 	if (body === undefined || rec.heading.length === 0) {
 		return undefined

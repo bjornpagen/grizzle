@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
@@ -50,7 +50,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("ChangeSet facade", (it
 					generator: element(refusals),
 					literal: Formatter.format,
 					limit: refusals.length,
-					features: features<Refusal>(refusals),
+					coverage: requiredInSpace<Refusal>(refusals),
 					caseHang: Duration.minutes(2)
 				},
 				(refusal, c) =>

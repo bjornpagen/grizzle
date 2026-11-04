@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Layer, Option } from "effect"
@@ -84,14 +84,14 @@ const profile = (account: number, a: string) => ({ account, a, b: "b", c: "c", d
 const notes = (s: NotesInstalled) =>
 	query(s)
 		.rule((r) => {
-			const { id, account, tag } = v(Note)
+			const { id, account, tag } = v(Note, "note")
 			return r.match(Note, { id, account, tag }).find({ id, account, tag })
 		})
 		.attach(
 			"holder",
 			(n) =>
 				query(s).rule((r) => {
-					const { name, city, street, zip, country } = v(Account)
+					const { name, city, street, zip, country } = v(Account, "account")
 					return r
 						.match(Account, { id: n.account, name, city, street, zip, country })
 						.find({ name, city, street, zip, country })
@@ -100,14 +100,14 @@ const notes = (s: NotesInstalled) =>
 		)
 		.attach(
 			"marker",
-			(n) => query(s).rule((r) => r.match(Tag, { id: n.tag }).find({ marked: r.literal(true) })),
+			(n) => query(s).rule((r) => r.match(Tag, { id: n.tag }).find({ marked: true })),
 			"one"
 		)
 		.attach(
 			"badge",
 			(n) =>
 				query(s).rule((r) => {
-					const { label } = v(Badge)
+					const { label } = v(Badge, "badge")
 					return r.match(Badge, { account: n.account, label }).find({ label })
 				}),
 			"option"
@@ -116,7 +116,7 @@ const notes = (s: NotesInstalled) =>
 			"profile",
 			(n) =>
 				query(s).rule((r) => {
-					const { a, b, c, d, e } = v(Profile)
+					const { a, b, c, d, e } = v(Profile, "profile")
 					return r.match(Profile, { account: n.account, a, b, c, d, e }).find({ a, b, c, d, e })
 				}),
 			"option"
@@ -174,7 +174,7 @@ const breachCases: Gen<{ readonly artifact: Artifact; readonly breach: Breach }>
 /** An exhaustive check's budget beside its suite and generator. */
 const exhaustive = {
 	literal: Formatter.format,
-	features: noFeatures,
+	coverage: noCoverage,
 	caseHang: Duration.minutes(2)
 } as const
 

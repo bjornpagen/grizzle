@@ -13,49 +13,68 @@ export const decimalTag = "d"
 
 const isDigit = (ch: string | undefined): boolean => ch !== undefined && ch >= "0" && ch <= "9"
 
-export type DecimalKind = "finite" | "nan" | "infinity" | "-infinity"
+/**
+ * A finite numeric value in its one form: (-1)^negative · coefficient · 10^-minScale, where minScale is the least
+ * scale that writes the value exactly (PostgreSQL's min_scale).
+ */
+export interface FiniteParts {
+	readonly kind: "finite"
+	/** False for zero: numeric has no signed zero. */
+	readonly negative: boolean
+	/** Not a multiple of 10 when minScale > 0; 0n only at minScale 0. */
+	readonly coefficient: bigint
+	/** 0..16383. */
+	readonly minScale: number
+}
+
+/** A numeric value: NaN, an infinity, or a finite value in its one form. */
+export type DecimalParts =
+	| FiniteParts
+	| { readonly kind: "nan" }
+	| { readonly kind: "infinity" }
+	| { readonly kind: "-infinity" }
 
 /**
- * A decimal value parsed: NaN, an infinity, or a finite `(-1)^negative * coefficient / 10^scale` with a nonnegative
- * coefficient, a display scale of 0 or more, and zero never negative. The IR holds a numeric literal as one
- * (ir/expr.ts TypedLiteral): DecimalText, or scalar/values' Decimal, which has the same parts; either spells its
- * canonical text from them.
+ * The IR's decimal: DecimalText or scalar/values' owned Decimal, both in the one form. The IR holds a numeric literal
+ * as one (ir/expr.ts TypedLiteral), and either spells its canonical text from its parts.
  */
-export type DecimalValue = Canonicalizable &
-	(
-		| {
-				readonly kind: "finite"
-				readonly negative: boolean
-				readonly coefficient: bigint
-				readonly scale: number
-		  }
-		| { readonly kind: "nan" | "infinity" | "-infinity" }
-	)
+export type DecimalValue = Canonicalizable & { readonly parts: DecimalParts }
+
+export const nanParts: DecimalParts = Object.freeze({ kind: "nan" })
+export const infinityParts: DecimalParts = Object.freeze({ kind: "infinity" })
+export const negativeInfinityParts: DecimalParts = Object.freeze({ kind: "-infinity" })
 
 /**
- * The canonical text of a finite decimal's parts, PostgreSQL's numeric_out spelling: the display scale's fractional
- * digits, no exponent.
+ * The text of a finite value in its one form, PostgreSQL's numeric_out of trim_scale(value): `digits` are the
+ * coefficient's decimal digits, written with minScale fractional digits and no exponent.
  */
-export const finiteDecimalText = (
-	negative: boolean,
-	coefficient: bigint,
-	scale: number
-): string => {
+export const finiteDigitsText = (negative: boolean, digits: string, minScale: number): string => {
 	const sign = negative ? "-" : ""
-	const digits = coefficient.toString()
-	if (scale === 0) {
+	if (minScale === 0) {
 		return sign + digits
 	}
-	const padded = digits.padStart(scale + 1, "0")
-	const point = padded.length - scale
+	const padded = digits.padStart(minScale + 1, "0")
+	const point = padded.length - minScale
 	return `${sign}${padded.slice(0, point)}.${padded.slice(point)}`
 }
 
-const specialDecimals = {
-	NaN: "nan",
-	Infinity: "infinity",
-	"-Infinity": "-infinity"
-} as const
+/** The text of a finite value's parts in its one form. */
+export const finiteDecimalText = (parts: FiniteParts): string =>
+	finiteDigitsText(parts.negative, parts.coefficient.toString(), parts.minScale)
+
+/** The one text of a decimal value: numeric_out of trim_scale(value), NaN, Infinity or -Infinity. */
+export const decimalPartsText = (parts: DecimalParts): string => {
+	switch (parts.kind) {
+		case "nan":
+			return "NaN"
+		case "infinity":
+			return "Infinity"
+		case "-infinity":
+			return "-Infinity"
+		case "finite":
+			return finiteDecimalText(parts)
+	}
+}
 
 export const isDecimalPayload = (text: string): boolean => DecimalText.parse(text) !== undefined
 
@@ -64,29 +83,21 @@ export const isDecimalPayload = (text: string): boolean => DecimalText.parse(tex
  *
  * A numeric literal is a Decimal, a bigint, or an exact decimal string, never a JavaScript number. The IR holds a
  * decimal parsed (DecimalValue), so the owned Decimal of scalar/values travels through it unchanged; in canonical text
- * it is "~d:<exact text>". This module owns only what the boundary needs: the payload syntax it admits and a minimal
- * carrier, DecimalText, that a decode parses its payload into when no richer reviver is supplied. DecimalText does no
- * arithmetic and no rounding; it spells exactly the payload it was parsed from, so a decimal survives decode and
- * re-encode exactly.
+ * it is "~d:<the value's one text>". This module owns only what the boundary needs: the payload syntax it admits and a
+ * minimal carrier, DecimalText, that a decode parses its payload into when no richer reviver is supplied. DecimalText
+ * does no arithmetic and no rounding.
  *
- * The admitted payload is the canonical text, PostgreSQL's numeric_out spelling, so one decimal value with one display
- * scale has exactly one payload and fingerprints stay byte-stable. This is exactly the text scalar/values' Decimal
- * writes and its reviver accepts.
+ * The admitted payload is the value's one text, numeric_out of trim_scale(value): a decimal value has exactly one
+ * payload, so equal values fingerprint alike and fingerprints stay byte-stable. "1.50" is no payload; "1.5" is. This
+ * is exactly the text scalar/values' Decimal writes and its reviver accepts.
  */
 export class DecimalText implements Canonicalizable {
-	readonly kind: DecimalKind
-	/** Finite values only; false for zero and for the special values. */
-	readonly negative: boolean
-	/** The unscaled magnitude: the value's digits including `scale` fractional digits. 0n for the special values. */
-	readonly coefficient: bigint
-	/** The display scale. 0 for the special values. */
-	readonly scale: number
+	readonly parts: DecimalParts
+	readonly text: string
 
-	private constructor(kind: DecimalKind, negative: boolean, coefficient: bigint, scale: number) {
-		this.kind = kind
-		this.negative = negative
-		this.coefficient = coefficient
-		this.scale = scale
+	private constructor(parts: DecimalParts, text: string) {
+		this.parts = parts
+		this.text = text
 		Object.freeze(this)
 	}
 
@@ -96,20 +107,25 @@ export class DecimalText implements Canonicalizable {
 			? Result.err(
 					malformedDescription(
 						SourceLoc("decimal literal", []),
-						"the canonical text of a decimal, as PostgreSQL's numeric output writes it: digits with an optional fraction, NaN, or Infinity"
+						"the one text of a decimal, numeric_out of trim_scale(value): digits with an optional fraction that ends in a nonzero digit, NaN, or Infinity"
 					)
 				)
 			: Result.ok(parsed)
 	}
 
 	/**
-	 * The decimal `text` spells when it is a decimal's canonical text, else undefined: an optional '-', the integer
-	 * digits with no leading zero (a lone 0 when the integer part is zero), an optional '.' followed by the display
-	 * scale's fractional digits, no exponent and no negative zero; or one of NaN, Infinity and -Infinity.
+	 * The decimal `text` spells when it is a decimal's one text, else undefined: an optional '-', the integer digits
+	 * with no leading zero (a lone 0 when the integer part is zero), an optional '.' followed by fractional digits whose
+	 * last is not 0, no exponent and no negative zero; or one of NaN, Infinity and -Infinity.
 	 */
 	static parse(text: string): DecimalText | undefined {
-		if (text === "NaN" || text === "Infinity" || text === "-Infinity") {
-			return new DecimalText(specialDecimals[text], false, 0n, 0)
+		switch (text) {
+			case "NaN":
+				return new DecimalText(nanParts, text)
+			case "Infinity":
+				return new DecimalText(infinityParts, text)
+			case "-Infinity":
+				return new DecimalText(negativeInfinityParts, text)
 		}
 		let i = 0
 		const negative = text[i] === "-"
@@ -132,7 +148,7 @@ export class DecimalText implements Canonicalizable {
 			while (isDigit(text[i])) {
 				i++
 			}
-			if (i === fracStart) {
+			if (i === fracStart || text[i - 1] === "0") {
 				return undefined
 			}
 		}
@@ -143,24 +159,21 @@ export class DecimalText implements Canonicalizable {
 		if (negative && coefficient === 0n) {
 			return undefined
 		}
-		return new DecimalText("finite", negative, coefficient, i - fracStart)
+		const parts: FiniteParts = Object.freeze({
+			kind: "finite",
+			negative,
+			coefficient,
+			minScale: i - fracStart
+		})
+		return new DecimalText(parts, text)
 	}
 
 	[canonicalTag](): TaggedValue {
-		return { tag: decimalTag, payload: this.toString() }
+		return { tag: decimalTag, payload: this.text }
 	}
 
 	toString(): string {
-		switch (this.kind) {
-			case "nan":
-				return "NaN"
-			case "infinity":
-				return "Infinity"
-			case "-infinity":
-				return "-Infinity"
-			case "finite":
-				return finiteDecimalText(this.negative, this.coefficient, this.scale)
-		}
+		return this.text
 	}
 }
 

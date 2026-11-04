@@ -147,7 +147,7 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	yield* Effect.mapError(
 		fromEngine(
 			catchCompileError(() => {
-				hostArguments("Db.open", options)
+				hostArguments("Db.open", [options])
 			})
 		),
 		(reason) => OpenError.make({ reason })

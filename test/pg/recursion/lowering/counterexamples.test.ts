@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { filter, map } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Schema } from "effect"
@@ -144,7 +145,7 @@ const sites = (c: RecursiveCase) => {
 type DiamondFeature = RecursiveFeature | "killed unrolled" | "killed recursive"
 
 /** The population must reach every vertex type and parallel edges, and kill the mutant in both forms of the lowering. */
-const required = [
+const situations = [
 	...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`),
 	"parallel edges",
 	"killed unrolled",
@@ -190,11 +191,10 @@ layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering"
 						{
 							suite: "recursion/optimized-diamond-kills",
 							literal: Formatter.format,
-							features: features<DiamondFeature>(required),
+							coverage: required<DiamondFeature>(situations, { cases: 300, sense: notesOnly }),
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},

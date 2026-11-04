@@ -1,8 +1,9 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -31,6 +32,7 @@ import {
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { jsonText } from "#test/support/json.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { type HalfOpen, type RangeType, rangeLimits, spanText } from "#test/support/oracle/allen.ts"
 import { endpointMaskPredicate } from "#test/support/oracle/gen/spans.ts"
 import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
@@ -178,7 +180,7 @@ const spell = <E>(p: Pred, s: Spelling<E>): Predicate => {
 /** The case's query over the int4range pairs: the facts satisfying its predicate, delivering their ids. */
 const intQuery = (pred: Pred) =>
 	query(Pairs).rule((r) => {
-		const { id, a, b } = v(IntPairs)
+		const { id, a, b } = v(IntPairs, "intPairs")
 		const column = (c: Column) => (c === "a" ? a : b)
 		const span = (o: Operand) => (o === "w" ? r.param("w", IntPairs.fields.a) : column(o))
 		const where = spell(pred, {
@@ -208,8 +210,8 @@ const intQuery = (pred: Pred) =>
 			},
 			pointIn: (point, within) => r.pointIn(point, span(within)),
 			allen: (left, mask, right) => r.allen(column(left), mask, span(right)),
-			and: (parts) => r.and(...parts),
-			or: (parts) => r.or(...parts),
+			and: (parts) => r.and(...argumentsOf(parts)),
+			or: (parts) => r.or(...argumentsOf(parts)),
 			id: () => r.ge(id, r.param("k", pg.integer))
 		})
 		return r.match(IntPairs, { id, a, b }).where(where).find({ id })
@@ -218,7 +220,7 @@ const intQuery = (pred: Pred) =>
 /** The case's query over the int8range pairs. */
 const bigQuery = (pred: Pred) =>
 	query(Pairs).rule((r) => {
-		const { id, a, b } = v(BigPairs)
+		const { id, a, b } = v(BigPairs, "bigPairs")
 		const column = (c: Column) => (c === "a" ? a : b)
 		const span = (o: Operand) => (o === "w" ? r.param("w", BigPairs.fields.a) : column(o))
 		const where = spell(pred, {
@@ -248,8 +250,8 @@ const bigQuery = (pred: Pred) =>
 			},
 			pointIn: (point, within) => r.pointIn(point, span(within)),
 			allen: (left, mask, right) => r.allen(column(left), mask, span(right)),
-			and: (parts) => r.and(...parts),
-			or: (parts) => r.or(...parts),
+			and: (parts) => r.and(...argumentsOf(parts)),
+			or: (parts) => r.or(...argumentsOf(parts)),
 			id: () => r.ge(id, r.param("k", pg.integer))
 		})
 		return r.match(BigPairs, { id, a, b }).where(where).find({ id })
@@ -555,8 +557,8 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 							generator: exhaustiveCases,
 							literal: Formatter.format,
 							limit: exhaustiveLimit,
-							features: features<ExhaustiveFeature>(
-								Arr.flatMap(carriers, (carrier): ReadonlyArray<ExhaustiveFeature> => [
+							coverage: requiredInSpace<ExhaustiveFeature>(
+								Arr.flatMap(carriers, (carrier): Arr.NonEmptyReadonlyArray<ExhaustiveFeature> => [
 									`${carrier} rewritten`,
 									`${carrier} every fact`,
 									`${carrier} no fact`,
@@ -592,18 +594,20 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 						{
 							suite: "spans/endpoint-normal-form-trees",
 							literal: Formatter.format,
-							features: features<GeneratedFeature>([
-								"rewritten",
-								"an endpoint predicate beside an Allen formula over its pair",
-								"a pair with the parameter",
-								"a comparison within one span",
-								"a predicate over no span",
-								"under a negation"
-							]),
+							coverage: required<GeneratedFeature>(
+								[
+									"rewritten",
+									"an endpoint predicate beside an Allen formula over its pair",
+									"a pair with the parameter",
+									"a comparison within one span",
+									"a predicate over no span",
+									"under a negation"
+								],
+								{ cases: 300, sense: notesOnly }
+							),
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},

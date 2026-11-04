@@ -1,13 +1,15 @@
 import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { Duration, Effect, Formatter } from "effect"
 
 /**
  * The testing library's harness invariants, held by its types (@grizzle/testing): a suite's required features are a
- * closed vocabulary of literal names; a case notes what it reached through the Case its property receives, never
- * through a registry; a kept case is its own field of the search, never an argument of drawn, and names a feature it
- * reaches; a note or a required feature outside the vocabulary does not compile. Typechecked, never executed.
+ * closed vocabulary of literal names, stated with the steered phase that reaches them; a case notes what it reached
+ * through the Case its property receives, never through a registry; a kept case is its own field of the search, never
+ * an argument of drawn, and names a feature it reaches; a note or a required feature outside the vocabulary does not
+ * compile. Typechecked, never executed.
  */
 type Size = "small" | "large"
 
@@ -19,28 +21,30 @@ export const explores = explore(
 		suite: "types/harness",
 		draw: sketched(number, (n) => n),
 		literal: Formatter.format,
-		features: features<Size>(["small", "large"]),
+		coverage: required<Size>(["small", "large"], { cases: 1, sense: notesOnly }),
 		kept: [{ note: "a small case once failed", sketch: 3, draws: "", reaches: ["small"] }],
 		runs: 1,
 		shrink: { kind: "complete" },
 		concurrency: 1,
 		steerEvery: 16,
-		steering: { kind: "none" },
 		caseHang: Duration.minutes(2)
 	},
 	(n, c) => Effect.sync(() => c.note(n < 10 ? "small" : "large"))
 )
 
 /** A literal required feature names no situation: a suite's vocabulary is a closed union. */
-export const openVocabulary = features<string>([
-	// @ts-expect-error -- TS2322: features takes literal names, never string
-	"small"
-])
+export const openVocabulary = required<string>(
+	[
+		// @ts-expect-error -- TS2322: a requirement takes literal names, never string
+		"small"
+	],
+	{ cases: 1, sense: notesOnly }
+)
 
 /** A registry notes nothing: a case notes through c.note. */
 export const registry = (): void => {
 	// @ts-expect-error -- TS2339: a registry notes nothing: a case notes through c.note
-	features<Size>(["small"]).note("small")
+	required<Size>(["small"], { cases: 1, sense: notesOnly }).note("small")
 }
 
 /** drawn takes no kept cases: a kept case is the search's own field. */
@@ -65,13 +69,12 @@ export const misspeltNote = explore(
 		suite: "types/harness",
 		draw: drawn(number),
 		literal: Formatter.format,
-		features: features<Size>(["small"]),
+		coverage: required<Size>(["small"], { cases: 1, sense: notesOnly }),
 		kept: [],
 		runs: 1,
 		shrink: { kind: "complete" },
 		concurrency: 1,
 		steerEvery: 16,
-		steering: { kind: "none" },
 		caseHang: Duration.minutes(2)
 	},
 	(...[, c]) =>
@@ -82,7 +85,10 @@ export const misspeltNote = explore(
 )
 
 /** A required feature outside the vocabulary. */
-export const misspeltRequirement = features<Size>([
-	// @ts-expect-error -- TS2820: a required feature outside the vocabulary
-	"smal"
-])
+export const misspeltRequirement = required<Size>(
+	[
+		// @ts-expect-error -- TS2820: a required feature outside the vocabulary
+		"smal"
+	],
+	{ cases: 1, sense: notesOnly }
+)

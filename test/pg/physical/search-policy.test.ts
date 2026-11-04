@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -20,6 +21,7 @@ import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { role } from "#compiler/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { fixedDefaults, searchDefaults } from "#test/support/catalog/installed.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
@@ -58,7 +60,7 @@ const searchAt = (name: string) => {
 	const Vectors = derived(
 		"Vectors",
 		query(core).rule((r) => {
-			const { doc, value } = v(Embedding)
+			const { doc, value } = v(Embedding, "embedding")
 			return r.match(Embedding, { doc, value }).find({ doc, value })
 		})
 	)
@@ -224,19 +226,21 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 							suite: "pg/physical/search-policy",
 							draw: drawn(caseGen),
 							literal: Formatter.format,
-							features: features<SearchFeature>([
-								"a role reaching the vector type through the derived relation alone",
-								"a login none of whose roles reaches the vector type",
-								"a login one of whose roles reaches the vector type",
-								"a refresher of the derived relation",
-								"a reader of the derived relation that does not refresh it"
-							]),
+							coverage: required<SearchFeature>(
+								[
+									"a role reaching the vector type through the derived relation alone",
+									"a login none of whose roles reaches the vector type",
+									"a login one of whose roles reaches the vector type",
+									"a refresher of the derived relation",
+									"a reader of the derived relation that does not refresh it"
+								],
+								{ cases: 8, sense: notesOnly }
+							),
 							kept: [],
 							runs: 8,
 							shrink: { kind: "complete" },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(c, cx) =>
@@ -246,6 +250,7 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 									const base = searchAt("Search")
 									/** The install runs the installed-catalog checker over what each login stores. */
 									const installed = yield* install(base, {
+										ambient: ordinarySession,
 										label: "search",
 										logins: Arr.map(worldsOf(base, c.logins), (l) => l.value),
 										extensions: []

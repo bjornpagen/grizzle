@@ -17,7 +17,7 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
  */
 const lowerFilter: NodeLowerer<"Filter"> = (node, cx, env) => {
 	const input = cx.source(node.input, env)
-	const scope = extendEnv(env, [node.input.id, input.map])
+	const scope = extendEnv(env, [[node.input.id, input.map]])
 	return distinctSelect(
 		headingTargets(node.heading, input.map),
 		[input.item],

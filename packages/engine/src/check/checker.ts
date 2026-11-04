@@ -10,6 +10,7 @@ import type {
 	ParamTable,
 	Resolved,
 	ResolvedAttach,
+	ResolvedBound,
 	ResolvedExpr,
 	ResolvedHead,
 	ResolvedInterior,
@@ -41,7 +42,7 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
-import { relNode } from "#compiler/ir/dag.ts"
+import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
 import {
 	descText,
 	type FieldDesc,
@@ -51,14 +52,11 @@ import {
 } from "#compiler/ir/desc.ts"
 
 import {
-	describeOp,
 	type ExprSpec,
-	type ExprSpec as IrExprSpec,
+	type DefinedOp,
 	type TypedLiteral,
 	OpId,
-	ownEffects,
 	type ParamRole,
-	rangeOp,
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
 import { headingColumns } from "#compiler/ir/law.ts"
@@ -95,18 +93,27 @@ import {
 	type LowerEnv,
 	type Lowered,
 	type LowerParams,
+	loweredOf,
 	lowerPredicate,
 	lowerTerm,
-	typeOnly
+	type ParamRef
 } from "#compiler/scalar/compute/lower.ts"
-import { type NativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
+import {
+	binaryCoercion,
+	definedIdOf,
+	definedRangeOp,
+	overloadOf
+} from "#compiler/scalar/compute/registry.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
 import {
 	compatible,
+	meetingType,
+	meets,
 	type PlainCarrier,
 	plainType,
 	valueType,
 	wildcardText,
+	widening,
 	withoutSerial,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
@@ -120,16 +127,6 @@ import { regexMember } from "#compiler/text/refinement.ts"
  * ChangeSet does not write is empty, which the write program supplies.
  */
 export type QueryRead = "rows" | "page" | "readBack" | "membership"
-
-/**
- * The operations a description may use. A query reads `any`: an operation that can raise is an admitted typed outcome.
- * A query entry's definition reads `total` only: its role's view evaluates the definition's own expressions on facts
- * outside the world, since PostgreSQL orders a view's quals by cost and the barrier orders only the view against its
- * reader, so an operation that can raise (ir/expr.ts ownEffects: a division, arithmetic that can overflow, a cast into
- * a contract or refinement, a narrowing cast, an aggregate whose accumulation can overflow) would let a fact outside
- * the world fail a read inside it.
- */
-export type Operations = "any" | "total"
 
 export interface CheckOptions {
 	readonly read: QueryRead
@@ -162,7 +159,7 @@ interface ParentScope {
 /**
  * What an imported query's parameter is bound to: one of the importer's own parameters, a typed
  * constant, or an outer value read through a column of the importer's region. A constant carries the bind entry where
- * it was written: it adopts the type of its use inside the import, and a refusal of it names the bind entry.
+ * it was written: it is admitted at the imported parameter's declared type, and a refusal of it names the bind entry.
  */
 type BindValue =
 	| { readonly kind: "param"; readonly cell: ParamCell }
@@ -318,9 +315,9 @@ interface PendingOccurrence {
 
 /**
  * A literal head column of an arm: its IR literal at the column's type, and what typed it. A fixed literal's type is
- * the one it states (X.handle, Compute.literal, a typed parameter literal) or the written column's; a bare literal
- * (r.literal, an untyped parameter literal) meets no term in its rule, so its type there is its value's JavaScript
- * default (Checker bareLiteralType), which a union retypes by its position, the type the arms that deliver the column
+ * the one it states (X.handle, Compute.literal), the declared type of the imported parameter it is bound to, or the
+ * written column's; a bare literal (a JavaScript value in a head) meets no term in its rule, so its type there is its
+ * value's JavaScript default (Checker bareLiteralType), which a union retypes by its position, the type the arms that deliver the column
  * by a term agree on (Checker #positionedTypes).
  */
 type HeadLiteral =
@@ -428,7 +425,7 @@ const compareType = (t: ScalarType): ScalarType => {
 }
 
 /**
- * The type a literal or parameter adopts opposite a term of type t in a comparison: the contract and its refinements
+ * The type a bare literal adopts opposite a term of type t in a comparison: the contract and its refinements
  * when it has one, otherwise the value type, a numeric typmod widened and a span's fixed width dropped
  * (scalar/compute/lower.ts Lowering.adopt).
  */
@@ -547,9 +544,11 @@ type Folded =
 	  }
 	| { readonly kind: "producer"; readonly producer: readonly [string, ProducerHead] }
 
-/** Whether a term is a parameter or an untyped literal, which takes the type of the term it meets. */
-const isBareTerm = (d: ResolvedExpr): boolean =>
-	d.kind === "param" || (d.kind === "literal" && d.type === undefined)
+/** Whether a term is an untyped literal, which takes the type of the term it meets. */
+const isBareLiteral = (d: ResolvedExpr): boolean => d.kind === "literal" && d.type === undefined
+
+/** A scalar parameter reference: its cell and its declared type. */
+type ParamExpr = ParamRef<Resolved>
 
 /** The key of a heading: its column names, sorted. */
 const headingKey = (h: Heading): string =>
@@ -558,11 +557,19 @@ const headingKey = (h: Heading): string =>
 		.toSorted(compareStrings)
 		.join("\u0000")
 
+/** The attachment names of rows that carry none. */
+const carriesNone: ReadonlySet<string> = new Set()
+
 /** Named things in code unit order of their names. */
 const byName: Comparator<{ readonly name: string }> = mapInput(
 	compareStrings,
 	(named: { readonly name: string }) => named.name
 )
+
+/** The one widening (types.ts widening) of a value of `from` into `to`, refused where `to` widens none of it. */
+const widened = (from: ScalarType, to: ScalarType, loc: SourceLoc): DefinedOp =>
+	widening(from, to) ??
+	fail("UnsupportedOperation", loc, `a widening of ${typeLabel(from)} into ${typeLabel(to)}`)
 
 const sameTypes = (types: NonEmptyReadonlyArray<ScalarType>): boolean =>
 	types.every((t) => sameScalarType(t, types[0]))
@@ -610,8 +617,9 @@ const bareOf = (head: HeadLiteral | undefined): BareLiteral | undefined =>
 	head?.kind === "bare" ? head : undefined
 
 /**
- * The columns every group delivers at compatible types, in the first heading's order, each with the guarantees common
- * to all that every group's target widens it to, or undefined when every group delivers it at one type.
+ * The columns every group delivers, in the first heading's order, each with the guarantees common to all that every
+ * group's target widens it to, or undefined when every group delivers it at one type. Groups deliver every column they
+ * share at compatible types (Checker.union refuses any other).
  */
 const commonColumnsOf = (
 	firstHeading: Heading,
@@ -623,10 +631,7 @@ const commonColumnsOf = (
 			if (known === undefined) {
 				return []
 			}
-			if (sameTypes(known)) {
-				return [{ name: c.name, widen: undefined }]
-			}
-			return compatibleTypes(known) ? [{ name: c.name, widen: refinement.common(known) }] : []
+			return [{ name: c.name, widen: sameTypes(known) ? undefined : refinement.common(known) }]
 		}
 	)
 
@@ -670,24 +675,6 @@ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
 	return { kind: "literal", k }
 }
 
-/** An operation as a refusal names it: an operator or function by its catalog signature, a cast by its target. */
-const operationText = (spec: IrExprSpec): string => {
-	switch (spec.kind) {
-		case "op":
-			return `operator ${describeOp(spec.op)}`
-		case "cast":
-			return `the narrowing cast to ${typeLabel(spec.type)}`
-		case "domainCast":
-			return `the cast into ${typeLabel(spec.type)}`
-		case "column":
-		case "value":
-		case "param":
-		case "literal":
-		case "cond":
-			return `a ${spec.kind}`
-	}
-}
-
 /**
  * The checker: a ResolvedQuery to a LogicalQuery DAG.
  *
@@ -708,8 +695,11 @@ const operationText = (spec: IrExprSpec): string => {
  *   is added by a projection over the groups, so no literal is ever a grouping item.
  * - Arms are a Union, grouped by heading. Arms of different headings need a literal discriminant: the columns present in
  *   every arm and bound to a literal in every head, with differing literal tuples for arms of different headings
- *   (MissingDiscriminant); the roster-typed ones alone when they tell the groups apart. A column several
- *   arms deliver keeps the guarantees common to them all (refinement/).
+ *   (MissingDiscriminant); the roster-typed ones alone when they tell the groups apart. A bare head literal is typed
+ *   by its position across the whole union (#positions). A column several arms deliver keeps the guarantees common to
+ *   them all (refinement/). A match or negation of a query selects the arms its constants may meet, refusing
+ *   constants no arm delivers, and narrows a union of several headings to them (RuleCheck #narrow). An arm whose rows
+ *   carry an attachment, its own or under a take or a name, shares its heading with no other arm (Checker.union).
  * - orderBy is completed to a total order: an Ordered query delivers an OrderedResult, take a Take,
  *   an ordered attachment the order on its Attach. Each is built with the conservative completion, the remaining
  *   heading, and once the DAG is whole order.ts completes the stated order under the logical keys instead, so the
@@ -741,7 +731,6 @@ export class Checker {
 	readonly b: DagBuilder
 	readonly meter: BudgetMeter
 	readonly params: ParamTable
-	readonly #operations: Operations
 	/**
 	 * The literal head columns of every arm node, for typing a bare one by its position in a union, for discriminants
 	 * and for narrowing a matched union.
@@ -752,14 +741,20 @@ export class Checker {
 		RelNode,
 		{ readonly arms: NonEmptyReadonlyArray<RelNode>; readonly discriminant: ReadonlyArray<string> }
 	>()
-	/** The attachment names a node already carries. */
+	/**
+	 * The heading each union arm a widening projection rewrote delivered before it was widened (#widenArm): its columns'
+	 * own types, which bound the values the arm delivers, for selecting a matched union's arms (RuleCheck #delivers).
+	 */
+	readonly #delivered = new Map<RelNode, Heading>()
+	/**
+	 * The attachment names each node's rows carry, never empty: an Attach's and its parent's, those of the rows a node
+	 * keeps (#inherit) and those of every arm of a union. A node it holds none for carries none (#carried).
+	 */
 	readonly #attached = new Map<RelNode, ReadonlySet<string>>()
 	/** Contracts the query declares itself, for DuplicateIdentity. */
 	readonly #contracts = new Map<string, { text: string; loc: SourceLoc }>()
 	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
 	readonly #contexts = new Map<string, { text: string; loc: SourceLoc }>()
-	/** Head parameters no use had typed when the head was checked, with where they were. */
-	readonly pendingHeadParams = new Map<ParamCell, SourceLoc>()
 	/**
 	 * The order the user stated for each Take, OrderedResult and ordered Attach, completed once the DAG is built
 	 * (order.ts).
@@ -771,15 +766,9 @@ export class Checker {
 	readonly #searches = new Map<string, RelNode>()
 
 	/** `params` are the cells of the resolved description the checker checks (params.ts resolveQuery). */
-	constructor(
-		schema: SchemaReading,
-		options: CheckOptions,
-		params: ParamTable,
-		operations: Operations
-	) {
+	constructor(schema: SchemaReading, options: CheckOptions, params: ParamTable) {
 		this.schema = schema
 		this.options = options
-		this.#operations = operations
 		this.b = new DagBuilder(makeIdSupply())
 		this.meter = options.meter
 		this.params = params
@@ -788,29 +777,6 @@ export class Checker {
 	/** Records an expression, built over its arguments with its effects (ir/expr.ts builtExpr). */
 	emit(spec: ExprSpec): ScalarExpr {
 		return this.b.expr(spec)
-	}
-
-	/**
-	 * Refuses, in a description of total operations only, an operation that can raise (Operations): every rule of the
-	 * description reads it.
-	 */
-	requireTotal(canFail: boolean, loc: SourceLoc, operation: () => string): void {
-		if (this.#operations === "total" && canFail) {
-			fail(
-				"UnsupportedOperation",
-				loc,
-				`a query entry's definition of total operations only: ${operation()} can raise, and the role's view evaluates its definition on facts outside the world, so a fact outside it would fail every read; compute it in a program over the role`
-			)
-		}
-	}
-
-	/**
-	 * An expression the scalar lowering records at `loc`, refused where it can raise of itself in a description of total
-	 * operations only. Its arguments were recorded first, so a whole expression is total when every node of it is.
-	 */
-	#lowered(spec: IrExprSpec, loc: SourceLoc): ScalarExpr {
-		this.requireTotal(ownEffects(spec).failure === "canFail", loc, () => operationText(spec))
-		return this.emit(spec)
 	}
 
 	#charge(spec: CheckedNodeSpec, loc: SourceLoc): void {
@@ -846,6 +812,21 @@ export class Checker {
 
 	fieldType(desc: FieldDesc, loc: SourceLoc): ScalarType {
 		return this.schema.queryFieldType(desc, loc, this.#contracts)
+	}
+
+	/**
+	 * A scalar parameter's declared type, its serial its integer (lower.ts Lowering.param). A channel the checker writes
+	 * declares none: its import binds it to a column, which every use of it reads.
+	 */
+	paramType(param: ParamExpr, loc: SourceLoc): ScalarType {
+		if (param.type.kind === "channel") {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`parameter ${param.cell.name} bound to a column: a channel of a factored recursion is read as its column`
+			)
+		}
+		return withoutSerial(this.fieldType(param.type, loc))
 	}
 
 	services(): ScopedServices<Scope> {
@@ -1069,11 +1050,31 @@ export class Checker {
 		}
 	}
 
+	/** The attachment names a node's rows carry (#attached). */
+	#carried(node: RelNode): ReadonlySet<string> {
+		return this.#attached.get(node) ?? carriesNone
+	}
+
 	/**
-	 * A union fact can come from several arms of one heading, so which arm's attachment it would carry
-	 * is undetermined.
+	 * A union fact can come from several arms of one heading, so which arm's attachment it would carry is undetermined:
+	 * an arm whose rows carry an attachment (#carried), through whatever stage keeps its rows, shares its heading with no
+	 * other arm. The union's rows carry every arm's attachments.
+	 *
+	 * A union of several headings delivers each heading group only as a query's result (ir/dag.ts deliverySpine): a
+	 * take, an attachment or any stage over it has the columns its groups share for its heading, so as an arm it would
+	 * deliver those alone, and is refused.
 	 */
 	union(arms: NonEmptyReadonlyArray<RelNode>, loc: SourceLoc): RelNode {
+		for (const arm of arms) {
+			const ends = deliverySpine(arm).arms?.union
+			if (ends !== undefined && ends.groups.length > 1) {
+				fail(
+					"UnsupportedOperation",
+					loc,
+					"an arm over a union of several headings: only a query's result delivers each heading group, and an arm would deliver the columns they share alone"
+				)
+			}
+		}
 		const [first, ...more] = arms
 		type Group = { readonly key: string; readonly arms: [RelNode, ...Array<RelNode>] }
 		const groups: [Group, ...Array<Group>] = [{ key: headingKey(first.heading), arms: [first] }]
@@ -1087,7 +1088,7 @@ export class Checker {
 			}
 		}
 		for (const g of groups) {
-			if (g.arms.length > 1 && g.arms.some((a) => a.kind === "Attach")) {
+			if (g.arms.length > 1 && g.arms.some((a) => this.#carried(a).size > 0)) {
 				fail(
 					"UnsupportedOperation",
 					loc,
@@ -1095,10 +1096,25 @@ export class Checker {
 				)
 			}
 		}
+		const positions = this.#positions(arms)
 		const targets = mapNonEmpty(groups, (g) => ({
 			arms: g.arms,
-			target: this.#groupTarget(g.arms, loc)
+			target: this.#groupTarget(g.arms, positions, loc)
 		}))
+		for (const [gi, g] of targets.entries()) {
+			for (const earlier of targets.slice(0, gi)) {
+				for (const [name, type] of g.target) {
+					const known = earlier.target.get(name)
+					if (known !== undefined && !compatible(known, type)) {
+						fail(
+							"MalformedDescription",
+							loc,
+							`arms of one query with one type per column they share; ${name} is ${typeLabel(known)} and ${typeLabel(type)}`
+						)
+					}
+				}
+			}
+		}
 		const firstHeading = first.heading
 		const commonColumns = groups.length > 1 ? commonColumnsOf(firstHeading, targets) : []
 		const widenings = commonColumns.flatMap(({ name, widen }) =>
@@ -1111,7 +1127,13 @@ export class Checker {
 		}
 		const common = commonColumns.map(({ name }) => name)
 		const widened = mapNonEmpty(targets, (g) => ({
-			arms: mapNonEmpty(g.arms, (a) => this.#widenArm(a, g.target, loc))
+			arms: mapNonEmpty(g.arms, (a) => {
+				const w = this.#widenArm(a, g.target, loc)
+				if (w !== a) {
+					this.#delivered.set(w, this.deliveredOf(a))
+				}
+				return w
+			})
 		}))
 		let discriminant: ReadonlyArray<string> = []
 		if (widened.length > 1) {
@@ -1178,7 +1200,42 @@ export class Checker {
 			...moreWidened.flatMap((g) => g.arms)
 		]
 		this.#unions.set(node, { arms: flat, discriminant })
+		const carried = new Set(arms.flatMap((a) => [...this.#carried(a)]))
+		if (carried.size > 0) {
+			this.#attached.set(node, carried)
+		}
 		return node
+	}
+
+	/**
+	 * The type the arms of every heading group that deliver each column by a term or a fixed literal agree on: the
+	 * position of a bare head literal of the column in a group that delivers it by none (#positionedTypes), so a value
+	 * beside a typed constant of another heading is typed alike (Tone.handle("low") in one arm, "mid" in another).
+	 */
+	#positions(arms: NonEmptyReadonlyArray<RelNode>): ReadonlyMap<string, ScalarType> {
+		const typed = new Map<string, Array<ScalarType>>()
+		for (const a of arms) {
+			const literals = this.#literals.get(a)
+			for (const column of a.heading) {
+				if (bareOf(literals?.get(column.name)) !== undefined) {
+					continue
+				}
+				const known = typed.get(column.name)
+				if (known === undefined) {
+					typed.set(column.name, [column.type])
+				} else {
+					known.push(column.type)
+				}
+			}
+		}
+		const positions = new Map<string, ScalarType>()
+		for (const [name, types] of typed) {
+			const agreed = agreedType(types)
+			if (agreed !== undefined) {
+				positions.set(name, agreed)
+			}
+		}
+		return positions
 	}
 
 	/**
@@ -1186,7 +1243,11 @@ export class Checker {
 	 * (#positionedTypes): the type all its arms share, or the guarantees common to them. The arms of one group share the
 	 * heading's column names.
 	 */
-	#groupTarget(arms: NonEmptyReadonlyArray<RelNode>, loc: SourceLoc): Map<string, ScalarType> {
+	#groupTarget(
+		arms: NonEmptyReadonlyArray<RelNode>,
+		positions: ReadonlyMap<string, ScalarType>,
+		loc: SourceLoc
+	): Map<string, ScalarType> {
 		/** Each column of the group, in the first arm's heading order, as every arm delivers it, in arm order. */
 		const delivered = new Map<string, [Delivered, ...Array<Delivered>]>()
 		for (const a of arms) {
@@ -1203,22 +1264,28 @@ export class Checker {
 		}
 		const target = new Map<string, ScalarType>()
 		for (const [name, columns] of delivered) {
-			target.set(name, groupColumnType(this.#positionedTypes(columns), columns[0].column, loc))
+			target.set(
+				name,
+				groupColumnType(this.#positionedTypes(columns, positions.get(name)), columns[0].column, loc)
+			)
 		}
 		return target
 	}
 
 	/**
 	 * The type each arm of a group delivers a column at, a bare head literal typed by its position, never by an equal
-	 * literal of another arm: it takes the type the arms that deliver the column by a term or a fixed literal agree on,
-	 * when it is a value of that type, and otherwise keeps the type it has, its value's JavaScript default or the type an
-	 * earlier union's position gave it, which is how a union narrowed to some of its arms keeps the types the whole union
-	 * gave them.
+	 * literal of another arm: it takes the type the group's arms that deliver the column by a term or a fixed literal
+	 * agree on, or, where none of them does, the union's `position` (#positions), when it is a value of that type, and
+	 * otherwise keeps the type it has, its value's JavaScript default or the type an earlier union's position gave it,
+	 * which is how a union narrowed to some of its arms keeps the types the whole union gave them.
 	 */
-	#positionedTypes(delivered: NonEmptyReadonlyArray<Delivered>): NonEmptyReadonlyArray<ScalarType> {
-		const agreed = agreedType(
-			delivered.flatMap((d) => (d.bare === undefined ? [d.column.type] : []))
-		)
+	#positionedTypes(
+		delivered: NonEmptyReadonlyArray<Delivered>,
+		position: ScalarType | undefined
+	): NonEmptyReadonlyArray<ScalarType> {
+		const agreed =
+			agreedType(delivered.flatMap((d) => (d.bare === undefined ? [d.column.type] : []))) ??
+			position
 		return mapNonEmpty(delivered, (d) =>
 			d.bare !== undefined && agreed !== undefined && this.schema.admits(d.bare.value, agreed)
 				? agreed
@@ -1228,7 +1295,8 @@ export class Checker {
 
 	/**
 	 * An arm whose columns take a wider type than it delivers, rewritten by a projection that casts them; its literal
-	 * columns stay literals, retyped, so it keeps its discriminant.
+	 * columns stay literals, retyped, so it keeps its discriminant. A projection keeps no attachment of the rows it
+	 * reads, so an arm whose rows carry one (#carried) is refused.
 	 */
 	#widenArm(arm: RelNode, target: ReadonlyMap<string, ScalarType>, loc: SourceLoc): RelNode {
 		const heading = arm.heading
@@ -1240,7 +1308,7 @@ export class Checker {
 		if (changed === undefined) {
 			return arm
 		}
-		if (arm.kind === "Attach") {
+		if (this.#carried(arm).size > 0) {
 			fail(
 				"UnsupportedOperation",
 				loc,
@@ -1269,7 +1337,7 @@ export class Checker {
 				name: c.name,
 				expr: this.emit({
 					kind: "cast",
-					checked: false,
+					cast: widened(c.type, t, loc),
 					args: [col],
 					type: t,
 					nonNull: "strict",
@@ -1321,7 +1389,7 @@ export class Checker {
 				`an attachment name distinct from the parent's columns; ${desc.name} is a column`
 			)
 		}
-		const carried = this.#attached.get(parent) ?? new Set<string>()
+		const carried = this.#carried(parent)
 		if (carried.has(desc.name)) {
 			fail("MalformedDescription", loc, `one attachment per name; ${desc.name} is attached twice`)
 		}
@@ -1462,7 +1530,7 @@ export class Checker {
 		scope: Scope,
 		interiors: ReadonlyArray<ResolvedInterior>,
 		loc: SourceLoc,
-		bind: (term: ResolvedExpr, param: string, loc: SourceLoc) => BindValue
+		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
 	): RelNode {
 		switch (src.kind) {
 			case "relation": {
@@ -1636,7 +1704,7 @@ export class Checker {
 	#importSource(
 		src: Extract<ResolvedSource, { readonly kind: "query" }>,
 		loc: SourceLoc,
-		bind: (term: ResolvedExpr, param: string, loc: SourceLoc) => BindValue
+		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
 	): RelNode {
 		const values = new Map<string, BindValue>()
 		for (const [param, term] of entries(src.bind)) {
@@ -1684,15 +1752,13 @@ export class Checker {
 	}
 
 	/**
-	 * A relation parameter's or a row's declared heading: at least one field, each typed, a serial declaration read as its
-	 * carrier.
+	 * A relation parameter's or a row's declared heading: each field typed, a serial declaration read as its carrier. A
+	 * heading of no field is the unit relation (ir/rel.ts Heading), as the fill of a generated addition into a query entry
+	 * whose every carried field is serial declares; a user's relation parameter has a field, which its builder, the
+	 * Description's decoder and its type refuse otherwise.
 	 */
 	#declaredHeading(declared: Readonly<Record<string, FieldDesc>>, loc: SourceLoc): Heading {
-		const fields = entries(declared)
-		if (fields.length === 0) {
-			fail("MalformedDescription", loc, "a relation parameter or a row with at least one field")
-		}
-		return fields.map(([name, d]) => ({
+		return entries(declared).map(([name, d]) => ({
 			name,
 			type: withoutSerial(this.fieldType(d, childLoc(loc, name)))
 		}))
@@ -1728,10 +1794,10 @@ export class Checker {
 			loc: SourceLoc
 		) => { readonly name: string; readonly type: ScalarType }
 	): QueryEnv {
-		const env: QueryEnv = {
+		return {
 			mode: "query",
 			loc,
-			emit: (spec) => this.#lowered(spec, loc),
+			emit: (spec) => this.emit(spec),
 			leaf: (desc, at) =>
 				catchRefusal(() => {
 					const c = leaf(desc, at)
@@ -1739,24 +1805,23 @@ export class Checker {
 				}),
 			params: {
 				kind: "scope",
-				lower: ({ cell }, type, at) =>
-					catchRefusal(() => this.#paramUse(cell, type, at, scope, node, paramColumn))
+				lower: (param, at) =>
+					catchRefusal(() => this.#paramUse(param, at, scope, node, paramColumn))
 			},
 			fieldType: (desc, at) =>
 				catchRefusal(() => this.schema.queryFieldType(desc, at, this.#contracts)),
 			regexMember,
-			extension: (desc, at, lower) => catchRefusal(() => this.#extension(desc, lower, at, env))
+			extension: (desc, at, lower) => catchRefusal(() => this.#extension(desc, lower, at))
 		}
-		return env
 	}
 
 	/**
-	 * A parameter meeting a term of `type` inside an expression: bound as its base type, or replaced by
-	 * what an import's bind map binds it to.
+	 * A parameter inside an expression, of its declared type: bound as the type's base, or replaced by what an import's
+	 * bind map binds it to, a literal then admitted at the type and a column compatible with it; a channel the checker
+	 * writes is the column it is bound to, at the column's type.
 	 */
 	#paramUse(
-		cell: ParamCell,
-		type: ScalarType,
+		param: ParamExpr,
 		loc: SourceLoc,
 		scope: Scope,
 		node: NodeId,
@@ -1764,63 +1829,83 @@ export class Checker {
 			cell: ParamCell,
 			loc: SourceLoc
 		) => { readonly name: string; readonly type: ScalarType }
-	): ExprSpec {
+	): { readonly spec: ExprSpec; readonly type: ScalarType } {
+		const cell = param.cell
 		const resolved = this.#resolveParam(cell, scope, loc)
-		switch (resolved.kind) {
-			case "param":
-				return paramSpec(resolved.cell.use(type, loc), "compare", compareType(type))
-			case "literal":
-				return boundConstant(this.schema, resolved, type)
-			case "column": {
-				const c = paramColumn(cell, loc)
-				if (!compatible(c.type, type)) {
-					fail(
-						"MalformedDescription",
-						loc,
-						`operands of one type: the variable bound to parameter ${cell.name} is ${typeLabel(c.type)}, used as ${typeLabel(type)}`
-					)
-				}
-				return columnSpec(node, c.name, c.type)
+		if (resolved.kind === "column") {
+			const c = paramColumn(cell, loc)
+			const spec = columnSpec(node, c.name, c.type)
+			if (param.type.kind === "channel") {
+				return { spec, type: c.type }
 			}
+			const type = this.paramType(param, loc)
+			if (!compatible(c.type, type)) {
+				fail(
+					"MalformedDescription",
+					loc,
+					`operands of one type: the variable bound to parameter ${cell.name} is ${typeLabel(c.type)}, declared ${typeLabel(type)}`
+				)
+			}
+			return { spec, type }
 		}
+		const type = this.paramType(param, loc)
+		return resolved.kind === "param"
+			? { spec: paramSpec(resolved.cell.use(type, loc), "compare", compareType(type)), type }
+			: { spec: boundConstant(this.schema, resolved, type), type }
 	}
 
-	/** One immutable operator node over `args`, which can fail by itself where `canFail`. */
-	#opNode(
-		op: OpId,
-		canFail: boolean,
-		args: ReadonlyArray<ScalarExpr>,
-		type: ScalarType
-	): ScalarExpr {
+	/** One immutable operator node over `args`, of an overload defined on every value its operands admit. */
+	#opNode(op: DefinedOp, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
 		return this.emit({
 			kind: "op",
 			op,
 			args,
 			type,
 			nonNull: "strict",
-			volatility: "immutable",
-			failure: canFail ? "canFail" : "total"
+			volatility: "immutable"
 		})
 	}
 
-	#op(op: NativeOp, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
-		return this.#opNode(op.id, op.failures.length > 0, args, type)
-	}
-
+	/**
+	 * A connective, or an equality of two operands of one type or of a plain integer or money and an exact value of its
+	 * family: the plain one widened into the exact carrier, as the comparison Compute writes is (lower.ts comparison).
+	 */
 	opNamed(
 		fn: "eq" | "and" | "not" | "or",
-		args: ReadonlyArray<ScalarExpr>,
+		given: ReadonlyArray<ScalarExpr>,
 		loc: SourceLoc
 	): ScalarExpr {
 		const bool = plainType("bool")
+		const [left, right] = given
+		const args =
+			fn !== "eq" || left === undefined || right === undefined
+				? given
+				: (
+						[
+							[left, right],
+							[right, left]
+						] as const
+					).map(([a, partner]) => {
+						const at = meetingType(a.type, partner.type)
+						return at === a.type
+							? a
+							: this.emit({
+									kind: "cast",
+									cast: widened(a.type, at, loc),
+									args: [a],
+									type: at,
+									nonNull: "strict",
+									volatility: "immutable"
+								})
+					})
 		const carriers =
 			fn === "eq" ? args.map((a) => baseOf(a.type).carrier) : ([bool.carrier] as const)
 		const op = overloadOf(fn, carriers)
-		if (op === undefined) {
+		const id = op === undefined ? undefined : definedIdOf(op)
+		if (id === undefined) {
 			return fail("UnsupportedOperation", loc, `${fn} over ${carriers.join(", ")}`)
 		}
-		this.requireTotal(op.failures.length > 0, loc, () => `operator ${describeOp(op.id)}`)
-		return this.#op(op, args, bool)
+		return this.#opNode(id, args, bool)
 	}
 
 	conjunction(preds: ReadonlyArray<ScalarExpr>, loc: SourceLoc): ScalarExpr {
@@ -1831,32 +1916,19 @@ export class Checker {
 	 * r.allen and r.pointIn, lowered to the range operators of the shipped Allen table (check/allen.ts allenExpr, the
 	 * one IR spelling of a mask); r.not is a rule-level filter, never a scalar operand.
 	 *
-	 * A window parameter or literal takes its type from the point: a span over the point's type, as
-	 * r.pointIn(t, window) writes a time window, bound as the base range type.
+	 * A window literal takes its type from the point: a span over the point's type, as r.pointIn(t, window) writes a
+	 * time window. A parameter is a term of its declared type.
 	 */
 	#extension(
 		desc: Extract<ResolvedExpr, { readonly kind: "allen" | "pointIn" | "absent" }>,
 		lower: (child: ResolvedExpr) => Result.Result<Lowered, CompileError>,
-		loc: SourceLoc,
-		env: QueryEnv
+		loc: SourceLoc
 	): Lowered {
 		const bool = plainType("bool")
-		const lowered = (s: ScalarExpr): Lowered => {
-			return {
-				expr: s,
-				nominal: s.type,
-				actual: s.type,
-				volatility: s.volatility,
-				failure: s.failure,
-				known: typeOnly
-			}
-		}
-		/** A parameter or literal operand adopts `against`'s type; anything else is a term of a compatible type. */
+		const lowered = loweredOf
+		/** A bare literal operand adopts `against`'s type; anything else, a parameter among them, meets it compatibly. */
 		const operand = (d: ResolvedExpr, against: ScalarType, at: SourceLoc): ScalarExpr => {
 			const adopted = adoptCompare(against)
-			if (d.kind === "param") {
-				return this.emit(unwrap(env.params.lower(d, adopted, at)))
-			}
 			if (d.kind === "literal" && d.type === undefined) {
 				return this.emit(literalSpec(this.schema.literal(d.value, adopted, at), adopted))
 			}
@@ -1875,11 +1947,11 @@ export class Checker {
 			d: ResolvedExpr,
 			at: SourceLoc
 		): Lowered & { readonly span: SpanBase["span"]; readonly carrier: SpanCarrier } => {
-			if (isBareTerm(d)) {
+			if (isBareLiteral(d)) {
 				return fail(
 					"MalformedDescription",
 					at,
-					"a span term here; a parameter or literal takes the type of the term it meets"
+					"a span term here; a literal takes the type of the term it meets"
 				)
 			}
 			const t = unwrap(lower(d))
@@ -1912,23 +1984,22 @@ export class Checker {
 			}
 			case "pointIn": {
 				const at = childLoc(loc, "pointIn", "span")
-				if (!isBareTerm(desc.span)) {
+				if (!isBareLiteral(desc.span)) {
 					const span = spanTerm(desc.span, at)
 					const point = operand(desc.point, span.span.endpoint, childLoc(loc, "pointIn", "point"))
 					return lowered(
 						this.#opNode(
-							rangeOp("range_contains_elem", span.carrier),
-							false,
+							definedRangeOp("range_contains_elem", span.carrier),
 							[span.expr, point],
 							bool
 						)
 					)
 				}
-				if (isBareTerm(desc.point)) {
+				if (isBareLiteral(desc.point)) {
 					return fail(
 						"MalformedDescription",
 						childLoc(loc, "pointIn"),
-						"a term on one side of pointIn; a parameter or literal takes the type of the term it meets"
+						"a term on one side of pointIn; a literal takes the type of the term it meets"
 					)
 				}
 				const point = unwrap(lower(desc.point))
@@ -1943,7 +2014,7 @@ export class Checker {
 				const span = operand(desc.span, window.value, at)
 				const carrier = window.value.carrier
 				return lowered(
-					this.#opNode(rangeOp("range_contains_elem", carrier), false, [span, point.expr], bool)
+					this.#opNode(definedRangeOp("range_contains_elem", carrier), [span, point.expr], bool)
 				)
 			}
 		}
@@ -1995,6 +2066,17 @@ export class Checker {
 		  }
 		| undefined {
 		return this.#unions.get(node)
+	}
+
+	/** The arms a match selects among (RuleCheck #selected): a union's, a bounded union's, or the node as its one arm. */
+	armsOf(node: RelNode): NonEmptyReadonlyArray<RelNode> {
+		const arm = node.kind === "Take" ? node.input : node
+		return this.#unions.get(arm)?.arms ?? [arm]
+	}
+
+	/** The heading an arm delivered before a union widened it (#delivered), its own where none did. */
+	deliveredOf(node: RelNode): Heading {
+		return this.#delivered.get(node) ?? node.heading
 	}
 
 	/** A node over `from` that delivers `from`'s rows: it keeps `from`'s literal columns and attachments. */
@@ -2135,7 +2217,7 @@ class RuleCheck {
 	 * Slots: the parent variables an attachment's child delivers, the parameters an import binds to outer values, and
 	 * the rule's own variables, named by the field `v` took them from.
 	 */
-	#declare(leaves: Leaves<Resolved["param"]>): void {
+	#declare(leaves: Leaves<Resolved["param"], Resolved["paramType"]>): void {
 		for (const v of this.rule.vars) {
 			this.decls.set(v.id, v)
 		}
@@ -2189,7 +2271,6 @@ class RuleCheck {
 				firstColumn.set(e.var, column)
 			}
 		}
-		this.#oneVariablePerField()
 		for (const v of this.rule.vars) {
 			const first = firstColumn.get(v.id)
 			if (first === undefined) {
@@ -2200,60 +2281,6 @@ class RuleCheck {
 				id: this.cx.b.ids.var(),
 				name: this.fresh(v.origin === undefined ? first : v.origin.field)
 			})
-		}
-	}
-
-	/**
-	 * R1: the variables the rule's matches bind that were minted at one field are one variable, unless the rule matches
-	 * that field's relation more than once. A variable's identity is then its origin, as TypeScript reads it, so the
-	 * type-level key proofs pass through joins. A second variable minted at the field is refused with the rewrite that
-	 * keeps the query: mint it where it is bound, or match the relation again. It refuses a spelling, never a query.
-	 */
-	#oneVariablePerField(): void {
-		const matched = new Map<string, number>()
-		/** The source and column each variable is first bound at. */
-		const boundAt = new Map<
-			string,
-			{ readonly source: string | undefined; readonly column: string }
-		>()
-		for (const m of this.rule.matches) {
-			const name =
-				m.source.kind === "relation"
-					? m.source.name
-					: m.source.kind === "context"
-						? m.source.context.name
-						: undefined
-			if (name !== undefined) {
-				matched.set(name, (matched.get(name) ?? 0) + 1)
-			}
-			for (const [column, e] of entries(m.bindings)) {
-				if (e.kind === "var" && !boundAt.has(e.var)) {
-					boundAt.set(e.var, { source: name, column })
-				}
-			}
-		}
-		const minted = new Map<string, Map<string, VarDesc>>()
-		for (const v of this.rule.vars) {
-			const at = boundAt.get(v.id)
-			if (v.origin === undefined || at === undefined || (matched.get(v.origin.relation) ?? 0) > 1) {
-				continue
-			}
-			const { relation, field } = v.origin
-			const fields = minted.get(relation) ?? new Map<string, VarDesc>()
-			minted.set(relation, fields)
-			const prior = fields.get(field)
-			if (prior === undefined) {
-				fields.set(field, v)
-				continue
-			}
-			const where =
-				at.source === undefined ? `column ${at.column} of a source` : `${at.source}.${at.column}`
-			const mint = at.source === undefined ? "v(source)" : `v(${at.source})`
-			fail(
-				"MalformedDescription",
-				v.loc,
-				`one variable minted at ${relation}.${field} in a rule that matches ${relation} at most once; a second one is bound at ${where}: mint it where it is bound, ${mint}.${at.column}, or match ${relation} again`
-			)
 		}
 	}
 
@@ -2391,7 +2418,7 @@ class RuleCheck {
 				loc,
 				(term, param, at) => this.#bindValue(term, param, at)
 			)
-			const narrowed = this.#narrow(source, match, loc)
+			const narrowed = this.#narrow(source, match.bindings, loc)
 			const heading = narrowed.heading
 			const bindings = entries(match.bindings).flatMap(([column, e]) => {
 				const col = this.#column(
@@ -2434,11 +2461,19 @@ class RuleCheck {
 	}
 
 	/**
-	 * A matched union of several headings with discriminant columns bound to literals selects the arms those literals
-	 * name, whose own columns the match may then bind. The discriminant is the common columns literal in
-	 * every arm, so arms may share a constant literal column beside the ones that tell them apart: the arms
-	 * are selected by the discriminant columns the match binds to literals, and a column it leaves unbound selects
-	 * nothing. Whether every selected arm delivers each column the match binds is decided by #column over their union.
+	 * The source a match or a negation reads, narrowed to the arms its constants select (the types' LiteralArms,
+	 * types/query/terms.ts). Each constant the bindings give a column of the source's heading, a value of the column's
+	 * type, selects the arms that may deliver it: an arm holding a head literal at the column when the literal is the
+	 * value, typed at the column, and any other arm when the value is one of the type the arm delivers the column at
+	 * before a union widened it. Constants that select no arm are a filter no fact of the source meets, refused alike by
+	 * the types (DeadConstants): "no arm of the source delivers the bound constants". A source that is no query, a
+	 * relation, a context, a relation parameter, delivers every value of its columns' types, so its constants select
+	 * it.
+	 *
+	 * A matched union of several headings whose bindings name a column only some arms deliver narrows to the arms its
+	 * constants select, whose own columns the match may then bind, and the narrowed union selects again over its own
+	 * heading, which holds those columns. Whether every selected arm delivers each column the match binds is decided by
+	 * #column over their union.
 	 *
 	 * A bounded union, a take over such a union, narrows the same way: the selected arms' rows joined back to the bounded
 	 * union on every common field, the discriminant included. The take's order completion refused the union
@@ -2446,9 +2481,9 @@ class RuleCheck {
 	 * is the semi-join that keeps the arm rows among the first k. A take correlated to an attachment's parent is matched
 	 * by nothing outside its attachment, so it is not narrowed.
 	 */
-	#narrow(source: RelNode, match: ResolvedMatch, loc: SourceLoc): RelNode {
+	#narrow(source: RelNode, bindings: ResolvedMatch["bindings"], loc: SourceLoc): RelNode {
 		if (source.kind === "Take" && source.correlation.length === 0) {
-			const arms = this.#narrowUnion(source.input, match, loc)
+			const arms = this.#narrowUnion(source.input, bindings, loc)
 			if (arms === source.input) {
 				return source
 			}
@@ -2460,53 +2495,83 @@ class RuleCheck {
 			this.cx.inherit(back, arms)
 			return back
 		}
-		return this.#narrowUnion(source, match, loc)
+		return this.#narrowUnion(source, bindings, loc)
 	}
 
-	/** The arms of the union `source` a match selects by its discriminant literals, or `source` itself. */
-	#narrowUnion(source: RelNode, match: ResolvedMatch, loc: SourceLoc): RelNode {
+	/** The arms of the union `source` its bindings' constants select, or `source` itself. */
+	#narrowUnion(source: RelNode, bindings: ResolvedMatch["bindings"], loc: SourceLoc): RelNode {
+		const selected = this.#selected(source, bindings, loc)
 		const union = this.cx.unionOf(source)
-		if (union === undefined || source.kind !== "Union" || source.groups.length < 2) {
+		if (
+			union === undefined ||
+			source.kind !== "Union" ||
+			source.groups.length < 2 ||
+			selected.length === union.arms.length ||
+			!entries(bindings).some(([c]) => !hasColumn(source.heading, c))
+		) {
 			return source
 		}
+		return this.#narrowUnion(only(selected) ?? this.cx.union(selected, loc), bindings, loc)
+	}
+
+	/**
+	 * The arms of `source` that deliver every constant its bindings give a column of its heading (#narrow): a union's
+	 * arms, a bounded union's, or the source itself as its one arm.
+	 */
+	#selected(
+		source: RelNode,
+		bindings: ResolvedMatch["bindings"],
+		loc: SourceLoc
+	): NonEmptyReadonlyArray<RelNode> {
 		const heading = source.heading
-		const wanted = entries(match.bindings).filter(([c]) => !hasColumn(heading, c))
-		if (wanted.length === 0) {
-			return source
-		}
-		const selectors = union.discriminant.flatMap((c) => {
-			const e = match.bindings[c]
-			return e?.kind === "literal" ? [[c, e] as const] : []
+		const constants = entries(bindings).flatMap(([column, e]) => {
+			const col = columnOf(heading, column)
+			return e.kind === "literal" && col !== undefined && this.cx.schema.admits(e.value, col.type)
+				? [{ column, value: e.value }]
+				: []
 		})
-		if (selectors.length === 0) {
-			return source
-		}
-		const arms = union.arms.filter((arm) =>
-			selectors.every(([c, e]) => {
-				const head = this.cx.literalOf(arm)?.get(c)
-				const column = columnOf(arm.heading, c)
-				if (head === undefined || column === undefined) {
-					return false
-				}
-				return canonicalEquals(
-					this.cx.schema.literal(e.value, column.type, loc),
-					head.literal,
-					everyProperty
-				)
-			})
+		const arms = this.cx.armsOf(source)
+		const selected = arms.filter((arm) =>
+			constants.every(({ column, value }) => this.#delivers(arm, column, value, loc))
 		)
-		if (!isNonEmpty(arms)) {
-			fail(
+		if (!isNonEmpty(selected)) {
+			return fail(
 				"MalformedDescription",
 				loc,
-				`a discriminant value some arm of the matched union carries; no arm has (${selectors.map(([c]) => c).join(", ")}) = the bound literals`
+				`constants some arm of the source delivers; no arm of the source delivers the bound constants (${constants.map((c) => c.column).join(", ")})`
 			)
 		}
-		return only(arms) ?? this.cx.union(arms, loc)
+		return selected
 	}
 
-	/** What an import's bind term binds a parameter to, read in this rule's scope. */
-	#bindValue(term: ResolvedExpr, param: string, loc: SourceLoc): BindValue {
+	/**
+	 * Whether an arm may deliver `value` at `column`: its head literal is the value, typed at the column, or it delivers
+	 * the column by a term of a type the value is one of, the type before a union widened it.
+	 */
+	#delivers(arm: RelNode, column: string, value: LiteralDesc, loc: SourceLoc): boolean {
+		const col = columnOf(arm.heading, column)
+		if (col === undefined) {
+			return false
+		}
+		const head = this.cx.literalOf(arm)?.get(column)
+		if (head !== undefined) {
+			return (
+				this.cx.schema.admits(value, col.type) &&
+				canonicalEquals(this.cx.schema.literal(value, col.type, loc), head.literal, everyProperty)
+			)
+		}
+		const delivered = columnOf(this.cx.deliveredOf(arm), column)?.type ?? col.type
+		return this.cx.schema.admits(value, delivered)
+	}
+
+	/**
+	 * What an import's bind term binds a parameter to, read in this rule's scope: a scalar parameter is used at its
+	 * declared type there, and a relation parameter is resolved where the import reads it as a source.
+	 */
+	#bindValue(term: ResolvedBound, param: string, loc: SourceLoc): BindValue {
+		if (term.kind === "relationParam") {
+			return this.cx.resolveParam(term.cell, this.scope, loc)
+		}
 		if (term.kind === "var") {
 			return this.#slotValue(this.#userSlot(term.var, loc))
 		}
@@ -2522,6 +2587,9 @@ class RuleCheck {
 		}
 		if (term.kind === "param") {
 			const resolved = this.cx.resolveParam(term.cell, this.scope, loc)
+			if (resolved.kind === "param") {
+				resolved.cell.use(this.cx.paramType(term, loc), loc)
+			}
 			return resolved.kind === "column"
 				? this.#slotValue(this.#paramSlot(term.cell, loc))
 				: resolved
@@ -2584,8 +2652,9 @@ class RuleCheck {
 
 	/**
 	 * A binding that fixes its column: a literal adopting the column's type, a parameter bound as the column's base, or
-	 * a computed term of a compatible type. A value the region cannot hold as a constant of the column's base type is a
-	 * hidden variable equated with it by the filter.
+	 * a computed term that meets it (types.ts meets). The region holds a constant of the column's base type, or of the
+	 * exact family it widens into (meetingType), whose equality with the column is the value equality the region writes;
+	 * any other value is a hidden variable equated with it by the filter.
 	 */
 	#constant(column: HeadingColumn, e: ResolvedExpr, loc: SourceLoc): ConstantPlacement {
 		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
@@ -2595,33 +2664,47 @@ class RuleCheck {
 			return { kind: "fix", expr }
 		}
 		if (e.kind === "param") {
-			return this.#paramConstant(e.cell, column, loc)
+			return this.#paramConstant(e, column, loc)
 		}
 		const term = unwrap(lowerTerm(e, this.env(this.region, loc)))
-		if (!compatible(term.nominal, column.type)) {
+		if (!meets(term.nominal, column.type)) {
 			fail(
 				"MalformedDescription",
 				loc,
 				`operands of one type: ${column.name} is ${typeLabel(column.type)}, the binding ${typeLabel(term.nominal)}`
 			)
 		}
-		return { kind: baseMatches(term.expr.type) ? "fix" : "filter", expr: term.expr }
+		return {
+			kind:
+				baseMatches(term.expr.type) || meetingType(column.type, term.expr.type) !== column.type
+					? "fix"
+					: "filter",
+			expr: term.expr
+		}
 	}
 
 	/**
-	 * A parameter binding that fixes its column. The parameter is declared at the type it adopts opposite the column
-	 * and bound as that type's base, as the same equality written with r.eq binds it. A column whose base is another, a
+	 * A parameter binding that fixes its column. The parameter, of its declared type, meets the column (types.ts meets)
+	 * and is bound as its type's base, as the same equality written with r.eq binds it. A column whose base is another, a
 	 * regex refinement, a numeric typmod or a span's fixed width, would cast the parameter to it, and a typmod cast
 	 * rounds: the column is a hidden variable equated with the parameter.
 	 */
-	#paramConstant(cell: ParamCell, column: HeadingColumn, loc: SourceLoc): ConstantPlacement {
+	#paramConstant(param: ParamExpr, column: HeadingColumn, loc: SourceLoc): ConstantPlacement {
 		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
+		const cell = param.cell
 		const resolved = this.cx.resolveParam(cell, this.scope, loc)
 		switch (resolved.kind) {
 			case "param": {
-				const adopted = adoptCompare(column.type)
-				const bound = compareType(adopted)
-				const id = resolved.cell.use(adopted, loc)
+				const declared = this.cx.paramType(param, loc)
+				if (!meets(declared, column.type)) {
+					fail(
+						"MalformedDescription",
+						loc,
+						`operands of one type: ${column.name} is ${typeLabel(column.type)}, parameter ${cell.name} ${typeLabel(declared)}`
+					)
+				}
+				const bound = compareType(declared)
+				const id = resolved.cell.use(declared, loc)
 				return {
 					kind: baseMatches(bound) ? "fix" : "filter",
 					expr: this.cx.emit(paramSpec(id, "compare", bound))
@@ -2686,7 +2769,7 @@ class RuleCheck {
 	 * its correlation hold. An unbound parent variable is correlated to its parent column, an imported parameter to its
 	 * outer value.
 	 */
-	#defineRegion(leaves: Leaves<Resolved["param"]>): RelNode {
+	#defineRegion(leaves: Leaves<Resolved["param"], Resolved["paramType"]>): RelNode {
 		for (const v of [...leaves.vars].toSorted(compareStrings)) {
 			if (!this.decls.has(v)) {
 				fail(
@@ -2889,7 +2972,8 @@ class RuleCheck {
 
 	/**
 	 * One r.not over `left`: an AntiJoin against the negated source projected onto the columns this rule's values fix.
-	 * A constant of the negation reads no variable of the rule: those correlate through the columns above.
+	 * A constant of the negation reads no variable of the rule: those correlate through the columns above. The negated
+	 * source is narrowed to the arms its constants select, as a match's is (#narrow).
 	 */
 	#negation(
 		left: RelNode,
@@ -2897,12 +2981,12 @@ class RuleCheck {
 		loc: SourceLoc,
 		correlate: Correlate
 	): RelNode {
-		const source = this.cx.source(
-			absent.source,
-			this.scope,
-			this.rule.interiors,
-			loc,
-			(term, param, at) => this.#bindValue(term, param, at)
+		const source = this.#narrow(
+			this.cx.source(absent.source, this.scope, this.rule.interiors, loc, (term, param, at) =>
+				this.#bindValue(term, param, at)
+			),
+			absent.bindings,
+			loc
 		)
 		const heading = source.heading
 		const placed = entries(absent.bindings).map(([column, e]) =>
@@ -3034,13 +3118,20 @@ class RuleCheck {
 			return { kind: "none" }
 		}
 		/**
-		 * Bound as the base of the type it adopts, as everywhere it is compared. A column of another base, a regex
-		 * refinement or a numeric typmod, is a variable of the negated region equated with the parameter by a filter
-		 * there, never a cast of the parameter, which for a typmod rounds.
+		 * Of its declared type, meeting the column, and bound as its base, as everywhere it is compared. A column of
+		 * another base, a regex refinement or a numeric typmod, is a variable of the negated region equated with the
+		 * parameter by a filter there, never a cast of the parameter, which for a typmod rounds.
 		 */
-		const adopted = adoptCompare(col.type)
-		const bound = compareType(adopted)
-		const id = resolved.cell.use(adopted, at)
+		const declared = this.cx.paramType(e, at)
+		if (!meets(declared, col.type)) {
+			fail(
+				"MalformedDescription",
+				at,
+				`operands of one type: ${col.name} is ${typeLabel(col.type)}, parameter ${e.cell.name} ${typeLabel(declared)}`
+			)
+		}
+		const bound = compareType(declared)
+		const id = resolved.cell.use(declared, at)
 		const value = this.cx.emit(paramSpec(id, "compare", bound))
 		return sameScalarType(baseOf(col.type), bound)
 			? { kind: "constant", column, expr: value }
@@ -3110,7 +3201,7 @@ class RuleCheck {
 					),
 				params: {
 					kind: "scope",
-					lower: (param, type, loc) => {
+					lower: (param, loc) => {
 						const resolved = catchRefusal(() => this.cx.resolveParam(param.cell, this.scope, loc))
 						if (!resolved.ok) {
 							return Result.err(resolved.error)
@@ -3123,7 +3214,7 @@ class RuleCheck {
 								)
 							)
 						}
-						return base.params.lower(param, type, loc)
+						return base.params.lower(param, loc)
 					}
 				}
 			})
@@ -3163,7 +3254,7 @@ class RuleCheck {
 			return literal(h.value, this.#literalTermType(h, targetType, loc), loc)
 		}
 		if (h.kind === "param") {
-			return this.#paramTerm(h.cell, targetType, loc, column, literal)
+			return this.#paramTerm(h, loc, column, literal)
 		}
 		if (h.kind === "absent") {
 			return fail(
@@ -3182,7 +3273,7 @@ class RuleCheck {
 			? term.expr
 			: this.cx.emit({
 					kind: "cast",
-					checked: false,
+					cast: binaryCoercion,
 					args: [term.expr],
 					type: term.nominal,
 					nonNull: "strict",
@@ -3208,52 +3299,42 @@ class RuleCheck {
 	}
 
 	/**
-	 * A parameter head term: emitted or written at the written column's type, else the type its uses give it; one no
-	 * use types stands as a placeholder the pass refuses unless a later pass learns its type.
+	 * A parameter head term, emitted or written at its declared type, which a written member's column is compatible
+	 * with (member.ts checkMemberHeading) and is cast into where it is written; an import's parameter bound to a literal
+	 * is that literal at the type it states, else at the parameter's.
 	 */
 	#paramTerm(
-		cell: ParamCell,
-		targetType: ScalarType | undefined,
+		param: ParamExpr,
 		loc: SourceLoc,
 		column: (c: HeadingColumn) => TermOut,
 		literal: (value: LiteralDesc, typing: LiteralTyping, at: SourceLoc) => TermOut
 	): TermOut {
-		const resolved = this.cx.resolveParam(cell, this.scope, loc)
+		const resolved = this.cx.resolveParam(param.cell, this.scope, loc)
 		const role: ParamRole = writtenTarget(this.scope.origin) === undefined ? "emit" : "write"
 		switch (resolved.kind) {
 			case "param": {
-				const type = targetType ?? resolved.cell.typeOf()
-				if (type === undefined) {
-					return this.#placeholderParam(resolved.cell, role, loc)
+				const declared = this.cx.paramType(param, loc)
+				const id = resolved.cell.use(declared, loc)
+				return {
+					expr: this.cx.emit(paramSpec(id, role, declared)),
+					type: declared,
+					literal: undefined
 				}
-				const id = resolved.cell.use(type, loc)
-				return { expr: this.cx.emit(paramSpec(id, role, type)), type, literal: undefined }
 			}
-			case "literal": {
-				const at = resolved.loc
-				const typing: LiteralTyping =
-					resolved.stated.kind === "typed"
-						? { kind: "fixed", type: resolved.stated.type }
-						: targetType === undefined
-							? { kind: "bare" }
-							: { kind: "fixed", type: targetType }
-				return literal(resolved.value, typing, at)
-			}
+			case "literal":
+				return literal(
+					resolved.value,
+					{
+						kind: "fixed",
+						type:
+							resolved.stated.kind === "typed"
+								? resolved.stated.type
+								: this.cx.paramType(param, loc)
+					},
+					resolved.loc
+				)
 			case "column":
-				return column(this.#paramColumn(cell, loc))
-		}
-	}
-
-	/** A head parameter no use types yet: a placeholder, recorded at its first such head so the pass decides it. */
-	#placeholderParam(cell: ParamCell, role: ParamRole, loc: SourceLoc): TermOut {
-		if (!this.cx.pendingHeadParams.has(cell)) {
-			this.cx.pendingHeadParams.set(cell, loc)
-		}
-		const placeholder = plainType("bool")
-		return {
-			expr: this.cx.emit(paramSpec(cell.id, role, placeholder)),
-			type: placeholder,
-			literal: undefined
+				return column(this.#paramColumn(param.cell, loc))
 		}
 	}
 
@@ -3335,7 +3416,6 @@ class RuleCheck {
 		const aggs = mapNonEmpty(aggregates, ({ name, column, head }) => {
 			const at = this.at("head", name)
 			const { overload, call } = this.#aggregate(head, groupInput, at)
-			this.cx.requireTotal(overload.failures.length > 0, at, () => `aggregate ${overload.op}`)
 			const spec: AggregateSpec = {
 				name: column,
 				op: OpId(overload.op),

@@ -1,7 +1,7 @@
 import { canonicalTextOf, Refusal } from "#compiler/core/canonical.ts"
 import { malformedArtifact } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { compareStrings } from "#compiler/core/order.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type { PhysicalObject, PhysicalReason } from "#compiler/ir/products.ts"
 import { parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -32,6 +32,7 @@ import {
 	type TableConstraint,
 	tableConstraints
 } from "#compiler/sql/ast.ts"
+import { sameTypeRef } from "#compiler/sql/build.ts"
 
 import {
 	type AstHooks,
@@ -61,20 +62,20 @@ export function refuseLaw(law: string, what: string): never {
 
 export const same = (a: unknown, b: unknown): boolean => canonicalTextOf(a) === canonicalTextOf(b)
 
-/** A column's place in a heading: its name, type, collation and generation. */
-const headingKey = (c: ColumnDef): string =>
-	canonicalTextOf({ n: c.name, t: c.type, c: c.collation, g: c.generated?.kind })
+/** Whether two columns of one name agree: one type, collation and generation kind. The one collation is a constant. */
+const sameColumn = (a: ColumnDef, b: ColumnDef): boolean =>
+	sameTypeRef(a.type, b.type) &&
+	(a.collation === undefined) === (b.collation === undefined) &&
+	a.generated?.kind === b.generated?.kind
 
-/** Whether two relations have one heading: the same fields, each of one name, type, collation and generation, in any
- * order. */
-export const sameHeading = (a: CreateTable, b: CreateTable): boolean => {
-	if (a.columns.length !== b.columns.length) {
-		return false
-	}
-	const x = a.columns.map((c) => headingKey(c)).toSorted(compareStrings)
-	const y = b.columns.map((c) => headingKey(c)).toSorted(compareStrings)
-	return x.every((k, i) => k === y[i])
-}
+/** Whether two relations have one heading: the same fields, matched by their names, which are unique in a heading, each
+ * of one type, collation and generation, in any order. */
+export const sameHeading = (a: CreateTable, b: CreateTable): boolean =>
+	a.columns.length === b.columns.length &&
+	a.columns.every((c) => {
+		const other = b.columns.find((d) => d.name === c.name)
+		return other !== undefined && sameColumn(c, other)
+	})
 
 /** The single law an object reports, when it carries exactly one law reason. */
 export const lawOf = (reasons: ReadonlyArray<PhysicalReason>): LawId | undefined => {
@@ -424,7 +425,8 @@ export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 	}
 }
 
-/** Every unqualified or qualified column name an expression or statement names. */
+/** Every unqualified or qualified column name an expression or statement names, and every column of a trigger's row
+ * image, NEW or OLD, it reads. */
 const columnsOf = (value: unknown): ReadonlyArray<string> => {
 	const out = new Set<string>()
 	const walk = (v: unknown): void => {
@@ -440,6 +442,15 @@ const columnsOf = (value: unknown): ReadonlyArray<string> => {
 		const r: { readonly [key: string]: unknown } = v
 		if (r["kind"] === "column" && typeof r["column"] === "string") {
 			out.add(r["column"])
+		}
+		const record = r["record"]
+		if (
+			r["kind"] === "field" &&
+			isRecord(record) &&
+			record["kind"] === "plSpecial" &&
+			typeof r["field"] === "string"
+		) {
+			out.add(r["field"])
 		}
 		for (const child of Object.values(r)) {
 			walk(child)
@@ -467,6 +478,13 @@ export const constraintColumns = (c: TableConstraint): ReadonlyArray<string> => 
 /** Every column an index reads: its keys, its INCLUDE columns and its predicate's. */
 export const indexColumns = (s: CreateIndex): ReadonlyArray<string> =>
 	columnsOf(s.keys).concat(s.include, columnsOf(s.where ?? []))
+
+/** The columns a law trigger is built over: those its UPDATE OF names and those its WHEN reads. */
+export const triggerColumns = (t: CreateConstraintTrigger): ReadonlyArray<string> => {
+	const of = t.event.kind === "UPDATE" ? t.event.of : []
+	const read = t.when === undefined ? [] : columnsOf(t.when)
+	return [...new Set([...of, ...read])]
+}
 
 /** A key or CHECK object, read through its view. */
 export type KeyOrCheckView = Installed & { readonly kind: "primaryKey" | "unique" | "check" }
@@ -501,7 +519,7 @@ export interface BuiltOver {
  * a column reaches (a column converted in place by a type change, dropped and added again, or renamed by a chosen
  * candidate) asks it here: an index reads its keys, INCLUDE columns and predicate; a statistics object its columns; a
  * constraint its own, `constraint` giving the definition of one declared inside its table's CREATE TABLE; a law trigger
- * the columns its UPDATE OF names. Nothing else is built over a table's columns: a table holds them, a stored tag is
+ * the columns its UPDATE OF names and its WHEN reads. Nothing else is built over a table's columns: a table holds them, a stored tag is
  * one, a table's isolation trigger reads none, and every other kind stands outside any table. */
 export const builtOver = (
 	v: Installed,
@@ -520,10 +538,7 @@ export const builtOver = (
 		case "foreignKey":
 			return { table: v.table, columns: constraintColumns(v.constraint) }
 		case "lawTrigger":
-			return {
-				table: v.create.table,
-				columns: v.create.events.flatMap((e) => (e.kind === "UPDATE" ? e.of : []))
-			}
+			return { table: v.create.table, columns: triggerColumns(v.create) }
 		case "table":
 		case "enum":
 		case "domain":
@@ -760,6 +775,7 @@ export const addedPart = (
 ): { readonly kind: "constraint" | "column"; readonly name: string } | undefined => {
 	switch (a.kind) {
 		case "addColumn":
+		case "addColumnPlaceholder":
 			return { kind: "column", name: a.column.name }
 		case "addConstraint":
 			return { kind: "constraint", name: a.constraint.name }
@@ -780,6 +796,71 @@ export const addedPart = (
 
 /** The key of a name in a set or map: `<schema>.<name>`. */
 export const nameKey = (name: ObjectName): string => `${name.schema}.${name.name}`
+
+/** A law trigger as installed, read through its view. */
+export type LawTriggerView = Installed & { readonly kind: "lawTrigger" }
+
+/** One unit of a residual law as installed: its function, and the one trigger of its law that executes it with the
+ * installation entry it is (a migration's Previous or Target). */
+export interface LawUnit<E> {
+	readonly fn: ManifestObject
+	readonly trigger: { readonly entry: E; readonly view: LawTriggerView }
+}
+
+/**
+ * Each residual law's units among an installation's objects, in the order their triggers stand, parsed once: every law
+ * function and law trigger reports exactly one law, every law trigger executes a function of its own law, and every law
+ * function is executed by exactly one trigger. Anything else is a snapshot grizzle did not write.
+ */
+export const lawUnitsOf = <E extends { readonly object: ManifestObject }>(
+	entries: ReadonlyArray<E>
+): ReadonlyMap<LawId, NonEmptyReadonlyArray<LawUnit<E>>> => {
+	const functions = new Map<string, { readonly law: LawId; readonly fn: ManifestObject }>()
+	const triggers: Array<{ readonly law: LawId; readonly entry: E; readonly view: LawTriggerView }> =
+		[]
+	for (const entry of entries) {
+		const o = entry.object
+		const v = installed(o)
+		if (v.kind !== "lawFunction" && v.kind !== "lawTrigger") {
+			continue
+		}
+		const law = lawOf(o.reasons)
+		if (law === undefined) {
+			refuse(o.ident, "a law object reporting one law")
+		}
+		if (v.kind === "lawTrigger") {
+			triggers.push({ law, entry, view: v })
+		} else {
+			functions.set(nameKey(v.create.name), { law, fn: o })
+		}
+	}
+	const executed = new Set<string>()
+	const units = new Map<LawId, [LawUnit<E>, ...Array<LawUnit<E>>]>()
+	for (const t of triggers) {
+		const key = nameKey(t.view.create.function)
+		const fn = functions.get(key)
+		if (fn === undefined || fn.law !== t.law || executed.has(key)) {
+			refuse(
+				t.entry.object.ident,
+				"a law trigger executing its own unit's function, which no other trigger executes"
+			)
+		}
+		executed.add(key)
+		const unit: LawUnit<E> = { fn: fn.fn, trigger: { entry: t.entry, view: t.view } }
+		const known = units.get(t.law)
+		if (known === undefined) {
+			units.set(t.law, [unit])
+		} else {
+			known.push(unit)
+		}
+	}
+	for (const [key, fn] of functions) {
+		if (!executed.has(key)) {
+			refuse(fn.fn.ident, "a law function its unit's trigger executes")
+		}
+	}
+	return units
+}
 
 /** Renames of schema-qualified names of one catalog namespace (`NameSpace`): a relation's, with its indexes' and
  * identity sequences', all in pg_class, a type's, or an extended statistics object's. */

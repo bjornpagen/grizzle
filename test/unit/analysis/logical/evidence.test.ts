@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, type Situations } from "@grizzle/testing/features"
 import { array, boolean, constant, element, type Gen, map } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
@@ -230,8 +231,7 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 			args: [column(facts, id), other],
 			type: bool,
 			nonNull: "strict",
-			volatility: "immutable",
-			failure: "total"
+			volatility: "immutable"
 		})
 		const pred = pickFrom(both, pick(offset + 3 * i + 2))
 			? b.expr({
@@ -240,8 +240,7 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 					args: [eq],
 					type: bool,
 					nonNull: "strict",
-					volatility: "immutable",
-					failure: "total"
+					volatility: "immutable"
 				})
 			: eq
 		roots.push(
@@ -455,7 +454,6 @@ const correlatedTakeOverOneRow: Kept<readonly [QueryCaseSketch, ContextSketch], 
 				[],
 				[]
 			],
-			spelling: [0, 0, 0, 0, 0, 0, 0, 0],
 			/** Picks a parameter name only under the dictionary spelling of names, which the soundness population leaves off. */
 			paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
 			root: {
@@ -559,7 +557,7 @@ const holdsOn = <S>(
 	suite: string,
 	draw: CaseDraw<S>,
 	kept: ReadonlyArray<Kept<readonly [S, ContextSketch], EvidenceFeature>>,
-	required: ReadonlyArray<EvidenceFeature>
+	situations: Situations<EvidenceFeature>
 ) =>
 	searched(
 		ctx,
@@ -568,13 +566,12 @@ const holdsOn = <S>(
 				suite,
 				draw: drawn(draw.generator),
 				literal: Formatter.format,
-				features: features<EvidenceFeature>(required),
+				coverage: required<EvidenceFeature>(situations, { cases: runs, sense: notesOnly }),
 				kept,
 				runs,
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "none" },
 				caseHang: Duration.minutes(2)
 			},
 			([drawnSketch, sketch], c) =>
@@ -699,7 +696,7 @@ const idempotentOn = <S>(
 	ctx: TestContext,
 	suite: string,
 	draw: CaseDraw<S>,
-	required: ReadonlyArray<IdempotenceFeature>
+	situations: Situations<IdempotenceFeature>
 ) =>
 	searched(
 		ctx,
@@ -708,13 +705,12 @@ const idempotentOn = <S>(
 				suite,
 				draw: drawn(draw.generator),
 				literal: Formatter.format,
-				features: features<IdempotenceFeature>(required),
+				coverage: required<IdempotenceFeature>(situations, { cases: runs, sense: notesOnly }),
 				kept: [],
 				runs,
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "none" },
 				caseHang: Duration.minutes(2)
 			},
 			([drawnSketch, sketch], c) =>

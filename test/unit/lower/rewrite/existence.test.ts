@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -183,7 +183,7 @@ describe("an existence-only match becomes a semi-join", () => {
 						literal: Formatter.format,
 						generator: shapes,
 						limit: 9,
-						features: features<`${Account} under a ${Reader}`>([
+						coverage: requiredInSpace<`${Account} under a ${Reader}`>([
 							"existence only under a projection",
 							"existence only under a projection, shared variable outside the heading",
 							"existence only under a root, shared variable outside the heading",
@@ -245,7 +245,7 @@ describe("set comparisons need a physically unique left input", () => {
 							evidence: source.draw(element<Evidence>(["snapshot", "transaction"]))
 						}),
 						limit: 8,
-						features: features<`${"Intersect" | "Difference"} ${"rewritten" | "kept"}`>([
+						coverage: requiredInSpace<`${"Intersect" | "Difference"} ${"rewritten" | "kept"}`>([
 							"Intersect rewritten",
 							"Intersect kept",
 							"Difference rewritten",
@@ -323,7 +323,7 @@ describe("scope", () => {
 						literal: Formatter.format,
 						generator: element<Scope>(["a correlated source", "a source read laterally"]),
 						limit: 2,
-						features: features<Scope>(["a correlated source", "a source read laterally"]),
+						coverage: requiredInSpace<Scope>(["a correlated source", "a source read laterally"]),
 						caseHang: Duration.minutes(2)
 					},
 					(scope, c) =>

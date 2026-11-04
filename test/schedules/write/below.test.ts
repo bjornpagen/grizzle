@@ -19,7 +19,7 @@
 
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -72,12 +72,15 @@ const targets: Arr.NonEmptyReadonlyArray<Target> = ["Item", "Note"]
 /** The relations a TRUNCATE is planted on: Note alone (see the header). */
 const truncated: Arr.NonEmptyReadonlyArray<Target> = ["Note"]
 
-const cases: ReadonlyArray<BelowCase> = Arr.flatMap(levels, (level) =>
+const cases: Arr.NonEmptyReadonlyArray<BelowCase> = Arr.flatMap(levels, (level) =>
 	Arr.flatMap(roles, (role) =>
 		Arr.flatMap(statementKinds, (statement) =>
-			Arr.flatMap(targets, (target): ReadonlyArray<BelowCase> =>
-				statement === "truncate" && target === "Item" ? [] : [{ level, role, statement, target }]
-			)
+			Arr.map(statement === "truncate" ? truncated : targets, (target): BelowCase => ({
+				level,
+				role,
+				statement,
+				target
+			}))
 		)
 	)
 )
@@ -200,7 +203,7 @@ layer(Substrate.layer, { excludeTestServices: true })("writers below SERIALIZABL
 							generator: belowCaseGen,
 							literal: Formatter.format,
 							limit: cases.length,
-							features: features<BelowFeature>(
+							coverage: requiredInSpace<BelowFeature>(
 								Arr.map(
 									cases,
 									(c): BelowFeature => `${c.level} ${c.role} ${c.statement} ${c.target}`
@@ -235,8 +238,8 @@ layer(Substrate.layer, { excludeTestServices: true })("writers below SERIALIZABL
 											complete
 										),
 										commit("w", expected.kind === "applies" ? ok() : rolledBack(), complete),
-										check(rowsOf(Item), rowSet(...(c.target === "Item" ? written : stored))),
-										check(rowsOf(Note), rowSet(...(c.target === "Note" ? written : stored)))
+										check(rowsOf(Item), rowSet(c.target === "Item" ? written : stored)),
+										check(rowsOf(Note), rowSet(c.target === "Note" ? written : stored))
 									]),
 									{ direct: { w: actors[c.role] }, grizzle: {} }
 								)

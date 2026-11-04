@@ -1,7 +1,16 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { DeployPhase } from "#compiler/ir/products.ts"
-import type { ColumnDef, ObjectName, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import type {
+	ColumnDef,
+	ObjectName,
+	RenameColumn,
+	RenameObject,
+	Select,
+	SqlStatement,
+	TypeRef
+} from "#compiler/sql/ast.ts"
+import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 
 /** Where a drafted statement goes. Slots are ordered, and each names the file its steps go to (`slotFile`), which
  * consecutive slots naming one file share; `planFiles` numbers the files in slot order:
@@ -136,7 +145,7 @@ export type Action =
 			readonly kind: "placeholderHandles"
 			readonly table: ObjectName
 			readonly column: string
-			readonly type: ObjectName
+			readonly type: TypeRef
 			readonly removed: NonEmptyReadonlyArray<string>
 			readonly labels: NonEmptyReadonlyArray<string>
 	  }
@@ -158,10 +167,12 @@ export type ColumnHint =
 	| { readonly kind: "dropped"; readonly removed: NonEmptyReadonlyArray<ColumnDef> }
 
 /** A drafted action whose fate candidate renames decide: the reviewer keeps it, or chooses the candidate of one offer
- * and does what that offer says. Each offer is a marker with its commented alternative, above the action. */
-export interface Choice {
+ * and does what that offer says. Each offer is a marker with its commented alternative, above the action. What a
+ * choice may offer is fixed by where it stands (`O`): a candidate's own rename only where that candidate may be
+ * renamed (TopOffer, RelationOffer), elsewhere only what another rename makes of the action (PlainOffer). */
+export interface Choice<O extends Offer> {
 	readonly kind: "choice"
-	readonly offers: NonEmptyReadonlyArray<Offer>
+	readonly offers: NonEmptyReadonlyArray<O>
 	readonly keep: Action
 }
 
@@ -172,10 +183,11 @@ export interface AbandonedSchema {
 	readonly directory: string
 }
 
-/** What a statement that loses stored data loses: a relation with its rows; a field with its values; or, when a
- * schema's first migration starts it empty while the migrations directory holds schemas the configuration no longer
- * lists (a schema renamed in code is a new PostgreSQL schema), their rows, left where they are and never migrated
- * again. */
+/** What a statement that loses stored data loses: a relation with its rows; a field with its values, named by the
+ * relation that held it in the previous snapshot (the removed relation, for a field a relation's rename drops); or,
+ * when a schema's first migration starts it empty while the migrations directory holds schemas the configuration no
+ * longer lists (a schema renamed in code is a new PostgreSQL schema), their rows, left where they are and never
+ * migrated again. */
 export type Loss =
 	| { readonly kind: "relation"; readonly relation: ObjectName }
 	| { readonly kind: "field"; readonly relation: ObjectName; readonly field: string }
@@ -185,99 +197,343 @@ export type Loss =
 			readonly abandoned: NonEmptyReadonlyArray<AbandonedSchema>
 	  }
 
-/** A candidate rename that carries what a loss loses instead: choosing it takes the data along under the new name. */
-export interface Carrier {
-	readonly candidate: number
-	readonly label: string
+/** A relation's candidate rename: the removed relation and the added one it may be. */
+export interface RelationCandidate {
+	readonly kind: "relation"
+	readonly removed: ObjectName
+	readonly added: ObjectName
 }
 
-/** A statement that loses stored data, which only the reviewer may decide: drafted commented under its marker, so it
- * runs only once the reviewer writes it in, and left out where a candidate rename that carries the data is chosen
- * instead. Until one of the two is chosen, the loss is unresolved, and `grizzle check` and `grizzle migrate` refuse
- * the folder (`lossDecisions`). */
-export interface LossDecision {
-	readonly kind: "loss"
-	readonly loses: Loss
-	readonly statement: SqlStatement
-	readonly carriers: ReadonlyArray<Carrier>
+/** A type's candidate rename: an enum's (TYPE) or a domain's (DOMAIN). */
+export interface TypeCandidate {
+	readonly kind: "type"
+	readonly object: "TYPE" | "DOMAIN"
+	readonly removed: ObjectName
+	readonly added: ObjectName
 }
 
-/** One step of a rename's alternative: an action, a choice nested in it, which a candidate rename of a member of the
- * renamed container offers (a field of a relation renamed), or the loss of a field the alternative drops, each decided
- * only where the reviewer takes the alternative. */
-export type AlternativeStep = Action | Choice | LossDecision
-
-/** One drafted step's content: an action, a choice, a loss decision, or a `confirm`: drafted statements the reviewer
- * confirms under one marker, with no other way drafted: one decision, so the files keep them all, as drafted, or none
- * of them (`splitRenames`). */
-export type Draft =
-	| Action
-	| Choice
-	| LossDecision
-	| {
-			readonly kind: "confirm"
-			readonly note: string
-			readonly instruction: string
-			readonly keep: NonEmptyReadonlyArray<SqlStatement>
-	  }
-
-/** What a candidate renames: the removed relation, field or type it takes away and the added one it becomes, each by its
- * printed name, so `grizzle check` refuses two chosen candidates that take one removed name away or give one added
- * name twice. */
-export interface CandidateRenames {
-	readonly kind: "relation" | "field" | "type" | "login"
+/** A login's candidate rename: the removed login and the added one it may be. */
+export interface LoginCandidate {
+	readonly kind: "login"
 	readonly removed: string
 	readonly added: string
 }
 
-/** A candidate rename the draft offers, named by every marker of it. A candidate is the plan's index into its list. */
-interface Candidate {
-	/** `the candidate rename of <from> to <to>`. */
-	readonly label: string
-	readonly renames: CandidateRenames
-	/** The candidates it is chosen only with, by index: a field's rename whose types agree only under a type's rename
-	 * requires that type's candidate. */
-	readonly requires: ReadonlyArray<number>
+/** What a field's rename is chosen only with: nothing, or the rename of its removed field's type. */
+export type FieldRequires =
+	| { readonly kind: "nothing" }
+	| { readonly kind: "type"; readonly candidate: TypeCandidate }
+
+/** A field's candidate rename on a relation both snapshots hold. */
+export interface FieldCandidate {
+	readonly kind: "field"
+	readonly relation: ObjectName
+	readonly removed: string
+	readonly added: string
+	readonly requires: FieldRequires
 }
 
-/** What choosing a candidate does to the statement an offer marks:
- * - `rename`: the candidate's own marker, above the addition it replaces with the rename, what the rename brings
- *   across, and for a relation whose fields change, its columns added and dropped, each pair of a removed and an added
- *   field a nested choice of their own candidate rename;
+/** A field's candidate rename nested in a relation's: it exists only under that rename, whose alternative holds its
+ * offer (RelationStep). */
+export interface NestedFieldCandidate {
+	readonly kind: "nested field"
+	readonly parent: RelationCandidate
+	readonly removed: string
+	readonly added: string
+	readonly requires: FieldRequires
+}
+
+/** A candidate rename, by what it renames: its identity is its path, its kind and ends, or for a field's rename nested
+ * in a relation's, its parent's path and its own two fields. */
+export type Candidate =
+	| RelationCandidate
+	| TypeCandidate
+	| LoginCandidate
+	| FieldCandidate
+	| NestedFieldCandidate
+
+/** The statement a candidate's alternative opens with, which renames what it renames. */
+export const headOf = (c: Candidate): RenameObject | RenameColumn => {
+	switch (c.kind) {
+		case "relation":
+			return { kind: "rename", object: "TABLE", name: c.removed, to: c.added.name }
+		case "type":
+			return { kind: "rename", object: c.object, name: c.removed, to: c.added.name }
+		case "login":
+			return { kind: "rename", object: "ROLE", name: c.removed, to: c.added }
+		case "field":
+			return { kind: "renameColumn", table: c.relation, from: c.removed, to: c.added }
+		case "nested field":
+			return { kind: "renameColumn", table: c.parent.added, from: c.removed, to: c.added }
+	}
+}
+
+/** The path of a root candidate that renames a whole object: its kind and its ends. */
+export interface EndsPath<K extends "relation" | "type" | "login"> {
+	readonly kind: K
+	readonly removed: string
+	readonly added: string
+}
+
+/** The path of a field's rename on a relation both snapshots hold: the relation and the two fields. */
+export interface FieldPath {
+	readonly kind: "field"
+	readonly relation: string
+	readonly removed: string
+	readonly added: string
+}
+
+/** The path of a field's rename nested in a relation's: its parent's path and its two fields. */
+export interface NestedFieldPath {
+	readonly kind: "nested field"
+	readonly parent: EndsPath<"relation">
+	readonly removed: string
+	readonly added: string
+}
+
+/** A candidate's path, its identity in printed form, as meta.json names it. Names print quoted, a relation's and a
+ * type's schema-qualified. */
+export type CandidatePath =
+	| EndsPath<"relation">
+	| EndsPath<"type">
+	| EndsPath<"login">
+	| FieldPath
+	| NestedFieldPath
+
+export const relationPath = (c: RelationCandidate): EndsPath<"relation"> => ({
+	kind: "relation",
+	removed: printObjectName(c.removed),
+	added: printObjectName(c.added)
+})
+
+export const typePath = (c: TypeCandidate): EndsPath<"type"> => ({
+	kind: "type",
+	removed: printObjectName(c.removed),
+	added: printObjectName(c.added)
+})
+
+export const pathOf = (c: Candidate): CandidatePath => {
+	switch (c.kind) {
+		case "relation":
+			return relationPath(c)
+		case "type":
+			return typePath(c)
+		case "login":
+			return { kind: "login", removed: quoteIdent(c.removed), added: quoteIdent(c.added) }
+		case "field":
+			return {
+				kind: "field",
+				relation: printObjectName(c.relation),
+				removed: quoteIdent(c.removed),
+				added: quoteIdent(c.added)
+			}
+		case "nested field":
+			return {
+				kind: "nested field",
+				parent: relationPath(c.parent),
+				removed: quoteIdent(c.removed),
+				added: quoteIdent(c.added)
+			}
+	}
+}
+
+/** Whether two paths name one candidate. */
+export const samePath = (a: CandidatePath, b: CandidatePath): boolean => {
+	switch (a.kind) {
+		case "relation":
+		case "type":
+		case "login":
+			return b.kind === a.kind && b.removed === a.removed && b.added === a.added
+		case "field":
+			return (
+				b.kind === "field" &&
+				b.relation === a.relation &&
+				b.removed === a.removed &&
+				b.added === a.added
+			)
+		case "nested field":
+			return (
+				b.kind === "nested field" &&
+				samePath(b.parent, a.parent) &&
+				b.removed === a.removed &&
+				b.added === a.added
+			)
+	}
+}
+
+/** What a candidate renames, end to end, by printed name; a field's ends name the relations that hold it, a nested
+ * field's its parent's removed and added relation. */
+export interface CandidateEnds {
+	readonly kind: "relation" | "type" | "login" | "field"
+	readonly removed: string
+	readonly added: string
+}
+
+const fieldEnd = (relation: string, field: string): string => `${relation}.${field}`
+
+export const pathEnds = (p: CandidatePath): CandidateEnds => {
+	switch (p.kind) {
+		case "relation":
+		case "type":
+		case "login":
+			return { kind: p.kind, removed: p.removed, added: p.added }
+		case "field":
+			return {
+				kind: "field",
+				removed: fieldEnd(p.relation, p.removed),
+				added: fieldEnd(p.relation, p.added)
+			}
+		case "nested field":
+			return {
+				kind: "field",
+				removed: fieldEnd(p.parent.removed, p.removed),
+				added: fieldEnd(p.parent.added, p.added)
+			}
+	}
+}
+
+export const endsOf = (c: Candidate): CandidateEnds => pathEnds(pathOf(c))
+
+/** `the candidate rename of <removed> to <added>`, a login's `of login ...`: the one spelling of every label. */
+export const endsLabel = (ends: CandidateEnds): string =>
+	ends.kind === "login"
+		? `the candidate rename of login ${ends.removed} to ${ends.added}`
+		: `the candidate rename of ${ends.removed} to ${ends.added}`
+
+export const candidateLabel = (c: Candidate): string => endsLabel(endsOf(c))
+
+/** Whether two candidate ends are rivals: of one kind, taking one removed name away or giving one added name. Two
+ * rivals are never both chosen. */
+export const rivalEnds = (a: CandidateEnds, b: CandidateEnds): boolean =>
+	a.kind === b.kind && (a.removed === b.removed || a.added === b.added)
+
+export const rivals = (a: Candidate, b: Candidate): boolean => rivalEnds(endsOf(a), endsOf(b))
+
+/** A statement that loses stored data, which only the reviewer may decide: drafted commented under its marker, so it
+ * runs only once the reviewer writes it in, and left out where a candidate rename that carries the data is chosen
+ * instead (its carriers). Until one of the two is chosen, the loss is unresolved, and `grizzle check` and `grizzle
+ * migrate` refuse the folder (`lossDecisions`). */
+export interface LossDecision {
+	readonly kind: "loss"
+	readonly loses: Loss
+	readonly statement: SqlStatement
+	readonly carriers: ReadonlyArray<Candidate>
+}
+
+/** What another candidate's choice makes of a drafted action, offered wherever the action stands:
  * - `rewrite`: the statement runs under the new names;
  * - `delete`: the statement goes: the rename already did what it does;
  * - `convert`: the statement goes, and the candidate's conversion of the column it converts runs in its place: an enum
  *   rebuild's conversion of a removed column the candidate renames with its type changed, so the column is converted
  *   once, there, while the old type stands, whichever way the reviewer decides (`Differ.conversionIn`). */
-export type Offer =
-	| {
-			readonly kind: "rename"
-			readonly candidate: number
-			readonly note: string
-			readonly alternative: NonEmptyReadonlyArray<AlternativeStep>
-	  }
+export type PlainOffer =
 	| {
 			readonly kind: "rewrite"
-			readonly candidate: number
+			readonly candidate: Candidate
 			readonly note: string
 			readonly statements: NonEmptyReadonlyArray<SqlStatement>
 	  }
-	| { readonly kind: "delete"; readonly candidate: number; readonly note: string }
+	| { readonly kind: "delete"; readonly candidate: Candidate; readonly note: string }
 	| {
 			readonly kind: "convert"
-			readonly candidate: number
+			readonly candidate: Candidate
 			readonly note: string
 			readonly conversion: ColumnConversion
 	  }
+
+/** A step of an alternative that holds no rename of its own (a type's, a login's, a field's, a nested field's): an
+ * action, a choice of what other renames make of one, or the loss of a field it drops. */
+export type SealedStep = Action | Choice<PlainOffer> | LossDecision
+
+/** A candidate's own offer, above the addition it replaces with the rename: its head (headOf), then its alternative,
+ * what the rename brings across, each step decided only where the reviewer takes it:
+ * - `rename`: a type's, a login's or a kept relation's field's, whose alternative holds no rename of its own;
+ * - `relation rename`: a relation's, whose alternative adds and drops the fields only one side has, each pair of a
+ *   removed and an added field a choice of its own `nested rename`;
+ * - `nested rename`: a field's rename nested in a relation's, offered only in that relation's alternative. */
+export interface RootRename {
+	readonly kind: "rename"
+	readonly candidate: TypeCandidate | LoginCandidate | FieldCandidate
+	readonly note: string
+	readonly alternative: ReadonlyArray<SealedStep>
+}
+
+export interface RelationRename {
+	readonly kind: "relation rename"
+	readonly candidate: RelationCandidate
+	readonly note: string
+	readonly alternative: ReadonlyArray<RelationStep>
+}
+
+export interface NestedRename {
+	readonly kind: "nested rename"
+	readonly candidate: NestedFieldCandidate
+	readonly note: string
+	readonly alternative: ReadonlyArray<SealedStep>
+}
+
+/** What a choice in a relation's alternative offers: a field's rename nested in it, or what another rename makes of
+ * the action. */
+export type RelationOffer = NestedRename | PlainOffer
+
+/** A step of a relation rename's alternative: an action, a choice a nested field's rename or another rename decides,
+ * or the loss of a field it drops. */
+export type RelationStep = Action | Choice<RelationOffer> | LossDecision
+
+/** What a choice at the top of a file offers: a root candidate's own rename, or what another rename makes of the
+ * action. */
+export type TopOffer = RootRename | RelationRename | PlainOffer
+
+/** Every offer, wherever it stands. */
+export type Offer = TopOffer | RelationOffer
+
+/** One step of a rename's alternative, wherever the rename stands. */
+export type AlternativeStep = RelationStep
+
+/** Drafted statements the reviewer confirms under one marker, with no other way drafted: one decision, so the files
+ * keep them all, as drafted, or none of them (`splitRenames`). */
+export interface Confirm {
+	readonly kind: "confirm"
+	readonly note: string
+	readonly instruction: string
+	readonly keep: NonEmptyReadonlyArray<SqlStatement>
+}
+
+/** One drafted step's content: an action, a choice, a loss decision, or a confirmed group. */
+export type Draft = Action | Choice<TopOffer> | LossDecision | Confirm
 
 /** A drafted step in its slot; a residual law's validation names its law, one file per law. */
 export type Step =
 	| { readonly slot: PlainSlot; readonly draft: Draft }
 	| { readonly slot: "validate.law"; readonly law: LawId; readonly draft: Draft }
 
-/** A migration plan: what the diff of two snapshots drafts, slot by slot, before the phases group it into files. */
+/** A migration plan: what the diff of two snapshots drafts, slot by slot, before the phases group it into files. Its
+ * candidate renames are its rename offers (candidatesOf). */
 export interface MigrationPlan {
 	readonly steps: ReadonlyArray<Step>
-	/** The candidate renames the steps' offers choose between. */
-	readonly candidates: ReadonlyArray<Candidate>
 }
+
+/** The candidates whose own rename offer a step holds, those nested in a relation's alternative included, in draft
+ * order. */
+export const draftCandidates = (d: Draft | AlternativeStep): ReadonlyArray<Candidate> => {
+	if (d.kind !== "choice") {
+		return []
+	}
+	return d.offers.flatMap((o: Offer): ReadonlyArray<Candidate> => {
+		switch (o.kind) {
+			case "rename":
+			case "nested rename":
+				return [o.candidate]
+			case "relation rename":
+				return [o.candidate, ...o.alternative.flatMap((x) => draftCandidates(x))]
+			case "rewrite":
+			case "delete":
+			case "convert":
+				return []
+		}
+	})
+}
+
+/** Every candidate rename a plan offers: each rename offer's candidate, in step order. */
+export const candidatesOf = (plan: MigrationPlan): ReadonlyArray<Candidate> =>
+	plan.steps.flatMap((s) => draftCandidates(s.draft))

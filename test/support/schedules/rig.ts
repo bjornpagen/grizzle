@@ -4,6 +4,7 @@ import type { Db } from "#adapter/public/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -44,7 +45,7 @@ export interface Rig<W extends RigWorlds> {
 	readonly env: ExploreEnv
 	/** Owner statements in one transaction. */
 	readonly owner: (
-		...sql: ReadonlyArray<string>
+		sql: ReadonlyArray<string>
 	) => Effect.Effect<void, SqlError | TransactionRolledBack>
 	/**
 	 * Every relation's rows replaced with what `sql` inserts, as the owner, in one transaction that truncates every
@@ -92,6 +93,7 @@ export const openRig = <W extends RigWorlds>(
 		const s = yield* Substrate
 		const declared = build(name)
 		const installed = yield* installMigrated(declared.schema, {
+			ambient: ordinarySession,
 			label: "real",
 			logins: [declared.server, declared.psql],
 			extensions: []
@@ -107,7 +109,7 @@ export const openRig = <W extends RigWorlds>(
 			worlds,
 			direct: installed.world(worlds.direct),
 			env,
-			owner: (...sql) => transaction(s.admin, sql),
+			owner: (sql) => transaction(s.admin, sql),
 			replace: (sql) =>
 				replaceRows(
 					s.admin,

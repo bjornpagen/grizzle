@@ -62,8 +62,7 @@ export interface Replacement {
 export const directOps = (
 	host: HostSchema,
 	ops: ReadonlyArray<HostOp>,
-	replacements: ReadonlyArray<Replacement>,
-	isMutable: boolean
+	replacements: ReadonlyArray<Replacement>
 ): ReadonlyArray<HostOp> => {
 	const written = new Set<string>()
 	const deleted = new Set<string>()
@@ -93,7 +92,8 @@ export const directOps = (
 			written.add(id)
 			return true
 		})
-		const upsert = o.kind === "put" && isMutable && !hasSpanKey(host, o.relation)
+		const upsert =
+			o.kind === "put" && relationOf(host, o.relation).mutable && !hasSpanKey(host, o.relation)
 		return facts.length === 0
 			? []
 			: [{ relation: o.relation, kind: upsert ? "put" : "insert", facts }]

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { array, boolean, element, filter, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
@@ -27,13 +27,12 @@ const batchOf = <A>(values: Gen<A>, max: number): Gen<ReadonlyArray<A>> =>
  */
 const spec = {
 	literal: Formatter.format,
-	features: noFeatures,
+	coverage: noCoverage,
 	kept: [],
 	runs: 2,
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(2)
 } as const
 
@@ -41,7 +40,7 @@ const spec = {
 const exhaustive = {
 	literal: Formatter.format,
 	limit: 16,
-	features: noFeatures,
+	coverage: noCoverage,
 	caseHang: Duration.minutes(2)
 } as const
 

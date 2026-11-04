@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -173,13 +174,12 @@ describe("every physical claim holds on the delivered rows", () => {
 					suite: "unit/analysis/physical/soundness-plain",
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					literal: Formatter.format,
-					features: features<SoundnessFeature>(claimFeatures),
+					coverage: required<SoundnessFeature>(claimFeatures, { cases: 400, sense: notesOnly }),
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(q, c) =>
@@ -198,13 +198,12 @@ describe("every physical claim holds on the delivered rows", () => {
 					suite: "unit/analysis/physical/soundness-distinct",
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					literal: Formatter.format,
-					features: features<SoundnessFeature>(claimFeatures),
+					coverage: required<SoundnessFeature>(claimFeatures, { cases: 200, sense: notesOnly }),
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(q, c) =>
@@ -217,17 +216,8 @@ describe("every physical claim holds on the delivered rows", () => {
 
 	it.effect(
 		"the soundness population, both realizations: lateral sources, correlated variables and takes, shared nodes, windows and approximate searches",
-		(ctx) => {
-			const required = features<SoundnessFeature>([
-				...claimFeatures,
-				"a constant read laterally",
-				"a correlated MatchRegion evaluated per outer tuple",
-				"a correlated Take evaluated per outer tuple",
-				"a node read by two consumers",
-				"evaluated Window",
-				"evaluated ApproximateNearest"
-			])
-			return searched(
+		(ctx) =>
+			searched(
 				ctx,
 				explore(
 					{
@@ -237,13 +227,23 @@ describe("every physical claim holds on the delivered rows", () => {
 								[source.draw(queryCaseGen(soundnessGenConfig)), source.draw(boolean)] as const
 						),
 						literal: Formatter.format,
-						features: required,
+						coverage: required<SoundnessFeature>(
+							[
+								...claimFeatures,
+								"a constant read laterally",
+								"a correlated MatchRegion evaluated per outer tuple",
+								"a correlated Take evaluated per outer tuple",
+								"a node read by two consumers",
+								"evaluated Window",
+								"evaluated ApproximateNearest"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([q, distinct], c) =>
@@ -252,7 +252,6 @@ describe("every physical claim holds on the delivered rows", () => {
 						})
 				)
 			)
-		}
 	)
 
 	it.effect(
@@ -265,15 +264,18 @@ describe("every physical claim holds on the delivered rows", () => {
 						suite: "unit/analysis/physical/soundness-roots",
 						draw: drawn(rootedCases),
 						literal: Formatter.format,
-						features: features<SoundnessFeature | `root ${CounterexampleRoot}`>(
-							Arr.map(counterexampleRoots, ([root]): `root ${CounterexampleRoot}` => `root ${root}`)
+						coverage: required<SoundnessFeature | `root ${CounterexampleRoot}`>(
+							Arr.map(
+								counterexampleRoots,
+								([root]): `root ${CounterexampleRoot}` => `root ${root}`
+							),
+							{ cases: 80 * counterexampleRoots.length, sense: notesOnly }
 						),
 						kept: [],
 						runs: 80 * counterexampleRoots.length,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([root, q], c) =>
@@ -293,13 +295,12 @@ describe("every physical claim holds on the delivered rows", () => {
 					suite: "unit/analysis/physical/soundness-noninjective",
 					draw: drawn(noninjectiveKeyCaseGen),
 					literal: Formatter.format,
-					features: features<SoundnessFeature>([]),
+					coverage: noCoverage,
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(q, c) =>

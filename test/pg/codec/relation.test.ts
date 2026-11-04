@@ -1,8 +1,9 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, map, shuffled } from "@grizzle/testing/gen"
 import { exact, ordered } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
@@ -152,13 +153,15 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 						 */
 						draw: drawn(array(collidingFactsGen(8), { min: 1, max: 100 })),
 						literal: Formatter.format,
-						features: features<"equal facts spelled apart">(["equal facts spelled apart"]),
+						coverage: required<"equal facts spelled apart">(["equal facts spelled apart"], {
+							cases: 20,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 20,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(cases, c) =>
@@ -251,14 +254,16 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 							/** Facts that collide, so the encoder has equal facts spelled apart to deduplicate. */
 							draw: drawn(collidingFactsGen(40)),
 							literal: Formatter.format,
-							features: features<"deduplicated">(["deduplicated"]),
+							coverage: required<"deduplicated">(["deduplicated"], {
+								cases: 200,
+								sense: notesOnly
+							}),
 							kept: [],
 							/** One round trip a case, as before. */
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(facts, c) =>

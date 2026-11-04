@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect } from "effect"
@@ -10,7 +10,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { unrollRule } from "#compiler/lower/shapes/recursion/index.ts"
 import { Compute, type Predicate, type Term } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -19,6 +19,7 @@ import { explainMain, lowerCase, optimizedLowering } from "#test/pg/recursion/lo
 import { assert, contains, lacks } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import {
@@ -63,7 +64,7 @@ const walksBelow = (name: string, limit: number) =>
 		row: { person: uuid, hops: pg.integer },
 		base: [
 			(r) => {
-				const { id } = v(Person)
+				const { id } = v(Person, "person")
 				return r
 					.match(Person, { id })
 					.where(r.eq(id, r.param("start", uuid)))
@@ -72,8 +73,8 @@ const walksBelow = (name: string, limit: number) =>
 		],
 		rec: [
 			(r, self) => {
-				const { person, hops } = v(self)
-				const { to } = v(Follows)
+				const { person, hops } = v(self, "self")
+				const { to } = v(Follows, "follows")
 				return r
 					.match(self, { person, hops })
 					.match(Follows, { from: person, to })
@@ -95,11 +96,11 @@ const LongWalks = walksBelow("LongWalks", recursionUnrollMax + 1)
 const reachableBy = (walks: typeof Walks) =>
 	query(Network).rule((r) => {
 		const source = walks.bind({ start: r.param("person", uuid) })
-		const { person } = v(source)
+		const { person } = v(source, "source")
 		return r.match(source, { person }).find({ person })
 	})
 
-const vertex = (i: number): string => `00000000-0000-4000-8000-00000000000${i}`
+const vertex = (i: number): Uuid => `00000000-0000-4000-8000-00000000000${i}`
 const vertexId = (i: number): TypedLiteral => ({ kind: "uuid", value: vertex(i) })
 
 /** 0 -> 1 -> 3, 0 -> 2 -> 3 (a diamond), 3 -> 4 -> 0 (a cycle), 4 -> 5 -> 5 (a self-loop), and 3 -> 6, a dead end. */
@@ -188,9 +189,9 @@ const caseOf = (
 	}
 	return {
 		schema: genSchema,
-		facts,
+		facts: canonicalFacts(facts),
 		query: { dag, params },
-		spelling: { mode: "perCase", choices: [], edge: false },
+		spelling: { mode: "drawn", edge: false },
 		label
 	}
 }
@@ -246,7 +247,7 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 						generator: element(reachables),
 						literal: (c: LabelledCase) => c.label,
 						limit: reachables.length,
-						features: features<AgreedFeature>(
+						coverage: requiredInSpace<AgreedFeature>(
 							Arr.map(reachables, (c): AgreedFeature => `agreed: ${c.label}`)
 						),
 						caseHang: Duration.minutes(2)
@@ -283,6 +284,9 @@ type NetworkRule = Rule<typeof Network>
 type CounterSelf = SelfSource<{ readonly person: typeof uuid; readonly hops: typeof pg.integer }>
 type Hops = Term<number, unknown, unknown, "integer">
 
+/** A step's next count: integer arithmetic is exact, and the counter proof narrows it into the row's integer field. */
+type Next = Term<bigint, unknown, unknown, "exact integer">
+
 /** The step's direction: from the person reached along a follow, or back against one. */
 type Direction = "forward" | "backward"
 
@@ -290,11 +294,11 @@ const step =
 	(
 		bound: (r: NetworkRule, hops: Hops) => Predicate,
 		direction: Direction,
-		next: (hops: Hops) => Hops
+		next: (hops: Hops) => Next
 	) =>
 	(r: NetworkRule, self: CounterSelf) => {
-		const { person, hops } = v(self)
-		const { from, to } = v(Follows)
+		const { person, hops } = v(self, "self")
+		const { from, to } = v(Follows, "follows")
 		return r
 			.match(self, { person, hops })
 			.match(Follows, direction === "backward" ? { from, to: person } : { from: person, to })
@@ -310,7 +314,7 @@ const counter = (
 	query(Network).recursive(name, {
 		row: { person: uuid, hops: pg.integer },
 		base: Arr.map(seeds, (seed) => (r: NetworkRule) => {
-			const { id } = v(Person)
+			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("start", uuid)))
@@ -427,7 +431,7 @@ layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => 
 							generator: element(counterCases),
 							literal: (c: CounterCase) => c.label,
 							limit: counterCases.length,
-							features: features<AgreedFeature>(
+							coverage: requiredInSpace<AgreedFeature>(
 								Arr.map(counterCases, (c): AgreedFeature => `agreed: ${c.label}`)
 							),
 							caseHang: Duration.minutes(2)

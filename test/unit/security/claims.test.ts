@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { boolean, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -456,7 +457,7 @@ type Feature =
 	| "verdict:session-only"
 	| "verdict:both-contexts"
 
-const required: ReadonlyArray<Feature> = [
+const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	...Arr.map(objectPlacements, (p): Feature => `tenant:${p}`),
 	"field:own",
 	"field:inherited",
@@ -487,13 +488,12 @@ describe("the host claims decoder", () => {
 						suite: "unit/security/claims",
 						draw: drawn((source) => ({ mode: source.draw(modeGen), raw: source.draw(drawGen) })),
 						literal: Formatter.format,
-						features: features<Feature>(required),
+						coverage: required<Feature>(situations, { cases: 2000, sense: notesOnly }),
 						kept: [],
 						runs: 2000,
 						shrink: { kind: "bounded", candidates: 200 },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ mode, raw }, c) =>
@@ -543,7 +543,7 @@ describe("the host claims decoder", () => {
 						generator: element(["session", "tenant"] as const),
 						literal: (at: "session" | "tenant") => Formatter.format(at),
 						limit: 2,
-						features: features<"at:session" | "at:tenant">(["at:session", "at:tenant"]),
+						coverage: requiredInSpace<"at:session" | "at:tenant">(["at:session", "at:tenant"]),
 						caseHang: Duration.minutes(2)
 					},
 					(at, c) =>

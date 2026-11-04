@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -26,6 +26,7 @@ import { Db } from "#adapter/public/db.ts"
 import { migrate } from "#cli/migrate.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import {
 	bin,
@@ -163,7 +164,8 @@ const kept: ReadonlyArray<Kept<ConfigSketch, CliFeature>> = [
 	}
 ]
 
-const id = (n: number) => `00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const id = (n: number): Uuid =>
+	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const snapshotText = (dir: string, schema: string) =>
 	Effect.gen(function* () {
@@ -256,18 +258,20 @@ const configurations = (ctx: TestContext) =>
 				shrink: { kind: "bounded", candidates: 10 },
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "mutate", cases: 32, sense: notesOnly },
 				caseHang: Duration.minutes(2),
-				features: features<CliFeature>([
-					"run by the bin",
-					"run by in process",
-					"several schemas",
-					"the ledger fixture",
-					"connected by DATABASE_URL",
-					"connected by a typed connection",
-					"connected by an Effect password",
-					"a role that does not own the schemas refused"
-				])
+				coverage: required<CliFeature>(
+					[
+						"run by the bin",
+						"run by in process",
+						"several schemas",
+						"the ledger fixture",
+						"connected by DATABASE_URL",
+						"connected by a typed connection",
+						"connected by an Effect password",
+						"a role that does not own the schemas refused"
+					],
+					{ cases: 32, sense: notesOnly }
+				)
 			},
 			(sketch, c) =>
 				Effect.scoped(

@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
@@ -89,17 +90,15 @@ describe("minimal keys", () => {
 					suite: "unit/analysis/logical/minimal-keys",
 					draw: drawn(tableGen),
 					literal: Formatter.format,
-					features: features<KeysFeature>([
-						"one minimal key",
-						"several minimal keys",
-						"a minimal key of several columns"
-					]),
+					coverage: required<KeysFeature>(
+						["one minimal key", "several minimal keys", "a minimal key of several columns"],
+						{ cases: 500, sense: notesOnly }
+					),
 					kept: [exchangeOnly],
 					runs: 500,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(table, c) =>
@@ -224,18 +223,20 @@ describe("keys over classes of equal columns", () => {
 						suite: "unit/analysis/logical/class-keys",
 						draw: drawn(classedGen),
 						literal: Formatter.format,
-						features: features<ClassFeature>([
-							"eight or more classes of several columns",
-							"a class of three columns",
-							"a column of no other's class",
-							"a projection dropping a class's first column"
-						]),
+						coverage: required<ClassFeature>(
+							[
+								"eight or more classes of several columns",
+								"a class of three columns",
+								"a column of no other's class",
+								"a projection dropping a class's first column"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(drawnCase, c) =>
@@ -458,15 +459,17 @@ describe("keys of a union", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2),
-					features: features<UnionFeature>([
-						"an equality every arm holds",
-						"an equality some arm lacks",
-						"an equality every arm holds by copying one column",
-						"an equality every arm holds by its filter",
-						"three arms"
-					])
+					coverage: required<UnionFeature>(
+						[
+							"an equality every arm holds",
+							"an equality some arm lacks",
+							"an equality every arm holds by copying one column",
+							"an equality every arm holds by its filter",
+							"three arms"
+						],
+						{ cases: 300, sense: notesOnly }
+					)
 				},
 				(drawnCase, c) =>
 					Effect.sync(() => {
@@ -649,15 +652,17 @@ describe("the key kernel's union equalities", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2),
-						features: features<ForgeFeature>([
-							"every arm makes b equal to a",
-							"an arm shifts",
-							"arms shifting by different amounts",
-							"an equality through a filter",
-							"three arms"
-						])
+						coverage: required<ForgeFeature>(
+							[
+								"every arm makes b equal to a",
+								"an arm shifts",
+								"arms shifting by different amounts",
+								"an equality through a filter",
+								"three arms"
+							],
+							{ cases: 200, sense: notesOnly }
+						)
 					},
 					(mappings, c) =>
 						Effect.sync(() => {

@@ -1,5 +1,6 @@
 import { layer } from "@effect/vitest"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter } from "effect"
@@ -45,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const cases = 1600
 
 /** What the population must reach. */
-const required = [
+const situations = [
 	...Arr.map(graphShapes, (s): RecursiveFeature => `shape:${s}`),
 	...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`),
 	"self-loop",
@@ -107,11 +108,13 @@ const explored = recursiveEquivalence(
 	{
 		suite: "recursion/reference",
 		literal: Formatter.format,
-		features: features<RecursionOracleFeature>([...required, "nonempty"]),
+		coverage: required<RecursionOracleFeature>([...situations, "nonempty"], {
+			cases: 2 * cases,
+			sense: notesOnly
+		}),
 		kept: [],
 		runs: 2 * cases,
 		shrink: completeShrink,
-		steering: { kind: "none" },
 		caseHang: Duration.minutes(2),
 		perturb: "all"
 	}

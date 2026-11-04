@@ -1,17 +1,18 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert } from "#test/support/assert.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import {
@@ -46,7 +47,7 @@ const Net = schema("Net", { V, E, B }, [
 	contained(on(E, "to"), on(V, "id"))
 ])
 
-const vertex = (i: number): string => `00000000-0000-4000-8000-00000000000${i}`
+const vertex = (i: number): Uuid => `00000000-0000-4000-8000-00000000000${i}`
 const vertexId = (i: number): TypedLiteral => ({ kind: "uuid", value: vertex(i) })
 const int8 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
 
@@ -120,9 +121,9 @@ const caseOf = (
 	}
 	return {
 		schema: genSchema(),
-		facts,
+		facts: canonicalFacts(facts),
 		query: { dag, params },
-		spelling: { mode: "perCase", choices: [], edge: false },
+		spelling: { mode: "drawn", edge: false },
 		label
 	}
 }
@@ -133,7 +134,7 @@ const Walks = query(Net).recursive("Walks", {
 	row: { node: uuid, hops: pg.integer },
 	base: [
 		(r) => {
-			const { id } = v(V)
+			const { id } = v(V, "v")
 			return r
 				.match(V, { id })
 				.where(r.eq(id, r.param("start", uuid)))
@@ -142,8 +143,8 @@ const Walks = query(Net).recursive("Walks", {
 	],
 	rec: [
 		(r, self) => {
-			const { node, hops } = v(self)
-			const { to } = v(E)
+			const { node, hops } = v(self, "self")
+			const { to } = v(E, "e")
 			return r
 				.match(self, { node, hops })
 				.match(E, { from: node, to })
@@ -159,19 +160,19 @@ type NetRule = Rule<typeof Net>
 type NodeSelf = SelfSource<{ readonly node: typeof uuid }>
 
 const forward = (r: NetRule, self: NodeSelf) => {
-	const { node } = v(self)
-	const { to } = v(E)
+	const { node } = v(self, "self")
+	const { to } = v(E, "e")
 	return r.match(self, { node }).match(E, { from: node, to }).find({ node: to })
 }
 
 const backward = (r: NetRule, self: NodeSelf) => {
-	const { node } = v(self)
-	const { from } = v(E)
+	const { node } = v(self, "self")
+	const { from } = v(E, "e")
 	return r.match(self, { node }).match(E, { from, to: node }).find({ node: from })
 }
 
 const rootArm = (r: NetRule) => {
-	const { id } = v(V)
+	const { id } = v(V, "v")
 	return r
 		.match(V, { id })
 		.where(r.eq(id, r.param("start", uuid)))
@@ -189,8 +190,8 @@ const Open = query(Net).recursive("Open", {
 	base: [rootArm],
 	rec: [
 		(r, self) => {
-			const { node } = v(self)
-			const { to } = v(E)
+			const { node } = v(self, "self")
+			const { to } = v(E, "e")
 			return r
 				.match(self, { node })
 				.match(E, { from: node, to })
@@ -198,8 +199,8 @@ const Open = query(Net).recursive("Open", {
 				.find({ node: to })
 		},
 		(r, self) => {
-			const { node } = v(self)
-			const { to } = v(E)
+			const { node } = v(self, "self")
+			const { to } = v(E, "e")
 			return r
 				.match(self, { node })
 				.match(E, { from: node, to })
@@ -213,7 +214,7 @@ const Countdown = query(Net).recursive("Countdown", {
 	row: { node: uuid, left: pg.integer },
 	base: [
 		(r) => {
-			const { id } = v(V)
+			const { id } = v(V, "v")
 			return r
 				.match(V, { id })
 				.where(r.eq(id, r.param("start", uuid)))
@@ -222,8 +223,8 @@ const Countdown = query(Net).recursive("Countdown", {
 	],
 	rec: [
 		(r, self) => {
-			const { node, left } = v(self)
-			const { to } = v(E)
+			const { node, left } = v(self, "self")
+			const { to } = v(E, "e")
 			return r
 				.match(self, { node, left })
 				.match(E, { from: node, to })
@@ -244,8 +245,8 @@ const Upstream = query(Net).recursive("Upstream", {
 	base: [
 		(r) => {
 			const source = Reach.bind({ start: r.param("start", uuid) })
-			const { node } = v(source)
-			const { from } = v(E)
+			const { node } = v(source, "source")
+			const { from } = v(E, "e")
 			return r
 				.match(source, { node })
 				.match(E, { from, to: node })
@@ -260,19 +261,19 @@ const Pairs = query(Net).recursive("Pairs", {
 	row: { a: uuid, b: uuid },
 	base: [
 		(r) => {
-			const { from, to } = v(E)
+			const { from, to } = v(E, "e")
 			return r.match(E, { from, to }).find({ a: from, b: to })
 		}
 	],
 	rec: [
 		(r, self) => {
-			const { a, b } = v(self)
-			const { to } = v(E)
+			const { a, b } = v(self, "self")
+			const { to } = v(E, "e")
 			return r.match(self, { a, b }).match(E, { from: b, to }).find({ a, b: to })
 		},
 		(r, self) => {
-			const { b } = v(self)
-			const { from } = v(E)
+			const { b } = v(self, "self")
+			const { from } = v(E, "e")
 			return r
 				.match(self, { a: r.param("start", uuid), b })
 				.match(E, { from, to: b })
@@ -287,7 +288,7 @@ const Pairs = query(Net).recursive("Pairs", {
  */
 const Below = query(Net)
 	.rule((r) => {
-		const { id } = v(V)
+		const { id } = v(V, "v")
 		return r.match(V, { id }).find({ id })
 	})
 	.attach(
@@ -297,7 +298,7 @@ const Below = query(Net)
 				row: { node: uuid },
 				base: [
 					(r) => {
-						const { to } = v(E)
+						const { to } = v(E, "e")
 						return r.match(E, { from: p.id, to }).find({ node: to })
 					}
 				],
@@ -313,7 +314,7 @@ const Below = query(Net)
  */
 const Rooted = query(Net)
 	.rule((r) => {
-		const { id } = v(V)
+		const { id } = v(V, "v")
 		return r.match(V, { id }).find({ id })
 	})
 	.attach(
@@ -323,14 +324,14 @@ const Rooted = query(Net)
 				row: { node: uuid, root: uuid },
 				base: [
 					(r) => {
-						const { to } = v(E)
+						const { to } = v(E, "e")
 						return r.match(E, { from: p.id, to }).find({ node: to, root: p.id })
 					}
 				],
 				rec: [
 					(r, self) => {
-						const { node } = v(self)
-						const { to } = v(E)
+						const { node } = v(self, "self")
+						const { to } = v(E, "e")
 						return r
 							.match(self, { node })
 							.match(E, { from: node, to })
@@ -344,7 +345,7 @@ const Rooted = query(Net)
 /** The same with two factored transition arms: the origin is carried by the one feedback scan. */
 const Around = query(Net)
 	.rule((r) => {
-		const { id } = v(V)
+		const { id } = v(V, "v")
 		return r.match(V, { id }).find({ id })
 	})
 	.attach(
@@ -354,7 +355,7 @@ const Around = query(Net)
 				row: { node: uuid },
 				base: [
 					(r) => {
-						const { to } = v(E)
+						const { to } = v(E, "e")
 						return r.match(E, { from: p.id, to }).find({ node: to })
 					}
 				],
@@ -393,7 +394,7 @@ layer(Substrate.layer)("admitted recursions on PostgreSQL 19", (it) => {
 							generator: element(cases),
 							literal: (c: LabelledCase) => c.label,
 							limit: cases.length,
-							features: features<AgreedFeature>(
+							coverage: requiredInSpace<AgreedFeature>(
 								Arr.map(cases, (c): AgreedFeature => `agreed: ${c.label}`)
 							),
 							caseHang: Duration.minutes(2)

@@ -1,0 +1,105 @@
+macOS sample(1) of the backend compiling repro.sql's 40000-WHEN CREATE FUNCTION on PostgreSQL 19rc1 (6 s, 1 ms interval).
+Trimmed: the header, the call graph below CreateFunction, and the top-of-stack summary. Full output: 1284 samples.
+
+Analysis of sampling postgres (pid 59543) every 1 millisecond
+Process:         postgres [59543]
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Target Type:     live task
+
+Date/Time:       2026-11-03 20:43:09.661 -0600
+Launch Time:     2026-11-03 20:43:08.159 -0600
+OS Version:      macOS 27.0.1 (26A434)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+
+Call graph:
+    1284 Thread_208311   DispatchQueue_1: com.apple.main-thread  (serial)
+      1284 start  (in dyld) + 6688  [0x180afbe80]
+        1284 main  (in postgres) + 872  [0x102475564]  main.c:227
+          1284 PostmasterMain  (in postgres) + 3488  [0x102515508]  postmaster.c:1414
+            1284 ServerLoop  (in postgres) + 6020  [0x102517a1c]  postmaster.c:1727
+              1284 postmaster_child_launch  (in postgres) + 312  [0x102513504]  launch_backend.c:268
+                1284 BackendMain  (in postgres) + 80  [0x1025b0a3c]  backend_startup.c:124
+                  1284 PostgresMain  (in postgres) + 1232  [0x1025b4a8c]  postgres.c:0
+                    1284 exec_simple_query  (in postgres) + 1408  [0x1025b7674]  postgres.c:1290
+                      1284 PortalRun  (in postgres) + 432  [0x1025b84fc]  pquery.c:788
+                        1284 PortalRunMulti  (in postgres) + 232  [0x1025b8a0c]  pquery.c:0
+                          1284 PortalRunUtility  (in postgres) + 136  [0x1025b9260]  pquery.c:1153
+                            1284 standard_ProcessUtility  (in postgres) + 1500  [0x1025b9b84]  utility.c:0
+                              1284 ProcessUtilitySlow  (in postgres) + 1048  [0x1025ba950]  utility.c:1660
+                                1284 CreateFunction  (in postgres) + 2904  [0x1023c43a0]  functioncmds.c:1289
+                                  1284 ProcedureCreate  (in postgres) + 2824  [0x10238e388]  pg_proc.c:755
+                                    1284 OidFunctionCall1Coll  (in postgres) + 116  [0x1026e7d48]  fmgr.c:1419
+                                      1284 plpgsql_validator  (in plpgsql.dylib) + 588  [0x102f3a0b8]  pl_handler.c:538
+                                        1284 plpgsql_compile  (in plpgsql.dylib) + 56  [0x102f2a694]  pl_comp.c:119
+                                          1284 cached_function_compile  (in postgres) + 852  [0x1026c9ad4]  funccache.c:617
+                                            1284 plpgsql_compile_callback  (in plpgsql.dylib) + 3676  [0x102f2b504]  pl_comp.c:682
+                                              1257 plpgsql_yyparse  (in plpgsql.dylib) + 4172  [0x102f25f2c]  pl_gram.y:1269
+                                              + 871 plpgsql_location_to_lineno  (in plpgsql.dylib) + 124  [0x102f3a9f8]  pl_scanner.c:0
+                                              + ! 829 _platform_strchr  (in libsystem_platform.dylib) + 64,60,...  [0x180edc0a0,0x180edc09c,...]
+                                              + ! 42 DYLD-STUB$$strchr  (in plpgsql.dylib) + 4,0,...  [0x102f3f358,0x102f3f354,...]
+                                              + 226 plpgsql_location_to_lineno  (in plpgsql.dylib) + 84  [0x102f3a9d0]  pl_scanner.c:587
+                                              + 86 plpgsql_location_to_lineno  (in plpgsql.dylib) + 132,140,...  [0x102f3aa00,0x102f3aa08,...]  pl_scanner.c:585
+                                              + 74 plpgsql_location_to_lineno  (in plpgsql.dylib) + 112,104,...  [0x102f3a9ec,0x102f3a9e4,...]  pl_scanner.c:0
+                                              15 plpgsql_yyparse  (in plpgsql.dylib) + 7672  [0x102f26cd8]  pl_gram.y:0
+                                              + 9 read_sql_construct  (in plpgsql.dylib) + 508  [0x102f286c4]  pl_gram.y:2861
+                                              + ! 8 raw_parser  (in postgres) + 108  [0x1027a659c]  parser.c:77
+                                              + ! : 2 base_yyparse  (in postgres) + 61476  [0x1027a4770]  gram.c:54199
+                                              + ! : 2 base_yyparse  (in postgres) + 39856  [0x10279f2fc]  gram.y:936
+                                              + ! : 1 base_yyparse  (in postgres) + 556  [0x102795978]  gram.c:31101
+                                              + ! : 1 base_yyparse  (in postgres) + 2716  [0x1027961e8]  gram.y:0
+                                              + ! : | 1 palloc0  (in postgres) + 48  [0x102707884]  mcxt.c:1431
+                                              + ! : |   1 AllocSetAlloc  (in postgres) + 132  [0x10270065c]  aset.c:1099
+                                              + ! : 1 base_yyparse  (in postgres) + 4260  [0x1027967f0]  gram.y:0
+                                              + ! : 1 base_yyparse  (in postgres) + 33600  [0x10279da8c]  gram.y:17872
+                                              + ! 1 raw_parser  (in postgres) + 44  [0x1027a655c]  parser.c:49
+                                              + !   1 scanner_init  (in postgres) + 52  [0x102795598]  scan.l:1232
+                                              + !     1 AllocSetAlloc  (in postgres) + 104  [0x102700640]  aset.c:1099
+                                              + 4 read_sql_construct  (in plpgsql.dylib) + 128  [0x102f28548]  pl_gram.y:2788
+                                              + ! 4 plpgsql_yylex  (in plpgsql.dylib) + 48  [0x102f3a16c]  pl_scanner.c:166
+                                              + !   4 internal_yylex  (in plpgsql.dylib) + 116  [0x102f3a608]  pl_scanner.c:352
+                                              + !     4 core_yylex  (in postgres) + 272  [0x102792f04]  scan.c:9339
+                                              + 1 read_sql_construct  (in plpgsql.dylib) + 76  [0x102f28514]  pl_gram.y:2780
+                                              + ! 1 initStringInfo  (in postgres) + 28  [0x10272e234]  stringinfo.c:99
+                                              + !   1 AllocSetAlloc  (in postgres) + 0  [0x1027005d8]  aset.c:1030
+                                              + 1 read_sql_construct  (in plpgsql.dylib) + 448  [0x102f28688]  pl_gram.y:2861
+                                              6 plpgsql_yyparse  (in plpgsql.dylib) + 10420  [0x102f27794]  pl_gram.y:1806
+                                              + 6 make_return_stmt  (in plpgsql.dylib) + 408  [0x102f29790]  pl_gram.y:3432
+                                              +   5 read_sql_construct  (in plpgsql.dylib) + 508  [0x102f286c4]  pl_gram.y:2861
+                                              +   ! 3 raw_parser  (in postgres) + 108  [0x1027a659c]  parser.c:77
+                                              +   ! : 1 base_yyparse  (in postgres) + 616  [0x1027959b4]  gram.c:31122
+                                              +   ! : 1 base_yyparse  (in postgres) + 2716  [0x1027961e8]  gram.y:0
+                                              +   ! : | 1 palloc0  (in postgres) + 48  [0x102707884]  mcxt.c:1431
+                                              +   ! : |   1 AllocSetAlloc  (in postgres) + 132  [0x10270065c]  aset.c:1099
+                                              +   ! : 1 base_yyparse  (in postgres) + 4272  [0x1027967fc]  gram.y:0
+                                              +   ! :   1 palloc0  (in postgres) + 48  [0x102707884]  mcxt.c:1431
+                                              +   ! :     1 AllocSetAlloc  (in postgres) + 132  [0x10270065c]  aset.c:1099
+                                              +   ! 2 raw_parser  (in postgres) + 44  [0x1027a655c]  parser.c:49
+                                              +   !   1 scanner_init  (in postgres) + 60  [0x1027955a0]  scan.l:1232
+                                              +   !   1 scanner_init  (in postgres) + 188  [0x102795620]  scan.l:1249
+                                              +   !     1 core_yy_scan_buffer  (in postgres) + 92  [0x102794ec4]  scan.c:10991
+                                              +   1 read_sql_construct  (in plpgsql.dylib) + 228  [0x102f285ac]  pl_gram.y:2829
+                                              3 plpgsql_yyparse  (in plpgsql.dylib) + 488  [0x102f250c8]  pl_gram.c:1935
+                                              + 3 plpgsql_yylex  (in plpgsql.dylib) + 48  [0x102f3a16c]  pl_scanner.c:166
+                                              +   2 internal_yylex  (in plpgsql.dylib) + 116  [0x102f3a608]  pl_scanner.c:352
+                                              +   ! 2 core_yylex  (in postgres) + 4768  [0x102794094]  scan.l:1054
+                                              +   !   1 ScanKeywordLookup  (in postgres) + 24  [0x10272ab64]  kwlookup.c:49
+                                              +   !   : 1 _platform_strlen  (in libsystem_platform.dylib) + 64  [0x180ed8b80]
+                                              +   !   1 ScanKeywordLookup  (in postgres) + 56  [0x10272ab84]  kwlookup.c:61
+                                              +   1 internal_yylex  (in plpgsql.dylib) + 0  [0x102f3a594]  pl_scanner.c:340
+                                              2 plpgsql_yyparse  (in plpgsql.dylib) + 2500,10436  [0x102f258a4,0x102f277a4]  pl_gram.y:0
+                                              1 plpgsql_yyparse  (in plpgsql.dylib) + 944  [0x102f25290]  pl_gram.c:0
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        _platform_strchr  (in libsystem_platform.dylib)        829
+        plpgsql_location_to_lineno  (in plpgsql.dylib)        386
+        DYLD-STUB$$strchr  (in plpgsql.dylib)        42
+        base_yyparse  (in postgres)        8
+        AllocSetAlloc  (in postgres)        5
+
+Binary Images:

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -22,6 +22,7 @@ import {
 	WILD_KINDS
 } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -42,6 +43,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, PgScalarName } from "#compiler/ir/desc.ts"
+import type { Fact } from "#compiler/ir/proof.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import {
 	type Carrier,
@@ -155,7 +157,7 @@ describe("the capability registry", () => {
 						generator: element(cases),
 						literal: Formatter.format,
 						limit: cases.length,
-						features: features<CapsCase["kind"]>(["serial", "contract", "vector"]),
+						coverage: requiredInSpace<CapsCase["kind"]>(["serial", "contract", "vector"]),
 						caseHang: Duration.minutes(2)
 					},
 					(cs, c) =>
@@ -198,8 +200,13 @@ describe("the capability registry", () => {
  * The predicate table the checker lowers a contract's predicate to: contractPredicateTable over the base, its fields
  * typed by the registry and its regex membership the reference evaluator's.
  */
-const predicateTable = (predicate: ExprDesc, base: ScalarType, name: string) =>
-	contractPredicateTable(predicate, base, name, {
+const predicateTable = (
+	predicate: ExprDesc,
+	base: ScalarType,
+	name: string,
+	facts: ReadonlyArray<Fact>
+) =>
+	contractPredicateTable(predicate, base, name, facts, {
 		loc: SourceLoc(`contract ${name}`, []),
 		fieldType: (desc, location) => scalarTypeOf(desc, bareEnv, location),
 		regexMember: patternMember
@@ -254,7 +261,8 @@ const fieldDescFor = (t: ScalarType): FieldDesc => {
 			kind: "contract",
 			name: contract.name,
 			base: fieldDescFor(contract.base),
-			predicate: undefined
+			predicate: undefined,
+			facts: contract.facts
 		}
 	}
 	const s = spanOf(t)
@@ -274,7 +282,7 @@ const envRoster = (env: ScalarEnv, name: string): Roster => {
 }
 
 /** The roster the registry resolves `t`'s closedId by: its own, or none. */
-const rostersOf = (t: ScalarType): Readonly<Record<string, ReadonlyArray<string>>> => {
+const rostersOf = (t: ScalarType): Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> => {
 	const roster = rosterOf(t)
 	return roster === undefined ? {} : { [roster.closed]: roster.handles }
 }
@@ -292,7 +300,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						literal: Formatter.format,
 						/** The space is the fixtures' types, listed above: every one of them, once. */
 						limit: fixtureTypes.length,
-						features: features<`carrier ${Carrier}`>(
+						coverage: requiredInSpace<`carrier ${Carrier}`>(
 							Arr.map(carriers, (c) => `carrier ${c}` as const)
 						),
 						caseHang: Duration.minutes(2)
@@ -329,7 +337,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						generator: element(fields),
 						literal: Formatter.format,
 						limit: fields.length,
-						features: features<"a descriptor">(["a descriptor"]),
+						coverage: requiredInSpace<"a descriptor">(["a descriptor"]),
 						caseHang: Duration.minutes(2)
 					},
 					(field, c) =>
@@ -367,21 +375,21 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 							)
 						})),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ name, other, handles }) =>
 						Effect.sync(() => {
-							const held = { closed: parsedName(name), handles }
+							const listed = nonEmpty(handles, "a drawn roster of at least one handle")
+							const held = { closed: parsedName(name), handles: listed }
 							const env = {
 								kind: "builder",
-								roster: (n: string) => (n === name ? handles : undefined),
+								roster: (n: string) => (n === name ? listed : undefined),
 								text: noText
 							} as const
 							assert.deepEqual(
@@ -417,13 +425,12 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 							lengthBound: source.draw(int(1, 1000))
 						})),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ source, flags, lengthBound }) =>
@@ -461,13 +468,12 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						bound: source.draw(bigint(-100n, 100n))
 					})),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 50,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ name, bound }) =>
@@ -485,7 +491,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						assert.equal<string>(identity.name, name)
 						assert.equal(sameScalarType(identity.base, base), true)
 						assert.equal(identity.predicate, undefined)
-						const table = succeeded(predicateTable(defined(Branded.predicate), base, name))
+						const table = succeeded(predicateTable(defined(Branded.predicate), base, name, []))
 						const typed = succeeded(
 							scalarTypeOf(
 								desc,
@@ -559,13 +565,15 @@ const readingDescGen: Gen<FieldDesc> = oneOf([
 		kind: "contract" as const,
 		name: source.draw(element(["Cents", "Euros"])),
 		base: source.draw(endpointGen),
-		predicate: undefined
+		predicate: undefined,
+		facts: []
 	}),
 	(source) => ({
 		kind: "contract" as const,
 		name: source.draw(element(["Cents", "Euros"])),
 		base: source.draw(constant<FieldDesc>({ kind: "pg", type: "bigint" })),
-		predicate: nonNegative
+		predicate: nonNegative,
+		facts: []
 	})
 ])
 
@@ -576,7 +584,7 @@ const readingDescGen: Gen<FieldDesc> = oneOf([
 const readingEnvGen: Gen<ScalarEnv> = map(
 	(source) => ({
 		schema: source.draw(boolean),
-		handles: source.draw(element([["a"], ["a", "b"]])),
+		handles: source.draw(element<Arr.NonEmptyReadonlyArray<string>>([["a"], ["a", "b"]])),
 		bounds: source.draw(
 			element<
 				| { readonly lengthBound: undefined; readonly byteBound: undefined }
@@ -728,7 +736,7 @@ describe("scalarTypeOf builds each type from its content", () => {
 		"gives each Description its own content, frozen, canonically equal to an equal content's and apart from a different one's",
 		(ctx) =>
 			Effect.gen(function* () {
-				const required: ReadonlyArray<ContentFeature> = [
+				const situations: Arr.NonEmptyReadonlyArray<ContentFeature> = [
 					"equal contents",
 					"different contents",
 					"kind pg",
@@ -757,13 +765,12 @@ describe("scalarTypeOf builds each type from its content", () => {
 									] as const
 							),
 							literal: Formatter.format,
-							features: features<ContentFeature>(required),
+							coverage: required<ContentFeature>(situations, { cases: 200, sense: notesOnly }),
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						([envs, descs], c) =>
@@ -1116,15 +1123,18 @@ describe("literalDescFor: literal operands adopt the base's host type", () => {
 							(x) => x
 						),
 						literal: Formatter.format,
-						features: features<LiteralFeature>([
-							...Arr.flatMap(literalCases, (c): ReadonlyArray<LiteralFeature> => [
-								`${c.carrier} literal`,
-								`${c.carrier} refused`
-							]),
-							...Arr.map(WILD_KINDS, (kind): LiteralFeature => `wild ${kind}`),
-							"vector snapshot at build",
-							"negative zero normalized"
-						]),
+						coverage: required<LiteralFeature>(
+							[
+								...Arr.flatMap(literalCases, (c): Arr.NonEmptyReadonlyArray<LiteralFeature> => [
+									`${c.carrier} literal`,
+									`${c.carrier} refused`
+								]),
+								...Arr.map(WILD_KINDS, (kind): LiteralFeature => `wild ${kind}`),
+								"vector snapshot at build",
+								"negative zero normalized"
+							],
+							{ cases: 3000, sense: notesOnly }
+						),
 						kept: [
 							{
 								note: "a vector of the type's dimensions",
@@ -1138,7 +1148,6 @@ describe("literalDescFor: literal operands adopt the base's host type", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([carrier, d], c) =>
@@ -1257,21 +1266,23 @@ describe("describeField", () => {
 						suite: "unit/scalar/describe-field",
 						draw: drawn(boundaryCaseGen),
 						literal: Formatter.format,
-						features: features<DescribeFeature>([
-							"live",
-							"stale look-alike",
-							...Arr.map(WILD_KINDS, (kind): DescribeFeature => `wild ${kind}`),
-							"boundary describeField",
-							"boundary span",
-							"boundary closedId"
-						]),
+						coverage: required<DescribeFeature>(
+							[
+								"live",
+								"stale look-alike",
+								...Arr.map(WILD_KINDS, (kind): DescribeFeature => `wild ${kind}`),
+								"boundary describeField",
+								"boundary span",
+								"boundary closedId"
+							],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([d, boundary], c) =>

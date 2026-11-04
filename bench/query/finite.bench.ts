@@ -72,7 +72,7 @@ const Finite = schema("Finite", { Tier, Order }, [])
 
 /** Orders of the region-1 tiers: a literal on the payload. */
 const regionOne = query(Finite).rule((r) => {
-	const { id, tier, amount } = v(Order)
+	const { id, tier, amount } = v(Order, "order")
 	return r
 		.match(Order, { id, tier, amount })
 		.match(Tier, { id: tier, region: 1 })
@@ -82,7 +82,7 @@ const regionOne = query(Finite).rule((r) => {
 
 /** Orders of the tiers of a parameter's region: tuple membership. */
 const ofRegion = query(Finite).rule((r) => {
-	const { id, tier, amount } = v(Order)
+	const { id, tier, amount } = v(Order, "order")
 	return r
 		.match(Order, { id, tier, amount })
 		.match(Tier, { id: tier, region: r.param("region", Tier.payload.region) })
@@ -92,7 +92,7 @@ const ofRegion = query(Finite).rule((r) => {
 
 /** Every tier: a tautology. */
 const anyTier = query(Finite).rule((r) => {
-	const { id, tier, amount } = v(Order)
+	const { id, tier, amount } = v(Order, "order")
 	return r
 		.match(Order, { id, tier, amount })
 		.match(Tier, { id: tier })

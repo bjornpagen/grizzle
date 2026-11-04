@@ -2,7 +2,7 @@ import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { type Case, drawn, type Exploration, exhaust, explore, Run } from "#explore.ts"
-import { noFeatures } from "#features.ts"
+import { noCoverage } from "#features.ts"
 import { budgetOf, type Corpus } from "#fuzz.ts"
 import { array, element, type Gen, int } from "#gen.ts"
 import { completeShrink } from "#shrink.ts"
@@ -39,13 +39,12 @@ const search = (
 	suite,
 	draw: drawn(values),
 	literal: Formatter.format,
-	features: noFeatures,
+	coverage: noCoverage,
 	kept: [],
 	runs: 100,
 	shrink: completeShrink,
 	concurrency: 4,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(1)
 })
 
@@ -136,7 +135,7 @@ describe("a fuzz run", () => {
 						] as const,
 					literal: Formatter.format,
 					limit: 100,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},
 				([count, unit]) =>

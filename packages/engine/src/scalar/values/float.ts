@@ -1,22 +1,22 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
 
-/** One spelling of zero. */
-export const canonicalZero = (x: number): number => (x === 0 ? 0 : x)
+export { type CanonicalFloat, canonicalZero }
 
 /**
  * Binary32 rounding with the one zero: Math.fround, then -0 as +0. NaN and the infinities are kept. This is the
  * float8-to-float4 cast on every value the cast admits; where the cast raises 22003, fround yields the IEEE result
  * instead (a signed infinity on overflow, +0 on underflow), and `toReal` turns that into the refusal.
  */
-export const fround = (x: number): number => canonicalZero(Math.fround(x))
+export const fround = (x: number): CanonicalFloat => canonicalZero(Math.fround(x))
 
 /** A double precision value: any JavaScript number, -0 as +0. */
-export const toDouble = (x: unknown): Result.Result<number, ValueFault> =>
+export const toDouble = (x: unknown): Result.Result<CanonicalFloat, ValueFault> =>
 	typeof x === "number" ? Result.ok(canonicalZero(x)) : Result.err("floatType")
 
 /** A real value: the binary32 number PostgreSQL's float8-to-float4 cast stores for `x`, or its refusal. */
-export const toReal = (x: unknown): Result.Result<number, ValueFault> => {
+export const toReal = (x: unknown): Result.Result<CanonicalFloat, ValueFault> => {
 	if (typeof x !== "number") {
 		return Result.err("floatType")
 	}
@@ -57,11 +57,16 @@ export const compareFloat = (a: number, b: number): -1 | 0 | 1 => {
 }
 
 /**
- * The value's one text: "NaN", "Infinity", "-Infinity", or the shortest round-trip decimal, -0 written as 0. Equal
- * floats have equal texts, and distinct binary64 values distinct texts, so it is the float's fact identity.
+ * The text form of pg.real, pg["double precision"] and vector components, and the value's one text: "NaN",
+ * "Infinity", "-Infinity", or the shortest round-trip decimal, -0 written as 0. Equal floats have equal texts, and
+ * distinct binary64 values distinct texts, so it is the float's fact identity.
+ *
+ * A double precision value travels as its shortest round-trip decimal (JavaScript's number text), which PostgreSQL's
+ * float8in (strtod) reads back as exactly the same binary64 value. A real value is binary32-exact on the host
+ * (toReal), so the shortest round-trip text of that value read as a double names it exactly; float4in and pgvector's
+ * vector_in (strtof) read the text as exactly the binary32 value, never double-rounding a float32 midpoint.
  */
-export const floatIdentityText = (x: number): string =>
-	Number.isNaN(x) ? "NaN" : String(canonicalZero(x))
+export const floatText = (x: number): string => String(canonicalZero(x))
 
 /** The largest finite binary32 value. */
 const floatMax = 3.4028234663852886e38

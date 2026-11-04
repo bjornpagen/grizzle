@@ -1,5 +1,5 @@
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { type Features, noFeatures } from "@grizzle/testing/features"
+import { type Coverage, noCoverage } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { Config, Duration, Effect, Formatter, Schema } from "effect"
@@ -35,19 +35,18 @@ export const firstFailure = <T, F extends string, E, R>({
 	runs,
 	property
 }: Exploration<T, F, E, R>) => {
-	const none: Features<F> = noFeatures
+	const none: Coverage<F> = noCoverage
 	return explore(
 		{
 			suite,
 			draw: drawn(generator),
 			literal: Formatter.format,
-			features: none,
+			coverage: none,
 			kept: [],
 			runs,
 			shrink: boundedShrink(0),
 			concurrency: 1,
 			steerEvery: 16,
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2)
 		},
 		property

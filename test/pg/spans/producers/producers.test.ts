@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -72,7 +73,8 @@ const spanType = (endpoint: SpanEndpointKind): ScalarType => {
 						kind: "contract",
 						name: tickContract.name,
 						base: { kind: "pg", type: "bigint" },
-						predicate: undefined
+						predicate: undefined,
+						facts: []
 					},
 					width: undefined
 				},
@@ -248,7 +250,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 	 * facts, against the brute-force point-set difference.
 	 */
 	const correlatedCases = 200
-	const correlatedRequired: ReadonlyArray<ProducerFeature> = Arr.map(
+	const correlatedRequired: Arr.NonEmptyReadonlyArray<ProducerFeature> = Arr.map(
 		outcomes,
 		(outcome): ProducerFeature => `correlated:${outcome}`
 	)
@@ -269,11 +271,13 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 						{
 							suite: "spans/producers/correlated",
 							literal: Formatter.format,
-							features: features<ProducerFeature>(correlatedRequired),
+							coverage: required<ProducerFeature>(correlatedRequired, {
+								cases: correlatedCases,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: correlatedCases,
 							shrink: completeShrink,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},
@@ -370,7 +374,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 		"pack"
 	] as const satisfies ReadonlyArray<SpanQueryKind>
 	const cases = 1000
-	const required: ReadonlyArray<ProducerFeature> = [
+	const situations: Arr.NonEmptyReadonlyArray<ProducerFeature> = [
 		...Arr.flatMap(kinds, (kind) =>
 			Arr.map(outcomes, (outcome): ProducerFeature => `${kind}:${outcome}`)
 		),
@@ -398,11 +402,10 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 						{
 							suite: "spans/producers",
 							literal: Formatter.format,
-							features: features<ProducerFeature>(required),
+							coverage: required<ProducerFeature>(situations, { cases: cases, sense: notesOnly }),
 							kept: producerKept,
 							runs: cases,
 							shrink: completeShrink,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},

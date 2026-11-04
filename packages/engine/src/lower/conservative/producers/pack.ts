@@ -1,3 +1,8 @@
+import {
+	appendNonEmpty,
+	concatNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import type { ProducerNode } from "#compiler/ir/rel.ts"
 import {
 	type Env,
@@ -11,8 +16,17 @@ import {
 	type ProducerForm,
 	spanArgument
 } from "#compiler/lower/conservative/producers/shared.ts"
-import type { FromItem, Select } from "#compiler/sql/ast.ts"
-import { call, col, core, derived, lit, select, target } from "#compiler/sql/build.ts"
+import type { FromItem, Select, Target } from "#compiler/sql/ast.ts"
+import {
+	call,
+	col,
+	core,
+	derived,
+	distinctCoreWhen,
+	lit,
+	select,
+	target
+} from "#compiler/sql/build.ts"
 
 /**
  * r.pack(s): the maximal covered segments of the spans of each group, one fact per component.
@@ -45,22 +59,21 @@ export const packQuery = (
 	const at = nodeLabel(node)
 	const origin = { kind: "node", node: node.id } as const
 	const input = cx.source(node.input, env)
-	const scope = extendEnv(env, [node.input.id, input.map])
+	const scope = extendEnv(env, [[node.input.id, input.map]])
 	const { arg: span } = spanArgument(cx, node, scope, at)
 	const ungrouped = node.carried.length === 0
 	/** The grouped input: the carried columns and the span, with the constant group column of an ungrouped pack. */
-	const members = select({
-		...core(
-			[
-				...carriedTargets(node, input.map),
-				target(span),
-				...(ungrouped ? [target(lit.bool(true))] : [])
-			],
+	const grouping: NonEmptyReadonlyArray<Target> = ungrouped
+		? [target(span), target(lit.bool(true))]
+		: [target(span)]
+	const members = select(
+		distinctCoreWhen(
+			form.contributions,
+			concatNonEmpty(carriedTargets(node, input.map), grouping),
 			[input.item],
 			undefined
-		),
-		distinct: form.contributions
-	})
+		)
+	)
 	/** The member columns: one per carried column, the span, and the unit marker of an ungrouped pack. */
 	const memberCarriedColumns = node.carried.map(() => cx.supply.column(origin))
 	const memberSpanColumn = cx.supply.column(origin)
@@ -93,15 +106,15 @@ export const packQuery = (
 		columns: [component],
 		lateral: true
 	}
-	return select({
-		...core(
-			[
-				...groupCarriedColumns.map((c) => target(col(groupAlias, c))),
+	return select(
+		distinctCoreWhen(
+			form.distinct,
+			appendNonEmpty(
+				groupCarriedColumns.map((c) => target(col(groupAlias, c))),
 				target(col(componentAlias, component))
-			],
+			),
 			[derived(grouped, groupAlias, groupColumns, false), components],
 			undefined
-		),
-		distinct: form.distinct
-	})
+		)
+	)
 }

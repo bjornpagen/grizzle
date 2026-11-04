@@ -4,10 +4,9 @@ import {
 	type Explored,
 	explore,
 	type Run,
-	type SearchFailure,
-	type Steering
+	type SearchFailure
 } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import type { Coverage } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import {
@@ -20,6 +19,13 @@ import {
 	Schema,
 	type Scope
 } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
+import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
+import {
+	CurrentRestorage,
+	type Restorage,
+	restorageGen
+} from "#test/support/oracle/gen/restorage.ts"
 import {
 	CurrentPerturbation,
 	isPerturbed,
@@ -55,6 +61,8 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
 export interface WriteRun {
 	readonly schema: SchemaSketch
 	readonly statistics: Statistics
+	/** The defaults the run's installation's owner sessions start under (test/support/ambient.ts). */
+	readonly ambient: AmbientSession
 	readonly cases: ReadonlyArray<WriteCase>
 	readonly planted: PlantedCases
 }
@@ -64,13 +72,17 @@ const maxCasesPerRun = 12
 export const writeRunGen: Gen<WriteRun> = (source) => ({
 	schema: source.draw(schemaSketchGen),
 	statistics: source.draw(element<Statistics>(["analyzed", "none"])),
+	ambient: source.draw(ambientSessionGen),
 	cases: source.draw(array(writeCaseGen, { min: 1, max: maxCasesPerRun })),
 	planted: source.draw(plantedCasesGen)
 })
 
-/** A write run and the plan perturbation it runs under, drawn together so they shrink together. */
-const perturbedRunGen: Gen<readonly [WriteRun, Perturbation]> = (source) =>
-	[source.draw(writeRunGen), source.draw(perturbationGen)] as const
+/**
+ * A write run, the plan perturbation it runs under and how its second readings store their facts, drawn together so
+ * they shrink together.
+ */
+const perturbedRunGen: Gen<readonly [WriteRun, Perturbation, Restorage]> = (source) =>
+	[source.draw(writeRunGen), source.draw(perturbationGen), source.draw(restorageGen)] as const
 
 /**
  * What a run's resolution draws: its schema and its drawn cases, each thinned by its swarm as the resolution meets each
@@ -97,10 +109,10 @@ const resolveRun =
  * into a narrower field (a deletion among them) refused by the domain, a put on an immutable relation, a generated
  * addition drawing the key of a fact its stratum deletes, read back through both deltas, identical and differing, one
  * whose lagging draw repeats a fact the stratum keeps, refused at its key, draws of the realization's other than the
- * calculator's that change the counts, and a put realized as UPDATE ... FROM advancing a lagging sequence past its
- * keys.
+ * calculator's that change the counts, a put realized as UPDATE ... FROM advancing a lagging sequence past its keys,
+ * and second readings over facts stored in another order and with a value respelled.
  */
-export const required = [
+export const writeSituations = [
 	"strata:1",
 	"strata:2",
 	"strata:3",
@@ -134,6 +146,7 @@ export const required = [
 	"every field an identity column",
 	"two identity columns",
 	"insert generated",
+	"a unit addition described and enumerated",
 	"generated accepted",
 	"generated after a collision",
 	"deferred containment",
@@ -172,7 +185,9 @@ export const required = [
 	"single-statement stratum",
 	"a single statement refused by a law",
 	"sequential stratum of several writes",
-	"take sent in its LATERAL form"
+	"take sent in its LATERAL form",
+	"facts reordered on a second reading",
+	"a fact respelled on a second reading"
 ] as const satisfies ReadonlyArray<WriteOracleFeature>
 
 /**
@@ -240,7 +255,10 @@ const runResolved = (
 	Effect.gen(function* () {
 		const schema = resolved.schema
 		note(`statistics ${run.statistics}`)
-		const t = yield* openTarget(schema, run.statistics)
+		for (const feature of ambientFeatures(run.ambient)) {
+			note(feature)
+		}
+		const t = yield* openTarget(schema, run.statistics, run.ambient)
 		const privileges = yield* privilegeProblems(t)
 		if (privileges.length > 0) {
 			return yield* CaseFailed.make({
@@ -264,7 +282,7 @@ const runResolved = (
 						: e
 				)
 			)
-			reads.push(...deltaReads(ran.group, ran.changes))
+			appendAll(reads, deltaReads(ran.group, ran.changes))
 		}
 		if (sharesHeadingNames(reads)) {
 			note("delta read-backs of one heading's field names over other types")
@@ -276,12 +294,11 @@ export interface WriteSuite {
 	readonly suite: string
 	/** The runs of the rotating stream. */
 	readonly runs: number
-	readonly required: ReadonlyArray<WriteOracleFeature>
 	/**
-	 * Whether a steered phase mutates the runs that reached something new before the rotating stream: a suite whose
-	 * required features the plain streams reach too rarely steers toward them, every other suite steers none.
+	 * The features the suite's population must reach, judged on its floor stream and its steered phase, which grows the
+	 * floor's finds toward what it missed.
 	 */
-	readonly steering: Steering
+	readonly coverage: Coverage<WriteOracleFeature>
 }
 
 /**
@@ -289,14 +306,15 @@ export interface WriteSuite {
  * the three-way harness, explored by write runs.
  *
  * A write run is one case of the exploration: a generated schema (schema.ts), whether its tables carry planner
- * statistics, a plan perturbation (../perturb.ts), one to twelve write cases and, where the schema holds the planted
- * group, the planted cases after them (harness.ts). The run's sketch is the case's generated value, and the swarm
+ * statistics, a plan perturbation (../perturb.ts), how each case's second reading stores its facts
+ * (../gen/restorage.ts), one to twelve write cases and, where the schema holds the planted group, the planted cases
+ * after them (harness.ts). The run's sketch is the case's generated value, and the swarm
  * decisions its schema and ChangeSets thin by are the property's own draws, so they replay and shrink with it. The run
  * installs its schema once, opens it as one Db, checks the installation's privileges, and runs its cases in order on
  * that Db, so the Db's server statements outlive each program: two programs that read back relations sharing field
  * names with other types meet their statement text again on one session. A failing run shrinks its schema and drops
- * its cases down to the one that fails. A suite is a label, its runs, its steering and the features its population
- * must reach; the library derives its floor stream from the label, and nothing is written into the tree.
+ * its cases down to the one that fails. A suite is a label, its runs and the coverage its population must reach; the
+ * library derives its floor and steered streams from the label, and nothing is written into the tree.
  *
  * Explores a write suite (see the header), every run under its perturbation, each case noting its features through its
  * own Case; the suite must reach its required features, and a failure fails. Runs go one at a time, since every run
@@ -312,17 +330,21 @@ export const exploreWrite = (
 			suite: s.suite,
 			draw: drawn(perturbedRunGen),
 			literal: Formatter.format,
-			features: features<WriteOracleFeature>(s.required),
+			coverage: s.coverage,
 			kept: [],
 			runs: s.runs,
 			shrink: boundedShrink(300),
 			concurrency: 1,
 			steerEvery: 16,
-			steering: s.steering,
 			caseHang: Duration.minutes(2)
 		},
-		([w, perturbation], c) =>
-			Effect.scoped(Effect.provideService(runWrite(w, c), CurrentPerturbation, perturbation)).pipe(
+		([w, perturbation, restorage], c) =>
+			Effect.scoped(
+				runWrite(w, c).pipe(
+					Effect.provideService(CurrentPerturbation, perturbation),
+					Effect.provideService(CurrentRestorage, restorage)
+				)
+			).pipe(
 				Effect.mapError((e) =>
 					isPerturbed(perturbation)
 						? CaseFailed.make({ report: `${e.report}\n${printPerturbation(perturbation)}` })

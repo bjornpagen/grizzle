@@ -1,15 +1,14 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
-import { nominal } from "#compiler/core/brand.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { appendNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -22,7 +21,7 @@ import type { DedupPlan } from "#compiler/lower/optimize/dedup/plan.ts"
 import type { FusedAttachment } from "#compiler/lower/shapes/attach/decode.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
-import type { EmittedText, Expr, Select } from "#compiler/sql/ast.ts"
+import type { Expr, Select } from "#compiler/sql/ast.ts"
 import { binary, call, core, select, targetAs, types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
@@ -46,6 +45,7 @@ import {
 	verifyMultiplicity
 } from "#test/support/oracle/verify/multiplicity.ts"
 import type { VerificationProblem } from "#test/support/oracle/verify/problems.ts"
+import { testSql } from "#test/support/sql.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 /**
@@ -60,9 +60,6 @@ import { present } from "#test/unit/lower/support.ts"
  * multiplicity, UNION ALL over arms not told apart or without its certificate) and the fused-attachment comparison
  * are properties over planted sketches.
  */
-
-/** A statement text no emission printed: the verifier must catch what an artifact edited after emission carries. */
-const forged = nominal<string, EmittedText>()
 
 const Person = relation(
 	"Person",
@@ -229,6 +226,9 @@ const fusedProgram = (conservative: ChannelProgram): ChannelProgram => {
 		column: names.column("Purchase", field)
 	})
 	const own = child.heading
+	if (!Arr.isReadonlyArrayNonEmpty(own)) {
+		throw new Error("expected an attachment of at least one column")
+	}
 	const element: Select = select(
 		core(
 			[
@@ -247,7 +247,10 @@ const fusedProgram = (conservative: ChannelProgram): ChannelProgram => {
 		...main.ast,
 		body: {
 			...body,
-			targets: [...body.targets, targetAs({ kind: "array", query: element }, "purchases")]
+			targets: appendNonEmpty(
+				body.targets,
+				targetAs({ kind: "array", query: element }, "purchases")
+			)
 		}
 	}
 	return {
@@ -256,7 +259,7 @@ const fusedProgram = (conservative: ChannelProgram): ChannelProgram => {
 				statement: {
 					...main,
 					ast,
-					sql: { ...main.sql, text: forged(printStatement(ast)) },
+					sql: { ...main.sql, text: testSql(printStatement(ast)) },
 					fused: [
 						{
 							attach: attachment.attach.id,
@@ -279,7 +282,7 @@ const fusedProgram = (conservative: ChannelProgram): ChannelProgram => {
 const renamedAlias = (ast: Select, from: string, to: string): Select =>
 	transformSelect(ast, {
 		...identityHooks,
-		fromItem: (item) => ("alias" in item && item.alias === from ? { ...item, alias: to } : item),
+		fromSource: (item) => ("alias" in item && item.alias === from ? { ...item, alias: to } : item),
 		expr: (e) => (e.kind === "column" && e.table === from ? { ...e, table: to } : e)
 	})
 
@@ -668,7 +671,7 @@ const planBreaks: Readonly<
 	}
 }
 
-const planBreakNames: ReadonlyArray<PlanBreak> = [
+const planBreakNames: Arr.NonEmptyReadonlyArray<PlanBreak> = [
 	"a certificate dropped",
 	"a certificate's preserved heading forged",
 	"a placement certificate for a DISTINCT the plan does not place",
@@ -684,7 +687,6 @@ const planBreakNames: ReadonlyArray<PlanBreak> = [
 /** The rules no generated plan breaks, each over a planted Shop plan: its unbroken plan passes, and the break is reported. */
 type PlantedPlanBreak =
 	| "a count over unproved multiplicity"
-	| "a count that leaves a failing bound column uncomputed"
 	| "a bound over a projection that repeats"
 	| "UNION ALL over arms not told apart"
 	| "UNION ALL over tagged arms without its certificate"
@@ -707,39 +709,6 @@ const plantedPlans: Readonly<
 		expect: exactly("unprovedMultiplicity"),
 		broken: () => {
 			const { dag, g } = countPerAccount()
-			const good = plan(dag, "snapshot")
-			return {
-				dag,
-				good,
-				bad: {
-					...without(good, (c) => c.rule === "R17.placement"),
-					folds: { [g.id]: { input: "plain" } }
-				}
-			}
-		}
-	},
-	/**
-	 * A fold whose input has one row per B, postings keyed by id, but whose bound column amount / amount can fail and is
-	 * read by nothing: its contribution DISTINCT, which computes that column, removed with its placement certificate.
-	 */
-	"a count that leaves a failing bound column uncomputed": {
-		expect: exactly("hiddenFailure", "missingCertificate"),
-		broken: () => {
-			const m = ir()
-			const r = m.region(
-				[{ source: m.base("Posting"), bind: { id: "id", amount: "amount" }, constants: {} }],
-				conservativeMeta
-			)
-			const p = m.project(
-				r,
-				[
-					["id", "id"],
-					["ratio", m.op("div", [m.col(r, "amount"), m.col(r, "amount")])]
-				],
-				conservativeMeta
-			)
-			const g = m.group(p, ["id", "ratio"], [], [{ name: "n", agg: "count" }], conservativeMeta)
-			const dag = m.build(g).dag
 			const good = plan(dag, "snapshot")
 			return {
 				dag,
@@ -814,10 +783,9 @@ describe("structural obligation verification", () => {
 					draw: drawn(brokenGen(planSubjectGen)),
 					runs: 250,
 					shrink: completeShrink,
-					features: features<PlanBreak>(planBreakNames),
+					coverage: required<PlanBreak>(planBreakNames, { cases: 250, sense: notesOnly }),
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "mutate", cases: 250, sense: notesOnly },
 					caseHang: Duration.minutes(2)
 				},
 				([subject, kindPick, sitePick], c) =>
@@ -861,15 +829,13 @@ describe("structural obligation verification", () => {
 						literal: Formatter.format,
 						generator: element<PlantedPlanBreak>([
 							"a count over unproved multiplicity",
-							"a count that leaves a failing bound column uncomputed",
 							"a bound over a projection that repeats",
 							"UNION ALL over arms not told apart",
 							"UNION ALL over tagged arms without its certificate"
 						]),
-						limit: 5,
-						features: features<PlantedPlanBreak>([
+						limit: 4,
+						coverage: requiredInSpace<PlantedPlanBreak>([
 							"a count over unproved multiplicity",
-							"a count that leaves a failing bound column uncomputed",
 							"a bound over a projection that repeats",
 							"UNION ALL over arms not told apart",
 							"UNION ALL over tagged arms without its certificate"
@@ -960,7 +926,7 @@ const channelBreaks: Readonly<
 			atEach(
 				p,
 				() => true,
-				(s) => ({ ...s, sql: { ...s.sql, text: forged(`${s.sql.text}\n`) } })
+				(s) => ({ ...s, sql: { ...s.sql, text: testSql(`${s.sql.text}\n`) } })
 			)
 	},
 	"the slots dropped": {
@@ -1089,7 +1055,7 @@ const channelBreaks: Readonly<
 				(s) => aliasesOf(s.ast).length > 0,
 				(s) => {
 					const ast = renamedAlias(s.ast, present(aliasesOf(s.ast)[0], "an alias"), "x_respelled")
-					return { ...s, ast, sql: { ...s.sql, text: forged(printStatement(ast)) } }
+					return { ...s, ast, sql: { ...s.sql, text: testSql(printStatement(ast)) } }
 				}
 			)
 	},
@@ -1099,12 +1065,12 @@ const channelBreaks: Readonly<
 			atEach(
 				p,
 				() => true,
-				(s) => ({ ...s, sql: { ...s.sql, text: forged(`${s.sql.text} '`) } })
+				(s) => ({ ...s, sql: { ...s.sql, text: testSql(`${s.sql.text} '`) } })
 			)
 	}
 }
 
-const channelBreakNames: ReadonlyArray<ChannelBreak> = [
+const channelBreakNames: Arr.NonEmptyReadonlyArray<ChannelBreak> = [
 	"the text edited",
 	"the slots dropped",
 	"a slot recast",
@@ -1123,7 +1089,7 @@ const aliasesOf = (ast: Select): ReadonlyArray<string> => {
 	const out: Array<string> = []
 	transformSelect(ast, {
 		...identityHooks,
-		fromItem: (item) => {
+		fromSource: (item) => {
 			if ("alias" in item && typeof item.alias === "string") {
 				out.push(item.alias)
 			}
@@ -1167,7 +1133,7 @@ const artifactBreaks: Readonly<
 	]
 }
 
-const artifactBreakNames: ReadonlyArray<ArtifactBreak> = [
+const artifactBreakNames: Arr.NonEmptyReadonlyArray<ArtifactBreak> = [
 	"a delivered column retyped",
 	"a delivering statement dropped",
 	"the heading-group merge dropped",
@@ -1190,10 +1156,9 @@ describe("codec and result-channel alignment", () => {
 					draw: drawn(brokenGen(programSubjectGen)),
 					runs: 300,
 					shrink: completeShrink,
-					features: features<ChannelBreak>(channelBreakNames),
+					coverage: required<ChannelBreak>(channelBreakNames, { cases: 300, sense: notesOnly }),
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "mutate", cases: 300, sense: notesOnly },
 					caseHang: Duration.minutes(2)
 				},
 				([subject, kindPick, sitePick], c) =>
@@ -1234,10 +1199,9 @@ describe("codec and result-channel alignment", () => {
 						draw: drawn(brokenGen(programSubjectGen)),
 						runs: 150,
 						shrink: completeShrink,
-						features: features<ArtifactBreak>(artifactBreakNames),
+						coverage: required<ArtifactBreak>(artifactBreakNames, { cases: 150, sense: notesOnly }),
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "mutate", cases: 150, sense: notesOnly },
 						caseHang: Duration.minutes(2)
 					},
 					([subject, kindPick, sitePick], c) =>
@@ -1335,7 +1299,7 @@ describe("codec and result-channel alignment", () => {
 							"stitched to an undelivered parent column"
 						]),
 						limit: 5,
-						features: features<"matches" | "differs">(["matches", "differs"]),
+						coverage: requiredInSpace<"matches" | "differs">(["matches", "differs"]),
 						caseHang: Duration.minutes(2)
 					},
 					(name, c) =>

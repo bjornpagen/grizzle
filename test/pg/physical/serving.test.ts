@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -25,6 +25,7 @@ import {
 	specText,
 	type VolumeLoad
 } from "#test/pg/physical/serving.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import {
@@ -108,6 +109,8 @@ const fieldSql = (
 	handle: (v: string) => string
 ): string => {
 	switch (kind) {
+		case "int2":
+			return `((${value}) % 32768)::int2`
 		case "int4":
 			return `(${value})::int4`
 		case "int8":
@@ -117,6 +120,8 @@ const fieldSql = (
 			return `((${value})::numeric / 100)`
 		case "numeric":
 			return `((${value})::numeric / 7)`
+		case "float4":
+			return `((${value})::float4 / 8)`
 		case "float8":
 			return `((${value})::float8 / 8)`
 		case "money":
@@ -137,6 +142,10 @@ const fieldSql = (
 			return `int4range(((${value}) * 10)::int4, ((${value}) * 10 + 5)::int4)`
 		case "span8":
 			return `int8range((${value})::int8 * 10, (${value})::int8 * 10 + 5)`
+		case "vector":
+			return key
+				? `ARRAY[((${value})::int8 % 1000)::real, ((${value})::int8 / 1000 % 1000)::real, ((${value})::int8 / 1000000 % 1000 + 1)::real]::real[]`
+				: `ARRAY[((${value}) % 1000)::real, 1, 0]::real[]`
 	}
 }
 
@@ -871,6 +880,7 @@ const read = (
 		inSet: [],
 		allen: [],
 		pointIn: [],
+		connective: [],
 		computed: [],
 		negation,
 		head,
@@ -940,6 +950,8 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				settings: ["enable_hashjoin = off", "enable_mergejoin = off"],
 				multiplier: 1
 			},
+			ambient: ordinarySession,
+			restorage: { shift: 0, respell: 0 },
 			roster: 60096,
 			span: 46161,
 			relations: [
@@ -1118,14 +1130,15 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 						],
 						allen: [{ left: 54982, mask: 7301, right: 15457 }],
 						pointIn: [{ span: 40192, point: 55068 }],
+						connective: [],
 						computed: [],
 						negation: { source: 2, picks: [2602, 65246] },
 						head: {
 							vars: [52310],
 							names: [38385, 1410, 65515, 8772, 25453, 63130],
 							folds: [
-								{ fn: 1436, arg: 46482 },
-								{ fn: 1896, arg: 35203 }
+								{ fn: 1436, arg: 46482, padded: 0, scale: 0 },
+								{ fn: 1896, arg: 35203, padded: 0, scale: 0 }
 							]
 						},
 						interior: {
@@ -1154,8 +1167,8 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 								vars: [11688, 13701],
 								names: [47334, 17, 35063, 13335, 40715, 18555],
 								folds: [
-									{ fn: 30498, arg: 31698 },
-									{ fn: 30128, arg: 15465 }
+									{ fn: 30498, arg: 31698, padded: 0, scale: 0 },
+									{ fn: 30128, arg: 15465, padded: 0, scale: 0 }
 								]
 							}
 						}
@@ -1235,13 +1248,17 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 								inSet: [],
 								allen: [{ left: 37602, mask: 32639, right: 23043 }],
 								pointIn: [],
+								connective: [],
 								computed: [
 									{
 										kind: 2,
 										arg: 23702,
 										op: 36205,
 										than: { cls: 7376, sp: 64424 },
-										otherwise: { cls: 65408, sp: 37811 }
+										otherwise: { cls: 65408, sp: 37811 },
+										reading: 0,
+										scale: 0,
+										padded: 0
 									}
 								],
 								negation: { source: 3618, picks: [45626, 59906] },
@@ -1249,8 +1266,8 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 									vars: [17783],
 									names: [25312, 22497, 33248, 51821, 43006, 61305],
 									folds: [
-										{ fn: 15648, arg: 51142 },
-										{ fn: 56560, arg: 39973 }
+										{ fn: 15648, arg: 51142, padded: 0, scale: 0 },
+										{ fn: 56560, arg: 39973, padded: 0, scale: 0 }
 									]
 								},
 								interior: {
@@ -1290,8 +1307,8 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 										vars: [13558, 11403, 57461],
 										names: [64854, 34582, 19689, 42278, 44634, 495],
 										folds: [
-											{ fn: 48688, arg: 27590 },
-											{ fn: 9979, arg: 4 }
+											{ fn: 48688, arg: 27590, padded: 0, scale: 0 },
+											{ fn: 9979, arg: 4, padded: 0, scale: 0 }
 										]
 									}
 								}
@@ -1360,14 +1377,15 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 									inSet: [],
 									allen: [{ left: 54809, mask: 46964, right: 53465 }],
 									pointIn: [{ span: 18693, point: 754 }],
+									connective: [],
 									computed: [],
 									negation: { source: 64291, picks: [60057, 36775] },
 									head: {
 										vars: [62243, 64322, 52801],
 										names: [54419, 50185, 29666, 33023, 44227, 5031],
 										folds: [
-											{ fn: 26700, arg: 42080 },
-											{ fn: 65436, arg: 26603 }
+											{ fn: 26700, arg: 42080, padded: 0, scale: 0 },
+											{ fn: 65436, arg: 26603, padded: 0, scale: 0 }
 										]
 									},
 									interior: {
@@ -1392,7 +1410,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 										head: {
 											vars: [2331, 9821],
 											names: [28399, 48298, 50326, 11389, 10462, 53422],
-											folds: [{ fn: 43685, arg: 0 }]
+											folds: [{ fn: 43685, arg: 0, padded: 0, scale: 0 }]
 										}
 									}
 								}
@@ -1443,27 +1461,34 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 						],
 						allen: [],
 						pointIn: [{ span: 30029, point: 63468 }],
+						connective: [],
 						computed: [
 							{
 								kind: 50838,
 								arg: 59584,
 								op: 10352,
 								than: { cls: 15684, sp: 16354 },
-								otherwise: { cls: 45713, sp: 59689 }
+								otherwise: { cls: 45713, sp: 59689 },
+								reading: 0,
+								scale: 0,
+								padded: 0
 							},
 							{
 								kind: 28502,
 								arg: 30308,
 								op: 15178,
 								than: { cls: 65534, sp: 46010 },
-								otherwise: { cls: 61972, sp: 42824 }
+								otherwise: { cls: 61972, sp: 42824 },
+								reading: 0,
+								scale: 0,
+								padded: 0
 							}
 						],
 						negation: { source: 65453, picks: [47203, 29639] },
 						head: {
 							vars: [41126],
 							names: [37266, 61784, 25322, 51833, 54404, 17056],
-							folds: [{ fn: 82, arg: 24887 }]
+							folds: [{ fn: 82, arg: 24887, padded: 0, scale: 0 }]
 						},
 						interior: {
 							matches: [
@@ -1501,7 +1526,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 							head: {
 								vars: [15941, 16448, 16140],
 								names: [28026, 64095, 8495, 48124, 5783, 57162],
-								folds: [{ fn: 39599, arg: 37337 }]
+								folds: [{ fn: 39599, arg: 37337, padded: 0, scale: 0 }]
 							}
 						}
 					},
@@ -1583,27 +1608,34 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 						inSet: [{ left: 57789, values: [{ cls: 17578, sp: 21950 }] }],
 						allen: [{ left: 61425, mask: 12508, right: 33876 }],
 						pointIn: [{ span: 4117, point: 50923 }],
+						connective: [],
 						computed: [
 							{
 								kind: 48882,
 								arg: 4834,
 								op: 33872,
 								than: { cls: 14744, sp: 10154 },
-								otherwise: { cls: 2252, sp: 29642 }
+								otherwise: { cls: 2252, sp: 29642 },
+								reading: 0,
+								scale: 0,
+								padded: 0
 							},
 							{
 								kind: 65526,
 								arg: 47334,
 								op: 1958,
 								than: { cls: 10891, sp: 34543 },
-								otherwise: { cls: 22882, sp: 60043 }
+								otherwise: { cls: 22882, sp: 60043 },
+								reading: 0,
+								scale: 0,
+								padded: 0
 							}
 						],
 						negation: { source: 6083, picks: [4371, 43619] },
 						head: {
 							vars: [],
 							names: [65309, 2, 41574, 20680, 24787, 65145],
-							folds: [{ fn: 13950, arg: 12675 }]
+							folds: [{ fn: 13950, arg: 12675, padded: 0, scale: 0 }]
 						},
 						interior: {
 							matches: [
@@ -1641,7 +1673,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 							head: {
 								vars: [],
 								names: [53052, 31184, 61966, 45518, 35837, 47897],
-								folds: [{ fn: 50017, arg: 50505 }]
+								folds: [{ fn: 50017, arg: 50505, padded: 0, scale: 0 }]
 							}
 						}
 					},
@@ -1665,6 +1697,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				],
 				value: { cls: 40923, sp: 1 },
 				handle: 0,
+				padding: 0,
 				side: { kind: 1, values: [0, 2, 1] }
 			}
 		},
@@ -1701,6 +1734,8 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				allen: 3
 			},
 			perturbation: unperturbed,
+			ambient: ordinarySession,
+			restorage: { shift: 0, respell: 0 },
 			roster: 0,
 			span: 0,
 			relations: [
@@ -1724,6 +1759,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				names: zeros(19),
 				value: floorValue,
 				handle: 0,
+				padding: 0,
 				side: { kind: 0, values: zeros(3) }
 			}
 		},
@@ -1747,16 +1783,15 @@ const workloadSuite = (runs: number) => (ctx: TestContext) =>
 				suite: "pg/physical/serving-workload",
 				draw: drawn(caseSketchGen),
 				literal: Formatter.format,
-				features: features<ServingFeature | WorkloadFeature>([
-					"a workload installed",
-					"equality probe served"
-				]),
+				coverage: required<ServingFeature | WorkloadFeature>(
+					["a workload installed", "equality probe served"],
+					{ cases: runs, sense: notesOnly }
+				),
 				kept: workloadKept,
 				runs,
 				shrink: { kind: "bounded", candidates: 60 },
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "mutate", cases: runs, sense: notesOnly },
 				caseHang
 			},
 			(sketch, cx) => Effect.scoped(workloadCase(cx.draw(resolveCase(sketch)), cx.note))
@@ -1771,24 +1806,26 @@ const requestSuite = (runs: number) => (ctx: TestContext) =>
 				suite: "pg/physical/serving-requests",
 				draw: drawn(intentsGen),
 				literal: Formatter.format,
-				features: features<ServingFeature | RequestFeature>([
-					"equality probe served",
-					"range probe served",
-					"ordered probe served",
-					"overlap probe served",
-					"served by a created index",
-					"served by a key or enforcement index",
-					"a GiST index serving a B-tree request",
-					"a created index needed",
-					"a law probe of selected rows",
-					"a span predicate on during alone"
-				]),
+				coverage: required<ServingFeature | RequestFeature>(
+					[
+						"equality probe served",
+						"range probe served",
+						"ordered probe served",
+						"overlap probe served",
+						"served by a created index",
+						"served by a key or enforcement index",
+						"a GiST index serving a B-tree request",
+						"a created index needed",
+						"a law probe of selected rows",
+						"a span predicate on during alone"
+					],
+					{ cases: runs, sense: notesOnly }
+				),
 				kept: requestKept,
 				runs,
 				shrink: { kind: "bounded", candidates: 60 },
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "mutate", cases: runs, sense: notesOnly },
 				caseHang
 			},
 			(intents, cx) => Effect.scoped(requestCase(intents, cx.note))
@@ -1803,20 +1840,22 @@ const sharedSuite = (runs: number) => (ctx: TestContext) =>
 				suite: "pg/physical/serving-shared",
 				draw: drawn(sharedSetGen),
 				literal: Formatter.format,
-				features: features<ServingFeature | SharedFeature>([
-					"an equality lookup beside an order over its columns",
-					"a wider equality lookup beside a narrower order over its columns",
-					"a narrower request beside a wider one over its columns",
-					"one index serving requests of two needs",
-					"two indexes on one column set",
-					"a created index needed"
-				]),
+				coverage: required<ServingFeature | SharedFeature>(
+					[
+						"an equality lookup beside an order over its columns",
+						"a wider equality lookup beside a narrower order over its columns",
+						"a narrower request beside a wider one over its columns",
+						"one index serving requests of two needs",
+						"two indexes on one column set",
+						"a created index needed"
+					],
+					{ cases: runs, sense: notesOnly }
+				),
 				kept: sharedKept,
 				runs,
 				shrink: { kind: "bounded", candidates: 60 },
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "mutate", cases: runs, sense: notesOnly },
 				caseHang
 			},
 			(sketches, cx) => Effect.scoped(sharedCase(sketches, cx.note))

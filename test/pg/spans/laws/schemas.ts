@@ -1,5 +1,5 @@
 import { Array as Arr } from "effect"
-import type { LawId } from "#compiler/core/ids.ts"
+import type { RaisedLawId } from "#compiler/core/ids.ts"
 import {
 	contained,
 	f,
@@ -47,4 +47,6 @@ export const visits = (options: { readonly mutable: boolean }): SchemaDesc => ({
  *
  * Each law is read through the naming door from the statement that declares it.
  */
-export const visitsLaw: LawId = lawNamesOf(visits({ mutable: false })).lawOfDesc(visitsCoverage)
+export const visitsLaw: RaisedLawId = lawNamesOf(visits({ mutable: false })).lawOfDesc(
+	visitsCoverage
+)

@@ -1,0 +1,57 @@
+CHECKLIST: PostgreSQL contribution policy, applied to the PL/pgSQL line-number rescan
+
+Outcome: a patch for master, to go to pgsql-hackers with a commitfest entry when the owner chooses. Nothing has been
+sent.
+
+A. GATES BEFORE REPORTING
+  [x] Check whether the problem is already known before reporting.
+      https://www.postgresql.org/docs/current/bug-reporting.html (5.1)
+      - A web search for plpgsql_location_to_lineno and location_lineno_init with "quadratic" and "compile" finds the
+        source and unrelated patches only. There is no thread, report or commitfest entry about this cost.
+      - master's pl_scanner.c still holds the rescan.
+      - `git log -S location_lineno_init` on master shows only the code's own history: the reentrant-scanner rewrite
+        moved it into yyextra.
+  [x] Check the current development branch, not only the release it was found on.
+      https://www.postgresql.org/docs/current/bug-reporting.html (5.2)
+      Measured on 19rc1. Rebased onto and verified on master b6178c942e (2026-11-03). The two functions are identical on
+      REL_19_RC1 and master.
+  [x] Don't duplicate a discussion.
+      https://wiki.postgresql.org/wiki/Guide_to_reporting_problems
+      None found to duplicate.
+  [x] Mind the release cycle.
+      https://wiki.postgresql.org/wiki/Submitting_a_Patch
+      19 is between RC1 and RC2. This is a master patch for the 20 cycle: the email goes to hackers with a commitfest
+      entry, and asks for no backpatch.
+
+B. REPORT CONTENT
+  [x] A self-contained reproduction runnable in psql without ~/.psqlrc: repro.sql, run with psql -X. It builds its
+      functions with \gexec and drops them at the end.
+  [x] Observed and expected behaviour:
+      - timings grow 3.6x and 3.3x per doubling unpatched, against 1.6x and 1.9x patched (EVIDENCE.txt 3);
+      - the line numbers are unchanged (EVIDENCE.txt 4).
+  [x] Version, platform and non-default settings: EVIDENCE.txt, its header and section 2. jit is off on the measuring
+      cluster. check_function_bodies is on, the default, and the script sets it.
+  [x] List: pgsql-hackers, since the report comes with a patch for master and involves no wrong result.
+      https://wiki.postgresql.org/wiki/Mailing_Lists
+  [x] Etiquette: email.txt is plain text, with no HTML, no top-posting and no confidentiality footer.
+
+C. PATCH SUBMISSION
+  [x] Against current master, one patch, named in git format-patch style (v1-0001-...patch). Rebased on master
+      b6178c942e; `git apply --check` passes on a clean tree of that master.
+      https://wiki.postgresql.org/wiki/Submitting_a_Patch
+      https://wiki.postgresql.org/wiki/Creating_Clean_Patches
+  [x] Commit message: a summary line, then the cause, the fix, the effect and the test. Committers add Discussion,
+      Reviewed-by and Backpatch-through themselves.
+  [x] A regression test: plpgsql_misc gains a function whose errors come from IF, ELSIF and CASE and from a statement
+      in a CASE arm, the statements whose locations reach the scanner out of order. Its CONTEXT line numbers are
+      identical, byte for byte, on unpatched 19rc1 (EVIDENCE.txt 4).
+  [x] Builds with assertions (-Dcassert=true) with no warnings in src/pl/plpgsql.
+  [x] Passes the plpgsql suite (13 of 13, the new test among them) and the core regression suite (239 of 239),
+      whose plpgsql test checks many CONTEXT line numbers (EVIDENCE.txt 5).
+  [x] pgindent (src/tools/pgindent, with the in-tree pg_bsd_indent) leaves pl_scanner.c unchanged.
+  [x] `git diff --check`: no whitespace errors.
+  [x] To be attached, not inlined.
+  [ ] The author line: the owner replaces the GitHub noreply address with his sending address before sending (NOTES.txt
+      2).
+  [ ] A commitfest entry, which the owner makes after the email reaches the archive.
+      https://commitfest.postgresql.org/

@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { type Gen, subarray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, Record, Result, Schema } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -65,7 +66,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 	const Totals = derived(
 		"Totals",
 		query(base).rule((r) => {
-			const { account, kind, weight } = v(Task)
+			const { account, kind, weight } = v(Task, "task")
 			return r
 				.match(Task, { account, kind, weight })
 				.find({ account, kind, tasks: r.count(), total: r.sum(weight) })
@@ -75,8 +76,8 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 	const Placed = derived(
 		"Placed",
 		query(base).rule((r) => {
-			const { id, account, kind } = v(Task)
-			const { region } = v(Account)
+			const { id, account, kind } = v(Task, "task")
+			const { region } = v(Account, "account")
 			return r
 				.match(Task, { id, account, kind })
 				.match(Account, { code: account, region })
@@ -96,7 +97,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 	const programs = {
 		/** Totals selected by kind and task count, two equalities on the view: statistics on Totals (kind, tasks). */
 		totalsOf: query(value).rule((r) => {
-			const { account, total } = v(Totals)
+			const { account, total } = v(Totals, "totals")
 			return r
 				.match(Totals, {
 					account,
@@ -108,12 +109,12 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 		}),
 		/** The accounts per kind and task count, a group key of two view columns: statistics on Totals (kind, tasks) too. */
 		countsOf: query(value).rule((r) => {
-			const { account, kind, tasks } = v(Totals)
+			const { account, kind, tasks } = v(Totals, "totals")
 			return r.match(Totals, { account, kind, tasks }).find({ kind, tasks, accounts: r.count() })
 		}),
 		/** Placed tasks selected by region and kind: statistics on Placed (kind, region). */
 		placedIn: query(value).rule((r) => {
-			const { id } = v(Placed)
+			const { id } = v(Placed, "placed")
 			return r
 				.match(Placed, {
 					id,
@@ -124,7 +125,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 		}),
 		/** Tasks selected by account and kind: statistics on the Task table (account, kind). */
 		tasksOf: query(value).rule((r) => {
-			const { id, weight } = v(Task)
+			const { id, weight } = v(Task, "task")
 			return r
 				.match(Task, {
 					id,
@@ -136,7 +137,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 		}),
 		/** Totals above a weight, a range on one view column: an index, no statistics. */
 		heavy: query(value).rule((r) => {
-			const { account, kind, total } = v(Totals)
+			const { account, kind, total } = v(Totals, "totals")
 			return r
 				.match(Totals, { account, kind, total })
 				.where(r.ge(total, r.param("least", pg.bigint)))
@@ -220,18 +221,20 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 						suite: "derived/statistics",
 						draw: drawn(sketchGen),
 						literal: Formatter.format,
-						features: features<StatisticsFeature>([
-							"statistics on a view",
-							"statistics on a table",
-							"view statistics two programs justify",
-							"a view's statistics dropped"
-						]),
+						coverage: required<StatisticsFeature>(
+							[
+								"statistics on a view",
+								"statistics on a table",
+								"view statistics two programs justify",
+								"a view's statistics dropped"
+							],
+							{ cases: 4, sense: notesOnly }
+						),
 						kept,
 						runs: 4,
 						shrink: { kind: "bounded", candidates: 20 },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>

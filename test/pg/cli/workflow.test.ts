@@ -9,7 +9,7 @@ import {
 	runProgram
 } from "@grizzle/testing/commands"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { boolean, constant, element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -43,6 +43,7 @@ import {
 	placeholderMarker,
 	placeholderToken
 } from "#compiler/deploy/render/markers.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
@@ -213,7 +214,8 @@ const atSnapshot = (model: Readonly<Model>): boolean =>
 const checks = (model: Readonly<Model>): boolean =>
 	same(model.generated, model.config) && model.unresolved === 0
 
-const id = (n: number) => `00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const id = (n: number): Uuid =>
+	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const schemaDir = (r: Workspace) => `${r.dir}/migrations/${r.schema}`
 
@@ -1192,7 +1194,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							suite: "cli/workflow",
 							draw: drawn(program(workflow, { min: 0, max: 14 })),
 							literal: Formatter.format,
-							features: features<CommandKind>(commandKinds),
+							coverage: required<CommandKind>(commandKinds, { cases: 10 * runs, sense: notesOnly }),
 							kept: [],
 							runs,
 							/**
@@ -1203,7 +1205,6 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							shrink: { kind: "bounded", candidates: 150 },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "mutate", cases: 10 * runs, sense: notesOnly },
 							/**
 							 * One case runs up to 14 command lines, each a generate, check or migrate against PostgreSQL:
 							 * the existing 20-minute hang guard, kept.

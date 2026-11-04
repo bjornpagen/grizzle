@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -17,6 +17,7 @@ import {
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
+import { maxOf } from "#compiler/core/array.ts"
 import { conversionOf, identity, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
@@ -92,7 +93,7 @@ const everyFixture = <E, R>(
 			generator: element(fixtures),
 			literal: (fixture: Fixture) => Formatter.format(fixture.label),
 			limit: fixtures.length,
-			features: features<FixtureLabel>(["shop", "ledger"]),
+			coverage: requiredInSpace<FixtureLabel>(["shop", "ledger"]),
 			caseHang: Duration.minutes(2)
 		},
 		(fixture: Fixture, c: Case<FixtureLabel>) =>
@@ -102,10 +103,11 @@ const everyFixture = <E, R>(
 /** The longest conversion among a login's name and its roles' names, which do not depend on the schema's. */
 const longestRoleName = (fixture: Fixture): number => {
 	const login = fixture.login("probe")
-	return Math.max(
-		...Arr.map([login.name, ...Rec.keys(login.roles)], (name) =>
+	return maxOf(
+		Arr.map([login.name, ...Rec.keys(login.roles)], (name) =>
 			utf8Length(conversionOf(parsedName(name)))
-		)
+		),
+		Number.NEGATIVE_INFINITY
 	)
 }
 

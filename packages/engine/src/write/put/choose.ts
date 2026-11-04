@@ -8,11 +8,11 @@ import {
 	type ActionInfo,
 	type Counterpart,
 	infoIn,
+	type MemberSlot,
 	type OutsideWrite,
 	outsideIn,
 	sourceIn,
 	type WriteFrontend,
-	type WriteSlot,
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import { payloadOf, serialOutsideKey } from "#compiler/write/frontend/targets.ts"
@@ -56,7 +56,7 @@ export type PutChoice = {
 			readonly reason: "enumerated"
 			readonly inPlace: InPlace
 			readonly arbiter: KeyArbiter
-			readonly slot: WriteSlot
+			readonly slot: MemberSlot
 	  }
 	| { readonly target: "updateFrom"; readonly reason: "existingKeys"; readonly inPlace: InPlace }
 	| {

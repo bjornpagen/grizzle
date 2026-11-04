@@ -1,7 +1,7 @@
 import { createServer, type Socket } from "node:net"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter, Redacted, Schema } from "effect"
@@ -172,7 +172,7 @@ export const connectionSuite = (): void => {
 								generator: tlsConfigs,
 								literal: Formatter.format,
 								limit: 64,
-								features: features<TlsFeature>([
+								coverage: requiredInSpace<TlsFeature>([
 									"connected",
 									"refused wrong ca",
 									"refused empty ca",

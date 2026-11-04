@@ -52,7 +52,8 @@ export interface SqlNames {
 
 /**
  * The SQL type a value of this descriptor is declared as on the wire (a recordset column or a parameter cast): the
- * base type for a contract, numeric for money.
+ * base type for a contract, numeric for money, and an exact value as the lowering types it (bigint for an exact integer
+ * of at most 18 digits, numeric otherwise).
  */
 export const wireSql = (type: ScalarType, names: SqlNames): string => {
 	switch (type.carrier) {
@@ -86,6 +87,10 @@ export const wireSql = (type: ScalarType, names: SqlNames): string => {
 			return "int4range"
 		case "range8":
 			return "int8range"
+		case "exactInteger":
+			return type.digits <= 18 ? "int8" : "numeric"
+		case "exactMoney":
+			return "numeric"
 	}
 }
 

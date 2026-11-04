@@ -5,16 +5,18 @@
 import { Result } from "effect"
 import { CatalogRowRefused } from "#adapter/errors/failures.ts"
 import { sentAnswer, type BatchOutcome } from "#adapter/wire/batch.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 
 /**
  * A catalog statement and the one reading of its rows: each row is parsed once, where its flight answers, into what it
  * says, so nothing downstream coerces a cell. Every result column arrives as its text (the session requests text,
  * parses nothing and admits no other answer, NULL included), so a parser reads what the text says. A row the parser
  * refuses, or a row count a one-row statement cannot answer, is an answer the statement cannot give. Parameters are
- * the slots' encoded texts, bound untyped and cast by the statement (`$n::type`).
+ * the slots' encoded texts, bound untyped and cast by the statement (`$n::type`). Its text is the engine's print of a
+ * catalog-read AST (sql/catalog.ts, sql/emit.ts emitCatalog), so every name in it is absolute.
  */
 export interface CatalogQuery<Row> {
-	readonly sql: string
+	readonly sql: EmittedText
 	/** What a row says, naming the answer when a row is refused. */
 	readonly what: string
 	readonly row: (cells: ReadonlyArray<string>) => Row | undefined

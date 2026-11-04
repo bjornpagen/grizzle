@@ -1,4 +1,5 @@
 import { noModuleState } from "#lint/rules/no-module-state.ts"
+import { noSpreadArgument } from "#lint/rules/no-spread-argument.ts"
 import { noNullUndefinedUnion } from "#lint/rules/null-undefined-union.ts"
 import { sqlTextAssertion } from "#lint/rules/sql-text-assertion.ts"
 import { uncheckedVocabularyLiteral } from "#lint/rules/unchecked-vocabulary-literal.ts"
@@ -13,6 +14,7 @@ type Scope = "every file" | "outside tests"
 export const RULES: ReadonlyArray<Readonly<{ id: string; visit: Visit; scope: Scope }>> = [
 	{ id: "no-module-state", visit: noModuleState, scope: "outside tests" },
 	{ id: "no-null-undefined-union", visit: noNullUndefinedUnion, scope: "every file" },
+	{ id: "no-spread-argument", visit: noSpreadArgument, scope: "every file" },
 	{ id: "sql-text-assertion", visit: sqlTextAssertion, scope: "every file" },
 	{ id: "unchecked-vocabulary-literal", visit: uncheckedVocabularyLiteral, scope: "every file" }
 ]

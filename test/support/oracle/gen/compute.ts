@@ -8,6 +8,8 @@ import type {
 	ComputeFn,
 	ExprDesc,
 	FieldDesc,
+	GuardDesc,
+	LiteralDesc,
 	ScaledComputeFn
 } from "#compiler/ir/desc.ts"
 import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
@@ -20,12 +22,20 @@ import {
 	noExtension
 } from "#compiler/scalar/compute/lower.ts"
 import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
-import { type PlainCarrier, plainType } from "#compiler/scalar/compute/types.ts"
+import {
+	exactType,
+	meets as engineMeets,
+	type PlainCarrier,
+	plainType
+} from "#compiler/scalar/compute/types.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
 import { regexMember } from "#compiler/text/refinement.ts"
 import {
 	fieldDescOf,
 	floatSpecialSketches,
+	numericPaddings,
 	type ValueSketch
 } from "#test/support/oracle/gen/domain.ts"
 import { at, nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -38,12 +48,13 @@ import { at, nonEmptyList } from "#test/support/oracle/pick.ts"
  * ExprDesc the public builders record and types it with the checker's own resolution, lowerTerm and lowerPredicate in
  * "query" mode (packages/engine/src/scalar/compute/lower.ts), so every node is the one the checker would emit: the exact
  * native overload, the composite lowerings the registry records (sign over an integer, gcd over smallint), the
- * literal's adopted type, and the canFail marks the error frontier reads: an expression over an operand that can
- * fail can fail too.
+ * literal's adopted type, and each partial operation's proof.
  *
- * Many terms can fail on the generated values: an integer overflow at a type's bound, a division by zero, a NaN cast to
- * an integer, a negative square root. Whether one does is the case's business: the frontier comparison
- * (reference/frontier.ts) compares "error or rows" between the lowerings and the reference evaluator.
+ * Every term is total, as every term a program writes is: integer and money arithmetic is exact, float arithmetic
+ * IEEE 754, and each partial operation stands under the guard that proves its precondition, as a program writes it
+ * (Compute.when): a division under its divisor's nonzero guard, a numeric square root under its radicand's
+ * nonnegative one, a power and every cast from a numeric-family value under a `within` guard whose bounds prove its
+ * range, and the otherwise branch a value of the branch's type. A literal divisor is nonzero by its own value.
  *
  * The sketch is a tree of plain numbers resolved against the input heading: each choice reduced modulo what fits the
  * operand carriers in scope, and a choice with nothing to choose from degrading to a column, so every sketch resolves
@@ -73,13 +84,12 @@ export type TermSketch =
 			readonly onTrue: TermSketch
 			readonly onFalse: TermSketch
 	  }
-	| {
-			readonly tag: "byZero"
-			readonly fn: number
-			readonly zero: number
-			readonly sp: number
-			readonly arg: TermSketch
-	  }
+	/**
+	 * A numeric padded in PostgreSQL: cast to numeric(1000, s) and back to bare numeric, a value at display scale s
+	 * (domain.ts numericPaddings), which only a reading of the display scale could tell from the value; the term every
+	 * merge, key and reading must see as its value alone.
+	 */
+	| { readonly tag: "pad"; readonly depth: number; readonly arg: TermSketch }
 
 export interface CompareSketch {
 	readonly op: number
@@ -150,6 +160,14 @@ export const termSketchGen = (depth: number): Gen<TermSketch> => {
 				onTrue: source.draw(sub),
 				onFalse: source.draw(sub)
 			})
+		],
+		[
+			1,
+			(source) => ({
+				tag: "pad",
+				depth: source.draw(int(0, 3)),
+				arg: source.draw(sub)
+			})
 		]
 	])
 }
@@ -182,22 +200,6 @@ export const castChainSketchGen: Gen<TermSketch> = weighted<TermSketch>([
 ])
 
 /**
- * A division by zero over a term of at most `depth` operations, whose dividend reads a column a division takes
- * wherever the input has one: the term a population draws to meet failures every lowering must raise wherever its query
- * delivers a row.
- */
-export const byZeroSketchGen = (depth: number): Gen<TermSketch> => {
-	const arg = termSketchGen(depth)
-	return (source) => ({
-		tag: "byZero",
-		fn: source.draw(int(0, 3)),
-		zero: source.draw(int(0, 2)),
-		sp: source.draw(int(0, 3)),
-		arg: source.draw(arg)
-	})
-}
-
-/**
  * A cosine distance from a vector column to a column or literal of its type wherever the scope holds a vector column:
  * the term a finish states to reach "cosine distance" whenever its input has one.
  */
@@ -217,13 +219,6 @@ export const powerSketchGen: Gen<TermSketch> = (source) => ({
 	right: source.draw(leafGen)
 })
 
-/**
- * Whether a term sketch is a chain of casts over a leaf, which resolves with no wanted type to casts over one input
- * column, or to the column itself when no cast fits.
- */
-export const isCastChain = (s: TermSketch): boolean =>
-	s.tag === "leaf" || (s.tag === "cast" && isCastChain(s.arg))
-
 export const compareSketchGen = (depth: number): Gen<CompareSketch> => {
 	const left = termSketchGen(depth)
 	const right = termSketchGen(Math.max(0, depth - 1))
@@ -242,7 +237,8 @@ const unaryFns: Readonly<Partial<Record<Carrier, ReadonlyArray<ComputeFn>>>> = {
 	int2: ["neg", "abs", "sign"],
 	int4: ["neg", "abs", "sign"],
 	int8: ["neg", "abs", "sign"],
-	numeric: ["neg", "abs", "sign", "round", "trunc", "ceil", "floor", "sqrt", "trimScale"],
+	exactInteger: ["neg", "abs", "sign"],
+	numeric: ["neg", "abs", "sign", "round", "trunc", "ceil", "floor", "sqrt"],
 	float4: ["neg", "abs", "sign"],
 	float8: ["neg", "abs", "sign", "sqrt"]
 }
@@ -254,23 +250,12 @@ const binaryFns: Readonly<Partial<Record<Carrier, ReadonlyArray<UnscaledComputeF
 	int2: ["add", "sub", "mul", "div", "mod", "gcd", "lcm", "least", "greatest"],
 	int4: ["add", "sub", "mul", "div", "mod", "gcd", "lcm", "least", "greatest"],
 	int8: ["add", "sub", "mul", "div", "mod", "gcd", "lcm", "least", "greatest"],
-	numeric: [
-		"add",
-		"sub",
-		"mul",
-		"div",
-		"mod",
-		"quot",
-		"rem",
-		"gcd",
-		"lcm",
-		"power",
-		"least",
-		"greatest"
-	],
+	exactInteger: ["add", "sub", "mul", "div", "mod", "gcd", "lcm", "least", "greatest"],
+	numeric: ["add", "sub", "mul", "div", "mod", "quot", "rem", "gcd", "lcm", "least", "greatest"],
 	float4: ["add", "sub", "mul", "div", "least", "greatest"],
-	float8: ["add", "sub", "mul", "div", "power", "least", "greatest"],
+	float8: ["add", "sub", "mul", "div", "least", "greatest"],
 	money: ["add", "sub", "div", "least", "greatest"],
+	exactMoney: ["add", "sub", "least", "greatest"],
 	bool: ["least", "greatest"],
 	uuid: ["least", "greatest"],
 	text: ["least", "greatest"],
@@ -330,20 +315,97 @@ const fieldTypeOf = (desc: FieldDesc): ScalarType | undefined => {
 	return typed.ok ? typed.value : undefined
 }
 
-/** The operations that divide, each failing on a zero divisor. */
+/** The operations that divide, each defined where its divisor is nonzero, a float's division excepted (IEEE 754). */
 const divisions: ReadonlySet<ComputeFn> = new Set<ComputeFn>(["div", "mod", "quot", "rem"])
 
-const divisionsOf = (carrier: Carrier): ReadonlyArray<UnscaledComputeFn> =>
-	Arr.filter(binaryFns[carrier] ?? [], (fn) => divisions.has(fn))
+/** The operations over an integer or money that compute exactly, delivering an exact integer or exact money. */
+const exactFns: ReadonlySet<ComputeFn> = new Set<ComputeFn>([
+	"add",
+	"sub",
+	"mul",
+	"neg",
+	"abs",
+	"div",
+	"mod",
+	"gcd",
+	"lcm"
+])
+
+const integerCarriers: ReadonlySet<Carrier> = new Set<Carrier>([
+	"int2",
+	"int4",
+	"int8",
+	"exactInteger"
+])
+const moneyCarriers: ReadonlySet<Carrier> = new Set<Carrier>(["money", "exactMoney"])
+const floatCarriers: ReadonlySet<Carrier> = new Set<Carrier>(["float4", "float8"])
+
+/** The carriers a `within` guard takes a subject of: the numeric family. */
+const guardable: ReadonlySet<Carrier> = new Set<Carrier>([
+	...integerCarriers,
+	...moneyCarriers,
+	...floatCarriers,
+	"numeric"
+])
+
+/**
+ * The type `fn` over a first operand of `carrier` computes, as the generator tracks it: an exact integer or exact money
+ * for exact arithmetic over the integers and money (lowerTerm's digits are authoritative), money / money double
+ * precision, and otherwise the operand's plain type.
+ */
+const resultOf = (fn: ComputeFn, carrier: Carrier, operand: ScalarType): ScalarType =>
+	exactFns.has(fn) && integerCarriers.has(carrier)
+		? exactType("exactInteger", 0)
+		: exactFns.has(fn) && moneyCarriers.has(carrier) && fn !== "div"
+			? exactType("exactMoney", 0)
+			: fn === "div" && carrier === "money"
+				? plainType("float8")
+				: plainOf(carrier, operand)
+
+/** The literal of `n` at a numeric-family carrier, as a guard's bound or a divisor spells it. */
+const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
+	switch (carrier) {
+		case "int8":
+		case "exactInteger":
+			return BigInt(n)
+		case "numeric":
+			return Decimal.of(BigInt(n))
+		case "money":
+		case "exactMoney":
+			return Money.of(BigInt(n) * 100n)
+		default:
+			return n
+	}
+}
+
+const literalOf = (carrier: Carrier, n: number): ExprDesc => ({
+	kind: "literal",
+	value: numberLiteral(carrier, n),
+	type: undefined
+})
+
+/** The guard that its subject lies within [-n, n], over a subject of `carrier`. */
+const withinGuard = (carrier: Carrier, low: number, high: number): GuardDesc => ({
+	kind: "within",
+	low: numberLiteral(carrier, low),
+	high: numberLiteral(carrier, high)
+})
+
+/** The plain carrier a literal opposite a term of `carrier` is spelled at: an exact value's family's. */
+const literalCarrier = (carrier: Carrier): Carrier =>
+	carrier === "exactInteger" ? "int8" : carrier === "exactMoney" ? "money" : carrier
 
 const literalShy: ReadonlySet<ComputeFn> = new Set<ComputeFn>(["least", "greatest", "gcd", "lcm"])
 
 const compareOpsList: ReadonlyArray<CompareOp> = ["eq", "ne", "lt", "le", "gt", "ge"]
 
-/** Operands meet when they share a carrier, and an enum's roster (the generated types carry no contract). */
+/**
+ * Operands meet when they share a carrier, and an enum's roster (the generated types carry no contract), or when one is
+ * an exact value of the other's family (types.ts meets).
+ */
 const meets = (a: ScalarType, b: ScalarType): boolean => {
 	if (baseOf(a).carrier !== baseOf(b).carrier) {
-		return false
+		return engineMeets(a, b)
 	}
 	if (a.carrier !== "enum") {
 		return true
@@ -360,8 +422,10 @@ export interface TermScope {
 	readonly params: boolean
 	/** The literal of `type` a value sketch spells, as a comparison operand (it never reaches the output as stored). */
 	readonly literal: (type: ScalarType, value: ValueSketch) => ExprDesc
-	/** Registers a parameter whose value the sketch spells, returning the name the description uses. */
-	readonly param: (value: ValueSketch) => string
+	/**
+	 * Registers a parameter of `type` whose value the sketch spells, returning the name the description uses.
+	 */
+	readonly param: (value: ValueSketch, type: ScalarType) => string
 }
 
 interface Resolved {
@@ -369,7 +433,8 @@ interface Resolved {
 	/** The type the term computes, as the generator tracks it to choose operations; lowerTerm's is authoritative. */
 	readonly type: ScalarType
 	/**
-	 * Whether the term is a bare literal or parameter, which never stands first: it adopts the type of the term it meets.
+	 * Whether the term is a bare literal, which never stands first, or a parameter of the type the term it meets wants:
+	 * the generator places either opposite a term.
 	 */
 	readonly free: boolean
 }
@@ -387,10 +452,16 @@ const resolveLeaf = (
 	const columns =
 		want === undefined ? plainColumns : Arr.filter(plainColumns, (c) => meets(c.type, want))
 	if (want !== undefined && (s.literal || columns.length === 0)) {
+		const spelled = literalCarrier(want.carrier)
+		const at = spelled === want.carrier ? want : plainOf(spelled, want)
 		if (s.param && scope.params && want.carrier !== "enum") {
-			return { desc: { kind: "param", name: scope.param(s.value) }, type: want, free: true }
+			return {
+				desc: { kind: "param", name: scope.param(s.value, at), type: fieldDescOf(at) },
+				type: want,
+				free: true
+			}
 		}
-		return { desc: scope.literal(want, s.value), type: want, free: true }
+		return { desc: scope.literal(at, s.value), type: want, free: true }
 	}
 	if (columns.length === 0) {
 		return undefined
@@ -436,6 +507,7 @@ const resolveTerm = (
 				return arg
 			}
 			const fn = at(fns, s.fn)
+			const carrier = baseOf(arg.type).carrier
 			const desc: ExprDesc =
 				fn === "round" || fn === "trunc"
 					? {
@@ -444,8 +516,16 @@ const resolveTerm = (
 							args: [arg.desc],
 							scale: s.scale % 2 === 1 ? s.scale - 1 : undefined
 						}
-					: { kind: "compute", fn, args: [arg.desc] }
-			return { desc, type: plainOf(baseOf(arg.type).carrier, arg.type), free: false }
+					: fn === "sqrt" && carrier === "numeric"
+						? {
+								kind: "when",
+								guard: { kind: "nonnegative" },
+								subject: arg.desc,
+								proved: { kind: "compute", fn, args: [arg.desc] },
+								otherwise: arg.desc
+							}
+						: { kind: "compute", fn, args: [arg.desc] }
+			return { desc, type: resultOf(fn, carrier, arg.type), free: false }
 		}
 		case "binary": {
 			const left = resolveTerm(scope, s.left, want)
@@ -474,10 +554,34 @@ const resolveTerm = (
 			const type =
 				fn === "least" || fn === "greatest"
 					? left.type
-					: (fn === "div" && carrier === "money") || fn === "cosineDistance"
+					: fn === "cosineDistance"
 						? plainType("float8")
-						: plainOf(carrier, left.type)
-			return { desc: { kind: "compute", fn, args: [left.desc, right.desc] }, type, free: false }
+						: resultOf(fn, carrier, left.type)
+			if (!divisions.has(fn) || floatCarriers.has(carrier)) {
+				return { desc: { kind: "compute", fn, args: [left.desc, right.desc] }, type, free: false }
+			}
+			if (right.free) {
+				return {
+					desc: {
+						kind: "compute",
+						fn,
+						args: [left.desc, literalOf(literalCarrier(baseOf(right.type).carrier), 3)]
+					},
+					type,
+					free: false
+				}
+			}
+			return {
+				desc: {
+					kind: "when",
+					guard: { kind: "nonzero" },
+					subject: right.desc,
+					proved: { kind: "compute", fn, args: [left.desc, right.desc] },
+					otherwise: literalOf(literalCarrier(baseOf(type).carrier), 0)
+				},
+				type,
+				free: false
+			}
 		}
 		case "cosine": {
 			const vectors = Arr.filter(
@@ -525,12 +629,19 @@ const resolveTerm = (
 				return resolveTerm(scope, degraded, want)
 			}
 			const left: HeadingColumn = at(bases, s.left)
-			const right = resolveTerm(scope, s.right, left.type)
-			if (right === undefined) {
-				return resolveTerm(scope, degraded, want)
-			}
+			const base: ExprDesc = { kind: "var", var: left.name }
+			const exponent = literalOf(
+				baseOf(left.type).carrier,
+				Math.abs(s.right.tag === "leaf" ? s.right.pick : 2) % 4
+			)
 			return {
-				desc: { kind: "compute", fn: "power", args: [{ kind: "var", var: left.name }, right.desc] },
+				desc: {
+					kind: "when",
+					guard: withinGuard(baseOf(left.type).carrier, 1, 10),
+					subject: base,
+					proved: { kind: "compute", fn: "power", args: [base, exponent] },
+					otherwise: base
+				},
 				type: plainOf(baseOf(left.type).carrier, left.type),
 				free: false
 			}
@@ -561,38 +672,46 @@ const resolveTerm = (
 			if (type === undefined) {
 				return uncast
 			}
-			return { desc: { kind: "cast", to, arg: arg.desc }, type, free: false }
-		}
-		case "byZero": {
-			const divisible = Arr.filter(
-				scope.heading,
-				(c) => divisionsOf(baseOf(c.type).carrier).length > 0
-			)
-			const arg = resolveTerm(
-				divisible.length > 0 ? { ...scope, heading: divisible } : scope,
-				s.arg,
-				want
-			)
-			if (arg === undefined || arg.free) {
-				return arg
+			const cast: ExprDesc = { kind: "cast", to, arg: arg.desc }
+			if (!guardable.has(source) || !guardable.has(baseOf(type).carrier)) {
+				return { desc: cast, type, free: false }
 			}
-			const carrier = baseOf(arg.type).carrier
-			const fns = divisionsOf(carrier)
-			if (fns.length === 0 || (carrier === "money" && want?.carrier === "money")) {
-				return arg
-			}
-			/** Value class 0 is zero in every carrier a division takes. */
-			const zero: ValueSketch = { cls: 0, sp: s.sp }
-			const choice = s.zero % 3
-			const divisor: ExprDesc =
-				choice === 0
-					? { kind: "compute", fn: "sub", args: [arg.desc, arg.desc] }
-					: choice === 1 && scope.params
-						? { kind: "param", name: scope.param(zero) }
-						: scope.literal(arg.type, zero)
 			return {
-				desc: { kind: "compute", fn: at(fns, s.fn), args: [arg.desc, divisor] },
-				type: carrier === "money" ? plainType("float8") : plainOf(carrier, arg.type),
+				desc: {
+					kind: "when",
+					guard: withinGuard(source, -9, 9),
+					subject: arg.desc,
+					proved: cast,
+					otherwise: literalOf(baseOf(type).carrier, 0)
+				},
+				type,
+				free: false
+			}
+		}
+		case "pad": {
+			const arg = resolveTerm(scope, s.arg, want)
+			if (arg === undefined || arg.free || baseOf(arg.type).carrier !== "numeric") {
+				return arg
+			}
+			const padded: FieldDesc = {
+				kind: "numeric",
+				precision: 1000,
+				scale: at(numericPaddings, s.depth)
+			}
+			const bare: FieldDesc = { kind: "numeric" }
+			const type = fieldTypeOf(bare)
+			if (type === undefined) {
+				return arg
+			}
+			return {
+				desc: {
+					kind: "when",
+					guard: withinGuard("numeric", -1000, 1000),
+					subject: arg.desc,
+					proved: { kind: "cast", to: bare, arg: { kind: "cast", to: padded, arg: arg.desc } },
+					otherwise: arg.desc
+				},
+				type,
 				free: false
 			}
 		}
@@ -629,13 +748,14 @@ export const resolveCompare = (scope: TermScope, s: CompareSketch): ExprDesc | u
 }
 
 /**
- * The checker's typing environment for a term over `node`'s heading: leaves are the node's columns, parameters adopt
- * the term they meet bound as its base type (never a refined domain), and plain results are production's (plainType).
+ * The checker's typing environment for a term over `node`'s heading: leaves are the node's columns, a parameter is of
+ * the type it was registered with (TermScope.param), bound as its base (never a refined domain), and plain results are
+ * production's (plainType).
  */
 export interface LowerHooks {
 	readonly emit: (spec: ExprSpec) => ScalarExpr
 	readonly column: (column: HeadingColumn) => ExprSpec
-	readonly param: (name: string, type: ScalarType) => ExprSpec
+	readonly param: (name: string) => { readonly spec: ExprSpec; readonly type: ScalarType }
 }
 
 const refusal = (loc: SourceLoc, capability: string): CompileError =>
@@ -655,7 +775,7 @@ const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 		}
 		return Result.ok(hooks.column(c))
 	},
-	params: { kind: "scope", lower: ({ name }, type) => Result.ok(hooks.param(name, type)) },
+	params: { kind: "scope", lower: ({ name }) => Result.ok(hooks.param(name)) },
 	fieldType: (desc) => {
 		const t = fieldTypeOf(desc)
 		return t === undefined
@@ -669,8 +789,33 @@ const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 export interface LoweredTerm {
 	readonly expr: ScalarExpr
 	readonly type: ScalarType
-	readonly canFail: boolean
 	readonly stable: boolean
+}
+
+/**
+ * A term's output: the term itself, or an exact integer or exact money narrowed into bigint or money under the guard
+ * that it fits, its otherwise zero, so every generated output column is of a carrier the generators draw (domain.ts
+ * genCarriers), as a program stores an exact result in a field.
+ */
+const plainOutput = (r: Resolved): ExprDesc => {
+	const carrier = baseOf(r.type).carrier
+	if (carrier !== "exactInteger" && carrier !== "exactMoney") {
+		return r.desc
+	}
+	const integer = carrier === "exactInteger"
+	const min = -(2n ** 63n)
+	const max = 2n ** 63n - 1n
+	return {
+		kind: "when",
+		guard: {
+			kind: "within",
+			low: integer ? min : Money.of(min),
+			high: integer ? max : Money.of(max)
+		},
+		subject: r.desc,
+		proved: { kind: "cast", to: { kind: "pg", type: integer ? "bigint" : "money" }, arg: r.desc },
+		otherwise: literalOf(integer ? "int8" : "money", 0)
+	}
 }
 
 /** A term sketch resolved and lowered over `heading`, or undefined when the heading offers no column to start it. */
@@ -683,16 +828,15 @@ export const buildTerm = (
 	if (resolved === undefined || resolved.free) {
 		return undefined
 	}
-	const lowered = lowerTerm(resolved.desc, lowerEnv(scope.heading, hooks))
+	const lowered = lowerTerm(plainOutput(resolved), lowerEnv(scope.heading, hooks))
 	if (!lowered.ok) {
 		throw new Error(
-			`a generated term the checker refuses: ${lowered.error.message}\n${Formatter.format(resolved.desc)}\n${Formatter.format(Arr.map(scope.heading, (h) => [h.name, h.type.carrier, rosterOf(h.type)?.closed]))}`
+			`a generated term the checker refuses: ${lowered.error.message}\n${Formatter.format(plainOutput(resolved))}\n${Formatter.format(Arr.map(scope.heading, (h) => [h.name, h.type.carrier, rosterOf(h.type)?.closed]))}`
 		)
 	}
 	return {
 		expr: lowered.value.expr,
 		type: lowered.value.actual,
-		canFail: lowered.value.failure === "canFail",
 		stable: lowered.value.volatility === "stable"
 	}
 }
@@ -716,7 +860,6 @@ export const buildCompare = (
 	return {
 		expr: lowered.value.expr,
 		type: lowered.value.actual,
-		canFail: lowered.value.failure === "canFail",
 		stable: lowered.value.volatility === "stable"
 	}
 }

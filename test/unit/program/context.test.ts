@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -25,20 +26,20 @@ import { AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/
  * beside two conservative ones; the ordered tasks read as a page.
  */
 const notes = query(Work).rule((r) => {
-	const { task, note } = v(TaskNote)
+	const { task, note } = v(TaskNote, "taskNote")
 	return r.match(TaskNote, { task, note }).match(Task, { id: task }).find({ task, note })
 })
 
 const budgets = query(Work)
 	.rule((r) => {
-		const { task, budget } = v(AutomaticTask)
+		const { task, budget } = v(AutomaticTask, "automaticTask")
 		return r.match(AutomaticTask, { task, budget }).find({ task, budget })
 	})
 	.attach(
 		"owner",
 		(parent) =>
 			query(Work).rule((r) => {
-				const { account, kind } = v(Task)
+				const { account, kind } = v(Task, "task")
 				return r.match(Task, { id: parent.task, account, kind }).find({ account, kind })
 			}),
 		"option"
@@ -46,7 +47,7 @@ const budgets = query(Work)
 
 const orderedTasks = query(Work)
 	.rule((r) => {
-		const { id, kind } = v(Task)
+		const { id, kind } = v(Task, "task")
 		return r.match(Task, { id, kind }).find({ id, kind })
 	})
 	.orderBy(["id", "asc"])
@@ -96,20 +97,22 @@ describe("selectArtifact", () => {
 					suite: "unit/program/context-select",
 					draw: drawn(caseGen),
 					literal: Formatter.format,
-					features: features<SelectFeature>([
-						"conservative",
-						"optimized",
-						"compiled for snapshot, run in snapshot",
-						"compiled for snapshot, run in transaction",
-						"compiled for transaction, run in snapshot",
-						"compiled for transaction, run in transaction"
-					]),
+					coverage: required<SelectFeature>(
+						[
+							"conservative",
+							"optimized",
+							"compiled for snapshot, run in snapshot",
+							"compiled for snapshot, run in transaction",
+							"compiled for transaction, run in snapshot",
+							"compiled for transaction, run in transaction"
+						],
+						{ cases: 80, sense: notesOnly }
+					),
 					kept: [],
 					runs: 80,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([p, read, compiledFor, runIn], c) =>
@@ -157,7 +160,7 @@ describe("a template", () => {
 						literal: Formatter.format,
 						/** Every read of every program: four. */
 						limit: 4,
-						features: features<TemplateFeature>([
+						coverage: requiredInSpace<TemplateFeature>([
 							"snapshot",
 							"transaction",
 							"rows",

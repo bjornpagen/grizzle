@@ -92,7 +92,7 @@ tester.run("no-error-prose", plugin.rules["no-error-prose"], {
 tester.run("no-serialized-comparison", plugin.rules["no-serialized-comparison"], {
 	valid: [
 		valid('agree([["stored", stored], ["read", read]], exact)'),
-		valid(`strictEqual(spanName, \`grizzle.\${operation}\`)`),
+		valid(`strictEqual(spanName, \`superstarter.\${operation}\`)`),
 		valid('strictEqual(render(todo), "buy milk")'),
 		valid('strictEqual(String(error), "Error: boom")'),
 		valid("strictEqual(`plain`, value)"),
@@ -204,8 +204,7 @@ tester.run("no-fixed-seed", plugin.rules["no-fixed-seed"], {
 		valid("wordsOf(caseSeed(stream, index))"),
 		valid("const options = { size: 3 }"),
 		valid("const sketch = { seed: 42, moves: 3 }"),
-		valid('explore({ name: "sorts", seed: 42 }, property)'),
-		valid("const cases = sample(generator, run.seed, 100)")
+		valid('explore({ name: "sorts", seed: 42 }, property)')
 	],
 	invalid: [
 		invalid('const run = Run.of({ seed: 41, source: "environment" })', "fixedSeed", 1),
@@ -213,9 +212,7 @@ tester.run("no-fixed-seed", plugin.rules["no-fixed-seed"], {
 		invalid('Random.withSeed(program, "fixed")', "fixedSeed", 1),
 		invalid("wordsOf(1234)", "fixedSeed", 1),
 		invalid("const SEED = 99\nconst run = Run.of({ seed: SEED })", "fixedSeed", 1),
-		invalid("const run = Run.of({ seed: -1 })", "fixedSeed", 1),
-		invalid("const cases = sample(generator, 7, 100)", "fixedSeed", 1),
-		invalid("const seed = caseSeed(3, index)", "fixedSeed", 1)
+		invalid("const run = Run.of({ seed: -1 })", "fixedSeed", 1)
 	]
 })
 

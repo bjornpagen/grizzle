@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
@@ -12,6 +12,7 @@ import {
 	uniqueArray,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -134,14 +135,16 @@ describe("relation normalization", () => {
 								bad: source.draw(readingFact)
 							})),
 							literal: Formatter.format,
-							features: features<`plant ${Plant}`>(Arr.map(plants, (p) => `plant ${p}` as const)),
+							coverage: required<`plant ${Plant}`>(
+								Arr.map(plants, (p) => `plant ${p}` as const),
+								{ cases: 300, sense: notesOnly }
+							),
 							kept: [],
-							/** Six plants, each a sixth of the cases: 300 cases reach every one many times over. */
+							/** The rotating stream's sample of six plants, each a sixth of the cases. */
 							runs: 300,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ facts, at, plant, field, bad }, c) =>
@@ -213,7 +216,10 @@ describe("relation normalization", () => {
 								(x) => x
 							),
 							literal: Formatter.format,
-							features: features<"fixed width" | "other width">(["fixed width", "other width"]),
+							coverage: required<"fixed width" | "other width">(["fixed width", "other width"], {
+								cases: 300,
+								sense: notesOnly
+							}),
 							kept: [
 								{
 									note: "a span of the fixed width",
@@ -226,7 +232,6 @@ describe("relation normalization", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ start, width }, c) =>
@@ -269,13 +274,12 @@ describe("relation normalization", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([facts, seed]) =>
@@ -338,13 +342,12 @@ describe("relation normalization", () => {
 							suite: "unit/codec/recordset-1852797549",
 							draw: drawn(array(fact, { min: 0, max: 12 })),
 							literal: Formatter.format,
-							features: noFeatures,
+							coverage: noCoverage,
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(facts) =>
@@ -361,7 +364,7 @@ describe("relation normalization", () => {
 			})
 	)
 
-	it.effect("encodes canonically when equal facts differ in bare numeric display scale", (ctx) =>
+	it.effect("encodes canonically whatever input spelling equal facts' bare numerics took", (ctx) =>
 		Effect.gen(function* () {
 			const spec: RelationSpec = {
 				relation: "Scaled",
@@ -407,10 +410,7 @@ describe("relation normalization", () => {
 							const spelled = again.draw(
 								element(
 									nonEmpty(
-										Arr.filter(
-											spellings,
-											(s) => Decimal.of(s).identityText() === picked.n.identityText()
-										),
+										Arr.filter(spellings, (s) => Decimal.of(s).equals(picked.n)),
 										"a spelling of the picked value"
 									)
 								)
@@ -431,13 +431,12 @@ describe("relation normalization", () => {
 							(source) => [source.draw(caseGen), source.draw(int(0, 2 ** 31 - 1))] as const
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([{ facts, extra }, seed]) =>
@@ -463,24 +462,6 @@ describe("relation normalization", () => {
 							)
 						})
 				)
-			)
-			assert.equal(
-				succeeded(
-					encode([
-						{ k: 1, n: Decimal.of("1.00") },
-						{ k: 1, n: Decimal.of("1.0") }
-					])
-				).json,
-				'[{"c1":"1","c2":"1.0"}]'
-			)
-			assert.equal(
-				succeeded(
-					encode([
-						{ k: 1, n: Decimal.of("1.0") },
-						{ k: 1, n: Decimal.of("1.00") }
-					])
-				).json,
-				'[{"c1":"1","c2":"1.0"}]'
 			)
 		})
 	)
@@ -517,13 +498,12 @@ describe("relation normalization", () => {
 						] as const
 					}),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([wires, rows]) =>

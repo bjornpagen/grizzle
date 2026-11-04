@@ -104,7 +104,9 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 	record: "run grizzle migrate again: the failed file rolled back with its ledger row",
 	commit: "run grizzle migrate again: the ledger tells whether the file committed",
 	drift:
-		"undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate --custom)"
+		"undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate --custom)",
+	unchecked:
+		"the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way"
 }
 
 /** The fix of each stage at which the command line itself refuses (errors.ts). */

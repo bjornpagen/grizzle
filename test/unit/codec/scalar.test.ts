@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -15,6 +15,7 @@ import {
 	string,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -40,7 +41,8 @@ import { regex } from "arkregex"
  * with it on every text it admits.
  *
  * Each carrier's output form is restated here as an oracle from PostgreSQL's output functions (int2out/int4out/int8out,
- * numeric_out with its display scale, money::numeric at scale 2, boolout, range_out's half-open form), and each refusal
+ * numeric_out at a typmod's display scale, money::numeric at scale 2, boolout, range_out's half-open form), each text's
+ * cell text the canonical text of the value it spells, which the encoder writes, and each refusal
  * the codec vocabulary names for a value it meets (README "Errors and outcomes") is planted per carrier, beside the null ban every
  * encoder holds.
  *
@@ -341,7 +343,7 @@ const carriedNames: Arr.NonEmptyReadonlyArray<CarriedName> = [
 type FormFeature = `${CarriedName} ${"written" | "value refused" | "text refused" | "null refused"}`
 
 /** The features a carrier can reach: a written value, and each refusal it plants. */
-const reachable = (name: CarriedName): ReadonlyArray<FormFeature> => {
+const reachable = (name: CarriedName): Arr.NonEmptyReadonlyArray<FormFeature> => {
 	const c: Carried = carried[name]
 	return [
 		`${name} written`,
@@ -403,14 +405,16 @@ describe("each carrier's codec", () => {
 							return [name, source.draw(formCaseGen(carried[name]))] as const
 						}),
 						literal: Formatter.format,
-						features: features<FormFeature>(Arr.flatMap(carriedNames, reachable)),
+						coverage: required<FormFeature>(Arr.flatMap(carriedNames, reachable), {
+							cases: 1500,
+							sense: notesOnly
+						}),
 						kept: [],
-						/** Sixteen carriers, each half written and half refused: 1500 cases reach every feature many times. */
+						/** The rotating stream's sample of sixteen carriers, each half written and half refused. */
 						runs: 1500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([name, sketch], c) =>
@@ -421,7 +425,8 @@ describe("each carrier's codec", () => {
 								case "written": {
 									c.note(`${name} written`)
 									const { value, text } = sketch.written
-									assert.equal(succeeded(codec.encode(value)), text, name)
+									assert.equal(succeeded(codec.encode(value)), codec.cellText(text), name)
+									assert.equal(codec.cellText(text), codec.text(codec.convert(text)), name)
 									assert.deepEqual(succeeded(codec.read(text)), value, name)
 									assert.deepEqual(codec.convert(text), value, name)
 									return
@@ -458,13 +463,12 @@ describe("each carrier's codec", () => {
 						suite: "unit/codec/scalar-1",
 						draw: drawn(bigint(int8Min, int8Max)),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(n) =>
@@ -505,13 +509,12 @@ describe("integer and span text, scanned without RegExp", () => {
 						suite: "unit/codec/scalar-6909556",
 						draw: drawn(texts),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 20000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -553,13 +556,12 @@ describe("integer and span text, scanned without RegExp", () => {
 						suite: "unit/codec/scalar-7565409",
 						draw: drawn(texts),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 20000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -597,13 +599,12 @@ describe("vectors", () => {
 						suite: "unit/codec/scalar-3",
 						draw: drawn(array(float(-bound, bound), { min: 3, max: 3 })),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(xs) =>
@@ -611,7 +612,7 @@ describe("vectors", () => {
 							const made = Vector.make(Float32Array.from(xs), 3)
 							const v = Vector.inCosineDomain(made)
 								? made
-								: Vector.make(Float32Array.of(1, ...xs.slice(1)), 3)
+								: Vector.make(Float32Array.from([1, ...xs.slice(1)]), 3)
 							const text = succeeded(vector3.encode(v))
 							assert.equal(Vector.equals(vector3.read(text).pipe(succeeded, asVector), v), true)
 							assert.equal(Vector.equals(asVector(vector3.convert(text)), v), true)

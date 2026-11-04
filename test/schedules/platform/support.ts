@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, type Situations } from "@grizzle/testing/features"
 import { array, constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { type PctSchedule, pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -29,6 +29,7 @@ import {
 	TransientFailure
 } from "#adapter/public/errors.ts"
 import type { DbOf } from "#adapter/types/db.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { login, role } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -1195,7 +1196,7 @@ const runRace = (i: RaceInstall, race: Race, c: Case<RaceFeature>) =>
 					Effect.sync(() => {
 						seen.clear()
 					}),
-					i.rig.owner(...loadSql(i.names, initial))
+					i.rig.owner(loadSql(i.names, initial))
 				),
 				state: { _tag: "Unread" },
 				model: (run) =>
@@ -1237,7 +1238,7 @@ const runRace = (i: RaceInstall, race: Race, c: Case<RaceFeature>) =>
 						if (Arr.some(e.ran, (r) => r.writer === "grizzle" && r.observed.kind === "accepted")) {
 							reached.push("exact repeats")
 						}
-						reached.push(...judged.reached)
+						appendAll(reached, judged.reached)
 						return allowed
 					}),
 				maxInterleavings: runawayInterleavings
@@ -1259,7 +1260,7 @@ interface RaceSuite<S> {
 	readonly sketch: Gen<S>
 	readonly resolve: (sketch: S) => Gen<Race>
 	readonly kept: ReadonlyArray<Kept<S, RaceFeature>>
-	readonly required: ReadonlyArray<RaceFeature>
+	readonly required: Situations<RaceFeature>
 }
 
 export const raceSuite = <S>(suite: RaceSuite<S>): void => {
@@ -1276,13 +1277,15 @@ export const raceSuite = <S>(suite: RaceSuite<S>): void => {
 								suite: `platform-races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(suite.label)}`,
 								draw: drawn(suite.sketch),
 								literal: Formatter.format,
-								features: features<RaceFeature>(suite.required),
+								coverage: required<RaceFeature>(suite.required, {
+									cases: runsPerTest,
+									sense: notesOnly
+								}),
 								kept: suite.kept,
 								runs: runsPerTest,
 								shrink: { kind: "bounded", candidates: 200 },
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "mutate", cases: runsPerTest, sense: notesOnly },
 								caseHang: Duration.minutes(2)
 							},
 							(sketch, c) =>

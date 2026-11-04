@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,6 +12,7 @@ import {
 	string,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -59,7 +60,6 @@ import {
 	type LiveArgs,
 	mapArgs,
 	normalizeExprTable,
-	OpId,
 	type ScalarExpr,
 	sameArgs
 } from "#compiler/ir/expr.ts"
@@ -94,6 +94,7 @@ import {
 } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { dagTableShape, validateDag, validateTable } from "#test/support/oracle/dag-validate.ts"
+import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { indices } from "#test/support/oracle/pick.ts"
 import { Exprs, everyKind, fail, heading, scalarTypes } from "#test/unit/ir/fixture.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
@@ -225,14 +226,13 @@ describe("traversals of generated DAGs", () => {
 						draw: drawn(generatedDags),
 						runs: 300,
 						shrink: completeShrink,
-						features: features<"a shared input" | "a deep closure">([
-							"a shared input",
-							"a deep closure"
-						]),
+						coverage: required<"a shared input" | "a deep closure">(
+							["a shared input", "a deep closure"],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(d, c) =>
@@ -383,7 +383,7 @@ describe("DagBuilder.build", () => {
 						literal: Formatter.format,
 						generator: element(planted),
 						limit: planted.length,
-						features: features<Planted>(planted),
+						coverage: requiredInSpace<Planted>(planted),
 						caseHang: Duration.minutes(2)
 					},
 					(p, c) =>
@@ -440,11 +440,10 @@ describe("dagDigest", () => {
 						),
 						runs: 50,
 						shrink: completeShrink,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(burn) =>
@@ -470,11 +469,10 @@ describe("dagDigest", () => {
 					draw: drawn(string(codePoint(0x20, 0x7e), { min: 0, max: 4 })),
 					runs: 50,
 					shrink: completeShrink,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(salt) =>
@@ -509,11 +507,13 @@ describe("dagDigest", () => {
 					draw: drawn(dags),
 					runs: 100,
 					shrink: completeShrink,
-					features: features<"a moved location">(["a moved location"]),
+					coverage: required<"a moved location">(["a moved location"], {
+						cases: 100,
+						sense: notesOnly
+					}),
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(d, c) =>
@@ -545,11 +545,13 @@ describe("dagDigest", () => {
 					draw: drawn(dags),
 					runs: 100,
 					shrink: completeShrink,
-					features: features<Change>(["a literal changed", "another domain", "the roots reversed"]),
+					coverage: required<Change>(
+						["a literal changed", "another domain", "the roots reversed"],
+						{ cases: 100, sense: notesOnly }
+					),
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(d, c) =>
@@ -684,7 +686,8 @@ const cents = (table: ExprTable): ScalarType =>
 			parsedName("Cents"),
 			scalarTypes.int8,
 			SourceLoc("a test's checked contract", []),
-			table
+			table,
+			[]
 		)
 	)
 
@@ -704,12 +707,11 @@ const predicate = (
 			[root]: {
 				id: root,
 				kind: "op",
-				op: OpId("int8ge"),
+				op: definedOpOf("int8ge"),
 				args: [value, zero],
 				type: scalarTypes.bool,
 				nonNull: "strict",
 				volatility: "immutable",
-				failure: "total",
 				deps: { params: [], nodes: [] }
 			},
 			[value]: {
@@ -719,7 +721,6 @@ const predicate = (
 				type: scalarTypes.int8,
 				nonNull: "storage",
 				volatility: "immutable",
-				failure: "total",
 				deps: { params: [], nodes: [] }
 			},
 			[zero]: {
@@ -730,7 +731,6 @@ const predicate = (
 				type: scalarTypes.int8,
 				nonNull: "literal",
 				volatility: "immutable",
-				failure: "total",
 				deps: { params: [], nodes: [] }
 			}
 		}
@@ -761,11 +761,10 @@ describe("normalizeDag", () => {
 						),
 						runs: 100,
 						shrink: completeShrink,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([d, salt]) =>
@@ -807,7 +806,7 @@ describe("normalizeDag", () => {
 						literal: Formatter.format,
 						generator: boolean,
 						limit: 2,
-						features: features<"y allocated first">(["y allocated first"]),
+						coverage: requiredInSpace<"y allocated first">(["y allocated first"]),
 						caseHang: Duration.minutes(2)
 					},
 					(yFirst, c) =>
@@ -882,7 +881,7 @@ describe("normalizeDag", () => {
 								source.draw(int(0, 3))
 							] as const,
 						limit: 600,
-						features: features<"an advanced supply" | "a spelling not in normal form">([
+						coverage: requiredInSpace<"an advanced supply" | "a spelling not in normal form">([
 							"an advanced supply",
 							"a spelling not in normal form"
 						]),

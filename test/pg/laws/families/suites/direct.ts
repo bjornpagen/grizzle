@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features, type Reached } from "@grizzle/testing/features"
+import { type Reached, required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import {
@@ -9,16 +10,16 @@ import {
 	directCaseGen,
 	runDirect
 } from "#test/pg/laws/families/direct.ts"
-import type { Family } from "#test/pg/laws/families/families.ts"
+import { type Family, type Mode, populationsOf } from "#test/pg/laws/families/families.ts"
 import { isResidual } from "#test/pg/laws/families/model.ts"
 import {
 	caseHang,
 	installVariant,
-	mode,
 	schemaPairs,
 	shrink,
 	timeoutOf
 } from "#test/pg/laws/families/suites/family.ts"
+import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 
 import { familyWriters, plantedRefusal, witnessing } from "#test/pg/laws/families/support.ts"
 import { defined } from "#test/support/assert.ts"
@@ -33,14 +34,12 @@ import { regex } from "arkregex"
 const directCases = (cases: number): number => 2 * cases
 
 /**
- * The kept cases a direct suite replays before its streams, by mutability, beside its residual refusals: what its
- * family's population reaches too rarely, planted by its caller (the moves and selections in a transaction that
- * commits, whose every other statement must keep each law).
+ * The kept cases a direct suite replays before its streams, by population, each naming its schema by its index in its
+ * population (families.ts variantsOf), beside its residual refusals: what its family's population reaches too rarely,
+ * planted by its caller (the moves and selections in a transaction that commits, whose every other statement must keep
+ * each law).
  */
-export interface Planted {
-	readonly immutable: ReadonlyArray<Kept<DirectCase, DirectFeature>>
-	readonly mutable: ReadonlyArray<Kept<DirectCase, DirectFeature>>
-}
+export type Planted = Readonly<Record<Mode, ReadonlyArray<Kept<DirectCase, DirectFeature>>>>
 
 /**
  * The family's residual refusals at COMMIT of a stored fact and of a new fact, planted: each on the first schema with a
@@ -88,17 +87,18 @@ const plantedResiduals = <P>(
 /**
  * One family's direct-writer suite (../direct.ts).
  *
- * For each mutability, cases explore through the library's explore, each drawing one of the family's schemas, a lawful state to
- * start from and a few SERIALIZABLE transactions of a direct SQL writer logged in as `direct`. A schema installs once
+ * For each population of the family's box (families.ts populationsOf), cases explore through the library's explore, each
+ * drawing one of the population's schemas, a lawful state to start from and a few SERIALIZABLE transactions of a direct
+ * SQL writer logged in as `direct`. A schema installs once
  * per test, the first time a case draws it (family.ts installVariant). The writer's session belongs to the case.
  *
- * The population must reach every statement kind the mutability allows (an UPDATE that moves its fact to another key
+ * The population must reach every statement kind its relations allow (an UPDATE that moves its fact to another key
  * among them, and such an UPDATE in a transaction that commits; an UPDATE that moves a referred fact to another key, in
  * a transaction refused at COMMIT; and one that moves a fact's references, and one that moves a fact into a referring
  * side's selection, each in a transaction that commits and in one refused at COMMIT), a refusal at a statement by a
  * key, a refusal at COMMIT
- * by every kind of deferred law the family's schemas install (a residual law, a native foreign key), and commits; an
- * immutable schema, an UPDATE refused by privilege; every schema, a commit; and the family, a residual refusal whose
+ * by every kind of deferred law the family's schemas install (a residual law, a native foreign key), and commits; the
+ * immutable population, an UPDATE refused by privilege; every schema, a commit; and the family, a residual refusal whose
  * witness names a stored fact whose counterpart went and one naming a new fact. The residual refusals are planted as
  * kept cases, replayed before the streams, and so is what a family's population reaches too rarely besides (Planted).
  * Shrinking and the time bound are the family suite's.
@@ -107,22 +107,17 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 	layer(Substrate.layer, { excludeTestServices: true })(
 		`a direct writer over law-bearing schemas: ${family.label}`,
 		(it) => {
-			for (const isMutable of [false, true]) {
-				const [first, ...rest] = family.variants(isMutable)
-				if (first === undefined) {
-					throw new Error(`${family.label} has no schema`)
-				}
-				const variants: Arr.NonEmptyReadonlyArray<P> = [first, ...rest]
+			for (const { mode, variants } of populationsOf(family)) {
 				const laws = Arr.flatMap(variants, (p) => family.host(p).laws)
 				/**
 				 * Every schema commits (its refusals by schema are the family suite's, whose cases run longer).
 				 *
 				 * The family's residual refusals name a stored fact and a new fact.
 				 */
-				const required: ReadonlyArray<Reached<DirectFeature>> = [
+				const situations: Arr.NonEmptyReadonlyArray<Reached<DirectFeature>> = [
 					"statement insert",
 					"statement delete",
-					...(isMutable
+					...(mode === "mutable"
 						? ([
 								"statement update payload",
 								"statement update key",
@@ -149,23 +144,30 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 						: [])
 				]
 				const search = Effect.gen(function* () {
-					/** Every variant's installation, made before the first case; it holds no connection. */
-					const installs = yield* Effect.forEach(variants, (p) => installVariant(family, p))
+					/**
+					 * Every variant's installation, made before the first case; it holds no connection. The mutable
+					 * population installs under the installation-first path, the immutable one under the cluster's own.
+					 */
+					const installs = yield* Effect.forEach(variants, (p) =>
+						installVariant(family, p, mode === "mutable" ? grizzleFirstSession : ordinarySession)
+					)
 					return yield* explore(
 						{
-							suite: `laws/direct/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode(isMutable)}`,
+							suite: `laws/direct/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode}`,
 							draw: drawn(directCaseGen(variants.length)),
 							literal: Formatter.format,
-							features: features<DirectFeature>(required),
+							coverage: required<DirectFeature>(situations, {
+								cases: directCases(cases),
+								sense: notesOnly
+							}),
 							kept: [
 								...(Arr.some(laws, isResidual) ? plantedResiduals(family, variants) : []),
-								...(isMutable ? planted.mutable : planted.immutable)
+								...planted[mode]
 							],
 							runs: directCases(cases),
 							shrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang
 						},
 						(k, c) =>
@@ -182,21 +184,12 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 								const direct = installed.world(
 									familyWriters(family.schema(p)(installed.declared)).direct
 								)
-								yield* runDirect(
-									installed,
-									direct,
-									family.host(p),
-									family.domains,
-									isMutable,
-									k,
-									c,
-									ended
-								)
+								yield* runDirect(installed, direct, family.host(p), family.domains, k, c, ended)
 							})
 					)
 				})
 				it.effect(
-					`${mode(isMutable)}: a transaction commits iff its final state is lawful, refused where the law is checked`,
+					`${mode}: a transaction commits iff its final state is lawful, refused where the law is checked`,
 					(ctx) => searched(ctx, search),
 					timeoutOf(directCases(cases))
 				)

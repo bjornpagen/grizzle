@@ -1,5 +1,8 @@
 import { array, boolean, constant, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { StorageCarrier } from "#compiler/ir/scalar.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import type {
@@ -14,11 +17,21 @@ import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { closed, derived, relation } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import { role } from "#compiler/schema/world.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { indices, whereIndex } from "#test/support/oracle/pick.ts"
+import { argumentsOf } from "#test/support/list.ts"
+import { floatLiteralOf } from "#test/support/oracle/gen/domain.ts"
+import {
+	inputRespelling,
+	type Restorage,
+	restoredFacts,
+	type StorageOrder,
+	type StoredRelation
+} from "#test/support/oracle/gen/restorage.ts"
+import { elementAt, indices, whereIndex } from "#test/support/oracle/pick.ts"
 
 /** The choice-th item, modulo the items there are; a choice with nothing to choose from is a defect of the generator.
  *
@@ -124,7 +137,7 @@ const literal: ReadonlySet<Kind> = new Set([
 const sumKind = (k: Kind): Kind => (k === "int4" ? "int8" : k === "f8" ? "f8" : "num")
 const meanKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
 
-const Color = closed("Color", ["red", "green", "blue"])
+const Color = closed("Color", ["red", "green", "blue"], [])
 const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 const Word = str.regex("^[a-z]{0,4}$")
 
@@ -624,7 +637,7 @@ const runRule = (
 	for (const [mi, m] of sketch.matches.entries()) {
 		const source = pick(sources, m.source)
 		reads.add(source.name)
-		const minted = v(source.value)
+		const minted = v(source.value, `match${mi}`)
 		const bindings: Record<string, unknown> = {}
 		for (const [i, c] of source.columns.entries()) {
 			/** The first column of the first match is always a variable, so every rule has one to find. */
@@ -673,7 +686,7 @@ const runRule = (
 		}
 	}
 	if (predicates.length > 0) {
-		rule = rule.where(...predicates)
+		rule = rule.where(...argumentsOf(predicates))
 	}
 	/** Group and plain head columns: never an unconstrained numeric, which no key may contain. */
 	const headable = Arr.filter(vars, (x) => x.kind !== "num")
@@ -806,7 +819,8 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 		const value = relation(
 			`R${i}`,
 			Rec.fromEntries(Arr.map(columns, (c) => [c.name, descriptor(c.kind)])),
-			key
+			key,
+			[]
 		)
 		return { name: `R${i}`, columns, key, value }
 	})
@@ -820,6 +834,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 	let current: AnySchema = schema(
 		options.name,
 		Rec.fromEntries(Arr.map(stored, (s) => [s.name, s.value])),
+		[],
 		[]
 	)
 	const derivedRelations: Array<GenDerived> = []
@@ -834,17 +849,18 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 				level: li + 1,
 				declared: di,
 				columns: built.columns,
-				value: derived(name, built.query),
+				value: derived(name, built.query, []),
 				form: built.form,
 				aggregates: built.aggregates,
 				negation: built.negation,
 				reads: built.reads
 			}
 		})
-		derivedRelations.push(...declared)
+		appendAll(derivedRelations, declared)
 		current = schema.extend(
 			current,
 			Rec.fromEntries(Arr.map(declared, (d) => [d.name, d.value])),
+			[],
 			[]
 		)
 	}
@@ -905,6 +921,96 @@ export const initialFacts = (s: GenSchema, sketch: CaseSketch): Facts =>
 		)
 	)
 
+/** The carrier each base kind is stored at, whose twin spellings a stored value of the kind may be written in. */
+const baseCarriers: { readonly [K in BaseKind]: StorageCarrier } = {
+	uuid: "uuid",
+	int4: "int4",
+	int8: "int8",
+	bool: "bool",
+	text: "text",
+	cents: "int8",
+	color: "enum",
+	dec: "numeric",
+	f8: "float8"
+}
+
+/** A stored value of a base kind (storedValue) as the IR's literal: a value of another host type is a defect. */
+const literalOfBase = (k: BaseKind, value: unknown): TypedLiteral => {
+	const wrong = (): never => {
+		throw new TypeError(`a ${k} value of another host type: ${String(value)}`)
+	}
+	switch (k) {
+		case "uuid":
+			return typeof value === "string" ? { kind: "uuid", value } : wrong()
+		case "int4":
+			return typeof value === "number" && Number.isSafeInteger(value)
+				? { kind: "int", value: BigInt(value) }
+				: wrong()
+		case "int8":
+		case "cents":
+			return typeof value === "bigint" ? { kind: "int", value } : wrong()
+		case "bool":
+			return typeof value === "boolean" ? { kind: "bool", value } : wrong()
+		case "text":
+			return typeof value === "string" ? { kind: "text", value } : wrong()
+		case "color":
+			return typeof value === "string" ? { kind: "enum", handle: value } : wrong()
+		case "dec":
+			return typeof value === "string" ? { kind: "numeric", value: Decimal.of(value) } : wrong()
+		case "f8":
+			return typeof value === "number" ? floatLiteralOf(value) : wrong()
+	}
+}
+
+/**
+ * The order a second reading stores the base facts in: the first reading's. The oracle reads every view's tuples, and
+ * which tuple a refresh writes a row to follows the order it meets the base rows in.
+ */
+const tuplesObserved: StorageOrder = { kind: "kept", observed: "tuple ids" }
+
+/**
+ * The facts stored otherwise for a second reading (gen/restorage.ts restoredFacts), in the order they are stored
+ * (tuplesObserved): one value whose carrier has twin spellings in its first twin, which the loader writes as that
+ * text. Every value is unchanged, so every view holds the same values over them.
+ */
+export const restoredDerivedFacts = (
+	s: GenSchema,
+	facts: Facts,
+	r: Restorage
+): { readonly facts: Facts; readonly respelled: boolean } => {
+	const restored = restoredFacts(
+		Arr.map(s.base, (base): StoredRelation<unknown> => ({
+			name: base.name,
+			columns: Arr.map(base.columns, (c) =>
+				inputRespelling(baseCarriers[c.kind], (v) => literalOfBase(c.kind, v))
+			),
+			rows: Arr.map(facts[base.name] ?? [], (fact) => Arr.map(base.columns, (c) => fact[c.name]))
+		})),
+		tuplesObserved,
+		r
+	)
+	return {
+		facts: Rec.fromEntries(
+			Arr.map(
+				Arr.zip(s.base, restored.relations),
+				([base, stored]) =>
+					[
+						base.name,
+						Arr.map(stored.rows, (row) =>
+							Rec.fromEntries(
+								Arr.map(
+									base.columns,
+									(c, j) => [c.name, elementAt(row, j, "a restored fact")] as const
+								)
+							)
+						)
+					] as const
+			)
+		),
+		respelled: restored.respelled
+	}
+}
+
 /** The facts after a base change: some dropped, some added at new or existing keys. */
 export const changedFacts = (s: GenSchema, facts: Facts, step: StepSketch): Facts =>
 	Rec.fromEntries(
@@ -935,7 +1041,7 @@ export const namedIn = (
 	while (pool.length > 0) {
 		const at = seed % pool.length
 		seed = Math.floor(seed / pool.length) + 7
-		out.push(...pool.splice(at, 1))
+		appendAll(out, pool.splice(at, 1))
 	}
 	const [first] = out
 	return repeat && first !== undefined ? [...out, first] : out

@@ -7,7 +7,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
+import type { Expr, InsertTarget, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -118,7 +118,7 @@ const literalOf = (
 			: expr.success
 	})
 
-/** Every field of `fact` equal to its value: the WHERE of a keyed DELETE or UPDATE. */
+/** Every field of `fact` equal to its value: the WHERE of a keyed DELETE or UPDATE, true for no field. */
 const matching = (names: DirectNames, t: OracleTable, fact: HostFact): Effect.Effect<Expr> =>
 	Effect.map(
 		Effect.forEach(Rec.toEntries(fact), ([field, value]) =>
@@ -126,7 +126,7 @@ const matching = (names: DirectNames, t: OracleTable, fact: HostFact): Effect.Ef
 				Effect.map(literalOf(names, t, field, value), (l) => eq(col("r", c.column), l))
 			)
 		),
-		(parts) => and(...parts)
+		(parts) => (Arr.isReadonlyArrayNonEmpty(parts) ? and(parts) : lit.bool(true))
 	)
 
 /** A predicate that divides by zero exactly on the rows whose field reads `value`, true on every other row. */
@@ -222,6 +222,15 @@ const namesSerial = (
 		(domains) => Arr.some(domains, (d) => d.kind === "serial")
 	)
 
+/**
+ * What a direct writer's INSERT of one fact writes: a VALUES row of the fact's columns, or, for a fact of no field
+ * (every field of its relation a serial one the identity draws), one row of no column, `INSERT INTO t SELECT`.
+ */
+const factTarget = (columns: ReadonlyArray<string>, values: ReadonlyArray<Expr>): InsertTarget =>
+	Arr.isReadonlyArrayNonEmpty(columns)
+		? { columns, source: { kind: "values", rows: [values] } }
+		: { columns: [], source: { kind: "query", query: simpleSelect([], [], undefined) } }
+
 /** An INSERT that meets a conflicting primary key, resolved by ON CONFLICT: nothing, the existing row, or an update. */
 const onConflictSql = (
 	names: DirectNames,
@@ -271,9 +280,8 @@ const onConflictSql = (
 			with: undefined,
 			table: t.name,
 			alias: undefined,
-			columns,
+			...factTarget(columns, values),
 			overriding: (yield* namesSerial(names, relation, fields)) ? "SYSTEM VALUE" : undefined,
-			source: { kind: "values", rows: [values] },
 			onConflict: { kind: "columns", columns: key, action },
 			returning: resolution === "select" ? Arr.map(read, (f) => target(tableCol(f.column))) : []
 		})
@@ -332,9 +340,8 @@ const insertSql = (
 			with: undefined,
 			table: t.name,
 			alias: undefined,
-			columns,
+			...factTarget(columns, values),
 			overriding: (yield* namesSerial(names, relation, fields)) ? "SYSTEM VALUE" : undefined,
-			source: { kind: "values", rows: [values] },
 			onConflict: undefined,
 			returning: []
 		})
@@ -414,6 +421,12 @@ const isolationText = (isolation: Isolation): string => Str.toUpperCase(isolatio
  */
 const roleIdent = (name: string): string =>
 	`U&"${Function.pipe(name, Str.replaceAll("\\", "\\\\"), Str.replaceAll('"', '""'), Str.replaceAll("\u0000", "\\0000"))}"`
+
+/**
+ * An UPDATE that assigns no column, which is no statement: PostgreSQL refuses its text at parse (42601), as the host
+ * model refuses it (model/session/direct.ts, "other").
+ */
+const noAssignmentSql = (table: ObjectName): string => `UPDATE ${printObjectName(table)} SET`
 
 /** The BEGIN of a direct writer's transaction at its isolation level. */
 export const beginSql = (isolation: Isolation): string =>
@@ -500,6 +513,9 @@ export const directSql = (
 						Effect.map(literalOf(names, t, f, v), (value) => ({ column: c.column, value }))
 					)
 				)
+				if (!Arr.isReadonlyArrayNonEmpty(set)) {
+					return { sql: noAssignmentSql(t.name), reads: none }
+				}
 				const sql = yield* emitted({
 					kind: "update",
 					table: t.name,

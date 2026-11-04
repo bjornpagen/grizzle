@@ -29,7 +29,6 @@ import {
 	type ExprSpec,
 	OpId,
 	type ParamRole,
-	rangeOp,
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
@@ -51,13 +50,25 @@ import {
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import { type AggregateName, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
-import { castOf, type FixedFn, overloadOf } from "#compiler/scalar/compute/registry.ts"
-import { isPlainCarrier, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import {
+	definedIdOf,
+	definedRangeOp,
+	type FixedFn,
+	overloadOf
+} from "#compiler/scalar/compute/registry.ts"
+import {
+	exactType,
+	familyDigits,
+	isPlainCarrier,
+	plainType,
+	wildcardText
+} from "#compiler/scalar/compute/types.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import type { OwnedFixture } from "#test/support/evidence.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { castOpOf } from "#test/support/oracle/gen/ops.ts"
 
 /** A built query: its validated DAG and the node whose result it delivers. */
 export interface BuiltQuery {
@@ -163,7 +174,7 @@ export class SchemaModel {
 	readonly fixture: OwnedFixture
 	readonly desc: SchemaDesc
 	readonly relations: ReadonlyMap<string, SchemaRelation>
-	readonly #rosters = new Map<string, ReadonlyArray<string>>()
+	readonly #rosters = new Map<string, Arr.NonEmptyReadonlyArray<string>>()
 
 	constructor(fixture: OwnedFixture, derived: Readonly<Record<string, DerivedShape>>) {
 		this.fixture = fixture
@@ -456,7 +467,11 @@ export class Ir {
 		})
 	}
 
-	/** One native operator or function over its operands' carriers. */
+	/**
+	 * One native operator or function over its operands' carriers, defined on every value: an exact one types its result
+	 * an exact integer or exact money of the operands' digits summed, a bound past its own (the checker's are tighter); a
+	 * partial one needs its proof, which no fixture writes.
+	 */
 	op(fn: Exclude<FixedFn, "cast">, args: ReadonlyArray<ScalarExpr>): ScalarExpr {
 		const types = Arr.map(args, (a) => a.type)
 		const carriers =
@@ -465,18 +480,27 @@ export class Ir {
 		if (native === undefined) {
 			throw new Error(`fixture IR: no native ${fn}(${Arr.join(carriers, ", ")})`)
 		}
+		const id = definedIdOf(native)
+		if (id === undefined) {
+			throw new Error(
+				`fixture IR: ${fn}(${Arr.join(carriers, ", ")}) is partial; a fixture writes no proof`
+			)
+		}
 		const [first] = types
-		const result: ScalarType = isPlainCarrier(native.result)
-			? plainType(native.result)
-			: (first ?? fixtureError(`fixture IR: ${fn} has no operand to take its type from`))
+		const digits = Arr.reduce(types, 1, (sum, t) => sum + (familyDigits(baseOf(t)) ?? 0))
+		const result: ScalarType =
+			native.totality.kind === "exact"
+				? exactType(native.totality.yields === "integer" ? "exactInteger" : "exactMoney", digits)
+				: isPlainCarrier(native.result)
+					? plainType(native.result)
+					: (first ?? fixtureError(`fixture IR: ${fn} has no operand to take its type from`))
 		return this.#record({
 			kind: "op",
-			op: native.id,
+			op: id,
 			args,
 			type: result,
 			nonNull: "strict",
-			volatility: native.volatility,
-			failure: native.failures.length > 0 ? "canFail" : "total"
+			volatility: native.volatility
 		})
 	}
 
@@ -498,12 +522,11 @@ export class Ir {
 				const [l, r] = atomOperands(atom, left, right)
 				const positive = this.#record({
 					kind: "op",
-					op: rangeOp(rangeOperatorCodes[atom.op], carrier),
+					op: definedRangeOp(rangeOperatorCodes[atom.op], carrier),
 					args: [l, r],
 					type: plainType("bool"),
 					nonNull: "strict",
-					volatility: "immutable",
-					failure: "total"
+					volatility: "immutable"
 				})
 				return literalNegated(literal) ? this.op("not", [positive]) : positive
 			})
@@ -522,16 +545,9 @@ export class Ir {
 	 * contract.
 	 */
 	cast(arg: ScalarExpr, type: ScalarType): ScalarExpr {
-		const source = baseOf(arg.type).carrier
-		const target = baseOf(type).carrier
-		const native = source === target ? undefined : castOf(source, target)
-		if (source !== target && native === undefined) {
-			throw new Error(`fixture IR: no native cast ${source} -> ${target}`)
-		}
-		const checked = native !== undefined && native.failures.length > 0
 		return this.#record({
 			kind: "cast",
-			checked,
+			cast: castOpOf(baseOf(arg.type).carrier, baseOf(type).carrier),
 			args: [arg],
 			type,
 			nonNull: "strict",
@@ -539,13 +555,20 @@ export class Ir {
 		})
 	}
 
-	/** Compute.cast into a contract or text refinement: PostgreSQL validates membership. */
+	/**
+	 * A value written into a contract or text refinement, which the write validates: the domain cast of a derived head
+	 * or a written member, its proof the write's own check.
+	 */
 	domainCast(arg: ScalarExpr, type: ScalarType): ScalarExpr {
 		return this.#record({
 			kind: "domainCast",
 			args: [arg],
 			type,
-			nonNull: "strict"
+			nonNull: "strict",
+			proof: {
+				precondition: { kind: "contract" },
+				premises: [{ kind: "checked", operand: 0, by: "write" }]
+			}
 		})
 	}
 

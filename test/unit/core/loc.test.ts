@@ -1,7 +1,7 @@
 import { compileFunction } from "node:vm"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
@@ -15,6 +15,7 @@ import {
 	string
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -146,26 +147,28 @@ describe("stack frame parsing", () => {
 						suite: "unit/core/loc-frames",
 						draw: drawn(array(oneOf<Frame | string>([frameGen, noSiteGen]), { min: 1, max: 8 })),
 						literal: Formatter.format,
-						features: features<Form | FileKind | "a line of no site">([
-							"V8 in a function",
-							"V8 at top level",
-							"SpiderMonkey in a function",
-							"SpiderMonkey anonymous",
-							"a file URL",
-							"a POSIX path",
-							"a Windows path",
-							"an HTTP URL",
-							"the library",
-							"the published engine",
-							"the runtime",
-							"a line of no site"
-						]),
+						coverage: required<Form | FileKind | "a line of no site">(
+							[
+								"V8 in a function",
+								"V8 at top level",
+								"SpiderMonkey in a function",
+								"SpiderMonkey anonymous",
+								"a file URL",
+								"a POSIX path",
+								"a Windows path",
+								"an HTTP URL",
+								"the library",
+								"the published engine",
+								"the runtime",
+								"a line of no site"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(lines, c) =>
@@ -270,17 +273,15 @@ describe("call-site capture", () => {
 							inner: source.draw(array(placedGen, { min: 0, max: 3 }))
 						})),
 						literal: Formatter.format,
-						features: features<Reach>([
-							"the caller's own call",
-							"through the library",
-							"a user frame the library calls"
-						]),
+						coverage: required<Reach>(
+							["the caller's own call", "through the library", "a user frame the library calls"],
+							{ cases: 50, sense: notesOnly }
+						),
 						kept: [],
 						runs: 50,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ label, path, caller, inner }, c) =>
@@ -369,20 +370,22 @@ describe("SourceLoc", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<Spelling>([
-							"a location",
-							"a location with a site",
-							"an extra key",
-							"a bad path segment",
-							"a bad site",
-							"no record"
-						]),
+						coverage: required<Spelling>(
+							[
+								"a location",
+								"a location with a site",
+								"an extra key",
+								"a bad path segment",
+								"a bad site",
+								"no record"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([{ label, path, site }, spelling], c) =>
@@ -447,13 +450,15 @@ describe("SourceLoc", () => {
 								)
 							})),
 							literal: Formatter.format,
-							features: features<"a site" | "no site">(["a site", "no site"]),
+							coverage: required<"a site" | "no site">(["a site", "no site"], {
+								cases: 200,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ label, path, prefix, site }, c) =>

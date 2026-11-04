@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -31,7 +31,7 @@ import {
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -46,6 +46,7 @@ import { StatementShare } from "#compiler/write/insert/statement.ts"
 import { assert, containsText, lacksText } from "#test/support/assert.ts"
 import {
 	compileTemplate,
+	installationSql,
 	paramTexts,
 	realityWrite,
 	testArtifacts,
@@ -110,7 +111,7 @@ const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
 const Price = relation("Price", { id: uuid, amount: Cents, rate: Rate }, ["id"])
 const Content = schema("Content", { Tier, Article, Draft, Comment, Price }, [mutable(Draft)])
 
-const id = (n: number): string => `00000000-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`
+const id = (n: number): Uuid => `00000000-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`
 
 /** The articles: valid slugs, and titles that are valid slugs except where a test says otherwise. */
 const articles = (count: number): ReadonlyArray<{ id: string; slug: string; title: string }> =>
@@ -122,7 +123,7 @@ const articles = (count: number): ReadonlyArray<{ id: string; slug: string; titl
 
 /** An article lookup by slug. */
 const bySlug = query(Content).rule((r) => {
-	const { id: article, slug } = v(Article)
+	const { id: article, slug } = v(Article, "article")
 	return r
 		.match(Article, { id: article, slug })
 		.where(r.eq(slug, r.param("slug", Article.fields.slug)))
@@ -134,7 +135,7 @@ const bySlug = query(Content).rule((r) => {
  * delivers no value, so an out-of-pattern parameter still returns empty.
  */
 const echoSlug = query(Content).rule((r) => {
-	const { id: article, slug } = v(Article)
+	const { id: article, slug } = v(Article, "article")
 	return r
 		.match(Article, { id: article, slug })
 		.where(r.eq(slug, r.param("slug", Article.fields.slug)))
@@ -147,7 +148,7 @@ const echoSlug = query(Content).rule((r) => {
  * a custom plan is never chosen.
  */
 const titlesAsSlugs = query(Content).rule((r) => {
-	const { id: article, title } = v(Article)
+	const { id: article, title } = v(Article, "article")
 	return r
 		.match(Article, { id: article, title })
 		.where(r.ne(title, r.param("except", Article.fields.title)))
@@ -161,14 +162,14 @@ const noTitle = "no such title"
  */
 const echoComments = query(Content)
 	.rule((r) => {
-		const { id: article, slug } = v(Article)
+		const { id: article, slug } = v(Article, "article")
 		return r.match(Article, { id: article, slug }).find({ id: article, slug })
 	})
 	.attach(
 		"comments",
 		(p) =>
 			query(Content).rule((r) => {
-				const { id: comment, slug } = v(Comment)
+				const { id: comment, slug } = v(Comment, "comment")
 				return r
 					.match(Comment, { id: comment, article: p.id, slug })
 					.where(r.ne(slug, r.param("slug", Comment.fields.slug)))
@@ -180,11 +181,11 @@ const echoComments = query(Content)
 /** The articles' slugs and the comment slugs equal to the parameter, the second arm emitting the parameter. */
 const slugsOrEcho = query(Content)
 	.rule((r) => {
-		const { id: row, slug } = v(Article)
+		const { id: row, slug } = v(Article, "article")
 		return r.match(Article, { id: row, slug }).find({ id: row, slug })
 	})
 	.rule((r) => {
-		const { id: row, slug } = v(Comment)
+		const { id: row, slug } = v(Comment, "comment")
 		return r
 			.match(Comment, { id: row, slug })
 			.where(r.eq(slug, r.param("slug", Comment.fields.slug)))
@@ -194,13 +195,13 @@ const slugsOrEcho = query(Content)
 /** A relation parameter's slugs delivered under their refinement. */
 const givenSlugs = query(Content).rule((r) => {
 	const given = r.relation("given", { id: uuid, slug: Slug })
-	const { id: row, slug } = v(given)
+	const { id: row, slug } = v(given, "given")
 	return r.match(given, { id: row, slug }).find({ id: row, slug })
 })
 
 /** A refined query constant: a Compute.literal of the slug's refinement. */
 const withConstant = query(Content).rule((r) => {
-	const { id: article } = v(Article)
+	const { id: article } = v(Article, "article")
 	return r
 		.match(Article, { id: article })
 		.find({ id: article, kind: Compute.literal(Slug, "article") })
@@ -211,7 +212,7 @@ const withConstant = query(Content).rule((r) => {
  * contract.
  */
 const byAmount = query(Content).rule((r) => {
-	const { id: price, amount } = v(Price)
+	const { id: price, amount } = v(Price, "price")
 	return r
 		.match(Price, { id: price, amount })
 		.where(r.eq(amount, r.param("amount", Cents)))
@@ -219,7 +220,7 @@ const byAmount = query(Content).rule((r) => {
 })
 
 const echoAmount = query(Content).rule((r) => {
-	const { id: price, amount } = v(Price)
+	const { id: price, amount } = v(Price, "price")
 	return r
 		.match(Price, { id: price, amount })
 		.where(r.eq(amount, r.param("amount", Cents)))
@@ -227,7 +228,7 @@ const echoAmount = query(Content).rule((r) => {
 })
 
 const echoRate = query(Content).rule((r) => {
-	const { id: price, rate } = v(Price)
+	const { id: price, rate } = v(Price, "price")
 	return r
 		.match(Price, { id: price, rate })
 		.where(r.eq(rate, r.param("rate", Rate)))
@@ -361,7 +362,7 @@ const everyCase = <A, E, R>(
 			generator,
 			literal: Formatter.format,
 			limit,
-			features: noFeatures,
+			coverage: noCoverage,
 			caseHang: Duration.minutes(2)
 		},
 		property
@@ -394,7 +395,7 @@ const install = () =>
 			}),
 			"install"
 		)
-		yield* transaction(s.admin, installation.sql)
+		yield* transaction(s.admin, installationSql(installation))
 		return { schema: name, installation }
 	})
 
@@ -947,7 +948,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					)
 					assert.equal(validation.phase, "publish")
 					const text = Option.getOrThrow(
-						Arr.findFirst(installation.sql, (t) => Str.includes("'pro-plan'::text")(t))
+						Arr.findFirst(installationSql(installation), (t) => Str.includes("'pro-plan'::text")(t))
 					)
 					assert.equal(
 						Str.replaceAll("\n", " ")(text),

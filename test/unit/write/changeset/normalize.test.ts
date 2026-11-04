@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { array, element, int, map, oneOf, uniqueArray } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
@@ -14,7 +14,11 @@ import { hasProperties } from "#compiler/core/record.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
+import type {
+	EnumeratedInput,
+	MemberSlot,
+	WriteFrontend
+} from "#compiler/write/frontend/compile.ts"
 import {
 	type MemberFacts,
 	type Normalization,
@@ -33,7 +37,8 @@ import {
 } from "#test/support/oracle/addwins.ts"
 import { compiled, cs, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
-/** Pair(k, v, c): primary key k, candidate key c. Gen(id serial, k, w): primary key id, candidate key k.
+/** Pair(k, v, c): primary key k, candidate key c. Gen(id serial, k, w): primary key id, candidate key k. Unit(id
+ * serial): a relation whose every field is serial, whose generated additions carry no field, the unit relation.
  *
  * Host normalization of enumerated members,
  * pinned by examples and checked against the brute-force add-wins calculator: a
@@ -43,7 +48,8 @@ const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, [
 const Gen = relation("Gen", { id: pg.bigserial, k: pg.integer, w: pg.integer }, ["id"])
 const pairC = key(Pair, ["c"])
 const genK = key(Gen, ["k"])
-const Small = schema("Small", { Pair, Gen }, [pairC, genK])
+const Unit = relation("Unit", { id: pg.bigserial }, ["id"])
+const Small = schema("Small", { Pair, Gen, Unit }, [pairC, genK])
 
 const inputsOf = (changes: unknown): MemberFacts => {
 	const out = new Map<string, Iterable<unknown>>()
@@ -63,6 +69,27 @@ const run = (
 	return { frontend, result: r }
 }
 
+type Category = "put" | "delete" | "insert" | "generated"
+
+/** An enumerated input's member slots by the category of the facts each carries, and the operation that writes them. */
+const categorized = (
+	input: EnumeratedInput
+): ReadonlyArray<{
+	readonly category: Category
+	readonly op: "put" | "delete" | "insert"
+	readonly slot: MemberSlot
+}> => {
+	switch (input.kind) {
+		case "single":
+			return [{ category: input.act.op, op: input.act.op, slot: input.slot }]
+		case "classed":
+			return [
+				{ category: "insert", op: "insert", slot: input.complete },
+				{ category: "generated", op: "insert", slot: input.generated }
+			]
+	}
+}
+
 /** The facts of the slot of a category on a relation: a put's, a deletion's, an insertion's of complete facts, or a
  * generated addition's.
  *
@@ -70,20 +97,22 @@ const run = (
 const slotFacts = (
 	n: Normalization,
 	frontend: WriteFrontend,
-	category: "put" | "delete" | "insert" | "generated",
+	category: Category,
 	relationName: string
 ) => {
 	if (n.kind !== "normalized") {
 		throw new Error(`refused: ${n.relation} ${Arr.join(n.fields, ",")}`)
 	}
 	const slot = Arr.findFirst(
-		Arr.flatMap(frontend.slots, (g) => (g.relation.name === relationName ? g.slots : [])),
-		(s) =>
-			(s.op === "insert" ? (s.serial === "generated" ? "generated" : "insert") : s.op) === category
+		Arr.flatMap(frontend.slots, (g) =>
+			g.relation.name === relationName ? Arr.flatMap(g.inputs, categorized) : []
+		),
+		(s) => s.category === category
 	)
 	return Option.isNone(slot)
 		? []
-		: defined(n.slots.get(slot.value.slot), `the normalized slot ${slot.value.slot}`).facts
+		: defined(n.slots.get(slot.value.slot.slot), `the normalized slot ${slot.value.slot.slot}`)
+				.facts
 }
 
 describe("collapse", () => {
@@ -175,6 +204,14 @@ const oracleSchema: OracleSchema = {
 			keys: [{ law: lawIdOf(Small, pairC), fields: ["c"] }],
 			partialKeys: [],
 			serial: []
+		} satisfies OracleRelation,
+		{
+			name: "Unit",
+			heading: [{ name: "id", spec: specOf(Unit, "id") }],
+			primaryKey: { law: lawNamesOf(Small).primaryKeyLaw(Unit), fields: ["id"] },
+			keys: [],
+			partialKeys: [],
+			serial: ["id"]
 		} satisfies OracleRelation
 	]
 }
@@ -184,6 +221,8 @@ type PairFact = { readonly k: number; readonly v: number; readonly c: number }
 type GenFact =
 	| { readonly k: number; readonly w: number }
 	| { readonly id: bigint; readonly k: number; readonly w: number }
+/** A fact of Unit: the one empty fact, a generated addition of no field, or a complete one. */
+type UnitFact = Readonly<Record<string, never>> | { readonly id: bigint }
 /** A drawn member: an operation of the change set on one relation and its facts. */
 type Member =
 	| {
@@ -192,6 +231,7 @@ type Member =
 			readonly facts: ReadonlyArray<PairFact>
 	  }
 	| { readonly op: "insert"; readonly relation: "Gen"; readonly facts: ReadonlyArray<GenFact> }
+	| { readonly op: "insert"; readonly relation: "Unit"; readonly facts: ReadonlyArray<UnitFact> }
 
 const pairFact = (source: Source): PairFact => ({
 	k: source.draw(small),
@@ -206,6 +246,7 @@ const genFact = oneOf<GenFact>([
 		w: source.draw(int(1, 2))
 	})
 ])
+const unitFact = oneOf<UnitFact>([() => ({}), (source) => ({ id: source.draw(bigint(1n, 3n)) })])
 
 const members = array(
 	oneOf<Member>([
@@ -218,6 +259,11 @@ const members = array(
 			op: "insert",
 			relation: "Gen",
 			facts: source.draw(array(genFact, { min: 0, max: 3 }))
+		}),
+		(source) => ({
+			op: "insert",
+			relation: "Unit",
+			facts: source.draw(array(unitFact, { min: 0, max: 3 }))
 		})
 	]),
 	{ min: 0, max: 4 }
@@ -323,13 +369,12 @@ describe("normalization against the add-wins meaning", () => {
 						suite: "unit/write/changeset/normalize-5003",
 						draw: drawn((source) => [source.draw(initial), source.draw(members)] as const),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 1500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([start, ms]) =>
@@ -337,7 +382,10 @@ describe("normalization against the add-wins meaning", () => {
 							let changes: ChangeSetValue = cs(Small)
 							let raw = OracleChangeSet.empty()
 							for (const m of ms) {
-								changes = changes[m.op](m.relation === "Pair" ? Pair : Gen, m.facts)
+								changes = changes[m.op](
+									m.relation === "Pair" ? Pair : m.relation === "Gen" ? Gen : Unit,
+									m.facts
+								)
 								raw = raw[m.op](m.relation, m.facts)
 							}
 							const state = oracleState(oracleSchema, { Pair: start }, loadedSequences)
@@ -356,9 +404,9 @@ describe("normalization against the add-wins meaning", () => {
 							slotInvariants(frontend, result, ms)
 							let normalized = OracleChangeSet.empty()
 							for (const group of frontend.slots) {
-								for (const slot of group.slots) {
+								for (const { op, slot } of Arr.flatMap(group.inputs, categorized)) {
 									const facts = result.slots.get(slot.slot)?.facts ?? []
-									normalized = normalized[slot.op](group.relation.name, facts)
+									normalized = normalized[op](group.relation.name, facts)
 								}
 							}
 							sameOutcome(

@@ -1,5 +1,6 @@
 import { Array as Arr, Effect, Record as Rec, Result as EffectResult } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -15,7 +16,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { printExpr, printObjectName } from "#compiler/sql/print.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { InstallPlan, OracleTable } from "#test/support/oracle/install/model.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -40,7 +41,7 @@ const advanceSequence = (sequence: ObjectName, max: bigint): Select =>
 		[
 			targetAs(
 				call("setval", [
-					lit.text(printObjectName(sequence), builtinType("regclass")),
+					{ kind: "regclass", relation: sequence },
 					{ kind: "greatest", args: [col("r1", "last_value"), lit.int(max, builtinType("bigint"))] }
 				]),
 				"c1"
@@ -89,7 +90,7 @@ export const factStatements = (
 		if (!emitted.ok) {
 			return Result.err(emitted.error)
 		}
-		statements.push(...emitted.value)
+		appendAll(statements, emitted.value)
 	}
 	return Result.ok(statements)
 }
@@ -150,15 +151,22 @@ const relationStatements = (
 	}
 	const statements: Array<string> = []
 	const serial = Arr.some(table.columns, (c) => c.sequence.kind === "identity")
-	for (let start = 0; start < rows.length; start += rowsPerStatement) {
+	const columns = Arr.map(table.columns, (c) => c.column)
+	if (!Arr.isReadonlyArrayNonEmpty(columns)) {
+		return refuse(
+			formatLoc(SourceLoc(`facts of ${relation}`, [])),
+			"a table of at least one column"
+		)
+	}
+	for (const chunk of Arr.chunksOf(rows, rowsPerStatement)) {
 		const insert: Insert = {
 			kind: "insert",
 			with: undefined,
 			table: table.name,
 			alias: undefined,
-			columns: Arr.map(table.columns, (c) => c.column),
+			columns,
 			overriding: serial ? "SYSTEM VALUE" : undefined,
-			source: { kind: "values", rows: rows.slice(start, start + rowsPerStatement) },
+			source: { kind: "values", rows: chunk },
 			onConflict: undefined,
 			returning: []
 		}

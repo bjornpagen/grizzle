@@ -217,7 +217,7 @@ const fetch = (cx: RewriteCx, plan: Plan): void => {
 		rule: lateFetchRule,
 		inputs: [plan.take.id, stage.id, plan.base.id],
 		outputs: [plan.take.id, narrow.id, selected.id, rescan.id],
-		premises: [...plan.key.just.premises, ...nodePremises(stage.id)],
+		premises: [...plan.key.just.premises, ...nodePremises([stage.id])],
 		context: plan.key.just.context,
 		preservedHeading: take.heading.map((c) => c.name),
 		equality,
@@ -284,8 +284,7 @@ const lateFetchMeasure: Measure = (cx) => {
  *   the order reads only N, so it orders both alike;
  * - no missing row from an evidence or visibility gap: the B fact a row of P came from is read again in the same
  *   statement, so in the same snapshot, never by a second network round trip;
- * - nothing moves across the limit but plain stored columns: the payload is fetched, not computed, so no expression's
- *   error frontier moves past LIMIT.
+ * - nothing moves across the limit but plain stored columns: the payload is fetched, not computed.
  *
  * "Wide" is structural, fixed by the policy, never measured per query: a vector, or text with no proved byte bound
  * ("large text and vector payload"). The rewrite fires only when W holds a wide column, and then W takes

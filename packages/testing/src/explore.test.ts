@@ -1,28 +1,45 @@
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
-import { Array as Arr, Duration, Effect, Formatter, Option, Ref, String as Str } from "effect"
+import {
+	Array as Arr,
+	Duration,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Ref,
+	String as Str
+} from "effect"
 import {
 	type Case,
 	type CaseDiscarded,
+	type CasePhase,
 	drawn,
 	type Exhaustion,
 	type Exploration,
 	exhaust,
 	explore,
-	Run
+	isWitness,
+	type Kept,
+	type PropertyFalsified,
+	Run,
+	type Witnessed
 } from "#explore.ts"
 import {
-	type Features,
-	features,
-	noFeatures,
+	type Coverage,
+	noCoverage,
+	required,
+	requiredInSpace,
 	residualOf,
-	tallyOf,
-	withReachMargin
+	tallyOf
 } from "#features.ts"
 import { array, boolean, constant, element, filter, type Gen, int } from "#gen.ts"
 import { agree, by, equivalence, exact, multiset, ordered, set } from "#oracle.ts"
+import { floorSeed } from "#random.ts"
 import type { Replay, ReplayCase } from "#replay.ts"
+import { notesOnly } from "#sense.ts"
 import { boundedShrink, completeShrink } from "#shrink.ts"
+import { forcedChooser, generate, sample } from "#source.ts"
 import { tokenOf } from "#tape.ts"
 import { searched } from "#vitest/searched.ts"
 
@@ -36,20 +53,19 @@ const fullRun = runOf(7, Option.none())
 const searchOf = <A, F extends string>(
 	suite: string,
 	generator: Gen<A>,
-	required: Features<F>,
+	coverage: Coverage<F>,
 	runs: number,
 	concurrency: number
 ): Exploration<A, A, F> => ({
 	suite,
 	draw: drawn(generator),
 	literal: Formatter.format,
-	features: required,
+	coverage,
 	kept: [],
 	runs,
 	shrink: boundedShrink(500),
 	concurrency,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(1)
 })
 
@@ -65,7 +81,7 @@ describe("explore", () => {
 		() =>
 			Effect.gen(function* () {
 				const explored = yield* explore(
-					searchOf("passes", int(0, 9), noFeatures, 40, 4),
+					searchOf("passes", int(0, 9), noCoverage, 40, 4),
 					() => Effect.void
 				)
 				strictEqual(explored.cases, 50)
@@ -73,45 +89,10 @@ describe("explore", () => {
 			}).pipe(Effect.provideService(Run, fullRun))
 	)
 
-	it.effect("finds and reports the same case however many cases run at once", () =>
-		Effect.gen(function* () {
-			const failing = (value: number) => (value % 97 === 13 ? Effect.die("rare") : Effect.void)
-			const failures = yield* Effect.forEach([1, 4, 16, 64], (concurrency) =>
-				Effect.flip(
-					explore(searchOf("concurrent", int(0, 100_000), noFeatures, 300, concurrency), failing)
-				)
-			)
-			const [first, ...rest] = failures
-			for (const failure of rest) {
-				deepStrictEqual(failure, first)
-			}
-		}).pipe(Effect.provideService(Run, fullRun))
-	)
-
-	it.effect("shrinks a failing case, and replaying it fails again as the same case", () =>
-		Effect.gen(function* () {
-			const spec = searchOf("threshold", int(0, 1000), noFeatures, 100, 4)
-			const property = (value: number) => (value >= 300 ? Effect.die("too big") : Effect.void)
-			const failed = yield* Effect.flip(explore(spec, property))
-			const replayed = Option.getOrThrow(
-				failed._tag === "PropertyFalsified" ? failed.replay : Option.none()
-			)
-			const again = yield* Effect.flip(
-				explore(spec, property).pipe(
-					Effect.provideService(Run, runOf(7, Option.some({ suite: "threshold", replayed })))
-				)
-			)
-			deepStrictEqual(
-				again._tag === "PropertyFalsified" ? again.replay : Option.none(),
-				Option.some(replayed)
-			)
-		}).pipe(Effect.provideService(Run, fullRun))
-	)
-
 	it.effect("shrinks the property's own draws with the case", () =>
 		Effect.gen(function* () {
 			const failed = yield* Effect.flip(
-				explore(searchOf("draws", constant("case"), noFeatures, 100, 4), (_value, c) =>
+				explore(searchOf("draws", constant("case"), noCoverage, 100, 4), (_value, c) =>
 					c.draw(int(0, 1000)) >= 300 ? Effect.die("drew too much") : Effect.void
 				)
 			)
@@ -125,39 +106,6 @@ describe("explore", () => {
 		}).pipe(Effect.provideService(Run, fullRun))
 	)
 
-	it.effect("replays a failure a steered case found under the steering it was drawn under", () =>
-		Effect.gen(function* () {
-			const spec = searchOf("steered failure", constant("case"), features<"rare">(["rare"]), 100, 4)
-			const property = (_sketch: string, c: Case<"rare">) =>
-				Option.exists(c.steering, (pending) => pending.has("rare")) && c.draw(int(0, 1000)) >= 300
-					? Effect.die("aimed too high")
-					: Effect.void
-			const replayAs = (replayed: ReplayCase) =>
-				Effect.flip(
-					explore(spec, property).pipe(
-						Effect.provideService(
-							Run,
-							runOf(7, Option.some({ suite: "steered failure", replayed }))
-						)
-					)
-				)
-			const failed = yield* Effect.flip(explore(spec, property))
-			const replayed = Option.getOrThrow(
-				failed._tag === "PropertyFalsified" ? failed.replay : Option.none()
-			)
-			const again = yield* replayAs(replayed)
-			const unsteered = yield* replayAs({ drawn: { kind: "unsteered" }, values: replayed.values })
-			deepStrictEqual(
-				[
-					replayed.drawn,
-					again._tag === "PropertyFalsified" ? again.replay : Option.none(),
-					unsteered._tag
-				],
-				[{ kind: "steered", pending: [0] }, Option.some(replayed), "ReplayStale"]
-			)
-		}).pipe(Effect.provideService(Run, fullRun))
-	)
-
 	it.effect("refuses a replay that no longer runs as its token says, and never passes it", () =>
 		Effect.gen(function* () {
 			const staleBy = (
@@ -166,7 +114,13 @@ describe("explore", () => {
 			) =>
 				Effect.flip(
 					explore(
-						searchOf("stale replay", constant("case"), features<"rare">(["rare"]), 10, 1),
+						searchOf(
+							"stale replay",
+							constant("case"),
+							required<"rare">(["rare"], { cases: 0, sense: notesOnly }),
+							10,
+							1
+						),
 						property
 					).pipe(
 						Effect.provideService(Run, runOf(7, Option.some({ suite: "stale replay", replayed })))
@@ -192,24 +146,18 @@ describe("explore", () => {
 		}).pipe(Effect.provideService(Run, fullRun))
 	)
 
-	it.effect("fails when no generated case reaches a required situation", () =>
-		Effect.gen(function* () {
-			const failed = yield* Effect.flip(
-				explore(
-					searchOf("unreached", int(0, 9), features<Size>(["small", "big"]), 100, 4),
-					noteSize
-				)
-			)
-			deepStrictEqual(failed._tag === "FeaturesUnreached" ? failed.missing : [], ["big"])
-		}).pipe(Effect.provideService(Run, fullRun))
-	)
-
 	it.effect("never lets a kept case satisfy a required situation", () =>
 		Effect.gen(function* () {
 			const failed = yield* Effect.flip(
 				explore(
 					{
-						...searchOf("kept-only", int(0, 9), features<Size>(["big"]), 100, 4),
+						...searchOf(
+							"kept-only",
+							int(0, 9),
+							required<Size>(["big"], { cases: 16, sense: notesOnly }),
+							100,
+							4
+						),
 						kept: [{ note: "the only big one", sketch: 5000, draws: "", reaches: ["big"] }]
 					},
 					noteSize
@@ -224,7 +172,7 @@ describe("explore", () => {
 			const failed = yield* Effect.flip(
 				explore(
 					{
-						...searchOf("drifted", int(0, 9), features<Size>([]), 100, 4),
+						...searchOf("drifted", int(0, 9), noCoverage, 100, 4),
 						kept: [{ note: "once big", sketch: 3, draws: "", reaches: ["big"] }]
 					},
 					noteSize
@@ -238,7 +186,7 @@ describe("explore", () => {
 		Effect.gen(function* () {
 			const failed = yield* Effect.flip(
 				explore(
-					{ ...searchOf("hangs", int(0, 9), noFeatures, 100, 4), caseHang: Duration.millis(20) },
+					{ ...searchOf("hangs", int(0, 9), noCoverage, 100, 4), caseHang: Duration.millis(20) },
 					() => Effect.never
 				)
 			)
@@ -254,7 +202,7 @@ describe("explore", () => {
 				const released = yield* Effect.flip(
 					explore(
 						{
-							...searchOf("cleanup ends", int(0, 9), noFeatures, 100, 4),
+							...searchOf("cleanup ends", int(0, 9), noCoverage, 100, 4),
 							caseHang: Duration.millis(20)
 						},
 						() =>
@@ -273,7 +221,7 @@ describe("explore", () => {
 				const frozen = yield* Effect.flip(
 					explore(
 						{
-							...searchOf("cleanup frozen", int(0, 9), noFeatures, 100, 4),
+							...searchOf("cleanup frozen", int(0, 9), noCoverage, 100, 4),
 							caseHang: Duration.millis(20)
 						},
 						() =>
@@ -293,11 +241,13 @@ describe("explore", () => {
 				Effect.suspend(() => {
 					const ended: Array<Case<"late">> = []
 					return Effect.flip(
-						explore(searchOf("late use", int(0, 9), features<"late">([]), 40, 1), (_value, c) =>
-							Effect.sync(() => {
-								Arr.forEach(ended, use)
-								ended.push(c)
-							})
+						explore(
+							searchOf<number, "late">("late use", int(0, 9), noCoverage, 40, 1),
+							(_value, c: Case<"late">) =>
+								Effect.sync(() => {
+									Arr.forEach(ended, use)
+									ended.push(c)
+								})
 						)
 					)
 				})
@@ -308,15 +258,6 @@ describe("explore", () => {
 			deepStrictEqual([noted._tag, drew._tag], ["CaseMisused", "CaseMisused"])
 		}).pipe(Effect.provideService(Run, fullRun))
 	)
-
-	it.effect("stalls when the generator rarely meets the property's precondition", () =>
-		Effect.gen(function* () {
-			const failed = yield* Effect.flip(
-				explore(searchOf("stalls", int(0, 9), noFeatures, 100, 4), (_value, c) => c.assume(false))
-			)
-			strictEqual(failed._tag, "CasesStalled")
-		}).pipe(Effect.provideService(Run, fullRun))
-	)
 })
 
 describe("exhaust", () => {
@@ -325,7 +266,7 @@ describe("exhaust", () => {
 		generator: (source) => [source.draw(int(0, 2)), source.draw(int(0, 1))] as const,
 		literal: Formatter.format,
 		limit: 6,
-		features: noFeatures,
+		coverage: noCoverage,
 		caseHang: Duration.seconds(10)
 	}
 
@@ -343,7 +284,7 @@ describe("exhaust", () => {
 					generator: filter(int(0, 11), (n) => n < 10, 1),
 					literal: String,
 					limit: 10,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.seconds(10)
 				},
 				() => Effect.void
@@ -374,23 +315,11 @@ describe("exhaust", () => {
 				generator: boolean,
 				literal: Formatter.format,
 				limit: 10,
-				features: noFeatures,
+				coverage: noCoverage,
 				caseHang: Duration.seconds(10)
 			}
 			const exhausted = yield* exhaust(flags, (_flag, c) => Effect.sync(() => c.draw(int(0, 2))))
 			strictEqual(exhausted.cases, 6)
-		}).pipe(Effect.provideService(Run, fullRun))
-	)
-
-	it.effect("fails on the smallest failing case, with nothing to replay", () =>
-		Effect.gen(function* () {
-			const failed = yield* Effect.flip(
-				exhaust(pairs, ([first, second]) => (first + second >= 2 ? Effect.die("sum") : Effect.void))
-			)
-			deepStrictEqual(
-				[failed._tag, failed._tag === "PropertyFalsified" ? failed.replay : Option.none()],
-				["PropertyFalsified", Option.none()]
-			)
 		}).pipe(Effect.provideService(Run, fullRun))
 	)
 })
@@ -409,13 +338,12 @@ describe("the residual", () => {
 						suite: "the residual",
 						draw: drawn(array(array(element(SITUATIONS), { min: 0, max: 3 }), { min: 0, max: 12 })),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 200,
-						steering: { kind: "none" },
 						caseHang: Duration.seconds(30)
 					},
 					(cases) =>
@@ -513,7 +441,7 @@ describe("a kept case", () => {
 			const failed = yield* Effect.flip(
 				explore(
 					{
-						...searchOf("kept draws", int(0, 9), features<"drew">([]), 10, 1),
+						...searchOf("kept draws", int(0, 9), noCoverage, 10, 1),
 						kept: [{ note: "a rare draw", sketch: 0, draws, reaches: ["drew"] }]
 					},
 					rareDraw
@@ -540,7 +468,7 @@ describe("a kept case", () => {
 					Effect.flip(
 						explore(
 							{
-								...searchOf("stale draws", int(0, 9), features<"drew">([]), 10, 1),
+								...searchOf("stale draws", int(0, 9), noCoverage, 10, 1),
 								kept: [{ note: "drifted", sketch: 0, draws, reaches: ["drew"] }]
 							},
 							property
@@ -565,10 +493,10 @@ describe("a kept case", () => {
 		Effect.gen(function* () {
 			const explored = yield* explore(
 				{
-					...searchOf("kept observations", int(0, 9), features<"observed">([]), 10, 1),
+					...searchOf<number, "observed">("kept observations", int(0, 9), noCoverage, 10, 1),
 					kept: [{ note: "observes twice", sketch: 0, draws: "", reaches: ["observed"] }]
 				},
-				(_sketch, c) =>
+				(_sketch, c: Case<"observed">) =>
 					Effect.sync(() => {
 						c.observe("a lock was granted")
 						c.observe("the other session waited")
@@ -580,91 +508,6 @@ describe("a kept case", () => {
 	)
 })
 
-/** A requirement every case reaches, one only rotating cases reach now and then, and one only steered cases reach. */
-type Reaching = "every case" | "rotating, rarely" | "steered only"
-
-/** Notes what each requirement of Reaching says of a case: the rotating stream's cases alone are unsteered here. */
-const noteReaching = (value: number, c: Case<Reaching>) =>
-	Effect.sync(() => {
-		c.note("every case")
-		if (Option.isNone(c.steering) && value < 10) {
-			c.note("rotating, rarely")
-		}
-		if (Option.isSome(c.steering)) {
-			c.note("steered only")
-		}
-	})
-
-describe("reach", () => {
-	it.effect(
-		"reports each requirement's floor, steered and independent reach, and a fresh seed's estimated miss",
-		() =>
-			Effect.gen(function* () {
-				let rarely = 0
-				const explored = yield* explore(
-					searchOf(
-						"reach",
-						int(0, 99),
-						features<Reaching>(["every case", "rotating, rarely", "steered only"]),
-						200,
-						1
-					),
-					(value, c) =>
-						Effect.andThen(
-							noteReaching(value, c),
-							Effect.sync(() => {
-								rarely += Option.isNone(c.steering) && value < 10 ? 1 : 0
-							})
-						)
-				)
-				deepStrictEqual(explored.reach, [
-					{ requirement: "every case", floor: 50, steered: 0, independent: 200, miss: 0 },
-					{
-						requirement: "rotating, rarely",
-						floor: 0,
-						steered: 0,
-						independent: rarely,
-						miss: (1 - rarely / 200) ** 200
-					},
-					{ requirement: "steered only", floor: 50, steered: 0, independent: 0, miss: 0 }
-				])
-			}).pipe(Effect.provideService(Run, fullRun))
-	)
-
-	it.effect(
-		"fails a requirement fewer independent cases reached than its margin, though a steered case reached it",
-		() =>
-			Effect.gen(function* () {
-				const searchWith = (margin: number) =>
-					searchOf(
-						"margin",
-						int(0, 99),
-						withReachMargin(features<Reaching>(["every case", "steered only"]), margin),
-						40,
-						4
-					)
-				const met = yield* explore(searchWith(0), noteReaching)
-				const short = yield* Effect.flip(explore(searchWith(40), noteReaching))
-				const beyond = yield* Effect.flip(explore(searchWith(41), noteReaching))
-				deepStrictEqual(
-					[
-						met.kind,
-						short._tag === "ReachBelowMargin" ? short.short : [],
-						beyond._tag === "ReachBelowMargin" ? beyond.short : []
-					],
-					[
-						"explored",
-						[{ requirement: "steered only", reached: 0 }],
-						[
-							{ requirement: "every case", reached: 40 },
-							{ requirement: "steered only", reached: 0 }
-						]
-					]
-				)
-			}).pipe(Effect.provideService(Run, fullRun))
-	)
-})
-
 describe("steering", () => {
 	it.effect(
 		"is offered to the floor stream's cases, and never to the rotating stream's or a kept case",
@@ -673,10 +516,10 @@ describe("steering", () => {
 				const offered: Array<boolean> = []
 				yield* explore(
 					{
-						...searchOf("steering phases", int(0, 9), features<Size>([]), 40, 4),
+						...searchOf<number, Size>("steering phases", int(0, 9), noCoverage, 40, 4),
 						kept: [{ note: "small", sketch: 1, draws: "", reaches: ["small"] }]
 					},
-					(value, c) =>
+					(value, c: Case<Size>) =>
 						Effect.andThen(
 							Effect.sync(() => offered.push(Option.isSome(c.steering))),
 							noteSize(value, c)
@@ -687,5 +530,461 @@ describe("steering", () => {
 					[false, 10, 51]
 				)
 			}).pipe(Effect.provideService(Run, fullRun))
+	)
+})
+
+/** The inner suites' labels: each fixes its own floor and steered streams, so the oracle covers several of each. */
+const LABELS = [
+	"inner a",
+	"inner b",
+	"inner c",
+	"inner d",
+	"inner e",
+	"inner f",
+	"inner g",
+	"inner h"
+] as const
+
+type Label = (typeof LABELS)[number]
+
+/** One run of an inner search: its seed, drawn over every 32-bit value, and how many cases it runs at once. */
+type InnerRun = Readonly<{ seed: number; concurrency: 1 | 4 | 16 }>
+
+const innerRuns: Gen<InnerRun> = (source) => ({
+	seed: source.draw(int(0, 2 ** 32 - 1)),
+	concurrency: source.draw(element([1, 4, 16] as const))
+})
+
+/** The rotating cases of every inner exploration: its floor stream runs a quarter as many. */
+const INNER_RUNS = 40
+
+/** The values an inner exploration draws. */
+const innerValues = int(0, 999)
+
+/**
+ * How the inner property reaches "rare": never; only in a case drawn unsteered, which without kept cases is a case of
+ * the rotating stream; in one value of fifty; in one of five; or in every case it does not give up.
+ */
+type RareReach = "never" | "unsteered" | "one in fifty" | "one in five" | "always"
+
+/** Which values the inner property gives up on: none, a third, a half (the stall verdict's edge), or two thirds. */
+type Discarding = "none" | "a third" | "a half" | "two thirds"
+
+/** What the coverage oracle draws: an inner search, and the two runs that must agree on its verdict. */
+type VerdictSketch = Readonly<{
+	label: Label
+	rare: RareReach
+	discarding: Discarding
+	budget: 0 | 16 | 64
+	runs: readonly [first: InnerRun, second: InnerRun]
+}>
+
+const verdictSketches: Gen<VerdictSketch> = (source) => ({
+	label: source.draw(element(LABELS)),
+	rare: source.draw(
+		element(["never", "unsteered", "one in fifty", "one in five", "always"] as const)
+	),
+	discarding: source.draw(element(["none", "a third", "a half", "two thirds"] as const)),
+	budget: source.draw(element([0, 16, 64] as const)),
+	runs: [source.draw(innerRuns), source.draw(innerRuns)]
+})
+
+const givesUp = (discarding: Discarding, value: number): boolean => {
+	switch (discarding) {
+		case "none":
+			return false
+		case "a third":
+			return value % 3 === 0
+		case "a half":
+			return value % 2 === 0
+		case "two thirds":
+			return value % 3 !== 0
+	}
+}
+
+const reachesRare = (rare: RareReach, value: number, steered: boolean): boolean => {
+	switch (rare) {
+		case "never":
+			return false
+		case "unsteered":
+			return !steered
+		case "one in fifty":
+			return value % 50 === 1
+		case "one in five":
+			return value % 5 === 1
+		case "always":
+			return true
+	}
+}
+
+type Inner = "common" | "rare"
+
+/** An inner search's verdict, as the oracle compares it. */
+type Outcome =
+	| Readonly<{ kind: "explored"; steered: number }>
+	| Readonly<{ kind: "unreached"; missing: ReadonlyArray<string>; witnessed: Witnessed }>
+	| Readonly<{ kind: "stalled" }>
+
+/** An inner run's verdict, and the values of every case it drew under steering (its witnesses), ascending. */
+type Verdict = Readonly<{ outcome: Outcome; witnesses: ReadonlyArray<number> }>
+
+const verdictOf = (sketch: VerdictSketch, run: InnerRun) =>
+	Effect.suspend(() => {
+		const witnesses: Array<number> = []
+		return explore(
+			{
+				...searchOf(
+					sketch.label,
+					innerValues,
+					required<Inner>(["common", "rare"], { cases: sketch.budget, sense: notesOnly }),
+					INNER_RUNS,
+					run.concurrency
+				),
+				shrink: boundedShrink(10)
+			},
+			(value, c: Case<Inner>) =>
+				Effect.gen(function* () {
+					yield* c.assume(!givesUp(sketch.discarding, value))
+					c.note("common")
+					if (reachesRare(sketch.rare, value, Option.isSome(c.steering))) {
+						c.note("rare")
+					}
+					if (Option.isSome(c.steering)) {
+						witnesses.push(value)
+					}
+				})
+		).pipe(
+			Effect.map((explored): Outcome => ({ kind: "explored", steered: explored.steered })),
+			Effect.catchTags({
+				FeaturesUnreached: (unreached) =>
+					Effect.succeed<Outcome>({
+						kind: "unreached",
+						missing: unreached.missing,
+						witnessed: unreached.witnessed
+					}),
+				CasesStalled: () => Effect.succeed<Outcome>({ kind: "stalled" })
+			}),
+			Effect.map((outcome): Verdict => ({ outcome, witnesses: Arr.sort(witnesses, Order.Number) })),
+			Effect.provideService(Run, runOf(run.seed, Option.none()))
+		)
+	})
+
+/**
+ * What the floor stream alone decides of a verdict, from the floor's own cases (the label's first stream, drawn here
+ * as `sample` draws it): a stall when more of them give up than run; a pass with no steered case when they reach both
+ * situations; a failure naming "rare" when no witness can reach it; otherwise the steered phase decides.
+ */
+type FloorDecides =
+	| Readonly<{ kind: "stalled" }>
+	| Readonly<{ kind: "met" }>
+	| Readonly<{ kind: "unreachable"; floor: number }>
+	| Readonly<{ kind: "steered" }>
+
+const floorDecides = (sketch: VerdictSketch): FloorDecides => {
+	const floor = sample(innerValues, floorSeed(sketch.label), Math.ceil(INNER_RUNS / 4))
+	const ran = Arr.filter(floor, (value) => !givesUp(sketch.discarding, value))
+	if (floor.length - ran.length > ran.length) {
+		return { kind: "stalled" }
+	}
+	if (sketch.rare === "never" || sketch.rare === "unsteered") {
+		return { kind: "unreachable", floor: ran.length }
+	}
+	return Arr.some(ran, (value) => reachesRare(sketch.rare, value, true))
+		? { kind: "met" }
+		: { kind: "steered" }
+}
+
+/** A failure's missing situations and its floor count, when it failed to reach one in an exploration's streams. */
+const unreachedInStreams = (
+	outcome: Outcome
+): Option.Option<readonly [missing: ReadonlyArray<string>, floor: number]> =>
+	outcome.kind === "unreached" && outcome.witnessed.kind === "streams"
+		? Option.some([outcome.missing, outcome.witnessed.floor])
+		: Option.none()
+
+/**
+ * The outcome, when it is one a search the floor stream left to the steered phase may end in: a pass that ran at least
+ * one steered case and no more than its budget, or a failure naming "rare" alone after no more than its budget.
+ */
+const leftToSteering = (outcome: Outcome, budget: number): Option.Option<Outcome> => {
+	switch (outcome.kind) {
+		case "explored":
+			return outcome.steered >= 1 && outcome.steered <= budget
+				? Option.some(outcome)
+				: Option.none()
+		case "unreached":
+			return outcome.witnessed.kind === "streams" &&
+				outcome.witnessed.steered <= budget &&
+				Arr.length(outcome.missing) === 1 &&
+				Arr.contains(outcome.missing, "rare")
+				? Option.some(outcome)
+				: Option.none()
+		case "stalled":
+			return Option.none()
+	}
+}
+
+describe("the coverage verdict", () => {
+	it.effect(
+		"is a function of the suite's label: two run seeds, at any concurrency, give the same verdict, counts and witnesses",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "the coverage verdict",
+						draw: drawn(verdictSketches),
+						literal: Formatter.format,
+						coverage: required<Outcome["kind"]>(["explored", "unreached", "stalled"], {
+							cases: 60,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 60,
+						shrink: boundedShrink(100),
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(1)
+					},
+					(sketch, c) =>
+						Effect.gen(function* () {
+							const [first, second] = sketch.runs
+							const verdict = yield* verdictOf(sketch, first)
+							c.note(verdict.outcome.kind)
+							deepStrictEqual(yield* verdictOf(sketch, second), verdict)
+							const decided = floorDecides(sketch)
+							switch (decided.kind) {
+								case "stalled":
+									deepStrictEqual(verdict.outcome, { kind: "stalled" })
+									break
+								case "met":
+									deepStrictEqual(verdict.outcome, { kind: "explored", steered: 0 })
+									break
+								case "unreachable":
+									deepStrictEqual(
+										unreachedInStreams(verdict.outcome),
+										Option.some([["rare"], decided.floor])
+									)
+									break
+								case "steered":
+									deepStrictEqual(
+										leftToSteering(verdict.outcome, sketch.budget),
+										Option.some(verdict.outcome)
+									)
+									break
+							}
+						})
+				)
+			)
+	)
+})
+
+/** How the replay oracle's inner property fails: on a seventh of its values; on a high draw it aimed at what is
+ * pending; on a high draw from a case that reached "rare"; or on a third of the values of an unsteered case. */
+type Failing = "often" | "aimed" | "rarely" | "unsteered"
+
+/** What the replay oracle draws: an inner search of either kind, how it fails, and two runs: the first's seed runs at
+ * both concurrencies, and a witness's failure is also sought on the second's seed. */
+type FidelitySketch = Readonly<{
+	search: "explore" | "exhaust"
+	label: Label
+	failing: Failing
+	budget: 0 | 16 | 64
+	runs: readonly [first: InnerRun, second: InnerRun]
+}>
+
+const fidelitySketches: Gen<FidelitySketch> = (source) => ({
+	search: source.draw(element(["explore", "exhaust"] as const)),
+	label: source.draw(element(LABELS)),
+	failing: source.draw(element(["often", "aimed", "rarely", "unsteered"] as const)),
+	budget: source.draw(element([0, 16, 64] as const)),
+	runs: [source.draw(innerRuns), source.draw(innerRuns)]
+})
+
+/** The values an inner exhaustion enumerates. */
+const spaceValues = int(0, 59)
+
+/** What a case of the replay oracle's inner property saw: its value, its own draw, whether it aimed that draw at a
+ * pending "rare", and whether it was steered at all. */
+type Seen = Readonly<{ value: number; drew: number; aimed: boolean; steered: boolean }>
+
+const failsOn = (failing: Failing, seen: Seen): boolean => {
+	switch (failing) {
+		case "often":
+			return seen.value % 7 === 0
+		case "aimed":
+			return seen.aimed && seen.drew >= 90
+		case "rarely":
+			return seen.value % 50 === 1 && seen.drew >= 5
+		case "unsteered":
+			return !seen.steered && seen.value % 3 === 0
+	}
+}
+
+/** The replay oracle's inner property: it aims its own draw wider while "rare" is pending, so its tape decodes
+ * differently under different steering, and fails as its sketch says. */
+const failingProperty =
+	(failing: Failing) =>
+	(value: number, c: Case<"rare">): Effect.Effect<void> =>
+		Effect.gen(function* () {
+			const aimed = Option.exists(c.steering, (pending) => pending.has("rare"))
+			const drew = c.draw(int(0, aimed ? 99 : 9))
+			if (value % 50 === 1) {
+				c.note("rare")
+			}
+			if (failsOn(failing, { value, drew, aimed, steered: Option.isSome(c.steering) })) {
+				return yield* Effect.die("falsified")
+			}
+		})
+
+/** The inner search a fidelity sketch names, under a run, with a kept list for an exploration: its failure, if any. */
+const fidelitySearch = (
+	sketch: FidelitySketch,
+	run: InnerRun,
+	kept: ReadonlyArray<Kept<number, "rare">>,
+	replay: Option.Option<ReplayCase>
+) => {
+	const search =
+		sketch.search === "explore"
+			? Effect.asVoid(
+					explore(
+						{
+							...searchOf(
+								sketch.label,
+								innerValues,
+								required<"rare">(["rare"], { cases: sketch.budget, sense: notesOnly }),
+								INNER_RUNS,
+								run.concurrency
+							),
+							kept,
+							shrink: boundedShrink(200)
+						},
+						failingProperty(sketch.failing)
+					)
+				)
+			: Effect.asVoid(
+					exhaust(
+						{
+							suite: sketch.label,
+							generator: spaceValues,
+							literal: String,
+							limit: 10_000,
+							coverage: requiredInSpace<"rare">(["rare"]),
+							caseHang: Duration.minutes(1)
+						},
+						failingProperty(sketch.failing)
+					)
+				)
+	return search.pipe(
+		Effect.as(Option.none<PropertyFalsified>()),
+		Effect.catchTags({
+			PropertyFalsified: (falsified) => Effect.succeedSome(falsified),
+			FeaturesUnreached: () => Effect.succeed(Option.none<PropertyFalsified>())
+		}),
+		Effect.provideService(
+			Run,
+			runOf(
+				run.seed,
+				Option.map(replay, (replayed) => ({ suite: sketch.label, replayed }))
+			)
+		)
+	)
+}
+
+/** What a failure is, as fidelity compares it: where it was drawn, and the case its token names. */
+const caseOf = (
+	failure: Option.Option<PropertyFalsified>
+): Option.Option<readonly [phase: CasePhase, replay: Option.Option<ReplayCase>]> =>
+	Option.map(failure, (falsified) => [falsified.phase, falsified.replay] as const)
+
+/** The kept case a failure's token prints, its sketch and its property's draws read back from the token's tape. */
+const keptOf = (replayed: ReplayCase): Kept<number, "rare"> => {
+	const values = Float64Array.from(replayed.values)
+	const generated = generate(innerValues, forcedChooser(values, values.length))
+	return {
+		note: "the failure",
+		sketch: generated.value,
+		draws: tokenOf(values.subarray(generated.tape.length), values.length - generated.tape.length),
+		reaches: ["rare"]
+	}
+}
+
+describe("replay fidelity", () => {
+	it.effect(
+		"replays every failure alone from its token, as the same case under the same steering, finds it at any concurrency, and finds a witness's on every seed",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "replay fidelity",
+						draw: drawn(fidelitySketches),
+						literal: Formatter.format,
+						coverage: required<CasePhase>(
+							["floor", "steered", "independent", "exhaustive", "kept"],
+							{
+								cases: 200,
+								sense: notesOnly
+							}
+						),
+						kept: [],
+						runs: 60,
+						shrink: boundedShrink(100),
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(1)
+					},
+					(sketch, c) =>
+						Effect.gen(function* () {
+							const [first, second] = sketch.runs
+							const failure = yield* fidelitySearch(sketch, first, [], Option.none())
+							deepStrictEqual(
+								caseOf(
+									yield* fidelitySearch(
+										sketch,
+										{ seed: first.seed, concurrency: second.concurrency },
+										[],
+										Option.none()
+									)
+								),
+								caseOf(failure)
+							)
+							if (Option.isNone(failure)) {
+								return
+							}
+							const failed = failure.value
+							c.note(failed.phase)
+							if (isWitness(failed.phase)) {
+								deepStrictEqual(
+									caseOf(
+										yield* fidelitySearch(
+											sketch,
+											{ seed: second.seed, concurrency: first.concurrency },
+											[],
+											Option.none()
+										)
+									),
+									caseOf(failure)
+								)
+							}
+							if (Option.isNone(failed.replay)) {
+								return
+							}
+							const token = failed.replay.value
+							deepStrictEqual(
+								caseOf(yield* fidelitySearch(sketch, second, [], Option.some(token))),
+								Option.some(["replayed", Option.some(token)] as const)
+							)
+							if (sketch.search === "explore" && token.drawn.kind === "unsteered") {
+								const kept = yield* fidelitySearch(sketch, second, [keptOf(token)], Option.none())
+								c.note("kept")
+								deepStrictEqual(
+									Option.map(kept, (falsified) => falsified.phase),
+									Option.some("kept")
+								)
+							}
+						})
+				)
+			)
 	)
 })

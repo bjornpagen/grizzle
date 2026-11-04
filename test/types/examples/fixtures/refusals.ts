@@ -6,12 +6,14 @@ import {
 	contract,
 	Db,
 	on,
+	type ParamType,
 	type Predicate,
 	pg,
 	query,
 	relation,
 	role,
 	schema,
+	type Uuid,
 	uuid,
 	v
 } from "#index.ts"
@@ -28,7 +30,7 @@ import { type Cents, workExample } from "#test/types/examples/work.ts"
  * diagnostic the harness requires on the next line.
  */
 const W: Readonly<ReturnType<typeof workExample<"Work">>> = workExample("Work")
-declare const taskId: string
+declare const taskId: Uuid
 
 export const parameterless = Effect.gen(function* () {
 	const db = yield* Db.open(W.Server.roles.writer, {})
@@ -78,7 +80,7 @@ export const undeclaredSide = schema("S2", { Task: W.Task }, [
 export const undeclaredExtension = role(W.Work, "x", { AccountBudget: W.AccountBudget })
 export const declaredExtension = role(W.Reports, "x", { AccountBudget: W.AccountBudget })
 
-declare const needsAccount: Predicate<{ readonly account: string }>
+declare const needsAccount: Predicate<{ readonly account: ParamType<Uuid, "uuid"> }>
 // @ts-expect-error -- TS2322 refusal: a schema predicate reads no parameter
 export const parameterizedCheck = check("NeedsAccount", W.Task, () => needsAccount)
 // @ts-expect-error -- TS2345 refusal: a schema predicate reads no parameter
@@ -89,12 +91,12 @@ export const schemaOpened = Db.open(W.Work, {})
 
 /**
  * A query's rows are the records its decoder assembles, so a reader delivers them at that type and no other: an id is a
- * uuid's string.
+ * Uuid, uuid_out's spelling.
  */
 export const wrongRows = Effect.gen(function* () {
 	const db = yield* Db.open(W.Server.roles.reader, {})
 	const result = yield* db.execute(W.automaticTasksFor, { account: taskId })
-	// @ts-expect-error -- TS2322: an id is a string, as uuid's column delivers it, never a number
+	// @ts-expect-error -- TS2322: an id is a Uuid, as uuid's column delivers it, never a number
 	const rows: ReadonlyArray<{ readonly id: number; readonly budget: Cents }> = yield* result.collect
 	return rows
 })
@@ -115,7 +117,7 @@ export const LookAlike = relation("LookAlike", { id: lookAlike }, ["id"])
  * is an Option and never the one child; an account has any number of tasks, so they are an array and never an Option.
  */
 const tasks = query(W.Work).rule((r) => {
-	const { id, account } = v(W.Task)
+	const { id, account } = v(W.Task, "task")
 	return r.match(W.Task, { id, account }).find({ id, account })
 })
 
@@ -125,7 +127,7 @@ export const noteAsOne = () =>
 		(t) =>
 			// @ts-expect-error -- TS2322 refusal: the one child needs a child the evidence proves exactly one per parent
 			query(W.Work).rule((r) => {
-				const { note } = v(W.TaskNote)
+				const { note } = v(W.TaskNote, "taskNote")
 				return r.match(W.TaskNote, { task: t.id, note }).find({ note })
 			}),
 		"one"
@@ -137,7 +139,7 @@ export const tasksAsOption = () =>
 		(t) =>
 			// @ts-expect-error -- TS2322 refusal: an Option needs a child the evidence proves at most one per parent
 			query(W.Work).rule((r) => {
-				const { id } = v(W.Task)
+				const { id } = v(W.Task, "task")
 				return r.match(W.Task, { id, account: t.account }).find({ id })
 			}),
 		"option"
@@ -145,34 +147,23 @@ export const tasksAsOption = () =>
 
 /**
  * A parameter is a term of the descriptor it is declared with, and adopts nothing from its uses: a uuid parameter is a
- * string, which never meets a Cents.
+ * Uuid, which never meets a Cents.
  */
 export const uuidAgainstCents = () =>
 	query(W.Work).rule((r) => {
-		const { task, budget } = v(W.AutomaticTask)
+		const { task, budget } = v(W.AutomaticTask, "automaticTask")
 		const account = r.param("account", uuid)
 		// @ts-expect-error -- TS2345: a uuid parameter never meets a Cents field
 		return r.match(W.AutomaticTask, { task, budget }).where(r.eq(budget, account)).find({ task })
 	})
 
-/**
- * A head holds terms, aggregates and producers, each carrying the column its records are read through: a literal is
- * r.literal(x), and a bare literal is no head entry.
- */
-export const bareLiteral = () =>
-	query(W.Work).rule((r) => {
-		const { id } = v(W.Task)
-		// @ts-expect-error -- TS2322: a bare literal is no head entry
-		return r.match(W.Task, { id }).find({ id, kind: "Manual" })
-	})
-
-/** A head literal has its literal type, so one outside the roster makes the head no Task fact. */
+/** A JavaScript value in a head has its own literal type, so one outside the roster makes the head no Task fact. */
 export const literalOutsideRoster = () =>
 	ChangeSet.empty(W.Work).put(
 		W.Task,
 		// @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
 		query(W.Work).rule((r) => {
-			const { id, account } = v(W.Task)
-			return r.match(W.Task, { id, account }).find({ id, account, kind: r.literal("Pending") })
+			const { id, account } = v(W.Task, "task")
+			return r.match(W.Task, { id, account }).find({ id, account, kind: "Pending" })
 		})
 	)

@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Result, String as Str } from "effect"
@@ -106,7 +106,7 @@ const rowHolds = (row: Row): void => {
 }
 
 /** Every category of the matrix, each of which the exhaustive check must reach. */
-const categories: ReadonlyArray<Category> = [
+const categories: Arr.NonEmptyReadonlyArray<Category> = [
 	"literal",
 	"template",
 	"widening",
@@ -145,7 +145,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("ArkRegex inference mat
 					generator: element<Row>(nonEmpty(rows, "the matrix's rows")),
 					literal: (row) => Formatter.format(row.name),
 					limit: rows.length,
-					features: features<Category>(categories),
+					coverage: requiredInSpace<Category>(categories),
 					caseHang: Duration.minutes(2)
 				},
 				(row, c) =>

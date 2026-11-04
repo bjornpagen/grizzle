@@ -1,4 +1,5 @@
 import { Array as Arr } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -258,7 +259,7 @@ const resultProblems = (s: FusedStatement, where: string): ReadonlyArray<Verific
 		)
 	}
 	for (const [j, f] of fused.entries()) {
-		out.push(...fusedProblems(f, delivered, targets?.[output.fusedAt(j)], where))
+		appendAll(out, fusedProblems(f, delivered, targets?.[output.fusedAt(j)], where))
 	}
 	return out
 }
@@ -316,8 +317,9 @@ const programShape = (program: ChannelProgram): ReadonlyArray<VerificationProble
 					problem("merge", "the program", "heading groups numbered 0..n-1 in statement order")
 				)
 			}
-			out.push(
-				...Arr.flatMap(groups, (g, i) =>
+			appendAll(
+				out,
+				Arr.flatMap(groups, (g, i) =>
 					Arr.map(
 						Arr.filter(
 							delivery.discriminant,
@@ -367,14 +369,14 @@ export const channelProblems = (
 	const statement = (s: FusedStatement): string => {
 		const where = `${label} ${position++}`
 		const audit = auditStatementDetailed(s.ast)
-		out.push(...statementSql(s, audit, where))
-		out.push(...slotProblems(s, audit, where))
-		out.push(...resultProblems(s, where))
+		appendAll(out, statementSql(s, audit, where))
+		appendAll(out, slotProblems(s, audit, where))
+		appendAll(out, resultProblems(s, where))
 		return where
 	}
 	const under = (tree: StatementTree<FusedStatement>): void => {
 		for (const a of tree.attachments) {
-			out.push(...attachmentProblems(tree.statement, a.statement, statement(a.statement)))
+			appendAll(out, attachmentProblems(tree.statement, a.statement, statement(a.statement)))
 			under(a)
 		}
 	}
@@ -478,7 +480,7 @@ const attachmentDifferences = (
 				)
 			)
 		}
-		out.push(...attachmentDifferences(a.attachments, b.attachments, at))
+		appendAll(out, attachmentDifferences(a.attachments, b.attachments, at))
 	}
 	return out
 }
@@ -519,7 +521,7 @@ export const artifactProblems = (
 		if (!sameRowsRole(s.role, t.role) || !sameHeading(s.heading, t.heading)) {
 			out.push(problem("artifacts", where, "the same role, group and heading in both artifacts"))
 		}
-		out.push(...attachmentDifferences(s.attachments, t.attachments, where))
+		appendAll(out, attachmentDifferences(s.attachments, t.attachments, where))
 	}
 	const od = discriminant(optimized.delivery)
 	const cd = discriminant(conservative.delivery)

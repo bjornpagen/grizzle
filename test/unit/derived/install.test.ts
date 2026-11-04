@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, filter, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
@@ -106,7 +106,7 @@ describe("derived relation view columns", () => {
 							generator: space,
 							literal: Formatter.format,
 							limit: 100,
-							features: features<"a collision refused" | "names installed apart">([
+							coverage: requiredInSpace<"a collision refused" | "names installed apart">([
 								"a collision refused",
 								"names installed apart"
 							]),

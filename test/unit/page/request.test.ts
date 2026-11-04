@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, int, string, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Result } from "effect"
@@ -174,7 +175,7 @@ describe("page requests", () => {
 						suite: "unit/page/request",
 						draw: drawn(requestCaseGen),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							| "first"
 							| "after"
 							| "last"
@@ -182,22 +183,24 @@ describe("page requests", () => {
 							| RequestFault
 							| "cursorType"
 							| "an inherited control"
-						>([
-							"first",
-							"after",
-							"last",
-							"before",
-							"requestShape",
-							"requestSize",
-							"cursorType",
-							"an inherited control"
-						]),
+						>(
+							[
+								"first",
+								"after",
+								"last",
+								"before",
+								"requestShape",
+								"requestSize",
+								"cursorType",
+								"an inherited control"
+							],
+							{ cases: 2000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c, note) =>

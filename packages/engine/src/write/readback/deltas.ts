@@ -1,3 +1,4 @@
+import { extendNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { WriteIR } from "#compiler/ir/write.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { rowOrSingle } from "#compiler/lower/conservative/vector/equality.ts"
@@ -19,8 +20,10 @@ import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type Carrier,
+	type CarrierColumn,
 	type CarrierSupply,
 	carrierColumns,
+	carrierRow,
 	carrierScan,
 	relationCarrier
 } from "#compiler/write/carriers/carriers.ts"
@@ -191,9 +194,36 @@ export const withDeltaFills = <
 	const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 	/** A carrier's fields as one side of the RETURNING holds them: a delta carrier holds its relation's fields, each read
 	 * by its name as a column of an IR heading is. */
-	const valuesOf = (carrier: Carrier, columns: FieldColumns<string>): ReadonlyArray<Expr> => {
+	const returnedAt = (columns: FieldColumns<string>): ((c: CarrierColumn) => Expr) => {
 		const byName = new Map(columns.pairs.map((p) => [p.field.name, p.column] as const))
-		return carrier.heading.map((c) => col(returned.cte, columnIn(byName, c.name)))
+		return (c) => col(returned.cte, columnIn(byName, c.name))
+	}
+	const valuesOf = (carrier: Carrier, columns: FieldColumns<string>): ReadonlyArray<Expr> =>
+		carrier.heading.map(returnedAt(columns))
+	/** Whether the row of `carrier` under `alias` is the fact one side of the RETURNING holds: its columns equal
+	 * position by position, and always for the unit row, the unit relation's one fact. */
+	const sameFact = (carrier: Carrier, alias: string, columns: FieldColumns<string>): Expr => {
+		const row = carrierRow(carrier)
+		switch (row.kind) {
+			case "unit":
+				return lit.bool(true)
+			case "columns":
+				return eq(
+					rowOrSingle(mapNonEmpty(row.columns, (c) => col(alias, c.column))),
+					rowOrSingle(mapNonEmpty(row.columns, returnedAt(columns)))
+				)
+		}
+	}
+	/** One column of a carrier's row under `alias`, a data-modifying CTE's RETURNING target: its first, or the unit
+	 * marker for the unit row. */
+	const anyColumn = (carrier: Carrier, alias: string): Expr => {
+		const row = carrierRow(carrier)
+		switch (row.kind) {
+			case "unit":
+				return lit.bool(true)
+			case "columns":
+				return col(alias, row.columns[0].column)
+		}
 	}
 	/** Fills `into` from one side of the RETURNING, netting against `pending`, the opposite side's carrier, when given. */
 	const fill = (into: Carrier, pending: Carrier | undefined, side: ReturnedSide): void => {
@@ -206,17 +236,9 @@ export const withDeltaFills = <
 				table: pending.name,
 				alias,
 				using: [cteRef(returned.cte)],
-				where: and(
-					eq(
-						rowOrSingle(pending.heading.map((c) => col(alias, c.column))),
-						rowOrSingle(valuesOf(pending, side.columns))
-					),
-					...side.conditions
-				),
+				where: and([sameFact(pending, alias, side.columns), ...side.conditions]),
 				/** PostgreSQL needs no RETURNING here; the statement audit requires one of every data-modifying CTE. */
-				returning: [
-					targetAs(col(alias, pending.heading[0].column), supply.column(internal("cancelled")))
-				],
+				returning: [targetAs(anyColumn(pending, alias), supply.column(internal("cancelled")))],
 				with: undefined
 			}
 			extra.push({
@@ -235,10 +257,7 @@ export const withDeltaFills = <
 				simpleSelect(
 					[target(lit.int(1, types.integer))],
 					[carrierScan(pending, alias)],
-					eq(
-						rowOrSingle(pending.heading.map((c) => col(alias, c.column))),
-						rowOrSingle(valuesOf(pending, side.columns))
-					)
+					sameFact(pending, alias, side.columns)
 				)
 			)
 		})()
@@ -257,7 +276,7 @@ export const withDeltaFills = <
 					conjunction(conditions)
 				)
 			},
-			returning: [targetAs(col(filled, into.heading[0].column), supply.column(internal("filled")))],
+			returning: [targetAs(anyColumn(into, filled), supply.column(internal("filled")))],
 			with: undefined,
 			overriding: undefined,
 			onConflict: undefined
@@ -307,7 +326,7 @@ export const withDeltaFills = <
 	const ast = statement.ast
 	const augmented: WithSelect = {
 		...ast,
-		with: { ...ast.with, ctes: [...ast.with.ctes, ...extra] }
+		with: { ...ast.with, ctes: extendNonEmpty(ast.with.ctes, extra) }
 	}
 	const out: S = {
 		...statement,

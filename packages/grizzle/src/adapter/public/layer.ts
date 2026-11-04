@@ -15,7 +15,8 @@ import type { AnyLogin } from "#compiler/types/schema/world.ts"
  * DbLayer.make(config) is the one integration input: a login, its snapshot, a destination, the credentials, verify-full
  * TLS, and the verify that turns a Db's token into its claims, with no field for pool size, statement caching, retries,
  * timeouts or a TLS mode. The config is parsed once, where it is given: one no connection can use fails the layer with
- * OpenError{stage: "config"}. Build the layer once per instance, in module scope, never per request and never on
+ * OpenError{stage: "config"}, as does an environment that sets a connection option grizzle cannot override
+ * (connection/environment.ts). Build the layer once per instance, in module scope, never per request and never on
  * globalThis: building it compiles every program of the login's workloads once and checks their access against the
  * snapshot (OpenError{stage: "schema"} names a program that does not compile or whose access moved), and creates the
  * login's session pool, which lives as long as the layer and serves every role of the login. No driver type appears

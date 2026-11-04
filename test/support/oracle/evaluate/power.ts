@@ -1,5 +1,6 @@
 import { Array as Arr, Option, pipe, Result, Schema, String as Str } from "effect"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { maxOf } from "#compiler/core/array.ts"
+import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { isqrt } from "#test/support/oracle/evaluate/numeric.ts"
 import { indices } from "#test/support/oracle/pick.ts"
@@ -738,8 +739,8 @@ const estimateLnDweight = (v: NumVar): Estimate => {
 	const lnOf = (log: number): number => Math.abs(log + dweight * LN_10)
 	const log = Math.log(digits)
 	const lnEnds = [lnOf(ulpsAway(log, -libmUlps)), lnOf(ulpsAway(log, libmUlps))]
-	const lnLo = Math.min(...lnEnds)
-	const lnHi = Math.max(...lnEnds)
+	const lnLo = Arr.reduce(lnEnds, Number.POSITIVE_INFINITY, (least, x) => Math.min(least, x))
+	const lnHi = maxOf(lnEnds, Number.NEGATIVE_INFINITY)
 	return {
 		lo: ulpsAway(Math.log10(lnLo), -libmUlps),
 		at: Math.log10(lnOf(log)),
@@ -813,7 +814,11 @@ const powerVarInt = (base: NumVar, exp: number, expDscale: number): NumVar => {
 	const ends = powersOfTen.has(leading)
 		? [fOf(log10)]
 		: [fOf(ulpsAway(log10, -libmUlps)), fOf(ulpsAway(log10, libmUlps))]
-	const estimate = { lo: Math.min(...ends), at: fOf(log10), hi: Math.max(...ends) }
+	const estimate = {
+		lo: Arr.reduce(ends, Number.POSITIVE_INFINITY, (least, x) => Math.min(least, x)),
+		at: fOf(log10),
+		hi: maxOf(ends, Number.NEGATIVE_INFINITY)
+	}
 	return libmEstimate(estimate, "power_var_int's log10", (f) =>
 		powerVarIntAt(base, b, exp, expDscale, f)
 	)
@@ -954,29 +959,31 @@ const powerVarAt = (base: NumVar, exp: NumVar, resNeg: boolean, lnDweight: numbe
 	return resNeg && !isZero(result) ? { ...result, neg: true } : result
 }
 
-const fromDecimal = (d: Decimal): NumVar => make(d.negative, d.coefficient, -d.scale, d.scale)
+/** A finite value in its one form as a NumVar, at the display scale trim_scale leaves it: its least scale. */
+const fromParts = (p: FiniteParts): NumVar =>
+	make(p.negative, p.coefficient, -p.minScale, p.minScale)
 
-/** make_result: the Decimal at the result's display scale, 22003 outside numeric's format. */
+/** make_result: the Decimal of the result, 22003 outside numeric's format. */
 const toDecimal = (v: NumVar): Result.Result<Decimal, PowerStopReason> => {
 	assert.ok(v.exp >= -v.dscale, "numeric power: a result with no digits past its display scale")
 	const made = Decimal.fromParts(v.neg, v.mag * pow10(v.exp + v.dscale), v.dscale)
 	return made.ok ? Result.succeed(made.value) : failed("22003")
 }
 
-const signOf = (d: Decimal): -1 | 0 | 1 => {
-	if (d.kind === "infinity") {
-		return 1
+const signOf = (p: DecimalParts): -1 | 0 | 1 => {
+	switch (p.kind) {
+		case "infinity":
+			return 1
+		case "-infinity":
+			return -1
+		case "nan":
+			return 0
+		case "finite":
+			return p.coefficient === 0n ? 0 : p.negative ? -1 : 1
 	}
-	if (d.kind === "-infinity") {
-		return -1
-	}
-	if (d.coefficient === 0n) {
-		return 0
-	}
-	return d.negative ? -1 : 1
 }
 
-/** The Decimal 1, at display scale 0. */
+/** The Decimal 1. */
 const one = (): Decimal => {
 	const made = Decimal.fromParts(false, 1n, 0)
 	if (!made.ok) {
@@ -985,16 +992,76 @@ const one = (): Decimal => {
 	return made.value
 }
 
-const isOne = (d: Decimal): boolean =>
-	d.isFinite() && !d.negative && d.coefficient === pow10(d.scale)
+/** Whether a value is 1 or -1: in its one form, a coefficient 1 at scale 0. */
+const isUnit = (p: DecimalParts, negative: boolean): boolean =>
+	p.kind === "finite" && p.negative === negative && p.coefficient === 1n && p.minScale === 0
 
-const isMinusOne = (d: Decimal): boolean =>
-	d.isFinite() && d.negative && d.coefficient === pow10(d.scale)
+/** Whether a value is an integer: an infinity, or a finite value whose least scale is 0. */
+const isIntegral = (p: DecimalParts): boolean => {
+	switch (p.kind) {
+		case "nan":
+			return false
+		case "infinity":
+		case "-infinity":
+			return true
+		case "finite":
+			return p.minScale === 0
+	}
+}
 
-const isIntegral = (d: Decimal): boolean =>
-	d.isNaN() ? false : d.isInfinite() ? true : d.coefficient % pow10(d.scale) === 0n
-/** |d| > 1 for a finite d. */
-const absAboveOne = (d: Decimal): boolean => d.coefficient > pow10(d.scale)
+/** |p| > 1 for a finite p. */
+const absAboveOne = (p: FiniteParts): boolean => p.coefficient > pow10(p.minScale)
+
+/**
+ * numeric_power's rules for NaN and the infinities, POSIX pow(3)'s, over operands one of which is no finite value.
+ */
+const specialPower = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopReason> => {
+	const x = a.parts
+	const y = b.parts
+	if (x.kind === "nan") {
+		return y.kind === "finite" && y.coefficient === 0n
+			? Result.succeed(one())
+			: Result.succeed(Decimal.nan)
+	}
+	if (y.kind === "nan") {
+		return isUnit(x, false) ? Result.succeed(one()) : Result.succeed(Decimal.nan)
+	}
+	const sign1 = signOf(x)
+	const sign2 = signOf(y)
+	if (sign1 === 0 && sign2 < 0) {
+		return failed("2201F")
+	}
+	if (sign1 < 0 && !isIntegral(y)) {
+		return failed("2201F")
+	}
+	if (isUnit(x, false)) {
+		return Result.succeed(one())
+	}
+	if (sign2 === 0) {
+		return Result.succeed(one())
+	}
+	if (sign1 === 0 && sign2 > 0) {
+		return Result.succeed(Decimal.zero)
+	}
+	if (y.kind !== "finite") {
+		if (isUnit(x, true)) {
+			return Result.succeed(one())
+		}
+		const absXGtOne = x.kind === "finite" ? absAboveOne(x) : true
+		return Result.succeed(absXGtOne === sign2 > 0 ? Decimal.infinity : Decimal.zero)
+	}
+	if (x.kind === "infinity") {
+		return Result.succeed(sign2 > 0 ? Decimal.infinity : Decimal.zero)
+	}
+	if (sign2 < 0) {
+		return Result.succeed(Decimal.zero)
+	}
+	/** a is -Infinity and b is finite and positive: -Infinity to an odd integer, +Infinity otherwise. */
+	const d = digitsOf(fromParts(y))
+	const last = d.digits.at(-1)
+	const odd = last !== undefined && d.digits.length === d.weight + 1 && (last & 1) === 1
+	return Result.succeed(odd ? Decimal.negativeInfinity : Decimal.infinity)
+}
 
 /**
  * PostgreSQL 19's numeric power, ported from src/backend/utils/adt/numeric.c (numeric_power, power_var,
@@ -1029,60 +1096,20 @@ const absAboveOne = (d: Decimal): boolean => d.coefficient > pow10(d.scale)
  * power, 22003 when the result overflows numeric's format. A result that underflows is zero at the display scale
  * PostgreSQL gives it. test/pg/compute compares every case with PostgreSQL 19.
  *
- * numeric_power: POSIX pow(3)'s rules for NaN and the infinities, then power_var.
- *
- * a is -Infinity and b is finite and nonzero.
+ * numeric_power over operands in their one form, trim_scale(a) and trim_scale(b), as SQL rendering passes them
+ * (registry.ts OperandReading): POSIX pow(3)'s rules for NaN and the infinities, then power_var.
  */
 export const power = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopReason> => {
-	if (!a.isFinite() || !b.isFinite()) {
-		if (a.isNaN()) {
-			return b.isFinite() && b.coefficient === 0n
-				? Result.succeed(one())
-				: Result.succeed(Decimal.nan)
-		}
-		if (b.isNaN()) {
-			return a.isFinite() && isOne(a) ? Result.succeed(one()) : Result.succeed(Decimal.nan)
-		}
-		const sign1 = signOf(a)
-		const sign2 = signOf(b)
-		if (sign1 === 0 && sign2 < 0) {
-			return failed("2201F")
-		}
-		if (sign1 < 0 && !isIntegral(b)) {
-			return failed("2201F")
-		}
-		if (a.isFinite() && isOne(a)) {
-			return Result.succeed(one())
-		}
-		if (sign2 === 0) {
-			return Result.succeed(one())
-		}
-		if (sign1 === 0 && sign2 > 0) {
-			return Result.succeed(Decimal.zero)
-		}
-		if (b.isInfinite()) {
-			if (a.isFinite() && isMinusOne(a)) {
-				return Result.succeed(one())
-			}
-			const absXGtOne = a.isInfinite() ? true : absAboveOne(a)
-			return Result.succeed(absXGtOne === sign2 > 0 ? Decimal.infinity : Decimal.zero)
-		}
-		if (a.kind === "infinity") {
-			return Result.succeed(sign2 > 0 ? Decimal.infinity : Decimal.zero)
-		}
-		if (sign2 < 0) {
-			return Result.succeed(Decimal.zero)
-		}
-		const d = digitsOf(fromDecimal(b))
-		const last = d.digits.at(-1)
-		const odd = last !== undefined && d.digits.length === d.weight + 1 && (last & 1) === 1
-		return Result.succeed(odd ? Decimal.negativeInfinity : Decimal.infinity)
+	const x = a.parts
+	const y = b.parts
+	if (x.kind !== "finite" || y.kind !== "finite") {
+		return specialPower(a, b)
 	}
-	if (signOf(a) === 0 && signOf(b) < 0) {
+	if (signOf(x) === 0 && signOf(y) < 0) {
 		return failed("2201F")
 	}
 	return Result.flatMap(
-		caught(() => toDecimal(powerVar(fromDecimal(a), fromDecimal(b)))),
+		caught(() => toDecimal(powerVar(fromParts(x), fromParts(y)))),
 		(result) => result
 	)
 }

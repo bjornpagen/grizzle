@@ -20,6 +20,25 @@ export const mapNonEmpty = <A, B>(
 export const appendNonEmpty = <A>(xs: ReadonlyArray<A>, last: A): NonEmptyReadonlyArray<A> =>
 	isNonEmpty(xs) ? [xs[0], ...xs.slice(1), last] : [last]
 
+/** `xs` followed by every element of `ys`: nonempty whatever `xs` is. */
+export const concatNonEmpty = <A>(
+	xs: ReadonlyArray<A>,
+	ys: NonEmptyReadonlyArray<A>
+): NonEmptyReadonlyArray<A> => (isNonEmpty(xs) ? [xs[0], ...xs.slice(1), ...ys] : ys)
+
+/** Every element of `xs`, then every element of `ys`: nonempty whatever `ys` is. */
+export const extendNonEmpty = <A>(
+	xs: NonEmptyReadonlyArray<A>,
+	ys: ReadonlyArray<A>
+): NonEmptyReadonlyArray<A> => (isNonEmpty(ys) ? [xs[0], ...xs.slice(1), ...ys] : xs)
+
+/** `xs` with the element at `at` replaced by `x`: still nonempty. */
+export const replaceNonEmpty = <A>(
+	xs: NonEmptyReadonlyArray<A>,
+	at: number,
+	x: A
+): NonEmptyReadonlyArray<A> => mapNonEmpty(xs, (y, i) => (i === at ? x : y))
+
 /** `xs` in `compare`'s order, stable: as `toSorted`, still nonempty. */
 export const sortNonEmpty = <A>(
 	xs: NonEmptyReadonlyArray<A>,

@@ -193,7 +193,7 @@ const main = Effect.gen(function* () {
 		[...timings],
 		([phase, list]) =>
 			Console.log(
-				`${Str.padEnd(28)(phase)} ${ms(Math.min(...list))} min ${ms(Arr.reduce(list, 0, (a, b) => a + b) / list.length)} mean`
+				`${Str.padEnd(28)(phase)} ${ms(Arr.reduce(list, Number.POSITIVE_INFINITY, (least, x) => Math.min(least, x)))} min ${ms(Arr.reduce(list, 0, (a, b) => a + b) / list.length)} mean`
 			),
 		{ discard: true }
 	)

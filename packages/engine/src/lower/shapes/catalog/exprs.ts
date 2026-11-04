@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, catchSignal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -9,10 +10,12 @@ import {
 	type TypedLiteral,
 	withArgs
 } from "#compiler/ir/expr.ts"
+import type { PreconditionProof } from "#compiler/ir/proof.ts"
 import type { Cell } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import type { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import {
+	binaryCoercion,
 	booleanAnd,
 	castOf,
 	type NativeFn,
@@ -122,7 +125,7 @@ export const conjuncts = (root: ScalarExpr): ReadonlyArray<ScalarExpr> => {
 	for (let e = stack.pop(); e !== undefined; e = stack.pop()) {
 		const v = nativeView(e, "and")
 		if (v !== undefined) {
-			stack.push(...v.args.toReversed())
+			appendAll(stack, v.args.toReversed())
 		} else {
 			out.push(e)
 		}
@@ -143,7 +146,7 @@ export const columnsRead = (root: ScalarExpr): ReadonlyArray<ColumnRef> => {
 		if (e.kind === "column") {
 			out.push(e.column)
 		}
-		stack.push(...e.args)
+		appendAll(stack, e.args)
 	}
 	return out
 }
@@ -180,7 +183,7 @@ export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 		case "op":
 			return y.kind === "op" && x.op === y.op && sameArgs()
 		case "cast":
-			return y.kind === "cast" && x.checked === y.checked && sameArgs()
+			return y.kind === "cast" && x.cast === y.cast && sameArgs()
 		case "value":
 		case "domainCast":
 		case "cond":
@@ -206,22 +209,33 @@ export const colExpr = (
 export const litExpr = (ed: CatalogEditor, value: TypedLiteral, type: ScalarType): ScalarExpr =>
 	ed.expr({ kind: "literal", value, args: [], type, nonNull: "literal" })
 
-/** One native operator or connective over `args`, typed `type`: it can fail where the operator can. */
+/**
+ * One native operator or connective over `args`, typed `type`: a catalog rewrite builds only operations defined on
+ * every value, since it holds no proof of a precondition, so a partial overload is refused.
+ */
 export const opExpr = (
 	ed: CatalogEditor,
 	op: NativeOp,
 	args: ReadonlyArray<ScalarExpr>,
 	type: ScalarType
-): ScalarExpr =>
-	ed.expr({
+): ScalarExpr => {
+	if (op.partial) {
+		throw new Refusal(
+			unsupported(
+				SourceLoc("catalog operator", []),
+				`${op.id.toString()} needs the proof of its precondition`
+			)
+		)
+	}
+	return ed.expr({
 		kind: "op",
 		op: op.id,
 		args,
 		type,
 		nonNull: "strict",
-		volatility: op.volatility,
-		failure: op.failures.length > 0 ? "canFail" : "total"
+		volatility: op.volatility
 	})
+}
 
 /** The two operands of the binary operator `op` at `e`; none for any other expression or arity. */
 export const binaryOperands = (
@@ -284,30 +298,53 @@ export const andExpr = (ed: CatalogEditor, args: ReadonlyArray<ScalarExpr>): Sca
 }
 
 /**
- * A native cast; `checked` when it can fail (a narrowing), which carries a validation obligation. A cast between two
- * carriers is as volatile as the registry's cast; one within a carrier changes a typmod or a refinement, immutably.
+ * A cast a catalog rewrite builds: within a carrier the binary coercion, which changes a typmod, a refinement or an
+ * exact bound immutably; between two carriers the registered cast, as volatile as it is, defined on every value or
+ * partial with the proof the rewrite states for it (`proof`). A partial cast without one is no match: the rewrite
+ * cannot keep the program total without its proof.
  */
 export const castExpr = (
 	ed: CatalogEditor,
 	arg: ScalarExpr,
 	type: ScalarType,
-	checked: boolean
+	proof: PreconditionProof | undefined
 ): ScalarExpr => {
 	const from = baseOf(arg.type).carrier
 	const to = baseOf(type).carrier
-	const native = from === to ? undefined : castOf(from, to)
-	if (from !== to && native === undefined) {
+	if (from === to || (from === "numeric" && to === "exactInteger")) {
+		return ed.expr({
+			kind: "cast",
+			cast: binaryCoercion,
+			args: [arg],
+			type,
+			nonNull: "strict",
+			volatility: "immutable"
+		})
+	}
+	const native = castOf(from, to)
+	if (native === undefined) {
 		throw new Refusal(
 			unsupported(SourceLoc("catalog cast", []), `a native cast from ${from} to ${to}`)
 		)
 	}
+	if (!native.partial) {
+		return ed.expr({
+			kind: "cast",
+			cast: native.id,
+			args: [arg],
+			type,
+			nonNull: "strict",
+			volatility: native.volatility
+		})
+	}
 	return ed.expr({
 		kind: "cast",
-		checked,
+		cast: native.id,
 		args: [arg],
 		type,
 		nonNull: "strict",
-		volatility: native === undefined ? "immutable" : native.volatility
+		volatility: native.volatility,
+		proof: proof ?? noMatch(`the proof of a cast from ${from} to ${to}`)
 	})
 }
 

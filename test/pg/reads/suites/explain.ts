@@ -1,9 +1,10 @@
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
 import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { multiset } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -219,7 +220,6 @@ const budget = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(2)
 } as const
 
@@ -254,7 +254,7 @@ export const explainSuite = (): void => {
 						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 						const accountTasks = query(W.Work)
 							.rule((r) => {
-								const { id, name } = v(W.Account)
+								const { id, name } = v(W.Account, "account")
 								return r
 									.match(W.Account, { id, name })
 									.where(r.eq(id, r.param("account", uuid)))
@@ -265,14 +265,14 @@ export const explainSuite = (): void => {
 								(a) =>
 									query(W.Work)
 										.rule((r) => {
-											const { id, kind } = v(W.Task)
+											const { id, kind } = v(W.Task, "task")
 											return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
 										})
 										.attach(
 											"note",
 											(t) =>
 												query(W.Work).rule((r) => {
-													const { note } = v(W.TaskNote)
+													const { note } = v(W.TaskNote, "taskNote")
 													return r.match(W.TaskNote, { task: t.id, note }).find({ note })
 												}),
 											"option"
@@ -307,7 +307,7 @@ export const explainSuite = (): void => {
 									draw: drawn(queryCaseGen),
 									kept: queryKept,
 									runs: 20,
-									features: features<QueryFeature>(queryFeatures)
+									coverage: required<QueryFeature>(queryFeatures, { cases: 20, sense: notesOnly })
 								},
 								(c, notes) =>
 									Effect.gen(function* () {
@@ -369,15 +369,18 @@ export const explainSuite = (): void => {
 									draw: drawn(changeCaseGen),
 									kept: [],
 									runs: 40,
-									features: features<ChangeFeature>([
-										"a generated addition",
-										"an insert",
-										"a put",
-										"a delete",
-										"two strata",
-										"a read-back",
-										"a read-back joining a stored relation"
-									])
+									coverage: required<ChangeFeature>(
+										[
+											"a generated addition",
+											"an insert",
+											"a put",
+											"a delete",
+											"two strata",
+											"a read-back",
+											"a read-back joining a stored relation"
+										],
+										{ cases: 40, sense: notesOnly }
+									)
 								},
 								(c, notes) =>
 									Effect.gen(function* () {
@@ -455,7 +458,7 @@ export const explainSuite = (): void => {
 												: c.readBack === "stock joined"
 													? sequenced.read("stock", (d) =>
 															query(o.schema).rule((r) => {
-																const { id, label, qty } = v(Stock)
+																const { id, label, qty } = v(Stock, "stock")
 																return r
 																	.match(d.added(Stock), { id })
 																	.match(Stock, { id, label, qty })
@@ -465,16 +468,16 @@ export const explainSuite = (): void => {
 													: sequenced.read("seats", (d) =>
 															query(o.schema)
 																.rule((r) => {
-																	const { no, label } = v(Seat)
+																	const { no, label } = v(Seat, "seat")
 																	return r
 																		.match(d.added(Seat), { no, label })
-																		.find({ side: r.literal("added"), no, label })
+																		.find({ side: "added", no, label })
 																})
 																.rule((r) => {
-																	const { no, label } = v(Seat)
+																	const { no, label } = v(Seat, "seat")
 																	return r
 																		.match(d.removed(Seat), { no, label })
-																		.find({ side: r.literal("removed"), no, label })
+																		.find({ side: "removed", no, label })
 																})
 														)
 										const before = yield* state()
@@ -563,7 +566,11 @@ export const explainSuite = (): void => {
 									generator: element<keyof typeof programs>(["encode", "resource", "compile"]),
 									literal: Formatter.format,
 									limit: 3,
-									features: features<keyof typeof programs>(["encode", "resource", "compile"]),
+									coverage: requiredInSpace<keyof typeof programs>([
+										"encode",
+										"resource",
+										"compile"
+									]),
 									caseHang: Duration.minutes(2)
 								},
 								(stage, c) =>

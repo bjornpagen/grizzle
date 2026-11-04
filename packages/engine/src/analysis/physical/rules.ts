@@ -24,7 +24,6 @@ import {
 	structural,
 	withReason
 } from "#compiler/analysis/physical/fds.ts"
-import { castIdentity, castInjective } from "#compiler/analysis/physical/injective.ts"
 import {
 	type FixedFact,
 	isUnique,
@@ -36,6 +35,7 @@ import {
 	strongestKey,
 	type Uniqueness
 } from "#compiler/analysis/physical/props.ts"
+import { castIdentity, castInjective, comparedValue } from "#compiler/ir/injective.ts"
 
 import {
 	AllenReading,
@@ -43,6 +43,7 @@ import {
 	type PairPredicate,
 	pointHolder
 } from "#compiler/check/allen.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
@@ -277,7 +278,10 @@ const evaluationReads = (root: RelNode): Justification => {
 	const outer: Array<OuterColumn> = []
 	for (const n of nodes) {
 		for (const e of exprsOf(n)) {
-			outer.push(...columnRefs(e).filter((c) => !inside.has(c.node)))
+			appendAll(
+				outer,
+				columnRefs(e).filter((c) => !inside.has(c.node))
+			)
 		}
 	}
 	return justify({ outer })
@@ -287,7 +291,8 @@ const evaluationReads = (root: RelNode): Justification => {
 const ownPremise = (node: RelNode): Justification =>
 	joinJustifications([justify({ premises: [nodePremise(node.id)] }), evaluationReads(node)])
 
-const valueRep = (e: ScalarExpr, locals: ReadonlySet<NodeId>): ValueRep => {
+const valueRep = (given: ScalarExpr, locals: ReadonlySet<NodeId>): ValueRep => {
+	const e = comparedValue(given)
 	switch (e.kind) {
 		case "column":
 			return locals.has(e.column.node)
@@ -354,10 +359,10 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 						justify({ premises: [nodePremise(node.id)] }),
 						comparing(node.heading.map((c) => c.type))
 					]),
-					"exactDeduplication"
+					["exactDeduplication"]
 				)
 	const single = boundsAtMost(draft.maxCard, 1n)
-		? withReason(ownPremise(node), "atMostOneRow")
+		? withReason(ownPremise(node), ["atMostOneRow"])
 		: undefined
 	const atMostOne: Proof | undefined = single === undefined ? undefined : () => single
 	const prove: Prover = (cs) => {
@@ -386,7 +391,7 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 			: physicalKeys(columns, plain, [...draft.candidates, columns], draft.fds.implications())
 	const plainUnique = strongestKey(plainKeys)
 	const maxCard = keys.some((k) => k.columns.length === 0)
-		? leastCardinality(draft.maxCard, atMost(1n))
+		? leastCardinality([draft.maxCard, atMost(1n)])
 		: draft.maxCard
 	/**
 	 * A column determined by nothing is fixed: to what an equal fixed column is fixed to, or to a computation. Its
@@ -709,10 +714,10 @@ const takeProps = (node: NodeOf<"Take">, cx: RuleContext): PhysicalProps => {
 			fixColumn(s, c.column, r.fact.just, r.fact)
 		}
 	}
-	const maxCard = leastCardinality(
+	const maxCard = leastCardinality([
 		input.maxCard,
 		node.bound.kind === "literal" ? atMost(node.bound.k) : unbounded
-	)
+	])
 	return finish(node, cx, {
 		fds: s.fds,
 		prove: identityProver(s.fds, required(s.options)),
@@ -795,7 +800,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 					}),
 					comparing(node.heading.map((c) => c.type))
 				]),
-				"deduplicatedInput"
+				["deduplicatedInput"]
 			)
 			return finish(node, cx, {
 				fds,
@@ -829,9 +834,12 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			if (node.kind === "Intersect") {
 				const right = cx.props(node.right)
 				const r = inherit(s.fds, s.fixed, right, sameName(s.fds))
-				identity.push(...required(r))
-				s.candidates.push(...r.map((o) => o.columns))
-				maxCard = leastCardinality(left.maxCard, right.maxCard)
+				appendAll(identity, required(r))
+				appendAll(
+					s.candidates,
+					r.map((o) => o.columns)
+				)
+				maxCard = leastCardinality([left.maxCard, right.maxCard])
 			}
 			return finish(node, cx, {
 				fds: s.fds,
@@ -856,7 +864,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			const identity: Array<Identity[number]> = [...required(s.options)]
 			if (node.fn === "rowNumber") {
 				const key = [...node.partition, node.out]
-				const just = withReason(ownPremise(node), "uniqueOrdinal")
+				const just = withReason(ownPremise(node), ["uniqueOrdinal"])
 				identity.push([[{ columns: key, just }]])
 				s.candidates.push(key)
 			}
@@ -883,7 +891,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 					justify({ premises: [nodePremise(recursive)] }),
 					comparing(node.heading.map((c) => c.type))
 				]),
-				"globalRecursiveClosure"
+				["globalRecursiveClosure"]
 			)
 			/**
 			 * The recursive UNION is the Recursive node's own exact duplicate elimination: its whole state is a key
@@ -918,7 +926,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			const s = inheritSame(node, input)
 			const maxCard =
 				node.kind === "ApproximateNearest"
-					? leastCardinality(input.maxCard, atMost(node.take))
+					? leastCardinality([input.maxCard, atMost(node.take)])
 					: input.maxCard
 			return finish(node, cx, {
 				fds: s.fds,
@@ -981,7 +989,7 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 					justify({ premises: [nodePremise(node.id)], context: "immediate" }),
 					comparing(columnTypes(node.heading, k))
 				]),
-				"inheritedDerivedKey"
+				["inheritedDerivedKey"]
 			)
 			options.push({ columns: k, just })
 			fds.imply(k, fds.universe, just)
@@ -1003,7 +1011,7 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 				justify(keyEvidence(constraint)),
 				comparing(columnTypes(node.heading, k))
 			]),
-			node.relationKind === "derived" ? "inheritedDerivedKey" : "retainedPrimaryKey"
+			[node.relationKind === "derived" ? "inheritedDerivedKey" : "retainedPrimaryKey"]
 		)
 		options.push(declareKey(fds, constraint, just))
 	}
@@ -1023,10 +1031,9 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 	const fds = new ProofFds(columns)
 	const fixed = new Map<string, FixedFact>()
 	const rows = node.rows
-	const facts = withReason(
-		justify({ premises: [nodePremise(node.id)], context: "descriptor" }),
+	const facts = withReason(justify({ premises: [nodePremise(node.id)], context: "descriptor" }), [
 		"finiteFacts"
-	)
+	])
 	const options: Array<KeyOption> = []
 	const rowKeys = rows.map((r) => r.map((v) => nativeEqualityKey(v)).join("\u0000"))
 	if (new Set(rowKeys).size === rows.length) {
@@ -1080,7 +1087,7 @@ const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 				justify(keyEvidence(constraint)),
 				comparing(columnTypes(node.heading, k))
 			]),
-			"retainedPrimaryKey"
+			["retainedPrimaryKey"]
 		)
 		options.push(declareKey(fds, constraint, just))
 	}
@@ -1103,7 +1110,7 @@ const annotateRegion = (found: Identification): Justification => {
 	} else if (found.direct.length > 1) {
 		reasons.push("combinedJoinKeys")
 	}
-	return withReason(found.just, ...reasons)
+	return withReason(found.just, reasons)
 }
 
 /**
@@ -1252,7 +1259,7 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 				if (k === undefined) {
 					return undefined
 				}
-				vars.push(...k.vars)
+				appendAll(vars, k.vars)
 				just.push(k.just)
 			}
 			return { vars: [...new Set(vars)], just }
@@ -1275,7 +1282,7 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 				if (k === undefined) {
 					return undefined
 				}
-				vars.push(...k.vars)
+				appendAll(vars, k.vars)
 				just.push(k.just)
 			}
 			return { at, vars, just }
@@ -1445,7 +1452,7 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 			const just =
 				inj.coercions.length === 0
 					? structural
-					: withReason(justify({ coercions: inj.coercions }), "injectiveRepresentation")
+					: withReason(justify({ coercions: inj.coercions }), ["injectiveRepresentation"])
 			reps.set(inj.column, [...(reps.get(inj.column) ?? []), { column: o.name, just }])
 			continue
 		}
@@ -1560,7 +1567,7 @@ const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 	 * the literals compare under that type.
 	 */
 	const unionType = new Map(node.heading.map((c) => [c.name, c.type]))
-	const disjoint = withReason(justify({ premises: [nodePremise(node.id)] }), "disjointArms")
+	const disjoint = withReason(justify({ premises: [nodePremise(node.id)] }), ["disjointArms"])
 	const armPairs = arms.flatMap((x, i) => arms.slice(i + 1).map((y) => [x.props, y.props] as const))
 	/**
 	 * Every arm identified by the candidate and every two arms told apart; the proof joins the arms' identifications,
@@ -1670,7 +1677,7 @@ const groupProps = (
 	)
 	const just = withReason(
 		joinJustifications([ownPremise(node), comparing(columnTypes(node.heading, node.keys))]),
-		"groupedOutputKey"
+		["groupedOutputKey"]
 	)
 	fds.imply(
 		node.keys,

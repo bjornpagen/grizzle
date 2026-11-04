@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -20,6 +21,7 @@ import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { explainStatementWith, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { planNodeTypes } from "#bench/harness/explain.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { countingExecutor, untyped } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -62,7 +64,7 @@ import { planOf } from "#test/unit/workload/fixtures.ts"
  * the anchor across the whole account.
  */
 
-const id = (n: number): string =>
+const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 const accounts = 40
 /** Ten times any page, so the cost of a page's seek and of reading an account apart are never close. */
@@ -199,18 +201,20 @@ const explorePlans = Effect.gen(function* () {
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				steering: { kind: "none" },
 				caseHang: Duration.minutes(2),
-				features: features<PlanFeature>([
-					...Arr.flatMap(["descending", "ascending", "mixed"] as const, (order) =>
-						Arr.map(
-							["first", "after", "before"] as const,
-							(variant): PlanFeature => `${order} ${variant}`
-						)
-					),
-					"a one-direction seek past a long remainder",
-					"a mixed seek past a long remainder"
-				])
+				coverage: required<PlanFeature>(
+					[
+						...Arr.flatMap(["descending", "ascending", "mixed"] as const, (order) =>
+							Arr.map(
+								["first", "after", "before"] as const,
+								(variant): PlanFeature => `${order} ${variant}`
+							)
+						),
+						"a one-direction seek past a long remainder",
+						"a mixed seek past a long remainder"
+					],
+					{ cases: 60, sense: notesOnly }
+				)
 			},
 			(c, cx) =>
 				Effect.gen(function* () {

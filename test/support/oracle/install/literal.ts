@@ -113,6 +113,45 @@ export const moneyText = (minorUnits: bigint): string => {
 }
 
 /**
+ * A stored value's twin input spelling (gen/domain.ts Spelled): a text its column type's input function reads as the
+ * value and stores differently from the canonical one, a padded numeric's display scale, a float's or a vector
+ * component's -0. The loader writes it as that text, so the database holds the spelling the case drew.
+ */
+export class InputSpelling {
+	readonly text: string
+
+	constructor(text: string) {
+		this.text = text
+	}
+}
+
+/** The SQL literal of a twin spelling for a column of `type`: a decimal, a float or a vector text, as drawn. */
+const spelledLiteral = (
+	type: ColumnType,
+	spelling: InputSpelling,
+	location: string
+): Result.Result<Expr, CompileError> => {
+	switch (type.value.kind) {
+		case "numeric":
+			return exactDecimal.test(spelling.text)
+				? Result.succeed(literal({ kind: "decimal", value: spelling.text }, type))
+				: refuse(location, "numeric (an exact decimal spelling)", spelling.text)
+		case "float":
+			return Result.succeed(lit.float(Number(spelling.text), type.sql))
+		case "vector":
+			return Result.succeed(literal({ kind: "text", value: spelling.text }, type))
+		case "integer":
+		case "money":
+		case "bool":
+		case "uuid":
+		case "text":
+		case "enum":
+		case "span":
+			return refuse(location, `${type.value.kind}, which has no twin spelling`, spelling.text)
+	}
+}
+
+/**
  * Typed SQL literals for oracle facts, for the loader's typed literal INSERTs.
  *
  * A fact value is the host value a Description carries (LiteralDesc): a JavaScript number for smallint,
@@ -122,8 +161,9 @@ export const moneyText = (minorUnits: bigint): string => {
  * plain float specials. Each becomes one SQL AST literal typed by its column's type, so the printer casts it
  * and the statement audit checks it. Nothing is coerced on the host: a value outside its type is
  * refused with the column's location, and PostgreSQL's own input function decides everything else (numeric typmod
- * rounding, float4 rounding of an exact binary32 value, enum membership). Spellings keep what distinguishes values:
- * "1.0" and "1.00" stay distinct numeric texts, -0 stays -0, and supplementary-plane text passes through unchanged.
+ * rounding, float4 rounding of an exact binary32 value, enum membership). A value is written in its canonical form,
+ * or, as an InputSpelling, in the twin spelling its case drew: "1.000" stays a padded numeric text, -0 stays -0, so the
+ * database holds the spellings no answer may depend on; supplementary-plane text passes through unchanged.
  *
  * The SQL literal of one fact value for a column of `type`.
  *
@@ -134,6 +174,9 @@ export const literalFor = (
 	value: unknown,
 	location: string
 ): Result.Result<Expr, CompileError> => {
+	if (value instanceof InputSpelling) {
+		return spelledLiteral(type, value, location)
+	}
 	const v = type.value
 	switch (v.kind) {
 		case "integer": {

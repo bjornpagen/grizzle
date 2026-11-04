@@ -7,7 +7,7 @@ import type { LogicalEnv } from "#compiler/logical/annotate.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
-import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
+import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import {
 	type GenClosed,
@@ -237,7 +237,9 @@ export const databases = (v: Variant): ReadonlyArray<Database> =>
 			const targets = new Set(Arr.map(r, (fact) => intOf(fact[0])))
 			const dangles =
 				v.containment !== "none" && Arr.some(s, (fact) => !targets.has(intOf(fact[1])))
-			return dangles && v.containment !== "atCommit" ? [] : [{ facts: { R: r, S: s }, dangles }]
+			return dangles && v.containment !== "atCommit"
+				? []
+				: [{ facts: canonicalFacts({ R: r, S: s }), dangles }]
 		})
 	)
 

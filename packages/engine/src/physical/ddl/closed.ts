@@ -1,6 +1,6 @@
-import { indices } from "#compiler/core/array.ts"
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation, LawField } from "#compiler/ir/law.ts"
@@ -9,7 +9,7 @@ import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { persistentLiteral } from "#compiler/physical/ddl/expr.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
-import type { Expr, ObjectName, Select } from "#compiler/sql/ast.ts"
+import type { EmittedText, Expr, ObjectName, Select } from "#compiler/sql/ast.ts"
 import { cast, col, simpleSelect, targetAs } from "#compiler/sql/build.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
@@ -24,7 +24,7 @@ export interface ClosedTemplate {
 	/** One typed row per handle, in roster order. */
 	readonly rows: ReadonlyArray<ReadonlyArray<Expr>>
 	readonly select: Select
-	readonly sql: string
+	readonly sql: EmittedText
 	/** SHA-256 over the canonical labels, column types and payload texts. */
 	readonly fingerprint: string
 }
@@ -42,10 +42,10 @@ const closedTemplate = (b: InstallBuilder, r: ClosedTheoryRelation): ClosedTempl
 	const closed = r.name
 	const columns = r.fields.map((f) => b.names.column(closed, f.name))
 	/** Each fact's typed values, one per field, in heading order. */
-	const rows = r.rows.map((row) =>
+	const rows = mapNonEmpty(r.rows, (row) =>
 		r.fields.map((f) => typedValue(b, closedCell(row, f.position), f))
 	)
-	const aliases = indices(columns.length).map((i) => `c${i + 1}`)
+	const aliases = mapNonEmpty(r.fields, (_, i) => `c${i + 1}`)
 	const select = simpleSelect(
 		columns.map((column, i) => targetAs(col("r1", `c${i + 1}`), column)),
 		[{ kind: "values", rows, alias: "r1", columns: aliases }],

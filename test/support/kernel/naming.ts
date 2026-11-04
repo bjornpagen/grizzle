@@ -4,10 +4,12 @@ import { nameSchemas } from "#adapter/boundary/names.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
+	admittedIdentifier,
 	type DeclaredName,
 	type Identity,
 	identifierOf,
 	identity,
+	type LawEvent,
 	parseDeclaredName,
 	parseSchemaName,
 	type SchemaName
@@ -20,6 +22,7 @@ import type {
 	IndexName,
 	LawFunctionName,
 	LawId,
+	RaisedLawId,
 	RelationIdent,
 	TriggerName
 } from "#compiler/core/ids.ts"
@@ -32,6 +35,7 @@ import {
 
 import {
 	fieldNames,
+	lawUnits,
 	type NamedDetailCodec,
 	type NativeKind,
 	type NativeObject,
@@ -42,7 +46,12 @@ import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compi
 import { type ConstraintLaw, compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
+import {
+	installationTypes,
+	roleReadNames,
+	vectorTypes,
+	worldNames
+} from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { AnyRelation, AnyRole, AnySchema, Statement } from "#compiler/public/schema.ts"
 import { ownRole } from "#compiler/schema/own.ts"
@@ -125,19 +134,20 @@ export const productionNames = (
 	at: InstalledAt,
 	vectorSchema: string
 ): PhysicalNames => {
-	const schema = identifierOf(
+	const installation =
 		at.kind === "declared" ? identity.schema(parsedSchemaName(declaredSchema)) : at.installation
-	)
+	const schema = identifierOf(installation)
+	const types = installationTypes(installation)
 	return {
 		relation: (relation) => ({ schema, name: identifierOf(identity.table(parsedName(relation))) }),
 		column: (...[, field]) => identifierOf(identity.column(parsedName(field))),
-		enumType: (closed) => ({ schema, name: identifierOf(identity.enumType(closed)) }),
+		enumType: (closed) => ({ schema: types, name: identifierOf(identity.enumType(closed)) }),
 		contractDomain: (contract) => ({
-			schema,
+			schema: types,
 			name: identifierOf(identity.contractDomain(contract))
 		}),
 		textDomain: () => undefined,
-		vectorSchema,
+		vectorSchema: vectorTypes(vectorSchema),
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) }
 	}
 }
@@ -151,15 +161,15 @@ type ConstraintKind = "pk" | "fk" | "key" | "check"
 export interface LawNames {
 	readonly model: LawModel
 	/** The law a public statement declares (a statement rebuilt through the builders names the same law). */
-	readonly lawOf: (statement: Statement) => LawId
+	readonly lawOf: (statement: Statement) => RaisedLawId
 	/** The law an authored statement desc declares. */
-	readonly lawOfDesc: (statement: AuthoredStatementDesc) => LawId
+	readonly lawOfDesc: (statement: AuthoredStatementDesc) => RaisedLawId
 	/** The two laws a public mirrors statement declares, one per direction. */
 	readonly mirrorsOf: (statement: Statement) => MirrorsLaws
 	/** The two laws an authored mirrors statement desc declares, one per direction. */
 	readonly mirrorsOfDesc: (statement: AuthoredStatementDesc) => MirrorsLaws
 	/** The law a relation's primary key reports. */
-	readonly primaryKeyLaw: (relation: NamedRelation) => LawId
+	readonly primaryKeyLaw: (relation: NamedRelation) => RaisedLawId
 	/**
 	 * The constraint of `relation` of `kind` over `fields` (as a set): a primary key, a key or span key, a foreign key
 	 * (a tagged one by its scalar columns), or a finite check.
@@ -177,7 +187,7 @@ export interface LawNames {
 	readonly constraintOf: (law: LawId, kind: ReportingKind) => ConstraintName
 	/** The law a constraint reports, read under the table or domain it lives on, as PostgreSQL reports it. */
 	readonly lawOfConstraint: (owner: ConstraintOwner, constraint: ConstraintName) => LawId
-	/** A residual law's function and its trigger on each participating relation. */
+	/** A residual law's units: each participating relation and event's trigger and function. */
 	readonly residual: (law: LawId) => ResidualNames
 	/** The laws an alternatives value expands to (a public schema). */
 	readonly alternativesOf: (value: AlternativesBase) => AlternativesLaws
@@ -195,8 +205,8 @@ export type ReportingKind = NativeKind | "ResidualLaw"
 
 /** The two containments a mirrors statement states: left into right, and right into left. */
 export interface MirrorsLaws {
-	readonly leftToRight: LawId
-	readonly rightToLeft: LawId
+	readonly leftToRight: RaisedLawId
+	readonly rightToLeft: RaisedLawId
 }
 
 export interface AlternativesLaws {
@@ -210,9 +220,17 @@ export interface AlternativesLaws {
 	readonly reverse: LawId
 }
 
-export interface ResidualNames {
+/** One unit of a residual law: its relation and event, its trigger, and the function that trigger alone executes. */
+export interface UnitNames {
+	readonly relation: string
+	readonly event: LawEvent
+	readonly trigger: TriggerName
 	readonly function: LawFunctionName
-	readonly triggers: ReadonlyArray<{ readonly relation: string; readonly trigger: TriggerName }>
+}
+
+export interface ResidualNames {
+	/** One per participating relation and threatening event, participant by participant in law order. */
+	readonly units: Arr.NonEmptyReadonlyArray<UnitNames>
 	/**
 	 * The DETAIL codec of its refusal, and the witness relation whose keys it carries: a caller whose role holds that
 	 * relation whole reads the keys, any other the withheld DETAIL (test/support/detail.ts).
@@ -268,7 +286,7 @@ export interface Names extends LawNames {
 	readonly advance: (relation: NamedRelation, field: string) => string
 	/** A serial field's identity sequence, schema-qualified and quoted. */
 	readonly sequence: (relation: NamedRelation, field: string) => string
-	/** A residual law's triggers, schema-qualified and quoted (SET CONSTRAINTS). */
+	/** A residual law's unit triggers, schema-qualified and quoted (SET CONSTRAINTS). */
 	readonly triggers: (law: LawId) => ReadonlyArray<string>
 	/**
 	 * The text refinement domain that types a column: a stored field, a closed relation's payload, or a derived view
@@ -449,7 +467,7 @@ const holdingOf = (model: LawModel): Holding => {
 	}
 }
 
-const theLaw = (target: string, laws: ReadonlyArray<TheoryLaw>, what: string): LawId =>
+const theLaw = (target: string, laws: ReadonlyArray<TheoryLaw>, what: string): RaisedLawId =>
 	single(
 		laws,
 		(count) =>
@@ -467,7 +485,7 @@ const mirrorsLaws = <L>(holding: Holding, statement: StatementDesc<L>): MirrorsL
 		)
 	}
 	const { target, laws } = holding(statement)
-	const half = (direction: "leftToRight" | "rightToLeft"): LawId =>
+	const half = (direction: "leftToRight" | "rightToLeft"): RaisedLawId =>
 		theLaw(
 			target,
 			Arr.filter(
@@ -590,7 +608,7 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 			kind: "ResidualLaw" as const
 		}))
 	]
-	const lawOfDesc = (desc: unknown): LawId => {
+	const lawOfDesc = (desc: unknown): RaisedLawId => {
 		const { target, laws } = holding(desc)
 		return theLaw(target, laws, "law")
 	}
@@ -605,10 +623,11 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 			)
 		}
 		return {
-			function: identifierOf(found.function),
-			triggers: Arr.map(found.participants, (p) => ({
-				relation: p.relation.name,
-				trigger: identifierOf(p.trigger)
+			units: Arr.map(lawUnits(found), (u) => ({
+				relation: u.participant.relation.name,
+				event: u.event,
+				trigger: identifierOf(u.unit.trigger),
+				function: identifierOf(u.unit.function)
 			})),
 			detail: namedDetail(found.detail),
 			witness: found.detail.relation.name
@@ -641,12 +660,13 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 				{ kind: "table", name: pk.owner },
 				identifierOf(pk.named)
 			)
-			if (law === undefined) {
+			const raised = Arr.findFirst(pk.object.lawIds, (l) => l === law)
+			if (Option.isNone(raised)) {
 				throw new Error(
-					`the primary key ${identifierOf(pk.named)} of ${relation.name} reports no law`
+					`the primary key ${identifierOf(pk.named)} of ${relation.name} reports no law it holds`
 				)
 			}
-			return law
+			return raised.value
 		},
 		fieldConstraint: (relation, kind, fields) =>
 			theConstraint(model, relation.name, kind, fields).ident,
@@ -724,7 +744,8 @@ export const lawNamesOf = (subject: NamingSubject): LawNames => {
 }
 
 /** The LawId of a law statement of a schema, as the installer derives it. */
-export const lawIdOf = (schema: AnySchema, law: Statement): LawId => lawNamesOf(schema).lawOf(law)
+export const lawIdOf = (schema: AnySchema, law: Statement): RaisedLawId =>
+	lawNamesOf(schema).lawOf(law)
 
 /**
  * The installed name of a constraint of a relation, named by its kind and its fields (as a set): a primary key, a
@@ -887,7 +908,7 @@ const namesOver = (installation: Installation, schema: string): Names => {
 			return `${quoteIdent(s.schema)}.${quoteIdent(s.name)}`
 		},
 		triggers: (law) =>
-			Arr.map(laws.residual(law).triggers, (t) => `${quotedSchema}.${quoteIdent(t.trigger)}`),
+			Arr.map(laws.residual(law).units, (u) => `${quotedSchema}.${quoteIdent(u.trigger)}`),
 		textDomain: (relation, field) =>
 			textDomainOf(
 				installation,
@@ -1029,7 +1050,7 @@ export const isLedgerObject = (schema: string, name: string): boolean => {
  * casts a delivered refined value it cannot prove to its domain, which the naming door names by its pattern key.
  */
 export const standInNames = (declaredSchema: string): PhysicalNames => {
-	const schema = identifierOf(identity.schema(parsedSchemaName(declaredSchema)))
+	const schema = installationTypes(identity.schema(parsedSchemaName(declaredSchema)))
 	return {
 		...productionNames(declaredSchema, { kind: "declared" }, localVectorSchema),
 		textDomain: (regex) => ({ schema, name: identifierOf(identity.textDomain(regex.key)) })
@@ -1037,7 +1058,7 @@ export const standInNames = (declaredSchema: string): PhysicalNames => {
 }
 
 export interface NameMint {
-	readonly lawId: (text: string) => LawId
+	readonly lawId: (text: string) => RaisedLawId
 	readonly constraint: (text: string) => ConstraintName
 	readonly relation: (text: string) => RelationIdent
 	readonly column: (text: string) => ColumnIdent
@@ -1049,7 +1070,7 @@ export interface NameMint {
 
 /** Names decoded by nameSchemas, as the snapshot decoder admits a name, each `prefix` and the text. */
 const mint = (prefix: string): NameMint => ({
-	lawId: (text) => Result.getOrThrow(Schema.decodeResult(nameSchemas.lawId)(`${prefix}${text}`)),
+	lawId: (text): RaisedLawId => admittedIdentifier(`${prefix}${text}`),
 	constraint: (text) =>
 		Result.getOrThrow(Schema.decodeResult(nameSchemas.constraint)(`${prefix}${text}`)),
 	relation: (text) =>

@@ -23,7 +23,7 @@
 
 import { layer } from "@effect/vitest"
 import { exhaust, Run } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
@@ -180,7 +180,7 @@ type PlantedFeature =
 const featureOf = (p: Point): PlantedFeature =>
 	`${p.writer} ${p.statement} of a ${p.mutability} relation at ${p.level}: ${refusalOf(p.writer, p.statement, p.mutability)}`
 
-const everyPoint: ReadonlyArray<Point> = Arr.flatMap(writers, (writer) =>
+const everyPoint: Arr.NonEmptyReadonlyArray<Point> = Arr.flatMap(writers, (writer) =>
 	Arr.flatMap(statements, (statement) =>
 		Arr.flatMap(levels, (level) =>
 			Arr.map(mutabilities, (mutability): Point => ({ writer, statement, level, mutability }))
@@ -211,7 +211,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								generator: pointGen,
 								literal: Formatter.format,
 								limit: everyPoint.length,
-								features: features<PlantedFeature>(Arr.map(everyPoint, featureOf)),
+								coverage: requiredInSpace<PlantedFeature>(Arr.map(everyPoint, featureOf)),
 								caseHang: Duration.minutes(2)
 							},
 							(p, c) =>

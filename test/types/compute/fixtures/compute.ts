@@ -1,13 +1,14 @@
 import type { Brand } from "effect"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type {
 	ParamOrigin,
+	ParamType,
 	Predicate,
 	SqlOfCarrier,
 	SqlOfTerm,
@@ -56,7 +57,7 @@ declare const rate: Term<Infer<typeof Rate>, unknown, unknown, "numeric">
 declare const money: Term<Money, unknown, unknown, "money">
 declare const flag: Term<boolean, unknown, unknown, "boolean">
 declare const text: Term<string, unknown, unknown, "text">
-declare const id: Term<string, unknown, unknown, "uuid">
+declare const id: Term<Uuid, unknown, unknown, "uuid">
 declare const centsSpan: Term<Span<CentsHost>, unknown, unknown, "range">
 declare const p: Predicate<{ readonly x: bigint }>
 declare const nInt: Term<number, { readonly n: number }, ParamOrigin, "integer">
@@ -75,6 +76,20 @@ export type CastBrand = Expect<Equals<TypeOfTerm<typeof reentered>, CentsHost>>
 /** Arithmetic yields the base, never the contract. */
 export const doubled = Compute.mul(cents, 2n)
 export type ArithmeticBase = Expect<Equals<TypeOfTerm<typeof doubled>, bigint>>
+/** Integer and money arithmetic is exact: an exact integer delivered as bigint, exact money as Money. */
+export type ExactSql = Expect<Equals<SqlOfTerm<typeof doubled>, "exact integer">>
+export const intSum = Compute.add(int, 1)
+export type IntSumHost = Expect<Equals<TypeOfTerm<typeof intSum>, bigint>>
+export const moneySum = Compute.add(money, unit)
+export type MoneySumSql = Expect<Equals<SqlOfTerm<typeof moneySum>, "exact money">>
+/** An exact integer meets the plain integers it was computed from: a comparison, a branch, a further operand. */
+export const exactBelowInt = Compute.lt(intSum, int)
+export const exactPlusInt = Compute.add(intSum, int)
+// @ts-expect-error -- TS2345: opposite an exact integer a literal is a bigint
+export const exactPlusNumber = Compute.add(intSum, 1)
+/** Float arithmetic is IEEE 754 and partial nowhere: a quotient by any double is defined. */
+export const floatQuotient = Compute.div(dbl, dbl)
+export type FloatQuotient = Expect<Equals<SqlOfTerm<typeof floatQuotient>, "double precision">>
 /** LEAST, GREATEST, CASE and the span endpoints return an input unchanged, so they keep the contract. */
 export const lowest = Compute.least(cents, cents)
 export type LeastBrand = Expect<Equals<TypeOfTerm<typeof lowest>, CentsHost>>
@@ -122,8 +137,72 @@ export const smallBelowInt = Compute.lt(small, int)
 export const smallPlusInt = Compute.add(small, int)
 export const smallBelowCast = Compute.lt(small, Compute.cast(int, pg.smallint))
 
+/**
+ * A partial operation needs its precondition proved in its type: a divisor nonzero, by a literal's own type, a
+ * contract's declared facts or a guard's branch.
+ */
+// @ts-expect-error -- TS2345 refusal: a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)
+export const unguardedQuotient = Compute.div(int, int)
+// @ts-expect-error -- TS2345 refusal: a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)
+export const zeroQuotient = Compute.div(int, 0)
+export const literalQuotient = Compute.div(int, 7)
+export type LiteralQuotient = Expect<Equals<TypeOfTerm<typeof literalQuotient>, bigint>>
+export const guardedQuotient = Compute.when(
+	Compute.nonzero(int),
+	(d) => Compute.div(big, Compute.cast(d, pg.bigint)),
+	0n
+)
+export type GuardedQuotient = Expect<Equals<TypeOfTerm<typeof guardedQuotient>, bigint>>
+/** An integer's remainder keeps its type: it fits its divisor's. */
+export const guardedRemainder = Compute.when(Compute.positive(int), (d) => Compute.mod(int, d), 0)
+export type GuardedRemainder = Expect<Equals<TypeOfTerm<typeof guardedRemainder>, number>>
+/** A guard is a predicate too. */
+export const guardAsPredicate: Predicate = Compute.nonzero(int)
+const Divisor = contract("Divisor", pg.integer, (x) => x.ne(0), { proves: ["nonzero"] })
+declare const divisor: Term<
+	Infer<typeof Divisor>,
+	unknown,
+	unknown,
+	"integer",
+	Infer<typeof Divisor>,
+	{ readonly nonzero: true }
+>
+export const contractQuotient = Compute.div(int, Compute.base(divisor))
+/**
+ * A parameter stands where any term does: a guard's subject, whose branch receives it refined, and Compute.base's
+ * operand; a parameter of a contract that declares nonzero divides unguarded, its binding checking every value.
+ */
+export const paramGuardedQuotient = Compute.when(
+	Compute.nonzero(nInt),
+	(d) => Compute.div(int, d),
+	0n
+)
+export type ParamGuardedQuotient = Expect<Equals<TypeOfTerm<typeof paramGuardedQuotient>, bigint>>
+export type ParamGuardedQuotientParams = Expect<
+	Equals<ParamsOfT<typeof paramGuardedQuotient>, { readonly n: number }>
+>
+// @ts-expect-error -- TS2345 refusal: a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)
+export const unguardedParamQuotient = Compute.div(int, nInt)
+export const paramBase = Compute.base(nCents)
+export type ParamBase = Expect<Equals<TypeOfTerm<typeof paramBase>, bigint>>
+// @ts-expect-error -- TS2345 refusal: a radicand proved nonnegative: guard it with Compute.when(Compute.nonnegative(x), (x) => …, otherwise)
+export const unguardedRoot = Compute.sqrt(dec)
+export const guardedRoot = Compute.when(Compute.nonnegative(dec), (x) => Compute.sqrt(x), 0n)
+export const floatRoot = Compute.sqrt(dbl)
+// @ts-expect-error -- TS2345 refusal: a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)
+export const unguardedScale = Compute.minScale(dec)
+export const guardedScale = Compute.when(Compute.isFinite(dec), (x) => Compute.minScale(x), 0)
+/** A within guard proves nonnegative and nonzero from its bounds' literal types. */
+export const withinPower = Compute.when(
+	Compute.within(dec, 1n, 10n),
+	(x) => Compute.power(x, 2n),
+	0n
+)
+// @ts-expect-error -- TS2345 refusal: a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)
+export const unguardedPower = Compute.power(dec, 2n)
+
 /** Operand families. */
-export const moneyRatio = Compute.div(money, money)
+export const moneyRatio = Compute.when(Compute.nonzero(money), (m) => Compute.div(money, m), 0)
 // @ts-expect-error -- TS2345: money has no product
 export const moneyProduct = Compute.mul(money, money)
 // @ts-expect-error -- TS2345: money has no %
@@ -144,7 +223,7 @@ export const intPower = Compute.power(int, 2)
 export const unknownPower = Compute.power(unknownNumber, 2)
 // @ts-expect-error -- TS2345: sqrt is numeric or double precision
 export const realSqrt = Compute.sqrt(real)
-export const floatPower = Compute.power(dbl, 0.5)
+export const floatPower = Compute.when(Compute.positive(dbl), (x) => Compute.power(x, 0.5), 0)
 export type FloatPower = Expect<Equals<TypeOfTerm<typeof floatPower>, number>>
 export const intMod = Compute.mod(int, 3)
 // @ts-expect-error -- TS2345: % is over the integer types and numeric, and a number of unknown SQL type may be a float
@@ -161,8 +240,13 @@ export type SmallGcdParams = Expect<Equals<ParamsOfT<typeof smallGcd>, { readonl
 /**
  * Casts: the numeric family and money convert where PostgreSQL has a cast; other bases only into their own refinements.
  */
-export const toInteger = Compute.cast(dec, pg.integer)
+export const toInteger = Compute.when(Compute.isFinite(dec), (x) => Compute.cast(x, pg.integer), 0)
 export type ToInteger = Expect<Equals<TypeOfTerm<typeof toInteger>, number>>
+// @ts-expect-error -- TS2345 refusal: a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)
+export const unguardedToInteger = Compute.cast(dec, pg.integer)
+/** An integer cast keeps its operand's finiteness, which its type states. */
+export const intToNumeric = Compute.cast(int, pg.numeric)
+export const scaleOfInt = Compute.minScale(intToNumeric)
 export const moneyAmount = Compute.cast(money, pg.numeric)
 export type MoneyAmount = Expect<Equals<TypeOfTerm<typeof moneyAmount>, Decimal>>
 // @ts-expect-error -- TS2345 refusal: PostgreSQL has no cast between these types that Compute admits
@@ -179,8 +263,12 @@ export type IntToDouble = Expect<Equals<TypeOfTerm<typeof intToDouble>, number>>
 export const intToSmall = Compute.cast(int, pg.smallint)
 export const smallToInt = Compute.cast(small, pg.integer)
 export const realToDouble = Compute.cast(real, pg.float8)
-export const doubleToInt = Compute.cast(dbl, pg.int)
-export const doubleToBig = Compute.cast(dbl, pg.bigint)
+export const doubleToInt = Compute.when(Compute.isFinite(dbl), (x) => Compute.cast(x, pg.int), 0)
+export const doubleToBig = Compute.when(
+	Compute.isFinite(dbl),
+	(x) => Compute.cast(x, pg.bigint),
+	0n
+)
 export type DoubleToBig = Expect<Equals<TypeOfTerm<typeof doubleToBig>, bigint>>
 export const bigToReal = Compute.cast(big, pg.real)
 export const decToReal = Compute.cast(dec, pg.real)
@@ -190,7 +278,11 @@ export type DecToRate = Expect<Equals<TypeOfTerm<typeof decToRate>, Infer<typeof
 export const intToMoney = Compute.cast(int, pg.money)
 export type IntToMoney = Expect<Equals<TypeOfTerm<typeof intToMoney>, Money>>
 export const bigToMoney = Compute.cast(big, pg.money)
-export const decToMoney = Compute.cast(dec, pg.money)
+export const decToMoney = Compute.when(
+	Compute.isFinite(dec),
+	(x) => Compute.cast(x, pg.money),
+	unit
+)
 export const centsToMoney = Compute.cast(cents, pg.money)
 export const moneyToMoney = Compute.cast(money, pg.money)
 // @ts-expect-error -- TS2345 refusal: PostgreSQL has no cast between these types that Compute admits
@@ -236,8 +328,9 @@ export type ParamOpposite = Expect<
 >
 // @ts-expect-error -- TS2345: the first branch types the conditional, so it is a term, never a literal
 export const literalFirst = Compute.cond(p, 1, 0)
-// @ts-expect-error -- TS2345 refusal: a term first: a parameter or a literal takes its place opposite a term, never first
+/** A parameter is a term of its declared type, first included: the literal opposite it adopts that type. */
 export const paramFirst = Compute.cond(p, nInt, 0)
+export type ParamFirst = Expect<Equals<TypeOfTerm<typeof paramFirst>, number>>
 // @ts-expect-error -- TS2345: an integer conditional's other branch is no bigint literal
 export const mixedIntegerBigint = Compute.cond(p, int, 0n)
 // @ts-expect-error -- TS2345: a branch opposite a bigint term is a bigint literal, not a JavaScript number
@@ -271,7 +364,7 @@ export const Line = relation("Line", { id: uuid, qty: pg.integer, price: Cents, 
 ])
 export const Shop = schema("Shop", { Line }, [])
 export const lines = query(Shop).rule((r) => {
-	const { id: lineId, qty, price, rate: lineRate } = v(Line)
+	const { id: lineId, qty, price, rate: lineRate } = v(Line, "line")
 	return r
 		.match(Line, { id: lineId, qty, price, rate: lineRate })
 		.where(r.gt(qty, r.param("minimum", pg.integer)))
@@ -288,5 +381,35 @@ export const lines = query(Shop).rule((r) => {
 })
 
 export type LinesParams = Expect<
-	Equals<ParamsOf<typeof lines>, { readonly minimum: number; readonly buckets: number }>
+	Equals<
+		ParamsOf<typeof lines>,
+		{
+			readonly minimum: ParamType<number, "integer">
+			readonly buckets: ParamType<number, "integer">
+		}
+	>
 >
+
+/** A parameter of a contract that declares nonzero divides unguarded, first through Compute.base. */
+export const divisorParamQuotient = query(Shop).rule((r) => {
+	const { id: lineId, qty } = v(Line, "line")
+	return r
+		.match(Line, { id: lineId, qty })
+		.find({ id: lineId, share: Compute.div(qty, Compute.base(r.param("d", Divisor))) })
+})
+/** A plain parameter divides only under its guard, the branch receiving the refined parameter. */
+export const guardedParamQuotient = query(Shop).rule((r) => {
+	const { id: lineId, qty } = v(Line, "line")
+	return r.match(Line, { id: lineId, qty }).find({
+		id: lineId,
+		share: Compute.when(Compute.nonzero(r.param("d", pg.integer)), (d) => Compute.div(qty, d), 0n)
+	})
+})
+export const unguardedParamDivision = query(Shop).rule((r) => {
+	const { id: lineId, qty } = v(Line, "line")
+	return r.match(Line, { id: lineId, qty }).find({
+		id: lineId,
+		// @ts-expect-error -- TS2345 refusal: a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)
+		share: Compute.div(qty, r.param("d", pg.integer))
+	})
+})

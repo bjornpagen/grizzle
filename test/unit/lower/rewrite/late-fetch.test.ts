@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -230,7 +230,7 @@ describe("late payload fetch", () => {
 						literal: Formatter.format,
 						generator: shapes,
 						limit: 64,
-						features: features<LateFetchFeature>([
+						coverage: requiredInSpace<LateFetchFeature>([
 							"fetched on snapshot evidence",
 							"fetched on transaction evidence",
 							"held back: the order reads the payload",
@@ -288,7 +288,7 @@ describe("late payload fetch", () => {
 					literal: Formatter.format,
 					generator: element<Evidence>(["snapshot", "transaction"]),
 					limit: 2,
-					features: features<Evidence>(["snapshot", "transaction"]),
+					coverage: requiredInSpace<Evidence>(["snapshot", "transaction"]),
 					caseHang: Duration.minutes(2)
 				},
 				(evidence, c) =>

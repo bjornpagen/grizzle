@@ -3,8 +3,7 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,
 	HeadTermDesc,
-	QueryDesc,
-	VarDesc
+	QueryDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { indices } from "#test/support/oracle/pick.ts"
 import * as D from "#test/unit/check/dsl.ts"
@@ -12,6 +11,7 @@ import * as D from "#test/unit/check/dsl.ts"
 export const double: FieldDesc = { kind: "pg", type: "double precision" }
 const numeric: FieldDesc = { kind: "numeric" }
 const bigint: FieldDesc = { kind: "pg", type: "bigint" }
+const integer: FieldDesc = { kind: "pg", type: "integer" }
 
 const v = D.varRef
 const s = (field: string) => D.ref("Sitting", field)
@@ -165,7 +165,7 @@ const neighborQuery = (
 					vars: [D.plainVar("n.id"), D.plainVar("n.day"), D.plainVar("n.score")],
 					matches: [
 						D.match(D.relationSource("Sitting"), {
-							student: D.param("st"),
+							student: D.param("st", integer),
 							id: v("n.id"),
 							day: v("n.day"),
 							score: v("n.score")
@@ -174,12 +174,18 @@ const neighborQuery = (
 					where: [
 						direction === "next"
 							? D.or(
-									D.gt(v("n.day"), D.param("d")),
-									D.and(D.eq(v("n.day"), D.param("d")), D.gt(v("n.id"), D.param("i")))
+									D.gt(v("n.day"), D.param("d", integer)),
+									D.and(
+										D.eq(v("n.day"), D.param("d", integer)),
+										D.gt(v("n.id"), D.param("i", bigint))
+									)
 								)
 							: D.or(
-									D.lt(v("n.day"), D.param("d")),
-									D.and(D.eq(v("n.day"), D.param("d")), D.lt(v("n.id"), D.param("i")))
+									D.lt(v("n.day"), D.param("d", integer)),
+									D.and(
+										D.eq(v("n.day"), D.param("d", integer)),
+										D.lt(v("n.id"), D.param("i", bigint))
+									)
 								),
 						...extra
 					],
@@ -308,7 +314,7 @@ const asOfQuery = (
 	extra: ReadonlyArray<ExprDesc>,
 	compared: Compared
 ) => {
-	const parentDay = D.param("d")
+	const parentDay = D.param("d", integer)
 	const field = v(compared === "day" ? "p.day" : "p.amount")
 	return D.take(
 		D.orderBy(
@@ -317,7 +323,7 @@ const asOfQuery = (
 					vars: [D.plainVar("p.id"), D.plainVar("p.day"), D.plainVar("p.amount")],
 					matches: [
 						D.match(D.relationSource("Price"), {
-							student: D.param("st"),
+							student: D.param("st", integer),
 							id: v("p.id"),
 							day: v("p.day"),
 							amount: v("p.amount")
@@ -754,148 +760,3 @@ export const modeOfDays = (tiebreak: "asc" | "desc", options: ModeOptions): Quer
 		})
 	)
 }
-
-const pointSums = D.query(
-	D.rule({
-		vars: D.vars("Point", "id", "grp", "x", "y"),
-		matches: [
-			D.match(D.relationSource("Point"), {
-				id: D.ref("Point", "id"),
-				grp: D.ref("Point", "grp"),
-				x: D.ref("Point", "x"),
-				y: D.ref("Point", "y")
-			})
-		],
-		head: {
-			grp: D.ref("Point", "grp"),
-			n: D.count(),
-			sx: D.sum(D.ref("Point", "x")),
-			sy: D.sum(D.ref("Point", "y")),
-			sxy: D.sum(D.compute("mul", D.ref("Point", "x"), D.ref("Point", "y"))),
-			sxx: D.sum(D.compute("mul", D.ref("Point", "x"), D.ref("Point", "x")))
-		},
-		where: [],
-		interiors: [],
-		attach: []
-	})
-)
-
-const sumVars: ReadonlyArray<VarDesc> = Arr.map(["g", "n", "sx", "sy", "sxy", "sxx"], (x) =>
-	D.plainVar(x)
-)
-const sumMatch = D.match(D.imported(pointSums, {}), {
-	grp: v("g"),
-	n: v("n"),
-	sx: v("sx"),
-	sy: v("sy"),
-	sxy: v("sxy"),
-	sxx: v("sxx")
-})
-const nf = D.cast(v("n"), double)
-const den = D.compute("sub", D.compute("mul", nf, v("sxx")), D.compute("mul", v("sx"), v("sx")))
-const num = D.compute("sub", D.compute("mul", nf, v("sxy")), D.compute("mul", v("sx"), v("sy")))
-
-/**
- * R32 as two arms: "insufficient" where the denominator is zero, "slope" where it is positive. `rejoined` matches the
- * insufficient arm's sums beside Point again, an arm in no recognized shape that still tests the denominator.
- */
-export const slopeArms = (rejoined: boolean): QueryDesc =>
-	D.query(
-		D.rule({
-			vars: rejoined ? [...sumVars, D.plainVar("pid")] : sumVars,
-			matches: rejoined
-				? [sumMatch, D.match(D.relationSource("Point"), { grp: v("g"), id: v("pid") })]
-				: [sumMatch],
-			where: [D.le(den, f8(0))],
-			head: { grp: v("g"), kind: D.lit("insufficient"), slope: f8(0) },
-			interiors: [],
-			attach: []
-		}),
-		D.rule({
-			vars: sumVars,
-			matches: [sumMatch],
-			where: [D.gt(den, f8(0))],
-			head: { grp: v("g"), kind: D.lit("slope"), slope: D.compute("div", num, den) },
-			interiors: [],
-			attach: []
-		})
-	)
-
-/** R32 as a two-arm cond in one head. */
-export const slopeCond = (): QueryDesc =>
-	D.query(
-		D.rule({
-			vars: sumVars,
-			matches: [sumMatch],
-			head: { grp: v("g"), slope: cond(D.gt(den, f8(0)), D.compute("div", num, den), f8(0)) },
-			where: [],
-			interiors: [],
-			attach: []
-		})
-	)
-
-/**
- * R32 over Price, x the day and y the amount: integer sums, whose arithmetic is double precision only through casts.
- */
-const priceSums = D.query(
-	D.rule({
-		vars: D.vars("Price", "id", "student", "day", "amount"),
-		matches: [
-			D.match(D.relationSource("Price"), {
-				id: D.ref("Price", "id"),
-				student: D.ref("Price", "student"),
-				day: D.ref("Price", "day"),
-				amount: D.ref("Price", "amount")
-			})
-		],
-		head: {
-			grp: D.ref("Price", "student"),
-			n: D.count(),
-			sx: D.sum(D.ref("Price", "day")),
-			sy: D.sum(D.ref("Price", "amount")),
-			sxy: D.sum(D.compute("mul", D.cast(D.ref("Price", "day"), bigint), D.ref("Price", "amount"))),
-			sxx: D.sum(D.compute("mul", D.ref("Price", "day"), D.ref("Price", "day")))
-		},
-		where: [],
-		interiors: [],
-		attach: []
-	})
-)
-
-export const slopeOfPrices = (): QueryDesc => {
-	const f = (x: string) => D.cast(v(x), double)
-	const d = D.compute("sub", D.compute("mul", nf, f("sxx")), D.compute("mul", f("sx"), f("sx")))
-	const u = D.compute("sub", D.compute("mul", nf, f("sxy")), D.compute("mul", f("sx"), f("sy")))
-	return D.query(
-		D.rule({
-			vars: sumVars,
-			matches: [
-				D.match(D.imported(priceSums, {}), {
-					grp: v("g"),
-					n: v("n"),
-					sx: v("sx"),
-					sy: v("sy"),
-					sxy: v("sxy"),
-					sxx: v("sxx")
-				})
-			],
-			head: { grp: v("g"), slope: cond(D.gt(d, f8(0)), D.compute("div", u, d), f8(0)) },
-			where: [],
-			interiors: [],
-			attach: []
-		})
-	)
-}
-
-/** R32 unguarded: the composition raises division_by_zero on a degenerate group, and keeps its form. */
-export const slopeUnguarded = (): QueryDesc =>
-	D.query(
-		D.rule({
-			vars: sumVars,
-			matches: [sumMatch],
-			head: { grp: v("g"), slope: D.compute("div", num, den) },
-			where: [],
-			interiors: [],
-			attach: []
-		})
-	)

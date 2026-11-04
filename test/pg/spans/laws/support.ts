@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { namedDetail, type ResidualLaw } from "#compiler/ir/law.ts"
+import { lawUnits, namedDetail, type ResidualLaw } from "#compiler/ir/law.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -8,6 +8,7 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import { withResidualLaws } from "#compiler/physical/laws/objects.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import { installationSql } from "#test/support/compile.ts"
 import { strictDetail } from "#test/support/detail.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -70,7 +71,7 @@ export const installSpans = (
 			return yield* Effect.die(new Error(`compile: ${compiled.error.message}`))
 		}
 		const installation = compiled.value
-		yield* transaction(substrate.admin, installation.sql)
+		yield* transaction(substrate.admin, installationSql(installation))
 		const writer = yield* oracleWorld(installation)
 		const q = quoteIdent(schema)
 		return {
@@ -109,14 +110,19 @@ export const installSpans = (
 					() => new Error(`no constraint enforces ${law}`)
 				).name,
 			immediate: (law: string, relation: string) => {
-				const participant = Option.getOrThrowWith(
-					Option.flatMap(
-						Arr.findFirst(installation.laws.residuals, (r) => r.lawId === law),
-						(r) => Arr.findFirst(r.participants, (p) => p.relation.name === relation)
-					),
-					() => new Error(`no trigger of law ${law} on ${relation}`)
+				const units = Arr.flatMap(
+					Arr.filter(installation.laws.residuals, (r) => r.lawId === law),
+					lawUnits
 				)
-				return `SET CONSTRAINTS ${q}.${quoteIdent(identifierOf(participant.trigger))} IMMEDIATE`
+				const triggers = Arr.flatMap(units, (u) =>
+					u.participant.relation.name === relation
+						? [`${q}.${quoteIdent(identifierOf(u.unit.trigger))}`]
+						: []
+				)
+				if (!Arr.isReadonlyArrayNonEmpty(triggers)) {
+					throw new Error(`no trigger of law ${law} on ${relation}`)
+				}
+				return `SET CONSTRAINTS ${Arr.join(triggers, ", ")} IMMEDIATE`
 			}
 		} satisfies SpanInstall
 	})

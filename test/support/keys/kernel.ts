@@ -1,4 +1,5 @@
 import { Array as Arr, Option } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
 import { type NodeScope, nodeScopes, nodesByLabel, postorder } from "#compiler/ir/dag.ts"
@@ -198,7 +199,7 @@ export class KeyKernel {
 				}
 				out.add(v)
 			}
-			stack.push(...e.args)
+			appendAll(stack, e.args)
 		}
 		return [...out]
 	}
@@ -256,7 +257,7 @@ export class KeyKernel {
 				if (this.#severalGroups(n)) {
 					faults.push(`${at}: a rows basis on a node of several heading groups`)
 				}
-				faults.push(...checked.implication(i))
+				appendAll(faults, checked.implication(i))
 				if (i.node !== p.node || !sameSet(i.from, p.key)) {
 					faults.push(`${at}: its derivation starts elsewhere than the key`)
 				}
@@ -278,7 +279,7 @@ export class KeyKernel {
 					if (arm.node !== arms[i]?.id || !sameSet(arm.key, p.key)) {
 						faults.push(`${at}: arm ${i} proves another key or node`)
 					}
-					faults.push(...checked.proof(arm))
+					appendAll(faults, checked.proof(arm))
 				}
 				for (let i = 0; i < arms.length; i++) {
 					for (let j = i + 1; j < arms.length; j++) {
@@ -290,7 +291,7 @@ export class KeyKernel {
 							continue
 						}
 						const [fi, fj] = s.fixed
-						faults.push(...checked.implication(fi), ...checked.implication(fj))
+						appendAll(faults, [...checked.implication(fi), ...checked.implication(fj)])
 						const vi =
 							fi.node === arms[i]?.id && fi.from.length === 0
 								? this.#value(fi, s.column)
@@ -310,7 +311,7 @@ export class KeyKernel {
 			}
 			case "within": {
 				const { implication: i, inner } = p.basis
-				faults.push(...checked.implication(i), ...checked.proof(inner))
+				appendAll(faults, [...checked.implication(i), ...checked.proof(inner)])
 				if (i.node !== p.node || !sameSet(i.from, p.key)) {
 					faults.push(`${at}: its derivation starts elsewhere than the key`)
 				}
@@ -328,7 +329,7 @@ export class KeyKernel {
 		}
 		for (const m of p.members) {
 			const stands = `${at}: member ${m.column} for ${m.of}`
-			faults.push(...checked.implication(m.determines))
+			appendAll(faults, checked.implication(m.determines))
 			if (!p.key.includes(m.of) || p.key.includes(m.column) || !heading.includes(m.column)) {
 				faults.push(`${stands}: not a heading column outside the key standing for a key column`)
 			}
@@ -438,7 +439,10 @@ export class KeyKernel {
 			if (!within(step.to, heading)) {
 				faults.push(`${at}: a step determining columns outside the heading`)
 			}
-			faults.push(...Arr.map(this.#rule(n, step, checked), (f) => `${at}: ${f}`))
+			appendAll(
+				faults,
+				Arr.map(this.#rule(n, step, checked), (f) => `${at}: ${f}`)
+			)
 			for (const c of step.to) {
 				reached.add(c)
 			}
@@ -928,7 +932,7 @@ export class KeyKernel {
 				if (e.kind === "column" && e.column.node === n.input.id) {
 					out.add(e.column.name)
 				}
-				stack.push(...e.args)
+				appendAll(stack, e.args)
 			}
 			return [...out]
 		}

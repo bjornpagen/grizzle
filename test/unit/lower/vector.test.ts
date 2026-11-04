@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -11,6 +11,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { rebuildDag, relNode, rooted, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
 import { builtExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -160,7 +161,7 @@ const searchUnderAttach = (q: LogicalQuery): LogicalQuery => {
 }
 
 const documents = query(Search).rule((r) => {
-	const { id } = v(Document)
+	const { id } = v(Document, "document")
 	return r.match(Document, { id }).find({ id })
 })
 
@@ -176,7 +177,7 @@ const childSearch = documents.attach(
 				account: r.param("account", uuid),
 				vector: r.param("vector", DocumentEmbedding.fields.value)
 			})
-			const { distance } = v(near)
+			const { distance } = v(near, "near")
 			return r.match(near, { document: parent.id, distance }).find({ distance })
 		}),
 	"array"
@@ -207,7 +208,7 @@ const perParent = (reads: "binds" | "compares") =>
 		"near",
 		(parent) =>
 			query(Search).rule((r) => {
-				const { document, revision, value } = v(DocumentEmbedding)
+				const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 				const distance = Compute.cosineDistance(
 					value,
 					r.param("vector", DocumentEmbedding.fields.value)
@@ -229,7 +230,7 @@ const candidatesTitled = candidates.attach(
 	"doc",
 	(c) =>
 		query(Search).rule((r) => {
-			const { account, title } = v(Document)
+			const { account, title } = v(Document, "document")
 			return r.match(Document, { id: c.document, account, title }).find({ account, title })
 		}),
 	"option"
@@ -244,14 +245,14 @@ const candidatesNested = candidates.attach(
 	(c) =>
 		query(Search)
 			.rule((r) => {
-				const { account, title } = v(Document)
+				const { account, title } = v(Document, "document")
 				return r.match(Document, { id: c.document, account, title }).find({ account, title })
 			})
 			.attach(
 				"current",
 				(d) =>
 					query(Search).rule((r) => {
-						const { document, revision } = v(DocumentCurrent)
+						const { document, revision } = v(DocumentCurrent, "documentCurrent")
 						return r
 							.match(DocumentCurrent, { document, revision })
 							.match(Document, { id: document, account: d.account })
@@ -269,7 +270,7 @@ const childAndParent = query(Search)
 			account: r.param("account", uuid),
 			vector: r.param("vector", DocumentEmbedding.fields.value)
 		})
-		const { document, distance } = v(near)
+		const { document, distance } = v(near, "near")
 		return r.match(near, { document, distance }).find({ document, distance })
 	})
 	.attach(
@@ -280,7 +281,7 @@ const childAndParent = query(Search)
 					account: r.param("account", uuid),
 					vector: r.param("vector", DocumentEmbedding.fields.value)
 				})
-				const { distance } = v(near)
+				const { distance } = v(near, "near")
 				return r.match(near, { document: parent.document, distance }).find({ distance })
 			}),
 		"array"
@@ -353,7 +354,7 @@ describe("attachments: one search per execution, never one per parent", () => {
 						generator: element(placementNames),
 						literal: Formatter.format,
 						limit: 8,
-						features: features<"admitted" | "refused">(["admitted", "refused"]),
+						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
 						caseHang: Duration.minutes(2)
 					},
 					(placement, c) =>
@@ -397,7 +398,7 @@ const literalScore = (q: LogicalQuery): LogicalQuery => {
 	const literal = builtExpr(
 		{
 			kind: "literal",
-			value: { kind: "float", value: 0.5 },
+			value: { kind: "float", value: canonicalZero(0.5) },
 			args: [],
 			type: distance.expr.type,
 			nonNull: "literal"
@@ -444,7 +445,7 @@ describe("refusals in the lowering", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 4,
-						features: features<"admitted" | "refused">(["admitted", "refused"]),
+						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
 						caseHang: Duration.minutes(2)
 					},
 					([purpose, score], c) =>

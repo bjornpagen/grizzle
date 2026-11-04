@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Result, String as Str } from "effect"
@@ -18,6 +18,7 @@ import { assert } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { messageOf } from "#test/support/message.ts"
 import { emptyState, interpret, type ModelFile } from "#test/support/migrate/interpret.ts"
+import { testTypeSchema } from "#test/support/sql.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -67,7 +68,7 @@ const builtin = (name: string, type: TypeRef, sample: string): ColumnType => ({
 
 const named = (name: string, type: string, sample: string): ColumnType => ({
 	name,
-	type: (schema) => namedType(schema, type, []),
+	type: (schema) => namedType(testTypeSchema(schema), type, []),
 	sample
 })
 
@@ -110,8 +111,7 @@ const column = (name: string, type: TypeRef): ColumnDef => ({
 	name,
 	type,
 	collation: isText(type) ? cUtf8Collation : undefined,
-	generated: undefined,
-	default: undefined
+	generated: undefined
 })
 
 /** The two types the schema's columns may have that are none of PostgreSQL's: the enums and the domain. */
@@ -189,7 +189,7 @@ const statementsOf = (
 					column: name,
 					type,
 					collation: isText(type) ? cUtf8Collation : undefined,
-					using: lit.text(into.sample, type)
+					using: { kind: "expr", expr: lit.text(into.sample, type) }
 				}
 			]
 		}
@@ -274,7 +274,7 @@ layer(Substrate.layer)("the migration model's foreign key types", (it) => {
 							literal: ([way, from, to]) => `${way}: ${from.name} → ${to.name}`,
 							/** 3 ways × 13 × 13 types; the limit is the cap against a space grown by mistake. */
 							limit: 507,
-							features: features<KeyFeature>(
+							coverage: requiredInSpace<KeyFeature>(
 								Arr.flatMap(ways, (way) => [
 									`${way}: implemented` as const,
 									`${way}: refused` as const

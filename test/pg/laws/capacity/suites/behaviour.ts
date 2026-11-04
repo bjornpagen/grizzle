@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -674,19 +675,21 @@ export const capacityBehaviourSuite = (): void => {
 								runs: 120,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								/**
 								 * Each candidate is a case against the server: a complete shrink of a failure only some runs reproduce never
 								 * ends (laws/families/suites/family.ts), so it stops after 300.
 								 */
 								shrink: { kind: "bounded", candidates: 300 },
-								features: features<Feature>([
-									...Arr.flatMap(shapeNames, (s): ReadonlyArray<Feature> => [
-										`${s} accepted`,
-										`${s} refused by its capacity`
-									]),
-									...edges
-								]),
+								coverage: required<Feature>(
+									[
+										...Arr.flatMap(shapeNames, (s): Arr.NonEmptyReadonlyArray<Feature> => [
+											`${s} accepted`,
+											`${s} refused by its capacity`
+										]),
+										...edges
+									],
+									{ cases: 120, sense: notesOnly }
+								),
 								caseHang: Duration.minutes(2)
 							},
 							(sketch, c) =>

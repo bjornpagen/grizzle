@@ -6,8 +6,9 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { codePoint, type Gen, int, string, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -23,6 +24,7 @@ import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
+import type { Uuid } from "#compiler/public/fields.ts"
 const codec: NamedDetailCodec = { relation: "Timesheet", keys: ["employee", "week", "note"] }
 
 /** The parameter each key of the codec reads: the employee a uuid, the week a bigint and the note a text. */
@@ -51,7 +53,7 @@ const storableCharacter: Gen<string> = weighted([
 
 const storable = string(storableCharacter, { min: 0, max: 10 })
 
-const employeeOf = (n: number): string =>
+const employeeOf = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /**
@@ -138,8 +140,10 @@ layer(Substrate.layer)("DetailCodec on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
-							features: features<DetailFeature>(["plain ascii", "escaped"]),
+							coverage: required<DetailFeature>(["plain ascii", "escaped"], {
+								cases: 300,
+								sense: notesOnly
+							}),
 							caseHang: Duration.minutes(2)
 						},
 						([n, week, note], c) =>

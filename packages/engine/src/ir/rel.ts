@@ -14,7 +14,6 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { EvidenceContext, Premise } from "#compiler/ir/evidence.ts"
 import {
 	type CatalogOpId,
-	exprClosure,
 	type ScalarExpr,
 	type TableExpr,
 	type TypedLiteral
@@ -238,36 +237,17 @@ export interface HeadingGroupOver<N> {
 }
 export type HeadingGroup = HeadingGroupOver<RelNode>
 
-/**
- * The aggregates a Group computes: the public ones (count, sum, mean as avg, min, max), boolean folds, and the
- * regression aggregates R32 lowers a closed-form slope to (REGR_SLOPE(y, x) and the arm test
- * REGR_SXX(y, x) > 0).
- */
-export const aggregateFns = [
-	"count",
-	"sum",
-	"avg",
-	"min",
-	"max",
-	"boolAnd",
-	"boolOr",
-	"regrSlope",
-	"regrSxx"
-] as const
+/** The aggregates a Group computes: the public ones (count, sum, mean as avg, min, max) and the boolean folds. */
+export const aggregateFns = ["count", "sum", "avg", "min", "max", "boolAnd", "boolOr"] as const
 export type AggregateFn = (typeof aggregateFns)[number]
 
-/** The exact number of arguments of each aggregate: count(*) has none, the regressions take (y, x). */
-export const aggregateArity = (fn: AggregateFn): number =>
-	fn === "count" ? 0 : fn === "regrSlope" || fn === "regrSxx" ? 2 : 1
+/** The exact number of arguments of each aggregate: count(*) has none, every other one. */
+export const aggregateArity = (fn: AggregateFn): number => (fn === "count" ? 0 : 1)
 
 /** An aggregate's function and its aggregated expressions, in argument order, as many as its arity. */
 export type AggregateCallOver<E> =
 	| { readonly fn: "count"; readonly args: readonly [] }
-	| { readonly fn: "regrSlope" | "regrSxx"; readonly args: readonly [E, E] }
-	| {
-			readonly fn: Exclude<AggregateFn, "count" | "regrSlope" | "regrSxx">
-			readonly args: readonly [E]
-	  }
+	| { readonly fn: Exclude<AggregateFn, "count">; readonly args: readonly [E] }
 
 export type AggregateSpecOver<E> = {
 	readonly name: string
@@ -290,9 +270,6 @@ export const mapAggregate = <E, F>(
 	switch (a.fn) {
 		case "count":
 			return { ...a, args: [], filter: filter() }
-		case "regrSlope":
-		case "regrSxx":
-			return { ...a, args: [f(a.args[0]), f(a.args[1])], filter: filter() }
 		case "sum":
 		case "avg":
 		case "min":
@@ -647,7 +624,7 @@ export interface Window<R extends RefKinds> extends NodeCommon<R> {
 	/** The ROWS frame, or undefined for the function's default frame. */
 	readonly frame: WindowFrame | undefined
 	readonly out: string
-	/** The rewrite that produced the node (R26-R32, R41). */
+	/** The rewrite that produced the node (R26-R31, R41). */
 	readonly rule: string
 }
 
@@ -715,7 +692,7 @@ export interface Identified {
  *
  * One scoped DAG, not a SQL tree. Every node denotes a set of its complete heading under native
  * equality; no node is a bag. The family is closed: the 22 public kinds (Window and
- * OrderedSetAggregate are internal lowering nodes produced by R26-R32 and R41, never constructible from the public
+ * OrderedSetAggregate are internal lowering nodes produced by R26-R31 and R41, never constructible from the public
  * surface), plus Delta, a ChangeSet's netted delta source for read-backs, and SelfRef, the single
  * feedback reference of a Recursive node, read only inside its step.
  *
@@ -1204,95 +1181,6 @@ export const keptRowsOf = <N>(n: NodeOver<EdgeRefs<N>>): KeptRows<N> | undefined
 		case "Window":
 		case "OrderedSetAggregate":
 			return undefined
-	}
-}
-
-/**
- * The columns of a node whose computation can raise, from those of its inputs (`failing`): as an expression's effects
- * join its arguments' (ir/expr.ts exprEffects), a column's join what it is computed from. A projection's output whose
- * expression can fail or reads a column that can; a region's variable whose correlated expression does, or whose first
- * binding's source column can; a column of a node's kept rows, its input's; a union's, any arm's; a fold's grouping key,
- * its input's, and each aggregate, which may overflow; every column of a production, a recursion and its feedback, a
- * nearest-neighbour retrieval, a window and an ordered-set aggregate, whose rules this does not follow. A column an
- * expression reads beyond the node's inputs and its own earlier variables, an outer or lateral reference, another node
- * of its scope computes, and nothing here proves it total; nor a variable no occurrence binds and no correlation
- * computes.
- */
-export const failingColumns = (
-	node: RelNode,
-	failing: (input: RelNode) => ReadonlySet<string>
-): ReadonlySet<string> => {
-	const heading = node.heading.map((c) => c.name)
-	const inputs = new Map(inputsOf(node).map((i) => [i.id, i] as const))
-	/** Whether an expression can raise, reading the node's own columns by `own`. */
-	const fails = (e: ScalarExpr, own: ReadonlyMap<string, boolean>): boolean =>
-		exprClosure([e]).some((x) => {
-			if (x.failure === "canFail") {
-				return true
-			}
-			if (x.kind !== "column") {
-				return false
-			}
-			const input = inputs.get(x.column.node)
-			if (input !== undefined) {
-				return failing(input).has(x.column.name)
-			}
-			return x.column.node !== node.id || own.get(x.column.name) !== false
-		})
-	const kept = (input: RelNode): ReadonlySet<string> =>
-		new Set(heading.filter((c) => failing(input).has(c)))
-	switch (node.kind) {
-		case "Base":
-		case "Closed":
-		case "Context":
-		case "InputSet":
-		case "Delta":
-			return new Set()
-		case "ProjectSet":
-			return new Set(node.out.filter((o) => fails(o.expr, new Map())).map((o) => o.name))
-		case "MatchRegion": {
-			const own = new Map<string, boolean>()
-			for (const v of node.vars) {
-				const [bound] = node.occurrences.flatMap((o) =>
-					o.bindings
-						.filter((b) => b.var.id === v.id)
-						.map((b) => ({ source: o.source, column: b.column }))
-				)
-				if (bound !== undefined && !node.correlated.some((c) => c.var.id === v.id)) {
-					own.set(v.name, failing(bound.source).has(bound.column))
-				}
-			}
-			for (const c of node.correlated) {
-				own.set(c.var.name, fails(c.expr, own))
-			}
-			return new Set(heading.filter((c) => own.get(c) !== false))
-		}
-		case "Filter":
-		case "Take":
-		case "OrderedResult":
-			return kept(node.input)
-		case "Attach":
-			return kept(node.parent)
-		case "Forbid":
-			return kept(node.violation)
-		case "SemiJoin":
-		case "AntiJoin":
-		case "Intersect":
-		case "Difference":
-			return kept(node.left)
-		case "Union": {
-			const arms = unionArms(node.groups)
-			return new Set(heading.filter((c) => arms.some((arm) => failing(arm).has(c))))
-		}
-		case "Group":
-			return new Set(heading.filter((c) => !node.keys.includes(c) || failing(node.input).has(c)))
-		case "Produce":
-		case "Recursive":
-		case "SelfRef":
-		case "ApproximateNearest":
-		case "Window":
-		case "OrderedSetAggregate":
-			return new Set(heading)
 	}
 }
 

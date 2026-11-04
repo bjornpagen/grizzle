@@ -26,7 +26,8 @@
 		"test/types/examples/work.ts",
 		"oxlint.config.ts",
 		"packages/devtools/src/oxlint/fixtures.config.ts",
-		"packages/testing/src/vitest/coverage.ts"
+		"packages/testing/src/vitest/coverage.ts",
+		"packages/testing/src/witness.fixtures.ts"
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/laws/families/coverage/**",

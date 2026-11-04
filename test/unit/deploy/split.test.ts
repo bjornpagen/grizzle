@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,6 +12,7 @@ import {
 	string,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -195,13 +196,12 @@ describe("splitting a no-transaction file into its statements, generated", () =>
 					suite: "unit/deploy/split",
 					draw: drawn(fileGen),
 					literal: Formatter.format,
-					features: features<SplitFeature>(splitFeatures),
+					coverage: required<SplitFeature>(splitFeatures, { cases: 500, sense: notesOnly }),
 					kept: keptSplits,
 					runs: 500,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ pieces, terminated, unterminated }, c) =>

@@ -14,7 +14,7 @@ import { armColumns, armTargets } from "#compiler/lower/conservative/union/arms.
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
 import type { Expr, Select, SelectBody, SetOperator } from "#compiler/sql/ast.ts"
-import { core, select } from "#compiler/sql/build.ts"
+import { asOperand, core, distinctCoreWhen, select, setOp } from "#compiler/sql/build.ts"
 
 /**
  * One arm read as a derived table and projected onto `heading`, in its order, each refined column cast
@@ -25,19 +25,9 @@ const armBody = (cx: LowerContext, arm: RelNode, heading: Heading, env: Env): Se
 	return core(armTargets(cx, heading, source.map), [source.item], undefined)
 }
 
-/** arm1 <op> arm2 <op> ..., left-associated; a nested set operation as a right operand is parenthesized. */
-const chain = (op: SetOperator, bodies: NonEmptyReadonlyArray<SelectBody>): SelectBody => {
-	const [first, ...rest] = bodies
-	return rest.reduce<SelectBody>(
-		(left, right) => ({
-			kind: "setOp",
-			op,
-			left,
-			right: right.kind === "setOp" ? select(right) : right
-		}),
-		first
-	)
-}
+/** arm1 <op> arm2 <op> ..., left-associated: one set operation, each nested set operation a parenthesized arm. */
+const chain = (op: SetOperator, bodies: NonEmptyReadonlyArray<SelectBody>): SelectBody =>
+	setOp(op, mapNonEmpty(bodies, asOperand))
 
 /**
  * The operator combining the arms of one heading group read inside a statement: UNION where the union's boundary is
@@ -84,16 +74,14 @@ export const unionLowerer =
 				)
 			}
 			const source = cx.source(only, env)
-			return {
-				...core(
-					node.groups.length > 1
-						? armTargets(cx, node.heading, source.map)
-						: headingTargets(node.heading, source.map),
-					[source.item],
-					undefined
-				),
-				distinct: op === "UNION"
-			}
+			return distinctCoreWhen(
+				op === "UNION",
+				node.groups.length > 1
+					? armTargets(cx, node.heading, source.map)
+					: headingTargets(node.heading, source.map),
+				[source.item],
+				undefined
+			)
 		}
 		return select(
 			chain(
@@ -141,10 +129,9 @@ export const armBoundedUnion = (
 	 * union's heading.
 	 */
 	const bounded = (arm: (typeof arms)[number][number]): Select => ({
-		...select({
-			...core(arm.targets, [arm.source.item], undefined),
-			distinct: !facts.keyedBy(arm.node, columns)
-		}),
+		...select(
+			distinctCoreWhen(!facts.keyedBy(arm.node, columns), arm.targets, [arm.source.item], undefined)
+		),
 		orderBy: orderItemsOf(order, union.heading, arm.delivered, { leading: [], total, fixed: [] }),
 		limit: k
 	})
@@ -172,10 +159,14 @@ export const groupRows = (
 	const [only, ...others] = g.arms
 	if (others.length === 0) {
 		const source = cx.source(only, env)
-		return select({
-			...core(headingTargets(g.heading, source.map), [source.item], undefined),
-			distinct: !facts.unique(only)
-		})
+		return select(
+			distinctCoreWhen(
+				!facts.unique(only),
+				headingTargets(g.heading, source.map),
+				[source.item],
+				undefined
+			)
+		)
 	}
 	const proved = facts.realization(union) === "plain" && facts.unique(union)
 	return select(

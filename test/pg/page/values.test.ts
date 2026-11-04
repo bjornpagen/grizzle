@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -44,6 +45,7 @@ import {
 } from "#test/unit/page/fixtures.ts"
 
 import { regex } from "arkregex"
+import type { Uuid } from "#compiler/public/fields.ts"
 /**
  * Boundary values through the page runtime, drawn from the scalar edge dictionaries.
  *
@@ -61,7 +63,7 @@ import { regex } from "arkregex"
  *   column's type, equal to the value stored in the edge's row.
  */
 
-const id = (n: number): string =>
+const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const text: ScalarType = scalarOfSpec({ carrier: "text" })
@@ -131,11 +133,9 @@ const valuesCaseGen: Gen<ValuesCase> = (source) => ({
 	backward: source.draw(int(1, 4))
 })
 
-/** Every spelling of every class, edges included, so a sketch reaches each. */
-const spelling = { mode: "perFact", choices: [], edge: true } as const
-
+/** Every class, edges included, so a sketch reaches each. */
 const literalOf = (field: Field, sketch: ValueSketch): TypedLiteral =>
-	resolveValue(fields[field], sketch, spelling, "stored")
+	resolveValue(fields[field], sketch, true)
 
 /** A fact's stored texts, as its column's input function reads them. */
 const factTexts = (f: FactSketch): Readonly<Record<Field, string>> => ({
@@ -233,23 +233,25 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.minutes(2),
-								features: features<ValuesFeature>([
-									...Arr.map(orderedNames, (q): ValuesFeature => `query ${q}`),
-									"float -0",
-									"float NaN",
-									"float infinity",
-									"float subnormal",
-									"numeric NaN",
-									"numeric infinity",
-									"numeric of more than 17 digits",
-									"bigint extreme",
-									"bigint beyond 2^53",
-									"empty text",
-									"text beyond the BMP",
-									"a tie on the leading key"
-								])
+								coverage: required<ValuesFeature>(
+									[
+										...Arr.map(orderedNames, (q): ValuesFeature => `query ${q}`),
+										"float -0",
+										"float NaN",
+										"float infinity",
+										"float subnormal",
+										"numeric NaN",
+										"numeric infinity",
+										"numeric of more than 17 digits",
+										"bigint extreme",
+										"bigint beyond 2^53",
+										"empty text",
+										"text beyond the BMP",
+										"a tie on the leading key"
+									],
+									{ cases: 60, sense: notesOnly }
+								)
 							},
 							(c, notes) =>
 								Effect.gen(function* () {

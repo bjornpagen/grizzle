@@ -2,7 +2,7 @@ import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { type Case, drawn, type Exploration, explore, Run } from "#explore.ts"
-import { noFeatures } from "#features.ts"
+import { noCoverage } from "#features.ts"
 import type { Corpus } from "#fuzz.ts"
 import { int } from "#gen.ts"
 import { completeShrink } from "#shrink.ts"
@@ -32,13 +32,12 @@ const search = (suite: string): Exploration<number, number, Found> => ({
 	suite,
 	draw: drawn(int(0, 1_000_000)),
 	literal: Formatter.format,
-	features: noFeatures,
+	coverage: noCoverage,
 	kept: [],
 	runs: 100,
 	shrink: completeShrink,
 	concurrency: 4,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(1)
 })
 

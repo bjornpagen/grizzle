@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -42,6 +43,7 @@ import {
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { pickGen, pickFrom } from "#test/support/pick.ts"
 
+import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type BuiltSchema,
 	buildMixed,
@@ -56,6 +58,7 @@ import {
 	type MixedForm,
 	mixedFeatures,
 	mixedForms,
+	plantedNameCount,
 	resolveCase
 } from "#test/support/oracle/public/generate.ts"
 
@@ -570,7 +573,7 @@ const rebuiltRead = (
 		return
 	}
 	const importing = (source: unknown) => (r: RuleValue) => {
-		const x = v(source)
+		const x = v(source, "source")
 		return r.match(source, x).find(x)
 	}
 	const union = query(value).rule(importing(rebuilt)).rule(importing(original))
@@ -686,6 +689,8 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 					"handle field": 3
 				},
 				perturbation: { settings: [], multiplier: 1 },
+				ambient: ordinarySession,
+				restorage: { shift: 0, respell: 0 },
 				roster: 0,
 				span: 0,
 				relations: [{ name: 0, fields: [{ name: 0, kind: 0, key: 0 }], candidate: 0, facts: [] }],
@@ -713,9 +718,14 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 							inSet: [],
 							allen: [],
 							pointIn: [],
+							connective: [],
 							computed: [],
 							negation: { source: 0, picks: [0, 0] },
-							head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] },
+							head: {
+								vars: [],
+								names: [0, 0, 0, 0, 0, 0],
+								folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+							},
 							interior: {
 								matches: [
 									{
@@ -735,7 +745,11 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 								],
 								where: [],
 								negation: { source: 0, picks: [0, 0] },
-								head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] }
+								head: {
+									vars: [],
+									names: [0, 0, 0, 0, 0, 0],
+									folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+								}
 							}
 						},
 						take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
@@ -773,9 +787,14 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 									inSet: [],
 									allen: [],
 									pointIn: [],
+									connective: [],
 									computed: [],
 									negation: { source: 0, picks: [0, 0] },
-									head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] },
+									head: {
+										vars: [],
+										names: [0, 0, 0, 0, 0, 0],
+										folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+									},
 									interior: {
 										matches: [
 											{
@@ -795,7 +814,11 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 										],
 										where: [],
 										negation: { source: 0, picks: [0, 0] },
-										head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] }
+										head: {
+											vars: [],
+											names: [0, 0, 0, 0, 0, 0],
+											folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+										}
 									}
 								},
 								nested: {
@@ -825,9 +848,14 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 										inSet: [],
 										allen: [],
 										pointIn: [],
+										connective: [],
 										computed: [],
 										negation: { source: 0, picks: [0, 0] },
-										head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] },
+										head: {
+											vars: [],
+											names: [0, 0, 0, 0, 0, 0],
+											folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+										},
 										interior: {
 											matches: [
 												{
@@ -847,7 +875,11 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 											],
 											where: [],
 											negation: { source: 0, picks: [0, 0] },
-											head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] }
+											head: {
+												vars: [],
+												names: [0, 0, 0, 0, 0, 0],
+												folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+											}
 										}
 									}
 								}
@@ -879,14 +911,15 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 									inSet: [],
 									allen: [],
 									pointIn: [],
+									connective: [],
 									computed: [],
 									negation: { source: 0, picks: [0, 0] },
 									head: {
 										vars: [],
 										names: [0, 0, 0, 0, 0, 0],
 										folds: [
-											{ fn: 39322, arg: 0 },
-											{ fn: 0, arg: 0 }
+											{ fn: 39322, arg: 0, padded: 0, scale: 0 },
+											{ fn: 0, arg: 0, padded: 0, scale: 0 }
 										]
 									},
 									interior: {
@@ -908,7 +941,11 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 										],
 										where: [],
 										negation: { source: 0, picks: [0, 0] },
-										head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] }
+										head: {
+											vars: [],
+											names: [0, 0, 0, 0, 0, 0],
+											folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+										}
 									}
 								},
 								nested: {
@@ -938,9 +975,14 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 										inSet: [],
 										allen: [],
 										pointIn: [],
+										connective: [],
 										computed: [],
 										negation: { source: 0, picks: [0, 0] },
-										head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] },
+										head: {
+											vars: [],
+											names: [0, 0, 0, 0, 0, 0],
+											folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+										},
 										interior: {
 											matches: [
 												{
@@ -960,7 +1002,11 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 											],
 											where: [],
 											negation: { source: 0, picks: [0, 0] },
-											head: { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] }
+											head: {
+												vars: [],
+												names: [0, 0, 0, 0, 0, 0],
+												folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+											}
 										}
 									}
 								}
@@ -972,9 +1018,10 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 					}
 				],
 				planted: {
-					names: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+					names: Array.from({ length: plantedNameCount }, () => 0),
 					value: { cls: 0, sp: 0 },
 					handle: 0,
+					padding: 0,
 					side: { kind: 0, values: [0, 0, 0] }
 				}
 			},
@@ -996,20 +1043,22 @@ describe("typed rows at bind", () => {
 						suite: "unit/program/delivered",
 						draw: drawn((source) => [source.draw(caseSketchGen), source.draw(plantGen)] as const),
 						literal: Formatter.format,
-						features: features<RestatedFeature>([
-							"option the facts break: refused",
-							"one the facts break: refused",
-							"arm the facts break: refused",
-							"option the program proves: bound",
-							"one the program proves: bound",
-							"arm the program proves: bound"
-						]),
+						coverage: required<RestatedFeature>(
+							[
+								"option the facts break: refused",
+								"one the facts break: refused",
+								"arm the facts break: refused",
+								"option the program proves: bound",
+								"one the program proves: bound",
+								"arm the program proves: bound"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: restatedKept,
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([sketch, plant], notes) =>
@@ -1029,16 +1078,15 @@ describe("typed rows at bind", () => {
 						suite: "unit/program/delivered-layouts",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
-						features: features<LayoutFeature>([
-							"column removed: refused",
-							"attachment removed: refused"
-						]),
+						coverage: required<LayoutFeature>(
+							["column removed: refused", "attachment removed: refused"],
+							{ cases: 60, sense: notesOnly }
+						),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, notes) =>
@@ -1058,16 +1106,15 @@ describe("typed rows at bind", () => {
 						suite: "unit/program/delivered-rebuilt",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
-						features: features<RebuiltFeature>([
-							"rebuilt: refused",
-							"rebuilt arm beside a typed arm: refused"
-						]),
+						coverage: required<RebuiltFeature>(
+							["rebuilt: refused", "rebuilt arm beside a typed arm: refused"],
+							{ cases: 40, sense: notesOnly }
+						),
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, notes) =>
@@ -1085,7 +1132,7 @@ describe("typed rows at bind", () => {
 					suite: "unit/program/delivered-mixed",
 					draw: drawn(caseSketchGen),
 					literal: Formatter.format,
-					features: features<MixedForm>(mixedForms),
+					coverage: required<MixedForm>(mixedForms, { cases: 60, sense: notesOnly }),
 					kept: [],
 					/**
 					 * The planted population holds a mixed root in three sixteenths of the cases: sixty cases plant about
@@ -1095,7 +1142,6 @@ describe("typed rows at bind", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(sketch, notes) =>

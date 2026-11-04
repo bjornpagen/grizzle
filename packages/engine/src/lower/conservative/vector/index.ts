@@ -1,4 +1,5 @@
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -10,7 +11,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { admitsArity, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import type { BinaryOperator, Expr, OrderItem } from "#compiler/sql/ast.ts"
-import { and, asc, core, or, qualifiedCall, select } from "#compiler/sql/build.ts"
+import { and, asc, distinctCore, lit, or, qualifiedCall, select } from "#compiler/sql/build.ts"
 
 /**
  * The extension's functions this lowering emits, by Compute operation.
@@ -120,21 +121,28 @@ export const lowerVectorOp = (
 			if (x === undefined || low === undefined || high === undefined) {
 				return refuseAt("MalformedDescription", at, `the operands of ${describeOp(expr.op)}`)
 			}
-			return and(
+			return and([
 				qualifiedBinary(">=", x, low, vectorSchema),
 				qualifiedBinary("<=", x, high, vectorSchema)
-			)
+			])
 		}
 		case "in": {
 			const [x, ...list] = args
-			if (x === undefined || list.length === 0) {
-				return refuseAt("MalformedDescription", at, "an IN list of at least one vector")
+			if (x === undefined) {
+				return refuseAt("MalformedDescription", at, "the operand of an IN")
 			}
-			return or(...list.map((item) => qualifiedBinary("=", x, item, vectorSchema)))
+			return isNonEmpty(list)
+				? or(mapNonEmpty(list, (item) => qualifiedBinary("=", x, item, vectorSchema)))
+				: lit.bool(false)
 		}
 		case "least":
-		case "greatest":
-			return { kind: sql.kind, args }
+		case "greatest": {
+			const [x, ...more] = args
+			if (x === undefined) {
+				return refuseAt("MalformedDescription", at, `the operands of ${describeOp(expr.op)}`)
+			}
+			return { kind: sql.kind, args: [x, ...more] }
+		}
 		case "prefix":
 		case "cast":
 		case "and":
@@ -155,10 +163,7 @@ const lowerApproximateNearest: NodeLowerer<"ApproximateNearest"> = (node, cx, en
 		...node.heading.map((c) => c.name).filter((n) => n !== node.score)
 	].map((name) => asc(columnIn(input.map, name)))
 	return {
-		...select({
-			...core(headingTargets(node.heading, input.map), [input.item], undefined),
-			distinct: true
-		}),
+		...select(distinctCore(headingTargets(node.heading, input.map), [input.item], undefined)),
 		orderBy: items,
 		limit: cx.boundExpr({ kind: "literal", k: node.take })
 	}

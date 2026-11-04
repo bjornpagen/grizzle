@@ -10,9 +10,10 @@ import {
 	StepInapplicable
 } from "#commands.ts"
 import { drawn, exhaust, explore } from "#explore.ts"
-import { features, noFeatures } from "#features.ts"
+import { noCoverage, required } from "#features.ts"
 import { constant, int } from "#gen.ts"
 import { wordsOf } from "#random.ts"
+import { notesOnly } from "#sense.ts"
 import { completeShrink, shrink } from "#shrink.ts"
 import { generate, randomChooser } from "#source.ts"
 import { searched } from "#vitest/searched.ts"
@@ -107,7 +108,7 @@ describe("a state machine", () => {
 						generator: program(twoValued, { min: 0, max: 3 }),
 						literal: Formatter.format,
 						limit: 1000,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
 					(steps) =>
@@ -128,13 +129,15 @@ describe("a state machine", () => {
 					suite: "ring buffer",
 					draw: drawn(program(QUEUE, { min: 0, max: 12 })),
 					literal: Formatter.format,
-					features: features<"push" | "pop" | "size" | "full">(["push", "pop", "size", "full"]),
+					coverage: required<"push" | "pop" | "size" | "full">(["push", "pop", "size", "full"], {
+						cases: 200,
+						sense: notesOnly
+					}),
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(1)
 				},
 				(steps, c) =>

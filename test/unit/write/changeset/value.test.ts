@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
@@ -14,6 +14,7 @@ import {
 	string
 } from "@grizzle/testing/gen"
 import { lsw, passed, type WildKind } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record, Stream } from "effect"
@@ -67,7 +68,7 @@ const malformed = (f: () => unknown): CompileError => throwsRefused(f, "Malforme
 
 const note = (n: number) => ({ task: uuidOf(n), note: `n${n}` })
 const tasksOf = query(Work).rule((r: RuleValue) => {
-	const { id, account, kind } = v(Task)
+	const { id, account, kind } = v(Task, "task")
 	return r.match(Task, { id, account, kind }).find({ id, account, kind })
 })
 
@@ -86,10 +87,8 @@ describe("canonical form (build order never matters within a stratum)", () => {
 		Effect.gen(function* () {
 			/** The members a stratum may hold: arrays, a query, its repeat, and Streams, on two relations and three operations. */
 			const manualTasks = query(Work).rule((r: RuleValue) => {
-				const { id, account } = v(Task)
-				return r
-					.match(Task, { id, account, kind: "Manual" })
-					.find({ id, account, kind: r.literal("Manual") })
+				const { id, account } = v(Task, "task")
+				return r.match(Task, { id, account, kind: "Manual" }).find({ id, account, kind: "Manual" })
 			})
 			const notes = Stream.fromIterable([note(3)])
 			const more = Stream.fromIterable([note(4)])
@@ -127,19 +126,21 @@ describe("canonical form (build order never matters within a stratum)", () => {
 							] as const
 						}),
 						literal: Formatter.format,
-						features: features<MemberOrderFeature>([
-							"an array member",
-							"a query member",
-							"a Stream member",
-							"two members of one operation on one relation",
-							"a repeated member"
-						]),
+						coverage: required<MemberOrderFeature>(
+							[
+								"an array member",
+								"a query member",
+								"a Stream member",
+								"two members of one operation on one relation",
+								"a repeated member"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([members, reordered], c) =>
@@ -292,7 +293,7 @@ describe("members", () => {
 		assert.equal(descOf(over).schema, "Work")
 		const other = schema("Elsewhere", { Task }, [])
 		const foreign = query(other).rule((r: RuleValue) => {
-			const { id, account, kind } = v(Task)
+			const { id, account, kind } = v(Task, "task")
 			return r.match(Task, { id, account, kind }).find({ id, account, kind })
 		})
 		malformed(() => cs(Work).put(Task, foreign))
@@ -414,27 +415,29 @@ describe("the level check", () => {
 							(source) => [source.draw(element(levelSubjects)), source.draw(namedGen)] as const
 						),
 						literal: Formatter.format,
-						features: features<LevelPairFeature>([
-							"the schema itself",
-							"a level",
-							"no level",
-							"renamed: plain",
-							"a relation added",
-							"a statement removed"
-						]),
+						coverage: required<LevelPairFeature>(
+							[
+								"the schema itself",
+								"a level",
+								"no level",
+								"renamed: plain",
+								"a relation added",
+								"a statement removed"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([carried, named], c) =>
 						Effect.sync(() => {
 							const namedSchema = named.kind === "fixture" ? named.subject.schema : named.schema
 							const q = query(carried.schema).rule((r: RuleValue) => {
-								const vars = v(carried.relation)
+								const vars = v(carried.relation, "relation")
 								return r.match(carried.relation, vars).find(vars)
 							})
 							const input = queryInput(q)
@@ -478,7 +481,7 @@ describe("read-backs", () => {
 	it("record a delta source per delta.added and delta.removed, of an ordinary relation only", () => {
 		const a = cs(Work).read("gone", (delta: DeltaValue) =>
 			query(Work).rule((r: RuleValue) => {
-				const { task, note: n } = v(delta.removed(TaskNote))
+				const { task, note: n } = v(delta.removed(TaskNote), "removedTaskNote")
 				return r.match(delta.removed(TaskNote), { task, note: n }).find({ task, note: n })
 			})
 		)
@@ -533,7 +536,7 @@ describe("bind", () => {
 		switchToManual().insert(
 			TaskNote,
 			query(Work).rule((r: RuleValue) => {
-				const { task, note: body } = v(TaskNote)
+				const { task, note: body } = v(TaskNote, "taskNote")
 				return r
 					.match(r.relation("notes", TaskNote), { task, note: body })
 					.find({ task, note: body })
@@ -568,19 +571,21 @@ describe("bind", () => {
 							})
 						),
 						literal: Formatter.format,
-						features: features<BindFeature>([
-							"a live map",
-							"throwing-getter as the map",
-							"proxy as the map",
-							"throwing-getter as a fact",
-							"proxy as a fact"
-						]),
+						coverage: required<BindFeature>(
+							[
+								"a live map",
+								"throwing-getter as the map",
+								"proxy as the map",
+								"throwing-getter as a fact",
+								"proxy as a fact"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(map, c) =>
@@ -622,7 +627,7 @@ describe("bind", () => {
 	const needsTask = query(Work).rule((r: RuleValue) =>
 		r
 			.match(Task, { id: r.param("task", Task.fields.id) })
-			.find({ task: r.param("task", Task.fields.id), note: r.literal("x") })
+			.find({ task: r.param("task", Task.fields.id), note: "x" })
 	)
 
 	/** A value's bindings, strings by their text and any other value by its formatted text. */
@@ -660,7 +665,7 @@ describe("bind", () => {
 		const spelled = query(Work).rule((r: RuleValue) =>
 			r
 				.match(Task, { id: r.param("task#1", Task.fields.id) })
-				.find({ task: r.param("task#1", Task.fields.id), note: r.literal("y") })
+				.find({ task: r.param("task#1", Task.fields.id), note: "y" })
 		)
 		const more = bound.insert(TaskNote, needsTask).insert(TaskNote, spelled)
 		assert.deepEqual(descOf(more).bindings, ["operator", "task#2"])
@@ -680,7 +685,7 @@ describe("bind", () => {
 					generator: element(["a union", "a sequence"] as const),
 					literal: Formatter.format,
 					limit: 2,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
 				(how) =>

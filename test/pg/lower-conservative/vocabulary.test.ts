@@ -1,9 +1,9 @@
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect } from "effect"
 import { ExprId } from "#compiler/core/ids.ts"
-import { describeOp, type OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { defaultOps, opForms } from "#compiler/lower/conservative/expr/ops.ts"
-import { nativeOps, operandCarriers } from "#compiler/scalar/compute/registry.ts"
+import { type NativeOp, nativeOps, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import { col } from "#compiler/sql/build.ts"
 import { assert, contains } from "#test/support/assert.ts"
 import { indices } from "#test/support/oracle/pick.ts"
@@ -20,19 +20,32 @@ import { T } from "#test/unit/lower/conservative/fixtures.ts"
  * compared and projected literals and closed payloads over every palette type, against the reference.
  */
 
-/** The op node of `op` that defaultOps lowers: it reads the OpId; the rest makes a well-formed scalar expression. */
-const opExpr = (op: OpId): ScalarExpr & { readonly kind: "op" } => ({
-	kind: "op",
-	op,
-	id: ExprId("e1"),
-	args: [],
-	type: T.bool,
-	nonNull: "strict",
-	volatility: "immutable",
-	failure: "total",
-	deps: { params: [], nodes: [] },
-	pgType: T.bool
-})
+/**
+ * The op node of `native` that defaultOps lowers: it reads the overload; the rest makes a well-formed scalar
+ * expression, a partial overload's proof among it, which no lowering of the form reads.
+ */
+const opExpr = (native: NativeOp): ScalarExpr & { readonly kind: "op" } => {
+	const common = {
+		kind: "op",
+		id: ExprId("e1"),
+		args: [],
+		type: T.bool,
+		nonNull: "strict",
+		volatility: "immutable",
+		deps: { params: [], nodes: [] },
+		pgType: T.bool
+	} as const
+	return native.partial
+		? {
+				...common,
+				op: native.id,
+				proof: {
+					precondition: { kind: "nonzero", operand: 1 },
+					premises: [{ kind: "checked", operand: 1, by: "literal" }]
+				}
+			}
+		: { ...common, op: native.id }
+}
 
 layer(Substrate.layer)("the conservative vocabulary on PostgreSQL 19", (it) => {
 	it.effect("names a builtin operator for every operator form", () =>
@@ -58,13 +71,17 @@ layer(Substrate.layer)("the conservative vocabulary on PostgreSQL 19", (it) => {
 			const { admin } = yield* Substrate
 			let checked = 0
 			for (const native of nativeOps) {
-				if (native.sql.kind !== "function") {
+				if (
+					native.sql.kind !== "function" ||
+					native.totality.kind === "exact" ||
+					native.totality.kind === "ieee"
+				) {
 					continue
 				}
 				const args = Arr.map(indices(operandCarriers(native.operands).length), (i) =>
 					col("r1", `c${i + 1}`)
 				)
-				const lowered = defaultOps(opExpr(native.id), args)
+				const lowered = defaultOps(opExpr(native), args)
 				if (lowered === undefined) {
 					continue
 				}

@@ -22,6 +22,7 @@ import {
 	consumerOutput
 } from "#compiler/analysis/physical/consumers.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { NodeId } from "#compiler/core/ids.ts"
@@ -34,7 +35,6 @@ import type { FoldInput } from "#compiler/lower/optimize/dedup/plan.ts"
 import {
 	edgeFold,
 	elisionKinds,
-	evaluatesBound,
 	isPinnedDistinct,
 	placementTarget
 } from "#compiler/lower/optimize/dedup/policy.ts"
@@ -181,15 +181,6 @@ const setForms = (
 					"unprovedUnionAll",
 					`Union ${id}`,
 					"UNION ALL only over unique arms pairwise disjoint on their final coerced headings"
-				)
-			)
-		}
-		if (isFold(node) && plan.folds[id]?.input === "plain" && evaluatesBound(a, node)) {
-			out.push(
-				problem(
-					"hiddenFailure",
-					`Group ${id}`,
-					"a DISTINCT on the fold's contributions, which computes a bound column it reads nowhere else that can fail"
 				)
 			)
 		}
@@ -353,7 +344,7 @@ const certificates = (
 		}
 		const rule = cert.rule
 		if (rule === multiplicityRules.placement) {
-			out.push(...placementProblems(cert, where))
+			appendAll(out, placementProblems(cert, where))
 			continue
 		}
 		const derived = rederive(labelled, a, plan, cert, rule)
@@ -462,8 +453,6 @@ interface MultiplicityVerification {
  * - every observing edge is discharged by the input's physical keys, or is a fold's input deduplicated by the fold on
  *   exactly its complete bound tuple B: COUNT, SUM, a bound, a page, a window, an attachment or the
  *   public result never sees an input whose repeats nothing proves away;
- * - no fold folds plainly where a column of B it reads nowhere else can fail (dedup/policy.ts evaluatesBound): the
- *   plain form lets PostgreSQL drop that column and hide a failure the program raises;
  * - every certificate is the one the recomputed analysis proves for the rewrite it names, equal in every field, in an
  *   evidence context the execution context admits, and every rewrite the realization performs has its certificate.
  *   A placement's is rebuilt for the placement the plan performs, from the DAG and what its consumer needs.

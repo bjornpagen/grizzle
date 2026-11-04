@@ -12,7 +12,7 @@ import type * as Result from "#compiler/core/result.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { RootedDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { DagEditor, total } from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 /** The operands of one connective over one pair, in their order, beside the first one's predicate. */
@@ -43,7 +43,7 @@ class Normalizer {
 	normal(e: ScalarExpr): ScalarExpr {
 		const whole = this.#reading.pair(e)
 		if (whole !== undefined) {
-			return whole.endpoint && total([e]) ? this.#emit(whole, e.type) : e
+			return whole.endpoint ? this.#emit(whole, e.type) : e
 		}
 		if (e.kind !== "op") {
 			return e
@@ -61,7 +61,7 @@ class Normalizer {
 	}
 
 	/**
-	 * A connective's operands: those over one pair, with an endpoint among them and total, as one mask at the first
+	 * A connective's operands: those over one pair, with an endpoint among them, as one mask at the first
 	 * one's place; every other operand normalized inside.
 	 */
 	#connective(
@@ -94,9 +94,7 @@ class Normalizer {
 				slot.members.map((m) => this.#reading.pair(m)),
 				join
 			)
-			return group?.endpoint === true && total(slot.members)
-				? [this.#emit(group, bool)]
-				: slot.members
+			return group?.endpoint === true ? [this.#emit(group, bool)] : slot.members
 		})
 	}
 }
@@ -135,8 +133,7 @@ export const endpointPredicates = (roots: ReadonlyArray<ScalarExpr>): number => 
  *   Every other operand is normalized inside, and every other predicate is untouched.
  * - The empty mask is the false literal and the full mask the true literal, which folding (rules.ts simplify.fold)
  *   decides in its connective; every other mask is its table formula (check/allen.ts allenExpr).
- * - A combination is rewritten only where it is total: an empty or full mask drops the evaluation of its operands, and
- *   no rewrite removes an evaluation that could raise.
+ * - An empty or full mask drops the evaluation of its operands, none of which raises.
  *
  * It runs in the optimized lowering only, as the simplification rule simplify.allen (rules.ts), before predicate
  * movement and every other rewrite reads the filter. The conservative lowering, the differential's comparator, keeps

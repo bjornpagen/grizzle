@@ -1,12 +1,14 @@
 import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
-import { closedId, Decimal, pg, uuid } from "#compiler/public/fields.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { closedId, Decimal, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import type { AnyClosed } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { floatIdentityText } from "#compiler/scalar/values/float.ts"
+import { floatText } from "#compiler/scalar/values/float.ts"
 import type { CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
+import { floatLiteralOf } from "#test/support/oracle/gen/domain.ts"
 import { toastLengths, toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
 import { pickIndex } from "#test/support/pick.ts"
 
@@ -23,9 +25,9 @@ export type SerialKind = "bigserial" | "serial"
  * host values, so that generated facts collide on keys and payloads often: exact repeats, a different payload at an
  * occupied key, identical puts and deletions of present and absent facts are the cases the add-wins transition and its
  * counts must get right. Every value is held in the one host form the codecs read and decode,
- * so the oracle and the database compare it by native equality: `identityText` of
- * packages/engine/src/scalar/values is equal exactly when PostgreSQL's equality is, which makes 0 and -0 one
- * value of double precision and NaN equal to NaN.
+ * so the oracle and the database compare it by native equality: the canonical text (scalar/values/identity.ts
+ * canonicalText) is equal exactly when PostgreSQL's equality is, which makes 0 and -0 one value of double precision,
+ * 1.5 and 1.50 one Decimal, and NaN equal to NaN.
  *
  * The palette:
  * - integer, bigint, and identity columns of either (GENERATED ALWAYS AS IDENTITY, serial and bigserial);
@@ -37,8 +39,8 @@ export type SerialKind = "bigserial" | "serial"
  *   and numeric(3, 0), and double precision (payload columns only: NaN, -0 and infinity are values, never key parts
  *   here, so that the B-tree arbiter and the payload comparison meet them only as payload).
  *
- * ChangeSet inputs may spell a numeric value as any decimal that coerces to it at its column's typmod: another display
- * scale, or a value that rounds to it (coercedSpelling). Fact identity is decided after that coercion, so valueIdentity
+ * ChangeSet inputs may spell a numeric value as any decimal that coerces to it at its column's typmod: a value that
+ * rounds to it (coercedSpelling); another display scale is the same Decimal already. Fact identity is decided after that coercion, so valueIdentity
  * normalizes to the column's typmod before comparing, and an exact repeat or a put spelled differently is the stored
  * fact. The three typmods' values round onto each other's (1.4951 and 1.5000 are both 1.50 at scale 2, and 2 at scale
  * 0), so a described member that reads one typmod into another collapses distinct values into one after its cast.
@@ -60,7 +62,7 @@ export type TypeKind =
 export const rosterName = "K"
 export const rosterHandles: readonly [string, ...Array<string>] = ["H0", "H1", "H2"]
 
-const uuidOf = (n: number): string =>
+const uuidOf = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x7700 + n).toString(16), Str.padStart(12, "0"))}`
 
 const decimal = (text: string): Decimal => Decimal.of(text)
@@ -252,7 +254,7 @@ export const coercedSpelling = <V>(kind: TypeKind, value: V, pick: number): V | 
 	if (!isNumericKind(kind) || !(value instanceof Decimal)) {
 		return value
 	}
-	const spellings = coercedSpellings[kind].get(value.identityText()) ?? []
+	const spellings = coercedSpellings[kind].get(value.text) ?? []
 	const at = pickIndex(pick, spellings.length + 1)
 	return at === 0 ? value : (spellings[at - 1] ?? value)
 }
@@ -325,8 +327,8 @@ export const fieldOf = (kind: TypeKind, roster: AnyClosed): FieldBase => {
 
 /**
  * The identity of one value of a column of `kind`: equal exactly under PostgreSQL's equality. A value of the kind's
- * host type has its identity text (scalar/values identityText). A case also holds values outside it, a generated
- * addition's omitted serial field among them, and compares their keys as identityText spells them: an integer or
+ * host type has its canonical text (scalar/values canonicalText). A case also holds values outside it, a generated
+ * addition's omitted serial field among them, and compares their keys as that text spells them: an integer or
  * boolean carrier as String does, a float carrier likewise, a text carrier as the value itself (as String spells
  * another value, an omitted field's undefined among them).
  */
@@ -339,7 +341,7 @@ export const valueIdentity = (kind: TypeKind, value: unknown): string => {
 		case "bool":
 			return String(value)
 		case "float8":
-			return typeof value === "number" ? floatIdentityText(value) : String(value)
+			return typeof value === "number" ? floatText(value) : String(value)
 		case "numeric(5, 2)":
 		case "numeric(12, 4)":
 		case "numeric(3, 0)": {
@@ -356,7 +358,7 @@ export const valueIdentity = (kind: TypeKind, value: unknown): string => {
 					`a numeric value ${kind} refuses: ${value.toString()} (${normalized.error})`
 				)
 			}
-			return normalized.value.identityText()
+			return normalized.value.text
 		}
 		case "text":
 		case "text6":
@@ -364,6 +366,42 @@ export const valueIdentity = (kind: TypeKind, value: unknown): string => {
 		case "uuid":
 		case "enum":
 			return typeof value === "string" ? value : String(value)
+	}
+}
+
+/**
+ * A host value of a column of `kind` as the IR's literal, which the twin table reads (gen/domain.ts carrierTwins): a
+ * value of another host type is a defect of the case.
+ */
+export const literalOfKind = (kind: TypeKind, value: unknown): TypedLiteral => {
+	const wrong = (): never => {
+		throw new TypeError(`a ${kind} value of another host type: ${printValue(value)}`)
+	}
+	switch (kind) {
+		case "int4":
+		case "serial":
+			return typeof value === "number" && Number.isSafeInteger(value)
+				? { kind: "int", value: BigInt(value) }
+				: wrong()
+		case "int8":
+		case "bigserial":
+			return typeof value === "bigint" ? { kind: "int", value } : wrong()
+		case "text":
+		case "text6":
+		case "memo":
+			return typeof value === "string" ? { kind: "text", value } : wrong()
+		case "uuid":
+			return typeof value === "string" ? { kind: "uuid", value } : wrong()
+		case "bool":
+			return typeof value === "boolean" ? { kind: "bool", value } : wrong()
+		case "enum":
+			return typeof value === "string" ? { kind: "enum", handle: value } : wrong()
+		case "numeric(5, 2)":
+		case "numeric(12, 4)":
+		case "numeric(3, 0)":
+			return value instanceof Decimal ? { kind: "numeric", value } : wrong()
+		case "float8":
+			return typeof value === "number" ? floatLiteralOf(value) : wrong()
 	}
 }
 

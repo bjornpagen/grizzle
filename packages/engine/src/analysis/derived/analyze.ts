@@ -7,6 +7,7 @@ import {
 import { inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
@@ -100,7 +101,10 @@ export const spineObstacle = (root: RelNode): "attachment" | "headingGroups" | u
 			return "headingGroups"
 		}
 		if (node.kind === "Union") {
-			queue.push(...node.groups.flatMap((g) => g.arms))
+			appendAll(
+				queue,
+				node.groups.flatMap((g) => g.arms)
+			)
 		}
 		const kept = keptRowsOf(node)
 		if (kept !== undefined) {

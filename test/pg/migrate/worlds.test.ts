@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Option } from "effect"
@@ -106,7 +106,7 @@ const versionOf = (name: string, k: Knobs) => {
 	const Busy = derived(
 		"Busy",
 		query(base).rule((r) => {
-			const { id, words } = v(Doc)
+			const { id, words } = v(Doc, "doc")
 			return r.match(Doc, { id, words }).find({ id, words })
 		})
 	)
@@ -115,8 +115,8 @@ const versionOf = (name: string, k: Knobs) => {
 		switch (k.mine) {
 			case "owned":
 				return query(ext).rule((r) => {
-					const { no, doc, author } = v(Note)
-					const { owner } = v(Doc)
+					const { no, doc, author } = v(Note, "note")
+					const { owner } = v(Doc, "doc")
 					return r
 						.match(Note, { no, doc, author })
 						.match(Doc, { id: doc, owner })
@@ -125,7 +125,7 @@ const versionOf = (name: string, k: Knobs) => {
 				})
 			case "shared":
 				return query(ext).rule((r) => {
-					const { no, doc, author } = v(Note)
+					const { no, doc, author } = v(Note, "note")
 					return r
 						.match(Note, { no, doc, author })
 						.match(Share, { doc, user: author })
@@ -134,7 +134,7 @@ const versionOf = (name: string, k: Knobs) => {
 				})
 			case "authored":
 				return query(ext).rule((r) => {
-					const { no, doc, author } = v(Note)
+					const { no, doc, author } = v(Note, "note")
 					return r
 						.match(Note, { no, doc, author })
 						.match(Session, { sub: author })
@@ -145,11 +145,11 @@ const versionOf = (name: string, k: Knobs) => {
 	const capped =
 		k.capped === "id"
 			? query(ext).rule((r) => {
-					const { id, cap } = v(Doc)
+					const { id, cap } = v(Doc, "doc")
 					return r.match(Doc, { id, cap }).match(Quota, { cap }).find({ id })
 				})
 			: query(ext).rule((r) => {
-					const { id, cap } = v(Doc)
+					const { id, cap } = v(Doc, "doc")
 					return r.match(Doc, { id, cap }).match(Quota, { cap }).find({ id, cap })
 				})
 	const editor = role(
@@ -208,7 +208,7 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 						generator: caseGen,
 						literal: (c: WorldsCase) => c.name,
 						limit: cases.length,
-						features: features<WorldsFeature>(Arr.map(cases, (c) => c.name)),
+						coverage: requiredInSpace<WorldsFeature>(Arr.map(cases, (c) => c.name)),
 						caseHang: Duration.minutes(5)
 					},
 					(c, reached) =>

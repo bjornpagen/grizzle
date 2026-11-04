@@ -1,12 +1,12 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element, type Gen, weighted } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
-import { compareFloat, floatIdentityText, toReal } from "#compiler/scalar/values/float.ts"
+import { compareFloat, floatText, toReal } from "#compiler/scalar/values/float.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 
 /** Any double: finite ones, -0 and the subnormals among them, and now and then NaN or an infinity. */
@@ -27,13 +27,12 @@ describe("real normalization", () => {
 					suite: "unit/values/float-1",
 					draw: drawn(anyDouble),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 5000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(x) =>
@@ -66,19 +65,18 @@ describe("PostgreSQL's float order", () => {
 							(source) => [source.draw(value), source.draw(value), source.draw(value)] as const
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 5000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([a, b, c]) =>
 						Effect.sync(() => {
 							assert.equal(compareFloat(a, b), signOf(-compareFloat(b, a)))
-							assert.equal(compareFloat(a, b) === 0, floatIdentityText(a) === floatIdentityText(b))
+							assert.equal(compareFloat(a, b) === 0, floatText(a) === floatText(b))
 							if (compareFloat(a, b) <= 0 && compareFloat(b, c) <= 0) {
 								assert.ok(compareFloat(a, c) <= 0)
 							}

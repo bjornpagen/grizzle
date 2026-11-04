@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -20,7 +20,12 @@ import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { isQueryValue, queryFromDesc, queryValueDesc } from "#compiler/query/build/index.ts"
+import {
+	isQueryValue,
+	type QueryValue,
+	queryFromDesc,
+	queryValueDesc
+} from "#compiler/query/build/index.ts"
 import { assert, defined, matchesObject, refused, succeeded } from "#test/support/assert.ts"
 import {
 	byDistance,
@@ -47,6 +52,16 @@ const searches = (dag: RelDag): ReadonlyArray<NodeOf<"ApproximateNearest">> =>
 		topoOrder(dag),
 		(n): n is NodeOf<"ApproximateNearest"> => n.kind === "ApproximateNearest"
 	)
+
+/**
+ * A query over Search rebuilt from its Description, untyped: how a JavaScript caller reaches what the typed signatures
+ * refuse.
+ */
+const untypedOf = (q: unknown): QueryValue => {
+	const untyped = succeeded(queryFromDesc(queryValueDesc(q), Search), "the rebuild")
+	assert.ok(isQueryValue(untyped), "an unordered query value")
+	return untyped
+}
 
 /** The approximate retrieval of the five nearest by distance. */
 const scored = <R>(source: {
@@ -78,7 +93,7 @@ const Lab = schema(
 const nearestAtBound = () =>
 	scored(
 		query(Lab).rule((r) => {
-			const { id, value } = v(AtBound)
+			const { id, value } = v(AtBound, "atBound")
 			return r
 				.match(AtBound, { id, value })
 				.find({ id, distance: Compute.cosineDistance(value, r.param("q", AtBound.fields.value)) })
@@ -88,7 +103,7 @@ const nearestAtBound = () =>
 const nearestPastBound = () =>
 	scored(
 		query(Lab).rule((r) => {
-			const { id, value } = v(PastBound)
+			const { id, value } = v(PastBound, "pastBound")
 			return r
 				.match(PastBound, { id, value })
 				.find({ id, distance: Compute.cosineDistance(value, r.param("q", PastBound.fields.value)) })
@@ -98,7 +113,7 @@ const nearestPastBound = () =>
 /** The distance of each embedding to a parameter. */
 const distances = (vector: string) =>
 	query(Search).rule((r) => {
-		const { document, revision, value } = v(DocumentEmbedding)
+		const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 		return r.match(DocumentEmbedding, { document, revision, value }).find({
 			document,
 			distance: Compute.cosineDistance(value, r.param(vector, DocumentEmbedding.fields.value))
@@ -120,7 +135,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		search: () =>
 			scored(
 				query(Lab).rule((r) => {
-					const { id, weight } = v(Ranked)
+					const { id, weight } = v(Ranked, "ranked")
 					return r.match(Ranked, { id, weight }).find({ id, distance: weight })
 				})
 			),
@@ -134,14 +149,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		 */
 		what: "a by on a uuid column",
 		schema: Search,
-		search: () => {
-			const untyped = succeeded(
-				queryFromDesc(queryValueDesc(scoredDocuments), Search),
-				"the rebuild"
-			)
-			assert.ok(isQueryValue(untyped), "an unordered query value")
-			return untyped.approximateNearest({ by: "document", take: 3 })
-		},
+		search: () => untypedOf(scoredDocuments).approximateNearest({ by: "document", take: 3 }),
 		outcome: "UnsupportedOperation"
 	},
 	{
@@ -150,8 +158,8 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		search: () =>
 			scored(
 				query(Search).rule((r) => {
-					const { document, revision, value } = v(DocumentEmbedding)
-					const { account } = v(Document)
+					const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
+					const { account } = v(Document, "document")
 					return r
 						.match(DocumentEmbedding, { document, revision, value })
 						.match(Document, { id: document, account })
@@ -166,12 +174,16 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		outcome: "UnsupportedOperation"
 	},
 	{
+		/**
+		 * The typed approximateNearest refuses a union of rules (SearchSource), so a JavaScript caller's reaches the
+		 * checker through the union rebuilt from its Description.
+		 */
 		what: "a union of rules, which no single index orders",
 		schema: Search,
 		search: () => {
 			const twice = query(Search)
 				.rule((r) => {
-					const { document, revision, value } = v(DocumentEmbedding)
+					const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 					return r.match(DocumentEmbedding, { document, revision, value }).find({
 						document,
 						distance: Compute.cosineDistance(
@@ -181,7 +193,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 					})
 				})
 				.rule((r) => {
-					const { document, revision, value } = v(DocumentEmbedding)
+					const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 					return r.match(DocumentEmbedding, { document, revision, value }).find({
 						document,
 						distance: Compute.cosineDistance(
@@ -190,7 +202,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 						)
 					})
 				})
-			return scored(twice)
+			return scored(untypedOf(twice))
 		},
 		outcome: "UnsupportedOperation"
 	},
@@ -200,8 +212,8 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		search: () =>
 			scored(
 				query(Lab).rule((r) => {
-					const { document, revision, value } = v(DocumentEmbedding)
-					const other = v(Ranked)
+					const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
+					const other = v(Ranked, "ranked")
 					return r
 						.match(DocumentEmbedding, { document, revision, value })
 						.match(Ranked, { id: other.id, value: other.value })
@@ -233,7 +245,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		search: () =>
 			query(Search)
 				.rule((r) => {
-					const { id } = v(Document)
+					const { id } = v(Document, "document")
 					return r.match(Document, { id }).find({ id })
 				})
 				.attach(
@@ -241,7 +253,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 					(parent) =>
 						scored(
 							query(Search).rule((r) => {
-								const { document, revision, value } = v(DocumentEmbedding)
+								const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 								return r
 									.match(DocumentEmbedding, { document, revision, value })
 									.where(r.eq(document, parent.id))
@@ -264,7 +276,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		search: () =>
 			query(Search)
 				.rule((r) => {
-					const { id } = v(Document)
+					const { id } = v(Document, "document")
 					return r.match(Document, { id }).find({ id })
 				})
 				.attach(
@@ -272,7 +284,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 					(parent) =>
 						scored(
 							query(Search).rule((r) => {
-								const { revision, value } = v(DocumentEmbedding)
+								const { revision, value } = v(DocumentEmbedding, "documentEmbedding")
 								return r.match(DocumentEmbedding, { document: parent.id, revision, value }).find({
 									revision,
 									distance: Compute.cosineDistance(
@@ -295,12 +307,12 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		schema: Search,
 		search: () =>
 			query(Search).rule((r) => {
-				const { id, account } = v(Document)
+				const { id, account } = v(Document, "document")
 				const near = candidates.bind({
 					account,
 					vector: r.param("vector", DocumentEmbedding.fields.value)
 				})
-				const { document } = v(near)
+				const { document } = v(near, "near")
 				return r.match(Document, { id, account }).match(near, { document }).find({ id, document })
 			}),
 		outcome: "UnsupportedOperation"
@@ -326,7 +338,7 @@ describe("approximateNearest's eligibility", () => {
 						generator: element(planted),
 						literal: Formatter.format,
 						limit: planted.length,
-						features: features<Outcome>(["refused", "admitted"]),
+						coverage: requiredInSpace<Outcome>(["refused", "admitted"]),
 						caseHang: Duration.minutes(2)
 					},
 					(p, c) =>
@@ -355,7 +367,7 @@ describe("approximateNearest's eligibility", () => {
 					generator: element(["nope", "", "distance ", "Distance"]),
 					literal: Formatter.format,
 					limit: 4,
-					features: features<never>([]),
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
 				(by) =>
@@ -400,7 +412,7 @@ describe("approximate provenance", () => {
 						generator: element(programs),
 						literal: Formatter.format,
 						limit: programs.length,
-						features: features<Provenance>(["approximate", "exact"]),
+						coverage: requiredInSpace<Provenance>(["approximate", "exact"]),
 						caseHang: Duration.minutes(2)
 					},
 					(p, c) =>

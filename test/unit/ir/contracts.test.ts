@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { array, element, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
@@ -42,7 +42,7 @@ describe("evidence contexts", () => {
 						[source.draw(element(executions)), source.draw(element(evidenceContexts))] as const,
 					literal: Formatter.format,
 					limit: 100,
-					features: features<"admitted" | "not admitted">(["admitted", "not admitted"]),
+					coverage: requiredInSpace<"admitted" | "not admitted">(["admitted", "not admitted"]),
 					caseHang: Duration.minutes(2)
 				},
 				([execution, context], c) =>
@@ -88,7 +88,7 @@ describe("multiplicity antichains", () => {
 					generator: (source) => [source.draw(keys), source.draw(int(0, 3))] as const,
 					literal: Formatter.format,
 					limit: 300_000,
-					features: features<
+					coverage: requiredInSpace<
 						| "a redundant key"
 						| "a key dropping its supersets"
 						| "a full antichain dropping its largest"

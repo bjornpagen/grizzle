@@ -12,12 +12,13 @@
 
 import { Array as Arr, Option } from "effect"
 import { plantedUpdate } from "#test/pg/laws/families/direct.ts"
+import { variantsOf } from "#test/pg/laws/families/families.ts"
 import { directLawBox } from "#test/pg/laws/families/generated.ts"
 import { directSuite, type Planted } from "#test/pg/laws/families/suites/direct.ts"
 import { casesPerTest } from "#test/pg/laws/families/suites/family.ts"
 import { plantedInsert } from "#test/pg/laws/families/support.ts"
 
-const variants = directLawBox.variants(true)
+const variants = variantsOf(directLawBox, "mutable")
 const [p, variant] = Option.getOrThrowWith(
 	Arr.findFirstWithIndex(variants, (box) =>
 		Arr.every(["family containment", "key int2", "selector boolean"], (t) =>

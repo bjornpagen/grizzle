@@ -25,16 +25,19 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import type { QueryResult } from "#adapter/types/db.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import {
 	applyFacts,
 	dailySpendRows,
@@ -137,7 +140,7 @@ const monthOf = (p: Platform, pick: number) =>
 		absentMonth,
 		pick
 	)
-const ids = (rows: ReadonlyArray<{ readonly id: string }>) => Arr.map(rows, (r) => r.id)
+const ids = (rows: ReadonlyArray<{ readonly id: Uuid }>) => Arr.map(rows, (r) => r.id)
 
 /**
  * A read: its name, its query (what the reference evaluates), its parameters drawn from a platform, and its run through
@@ -455,12 +458,15 @@ const checkArms = (readName: string, rows: ReadonlyArray<unknown>): void => {
 }
 
 /** Every invoice of an organization, paged `size` at a time and concatenated, following each page's end cursor. */
-const pagedInvoices = (db: PlatformDb, org: string, size: number) =>
+const pagedInvoices = (db: PlatformDb, org: Uuid, size: number) =>
 	Effect.gen(function* () {
 		const paged: Array<unknown> = []
 		let page = yield* db.page(P.invoices, { org }, { first: size })
 		for (;;) {
-			paged.push(...Arr.map(page.edges, (e) => e.node))
+			appendAll(
+				paged,
+				Arr.map(page.edges, (e) => e.node)
+			)
 			const next = page.pageInfo.endCursor
 			if (!page.pageInfo.hasNextPage || Option.isNone(next)) {
 				return paged
@@ -658,23 +664,25 @@ layer(Substrate.layer)(
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
-							features: features<ReadsFeature>([
-								"an event at a rate change",
-								"a grant expiring at an event's start",
-								"a grant expiring at an event's end",
-								"a cap hit exactly",
-								"a zero-token event",
-								"a cache-only event",
-								"a tier boundary crossed within one event",
-								"an event split across grants",
-								"a reseller tree",
-								"a refund",
-								"a get answered",
-								"a get answered none",
-								"an ordered read paged"
-							])
+							coverage: required<ReadsFeature>(
+								[
+									"an event at a rate change",
+									"a grant expiring at an event's start",
+									"a grant expiring at an event's end",
+									"a cap hit exactly",
+									"a zero-token event",
+									"a cache-only event",
+									"a tier boundary crossed within one event",
+									"an event split across grants",
+									"a reseller tree",
+									"a refund",
+									"a get answered",
+									"a get answered none",
+									"an ordered read paged"
+								],
+								{ cases: 12, sense: notesOnly }
+							)
 						},
 						({ platform: sketch, picks }, cx) =>
 							Effect.gen(function* () {

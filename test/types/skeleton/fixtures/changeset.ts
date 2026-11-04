@@ -2,11 +2,11 @@ import type { Brand, Stream } from "effect"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { ReadsOf, WritesOf } from "#compiler/types/changeset/changeset.ts"
-import type { Invariant } from "#compiler/types/core/phantom.ts"
+import type { Invariant, ParamType } from "#compiler/types/core/phantom.ts"
 import type { ParamsOf } from "#compiler/types/query/query.ts"
 import type { Fact } from "#compiler/types/schema/relation.ts"
 import { query, v } from "#index.ts"
@@ -52,16 +52,16 @@ export const switchToManualDescribed = ChangeSet.empty(Switch)
 	.put(
 		ModalTask,
 		query(Switch).rule((r) => {
-			const { account } = v(ModalTask)
+			const { account } = v(ModalTask, "modalTask")
 			return r
 				.match(ModalTask, { id: r.param("task", ModalTask.fields.id), account, kind: "Automatic" })
-				.find({ id: r.param("task", ModalTask.fields.id), account, kind: r.literal("Manual") })
+				.find({ id: r.param("task", ModalTask.fields.id), account, kind: "Manual" })
 		})
 	)
 	.delete(
 		AutomaticTask,
 		query(Switch).rule((r) => {
-			const { budget } = v(AutomaticTask)
+			const { budget } = v(AutomaticTask, "automaticTask")
 			return r
 				.match(AutomaticTask, { task: r.param("task", AutomaticTask.fields.task), budget })
 				.find({ task: r.param("task", AutomaticTask.fields.task), budget })
@@ -78,7 +78,7 @@ export const switchToManualDescribed = ChangeSet.empty(Switch)
 	)
 	.read("previous", (delta) =>
 		query(Switch).rule((r) => {
-			const { task, budget } = v(delta.removed(AutomaticTask))
+			const { task, budget } = v(delta.removed(AutomaticTask), "removedAutomaticTask")
 			return r.match(delta.removed(AutomaticTask), { task, budget }).find({ task, budget })
 		})
 	)
@@ -86,7 +86,7 @@ export const switchToManualDescribed = ChangeSet.empty(Switch)
 export type SwitchParams = Expect<
 	Equals<
 		ParamsOf<typeof switchToManualDescribed>,
-		{ readonly task: string; readonly operator: string }
+		{ readonly task: ParamType<Uuid, "uuid">; readonly operator: ParamType<string, "text"> }
 	>
 >
 
@@ -95,7 +95,7 @@ export type SwitchReads = Expect<
 		ReadsOf<typeof switchToManualDescribed>,
 		{
 			readonly previous: ReadonlyArray<{
-				readonly task: string
+				readonly task: Uuid
 				readonly budget: bigint & Brand.Brand<"Cents">
 			}>
 		}
@@ -106,7 +106,7 @@ export type SwitchReads = Expect<
 export const explicitSerial = ChangeSet.empty(Work).insert(
 	Ticket,
 	query(Work).rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r.match(Task, { id, account }).find({
 			id: Compute.literal(pg.bigint, 1n),
 			account,
@@ -118,7 +118,7 @@ export const explicitSerial = ChangeSet.empty(Work).insert(
 export const generatedSerial = ChangeSet.empty(Work).insert(
 	Ticket,
 	query(Work).rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r
 			.match(Task, { id, account })
 			.find({ account, amount: Compute.literal(Cents, Cents(5n)) })
@@ -137,7 +137,7 @@ export const extraField = ChangeSet.empty(Work).insert(
 	Ticket,
 	// @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
 	query(Work).rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r
 			.match(Task, { id, account })
 			.find({ account, amount: Compute.literal(Cents, Cents(5n)), extra: id })
@@ -148,7 +148,7 @@ export const missingField = ChangeSet.empty(Work).insert(
 	Ticket,
 	// @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
 	query(Work).rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r.match(Task, { id, account }).find({ id: Compute.literal(pg.bigint, 1n), account })
 	})
 )
@@ -157,7 +157,7 @@ export const generatedDelete = ChangeSet.empty(Work).delete(
 	Ticket,
 	// @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
 	query(Work).rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r
 			.match(Task, { id, account })
 			.find({ account, amount: Compute.literal(Cents, Cents(5n)) })
@@ -168,7 +168,7 @@ export const Pairs = schema("Pairs", { Pair, Task }, [])
 export const bothSerials = ChangeSet.empty(Pairs).insert(
 	Pair,
 	query(Pairs).rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r
 			.match(Task, { id })
 			.find({ a: Compute.literal(pg.bigint, 1n), b: Compute.literal(pg.integer, 1), note: id })
@@ -179,7 +179,7 @@ export const oneSerial = ChangeSet.empty(Pairs).insert(
 	Pair,
 	// @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
 	query(Pairs).rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r.match(Task, { id }).find({ a: Compute.literal(pg.bigint, 1n), note: id })
 	})
 )
@@ -189,8 +189,8 @@ export const badLiteral = ChangeSet.empty(Switch).put(
 	ModalTask,
 	// @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
 	query(Switch).rule((r) => {
-		const { id, account } = v(ModalTask)
-		return r.match(ModalTask, { id, account }).find({ id, account, kind: r.literal("Paused") })
+		const { id, account } = v(ModalTask, "modalTask")
+		return r.match(ModalTask, { id, account }).find({ id, account, kind: "Paused" })
 	})
 )
 
@@ -199,17 +199,19 @@ export const badLiteral = ChangeSet.empty(Switch).put(
  * inferred member, so the member check enforces that an addition omits all of its serial fields or none and that no
  * fact carries a field its relation lacks.
  */
-export const arrayBothSerials = ChangeSet.empty(Pairs).insert(Pair, [{ a: 1n, b: 1, note: "x" }])
-export const arrayNoSerials = ChangeSet.empty(Pairs).insert(Pair, [{ note: "x" }])
+const noteX = "0193d8f2-7c1e-7000-8000-0000000000c1"
+const noteY = "0193d8f2-7c1e-7000-8000-0000000000c2"
+export const arrayBothSerials = ChangeSet.empty(Pairs).insert(Pair, [{ a: 1n, b: 1, note: noteX }])
+export const arrayNoSerials = ChangeSet.empty(Pairs).insert(Pair, [{ note: noteX }])
 /** Each fact is an addition on its own, so one array may mix complete facts with generated additions. */
 export const arrayMixed = ChangeSet.empty(Pairs).insert(Pair, [
-	{ a: 1n, b: 1, note: "x" },
-	{ note: "y" }
+	{ a: 1n, b: 1, note: noteX },
+	{ note: noteY }
 ])
 
 export const arrayMixedReversed = ChangeSet.empty(Pairs).insert(Pair, [
-	{ note: "y" },
-	{ a: 1n, b: 1, note: "x" }
+	{ note: noteY },
+	{ a: 1n, b: 1, note: noteX }
 ])
 
 export type ArrayWrites = Expect<
@@ -219,31 +221,31 @@ export type ArrayWrites = Expect<
 export const arrayOneSerial = ChangeSet.empty(Pairs).insert(
 	Pair,
 	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
-	[{ a: 1n, note: "x" }]
+	[{ a: 1n, note: noteX }]
 )
 
 export const arrayMixedOneSerial = ChangeSet.empty(Pairs).insert(
 	Pair,
 	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
-	[{ note: "y" }, { a: 1n, note: "x" }]
+	[{ note: noteY }, { a: 1n, note: noteX }]
 )
 
 export const arrayExtraField = ChangeSet.empty(Pairs).insert(
 	Pair,
 	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
-	[{ note: "x", bogus: 1 }]
+	[{ note: noteX, bogus: 1 }]
 )
 
 export const arrayDeleteExtra = ChangeSet.empty(Pairs).delete(
 	Pair,
 	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
-	[{ a: 1n, b: 1, note: "x", bogus: 1 }]
+	[{ a: 1n, b: 1, note: noteX, bogus: 1 }]
 )
 
 export const arrayPutExtra = ChangeSet.empty(Work).put(
 	Task,
 	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
-	[{ id: "t", account: "a", kind: "Manual", extra: true }]
+	[{ id: noteX, account: noteY, kind: "Manual", extra: true }]
 )
 /**
  * A fact with a literal-typed field (a closed relation's handle) still infers the member itself, not its constraint:
@@ -262,8 +264,8 @@ export const slotsOneSerial = ChangeSet.empty(Slots).insert(
 	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
 	[{ a: 1n, lane: "Left" }]
 )
-declare const generatedPairs: Stream.Stream<{ readonly note: string }>
-declare const partialPairs: Stream.Stream<{ readonly a: bigint; readonly note: string }>
+declare const generatedPairs: Stream.Stream<{ readonly note: Uuid }>
+declare const partialPairs: Stream.Stream<{ readonly a: bigint; readonly note: Uuid }>
 declare const widePairs: Stream.Stream<Fact<typeof Pair> & { readonly bogus: number }>
 export const streamGenerated = ChangeSet.empty(Pairs).insert(Pair, generatedPairs)
 // @ts-expect-error -- TS2379 refusal: a member fact is not a fact of the relation

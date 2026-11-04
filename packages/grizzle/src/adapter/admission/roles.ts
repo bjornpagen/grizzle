@@ -10,13 +10,16 @@ import {
 	privilegeFamilyNames,
 	type RoleExpectation
 } from "#compiler/deploy/admission/roles.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emitCatalog } from "#compiler/sql/emit.ts"
 
 /**
  * The settings, privileges, attributes, memberships, members, policies and row security statements both admissions
  * run, and their comparison with what the target snapshot installs (compiler/deploy/admission/roles.ts): Db.open's for
  * the opened role and its login, the drift check's for every login and role the snapshot creates.
  *
- * Every statement is a catalog read whose cells are never NULL. The privileges statement takes the expected
+ * Every statement is a catalog read, a catalog-read AST the engine prints (sql/catalog.ts), whose cells are never NULL.
+ * The privileges statement takes the expected
  * privileges as four parallel text[] parameters (family, object, column, type) and answers only the differences:
  * PostgreSQL resolves each expected object to its OID, and a column to its number, judges what the role holds on every
  * object of the judged schemas through has_*_privilege (its own grants, PUBLIC's and every role it inherits from), a
@@ -45,16 +48,33 @@ interface StoredSetting {
 	readonly value: string
 }
 
-const currentDatabase =
-	"(SELECT b.oid FROM pg_catalog.pg_database AS b WHERE b.datname = pg_catalog.current_database())"
+const noOid = C.literal(0n, "oid")
+const settingRows = C.from("pg_db_role_setting", "d")
+const settingTexts = C.fromFunction(
+	C.call("unnest", [settingRows.col("setconfig")]),
+	"s",
+	["setting"],
+	true
+)
 
 /** The stored settings `which` selects, one `name=value` per row with its scope. */
-const storedSettings = (which: string): CatalogQuery<StoredSetting> => ({
-	sql:
-		"SELECT CASE WHEN d.setrole = 0::oid THEN 'database'::text WHEN d.setdatabase = 0::oid THEN 'role'::text " +
-		"ELSE 'roleInDatabase'::text END AS c0, s.setting::text AS c1 " +
-		"FROM pg_catalog.pg_db_role_setting AS d CROSS JOIN LATERAL pg_catalog.unnest(d.setconfig) AS s(setting) " +
-		`WHERE ${which}`,
+const storedSettings = (which: C.CatalogExpr): CatalogQuery<StoredSetting> => ({
+	sql: emitCatalog(
+		C.query(
+			[
+				C.caseWhen(
+					[
+						{ when: C.eq(settingRows.col("setrole"), noOid), result: C.text("database") },
+						{ when: C.eq(settingRows.col("setdatabase"), noOid), result: C.text("role") }
+					],
+					C.text("roleInDatabase")
+				),
+				C.asText(settingTexts.col("setting"))
+			],
+			[C.crossJoin(settingRows.item, settingTexts.item)],
+			which
+		)
+	),
 	what: "a setting's scope and its name=value",
 	row: ([scopeText, setting]) => {
 		const scope = Arr.findFirst(settingScopes, (s) => s === scopeText)
@@ -72,15 +92,23 @@ const storedSettings = (which: string): CatalogQuery<StoredSetting> => ({
 	}
 })
 
-const ofDatabase = `(d.setrole = 0::oid AND d.setdatabase = ${currentDatabase})`
+const ofDatabase = C.and([
+	C.eq(settingRows.col("setrole"), noOid),
+	C.eq(settingRows.col("setdatabase"), C.currentDatabaseOid())
+])
 
 /** The stored settings of the current database. */
 export const databaseSettingsQuery: CatalogQuery<StoredSetting> = storedSettings(ofDatabase)
 
 /** The stored settings of the current database and of the role $1. */
 export const settingsQuery: CatalogQuery<StoredSetting> = storedSettings(
-	`${ofDatabase} OR (d.setrole = (SELECT r.oid FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text) ` +
-		`AND d.setdatabase IN (0::oid, ${currentDatabase}))`
+	C.or([
+		ofDatabase,
+		C.and([
+			C.eq(settingRows.col("setrole"), C.roleOid(C.param(1, "text"))),
+			C.inList(settingRows.col("setdatabase"), [noOid, C.currentDatabaseOid()])
+		])
+	])
 )
 
 /**
@@ -191,98 +219,293 @@ export interface PrivilegeDifference {
 	readonly privilege: string
 }
 
-/** The privilege types PostgreSQL defines on a family, as a text[] constructor. */
-const typesArray = (family: PrivilegeFamily): string =>
-	`ARRAY[${Arr.join(
-		Arr.map(privilegeFamilies[family], (t) => `'${t}'::text`),
-		", "
-	)}]`
+/** The privilege types PostgreSQL defines on a family, as a text[]. */
+const typesArray = (family: PrivilegeFamily): C.CatalogExpr =>
+	C.array(Arr.map(privilegeFamilies[family], C.text), "text")
 
-const inJudged = (namespace: string) =>
-	`${namespace} IN (SELECT s.oid FROM pg_catalog.pg_namespace AS s WHERE s.nspname = ANY ($2::text[]))`
+/** Whether a namespace is among the judged schemas $2. */
+const inJudged = (namespace: C.CatalogExpr): C.CatalogExpr => {
+	const s = C.from("pg_namespace", "s")
+	return C.exists(
+		C.anyRow(
+			[s.item],
+			C.and([C.eq(s.col("oid"), namespace), C.any(s.col("nspname"), C.arrayParam(2, "text"))])
+		)
+	)
+}
+
+/** The grantee's oid, read from the privileges read's grantee CTE. */
+const granteeOid = (): C.CatalogExpr => {
+	const r = C.fromCte("grantee", "r")
+	return C.scalar(C.query([r.col("oid")], [r.item], undefined))
+}
+
+/** The kinds of relation a table privilege applies to. */
+const privilegedRelations = C.letters(["r", "p", "m", "v", "f"])
+
+/** The privilege types of a family, one row each, as `p.t`. */
+const typesOf = (family: PrivilegeFamily): C.CatalogSource =>
+	C.fromFunction(C.call("unnest", [typesArray(family)]), "p", ["t"], false)
 
 /**
  * Every privilege the role holds on the judged schemas $2, the other schemas $3, and each object of the judged schemas
  * of a family, as `(family, oid, column, type)`, the column empty but for a column's privilege.
  */
-const heldSql = Arr.join(
-	[
-		`SELECT 'schema'::text, n.oid, ''::text, p.t FROM pg_catalog.pg_namespace AS n CROSS JOIN pg_catalog.unnest(${typesArray("schema")}) AS p(t) ` +
-			"WHERE (n.nspname = ANY ($2::text[]) OR n.nspname = ANY ($3::text[])) " +
-			"AND pg_catalog.has_schema_privilege((SELECT r.oid FROM grantee AS r), n.oid, p.t)",
-		`SELECT 'table'::text, c.oid, ''::text, p.t FROM pg_catalog.pg_class AS c CROSS JOIN pg_catalog.unnest(${typesArray("table")}) AS p(t) ` +
-			`WHERE ${inJudged("c.relnamespace")} ` +
-			"AND c.relkind IN ('r'::\"char\", 'p'::\"char\", 'm'::\"char\", 'v'::\"char\", 'f'::\"char\") " +
-			"AND pg_catalog.has_table_privilege((SELECT r.oid FROM grantee AS r), c.oid, p.t)",
-		`SELECT 'column'::text, c.oid, a.attname::text, p.t FROM pg_catalog.pg_class AS c ` +
-			"JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid AND a.attnum > 0::int2 AND NOT a.attisdropped " +
-			`CROSS JOIN pg_catalog.unnest(${typesArray("column")}) AS p(t) ` +
-			`WHERE ${inJudged("c.relnamespace")} ` +
-			"AND c.relkind IN ('r'::\"char\", 'p'::\"char\", 'm'::\"char\", 'v'::\"char\", 'f'::\"char\") " +
-			"AND pg_catalog.has_column_privilege((SELECT r.oid FROM grantee AS r), c.oid, a.attnum, p.t) " +
-			"AND NOT pg_catalog.has_table_privilege((SELECT r.oid FROM grantee AS r), c.oid, p.t)",
-		`SELECT 'sequence'::text, c.oid, ''::text, p.t FROM pg_catalog.pg_class AS c CROSS JOIN pg_catalog.unnest(${typesArray("sequence")}) AS p(t) ` +
-			`WHERE ${inJudged("c.relnamespace")} ` +
-			"AND c.relkind = 'S'::\"char\" AND pg_catalog.has_sequence_privilege((SELECT r.oid FROM grantee AS r), c.oid, p.t)",
-		`SELECT 'type'::text, t.oid, ''::text, p.t FROM pg_catalog.pg_type AS t CROSS JOIN pg_catalog.unnest(${typesArray("type")}) AS p(t) ` +
-			`WHERE ${inJudged("t.typnamespace")} ` +
-			"AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class AS k WHERE k.oid = t.typrelid AND k.relkind <> 'c'::\"char\") " +
-			"AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type AS e WHERE e.typarray = t.oid) " +
-			"AND pg_catalog.has_type_privilege((SELECT r.oid FROM grantee AS r), t.oid, p.t)",
-		`SELECT 'function'::text, f.oid, ''::text, p.t FROM pg_catalog.pg_proc AS f CROSS JOIN pg_catalog.unnest(${typesArray("function")}) AS p(t) ` +
-			`WHERE ${inJudged("f.pronamespace")} ` +
-			"AND pg_catalog.has_function_privilege((SELECT r.oid FROM grantee AS r), f.oid, p.t)"
-	],
-	" UNION ALL "
-)
+const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
+	const n = C.from("pg_namespace", "n")
+	const c = C.from("pg_class", "c")
+	const a = C.from("pg_attribute", "a")
+	const t = C.from("pg_type", "t")
+	const f = C.from("pg_proc", "f")
+	const k = C.from("pg_class", "k")
+	const e = C.from("pg_type", "e")
+	const none = C.text("")
+	const schema = typesOf("schema")
+	const table = typesOf("table")
+	const column = typesOf("column")
+	const sequence = typesOf("sequence")
+	const type = typesOf("type")
+	const fn = typesOf("function")
+	return [
+		C.core(
+			[C.text("schema"), n.col("oid"), none, schema.col("t")],
+			[C.crossJoin(n.item, schema.item)],
+			C.and([
+				C.or([
+					C.any(n.col("nspname"), C.arrayParam(2, "text")),
+					C.any(n.col("nspname"), C.arrayParam(3, "text"))
+				]),
+				C.call("has_schema_privilege", [granteeOid(), n.col("oid"), schema.col("t")])
+			])
+		),
+		C.core(
+			[C.text("table"), c.col("oid"), none, table.col("t")],
+			[C.crossJoin(c.item, table.item)],
+			C.and([
+				inJudged(c.col("relnamespace")),
+				C.inList(c.col("relkind"), privilegedRelations),
+				C.call("has_table_privilege", [granteeOid(), c.col("oid"), table.col("t")])
+			])
+		),
+		C.core(
+			[C.text("column"), c.col("oid"), C.asText(a.col("attname")), column.col("t")],
+			[
+				C.crossJoin(
+					C.join(
+						c.item,
+						a.item,
+						C.and([
+							C.eq(a.col("attrelid"), c.col("oid")),
+							C.gt(a.col("attnum"), C.literal(0n, "smallint")),
+							C.not(a.col("attisdropped"))
+						])
+					),
+					column.item
+				)
+			],
+			C.and([
+				inJudged(c.col("relnamespace")),
+				C.inList(c.col("relkind"), privilegedRelations),
+				C.call("has_column_privilege", [
+					granteeOid(),
+					c.col("oid"),
+					a.col("attnum"),
+					column.col("t")
+				]),
+				C.not(C.call("has_table_privilege", [granteeOid(), c.col("oid"), column.col("t")]))
+			])
+		),
+		C.core(
+			[C.text("sequence"), c.col("oid"), none, sequence.col("t")],
+			[C.crossJoin(c.item, sequence.item)],
+			C.and([
+				inJudged(c.col("relnamespace")),
+				C.eq(c.col("relkind"), C.letter("S")),
+				C.call("has_sequence_privilege", [granteeOid(), c.col("oid"), sequence.col("t")])
+			])
+		),
+		C.core(
+			[C.text("type"), t.col("oid"), none, type.col("t")],
+			[C.crossJoin(t.item, type.item)],
+			C.and([
+				inJudged(t.col("typnamespace")),
+				C.notExists(
+					C.anyRow(
+						[k.item],
+						C.and([C.eq(k.col("oid"), t.col("typrelid")), C.ne(k.col("relkind"), C.letter("c"))])
+					)
+				),
+				C.notExists(C.anyRow([e.item], C.eq(e.col("typarray"), t.col("oid")))),
+				C.call("has_type_privilege", [granteeOid(), t.col("oid"), type.col("t")])
+			])
+		),
+		C.core(
+			[C.text("function"), f.col("oid"), none, fn.col("t")],
+			[C.crossJoin(f.item, fn.item)],
+			C.and([
+				inJudged(f.col("pronamespace")),
+				C.call("has_function_privilege", [granteeOid(), f.col("oid"), fn.col("t")])
+			])
+		)
+	]
+}
 
 /**
- * The relation of an expected privilege, found through the catalog by its schema and name: admission reads a role's
+ * The relation of an expected privilege `e`, found through the catalog by its schema and name: admission reads a role's
  * privileges as its login, which holds no USAGE on the role's schema, where a lookup by qualified name is refused.
  */
-const relationOid =
-	"(SELECT c.oid FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
-	"WHERE n.nspname = e.schema AND c.relname = e.name)"
+const relationOid = (e: C.CatalogSource): C.CatalogExpr => {
+	const c = C.from("pg_class", "c")
+	const n = C.from("pg_namespace", "n")
+	return C.scalar(
+		C.query(
+			[c.col("oid")],
+			[C.join(c.item, n.item, C.eq(n.col("oid"), c.col("relnamespace")))],
+			C.and([C.eq(n.col("nspname"), e.col("schema")), C.eq(c.col("relname"), e.col("name"))])
+		)
+	)
+}
 
 /**
- * The object an expected privilege names; NULL when nothing of that name exists. A schema, a type of the installed
- * schema and a function of it resolve by name, which needs no USAGE on a role's schema.
+ * The object an expected privilege `e` names; NULL when nothing of that name exists. A schema, a type of the installed
+ * schema and a function of it resolve by their quoted qualified names, which needs no USAGE on a role's schema.
  */
-const resolvedOid =
-	"CASE e.family WHEN 'schema'::text THEN pg_catalog.to_regnamespace(e.object)::oid " +
-	`WHEN 'table'::text THEN ${relationOid} ` +
-	`WHEN 'column'::text THEN ${relationOid} ` +
-	`WHEN 'sequence'::text THEN ${relationOid} ` +
-	"WHEN 'type'::text THEN pg_catalog.to_regtype(e.object)::oid " +
-	"WHEN 'function'::text THEN pg_catalog.to_regprocedure(e.object)::oid END"
+const resolvedOid = (e: C.CatalogSource): C.CatalogExpr =>
+	C.caseOf(
+		e.col("family"),
+		[
+			{
+				when: C.text("schema"),
+				result: C.cast(C.call("to_regnamespace", [e.col("object")]), "oid")
+			},
+			{ when: C.text("table"), result: relationOid(e) },
+			{ when: C.text("column"), result: relationOid(e) },
+			{ when: C.text("sequence"), result: relationOid(e) },
+			{ when: C.text("type"), result: C.cast(C.call("to_regtype", [e.col("object")]), "oid") },
+			{
+				when: C.text("function"),
+				result: C.cast(C.call("to_regprocedure", [e.col("object")]), "oid")
+			}
+		],
+		undefined
+	)
 
-/** A held object as PostgreSQL names it, a column's after its relation's and a dot. */
-const heldName =
-	"CASE h.family WHEN 'schema'::text THEN h.oid::regnamespace::text " +
-	"WHEN 'type'::text THEN h.oid::regtype::text WHEN 'function'::text THEN h.oid::regprocedure::text " +
-	"WHEN 'column'::text THEN h.oid::regclass::text || '.'::text || pg_catalog.quote_ident(h.attname) " +
-	"ELSE h.oid::regclass::text END"
+/** A held object `h` as PostgreSQL names it, a column's after its relation's and a dot. */
+const heldName = (h: C.CatalogSource): C.CatalogExpr => {
+	const named = (type: "regnamespace" | "regtype" | "regprocedure" | "regclass"): C.CatalogExpr =>
+		C.asText(C.cast(h.col("oid"), type))
+	return C.caseOf(
+		h.col("family"),
+		[
+			{ when: C.text("schema"), result: named("regnamespace") },
+			{ when: C.text("type"), result: named("regtype") },
+			{ when: C.text("function"), result: named("regprocedure") },
+			{
+				when: C.text("column"),
+				result: C.concat([
+					named("regclass"),
+					C.text("."),
+					C.call("quote_ident", [h.col("attname")])
+				])
+			}
+		],
+		named("regclass")
+	)
+}
+
+/** Whether `a` and `b` name one privilege: its family, object, column and type. */
+const samePrivilege = (a: C.CatalogSource, b: C.CatalogSource): C.CatalogExpr =>
+	C.and([
+		C.eq(a.col("family"), b.col("family")),
+		C.eq(a.col("oid"), b.col("oid")),
+		C.eq(a.col("attname"), b.col("attname")),
+		C.eq(a.col("privilege"), b.col("privilege"))
+	])
 
 /**
  * The privileges of the role $1 on the judged schemas $2 and the other schemas $3 against the expected ones ($4
  * families, $5 objects, $6 columns, $7 types, $8 schemas, $9 names): every difference, none when they agree.
  */
+const privilegesSelect = (): C.CatalogSelect => {
+	const r = C.from("pg_roles", "r")
+	const u = C.fromRows(
+		[
+			C.call("unnest", [C.arrayParam(4, "text")]),
+			C.call("unnest", [C.arrayParam(5, "text")]),
+			C.call("unnest", [C.arrayParam(6, "text")]),
+			C.call("unnest", [C.arrayParam(7, "text")]),
+			C.call("unnest", [C.arrayParam(8, "text")]),
+			C.call("unnest", [C.arrayParam(9, "text")])
+		],
+		"u",
+		["f", "o", "c", "p", "s", "n"]
+	)
+	const e = C.fromCte("expected", "e")
+	const x = C.fromCte("resolved", "x")
+	const h = C.fromCte("held", "h")
+	return C.withCtes(
+		[
+			C.cte(
+				"grantee",
+				["oid"],
+				C.query([r.col("oid")], [r.item], C.eq(r.col("rolname"), C.param(1, "text")))
+			),
+			C.cte("held", ["family", "oid", "attname", "privilege"], C.unionAll(heldArms())),
+			C.cte(
+				"expected",
+				["family", "object", "attname", "privilege", "schema", "name"],
+				C.query(
+					[u.col("f"), u.col("o"), u.col("c"), u.col("p"), u.col("s"), u.col("n")],
+					[u.item],
+					undefined
+				)
+			),
+			C.cte(
+				"resolved",
+				["family", "object", "attname", "privilege", "oid"],
+				C.query(
+					[e.col("family"), e.col("object"), e.col("attname"), e.col("privilege"), resolvedOid(e)],
+					[e.item],
+					undefined
+				)
+			)
+		],
+		C.unionAll([
+			C.core(
+				[
+					C.text("missing"),
+					x.col("family"),
+					C.caseOf(
+						x.col("family"),
+						[
+							{
+								when: C.text("column"),
+								result: C.concat([
+									x.col("object"),
+									C.text("."),
+									C.call("quote_ident", [x.col("attname")])
+								])
+							}
+						],
+						x.col("object")
+					),
+					x.col("privilege")
+				],
+				[x.item],
+				C.notExists(C.anyRow([h.item], samePrivilege(h, x)))
+			),
+			C.core(
+				[C.text("unexpected"), h.col("family"), heldName(h), h.col("privilege")],
+				[h.item],
+				C.notExists(C.anyRow([x.item], samePrivilege(x, h)))
+			)
+		])
+	)
+}
+
+/** The privileges of the role $1 against the expected ones (privilegesSelect): every difference. */
 export const privilegesQuery: CatalogQuery<PrivilegeDifference> = {
-	sql:
-		"WITH grantee AS (SELECT r.oid FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text), " +
-		`held(family, oid, attname, privilege) AS (${heldSql}), ` +
-		"expected(family, object, attname, privilege, schema, name) AS (SELECT u.f, u.o, u.c, u.p, u.s, u.n " +
-		"FROM ROWS FROM (pg_catalog.unnest($4::text[]), pg_catalog.unnest($5::text[]), pg_catalog.unnest($6::text[]), " +
-		"pg_catalog.unnest($7::text[]), pg_catalog.unnest($8::text[]), pg_catalog.unnest($9::text[])) AS u(f, o, c, p, s, n)), " +
-		`resolved AS (SELECT e.family, e.object, e.attname, e.privilege, ${resolvedOid} AS oid FROM expected AS e) ` +
-		"SELECT 'missing'::text AS c0, x.family AS c1, " +
-		"CASE x.family WHEN 'column'::text THEN x.object || '.'::text || pg_catalog.quote_ident(x.attname) ELSE x.object END AS c2, " +
-		"x.privilege AS c3 FROM resolved AS x " +
-		"WHERE NOT EXISTS (SELECT 1 FROM held AS h WHERE h.family = x.family AND h.oid = x.oid AND h.attname = x.attname " +
-		"AND h.privilege = x.privilege) " +
-		`UNION ALL SELECT 'unexpected'::text, h.family, ${heldName}, h.privilege FROM held AS h ` +
-		"WHERE NOT EXISTS (SELECT 1 FROM resolved AS x WHERE x.family = h.family AND x.oid = h.oid AND x.attname = h.attname " +
-		"AND x.privilege = h.privilege)",
+	sql: emitCatalog(privilegesSelect()),
 	what: "a privilege difference",
 	row: ([kindText, familyText, object, privilege]) => {
 		const kind =
@@ -334,19 +557,42 @@ const grantRow = ([role, inherit, set, admin]: ReadonlyArray<string>): HeldGrant
 		: { role, inherit: i, set: st, admin: a }
 }
 
-/** The options of a pair's every row, aggregated. */
-const anyOption =
-	"pg_catalog.bool_or(m.inherit_option)::text AS c1, pg_catalog.bool_or(m.set_option)::text AS c2, " +
-	"pg_catalog.bool_or(m.admin_option)::text AS c3 "
+const members = C.from("pg_auth_members", "m")
+
+/** The other role of a pair, by its name, then the options of the pair's every row, aggregated. */
+const grantTargets = (
+	other: C.CatalogSource
+): readonly [C.CatalogExpr, ...Array<C.CatalogExpr>] => [
+	C.asText(other.col("rolname")),
+	C.asText(C.call("bool_or", [members.col("inherit_option")])),
+	C.asText(C.call("bool_or", [members.col("set_option")])),
+	C.asText(C.call("bool_or", [members.col("admin_option")]))
+]
+
+const granted = C.from("pg_roles", "g")
 
 /** The roles the role $1 is granted, each with its options over every grant. */
 export const membershipsQuery: CatalogQuery<HeldGrant> = {
-	sql:
-		`SELECT g.rolname::text AS c0, ${anyOption}` +
-		"FROM pg_catalog.pg_auth_members AS m JOIN pg_catalog.pg_roles AS g ON g.oid = m.roleid " +
-		"WHERE m.member = (SELECT r.oid FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text) GROUP BY g.rolname",
+	sql: emitCatalog(
+		C.select({
+			...C.core(
+				grantTargets(granted),
+				[C.join(members.item, granted.item, C.eq(granted.col("oid"), members.col("roleid")))],
+				C.eq(members.col("member"), C.roleOid(C.param(1, "text")))
+			),
+			groupBy: [granted.col("rolname")]
+		})
+	),
 	what: "a granted role and its options over every grant",
 	row: grantRow
+}
+
+const member = C.from("pg_roles", "u")
+
+/** The owner of the schema named by `name`, NULL when there is none. */
+const schemaOwnerOid = (name: C.CatalogExpr): C.CatalogExpr => {
+	const n = C.from("pg_namespace", "n")
+	return C.scalar(C.query([n.col("nspowner")], [n.item], C.eq(n.col("nspname"), name)))
 }
 
 /**
@@ -356,12 +602,19 @@ export const membershipsQuery: CatalogQuery<HeldGrant> = {
  * every object of it already, so its membership opens nothing.
  */
 export const membersQuery: CatalogQuery<HeldGrant> = {
-	sql:
-		`SELECT u.rolname::text AS c0, ${anyOption}` +
-		"FROM pg_catalog.pg_auth_members AS m JOIN pg_catalog.pg_roles AS u ON u.oid = m.member " +
-		"WHERE m.roleid = (SELECT r.oid FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text) " +
-		"AND m.member IS DISTINCT FROM (SELECT n.nspowner FROM pg_catalog.pg_namespace AS n WHERE n.nspname = $2::text) " +
-		"GROUP BY u.rolname",
+	sql: emitCatalog(
+		C.select({
+			...C.core(
+				grantTargets(member),
+				[C.join(members.item, member.item, C.eq(member.col("oid"), members.col("member")))],
+				C.and([
+					C.eq(members.col("roleid"), C.roleOid(C.param(1, "text"))),
+					C.distinctFrom(members.col("member"), schemaOwnerOid(C.param(2, "text")))
+				])
+			),
+			groupBy: [member.col("rolname")]
+		})
+	),
 	what: "a member and its options over every grant",
 	row: grantRow
 }
@@ -431,12 +684,25 @@ interface RoleAttributes {
 	readonly bypassRls: boolean
 }
 
+const roles = C.from("pg_roles", "r")
+
 /** The attributes of the role $1: one row, none when it does not exist. */
 export const attributesQuery: CatalogQuery<RoleAttributes> = {
-	sql:
-		"SELECT r.rolcanlogin::text AS c0, r.rolinherit::text AS c1, r.rolsuper::text AS c2, r.rolcreatedb::text AS c3, " +
-		"r.rolcreaterole::text AS c4, r.rolreplication::text AS c5, r.rolbypassrls::text AS c6 " +
-		"FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text",
+	sql: emitCatalog(
+		C.query(
+			[
+				C.asText(roles.col("rolcanlogin")),
+				C.asText(roles.col("rolinherit")),
+				C.asText(roles.col("rolsuper")),
+				C.asText(roles.col("rolcreatedb")),
+				C.asText(roles.col("rolcreaterole")),
+				C.asText(roles.col("rolreplication")),
+				C.asText(roles.col("rolbypassrls"))
+			],
+			[roles.item],
+			C.eq(roles.col("rolname"), C.param(1, "text"))
+		)
+	),
 	what: "a role's attributes",
 	row: (cells) => {
 		const [login, inherit, superuser, createDb, createRole, replication, bypassRls] = Arr.map(
@@ -505,11 +771,29 @@ interface TableSecurity {
 	readonly forced: boolean
 }
 
+const classes = C.from("pg_class", "c")
+const namespaces = C.from("pg_namespace", "n")
+const classesInSchemas = C.join(
+	classes.item,
+	namespaces.item,
+	C.eq(namespaces.col("oid"), classes.col("relnamespace"))
+)
+
 export const rowSecurityQuery: CatalogQuery<TableSecurity> = {
-	sql:
-		"SELECT c.relname::text AS c0, c.relrowsecurity::text AS c1, c.relforcerowsecurity::text AS c2 " +
-		"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
-		"WHERE n.nspname = $1::text AND c.relname = ANY ($2::text[])",
+	sql: emitCatalog(
+		C.query(
+			[
+				C.asText(classes.col("relname")),
+				C.asText(classes.col("relrowsecurity")),
+				C.asText(classes.col("relforcerowsecurity"))
+			],
+			[classesInSchemas],
+			C.and([
+				C.eq(namespaces.col("nspname"), C.param(1, "text")),
+				C.any(classes.col("relname"), C.arrayParam(2, "text"))
+			])
+		)
+	),
 	what: "a table's row security",
 	row: ([table, enabled, forced]) => {
 		const e = flag(enabled)
@@ -539,13 +823,26 @@ export const rowSecurityDifferences = (
 		return Option.isNone(observed) ? [] : [{ table, observed: observed.value }]
 	})
 
+const policies = C.from("pg_policy", "p")
+
 /** The policies naming the role $1 on the tables of the installed schema $2, each by its table and name. */
 export const policiesQuery: CatalogQuery<ExpectedPolicy> = {
-	sql:
-		"SELECT c.relname::text AS c0, p.polname::text AS c1 FROM pg_catalog.pg_policy AS p " +
-		"JOIN pg_catalog.pg_class AS c ON c.oid = p.polrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
-		"WHERE n.nspname = $2::text " +
-		"AND (SELECT r.oid FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text) = ANY (p.polroles)",
+	sql: emitCatalog(
+		C.query(
+			[C.asText(classes.col("relname")), C.asText(policies.col("polname"))],
+			[
+				C.join(
+					C.join(policies.item, classes.item, C.eq(classes.col("oid"), policies.col("polrelid"))),
+					namespaces.item,
+					C.eq(namespaces.col("oid"), classes.col("relnamespace"))
+				)
+			],
+			C.and([
+				C.eq(namespaces.col("nspname"), C.param(2, "text")),
+				C.any(C.roleOid(C.param(1, "text")), policies.col("polroles"))
+			])
+		)
+	),
 	what: "a policy's table and name",
 	row: ([table, name]) => (table === undefined || name === undefined ? undefined : { table, name })
 }
@@ -616,23 +913,83 @@ export const defaultPrivilegesQuery = (
 ): CatalogQuery<StoredDefaultGrant> => {
 	const [owner, schemas] =
 		expectation.owner.kind === "named"
-			? (["r.rolname = $1::text", "$2::text[]"] as const)
-			: (["r.rolname = CURRENT_USER", "$1::text[]"] as const)
+			? ([C.param(1, "text"), C.arrayParam(2, "text")] as const)
+			: ([C.currentUser, C.arrayParam(1, "text")] as const)
+	const r = C.from("pg_roles", "r")
+	const o = C.fromCte("o", "o")
+	const d = C.from("pg_default_acl", "d")
+	const n = C.from("pg_namespace", "n")
+	const t = C.fromValues([[C.letter("f")], [C.letter("T")]], "t", ["k"])
+	const a = C.fromCte("acls", "a")
+	const x = C.fromFunction(
+		C.call("aclexplode", [a.col("acl")]),
+		"x",
+		["grantor", "grantee", "privilege_type", "is_grantable"],
+		true
+	)
+	const global = C.eq(d.col("defaclnamespace"), noOid)
+	const owned = C.eq(d.col("defaclrole"), o.col("oid"))
 	return {
-		sql:
-			`WITH o AS (SELECT r.oid FROM pg_catalog.pg_roles AS r WHERE ${owner}), ` +
-			"acls AS (" +
-			"SELECT ''::text AS scope, t.k AS objects, COALESCE((SELECT d.defaclacl FROM pg_catalog.pg_default_acl AS d " +
-			"WHERE d.defaclrole = o.oid AND d.defaclnamespace = 0::oid AND d.defaclobjtype = t.k), pg_catalog.acldefault(t.k, o.oid)) AS acl " +
-			"FROM o CROSS JOIN (VALUES ('f'::\"char\"), ('T'::\"char\")) AS t(k) " +
-			"UNION ALL SELECT ''::text, d.defaclobjtype, d.defaclacl FROM pg_catalog.pg_default_acl AS d JOIN o ON d.defaclrole = o.oid " +
-			"WHERE d.defaclnamespace = 0::oid AND d.defaclobjtype NOT IN ('f'::\"char\", 'T'::\"char\") " +
-			"UNION ALL SELECT n.nspname::text, d.defaclobjtype, d.defaclacl FROM pg_catalog.pg_default_acl AS d JOIN o ON d.defaclrole = o.oid " +
-			`JOIN pg_catalog.pg_namespace AS n ON n.oid = d.defaclnamespace WHERE n.nspname::text = ANY (${schemas})) ` +
-			"SELECT a.scope AS c0, a.objects::text AS c1, " +
-			"CASE WHEN x.grantee = 0::oid THEN 'PUBLIC'::text ELSE pg_catalog.pg_get_userbyid(x.grantee)::text END AS c2, " +
-			"x.privilege_type::text AS c3 " +
-			"FROM acls AS a CROSS JOIN LATERAL pg_catalog.aclexplode(a.acl) AS x CROSS JOIN o WHERE x.grantee <> o.oid",
+		sql: emitCatalog(
+			C.withCtes(
+				[
+					C.cte("o", ["oid"], C.query([r.col("oid")], [r.item], C.eq(r.col("rolname"), owner))),
+					C.cte(
+						"acls",
+						["scope", "objects", "acl"],
+						C.unionAll([
+							C.core(
+								[
+									C.text(""),
+									t.col("k"),
+									C.coalesce([
+										C.scalar(
+											C.query(
+												[d.col("defaclacl")],
+												[d.item],
+												C.and([owned, global, C.eq(d.col("defaclobjtype"), t.col("k"))])
+											)
+										),
+										C.call("acldefault", [t.col("k"), o.col("oid")])
+									])
+								],
+								[C.crossJoin(o.item, t.item)],
+								undefined
+							),
+							C.core(
+								[C.text(""), d.col("defaclobjtype"), d.col("defaclacl")],
+								[C.join(d.item, o.item, owned)],
+								C.and([global, C.notInList(d.col("defaclobjtype"), C.letters(["f", "T"]))])
+							),
+							C.core(
+								[C.asText(n.col("nspname")), d.col("defaclobjtype"), d.col("defaclacl")],
+								[
+									C.join(
+										C.join(d.item, o.item, owned),
+										n.item,
+										C.eq(n.col("oid"), d.col("defaclnamespace"))
+									)
+								],
+								C.any(C.asText(n.col("nspname")), schemas)
+							)
+						])
+					)
+				],
+				C.query(
+					[
+						a.col("scope"),
+						C.asText(a.col("objects")),
+						C.caseWhen(
+							[{ when: C.eq(x.col("grantee"), noOid), result: C.text("PUBLIC") }],
+							C.asText(C.call("pg_get_userbyid", [x.col("grantee")]))
+						),
+						C.asText(x.col("privilege_type"))
+					],
+					[C.crossJoin(C.crossJoin(a.item, x.item), o.item)],
+					C.ne(x.col("grantee"), o.col("oid"))
+				)
+			)
+		),
 		what: "a default privilege's scope, kind, grantee and privilege",
 		row: ([scope, letter, grantee, privilege]) => {
 			if (

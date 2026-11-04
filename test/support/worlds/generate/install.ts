@@ -1,4 +1,5 @@
 import { array, boolean, element, type Gen, int, map, span } from "@grizzle/testing/gen"
+import type { Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { valueText } from "#test/pg/laws/families/model.ts"
@@ -18,7 +19,7 @@ import type {
 	EntrySpec,
 	FieldDomain,
 	FieldSpec,
-	HeadTerm,
+	HostValue,
 	InstallSpec,
 	LoginSpec,
 	Occurrence,
@@ -42,6 +43,7 @@ const installFeatures = [
 	"head-claimed",
 	"head-literal",
 	"literal",
+	"handle-term",
 	"claimed",
 	"claim-term",
 	"free",
@@ -59,7 +61,8 @@ const installFeatures = [
 	"head-alias",
 	"refresh",
 	"two-logins",
-	"read-beside-write"
+	"read-beside-write",
+	"serial-head"
 ] as const
 
 type InstallFeature = (typeof installFeatures)[number]
@@ -167,7 +170,7 @@ interface EntryPlan {
 	readonly ordinary: boolean
 }
 
-/** A comparison of an integer field the rule binds with a pool literal, kept when the swarm keeps it. */
+/** A comparison of an integer or roster field the rule binds with a pool constant, kept when the swarm keeps it. */
 type Comparison = Rule["comparisons"][number]
 
 /**
@@ -175,14 +178,20 @@ type Comparison = Rule["comparisons"][number]
  * context field, as a literal, or (outside the head) fixed to a literal, claimed, free, omitted or aliased to an earlier
  * field of its domain; then the filters the swarm keeps. Every variable a head, a comparison or a negation reads is
  * bound by a positive match, every equated pair shares a domain and every literal is a pool value, so the rule is one
- * the host model's ruleFaults admits.
+ * the host model's ruleFaults admits. A constant of a roster's field is its typed handle in a head, and in an
+ * occurrence or a comparison its JavaScript value or, under `handle-term`, its typed handle, which also stands first.
  */
 const resolveRule =
 	(base: BaseSpec, plan: EntryPlan, drawn: Swarm<InstallFeature>): Gen<Rule> =>
 	(source) => {
 		const negated = base.contexts.length > 0 && source.draw(keep(drawn, "negated-contexts"))
+		/** A constant met in an occurrence or a comparison: a roster's member as its typed handle under `handle-term`. */
+		const constantOf = (at: Source, domain: FieldDomain, value: HostValue): Term =>
+			domain.kind === "handle" && at.draw(keep(drawn, "handle-term"))
+				? { kind: "handle", closed: domain.closed, member: valueText(value) }
+				: { kind: "literal", value }
 		const terms = new Map<string, Term>()
-		const head: Array<readonly [string, HeadTerm]> = []
+		const head: Array<readonly [string, Term]> = []
 		const matches: Array<Occurrence> = []
 		const negations: Array<Arr.NonEmptyReadonlyArray<Occurrence>> = []
 		const claimed = new Set<string>()
@@ -204,7 +213,7 @@ const resolveRule =
 				 * A constant head field: a roster's typed handle, its type carried by the value; else a plain literal, which
 				 * grizzle types by its JavaScript value, so none of a value that has no default type (a span).
 				 */
-				const constant: HeadTerm | undefined =
+				const constant: Term | undefined =
 					f.domain.kind === "handle"
 						? { kind: "handle", closed: f.domain.closed, member: valueText(value) }
 						: literalDefault(value) === undefined
@@ -244,7 +253,7 @@ const resolveRule =
 			)
 			switch (use) {
 				case "literal":
-					terms.set(f.name, { kind: "literal", value: pooled(f.domain, source.draw(poolIndex)) })
+					terms.set(f.name, constantOf(source, f.domain, pooled(f.domain, source.draw(poolIndex))))
 					return
 				case "claimed": {
 					if (claim === undefined) {
@@ -280,23 +289,23 @@ const resolveRule =
 		for (const [i, f] of plan.fields.entries()) {
 			useField(f, i)
 		}
-		const integers = Arr.filter(
+		const compared = Arr.filter(
 			plan.fields,
-			(f) => isInteger(f.domain) && terms.get(f.name)?.kind === "var"
+			(f) =>
+				(isInteger(f.domain) || f.domain.kind === "handle") && terms.get(f.name)?.kind === "var"
 		)
-		const [firstInteger, ...moreIntegers] = integers
+		const [firstCompared, ...moreCompared] = compared
 		const comparison: Gen<ReadonlyArray<Comparison>> = (inner) => {
-			if (firstInteger === undefined || !inner.draw(keep(drawn, "compare"))) {
+			if (firstCompared === undefined || !inner.draw(keep(drawn, "compare"))) {
 				return []
 			}
-			const f = inner.draw(element([firstInteger, ...moreIntegers]))
-			return [
-				{
-					left: terms.get(f.name) ?? variable(own(f.name)),
-					op: inner.draw(element(comparisonOps)),
-					right: { kind: "literal" as const, value: pooled(f.domain, inner.draw(poolIndex)) }
-				}
-			]
+			const f = inner.draw(element([firstCompared, ...moreCompared]))
+			const bound = terms.get(f.name) ?? variable(own(f.name))
+			const constant = constantOf(inner, f.domain, pooled(f.domain, inner.draw(poolIndex)))
+			const op = inner.draw(element(comparisonOps))
+			return constant.kind === "handle" && inner.draw(boolean)
+				? [{ left: constant, op, right: bound }]
+				: [{ left: bound, op, right: constant }]
 		}
 		const comparisons = plan.ordinary
 			? Arr.flatten(source.draw(array(comparison, { min: 0, max: 2 })))
@@ -403,7 +412,22 @@ const resolveEntry =
 				: kind === "derived-source"
 					? Arr.map(base.derived, (d) => d.name)
 					: Arr.map(base.relations, (r) => r.name)
-		const sourceName = source.draw(element(knownNonEmpty(names, "the sources of a kind")))
+		/**
+		 * The serial-head arm, over an ordinary relation holding serial fields: a head of exactly its serial fields, every
+		 * other field fixed or omitted, so the entry's every carried field is serial and a generated addition through it
+		 * carries none, the unit relation.
+		 */
+		const serialSources = Arr.filter(
+			base.relations,
+			(r) => kind === "ordinary-source" && Arr.some(r.fields, (f) => f.domain.kind === "serial")
+		)
+		const serialHead =
+			Arr.isReadonlyArrayNonEmpty(serialSources) && source.draw(keep(drawn, "serial-head"))
+				? Arr.map(serialSources, (r) => r.name)
+				: undefined
+		const sourceName = source.draw(
+			element(serialHead === undefined ? knownNonEmpty(names, "the sources of a kind") : serialHead)
+		)
 		const fields = fieldsOfSource(base, sourceName)
 		const ordinary = kind === "ordinary-source"
 		const links = ordinary
@@ -422,7 +446,14 @@ const resolveEntry =
 			firstForeign !== undefined && source.draw(keep(drawn, "foreign-head"))
 				? source.draw(element([firstForeign, ...moreForeign]))
 				: undefined
-		const chosen = new Set(Arr.map(byBits(fields, source.draw(int(0, 0xff))), (f) => f.name))
+		const chosen = new Set(
+			Arr.map(
+				serialHead === undefined
+					? byBits(fields, source.draw(int(0, 0xff)))
+					: Arr.filter(fields, (f) => f.domain.kind === "serial"),
+				(f) => f.name
+			)
+		)
 		const [first] = fields
 		if (chosen.size === 0 && foreign === undefined && first !== undefined) {
 			chosen.add(first.name)

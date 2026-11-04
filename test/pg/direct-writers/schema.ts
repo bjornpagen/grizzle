@@ -30,7 +30,7 @@ const Desk = schema("Desk", { Account, Entry, Pair }, [
 const AccountEntries = derived(
 	"AccountEntries",
 	query(Desk).rule((r) => {
-		const { id, account } = v(Entry)
+		const { id, account } = v(Entry, "entry")
 		return r.match(Entry, { id, account }).find({ account, entries: r.count() })
 	})
 )

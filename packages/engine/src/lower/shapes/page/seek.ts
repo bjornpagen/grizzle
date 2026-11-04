@@ -1,3 +1,4 @@
+import { appendNonEmpty, isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { PageFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, OrderKey } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -225,28 +226,31 @@ const operator = (direction: "asc" | "desc", seek: Seek): ">" | "<" | ">=" | "<=
  * of the empty comparison tuple).
  */
 export const seekPredicate = (keys: ReadonlyArray<SeekKey>, seek: Seek): Expr | undefined => {
-	const [first] = keys
-	if (first === undefined) {
+	if (!isNonEmpty(keys)) {
 		return seek.inclusive ? undefined : lit.bool(false)
 	}
+	const [first] = keys
 	if (isRowSeek(keys)) {
 		const op = operator(first.direction, seek)
 		if (keys.length === 1) {
 			return binary(op, first.column, first.boundary)
 		}
-		return binary(op, row(...keys.map((k) => k.column)), row(...keys.map((k) => k.boundary)))
+		return binary(
+			op,
+			row(mapNonEmpty(keys, (k) => k.column)),
+			row(mapNonEmpty(keys, (k) => k.boundary))
+		)
 	}
 	const equal = (k: SeekKey): Expr => eq(k.column, k.boundary)
-	const terms = keys.map((k, j) => {
-		const prefix = keys.slice(0, j).map(equal)
-		const step = binary(
-			operator(k.direction, { side: seek.side, inclusive: false }),
-			k.column,
-			k.boundary
+	const terms = mapNonEmpty(keys, (k, j) =>
+		and(
+			appendNonEmpty(
+				keys.slice(0, j).map(equal),
+				binary(operator(k.direction, { side: seek.side, inclusive: false }), k.column, k.boundary)
+			)
 		)
-		return prefix.length === 0 ? step : and(...prefix, step)
-	})
-	return or(...terms, ...(seek.inclusive ? [and(...keys.map(equal))] : []))
+	)
+	return or(seek.inclusive ? appendNonEmpty(terms, and(mapNonEmpty(keys, equal))) : terms)
 }
 
 /** ORDER BY items with every direction reversed: last and before reverse every sort direction. */

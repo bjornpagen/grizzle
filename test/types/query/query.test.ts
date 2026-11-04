@@ -52,7 +52,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("typed query facade", (
 		let finishedKeys: ReadonlyArray<string> = []
 		builder.rule((r) => {
 			ruleKeys = Arr.filter(facade.ruleMethods, (m) => typeof r[m] !== "function")
-			const { id } = v(work.Task)
+			const { id } = v(work.Task, "task")
 			const finished = r.match(work.Task, { id }).find({ id })
 			finishedKeys = Arr.filter(facade.finishedMethods, (m) => typeof finished[m] !== "function")
 			return finished

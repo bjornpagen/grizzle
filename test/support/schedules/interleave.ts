@@ -10,6 +10,7 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
 import { defined } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
@@ -934,7 +935,7 @@ const interleavingOf = (
 			const ends = Arr.flatMap(own, (m) => Option.toArray(m.ended))
 			return first === undefined
 				? []
-				: [[t.session, { start: first.issued, end: Math.max(first.issued, ...ends) }] as const]
+				: [[t.session, { start: first.issued, end: maxOf(ends, first.issued) }] as const]
 		})
 	)
 	return {

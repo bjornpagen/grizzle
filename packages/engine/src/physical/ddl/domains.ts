@@ -9,7 +9,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, DomainName } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { sortNonEmpty } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
@@ -255,7 +255,7 @@ const addContractDomain = (
 		constraints:
 			check.kind === "unchecked"
 				? []
-				: [{ name: check.ident, predicate: and(...check.terms.map((t) => term(t))) }]
+				: [{ name: check.ident, predicate: and(mapNonEmpty(check.terms, (t) => term(t))) }]
 	}
 	const baseNode = b.typeNode(type)
 	b.addType("domain", named, { ddl: [ddl], reasons }, [
@@ -287,8 +287,8 @@ export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName>
 		if (known !== undefined) {
 			return known
 		}
-		const inner =
-			object.base.contract === undefined ? undefined : byName.get(object.base.contract.name)
+		const baseContract = contractOf(object.base)
+		const inner = baseContract === undefined ? undefined : byName.get(baseContract.name)
 		if (inner !== undefined) {
 			add(inner)
 		}
@@ -351,8 +351,9 @@ export const contextContracts = (
 			loc: SourceLoc,
 			what: string
 		): void => {
-			if (desc.base.kind === "contract" && info.base.contract !== undefined) {
-				plan(desc.base, info.base.contract, loc, what)
+			const baseContract = contractOf(info.base)
+			if (desc.base.kind === "contract" && baseContract !== undefined) {
+				plan(desc.base, baseContract, loc, what)
 			}
 			const text = unwrap(descText(desc))
 			const declared = owned.contracts[info.name]

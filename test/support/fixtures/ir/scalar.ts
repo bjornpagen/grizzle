@@ -3,6 +3,7 @@
  * ScalarType as a literal, so every capability set a test meets is production's.
  */
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -24,7 +25,7 @@ const canonicalText: TextLookup = (source, flags) =>
  */
 export const scalarOf = (
 	desc: FieldDesc,
-	rosters: Readonly<Record<string, ReadonlyArray<string>>>
+	rosters: Readonly<Record<string, NonEmptyReadonlyArray<string>>>
 ): ScalarType => {
 	const env: ScalarEnv = {
 		kind: "builder",

@@ -89,9 +89,9 @@ const setup = Effect.gen(function* () {
 		[names.primaryKeyLaw(Booking), "PrimaryKey", `PRIMARY KEY (${names.column(Booking, "id")})`]
 	] as const) {
 		const constraint = quoteIdent(names.constraintOf(law, kind))
-		yield* rig.owner(
+		yield* rig.owner([
 			`ALTER TABLE ${booking} DROP CONSTRAINT ${constraint}, ADD CONSTRAINT ${constraint} ${definition}`
-		)
+		])
 	}
 	const app = yield* rig.writer("app", (context) =>
 		Db.open(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))

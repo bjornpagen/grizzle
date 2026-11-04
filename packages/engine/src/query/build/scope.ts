@@ -27,17 +27,19 @@ export const noSchema: SchemaInfo = Object.freeze({ value: undefined, env: build
  * instead (ir/open.ts Open), which records the scope it belongs to:
  *
  * - a variable v minted records the build and the rule callback it was minted in, or that it was minted in an
- *   attachment child outside its rules, whose rules adopt it; and its field, origin and call site. The object is its
- *   identity, so each call to v mints fresh variables, however the calls are made;
+ *   attachment child outside its rules, whose rules adopt it; the call to v that minted it, its scope, which carries
+ *   the name v was given; and its field, origin and call site. The object is its identity, so each call to v mints
+ *   fresh variables, however the calls are made;
  * - an interior stage records the rule callback that describes it, and its id "i<n>" in that rule, in creation order;
  * - a parent variable records its attachment child, and the parent's column it reads.
  *
  * Builders run synchronously, so each scope (a build, a rule callback, an attachment child) knows whether it is
- * running. `find` spells every reference of its rule (rule.ts finishRule): its variables canonically, unique within the
- * rule in order of first use, and listed in RuleDesc.vars with their origins, so building one query twice gives one
- * Description; an interior stage by its id; a parent variable by its bare column, its attachment kept among the rule's
- * pending ones, which the attachment checks are its own when its child returns (attach.ts runAttach). No reference
- * reaches a Description.
+ * running. `find` spells every reference of its rule (rule.ts finishRule): each variable by its scope's name and its
+ * field, `<name>.<field>`, unique within the rule since a rule holds one scope of each name (two are
+ * DuplicateIdentity), and listed in RuleDesc.vars with their origins in order of first use, so building one query
+ * twice gives one Description; an interior stage by its id; a parent variable by its bare column, its attachment kept
+ * among the rule's pending ones, which the attachment checks are its own when its child returns (attach.ts runAttach).
+ * No reference reaches a Description.
  *
  * Spelling is where capture is refused. A variable of an enclosing rule callback still running that reaches an inner
  * rule (an interior stage, an imported query, an attachment child built inside the callback) would otherwise be read by

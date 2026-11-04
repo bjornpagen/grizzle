@@ -4,6 +4,19 @@ import type { ProbeDatabase, ProbeInput, ProbeResult } from "#bench/cold/probe.t
 const Mode = Schema.Literals(["compile", "database"])
 const Measures = Schema.Record(Schema.String, Schema.Finite)
 
+/** A uuid's text: the type Uuid, five hyphenated groups, checked to be a uuid. */
+const UuidText = Schema.TemplateLiteral([
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String,
+	"-",
+	Schema.String
+]).check(Schema.isUUID())
+
 const ProbeDatabaseSchema: Schema.Codec<ProbeDatabase> = Schema.Struct({
 	host: Schema.String,
 	port: Schema.Finite,
@@ -12,7 +25,7 @@ const ProbeDatabaseSchema: Schema.Codec<ProbeDatabase> = Schema.Struct({
 	password: Schema.String,
 	caFile: Schema.String,
 	snapshot: Schema.String,
-	account: Schema.String
+	account: UuidText
 })
 
 const ProbeInputSchema: Schema.Codec<ProbeInput> = Schema.Union([

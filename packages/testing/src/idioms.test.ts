@@ -14,7 +14,7 @@ import {
 } from "effect"
 import { type Enumerated, enumerated, firstBranch } from "#enumerate.ts"
 import { type Case, drawn, type Exploration, exhaust, explore } from "#explore.ts"
-import { type Features, features, noFeatures } from "#features.ts"
+import { type Coverage, noCoverage, required } from "#features.ts"
 import {
 	alphabet,
 	array,
@@ -44,6 +44,7 @@ import {
 } from "#lsw.ts"
 import { matching, PatternRefused } from "#pattern.ts"
 import { wordsOf } from "#random.ts"
+import { notesOnly } from "#sense.ts"
 import { completeShrink, shrink } from "#shrink.ts"
 import { type Generated, generate, randomChooser, simplestChooser } from "#source.ts"
 import { keep, OMISSIONS, type Swarm, swarm, swarmChoice, weightOf } from "#swarm.ts"
@@ -89,19 +90,18 @@ const neverDrawn = <A>(values: ReadonlyArray<A>, wanted: ReadonlyArray<A>): Read
 const searchOf = <A, F extends string>(
 	suite: string,
 	generator: Gen<A>,
-	required: Features<F>,
+	coverage: Coverage<F>,
 	runs: number
 ): Exploration<A, A, F> => ({
 	suite,
 	draw: drawn(generator),
 	literal: Formatter.format,
-	features: required,
+	coverage,
 	kept: [],
 	runs,
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(1)
 })
 
@@ -137,7 +137,7 @@ describe("whole numbers", () => {
 					generator: smallBounds,
 					literal: Formatter.format,
 					limit: 100,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},
 				([lo, hi]) =>
@@ -162,7 +162,7 @@ describe("bigints", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("bigint bounds", boundsOf(bigint(-(2n ** 100n), 2n ** 100n)), noFeatures, 200),
+				searchOf("bigint bounds", boundsOf(bigint(-(2n ** 100n), 2n ** 100n)), noCoverage, 200),
 				([lo, hi], c) =>
 					Effect.sync(() => {
 						const value = c.draw(bigint(lo, hi))
@@ -188,7 +188,7 @@ describe("floating-point numbers", () => {
 				searchOf(
 					"double bounds",
 					boundsOf(double(-Number.MAX_VALUE, Number.MAX_VALUE)),
-					noFeatures,
+					noCoverage,
 					200
 				),
 				([min, max], c) =>
@@ -207,7 +207,7 @@ describe("floating-point numbers", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("float bounds", boundsOf(float(-FLOAT_MAX, FLOAT_MAX)), noFeatures, 200),
+				searchOf("float bounds", boundsOf(float(-FLOAT_MAX, FLOAT_MAX)), noCoverage, 200),
 				([min, max], c) =>
 					Effect.sync(() => {
 						const value = c.draw(float(min, max))
@@ -270,7 +270,7 @@ describe("uuids", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("uuid form", element([1, 2, 3, 4, 5, 6, 7, 8] as const), noFeatures, 100),
+				searchOf("uuid form", element([1, 2, 3, 4, 5, 6, 7, 8] as const), noCoverage, 100),
 				(version, c) =>
 					Effect.sync(() => {
 						const value = c.draw(uuid(version))
@@ -298,7 +298,7 @@ describe("collections", () => {
 						generator: shuffled(values, { min: 0, max: 4 }),
 						literal: Formatter.format,
 						limit: 100,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
 					(picked) =>
@@ -319,7 +319,7 @@ describe("collections", () => {
 				searchOf(
 					"unique array",
 					uniqueArray(int(0, 5), (value) => value, { min: 0, max: 6 }, 40),
-					noFeatures,
+					noCoverage,
 					200
 				),
 				(items) => Effect.sync(() => deepStrictEqual(Arr.dedupe(items), items))
@@ -348,7 +348,7 @@ describe("collections", () => {
 						generator: alphabet(letters),
 						literal: Formatter.format,
 						limit: 100,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
 					(drawnLetters) =>
@@ -498,7 +498,7 @@ describe("swarms", () => {
 	})
 })
 
-const DRAWN_FEATURES: ReadonlyArray<DrawnFeature<"closed scope">> = [
+const DRAWN_FEATURES: Arr.NonEmptyReadonlyArray<DrawnFeature<"closed scope">> = [
 	"live",
 	"stale closed scope",
 	...Arr.map(WILD_KINDS, (kind): DrawnFeature<"closed scope"> => `wild ${kind}`)
@@ -515,7 +515,12 @@ describe("live, stale and wild values", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("lsw kinds", boundaryValue, features(DRAWN_FEATURES), 600),
+				searchOf(
+					"lsw kinds",
+					boundaryValue,
+					required(DRAWN_FEATURES, { cases: 600, sense: notesOnly }),
+					600
+				),
 				(value, c: Case<DrawnFeature<"closed scope">>) =>
 					Effect.sync(() => {
 						Formatter.format(value)
@@ -626,7 +631,7 @@ describe("a pattern", () => {
 	it.effect("generates only strings it matches", (ctx) =>
 		searched(
 			ctx,
-			explore(searchOf("matching", element(PATTERNS), noFeatures, 200), (pattern, c) =>
+			explore(searchOf("matching", element(PATTERNS), noCoverage, 200), (pattern, c) =>
 				Effect.sync(() => {
 					const text = c.draw(matching(pattern))
 					assertTrue(pattern.test(text), `${text} matches ${pattern.source}`)
@@ -661,7 +666,7 @@ describe("a wide whole number", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("wide ints", boundsOf(int(-(2 ** 50), 2 ** 50)), noFeatures, 200),
+				searchOf("wide ints", boundsOf(int(-(2 ** 50), 2 ** 50)), noCoverage, 200),
 				([lo, hi], c) =>
 					Effect.sync(() => {
 						const value = c.draw(int(lo, hi))

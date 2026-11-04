@@ -1,9 +1,10 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -122,14 +123,14 @@ const IntClosure = query(Net).recursive("IntClosure", {
 	row: { origin: pg.integer, node: pg.integer },
 	base: [
 		(r) => {
-			const { from, to } = v(E)
+			const { from, to } = v(E, "e")
 			return r.match(E, { from, to }).find({ origin: from, node: to })
 		}
 	],
 	rec: [
 		(r, self) => {
-			const { origin, node } = v(self)
-			const { to } = v(E)
+			const { origin, node } = v(self, "self")
+			const { to } = v(E, "e")
 			return r.match(self, { origin, node }).match(E, { from: node, to }).find({ origin, node: to })
 		}
 	]
@@ -139,14 +140,14 @@ const TextClosure = query(Net).recursive("TextClosure", {
 	row: { origin: text, node: text },
 	base: [
 		(r) => {
-			const { from, to } = v(T)
+			const { from, to } = v(T, "t")
 			return r.match(T, { from, to }).find({ origin: from, node: to })
 		}
 	],
 	rec: [
 		(r, self) => {
-			const { origin, node } = v(self)
-			const { to } = v(T)
+			const { origin, node } = v(self, "self")
+			const { to } = v(T, "t")
 			return r.match(self, { origin, node }).match(T, { from: node, to }).find({ origin, node: to })
 		}
 	]
@@ -154,19 +155,19 @@ const TextClosure = query(Net).recursive("TextClosure", {
 
 /** (a) A parameter constant on the origin. */
 const ConstantParam = query(Net).rule((r) => {
-	const { node } = v(IntClosure)
+	const { node } = v(IntClosure, "intClosure")
 	return r.match(IntClosure, { origin: r.param("p", pg.integer), node }).find({ node })
 })
 
 /** A literal constant on the origin. */
 const ConstantLiteral = query(Net).rule((r) => {
-	const { node } = v(IntClosure)
+	const { node } = v(IntClosure, "intClosure")
 	return r.match(IntClosure, { origin: 9, node }).find({ node })
 })
 
 /** A text literal constant: the seed predicate's equality is the text one. */
 const ConstantText = query(Net).rule((r) => {
-	const { node } = v(TextClosure)
+	const { node } = v(TextClosure, "textClosure")
 	return r.match(TextClosure, { origin: "b", node }).find({ node })
 })
 
@@ -175,13 +176,13 @@ const ConstantText = query(Net).rule((r) => {
  * (check/checker.ts #constant), so it is the region site.
  */
 const ConstantTextParam = query(Net).rule((r) => {
-	const { node } = v(TextClosure)
+	const { node } = v(TextClosure, "textClosure")
 	return r.match(TextClosure, { origin: r.param("p", text), node }).find({ node })
 })
 
 /** (b) An equality on the origin's region variable. */
 const RegionEq = query(Net).rule((r) => {
-	const { origin, node } = v(IntClosure)
+	const { origin, node } = v(IntClosure, "intClosure")
 	return r
 		.match(IntClosure, { origin, node })
 		.where(r.eq(origin, r.param("p", pg.integer)))
@@ -190,7 +191,7 @@ const RegionEq = query(Net).rule((r) => {
 
 /** (c) A non-equality on the origin's region variable. */
 const RegionLt = query(Net).rule((r) => {
-	const { origin, node } = v(IntClosure)
+	const { origin, node } = v(IntClosure, "intClosure")
 	return r
 		.match(IntClosure, { origin, node })
 		.where(r.lt(origin, r.param("p", pg.integer)))
@@ -199,7 +200,7 @@ const RegionLt = query(Net).rule((r) => {
 
 /** The origin's conjunct moves; the endpoint's beside it stays where it was. */
 const RegionMixed = query(Net).rule((r) => {
-	const { origin, node } = v(IntClosure)
+	const { origin, node } = v(IntClosure, "intClosure")
 	return r
 		.match(IntClosure, { origin, node })
 		.where(r.ge(origin, r.param("p", pg.integer)), r.ne(node, origin))
@@ -208,7 +209,7 @@ const RegionMixed = query(Net).rule((r) => {
 
 /** A text origin compared in the region. */
 const RegionText = query(Net).rule((r) => {
-	const { origin, node } = v(TextClosure)
+	const { origin, node } = v(TextClosure, "textClosure")
 	return r
 		.match(TextClosure, { origin, node })
 		.where(r.eq(origin, r.param("p", text)))
@@ -249,7 +250,7 @@ layer(Substrate.layer)(
 								generator: element(cases),
 								literal: ([c, rule]: SiteCase) => `${c.label}: ${rule}`,
 								limit: cases.length,
-								features: features<SiteFeature>(
+								coverage: requiredInSpace<SiteFeature>(
 									Arr.map(cases, ([c]): SiteFeature => `fired: ${c.label}`)
 								),
 								caseHang: Duration.minutes(2)
@@ -258,7 +259,7 @@ layer(Substrate.layer)(
 								Effect.gen(function* () {
 									const fired: Array<string> = []
 									const optimized = optimizedLoweringWith((features) => {
-										fired.push(...Arr.filter(features, isGraphRule))
+										appendAll(fired, Arr.filter(features, isGraphRule))
 									}, "snapshot")
 									const withReference = yield* runLabelledOracle(c, optimized, reference, {
 										...defaultRunOptions,

@@ -3,7 +3,7 @@ import { inspect } from "node:util"
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -16,6 +16,7 @@ import {
 	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -29,13 +30,28 @@ import {
 	Record as Rec,
 	Redacted,
 	type Result,
+	Schema,
 	String as Str
 } from "effect"
+import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
+import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
-import { type ConnectionEnv, parseDatabaseUrl, resolveConnection } from "#cli/connection.ts"
+import {
+	type ConnectionEnv,
+	ownerEnvironment,
+	parseDatabaseUrl,
+	resolveConnection
+} from "#cli/connection.ts"
 import type { CliError } from "#cli/errors.ts"
 import { assert, lacksText, nonEmpty, refusedAt, succeeded } from "#test/support/assert.ts"
+import {
+	processEnvironment,
+	processValue,
+	valueMark,
+	type VariableValue,
+	variableGen
+} from "#test/support/process-env.ts"
 
 import { regex } from "arkregex"
 /**
@@ -51,6 +67,10 @@ import { regex } from "arkregex"
  *   store, which `system` also names; a relative path resolves against the directory grizzle runs in.
  * - Faults: one fault injected into an accepted connection, URL or typed, is refused at stage config, and no refusal
  *   holds the password, raw or percent-encoded, in its message or anywhere else.
+ * - The process environment, the one node-postgres reads: drawn with `PGOPTIONS` and `PGREPLICATION` each absent, empty
+ *   or at a text, a migration's is refused at stage config exactly when one holds a text, with a
+ *   ConnectionEnvironmentRefused naming the first of them and quoting no value, since an owner's session sets no
+ *   options of its own and pg would send both at its startup.
  */
 const caText = "-----BEGIN CERTIFICATE-----\nMIIBurl\n-----END CERTIFICATE-----\n"
 const envCaText = "-----BEGIN CERTIFICATE-----\nMIIBenvironment\n-----END CERTIFICATE-----\n"
@@ -497,13 +517,15 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 							suite: "unit/cli/connection-agreement",
 							draw: drawn(drawnGen(0)),
 							literal: Formatter.format,
-							features: features<ConnectionFeature>(connectionFeatures),
+							coverage: required<ConnectionFeature>(connectionFeatures, {
+								cases: 300,
+								sense: notesOnly
+							}),
 							kept: keptAgreement,
 							runs: 300,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.millis(5000)
 						},
 						(d, c) =>
@@ -541,13 +563,12 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									return [d, source.draw(urlFaults(cwd, d))]
 								}),
 								literal: Formatter.format,
-								features: features<UrlFaultKind>(urlFaultKinds),
+								coverage: required<UrlFaultKind>(urlFaultKinds, { cases: 300, sense: notesOnly }),
 								kept: keptUrlFaults,
 								runs: 300,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.millis(5000)
 							},
 							([d, f], c) =>
@@ -573,13 +594,12 @@ describe("the typed connection, generated", () => {
 						suite: "unit/cli/connection-typed-faults",
 						draw: drawn((source) => [source.draw(validGen), source.draw(typedFaults)] as const),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([d, f]) =>
@@ -592,6 +612,92 @@ describe("the typed connection, generated", () => {
 										tls: Object.assign({ ...base.tls }, f.tls)
 									})
 							refusal(resolveConnection(typed), d.password)
+						})
+				)
+			)
+	)
+})
+
+/** A drawn process environment: each startup variable's value. */
+type OwnerEnvironment = { readonly [V in StartupVariable]: VariableValue }
+
+/** What a run of the owner environment property reaches. */
+type OwnerEnvironmentFeature =
+	| `refused ${StartupVariable}`
+	| "refused PGOPTIONS beside PGREPLICATION set"
+	| "admitted with a variable empty"
+	| "admitted with neither set"
+
+describe("the migration's process environment, generated", () => {
+	it.effect(
+		"refuses at stage config exactly the environments that set PGOPTIONS or PGREPLICATION, naming the first",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/cli/owner-environment",
+						draw: drawn((source): OwnerEnvironment => ({
+							PGOPTIONS: source.draw(variableGen),
+							PGREPLICATION: source.draw(variableGen)
+						})),
+						literal: Formatter.format,
+						coverage: required<OwnerEnvironmentFeature>(
+							[
+								"refused PGOPTIONS",
+								"refused PGREPLICATION",
+								"refused PGOPTIONS beside PGREPLICATION set",
+								"admitted with a variable empty",
+								"admitted with neither set"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					(e, c) =>
+						Effect.gen(function* () {
+							const result = yield* Effect.scoped(
+								Effect.andThen(
+									processEnvironment(
+										Rec.fromEntries(
+											Arr.map(
+												startupVariableNames,
+												(name) => [name, processValue(e[name])] as const
+											)
+										)
+									),
+									Effect.result(ownerEnvironment)
+								)
+							)
+							const expected = Arr.findFirst(
+								startupVariableNames,
+								(name) => e[name].kind === "text"
+							)
+							if (Option.isNone(expected)) {
+								succeeded(result, "an environment that sets neither variable")
+								c.note(
+									Arr.some(startupVariableNames, (name) => e[name].kind === "empty")
+										? "admitted with a variable empty"
+										: "admitted with neither set"
+								)
+								return
+							}
+							const refused = refusedAt(result, "stage", "config")
+							assert.ok(
+								Schema.is(ConnectionEnvironmentRefused)(refused.reason),
+								`the environment's refusal is ${refused.reason._tag}`
+							)
+							assert.equal(refused.reason.variable, expected.value)
+							lacksText(refused.message, valueMark, "the refusal quotes a value")
+							c.note(`refused ${expected.value}`)
+							if (expected.value === "PGOPTIONS" && e.PGREPLICATION.kind === "text") {
+								c.note("refused PGOPTIONS beside PGREPLICATION set")
+							}
 						})
 				)
 			)

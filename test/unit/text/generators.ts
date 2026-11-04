@@ -10,6 +10,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
+import { codePointsText } from "#compiler/core/text.ts"
 import type { CharSet } from "#compiler/text/charset.ts"
 import type { Nfa } from "#compiler/text/nfa.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -214,7 +215,7 @@ export const stringsOver = (
 			]),
 			{ min: 0, max: maxLength }
 		),
-		(points) => String.fromCodePoint(...points)
+		(points) => codePointsText(points)
 	)
 
 const syntax = "^$\\.*+?()[]{}|/"
@@ -569,7 +570,7 @@ export const walk = (
 	let ended = false
 	for (let step = 0; step < 400; step++) {
 		if (state === nfa.accept && (pickIndex(next(), 5) < 2 || codePoints.length >= maxLength)) {
-			return String.fromCodePoint(...codePoints)
+			return codePointsText(codePoints)
 		}
 		const allowed = Arr.filter(
 			defined(nfa.edges[state], `the edges of state ${state}`),
@@ -580,7 +581,7 @@ export const walk = (
 				(e.kind === "set" && !ended && codePoints.length < maxLength)
 		)
 		if (allowed.length === 0) {
-			return state === nfa.accept ? String.fromCodePoint(...codePoints) : undefined
+			return state === nfa.accept ? codePointsText(codePoints) : undefined
 		}
 		const edge = defined(allowed[pickIndex(next(), allowed.length)], "an edge")
 		if (edge.kind === "set") {

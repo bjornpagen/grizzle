@@ -48,9 +48,9 @@ import {
 
 import {
 	eventsInOrder,
-	type KeyImage,
 	type Participant,
-	type ParticipantEvents
+	type ParticipantEvents,
+	type SidedImage
 } from "#compiler/ir/law.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -129,22 +129,22 @@ const bound = 1000000000
 /** Groups 10.. are the measured groups, one per group size. */
 const sized = 10
 
-/** A participant's events, each as its kind and the row images it checks. */
+/** A participant's event units, each as its kind and the row images it checks. */
 const rowEvents = (events: ParticipantEvents) =>
 	eventsInOrder<{
 		readonly text: string
 		readonly kind: string
-		readonly images: ReadonlyArray<KeyImage>
+		readonly images: ReadonlyArray<SidedImage>
 	}>(events, {
-		insert: (images) => ({ text: "INSERT", kind: "INSERT", images }),
-		delete: (images) => ({ text: "DELETE", kind: "DELETE", images }),
-		update: (u) => ({
+		insert: (_unit, images) => ({ text: "INSERT", kind: "INSERT", images }),
+		delete: (_unit, images) => ({ text: "DELETE", kind: "DELETE", images }),
+		update: (unit, images) => ({
 			text: `UPDATE OF ${Arr.join(
-				Arr.map(u.of, (f) => f.name),
+				Arr.map(unit.on.of, (f) => f.name),
 				", "
 			)}`,
 			kind: "UPDATE",
-			images: u.images
+			images
 		})
 	})
 
@@ -613,7 +613,7 @@ export default defineGate({
 				if (update === undefined) {
 					return false
 				}
-				return Arr.every(update.of, (f) => fields.includes(f.name))
+				return Arr.every(update.on.of, (f) => fields.includes(f.name))
 			}
 			const r23: VerdictInput = {
 				checks: [

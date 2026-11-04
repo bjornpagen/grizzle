@@ -35,7 +35,9 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
  *   failed file. Only a lost connection during COMMIT leaves the outcome unknown, and the ledger answers it: the file's
  *   row is inserted inside its own transaction, so the file committed exactly when its row exists.
  * - After every folder applied: `drift`, the drift check of the catalog against the target snapshot
- *   (adapter/admission/drift.ts; edits are allowed, drift is not), with every mismatch.
+ *   (adapter/admission/drift.ts; edits are allowed, drift is not), with every mismatch; or `unchecked`, a drift check
+ *   that reached no verdict, because the snapshot did not render, the ledger or the catalog could not be read, or the
+ *   replay that builds the snapshot beside the schema was refused. The check changed nothing: it rolled back.
  */
 export type MigrateStage =
 	| "connect"
@@ -51,19 +53,31 @@ export type MigrateStage =
 	| "record"
 	| "commit"
 	| "drift"
+	| "unchecked"
 
-/** The stages at which no statement of any folder has run. */
-export const refusalStages: ReadonlySet<MigrateStage> = new Set([
-	"connect",
-	"owner",
-	"input",
-	"busy",
-	"ledger",
-	"edited",
-	"order",
-	"marker",
-	"decision"
-])
+/**
+ * What ran before a stage stopped the command, as the report's outcome line says it: nothing at all, the files before
+ * the failed one (a rerun resumes), every folder with a catalog that differs, or every folder with no verdict.
+ */
+export type Outcome = "nothingRan" | "resumes" | "drifted" | "noVerdict"
+
+/** The outcome of each stage. */
+export const stageOutcome: { readonly [S in MigrateStage]: Outcome } = {
+	connect: "nothingRan",
+	owner: "nothingRan",
+	input: "nothingRan",
+	busy: "nothingRan",
+	ledger: "nothingRan",
+	edited: "nothingRan",
+	order: "nothingRan",
+	marker: "nothingRan",
+	decision: "nothingRan",
+	statement: "resumes",
+	record: "resumes",
+	commit: "resumes",
+	drift: "drifted",
+	unchecked: "noVerdict"
+}
 
 /** A statement apart's answer that is no row its query reads: the server's refusal, or a row the catalog cannot give. */
 const RowFailureSchema = Schema.Union([ServerError, CatalogRowRefused])
@@ -623,17 +637,37 @@ export class Drifted extends Schema.TaggedError<Drifted, { readonly brand: uniqu
 }
 
 /**
- * The drift check of `schema` could not compare: the snapshot's installation does not render (a CompileError), its
- * ledger could not be read, or the catalog could not be read.
+ * Statement `statement` of the `of` statements of the drift check's replay, which builds the snapshot's objects beside
+ * the schema to compare them, was refused by the server: the check reached no verdict, and rolled back.
+ */
+export class ReplayRefused extends Schema.TaggedError<
+	ReplayRefused,
+	{ readonly brand: unique symbol }
+>()("ReplayRefused", { statement: Schema.Int, of: Schema.Int, failure: ServerError }) {
+	override get message(): string {
+		return `statement ${this.statement} of ${this.of} of the replay was refused: ${serverSaid(this.failure)}`
+	}
+}
+
+/**
+ * The drift check of `schema` reached no verdict: the snapshot's installation does not render (a CompileError), its
+ * ledger could not be read, the replay that builds the snapshot beside it was refused, or the catalog could not be read.
+ * A StatementFailure here is a read's.
  */
 export class DriftUnchecked extends Schema.TaggedError<
 	DriftUnchecked,
 	{ readonly brand: unique symbol }
 >()("DriftUnchecked", {
 	schema: Schema.String,
-	failure: Schema.Union([CompileErrorSchema, LedgerUnread, LedgerDamaged, StatementFailureSchema])
+	failure: Schema.Union([
+		CompileErrorSchema,
+		LedgerUnread,
+		LedgerDamaged,
+		ReplayRefused,
+		StatementFailureSchema
+	])
 }) {
-	/** What the server said, when the catalog's reads failed; nothing for a snapshot that does not render or the ledger. */
+	/** What the server said, when the replay or the catalog's reads failed; nothing for a snapshot or the ledger. */
 	get server(): ServerReport {
 		const failure = this.failure
 		switch (failure._tag) {
@@ -641,6 +675,8 @@ export class DriftUnchecked extends Schema.TaggedError<
 			case "LedgerUnread":
 			case "LedgerDamaged":
 				return noServerReport
+			case "ReplayRefused":
+				return { by: "server", error: failure.failure }
 			case "ServerError":
 			case "ConnectionLost":
 			case "CatalogRowRefused":
@@ -658,6 +694,8 @@ export class DriftUnchecked extends Schema.TaggedError<
 			case "LedgerUnread":
 			case "LedgerDamaged":
 				return failure.message
+			case "ReplayRefused":
+				return `the snapshot of ${this.schema} could not be built beside it to compare (statement ${failure.statement} of ${failure.of} of the replay): ${serverSaid(failure.failure)}`
 			case "ServerError":
 			case "ConnectionLost":
 			case "CatalogRowRefused":
@@ -722,7 +760,7 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	FileCommitRefused: "commit",
 	FileCommitLost: "commit",
 	Drifted: "drift",
-	DriftUnchecked: "drift"
+	DriftUnchecked: "unchecked"
 }
 
 /**

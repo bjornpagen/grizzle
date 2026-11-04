@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, weighted, type Weight } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Exit, Fiber, Formatter, Option, Order } from "effect"
@@ -9,9 +10,10 @@ import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
+import { Uuid } from "#compiler/public/fields.ts"
 import { defaultPool, poolFor, rowsOn, until } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -105,7 +107,6 @@ const caseSketchGen: Gen<CaseSketch> = weighted<CaseSketch>([
 /**
  * Planted: a write completing before a gate past its end; a write deleting a note a lock holds, interrupted where it
  * waits; a write held before its last ReadyForQuery, its COMMIT run, which commits; a read held at once.
- * The drawn cases reach each a few to nine times a run.
  */
 const point = (type: GatePoint["type"], arm: Arm): GatePoint => ({ type, arm, pick: 0 })
 const interruptKept: ReadonlyArray<Kept<CaseSketch, InterruptFeature>> = [
@@ -178,11 +179,11 @@ const gateCount = (gate: GatePoint, traffic: ReadonlyArray<BackendMessage>): num
 }
 
 interface Note {
-	readonly task: string
+	readonly task: Uuid
 	readonly note: string
 }
 
-const tasks: ReadonlyArray<string> = Arr.map(workFacts.Task, (task) => task.id)
+const tasks: ReadonlyArray<Uuid> = Arr.map(workFacts.Task, (task) => task.id)
 
 const byTask: Order.Order<Note> = Order.mapInput(Order.String, (n: Note) => n.task)
 
@@ -274,7 +275,7 @@ type InterruptFeature =
 	| "committed after an interruption"
 	| "rolled back after an interruption"
 
-const required: ReadonlyArray<InterruptFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<InterruptFeature> = [
 	"write interrupted",
 	"read interrupted",
 	"write completed before the gate",
@@ -306,20 +307,23 @@ const interruptCases = Effect.gen(function* () {
 			`SELECT ${noteTask}::text, ${noteText} FROM ${notes} ORDER BY ${noteTask}`,
 			[]
 		),
-		(rows) => Arr.map(rows, ([task, note]): Note => ({ task: String(task), note: String(note) }))
+		(rows) =>
+			Arr.map(rows, ([task, note]): Note => ({
+				task: succeeded(Uuid.parse(task), "a stored note's task"),
+				note: String(note)
+			}))
 	)
 	return yield* explore(
 		{
 			suite: `pg/adapter/interrupt`,
 			draw: drawn(caseSketchGen),
 			literal: Formatter.format,
-			features: features<InterruptFeature>(required),
+			coverage: required<InterruptFeature>(situations, { cases: 30, sense: notesOnly }),
 			kept: interruptKept,
 			runs: 30,
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2)
 		},
 		(sketch, cx) =>

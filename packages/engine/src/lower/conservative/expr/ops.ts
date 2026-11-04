@@ -1,12 +1,20 @@
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
-import { admitsArity, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { baseOf } from "#compiler/ir/scalar.ts"
+import { bindOperands, exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
+import {
+	admitsArity,
+	type NativeOp,
+	nativeOp,
+	type OperandReading
+} from "#compiler/scalar/compute/registry.ts"
 import {
 	type BinaryOperator,
 	type BuiltinFunctionName,
 	builtinFunctionNames,
 	type Expr
 } from "#compiler/sql/ast.ts"
-import { and, binary, call, not, or } from "#compiler/sql/build.ts"
+import { and, binary, call, lit, not, or } from "#compiler/sql/build.ts"
 
 type OpForm = { readonly kind: "binary"; readonly op: BinaryOperator } | { readonly kind: "negate" }
 
@@ -20,7 +28,7 @@ type OpForm = { readonly kind: "binary"; readonly op: BinaryOperator } | { reado
  */
 const opTable = (): ReadonlyMap<string, OpForm> => {
 	const table = new Map<string, OpForm>()
-	const put = (form: OpForm, ...names: ReadonlyArray<string>) => {
+	const put = (form: OpForm, names: ReadonlyArray<string>) => {
 		for (const name of names) {
 			table.set(name, form)
 		}
@@ -50,26 +58,27 @@ const opTable = (): ReadonlyMap<string, OpForm> => {
 	for (const [suffix, op] of comparisons) {
 		put(
 			{ kind: "binary", op },
-			...[...integerPairs, ...floatPairs, "bool"].map((p) => `${p}${suffix}`)
+			[...integerPairs, ...floatPairs, "bool"].map((p) => `${p}${suffix}`)
 		)
-		put({ kind: "binary", op }, ...["numeric", "cash", "uuid", "enum"].map((p) => `${p}_${suffix}`))
 		put(
 			{ kind: "binary", op },
-			suffix === "eq" || suffix === "ne" ? `text${suffix}` : `text_${suffix}`
+			["numeric", "cash", "uuid", "enum"].map((p) => `${p}_${suffix}`)
 		)
+		put({ kind: "binary", op }, [
+			suffix === "eq" || suffix === "ne" ? `text${suffix}` : `text_${suffix}`
+		])
 	}
 
 	for (const p of [...integerPairs, ...floatPairs]) {
-		put({ kind: "binary", op: "+" }, `${p}pl`)
-		put({ kind: "binary", op: "-" }, `${p}mi`)
-		put({ kind: "binary", op: "*" }, `${p}mul`)
-		put({ kind: "binary", op: "/" }, `${p}div`)
+		put({ kind: "binary", op: "+" }, [`${p}pl`])
+		put({ kind: "binary", op: "-" }, [`${p}mi`])
+		put({ kind: "binary", op: "*" }, [`${p}mul`])
+		put({ kind: "binary", op: "/" }, [`${p}div`])
 	}
-	put({ kind: "binary", op: "%" }, "int2mod", "int4mod", "int8mod", "numeric_mod")
-	put({ kind: "binary", op: "+" }, "numeric_add", "cash_pl")
-	put({ kind: "binary", op: "-" }, "numeric_sub", "cash_mi")
-	put(
-		{ kind: "binary", op: "*" },
+	put({ kind: "binary", op: "%" }, ["int2mod", "int4mod", "int8mod", "numeric_mod"])
+	put({ kind: "binary", op: "+" }, ["numeric_add", "cash_pl"])
+	put({ kind: "binary", op: "-" }, ["numeric_sub", "cash_mi"])
+	put({ kind: "binary", op: "*" }, [
 		"numeric_mul",
 		"cash_mul_flt4",
 		"cash_mul_flt8",
@@ -81,10 +90,9 @@ const opTable = (): ReadonlyMap<string, OpForm> => {
 		"int2_mul_cash",
 		"int4_mul_cash",
 		"int8_mul_cash"
-	)
+	])
 
-	put(
-		{ kind: "binary", op: "/" },
+	put({ kind: "binary", op: "/" }, [
 		"numeric_div",
 		"cash_div_flt4",
 		"cash_div_flt8",
@@ -92,11 +100,11 @@ const opTable = (): ReadonlyMap<string, OpForm> => {
 		"cash_div_int4",
 		"cash_div_int8",
 		"cash_div_cash"
-	)
-	put({ kind: "negate" }, "int2um", "int4um", "int8um", "float4um", "float8um", "numeric_uminus")
+	])
+	put({ kind: "negate" }, ["int2um", "int4um", "int8um", "float4um", "float8um", "numeric_uminus"])
 
-	put({ kind: "binary", op: "||" }, "textcat")
-	put({ kind: "binary", op: "~" }, "textregexeq")
+	put({ kind: "binary", op: "||" }, ["textcat"])
+	put({ kind: "binary", op: "~" }, ["textregexeq"])
 	return table
 }
 
@@ -114,24 +122,27 @@ type Construct = "and" | "or" | "not" | "least" | "greatest" | "between" | "in"
 /** A construct's SQL form: a connective by its bare identity, or a registry construct by its keyword. */
 const keyword = (name: Construct, args: ReadonlyArray<Expr>): Expr | undefined => {
 	const [first, second, third] = args
+	const [, ...listed] = args
 	switch (name) {
 		case "and":
-			return args.length === 0 ? undefined : and(...args)
+			return isNonEmpty(args) ? and(args) : undefined
 		case "or":
-			return args.length === 0 ? undefined : or(...args)
+			return isNonEmpty(args) ? or(args) : undefined
 		case "not":
 			return args.length === 1 && first !== undefined ? not(first) : undefined
 		case "least":
 		case "greatest":
-			return args.length === 0 ? undefined : { kind: name, args }
+			return isNonEmpty(args) ? { kind: name, args } : undefined
 		case "between":
 			return args.length === 3 && first !== undefined && second !== undefined && third !== undefined
 				? { kind: "between", expr: first, low: second, high: third, not: false }
 				: undefined
 		case "in":
-			return first === undefined || args.length < 2
+			return first === undefined
 				? undefined
-				: { kind: "inList", expr: first, list: args.slice(1), not: false }
+				: isNonEmpty(listed)
+					? { kind: "inList", expr: first, list: listed, not: false }
+					: lit.bool(false)
 	}
 }
 
@@ -183,9 +194,68 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 	}
 }
 
+/**
+ * A native call's operands as PostgreSQL must read them (registry.ts OperandReading): as they are for an overload that
+ * reads values, and each through trim_scale for one that reads the display scale, so the scale it reads is the value's
+ * least and its result a function of the operands' values (I2).
+ */
+export const operandsAsRead = (
+	reads: OperandReading,
+	args: ReadonlyArray<Expr>
+): ReadonlyArray<Expr> => {
+	switch (reads) {
+		case "value":
+			return args
+		case "displayScale":
+			return args.map((a) => call("trim_scale", [a]))
+	}
+}
+
+/**
+ * The operands of an operator identity as PostgreSQL must read them: through its registry entry's reading, or as they
+ * are for a form the registry does not list (a cross-width integer or float operator, a money product), whose operands
+ * are no numeric.
+ */
+const readOperands = (op: OpId, args: ReadonlyArray<Expr>): ReadonlyArray<Expr> => {
+	const native = nativeOp(op)
+	return native === undefined ? args : operandsAsRead(native.reads, args)
+}
+
 /** The connective an operator identity names, if it names one. */
 const connectiveOf = (op: OpId): (typeof keywordOps)[number] | undefined =>
 	op === "and" ? "and" : op === "or" ? "or" : op === "not" ? "not" : undefined
+
+/**
+ * The rendering a Totality states beyond the native form (scalar/compute/registry.ts): an exact overload, or any over
+ * an exact operand, in its exact space (total.ts exactForm); an IEEE 754 overload by its fast and exact paths
+ * (total.ts ieeeForm), its operands bound once where any is compound; every other overload natively.
+ */
+const totalForm = (
+	expr: ScalarExpr & { readonly kind: "op" },
+	native: NativeOp,
+	args: ReadonlyArray<Expr>
+): { readonly kind: "rendered"; readonly sql: Expr | undefined } | { readonly kind: "native" } => {
+	const exactOperand = [expr.type, ...expr.args.map((a) => a.type)].some((t) => {
+		const c = baseOf(t).carrier
+		return c === "exactInteger" || c === "exactMoney"
+	})
+	if (native.totality.kind === "exact" || exactOperand) {
+		return { kind: "rendered", sql: exactForm(expr, native, args) }
+	}
+	if (native.totality.kind !== "ieee") {
+		return { kind: "native" }
+	}
+	const op = native.totality.op
+	const carrier = baseOf(expr.args[0]?.type ?? expr.type).carrier
+	const [first, ...rest] = args
+	if (first === undefined || (carrier !== "float4" && carrier !== "float8")) {
+		return { kind: "rendered", sql: undefined }
+	}
+	return {
+		kind: "rendered",
+		sql: bindOperands(expr.args, [first, ...rest], (operands) => ieeeForm(op, carrier, operands))
+	}
+}
 
 /**
  * The default operator lowering: an operator form with its exact arity, a connective, or an entry of the overload registry.
@@ -205,11 +275,23 @@ const connectiveOf = (op: OpId): (typeof keywordOps)[number] | undefined =>
  * second spelling: an IR carrying a non-canonical OpId (a prosrc name, a bare "between") is UnsupportedOperation.
  *
  * Span and vector operations are not here: their lowerings are the span/ and vector/ plug-ins.
+ *
+ * Every form takes its operands as its overload reads them (operandsAsRead): queries, the DDL of CHECKs and
+ * expression indexes, and span fallbacks all lower their scalar expressions here, so no display-scale reading reaches
+ * PostgreSQL with an operand it could see a display scale of.
  */
 export const defaultOps = (
 	expr: ScalarExpr & { readonly kind: "op" },
-	args: ReadonlyArray<Expr>
+	operands: ReadonlyArray<Expr>
 ): Expr | undefined => {
+	const args = readOperands(expr.op, operands)
+	const native = nativeOp(expr.op)
+	if (native !== undefined) {
+		const total = totalForm(expr, native, args)
+		if (total.kind === "rendered") {
+			return total.sql
+		}
+	}
 	/** The operator forms are of overloads their catalog identity alone names. */
 	const form = typeof expr.op === "string" ? table.get(expr.op) : undefined
 	if (form === undefined) {

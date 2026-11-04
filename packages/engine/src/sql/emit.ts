@@ -1,11 +1,13 @@
 import { nominal } from "#compiler/core/brand.ts"
 import type { BudgetMeter } from "#compiler/core/budget.ts"
+import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { EmittedSql, EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
+import type { CatalogStatement } from "#compiler/sql/catalog.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { printCatalogStatement, printStatement } from "#compiler/sql/print.ts"
 
 const emitted = nominal<string, EmittedText>()
 
@@ -41,18 +43,35 @@ export const emitText = (statement: SqlStatement, nameMap: NameMap): EmittedSql 
 	nameMap
 })
 
-/** `nameMap` is the statement's generated-name map, from its NameSupply (naming.ts emptyNameMap when it has none). */
+/**
+ * The text of a catalog statement (sql/catalog.ts): a catalog read, the drift transaction's closed search path or a DO
+ * block the shell sends, charged to no meter.
+ */
+export const emitCatalog = (statement: CatalogStatement): EmittedText =>
+	emitted(printCatalogStatement(statement))
+
+/** The plan request of an emitted statement: EXPLAIN (FORMAT JSON) before its text, the one text composed of another. */
+export const explainOf = (statement: EmittedText): EmittedText =>
+	emitted(`EXPLAIN (FORMAT JSON) ${statement}`)
+
+/**
+ * `nameMap` is the statement's generated-name map, from its NameSupply (naming.ts emptyNameMap when it has none). A
+ * text past JavaScript's longest string is refused here as ResourceBound, metered or not.
+ */
 export const emit = (
 	statement: SqlStatement,
 	nameMap: NameMap,
 	charge: EmitCharge
-): Result.Result<EmittedSql, CompileError> => {
-	const sql = emitText(statement, nameMap)
-	if (charge.kind === "metered") {
-		const charged = charge.meter.chargeSql(sql.text, charge.loc)
-		if (!charged.ok) {
-			return charged
+): Result.Result<EmittedSql, CompileError> =>
+	Result.flatMap(
+		catchRefusal(() => emitText(statement, nameMap)),
+		(sql): Result.Result<EmittedSql, CompileError> => {
+			if (charge.kind === "metered") {
+				const charged = charge.meter.chargeSql(sql.text, charge.loc)
+				if (!charged.ok) {
+					return charged
+				}
+			}
+			return Result.ok(sql)
 		}
-	}
-	return Result.ok(sql)
-}
+	)

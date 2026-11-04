@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, pipe, Schema, String as Str } from "effect"
@@ -37,7 +37,7 @@ const everyType = <E, R>(suite: string, property: (type: RangeType) => Effect.Ef
 			generator: element<RangeType>(types),
 			literal: Formatter.format,
 			limit: types.length,
-			features: features<RangeType>(types),
+			coverage: requiredInSpace<RangeType>(types),
 			caseHang: Duration.minutes(5)
 		},
 		(type, c) => Effect.tap(property(type), () => Effect.sync(() => c.note(type)))

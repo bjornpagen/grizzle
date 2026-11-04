@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { array, element, int } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -16,7 +16,8 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
 /**
- * The catalog type of each carrier; enum is probed through a fresh enum type, ranges through int4range and int8range.
+ * The catalog type of each carrier; enum is probed through a fresh enum type, ranges through int4range and int8range,
+ * and the exact carriers through numeric, the type an exact value of any digit bound is.
  */
 const carrierTypes = (
 	vectorSchema: string,
@@ -35,7 +36,9 @@ const carrierTypes = (
 	enum: enumType,
 	range4: "int4range",
 	range8: "int8range",
-	vector: `${vectorSchema}.vector`
+	vector: `${vectorSchema}.vector`,
+	exactInteger: "numeric",
+	exactMoney: "numeric"
 })
 
 /** The polymorphic input type PostgreSQL resolves an operator class or aggregate over, for the generic carriers. */
@@ -67,7 +70,11 @@ const exclusions: Partial<Record<Carrier, ReadonlyArray<(typeof catalogCapabilit
 	 * pgvector's sum(vector) and avg(vector) are not aggregates of the language (its aggregate vocabulary is count, sum,
 	 * mean, min and max over the scalar carriers that admit them).
 	 */
-	vector: ["avg", "sum"]
+	vector: ["avg", "sum"],
+	/** An exact value is never a field's, so no key or constraint indexes it by GiST. */
+	exactInteger: ["gist"],
+	/** Nor exact money's; a mean over money is no aggregate of the language, as money's own avg is not. */
+	exactMoney: ["avg", "gist"]
 }
 
 /** The capabilities the registry claims for a carrier. */
@@ -225,7 +232,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						generator: element(aliasSpellings),
 						literal: ([spelling]: readonly [string, Described]) => Formatter.format(spelling),
 						limit: aliasSpellings.length,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					([spelling, field]) =>
@@ -298,13 +305,12 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							)
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 2,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(drawnPairs) =>
@@ -350,7 +356,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						generator: element(vectorDims),
 						literal: Formatter.format,
 						limit: vectorDims.length,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					(n) =>

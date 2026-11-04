@@ -1,24 +1,15 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
 	type Env,
-	headingTargets,
 	type LowerContext
 } from "#compiler/lower/conservative/context.ts"
 
-import type {
-	Expr,
-	Select,
-	SelectBody,
-	SelectCore,
-	SetOperator,
-	Target,
-	TypeRef
-} from "#compiler/sql/ast.ts"
-import { cast, core, sameTypeRef, select, target } from "#compiler/sql/build.ts"
+import type { Expr, Select, SelectCore, SetOperator, Target, TypeRef } from "#compiler/sql/ast.ts"
+import { cast, core, sameTypeRef, select, setOp, target, unitTargets } from "#compiler/sql/build.ts"
 
 /**
  * An expression delivered at `type`: unchanged when it already carries that type explicitly (a typed literal, a typed
@@ -51,21 +42,20 @@ export const armTargets = (
 	cx: LowerContext,
 	heading: Heading,
 	map: ColumnMap
-): ReadonlyArray<Target> => armColumns(cx, heading, map).targets
+): NonEmptyReadonlyArray<Target> => armColumns(cx, heading, map).targets
 
 /** One arm's targets (armTargets) and the expression each delivers, by its column of `heading`. */
 export const armColumns = (
 	cx: LowerContext,
 	heading: Heading,
 	map: ColumnMap
-): { readonly targets: ReadonlyArray<Target>; readonly delivered: ColumnMap } => {
+): { readonly targets: NonEmptyReadonlyArray<Target>; readonly delivered: ColumnMap } => {
 	const columns = heading.map((c): readonly [string, Expr] => {
 		const e = columnIn(map, c.name)
 		return [c.name, isRefined(c.type) ? typedAs(e, cx.baseTypeRef(c.type)) : e]
 	})
 	return {
-		targets:
-			heading.length === 0 ? headingTargets(heading, map) : columns.map(([, e]) => target(e)),
+		targets: isNonEmpty(columns) ? mapNonEmpty(columns, ([, e]) => target(e)) : unitTargets,
 		delivered: new Map(columns)
 	}
 }
@@ -76,9 +66,6 @@ export const armCore = (cx: LowerContext, arm: RelNode, heading: Heading, env: E
 	return core(armTargets(cx, heading, source.map), [source.item], undefined)
 }
 
-/** arm1 <op> arm2 <op> ..., left-associated. */
-export const setOperation = (op: SetOperator, arms: NonEmptyReadonlyArray<SelectCore>): Select => {
-	const [first, ...rest] = arms
-	const body = rest.reduce<SelectBody>((left, right) => ({ kind: "setOp", op, left, right }), first)
-	return select(body)
-}
+/** arm1 <op> arm2 <op> ..., left-associated: one set operation of every arm. */
+export const setOperation = (op: SetOperator, arms: NonEmptyReadonlyArray<SelectCore>): Select =>
+	select(setOp(op, arms))

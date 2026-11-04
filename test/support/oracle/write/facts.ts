@@ -1,8 +1,16 @@
 import { array, type Gen } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { Fact } from "#test/support/oracle/addwins.ts"
+import {
+	inputRespelling,
+	permuted,
+	type Restorage,
+	restoredFacts,
+	type StoredRelation
+} from "#test/support/oracle/gen/restorage.ts"
 import { cyclicAt, elementAt, recordEntryOf } from "#test/support/oracle/pick.ts"
-import { typeInfo, valueIdentity } from "#test/support/oracle/write/domain.ts"
+import { literalOfKind, typeInfo, valueIdentity } from "#test/support/oracle/write/domain.ts"
 import {
 	columnOf,
 	type WContainment,
@@ -269,9 +277,65 @@ export const multiplyWriteFacts = (group: WGroup, facts: WFacts, multiplier: num
 			return next
 		}
 		for (let copy = 1; copy < multiplier; copy++) {
-			copies.push(...Arr.map(rows, (fact) => copyOf(fact, copy)))
+			appendAll(
+				copies,
+				Arr.map(rows, (fact) => copyOf(fact, copy))
+			)
 		}
 		out[relation.name] = copies
 	}
 	return out
+}
+
+/** A group's facts stored otherwise for a second reading, and what that moved: some relation's order, a value's spelling. */
+export interface RestoredWriteFacts {
+	readonly facts: WFacts
+	readonly reordered: boolean
+	readonly respelled: boolean
+}
+
+/**
+ * The group's facts stored otherwise (gen/restorage.ts restoredFacts): each relation's facts in another order, and one
+ * value whose carrier has twin spellings in its first twin, which the loader writes as that text (install/literal.ts
+ * InputSpelling). Every value is unchanged, so the expectation of the facts is the expectation of these.
+ */
+export const restoredWriteFacts = (
+	group: WGroup,
+	facts: WFacts,
+	r: Restorage
+): RestoredWriteFacts => {
+	const restored = restoredFacts(
+		Arr.map(group.relations, (relation): StoredRelation<unknown> => ({
+			name: relation.name,
+			columns: Arr.map(relation.columns, (c) =>
+				inputRespelling(typeInfo[c.kind].spec.carrier, (v) => literalOfKind(c.kind, v))
+			),
+			rows: Arr.map(recordEntryOf(facts, relation.name, "the group's facts"), (fact) =>
+				Arr.map(relation.columns, (c) => fact[c.name])
+			)
+		})),
+		permuted,
+		r
+	)
+	return {
+		facts: Rec.fromEntries(
+			Arr.map(
+				Arr.zip(group.relations, restored.relations),
+				([relation, stored]) =>
+					[
+						relation.name,
+						Arr.map(stored.rows, (row) =>
+							Rec.fromEntries(
+								Arr.map(
+									relation.columns,
+									(c, j) => [c.name, elementAt(row, j, "a restored fact")] as const
+								)
+							)
+						)
+					] as const
+			)
+		),
+		reordered: restored.reordered,
+		respelled: restored.respelled
+	}
 }

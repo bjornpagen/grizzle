@@ -1,0 +1,81 @@
+EVIDENCE: PL/pgSQL's line-number lookup rescans the function source, so compile time is quadratic in compound statements
+
+Run 2026-11-03. Machine: Darwin 27.0.0 arm64 (macOS 27.0.1), Apple clang 21.0.0, meson 1.12.1, ninja 1.13.2.
+The 10 cores were shared with other work, so absolute times are noisy; the ratios are what matter.
+
+1. THE CAUSE, IN THE SOURCE (master b6178c942e, identical on REL_19_RC1)
+   src/pl/plpgsql/src/pl_scanner.c, plpgsql_location_to_lineno():
+       /* be correct, but not fast, if input location goes backwards */
+       if (loc < yyextra->cur_line_start)
+           location_lineno_init(yyscanner);
+       while (yyextra->cur_line_end != NULL && loc > yyextra->cur_line_end)
+           ... strchr(yyextra->cur_line_start, '\n') ...
+   - location_lineno_init() resets the cursor to the first byte of the source.
+   - src/pl/plpgsql/src/pl_gram.y computes three line numbers when the statement is reduced: stmt_if
+     (new->lineno = plpgsql_location_to_lineno(@1, ...)), stmt_elsifs (@2) and case_when (@1). By then its body's
+     statements have already computed their own line numbers.
+   - So each IF, ELSIF and CASE WHEN moves the cursor backwards, and the next lookup rescans from line 1. A body of N
+     compound statements costs O(N * length of the source).
+   - Neither function differs between REL_19_RC1 and master, so the 19rc1 measurements below are master's behaviour
+     too.
+
+2. THE PROFILE (PostgreSQL 19rc1, jit off)
+   macOS sample(1) of the backend running repro.sql's 40000-WHEN CREATE FUNCTION, 6 s at 1 ms (profile-19rc1.txt):
+       1284 samples under plpgsql_validator -> plpgsql_compile -> plpgsql_compile_callback
+       1257 (97.9%) in plpgsql_yyparse at pl_gram.y:1269 (case_when) -> plpgsql_location_to_lineno
+        871 (67.8%) of those in strchr
+   The rest of the compile, parsing every WHEN's expression and RETURN, is under 3%.
+
+3. TIMINGS (psql \timing, repro.sql; each CREATE FUNCTION compiles the body once in the validator)
+                                                   19rc1 (unpatched)    patched
+   CREATE FUNCTION, CASE of 10000 WHENs                1,379 ms              20 ms
+   CREATE FUNCTION, CASE of 20000 WHENs                5,026 ms              32 ms
+   CREATE FUNCTION, CASE of 40000 WHENs               16,747 ms              62 ms
+   CREATE FUNCTION, IF/ELSIF chain of 40000 arms      29,405 ms              57 ms
+   first call in a fresh backend (40000 WHENs)        18,676 ms             203 ms
+   second call in that backend                            34 ms              26 ms
+   - Doubling the arms multiplies 19rc1's compile by 3.6 and 3.3: quadratic, with a linear part.
+   - The patched build's compile grows 1.6 and 1.9 times: linear.
+   - The first call in each backend pays the compile again, once for every trigger that runs the function, because
+     funccache.c keys a trigger function's cache entry by the trigger's OID.
+   - The patched column was measured on master 35b349a530 plus the patch. Rebasing onto b6178c942e did not change
+     pl_scanner.c or pl_gram.y.
+
+4. THE LINE NUMBERS ARE UNCHANGED
+   repro.sql's lineno_check(k) divides by zero in arm k, whose RETURN is on line 2k + 2:
+       19rc1:   lineno_check(40000)  CONTEXT:  PL/pgSQL function lineno_check(integer) line 80002 at RETURN
+                lineno_check(1)      CONTEXT:  PL/pgSQL function lineno_check(integer) line 4 at RETURN
+       patched: the same two lines, byte for byte.
+   The patch's regression test (plpgsql_misc, lineno_order) raises errors from an ELSIF condition, a CASE selector, an
+   IF condition and an assignment in a CASE arm. It gives the same CONTEXT lines on unpatched 19rc1 and on the patched
+   build:
+       line 5 at IF
+       line 10 at CASE
+       line 19 at IF
+       line 15 at assignment
+   The ELSIF's error reports its IF statement's line, as it always has.
+
+5. BUILD AND REGRESSION TESTS (master b6178c942e + v1-0001 = 34ed71b90b, one build with assertions)
+   Checkout:
+       git clone --filter=blob:none https://github.com/postgres/postgres.git
+       (master b6178c942e; branch plpgsql-lineno-rescan; git am of the patch)
+   meson setup build-check --prefix=<scratch> -Dcassert=true -Dtap_tests=disabled -Ddocs=disabled -Dllvm=disabled
+       -Dicu=disabled -Dssl=none -Dreadline=disabled -Dzlib=disabled -Dlz4=disabled -Dzstd=disabled
+       -DBISON=/opt/homebrew/opt/bison/bin/bison -DFLEX=/opt/homebrew/opt/flex/bin/flex
+   meson compile, meson install            no warnings in src/pl/plpgsql
+   meson test --suite setup --suite plpgsql --suite regress
+       plpgsql/regress   All 13 tests passed  (plpgsql_misc, with the new test, among them)
+       regress/regress   All 239 tests passed (its plpgsql test checks many CONTEXT "line N" outputs)
+   src/tools/pgindent/pgindent --indent=<in-tree pg_bsd_indent> src/pl/plpgsql/src/pl_scanner.c
+                                           no change
+   git diff --check origin/master HEAD     clean
+   git apply --check of the patch on a clean tree of master b6178c942e
+                                           ok
+   On macOS, the regression suites run after `meson install` into a real prefix. SIP strips DYLD_LIBRARY_PATH, so the
+   temporary installation's psql must find libpq through its rpath.
+
+6. THE DELIVERABLE
+   v1-0001-Make-plpgsql_location_to_lineno-O-log-n-for-locat.patch: git format-patch of commit 34ed71b90b on master
+   b6178c942e.
+   SHA-256 505ba08895db97f12303dba70c7e36e7cb615f3d5a7c5e980148c5f55f730177.
+   The author line is the repository's GitHub noreply identity; read NOTES.txt 2 before sending.

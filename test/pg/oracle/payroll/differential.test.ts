@@ -10,8 +10,9 @@
  */
 import { layer } from "@effect/vitest"
 import { sketched, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -21,7 +22,8 @@ import {
 	payrollPrograms,
 	runPayrollCase
 } from "#test/pg/oracle/payroll/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
@@ -119,6 +121,7 @@ const planted: ReadonlyArray<Kept<CaseSketch, PayrollFeature>> = [
 /** Only the members whose parameter only a member's heading types refuse to compile standalone. */
 const run = Effect.gen(function* () {
 	const installed = yield* install(P.Reporting, {
+		ambient: ordinarySession,
 		extensions: [],
 		logins: [],
 		label: "real"
@@ -136,13 +139,16 @@ const run = Effect.gen(function* () {
 		{
 			suite: "payroll/differential",
 			literal: Formatter.format,
-			features: features<PayrollFeature>(
-				Arr.map(programs, (p): PayrollFeature => `delivered ${p.name}`)
+			coverage: required<PayrollFeature>(
+				Arr.map(
+					nonEmpty(programs, "the payroll programs the compiler admits"),
+					(p): PayrollFeature => `delivered ${p.name}`
+				),
+				{ cases: cases, sense: notesOnly }
 			),
 			kept: planted,
 			runs: cases,
 			shrink: completeShrink,
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2),
 			perturb: "planner"
 		},

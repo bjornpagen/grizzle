@@ -35,7 +35,7 @@ import {
 import type { TransactionPlan, TransactionStatement } from "#bench/harness/transaction.ts"
 import { type Fixture, GateSetupError, installFixture } from "#bench/query/support/kit.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { LawId, TriggerName } from "#compiler/core/ids.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { ResidualLaw } from "#compiler/ir/law.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
@@ -48,8 +48,9 @@ import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/types/schema/wor
 import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { ArtifactStatement, WriteStepResult } from "#compiler/write/program/artifact.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
+import { namesOf, type UnitNames } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { testSql } from "#test/support/sql.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -507,7 +508,7 @@ const probeSession = (session: Session): ProbeSession => ({
 			let answer: Answer | undefined
 			session.send(
 				[],
-				[{ _tag: "statement", sql, params, name: { _tag: "unnamed" } }],
+				[{ _tag: "statement", sql: testSql(sql), params, name: { _tag: "unnamed" } }],
 				(...[, answered]) => {
 					answer = answered
 				},
@@ -826,14 +827,11 @@ export const residualLaw = <S>(fixture: Fixture<S>, law: LawId): ResidualLaw =>
 	)
 
 /**
- * The participants of a residual law, each a relation and the installed identifier of the law's constraint trigger on
- * it, as S-NAMES names them (namesOf).
+ * The units of a residual law, each a relation, an event and the installed identifier of the unit's constraint trigger,
+ * as S-NAMES names them (namesOf).
  */
-const lawParticipants = <S>(
-	fixture: Fixture<S>,
-	law: LawId
-): ReadonlyArray<{ readonly relation: string; readonly trigger: TriggerName }> =>
-	namesOf(fixture.installed).residual(law).triggers
+const lawUnitsOf = <S>(fixture: Fixture<S>, law: LawId): ReadonlyArray<UnitNames> =>
+	namesOf(fixture.installed).residual(law).units
 
 /**
  * `SET CONSTRAINTS <the law's triggers> IMMEDIATE`, each schema-qualified as S-NAMES names it: the law fires at the end
@@ -904,14 +902,15 @@ export const lawObjects = Effect.fn("lawObjects")(function* <S>(
 	const names = namesOf(fixture.installed)
 	const definitions: Record<string, string> = {}
 	for (const residual of fixture.installed.installation.laws.residuals) {
-		const name = names.residual(residual.lawId).function
-		definitions[name] = decodeOne(
-			TextRow,
-			yield* s.admin.queryValues(
-				"SELECT pg_catalog.pg_get_functiondef(p.oid)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname = $2::text",
-				[schema, name]
-			)
-		)[0]
+		for (const unit of names.residual(residual.lawId).units) {
+			definitions[unit.function] = decodeOne(
+				TextRow,
+				yield* s.admin.queryValues(
+					"SELECT pg_catalog.pg_get_functiondef(p.oid)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname = $2::text",
+					[schema, unit.function]
+				)
+			)[0]
+		}
 	}
 	return { functions, triggers, indexes, definitions }
 })
@@ -1032,10 +1031,10 @@ export const probeLaws = Effect.fn("probeLaws")(function* <S>(
 	statements: ReadonlyArray<string>,
 	prelude: ReadonlyArray<string>
 ): Effect.fn.Return<LawProbe, SqlError | MalformedPlan> {
-	const tallies = Arr.map(lawParticipants(fixture, law), (p) => ({
-		relation: p.relation,
-		table: fixture.relationName(p.relation),
-		trigger: p.trigger,
+	const tallies = Arr.map(lawUnitsOf(fixture, law), (u) => ({
+		relation: u.relation,
+		table: fixture.relationName(u.relation),
+		trigger: u.trigger,
 		calls: 0
 	}))
 	yield* session.begin

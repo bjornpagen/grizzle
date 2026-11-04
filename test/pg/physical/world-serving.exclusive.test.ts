@@ -28,7 +28,7 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -156,7 +156,7 @@ const caseGen: Gen<WorldCase> = (source) => {
 }
 
 /** The situations every run reaches (see the header), and the fixture alone. */
-const required: ReadonlyArray<WorldServingFeature> = [
+const requiredSituations: Arr.NonEmptyReadonlyArray<WorldServingFeature> = [
 	"a filter function's probe that finds its fact",
 	"a filter function's probe that finds none",
 	"a filter function's probe of a derived relation",
@@ -178,13 +178,15 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 				suite: "pg/physical/world-serving",
 				draw: drawn(caseGen),
 				literal: Formatter.format,
-				features: features<WorldServingFeature>(required),
+				coverage: required<WorldServingFeature>(requiredSituations, {
+					cases: runs,
+					sense: notesOnly
+				}),
 				kept: [],
 				runs,
 				shrink: { kind: "bounded", candidates: 24 },
 				concurrency: 1,
 				steerEvery: 4,
-				steering: { kind: "mutate", cases: runs, sense: notesOnly },
 				caseHang: Duration.minutes(5)
 			},
 			(c, cx) =>
@@ -261,7 +263,7 @@ layer(Substrate.layer)("world functions, judged by PostgreSQL at volume", (it) =
 					)
 					assert.deepEqual(problems, [], "every world function call reads by its indexes")
 					assert.deepEqual(
-						Arr.filter(required, (f) => !reached.has(f)),
+						Arr.filter(requiredSituations, (f) => !reached.has(f)),
 						[],
 						"the fixture reaches every situation"
 					)

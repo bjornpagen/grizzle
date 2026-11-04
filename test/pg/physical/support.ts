@@ -26,6 +26,7 @@ import {
 } from "#test/support/catalog/expected.ts"
 import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
 import type { ErasureExpectation } from "#test/support/catalog/verify.ts"
+import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -139,7 +140,7 @@ export const installed = (
 			return yield* Effect.die(new Error(`compile: ${compiled.error.message}`))
 		}
 		const installation: Installation = compiled.value
-		yield* transaction(substrate.admin, installation.sql)
+		yield* transaction(substrate.admin, installationSql(installation))
 		const read = yield* readCatalog(substrate.admin, schema)
 		if (read.kind === "absent") {
 			return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))

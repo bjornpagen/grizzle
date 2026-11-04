@@ -31,6 +31,7 @@ import {
 } from "#adapter/migrate/session.ts"
 import { sentAnswer } from "#adapter/wire/batch.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { type Candidate, candidateLabel } from "#compiler/deploy/diff/plan.ts"
 import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -70,16 +71,18 @@ import {
 } from "#test/support/migrate/kit.ts"
 import { type Decisions, review } from "#test/support/migrate/review.ts"
 import { typedLiteralDesc } from "#test/support/oracle/gen/domain.ts"
-import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
+import type { ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { PropertyFailed } from "#test/support/oracle/runner.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
+import { testSql } from "#test/support/sql.ts"
 import type { Credentials, RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
+import type { Uuid } from "#compiler/public/fields.ts"
 /** The migration identity's connection to the substrate's database.
  *
  * Driving the real apply runner from the migrate tests.
@@ -115,7 +118,7 @@ export const statementRows = (
 	sql: string,
 	params: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>, StatementFailure> =>
-	Effect.flatMap(session.apart([{ sql, params }]), (answers) =>
+	Effect.flatMap(session.apart([{ sql: testSql(sql), params }]), (answers) =>
 		Effect.fromResult(Result.map(sentAnswer(answers, 0), (outcome) => outcome.rows))
 	)
 
@@ -131,7 +134,7 @@ const unedited: Reviewer["edit"] = (file) => file.text
 
 /** Every candidate kept, every placeholder given `value`, an SQL literal each of the folder's placeholders accepts. */
 export const keeping = (value: string): Decisions => ({
-	chosen: new Set<number>(),
+	chosen: new Set<Candidate>(),
 	losses: "written",
 	value: () => value
 })
@@ -145,8 +148,8 @@ export const reviewedSource = (g: GenerateResult, reviewer: Reviewer): FolderSou
 	const reviewed = review(g, reviewer.decisions(g))
 	if (Result.isFailure(reviewed)) {
 		return assert.fail(
-			`${g.folder.name}/${reviewed.failure.file}: the test chose candidates ${Arr.join(
-				Arr.map(reviewed.failure.candidates, (c) => String(c)),
+			`${g.folder.name}/${reviewed.failure.file}: the test chose ${Arr.join(
+				Arr.map(reviewed.failure.candidates, (c) => candidateLabel(c)),
 				", "
 			)}, which all decide one statement`
 		)
@@ -202,13 +205,17 @@ export const apply = (
 
 /** The installed-catalog checker over the catalog the apply reached, against the
  * scope of `installation` at the target snapshot: every apply a suite makes leaves the posture every installation
- * holds. */
-export const checkedAdmission = (installation: Installation): Option.Option<FurtherAdmission> =>
-	Option.some((session: MigrationSession, snapshot: DeploySnapshot) =>
+ * holds. The checker reads on the harness's connection `harness`, never on the migration session: the apply has
+ * committed, so any session sees the catalog it reached, and the oracle's SQL never runs under the session settings
+ * the subject runs under, nor through grizzle's wire. A harness that cannot read fails the test. */
+export const checkedAdmission = (
+	installation: Installation,
+	harness: PgConnection
+): Option.Option<FurtherAdmission> =>
+	Option.some((_session: MigrationSession, snapshot: DeploySnapshot) =>
 		Effect.gen(function* () {
-			const installed = yield* readCatalogWith(
-				(sql, params) => statementRows(session, sql, params),
-				snapshot.schema
+			const installed = yield* Effect.orDie(
+				readCatalogWith((sql, params) => harness.queryValues(sql, params), snapshot.schema)
 			)
 			assert.ok(installed.kind === "present", `the applied schema ${snapshot.schema} is absent`)
 			return Arr.map(
@@ -234,7 +241,7 @@ export const refusal = <A>(effect: Effect.Effect<A, MigrateError>): Effect.Effec
 		return error.success
 	})
 
-export const id = (n: number) =>
+export const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** The definitions readCatalog does not record, with the schema name replaced by `S`: every function's
@@ -521,7 +528,7 @@ export type Drafted =
 
 /** The complete installation of a version under `schema`, owned by `owner`, with its worlds: as `grizzle generate`
  * compiles it (`completeInstallOptions`). */
-const installationOf = (version: Version, schema: string, owner: string): Installation => {
+export const installationOf = (version: Version, schema: string, owner: string): Installation => {
 	const owned = owning(version.desc)
 	const logins = Arr.map(versionLogins(version), (l) => succeeded(ownLogin(l)))
 	return succeeded(
@@ -604,7 +611,7 @@ export const drafted = (
 		const chosen =
 			choose && i > 0
 				? chosenCandidates(g.value, chosenRenames(prior, step), before, after)
-				: new Set<number>()
+				: new Set<Candidate>()
 		const reviewed = review(g.value, {
 			chosen,
 			losses: "written",
@@ -639,7 +646,7 @@ export const directory = (steps: ReadonlyArray<Step>, i: number): MigrationTarge
 
 /** A version's facts as the loader's records, with the coded pair's fixed rows when the path draws it; a relation with a
  * serial field numbers its rows from one, the values the row comparison leaves out. */
-export const factSetOf = (v: Version, facts: GenFacts): FactSet => {
+export const factSetOf = (v: Version, facts: ValueFacts): FactSet => {
 	const serial = new Set(
 		Arr.flatMap(v.desc.relations, (r) =>
 			r.kind === "relation" && serialField in r.fields ? [r.name] : []

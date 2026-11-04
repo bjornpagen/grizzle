@@ -11,6 +11,7 @@ import {
 import { registeredSnapshot, servesSchema } from "#adapter/admission/snapshots.ts"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import { type ParsedConnection, parseConnection } from "#adapter/connection/config.ts"
+import { setStartupVariable } from "#adapter/connection/environment.ts"
 import { loginRole, theoryRole } from "#adapter/connection/role.ts"
 import { type TypedContext, typedContext } from "#adapter/db/claims.ts"
 import type { RoleContext } from "#adapter/db/context.ts"
@@ -18,6 +19,7 @@ import { compileRoleWorkload, type WorkloadForm } from "#adapter/db/workload.ts"
 import { fromEngine, readHost } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import {
+	ConnectionEnvironmentRefused,
 	DbConfigRefused,
 	RoleOutsideLayers,
 	WorkloadUngenerated
@@ -390,14 +392,30 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 })
 
 /**
- * The DbLayer of a DbConfig: the config parsed once, then the service built in the layer's scope, stored under its
- * login's key, which the parse names.
+ * The process environment the layer's sessions would start in, read where pg reads it, which sets no startup variable
+ * that reaches a login's session (connection/environment.ts): one it sets is OpenError{stage: "config"}.
+ */
+const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
+	Effect.sync(() => setStartupVariable(process.env, "login")),
+	Option.match({
+		onNone: () => Effect.void,
+		onSome: (variable) =>
+			Effect.fail(OpenError.make({ reason: ConnectionEnvironmentRefused.make({ variable }) }))
+	})
+)
+
+/**
+ * The DbLayer of a DbConfig: the config parsed once, then the process environment its sessions would start in
+ * (loginEnvironment), then the service built in the layer's scope, stored under its login's key, which the parse names.
+ * Either refusal is OpenError{stage: "config"}.
  */
 export const dbSessionsLayer = <const L extends AnyLogin>(
 	config: DbConfigShape<L>
 ): Layer.Layer<DbLayerOf<L>, OpenError> =>
 	Layer.unwrap(
-		Effect.map(Effect.fromResult(parseDbConfig(config)), (parsed) =>
-			Layer.effect(sessionsKey<DbLayerOf<L>>(parsed.login), makeDbSessions(parsed))
-		)
+		Effect.gen(function* () {
+			const parsed = yield* Effect.fromResult(parseDbConfig(config))
+			yield* loginEnvironment
+			return Layer.effect(sessionsKey<DbLayerOf<L>>(parsed.login), makeDbSessions(parsed))
+		})
 	)

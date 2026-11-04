@@ -72,7 +72,7 @@ const doublePrecision: FloatDescriptorConstructor = defineField(
 	bareEnv
 )
 
-/** numeric's column, every typmod's: Decimal.fromOutput keeps the display scale of PostgreSQL's text. */
+/** numeric's column, every typmod's: Decimal.fromOutput reads PostgreSQL's text into the value's one form, at any scale. */
 const numericColumn: Column<Decimal> = convertColumn(
 	convertByCarrier.numeric({ carrier: "numeric", typmod: undefined })
 )
@@ -81,7 +81,7 @@ const numericColumn: Column<Decimal> = convertColumn(
  * The typmod of numeric(p) or numeric(p, s), as a JavaScript caller passes its arguments: a scale left out (or
  * undefined) is numeric(p), the one-element typmod list.
  */
-const numericTypmod = (...args: ReadonlyArray<unknown>): NumericTypmod => {
+const numericTypmod = (args: ReadonlyArray<unknown>): NumericTypmod => {
 	if (args.length === 0 || args.length > 2) {
 		throw malformedDescription(
 			captureLoc("pg.numeric", []),
@@ -97,7 +97,7 @@ const numericTypmod = (...args: ReadonlyArray<unknown>): NumericTypmod => {
 
 const numeric: NumericDescriptorConstructor = defineField(
 	(...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
-		const typmod = numericTypmod(...args)
+		const typmod = numericTypmod(args)
 		return defineField(
 			{},
 			"numeric",

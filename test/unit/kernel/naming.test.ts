@@ -1,11 +1,11 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName } from "#compiler/core/ids.ts"
+import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import type { SchemaDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { compileLaws, constraintOwner, type LawModel } from "#compiler/laws/model/model.ts"
@@ -42,6 +42,7 @@ import {
 	lawNamesOf,
 	type NamingSubject
 } from "#test/support/kernel/naming.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
 /**
@@ -187,7 +188,10 @@ const predicateOf = (shape: Shape, r: RowScalars<typeof Item>): Predicate => {
 		return shape.leaf === "ne" ? r.ne(r.t, "") : r.in(r.t, ["ca"])
 	}
 	const [first, ...rest] = shape.args
-	return r[shape.kind](predicateOf(first, r), ...Arr.map(rest, (arg) => predicateOf(arg, r)))
+	return r[shape.kind](
+		predicateOf(first, r),
+		...argumentsOf(Arr.map(rest, (arg) => predicateOf(arg, r)))
+	)
 }
 const checkOf = (shape: Shape): Statement => check("H", Item, (r) => predicateOf(shape, r))
 
@@ -215,7 +219,7 @@ describe("production names from src", () => {
 						literal: Formatter.format,
 						/** The space is the two levels: the base schema and the schema that extends it. */
 						limit: 2,
-						features: features<keyof typeof levels>(["Payroll", "Reporting"]),
+						coverage: requiredInSpace<keyof typeof levels>(["Payroll", "Reporting"]),
 						caseHang: Duration.minutes(2)
 					},
 					(name, c) =>
@@ -267,7 +271,7 @@ describe("production names from src", () => {
 						 * a leaf).
 						 */
 						limit: 84,
-						features: features<ShapeFeature>(["and under or", "singleton and"]),
+						coverage: requiredInSpace<ShapeFeature>(["and under or", "singleton and"]),
 						caseHang: Duration.minutes(2)
 					},
 					(shape, c) =>
@@ -300,7 +304,7 @@ describe("production names from src", () => {
 						literal: Formatter.format,
 						/** The space is the four fixtures, each a schema the door names. */
 						limit: 4,
-						features: features<CrossCheck>([
+						coverage: requiredInSpace<CrossCheck>([
 							"named native",
 							"alternatives expansion",
 							"checked contract",
@@ -312,7 +316,7 @@ describe("production names from src", () => {
 						Effect.sync(() => {
 							const subject: NamingSubject = subjects[name]
 							const L = lawNamesOf(subject)
-							const theory = new Set(Arr.map(L.model.theory.laws, (l) => l.id))
+							const theory = new Set<LawId>(Arr.map(L.model.theory.laws, (l) => l.id))
 							for (const native of L.model.natives) {
 								const idents: ReadonlyArray<readonly [ConstraintOwner, ConstraintName]> =
 									native.namespace === "constraint" || native.namespace === "index"
@@ -343,7 +347,7 @@ describe("production names from src", () => {
 								assert.ok(head?.kind === "contained", "an expansion's head")
 								const discriminator = head.left.fields[0]
 								const triggered = new Set(
-									Arr.map(L.residual(laws.reverse).triggers, (t) => t.relation)
+									Arr.map(L.residual(laws.reverse).units, (u) => u.relation)
 								)
 								assert.ok(
 									triggered.has(head.left.relation),

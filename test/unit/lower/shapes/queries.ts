@@ -84,8 +84,7 @@ export const tasksByKind = (rows: KindTake, overlap: boolean): LogicalQuery => {
 			q.op(
 				small ? "int8le" : overlap ? "int8ge" : "int8gt",
 				[q.col(m, "amount"), q.int(20, T.int8)],
-				T.bool,
-				"total"
+				T.bool
 			)
 		)
 		return q.project(
@@ -151,7 +150,7 @@ export const conditional = (
 			constants: {}
 		}
 	])
-	const p = q.op("int8gt", [q.col(m, "amount"), q.int(threshold, T.int8)], T.bool, "total")
+	const p = q.op("int8gt", [q.col(m, "amount"), q.int(threshold, T.int8)], T.bool)
 	const [a, b, type, resultType] =
 		form === "int4"
 			? [q.int(1, T.int4), q.int(0, T.int4), T.int4, T.int8]

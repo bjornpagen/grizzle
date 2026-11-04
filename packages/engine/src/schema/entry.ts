@@ -52,8 +52,8 @@ export interface HeadField<F> {
 /**
  * The filter of an entry over T's row, `fixed ∧ w`: none, when every row of T is in the entry; or `query`, non-empty
  * for a row exactly when the row is in the entry. Its row source (ir/desc.ts RowSourceDesc) carries `fields`, the
- * fields of T it reads, as `F` refers to them, in T's canonical field order; a filter that reads none matches no row at
- * all, since a row of no column has no VALUES form. `readsOther` holds when it reads a stored relation, an
+ * fields of T it reads, as `F` refers to them, in T's canonical field order; a filter that reads none matches no row
+ * source at all, since joining the unit row is the identity. `readsOther` holds when it reads a stored relation, an
  * ordinary or derived one: a role holds no privilege on it and sees it through its own policies, so the filter runs as
  * the owner, in the role's filter function.
  */
@@ -195,6 +195,11 @@ const exprVars = (e: ExprDesc, into: Set<string>): void => {
 			exprVars(e.onTrue, into)
 			exprVars(e.onFalse, into)
 			return
+		case "when":
+			exprVars(e.subject, into)
+			exprVars(e.proved, into)
+			exprVars(e.otherwise, into)
+			return
 		case "compare":
 		case "allen":
 			exprVars(e.left, into)
@@ -231,7 +236,11 @@ const bindingVars = (bindings: BindingsDesc, into: Set<string>): void => {
 /** The variables of the enclosing rule a source reads: an import's bind map; every other source reads none itself. */
 const sourceVars = (source: SourceDesc, into: Set<string>): void => {
 	if (source.kind === "query") {
-		bindingVars(source.bind, into)
+		for (const b of Object.values(source.bind)) {
+			if (b.kind !== "relationParam") {
+				exprVars(b, into)
+			}
+		}
 	}
 }
 

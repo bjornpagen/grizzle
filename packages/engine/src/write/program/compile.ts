@@ -50,7 +50,7 @@ import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { declaredSlotOf, statementSpec, writeSlotOf } from "#compiler/lower/template.ts"
 import { withoutSerial } from "#compiler/scalar/compute/types.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
@@ -85,11 +85,7 @@ import {
 } from "#compiler/write/frontend/compile.ts"
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
-import {
-	buildDefaultsInsert,
-	buildInsert,
-	buildSpanClassify
-} from "#compiler/write/insert/protocol.ts"
+import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
@@ -275,7 +271,7 @@ const place = (
 
 /** The form of a built statement as an execution sends it: its text, its placeholders' encoders and its AST. */
 const sentOf = (statement: {
-	readonly sql: { readonly text: string }
+	readonly sql: { readonly text: EmittedText }
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly ast: SqlStatement
 }): SentForm =>
@@ -809,8 +805,6 @@ const buildWriteOp = (
 				input,
 				of: "insert"
 			})
-		case "defaults":
-			return buildDefaultsInsert(w, { relation, input: step.input })
 		case "exactDelete":
 			return buildExactDelete(w, { relation, input, except: step.except })
 		case "anchoredDelete":
@@ -849,8 +843,6 @@ const abortsOf = (step: PlannedWrite): "generated" | "merge" | "probed" | "other
 	switch (step.op) {
 		case "insert":
 			return step.serial === "generated" ? "generated" : "probed"
-		case "defaults":
-			return "generated"
 		case "putInsert":
 		case "upsert":
 			return "probed"

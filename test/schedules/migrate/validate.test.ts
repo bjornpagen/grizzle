@@ -54,6 +54,7 @@ import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { folderSource, openMigrator, statementRows } from "#test/pg/migrate/support.ts"
 import { keyGen } from "#test/schedules/write/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
@@ -196,6 +197,7 @@ const prepare = (
 		const s = yield* Substrate
 		const declared = v1("Staff")
 		const done = yield* install(declared, {
+			ambient: ordinarySession,
 			label: "real",
 			logins: [fullWorld(declared).server],
 			extensions: []

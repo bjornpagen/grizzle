@@ -64,14 +64,9 @@ layer(Substrate.layer, { excludeTestServices: true })("db.refresh across levels"
 				}
 				/** What the reader sees of every view refreshed over `sats`. */
 				const reads = (sats: ReadonlyArray<Sat>): ReadonlyArray<Step<"reader", never, never>> => [
-					sql("reader", weekly(o, o.seen.reader), rowSet(...weeklyRows(labels, sats)), complete),
-					sql(
-						"reader",
-						studentTotals(o, o.seen.reader),
-						rowSet(...totalRows(labels, sats)),
-						complete
-					),
-					sql("reader", weekBusy(o, o.seen.reader), rowSet(...busyRows(labels, sats)), complete)
+					sql("reader", weekly(o, o.seen.reader), rowSet(weeklyRows(labels, sats)), complete),
+					sql("reader", studentTotals(o, o.seen.reader), rowSet(totalRows(labels, sats)), complete),
+					sql("reader", weekBusy(o, o.seen.reader), rowSet(busyRows(labels, sats)), complete)
 				]
 				const newcomer = sat(40, 6, 7, true)
 				return [

@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Layer, Option } from "effect"
@@ -210,7 +211,7 @@ type SpanFeature =
 	| "put replaces a stored payload"
 	| "put over a stored overlap at another key"
 
-const required: ReadonlyArray<SpanFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<SpanFeature> = [
 	"insert Room",
 	"insert Hold",
 	"put Room",
@@ -232,8 +233,7 @@ const required: ReadonlyArray<SpanFeature> = [
 	"put over a stored overlap at another key"
 ]
 
-/** Planted: over one stored fact, [2, 5) in the first room, a request of each mode the outcome features need, which the
- * drawn cases reach a few times a run. */
+/** Planted: over one stored fact, [2, 5) in the first room, a request of each mode the outcome features need. */
 const storedOne: FactSketch = { mode: "fresh", pick: 0, room: 0, start: 2, length: 3, payload: 0 }
 const planted = (
 	relation: Relation,
@@ -286,12 +286,12 @@ const applyCase = (
 	}))
 	/** A relation parameter `items` inserted or put as a described member, which nobody normalized on the host. */
 	const roomItems = query(s).rule((r) => {
-		const x = v(Room)
+		const x = v(Room, "room")
 		const all = { room: x.room, during: x.during, guest: x.guest }
 		return r.match(r.relation("items", Room), all).find(all)
 	})
 	const holdItems = query(s).rule((r) => {
-		const x = v(Hold)
+		const x = v(Hold, "hold")
 		const all = { room: x.room, during: x.during, note: x.note }
 		return r.match(r.relation("items", Hold), all).find(all)
 	})
@@ -356,13 +356,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									suite: "write/span-key",
 									draw: drawn(spanCaseGen),
 									literal: Formatter.format,
-									features: features<SpanFeature>(required),
+									coverage: required<SpanFeature>(situations, { cases: 80, sense: notesOnly }),
 									kept: spanKept,
 									runs: 80,
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									steering: { kind: "none" },
 									caseHang: Duration.minutes(2)
 								},
 								(c, cx) =>

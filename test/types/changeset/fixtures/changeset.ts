@@ -2,8 +2,10 @@ import type { Brand, Effect } from "effect"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { DbOf } from "#adapter/types/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { ReadsOf, WritesOf } from "#compiler/types/changeset/changeset.ts"
+import type { ParamType } from "#compiler/types/core/phantom.ts"
 import type { ParamsOf } from "#compiler/types/query/query.ts"
 import type { Equals, Expect } from "#test/types/changeset/support.ts"
 import {
@@ -39,16 +41,16 @@ export const switchDescribed = ChangeSet.empty(Work)
 	.put(
 		Task,
 		query(Work).rule((r) => {
-			const { account } = v(Task)
+			const { account } = v(Task, "task")
 			return r
 				.match(Task, { id: r.param("task", Task.fields.id), account, kind: "Automatic" })
-				.find({ id: r.param("task", Task.fields.id), account, kind: r.literal("Manual") })
+				.find({ id: r.param("task", Task.fields.id), account, kind: "Manual" })
 		})
 	)
 	.delete(
 		AutomaticTask,
 		query(Work).rule((r) => {
-			const { budget } = v(AutomaticTask)
+			const { budget } = v(AutomaticTask, "automaticTask")
 			return r
 				.match(AutomaticTask, { task: r.param("task", AutomaticTask.fields.task), budget })
 				.find({ task: r.param("task", AutomaticTask.fields.task), budget })
@@ -65,13 +67,16 @@ export const switchDescribed = ChangeSet.empty(Work)
 	)
 	.read("previous", (delta) =>
 		query(Work).rule((r) => {
-			const { task, budget } = v(delta.removed(AutomaticTask))
+			const { task, budget } = v(delta.removed(AutomaticTask), "removedAutomaticTask")
 			return r.match(delta.removed(AutomaticTask), { task, budget }).find({ task, budget })
 		})
 	)
 
 export type SwitchParams = Expect<
-	Equals<ParamsOf<typeof switchDescribed>, { readonly task: string; readonly operator: string }>
+	Equals<
+		ParamsOf<typeof switchDescribed>,
+		{ readonly task: ParamType<Uuid, "uuid">; readonly operator: ParamType<string, "text"> }
+	>
 >
 
 export type SwitchWrites = Expect<
@@ -81,7 +86,7 @@ export type SwitchWrites = Expect<
 export type SwitchReads = Expect<
 	Equals<
 		ReadsOf<typeof switchDescribed>,
-		{ readonly previous: ReadonlyArray<{ readonly task: string; readonly budget: Cents }> }
+		{ readonly previous: ReadonlyArray<{ readonly task: Uuid; readonly budget: Cents }> }
 	>
 >
 
@@ -115,7 +120,7 @@ const notes = ChangeSet.empty(Work)
 	.insert(TaskNote, [{ task: "00000000-0000-4000-8000-000000000003", note: "n" }])
 	.read("notes", () =>
 		query(Work).rule((r) => {
-			const { task, note } = v(TaskNote)
+			const { task, note } = v(TaskNote, "taskNote")
 			return r.match(TaskNote, { task, note }).find({ task, note })
 		})
 	)
@@ -133,7 +138,10 @@ export const sequenced = ChangeSet.sequence(
 )
 
 export type SequenceParams = Expect<
-	Equals<ParamsOf<typeof sequenced>, { readonly task: string; readonly operator: string }>
+	Equals<
+		ParamsOf<typeof sequenced>,
+		{ readonly task: ParamType<Uuid, "uuid">; readonly operator: ParamType<string, "text"> }
+	>
 >
 export type SequenceReads = Expect<Equals<keyof ReadsOf<typeof sequenced>, "previous" | "notes">>
 
@@ -144,7 +152,7 @@ export const duplicateRead = () =>
 		"notes",
 		() =>
 			query(Work).rule((r) => {
-				const { id, account, kind } = v(Task)
+				const { id, account, kind } = v(Task, "task")
 				return r.match(Task, { id, account, kind }).find({ id, account, kind })
 			})
 	)
@@ -159,7 +167,7 @@ export const duplicateSequence = () =>
 
 export const distinctNames = notes.read("other", () =>
 	query(Work).rule((r) => {
-		const { id, account, kind } = v(Task)
+		const { id, account, kind } = v(Task, "task")
 		return r.match(Task, { id, account, kind }).find({ id, account, kind })
 	})
 )

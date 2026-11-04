@@ -2,7 +2,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import {
-	admittedIdentityText,
+	admittedText,
 	type CarrierSpec,
 	factIdentity,
 	type HeadingField
@@ -105,7 +105,7 @@ const specOf = (relation: OracleRelation, field: string): CarrierSpec => {
 const keyIdentity = (relation: OracleRelation, fields: ReadonlyArray<string>, fact: Fact): string =>
 	Arr.join(
 		Arr.map(fields, (field) => {
-			const text = admittedIdentityText(specOf(relation, field), fact[field])
+			const text = admittedText(specOf(relation, field), fact[field])
 			return `${text.length}:${text}`
 		}),
 		""

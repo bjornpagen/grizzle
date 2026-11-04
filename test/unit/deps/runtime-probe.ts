@@ -281,25 +281,25 @@ const compiles = (q: unknown): void => {
 const flags = query(Flags)
 for (const q of [
 	flags.rule((r) => {
-		const { id, flag } = v(Flagged)
+		const { id, flag } = v(Flagged, "flagged")
 		return r
 			.match(Flagged, { id, flag })
 			.find({ n: r.sum(Compute.cond(flag, Compute.literal(pg.integer, 1), 0)) })
 	}),
 	flags.rule((r) => {
-		const { id, flag } = v(Flagged)
+		const { id, flag } = v(Flagged, "flagged")
 		return r
 			.match(Flagged, { id, flag })
 			.find({ n: r.sum(Compute.cond(flag, Compute.literal(pg.bigint, 1n), 0n)) })
 	}),
 	flags.rule((r) => {
-		const { id, flag } = v(Flagged)
+		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
 			n: r.sum(Compute.cond(flag, Compute.literal(pg.numeric, 1n), Compute.literal(pg.numeric, 0n)))
 		})
 	}),
 	flags.rule((r) => {
-		const { id, flag } = v(Flagged)
+		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
 			n: r.sum(
 				Compute.cond(flag, Compute.literal(pg.numeric, "1"), Compute.literal(pg.numeric, "0"))
@@ -307,7 +307,7 @@ for (const q of [
 		})
 	}),
 	flags.rule((r) => {
-		const { id, flag } = v(Flagged)
+		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
 			n: r.sum(
 				Compute.cond(

@@ -21,10 +21,9 @@ import type {
 	TypeRef,
 	With
 } from "#compiler/sql/ast.ts"
-import { cast, types } from "#compiler/sql/build.ts"
+import { cast, sameTypeRef, types } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { printType } from "#compiler/sql/print.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 
 /** The installed names a write statement addresses: the query lowering's names plus the installed schema, whose
@@ -438,9 +437,9 @@ export const writeValue = (
 ): Expr => {
 	const target = w.cx.typeRef(to, at)
 	if (from.sqlType !== undefined) {
-		return printType(from.sqlType) === printType(target) ? value : cast(value, target)
+		return sameTypeRef(from.sqlType, target) ? value : cast(value, target)
 	}
-	const sameBase = printType(w.cx.baseTypeRef(from.type)) === printType(w.cx.baseTypeRef(to))
+	const sameBase = sameTypeRef(w.cx.baseTypeRef(from.type), w.cx.baseTypeRef(to))
 	return isDomain(to) || !sameBase ? cast(value, target) : value
 }
 

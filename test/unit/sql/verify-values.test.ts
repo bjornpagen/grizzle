@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -80,13 +80,12 @@ describe("the audit's checks of values, generated", () => {
 					suite: "unit/sql/audit-identifiers",
 					draw: drawn(oneOf([unitsGen(8), matching(regex("^[a-zé]{28,36}$"))])),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(name) =>
@@ -113,13 +112,12 @@ describe("the audit's checks of values, generated", () => {
 					suite: "unit/sql/audit-text-literals",
 					draw: drawn(unitsGen(6)),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(text) =>
@@ -163,13 +161,12 @@ describe("the audit's checks of values, generated", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -197,7 +194,7 @@ describe("the audit's checks of values, generated", () => {
 					literal: Formatter.format,
 					/** The space holds 30 cases (3 types, 2 ends, 5 steps); the limit caps a space grown by mistake. */
 					limit: 40,
-					features: features<IntegerFeature>([
+					coverage: requiredInSpace<IntegerFeature>([
 						"smallint within",
 						"smallint past",
 						"integer within",
@@ -232,7 +229,12 @@ describe("the audit's checks of values, generated", () => {
 					literal: Formatter.format,
 					/** The space holds 110 cases (10 precisions, 11 scales); the limit caps a space grown by mistake. */
 					limit: 120,
-					features: features<TypmodFeature>(["valid", "precision past", "scale past", "no scale"]),
+					coverage: requiredInSpace<TypmodFeature>([
+						"valid",
+						"precision past",
+						"scale past",
+						"no scale"
+					]),
 					caseHang: Duration.minutes(2)
 				},
 				([precision, scale], c) =>

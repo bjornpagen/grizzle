@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { allocatedKinds, ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import { cellFold, finishCells, topoOrder } from "#compiler/ir/dag.ts"
@@ -28,8 +29,14 @@ const usedIds = (dag: ValidDag): Readonly<Record<Kind, ReadonlyArray<string>>> =
 		}
 		if (node.kind === "MatchRegion") {
 			scopes.push(node.scope)
-			vars.push(...node.vars.map((v) => v.id))
-			occurrences.push(...node.occurrences.map((o) => o.id))
+			appendAll(
+				vars,
+				node.vars.map((v) => v.id)
+			)
+			appendAll(
+				occurrences,
+				node.occurrences.map((o) => o.id)
+			)
 		}
 	}
 	return {

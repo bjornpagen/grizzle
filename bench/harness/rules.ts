@@ -37,7 +37,6 @@ export const ruleIds = [
 	"R29",
 	"R30",
 	"R31",
-	"R32",
 	"R33",
 	"R34",
 	"R35",
@@ -220,13 +219,6 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 	R29: { title: "Lower a rank selection to PERCENTILE_DISC", owner: "query", gate: contract },
 	R30: { title: "Lower the interpolated form to PERCENTILE_CONT", owner: "query", gate: contract },
 	R31: { title: "Lower the count-and-take mode to MODE", owner: "query", gate: contract },
-	R32: {
-		title: "Lower the closed-form slope to REGR_SLOPE",
-		owner: "query",
-		gate: stated(
-			"agreement on random double-precision groups, the disagreement rate on near-degenerate groups recorded, and no NULL delivered for any group."
-		)
-	},
 	R33: {
 		title: "Settle inserts in one DO SELECT statement",
 		owner: "write",

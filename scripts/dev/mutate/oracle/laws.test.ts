@@ -9,6 +9,7 @@ import {
 	depositsFamily,
 	type Family,
 	installFamily,
+	populationsOf,
 	queueFamily,
 	selectedSource,
 	sharedTablesFamily,
@@ -16,6 +17,7 @@ import {
 	timekeepingFamily
 } from "#test/pg/laws/families/families.ts"
 import { familyCaseGen, runSteps } from "#test/pg/laws/families/support.ts"
+import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Cases per drawn schema; each case is several transactions. */
@@ -26,27 +28,26 @@ const oneSchema = familyCaseGen(1)
 
 layer(Substrate.layer, { excludeTestServices: true })("mutation stage 2: law families", (it) => {
 	const familyTests = <P>(family: Family<P>): void => {
-		for (const isMutable of [false, true]) {
-			const [first] = family.variants(isMutable)
-			if (first === undefined) {
-				continue
-			}
-			it.effect(
-				`${family.label}, ${isMutable ? "mutable" : "immutable"}: accepted iff every law holds`,
-				(ctx) =>
-					searched(
-						ctx,
-						Effect.gen(function* () {
-							const installed = yield* installFamily(family, first)
-							const session = yield* family.connect(first, installed)
-							return yield* firstFailure({
-								suite: `mutate/laws/${family.label}/${isMutable ? "mutable" : "immutable"}`,
-								generator: oneSchema,
-								runs: cases,
-								property: (c, notes) => runSteps(session, family.domains, c.steps, notes.note)
-							})
-						}).pipe(Effect.scoped)
-					)
+		for (const { mode, variants } of populationsOf(family)) {
+			const [first] = variants
+			it.effect(`${family.label}, ${mode}: accepted iff every law holds`, (ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const installed = yield* installFamily(
+							family,
+							first,
+							mode === "mutable" ? grizzleFirstSession : ordinarySession
+						)
+						const session = yield* family.connect(first, installed)
+						return yield* firstFailure({
+							suite: `mutate/laws/${family.label}/${mode}`,
+							generator: oneSchema,
+							runs: cases,
+							property: (c, notes) => runSteps(session, family.domains, c.steps, notes.note)
+						})
+					}).pipe(Effect.scoped)
+				)
 			)
 		}
 	}

@@ -1,4 +1,4 @@
-import { Array as Arr, Result } from "effect"
+import { Array as Arr, Brand, Result } from "effect"
 import { readMeta } from "#adapter/boundary/meta.ts"
 import {
 	type InputFault,
@@ -6,6 +6,7 @@ import {
 	type MigrateError,
 	stopped
 } from "#adapter/migrate/errors.ts"
+import type { MigrationText } from "#adapter/wire/batch.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import { isFolderName, orderFolderFiles, type ReadMeta } from "#compiler/deploy/render/folder.ts"
@@ -48,6 +49,9 @@ export interface MigrationTarget {
 	readonly folders: ReadonlyArray<FolderSource>
 }
 
+/** A statement of a reviewed migration file: the one door of MigrationText (wire/batch.ts). */
+const reviewed = Brand.nominal<MigrationText>()
+
 export interface ParsedFile {
 	readonly name: string
 	readonly ordinal: number
@@ -55,7 +59,8 @@ export interface ParsedFile {
 	/** SHA-256 of the text, which the ledger records. */
 	readonly digest: string
 	readonly noTransaction: boolean
-	readonly statements: ReadonlyArray<string>
+	/** The file's statements, each as reviewed: the one SQL grizzle sends that its printer did not print. */
+	readonly statements: ReadonlyArray<MigrationText>
 }
 
 export interface ParsedFolder {
@@ -183,7 +188,14 @@ export const parseTarget = (target: MigrationTarget): Result.Result<ParsedTarget
 					})
 				}
 			}
-			files.push({ name, ordinal, text, digest: sha256Hex(text), noTransaction, statements })
+			files.push({
+				name,
+				ordinal,
+				text,
+				digest: sha256Hex(text),
+				noTransaction,
+				statements: Arr.map(statements, (s) => reviewed(s))
+			})
 		}
 		folders.push({
 			name: folder,

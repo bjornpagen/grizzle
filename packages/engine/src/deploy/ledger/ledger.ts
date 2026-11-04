@@ -2,7 +2,7 @@ import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
@@ -59,16 +59,14 @@ const text = (name: string): ColumnDef => ({
 	name,
 	type: types.text,
 	collation: cUtf8Collation,
-	generated: undefined,
-	default: undefined
+	generated: undefined
 })
 
 const integer = (name: string): ColumnDef => ({
 	name,
 	type: types.integer,
 	collation: undefined,
-	generated: undefined,
-	default: undefined
+	generated: undefined
 })
 
 /** The ledger's columns in table order: the rows statement's columns c1 to c7. */
@@ -191,14 +189,14 @@ export const ledgerPrivilegesObject = (
 	schema: string,
 	roles: ReadonlyArray<string>
 ): PhysicalObject<SqlStatement> | undefined => {
-	if (roles.length === 0) {
+	if (!isNonEmpty(roles)) {
 		return undefined
 	}
 	const grant: Grant = {
 		kind: "grant",
 		privileges: ["SELECT"],
 		on: { kind: "TABLE", names: [ledgerName(schema)] },
-		to: roles.map((name) => ({ kind: "role", name }))
+		to: mapNonEmpty(roles, (name) => ({ kind: "role", name }))
 	}
 	return {
 		kind: "privileges",
@@ -221,7 +219,7 @@ const emitted = (statement: SqlStatement): EmittedSql => {
 const insertRow = (schema: string, ordinal: "param" | "folder", onConflict: boolean): Insert => {
 	let n = 0
 	const next = (type: typeof types.text) => param(++n, type)
-	const values =
+	const values: NonEmptyReadonlyArray<Expr> =
 		ordinal === "folder"
 			? [
 					next(types.text),

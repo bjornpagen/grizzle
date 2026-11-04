@@ -3,11 +3,23 @@ import { failRecursion } from "#compiler/check/fail.ts"
 import type { ResolvedRecursive } from "#compiler/check/params.ts"
 import { guarantees } from "#compiler/check/refinement/index.ts"
 import { entries } from "#compiler/check/scan.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
 import type { InexactConversion, RecursionArm } from "#compiler/core/causes.ts"
+import { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
-import { numericTypmodOf, type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { compatible, withoutSerial } from "#compiler/scalar/compute/types.ts"
+import {
+	contractOf,
+	numericTypmodOf,
+	type ScalarType,
+	sameScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
+import { exactOf, finiteEnds, insideRange } from "#compiler/scalar/compute/bounds.ts"
+import { boundsOfType } from "#compiler/scalar/compute/lower.ts"
+import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
+import { compatible, isInteger, withoutSerial } from "#compiler/scalar/compute/types.ts"
 
 /**
  * The recursive state heading: the declared row, its hashing capability, and the exact conversions an arm's columns
@@ -75,6 +87,7 @@ export const requireHashing = (
 type Conversion =
 	| { readonly kind: "same" }
 	| { readonly kind: "cast" }
+	| { readonly kind: "narrow" }
 	| { readonly kind: "refused"; readonly conversion: InexactConversion }
 
 /**
@@ -85,6 +98,9 @@ const conversion = (arm: ScalarType, declared: ScalarType): Conversion => {
 	const d = withoutSerial(declared)
 	if (sameScalarType(a, d)) {
 		return { kind: "same" }
+	}
+	if (a.carrier === "exactInteger" && contractOf(d) === undefined && isInteger(d)) {
+		return { kind: "narrow" }
 	}
 	if (!compatible(a, d)) {
 		return { kind: "refused", conversion: "anotherType" }
@@ -101,6 +117,61 @@ const conversion = (arm: ScalarType, declared: ScalarType): Conversion => {
 }
 
 /**
+ * An exact integer an arm computes for an integer state column, narrowed into it with the proof the recursion's
+ * bounded counter gives (lower/shapes/recursion/bound.ts counterInterval): every value its step computes, the one
+ * past its bound included, which PostgreSQL may compute before the step's filter, lies in the column's range. Without
+ * one it is PartialOperation, naming the guard to write.
+ */
+const counterNarrowing = (
+	cx: CheckServices,
+	read: ScalarExpr,
+	target: Heading[number],
+	counters: ReadonlyMap<string, readonly [bigint, bigint]>,
+	loc: SourceLoc
+): ScalarExpr => {
+	const carrier = withoutSerial(target.type).carrier
+	const op = castOf("exactInteger", carrier)
+	const interval = counters.get(target.name)
+	const range = boundsOfType(target.type)
+	const ends = range === undefined ? undefined : finiteEnds(range)
+	const fits =
+		interval !== undefined &&
+		ends !== undefined &&
+		insideRange(exactOf(interval[0], 0), exactOf(interval[1], 0), ends[0], ends[1])
+	if (op === undefined || !op.partial || interval === undefined || !fits) {
+		throw new Refusal(
+			CompileError.make({
+				_tag: "PartialOperation",
+				at: loc,
+				operation: `the recursion's ${target.name}, narrowed into ${typeLabel(target.type)}`,
+				precondition: "fits",
+				operand: target.name,
+				guard: `Compute.when(Compute.within(${target.name}, <low>, <high>), (${target.name}) => Compute.cast(<the step>, <the state field>), <your value>), or a counter bound by a literal the step's filter compares it with`
+			})
+		)
+	}
+	return cx.builder.expr({
+		kind: "cast",
+		cast: op.id,
+		args: [read],
+		type: target.type,
+		nonNull: "strict",
+		volatility: op.volatility,
+		proof: {
+			precondition: { kind: "fits" },
+			premises: [
+				{
+					kind: "interval",
+					operand: 0,
+					low: exactOf(interval[0], 0),
+					high: exactOf(interval[1], 0)
+				}
+			]
+		}
+	})
+}
+
+/**
  * A node over `arms` delivering exactly `state`: unchanged when every column already has its state type, otherwise a
  * projection casting the columns that convert exactly. `loc` names the arm, or the arms when they are several.
  */
@@ -110,7 +181,8 @@ export const conform = (
 	node: RelNode,
 	state: Heading,
 	side: RecursionArm,
-	loc: SourceLoc
+	loc: SourceLoc,
+	counters: ReadonlyMap<string, readonly [bigint, bigint]>
 ): RelNode => {
 	const heading = node.heading
 	const stateHeading = (): never =>
@@ -143,7 +215,7 @@ export const conform = (
 				conversion: c.conversion
 			})
 		}
-		if (c.kind === "cast") {
+		if (c.kind === "cast" || c.kind === "narrow") {
 			changed = true
 		}
 	}
@@ -158,17 +230,23 @@ export const conform = (
 			type: column.type,
 			nonNull: "storage"
 		})
-		const expr = sameScalarType(withoutSerial(column.type), target.type)
-			? read
-			: cx.builder.expr({
+		if (sameScalarType(withoutSerial(column.type), target.type)) {
+			return { name: target.name, expr: read }
+		}
+		if (column.type.carrier !== "exactInteger") {
+			return {
+				name: target.name,
+				expr: cx.builder.expr({
 					kind: "cast",
-					checked: false,
+					cast: binaryCoercion,
 					args: [read],
 					type: target.type,
 					nonNull: "strict",
 					volatility: "immutable"
 				})
-		return { name: target.name, expr }
+			}
+		}
+		return { name: target.name, expr: counterNarrowing(cx, read, target, counters, loc) }
 	})
 	return cx.node({ kind: "ProjectSet", input: node, out, heading: state }, loc)
 }

@@ -67,8 +67,8 @@ export const Seat = relation("Seat", { resource: closedId(Resource), seat: SeatN
  *
  * claimable and freeSeat have parameters, and so has pick, which reads them; an import of a query with parameters takes
  * a complete `.bind(...)` map, so pick and the claim's members import through bind with the claim's own parameters of
- * the same names, rather than a bare `match(claimable, ...)` and `v(pick)`. The put of Leased binds only key, epoch and
- * seat, the fields it reads, as its IR states; `r.match(pick, p)` with `p = v(pick)` binds every field of pick, which
+ * the same names, rather than a bare `match(claimable, ...)` and `v(pick, "pick")`. The put of Leased binds only key, epoch and
+ * seat, the fields it reads, as its IR states; `r.match(pick, p)` with `p = v(pick, "pick")` binds every field of pick, which
  * is the same set of facts.
  */
 export const Queue = schema(
@@ -127,8 +127,8 @@ export const queueWorlds = (installed: QueueNamed<string>) => {
 /** Wanted and due, or leased on this resource and expired, from the holder's key `from`, wrapping around. */
 export const claimable = query(Queue)
 	.rule((r) => {
-		const { key, kind, slot, epoch, enqueued } = v(QueueWork)
-		const { due, attempts } = v(Wanted)
+		const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+		const { due, attempts } = v(Wanted, "wanted")
 		return r
 			.match(QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
 			.match(Wanted, { key, due, attempts })
@@ -145,14 +145,14 @@ export const claimable = query(Queue)
 				standing: Standing.handle("wanted"),
 				epoch,
 				enqueued,
-				wrap: r.literal(0),
+				wrap: 0,
 				due,
 				attempts
 			})
 	})
 	.rule((r) => {
-		const { key, kind, slot, epoch, enqueued } = v(QueueWork)
-		const { due, attempts } = v(Wanted)
+		const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+		const { due, attempts } = v(Wanted, "wanted")
 		return r
 			.match(QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
 			.match(Wanted, { key, due, attempts })
@@ -169,14 +169,14 @@ export const claimable = query(Queue)
 				standing: Standing.handle("wanted"),
 				epoch,
 				enqueued,
-				wrap: r.literal(1),
+				wrap: 1,
 				due,
 				attempts
 			})
 	})
 	.rule((r) => {
-		const { key, kind, slot, epoch, enqueued } = v(QueueWork)
-		const { seat, expires } = v(Leased)
+		const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+		const { seat, expires } = v(Leased, "leased")
 		return r
 			.match(QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
 			.match(Leased, { key, resource: r.param("resource", Leased.fields.resource), seat, expires })
@@ -193,14 +193,14 @@ export const claimable = query(Queue)
 				standing: Standing.handle("leased"),
 				epoch,
 				enqueued,
-				wrap: r.literal(0),
+				wrap: 0,
 				seat,
 				expires
 			})
 	})
 	.rule((r) => {
-		const { key, kind, slot, epoch, enqueued } = v(QueueWork)
-		const { seat, expires } = v(Leased)
+		const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+		const { seat, expires } = v(Leased, "leased")
 		return r
 			.match(QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
 			.match(Leased, { key, resource: r.param("resource", Leased.fields.resource), seat, expires })
@@ -217,7 +217,7 @@ export const claimable = query(Queue)
 				standing: Standing.handle("leased"),
 				epoch,
 				enqueued,
-				wrap: r.literal(1),
+				wrap: 1,
 				seat,
 				expires
 			})
@@ -228,7 +228,7 @@ export const claimable = query(Queue)
 /** A free seat of the resource from `fromSeat`, wrapping around. */
 export const freeSeat = query(Queue)
 	.rule((r) => {
-		const { resource, seat } = v(Seat)
+		const { resource, seat } = v(Seat, "seat")
 		return r
 			.match(Seat, { resource, seat })
 			.where(
@@ -236,10 +236,10 @@ export const freeSeat = query(Queue)
 				r.ge(seat, r.param("fromSeat", SeatNo)),
 				r.not(Leased, { resource, seat })
 			)
-			.find({ seat, wrap: r.literal(0) })
+			.find({ seat, wrap: 0 })
 	})
 	.rule((r) => {
-		const { resource, seat } = v(Seat)
+		const { resource, seat } = v(Seat, "seat")
 		return r
 			.match(Seat, { resource, seat })
 			.where(
@@ -247,7 +247,7 @@ export const freeSeat = query(Queue)
 				r.lt(seat, r.param("fromSeat", SeatNo)),
 				r.not(Leased, { resource, seat })
 			)
-			.find({ seat, wrap: r.literal(1) })
+			.find({ seat, wrap: 1 })
 	})
 	.orderBy(["wrap", "asc"], ["seat", "asc"])
 	.take(1)
@@ -269,8 +269,8 @@ export const pick = query(Queue)
 			resource: r.param("resource", Leased.fields.resource),
 			fromSeat: r.param("fromSeat", SeatNo)
 		})
-		const { key, kind, slot, epoch, enqueued } = v(items)
-		const { seat } = v(seats)
+		const { key, kind, slot, epoch, enqueued } = v(items, "items")
+		const { seat } = v(seats, "seats")
 		return r
 			.match(items, { standing: "wanted", key, kind, slot, epoch, enqueued })
 			.match(seats, { seat })
@@ -284,8 +284,8 @@ export const pick = query(Queue)
 			from: r.param("from", Digest),
 			resource: r.param("resource", Leased.fields.resource)
 		})
-		const { key, kind, slot, epoch, enqueued } = v(items)
-		const { seat } = v(Leased)
+		const { key, kind, slot, epoch, enqueued } = v(items, "items")
+		const { seat } = v(Leased, "leased")
 		return r
 			.match(items, { standing: "leased", key, kind, slot, epoch, enqueued })
 			.match(Leased, { key, seat })
@@ -302,12 +302,12 @@ export const claimWorkPut = query(Queue).rule((r) => {
 		resource: r.param("resource", Leased.fields.resource),
 		fromSeat: r.param("fromSeat", SeatNo)
 	})
-	const p = v(picked)
+	const p = v(picked, "picked")
 	return r.match(picked, p).find({
 		key: p.key,
 		kind: p.kind,
 		slot: p.slot,
-		standing: r.literal("leased"),
+		standing: "leased",
 		epoch: Compute.add(p.epoch, 1n),
 		enqueued: p.enqueued
 	})
@@ -322,8 +322,8 @@ export const claimWantedDelete = query(Queue).rule((r) => {
 		resource: r.param("resource", Leased.fields.resource),
 		fromSeat: r.param("fromSeat", SeatNo)
 	})
-	const { key } = v(picked)
-	const { due, attempts } = v(Wanted)
+	const { key } = v(picked, "picked")
+	const { due, attempts } = v(Wanted, "wanted")
 	return r.match(picked, { key }).match(Wanted, { key, due, attempts }).find({ key, due, attempts })
 })
 
@@ -336,24 +336,20 @@ export const claimLeasedPut = query(Queue).rule((r) => {
 		resource: r.param("resource", Leased.fields.resource),
 		fromSeat: r.param("fromSeat", SeatNo)
 	})
-	const { key, epoch, seat } = v(picked)
+	const { key, epoch, seat } = v(picked, "picked")
 	return r.match(picked, { key, epoch, seat }).find({
 		key,
 		resource: r.param("resource", Leased.fields.resource),
 		seat,
 		epoch: Compute.add(epoch, 1n),
-		/**
-		 * Compute.cast(Compute.add(r.param("now", Instant), r.param("lease", pg.bigint)), Instant) would be refused by
-		 * the builder: a Compute operation takes a term first and a parameter takes the type it meets, so two
-		 * parameters make no term. The host computes the expiry and passes it as one Instant.
-		 */
+		/** The host computes the expiry and passes it as one Instant. */
 		expires: r.param("expires", Leased.fields.expires)
 	})
 })
 
 /** The settlement's members, parameters { key, epoch, outcome }: each described from the live lease. */
 export const settleLeasedDelete = query(Queue).rule((r) => {
-	const { key, resource, seat, epoch, expires } = v(Leased)
+	const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 	return r
 		.match(Leased, { key, resource, seat, epoch, expires })
 		.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
@@ -361,7 +357,7 @@ export const settleLeasedDelete = query(Queue).rule((r) => {
 })
 
 export const settleDoneInsert = query(Queue).rule((r) => {
-	const { key, resource, seat, epoch, expires } = v(Leased)
+	const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 	return r
 		.match(Leased, { key, resource, seat, epoch, expires })
 		.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
@@ -369,11 +365,11 @@ export const settleDoneInsert = query(Queue).rule((r) => {
 })
 
 export const settleWorkPut = query(Queue).rule((r) => {
-	const { key, resource, seat, epoch, expires } = v(Leased)
-	const { kind, slot, enqueued } = v(QueueWork)
+	const { key, resource, seat, epoch, expires } = v(Leased, "leased")
+	const { kind, slot, enqueued } = v(QueueWork, "queueWork")
 	return r
 		.match(Leased, { key, resource, seat, epoch, expires })
 		.match(QueueWork, { key, kind, slot, epoch, enqueued })
 		.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
-		.find({ key, kind, slot, standing: r.literal("done"), epoch, enqueued })
+		.find({ key, kind, slot, standing: "done", epoch, enqueued })
 })

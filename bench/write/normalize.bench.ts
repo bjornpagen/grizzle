@@ -114,7 +114,7 @@ export default defineGate({
 				Item,
 				query(S).rule((r) => {
 					const rows = r.relation("rows", { n: pg.integer, v: pg.integer })
-					const { n, v: x } = v(rows)
+					const { n, v: x } = v(rows, "rows")
 					return r.match(rows, { n, v: x }).find({ id: r.param("key", Item.fields.id), v: x })
 				})
 			)
@@ -122,7 +122,7 @@ export default defineGate({
 			const fromSrc = ChangeSet.empty(S).insert(
 				Item,
 				query(S).rule((r) => {
-					const { id, v: x } = v(Src)
+					const { id, v: x } = v(Src, "src")
 					return r
 						.match(Src, { id, v: x })
 						.where(r.ge(id, r.param("from", pg.bigint)), r.lt(id, r.param("to", pg.bigint)))
@@ -134,7 +134,7 @@ export default defineGate({
 				Item,
 				query(S).rule((r) => {
 					const rows = r.relation("rows", { n: pg.bigint, v: pg.integer })
-					const { n, v: x } = v(rows)
+					const { n, v: x } = v(rows, "rows")
 					return r.match(rows, { n, v: x }).find({ id: n, v: x })
 				})
 			)

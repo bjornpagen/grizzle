@@ -25,7 +25,7 @@ const automaticVars = vars("AutomaticTask", "task", "budget")
 /**
  * The worked example's queries as the Descriptions the query builder records for them.
  *
- * Each is the query's rule, transcribed onto the Description boundary with the DSL: `v(Task)` mints one
+ * Each is the query's rule, transcribed onto the Description boundary with the DSL: `v(Task, "task")` mints one
  * variable per field, named `Task.<field>` and carrying its origin, and a match binds the fields the rule uses.
  */
 export const automaticTasksFor: QueryDesc = query(
@@ -42,7 +42,7 @@ export const automaticTasksFor: QueryDesc = query(
 				budget: ref("AutomaticTask", "budget")
 			})
 		],
-		where: [eq(ref("Task", "account"), param("account"))],
+		where: [eq(ref("Task", "account"), param("account", { kind: "uuid" }))],
 		head: { id: ref("Task", "id"), budget: ref("AutomaticTask", "budget") },
 		interiors: [],
 		attach: []
@@ -110,7 +110,7 @@ export const taskCards: QueryDesc = attach(
 						kind: ref("Task", "kind")
 					})
 				],
-				where: [eq(ref("Task", "account"), param("account"))],
+				where: [eq(ref("Task", "account"), param("account", { kind: "uuid" }))],
 				head: { id: ref("Task", "id"), kind: ref("Task", "kind") },
 				interiors: [],
 				attach: []

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
@@ -37,12 +37,12 @@ const importing = (binding: Binding): unknown => {
 		case "an importer's parameter":
 			return query(W.Work).rule((r) => {
 				const top = W.largestBudgets.bind({ account: r.param("who", uuid) })
-				const { id } = v(top)
+				const { id } = v(top, "top")
 				return r.match(top, { id }).find({ id })
 			})
 		case "nothing":
 			return runtimeQuery(W.Work).rule((r: RuleValue) => {
-				const { id } = v(W.automaticTasksFor)
+				const { id } = v(W.automaticTasksFor, "automaticTasksFor")
 				return r.match(W.automaticTasksFor, { id }).find({ id })
 			})
 	}
@@ -60,7 +60,11 @@ describe("queryUses over imports", () => {
 						generator: element<Binding>(["a variable", "an importer's parameter", "nothing"]),
 						literal: Formatter.format,
 						limit: 3,
-						features: features<Binding>(["a variable", "an importer's parameter", "nothing"]),
+						coverage: requiredInSpace<Binding>([
+							"a variable",
+							"an importer's parameter",
+							"nothing"
+						]),
 						caseHang: Duration.minutes(2)
 					},
 					(binding, c) =>

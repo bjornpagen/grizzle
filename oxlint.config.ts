@@ -1,5 +1,5 @@
 import { active, lintConfig, restrictedImports } from "@grizzle/devtools/preset"
-import { TEST_RULES } from "@grizzle/testing/oxlint"
+import { CLOCK_RULES, TEST_RULES } from "@grizzle/testing/oxlint"
 import { defineConfig } from "oxlint"
 
 /** The engine's clock and scheduling ban, one message for every global it names. */
@@ -133,10 +133,10 @@ export default defineConfig(
 					}
 				]
 			},
-			"names-sole-mint": {
+			"brands-sole-mint": {
 				mints: [
 					{
-						module: "packages/engine/src/core/identity.ts",
+						doors: ["packages/engine/src/core/identity.ts"],
 						brands: [
 							"LawId",
 							"RelationIdent",
@@ -147,8 +147,31 @@ export default defineConfig(
 							"TriggerName",
 							"LawFunctionName"
 						]
+					},
+					{
+						doors: ["packages/engine/src/sql/emit.ts", "test/support/sql.ts"],
+						brands: ["EmittedText"]
+					},
+					{ doors: ["packages/grizzle/src/adapter/migrate/input.ts"], brands: ["MigrationText"] },
+					{
+						doors: [
+							"packages/engine/src/physical/ddl/names.ts",
+							"packages/grizzle/src/adapter/boundary/sql.ts",
+							"packages/grizzle/src/adapter/admission/drift.ts",
+							"test/support/sql.ts"
+						],
+						brands: ["TypeSchema"]
 					}
 				]
+			},
+			"no-raw-sql": {
+				sources: [
+					"packages/engine/src",
+					"packages/grizzle/src",
+					"packages/testing/src",
+					"packages/devtools/src"
+				],
+				writers: ["packages/engine/src/sql/print.ts", "packages/engine/src/sql/lexer.ts"]
 			},
 			"no-dynamic-imports": {
 				allowed: [{ file: "packages/grizzle/src/cli/main.ts", specifier: "grizzle:config" }]
@@ -160,7 +183,11 @@ export default defineConfig(
 			},
 			"test-no-spelled-names": { markers: NAME_MARKERS }
 		},
-		tests: { jsPlugin: "@grizzle/testing/oxlint", rules: TEST_RULES },
+		tests: {
+			jsPlugin: "@grizzle/testing/oxlint",
+			rules: TEST_RULES,
+			clock: { files: ["packages/testing/src/**", "test/**"], rules: CLOCK_RULES }
+		},
 		overrides: [
 			{
 				files: ["packages/engine/**"],
@@ -298,10 +325,10 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/unit/world-model/generate.test.ts"],
+				files: ["packages/testing/src/live.ts"],
 				rules: active({
-					/** The witness realities are a reachability proof's witnesses, fixed so they never move with TEST_SEED. */
-					"testing/no-fixed-seed": "off"
+					/** The live clock a case's hang guard and a fuzz run's time budget read: its job is the clock. */
+					"testing/no-wall-clock-verdict": "off"
 				})
 			},
 			{
@@ -329,7 +356,7 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/types/**/fixtures/**"],
+				files: ["test/types/**/fixtures/**", "packages/testing/src/witness.fixtures.ts"],
 				rules: active({
 					/** A type test's refusal is a `@ts-expect-error` that names what it refuses. */
 					"typescript/ban-ts-comment": [

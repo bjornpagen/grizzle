@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -73,13 +74,15 @@ describe("row checks over the field registry and Compute", () => {
 							handle: source.draw(element(["a" as const, "b" as const]))
 						})),
 						literal: Formatter.format,
-						features: features<Composed>(["arithmetic", "a cast", "charLength and a handle"]),
+						coverage: required<Composed>(["arithmetic", "a cast", "charLength and a handle"], {
+							cases: 60,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ composed, n, bound, handle }, c) =>
@@ -99,7 +102,7 @@ describe("row checks over the field registry and Compute", () => {
 								own(
 									defined(
 										schemaDescOf(
-											schema("bank", { Account, Kind }, [statement, key(Account, ["slug"])])
+											schema("bank", { Account, Kind }, [statement, key(Account, ["slug"])], [])
 										)
 									)
 								)
@@ -128,17 +131,15 @@ describe("row checks over the field registry and Compute", () => {
 							n: source.draw(int(-1000, 1000))
 						})),
 						literal: Formatter.format,
-						features: features<Refused>([
-							"a number for a bigint",
-							"a handle off the roster",
-							"two contracts meeting"
-						]),
+						coverage: required<Refused>(
+							["a number for a bigint", "a handle off the roster", "two contracts meeting"],
+							{ cases: 60, sense: notesOnly }
+						),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ refused, n }, c) =>
@@ -148,7 +149,7 @@ describe("row checks over the field registry and Compute", () => {
 								switch (refused) {
 									case "a number for a bigint":
 										return check("bad", Account, (r: LooseRow) =>
-											Compute.ge(Compute.add(r.bal, n), n)
+											Compute.ge(Compute.add(r.bal, n), 0n)
 										)
 									case "a handle off the roster":
 										return check("bad", Account, (r: LooseRow) => r.kind.eq("c"))

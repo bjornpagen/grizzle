@@ -97,34 +97,34 @@ export const snapshotGuardDdl = (schema: string): readonly [PlFunction, Revoke] 
 		query: simpleSelect(
 			[target(countStar())],
 			[ledger(alias)],
-			and(
+			and([
 				eq(col(alias, "folder"), col(folder, "folder")),
 				ne(col(alias, "ordinal"), lit.int(BigInt(folderOrdinal), types.integer))
-			)
+			])
 		)
 	})
 	const unfinished = exists(
 		simpleSelect(
 			[one],
 			[ledger("r1")],
-			and(folderRowOf("r1"), ne(col("r1", "files"), fileRows("r1", "r2")))
+			and([folderRowOf("r1"), ne(col("r1", "files"), fileRows("r1", "r2"))])
 		)
 	)
 	const current = exists(
 		simpleSelect(
 			[one],
 			[ledger("r3")],
-			and(
+			and([
 				folderRowOf("r3"),
 				eq(col("r3", "target"), fingerprint),
 				notExists(
 					simpleSelect(
 						[one],
 						[ledger("r4")],
-						and(folderRowOf("r4"), gt(col("r4", "folder"), col("r3", "folder")))
+						and([folderRowOf("r4"), gt(col("r4", "folder"), col("r3", "folder"))])
 					)
 				)
-			)
+			])
 		)
 	)
 	return [
@@ -137,7 +137,6 @@ export const snapshotGuardDdl = (schema: string): readonly [PlFunction, Revoke] 
 			volatility: "VOLATILE",
 			parallel: "UNSAFE",
 			security: "DEFINER",
-			searchPath: ["pg_catalog", "pg_temp"],
 			planCacheMode: "force_custom_plan",
 			body: {
 				declare: [],

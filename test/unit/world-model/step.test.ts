@@ -1,9 +1,11 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec, Result } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
 import { isDrawn, sameValues } from "#test/pg/laws/families/model.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { draftedPhases } from "#test/support/worlds/execute/catalog.ts"
@@ -50,7 +52,7 @@ import type {
  */
 type StepFeature = `step:${ActionKind}` | "rows compared as sets"
 
-const stepFeatures: ReadonlyArray<StepFeature> = [
+const stepFeatures: Arr.NonEmptyReadonlyArray<StepFeature> = [
 	...Arr.map(actionKinds, (k): StepFeature => `step:${k}`),
 	"rows compared as sets"
 ]
@@ -98,9 +100,9 @@ const shownOf = (b: Branch): Outcome => {
 		Arr.filter(Rec.values(f), (v): v is number => typeof v === "number")
 	)
 	const past = (ceiling: number): number =>
-		Math.max(
-			ceiling - identitySpan,
-			...Arr.filter(held, (n) => n > ceiling - identitySpan && n <= ceiling)
+		maxOf(
+			Arr.filter(held, (n) => n > ceiling - identitySpan && n <= ceiling),
+			ceiling - identitySpan
 		)
 	return mapFacts(b.observation, (fact) =>
 		Rec.map(fact, (v) => (isDrawn(v) ? past(v.ceiling) + v.draw : v))
@@ -163,13 +165,12 @@ describe("the worlds model's step", () => {
 					suite: "unit/world-model/step",
 					draw: drawn(walkGen),
 					literal: Formatter.format,
-					features: features<StepFeature>(stepFeatures),
+					coverage: required<StepFeature>(stepFeatures, { cases: 150, sense: notesOnly }),
 					kept: [],
 					runs: 150,
 					shrink: { kind: "bounded", candidates: 200 },
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ reality, weights }, c) =>
@@ -309,13 +310,15 @@ describe("the worlds model's migration folders", () => {
 						suite: "unit/world-model/folder files",
 						draw: drawn(migrationGen),
 						literal: Formatter.format,
-						features: features<FolderFeature>(["worlds change", "no worlds change", "a new law"]),
+						coverage: required<FolderFeature>(["worlds change", "no worlds change", "a new law"], {
+							cases: 30,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 30,
 						shrink: { kind: "bounded", candidates: 100 },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ from, to }, c) =>

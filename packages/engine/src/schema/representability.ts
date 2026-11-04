@@ -39,13 +39,10 @@ type Family =
 	| "range"
 	| "vector"
 
-/**
- * The families a key field may have: every family but vector, whose float32 equality (-0 equal to 0) is no identity
- * a key rests on. They are also exactly the families btree_gist has an operator class for.
- */
-type KeyFamily = Exclude<Family, "vector">
-interface KeyDatum extends DatumBound {
-	readonly family: KeyFamily
+/** The families btree_gist has an operator class for: every family but vector, the scalars a span key may hold. */
+type GistFamily = Exclude<Family, "vector">
+interface GistDatum extends DatumBound {
+	readonly family: GistFamily
 }
 
 const fixed = (bytes: number, align: number, family: Family): DatumBound => ({
@@ -87,7 +84,10 @@ const isCharLengthOfValue = (e: ExprDesc): boolean =>
 export const charLengthBound = (predicate: ExprDesc): number => {
 	switch (predicate.kind) {
 		case "and":
-			return Math.min(...predicate.args.map(charLengthBound))
+			return predicate.args.reduce(
+				(bound, arg) => Math.min(bound, charLengthBound(arg)),
+				Number.POSITIVE_INFINITY
+			)
 		case "compare": {
 			const { op, left, right } = predicate
 			if (isCharLengthOfValue(left)) {
@@ -138,6 +138,7 @@ export const charLengthBound = (predicate: ExprDesc): number => {
 		case "cast":
 		case "base":
 		case "cond":
+		case "when":
 		case "or":
 		case "not":
 		case "allen":
@@ -279,7 +280,7 @@ export const btreeEntryBytes = (datums: ReadonlyArray<DatumBound>): number => {
  * bound side by side; numeric and text store both bounds as varlenas in one varlena (btree_utils_var.c). A range is
  * its own key under range_ops.
  */
-const gistKeyBytes = (d: KeyDatum): number => {
+const gistKeyBytes = (d: GistDatum): number => {
 	switch (d.family) {
 		case "int2":
 			return 4
@@ -304,7 +305,7 @@ const gistKeyBytes = (d: KeyDatum): number => {
 }
 
 /** The most bytes a GiST tuple over these key datums can reach. */
-const keyGistEntryBytes = (datums: ReadonlyArray<KeyDatum>): number => {
+const keyGistEntryBytes = (datums: ReadonlyArray<GistDatum>): number => {
 	let size = indexTupleHeader
 	for (const d of datums) {
 		size += maxAlign - 1 + gistKeyBytes(d)
@@ -316,7 +317,7 @@ const keyGistEntryBytes = (datums: ReadonlyArray<KeyDatum>): number => {
 export const gistEntryBytes = (
 	fields: ReadonlyArray<{ readonly field: string; readonly datum: DatumBound }>
 ): Result.Result<number, string> => {
-	const keys: Array<KeyDatum> = []
+	const keys: Array<GistDatum> = []
 	for (const { field, datum } of fields) {
 		if (datum.family === "vector") {
 			return Result.err(field)
@@ -324,6 +325,23 @@ export const gistEntryBytes = (
 		keys.push({ bytes: datum.bytes, align: datum.align, family: datum.family })
 	}
 	return Result.ok(keyGistEntryBytes(keys))
+}
+
+/**
+ * A span key's GiST layout: its scalar fields through btree_gist, then its span last, and the most bytes its entry can
+ * reach; or the fault of a scalar field btree_gist has no operator class for, or of an entry above a GiST page.
+ */
+const spanKeyGist = (
+	datums: ReadonlyArray<{ readonly field: string; readonly datum: DatumBound }>,
+	span: { readonly field: string; readonly datum: DatumBound }
+): Result.Result<{ readonly span: string; readonly bytes: number }, KeyFault> => {
+	const bytes = gistEntryBytes([...datums.filter((d) => d.field !== span.field), span])
+	if (!bytes.ok) {
+		return Result.err({ kind: "gistOperatorClass", field: bytes.error })
+	}
+	return bytes.value > gistMaxItemSize
+		? Result.err({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize })
+		: Result.ok({ span: span.field, bytes: bytes.value })
 }
 
 export interface KeyLayout {
@@ -392,8 +410,9 @@ export const btreeEntry = (datums: ReadonlyArray<DatumBound>): Result.Result<num
  *   value, but no compression ratio is guaranteed. numeric(p, s) is at most numeric_maximum_size, 8 + 2 *
  *   floor((p + 6) / 4) bytes (numeric.c); numeric without a precision has no bound. Text is bounded by its pattern's
  *   language (the text analysis's bound) and by a contract's charLength predicate, four bytes per code point; the
- *   wildcard pattern has none. A vector(n) is 8 + 4n bytes (pgvector's Vector struct). A vector field is
- *   never a key field: float32 equality is no key identity. Ranges are 17 (int4range) and 25 (int8range) bytes.
+ *   wildcard pattern has none. A vector(n) is 8 + 4n bytes (pgvector's Vector struct), a key field like any other:
+ *   every vector has one form, its components finite (pgvector refuses NaN and infinity) and its zero 0, so pgvector's
+ *   equality is identity. Ranges are 17 (int4range) and 25 (int8range) bytes.
  * - A span key, a key with one span field, lowers to PRIMARY KEY or UNIQUE (... span WITHOUT OVERLAPS), a GiST entry
  *   with the span last and every scalar component through btree_gist. Every key family has a btree_gist operator
  *   class, and the entry, with btree_gist's key representations (a fixed type stores its lower and
@@ -409,8 +428,9 @@ export const btreeEntry = (datums: ReadonlyArray<DatumBound>): Result.Result<num
  * The worst-case alignment padding before each datum is counted, so the bound holds whatever the preceding values'
  * actual sizes. A key that fails is UnrepresentableKey, naming the key and the bound that failed.
  *
- * The representability of one declared key, or its fault: its datums bounded, no vector field, at most one span field,
- * a span key's GiST entry within a GiST page, and its B-tree entry within PostgreSQL's limit.
+ * The representability of one declared key, or its fault: its datums bounded, at most one span field, a span key's
+ * scalar fields each of a family btree_gist indexes (no vector) and its GiST entry within a GiST page, and its B-tree
+ * entry within PostgreSQL's limit.
  */
 export const keyLayout = (fields: KeyFields): Result.Result<KeyLayout, KeyFault> => {
 	const bounded = keyDatums(fields)
@@ -418,38 +438,14 @@ export const keyLayout = (fields: KeyFields): Result.Result<KeyLayout, KeyFault>
 		return bounded
 	}
 	const datums = bounded.value
-	const columns: Array<{ readonly field: string; readonly datum: KeyDatum }> = []
-	const spans: Array<{ readonly field: string; readonly datum: KeyDatum }> = []
-	for (const { field, desc, datum: d } of datums) {
-		if (d.family === "vector") {
-			return Result.err<KeyFault>({ kind: "vector", field })
-		}
-		const datum: KeyDatum = { bytes: d.bytes, align: d.align, family: d.family }
-		columns.push({ field, datum })
-		if (isSpanDesc(desc)) {
-			spans.push({ field, datum })
-		}
-	}
+	const spans = datums.filter((d) => isSpanDesc(d.desc))
 	const [span, ...otherSpans] = spans
 	if (otherSpans.length > 0) {
 		return Result.err<KeyFault>({ kind: "spans", fields: spans.map((x) => x.field) })
 	}
-	const gistLayout =
-		span === undefined
-			? undefined
-			: {
-					span: span.field,
-					bytes: keyGistEntryBytes([
-						...columns.filter((c) => c.field !== span.field).map((c) => c.datum),
-						span.datum
-					])
-				}
-	if (gistLayout !== undefined && gistLayout.bytes > gistMaxItemSize) {
-		return Result.err<KeyFault>({
-			kind: "gistEntry",
-			bytes: gistLayout.bytes,
-			limit: gistMaxItemSize
-		})
+	const gist = span === undefined ? Result.ok(undefined) : spanKeyGist(datums, span)
+	if (!gist.ok) {
+		return gist
 	}
 	const btreeBytes = btreeEntry(datums.map((x) => x.datum))
 	if (!btreeBytes.ok) {
@@ -458,6 +454,6 @@ export const keyLayout = (fields: KeyFields): Result.Result<KeyLayout, KeyFault>
 	return Result.ok({
 		fields: fields.map((f) => f.field),
 		btreeBytes: btreeBytes.value,
-		gist: gistLayout
+		gist: gist.value
 	})
 }

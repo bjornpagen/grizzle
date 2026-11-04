@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Result, Schema, String as Str } from "effect"
@@ -12,7 +12,7 @@ import {
 	SerializationFailure,
 	UnseenOccupant
 } from "#adapter/errors/failures.ts"
-import { decodePlan, explainStatement } from "#adapter/explain/plan.ts"
+import { decodePlan } from "#adapter/explain/plan.ts"
 import { classifyServerError, transientFailureOf } from "#adapter/outcomes/index.ts"
 import { violationClassifier } from "#adapter/witness/index.ts"
 import { keyLaws } from "#adapter/witness/keylaw.ts"
@@ -29,7 +29,6 @@ import {
 } from "#test/support/kernel/naming.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 
-import { regex } from "arkregex"
 /**
  * The pure parts of a write's outcome: the transient reasons of server errors, the outcome mapping of SQLSTATEs, and the
  * EXPLAIN (FORMAT JSON) decoder. How a flight and its COMMIT end is test/unit/adapter/batch.test.ts's.
@@ -231,7 +230,7 @@ describe("the outcome mapping", () => {
 							generator: element(["23514", "23P01"] as const),
 							literal: Formatter.format,
 							limit: 2,
-							features: features<"23514" | "23P01">(["23514", "23P01"]),
+							coverage: requiredInSpace<"23514" | "23P01">(["23514", "23P01"]),
 							caseHang: Duration.minutes(2)
 						},
 						(sqlstate, c) =>
@@ -324,7 +323,7 @@ describe("the outcome mapping", () => {
 						generator: element<readonly [Unclaimed, ReturnType<typeof serverError>]>(unclaimed),
 						literal: (row) => Formatter.format(row[0]),
 						limit: unclaimed.length,
-						features: features<Unclaimed>(Arr.map(unclaimed, ([name]) => name)),
+						coverage: requiredInSpace<Unclaimed>(Arr.map(unclaimed, ([name]) => name)),
 						caseHang: Duration.minutes(2)
 					},
 					(row, c) =>
@@ -403,9 +402,5 @@ describe("EXPLAIN (FORMAT JSON) decoding", () => {
 
 	it("keeps exactly the node type and estimates of the json text", () => {
 		assert.deepEqual(decodePlan(JSON.stringify(document)), Result.succeed(expected))
-	})
-
-	it("the EXPLAIN statement never analyzes", () => {
-		assert.doesNotMatch(explainStatement("SELECT 1"), regex("ANALYZE", "i"))
 	})
 })

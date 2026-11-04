@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -5,9 +6,10 @@ import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type Comparator, combine, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { MoneyValue, VectorText } from "#compiler/ir/carriers.ts"
-import { type DecimalValue, decimalPayload } from "#compiler/ir/decimal.ts"
+import type { CanonicalFloat, MoneyValue, VectorText } from "#compiler/ir/carriers.ts"
+import { type DecimalParts, type DecimalValue, decimalPayload } from "#compiler/ir/decimal.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
+import type { PreconditionProof } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
 	type NumericTypmod,
@@ -93,6 +95,27 @@ export const rangeOp = (code: RangeOpCode, carrier: SpanCarrier): RangeOpId =>
 
 export type OpId = CatalogOpId | RangeOpId
 
+declare const definedBrand: unique symbol
+
+/**
+ * An overload or cast the registry vouches is defined on every value its operands admit: its Totality is total,
+ * exact or ieee (scalar/compute/registry.ts mints it, and the decoder of a stored expression).
+ */
+export type DefinedOp = OpId & { readonly [definedBrand]: "everywhere" }
+
+/**
+ * An overload or cast defined only where its precondition holds (Totality requires): an expression names one only
+ * beside the proof of that precondition, so no expression can raise on a value its operands admit.
+ */
+export type PartialOp = OpId & { readonly [definedBrand]: "where proved" }
+
+/**
+ * The mints of DefinedOp and PartialOp, unchecked: the overload registry calls them for each entry by its Totality,
+ * and the decoder of a stored expression for each node by whether it carries a proof; nothing else mints either.
+ */
+export const definedOp = nominal<OpId, DefinedOp>()
+export const partialOp = nominal<OpId, PartialOp>()
+
 /**
  * The order proofs list the overloads they use in: catalog identities by their text, then range overloads by code and
  * carrier.
@@ -138,7 +161,6 @@ type ExprKind = (typeof exprKinds)[number]
 export type ParamRole = "compare" | "write" | "emit"
 
 export type Volatility = "immutable" | "stable"
-export type Failure = "total" | "canFail"
 
 export interface ColumnRef {
 	readonly node: NodeId
@@ -154,7 +176,7 @@ export interface ColumnRef {
 export type TypedLiteral =
 	| { readonly kind: "int"; readonly value: bigint }
 	| { readonly kind: "numeric"; readonly value: DecimalValue }
-	| { readonly kind: "float"; readonly value: number }
+	| { readonly kind: "float"; readonly value: CanonicalFloat }
 	| { readonly kind: "floatSpecial"; readonly value: "NaN" | "Infinity" | "-Infinity" }
 	| { readonly kind: "money"; readonly value: MoneyValue }
 	| { readonly kind: "bool"; readonly value: boolean }
@@ -200,10 +222,13 @@ export interface ExprDeps {
 	readonly nodes: ReadonlyArray<NodeId>
 }
 
-/** What evaluating an expression may do: read the session's settings (stable) or not (immutable), and raise or not. */
+/**
+ * What evaluating an expression may do: read the session's settings (stable) or not (immutable). Raising is no effect:
+ * every operation is total over the values its operands admit, or its precondition was proved where it stands
+ * (scalar/compute/registry.ts Totality), so no expression raises on a value.
+ */
 export interface Effects {
 	readonly volatility: Volatility
-	readonly failure: Failure
 }
 
 /** What an expression's arguments are in one form: the argument expressions themselves, or their identifiers. */
@@ -223,10 +248,11 @@ export interface TableArgs {
 
 /**
  * Each kind with its inputs, in operand order, at its arity (leaves have none, an operator any number: least,
- * greatest), its non-null proof, and the effects only it can state of itself: an operator's own failure and volatility
- * (the registry's, or total where its caller proves it so under a guard), and a cast's own volatility, its own failure
- * being whether it is checked. Every other kind is immutable and total of itself: a domain cast can fail, since
- * PostgreSQL validates membership, and every kind's effects join its arguments' (exprEffects), which builtExpr computes.
+ * greatest), its non-null proof, and the volatility only it can state of itself: an operator's (the registry's) and a
+ * cast's. Every other kind is immutable of itself, and every kind's volatility joins its arguments' (exprEffects),
+ * which builtExpr computes. An operator names its overload and a cast its registered cast (or the binary coercion),
+ * each a DefinedOp or a PartialOp: a partial one stands only with the proof of its precondition, and a domain cast,
+ * which PostgreSQL validates, always does.
  */
 export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	| {
@@ -251,20 +277,40 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	  }
 	| {
 			readonly kind: "op"
-			readonly op: OpId
+			readonly op: DefinedOp
 			readonly args: ReadonlyArray<R["expr"]>
 			readonly nonNull: "strict"
 			readonly volatility: Volatility
-			readonly failure: Failure
+	  }
+	| {
+			readonly kind: "op"
+			readonly op: PartialOp
+			readonly args: ReadonlyArray<R["expr"]>
+			readonly nonNull: "strict"
+			readonly volatility: Volatility
+			readonly proof: PreconditionProof
 	  }
 	| {
 			readonly kind: "cast"
-			readonly checked: boolean
+			readonly cast: DefinedOp
 			readonly args: readonly [R["expr"]]
 			readonly nonNull: "strict"
 			readonly volatility: Volatility
 	  }
-	| { readonly kind: "domainCast"; readonly args: readonly [R["expr"]]; readonly nonNull: "strict" }
+	| {
+			readonly kind: "cast"
+			readonly cast: PartialOp
+			readonly args: readonly [R["expr"]]
+			readonly nonNull: "strict"
+			readonly volatility: Volatility
+			readonly proof: PreconditionProof
+	  }
+	| {
+			readonly kind: "domainCast"
+			readonly args: readonly [R["expr"]]
+			readonly nonNull: "strict"
+			readonly proof: PreconditionProof
+	  }
 	| {
 			readonly kind: "cond"
 			readonly args: readonly [R["expr"], R["expr"], R["expr"]]
@@ -280,7 +326,9 @@ export type ExprSpec = ExprSpecOver<LiveArgs>
  *
  * One node is exactly one PostgreSQL operator, function, or cast: the vocabulary is the Compute
  * catalogue, with no library-defined composite operation. Each node records its exact native overload, its argument
- * expressions, its output descriptor, its non-null proof, its volatility, its error behavior, and its dependencies.
+ * expressions, its output descriptor, its non-null proof, its volatility, and its dependencies. No node raises on a
+ * value its operands admit: the registry's Totality of its overload says how it is defined on every one, and the
+ * Compute lowering emits a partial overload only with the proof of its precondition.
  * There is no NULL literal, no COALESCE and no NULLIF node: absence is zero rows.
  *
  * An expression holds its arguments themselves: one frozen tree, shared by every node that reads it. A column reference
@@ -305,21 +353,18 @@ export type TableExpr = ExprSpecOver<TableArgs> &
 export type ExprOf<K extends ExprKind> = Extract<ScalarExpr, { readonly kind: K }>
 export type TableExprOf<K extends ExprKind> = Extract<TableExpr, { readonly kind: K }>
 
-const pure: Effects = Object.freeze({ volatility: "immutable", failure: "total" })
+const pure: Effects = Object.freeze({ volatility: "immutable" })
 
 /**
- * What an expression of `spec` does of itself, before its arguments: the one classification of an operation as total
- * or able to fail that every reader shares (exprEffects, a contract predicate's totality, fusion's failing predicate,
- * a query entry's total definition).
+ * What an expression of `spec` does of itself, before its arguments: the one classification of an operation's
+ * volatility that every reader shares (exprEffects, a contract predicate's immutability, a query entry's definition).
  */
 export const ownEffects = <R extends ArgKinds>(spec: ExprSpecOver<R>): Effects => {
 	switch (spec.kind) {
 		case "op":
-			return { volatility: spec.volatility, failure: spec.failure }
 		case "cast":
-			return { volatility: spec.volatility, failure: spec.checked ? "canFail" : "total" }
+			return { volatility: spec.volatility }
 		case "domainCast":
-			return { volatility: "immutable", failure: "canFail" }
 		case "column":
 		case "value":
 		case "param":
@@ -330,10 +375,9 @@ export const ownEffects = <R extends ArgKinds>(spec: ExprSpecOver<R>): Effects =
 }
 
 /**
- * The effects of an expression of `spec` over arguments of effects `args`: its own joined with theirs. An argument
- * that can fail makes its reader fail too, since predicate order never proves it safe, and a stable one makes it
- * stable. The one rule every expression derives effects by: builtExpr, a contract predicate's table, the rewrite
- * editors and the Compute lowering.
+ * The effects of an expression of `spec` over arguments of effects `args`: its own joined with theirs, so a stable
+ * argument makes its reader stable. The one rule every expression derives effects by: builtExpr, a contract
+ * predicate's table, the rewrite editors and the Compute lowering.
  */
 export const exprEffects = <R extends ArgKinds>(
 	spec: ExprSpecOver<R>,
@@ -344,9 +388,7 @@ export const exprEffects = <R extends ArgKinds>(
 		volatility:
 			own.volatility === "stable" || args.some((a) => a.volatility === "stable")
 				? "stable"
-				: "immutable",
-		failure:
-			own.failure === "canFail" || args.some((a) => a.failure === "canFail") ? "canFail" : "total"
+				: "immutable"
 	}
 }
 
@@ -511,70 +553,43 @@ const inRange = (value: bigint, [lo, hi]: readonly [bigint, bigint]): boolean =>
 	value >= lo && value <= hi
 
 /**
- * Why the decimal `payload` is not exactly a value of numeric(p, s), or undefined when it is. A value that numeric(p,
+ * Why the decimal `value` is not exactly a value of numeric(p, s), or undefined when it is. A value that numeric(p,
  * s) would round, or whose rounded magnitude needs more than p - s integer digits (negative scales included), or an
  * infinity, is refused: PostgreSQL would change the value or fail at run time. NaN is a
  * value of every numeric typmod. Without a precision the type is unconstrained numeric and holds every value.
  */
 const numericTypmodProblem = (
-	payload: string,
+	value: DecimalValue,
 	typmod: NumericTypmod | undefined
 ): string | undefined => {
-	if (typmod === undefined || payload === "NaN") {
+	if (typmod === undefined) {
 		return undefined
 	}
 	const { precision, scale } = typmod
 	const label = `numeric(${precision},${scale})`
-	if (payload === "Infinity" || payload === "-Infinity") {
-		return `${label} cannot hold an infinite value`
+	const parts: DecimalParts = value.parts
+	switch (parts.kind) {
+		case "nan":
+			return undefined
+		case "infinity":
+		case "-infinity":
+			return `${label} cannot hold an infinite value`
+		case "finite": {
+			const { coefficient, minScale } = parts
+			if (coefficient === 0n) {
+				return undefined
+			}
+			const shift = scale - minScale
+			if (shift < 0 && coefficient % 10n ** BigInt(-shift) !== 0n) {
+				return `${decimalPayload(value)} has more fractional digits than ${label} keeps; it would round`
+			}
+			const units =
+				shift >= 0 ? coefficient * 10n ** BigInt(shift) : coefficient / 10n ** BigInt(-shift)
+			return units >= 10n ** BigInt(precision)
+				? `${decimalPayload(value)} overflows ${label}`
+				: undefined
+		}
 	}
-	/** payload = digits × 10^-fraction, written without sign. */
-	const unsigned = payload.startsWith("-") ? payload.slice(1) : payload
-	const point = unsigned.includes(".") ? unsigned.indexOf(".") : undefined
-	const digits =
-		point === undefined ? unsigned : `${unsigned.slice(0, point)}${unsigned.slice(point + 1)}`
-	let first = 0
-	while (first < digits.length && digits[first] === "0") {
-		first++
-	}
-	if (first === digits.length) {
-		return undefined
-	}
-	let last = digits.length
-	while (digits[last - 1] === "0") {
-		last--
-	}
-	/** The value is m × 10^exponent with m = digits[first, last) not divisible by 10. */
-	const exponent =
-		(point === undefined ? 0 : -(unsigned.length - point - 1)) + (digits.length - last)
-	if (exponent + scale < 0) {
-		return `${payload} has more fractional digits than ${label} keeps; it would round`
-	}
-	if (last - first + exponent + scale > precision) {
-		return `${payload} overflows ${label}`
-	}
-	return undefined
-}
-
-/**
- * A numeric payload's value without its display scale: PostgreSQL's numeric equality holds 1.0 = 1.00,
- * while the canonical payload keeps the scale. Trailing fractional zeros go, and the point with them
- * when no fractional digit remains; the special values keep themselves. The payload is canonical, so the result is
- * too ("0.00" becomes "0", never "-0").
- */
-const numericValueKey = (payload: string): string => {
-	if (!payload.includes(".")) {
-		return payload
-	}
-	const point = payload.indexOf(".")
-	let end = payload.length
-	while (payload[end - 1] === "0") {
-		end--
-	}
-	if (end === point + 1) {
-		end = point
-	}
-	return payload.slice(0, end)
 }
 
 /** A literal's identity under PostgreSQL's native equality: two literals are equal exactly when their keys are. */
@@ -583,20 +598,41 @@ declare const equalityKeyBrand: unique symbol
 const equalityKey = nominal<string, EqualityKey>()
 
 /**
- * The native identity of a literal, for comparing discriminant tuples and closed facts: the canonical text, with float
- * zero unsigned, since float equality holds -0 = 0, and a numeric value stripped of its display scale. The literal is
- * a value of its type (literalProblem), which encodes.
+ * The native identity of a literal, for comparing discriminant tuples and closed facts: its canonical text, since
+ * every literal holds its value in the one form (a decimal without display scale, a float with one zero). The literal
+ * is a value of its type (literalProblem), which encodes.
  */
 export const nativeEqualityKey = (literal: TypedLiteral): EqualityKey =>
-	equalityKey(
-		canonicalTextOf(
-			literal.kind === "float" && literal.value === 0
-				? { kind: "float", value: 0 }
-				: literal.kind === "numeric"
-					? { kind: "numeric", value: numericValueKey(decimalPayload(literal.value)) }
-					: literal
-		)
-	)
+	equalityKey(canonicalTextOf(literal))
+
+/**
+ * The integer a literal is, or undefined: an int literal, or a finite numeric literal whose least scale is 0. A
+ * numeric literal is in its one form, so 1.0 is the integer 1.
+ */
+export const integerLiteral = (literal: TypedLiteral): bigint | undefined => {
+	switch (literal.kind) {
+		case "int":
+			return literal.value
+		case "numeric": {
+			const parts = literal.value.parts
+			return parts.kind === "finite" && parts.minScale === 0
+				? parts.negative
+					? -parts.coefficient
+					: parts.coefficient
+				: undefined
+		}
+		case "float":
+		case "floatSpecial":
+		case "money":
+		case "bool":
+		case "text":
+		case "uuid":
+		case "enum":
+		case "span":
+		case "vector":
+			return undefined
+	}
+}
 
 /**
  * Why `literal` cannot be a value of `type`, or undefined when it can. The type's refinements (a contract predicate,
@@ -625,7 +661,7 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 			if (carrier !== "numeric") {
 				return `a numeric literal is not a ${carrier} value`
 			}
-			return numericTypmodProblem(decimalPayload(literal.value), type.typmod)
+			return numericTypmodProblem(literal.value, type.typmod)
 		case "float":
 			if (carrier === "float8") {
 				return undefined
@@ -709,7 +745,7 @@ export const exprClosure = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<Sca
 			continue
 		}
 		seen.add(e)
-		queue.push(...e.args)
+		appendAll(queue, e.args)
 	}
 	return [...seen]
 }
@@ -747,7 +783,6 @@ export const predicateTable = (root: ScalarExpr): ExprTable => {
 		exprs[id] = Object.freeze({
 			...spec,
 			volatility: e.volatility,
-			failure: e.failure,
 			id,
 			deps: e.deps
 		})
@@ -838,11 +873,10 @@ const entryProblems = (
 		...(expr.id === key ? [] : [`the table key equal to the expression's id ${expr.id}`]),
 		...(predicateKinds.includes(expr.kind)
 			? []
-			: [`VALUE, literals, operators, unchecked casts and conditionals only, not ${expr.kind}`]),
+			: [`VALUE, literals, operators, casts and conditionals only, not ${expr.kind}`]),
 		...(expr.deps.params.length > 0 || expr.deps.nodes.length > 0
 			? ["no parameter or node dependencies; a predicate reads only VALUE"]
 			: []),
-		...(expr.failure === "total" ? [] : ["total, as a contract predicate is"]),
 		...(expr.volatility === "immutable" ? [] : ["immutable"]),
 		...kindProblems(expr, args, base)
 	].map((problem) => `${at}: ${problem}`)
@@ -880,14 +914,13 @@ const kindProblems = (
 			const problem = literalProblem(expr.value, expr.type)
 			return problem === undefined ? [] : [problem]
 		}
-		case "cast":
-			return expr.checked ? ["an unchecked cast; a checked narrowing can fail"] : []
 		case "cond":
 			return condProblems(expr.type, args)
 		case "column":
 		case "param":
 		case "domainCast":
 		case "op":
+		case "cast":
 			return []
 	}
 }
@@ -914,7 +947,7 @@ const normalOrder = (
 		}
 		seen.add(id)
 		order.push(id)
-		queue.push(...expr.args)
+		appendAll(queue, expr.args)
 	}
 	return { order, dangling }
 }
@@ -922,8 +955,8 @@ const normalOrder = (
 /**
  * Why `table` is not a well-formed predicate over a domain whose VALUE has type `base`, each problem one line of prose.
  * The predicate is in normal form; it is acyclic and every argument resolves; it reads only VALUE and literals
- * through operators, unchecked casts and conditionals, with no parameter and no column; it is immutable and total,
- * so a checked narrowing or a domain cast, which can fail, is not part of it; and its root is boolean.
+ * through operators, casts and conditionals, with no parameter, no column and no domain cast; it is immutable; and its
+ * root is boolean.
  */
 export const predicateProblems = (table: ExprTable, base: ScalarType): ReadonlyArray<string> => {
 	const problems: Array<string> = []
@@ -955,7 +988,7 @@ export const predicateProblems = (table: ExprTable, base: ScalarType): ReadonlyA
 		return problems
 	}
 	for (const [key, expr] of Object.entries(table.exprs)) {
-		problems.push(...entryProblems(table, key, expr, base))
+		appendAll(problems, entryProblems(table, key, expr, base))
 	}
 	const root = tableAt(table.exprs, table.root)
 	if (root !== undefined && baseOf(root.type).carrier !== "bool") {

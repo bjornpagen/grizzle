@@ -26,6 +26,7 @@ import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
+import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import type { OracleRelation, OracleSchema } from "#test/support/oracle/addwins.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -717,11 +718,11 @@ export const buildSchema = (w: WSchema, name: string): BuiltSchema => {
 				containment(
 					on(
 						relationValue(c.from.relation),
-						...nonEmpty(c.from.fields, `a containment from ${c.from.relation}`)
+						...nonEmptyArgumentsOf(nonEmpty(c.from.fields, `a containment from ${c.from.relation}`))
 					),
 					on(
 						relationValue(c.to.relation),
-						...nonEmpty(c.to.fields, `a containment into ${c.to.relation}`)
+						...nonEmptyArgumentsOf(nonEmpty(c.to.fields, `a containment into ${c.to.relation}`))
 					)
 				)
 			)
@@ -729,11 +730,14 @@ export const buildSchema = (w: WSchema, name: string): BuiltSchema => {
 		for (const c of g.capacities) {
 			statements.push(
 				capacity(
-					on(relationValue(c.target.relation), ...nonEmpty(c.target.fields, `a capacity's target`)),
+					on(
+						relationValue(c.target.relation),
+						...nonEmptyArgumentsOf(nonEmpty(c.target.fields, `a capacity's target`))
+					),
 					{
 						from: on(
 							select(relationValue(c.source.relation), { [c.source.selector]: true }),
-							...nonEmpty(c.source.fields, `a capacity's source`)
+							...nonEmptyArgumentsOf(nonEmpty(c.source.fields, `a capacity's source`))
 						),
 						within: within(0n, 1n)
 					}

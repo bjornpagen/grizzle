@@ -1,20 +1,21 @@
 import { Array as Arr } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { SentRow } from "#test/pg/oracle/public/cells.ts"
 import { defined } from "#test/support/assert.ts"
-import { type Nested, showValue } from "#test/support/oracle/public/answer.ts"
+import type { Nested } from "#test/support/oracle/public/answer.ts"
 import type { ParentColumn, Query, Root } from "#test/support/oracle/public/program.ts"
 import { valueKey } from "#test/support/oracle/reference/values.ts"
 
 /**
  * How the suite reads the adapter's delivered rows and their texts, and the planted defects that prove it can fail.
  *
- * The suite reads every public answer as delivered. Its planted-bug check (planted.test.ts) reads them through
- * `bySpelling` instead, a test double of a stitch by text: the attachment statement keeps one spelling of
- * natively equal parent keys (its DISTINCT), and the host gives the children only to the parents whose key prints as
- * that spelling, so a parent whose key is equal but spelled otherwise gets none. The suite must fail on it, which shows
- * that its population reaches two spellings of one parent key with children and that its comparison is exact per
- * parent. A run writes nothing to the tree: the suite's required features hold that reach on every run, and the
+ * The suite reads every public answer as delivered. Its planted-bug check (planted.test.ts) reads the perturbed
+ * reader's delivery through `bySpelling` instead, a test double of a stitch by text: the attachment statement keeps one
+ * spelling of natively equal parent keys (its DISTINCT), and the host gives the children only to the parents whose key
+ * cell PostgreSQL sent in that spelling (cells.ts SentRow), so a parent whose key is equal but stored otherwise gets
+ * none. The suite must fail on it, which shows that its population stores two spellings of one parent key with
+ * children and that its comparison is exact per parent. A run writes nothing to the tree: the suite's required features hold that reach on every run, and the
  * report prints the shrunk sketch, which a fix promotes into the suite's kept sketches.
  *
  * The suite also reads every cell text its perturbed reader converts strictly (cells.ts), and requires a `Conversion`
@@ -22,13 +23,15 @@ import { valueKey } from "#test/support/oracle/reference/values.ts"
  * trusting boolean conversion that reads only `f` as true: the outermost SELECT writes a boolean as true or false, so
  * every true cell converts to false, and the suite must fail on the first case that delivers one.
  *
- * A reading of delivered rows.
+ * A reading of the perturbed reader's delivered rows, with the rows as PostgreSQL sent them, row for row.
  */
-export type Stitch = (rows: ReadonlyArray<Nested>, query: Root) => ReadonlyArray<Nested>
+export type Stitch = (
+	rows: ReadonlyArray<Nested>,
+	query: Root,
+	sent: ReadonlyArray<SentRow>
+) => ReadonlyArray<Nested>
 
-export const asDelivered: (rows: ReadonlyArray<Nested>, query: Root) => ReadonlyArray<Nested> = (
-	rows: ReadonlyArray<Nested>
-): ReadonlyArray<Nested> => rows
+export const asDelivered: Stitch = (rows) => rows
 
 /** The parent columns a child binds, by position in the parent's heading. */
 const keyPositions = (
@@ -43,7 +46,14 @@ const keyPositions = (
 	return Arr.flatMap(q.heading, (c, i) => (names.has(c.name) ? [i] : []))
 }
 
-const restitch = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>): ReadonlyArray<Nested> => {
+const restitch = (
+	q: Query<ParentColumn>,
+	rows: ReadonlyArray<Nested>,
+	sent: ReadonlyArray<SentRow>
+): ReadonlyArray<Nested> => {
+	if (rows.length !== sent.length) {
+		throw new Error(`${rows.length} delivered rows of ${sent.length} sent`)
+	}
 	let current = rows
 	for (const [a, attachment] of q.attachments.entries()) {
 		const positions = keyPositions(q, attachment.child)
@@ -57,25 +67,44 @@ const restitch = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>): Readonly
 				),
 				"\u0000"
 			)
-		const spelling = (row: Nested) =>
+		const sentAt = (k: number): SentRow => defined(sent[k], `the sent row ${k}`)
+		const spelling = (k: number) =>
 			Arr.join(
-				Arr.map(positions, (i) => showValue(defined(row.values[i], `the parent value ${i}`))),
+				Arr.map(positions, (i) =>
+					defined(
+						sentAt(k).texts.get(defined(q.heading[i], `the column ${i}`).name),
+						`the sent cell of column ${i}`
+					)
+				),
 				"\u0000"
 			)
 		const kept = new Map<
 			string,
-			{ readonly spelling: string; readonly children: ReadonlyArray<Nested> }
+			{
+				readonly spelling: string
+				readonly children: ReadonlyArray<Nested>
+				readonly sent: ReadonlyArray<SentRow>
+			}
 		>()
-		for (const row of Arr.dedupeWith(current, (x, y) => identity(x) === identity(y))) {
-			kept.set(identity(row), { spelling: spelling(row), children: row.attachments[a] ?? [] })
+		for (const [k, row] of current.entries()) {
+			if (!kept.has(identity(row))) {
+				kept.set(identity(row), {
+					spelling: spelling(k),
+					children: defined(row.attachments[a], `the attachment ${a}`),
+					sent: defined(sentAt(k).children.get(attachment.name), `the sent ${attachment.name}`)
+				})
+			}
 		}
-		current = Arr.map(current, (row) => {
+		current = Arr.map(current, (row, k) => {
 			const group = kept.get(identity(row))
-			const children = group !== undefined && group.spelling === spelling(row) ? group.children : []
 			return {
 				values: row.values,
 				attachments: Arr.map(row.attachments, (list, i) =>
-					i === a ? restitch(attachment.child, children) : list
+					i !== a
+						? list
+						: group !== undefined && group.spelling === spelling(k)
+							? restitch(attachment.child, group.children, group.sent)
+							: []
 				)
 			}
 		})
@@ -83,9 +112,8 @@ const restitch = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>): Readonly
 	return current
 }
 
-/** A stitch by text as a test double: children stitched by the spelling of their parent's key. */
-export const bySpelling = (rows: ReadonlyArray<Nested>, query: Root): ReadonlyArray<Nested> =>
-	restitch(query, rows)
+/** A stitch by text as a test double: children stitched by the spelling their parent's key cell was sent in. */
+export const bySpelling: Stitch = (rows, query, sent) => restitch(query, rows, sent)
 
 /** A trusting conversion of a column type's output text into its host value. */
 export type Conversion = (type: ScalarType) => (text: string) => unknown

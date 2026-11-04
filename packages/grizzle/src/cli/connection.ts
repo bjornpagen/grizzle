@@ -11,6 +11,8 @@ import {
 	String as Str
 } from "effect"
 import { parseConnection } from "#adapter/connection/config.ts"
+import { setStartupVariable } from "#adapter/connection/environment.ts"
+import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import { noPassword } from "#adapter/wire/session.ts"
@@ -44,6 +46,9 @@ import {
  * - With `connection`, its typed block: host, port, database, role, a password that is a Redacted or an Effect
  *   evaluated for each attempt (an RDS IAM token, a secret manager's lookup), and tls with ca and an optional
  *   servername. Nothing else is configurable.
+ *
+ * Either way, the process environment sets neither PGOPTIONS nor PGREPLICATION, which node-postgres would send at the
+ * startup of every migration session (ownerEnvironment).
  *
  * No refusal here quotes the URL or a password: a URL is named by its parts.
  *
@@ -241,11 +246,24 @@ export const parseDatabaseUrl = Effect.fn("parseDatabaseUrl")(function* (
 })
 
 /**
- * Where `grizzle migrate` connects: the configuration's connection, else DATABASE_URL.
+ * The process environment the migration identity's sessions would start in, read where pg reads it, never through the
+ * ConfigProvider: refused when it sets a startup variable that reaches an owner's session (connection/environment.ts),
+ * PGOPTIONS or PGREPLICATION, which pg would send at the startup of each, since an owner's session sets no options of
+ * its own and starts under its role's and its database's defaults.
  *
  * @internal
  */
-export const migrationConnection = (
+export const ownerEnvironment: Effect.Effect<void, CliError> = Effect.flatMap(
+	Effect.sync(() => setStartupVariable(process.env, "owner")),
+	Option.match({
+		onNone: () => Effect.void,
+		onSome: (startupVariable) =>
+			Effect.fail(cliError(ConnectionEnvironmentRefused.make({ variable: startupVariable })))
+	})
+)
+
+/** The connection the configuration names, else DATABASE_URL's. */
+const configuredConnection = (
 	config: ResolvedConfig,
 	env: ConnectionEnv,
 	cwd: string
@@ -257,3 +275,16 @@ export const migrationConnection = (
 		? parseDatabaseUrl(env.DATABASE_URL.value, env, cwd)
 		: Effect.fail(cliError(ConnectionUnnamed.make({})))
 }
+
+/**
+ * Where `grizzle migrate` connects: the configuration's connection, else DATABASE_URL, in a process environment that
+ * sends no startup variable (ownerEnvironment).
+ *
+ * @internal
+ */
+export const migrationConnection = (
+	config: ResolvedConfig,
+	env: ConnectionEnv,
+	cwd: string
+): Effect.Effect<MigrationConnection, CliError, FileSystem.FileSystem | Path.Path> =>
+	Effect.andThen(ownerEnvironment, configuredConnection(config, env, cwd))

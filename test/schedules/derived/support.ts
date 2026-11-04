@@ -4,7 +4,7 @@ import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -14,6 +14,7 @@ import {
 	type OracleFixtureFailed
 } from "#test/pg/derived/oracle/harness.ts"
 import { type Names, namesOf, roleNamesOf } from "#test/support/kernel/naming.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
 import { type Retried, retried } from "#test/support/schedules/grizzle.ts"
@@ -68,7 +69,7 @@ const build = (name: string) => {
 	const StudentWeekly = derived(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
-			const { id, student, week, passed } = v(Sitting)
+			const { id, student, week, passed } = v(Sitting, "sitting")
 			return r.match(Sitting, { id, student, week, passed }).find({
 				student,
 				week,
@@ -80,7 +81,7 @@ const build = (name: string) => {
 	const StudentTotal = derived(
 		"StudentTotal",
 		query(Edu).rule((r) => {
-			const { id, student } = v(Sitting)
+			const { id, student } = v(Sitting, "sitting")
 			return r.match(Sitting, { id, student }).find({ student, total: r.count() })
 		})
 	)
@@ -88,7 +89,7 @@ const build = (name: string) => {
 	const WeekBusy = derived(
 		"WeekBusy",
 		query(Level1).rule((r) => {
-			const { student, week } = v(StudentWeekly)
+			const { student, week } = v(StudentWeekly, "studentWeekly")
 			return r.match(StudentWeekly, { student, week }).find({ week, students: r.count() })
 		})
 	)
@@ -129,7 +130,7 @@ export const labelsGen: Gen<Labels> = (source) => ({
 	week: source.draw(int(-9999, 9999))
 })
 
-const uuidOf = (n: number) =>
+const uuidOf = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** A sitting of the shape: its number, its student's number, its week before the shift, and whether it passed. */
@@ -319,9 +320,13 @@ export const open = (
 			const named = Arr.map(relations, (r) => values[r])
 			switch (refresher) {
 				case "refresher":
-					return retried(refresherDb.refresh(...named))
+					return retried(
+						refresherDb.refresh(Arr.headNonEmpty(named), ...argumentsOf(Arr.tailNonEmpty(named)))
+					)
 				case "refresher2":
-					return retried(refresher2Db.refresh(...named))
+					return retried(
+						refresher2Db.refresh(Arr.headNonEmpty(named), ...argumentsOf(Arr.tailNonEmpty(named)))
+					)
 			}
 		}
 		const names = namesOf(opened.installed)

@@ -253,7 +253,7 @@ export const placedDeduplication = (
 		inputs: [input.id],
 		outputs: [output.id],
 		just: joinJustifications([
-			withReason(justify({ premises: [{ kind: "node", node: input.id }] }), "exactDeduplication"),
+			withReason(justify({ premises: [{ kind: "node", node: input.id }] }), ["exactDeduplication"]),
 			nativeComparison(input.heading, heading)
 		]),
 		heading

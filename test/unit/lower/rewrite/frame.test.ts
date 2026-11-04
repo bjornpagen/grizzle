@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
@@ -49,7 +50,10 @@ import {
  * a proper prefix below, which is the order a measure is held to, computed by the engine and not by lexLess.
  */
 const spelt = (measure: ReadonlyArray<number>): string =>
-	String.fromCharCode(...Arr.map(measure, (n) => 0x41 + n))
+	Arr.join(
+		Arr.map(measure, (n) => String.fromCharCode(0x41 + n)),
+		""
+	)
 
 const count = (xs: ReadonlyArray<number>, x: number): number =>
 	Arr.filter(xs, (y) => y === x).length
@@ -93,7 +97,7 @@ describe("the measure and its order", () => {
 							source.draw(array(int(0, 2), { min: 0, max: 3 }))
 						] as const,
 					limit: 1600,
-					features: features<MeasureFeature>([
+					coverage: requiredInSpace<MeasureFeature>([
 						"below",
 						"equal",
 						"above",
@@ -135,7 +139,7 @@ describe("the measure and its order", () => {
 								source.draw(array(int(0, 3), { min: 0, max: 3 }))
 							] as const,
 						limit: 7225,
-						features: features<MeasureFeature>(["below", "equal", "above"]),
+						coverage: requiredInSpace<MeasureFeature>(["below", "equal", "above"]),
 						caseHang: Duration.minutes(2)
 					},
 					([after, before], c) =>
@@ -161,7 +165,7 @@ describe("a DAG's roots", () => {
 						literal: Formatter.format,
 						generator: element<"first" | "second">(["first", "second"]),
 						limit: 2,
-						features: features<"first" | "second">(["first", "second"]),
+						coverage: requiredInSpace<"first" | "second">(["first", "second"]),
 						caseHang: Duration.minutes(2)
 					},
 					(at, c) =>
@@ -219,10 +223,9 @@ describe("determinism", () => {
 						draw: drawn(queryCaseGen(defaultGenConfig)),
 						runs: 120,
 						shrink: completeShrink,
-						features: noFeatures,
+						coverage: noCoverage,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c) =>
@@ -277,10 +280,12 @@ describe("determinism", () => {
 						draw: drawn(queryCaseGen(defaultGenConfig)),
 						runs: 60,
 						shrink: completeShrink,
-						features: features<FrameFeature>(["a pass delivered the settled DAG"]),
+						coverage: required<FrameFeature>(["a pass delivered the settled DAG"], {
+							cases: 60,
+							sense: notesOnly
+						}),
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(q, c) =>
@@ -342,10 +347,12 @@ describe("determinism", () => {
 						runs: 150,
 						shrink: completeShrink,
 						/** The chain rewrites: the comparison covers changed DAGs, not only ones every pass delivered again. */
-						features: features<FrameFeature>(["a pass changed the DAG"]),
+						coverage: required<FrameFeature>(["a pass changed the DAG"], {
+							cases: 150,
+							sense: notesOnly
+						}),
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(q, c) =>

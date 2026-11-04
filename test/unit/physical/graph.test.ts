@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Number as Num, Option, Order } from "effect"
@@ -235,16 +236,15 @@ describe("the obligation graph", () => {
 					suite: "unit/physical/obligation-order",
 					draw: drawn(graphGen),
 					literal: Formatter.format,
-					features: features<OrderFeature>([
-						"an order of several phases",
-						"a dependency against identity order"
-					]),
+					coverage: required<OrderFeature>(
+						["an order of several phases", "a dependency against identity order"],
+						{ cases: 300, sense: notesOnly }
+					),
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(sketch, c) =>
@@ -412,16 +412,15 @@ describe("the obligation graph", () => {
 						)
 					})),
 					literal: Formatter.format,
-					features: features<"a reason given twice" | "reasons added to the object">([
-						"a reason given twice",
-						"reasons added to the object"
-					]),
+					coverage: required<"a reason given twice" | "reasons added to the object">(
+						["a reason given twice", "reasons added to the object"],
+						{ cases: 200, sense: notesOnly }
+					),
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ own, later }, c) =>

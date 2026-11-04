@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -23,12 +23,13 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { printObjectName, printType, quoteIdent } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, lacks, succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import {
@@ -61,7 +62,8 @@ const rowsOf =
 const textRows1 = rowsOf(Schema.Tuple([Schema.String]))
 const textRows3 = rowsOf(Schema.Tuple([Schema.String, Schema.String, Schema.String]))
 
-const id = (n: number) => `00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const id = (n: number): Uuid =>
+	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** The view of a derived relation and its columns, in heading order. */
 const viewOf = (installed: Installed, relation: string) => {
@@ -157,6 +159,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 				Effect.gen(function* () {
 					const substrate = yield* Substrate
 					const installed = yield* install(K.KitReports, {
+						ambient: ordinarySession,
 						extensions: [],
 						label: "derived",
 						logins: []
@@ -168,7 +171,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 							generator: element(["Sums", "Means", "Extremes", "Facts", "Computed"] as const),
 							literal: Formatter.format,
 							limit: 5,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						(relation) =>
@@ -205,7 +208,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 				const Coded = relation("Coded", { id: uuid, code: Code }, ["id"])
 				const C = schema("C", { Coded }, [])
 				const literals = query(C).rule((r) => {
-					const { id } = v(Coded)
+					const { id } = v(Coded, "coded")
 					return r.match(Coded, { id }).find({
 						id,
 						declared: Compute.literal(Code, "ABC"),
@@ -217,6 +220,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 				const viewer = role(Ext, "viewer", { Literals })
 				const refresher = role(Ext, "refresher", { Coded, Literals }, { refresh: ["Literals"] })
 				const installed = yield* install(Ext, {
+					ambient: ordinarySession,
 					extensions: [],
 					label: "derived",
 					logins: [login(Ext, "server", [viewer, refresher])]
@@ -275,7 +279,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 			Effect.gen(function* () {
 				const substrate = yield* Substrate
 				const ownedTasks = query(W.Work).rule((r) => {
-					const { id: t, account } = v(W.Task)
+					const { id: t, account } = v(W.Task, "task")
 					return r
 						.match(W.Task, { id: t, account })
 						.match(W.Account, { id: account })
@@ -285,6 +289,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 				/** Account's name lies outside the referenced key, which makes Task.account -> Account.id deferred. */
 				const Written = schema.extend(W.Work, { OwnedTasks }, [])
 				const installed = yield* install(Written, {
+					ambient: ordinarySession,
 					extensions: [],
 					label: "derived",
 					logins: []

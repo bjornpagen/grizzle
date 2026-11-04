@@ -7,7 +7,19 @@ import {
 	type ConservativeStatement,
 	traverseTree
 } from "#compiler/lower/conservative/types.ts"
-import type { Expr, FromItem, Select, SelectBody, SelectCore } from "#compiler/sql/ast.ts"
+import type {
+	CoreProjection,
+	Expr,
+	FromItem,
+	FromSource,
+	JoinStep,
+	Select,
+	SelectBody,
+	SelectCore,
+	SetOperand,
+	SetOperation,
+	Target
+} from "#compiler/sql/ast.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
 
 /** The node each relation alias of a statement names. */
@@ -47,6 +59,14 @@ const mapArray = <A>(items: ReadonlyArray<A>, f: (a: A) => A): ReadonlyArray<A> 
 	return sameArray(out, items) ? items : out
 }
 
+const mapNonEmptyArray = <A>(
+	items: Arr.NonEmptyReadonlyArray<A>,
+	f: (a: A) => A
+): Arr.NonEmptyReadonlyArray<A> => {
+	const out = Arr.map(items, f)
+	return sameArray(out, items) ? items : out
+}
+
 class Rewriter {
 	readonly origins: ReadonlyMap<string, NodeId>
 	readonly visitor: Visitor
@@ -61,7 +81,7 @@ class Rewriter {
 		const nextCtes =
 			ctes === undefined
 				? undefined
-				: mapArray(ctes, (cte) => {
+				: mapNonEmptyArray(ctes, (cte) => {
 						if (cte.query.kind !== "select") {
 							return cte
 						}
@@ -83,47 +103,69 @@ class Rewriter {
 			case "core":
 				return this.core(b, ctx)
 			case "setOp": {
-				const left = this.body(b.left, ctx)
-				const right = this.body(b.right, ctx)
-				return left === b.left && right === b.right ? b : { ...b, left, right }
+				const [first, second, ...rest] = b.arms
+				const arms: SetOperation["arms"] = [
+					this.operand(first, ctx),
+					this.operand(second, ctx),
+					...Arr.map(rest, (arm) => this.operand(arm, ctx))
+				]
+				return sameArray(arms, b.arms) ? b : { ...b, arms }
 			}
 			case "select":
 				return this.select(b, ctx)
 		}
 	}
 
+	operand(o: SetOperand, ctx: VisitContext): SetOperand {
+		return o.kind === "core" ? this.core(o, ctx) : this.select(o, ctx)
+	}
+
 	core(c: SelectCore, ctx: VisitContext): SelectCore {
 		const from = mapArray(c.from, (f) => this.from(f, ctx))
 		const where = c.where === undefined ? undefined : this.expr(c.where, ctx)
 		const having = c.having === undefined ? undefined : this.expr(c.having, ctx)
-		const targets = mapArray(c.targets, (t) => {
+		const target = (t: Target): Target => {
 			const e = this.expr(t.expr, ctx)
 			return e === t.expr ? t : { ...t, expr: e }
-		})
+		}
+		const projection: CoreProjection =
+			c.distinct === false
+				? { distinct: false, targets: mapArray(c.targets, target) }
+				: { distinct: c.distinct, targets: mapNonEmptyArray(c.targets, target) }
 		let next: SelectCore = c
-		if (from !== c.from || where !== c.where || having !== c.having || targets !== c.targets) {
-			next = { ...c, targets, from, where, having }
+		if (
+			from !== c.from ||
+			where !== c.where ||
+			having !== c.having ||
+			projection.targets !== c.targets
+		) {
+			next = { ...c, ...projection, from, where, having }
 		}
 		return this.visitor.core(next, ctx)
 	}
 
 	from(f: FromItem, ctx: VisitContext): FromItem {
+		if (f.kind !== "joins") {
+			return this.source(f, ctx)
+		}
+		const first = this.source(f.first, ctx)
+		const steps = mapNonEmptyArray(f.steps, (step): JoinStep => {
+			const source = this.source(step.source, ctx)
+			if (step.kind === "cross") {
+				return source === step.source ? step : { ...step, source }
+			}
+			const on = this.expr(step.on, ctx)
+			return source === step.source && on === step.on ? step : { ...step, source, on }
+		})
+		return first === f.first && steps === f.steps ? f : { ...f, first, steps }
+	}
+
+	source(f: FromSource, ctx: VisitContext): FromSource {
 		switch (f.kind) {
 			case "derived": {
 				const inner = this.select(f.query, ctx)
 				const visited = this.visitor.derived(inner, this.origins.get(f.alias), ctx)
 				return visited === f.query ? f : { ...f, query: visited }
-			}
-			case "join": {
-				const left = this.from(f.left, ctx)
-				const right = this.from(f.right, ctx)
-				const on = this.expr(f.on, ctx)
-				return left === f.left && right === f.right && on === f.on ? f : { ...f, left, right, on }
-			}
-			case "crossJoin": {
-				const left = this.from(f.left, ctx)
-				const right = this.from(f.right, ctx)
-				return left === f.left && right === f.right ? f : { ...f, left, right }
 			}
 			case "cte":
 			case "enclosing":
@@ -155,7 +197,7 @@ class Rewriter {
 			}
 			case "and":
 			case "or": {
-				const args = mapArray(e.args, (a) => this.expr(a, ctx))
+				const args = mapNonEmptyArray(e.args, (a) => this.expr(a, ctx))
 				return args === e.args ? e : { ...e, args }
 			}
 			case "not":
@@ -184,6 +226,7 @@ class Rewriter {
 			case "returning":
 			case "row":
 			case "user":
+			case "regclass":
 				return e
 		}
 	}
@@ -260,6 +303,7 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 		case "plVar":
 		case "returning":
 		case "user":
+		case "regclass":
 			return false
 	}
 }
@@ -275,10 +319,15 @@ const fromReads = (f: FromItem, alias: string): boolean => {
 			return false
 		case "values":
 			return Arr.some(f.rows, (row) => Arr.some(row, (a) => readsAlias(a, alias)))
-		case "join":
-			return fromReads(f.left, alias) || fromReads(f.right, alias) || readsAlias(f.on, alias)
-		case "crossJoin":
-			return fromReads(f.left, alias) || fromReads(f.right, alias)
+		case "joins":
+			return (
+				fromReads(f.first, alias) ||
+				Arr.some(
+					f.steps,
+					(step) =>
+						fromReads(step.source, alias) || (step.kind === "on" && readsAlias(step.on, alias))
+				)
+			)
 		case "cte":
 		case "enclosing":
 		case "table":
@@ -297,7 +346,7 @@ const bodyReads = (b: SelectBody, alias: string): boolean => {
 				(b.having !== undefined && readsAlias(b.having, alias))
 			)
 		case "setOp":
-			return bodyReads(b.left, alias) || bodyReads(b.right, alias)
+			return Arr.some(b.arms, (arm) => bodyReads(arm, alias))
 		case "select":
 			return selectReads(b, alias)
 	}

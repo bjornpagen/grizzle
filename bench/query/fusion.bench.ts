@@ -104,7 +104,7 @@ const Fusion = schema("Fusion", { Account, Task, Note }, [
 
 /** R01: an imported stage of urgent tasks, then the stage joined to Account by region. */
 const urgent = query(Fusion).rule((r) => {
-	const { id, account, priority } = v(Task)
+	const { id, account, priority } = v(Task, "task")
 	return r
 		.match(Task, { id, account, priority })
 		.where(r.gt(priority, 5))
@@ -112,8 +112,8 @@ const urgent = query(Fusion).rule((r) => {
 })
 
 const urgentInRegion = query(Fusion).rule((r) => {
-	const { id, account, priority } = v(urgent)
-	const { region } = v(Account)
+	const { id, account, priority } = v(urgent, "urgent")
+	const { region } = v(Account, "account")
 	return r
 		.match(urgent, { id, account, priority })
 		.match(Account, { id: account, region })
@@ -123,13 +123,13 @@ const urgentInRegion = query(Fusion).rule((r) => {
 
 /** R01's counterexample: the imported stage projects the task id away, so a count over it counts priority levels. */
 const levels = query(Fusion).rule((r) => {
-	const { account, priority } = v(Task)
+	const { account, priority } = v(Task, "task")
 	return r.match(Task, { account, priority }).find({ account, priority })
 })
 
 const levelsInRegion = query(Fusion).rule((r) => {
-	const { account, priority } = v(levels)
-	const { region } = v(Account)
+	const { account, priority } = v(levels, "levels")
+	const { region } = v(Account, "account")
 	return r
 		.match(levels, { account, priority })
 		.match(Account, { id: account, region })
@@ -139,8 +139,8 @@ const levelsInRegion = query(Fusion).rule((r) => {
 
 /** R02. */
 const notedInRegion = query(Fusion).rule((r) => {
-	const { id, account } = v(Task)
-	const { region } = v(Account)
+	const { id, account } = v(Task, "task")
+	const { region } = v(Account, "account")
 	return r
 		.match(Task, { id, account })
 		.match(Account, { id: account, region })
@@ -150,8 +150,8 @@ const notedInRegion = query(Fusion).rule((r) => {
 })
 
 const unnotedInRegion = query(Fusion).rule((r) => {
-	const { id, account } = v(Task)
-	const { region } = v(Account)
+	const { id, account } = v(Task, "task")
+	const { region } = v(Account, "account")
 	return r
 		.match(Task, { id, account })
 		.match(Account, { id: account, region })
@@ -161,7 +161,7 @@ const unnotedInRegion = query(Fusion).rule((r) => {
 
 /** R03. */
 const tasksAt = query(Fusion).rule((r) => {
-	const { id, account, priority } = v(Task)
+	const { id, account, priority } = v(Task, "task")
 	return r
 		.match(Task, { id, account, priority })
 		.match(Account, { id: account })
@@ -170,8 +170,8 @@ const tasksAt = query(Fusion).rule((r) => {
 })
 
 const tasksAtInRegion = query(Fusion).rule((r) => {
-	const { id, account, priority } = v(Task)
-	const { region } = v(Account)
+	const { id, account, priority } = v(Task, "task")
+	const { region } = v(Account, "account")
 	return r
 		.match(Task, { id, account, priority })
 		.match(Account, { id: account, region })
@@ -181,7 +181,7 @@ const tasksAtInRegion = query(Fusion).rule((r) => {
 
 /** R17. */
 const accountTasks = query(Fusion).rule((r) => {
-	const { id, priority } = v(Task)
+	const { id, priority } = v(Task, "task")
 	return r
 		.match(Task, { id, account: r.param("account", Task.fields.account), priority })
 		.find({ id, priority })
@@ -189,22 +189,22 @@ const accountTasks = query(Fusion).rule((r) => {
 
 const firstAccountTasks = query(Fusion)
 	.rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r.match(Task, { id, account: r.param("account", Task.fields.account) }).find({ id })
 	})
 	.orderBy(["id", "asc"])
 	.take(10)
 
 const accountPriorities = query(Fusion).rule((r) => {
-	const { priority } = v(Task)
+	const { priority } = v(Task, "task")
 	return r
 		.match(Task, { account: r.param("account", Task.fields.account), priority })
 		.find({ priority })
 })
 
 const regionPriorities = query(Fusion).rule((r) => {
-	const { account, priority } = v(Task)
-	const { region } = v(Account)
+	const { account, priority } = v(Task, "task")
+	const { region } = v(Account, "account")
 	return r
 		.match(Task, { account, priority })
 		.match(Account, { id: account, region })

@@ -146,7 +146,7 @@ export const queryInput = (query: unknown): Result.Result<QueryInput, CompileErr
 		)
 	}
 	return Result.flatMap(
-		catchCompileError(() => hostArguments("compile", query)),
+		catchCompileError(() => hostArguments("compile", [query])),
 		() =>
 			Result.map(decodeDesc("query", query), (desc): QueryInput => ({ kind: "described", desc }))
 	)

@@ -26,6 +26,7 @@ import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/subs
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
 import {
 	defaultSchemaLabel,
+	ownerLoginName,
 	randomPassword,
 	roleName,
 	rolePrefix,
@@ -57,6 +58,15 @@ export interface SchemaOptions {
 
 /** A schema the owner creates under the default label: what a test allocates unless it says otherwise. */
 export const freshSchema: SchemaOptions = { create: true, label: defaultSchemaLabel }
+
+/**
+ * A default of a role's sessions as ALTER ROLE ... SET writes it: the parameter, and its value as SQL, a quoted value
+ * or a list of names.
+ */
+export interface RoleDefault {
+	readonly parameter: string
+	readonly value: string
+}
 
 /**
  * Who a raw session logs in as: the substrate's owner, the migration identity, whose password is the initialised
@@ -180,6 +190,17 @@ export interface SubstrateShape {
 	 * can log in as it; the finalizer drops it.
 	 */
 	readonly login: (role: string) => Effect.Effect<Credentials, SqlError, Scope.Scope>
+	/**
+	 * A login of the owner's own, for one installation's sessions (test/support/ambient.ts AmbientOwner): a role that
+	 * takes on the owner as each of its sessions starts (its `role` default), so every statement they run acts as the
+	 * owner and every object they create is the owner's, with `defaults` its defaults in this database alone, which no
+	 * other session starts under. The bootstrap superuser creates, grants and drops it: a role the owner creates has the
+	 * owner as a member, and so could never be a member of the owner. Its finalizer waits for its backends to end, then
+	 * drops it.
+	 */
+	readonly ownerLogin: (
+		defaults: ReadonlyArray<RoleDefault>
+	) => Effect.Effect<Credentials, never, Scope.Scope>
 	readonly session: (options: ConnectOptions) => Effect.Effect<RawSession, SqlError, Scope.Scope>
 	readonly psql: (
 		options: PsqlConnectOptions
@@ -202,17 +223,23 @@ export interface SubstrateShape {
 }
 
 /**
- * Drops a role the owner administers: terminate its sessions, drop what it owns and every privilege granted to it
- * in this database, then the role. A no-op once the role is gone; a backend that outlives its termination is a defect.
+ * Drops a role a test made: one the owner administers by terminating its sessions, dropping what it owns and every
+ * privilege granted to it in this database, then the role; an owner login (ownerLogin), the one kind of test role that
+ * is a member of the owner, which owns nothing, as the bootstrap superuser who made it. A no-op once the role is gone; a
+ * backend that outlives its termination is a defect.
  */
 export const dropRole = (admin: PgConnection, role: string): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
-		const exists = yield* admin.queryValues(
-			"SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1::text",
+		const [found] = yield* admin.queryValues(
+			"SELECT EXISTS (SELECT FROM pg_catalog.pg_auth_members AS m WHERE m.member = r.oid AND m.roleid = CURRENT_USER::regrole), pg_catalog.current_database()::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text",
 			[role]
 		)
-		if (exists.length === 0) {
+		if (found === undefined) {
 			return
+		}
+		const [ownerMember, database] = found
+		if (ownerMember === true) {
+			return yield* dropOwnerLogin(String(database), role)
 		}
 		yield* admin.query(`GRANT ${quoteIdent(role)} TO CURRENT_USER WITH INHERIT TRUE`, [])
 		/**
@@ -297,16 +324,29 @@ const superuserClient = (database: string, applicationName: string) =>
 		(c) => Effect.promise(() => c.end())
 	)
 
-/** One statement in `database` as the bootstrap superuser, on a connection of its own (superuserClient). */
-const asSuperuser = (database: string, sql: string): Effect.Effect<void> =>
+/** Statements in `database` as the bootstrap superuser, in order, on one connection of their own (superuserClient). */
+const asSuperuser = (database: string, statements: ReadonlyArray<string>): Effect.Effect<void> =>
 	Effect.orDie(
 		Effect.scoped(
 			Effect.gen(function* () {
 				const client = yield* superuserClient(database, "grizzle-substrate superuser")
-				yield* Effect.tryPromise(() => client.query(sql))
+				for (const sql of statements) {
+					yield* Effect.tryPromise(() => client.query(sql))
+				}
 			})
 		)
 	)
+
+/**
+ * Drops the owner login `role` (SubstrateShape.ownerLogin) as the bootstrap superuser, from `database`: its backends
+ * terminated first, the server waiting up to 10 s for each to exit, then the role, with its defaults and its membership
+ * in the owner. It owns nothing, as every statement of its sessions acted as the owner. A no-op once it is gone.
+ */
+const dropOwnerLogin = (database: string, role: string): Effect.Effect<void> =>
+	asSuperuser(database, [
+		`SELECT pg_catalog.pg_terminate_backend(a.pid, 10000) FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = ${quoteString(role)}::name`,
+		`DROP ROLE IF EXISTS ${quoteIdent(role)}`
+	])
 
 /**
  * A read in `database` as the bootstrap superuser (SubstrateShape.superuserRead): one connection (superuserClient), one
@@ -426,6 +466,29 @@ const build = Effect.fnUntraced(function* (
 
 	const login = (name: string) => Effect.andThen(registerRoleCleanup(name), enableLogin(name))
 
+	const ownerLogin = (
+		defaults: ReadonlyArray<RoleDefault>
+	): Effect.Effect<Credentials, never, Scope.Scope> =>
+		Effect.gen(function* () {
+			const name = ownerLoginName(yield* nextAllocation)
+			const password = randomPassword()
+			const quoted = quoteIdent(name)
+			yield* Effect.addFinalizer(() =>
+				Effect.andThen(Effect.orDie(awaitRoleQuiet(admin, name)), dropOwnerLogin(database, name))
+			)
+			yield* asSuperuser(database, [
+				`CREATE ROLE ${quoted} LOGIN PASSWORD ${quoteString(password)}`,
+				`GRANT ${quoteIdent(owner.role)} TO ${quoted} WITH INHERIT FALSE, SET TRUE`,
+				`ALTER ROLE ${quoted} SET role = ${quoteString(owner.role)}`,
+				...Arr.map(
+					defaults,
+					(d) =>
+						`ALTER ROLE ${quoted} IN DATABASE ${quoteIdent(database)} SET ${d.parameter} = ${d.value}`
+				)
+			])
+			return { role: name, password: Redacted.make(password) }
+		})
+
 	/**
 	 * A session's SET ROLE is setup, not one of the test's statements: it runs first and leaves the statement log empty.
 	 */
@@ -511,12 +574,13 @@ const build = Effect.fnUntraced(function* (
 		schemaOfLength,
 		role,
 		login,
+		ownerLogin,
 		session,
 		psql,
 		awaitLockWait: (pid, blockedBy) => awaitLockWait(observer, pid, blockedBy),
 		awaitBlockedBy: (holder, role) => awaitBlockedBy(observer, holder, role),
 		roleExists,
-		superuser: (sql) => asSuperuser(database, sql),
+		superuser: (sql) => asSuperuser(database, [sql]),
 		superuserRead: (read) => asSuperuserRead(database, read)
 	}
 })
@@ -601,6 +665,8 @@ const nodeSpawner = NodeChildProcessSpawner.layer.pipe(
  *   lock-wait barrier reads it;
  * - DROP OWNED BY requires the privileges of the role, and the finalizer runs it before DROP ROLE.
  * The grant gives the owner more privileges, never the role: the role's own privileges are exactly what tests grant.
+ * An owner login (ownerLogin) is the one role the other way round, a member of the owner that the owner is no member of,
+ * so the bootstrap superuser makes and drops it.
  */
 export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	"grizzle-workspace/test/support/substrate/substrate"

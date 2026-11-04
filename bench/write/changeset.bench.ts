@@ -91,7 +91,7 @@ const credit = <St extends ReadonlyArray<Statement>>(
 		.put(
 			Account,
 			query(s).rule((r) => {
-				const { balance } = v(Account)
+				const { balance } = v(Account, "account")
 				return r.match(Account, { id: r.param("id", Account.fields.id), balance }).find({
 					id: r.param("id", Account.fields.id),
 					balance: Compute.add(balance, r.param("amount", pg.bigint))
@@ -100,8 +100,8 @@ const credit = <St extends ReadonlyArray<Statement>>(
 		)
 		.read("after", (d) =>
 			query(s).rule((r) => {
-				const { id, balance } = v(Account)
-				const added = v(d.added(Account))
+				const { id, balance } = v(Account, "account")
+				const added = v(d.added(Account), "addedAccount")
 				return r
 					.match(d.added(Account), { id: added.id, balance: added.balance })
 					.match(Account, { id, balance })
@@ -119,7 +119,7 @@ const post = <St extends ReadonlyArray<Statement>>(
 ) => {
 	const pending = () =>
 		query(s).rule((r) => {
-			const { id, account, amount } = v(Pending)
+			const { id, account, amount } = v(Pending, "pending")
 			return r
 				.match(Pending, { id, account, amount })
 				.where(r.eq(account, r.param("account", Pending.fields.account)))
@@ -130,7 +130,7 @@ const post = <St extends ReadonlyArray<Statement>>(
 		.delete(Pending, pending())
 		.read("posted", (d) =>
 			query(s).rule((r) => {
-				const { id, account, amount } = v(d.added(Entry))
+				const { id, account, amount } = v(d.added(Entry), "addedEntry")
 				return r.match(d.added(Entry), { id, account, amount }).find({ id, account, amount })
 			})
 		)

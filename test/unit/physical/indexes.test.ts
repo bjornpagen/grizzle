@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, pipe, String as Str } from "effect"
@@ -464,29 +465,31 @@ describe("the index request engine", () => {
 						suite: "unit/physical/index-engine",
 						draw: sketched(engineGen, (x) => x),
 						literal: Formatter.format,
-						features: features<IndexFeature>([
-							"served by an installed index",
-							"served by a created index",
-							"a created index serving several requests",
-							"a GiST key serving a B-tree probe",
-							"a selected probe on a created index of its selection",
-							"a selected probe on a created index of every row",
-							"a selected probe on the partial unique index of its selection",
-							"a selected probe on an installed index of every row",
-							"an ordered request",
-							"a range request",
-							"an unrepresentable entry refused",
-							"too many keys refused",
-							"an expression key refused",
-							"a B-tree and a GiST index on one column list installed",
-							"two indexes on one column list"
-						]),
+						coverage: required<IndexFeature>(
+							[
+								"served by an installed index",
+								"served by a created index",
+								"a created index serving several requests",
+								"a GiST key serving a B-tree probe",
+								"a selected probe on a created index of its selection",
+								"a selected probe on a created index of every row",
+								"a selected probe on the partial unique index of its selection",
+								"a selected probe on an installed index of every row",
+								"an ordered request",
+								"a range request",
+								"an unrepresentable entry refused",
+								"too many keys refused",
+								"an expression key refused",
+								"a B-tree and a GiST index on one column list installed",
+								"two indexes on one column list"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: engineKept,
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ requests: sketches, arrival, planted }, c) =>
@@ -603,7 +606,7 @@ describe("the index request engine", () => {
 								({ r }) => r
 							)
 							const again = succeeded(install(shuffled))
-							assert.deepEqual(again.sql, installation.sql)
+							assert.deepEqual(again.statements, installation.statements)
 							assert.deepEqual(
 								Arr.map(again.indexes, (x) => [x.object, x.keys, x.requests.length]),
 								Arr.map(installation.indexes, (x) => [x.object, x.keys, x.requests.length])
@@ -701,7 +704,7 @@ describe("the access index name", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: (selectorsOf.length + 1) ** 2,
-						features: features<NameFeature>([
+						coverage: requiredInSpace<NameFeature>([
 							"one identity twice",
 							"two identities one selector's literal apart",
 							"a predicate beside none"

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { type Coverage, noCoverage, required } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -36,7 +36,6 @@ import {
 	resolveQueryCase,
 	rewriteGenConfig
 } from "#test/support/oracle/gen/case.ts"
-import { spellingChoiceCount } from "#test/support/oracle/gen/domain.ts"
 import { type QuerySketch, undrawn } from "#test/support/oracle/gen/query.ts"
 import {
 	existsOverTakeRoot,
@@ -165,15 +164,15 @@ const preserves = (
 /** A case of the population, drawn as its sketch, which a failure prints and a kept case states. */
 const sketchGen: Gen<QueryCaseSketch> = queryCaseSketchGen(population)
 
-/** A search's budget: its rotating stream's cases, and the features it must reach. */
+/** A search's budget: its rotating stream's cases, and what it must reach, with the steered phase that reaches it. */
 interface Budget {
 	readonly runs: number
-	readonly required: ReadonlyArray<RewriteFeature>
+	readonly coverage: Coverage<RewriteFeature>
 }
 
 /**
- * Explores the population through `passes`, each sketch resolved in the property, steered toward `required` for up to
- * as many cases again.
+ * Explores the population through `passes`, each sketch resolved in the property, steered toward what the budget
+ * requires.
  */
 const exploreSteered = (
 	suite: string,
@@ -187,13 +186,12 @@ const exploreSteered = (
 			suite,
 			draw: drawn(sketchGen),
 			literal: Formatter.format,
-			features: features<RewriteFeature>(budget.required),
+			coverage: budget.coverage,
 			kept,
 			runs: budget.runs,
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			steering: { kind: "mutate", cases: budget.runs, sense: notesOnly },
 			caseHang: Duration.minutes(2)
 		},
 		(sketch, c) =>
@@ -215,13 +213,12 @@ const exploreCases = (
 			suite,
 			draw: drawn(cases),
 			literal: Formatter.format,
-			features: features<RewriteFeature>(budget.required),
+			coverage: budget.coverage,
 			kept: [],
 			runs: budget.runs,
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2)
 		},
 		(q, c) =>
@@ -292,7 +289,6 @@ const keptRules: ReadonlyArray<Kept<QueryCaseSketch, RewriteFeature>> = (() => {
 		sketch: {
 			schema,
 			facts: rows,
-			spelling: Array.from({ length: spellingChoiceCount }, () => 0),
 			root: { tag: "plain", body, order: undrawn },
 			paramNames: [],
 			...fullCaseSwarms
@@ -417,15 +413,15 @@ describe("each rewrite pass preserves the delivered result on generated cases", 
 						sketch: source.draw(sketchGen)
 					})),
 					literal: Formatter.format,
-					features: features<SinglePassFeature>(
-						Arr.map(passNames, (name): SinglePassFeature => `pass ${name}`)
+					coverage: required<SinglePassFeature>(
+						Arr.map(passNames, (name): SinglePassFeature => `pass ${name}`),
+						{ cases: 150 * passNames.length, sense: notesOnly }
 					),
 					kept: [],
 					runs: 150 * passNames.length,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ pass, sketch }, c) =>
@@ -453,7 +449,7 @@ describe("each rewrite pass preserves the delivered result on generated cases", 
 					"snapshot",
 					{
 						runs: 200,
-						required: ["R06.lateFetch"]
+						coverage: required<RewriteFeature>(["R06.lateFetch"], { cases: 200, sense: notesOnly })
 					}
 				)
 			),
@@ -464,7 +460,7 @@ describe("each rewrite pass preserves the delivered result on generated cases", 
 					wideCaseGen,
 					fullPipeline,
 					"transaction",
-					{ runs: 100, required: [] }
+					{ runs: 100, coverage: noCoverage }
 				)
 			)
 		)
@@ -482,7 +478,10 @@ describe("the composed rewrite phases preserve the delivered result", () => {
 						"unit/lower/rewrite/pipeline-snapshot",
 						fullPipeline,
 						"snapshot",
-						{ runs: 400, required: pipelineRules },
+						{
+							runs: 400,
+							coverage: required<RewriteFeature>(pipelineRules, { cases: 400, sense: notesOnly })
+						},
 						[]
 					)
 				),
@@ -492,7 +491,7 @@ describe("the composed rewrite phases preserve the delivered result", () => {
 						"unit/lower/rewrite/pipeline-snapshot-planted",
 						fullPipeline,
 						"snapshot",
-						{ runs: 20, required: [] },
+						{ runs: 20, coverage: noCoverage },
 						keptRules
 					)
 				)
@@ -506,7 +505,7 @@ describe("the composed rewrite phases preserve the delivered result", () => {
 				"unit/lower/rewrite/pipeline-transaction",
 				fullPipeline,
 				"transaction",
-				{ runs: 200, required: [] },
+				{ runs: 200, coverage: noCoverage },
 				[]
 			)
 		)
@@ -534,7 +533,7 @@ describe("the mutant suite's counterexample shapes", () => {
 					rootedCaseGen(root, defaultGenConfig),
 					fullPipeline,
 					"snapshot",
-					{ runs: 120, required: [] }
+					{ runs: 120, coverage: noCoverage }
 				)
 			)
 		)

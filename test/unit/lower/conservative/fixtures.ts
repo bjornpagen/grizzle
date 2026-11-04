@@ -25,9 +25,11 @@ import type {
 } from "#compiler/ir/rel.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { closed, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
+import { definedOf } from "#test/support/oracle/gen/ops.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { heading } from "#test/unit/ir/fixture.ts"
 import { present } from "#test/unit/lower/support.ts"
@@ -140,7 +142,7 @@ export const ledgerSchema: SchemaDesc = {
 	extends: undefined
 }
 
-export const uuidOf = (n: number): string =>
+export const uuidOf = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** One occurrence of a region: its source, its column-to-variable bindings, and its column constants ({} where none). */
@@ -271,21 +273,15 @@ export class Q {
 		})
 	}
 
-	/** An operator by its catalog identity's spelling, or a range operator. */
-	op(
-		op: string | RangeOpId,
-		args: ReadonlyArray<ScalarExpr>,
-		type: ScalarType,
-		failure: "total" | "canFail"
-	): ScalarExpr {
+	/** An operator defined on every value, by its catalog identity's spelling, or a range operator. */
+	op(op: string | RangeOpId, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
 		return this.b.expr({
 			kind: "op",
-			op: typeof op === "string" ? OpId(op) : op,
+			op: definedOf(typeof op === "string" ? OpId(op) : op),
 			args,
 			type,
 			nonNull: "strict",
-			volatility: "immutable",
-			failure
+			volatility: "immutable"
 		})
 	}
 
@@ -397,15 +393,6 @@ export class Q {
 				switch (a.fn) {
 					case "count":
 						return { name: a.name, fn: a.fn, op: OpId(a.op), args: [], filter }
-					case "regrSlope":
-					case "regrSxx":
-						return {
-							name: a.name,
-							fn: a.fn,
-							op: OpId(a.op),
-							args: [this.col(input, a.args[0]), this.col(input, a.args[1])],
-							filter
-						}
 					case "sum":
 					case "avg":
 					case "min":

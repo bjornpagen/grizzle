@@ -20,7 +20,7 @@ export const Schedule = schema("Schedule", { RoomOpen, Booking }, [
 
 /** Bookings sharing a point with a span-typed window parameter. */
 export const intersecting = query(Schedule).rule((r) => {
-	const { room, during } = v(Booking)
+	const { room, during } = v(Booking, "booking")
 	return r
 		.match(Booking, { room, during })
 		.where(r.allen(during, ALLEN.intersects, r.param("window", Booking.fields.during)))
@@ -32,8 +32,8 @@ export const intersecting = query(Schedule).rule((r) => {
  * containment law is pointwise about, read as a query over the two relations.
  */
 export const strictlyInside = query(Schedule).rule((r) => {
-	const { room, during } = v(Booking)
-	const { during: open } = v(RoomOpen)
+	const { room, during } = v(Booking, "booking")
+	const { during: open } = v(RoomOpen, "roomOpen")
 	return r
 		.match(Booking, { room, during })
 		.match(RoomOpen, { room, during: open })

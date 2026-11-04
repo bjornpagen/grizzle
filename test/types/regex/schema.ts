@@ -162,7 +162,8 @@ const relationDeclaration = (r: number, count: number): string => {
 
 /**
  * A relation's queries: a comparison of its first text field with a parameter, projecting every field unchanged. The
- * parameters are bound through `ParamsOf`, the type a typed caller holds; the call then reads them as they are.
+ * parameters are bound through `ParamArg<ParamsOf<…>>`, the type a typed caller holds; the call then reads them as they
+ * are.
  */
 const relationQueries = (r: number, count: number): string => {
 	const names = Arr.join(
@@ -170,10 +171,10 @@ const relationQueries = (r: number, count: number): string => {
 		", "
 	)
 	return `export const byF${r} = query(S).rule((r) => {
-	const { id, ${names} } = v(R${r})
+	const { id, ${names} } = v(R${r}, "r${r}")
 	return r.match(R${r}, { id, ${names} }).where(r.eq(f0, r.param("p", R${r}.fields.f0))).find({ id, ${names} })
 })
-export const params${r}: ParamsOf<typeof byF${r}> = { p: ${literal(regexPattern(r * fieldsPerRelation).member)} }
+export const params${r}: ParamArg<ParamsOf<typeof byF${r}>> = { p: ${literal(regexPattern(r * fieldsPerRelation).member)} }
 export const run${r} = db.execute(byF${r}, params${r})
 `
 }
@@ -186,9 +187,9 @@ const relationAssertions = (r: number, count: number): string => {
 		indices(count),
 		(j) => `readonly f${j}: ${hostOf(r * fieldsPerRelation + j)}`
 	)
-	return `export type Fact${r} = Expect<Equals<Fact<typeof R${r}>, { readonly id: string; ${Arr.join(head, "; ")} }>>
-export type Params${r} = Expect<Equals<ParamsOf<typeof byF${r}>, { readonly p: ${hostOf(r * fieldsPerRelation)} }>>
-export type Head${r} = Expect<Equals<HeadOf<typeof byF${r}>, { readonly id: string; ${Arr.join(head, "; ")} }>>
+	return `export type Fact${r} = Expect<Equals<Fact<typeof R${r}>, { readonly id: Uuid; ${Arr.join(head, "; ")} }>>
+export type Params${r} = Expect<Equals<ParamsOf<typeof byF${r}>, { readonly p: ParamType<string, "text", ${hostOf(r * fieldsPerRelation)}> }>>
+export type Head${r} = Expect<Equals<HeadOf<typeof byF${r}>, { readonly id: Uuid; ${Arr.join(head, "; ")} }>>
 `
 }
 
@@ -227,7 +228,7 @@ const refusals = (patterns: number, relations: number): ReadonlyArray<string> =>
 	const version = lastWhere(patterns, (i) => shapeOf(i).name === "version")
 	return [
 		`// @ts-expect-error -- TS2322: an out-of-pattern constant is not the comparison parameter's host type
-export const outOfPattern: ParamsOf<typeof byF${finiteRelation}> = { p: ${literal(outsideOf(regexPattern(finiteRelation * fieldsPerRelation)))} }
+export const outOfPattern: ParamArg<ParamsOf<typeof byF${finiteRelation}>> = { p: ${literal(outsideOf(regexPattern(finiteRelation * fieldsPerRelation)))} }
 `,
 		`// @ts-expect-error -- TS2322: the value lies outside the pattern's inferred host type
 export const outsideValue: Infer<typeof P${version}> = ${literal(outsideOf(regexPattern(version)))}
@@ -285,8 +286,8 @@ export const member${i}: Infer<typeof P${i}> = ${literal(p.member)}
 import type { DbOf } from ${JSON.stringify(entries.db)}
 import { type Fact, relation, role, schema } from ${JSON.stringify(entries.schema)}
 import { str } from ${JSON.stringify(entries.text)}
-import { type Infer, uuid } from ${JSON.stringify(entries.fields)}
-import { type HeadOf, type ParamsOf, query, v } from ${JSON.stringify(entries.query)}
+import { type Infer, type Uuid, uuid } from ${JSON.stringify(entries.fields)}
+import { type HeadOf, type ParamArg, type ParamsOf, type ParamType, query, v } from ${JSON.stringify(entries.query)}
 
 type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false
 type Expect<T extends true> = T

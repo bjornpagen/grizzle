@@ -11,8 +11,9 @@ import type {
 	Expr,
 	FrameBound,
 	FromItem,
+	FromSource,
 	Insert,
-	InsertSource,
+	InsertTarget,
 	Merge,
 	MergeWhen,
 	OrderItem,
@@ -20,6 +21,7 @@ import type {
 	Select,
 	SelectBody,
 	SelectCore,
+	SetOperand,
 	SqlStatement,
 	Target,
 	TypeRef,
@@ -40,7 +42,10 @@ import {
 	countStar,
 	cteRefAs,
 	cUtf8Collation,
+	derived,
 	desc,
+	distinctCoreWhen,
+	distinctOnCore,
 	exists,
 	join,
 	lit,
@@ -70,7 +75,7 @@ export interface Holes {
 	/** The root statement itself: one site, before every other. */
 	readonly statement: (s: SqlStatement) => ReadonlyArray<SqlStatement>
 	readonly expr: (e: Expr) => ReadonlyArray<Expr>
-	readonly fromItem: (item: FromItem) => ReadonlyArray<FromItem>
+	readonly fromSource: (item: FromSource) => ReadonlyArray<FromSource>
 	readonly core: (c: SelectCore) => ReadonlyArray<SelectCore>
 	readonly select: (s: Select) => ReadonlyArray<Select>
 }
@@ -79,7 +84,7 @@ export interface Holes {
 export const noHoles: Holes = {
 	statement: () => [],
 	expr: () => [],
-	fromItem: () => [],
+	fromSource: () => [],
 	core: () => [],
 	select: () => []
 }
@@ -96,21 +101,21 @@ export interface Rewrite {
 /** The variants of every site of a statement, by kind, in the order the traversal meets the sites. */
 interface Sites {
 	readonly expr: Array<ReadonlyArray<Expr>>
-	readonly fromItem: Array<ReadonlyArray<FromItem>>
+	readonly fromSource: Array<ReadonlyArray<FromSource>>
 	readonly core: Array<ReadonlyArray<SelectCore>>
 	readonly select: Array<ReadonlyArray<Select>>
 }
 
 const sitesOf = (statement: SqlStatement, holes: Holes): Sites => {
-	const sites: Sites = { expr: [], fromItem: [], core: [], select: [] }
+	const sites: Sites = { expr: [], fromSource: [], core: [], select: [] }
 	transformStatement(statement, {
 		...identityHooks,
 		expr: (e) => {
 			sites.expr.push(holes.expr(e))
 			return e
 		},
-		fromItem: (item) => {
-			sites.fromItem.push(holes.fromItem(item))
+		fromSource: (item) => {
+			sites.fromSource.push(holes.fromSource(item))
 			return item
 		},
 		core: (c) => {
@@ -167,12 +172,12 @@ export const oneHole = (statement: SqlStatement, holes: Holes): ReadonlyArray<Re
 			})
 		}
 	}
-	for (const [site, variants] of sites.fromItem.entries()) {
+	for (const [site, variants] of sites.fromSource.entries()) {
 		for (const v of variants) {
 			rewrites.push({
-				kind: "fromItem",
+				kind: "fromSource",
 				site,
-				statement: replaced(statement, site, v, (r) => ({ ...identityHooks, fromItem: r }))
+				statement: replaced(statement, site, v, (r) => ({ ...identityHooks, fromSource: r }))
 			})
 		}
 	}
@@ -395,15 +400,12 @@ const queryArm = (
 		const predicates = q.on("where")
 			? source.draw(array(predicate(q, scans), { min: 0, max: 3 }))
 			: []
+		const targets = Arr.map(typed, (t, i) => targetAs(t.expr, `c${i + 1}`))
+		const where = conjunction(predicates)
 		return {
-			core: {
-				...core(
-					Arr.map(typed, (t, i) => targetAs(t.expr, `c${i + 1}`)),
-					[from],
-					conjunction(predicates)
-				),
-				distinct: q.on("distinct")
-			},
+			core: Arr.isReadonlyArrayNonEmpty(targets)
+				? distinctCoreWhen(q.on("distinct"), targets, [from], where)
+				: core(targets, [from], where),
 			types: Arr.map(typed, (t) => t.type)
 		}
 	})
@@ -434,8 +436,7 @@ export const selectGen =
 			? {
 					kind: "setOp",
 					op: "UNION ALL",
-					left: left.core,
-					right: source.draw(queryArm(q, catalog, left.types)).core
+					arms: [left.core, source.draw(queryArm(q, catalog, left.types)).core]
 				}
 			: left.core
 		const targets = nonEmpty(left.core.targets)
@@ -510,7 +511,8 @@ const statementFeatures = [
 	"concat",
 	"cast",
 	"collate",
-	"greatest"
+	"greatest",
+	"zero width"
 ] as const
 
 export type StatementFeature = (typeof statementFeatures)[number]
@@ -817,7 +819,7 @@ const formOf = (d: Draw, env: Env, type: SqlColumnType, depth: number): Expr => 
 			return binary(op, sub(operand), sub(operand))
 		}
 		case "connective": {
-			const args = [sub("boolean"), sub("boolean")]
+			const args: readonly [Expr, Expr] = [sub("boolean"), sub("boolean")]
 			return d.from(["and", "or"] as const) === "and" ? { kind: "and", args } : { kind: "or", args }
 		}
 		case "not":
@@ -830,7 +832,11 @@ const formOf = (d: Draw, env: Env, type: SqlColumnType, depth: number): Expr => 
 		}
 		case "in list": {
 			const t = d.from(statementTypes)
-			const list = Array.from({ length: d.count(1, 3) }, () => constant(d, t))
+			const extra = d.count(0, 2)
+			const list: Arr.NonEmptyReadonlyArray<Expr> = [
+				constant(d, t),
+				...Array.from({ length: extra }, () => constant(d, t))
+			]
 			return { kind: "inList", expr: sub(t), list, not: false }
 		}
 		case "exists":
@@ -906,24 +912,30 @@ interface From {
 	readonly rels: ReadonlyArray<Rel>
 }
 
+/** One FROM entry: sources only, which a join chain joins. */
+interface Entry {
+	readonly items: Arr.NonEmptyReadonlyArray<FromSource>
+	readonly rels: ReadonlyArray<Rel>
+}
+
 /** One stored table under a fresh alias. */
-const scanOf = (d: Draw): { readonly item: FromItem; readonly rel: Rel } => {
+const scanOf = (d: Draw): { readonly item: FromSource; readonly rel: Rel } => {
 	const t = d.from(d.catalog)
 	const alias = d.relation()
 	return { item: table(t.schema, t.name, alias), rel: { alias, columns: t.columns } }
 }
 
-const tableEntry = (d: Draw): From => {
+const tableEntry = (d: Draw): Entry => {
 	const scan = scanOf(d)
 	return { items: [scan.item], rels: [scan.rel] }
 }
 
 /** A derived table over a query that sees `outer`; LATERAL when `outer` holds earlier entries of its FROM. */
-const derivedEntry = (d: Draw, env: Env, outer: ReadonlyArray<Rel>, lateral: boolean): From => {
+const derivedEntry = (d: Draw, env: Env, outer: ReadonlyArray<Rel>, lateral: boolean): Entry => {
 	const q = nestedQuery(d, { visible: outer, ctes: env.ctes, depth: env.depth + 1 }, undefined)
 	const alias = d.relation()
 	const columns = generatedColumns(q.types)
-	const item: FromItem = {
+	const item: FromSource = {
 		kind: "derived",
 		query: q.select,
 		alias,
@@ -933,13 +945,27 @@ const derivedEntry = (d: Draw, env: Env, outer: ReadonlyArray<Rel>, lateral: boo
 	return { items: [item], rels: [{ alias, columns }] }
 }
 
-const valuesEntry = (d: Draw): From => {
-	const outputs = Array.from({ length: d.count(1, 2) }, () => d.from(statementTypes))
-	const rows = Array.from({ length: d.count(1, 2) }, () => Arr.map(outputs, (t) => constant(d, t)))
+/** One or two VALUES rows, each a constant of every one of `types`. */
+const valuesRowsOf = (
+	d: Draw,
+	types: Arr.NonEmptyReadonlyArray<SqlColumnType>
+): Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<Expr>> => {
+	const extra = d.count(0, 1)
+	const row = () => Arr.map(types, (type) => constant(d, type))
+	return [row(), ...Array.from({ length: extra }, row)]
+}
+
+const valuesEntry = (d: Draw): Entry => {
+	const width = d.count(0, 1)
+	const outputs: Arr.NonEmptyReadonlyArray<SqlColumnType> = [
+		d.from(statementTypes),
+		...Array.from({ length: width }, () => d.from(statementTypes))
+	]
+	const rows = valuesRowsOf(d, outputs)
 	const alias = d.relation()
 	const columns = generatedColumns(outputs)
 	return {
-		items: [{ kind: "values", rows, alias, columns: Arr.map(columns, (c) => c.name) }],
+		items: [{ kind: "values", rows, alias, columns: Arr.map(outputs, (_, i) => `c${i + 1}`) }],
 		rels: [{ alias, columns }]
 	}
 }
@@ -948,8 +974,9 @@ const valuesEntry = (d: Draw): From => {
  * jsonb_to_recordset($n::jsonb) AS r(c1 <type>, ...): a fresh jsonb placeholder's rows under a column definition list,
  * a text column under the fixed collation the lowering states (lower/conservative/input-set).
  */
-const recordsetEntry = (d: Draw): From => {
-	const outputs = Array.from({ length: d.count(1, 2) }, () => d.from(statementTypes))
+const recordsetEntry = (d: Draw): Entry => {
+	const width = d.keep("zero width") ? 0 : d.count(1, 2)
+	const outputs = Array.from({ length: width }, () => d.from(statementTypes))
 	const alias = d.relation()
 	const columns = generatedColumns(outputs)
 	return {
@@ -964,23 +991,80 @@ const recordsetEntry = (d: Draw): From => {
 	}
 }
 
-const cteEntry = (d: Draw, ctes: Arr.NonEmptyReadonlyArray<CteDef>): From => {
+/**
+ * A query of no target, never DISTINCT: `SELECT FROM <from> [WHERE ...]`, one row of no column per row its FROM reads,
+ * or `SELECT` alone, the one row of no column.
+ */
+const unitQuery = (d: Draw, env: Env): Select =>
+	d.span("unit query", () => {
+		if (d.keep("zero width")) {
+			return select(core([], [], undefined))
+		}
+		const from = fromOf(d, env)
+		const inner: Env = { ...env, visible: [...from.rels, ...env.visible] }
+		const where = d.keep("where") ? exprOf(d, inner, "boolean", 0) : undefined
+		return select(core([], from.items, where))
+	})
+
+/** A derived table of no column over a query of no target, `(SELECT ...) AS r`: no column list, nothing to read. */
+const unitDerivedEntry = (d: Draw, env: Env, outer: ReadonlyArray<Rel>): Entry => {
+	const q = unitQuery(d, { visible: outer, ctes: env.ctes, depth: env.depth + 1 })
+	const alias = d.relation()
+	return { items: [derived(q, alias, [], false)], rels: [{ alias, columns: [] }] }
+}
+
+/**
+ * A set-returning call under an alias of no column, `range_minus_multi(int4range(a, b), int4range(c, d)) AS r`: one row
+ * per piece, its column named by the alias alone and read by nothing. Each span's bounds are ordered, so PostgreSQL
+ * folds it at plan time without an error.
+ */
+const unitFunctionEntry = (d: Draw): Entry => {
+	const span = (): Expr => {
+		const lower = d.count(0, 3)
+		return call("int4range", [
+			lit.int(lower, types.integer),
+			lit.int(lower + d.count(0, 3), types.integer)
+		])
+	}
+	const alias = d.relation()
+	const pieces: FromSource = {
+		kind: "function",
+		call: call("range_minus_multi", [span(), span()]),
+		alias,
+		columns: [],
+		lateral: false
+	}
+	return { items: [pieces], rels: [{ alias, columns: [] }] }
+}
+
+const cteEntry = (d: Draw, ctes: Arr.NonEmptyReadonlyArray<CteDef>): Entry => {
 	const cte = d.from(ctes)
 	const alias = d.relation()
 	return { items: [cteRefAs(cte.name, alias)], rels: [{ alias, columns: cte.columns }] }
 }
 
 /** One FROM entry that sees `outer` only: a table, a derived table, a VALUES list, a recordset or a CTE. */
-const entryOf = (d: Draw, env: Env, outer: ReadonlyArray<Rel>): From =>
+const entryOf = (d: Draw, env: Env, outer: ReadonlyArray<Rel>): Entry =>
 	d.span("from entry", () => {
 		const ctes = nonEmpty(env.ctes)
-		const nested: ReadonlyArray<readonly [StatementFeature, () => From]> =
-			env.depth < maxQueryDepth ? [["derived", () => derivedEntry(d, env, outer, false)]] : []
-		const read: ReadonlyArray<readonly [StatementFeature, () => From]> =
+		const nested: ReadonlyArray<readonly [StatementFeature, () => Entry]> =
+			env.depth < maxQueryDepth
+				? [
+						["derived", () => derivedEntry(d, env, outer, false)],
+						["zero width", () => unitDerivedEntry(d, env, outer)]
+					]
+				: []
+		const read: ReadonlyArray<readonly [StatementFeature, () => Entry]> =
 			ctes === undefined ? [] : [["cte", () => cteEntry(d, ctes)]]
-		return d.choose<() => From>(
+		return d.choose<() => Entry>(
 			() => tableEntry(d),
-			[...nested, ["values", () => valuesEntry(d)], ["recordset", () => recordsetEntry(d)], ...read]
+			[
+				...nested,
+				["values", () => valuesEntry(d)],
+				["recordset", () => recordsetEntry(d)],
+				["zero width", () => unitFunctionEntry(d)],
+				...read
+			]
 		)()
 	})
 
@@ -1027,7 +1111,7 @@ const fromOf = (d: Draw, env: Env): From => {
 	const item: FromItem =
 		extension === "join"
 			? join(left, right, joinCondition(d, first.rels, second.rels))
-			: { kind: "crossJoin", left, right }
+			: { kind: "joins", first: left, steps: [{ kind: "cross", source: right }] }
 	return { items: [item], rels: [...first.rels, ...second.rels] }
 }
 
@@ -1200,8 +1284,32 @@ const repeatable = (e: Expr): boolean => {
 	return !bindsAlias
 }
 
-const aliased = (targets: ReadonlyArray<Expr>): ReadonlyArray<Target> =>
+/**
+ * `core` with each target replaced by `f`'s, under its own projection: each branch keeps that projection's targets, a
+ * DISTINCT core's nonempty.
+ */
+const mapTargets = (core: SelectCore, f: (t: Target, i: number) => Target): SelectCore =>
+	core.distinct === false
+		? { ...core, targets: Arr.map(core.targets, f) }
+		: { ...core, targets: Arr.map(core.targets, f) }
+
+const aliased = (targets: Arr.NonEmptyReadonlyArray<Expr>): Arr.NonEmptyReadonlyArray<Target> =>
 	Arr.map(targets, (e, i) => targetAs(e, `c${i + 1}`))
+
+/**
+ * A core of `targets`: DISTINCT ON its `leading` keys when there are some, else DISTINCT when drawn, else neither; the
+ * DISTINCT draw is taken only where no key leads, as before.
+ */
+const projected = (
+	d: Draw,
+	leading: ReadonlyArray<Expr>,
+	targets: Arr.NonEmptyReadonlyArray<Target>,
+	from: ReadonlyArray<FromItem>,
+	where: Expr | undefined
+): SelectCore =>
+	Arr.isReadonlyArrayNonEmpty(leading)
+		? distinctOnCore(leading, targets, from, where)
+		: distinctCoreWhen(d.keep("distinct"), targets, from, where)
 
 /** A query core with outputs of `outputs` when given, its decisions one span. */
 const coreOf = (
@@ -1268,19 +1376,13 @@ const coreBody = (
 		const orderable = Arr.filter(targets, repeatable)
 		const keyed = nonEmpty(Arr.filter(orderable, (e) => Arr.some(keys, (k) => k.expr === e)))
 		const leading = keyed !== undefined && d.keep("distinct on") ? [d.from(keyed)] : []
-		const distinct: SelectCore["distinct"] =
-			leading.length > 0 ? { on: leading } : d.keep("distinct")
+		const projection = projected(d, leading, aliased(targets), from.items, where)
 		const having =
 			havingAggregate === undefined
 				? undefined
 				: binary(d.from(comparisons), havingAggregate, d.literal("bigint"))
 		return {
-			core: {
-				...core(aliased(targets), from.items, where),
-				distinct,
-				groupBy: Arr.map(keys, (k) => k.expr),
-				having
-			},
+			core: { ...projection, groupBy: Arr.map(keys, (k) => k.expr), having },
 			types: wanted,
 			orderable,
 			leading
@@ -1299,12 +1401,8 @@ const coreBody = (
 	const orderable = Arr.filter(targets, repeatable)
 	const keyable = nonEmpty(Arr.filter(orderable, (e) => !windows.includes(e)))
 	const leading = keyable !== undefined && d.keep("distinct on") ? [d.from(keyable)] : []
-	const distinct = leading.length === 0 && d.keep("distinct")
 	return {
-		core: {
-			...core(aliased(targets), from.items, where),
-			distinct: leading.length > 0 ? { on: leading } : distinct
-		},
+		core: projected(d, leading, aliased(targets), from.items, where),
 		types: wanted,
 		orderable,
 		leading
@@ -1332,7 +1430,7 @@ const orderOf = (
 }
 
 interface SetArm {
-	readonly body: SelectBody
+	readonly body: SetOperand
 	readonly types: Arr.NonEmptyReadonlyArray<SqlColumnType>
 }
 
@@ -1347,9 +1445,7 @@ const armOf = (
 	named: boolean
 ): SetArm => {
 	const c = coreOf(d, env, outputs)
-	const body: SelectCore = named
-		? c.core
-		: { ...c.core, targets: Arr.map(c.core.targets, (t) => target(t.expr)) }
+	const body: SelectCore = named ? c.core : mapTargets(c.core, (t) => target(t.expr))
 	const order = orderOf(d, c.orderable, c.leading)
 	if (order.length === 0 || !d.keep("parenthesized arm")) {
 		return { body, types: c.types }
@@ -1380,12 +1476,14 @@ const ctesOf = (d: Draw, env: Env, recursive: boolean): Scoped | undefined => {
 			query: select({
 				kind: "setOp",
 				op: "UNION",
-				left: core([targetAs(lit.int(1, types.bigint), "c1")], [], undefined),
-				right: core(
-					[targetAs(binary("+", counter, lit.int(1, types.bigint)), "c1")],
-					[cteRefAs(name, step)],
-					binary("<", counter, lit.int(d.count(1, 4), types.bigint))
-				)
+				arms: [
+					core([targetAs(lit.int(1, types.bigint), "c1")], [], undefined),
+					core(
+						[targetAs(binary("+", counter, lit.int(1, types.bigint)), "c1")],
+						[cteRefAs(name, step)],
+						binary("<", counter, lit.int(d.count(1, 4), types.bigint))
+					)
+				]
 			}),
 			materialized: undefined
 		}
@@ -1394,19 +1492,30 @@ const ctesOf = (d: Draw, env: Env, recursive: boolean): Scoped | undefined => {
 			ctes: [...env.ctes, { name, columns: [{ name: "c1", type: "bigint" }] }]
 		}
 	}
-	const defined: Array<Cte> = []
 	const ctes: Array<CteDef> = [...env.ctes]
-	for (let i = d.count(1, 2); i > 0; i--) {
+	/** One query CTE over the CTEs before it, in scope for the ones after it. */
+	const defined = (): Cte => {
+		if (d.keep("zero width")) {
+			const query = unitQuery(d, { visible: [], ctes, depth: env.depth + 1 })
+			const name = d.relation()
+			ctes.push({ name, columns: [] })
+			return { name, columns: [], materialized: undefined, query }
+		}
 		const q = nestedQuery(d, { visible: [], ctes, depth: env.depth + 1 }, undefined)
 		const name = d.relation()
 		const columns = generatedColumns(q.types)
 		const materialized = d.keep("materialized")
 			? d.from(["MATERIALIZED", "NOT MATERIALIZED"] as const)
 			: undefined
-		defined.push({ name, columns: Arr.map(columns, (c) => c.name), materialized, query: q.select })
 		ctes.push({ name, columns })
+		return { name, columns: Arr.map(columns, (c) => c.name), materialized, query: q.select }
 	}
-	return { with: { ctes: defined, recursive: false }, ctes }
+	const extra = d.count(0, 1)
+	const first = defined()
+	return {
+		with: { ctes: [first, ...Array.from({ length: extra }, defined)], recursive: false },
+		ctes
+	}
 }
 
 /** A query nested in another, or in a write, with a WITH of its own when one is drawn. */
@@ -1443,8 +1552,7 @@ const queryOf = (
 		const body: SelectBody = {
 			kind: "setOp",
 			op: d.from(setOperators),
-			left: left.body,
-			right: right.body
+			arms: [left.body, right.body]
 		}
 		const names = Arr.map(generatedColumns(left.types), (c): Expr => tableCol(c.name))
 		const order = d.keep("order by") ? orderOf(d, names, []) : []
@@ -1455,10 +1563,7 @@ const queryOf = (
 	const names = [...publicNames.slice(start), ...publicNames.slice(0, start)]
 	const body: SelectCore =
 		top && d.keep("public names")
-			? {
-					...c.core,
-					targets: Arr.map(c.core.targets, (t, i) => ({ ...t, alias: names[i] ?? `c${i + 1}` }))
-				}
+			? mapTargets(c.core, (t, i) => ({ ...t, alias: names[i] ?? `c${i + 1}` }))
 			: c.core
 	const order = d.keep("order by") || c.leading.length > 0 ? orderOf(d, c.orderable, c.leading) : []
 	return { select: query(body, order), types: c.types }
@@ -1543,7 +1648,9 @@ const withItems = (
 ): Arr.NonEmptyReadonlyArray<Returnable> => [first[0], ...first.slice(1), ...more]
 
 /**
- * INSERT INTO t AS r (every column) VALUES ... or SELECT ..., with ON CONFLICT on the key, the first column.
+ * INSERT INTO t AS r (every column) VALUES ... or SELECT ..., with ON CONFLICT on the key, the first column; or, under
+ * the zero-width arm, INSERT INTO t AS r SELECT ... of no column, PostgreSQL's spelling of an insert whose every column
+ * takes its default (a table of identities, the unit relation's insert), which plans over any table.
  *
  * DO SELECT hands the existing row to RETURNING, so it comes with one.
  */
@@ -1561,18 +1668,23 @@ const insertOf = (
 		...Arr.map(others, (c) => c.type)
 	]
 	const inScope: Env = scoped === undefined ? env : { ...env, ctes: scoped.ctes }
-	const source: InsertSource =
-		inScope.depth < maxQueryDepth && d.keep("insert query")
+	/** No column at all: every column takes its default, which only a table of identities gives at execution. */
+	const unit = d.keep("zero width")
+	const columns = Arr.map(t.columns, (c) => c.name)
+	const target: InsertTarget = unit
+		? {
+				columns: [],
+				source: { kind: "query", query: unitQuery(d, { ...inScope, depth: inScope.depth + 1 }) }
+			}
+		: inScope.depth < maxQueryDepth && d.keep("insert query")
 			? {
-					kind: "query",
-					query: nestedQuery(d, { ...inScope, depth: inScope.depth + 1 }, columnTypes).select
+					columns,
+					source: {
+						kind: "query",
+						query: nestedQuery(d, { ...inScope, depth: inScope.depth + 1 }, columnTypes).select
+					}
 				}
-			: {
-					kind: "values",
-					rows: Array.from({ length: d.count(1, 2) }, () =>
-						Arr.map(columnTypes, (type) => constant(d, type))
-					)
-				}
+			: { columns, source: { kind: "values", rows: valuesRowsOf(d, columnTypes) } }
 	const returned = returningOf(d, tableItems(rel.alias, t), required, top)
 	const excludedKey: Expr = { kind: "excluded", column: key.name }
 	const condition = (): Pick<Extract<ConflictAction, { readonly kind: "doUpdate" }>, "where"> =>
@@ -1601,9 +1713,8 @@ const insertOf = (
 			...withOf(scoped),
 			table: { schema: t.schema, name: t.name },
 			alias: rel.alias,
-			columns: Arr.map(t.columns, (c) => c.name),
 			overriding: undefined,
-			source,
+			...target,
 			...onConflict,
 			returning: returned === undefined ? [] : returned.returning
 		},
@@ -1739,8 +1850,11 @@ const mergeOf = (
 		const last = !matches.slice(i + 1).includes(match)
 		const condition = !last || d.keep("where") ? exprOf(d, sees, "boolean", 0) : undefined
 		if (match === "NOT MATCHED") {
-			return d.from([false, true])
-				? { match, condition, action: { kind: "doNothing" } }
+			if (d.from([false, true])) {
+				return { match, condition, action: { kind: "doNothing" } }
+			}
+			return d.keep("zero width")
+				? { match, condition, action: { kind: "insertDefault" } }
 				: {
 						match,
 						condition,
@@ -1771,7 +1885,10 @@ const mergeOf = (
 		whenOf(firstMatch, 0),
 		...Arr.map(restMatches, (match, i) => whenOf(match, i + 1))
 	]
-	const inserts = Arr.some(whens, (w) => w.action.kind === "insert")
+	const inserts = Arr.some(
+		whens,
+		(w) => w.action.kind === "insert" || w.action.kind === "insertDefault"
+	)
 	const deletes = Arr.some(whens, (w) => w.action.kind === "delete")
 	const sourceless = Arr.some(whens, (w) => w.match === "NOT MATCHED BY SOURCE")
 	const sides = [...(inserts ? [] : (["old"] as const)), ...(deletes ? [] : (["new"] as const))]
@@ -1858,7 +1975,7 @@ const statementWith = (d: Draw, env: Env, kind: "select" | WriteKind): Scoped | 
 	return {
 		with: {
 			recursive: queries?.with.recursive === true,
-			ctes: [...(queries?.with.ctes ?? []), cte]
+			ctes: Arr.append(queries === undefined ? [] : queries.with.ctes, cte)
 		},
 		ctes: [...(queries?.ctes ?? []), { name, columns }]
 	}
@@ -1888,8 +2005,10 @@ const statementUnder =
  * ORDER BY among them), HAVING, FILTER and WITHIN GROUP, window calls with ROWS frames that always hold the current
  * row, DISTINCT and DISTINCT ON, ORDER BY, LIMIT, OFFSET, correlated EXISTS, IN and scalar subqueries, and INSERT,
  * UPDATE, DELETE and MERGE with ON CONFLICT, FROM, USING, every WHEN form and RETURNING; a double literal, NaN, the
- * infinities and -0 among its values, cast to numeric. A statement is a swarm over `statementFeatures` and the
- * decisions drawn under it in order, each bounded by what the statement drawn so far allows, the first option of each
+ * infinities and -0 among its values, cast to numeric; and the zero-width forms PostgreSQL spells by absence: a
+ * recordset, a derived table, a CTE and a function item of no column, cores of no target, an INSERT of no column and
+ * a MERGE's INSERT DEFAULT VALUES. A statement is a swarm over `statementFeatures` and the decisions drawn under it in
+ * order, each bounded by what the statement drawn so far allows, the first option of each
  * the simplest; so any tape draws a valid statement, and a failing one shrinks by deleting and lowering decisions, an
  * expression, a FROM entry, a core, a query or a write at a time. It is valid on PostgreSQL too: only the forms
  * PostgreSQL accepts are drawn (no aggregate of an outer column, grouped outputs only of keys and aggregates, an

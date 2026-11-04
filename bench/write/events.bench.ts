@@ -55,7 +55,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - splitting a ChangeSet into smaller statements in one transaction "does not bound accumulated deferred events": the
  *   same rows in ten statements queue the same memory as in one;
  * - "A key changed many times in one transaction is checked many times; ... nothing deduplicates the keys": a `mutable`
- *   member moved between two groups K times calls the law K times, and the commit-time work grows with K.
+ *   member moved between two groups K times calls the law K times, and the commit-time work grows with K;
+ * - an UPDATE that changes no field its law trigger's UPDATE OF lists queues no law event at all: the trigger's WHEN
+ *   compares OLD with NEW at the row event, so a batch of such UPDATEs calls the law zero times.
  *
  * The fixture is a residual count capacity, Grp and a `mutable` Member contained in it.
  */
@@ -260,6 +262,14 @@ export default defineGate({
 					measures: { lawCalls: probe.total }
 				})
 			}
+			/** Every member's group assigned to itself: an UPDATE OF its field that changes nothing. */
+			const unchanged = yield* probeLaws(
+				writer,
+				fx,
+				law,
+				[`UPDATE ${M} SET ${c("Member", "grp")} = ${c("Member", "grp")}`],
+				[]
+			)
 			const cases: Array<CaseRecord<"R12">> = [...sizeCases, ...moveCases]
 			const [smallest] = perEvent
 			const largest = perEvent.at(-1)
@@ -280,6 +290,11 @@ export default defineGate({
 						"ten statements in one transaction queue at least the memory of one: splitting bounds nothing",
 						splitHolds,
 						Arr.join(splitReadings, ", ")
+					),
+					mechanism(
+						`an UPDATE of ${options.groups} members that changes no UPDATE OF field queues no law event: it calls the law zero times`,
+						unchanged.total === 0,
+						`calls ${unchanged.total}`
 					),
 					mechanism(
 						"a key moved K times calls the law K times: nothing deduplicates the keys",

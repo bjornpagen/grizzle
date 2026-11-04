@@ -1,6 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -39,13 +40,12 @@ describe("graph-shaped recursive generators", () => {
 						suite: "recursion/generators-shapes",
 						draw: drawn(graphSketchGen),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch) =>
@@ -162,21 +162,23 @@ describe("graph-shaped recursive generators", () => {
 							resolveRecursiveCase(sketch, limits, "unmutated")
 						),
 						literal: Formatter.format,
-						features: features<BagFeature>([
-							"reach forward terminates",
-							"reach forward loops",
-							"reach reverse loops",
-							"reach both loops",
-							"walks both terminates",
-							"pairs forward terminates",
-							"pairs forward loops"
-						]),
+						coverage: required<BagFeature>(
+							[
+								"reach forward terminates",
+								"reach forward loops",
+								"reach reverse loops",
+								"reach both loops",
+								"walks both terminates",
+								"pairs forward terminates",
+								"pairs forward loops"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c, n) =>

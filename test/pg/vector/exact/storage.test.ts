@@ -1,13 +1,14 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, pipe, Result, String as Str } from "effect"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, faulted, refused, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
@@ -23,7 +24,11 @@ const Embedding = relation("Embedding", { id: uuid, value: pg.vector(4), raw: pg
 ])
 const Store = schema("VectorStore", { Embedding }, [])
 
-const id = (n: number): string =>
+/** A relation keyed by a vector: its key's B-tree index compares by pgvector's equality. */
+const Point = relation("Point", { at: pg.vector(2), label: pg.integer }, ["at"])
+const Points = schema("VectorPoints", { Point }, [])
+
+const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const embeddingType = (): ScalarType => scalarOf({ kind: "vector", dimensions: 4 }, {})
@@ -70,6 +75,7 @@ layer(Substrate.layer)("vector storage", (it) => {
 					const s = yield* Substrate
 					const world = fullWorld(Store)
 					const store = yield* install(Store, {
+						ambient: ordinarySession,
 						label: "vstore",
 						logins: [world.server],
 						extensions: []
@@ -96,7 +102,7 @@ layer(Substrate.layer)("vector storage", (it) => {
 							generator: element(outside),
 							literal: ([, value]: readonly [number, string]) => value,
 							limit: outside.length,
-							features: features<RefusedFeature>(
+							coverage: requiredInSpace<RefusedFeature>(
 								Arr.map(outside, ([, value]): RefusedFeature => `refused ${value}`)
 							),
 							caseHang
@@ -164,7 +170,7 @@ layer(Substrate.layer)("vector storage", (it) => {
 							generator: element(malformed),
 							literal: ([bad]: readonly [string, string]) => bad,
 							limit: malformed.length,
-							features: features<RefusedFeature>(
+							coverage: requiredInSpace<RefusedFeature>(
 								Arr.map(malformed, ([bad]): RefusedFeature => `refused ${bad}`)
 							),
 							caseHang
@@ -192,5 +198,37 @@ layer(Substrate.layer)("vector storage", (it) => {
 					return inputs
 				})
 			)
+	)
+
+	it.effect(
+		"a vector key holds one fact per value: [-0,1] and [0,1], one vector, collide on it",
+		() =>
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const world = fullWorld(Points)
+				const store = yield* install(Points, {
+					ambient: ordinarySession,
+					label: "vkeys",
+					logins: [world.server],
+					extensions: []
+				})
+				const names = namesOf(store)
+				const writer = yield* s.session({
+					...worldSession(store.world(world.app)),
+					label: "writer"
+				})
+				const insert = (at: string, label: number) =>
+					writer.values(
+						`INSERT INTO ${names.table(Point)} ("at", "label") VALUES ($1::text::"vector_ext"."vector"(2), $2::text::int4)`,
+						[at, String(label)]
+					)
+				yield* insert("[-0,1]", 1)
+				const e = yield* expectConstraint(
+					insert("[0,1]", 2),
+					names.fieldConstraint(Point, "pk", ["at"]),
+					"23505"
+				)
+				assert.equal(e.code, "23505")
+			})
 	)
 })

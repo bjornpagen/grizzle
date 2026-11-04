@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { type Case, exhaust, explore, drawn, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { type Reached, required, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { type PctSchedule, pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -8,6 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter, Option, String as Str } from "effect"
 import { Cause, Effect, Schema, type Scope } from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
+import { populationsOf } from "#test/pg/laws/families/families.ts"
 import { emptyState, expect, rowsDifference, stateRows } from "#test/pg/laws/families/model.ts"
 import {
 	type AbortCause,
@@ -83,11 +84,12 @@ type HistoryFeature =
 	| `retried after ${TransientTag}`
 	| BelowFeature
 	| `schema ${string}`
+	| `trait ${string}`
 
 /**
  * What every history suite's population must reach: operations that overlapped, and operations accepted and refused.
  */
-const required: ReadonlyArray<HistoryFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<HistoryFeature> = [
 	"overlapping",
 	"grizzle accepted",
 	"direct accepted",
@@ -162,10 +164,10 @@ const runHistory = (
 ): Effect.Effect<void, CaseFailed, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const resolved = resolveHistory(env.host, env.domains, env.isMutable, hc.history)
+		const resolved = resolveHistory(env.host, env.domains, hc.history)
 		for (const w of resolved.writers) {
 			if (w.kind === "below") {
-				c.noteAll(belowFeaturesOf(env.host, w.below, env.isMutable))
+				c.noteAll(belowFeaturesOf(env.host, w.below))
 			}
 		}
 		const txns = historyTxns(resolved)
@@ -257,13 +259,12 @@ const runHistory = (
  * history suite's population must reach, which the drawn histories reach a few times a run. A family none of whose
  * schemas has them fails here, where its suite is declared.
  */
-const plantedOn = <P extends { readonly mutable: boolean }>(
+const plantedOn = <P>(
 	h: HistoryFamily<P>,
-	variants: Arr.NonEmptyReadonlyArray<P>,
-	isMutable: boolean
+	variants: Arr.NonEmptyReadonlyArray<P>
 ): ReadonlyArray<Kept<HistoryCase, HistoryFeature>> => {
 	for (const [i, p] of variants.entries()) {
-		const planted = plantedHistories(h.family.host(p), h.family.domains, isMutable)
+		const planted = plantedHistories(h.family.host(p), h.family.domains)
 		if (planted === undefined) {
 			continue
 		}
@@ -287,7 +288,7 @@ const plantedOn = <P extends { readonly mutable: boolean }>(
 }
 
 /** Installs `p` and checks the installation enforces the host's laws as the host states them. */
-const installChecked = <P extends { readonly mutable: boolean }>(
+const installChecked = <P>(
 	h: HistoryFamily<P>,
 	p: P
 ): Effect.Effect<HistoryInstall<P>, CaseFailed, Substrate | Scope.Scope> =>
@@ -325,9 +326,9 @@ const plantedBelow = (env: HistoryEnv): ReadonlyArray<Below> =>
 	)
 
 /** What the exhaustion must reach: every form, a read alone, every level, both refusals and a read before a write. */
-const belowRequired: ReadonlyArray<BelowFeature> = [
-	...Arr.map(belowForms, (form) => `below: ${form}` as const),
+const belowRequired: Arr.NonEmptyReadonlyArray<BelowFeature> = [
 	"below: read only",
+	...Arr.map(belowForms, (form) => `below: ${form}` as const),
 	...Arr.map(belowLevels, (level) => `below at ${level}` as const),
 	"refused by the guard",
 	"refused by privilege",
@@ -335,9 +336,10 @@ const belowRequired: ReadonlyArray<BelowFeature> = [
 ]
 
 /**
- * One family's generated-history suite: for each mutability, histories over the family's schemas, each run in its
- * order, explored through the library, and the planted writers below SERIALIZABLE exhausted over every table of the
- * family's first schema.
+ * One family's generated-history suite: for each population of its box (families.ts populationsOf), histories over the
+ * population's schemas, each run in its order, explored through the library, and the planted writers below
+ * SERIALIZABLE exhausted over every table of the population's first schema, each refused by what its relation's
+ * mutability makes its first refusal.
  *
  * A case draws which of the family's schemas it runs on; each schema installs once per test, the first time a case
  * draws it, and its installation is checked to enforce the host's laws as the host states them (families.ts
@@ -347,23 +349,26 @@ const belowRequired: ReadonlyArray<BelowFeature> = [
  * to replay.
  *
  * The suite's required features keep the histories from going vacuous: operations overlapped, and some were accepted
- * and some refused. Lock waits, aborts by cause, retries and the planted writers' cases are noted for the residual-risk
- * line. Every note goes through the case's own Case (HistoryFeature).
+ * and some refused; and on a schema bearing each trait of the population's schemas (families.ts traits), a direct
+ * writer's operation accepted, so the direct writer's model meets every coordinate the family steers by, an arm whose
+ * mutability is not its parent's among them. Lock waits, aborts by cause, retries and the planted writers' cases are
+ * noted for the residual-risk line. Every note goes through the case's own Case (HistoryFeature), each also paired
+ * with every trait of the case's schema.
  */
-export const historySuite = <P extends { readonly mutable: boolean }>(
-	h: HistoryFamily<P>
-): void => {
+export const historySuite = <P>(h: HistoryFamily<P>): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
 		`generated histories: ${h.family.label}`,
 		(it) => {
-			for (const isMutable of [false, true]) {
-				const [first, ...rest] = h.family.variants(isMutable)
-				if (first === undefined) {
-					throw new Error(`${h.family.label} draws no schema`)
-				}
-				const variants: Arr.NonEmptyReadonlyArray<P> = [first, ...rest]
-				const kept = plantedOn(h, variants, isMutable)
-				const mode = isMutable ? "mutable" : "immutable"
+			for (const { mode, variants } of populationsOf(h.family)) {
+				const [first] = variants
+				const kept = plantedOn(h, variants)
+				const reach: Arr.NonEmptyReadonlyArray<Reached<HistoryFeature>> = Arr.appendAll(
+					situations,
+					Arr.map(
+						[...new Set(Arr.flatMap(variants, (p) => h.family.traits(p)))],
+						(t) => [`trait ${t}`, "direct accepted"] as const
+					)
+				)
 				const label = Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(h.family.label)
 				const histories = Effect.gen(function* () {
 					/**
@@ -376,7 +381,7 @@ export const historySuite = <P extends { readonly mutable: boolean }>(
 							suite: `history/${label}/${mode}`,
 							draw: drawn(historyCaseGen(variants.length)),
 							literal: Formatter.format,
-							features: features<HistoryFeature>(required),
+							coverage: required<HistoryFeature>(reach, { cases: 4 * runs, sense: notesOnly }),
 							kept,
 							runs,
 							/**
@@ -386,14 +391,33 @@ export const historySuite = <P extends { readonly mutable: boolean }>(
 							shrink: { kind: "bounded", candidates: 300 },
 							concurrency: 1,
 							steerEvery: 16,
-							/** Steered only while a required situation is unreached, for four times the rotating cases at most. */
-							steering: { kind: "mutate", cases: 4 * runs, sense: notesOnly },
 							caseHang: Duration.minutes(2)
 						},
 						(hc, c) =>
 							Effect.gen(function* () {
 								const p = elementAt(variants, hc.variant, "the family's schemas")
 								c.note(`schema ${h.family.describe(p)}`)
+								const traits = Arr.map(h.family.traits(p), (t): HistoryFeature => `trait ${t}`)
+								c.noteAll(traits)
+								/** The case as its history sees it: every feature it notes is paired with each trait. */
+								const traited: Case<HistoryFeature> = {
+									...c,
+									note: (feature) => {
+										c.note(feature)
+										for (const t of traits) {
+											c.pair(t, feature)
+										}
+									},
+									noteAll: (noted) => {
+										const features = [...noted]
+										c.noteAll(features)
+										for (const feature of features) {
+											for (const t of traits) {
+												c.pair(t, feature)
+											}
+										}
+									}
+								}
 								const install = elementAt(installs, hc.variant, "the family's installations")
 								yield* Effect.scoped(
 									Effect.gen(function* () {
@@ -403,7 +427,7 @@ export const historySuite = <P extends { readonly mutable: boolean }>(
 											})
 										const env = yield* Effect.mapError(h.connect(install), didNotConnect)
 										const actors = yield* Effect.mapError(lawActors(env), didNotConnect)
-										yield* runHistory(env, hc, actors, c)
+										yield* runHistory(env, hc, actors, traited)
 									})
 								)
 							})
@@ -428,12 +452,12 @@ export const historySuite = <P extends { readonly mutable: boolean }>(
 								literal: Formatter.format,
 								/** Every relation of a family schema, three levels, and thirteen cases a level. */
 								limit: 256,
-								features: features<BelowFeature>(belowRequired),
+								coverage: requiredInSpace<BelowFeature>(belowRequired),
 								caseHang: Duration.minutes(2)
 							},
 							(b, c) =>
 								Effect.gen(function* () {
-									c.noteAll(belowFeaturesOf(env.host, b, isMutable))
+									c.noteAll(belowFeaturesOf(env.host, b))
 									const spec = yield* lawExploration(
 										env,
 										`a planted writer at ${b.level}`,

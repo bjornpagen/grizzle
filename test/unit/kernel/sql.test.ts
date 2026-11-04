@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -26,6 +26,7 @@ import {
 	cteRefAs,
 	eq,
 	lit,
+	mapTargets,
 	objectName,
 	select,
 	table,
@@ -125,7 +126,7 @@ const admitted = (statement: SqlStatement): void => {
 type StatementFeature = ShapeFeature | `statement ${SqlStatement["kind"]}`
 
 /** The forms the statement generator must reach: every statement kind, and the constructs each audit rule watches. */
-const requiredStatementFeatures: ReadonlyArray<StatementFeature> = [
+const requiredStatementFeatures: Arr.NonEmptyReadonlyArray<StatementFeature> = [
 	"statement select",
 	"statement insert",
 	"statement update",
@@ -166,7 +167,13 @@ const requiredStatementFeatures: ReadonlyArray<StatementFeature> = [
 	"aggregate sum",
 	"aggregate mode",
 	"window row_number",
-	"window lead"
+	"window lead",
+	"derived of no column",
+	"function of no column",
+	"recordset of no column",
+	"cte of no column",
+	"core of no target",
+	"insert of no column"
 ]
 
 const textCore = (relation: string, column: string, alias: string): SelectCore =>
@@ -212,18 +219,21 @@ const keptStatements: ReadonlyArray<Kept<SqlStatement, StatementFeature>> = (() 
 			sketch: select({
 				kind: "setOp",
 				op: "EXCEPT",
-				left: {
-					kind: "setOp",
-					op: "INTERSECT",
-					left: {
+				arms: [
+					select({
 						kind: "setOp",
-						op: "UNION ALL",
-						left: textCore("tag", "label", "r1"),
-						right: textCore("order", "select", "r2")
-					},
-					right: textCore("line item", 'say "hi"', "r3")
-				},
-				right: textCore("tag", "label", "r4")
+						op: "INTERSECT",
+						arms: [
+							select({
+								kind: "setOp",
+								op: "UNION ALL",
+								arms: [textCore("tag", "label", "r1"), textCore("order", "select", "r2")]
+							}),
+							textCore("line item", 'say "hi"', "r3")
+						]
+					}),
+					textCore("tag", "label", "r4")
+				]
 			}),
 			reaches: ["union all", "intersect", "except"]
 		},
@@ -302,13 +312,8 @@ const renamed = (statement: SqlStatement): SqlStatement =>
 		...identityHooks,
 		expr: (e) =>
 			e.kind === "column" && e.table !== undefined ? { ...e, table: bump(e.table) } : e,
-		fromItem: (item) => (item.kind === "table" ? { ...item, alias: bump(item.alias) } : item),
-		core: (c) => ({
-			...c,
-			targets: Arr.map(c.targets, (t) =>
-				t.alias === undefined ? t : { ...t, alias: bump(t.alias) }
-			)
-		})
+		fromSource: (item) => (item.kind === "table" ? { ...item, alias: bump(item.alias) } : item),
+		core: (c) => mapTargets(c, (t) => (t.alias === undefined ? t : { ...t, alias: bump(t.alias) }))
 	})
 
 describe("generated queries", () => {
@@ -322,21 +327,23 @@ describe("generated queries", () => {
 						suite: "unit/kernel/sqlgen-audit",
 						draw: drawn(selectGen(catalog)),
 						literal: Formatter.format,
-						features: features<ShapeFeature>([
-							"from table",
-							"join",
-							"union all",
-							"distinct",
-							"order by",
-							"limit param",
-							"count(*)"
-						]),
+						coverage: required<ShapeFeature>(
+							[
+								"from table",
+								"join",
+								"union all",
+								"distinct",
+								"order by",
+								"limit param",
+								"count(*)"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(query, c) =>
@@ -356,13 +363,15 @@ describe("generated queries", () => {
 					suite: "unit/kernel/shape-renaming",
 					draw: drawn(selectGen(catalog)),
 					literal: Formatter.format,
-					features: features<"a relation alias renamed">(["a relation alias renamed"]),
+					coverage: required<"a relation alias renamed">(["a relation alias renamed"], {
+						cases: 200,
+						sense: notesOnly
+					}),
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(query, c) =>
@@ -388,13 +397,15 @@ describe("generated statements", () => {
 						suite: "unit/kernel/statement-audit",
 						draw: drawn(statementGen(statementCatalog)),
 						literal: Formatter.format,
-						features: features<StatementFeature>(requiredStatementFeatures),
+						coverage: required<StatementFeature>(requiredStatementFeatures, {
+							cases: 4000,
+							sense: notesOnly
+						}),
 						kept: keptStatements,
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "mutate", cases: 4000, sense: notesOnly },
 						caseHang: Duration.minutes(2)
 					},
 					(statement, c) =>
@@ -508,13 +519,12 @@ describe("the one-hole walker", () => {
 					suite: "unit/kernel/root-hole",
 					draw: drawn(statementGen(statementCatalog)),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(statement) => Effect.sync(() => rootHoleFirst(statement))
@@ -533,13 +543,12 @@ describe("the one-hole walker", () => {
 						suite: "unit/kernel/one-hole",
 						draw: drawn(selectGen(catalog)),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(query) => Effect.sync(() => oneSiteEach(query, marker))

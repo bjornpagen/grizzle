@@ -1,5 +1,5 @@
 import type { Option } from "effect"
-import { type HeadOf, query, v } from "#index.ts"
+import { type HeadOf, query, type Uuid, v } from "#index.ts"
 import { Account, AccountCost, Reports, Task, Work } from "#test/types/api/fixtures/schema.ts"
 import type { Equals, Expect } from "#test/types/api/support.ts"
 
@@ -14,14 +14,14 @@ import type { Equals, Expect } from "#test/types/api/support.ts"
  */
 export const costOwners = query(Reports)
 	.rule((r) => {
-		const { account, total } = v(AccountCost)
+		const { account, total } = v(AccountCost, "accountCost")
 		return r.match(AccountCost, { account, total }).find({ account, total })
 	})
 	.attach(
 		"owner",
 		(c) =>
 			query(Work).rule((r) => {
-				const { name } = v(Account)
+				const { name } = v(Account, "account")
 				return r.match(Account, { id: c.account, name }).find({ name })
 			}),
 		"option"
@@ -30,7 +30,7 @@ export const costOwners = query(Reports)
 		"tasks",
 		(c) =>
 			query(Work).rule((r) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return r.match(Task, { id, account: c.account }).find({ id })
 			}),
 		"array"
@@ -41,7 +41,7 @@ export type DerivedToBaseOwner = Expect<
 >
 
 export type DerivedToBaseTasks = Expect<
-	Equals<HeadOf<typeof costOwners>["tasks"], ReadonlyArray<{ readonly id: string }>>
+	Equals<HeadOf<typeof costOwners>["tasks"], ReadonlyArray<{ readonly id: Uuid }>>
 >
 
 export const bareOwner = (row: HeadOf<typeof costOwners>) => {
@@ -53,14 +53,14 @@ export const bareOwner = (row: HeadOf<typeof costOwners>) => {
 /** The same attachment from Task, whose containment into Account is declared, delivers the owner bare. */
 export const taskOwners = query(Work)
 	.rule((r) => {
-		const { id, account } = v(Task)
+		const { id, account } = v(Task, "task")
 		return r.match(Task, { id, account }).find({ id, account })
 	})
 	.attach(
 		"owner",
 		(t) =>
 			query(Work).rule((r) => {
-				const { name } = v(Account)
+				const { name } = v(Account, "account")
 				return r.match(Account, { id: t.account, name }).find({ name })
 			}),
 		"one"
@@ -74,7 +74,7 @@ export type BaseToBaseOwner = Expect<
 export const costOwnerBare = () =>
 	query(Reports)
 		.rule((r) => {
-			const { account, total } = v(AccountCost)
+			const { account, total } = v(AccountCost, "accountCost")
 			return r.match(AccountCost, { account, total }).find({ account, total })
 		})
 		.attach(
@@ -82,7 +82,7 @@ export const costOwnerBare = () =>
 			(c) =>
 				// @ts-expect-error -- TS2322 refusal: the one child needs a child the evidence proves exactly one per parent
 				query(Work).rule((r) => {
-					const { name } = v(Account)
+					const { name } = v(Account, "account")
 					return r.match(Account, { id: c.account, name }).find({ name })
 				}),
 			"one"

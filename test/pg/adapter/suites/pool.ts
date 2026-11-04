@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Exit, Formatter, Scope } from "effect"
@@ -81,7 +82,7 @@ type PoolFeature =
 	| "leased an idle session"
 	| "leased a new session"
 
-const required: ReadonlyArray<PoolFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<PoolFeature> = [
 	"retired",
 	"connection lost",
 	"released",
@@ -126,13 +127,12 @@ export const poolSuite = (): void => {
 								suite: `pg/adapter/pool/retired`,
 								draw: drawn(sequenceGen),
 								literal: Formatter.format,
-								features: features<PoolFeature>(required),
+								coverage: required<PoolFeature>(situations, { cases: 20, sense: notesOnly }),
 								kept: poolKept,
 								runs: 20,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.minutes(2)
 							},
 							({ max, steps }, c) =>

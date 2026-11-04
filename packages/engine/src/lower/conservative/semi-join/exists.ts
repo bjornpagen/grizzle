@@ -48,7 +48,7 @@ export const existenceTest = (
 	}
 	const left = cx.source(node.left, env)
 	/** The right side sees the left's columns too: it may be correlated with them through outer references. */
-	const rightEnv = extendEnv(env, [node.left.id, left.map])
+	const rightEnv = extendEnv(env, [[node.left.id, left.map]])
 	const correlated = cx.freeRefs(node.right).has(node.left.id)
 	/** Over the feedback the right side is joined; otherwise it is lowered inside its EXISTS. */
 	const right = feedback

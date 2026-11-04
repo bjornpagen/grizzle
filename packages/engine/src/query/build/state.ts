@@ -394,8 +394,8 @@ export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): Sourc
 }
 
 /**
- * A relation-valued parameter: a heading of field descriptors, or an ordinary relation whose heading types it. Its value
- * holds its heading of carriers, the fields' descriptors.
+ * A relation-valued parameter: a heading of at least one field descriptor, as a relation has, or an ordinary relation
+ * whose heading types it. Its value holds its heading of carriers, the fields' descriptors.
  */
 export const relationParam = <C extends Carriers>(
 	name: string,
@@ -433,8 +433,15 @@ export const relationParam = <C extends Carriers>(
 	if (!isPlainRecord(headingArg)) {
 		throw malformed(label, "a heading: a record of field descriptors")
 	}
+	const fields = Object.entries(headingArg)
+	if (fields.length === 0) {
+		throw malformed(
+			label,
+			"a heading of at least one field: a relation parameter is a list of rows, matched like a table"
+		)
+	}
 	const descs: Record<string, FieldDesc> = {}
-	for (const [field, descriptor] of Object.entries(headingArg)) {
+	for (const [field, descriptor] of fields) {
 		descs[field] = fieldDesc(descriptor, `${label} ${field}`)
 	}
 	return registerSource(Object.freeze({ ...builtMark, heading: carriers }), {

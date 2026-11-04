@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { element, int, uniqueArray } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -15,7 +16,7 @@ import {
 } from "#compiler/codec/cursor/identity.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { type ExprTable, OpId } from "#compiler/ir/expr.ts"
+import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contractType } from "#compiler/scalar/registry.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -25,6 +26,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { cursorCodecTypes } from "#test/unit/cursor/support.ts"
 
 import { regex } from "arkregex"
+import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 /**
  * The identity a cursor is bound to: the sensitivity of the comparator, query and generation digests to exactly what
  * changes meaning.
@@ -36,7 +38,6 @@ const common = {
 	args: [],
 	nonNull: "strict",
 	volatility: "immutable",
-	failure: "total",
 	deps: { params: [], nodes: [] }
 } as const
 const [e0, e1, e2] = [ExprId("e#0"), ExprId("e#1"), ExprId("e#2")]
@@ -47,7 +48,7 @@ const nonNegative: ExprTable = {
 			id: e0,
 			...common,
 			kind: "op",
-			op: OpId("int8ge"),
+			op: definedOpOf("int8ge"),
 			args: [e1, e2],
 			type: cursorCodecTypes.bool
 		},
@@ -68,7 +69,8 @@ const centsWithPredicate = succeeded(
 		parsedName("Cents"),
 		cursorCodecTypes.int8,
 		SourceLoc("the contract Cents", []),
-		nonNegative
+		nonNegative,
+		[]
 	)
 )
 
@@ -165,14 +167,16 @@ describe("the comparator digest", () => {
 						rewrite: source.draw(element(comparatorRewrites))
 					})),
 					literal: Formatter.format,
-					features: features<ComparatorRewrite>(comparatorRewrites),
+					coverage: required<ComparatorRewrite>(comparatorRewrites, {
+						cases: 600,
+						sense: notesOnly
+					}),
 					kept: [],
-					/** Six rewrites over up to four comparators of six types: 600 cases reach every rewrite many times. */
+					/** The rotating stream's sample of six rewrites over up to four comparators of six types. */
 					runs: 600,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ comparators, at, rewrite }, c) =>
@@ -222,17 +226,15 @@ describe("the query and generation digests", () => {
 								)
 							})),
 							literal: Formatter.format,
-							features: features<"reordered" | "a version" | "the schema">([
-								"reordered",
-								"a version",
-								"the schema"
-							]),
+							coverage: required<"reordered" | "a version" | "the schema">(
+								["reordered", "a version", "the schema"],
+								{ cases: 200, sense: notesOnly }
+							),
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ schema, extensions, change }, c) =>

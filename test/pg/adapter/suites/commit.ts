@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -97,7 +97,7 @@ export const commitSuite = (): void => {
 							 * A described member over a stored relation: a note at the target task copying the source's note.
 							 */
 							const copyNote = query(o.schema).rule((r) => {
-								const { note } = v(W.TaskNote)
+								const { note } = v(W.TaskNote, "taskNote")
 								return r
 									.match(W.TaskNote, { task: r.param("source", W.TaskNote.fields.task), note })
 									.find({ task: r.param("target", W.TaskNote.fields.task), note })
@@ -124,7 +124,7 @@ export const commitSuite = (): void => {
 										generator: concurrents,
 										literal: Formatter.format,
 										limit: 8,
-										features: features<CommitFeature>([
+										coverage: requiredInSpace<CommitFeature>([
 											...Arr.flatMap(concurrentKinds, (c) =>
 												Arr.map(ends, (e): CommitFeature => `${c} ${e}`)
 											),

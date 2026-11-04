@@ -1,9 +1,5 @@
-import { printsAlike } from "#compiler/codec/scalar.ts"
 import type { NodeOf, RelNode, VarDecl } from "#compiler/ir/rel.ts"
 import { feedbackBlock } from "#compiler/lower/conservative/recursive/index.ts"
-
-/** Whether equal values of `t` always print alike, so native equality is identity (codec/scalar.ts). */
-export { printsAlike }
 
 /** The variables a region equates with `v`, `v` included: the closure of its equalities. */
 const equatedVars = (region: NodeOf<"MatchRegion">, v: VarDecl): ReadonlySet<VarDecl> => {
@@ -44,10 +40,10 @@ const equatedVars = (region: NodeOf<"MatchRegion">, v: VarDecl): ReadonlySet<Var
  * of a semi-join or anti-join, a projection that copies a column, and a region variable, which equals every column
  * bound to it and every variable it is equated with. Anything else, a computed column above all, is not carried.
  *
- * Native equality is not identity: numeric and floating values can be equal and print differently (1.0 and 1.00, -0
- * and 0). Every proof here that turns a carried column into a filter or a stitched key therefore also
- * requires a type whose equal values always print alike (`printsAlike`), as R36 does for the columns a fused
- * attachment copies from its parent row (shapes/attach/index.ts fusedLayout).
+ * Native equality is the host's identity for every type: equal values decode to one host value (a numeric's 1.0 and
+ * 1.00 are one Decimal, a float's -0 and 0 one zero), and no reading grizzle emits sees what tells them apart in
+ * PostgreSQL (registry.ts OperandReading). So a carried column turns into a filter or a stitched key whatever its
+ * type, as a fused attachment copies a correlated column from its parent row (shapes/attach/index.ts fusedLayout).
  */
 export const carriedFrom = (
 	node: RelNode,

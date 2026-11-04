@@ -33,7 +33,8 @@ const isCanonicalInteger = (text: string): boolean => {
  * The owned Money carrier of pg.money.
  *
  * PostgreSQL's money is a signed 64-bit count of fractional units, compared as that integer (cash_send, cash_eq). The
- * carrier holds exactly that count and nothing else: no currency, no locale, no floating amount.
+ * carrier holds exactly a count and nothing else: no currency, no locale, no floating amount. A money field's count is
+ * a signed 64-bit one (make); an exact amount, money arithmetic's value, is a count of any size (exact).
  *
  * Conversions to and from numeric follow PostgreSQL under the fixed C.UTF-8 monetary context, whose two fractional
  * digits admission verifies: money-to-numeric divides the count by 100 exactly at
@@ -70,6 +71,15 @@ export class Money implements Canonicalizable {
 			throw faultError(made.error, SourceLoc("Money literal", []))
 		}
 		return made.value
+	}
+
+	/**
+	 * An exact amount: a count of minor units of any size, the value of money arithmetic and of a money sum (ir/scalar.ts
+	 * ExactType exactMoney). A money field admits only a signed 64-bit count (make), which Compute.cast narrows into
+	 * where it is proved to fit.
+	 */
+	static exact(minorUnits: bigint): Money {
+		return new Money(minorUnits)
 	}
 
 	/** The Money of an IR money value (ir/carriers.ts MoneyValue), whose count is an int64 already. */
@@ -134,17 +144,25 @@ export class Money implements Canonicalizable {
 	}
 
 	/**
-	 * money::numeric: the exact amount at scale 2.
+	 * money::numeric: the exact amount, in the Decimal's one form ("12.5" for 1250 minor units).
 	 *
-	 * Every int64 count at scale 2 is within the numeric format.
+	 * Every int64 count of hundredths is within the numeric format.
 	 */
 	toDecimal(): Decimal {
 		return Decimal.fromHundredths(this.minorUnits)
 	}
 
-	/** The numeric text of the amount, such as "-12.05". Money's own text output is locale-formatted and never used. */
+	/**
+	 * The amount with its two fixed fractional digits, such as "-12.05" or "12.50", written from the minor-unit count:
+	 * money::numeric's text, the canonical text of a Money. Money's own text output is locale-formatted and never used.
+	 */
 	toString(): string {
-		return this.toDecimal().toString()
+		const negative = this.minorUnits < 0n
+		const digits = (negative ? -this.minorUnits : this.minorUnits)
+			.toString()
+			.padStart(moneyFractionDigits + 1, "0")
+		const point = digits.length - moneyFractionDigits
+		return `${negative ? "-" : ""}${digits.slice(0, point)}.${digits.slice(point)}`
 	}
 
 	compare(that: Money): -1 | 0 | 1 {

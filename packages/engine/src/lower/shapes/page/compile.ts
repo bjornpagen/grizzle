@@ -3,7 +3,12 @@ import { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, reportedAt } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	isNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
@@ -313,13 +318,13 @@ const filtered = (
 	heading: Heading,
 	distinct: boolean
 ): Select => {
-	const [innermost] = plan.filters.slice(-1)
-	if (innermost === undefined) {
+	const filters = plan.filters
+	if (!isNonEmpty(filters)) {
 		return rel
 	}
-	const input = cx.wrap(rel, heading, { kind: "node", node: innermost.id })
+	const input = cx.wrap(rel, heading, { kind: "node", node: lastNonEmpty(filters).id })
 	const scope: Env = new Map([...plan.spineNodes, plan.union].map((n) => [n.id, input.map]))
-	const where = and(...plan.filters.map((f) => lowerExpr(cx, f.pred, scope)))
+	const where = and(mapNonEmpty(filters, (f) => lowerExpr(cx, f.pred, scope)))
 	const targets = headingTargets(heading, input.map)
 	return distinct
 		? distinctSelect(targets, [input.item], [where])
@@ -589,7 +594,7 @@ const probeStatement = (
 	const sources = sourcesOf(kit, shape)
 	const query = (): Select => {
 		const slots = new PageSlots(kit.delivery.params, (t) => cx.baseTypeRef(t), comparators)
-		const tests = sources.map((source) =>
+		const tests = mapNonEmpty(sources, (source) =>
 			probeTest(cx, {
 				rel: kit.probeRel(source.rel()),
 				heading: source.heading,
@@ -598,7 +603,7 @@ const probeStatement = (
 				slots
 			})
 		)
-		return select(core([target(or(...tests))], [], undefined))
+		return select(core([target(or(tests))], [], undefined))
 	}
 	return kit.statement(query, probeHeading, {
 		role: { kind: "main" },

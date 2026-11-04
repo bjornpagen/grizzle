@@ -49,6 +49,8 @@ export const REJECTED = {
 	"eslint/no-with": "the compiler owns it (TS1101, TS2410)",
 	"eslint/prefer-regex-literals":
 		"it pushes toward regex literals, and arkregex's regex() is the only regex form",
+	"eslint/prefer-spread":
+		"it turns f.apply(this, list) into f(...list), a variable-length list on the call stack, which superlint's no-spread-argument refuses",
 	"eslint/preserve-caught-error": "try/catch is Effect's tryCatchInEffectGen's",
 	"eslint/require-await": "async is banned, and Effect's asyncFunction owns it",
 	"import/no-absolute-path": "it came only with the suspicious category, which is off",
@@ -348,7 +350,14 @@ export type Project = Readonly<{
 	/** The plugin's per-project names, one options object per rule that takes them. */
 	plugin: { readonly [Rule in ConfiguredRule]: OptionsOf<(typeof plugin.rules)[Rule]> }
 	/** The testing library's oxlint plugin, by the specifier oxlint loads it with, and the rules it holds test files to. */
-	tests: Readonly<{ jsPlugin: string; rules: DummyRuleMap }>
+	tests: Readonly<{
+		jsPlugin: string
+		rules: DummyRuleMap
+		/** Clock-free code beyond the test files, and the plugin's clock rules it is held to: the testing library and the
+		 * tests' support, so no verdict rests on a hidden clock. A module whose job is the clock is an override's
+		 * exception. */
+		clock: Readonly<{ files: ReadonlyArray<string>; rules: DummyRuleMap }>
+	}>
 	/** The project's exceptions, in order; later blocks win. */
 	overrides: ReadonlyArray<Readonly<{ files: ReadonlyArray<string>; rules: ActiveRules }>>
 }>
@@ -391,6 +400,18 @@ const PLUGINS: ReadonlyArray<NonNullable<OxlintConfig["plugins"]>[number]> = [
 	"node",
 	"import"
 ]
+
+/** The testing plugin's clock rules over a project's clock-free code, none when it names none. */
+const clockBlock = (tests: Project["tests"]): ReadonlyArray<OxlintOverride> =>
+	Arr.isReadonlyArrayNonEmpty(tests.clock.files)
+		? [
+				{
+					files: [...tests.clock.files],
+					jsPlugins: [tests.jsPlugin],
+					rules: { ...tests.clock.rules, ...OFF }
+				}
+			]
+		: []
 
 /** The repository's oxlint configuration: the shared standard with the project's lists. */
 export const lintConfig = (project: Project): OxlintConfig => ({
@@ -438,6 +459,7 @@ export const lintConfig = (project: Project): OxlintConfig => ({
 			jsPlugins: [project.tests.jsPlugin],
 			rules: { ...pluginRules(project, TEST_RULES), ...project.tests.rules, ...OFF }
 		},
+		...clockBlock(project.tests),
 		...groupBlock(project.ceremony, { "eslint/no-shadow": "off" }),
 		...Arr.map(project.overrides, (block) => ({
 			files: [...block.files],

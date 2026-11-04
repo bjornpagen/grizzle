@@ -16,6 +16,7 @@ import { dbRuntime } from "#adapter/db/db.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
@@ -59,6 +60,7 @@ import {
 	transition,
 	type HostValue
 } from "#test/pg/laws/families/model.ts"
+import type { AmbientSession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
@@ -76,6 +78,7 @@ import { loginLayerIn } from "#test/support/worlds.ts"
  */
 export type FamilyFeature =
 	| "accepted"
+	| "accepted beside an anchor no obligation selects"
 	| "no-change"
 	| RefusalFeature
 	| `op ${OpKind}`
@@ -174,15 +177,81 @@ export interface Refused {
 
 /**
  * A shape of law a refusal may show beside its kind: the feature it notes, whether a law of a schema has the shape,
- * and whether a refusal by such a law shows it, by the state the refused step leaves.
+ * and whether a refusal by such a law shows it, by the states before and after the refused step.
  */
 export interface LawShape {
 	readonly feature: string
 	readonly declares: (law: HostLaw, host: HostSchema) => boolean
-	readonly shows: (after: HostState, law: HostLaw) => boolean
+	readonly shows: (r: Refused, law: HostLaw, host: HostSchema) => boolean
 }
 
 const always = (): boolean => true
+
+/** Whether a step wrote a relation: its facts after differ from its facts before. */
+const wrote = (r: Refused, relation: string): boolean => {
+	const before = r.before.get(relation) ?? []
+	const after = r.after.get(relation) ?? []
+	return (
+		before.length !== after.length ||
+		Arr.some(before, (f) => !Arr.some(after, (g) => sameValues(f, g)))
+	)
+}
+
+/** The side of an obligation, its anchor or its dependent, a refused step wrote alone. */
+const wroteAlone =
+	(side: "anchor" | "dependent") =>
+	(r: Refused, law: HostLaw): boolean =>
+		law.kind === "obliged" &&
+		(side === "anchor"
+			? wrote(r, law.anchor.relation) && !wrote(r, law.dependent.relation)
+			: wrote(r, law.dependent.relation) && !wrote(r, law.anchor.relation))
+
+/** Whether an anchor fact the obligation selects after the step stood under the same key outside its selection. */
+const switchedIn = (r: Refused, law: HostLaw, host: HostSchema): boolean => {
+	if (law.kind !== "obliged") {
+		return false
+	}
+	const key = relationOf(host, law.anchor.relation).key
+	return Arr.some(
+		r.after.get(law.anchor.relation) ?? [],
+		(a) =>
+			selected(a, law.anchor.where) &&
+			Arr.some(
+				r.before.get(law.anchor.relation) ?? [],
+				(b) => projection(a, key) === projection(b, key) && !selected(b, law.anchor.where)
+			)
+	)
+}
+
+/** Whether a dependent fact kept its key and moved: its fields the obligation pairs changed. */
+const dependentMoved = (r: Refused, law: HostLaw, host: HostSchema): boolean => {
+	if (law.kind !== "obliged") {
+		return false
+	}
+	const key = relationOf(host, law.dependent.relation).key
+	return Arr.some(r.after.get(law.dependent.relation) ?? [], (a) =>
+		Arr.some(
+			r.before.get(law.dependent.relation) ?? [],
+			(b) =>
+				projection(a, key) === projection(b, key) &&
+				projection(a, law.dependent.fields) !== projection(b, law.dependent.fields)
+		)
+	)
+}
+
+/** Whether an obligation's dependent fields are other than its relation's key, so a dependent can move. */
+const movable = (law: HostLaw, host: HostSchema): boolean =>
+	law.kind === "obliged" &&
+	!sameFieldSet(relationOf(host, law.dependent.relation).key, law.dependent.fields)
+
+const sameFieldSet = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+	a.length === b.length && Arr.every(a, (f) => b.includes(f))
+
+const obliged = (law: HostLaw): boolean => law.kind === "obliged"
+
+/** Whether an obligation selects its anchors. */
+const selective = (law: HostLaw): boolean =>
+	law.kind === "obliged" && Rec.keys(law.anchor.where).length > 0
 
 /**
  * Every shape of law a refusal may show, each where grizzle's laws have broken: a coverage across renamed fields; a
@@ -204,12 +273,32 @@ export const lawShapes = [
 	{
 		feature: "refused by a candidate span key over unequal spans",
 		declares: (law: HostLaw, host: HostSchema) => isCandidateSpanKey(host, law),
-		shows: overlapsUnequally
+		shows: (r: Refused, law: HostLaw) => overlapsUnequally(r.after, law)
 	},
 	{
 		feature: "two residual laws, one relation, keys of one arity",
 		declares: (law: HostLaw, host: HostSchema) => sharesWitnessRelation(host, law),
 		shows: always
+	},
+	{
+		feature: "refused by an obligation after a write of its anchors alone",
+		declares: obliged,
+		shows: wroteAlone("anchor")
+	},
+	{
+		feature: "refused by an obligation after a write of its dependents alone",
+		declares: obliged,
+		shows: wroteAlone("dependent")
+	},
+	{
+		feature: "refused by an obligation after an anchor switched into its selection",
+		declares: selective,
+		shows: switchedIn
+	},
+	{
+		feature: "refused by an obligation after its dependent moved",
+		declares: movable,
+		shows: dependentMoved
 	}
 ] as const satisfies ReadonlyArray<LawShape>
 
@@ -219,7 +308,7 @@ export const refusalFeatures = (host: HostSchema, r: Refused): ReadonlyArray<Ref
 	const kind: RefusalFeature = `refused by a ${law.kind}`
 	const shown = Arr.map(
 		Arr.filter(lawShapes, (shape) =>
-			Arr.some(r.laws, (l) => shape.declares(l, host) && shape.shows(r.after, l))
+			Arr.some(r.laws, (l) => shape.declares(l, host) && shape.shows(r, l, host))
 		),
 		(shape) => shape.feature
 	)
@@ -280,7 +369,8 @@ export interface Opened<S extends AnySchema> {
  * installation holds no connection: a suite installs each drawn schema once and opens its writers per case.
  */
 export const installLaws = (
-	build: (name: string) => AnySchema
+	build: (name: string) => AnySchema,
+	ambient: AmbientSession
 ): Effect.Effect<
 	Installed,
 	CompileError | SqlError | TransactionRolledBack,
@@ -289,6 +379,7 @@ export const installLaws = (
 	const value = build("Laws")
 	const writers = familyWriters(value)
 	return install(value, {
+		ambient,
 		extensions: [],
 		logins: [writers.server, writers.psql],
 		label: "real"
@@ -747,19 +838,19 @@ export const resolveStep = (
 	const ops: Array<HostOp> = []
 	for (const o of step) {
 		if (o.arm === "fill") {
-			ops.push(...resolveFill(host, domains, state, ops, o))
+			appendAll(ops, resolveFill(host, domains, state, ops, o))
 			continue
 		}
 		if (o.arm === "supported") {
-			ops.push(...resolveSupported(host, domains, state, ops, o))
+			appendAll(ops, resolveSupported(host, domains, state, ops, o))
 			continue
 		}
 		if (o.arm === "unlink") {
-			ops.push(...resolveUnlink(host, state, ops, o))
+			appendAll(ops, resolveUnlink(host, state, ops, o))
 			continue
 		}
 		if (o.arm === "near") {
-			ops.push(...resolveNear(host, domains, state, ops, o))
+			appendAll(ops, resolveNear(host, domains, state, ops, o))
 			continue
 		}
 		const relation = pickIn(host.relations, o.relation, "the relations")
@@ -1458,10 +1549,62 @@ const outcomeFeatures = (
 		case "outside-world":
 			return Result.succeed([])
 		case "accepted":
+			return Result.succeed([
+				"accepted",
+				...(exemptAnchors(host, transition(host, state, ops))
+					? (["accepted beside an anchor no obligation selects"] as const)
+					: [])
+			])
 		case "no-change":
 			return Result.succeed([outcome.kind])
 	}
 }
+
+/**
+ * Whether a state holds a fact of an obligation's anchor relation that no obligation of that relation selects: a parent
+ * at a handle no arm carries, a line its selector leaves unflagged.
+ */
+const exemptAnchors = (host: HostSchema, state: HostState): boolean => {
+	const anchors = new Set(
+		Arr.flatMap(host.laws, (l) => (l.kind === "obliged" && selective(l) ? [l.anchor.relation] : []))
+	)
+	return Arr.some([...anchors], (relation) =>
+		Arr.some(
+			state.get(relation) ?? [],
+			(fact) =>
+				!Arr.some(
+					host.laws,
+					(l) =>
+						l.kind === "obliged" && l.anchor.relation === relation && selected(fact, l.anchor.where)
+				)
+		)
+	)
+}
+
+/**
+ * Whether a family's schema can reach an anchor no obligation selects: a selective obligation's anchor relation, some
+ * value of whose selector fields' domains no obligation of that relation selects.
+ */
+export const exemptReachable = (host: HostSchema, domains: Domains): boolean =>
+	Arr.some(host.laws, (l) => {
+		if (l.kind !== "obliged" || !selective(l)) {
+			return false
+		}
+		const relation = l.anchor.relation
+		const peers = Arr.filter(
+			host.laws,
+			(m): m is Extract<HostLaw, { readonly kind: "obliged" }> =>
+				m.kind === "obliged" && m.anchor.relation === relation
+		)
+		return Arr.some(Rec.keys(l.anchor.where), (field) =>
+			Arr.some(domains[relation]?.[field] ?? [], (value) =>
+				Arr.every(peers, (m) => {
+					const wanted = m.anchor.where[field]
+					return wanted !== undefined && wanted !== value
+				})
+			)
+		)
+	})
 
 /**
  * The harness of the law-bearing generated suites: over law-bearing generated schemas, an outcome is accepted iff the

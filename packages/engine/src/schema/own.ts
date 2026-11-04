@@ -28,7 +28,7 @@ import {
 	type SchemaFingerprint
 } from "#compiler/core/ids.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import { hasProperties } from "#compiler/core/record.ts"
@@ -357,20 +357,20 @@ const lawKey = (kind: "contained" | "mirrors", left: string, right: string): str
 		: `mirrors\u0000${[left, right].toSorted(compareStrings).join("\u0000")}`
 
 /**
- * A predicate with every conjunction's and disjunction's operands in canonical order, recursively. A row check is in
- * the total fragment, which never raises, so operand order carries no meaning. No other term reorders: a comparison's
+ * A predicate with every conjunction's and disjunction's operands in canonical order, recursively. No operation of a
+ * row check raises (scalar/compute/registry.ts Totality), so operand order carries no meaning. No other term reorders: a comparison's
  * sides and a computation's operands keep their meaning by position.
  */
 const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 	switch (expr.kind) {
 		case "and":
 		case "or": {
-			const args = expr.args
-				.map(canonicalPredicate)
-				.map((e) => ({ e, text: textOf(e) }))
-				.toSorted((a, b) => compareText(a.text, b.text))
-				.map((a) => a.e)
-			return { ...expr, args }
+			const keyed = mapNonEmpty(mapNonEmpty(expr.args, canonicalPredicate), (e) => ({
+				e,
+				text: textOf(e)
+			}))
+			const sorted = sortNonEmpty(keyed, (a, b) => compareText(a.text, b.text))
+			return { ...expr, args: mapNonEmpty(sorted, (a) => a.e) }
 		}
 		case "not":
 			return { ...expr, arg: canonicalPredicate(expr.arg) }
@@ -384,6 +384,7 @@ const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 		case "cast":
 		case "base":
 		case "cond":
+		case "when":
 		case "compare":
 		case "between":
 		case "in":
@@ -434,6 +435,11 @@ const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
 			fieldRefs(expr.pred, out)
 			fieldRefs(expr.onTrue, out)
 			fieldRefs(expr.onFalse, out)
+			return out
+		case "when":
+			fieldRefs(expr.subject, out)
+			fieldRefs(expr.proved, out)
+			fieldRefs(expr.otherwise, out)
 			return out
 		case "compare":
 			fieldRefs(expr.left, out)
@@ -912,6 +918,7 @@ class Owner {
 			case "cast":
 			case "base":
 			case "cond":
+			case "when":
 			case "allen":
 			case "pointIn":
 			case "absent":

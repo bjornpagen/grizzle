@@ -1,9 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace, type Situations } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import type { TestContext } from "vitest"
 import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import {
@@ -387,7 +387,8 @@ const precise = (
  * The features every exhaustion must reach: each claim the precision half judges, each evidence shape the universe
  * varies, and the inference rules the operators exercise.
  */
-const coreRequired: ReadonlyArray<ClaimFeature> = [
+/** What the core grammar's population must reach in any context. */
+const coreSnapshotRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"claimed atMostOne",
 	"delivered option",
 	"delivered one",
@@ -402,14 +403,22 @@ const coreRequired: ReadonlyArray<ClaimFeature> = [
 	"precision: elision",
 	"precision: obligation",
 	"precision: option",
-	"precision: bare child",
+	"precision: bare child"
+]
+
+/** What the core grammar's population must reach in a transaction context, which only evidence held at commit opens. */
+const transactionRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"context transaction",
 	"a dangling reference seen in a transaction"
 ]
 
+const coreRequired: Situations<ClaimFeature> = Arr.appendAll(
+	coreSnapshotRequired,
+	transactionRequired
+)
+
 /** What the extended grammar adds: its sources, scans and operators, and the rules they turn on. */
-const extendedRequired: ReadonlyArray<ClaimFeature> = [
-	...coreRequired,
+const extendedAdded: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"scan C",
 	"scan P",
 	"scan reach",
@@ -448,7 +457,7 @@ const exhaustUpTo = (
 	among: Arr.NonEmptyReadonlyArray<Variant>,
 	operators: number,
 	limit: number,
-	required: ReadonlyArray<ClaimFeature>
+	situations: Situations<ClaimFeature>
 ) =>
 	searched(
 		ctx,
@@ -459,7 +468,7 @@ const exhaustUpTo = (
 				literal: ([inst, plan]) =>
 					Formatter.format({ variant: inst.variant.name, scan: plan.scan, steps: plan.steps }),
 				limit,
-				features: features<ClaimFeature>(required),
+				coverage: requiredInSpace<ClaimFeature>(situations),
 				caseHang: Duration.minutes(2)
 			},
 			([inst, plan], c) =>
@@ -484,9 +493,14 @@ const extendedVariants: Arr.NonEmptyReadonlyArray<Variant> = [
 	variantNamed("R(a) S(a), S.b ⊆ R.a")
 ]
 
-/** What these variants cannot reach: a transaction context, which only evidence held at commit opens. */
-const snapshotOnly = (required: ReadonlyArray<ClaimFeature>): ReadonlyArray<ClaimFeature> =>
-	Arr.filter(required, (f) => !Str.includes("transaction")(f))
+/**
+ * What the extended variants must reach: the core's and the extended grammar's own, but never a transaction context,
+ * which only evidence held at commit opens and these variants cannot.
+ */
+const extendedRequired: Situations<ClaimFeature> = Arr.appendAll(
+	coreSnapshotRequired,
+	extendedAdded
+)
 
 describe("the analyses over a small closed universe", () => {
 	it.effect(
@@ -496,7 +510,6 @@ describe("the analyses over a small closed universe", () => {
 
 	it.effect(
 		"every extended query of up to two operators over single keys, with a containment and without",
-		(ctx) =>
-			exhaustUpTo(ctx, extendedGrammar, extendedVariants, 2, 1_000, snapshotOnly(extendedRequired))
+		(ctx) => exhaustUpTo(ctx, extendedGrammar, extendedVariants, 2, 1_000, extendedRequired)
 	)
 })

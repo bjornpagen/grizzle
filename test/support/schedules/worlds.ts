@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Option, Order, Record, type Scope, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import {
 	type HostSchema,
 	rowsDifference,
@@ -6,6 +7,7 @@ import {
 	type Violation,
 	violations
 } from "#test/pg/laws/families/model.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { messageOf } from "#test/support/message.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
@@ -1036,7 +1038,7 @@ const ranOf = (race: WorldRace, i: RunView, recording: Recording): ReadonlyArray
 		if (typeof ran === "string") {
 			return ran
 		}
-		out.push(...ran)
+		appendAll(out, ran)
 	}
 	return out
 }
@@ -1139,8 +1141,9 @@ export const runWorldRace = ({
 	Effect.gen(function* () {
 		const failed = (report: string) => CaseFailed.make({ report: `${race.name}: ${report}` })
 		const s = yield* Substrate
-		const world = yield* Effect.mapError(realizeRace(race.install, race.poolSize), (e) =>
-			failed(`did not realize: ${messageOf(e)}`)
+		const world = yield* Effect.mapError(
+			realizeRace(race.install, ordinarySession, race.poolSize),
+			(e) => failed(`did not realize: ${messageOf(e)}`)
 		)
 		const host = hostSchemaOf(race.install.base, world.names)
 		const initial = yield* setUp(race, world)

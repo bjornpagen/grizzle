@@ -68,6 +68,7 @@ import {
 	rowsReadFrom,
 	scansOf
 } from "#bench/query/support/plans.ts"
+import { maxOf } from "#compiler/core/array.ts"
 import { lateralParentMax, poolBounds } from "#compiler/core/policy.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -172,7 +173,10 @@ const scanLoops = (plan: PlanNode, table: string): number => {
 	if (scans.length === 0) {
 		throw GateSetupError.make({ what: `the plan scans no ${table}` })
 	}
-	return Math.max(...Arr.map(scans, (n) => n.actualLoops))
+	return maxOf(
+		Arr.map(scans, (n) => n.actualLoops),
+		Number.NEGATIVE_INFINITY
+	)
 }
 
 /** @internal */

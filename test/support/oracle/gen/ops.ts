@@ -1,7 +1,21 @@
 import { Array as Arr, Option } from "effect"
-import { type CatalogOpId, OpId, type RangeOpCode, rangeOp } from "#compiler/ir/expr.ts"
+import {
+	type CatalogOpId,
+	type DefinedOp,
+	OpId,
+	type PartialOp,
+	type RangeOpCode
+} from "#compiler/ir/expr.ts"
 import type { AggregateFn } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	binaryCoercion,
+	castOf,
+	connectiveOps,
+	definedIdOf,
+	definedRangeOp,
+	nativeOp
+} from "#compiler/scalar/compute/registry.ts"
 import {
 	bool,
 	float8,
@@ -59,20 +73,58 @@ const rangeCompareCodes: Readonly<Record<CompareOp, RangeOpCode>> = {
 /** text's equality and inequality are texteq and textne, its order text_lt, text_le, text_gt and text_ge. */
 const textSep = (op: CompareOp): string => (op === "eq" || op === "ne" ? "" : "_")
 
-const compareOpIdOf = (carrier: GenCarrier, op: CompareOp): OpId => {
-	if (carrier === "range4" || carrier === "range8") {
-		return rangeOp(rangeCompareCodes[op], carrier)
+/** The registry's identity of a native overload defined on every value, which a generated expression names. */
+export const definedOf = (id: OpId): DefinedOp => {
+	const native = nativeOp(id)
+	const defined = native === undefined ? undefined : definedIdOf(native)
+	if (defined === undefined) {
+		throw new Error(`the generators name no partial or unknown overload: ${String(id)}`)
 	}
-	const { stem, sep } = comparePrefix[carrier]
-	return OpId(`${stem}${carrier === "text" ? textSep(op) : sep}${op}`)
+	return defined
 }
 
-export const compareOpId = (type: ScalarType, op: CompareOp): OpId =>
+/** definedOf, by the identity's spelling. */
+export const definedOpOf = (id: string): DefinedOp => definedOf(OpId(id))
+
+/** The identity of a partial native overload, which a generated expression names only beside its proof. */
+export const partialOpOf = (id: string): PartialOp => {
+	const native = nativeOp(OpId(id))
+	if (native === undefined || !native.partial) {
+		throw new Error(`a partial overload the registry holds: ${id}`)
+	}
+	return native.id
+}
+
+/**
+ * The identity of a cast a generated expression names, defined on every value: the binary coercion within a carrier,
+ * or the registry's cast between two; a narrowing, which needs its proof, is no generated expression's.
+ */
+export const castOpOf = (from: Carrier, to: Carrier): DefinedOp => {
+	if (from === to) {
+		return binaryCoercion
+	}
+	const cast = castOf(from, to)
+	const defined = cast === undefined ? undefined : definedIdOf(cast)
+	if (defined === undefined) {
+		throw new Error(`the generators name no partial or unknown cast: ${from} to ${to}`)
+	}
+	return defined
+}
+
+const compareOpIdOf = (carrier: GenCarrier, op: CompareOp): DefinedOp => {
+	if (carrier === "range4" || carrier === "range8") {
+		return definedRangeOp(rangeCompareCodes[op], carrier)
+	}
+	const { stem, sep } = comparePrefix[carrier]
+	return definedOpOf(`${stem}${carrier === "text" ? textSep(op) : sep}${op}`)
+}
+
+export const compareOpId = (type: ScalarType, op: CompareOp): DefinedOp =>
 	compareOpIdOf(genCarrierOf(type), op)
 
-export const andOp: OpId = OpId("and")
-export const orOp: OpId = OpId("or")
-export const notOp: OpId = OpId("not")
+export const andOp: DefinedOp = connectiveOps.and
+export const orOp: DefinedOp = connectiveOps.or
+export const notOp: DefinedOp = connectiveOps.not
 
 type OpMeaning =
 	| {
@@ -96,9 +148,7 @@ const aggregateSql: Readonly<Record<AggregateFn, string>> = {
 	min: "min",
 	max: "max",
 	boolAnd: "bool_and",
-	boolOr: "bool_or",
-	regrSlope: "regr_slope",
-	regrSxx: "regr_sxx"
+	boolOr: "bool_or"
 }
 
 /** The aggregates the generators produce: the public vocabulary over one column, and the boolean folds. */

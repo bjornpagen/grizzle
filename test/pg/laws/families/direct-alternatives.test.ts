@@ -9,12 +9,15 @@
  */
 
 import { plantedUpdate } from "#test/pg/laws/families/direct.ts"
-import { compositeAlternatives } from "#test/pg/laws/families/families.ts"
+import { compositeAlternatives, variantsOf } from "#test/pg/laws/families/families.ts"
 import { directSuite, type Planted } from "#test/pg/laws/families/suites/direct.ts"
 import { casesPerTest } from "#test/pg/laws/families/suites/family.ts"
 import { plantedInsert } from "#test/pg/laws/families/support.ts"
+import { defined } from "#test/support/assert.ts"
 
-const host = compositeAlternatives.host({ mutable: true })
+const host = compositeAlternatives.host(
+	defined(variantsOf(compositeAlternatives, "mutable")[0], "the mutable composite-key schema")
+)
 const domains = compositeAlternatives.domains
 const payment = plantedInsert(host, domains, "TenantPayment", { tenant: 1, run: 1, amount: 1 })
 

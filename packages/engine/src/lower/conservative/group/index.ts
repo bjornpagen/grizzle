@@ -1,3 +1,6 @@
+import { Refusal } from "#compiler/core/canonical.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { appendNonEmpty, isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
@@ -5,68 +8,122 @@ import {
 	extendEnv,
 	type LowerContext,
 	type Lowerers,
-	type NodeLowerer
+	type NodeLowerer,
+	nodeLabel
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import type { Expr } from "#compiler/sql/ast.ts"
+import { roundToFloat } from "#compiler/lower/conservative/expr/total.ts"
 import {
+	type AggregateOverload,
+	callOverload,
+	type ExactCarrier
+} from "#compiler/scalar/aggregate.ts"
+import type { Call, CountStar, Expr, Target, WindowSpec } from "#compiler/sql/ast.ts"
+import {
+	binary,
 	call,
 	core,
 	countStar,
 	derived,
+	distinctCore,
+	exactNumeric,
 	lit,
-	ne,
 	select,
-	target,
-	types
+	target
 } from "#compiler/sql/build.ts"
 
 type Aggregate = NodeOf<"Group">["aggs"][number]
 
-const isBool = (agg: Aggregate): boolean => agg.args[0]?.type.carrier === "bool"
-
 /**
- * R32's regression slope over (y, x), evaluated only under the test that makes it a value:
- * `CASE WHEN regr_sxx(y, x) <> 0 THEN regr_slope(y, x) ELSE 0 END` (shapes/catalog/native.ts). Every lowering of a
- * regrSlope aggregate builds it so.
+ * An exact sum's numeric total as its result: a float's rounded once to its carrier as IEEE 754 rounds, ±Infinity past
+ * the largest finite value (total.ts roundToFloat); money's the exact amount itself, exact money, which no sum
+ * overflows.
  */
-export const guardedSlope = (args: ReadonlyArray<Expr>): Expr => ({
-	kind: "case",
-	whens: [
-		{
-			when: ne(call("regr_sxx", args), lit.float(0, types.double)),
-			result: call("regr_slope", args)
-		}
-	],
-	else: lit.float(0, types.double),
-	operand: undefined
-})
-
-const aggregateCall = (cx: LowerContext, agg: Aggregate, scope: Env): Expr => {
-	const args = agg.args.map((a) => lowerExpr(cx, a, scope))
-	switch (agg.fn) {
-		case "count":
-			return agg.filter === undefined
-				? countStar()
-				: { ...countStar(), filter: lowerExpr(cx, agg.filter, scope) }
-		case "sum":
-			return call("sum", args)
-		case "avg":
-			return call("avg", args)
-		case "min":
-			return call(isBool(agg) ? "bool_and" : "min", args)
-		case "max":
-			return call(isBool(agg) ? "bool_or" : "max", args)
-		case "boolAnd":
-			return call("bool_and", args)
-		case "boolOr":
-			return call("bool_or", args)
-		case "regrSlope":
-			return guardedSlope(args)
-		case "regrSxx":
-			return call("regr_sxx", args)
+const roundedSum = (total: Expr, exact: ExactCarrier): Expr => {
+	switch (exact) {
+		case "float4":
+			return roundToFloat(total, "float4")
+		case "float8":
+			return roundToFloat(total, "float8")
+		case "money":
+			return total
 	}
 }
+
+/**
+ * An exact mean: the exact total, its display scale trimmed because numeric_div reads it (I2), over the count, rounded
+ * once to double precision as IEEE 754 rounds.
+ */
+const roundedMean = (total: Expr, count: Expr): Expr =>
+	roundToFloat(binary("/", call("trim_scale", [total]), count), "float8")
+
+/**
+ * An aggregate's SQL as its overload's lowering states it (scalar/aggregate.ts AggregateLowering): the one place an
+ * overload becomes SQL, which every emitter calls, a grouped fold with no window and a running fold with its window.
+ * Each aggregate call it writes takes `window` as its OVER, and count(*) takes `filter`, the one filtered aggregate.
+ */
+export const aggregateExpr = (
+	overload: AggregateOverload,
+	args: ReadonlyArray<Expr>,
+	filter: Expr | undefined,
+	window: WindowSpec | undefined
+): Expr => {
+	const over = (c: Call): Call => ({ ...c, over: window })
+	const counted = (where: Expr | undefined): CountStar => ({
+		...countStar(),
+		filter: where,
+		over: window
+	})
+	const lowering = overload.lowering
+	switch (lowering.kind) {
+		case "native":
+			return overload.fn === "count" ? counted(filter) : over(call(overload.sql, args))
+		case "scaleFree":
+			return over(
+				call(
+					overload.sql,
+					args.map((a) => call("trim_scale", [a]))
+				)
+			)
+		case "exactSum":
+			return roundedSum(
+				over(
+					call(
+						"sum",
+						args.map((a) => exactNumeric(a, lowering.exact))
+					)
+				),
+				lowering.exact
+			)
+		case "exactMean":
+			return roundedMean(
+				over(
+					call(
+						"sum",
+						args.map((a) => exactNumeric(a, lowering.exact))
+					)
+				),
+				counted(undefined)
+			)
+	}
+}
+
+/** The overload of a Group's aggregate over its arguments' types, refused where PostgreSQL defines none. */
+export const groupAggregateOverload = (agg: Aggregate, at: string): AggregateOverload => {
+	const overload = callOverload(agg, SourceLoc(at, []))
+	if (!overload.ok) {
+		throw new Refusal(overload.error)
+	}
+	return overload.value
+}
+
+const aggregateCall = (cx: LowerContext, agg: Aggregate, scope: Env, at: string): Expr =>
+	aggregateExpr(
+		groupAggregateOverload(agg, at),
+		agg.args.map((a) => lowerExpr(cx, a, scope)),
+		agg.filter === undefined ? undefined : lowerExpr(cx, agg.filter, scope),
+		undefined
+	)
 
 /**
  * Group: fold the rule's distinct complete bindings, grouped by the nonaggregate head terms.
@@ -82,24 +139,24 @@ const aggregateCall = (cx: LowerContext, agg: Aggregate, scope: Env): Expr => {
  * the constant is a column its input carries.
  *
  * Boolean min and max are bool_and and bool_or over actual groups; count is count(*), and only count is
- * filtered.
+ * filtered. Each aggregate is its overload's lowering (aggregateExpr), so it is a function of its arguments' multiset.
  */
 const lowerGroup: NodeLowerer<"Group"> = (node, cx, env) => {
 	const input = cx.source(node.input, env)
 	const aggregateOnly = node.keys.length === 0
-	/** SELECT DISTINCT <bound tuple> [, true]: the contributions. */
 	const boundTargets = node.bound.map((name) => target(columnIn(input.map, name)))
-	const contributions = select({
-		...core(
-			aggregateOnly ? [...boundTargets, target(lit.bool(true))] : boundTargets,
-			[input.item],
-			undefined
-		),
-		distinct: true
-	})
+	/**
+	 * SELECT DISTINCT <bound tuple> [, true]: the contributions, the constant private group key after the bound tuple
+	 * exactly when the fold has no key, as a bound tuple of no field has none.
+	 */
+	const read: { readonly targets: NonEmptyReadonlyArray<Target>; readonly present: boolean } =
+		!aggregateOnly && isNonEmpty(boundTargets)
+			? { targets: boundTargets, present: false }
+			: { targets: appendNonEmpty(boundTargets, target(lit.bool(true))), present: true }
+	const contributions = select(distinctCore(read.targets, [input.item], undefined))
 	const origin = { kind: "node", node: node.id } as const
 	const boundColumns = node.bound.map((name) => ({ name, column: cx.supply.column(origin) }))
-	const presentColumns = aggregateOnly ? [cx.supply.column(origin)] : []
+	const presentColumns = read.present ? [cx.supply.column(origin)] : []
 	const columns = [...boundColumns.map((b) => b.column), ...presentColumns]
 	const alias = cx.relationAlias(origin)
 	const bound = new Map<string, Expr>()
@@ -110,16 +167,16 @@ const lowerGroup: NodeLowerer<"Group"> = (node, cx, env) => {
 	 * The aggregates read the bound tuple only, and each heading column is a key, within the bound tuple, or an
 	 * aggregate (valid DAG), read through the input's node id.
 	 */
-	const scope = extendEnv(env, [node.input.id, bound])
+	const scope = extendEnv(env, [[node.input.id, bound]])
 	const aggOf = new Map(node.aggs.map((a) => [a.name, a]))
 	const targets = node.heading.map((c) =>
 		target(
 			node.keys.includes(c.name)
 				? columnIn(bound, c.name)
-				: aggregateCall(cx, columnIn(aggOf, c.name), scope)
+				: aggregateCall(cx, columnIn(aggOf, c.name), scope, nodeLabel(node))
 		)
 	)
-	const groupBy: ReadonlyArray<Expr> = aggregateOnly
+	const groupBy: ReadonlyArray<Expr> = read.present
 		? presentColumns.map((column) => ({ kind: "column", table: alias, column }))
 		: node.keys.map((k) => columnIn(bound, k))
 	return select({

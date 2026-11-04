@@ -1,8 +1,9 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, type Situations } from "@grizzle/testing/features"
 import { constant, type Gen, weighted } from "@grizzle/testing/gen"
 import type { Nature, PctSchedule } from "@grizzle/testing/interleave"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { assert } from "#test/support/assert.ts"
@@ -151,7 +152,7 @@ export const worldRaceSuite = <C>(spec: {
 	readonly draw: Gen<C>
 	readonly race: (c: C, nature: Nature) => WorldRace
 	readonly kept: ReadonlyArray<Kept<C, WorldRaceFeature>>
-	readonly required: ReadonlyArray<WorldRaceFeature>
+	readonly required: Situations<WorldRaceFeature>
 }): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(spec.file, (it) => {
 		it.effect(
@@ -164,13 +165,15 @@ export const worldRaceSuite = <C>(spec: {
 							suite: `worlds/${spec.file}`,
 							draw: drawn(spec.draw),
 							literal: Formatter.format,
-							features: features<WorldRaceFeature>(spec.required),
+							coverage: required<WorldRaceFeature>(spec.required, {
+								cases: raceRuns,
+								sense: notesOnly
+							}),
 							kept: spec.kept,
 							runs: raceRuns,
 							shrink: { kind: "bounded", candidates: 30 },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(c, k) => Effect.scoped(runWorldRace({ race: spec.race(c, k), note: k.note }))

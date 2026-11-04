@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { compileReasonText } from "#compiler/core/errors.ts"
 import { ExprId, NodeId, OccurrenceId, ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -22,6 +23,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { claimedColumns, claimedKeyIn, claimedKeyShape, viewKeyShape } from "#compiler/ir/keys.ts"
+import type { PreconditionProof } from "#compiler/ir/proof.ts"
 import {
 	aggregateArity,
 	type CompletedOrder,
@@ -60,6 +62,9 @@ import {
 import { literalShape, scalarTypeShape, tableExprShape } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, isRefined, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
+import { proofHolds } from "#compiler/scalar/compute/lower.ts"
+import { binaryCoercion, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { meets } from "#compiler/scalar/compute/types.ts"
 import { defined } from "#test/support/assert.ts"
 
 /**
@@ -93,7 +98,7 @@ const closureOf = (table: DagTable, roots: ReadonlyArray<ExprId>): ReadonlyArray
 		seen.add(id)
 		if (e !== undefined) {
 			out.push(e)
-			queue.push(...e.args)
+			appendAll(queue, e.args)
 		}
 	}
 	return out
@@ -268,7 +273,7 @@ const reachFrom = (
 		for (const n of fresh) {
 			seen.add(n)
 		}
-		queue.push(...fresh)
+		appendAll(queue, fresh)
 	}
 	return queue
 }
@@ -777,17 +782,10 @@ class Checker {
 				args.push(arg)
 			}
 		}
-		/**
-		 * Its effects are its own joined with its arguments' (exprEffects): an argument that can fail makes it fail,
-		 * since predicate order cannot prove it safe, a stable one makes it stable, a checked cast and a domain cast
-		 * can fail, and every other kind is immutable and total of itself.
-		 */
+		/** Its volatility is its own joined with its arguments' (exprEffects): a stable argument makes it stable. */
 		const effects = exprEffects(expr, args)
 		if (effects.volatility !== expr.volatility) {
 			this.report(path, `${effects.volatility} volatility`)
-		}
-		if (effects.failure !== expr.failure) {
-			this.report(path, `${effects.failure}: its own failure joined with its arguments'`)
 		}
 		for (const problem of this.kindProblems(expr, args)) {
 			this.report(path, problem)
@@ -826,12 +824,17 @@ class Checker {
 				return problem === undefined ? [] : [problem]
 			}
 			case "domainCast":
-				return isRefined(expr.type) ? [] : ["a contract or regex-refined target for a domain cast"]
+				return !isRefined(expr.type)
+					? ["a contract or regex-refined target for a domain cast"]
+					: proofHolds(expr.proof, { type: expr.type, operand: args[0]?.type })
+						? []
+						: ["a proof the kernel re-derives from its premises"]
 			case "cond":
 				return condProblems(expr.type, args)
 			case "cast":
+				return proofProblems(expr.cast, "proof" in expr ? expr.proof : undefined, expr.type, args)
 			case "op":
-				return []
+				return proofProblems(expr.op, "proof" in expr ? expr.proof : undefined, expr.type, args)
 		}
 	}
 
@@ -1198,7 +1201,10 @@ class Checker {
 		}
 	}
 
-	/** An occurrence's bindings and constants: columns of its source at the types of their variables and constants. */
+	/**
+	 * An occurrence's bindings and constants: columns of its source at the types of their variables, and constants of
+	 * the column's base type or of the exact family it widens into (types.ts meets), compared as values.
+	 */
 	checkOccurrence(
 		o: TableOf<"MatchRegion">["occurrences"][number],
 		path: ReadonlyArray<string | number>,
@@ -1222,8 +1228,12 @@ class Checker {
 			const t = this.exprType(c.expr)
 			if (col === undefined) {
 				this.report(path, `a source column ${c.column} in ${describeHeading(source)}`)
-			} else if (t !== undefined && !sameScalarType(baseOf(col.type), baseOf(t))) {
-				this.report(path, `a constant for ${c.column} of its base type`)
+			} else if (
+				t !== undefined &&
+				!sameScalarType(baseOf(col.type), baseOf(t)) &&
+				!meets(baseOf(col.type), baseOf(t))
+			) {
+				this.report(path, `a constant for ${c.column} of its base type or its exact family`)
 			}
 		}
 	}
@@ -1598,14 +1608,14 @@ const keySetShape: S.Shape<KeySet> = S.uniqueStrings("key columns", S.nonEmptySt
 const nodeMetaShape: S.Shape<NodeMeta> = S.struct({
 	paramDeps: S.uniqueIds("parameter dependencies", S.branded(ParamId, S.nonEmptyString)),
 	logicalKeys: S.array(claimedKeyShape),
-	card: S.literalsShape("many", "atMostOne", "one"),
+	card: S.literalsShape(["many", "atMostOne", "one"]),
 	reads: S.uniqueStrings("relation names", S.nonEmptyString),
 	context: evidenceContextShape
 })
 
 const orderShape: S.Shape<CompletedOrder> = S.struct({
 	keys: S.uniqueArray(
-		S.struct({ column: S.nonEmptyString, dir: S.literalsShape("asc", "desc") }),
+		S.struct({ column: S.nonEmptyString, dir: S.literalsShape(["asc", "desc"]) }),
 		(k) => k.column,
 		"order columns"
 	)
@@ -1618,7 +1628,7 @@ const takeBoundShape: S.Shape<TakeBound> = S.tagged("kind", {
 
 const frameOffset = S.refine(S.bigint, (n) => n >= 0n, "a nonnegative frame offset")
 const frameBoundShape: S.Shape<FrameBound> = S.unionShape(
-	S.literalsShape("unboundedPreceding", "currentRow"),
+	S.literalsShape(["unboundedPreceding", "currentRow"]),
 	S.struct({ preceding: frameOffset }),
 	S.struct({ following: frameOffset })
 )
@@ -1638,7 +1648,7 @@ const framePosition = (b: FrameBound): number | bigint =>
 				: b.following
 
 const frameShape: S.Shape<WindowFrame> = S.refine(
-	S.struct({ unit: S.literalsShape("rows"), start: frameBoundShape, end: frameBoundShape }),
+	S.struct({ unit: S.literalsShape(["rows"]), start: frameBoundShape, end: frameBoundShape }),
 	(f) => f.end !== "unboundedPreceding" && framePosition(f.start) <= framePosition(f.end),
 	"a ROWS frame whose start does not lie after its end"
 )
@@ -1647,7 +1657,7 @@ const columnPairsShape = S.array(S.struct({ left: S.nonEmptyString, right: S.non
 const correlationShape = S.array(S.struct({ column: S.nonEmptyString, expr: exprIdShape }))
 
 const terminationShape: S.Shape<TerminationCert> = S.struct({
-	kind: S.literalsShape("finiteCarrier", "boundedState", "wellFounded"),
+	kind: S.literalsShape(["finiteCarrier", "boundedState", "wellFounded"]),
 	stateEstimate: S.refine(S.bigint, (n) => n > 0n, "a positive state estimate"),
 	premises: S.array(premiseShape)
 })
@@ -1726,7 +1736,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 		{
 			...common,
 			relation: S.nonEmptyString,
-			side: S.literalsShape("added", "removed"),
+			side: S.literalsShape(["added", "removed"]),
 			keys: S.array(S.nonEmptyUniqueStrings("key columns"))
 		},
 		commonStated,
@@ -1813,9 +1823,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 					min: aggregateCase(S.single(exprIdShape)),
 					max: aggregateCase(S.single(exprIdShape)),
 					boolAnd: aggregateCase(S.single(exprIdShape)),
-					boolOr: aggregateCase(S.single(exprIdShape)),
-					regrSlope: aggregateCase(S.pairShape(exprIdShape)),
-					regrSxx: aggregateCase(S.pairShape(exprIdShape))
+					boolOr: aggregateCase(S.single(exprIdShape))
 				})
 			)
 		},
@@ -1852,7 +1860,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 			score: S.nonEmptyString,
 			take: S.refine(S.bigint, (k) => k > 0n, "a positive bound"),
 			params: S.uniqueIds("parameter ids", S.branded(ParamId, S.nonEmptyString)),
-			sealed: S.literalsShape(true)
+			sealed: S.literalsShape([true])
 		},
 		commonStated,
 		{}
@@ -1882,7 +1890,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 			input: nodeIdShape,
 			partition: keySetShape,
 			order: orderShape,
-			fn: S.literalsShape(...windowFns),
+			fn: S.literalsShape(windowFns),
 			op: S.branded(OpId, S.nonEmptyString),
 			args: S.array(exprIdShape),
 			out: S.nonEmptyString,
@@ -1896,7 +1904,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 			...common,
 			input: nodeIdShape,
 			keys: keySetShape,
-			fn: S.literalsShape(...orderedSetFns),
+			fn: S.literalsShape(orderedSetFns),
 			op: S.branded(OpId, S.nonEmptyString),
 			order: orderShape,
 			fractions: S.array(exprIdShape),
@@ -1970,7 +1978,7 @@ const conformed = (table: DagTable): DagTable =>
  *   the child's order;
  * - a SelfRef is read only inside its Recursive's step: the step reaches it, and no node outside the step, the base
  *   included, reads it;
- * - the internal Window and OrderedSetAggregate nodes have their functions' arities, frames and headings (R26-R32,
+ * - the internal Window and OrderedSetAggregate nodes have their functions' arities, frames and headings (R26-R31,
  *   R41); a Group aggregate has its arity, and only count is filtered (R24);
  * - a delivery node (an attachment, an ordered result) a root reaches lies on that root's delivered rows (dag.ts
  *   deliverySpine), so nothing is attached or ordered where no statement delivers it; checked once every other rule
@@ -1994,6 +2002,38 @@ export const validateTable = (table: DagTable): DagTable => {
  * Validates a DAG grizzle built over its outside form (validateTable); a label two of its nodes share is a defect. It
  * hands back the DAG it read, as typed: an assembled DAG stays one, and reading another brands nothing.
  */
+
+/**
+ * The problems of an operation's or a cast's proof: the registry's overload is partial exactly where the node carries a
+ * proof, and the proof kernel re-derives the precondition from its premises (lower.ts proofHolds), so every partial
+ * operation a DAG holds stands where its precondition is proved, the soundness half of "no read raises".
+ */
+const proofProblems = (
+	op: OpId,
+	proof: PreconditionProof | undefined,
+	type: ScalarType,
+	args: ReadonlyArray<TableExpr>
+): ReadonlyArray<string> => {
+	const native = nativeOp(op)
+	if (native === undefined || op === binaryCoercion) {
+		return native === undefined && op !== binaryCoercion
+			? [`an overload the registry holds, not ${String(op)}`]
+			: proof === undefined
+				? []
+				: ["no proof on a coercion, which is defined everywhere"]
+	}
+	if (native.partial !== (proof !== undefined)) {
+		return [
+			native.partial
+				? "the proof a partial overload stands with"
+				: "no proof on an overload defined everywhere"
+		]
+	}
+	return proof === undefined || proofHolds(proof, { type, operand: args[0]?.type })
+		? []
+		: ["a proof the kernel re-derives from its premises"]
+}
+
 export const validateDag = <D extends RelDag>(dag: D): D => {
 	const table = toTable(dag)
 	if (!table.ok) {

@@ -2,7 +2,7 @@ import { boolean, type Gen, int as intGen, map, option, uniqueArray } from "@gri
 import { Array as Arr, Option } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import { OpId, type TypedLiteral } from "#compiler/ir/expr.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { rewriteClaim } from "#compiler/ir/keys.ts"
 import {
 	conservativeMeta,
@@ -15,6 +15,8 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { bool, compareParamType, int4, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
+import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { type GenRelation, type GenSchema, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { present } from "#test/unit/lower/support.ts"
@@ -205,7 +207,7 @@ const resolveWide = (s: WideSketch): QueryCase => {
 	if (s.filter !== undefined) {
 		const pred = b.expr({
 			kind: "op",
-			op: OpId("int4ge"),
+			op: definedOpOf("int4ge"),
 			args: [
 				column(stage, "score", int4),
 				b.expr({
@@ -218,8 +220,7 @@ const resolveWide = (s: WideSketch): QueryCase => {
 			],
 			type: bool,
 			nonNull: "strict",
-			volatility: "immutable",
-			failure: "total"
+			volatility: "immutable"
 		})
 		stage = b.node({
 			kind: "Filter",
@@ -280,16 +281,16 @@ const resolveWide = (s: WideSketch): QueryCase => {
 		: take
 	return {
 		schema: wideSchema,
-		facts: {
+		facts: canonicalFacts({
 			Doc: Arr.map(s.docs, ([id, body, score]) => [
 				int(id),
 				text(present(bodies[body], `body ${body}`)),
 				int(score)
 			]),
 			Ref: Arr.map(s.refs, ([id, doc, n]) => [int(id), int(doc), int(n)])
-		},
+		}),
 		query: { dag: validateDag(b.build(Arr.of(root))), params: {} },
-		spelling: { mode: "perCase", choices: [], edge: false }
+		spelling: { mode: "drawn", edge: false }
 	}
 }
 

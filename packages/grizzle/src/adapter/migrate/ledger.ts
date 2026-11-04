@@ -23,13 +23,31 @@ import {
 } from "#compiler/deploy/ledger/ledger.ts"
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emitCatalog } from "#compiler/sql/emit.ts"
 
-/** One row, the number of ledger tables of the schema: 0 before its first migration, else 1. */
+const relations = C.from("pg_class", "c")
+const namespaces = C.from("pg_namespace", "n")
+
+/** One row, the number of ledger tables of the schema $1, named $2: 0 before its first migration, else 1. */
 const ledgerExists: CatalogQuery<boolean> = {
-	sql:
-		"SELECT pg_catalog.count(*)::text AS c0 FROM pg_catalog.pg_class AS c " +
-		"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
-		"WHERE n.nspname = $1::text AND c.relname = $2::name AND c.relkind = 'r'::\"char\"",
+	sql: emitCatalog(
+		C.query(
+			[C.asText(C.countStar)],
+			[
+				C.join(
+					relations.item,
+					namespaces.item,
+					C.eq(namespaces.col("oid"), relations.col("relnamespace"))
+				)
+			],
+			C.and([
+				C.eq(namespaces.col("nspname"), C.param(1, "text")),
+				C.eq(relations.col("relname"), C.param(2, "name")),
+				C.eq(relations.col("relkind"), C.letter("r"))
+			])
+		)
+	),
 	what: "a ledger table count of 0 or 1",
 	row: ([count]) => (count === "1" ? true : count === "0" ? false : undefined)
 }

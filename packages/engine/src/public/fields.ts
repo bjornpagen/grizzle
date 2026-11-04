@@ -8,8 +8,15 @@ import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
 import { spanColumn, spanParts } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
+import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
-import type { BaseOf, Parameterless, Predicate } from "#compiler/types/core/phantom.ts"
+import type {
+	BaseOf,
+	DomainOf,
+	Facts,
+	Parameterless,
+	Predicate
+} from "#compiler/types/core/phantom.ts"
 import type {
 	ClosedIdConstructor,
 	ContractBase,
@@ -23,6 +30,7 @@ import type {
 import type {
 	ClosedIdField,
 	Contract,
+	DeclaredFacts,
 	Field,
 	FieldBase,
 	HandleOf,
@@ -34,6 +42,8 @@ import type { AnyClosed } from "#compiler/types/schema/relation.ts"
 
 export { Decimal } from "#compiler/scalar/values/decimal.ts"
 export { Money } from "#compiler/scalar/values/money.ts"
+/** The uuid host value, uuid_out's spelling as ArkRegex infers it, and its parse from a plain string. */
+export { Uuid } from "#compiler/scalar/values/uuid.ts"
 /** pgvector's carrier, a branded Float32Array. */
 export { Vector } from "#compiler/scalar/values/vector.ts"
 export type {
@@ -58,8 +68,8 @@ export type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
  * Public barrel: Scalar field descriptors: uuid, pg, contract, span and closedId, the runtime values of
- * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Decimal and Money and
- * pgvector's carrier Vector. str.regex is the text barrel's.
+ * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Decimal and Money,
+ * the uuid host value Uuid and pgvector's carrier Vector. str.regex is the text barrel's.
  *
  * The runtime descriptors carry their literal SQL names, their members and their columns (scalar/registry.ts
  * defineField), so each binding has its public type by construction: a descriptor's host type is its column's. A
@@ -68,21 +78,25 @@ export type { VectorField } from "#compiler/types/vector/vector.ts"
  * is its base's, branded by that same constructor. A JavaScript caller can pass anything, an empty name or a fourth argument included, which the
  * admission cores refuse.
  */
-export const uuid: Field<string, "uuid"> = uuidDescriptor
+export const uuid: Field<Uuid, "uuid"> = uuidDescriptor
 
 export const pg: Pg = pgDescriptors
 
 export const contract: ContractConstructor = <
 	const Name extends string,
 	B extends FieldBase,
-	Pr extends Predicate = Predicate
+	Pr extends Predicate = Predicate,
+	const Proved extends ReadonlyArray<keyof Facts> = readonly []
 >(
 	name: Name,
 	base: B & NotSerialBase<B> & ContractBase<NoInfer<Name>, B> & OneContractName<NoInfer<Name>>,
-	predicate: ((v: Scalar<Infer<B>>) => Pr & Parameterless<Pr>) | undefined,
+	predicate:
+		| ((v: Scalar<DomainOf<B>, unknown, unknown, B["sql"], Infer<B>>) => Pr & Parameterless<Pr>)
+		| undefined,
+	declared: { readonly proves: Proved } | undefined,
 	...extra: ReadonlyArray<never>
-): Contract<Name, B> => {
-	const parts = contractParts(name, base, predicate, ...extra)
+): Contract<Name, B, DeclaredFacts<Proved>> => {
+	const parts = contractParts(name, base, [predicate, declared, ...extra])
 	type Unbranded = Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>
 	const brand = nominal<Unbranded, Unbranded & Infer<B> & Brand.Brand<Name>>()
 	const column = brandColumn(base.column, brand)

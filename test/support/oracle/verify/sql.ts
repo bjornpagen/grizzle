@@ -1,7 +1,9 @@
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { placeholderToken } from "#compiler/deploy/render/markers.ts"
 import {
 	type Analyze,
 	builtinFunctionNames,
@@ -37,6 +39,7 @@ import {
 	type TableConstraint,
 	type TableName,
 	type Target,
+	type TriggerEvent,
 	type TypeRef,
 	tableConstraints,
 	type Update
@@ -44,7 +47,8 @@ import {
 import { types } from "#compiler/sql/build.ts"
 import { type Lexed, lex, type Token } from "#compiler/sql/lexer.ts"
 import { bodyPositionNames, isDecimal } from "#compiler/sql/naming.ts"
-import { printType } from "#compiler/sql/print.ts"
+import { printType, storedSettingValue } from "#compiler/sql/print.ts"
+import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 /** r<n>: the generated alias of a relation occurrence or a stage. */
 const isGeneratedRelationName = (name: string): boolean =>
@@ -78,6 +82,7 @@ type AuditRule =
 	| "untypedLiteral"
 	| "checkWithoutIsTrue"
 	| "caseWithoutElse"
+	| "emptyList"
 
 interface SqlViolation {
 	readonly rule: AuditRule
@@ -280,6 +285,28 @@ const context = (
 	plVars
 })
 
+/** The row images a trigger's WHEN may read, by its event: an INSERT's NEW, a DELETE's OLD, an UPDATE's both. */
+const eventImages: Readonly<Record<TriggerEvent["kind"], ReadonlySet<"NEW" | "OLD">>> = {
+	INSERT: new Set(["NEW"]),
+	DELETE: new Set(["OLD"]),
+	UPDATE: new Set(["NEW", "OLD"])
+}
+
+/** The row images an expression reads a field of. */
+const imagesRead = (e: Expr): ReadonlySet<"NEW" | "OLD"> => {
+	const read = new Set<"NEW" | "OLD">()
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "field" && x.record.kind === "plSpecial") {
+				read.add(x.record.name)
+			}
+			return x
+		}
+	})
+	return read
+}
+
 /**
  * Where a query body sits: its enclosing scope and CTEs, its PL/pgSQL variables, and whether it is the outermost
  * output, whose names may be public.
@@ -328,7 +355,7 @@ const bodyWidth = (body: SelectBody): number => {
 		case "core":
 			return body.targets.length
 		case "setOp":
-			return bodyWidth(body.left)
+			return bodyWidth(body.arms[0])
 		case "select":
 			return bodyWidth(body.body)
 	}
@@ -337,7 +364,27 @@ const bodyWidth = (body: SelectBody): number => {
 const selectWidth = (select: Select): number => bodyWidth(select.body)
 
 /**
- * The aliases a set operation's right arm writes, position by position (its own first core's); PostgreSQL ignores
+ * Whether a query reads the unit relation: one core of no target or of the unit marker alone (`true`), whose rows hold
+ * no column a reader names, so a CTE over it lists none.
+ */
+export const isUnitRead = (select: Select): boolean => {
+	const body = select.body
+	if (body.kind !== "core") {
+		return false
+	}
+	const [only, ...rest] = body.targets
+	return (
+		only === undefined ||
+		(rest.length === 0 &&
+			only.alias === undefined &&
+			only.expr.kind === "literal" &&
+			only.expr.value.kind === "bool" &&
+			only.expr.value.value)
+	)
+}
+
+/**
+ * The aliases a set operation's later arm writes, position by position (its own first core's); PostgreSQL ignores
  * them, which is why they must agree with the union's names when present.
  */
 const bodyAliases = (body: SelectBody): ReadonlyArray<string | undefined> => {
@@ -345,7 +392,7 @@ const bodyAliases = (body: SelectBody): ReadonlyArray<string | undefined> => {
 		case "core":
 			return Arr.map(body.targets, (target) => target.alias)
 		case "setOp":
-			return bodyAliases(body.left)
+			return bodyAliases(body.arms[0])
 		case "select":
 			return bodyAliases(body.body)
 	}
@@ -362,6 +409,11 @@ class StatementAuditor {
 
 	/** `at`: the path segments below the current place where the violation sits, none for the place itself. */
 	report(rule: AuditRule, detail: string, ...at: ReadonlyArray<string | number>): void {
+		this.reportAt(rule, detail, at)
+	}
+
+	/** A violation at the path `at` below the current one. */
+	reportAt(rule: AuditRule, detail: string, at: ReadonlyArray<string | number>): void {
 		this.violations.push({ rule, where: formatPath([...this.#path, ...at]), detail })
 	}
 
@@ -417,13 +469,13 @@ class StatementAuditor {
 
 	ident(name: string, what: string, ...at: ReadonlyArray<string | number>): void {
 		if (name.length === 0) {
-			this.report("identifier", `${what} is empty`, ...at)
+			this.reportAt("identifier", `${what} is empty`, at)
 		} else if (Str.includes("\u0000")(name)) {
-			this.report("identifier", `${what} contains NUL`, ...at)
+			this.reportAt("identifier", `${what} contains NUL`, at)
 		} else if (!isWellFormed(name)) {
-			this.report("identifier", `${what} is not well-formed UTF-16`, ...at)
+			this.reportAt("identifier", `${what} is not well-formed UTF-16`, at)
 		} else if (utf8Length(name) > maxIdentifierBytes) {
-			this.report("identifier", `${what} "${name}" exceeds ${maxIdentifierBytes} bytes`, ...at)
+			this.reportAt("identifier", `${what} "${name}" exceeds ${maxIdentifierBytes} bytes`, at)
 		}
 	}
 
@@ -452,7 +504,10 @@ class StatementAuditor {
 		this.#defined.add(name)
 	}
 
-	/** A column list a stage defines: c<n> names, distinct. */
+	/**
+	 * A column list a stage defines: c<n> names, distinct. An empty list is a relation of no column, which PostgreSQL
+	 * spells by leaving the list out and whose columns nothing reads by name.
+	 */
 	columnList(names: ReadonlyArray<string>, what: string, generated: boolean): ReadonlySet<string> {
 		const seen = new Set<string>()
 		for (const [i, name] of names.entries()) {
@@ -464,9 +519,6 @@ class StatementAuditor {
 				this.report("columnList", `${what} column "${name}" is listed twice`, i)
 			}
 			seen.add(name)
-		}
-		if (names.length === 0) {
-			this.report("columnList", `${what} has an empty column list`)
 		}
 		return seen
 	}
@@ -485,10 +537,10 @@ class StatementAuditor {
 	/** The one collation. The type admits nothing else; this holds it for data that bypassed the type. */
 	collation(collation: Collation, ...at: ReadonlyArray<string | number>): void {
 		if (!isCUtf8(collation)) {
-			this.report(
+			this.reportAt(
 				"collation",
 				`the collation "${collation.schema}"."${collation.name}" is not pg_catalog.pg_c_utf8`,
-				...at
+				at
 			)
 		}
 	}
@@ -700,9 +752,6 @@ class StatementAuditor {
 				})
 				return
 			case "inList":
-				if (e.list.length === 0) {
-					this.report("arity", "an empty IN list")
-				}
 				this.at("expr", () => {
 					this.expr(e.expr, ctx)
 				})
@@ -724,9 +773,6 @@ class StatementAuditor {
 				})
 				return
 			case "row":
-				if (e.items.length === 0) {
-					this.report("arity", "an empty row")
-				}
 				this.exprs(e.items, ctx, "items")
 				return
 			case "case":
@@ -757,9 +803,6 @@ class StatementAuditor {
 				return
 			case "greatest":
 			case "least":
-				if (e.args.length === 0) {
-					this.report("arity", `${Str.toUpperCase(e.kind)} of no operands`)
-				}
 				this.exprs(e.args, ctx, "args")
 				return
 			case "mergeAction":
@@ -787,6 +830,9 @@ class StatementAuditor {
 				} else if (ctx.plVars === undefined) {
 					this.report("context", `${e.record.name} outside PL/pgSQL`)
 				}
+				return
+			case "regclass":
+				this.objectName(e.relation, "relation", "relation")
 				return
 			case "user":
 				return
@@ -999,7 +1045,8 @@ class StatementAuditor {
 	}
 
 	/**
-	 * A query CTE carries an explicit column list, matching its width.
+	 * A query CTE lists its columns, matching its width, or none over a unit read (`isUnitRead`): a relation of no
+	 * column, whose columns nothing reads by name.
 	 *
 	 * PostgreSQL refuses a data-modifying CTE in any WITH but the statement's own: in a derived table, a subquery,
 	 * a set operation's arm, a CTE body, an INSERT's source query or the WITH of another data-modifying CTE
@@ -1018,9 +1065,9 @@ class StatementAuditor {
 			this.at("columns", () => this.columnList(listed, "CTE", true))
 		}
 		if (body.kind === "select") {
-			if (listed.length === 0) {
+			if (listed.length === 0 && !isUnitRead(body)) {
 				this.report("columnList", `CTE "${cte.name}" has no column list`)
-			} else if (listed.length !== selectWidth(body)) {
+			} else if (listed.length > 0 && listed.length !== selectWidth(body)) {
 				this.report(
 					"columnList",
 					`CTE "${cte.name}" lists ${listed.length} columns for ${selectWidth(body)}`
@@ -1125,31 +1172,38 @@ class StatementAuditor {
 			case "core":
 				return this.core(body, ctx)
 			case "setOp": {
-				const left = bodyWidth(body.left)
-				const right = bodyWidth(body.right)
-				if (left !== right) {
-					this.report("arity", `${body.op} of arms with ${left} and ${right} columns`)
-				}
+				const [first, ...later] = body.arms
+				const width = bodyWidth(first)
 				/**
-				 * UNION arms of one width rename their columns position by position to the union's names. The right arm
-				 * either names no column, taking the union's names, or names every column with the union's name at its
-				 * position.
+				 * UNION arms of one width rename their columns position by position to the union's names, the first arm's.
+				 * A later arm either names no column, taking the union's names, or names every column with the union's
+				 * name at its position.
 				 */
-				const names = bodyPositionNames(body.left)
-				const aliases = bodyAliases(body.right)
-				const at =
-					left === right && Arr.some(aliases, (alias) => alias !== undefined)
-						? Arr.findFirstIndex(names, (name, i) => name === undefined || aliases[i] !== name)
-						: Option.none()
-				if (Option.isSome(at)) {
-					this.report(
-						"naming",
-						`${body.op} arm names column ${at.value + 1} ${shownName(aliases[at.value])}, not the union's ${shownName(names[at.value])}`,
-						"right"
-					)
+				const names = bodyPositionNames(first)
+				for (const [i, arm] of later.entries()) {
+					const armWidth = bodyWidth(arm)
+					if (armWidth !== width) {
+						this.report("arity", `${body.op} of arms with ${width} and ${armWidth} columns`)
+					}
+					const aliases = bodyAliases(arm)
+					const at =
+						armWidth === width && Arr.some(aliases, (alias) => alias !== undefined)
+							? Arr.findFirstIndex(names, (name, j) => name === undefined || aliases[j] !== name)
+							: Option.none()
+					if (Option.isSome(at)) {
+						this.report(
+							"naming",
+							`${body.op} arm names column ${at.value + 1} ${shownName(aliases[at.value])}, not the union's ${shownName(names[at.value])}`,
+							"arms",
+							i + 1
+						)
+					}
 				}
-				this.at("left", () => this.body(body.left, ctx))
-				this.at("right", () => this.body(body.right, ctx))
+				this.at("arms", () => {
+					for (const [i, arm] of body.arms.entries()) {
+						this.at(i, () => this.body(arm, ctx))
+					}
+				})
 				return undefined
 			}
 			case "select":
@@ -1170,14 +1224,8 @@ class StatementAuditor {
 				this.at(i, () => this.fromItem(item, scope, ctx.scope, ctx.ctes, ctx.plVars))
 			}
 		})
-		if (core.targets.length === 0) {
-			this.report("arity", "a SELECT without targets")
-		}
 		if (typeof core.distinct === "object") {
 			const on = core.distinct.on
-			if (on.length === 0) {
-				this.report("arity", "an empty DISTINCT ON")
-			}
 			this.positional(on, "DISTINCT ON", "distinct")
 			this.exprs(on, exprCtx, "distinct")
 		}
@@ -1382,18 +1430,28 @@ class StatementAuditor {
 				this.defineRelation(item.alias, "alias")
 				return register(item.alias, { columns })
 			}
-			case "join":
-			case "crossJoin": {
-				const left = this.at("left", () => this.fromItem(item.left, scope, outer, ctes, plVars))
-				const right = this.at("right", () => this.fromItem(item.right, scope, outer, ctes, plVars))
-				const arms = [...left, ...right]
-				if (item.kind === "join") {
-					const on = scopeOver(outer, arms)
-					this.at("on", () => {
-						this.expr(item.on, context("query", on, ctes, plVars))
-					})
+			case "joins": {
+				const joined: Array<readonly [string, Relation]> = []
+				const add = (relations: ReadonlyArray<readonly [string, Relation]>): void => {
+					for (const relation of relations) {
+						joined.push(relation)
+					}
 				}
-				return arms
+				add(this.at("first", () => this.fromItem(item.first, scope, outer, ctes, plVars)))
+				this.at("steps", () => {
+					for (const [i, step] of item.steps.entries()) {
+						this.at(i, () => {
+							add(this.at("source", () => this.fromItem(step.source, scope, outer, ctes, plVars)))
+							if (step.kind === "on") {
+								const on = scopeOver(outer, joined)
+								this.at("on", () => {
+									this.expr(step.on, context("query", on, ctes, plVars))
+								})
+							}
+						})
+					}
+				})
+				return joined
 			}
 		}
 	}
@@ -1425,9 +1483,6 @@ class StatementAuditor {
 	}
 
 	valuesRows(rows: ReadonlyArray<ReadonlyArray<Expr>>, width: number, ctx: ExprContext): void {
-		if (rows.length === 0) {
-			this.report("arity", "VALUES without rows")
-		}
 		this.at("rows", () => {
 			for (const [i, row] of rows.entries()) {
 				this.at(i, () => {
@@ -1488,9 +1543,6 @@ class StatementAuditor {
 				? outer
 				: this.with(insert.with.ctes, insert.with.recursive, outer, undefined, undefined, topLevel)
 		this.tableName(insert.table, "table")
-		if (insert.columns.length === 0) {
-			this.report("columnList", "INSERT without columns")
-		}
 		this.at("columns", () => {
 			this.baseColumns(insert.columns, "INSERT column")
 		})
@@ -1532,18 +1584,12 @@ class StatementAuditor {
 					this.ident(conflict.constraint, "arbiter constraint", "constraint")
 					return
 				}
-				if (conflict.columns.length === 0) {
-					this.report("arity", "ON CONFLICT without an arbiter")
-				}
 				this.at("columns", () => {
 					this.baseColumns(conflict.columns, "arbiter column")
 				})
 				const ctx: ExprContext = { ...context("query", scope, ctes, undefined), excluded: true }
 				const action = conflict.action
 				if (action.kind === "doUpdate") {
-					if (action.set.length === 0) {
-						this.report("arity", "DO UPDATE without SET")
-					}
 					this.assignments(action.set, ctx)
 				}
 				if (action.kind !== "doNothing" && action.where !== undefined) {
@@ -1582,9 +1628,6 @@ class StatementAuditor {
 		this.objectName(update.table, "table", "table")
 		const scope = this.writeScope(update.alias, update.from, "from", ctes)
 		const ctx = context("query", scope, ctes, undefined)
-		if (update.set.length === 0) {
-			this.report("arity", "UPDATE without SET")
-		}
 		this.assignments(update.set, ctx)
 		if (update.where !== undefined) {
 			const where = update.where
@@ -1673,7 +1716,10 @@ class StatementAuditor {
 			}
 		})
 		/** old.* is NULL for a row an INSERT action produced, new.* for a row a DELETE action removed. */
-		const inserts = Arr.some(merge.whens, (when) => when.action.kind === "insert")
+		const inserts = Arr.some(
+			merge.whens,
+			(when) => when.action.kind === "insert" || when.action.kind === "insertDefault"
+		)
 		const deletes = Arr.some(merge.whens, (when) => when.action.kind === "delete")
 		const sides = new Set<"old" | "new">()
 		if (!inserts) {
@@ -1716,9 +1762,6 @@ class StatementAuditor {
 		if (column.generated?.kind === "stored") {
 			this.ddlExpr(column.generated.expr, tableColumns, "generated")
 		}
-		if (column.default !== undefined) {
-			this.ddlExpr(column.default, new Set(), "default")
-		}
 	}
 
 	/** A span key's span, and a PERIOD reference's span, is the last column. */
@@ -1728,9 +1771,6 @@ class StatementAuditor {
 		at: string
 	): void {
 		this.at(at, () => {
-			if (columns.length === 0) {
-				this.report("arity", "an empty key")
-			}
 			const seen = new Set<string>()
 			for (const [i, c] of columns.entries()) {
 				this.ident(c.column, "key column", i)
@@ -1833,9 +1873,6 @@ class StatementAuditor {
 
 	/** ANALYZE names carriers, each at most once. */
 	analyze(statement: Analyze): void {
-		if (statement.carriers.length === 0) {
-			this.report("arity", "ANALYZE of no carrier")
-		}
 		this.uniqueNames(statement.carriers, "analyzed carrier")
 	}
 
@@ -1851,9 +1888,6 @@ class StatementAuditor {
 
 	createFunction(fn: CreateFunction): void {
 		this.objectName(fn.name, "function", "name")
-		for (const [i, schema] of fn.searchPath.entries()) {
-			this.ident(schema, "search_path schema", i)
-		}
 		if (fn.language === "sql") {
 			this.sqlFunction(fn)
 			return
@@ -2005,37 +2039,30 @@ class StatementAuditor {
 				})
 				return
 			case "perform":
-				if (statement.query.with !== undefined || statement.query.body.kind !== "core") {
-					this.report("context", "PERFORM of a query that does not start with SELECT")
-				}
 				this.at("query", () => {
-					embeddedSelect(statement.query)
+					embeddedSelect({ kind: "select", with: undefined, ...statement.query })
+				})
+				return
+			case "whenAbsent":
+				this.at("probe", () => {
+					embeddedSelect({ kind: "select", with: undefined, ...statement.probe })
+				})
+				this.at("body", () => {
+					this.plStatements(statement.body, vars)
 				})
 				return
 			case "case":
 				this.at("operand", () => {
 					this.expr(statement.operand, ctx)
 				})
-				if (statement.whens.length === 0) {
-					this.report("arity", "a CASE without WHEN")
-				}
 				for (const [i, branch] of statement.whens.entries()) {
 					this.at("whens", () => {
 						this.at(i, () => {
-							if (branch.values.length === 0) {
-								this.report("arity", "a WHEN without values")
-							}
 							this.exprs(branch.values, ctx, "values")
 							this.at("body", () => {
 								this.plStatements(branch.body, vars)
 							})
 						})
-					})
-				}
-				if (statement.else !== undefined) {
-					const otherwise = statement.else
-					this.at("else", () => {
-						this.plStatements(otherwise, vars)
 					})
 				}
 				return
@@ -2203,6 +2230,7 @@ class StatementAuditor {
 						this.at(i, () => {
 							switch (action.kind) {
 								case "addColumn":
+								case "addColumnPlaceholder":
 									this.at("column", () => {
 										this.columnDef(action.column, undefined)
 									})
@@ -2222,7 +2250,15 @@ class StatementAuditor {
 										this.type(action.type)
 									})
 									this.collatable(action.type, action.collation, "column")
-									this.ddlExpr(action.using, undefined, "using")
+									this.at("using", () => {
+										switch (action.using.kind) {
+											case "expr":
+												this.ddlExpr(action.using.expr, undefined, "expr")
+												return
+											case "placeholder":
+												return
+										}
+									})
 									return
 								case "addConstraintUsingIndex":
 									this.ident(action.name, "constraint", "name")
@@ -2319,9 +2355,6 @@ class StatementAuditor {
 			case "createIndex":
 				this.ident(statement.name, "index", "name")
 				this.objectName(statement.table, "table", "table")
-				if (statement.keys.length === 0) {
-					this.report("arity", "an index without keys")
-				}
 				this.at("keys", () => {
 					for (const [i, key] of statement.keys.entries()) {
 						this.at(i, () => {
@@ -2447,17 +2480,22 @@ class StatementAuditor {
 				this.ident(statement.name, "trigger", "name")
 				this.objectName(statement.table, "table", "table")
 				this.objectName(statement.function, "function", "function")
-				const kinds = new Set<string>()
-				for (const [i, event] of statement.events.entries()) {
-					if (kinds.has(event.kind)) {
-						this.report("arity", `trigger event ${event.kind} given twice`, i)
-					}
-					kinds.add(event.kind)
-					if (event.kind === "UPDATE") {
-						this.at(i, () => {
-							this.baseColumns(event.of, "UPDATE OF column")
-						})
-					}
+				const event = statement.event
+				if (event.kind === "UPDATE") {
+					this.at("event", () => {
+						this.baseColumns(event.of, "UPDATE OF column")
+					})
+				}
+				const when = statement.when
+				if (when !== undefined) {
+					this.at("when", () => {
+						this.expr(when, context("ddl", undefined, undefined, new Set()))
+						for (const image of imagesRead(when)) {
+							if (!eventImages[event.kind].has(image)) {
+								this.report("context", `a ${event.kind} trigger's WHEN reading ${image}`)
+							}
+						}
+					})
 				}
 				return
 			}
@@ -2473,22 +2511,16 @@ class StatementAuditor {
 				return
 			case "alterRole":
 				this.ident(statement.name, "role", "name")
-				if (
-					statement.action.kind === "set" &&
-					(Str.includes("\u0000")(statement.action.value) || !isWellFormed(statement.action.value))
-				) {
-					this.report("literal", "a setting value that is not well-formed text")
+				if (statement.action.kind === "set") {
+					const value = storedSettingValue(statement.action.setting)
+					if (Str.includes("\u0000")(value) || !isWellFormed(value)) {
+						this.report("literal", "a setting value that is not well-formed text")
+					}
 				}
 				return
 			case "grant":
 			case "revoke": {
-				if (statement.privileges.length === 0) {
-					this.report("arity", `${Str.toUpperCase(statement.kind)} without privileges`)
-				}
 				const on = statement.on
-				if (on.names.length === 0) {
-					this.report("arity", `${Str.toUpperCase(statement.kind)} on no object`)
-				}
 				if (on.kind === "SCHEMA") {
 					for (const [i, name] of on.names.entries()) {
 						this.ident(name, "schema", i)
@@ -2499,9 +2531,6 @@ class StatementAuditor {
 					}
 				}
 				const grantees = statement.kind === "grant" ? statement.to : statement.from
-				if (grantees.length === 0) {
-					this.report("arity", `${Str.toUpperCase(statement.kind)} to no role`)
-				}
 				for (const [i, g] of grantees.entries()) {
 					if (g.kind === "role") {
 						this.ident(g.name, "role", i)
@@ -2515,9 +2544,6 @@ class StatementAuditor {
 				}
 				if (statement.inSchema !== undefined) {
 					this.ident(statement.inSchema, "schema", "inSchema")
-				}
-				if (statement.privileges.length === 0) {
-					this.report("arity", "default privileges without privileges")
 				}
 				for (const [i, g] of statement.from.entries()) {
 					if (g.kind === "role") {
@@ -2535,17 +2561,11 @@ class StatementAuditor {
 			case "createStatistics":
 				this.objectName(statement.name, "statistics", "name")
 				this.objectName(statement.table, "table", "table")
-				if (statement.columns.length < 2) {
-					this.report("arity", "extended statistics over fewer than two columns")
-				}
 				this.at("columns", () => {
 					this.baseColumns(statement.columns, "statistics column")
 				})
 				return
 			case "lockTable":
-				if (statement.tables.length === 0) {
-					this.report("arity", "LOCK TABLE of no table")
-				}
 				for (const [i, t] of statement.tables.entries()) {
 					this.objectName(t, "table", i)
 				}
@@ -2594,9 +2614,7 @@ const nullOnEmptyAggregates: ReadonlySet<string> = new Set([
 	"jsonb_agg",
 	"percentile_disc",
 	"percentile_cont",
-	"mode",
-	"regr_slope",
-	"regr_sxx"
+	"mode"
 ])
 
 /**
@@ -2627,6 +2645,7 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "plSpecial":
 		case "field":
 		case "user":
+		case "regclass":
 			return
 		case "cast":
 		case "collate":
@@ -2721,11 +2740,8 @@ const outputNames = (names: ReadonlyArray<string | undefined>): ReadonlySet<stri
 }
 
 const cteColumns = (cte: Cte): ReadonlySet<string> | undefined => {
-	if (cte.columns.length > 0) {
+	if (cte.columns.length > 0 || cte.query.kind === "select") {
 		return new Set(cte.columns)
-	}
-	if (cte.query.kind === "select") {
-		return undefined
 	}
 	const names: Array<string> = []
 	for (const target of cte.query.returning) {
@@ -2821,6 +2837,34 @@ const isWord = (token: Token | undefined, upper: string): boolean =>
 const isPunct = (token: Token | undefined, text: string): boolean =>
 	token?.kind === "punct" && token.text === text
 
+/**
+ * Whether the "(" at `open`, closed by the token after it, is a column list PostgreSQL writes empty only by leaving it
+ * out: an alias's (`AS "r1"()`), a CTE's (`"r1"() AS (`) or an INSERT's (`INSERT INTO "s"."t"()`). A table's column
+ * definitions (`CREATE TABLE "t" ()`) and a call's arguments (`"pg_catalog"."now"()`) are neither.
+ */
+const isEmptiedList = (tokens: ReadonlyArray<Token>, open: number): boolean => {
+	const name = tokens[open - 1]
+	if (name?.kind !== "quotedIdent" && name?.kind !== "word") {
+		return false
+	}
+	const before = tokens[open - 2]
+	const body = tokens[open + 3]
+	const cte =
+		!isPunct(before, ".") &&
+		isWord(tokens[open + 2], "AS") &&
+		(isPunct(body, "(") || isWord(body, "MATERIALIZED") || isWord(body, "NOT"))
+	return isWord(before, "AS") || cte || insertsInto(tokens, open - 1)
+}
+
+/** Whether the name ending at `last`, a qualified name read backwards through its dots, follows INSERT INTO. */
+const insertsInto = (tokens: ReadonlyArray<Token>, last: number): boolean => {
+	let first = last
+	while (isPunct(tokens[first - 1], ".")) {
+		first -= 2
+	}
+	return isWord(tokens[first - 1], "INTO") && isWord(tokens[first - 2], "INSERT")
+}
+
 /** (-<number>)::type, the printer's form for a negative typed constant, around the number at `i`. */
 const negativeTyped = (tokens: ReadonlyArray<Token>, i: number): boolean => {
 	const prev = tokens[i - 1]
@@ -2833,13 +2877,19 @@ const negativeTyped = (tokens: ReadonlyArray<Token>, i: number): boolean => {
 	)
 }
 
-/** Whether the `*` at `i` is a column wildcard: after SELECT, DISTINCT, ALL, RETURNING, ",", "." or "(" other than count(*). */
+/** Whether the `*` at `i` is a column wildcard: after SELECT, DISTINCT, ALL, RETURNING, ",", "." or "(" other than
+ * pg_catalog's count(*), as the printer qualifies it. */
 const isColumnWildcard = (tokens: ReadonlyArray<Token>, i: number): boolean => {
 	const prev = tokens[i - 1]
 	const afterWord = prev?.kind === "word" && starPredecessors.has(prev.upper)
 	const afterPunct = isPunct(prev, ",") || isPunct(prev, ".")
+	const count = tokens[i - 2]
 	const countStar =
-		isPunct(prev, "(") && isWord(tokens[i - 2], "COUNT") && isPunct(tokens[i + 1], ")")
+		isPunct(prev, "(") &&
+		count?.kind === "quotedIdent" &&
+		count.text === "count" &&
+		isPunct(tokens[i - 3], ".") &&
+		isPunct(tokens[i + 1], ")")
 	return afterWord || afterPunct || (isPunct(prev, "(") && !countStar)
 }
 
@@ -2946,7 +2996,8 @@ const notNullPredecessors: ReadonlySet<string> = new Set([
 	"STORED",
 	"SET",
 	"TRUE",
-	"FALSE"
+	"FALSE",
+	Str.toUpperCase(placeholderToken)
 ])
 
 /**
@@ -3162,8 +3213,16 @@ class TextAuditor {
 					this.report("selectStar", t.start, "a column wildcard")
 				}
 				break
-			case "quotedIdent":
 			case "punct":
+				if (t.text === "(" && isPunct(next, ")") && isEmptiedList(tokens, i)) {
+					this.report(
+						"emptyList",
+						t.start,
+						"an empty column list, which PostgreSQL spells by leaving the list out"
+					)
+				}
+				break
+			case "quotedIdent":
 				break
 		}
 		return cases
@@ -3178,7 +3237,7 @@ class TextAuditor {
 		}
 		const inner = new TextAuditor(this.base + t.bodyStart)
 		inner.statement(body.tokens, true)
-		this.violations.push(...inner.violations)
+		appendAll(this.violations, inner.violations)
 	}
 
 	/**

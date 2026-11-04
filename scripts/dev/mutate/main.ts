@@ -27,6 +27,7 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import { maxOf } from "#compiler/core/array.ts"
 import { covered, isDump, type ScriptRanges, scriptsOfDump } from "#scripts/dev/mutate/coverage.ts"
 import {
 	applyMutant,
@@ -450,8 +451,14 @@ const populationOf = Effect.fn("populationOf")(function* (base: string, settings
 
 /** The queues' items taken in turns, one from each queue per round, until every queue is spent. */
 const interleaved = <T>(queues: Arr.NonEmptyReadonlyArray<ReadonlyArray<T>>): ReadonlyArray<T> =>
-	Arr.flatMap(indices(Math.max(...Arr.map(queues, (q) => q.length))), (round) =>
-		Arr.getSomes(Arr.map(queues, (q) => Arr.get(q, round)))
+	Arr.flatMap(
+		indices(
+			maxOf(
+				Arr.map(queues, (q) => q.length),
+				Number.NEGATIVE_INFINITY
+			)
+		),
+		(round) => Arr.getSomes(Arr.map(queues, (q) => Arr.get(q, round)))
 	)
 
 /**

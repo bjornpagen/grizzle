@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -13,6 +13,7 @@ import {
 	string,
 	uniqueArray
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
@@ -134,13 +135,12 @@ describe("fingerprints", () => {
 						(source) => [source.draw(contentGen), source.draw(element(changes))] as const
 					),
 					literal: Formatter.format,
-					features: features<Change>(changes),
+					coverage: required<Change>(changes, { cases: 400, sense: notesOnly }),
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([{ entries, locs }, change], c) =>
@@ -203,17 +203,15 @@ describe("fingerprints", () => {
 									] as const
 							),
 							literal: Formatter.format,
-							features: features<DomainFeature>([
-								"two domains",
-								"an empty domain",
-								"a domain of two lines"
-							]),
+							coverage: required<DomainFeature>(
+								["two domains", "an empty domain", "a domain of two lines"],
+								{ cases: 200, sense: notesOnly }
+							),
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						([value, a, b, tail], c) =>

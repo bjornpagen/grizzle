@@ -31,9 +31,11 @@ import type {
 	ObjectName,
 	OnConflict,
 	OrderItem,
+	PerformQuery,
 	PlBlock,
 	PlRecord,
 	PlStatement,
+	RoleSetting,
 	Select,
 	SelectBody,
 	SelectCore,
@@ -44,6 +46,7 @@ import type {
 	TriggerEvent,
 	TypeRef,
 	Update,
+	Using,
 	WindowSpec,
 	With
 } from "#compiler/sql/ast.ts"
@@ -94,6 +97,11 @@ const objectName = (name: ObjectName): SqlForm => ({ schema: name.schema, name: 
 const tableName = (name: TableName): SqlForm => (typeof name === "string" ? name : objectName(name))
 
 const collation = (c: Collation): SqlForm => ({ schema: c.schema, name: c.name })
+
+const roleSetting = (setting: RoleSetting): SqlForm =>
+	setting.parameter === "search_path"
+		? { parameter: setting.parameter }
+		: { parameter: setting.parameter, value: setting.value }
 
 /** The type a recordset's placeholder is cast to, jsonb, as typeRef writes it. */
 const jsonbForm: SqlForm = { kind: "builtin", name: "jsonb" }
@@ -243,6 +251,8 @@ const expr = (e: Expr): SqlForm => {
 			return { kind: e.kind, name: e.name }
 		case "field":
 			return { kind: e.kind, record: plRecord(e.record), field: e.field }
+		case "regclass":
+			return { kind: e.kind, relation: objectName(e.relation) }
 	}
 }
 
@@ -298,15 +308,16 @@ const fromItem = (item: FromItem): SqlForm => {
 				refusal: functionRef(item.refusal),
 				alias: item.alias
 			}
-		case "join":
+		case "joins":
 			return {
 				kind: item.kind,
-				left: fromItem(item.left),
-				right: fromItem(item.right),
-				on: expr(item.on)
+				first: fromItem(item.first),
+				steps: item.steps.map((step): SqlForm =>
+					step.kind === "on"
+						? { kind: step.kind, source: fromItem(step.source), on: expr(step.on) }
+						: { kind: step.kind, source: fromItem(step.source) }
+				)
 			}
-		case "crossJoin":
-			return { kind: item.kind, left: fromItem(item.left), right: fromItem(item.right) }
 	}
 }
 
@@ -329,12 +340,7 @@ const selectBody = (body: SelectBody): SqlForm => {
 		case "core":
 			return selectCore(body)
 		case "setOp":
-			return {
-				kind: body.kind,
-				op: body.op,
-				left: selectBody(body.left),
-				right: selectBody(body.right)
-			}
+			return { kind: body.kind, op: body.op, arms: body.arms.map(selectBody) }
 		case "select":
 			return select(body)
 	}
@@ -359,6 +365,14 @@ const select = (s: Select): SqlForm => ({
 	...list("orderBy", s.orderBy, orderItem),
 	...maybe("limit", s.limit, expr),
 	...maybe("offset", s.offset, expr)
+})
+
+/** A PERFORM's query: its core and its tail clauses, with no kind, since it is always one core. */
+const performQuery = (q: PerformQuery): SqlForm => ({
+	body: selectCore(q.body),
+	...list("orderBy", q.orderBy, orderItem),
+	...maybe("limit", q.limit, expr),
+	...maybe("offset", q.offset, expr)
 })
 
 const assignment = (a: Assignment): SqlForm => ({ column: a.column, value: expr(a.value) })
@@ -431,6 +445,7 @@ const mergeAction = (action: MergeWhen["action"]): SqlForm => {
 				...maybe("overriding", action.overriding, same),
 				row: action.row.map(assignment)
 			}
+		case "insertDefault":
 		case "delete":
 		case "doNothing":
 			return { kind: action.kind }
@@ -478,9 +493,11 @@ const columnDef = (c: ColumnDef): SqlForm => ({
 	name: c.name,
 	type: typeRef(c.type),
 	...maybe("collation", c.collation, collation),
-	...maybe("generated", c.generated, columnGeneration),
-	...maybe("default", c.default, expr)
+	...maybe("generated", c.generated, columnGeneration)
 })
+
+const using = (u: Using): SqlForm =>
+	u.kind === "expr" ? { kind: u.kind, expr: expr(u.expr) } : { kind: u.kind }
 
 const keyColumn = (c: KeyColumn): SqlForm => ({
 	column: c.column,
@@ -602,13 +619,14 @@ const plStatement = (s: PlStatement): SqlForm => {
 		case "forQuery":
 			return { kind: s.kind, variable: s.variable, query: select(s.query), body: plBody(s.body) }
 		case "perform":
-			return { kind: s.kind, query: select(s.query) }
+			return { kind: s.kind, query: performQuery(s.query) }
+		case "whenAbsent":
+			return { kind: s.kind, probe: performQuery(s.probe), body: plBody(s.body) }
 		case "case":
 			return {
 				kind: s.kind,
 				operand: expr(s.operand),
-				whens: s.whens.map((w) => ({ values: w.values.map(expr), body: plBody(w.body) })),
-				...maybe("else", s.else, plBody)
+				whens: s.whens.map((w) => ({ values: w.values.map(expr), body: plBody(w.body) }))
 			}
 		case "raise":
 			return {
@@ -636,7 +654,6 @@ const createFunction = (f: CreateFunction): SqlForm => {
 			volatility: f.volatility,
 			...parallel(f.parallel),
 			security: f.security,
-			searchPath: f.searchPath,
 			planCacheMode: f.planCacheMode,
 			body: plBlock(f.body),
 			returns: f.returns,
@@ -650,7 +667,6 @@ const createFunction = (f: CreateFunction): SqlForm => {
 		volatility: f.volatility,
 		...parallel(f.parallel),
 		security: f.security,
-		searchPath: f.searchPath,
 		planCacheMode: f.planCacheMode,
 		returns: f.returns,
 		params,
@@ -779,7 +795,8 @@ export const statementForm = (s: SqlStatement): SqlForm => {
 				kind: s.kind,
 				name: s.name,
 				table: objectName(s.table),
-				events: s.events.map(triggerEvent),
+				event: triggerEvent(s.event),
+				...maybe("when", s.when, expr),
 				function: objectName(s.function)
 			}
 		case "createGuardTrigger":
@@ -799,7 +816,7 @@ export const statementForm = (s: SqlStatement): SqlForm => {
 				name: s.name,
 				action:
 					s.action.kind === "set"
-						? { kind: s.action.kind, parameter: s.action.parameter, value: s.action.value }
+						? { kind: s.action.kind, setting: roleSetting(s.action.setting) }
 						: { kind: s.action.kind, parameter: s.action.parameter }
 			}
 		case "grantRole":
@@ -868,6 +885,7 @@ export const statementForm = (s: SqlStatement): SqlForm => {
 const alterTableAction = (action: AlterTableAction): SqlForm => {
 	switch (action.kind) {
 		case "addColumn":
+		case "addColumnPlaceholder":
 			return { kind: action.kind, column: columnDef(action.column) }
 		case "dropColumn":
 		case "dropDefault":
@@ -879,7 +897,7 @@ const alterTableAction = (action: AlterTableAction): SqlForm => {
 				column: action.column,
 				type: typeRef(action.type),
 				...maybe("collation", action.collation, collation),
-				using: expr(action.using)
+				using: using(action.using)
 			}
 		case "addIdentity":
 			return { kind: action.kind, column: action.column, sequence: objectName(action.sequence) }

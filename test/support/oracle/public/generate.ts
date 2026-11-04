@@ -11,7 +11,6 @@ import {
 } from "@grizzle/testing/swarm"
 import { Array as Arr, Effect, Option } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
-import { printsAlike } from "#compiler/codec/scalar.ts"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { pageMaxSize } from "#compiler/core/policy.ts"
@@ -20,16 +19,26 @@ import { nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
+import { type AmbientSession, ambientSessionGen } from "#test/support/ambient.ts"
 import { fileText, joinPath } from "#test/support/files.ts"
 import { admittedNames, literalDictionary, readmeStrings } from "#test/support/kernel/dict.ts"
 import {
+	canonicallySpelled,
 	compareParamType,
 	hasCap,
+	numericPaddings,
+	paddedText,
 	scalarOfSpec,
+	type SpelledValue,
+	spelledAt,
+	twinSpellings,
+	twinsOf,
 	valueClasses
 } from "#test/support/oracle/gen/domain.ts"
 import { aggregateResult, type CompareOp, compareOps } from "#test/support/oracle/gen/ops.ts"
+import { type Restorage, restorageGen } from "#test/support/oracle/gen/restorage.ts"
 import { type Perturbation, plannerPerturbationGen } from "#test/support/oracle/perturb.ts"
 import { indices } from "#test/support/oracle/pick.ts"
 import {
@@ -42,6 +51,7 @@ import {
 import {
 	type AggregateFn,
 	type AllenAtom,
+	type ArgTerm,
 	type Attachment,
 	aggregateFns,
 	type Between,
@@ -52,9 +62,11 @@ import {
 	type Column,
 	type Comparison,
 	type ComputedTerm,
+	type Connective,
 	type Delivery,
 	type Derived,
 	endpointType,
+	factValues,
 	type ProgramFact,
 	type ProgramField,
 	type FieldKind,
@@ -75,6 +87,7 @@ import {
 	type Operand,
 	type OrderKey,
 	type Param,
+	type Padding,
 	type ParamDeclaration,
 	type ParentColumn,
 	type PointIn,
@@ -89,6 +102,7 @@ import {
 	type Source,
 	type StatedDelivery,
 	type Stored,
+	type StoredFact,
 	sourceFields,
 	type Var
 } from "#test/support/oracle/public/program.ts"
@@ -121,6 +135,8 @@ import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
  * The root is named after its bound.
  *
  * A head holds Compute terms; an aggregate's groups are keyed by them.
+ *
+ * A rule filters by r.and or r.or over comparisons, or over none: the constant true or false.
  *
  * A root rule's later match reads a relation-valued parameter, or an acyclic closure over one relation.
  *
@@ -170,6 +186,7 @@ const swarmFeatures = [
 	"computed group key",
 	"between",
 	"in set",
+	"connective",
 	"relation param",
 	"recursive",
 	"contract param",
@@ -183,7 +200,8 @@ export type SwarmFeature = (typeof swarmFeatures)[number]
 /**
  * The program forms the generator reaches beyond the language's plain rules, each named once: computed group keys,
  * contract params, typmod params, imports bound to outer vars, r.allen, r.pointIn and interiors; import, bind,
- * interior, named, compute head, between, in set, relation param and recursive.
+ * interior, named, compute head, between, in set, an in set of no value (a membership no row holds), r.and() and r.or()
+ * of no predicate (the constants true and false), relation param and recursive.
  *
  * A root rule matches an earlier query read of the case.
  *
@@ -217,7 +235,8 @@ export type SwarmFeature = (typeof swarmFeatures)[number]
  *
  * r.pointIn(point, span).
  *
- * Arms of one heading whose literal head key differs between at least two of them (r.literal in each arm's head).
+ * Arms of one heading whose literal head key differs between at least two of them (a JavaScript value in each arm's
+ * head).
  */
 export const programForms = [
 	"an import",
@@ -230,6 +249,9 @@ export const programForms = [
 	"a computed group key",
 	"a between",
 	"an in set",
+	"an empty in set",
+	"an empty conjunction",
+	"an empty disjunction",
 	"a relation param",
 	"a recursive closure",
 	"compare a contract field with a param",
@@ -277,6 +299,8 @@ export type ProgramFeature =
 	| `compare ${CompareOp} with ${Operand<never>["kind"]}`
 	| "negation"
 	| `aggregate ${AggregateFn}`
+	| `aggregate ${AggregateFn} over a padding`
+	| `compute ${ComputedTerm["kind"]}`
 	| "zero-column head"
 	| "ordered delivery"
 	| ProgramForm
@@ -348,9 +372,16 @@ const headItemFeatures = (h: HeadItem, aggregate: boolean): ReadonlyArray<Progra
 		case "count":
 			return ["aggregate count"]
 		case "fold":
-			return [`aggregate ${h.fn}`]
+			return h.arg.kind === "padded"
+				? [`aggregate ${h.fn}`, `aggregate ${h.fn} over a padding`]
+				: [`aggregate ${h.fn}`]
 		case "computed":
-			return aggregate ? ["a computed head key", "a computed group key"] : ["a computed head key"]
+			return [
+				`compute ${h.term.kind}`,
+				...(aggregate
+					? (["a computed head key", "a computed group key"] as const)
+					: (["a computed head key"] as const))
+			]
 		case "literal":
 			return []
 	}
@@ -395,8 +426,12 @@ const ruleFeatures = <P extends ParentColumn>(rule: Rule<P>): ReadonlyArray<Prog
 	]),
 	...(rule.between.length > 0 ? ["a between" as const] : []),
 	...(rule.inSets.length > 0 ? ["an in set" as const] : []),
+	...(Arr.some(rule.inSets, (s) => s.values.length === 0) ? ["an empty in set" as const] : []),
 	...(rule.allens.length > 0 ? ["an Allen relation" as const] : []),
 	...(rule.pointIns.length > 0 ? ["a point in a span" as const] : []),
+	...Arr.flatMap(rule.connectives, (c): ReadonlyArray<ProgramFeature> =>
+		c.args.length > 0 ? [] : [c.kind === "and" ? "an empty conjunction" : "an empty disjunction"]
+	),
 	...(rule.negations.length > 0 ? ["negation" as const] : []),
 	...headFeatures(rule),
 	...(rule.head.length === 0 ? ["zero-column head" as const] : [])
@@ -445,13 +480,20 @@ export const programFeatures = (root: Root): ReadonlyArray<ProgramFeature> => [
  * its drawn parents met two spellings of one key with children in at most five cases of a hundred, and some runs in
  * none, as the delivery-directed one met an arm's Some, so the planted case reaches both by construction.
  */
-export type Population = "swarm" | "planted" | "delivered" | "spelled" | "forms"
+export type DrawnPopulation = "swarm" | "planted" | "delivered" | "spelled" | "forms"
+
+/**
+ * Every population a case sketch names: the drawn ones, and the two acceptance cases of issue #3, which only the
+ * suite's kept cases name, each a hand-built case resolved from its sketch's plan, session and restorage alone
+ * (acceptanceCollapse, acceptanceMean).
+ */
+export type Population = DrawnPopulation | "acceptance collapse" | "acceptance mean"
 
 /**
  * The population of a case, in sixteenths: two plain, three planted, four delivery-, three spelling- and four
  * form-directed.
  */
-const populationGen: Gen<Population> = weighted<Population>([
+const populationGen: Gen<DrawnPopulation> = weighted<DrawnPopulation>([
 	[2, constant("swarm")],
 	[3, constant("planted")],
 	[4, constant("delivered")],
@@ -469,6 +511,7 @@ const formsOn: ReadonlyArray<SwarmFeature> = [
 	"computed group key",
 	"between",
 	"in set",
+	"connective",
 	"relation param",
 	"recursive",
 	"where",
@@ -599,19 +642,40 @@ interface PointInSketch {
 	readonly point: number
 }
 
-/** A Compute term: its kind, its variable, and a conditional's comparison and constants. */
+/** An r.and or r.or: which of the two, and its comparisons. */
+interface ConnectiveSketch {
+	readonly kind: number
+	readonly args: ReadonlyArray<CompareSketch>
+}
+
+/**
+ * A Compute term: its kind, the padding or display-scale reading drawn in its place (`reading`, none at the floor), its
+ * variable, a conditional's comparison and constants, a padding's display scale, whether a reading reads a padding of
+ * its variable (its upper half), and a quotient's divisor or a power's exponent (`op`).
+ */
 interface ComputedSketch {
 	readonly kind: number
+	readonly reading: number
 	readonly arg: number
 	readonly op: number
 	readonly than: ValueSketch
 	readonly otherwise: ValueSketch
+	readonly scale: number
+	readonly padded: number
+}
+
+/** An aggregate of a head: its function, its variable, whether it folds a padding of it (its upper half), and its scale. */
+interface FoldSketch {
+	readonly fn: number
+	readonly arg: number
+	readonly padded: number
+	readonly scale: number
 }
 
 interface HeadSketch {
 	readonly vars: ReadonlyArray<number>
 	readonly names: ReadonlyArray<number>
-	readonly folds: ReadonlyArray<{ readonly fn: number; readonly arg: number }>
+	readonly folds: ReadonlyArray<FoldSketch>
 }
 
 interface NegationSketch {
@@ -637,6 +701,7 @@ interface RuleSketch {
 	readonly inSet: ReadonlyArray<InSetSketch>
 	readonly allen: ReadonlyArray<AllenSketch>
 	readonly pointIn: ReadonlyArray<PointInSketch>
+	readonly connective: ReadonlyArray<ConnectiveSketch>
 	readonly computed: ReadonlyArray<ComputedSketch>
 	readonly negation: NegationSketch
 	readonly head: HeadSketch
@@ -684,6 +749,8 @@ interface PlantedSketch {
 	readonly names: ReadonlyArray<number>
 	readonly value: ValueSketch
 	readonly handle: number
+	/** The display scale of the planted paddings (paddingOf). */
+	readonly padding: number
 	/**
 	 * The mixed root's discriminant: its literal kind and each arm's value, a pick among the kind's literals no earlier
 	 * arm took.
@@ -732,6 +799,9 @@ export interface CaseSketch {
 	 */
 	readonly swarm: Swarm<SwarmFeature>
 	readonly perturbation: Perturbation
+	readonly ambient: AmbientSession
+	/** How the case's second reading stores its facts (program.ts ProgramCase.restorage). */
+	readonly restorage: Restorage
 	readonly roster: number
 	/** The span field's kind, over integer or bigint, of every relation that gains one. */
 	readonly span: number
@@ -795,7 +865,15 @@ const headGen: Gen<HeadSketch> = (decisions) => ({
 	vars: decisions.draw(array(pickGen, { min: 0, max: 3 })),
 	names: decisions.draw(fixed(pickGen, 6)),
 	folds: decisions.draw(
-		array((d) => ({ fn: d.draw(pickGen), arg: d.draw(pickGen) }), { min: 1, max: 2 })
+		array(
+			(d): FoldSketch => ({
+				fn: d.draw(pickGen),
+				arg: d.draw(pickGen),
+				padded: d.draw(pickGen),
+				scale: d.draw(pickGen)
+			}),
+			{ min: 1, max: 2 }
+		)
 	)
 })
 
@@ -805,9 +883,15 @@ const betweenGen: Gen<BetweenSketch> = (decisions) => ({
 	high: decisions.draw(operandGen)
 })
 
+/** An r.inSet's values: one to three, or none, its own arm, a membership no row holds. */
 const inSetGen: Gen<InSetSketch> = (decisions) => ({
 	left: decisions.draw(pickGen),
-	values: decisions.draw(array(valueGen, { min: 1, max: 3 }))
+	values: decisions.draw(
+		weighted<ReadonlyArray<ValueSketch>>([
+			[3, array(valueGen, { min: 1, max: 3 })],
+			[1, constant([])]
+		])
+	)
 })
 
 const allenGen: Gen<AllenSketch> = (decisions) => ({
@@ -821,12 +905,26 @@ const pointInGen: Gen<PointInSketch> = (decisions) => ({
 	point: decisions.draw(pickGen)
 })
 
+/** An r.and or r.or over one or two comparisons, or over none, its own arm: the constant true or false. */
+const connectiveGen: Gen<ConnectiveSketch> = (decisions) => ({
+	kind: decisions.draw(pickGen),
+	args: decisions.draw(
+		weighted<ReadonlyArray<CompareSketch>>([
+			[3, array(compareGen, { min: 1, max: 2 })],
+			[1, constant([])]
+		])
+	)
+})
+
 const computedGen: Gen<ComputedSketch> = (decisions) => ({
 	kind: decisions.draw(pickGen),
+	reading: decisions.draw(pickGen),
 	arg: decisions.draw(pickGen),
 	op: decisions.draw(pickGen),
 	than: decisions.draw(valueGen),
-	otherwise: decisions.draw(valueGen)
+	otherwise: decisions.draw(valueGen),
+	scale: decisions.draw(pickGen),
+	padded: decisions.draw(pickGen)
 })
 
 const interiorGen: Gen<InteriorSketch> = (decisions) => ({
@@ -843,6 +941,7 @@ const ruleGen: Gen<RuleSketch> = (decisions) => ({
 	inSet: decisions.draw(array(inSetGen, { min: 0, max: 1 })),
 	allen: decisions.draw(array(allenGen, { min: 0, max: 1 })),
 	pointIn: decisions.draw(array(pointInGen, { min: 0, max: 1 })),
+	connective: decisions.draw(array(connectiveGen, { min: 0, max: 1 })),
 	computed: decisions.draw(array(computedGen, { min: 0, max: 2 })),
 	negation: decisions.draw(negationGen),
 	head: decisions.draw(headGen),
@@ -920,6 +1019,7 @@ const plantedGen: Gen<PlantedSketch> = (decisions) => ({
 	names: decisions.draw(fixed(pickGen, plantedNames.length)),
 	value: decisions.draw(valueGen),
 	handle: decisions.draw(pickGen),
+	padding: decisions.draw(pickGen),
 	side: { kind: decisions.draw(pickGen), values: decisions.draw(fixed(pickGen, 3)) }
 })
 
@@ -952,7 +1052,7 @@ const directedSwarm =
 	}
 
 /** The swarm a population's case resolves under (CaseSketch.swarm). */
-const populationSwarm = (population: Population): Gen<Swarm<SwarmFeature>> => {
+const populationSwarm = (population: DrawnPopulation): Gen<Swarm<SwarmFeature>> => {
 	switch (population) {
 		case "swarm":
 			return swarm(swarmFeatures)
@@ -969,7 +1069,9 @@ const populationSwarm = (population: Population): Gen<Swarm<SwarmFeature>> => {
 
 /**
  * The names a planted case draws, one pick each: its relation and three fields, the root's head key of each field, its
- * two attachments and the spelled child's nested one, and each child's head key.
+ * two attachments and the spelled child's nested one, and each child's head key; the import's and the mixed root's
+ * head keys; the collapse's, the means' and the fused read's head keys and attachment; and the vector relation, its
+ * fields, its read's head keys, attachment, nested attachment and their head keys.
  */
 const plantedNames = [
 	"relation",
@@ -990,9 +1092,32 @@ const plantedNames = [
 	"import handle column",
 	"mixed key column",
 	"mixed spelled column",
-	"mixed side"
+	"mixed side",
+	"collapse column",
+	"collapse padded column",
+	"collapse quotient column",
+	"collapse root column",
+	"collapse power column",
+	"mean padded column",
+	"mean column",
+	"fused key column",
+	"fused spelled column",
+	"fused",
+	"fused child column",
+	"vector relation",
+	"vector key field",
+	"vector field",
+	"vector key column",
+	"vector column",
+	"vector attachment",
+	"vector child column",
+	"vector nested",
+	"vector nested column"
 ] as const
 type PlantedName = (typeof plantedNames)[number]
+
+/** How many name picks a planted sketch holds, one per slot: what a kept sketch's planted names list. */
+export const plantedNameCount = plantedNames.length
 
 /**
  * The generator of the public-boundary differential: a case drawn as a flat sketch of picks, resolved by pure functions
@@ -1026,7 +1151,7 @@ type PlantedName = (typeof plantedNames)[number]
  *   parameter or an acyclic closure; a rule filters by r.between, r.inSet, r.allen over span fields and r.pointIn; a
  *   head holds Compute terms, grouping an aggregate among them; a root is named; a parameter of a Tick or a
  *   numeric(5,2) field is declared with the field's own descriptor; and the arms of a union each state one head key as a
- *   literal, a value of one field kind distinct across the arms (r.literal), so each arm's rows read its own.
+ *   literal, a JavaScript value of one field kind distinct across the arms, so each arm's rows read its own.
  * - Imports bound to the reader's variables. A read below the last may bind its first match's first key field to a
  *   parameter, so a later read can import it, and a later read may match such an import with its parameter bound to a
  *   variable its first match bound.
@@ -1048,6 +1173,8 @@ export const caseSketchGen: Gen<CaseSketch> = (decisions) => {
 		population,
 		swarm: decisions.draw(populationSwarm(population)),
 		perturbation: decisions.draw(plannerPerturbationGen),
+		ambient: decisions.draw(ambientSessionGen),
+		restorage: decisions.draw(restorageGen),
 		roster: decisions.draw(pickGen),
 		span: decisions.draw(pickGen),
 		relations: decisions.draw(array(relationGen, { min: 1, max: 3 })),
@@ -1136,8 +1263,10 @@ const rosterHandles: Arr.NonEmptyReadonlyArray<string> = ["Red", "Green", "Blue"
 
 const typeOf = (kind: FieldKind, roster: { readonly name: string }): ScalarType => {
 	switch (kind) {
+		case "int2":
 		case "int4":
 		case "int8":
+		case "float4":
 		case "float8":
 		case "bool":
 		case "uuid":
@@ -1162,6 +1291,8 @@ const typeOf = (kind: FieldKind, roster: { readonly name: string }): ScalarType 
 			return scalarOfSpec({ carrier: "range8" })
 		case "tick":
 			return scalarOfSpec({ carrier: "contract", name: "Tick" })
+		case "vector":
+			return scalarOfSpec({ carrier: "vector" })
 	}
 }
 
@@ -1191,10 +1322,10 @@ const readmeTexts = readmeStrings(
 )
 
 /**
- * The values prose takes, each a class of its own: the literal dictionary's text (kernel/dict.ts: README.md's quoted
- * strings and the edge values) and the texts array_out must quote or escape inside a fused attachment's array.
+ * The values prose takes: the literal dictionary's text (kernel/dict.ts: README.md's quoted strings and the edge
+ * values) and the texts array_out must quote or escape inside a fused attachment's array.
  */
-const proseClasses: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TypedLiteral>> = (() => {
+const proseValues: Arr.NonEmptyReadonlyArray<TypedLiteral> = (() => {
 	const quoted = ['a"b,c', "back\\slash", "{brace}", "NULL", "sp ace", "a,b", "(x)", ""]
 	const texts = [
 		...quoted,
@@ -1202,51 +1333,52 @@ const proseClasses: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TypedLit
 			l.kind === "text" ? [l.value] : []
 		)
 	]
-	const [first, ...rest] = Arr.map(
-		[...new Set(texts)],
-		(value): Arr.NonEmptyReadonlyArray<TypedLiteral> => [{ kind: "text", value }]
-	)
+	const [first, ...rest] = Arr.map([...new Set(texts)], (value): TypedLiteral => ({
+		kind: "text",
+		value
+	}))
 	if (first === undefined) {
 		throw new Error("no prose value")
 	}
 	return [first, ...rest]
 })()
 
-/** The value classes of a type, the first two only where the case is dense; never empty. */
-const classesOf = (
-	type: ScalarType,
-	dense: boolean
-): Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TypedLiteral>> => {
+/**
+ * The carriers whose sums depend on their order under IEEE or int64 accumulation: their values include the edge classes
+ * (gen/domain.ts), so a program's sums and means meet the groups grizzle's exact accumulation must get right.
+ */
+const orderSensitive = (type: ScalarType): boolean => {
+	const carrier = baseOf(type).carrier
+	return carrier === "float8" || carrier === "float4" || carrier === "money"
+}
+
+/** The values of a type, the first two only where the case is dense; never empty. */
+const valuesOf = (type: ScalarType, dense: boolean): Arr.NonEmptyReadonlyArray<TypedLiteral> => {
 	if (type === proseType) {
-		return dense ? [proseClasses[0], ...proseClasses.slice(1, 2)] : proseClasses
+		return dense ? [proseValues[0], ...proseValues.slice(1, 2)] : proseValues
 	}
-	const all = Arr.flatMap(valueClasses(type, false), (cls) => {
-		const spellings = nonEmpty(cls)
-		return spellings === undefined ? [] : [spellings]
-	})
-	const classes = nonEmpty(dense ? all.slice(0, 2) : all)
-	if (classes === undefined) {
-		throw new Error("a generated type with no value class")
+	const all = valueClasses(type, orderSensitive(type))
+	const values = nonEmpty(dense ? all.slice(0, 2) : all)
+	if (values === undefined) {
+		throw new Error("a generated type with no value")
 	}
-	return classes
+	return values
 }
 
 const drawValue = (type: ScalarType, sketch: ValueSketch, dense: boolean): TypedLiteral =>
-	pickFrom(pickFrom(classesOf(type, dense), sketch.cls), sketch.sp)
+	pickFrom(valuesOf(type, dense), sketch.cls)
 
-/** The value of the next class after `literal`'s, in the same spelling position: a second arm's constant. */
+/** The value after `literal` among its type's, cyclically: a second arm's constant. A value of none is followed by the first. */
 const nextValue = (type: ScalarType, literal: TypedLiteral): TypedLiteral => {
-	const classes = classesOf(type, false)
+	const values = valuesOf(type, false)
 	const key = nativeEqualityKey(literal)
-	const at = Arr.findFirstIndex(classes, (cls) =>
-		Arr.some(cls, (l) => nativeEqualityKey(l) === key)
+	return Option.match(
+		Arr.findFirstIndex(values, (l) => nativeEqualityKey(l) === key),
+		{
+			onNone: () => values[0],
+			onSome: (i) => elementOf(values, (i + 1) % values.length, "a value")
+		}
 	)
-	/** The class after the literal's, cyclically; a literal of no class is followed by the first. */
-	const next = Option.match(at, {
-		onNone: () => classes[0],
-		onSome: (i) => elementOf(classes, (i + 1) % classes.length, "a value class")
-	})
-	return next[0]
 }
 
 const keyable = (f: ProgramField) => keyKinds.includes(f.kind)
@@ -1344,22 +1476,36 @@ const keyOf = (fact: ProgramFact, relation: Stored, key: ReadonlyArray<ProgramFi
 	)
 
 /**
+ * How a case's facts are spelled: each value in the input spelling its sketch draws (gen/domain.ts spelledAt), where
+ * the case directs spellings, which a direct SQL writer stores; or each in its one form.
+ */
+type FactSpelling = "drawn" | "canonical"
+
+/**
  * The facts a sketch draws, every key distinct by native equality: a fact that repeats a key of an earlier one is left
  * out.
  */
 const resolveFacts = (
 	relation: Stored,
 	sketches: ReadonlyArray<FactSketch>,
-	dense: boolean
-): ReadonlyArray<ProgramFact> => {
+	dense: boolean,
+	spelling: FactSpelling
+): ReadonlyArray<StoredFact> => {
 	const keys = [relation.primaryKey, ...relation.candidates]
 	const seen = Arr.map(keys, () => new Set<string>())
-	const out: Array<ProgramFact> = []
+	const out: Array<StoredFact> = []
 	for (const sketch of sketches) {
-		const fact = Arr.map(relation.fields, (f, i) =>
-			drawValue(f.type, elementOf(sketch.values, i, "a value sketch"), dense)
-		)
-		const identities = Arr.map(keys, (k) => keyOf(fact, relation, k))
+		const fact = Arr.map(relation.fields, (f, i) => {
+			const value = elementOf(sketch.values, i, "a value sketch")
+			const literal = drawValue(f.type, value, dense)
+			switch (spelling) {
+				case "drawn":
+					return spelledAt(f.type, literal, value.sp)
+				case "canonical":
+					return canonicallySpelled(literal)
+			}
+		})
+		const identities = Arr.map(keys, (k) => keyOf(factValues(fact), relation, k))
 		if (Arr.some(identities, (id, k) => elementOf(seen, k, "a key's identities").has(id))) {
 			continue
 		}
@@ -1407,7 +1553,8 @@ const importOffer = (read: ProgramRead, index: number): ImportOffer | undefined 
 		root.arms,
 		(rule) =>
 			Arr.every(rule.where, (c) => c.right.kind !== "param") &&
-			Arr.every(rule.between, (b) => b.low.kind !== "param" && b.high.kind !== "param")
+			Arr.every(rule.between, (b) => b.low.kind !== "param" && b.high.kind !== "param") &&
+			Arr.every(rule.connectives, (j) => Arr.every(j.args, (c) => c.right.kind !== "param"))
 	)
 	if (!plain || !unfiltered) {
 		return undefined
@@ -1736,12 +1883,13 @@ const resolveInSet = <P>(state: RuleState<P>, sketch: InSetSketch): InSet | unde
 		Arr.filter(state.vars, (v) => !isSpan(v)),
 		sketch.left
 	)
-	const [first, ...rest] = sketch.values
-	if (left === undefined || first === undefined) {
+	if (left === undefined) {
 		return undefined
 	}
-	const value = (v: ValueSketch) => drawValue(left.field.type, v, state.scope.dense)
-	return { left, values: [value(first), ...Arr.map(rest, value)] }
+	return {
+		left,
+		values: Arr.map(sketch.values, (v) => drawValue(left.field.type, v, state.scope.dense))
+	}
 }
 
 const resolveAllen = <P>(state: RuleState<P>, sketch: AllenSketch): AllenAtom | undefined => {
@@ -1765,6 +1913,25 @@ const resolvePointIn = <P>(state: RuleState<P>, sketch: PointInSketch): PointIn 
 	return point === undefined ? undefined : { point, span }
 }
 
+const connectiveKinds: Arr.NonEmptyReadonlyArray<Connective["kind"]> = ["and", "or"]
+
+/**
+ * An r.and or r.or over those of its comparisons that resolve and the rule admits; of none, the constant true or false.
+ */
+const resolveConnective = <P>(
+	state: RuleState<P>,
+	sketch: ConnectiveSketch,
+	admits: (c: Comparison) => boolean
+): Connective => ({
+	kind: pickFrom(connectiveKinds, sketch.kind),
+	args: Arr.filter(
+		Arr.flatMap(sketch.args, (c) =>
+			Option.toArray(Option.fromUndefinedOr(resolveComparison(state, c)))
+		),
+		admits
+	)
+})
+
 const resolveNegation = <P>(state: RuleState<P>, sketch: NegationSketch): Negation | undefined => {
 	const source = pickFrom(state.scope.schema.relations, sketch.source)
 	const bindings: Array<{ readonly field: ProgramField; readonly var: Var }> = []
@@ -1783,42 +1950,98 @@ const resolveNegation = <P>(state: RuleState<P>, sketch: NegationSketch): Negati
 	return first === undefined ? undefined : { source, bindings: [first, ...rest] }
 }
 
-/**
- * The aggregate a fold sketch draws over `arg`: its function where the argument's type has it, count otherwise. A mean
- * over double precision is left out: its rounding depends on the order PostgreSQL sums in.
- */
-const foldOf = (fn: AggregateFn, arg: Var | undefined, name: string): HeadItem => {
-	const type = arg?.field.type
-	const applies =
-		arg !== undefined &&
-		type !== undefined &&
-		(fn === "sum"
-			? hasCap(type, "sum")
-			: fn === "mean"
-				? hasCap(type, "avg") && type.carrier !== "float8"
-				: fn === "min" || fn === "max"
-					? hasCap(type, "minMax")
-					: false)
-	if (fn === "count" || !applies) {
-		return { kind: "count", name, type: aggregateResult("count", undefined) }
-	}
-	return {
-		kind: "fold",
-		name,
-		fn,
-		arg,
-		type: aggregateResult(fn === "mean" ? "avg" : fn, arg.field.type)
-	}
-}
+/** A bare numeric: a padding's type, a reading's, and every quotient, root and power the generator draws. */
+const bareNumeric: ScalarType = scalarOfSpec({ carrier: "numeric" })
 
 /** The kinds a Compute term takes as its variable: the numeric ones. */
 const computableKinds: ReadonlyArray<FieldKind> = ["int4", "int8", "numeric", "fixed", "tick"]
 
+/** The kind a display-scale reading reads as a variable: a bare numeric, whose stored values have twin spellings. */
+const readableKind: FieldKind = "numeric"
+
+/** The largest least scale among the values a generated type holds: what a padding pads past, so it keeps each value. */
+const leastScale = (type: ScalarType): number =>
+	Arr.reduce(valuesOf(type, false), 0, (scale, l) =>
+		l.kind === "numeric" && l.value.parts.kind === "finite"
+			? Math.max(scale, l.value.parts.minScale)
+			: scale
+	)
+
+/** The padding of `arg` a pick draws: a padding of numericPaddings past the least scale of every value it holds. */
+const paddingOf = (arg: Var, scale: number): Padding => ({
+	arg,
+	scale: leastScale(arg.field.type) + pickFrom(numericPaddings, scale)
+})
+
+/** The type of what an aggregate or a reading reads: its variable's, or a padding's bare numeric. */
+const argTermType = (t: ArgTerm): ScalarType => (t.kind === "var" ? t.var.field.type : bareNumeric)
+
+/**
+ * The aggregate a fold sketch draws over `arg`: its function where the argument's type has it, count otherwise. Sums
+ * and means over every carrier that has them, double precision and money among them, are drawn freely: grizzle's exact
+ * accumulation makes their answer a function of the multiset, which the reference states exactly.
+ */
+const foldOf = (fn: AggregateFn, arg: ArgTerm | undefined, name: string): HeadItem => {
+	const count: HeadItem = { kind: "count", name, type: aggregateResult("count", undefined) }
+	if (fn === "count" || arg === undefined) {
+		return count
+	}
+	const type = argTermType(arg)
+	const applies =
+		fn === "sum"
+			? hasCap(type, "sum")
+			: fn === "mean"
+				? hasCap(type, "avg")
+				: hasCap(type, "minMax")
+	return applies
+		? { kind: "fold", name, fn, arg, type: aggregateResult(fn === "mean" ? "avg" : fn, type) }
+		: count
+}
+
+/**
+ * What a fold sketch folds among the rule's variables: a padding of a numeric one where its pick says so and the rule
+ * binds one, the drawn variable otherwise, or nothing where the rule binds none.
+ */
+const foldArg = <P>(state: RuleState<P>, sketch: FoldSketch): ArgTerm | undefined => {
+	const padded = upper(sketch.padded)
+		? pickAmong(
+				Arr.filter(state.vars, (v) => computableKinds.includes(v.field.kind)),
+				sketch.arg
+			)
+		: undefined
+	if (padded !== undefined) {
+		return { kind: "padded", padding: paddingOf(padded, sketch.scale) }
+	}
+	const v = pickAmong(state.vars, sketch.arg)
+	return v === undefined ? undefined : { kind: "var", var: v }
+}
+
 const computedKinds = ["base", "cast numeric", "cond"] as const
 
 /**
+ * What a computed sketch draws in place of its kind: none, the floor, which keeps the kind; a padding; or a
+ * display-scale reading.
+ */
+const readingKinds = ["none", "padded", "div", "sqrt", "power"] as const
+
+/** The divisors a quotient draws: nonzero, and ones whose quotients do not terminate, so its scale shows in its digits. */
+const divisors: Arr.NonEmptyReadonlyArray<TypedLiteral> = [
+	{ kind: "numeric", value: Decimal.of("3") },
+	{ kind: "numeric", value: Decimal.of("7") }
+]
+
+/** The exponents a power draws: integral ones, and a half, whose power PostgreSQL computes through its logarithm. */
+const exponents: Arr.NonEmptyReadonlyArray<TypedLiteral> = [
+	{ kind: "numeric", value: Decimal.of("2") },
+	{ kind: "numeric", value: Decimal.of("3") },
+	{ kind: "numeric", value: Decimal.of("0.5") }
+]
+
+/**
  * The Compute term a sketch draws over one of the rule's numeric variables, typed as the checker types it: a base the
- * variable's base, a cast to numeric bare numeric, a conditional the variable's own type.
+ * variable's base, a cast to numeric, a padding and every reading bare numeric, a conditional the variable's own type.
+ * A reading reads a padding of the variable where its pick says so or the rule binds no bare numeric, and a bare
+ * numeric variable otherwise, which may hold one value in two stored spellings.
  */
 const resolveComputed = <P>(
 	state: RuleState<P>,
@@ -1832,34 +2055,53 @@ const resolveComputed = <P>(
 	if (arg === undefined) {
 		return undefined
 	}
-	const term = ((): ComputedTerm => {
-		const kind = pickFrom(computedKinds, sketch.kind)
-		switch (kind) {
-			case "base":
-				return { kind, arg }
-			case "cast numeric":
-				return { kind, arg }
-			case "cond":
-				return {
+	const operand = (): ArgTerm => {
+		const own = upper(sketch.padded)
+			? undefined
+			: pickAmong(
+					Arr.filter(state.vars, (v) => v.field.kind === readableKind),
+					sketch.arg
+				)
+		return own === undefined
+			? { kind: "padded", padding: paddingOf(arg, sketch.scale) }
+			: { kind: "var", var: own }
+	}
+	const item = (term: ComputedTerm, type: ScalarType): HeadItem => ({
+		kind: "computed",
+		name,
+		term,
+		type
+	})
+	const reading = pickFrom(readingKinds, sketch.reading)
+	const kind = reading === "none" ? pickFrom(computedKinds, sketch.kind) : reading
+	switch (kind) {
+		case "base":
+			return item({ kind, arg }, baseOf(arg.field.type))
+		case "cast numeric":
+			return item({ kind, arg }, bareNumeric)
+		case "cond":
+			return item(
+				{
 					kind,
 					arg,
 					op: pickFrom(orderedOps, sketch.op),
 					than: drawValue(arg.field.type, sketch.than, state.scope.dense),
 					otherwise: drawValue(arg.field.type, sketch.otherwise, state.scope.dense)
-				}
-		}
-	})()
-	const type = ((): ScalarType => {
-		switch (term.kind) {
-			case "base":
-				return baseOf(arg.field.type)
-			case "cast numeric":
-				return scalarOfSpec({ carrier: "numeric" })
-			case "cond":
-				return arg.field.type
-		}
-	})()
-	return { kind: "computed", name, term, type }
+				},
+				arg.field.type
+			)
+		case "padded":
+			return item({ kind, padding: paddingOf(arg, sketch.scale) }, bareNumeric)
+		case "div":
+			return item(
+				{ kind, dividend: operand(), divisor: pickFrom(divisors, sketch.op) },
+				bareNumeric
+			)
+		case "sqrt":
+			return item({ kind, radicand: operand() }, bareNumeric)
+		case "power":
+			return item({ kind, base: operand(), exponent: pickFrom(exponents, sketch.op) }, bareNumeric)
+	}
 }
 
 /** The Compute terms a head holds after its first `from` keys, named from there on. */
@@ -1910,7 +2152,7 @@ const resolveHead = <P>(
 				: []
 		const at = keys.length + terms.length
 		const folds = Arr.map(sketch.folds, (f, i) =>
-			foldOf(pickFrom(aggregateFns, f.fn), pickAmong(state.vars, f.arg), name(at + i))
+			foldOf(pickFrom(aggregateFns, f.fn), foldArg(state, f), name(at + i))
 		)
 		return [...keys, ...terms, ...folds]
 	}
@@ -1983,9 +2225,7 @@ const literalArms = <P extends ParentColumn>(
 
 /** The head of a reflexive child: its sketch's folds over the rule, no variable grouping them. */
 const ungroupedHead = <P>(state: RuleState<P>, sketch: HeadSketch, name: (i: number) => string) =>
-	Arr.map(sketch.folds, (f, i) =>
-		foldOf(pickFrom(aggregateFns, f.fn), pickAmong(state.vars, f.arg), name(i))
-	)
+	Arr.map(sketch.folds, (f, i) => foldOf(pickFrom(aggregateFns, f.fn), foldArg(state, f), name(i)))
 
 /**
  * The derived sources a root rule's later matches may read: the imports earlier reads offer, the root's interior
@@ -2075,6 +2315,7 @@ const resolveInterior = (scope: ReadScope, sketch: InteriorSketch): Interior | u
 			inSets: [],
 			allens: [],
 			pointIns: [],
+			connectives: [],
 			negations: negation === undefined ? [] : [negation],
 			head
 		},
@@ -2292,7 +2533,7 @@ const resolveRule = <P>(
 		...boundImport,
 		...(form.kind === "root" || form.kind === "drawn" ? Arr.map(restSketches, later) : [])
 	]
-	const noFilters = { between: [], inSets: [], allens: [], pointIns: [] }
+	const noFilters = { between: [], inSets: [], allens: [], pointIns: [], connectives: [] }
 	if (form.kind === "own") {
 		return {
 			matches,
@@ -2350,6 +2591,11 @@ const resolveRule = <P>(
 					Option.toArray(Option.fromUndefinedOr(resolvePointIn(state, p)))
 				)
 			: [],
+		connectives: scope.keep("connective")
+			? Arr.map(sketch.connective, (j) =>
+					resolveConnective(state, j, (c) => !plainRoot || c.right.kind !== "param")
+				)
+			: [],
 		negations,
 		/** An importable root's head is its variables alone, which an import reads as its fields. */
 		head: resolveHead(
@@ -2365,7 +2611,8 @@ const resolveRule = <P>(
 /**
  * The second arm of a union: the first with every constant of its matches and comparisons moved to the next value
  * class and every parameter made afresh with the next value, so its heading is the first's and its rows mostly differ.
- * Its ranges, sets, Allen atoms, point memberships, negations and head are the first's, their parameters made afresh.
+ * Its ranges, sets, Allen atoms, point memberships, connectives, negations and head are the first's, their parameters
+ * made afresh.
  */
 const shiftedRule = <P extends ParentColumn>(scope: ReadScope, rule: Rule<P>): Rule<P> => {
 	const again = (operand: Operand<never>, type: ScalarType): Operand<never> =>
@@ -2418,6 +2665,14 @@ const shiftedRule = <P extends ParentColumn>(scope: ReadScope, rule: Rule<P>): R
 		inSets: rule.inSets,
 		allens: rule.allens,
 		pointIns: rule.pointIns,
+		connectives: Arr.map(rule.connectives, (j) => ({
+			kind: j.kind,
+			args: Arr.map(j.args, (c) => ({
+				op: c.op,
+				left: c.left,
+				right: again(c.right, c.left.field.type)
+			}))
+		})),
 		negations: rule.negations,
 		head: rule.head
 	}
@@ -2440,13 +2695,16 @@ const orderOf = (
 	return [first, ...rest]
 }
 
+/** Whether stored values of a type have twin spellings (gen/domain.ts twinSpellings), which a stitch by text misreads. */
+const twinned = (type: ScalarType): boolean => twinSpellings[baseOf(type).carrier].kind === "twins"
+
 /**
- * The parent columns a child may bind, those whose equal values print differently first: the parent keys a stitch by
- * text instead of by the type's equality would misread.
+ * The parent columns a child may bind, those whose stored values have twin spellings first: the parent keys a stitch
+ * by text instead of by the type's equality would misread.
  */
 const linkable = (parent: ReadonlyArray<Column>): ReadonlyArray<Column> => [
-	...Arr.filter(parent, (c) => !printsAlike(c.type)),
-	...Arr.filter(parent, (c) => printsAlike(c.type))
+	...Arr.filter(parent, (c) => twinned(c.type)),
+	...Arr.filter(parent, (c) => !twinned(c.type))
 ]
 
 /** The parent columns of a field's type. */
@@ -2492,7 +2750,7 @@ const plainFirst = (
 			)
 		)
 	const reachable = Arr.filter(linkable(parent), (c) => targetsOf(c).length > 0)
-	const spelled = Arr.filter(reachable, (c) => !printsAlike(c.type))
+	const spelled = Arr.filter(reachable, (c) => twinned(c.type))
 	const column = pickAmong(
 		weightOf(scope.swarm, "spelled") > 0 && spelled.length > 0 ? spelled : reachable,
 		sketch.link
@@ -2801,7 +3059,10 @@ const resolveRoot = (
 					return {
 						name: `rel${scope.read}_0`,
 						relation: of,
-						rows: resolveFacts(of, sketch.relationParam.facts, scope.dense)
+						rows: Arr.map(
+							resolveFacts(of, sketch.relationParam.facts, scope.dense, "canonical"),
+							factValues
+						)
 					}
 				})()
 			: undefined
@@ -2899,7 +3160,8 @@ const ruleParams = <P extends ParentColumn>(rule: Rule<P>): ReadonlyArray<Param>
 		...Arr.flatMap(m.bindings, (b) => operandParams(b.operand))
 	]),
 	...Arr.flatMap(rule.where, (c) => operandParams(c.right)),
-	...Arr.flatMap(rule.between, (b) => [...operandParams(b.low), ...operandParams(b.high)])
+	...Arr.flatMap(rule.between, (b) => [...operandParams(b.low), ...operandParams(b.high)]),
+	...Arr.flatMap(rule.connectives, (j) => Arr.flatMap(j.args, (c) => operandParams(c.right)))
 ]
 
 const queryParams = <P extends ParentColumn>(q: Query<P>): ReadonlyArray<Param> => [
@@ -2937,11 +3199,11 @@ const resolveProbe = (
 }
 
 /**
- * A keyed lookup: a relation's primary or candidate key, at an existing fact's key spelled afresh, or at drawn values.
+ * A keyed lookup: a relation's primary or candidate key, at an existing fact's key or at drawn values.
  */
 const resolveKeyRead = (
 	schema: ProgramSchema,
-	facts: ReadonlyMap<string, ReadonlyArray<ProgramFact>>,
+	facts: ReadonlyMap<string, ReadonlyArray<StoredFact>>,
 	sketch: ReadSketch["key"],
 	dense: boolean
 ): ProgramRead => {
@@ -2959,13 +3221,7 @@ const resolveKeyRead = (
 		if (fact === undefined) {
 			return drawValue(field.type, { cls: sketch.fact, sp: sketch.absent }, dense)
 		}
-		const stored = elementOf(fact, relation.fields.indexOf(field), "a fact's value")
-		return Option.match(
-			Arr.findFirst(classesOf(field.type, false), (c) =>
-				Arr.some(c, (l) => nativeEqualityKey(l) === nativeEqualityKey(stored))
-			),
-			{ onNone: () => stored, onSome: (cls) => pickFrom(cls, sketch.absent) }
-		)
+		return elementOf(fact, relation.fields.indexOf(field), "a fact's value").literal
 	}
 	const [firstField, ...restFields] = key
 	return {
@@ -2992,7 +3248,10 @@ const resolveRoster = (names: Names, pick: number): Roster => {
 	}
 }
 
-/** A rule of one match and nothing else: no comparison, range, set, Allen atom, point membership or negation. */
+/**
+ * A rule of one match and nothing else: no comparison, range, set, Allen atom, point membership, connective or
+ * negation.
+ */
 const soleRule = <P>(
 	source: Source,
 	bindings: Arr.NonEmptyReadonlyArray<Binding<P>>,
@@ -3004,6 +3263,7 @@ const soleRule = <P>(
 	inSets: [],
 	allens: [],
 	pointIns: [],
+	connectives: [],
 	negations: [],
 	head
 })
@@ -3037,7 +3297,9 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
 
 /**
  * The planted case: one relation P(k int4, v numeric, h handle) keyed by k, two of whose facts hold one value of v in
- * two spellings and differ in h, beside the facts the first relation sketch draws at other keys, and two reads:
+ * two spellings and differ in h, beside the facts the first relation sketch draws at other keys; one relation V(k int4,
+ * u vector(3)) keyed by k, whose two facts hold one vector, the second with -0 components; and these reads, every
+ * padding pad(v) at the sketch's display scale:
  *
  *   q0 = P{k, v, h} find {k, v, h}
  *     attach arm:     P{k: parent k, v: w, h: H} find {v: w}, stated as the arm of H over h
@@ -3045,6 +3307,18 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
  *       attach nested: P{k: parent k, h: w} find {h: w}
  *   q1 = q0, its attachments kept, {k, v, h} find {k, v, h}
  *   q2 = P{k} find {k, side: x} | P{k, v} find {k, v, side: y} | P{k} find {k, side: z}, x, y and z distinct
+ *   q3 = P{v} find {v, pad(v), Compute.div(v, 3), sqrt(pad(v)), power(v, 2)}
+ *   q4 = P{v} find {r.mean(pad(v)), r.mean(v)}
+ *   q5 = P{k, v} find {k, v}
+ *     attach fused: P{v: parent v, k: w} find {k: w}
+ *   q6 = V{k, u} find {k, u}
+ *     attach twins: V{u: parent u, k: w} find {k: w}
+ *       attach nested: V{k: parent k, u: w} find {u: w}
+ *
+ * q3 collapses the two facts' v, one value in two spellings, into one row, beside its padding and its readings at the
+ * display scale; q4 means it, and its padding, over P's distinct values of v. q5's child of one field is fused into
+ * its parent, so the two rows whose v is one value in two spellings meet in one statement; q6's child is pipelined, so
+ * the host stitches it to parents whose vector keys are one value, one spelled with -0 components.
  *
  * The arm delivers Some to the parent row whose h is H, one of the two, and None to the other. The spelled
  * attachment's parents include the two rows whose v is one value in two spellings, each with the children of both,
@@ -3077,36 +3351,67 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		primaryKey: [key],
 		candidates: []
 	}
-	const schema: ProgramSchema = { relations: [relation], roster, nameKinds: kinds }
-	/** The shared value: a class of more than one spelling, spelled at two adjacent places of it. */
-	const twice = nonEmpty(Arr.filter(classesOf(spelled.type, false), (cls) => cls.length > 1))
-	if (twice === undefined) {
-		throw new Error("bare numeric has no value of two spellings")
+	const vectorFieldNames = new Names(kinds)
+	const vectorKey: ProgramField = {
+		name: vectorFieldNames.draw(pick("vector key field"), "field"),
+		kind: "int4",
+		type: typeOf("int4", roster)
 	}
-	const cls = pickFrom(twice, planted.value.cls)
-	const at = pickIndex(planted.value.sp, cls.length)
+	const vector: ProgramField = {
+		name: vectorFieldNames.draw(pick("vector field"), "field"),
+		kind: "vector",
+		type: typeOf("vector", roster)
+	}
+	const vectorRelation: Stored = {
+		kind: "stored",
+		name: names.draw(pick("vector relation"), "Rel1x"),
+		fields: [vectorKey, vector],
+		primaryKey: [vectorKey],
+		candidates: []
+	}
+	const schema: ProgramSchema = {
+		relations: [relation, vectorRelation],
+		roster,
+		nameKinds: kinds
+	}
+	/** The shared value: a value of twin spellings, held by both facts. */
+	const twice = nonEmpty(
+		Arr.filter(valuesOf(spelled.type, false), (l) => twinsOf(spelled.type, l).length > 0)
+	)
+	if (twice === undefined) {
+		throw new Error("bare numeric has no value of twin spellings")
+	}
+	const value = pickFrom(twice, planted.value.cls)
+	const spellings = twinsOf(spelled.type, value).length + 1
+	const at = pickIndex(planted.value.sp, spellings)
 	const selected = pickFrom(roster.handles, planted.handle)
 	const other = elementOf(
 		roster.handles,
 		(roster.handles.indexOf(selected) + 1) % roster.handles.length,
 		"a handle"
 	)
-	const plantedFacts: ReadonlyArray<ProgramFact> = [
+	const plantedFacts: ReadonlyArray<StoredFact> = [
 		[
-			{ kind: "int", value: 0n },
-			elementOf(cls, at, "a spelling"),
-			{ kind: "enum", handle: selected }
+			canonicallySpelled({ kind: "int", value: 0n }),
+			spelledAt(spelled.type, value, at),
+			canonicallySpelled({ kind: "enum", handle: selected })
 		],
 		[
-			{ kind: "int", value: 1n },
-			elementOf(cls, (at + 1) % cls.length, "a spelling"),
-			{ kind: "enum", handle: other }
+			canonicallySpelled({ kind: "int", value: 1n }),
+			spelledAt(spelled.type, value, (at + 1) % spellings),
+			canonicallySpelled({ kind: "enum", handle: other })
 		]
 	]
-	const taken = new Set(Arr.map(plantedFacts, (f) => keyOf(f, relation, relation.primaryKey)))
+	const keyAt = (f: StoredFact) => keyOf(factValues(f), relation, relation.primaryKey)
+	const taken = new Set(Arr.map(plantedFacts, keyAt))
 	const drawnFacts = Arr.filter(
-		resolveFacts(relation, elementOf(sketch.relations, 0, "a relation sketch").facts, false),
-		(f) => !taken.has(keyOf(f, relation, relation.primaryKey))
+		resolveFacts(
+			relation,
+			elementOf(sketch.relations, 0, "a relation sketch").facts,
+			false,
+			"drawn"
+		),
+		(f) => !taken.has(keyAt(f))
 	)
 	let vars = 0
 	const mint = (field: ProgramField): Var => ({ id: vars++, field })
@@ -3281,9 +3586,149 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		],
 		discriminant: [side]
 	}
+	const padding = (v: Var): Padding => paddingOf(v, planted.padding)
+	/**
+	 * The fourth read: the value two facts hold in two spellings collapsed into one row of P{v} find {v, ...}, beside its
+	 * padding and its readings at the display scale: its quotient, its padding's square root and its square.
+	 */
+	const collapseNames = new Names(kinds)
+	const collapsed = mint(spelled)
+	const collapseRule = soleRule<never>(
+		relation,
+		[varOf(spelled, collapsed)],
+		[
+			headOf(collapseNames, "collapse column", collapsed),
+			{
+				kind: "computed",
+				name: collapseNames.draw(pick("collapse padded column"), "column"),
+				term: { kind: "padded", padding: padding(collapsed) },
+				type: bareNumeric
+			},
+			{
+				kind: "computed",
+				name: collapseNames.draw(pick("collapse quotient column"), "column"),
+				term: { kind: "div", dividend: { kind: "var", var: collapsed }, divisor: divisors[0] },
+				type: bareNumeric
+			},
+			{
+				kind: "computed",
+				name: collapseNames.draw(pick("collapse root column"), "column"),
+				term: { kind: "sqrt", radicand: { kind: "padded", padding: padding(collapsed) } },
+				type: bareNumeric
+			},
+			{
+				kind: "computed",
+				name: collapseNames.draw(pick("collapse power column"), "column"),
+				term: { kind: "power", base: { kind: "var", var: collapsed }, exponent: exponents[0] },
+				type: bareNumeric
+			}
+		]
+	)
+	/** The fifth read: the mean of every distinct value of v, and of their paddings, the two spellings one value. */
+	const meanNames = new Names(kinds)
+	const meant = mint(spelled)
+	const meanRule = soleRule<never>(
+		relation,
+		[varOf(spelled, meant)],
+		[
+			{
+				kind: "fold",
+				name: meanNames.draw(pick("mean padded column"), "column"),
+				fn: "mean",
+				arg: { kind: "padded", padding: padding(meant) },
+				type: aggregateResult("avg", bareNumeric)
+			},
+			{
+				kind: "fold",
+				name: meanNames.draw(pick("mean column"), "column"),
+				fn: "mean",
+				arg: { kind: "var", var: meant },
+				type: aggregateResult("avg", spelled.type)
+			}
+		]
+	)
+	/**
+	 * The sixth read: P{k, v} find {k, v} with a child of one field and no attachment of its own, which the optimized
+	 * artifact fuses into its parent's statement (lower/shapes/attach/index.ts chooseAttachment), correlated on v: the
+	 * two rows whose v is one value in two spellings each get the children of both.
+	 */
+	const fusedNames = new Names(kinds)
+	const [fusedKey, fusedValue] = [mint(key), mint(spelled)]
+	const fusedRule = soleRule<never>(
+		relation,
+		[varOf(key, fusedKey), varOf(spelled, fusedValue)],
+		[
+			headOf(fusedNames, "fused key column", fusedKey),
+			headOf(fusedNames, "fused spelled column", fusedValue)
+		]
+	)
+	const fusedChildKey = mint(key)
+	const fusedParent = elementOf(headingOf(fusedRule.head), 1, "the fused root's spelled column")
+	const fused: Attachment = {
+		name: fusedNames.draw(pick("fused"), "attachment"),
+		child: setQuery(
+			soleRule<ParentColumn>(
+				relation,
+				[parentOf(spelled, fusedParent), varOf(key, fusedChildKey)],
+				[headOf(new Names(kinds), "fused child column", fusedChildKey)]
+			),
+			[]
+		),
+		delivery: { kind: "array" }
+	}
+	/**
+	 * The seventh read: V{k, u} find {k, u} over V(k int4, u vector(3)), two of whose facts hold one vector, one with -0
+	 * components (its twin spelling), with a child correlated on u that has a nested attachment of its own, so it is
+	 * pipelined and the host stitches its children to parents by a vector key.
+	 */
+	const signed = Option.getOrThrowWith(
+		Arr.findFirst(valuesOf(vector.type, false), (l) => twinsOf(vector.type, l).length > 0),
+		() => new Error("no generated vector has a zero component")
+	)
+	const vectorFacts: ReadonlyArray<StoredFact> = [
+		[canonicallySpelled({ kind: "int", value: 0n }), spelledAt(vector.type, signed, 0)],
+		[canonicallySpelled({ kind: "int", value: 1n }), spelledAt(vector.type, signed, 1)]
+	]
+	const vectorNames = new Names(kinds)
+	const [vectorId, vectorValue] = [mint(vectorKey), mint(vector)]
+	const vectorRule = soleRule<never>(
+		vectorRelation,
+		[varOf(vectorKey, vectorId), varOf(vector, vectorValue)],
+		[
+			headOf(vectorNames, "vector key column", vectorId),
+			headOf(vectorNames, "vector column", vectorValue)
+		]
+	)
+	const twinNames = new Names(kinds)
+	const twinKey = mint(vectorKey)
+	const vectorParent = elementOf(headingOf(vectorRule.head), 1, "the vector root's vector column")
+	const twinRule = soleRule<ParentColumn>(
+		vectorRelation,
+		[parentOf(vector, vectorParent), varOf(vectorKey, twinKey)],
+		[headOf(twinNames, "vector child column", twinKey)]
+	)
+	const nestedVector = mint(vector)
+	const twinParent = elementOf(headingOf(twinRule.head), 0, "the vector child's column")
+	const vectorNested: Attachment = {
+		name: twinNames.draw(pick("vector nested"), "attachment"),
+		child: setQuery(
+			soleRule<ParentColumn>(
+				vectorRelation,
+				[parentOf(vectorKey, twinParent), varOf(vector, nestedVector)],
+				[headOf(new Names(kinds), "vector nested column", nestedVector)]
+			),
+			[]
+		),
+		delivery: { kind: "array" }
+	}
+	const vectorAttachment: Attachment = {
+		name: vectorNames.draw(pick("vector attachment"), "attachment"),
+		child: setQuery(twinRule, [vectorNested]),
+		delivery: { kind: "array" }
+	}
 	/** The key reads: the first planted fact's key, a key no fact holds, and the selected handle of the roster. */
 	const facts = [...plantedFacts, ...drawnFacts]
-	const keys = new Set(Arr.map(facts, (f) => keyOf(f, relation, relation.primaryKey)))
+	const keys = new Set(Arr.map(facts, keyAt))
 	let absent = 2n
 	while (keys.has(nativeEqualityKey({ kind: "int", value: absent }))) {
 		absent++
@@ -3297,12 +3742,21 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	})
 	return {
 		schema,
-		facts: new Map([[relation.name, facts]]),
+		facts: new Map<string, ReadonlyArray<StoredFact>>([
+			[relation.name, facts],
+			[vectorRelation.name, vectorFacts]
+		]),
 		perturbation: sketch.perturbation,
+		ambient: sketch.ambient,
+		restorage: sketch.restorage,
 		reads: [
 			query(root),
 			query({ ...setQuery(importRule, []), delivery: { kind: "set" } }),
 			{ kind: "mixed", root: mixed },
+			query({ ...setQuery(collapseRule, []), delivery: { kind: "set" } }),
+			query({ ...setQuery(meanRule, []), delivery: { kind: "set" } }),
+			query({ ...setQuery(fusedRule, [fused]), delivery: { kind: "set" } }),
+			query({ ...setQuery(vectorRule, [vectorAttachment]), delivery: { kind: "set" } }),
 			keyRead({ kind: "int", value: 0n }),
 			keyRead({ kind: "int", value: absent }),
 			{ kind: "handle", handle: selected }
@@ -3310,12 +3764,283 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	}
 }
 
+/** The roster of the acceptance cases, User [Red, Green, Blue]. */
+const userRoster: Roster = {
+	kind: "roster",
+	name: "User",
+	handles: rosterHandles,
+	id: { name: "id", kind: "handle", type: typeOf("handle", { name: "User" }) }
+}
+
+const acceptanceField = (name: string, kind: FieldKind): ProgramField => ({
+	name,
+	kind,
+	type: typeOf(kind, userRoster)
+})
+
+const decimal = (text: string): TypedLiteral => ({ kind: "numeric", value: Decimal.of(text) })
+
+/** A value stored in the input spelling `text`, a twin of its one form, which a direct writer stores as written. */
+const twinSpelled = (literal: TypedLiteral, text: string): SpelledValue => ({
+	literal,
+	spelling: { kind: "twin", text }
+})
+
+/** The head key `name` of a variable. */
+const varHead = (name: string, v: Var): HeadItem => ({ kind: "var", name, var: v })
+
+/** The column `name` of a heading, which the case built it with. */
+const columnNamed = (heading: ReadonlyArray<Column>, name: string): Column =>
+	Option.getOrThrowWith(
+		Arr.findFirst(heading, (c) => c.name === name),
+		() => new Error(`no column ${name} in the heading`)
+	)
+
 /**
- * A case of its population: the planted case, which draws nothing more, or one its swarm resolves, drawing the swarm's
- * thinning and choices from the case's decisions.
+ * The first acceptance case: issue #3's shrunk case as printed, under its sketch's plan, session and restorage (its
+ * kept case states the issue's perturbation).
+ *
+ *   closed User [Red, Green, Blue]
+ *   relation Task { Payroll: handle, Task: numeric, HTTPRoute: handle, span40: span4, tick0: tick, fixed0: fixed }
+ *     key [Payroll] key(HTTPRoute)
+ *   facts Task: (Green, 0 stored as "0.0", Green, [1,3), 0, 1) (Red, 0, Red, [1,3), 1, 1 stored as "1.00")
+ *   q0 = Task{Payroll: p0_0, Task: v0, HTTPRoute: v1, span40: v2, tick0: v3, fixed0: v4}
+ *          find {Select: v0, task2note: v1, HttpRoute: v2, User: v3}, named stage0, p0_0 = Green
+ *     attach Payroll (option): Task{Payroll: p.task2note, Task: p.Select, HTTPRoute: p.task2note, span40: p.HttpRoute,
+ *                              tick0: p.User, fixed0: v5} find {Limit: v5}
+ *       attach NOTE (array): Task{Payroll: v6, Task: v7, HTTPRoute: v8, span40: v9, tick0: v10, fixed0: p.Limit}
+ *                            . Task{Payroll: v11, Task: v12, HTTPRoute: v13, span40: v14, tick0: v15, fixed0: p.Limit}
+ *                            where r.allen(v9, 1273, v14)
+ *                            find {Group: v6, note: v7, Task_2_Note: v8, column0: v9,
+ *                                  From: Compute.cond(r.ge(v12, 0), v12, 0)}
+ *
+ * Its facts hold Task's 0 in two spellings, which a direct writer stores as written. NOTE's second match binds v12 to
+ * both, since fixed0 is 1 in both facts, so for each binding of its first match its head collapses the two into one
+ * row: the delivered From is 0 under every plan, every storage order and every spelling stored.
  */
-export const resolveCase = (sketch: CaseSketch): Gen<ProgramCase> =>
-	sketch.population === "planted" ? constant(plantedCase(sketch)) : drawnCase(sketch)
+const acceptanceCollapse = (sketch: CaseSketch): ProgramCase => {
+	const payroll = acceptanceField("Payroll", "handle")
+	const amount = acceptanceField("Task", "numeric")
+	const route = acceptanceField("HTTPRoute", "handle")
+	const span = acceptanceField("span40", "span4")
+	const tick = acceptanceField("tick0", "tick")
+	const scaled = acceptanceField("fixed0", "fixed")
+	const task: Stored = {
+		kind: "stored",
+		name: "Task",
+		fields: [payroll, amount, route, span, tick, scaled],
+		primaryKey: [payroll],
+		candidates: [[route]]
+	}
+	const zero = decimal("0")
+	const one = decimal("1")
+	const interval = canonicallySpelled({ kind: "span", start: 1n, end: 3n })
+	const facts: ReadonlyArray<StoredFact> = [
+		[
+			canonicallySpelled({ kind: "enum", handle: "Green" }),
+			twinSpelled(zero, "0.0"),
+			canonicallySpelled({ kind: "enum", handle: "Green" }),
+			interval,
+			canonicallySpelled({ kind: "int", value: 0n }),
+			canonicallySpelled(one)
+		],
+		[
+			canonicallySpelled({ kind: "enum", handle: "Red" }),
+			canonicallySpelled(zero),
+			canonicallySpelled({ kind: "enum", handle: "Red" }),
+			interval,
+			canonicallySpelled({ kind: "int", value: 1n }),
+			twinSpelled(one, "1.00")
+		]
+	]
+	let vars = 0
+	const mint = (field: ProgramField): Var => ({ id: vars++, field })
+	const [v0, v1, v2, v3, v4] = [mint(amount), mint(route), mint(span), mint(tick), mint(scaled)]
+	const p0: Param = {
+		name: "p0_0",
+		type: compareParamType(payroll.type),
+		value: { kind: "enum", handle: "Green" },
+		declaration: { kind: "base" }
+	}
+	const rootRule = soleRule<never>(
+		task,
+		[
+			{ field: payroll, operand: { kind: "param", param: p0 } },
+			varOf(amount, v0),
+			varOf(route, v1),
+			varOf(span, v2),
+			varOf(tick, v3),
+			varOf(scaled, v4)
+		],
+		[varHead("Select", v0), varHead("task2note", v1), varHead("HttpRoute", v2), varHead("User", v3)]
+	)
+	const rootHeading = headingOf(rootRule.head)
+	const v5 = mint(scaled)
+	const payrollRule = soleRule<ParentColumn>(
+		task,
+		[
+			parentOf(payroll, columnNamed(rootHeading, "task2note")),
+			parentOf(amount, columnNamed(rootHeading, "Select")),
+			parentOf(route, columnNamed(rootHeading, "task2note")),
+			parentOf(span, columnNamed(rootHeading, "HttpRoute")),
+			parentOf(tick, columnNamed(rootHeading, "User")),
+			varOf(scaled, v5)
+		],
+		[varHead("Limit", v5)]
+	)
+	const limit = columnNamed(headingOf(payrollRule.head), "Limit")
+	const [v6, v7, v8, v9, v10] = [mint(payroll), mint(amount), mint(route), mint(span), mint(tick)]
+	const [v11, v12, v13, v14, v15] = [
+		mint(payroll),
+		mint(amount),
+		mint(route),
+		mint(span),
+		mint(tick)
+	]
+	const first = soleRule<ParentColumn>(
+		task,
+		[
+			varOf(payroll, v6),
+			varOf(amount, v7),
+			varOf(route, v8),
+			varOf(span, v9),
+			varOf(tick, v10),
+			parentOf(scaled, limit)
+		],
+		[
+			varHead("Group", v6),
+			varHead("note", v7),
+			varHead("Task_2_Note", v8),
+			varHead("column0", v9),
+			{
+				kind: "computed",
+				name: "From",
+				term: { kind: "cond", arg: v12, op: "ge", than: zero, otherwise: zero },
+				type: amount.type
+			}
+		]
+	)
+	const noteRule: Rule<ParentColumn> = {
+		...first,
+		matches: [
+			first.matches[0],
+			{
+				source: task,
+				bindings: [
+					varOf(payroll, v11),
+					varOf(amount, v12),
+					varOf(route, v13),
+					varOf(span, v14),
+					varOf(tick, v15),
+					parentOf(scaled, limit)
+				]
+			}
+		],
+		allens: [{ left: v9, mask: AllenMask(1273), right: v14 }]
+	}
+	const note: Attachment = {
+		name: "NOTE",
+		child: setQuery(noteRule, []),
+		delivery: { kind: "array" }
+	}
+	const payrollAttachment: Attachment = {
+		name: "Payroll",
+		child: setQuery(payrollRule, [note]),
+		delivery: { kind: "option" }
+	}
+	const root: Root = {
+		heading: rootHeading,
+		arms: [rootRule],
+		bound: { kind: "set" },
+		stage: { kind: "named", name: "stage0" },
+		attachments: [payrollAttachment],
+		delivery: { kind: "set" }
+	}
+	return {
+		schema: { relations: [task], roster: userRoster, nameKinds: new Set<NameKind>() },
+		facts: new Map([[task.name, facts]]),
+		perturbation: sketch.perturbation,
+		ambient: sketch.ambient,
+		restorage: sketch.restorage,
+		reads: [{ kind: "query", query: root, params: [p0], relations: [], probe: { kind: "none" } }]
+	}
+}
+
+/**
+ * The second acceptance case: the mean over one numeric field holding 0 stored as 0.000000000000000000000000 and 0, 1
+ * and 3, under its sketch's plan, session and restorage, whose second reading stores the facts in the other order.
+ *
+ *   relation Readings { id: int4, x: numeric } key [id]
+ *   facts Readings: (0, 0 stored as "0.000000000000000000000000") (1, 0) (2, 1) (3, 3)
+ *   q0 = Readings{x: v0} find {m: r.mean(v0)}
+ *
+ * The rule's distinct complete bindings are x's distinct values, 0, 1 and 3, the two zeros one value, so the mean is
+ * PostgreSQL's quotient of their sum by their count for the values alone, 1.3333333333333333, whichever zero a plan
+ * keeps.
+ */
+const acceptanceMean = (sketch: CaseSketch): ProgramCase => {
+	const id = acceptanceField("id", "int4")
+	const x = acceptanceField("x", "numeric")
+	const readings: Stored = {
+		kind: "stored",
+		name: "Readings",
+		fields: [id, x],
+		primaryKey: [id],
+		candidates: []
+	}
+	const fact = (key: bigint, value: SpelledValue): StoredFact => [
+		canonicallySpelled({ kind: "int", value: key }),
+		value
+	]
+	const facts: ReadonlyArray<StoredFact> = [
+		fact(0n, twinSpelled(decimal("0"), paddedText("0", 24))),
+		fact(1n, canonicallySpelled(decimal("0"))),
+		fact(2n, canonicallySpelled(decimal("1"))),
+		fact(3n, canonicallySpelled(decimal("3")))
+	]
+	const v0: Var = { id: 0, field: x }
+	const rule = soleRule<never>(
+		readings,
+		[varOf(x, v0)],
+		[
+			{
+				kind: "fold",
+				name: "m",
+				fn: "mean",
+				arg: { kind: "var", var: v0 },
+				type: aggregateResult("avg", x.type)
+			}
+		]
+	)
+	return {
+		schema: { relations: [readings], roster: userRoster, nameKinds: new Set<NameKind>() },
+		facts: new Map([[readings.name, facts]]),
+		perturbation: sketch.perturbation,
+		ambient: sketch.ambient,
+		restorage: sketch.restorage,
+		reads: [query({ ...setQuery(rule, []), delivery: { kind: "set" } })]
+	}
+}
+
+/**
+ * A case of its population: the planted case, which draws nothing more; an acceptance case, which draws nothing either;
+ * or one its swarm resolves, drawing the swarm's thinning and choices from the case's decisions.
+ */
+export const resolveCase = (sketch: CaseSketch): Gen<ProgramCase> => {
+	switch (sketch.population) {
+		case "planted":
+			return constant(plantedCase(sketch))
+		case "acceptance collapse":
+			return constant(acceptanceCollapse(sketch))
+		case "acceptance mean":
+			return constant(acceptanceMean(sketch))
+		case "swarm":
+		case "delivered":
+		case "spelled":
+		case "forms":
+			return drawnCase(sketch)
+	}
+}
 
 /** A public-boundary case: its sketch drawn and resolved on the same decisions. */
 export const caseGen: Gen<ProgramCase> = (decisions) =>
@@ -3338,11 +4063,12 @@ const drawnCase =
 			throw new Error("a case sketch with no relation")
 		}
 		const schema: ProgramSchema = { relations: [first, ...rest], roster, nameKinds: kinds }
-		const facts = new Map<string, ReadonlyArray<ProgramFact>>()
+		const spelling: FactSpelling = weightOf(swarm, "spelled") > 0 ? "drawn" : "canonical"
+		const facts = new Map<string, ReadonlyArray<StoredFact>>()
 		for (const [i, r] of schema.relations.entries()) {
 			facts.set(
 				r.name,
-				resolveFacts(r, elementOf(sketch.relations, i, "a relation sketch").facts, dense)
+				resolveFacts(r, elementOf(sketch.relations, i, "a relation sketch").facts, dense, spelling)
 			)
 		}
 		/** In order, so a read imports only an earlier one. */
@@ -3381,6 +4107,8 @@ const drawnCase =
 			schema,
 			facts,
 			perturbation: sketch.perturbation,
+			ambient: sketch.ambient,
+			restorage: sketch.restorage,
 			reads: [firstRead, ...restReads]
 		}
 	}

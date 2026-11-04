@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -38,6 +39,7 @@ const table = (base: TestField, build: (x: ScalarTerm) => { readonly expr: OpenE
 		spelled(build(scalarTerm({ kind: "value" }, base.scalar, base)).expr),
 		base.scalar,
 		"Test",
+		[],
 		options
 	)
 
@@ -50,10 +52,15 @@ interface Constants {
 	readonly scale: number
 }
 
-type Outcome = "admitted" | "UnsupportedOperation" | "MalformedDescription"
+type Outcome =
+	| "admitted"
+	| "UnsupportedOperation"
+	| "MalformedDescription"
+	| "PartialOperation"
+	| "ResourceBound"
 
 /**
- * A form of the total fragment's statement: the base it reads, the predicate, and the outcome the statement gives it.
+ * A form of a contract predicate: the base it reads, the predicate, and the outcome compilation gives it.
  */
 interface Form {
 	readonly outcome: Outcome
@@ -101,29 +108,29 @@ const forms = {
 			)
 	},
 	"division by a zero literal": {
-		outcome: "UnsupportedOperation",
+		outcome: "PartialOperation",
 		table: ({ m }) => table(testPg.bigint, (x) => Compute.le(Compute.div(x, 0n), m))
 	},
 	"numeric division by a zero literal": {
-		outcome: "UnsupportedOperation",
+		outcome: "PartialOperation",
 		table: ({ zero, m, precision, scale }) =>
 			table(testPg.numericOf(precision, scale), (x) => Compute.le(Compute.div(x, zero), m))
 	},
 	"division by a term": {
-		outcome: "UnsupportedOperation",
+		outcome: "PartialOperation",
 		table: ({ m }) => table(testPg.bigint, (x) => Compute.le(Compute.div(x, x), m))
 	},
 	"arithmetic over a bare numeric": {
-		outcome: "UnsupportedOperation",
+		outcome: "admitted",
 		table: ({ k, m }) => table(testPg.numeric, (x) => Compute.lt(Compute.add(x, k), m))
 	},
 	"a literal near the limit": {
-		outcome: "UnsupportedOperation",
+		outcome: "ResourceBound",
 		table: ({ m }) =>
 			table(testPg.numericOf(20, 0), (x) => Compute.lt(Compute.mul(x, "1e131071"), m))
 	},
 	"a quotient scaling past the limit": {
-		outcome: "UnsupportedOperation",
+		outcome: "ResourceBound",
 		table: ({ m }) =>
 			table(testPg.numericOf(20, 0), (x) =>
 				Compute.lt(Compute.div(Compute.mul(x, "1e120000"), "1e-16383"), m)
@@ -138,11 +145,11 @@ const forms = {
 		table: () => table(testPg.money, (x) => Compute.le(Compute.add(x, x), x))
 	},
 	"a cast": {
-		outcome: "UnsupportedOperation",
+		outcome: "PartialOperation",
 		table: () => table(testPg.bigint, (x) => Compute.eq(Compute.cast(x, testPg.integer), 1))
 	},
 	"a conditional": {
-		outcome: "UnsupportedOperation",
+		outcome: "admitted",
 		table: ({ m }) => table(testPg.bigint, (x) => Compute.eq(Compute.cond(x.gt(0n), x, 0n), m))
 	},
 	"a partial function": {
@@ -157,9 +164,15 @@ const forms = {
 		outcome: "UnsupportedOperation",
 		table: () =>
 			contractPredicateTable(
-				{ kind: "compare", op: "ge", left: { kind: "value" }, right: { kind: "param", name: "p" } },
+				{
+					kind: "compare",
+					op: "ge",
+					left: { kind: "value" },
+					right: { kind: "param", name: "p", type: testPg.bigint.desc }
+				},
 				testPg.bigint.scalar,
 				"T",
+				[],
 				options
 			)
 	},
@@ -175,6 +188,7 @@ const forms = {
 				},
 				testPg.bigint.scalar,
 				"T",
+				[],
 				options
 			)
 	}
@@ -218,7 +232,7 @@ const constantsGen: Gen<Constants> = (source) => {
 
 describe("contract predicate tables", () => {
 	it.effect(
-		"admit exactly the total fragment, refusing what can raise and every read but VALUE",
+		"admit a predicate whose every partial operation is proved, refusing an unproved one and every read but VALUE",
 		(ctx) =>
 			searched(
 				ctx,
@@ -230,14 +244,16 @@ describe("contract predicate tables", () => {
 							constants: source.draw(constantsGen)
 						})),
 						literal: Formatter.format,
-						features: features<`form ${FormName}`>(Arr.map(formNames, (f) => `form ${f}` as const)),
+						coverage: required<`form ${FormName}`>(
+							Arr.map(formNames, (f) => `form ${f}` as const),
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
-						/** Twenty-one forms, each about one case in twenty: 400 cases reach every one many times over. */
+						/** The rotating stream's sample of twenty-one forms, each about one case in twenty. */
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ form, constants }, c) =>
@@ -272,18 +288,16 @@ describe("the ContractLiteral check", () => {
 							site: source.draw(element(["compare" as const, "arithmetic" as const]))
 						})),
 						literal: Formatter.format,
-						features: features<"compare admitted" | "compare refused" | "arithmetic admitted">([
-							"compare admitted",
-							"compare refused",
-							"arithmetic admitted"
-						]),
+						coverage: required<"compare admitted" | "compare refused" | "arithmetic admitted">(
+							["compare admitted", "compare refused", "arithmetic admitted"],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
-						/** Half the literals are negative, and each site is half the cases: 100 cases reach all three. */
+						/** The rotating stream's sample: half the literals are negative, and each site is half the cases. */
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ n, site }, c) =>

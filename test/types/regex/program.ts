@@ -1,4 +1,5 @@
 import { Array as Arr } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { BudgetEntries } from "#test/types/query/budget/generate.ts"
 import { rows } from "#test/types/regex/matrix.ts"
 import { literal } from "#test/types/regex/schema.ts"
@@ -28,7 +29,7 @@ export const programSource = (entries: BudgetEntries): string => {
 		lines.push(`// ${row.name}`)
 		const call = row.call
 		if (call.kind === "declared") {
-			lines.push(...call.declarations(`${name}_`))
+			appendAll(lines, call.declarations(`${name}_`))
 		}
 		if (row.host.kind === "refused") {
 			lines.push(`// @ts-expect-error -- ${row.host.refused}: ${row.host.reason}`)

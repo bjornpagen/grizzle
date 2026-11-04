@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type BuiltinTypeName,
@@ -15,6 +16,7 @@ import {
 	type TypeRef,
 	tableConstraints
 } from "#compiler/sql/ast.ts"
+import { storedSettingValue } from "#compiler/sql/print.ts"
 
 import type {
 	Catalog,
@@ -125,9 +127,7 @@ const builtinTypname: { readonly [K in BuiltinTypeName]: string } = {
 	int8range: "int8range",
 	int4multirange: "int4multirange",
 	int8multirange: "int8multirange",
-	regclass: "regclass",
-	record: "record",
-	trigger: "trigger"
+	record: "record"
 }
 
 const cUtf8 = "pg_catalog.pg_c_utf8"
@@ -176,8 +176,9 @@ const type = (t: CatalogType): ProjectedType => ({
 export const projectCatalog = (catalog: Catalog): ProjectedCatalog => {
 	const grants: Array<ProjectedGrant> = []
 	const put = (kind: GrantKind, name: string, list: ReadonlyArray<CatalogGrant>) => {
-		grants.push(
-			...Arr.map(
+		appendAll(
+			grants,
+			Arr.map(
 				Arr.filter(list, (g) => g.grantee !== catalog.owner),
 				(g) => ({ kind, name, grantee: g.grantee, privilege: g.privilege })
 			)
@@ -512,7 +513,8 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				break
 			case "alterRole":
 				if (s.action.kind === "set") {
-					roles.get(s.name)?.config.push(`${s.action.parameter}=${s.action.value}`)
+					const { setting } = s.action
+					roles.get(s.name)?.config.push(`${setting.parameter}=${storedSettingValue(setting)}`)
 				}
 				break
 			case "grant":

@@ -1,15 +1,15 @@
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { ScalarHelpers } from "#compiler/types/compute/compute.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
-import type { Origin, Refusal } from "#compiler/types/core/phantom.ts"
-import type { HandleOf, Infer, SqlOf } from "#compiler/types/fields/field.ts"
 import type {
-	AnyClosed,
-	AnyRelation,
-	Closed,
-	Fact,
-	NameOf
-} from "#compiler/types/schema/relation.ts"
+	DomainOf,
+	Headed,
+	Origin,
+	Refusal,
+	SqlOfCarrier
+} from "#compiler/types/core/phantom.ts"
+import type { HandleOf } from "#compiler/types/fields/field.ts"
+import type { AnyClosed, AnyRelation, Fact, NameOf } from "#compiler/types/schema/relation.ts"
 
 /** In key position a relation stands for its primary key; a Key value names a candidate key. */
 export type KeyRef<R extends AnyRelation | AnyClosed> = R | Key<R, ReadonlyArray<string>>
@@ -119,13 +119,17 @@ export type Statement =
 	| Capacity<unknown, unknown>
 	| AlternativesBase
 
-/** Each field of R as a Scalar of its field's SQL type beside the comparison and boolean helpers of Compute. */
+/**
+ * Each field of R as a Scalar of its field's domain and SQL type, whose language is the field's values, beside the
+ * comparison and boolean helpers of Compute.
+ */
 export type RowScalars<R> = {
 	readonly [K in keyof Fact<R>]: Scalar<
-		Fact<R>[K],
+		FieldTypeOf<R, K> extends readonly [infer D, SqlTag] ? D : never,
 		unknown,
 		Origin<NameOf<R>, K & string>,
-		FieldTypeOf<R, K> extends readonly [unknown, infer Sql extends SqlTag] ? Sql : SqlTag
+		FieldTypeOf<R, K> extends readonly [unknown, infer Sql extends SqlTag] ? Sql : SqlTag,
+		Fact<R>[K]
 	>
 } & ScalarHelpers
 
@@ -134,18 +138,17 @@ export type SideRelation<R> = R extends Selection<infer Rel> ? Rel : R
 export type SideHeading<R> = Fact<SideRelation<R>>
 
 /**
- * What a field joins as: its host type and its PostgreSQL type. Text and uuid share the host type string but are
+ * What a field joins as: its domain and its PostgreSQL type, read off the carrier of its heading. Text and uuid are
  * different carriers; two text fields with different patterns share both, because a pattern restricts values without
- * changing text equality. A closed relation's id is its roster's enum.
+ * changing text equality, so their domain is text. A closed relation's id is its roster's enum, of its roster's
+ * identity.
  */
 type FieldTypeOf<R, K> =
-	R extends Closed<string, infer H, infer Pl>
-		? K extends "id"
-			? readonly [H, "enum"]
-			: readonly [Infer<Pl[K & keyof Pl]>, SqlOf<Pl[K & keyof Pl]>]
-		: R extends { readonly fields: infer Fs }
-			? readonly [Infer<Fs[K & keyof Fs]>, SqlOf<Fs[K & keyof Fs]>]
+	R extends Headed<infer C>
+		? K extends keyof C
+			? readonly [DomainOf<C[K]>, SqlOfCarrier<C[K]>]
 			: never
+		: never
 
 /** The join types of a side's fields, in order. */
 type SideHosts<S> =
@@ -201,6 +204,39 @@ export type ArmsCompatible<PK, Arms> = {
 			? unknown
 			: Refusal<"the arm's key does not match the parent key">
 		: Refusal<"the arm's key does not match the parent key">
+}
+
+/**
+ * The alternatives reader: the arm map is keyed by handles of the roster C alone, each key by its spelling, a numeric
+ * one's included. A roster whose handles are no literals cannot tell a stray key by its type, and the runtime refuses
+ * it.
+ */
+export type ArmsOfRoster<C, Arms> = {
+	readonly [
+		K in Exclude<(keyof Arms & string) | `${keyof Arms & number}`, HandleOf<C>>
+	]: Refusal<"an arm is keyed by a handle of its roster">
+}
+
+/** Whether A and B are one relation by their literal names: a name that is no literal tells no relation apart. */
+type SameRelation<A, B> = [NameOf<A>] extends [never]
+	? false
+	: string extends NameOf<A>
+		? false
+		: [NameOf<A>] extends [NameOf<B>]
+			? [NameOf<B>] extends [NameOf<A>]
+				? true
+				: false
+			: false
+
+/**
+ * The alternatives reader: no arm is the parent itself. A parent that is its own arm at a handle must hold that handle
+ * in every fact, since the arm key is a key of the parent, so every other handle of its roster would be dead; a
+ * relation whose name is no literal cannot be told from the parent by its type, and the runtime refuses it.
+ */
+export type ArmsApartFromParent<PK, Arms> = {
+	readonly [H in keyof Arms]: SameRelation<RelationOfKey<Arms[H]>, RelationOfKey<PK>> extends true
+		? Refusal<"an arm is a relation other than its parent">
+		: unknown
 }
 
 /**

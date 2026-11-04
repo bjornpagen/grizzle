@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, pipe, Result, String as Str } from "effect"
@@ -32,7 +32,7 @@ import { indices } from "#test/support/oracle/pick.ts"
 /** An account's first two tasks by id. */
 const firstTwo = query(Work)
 	.rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r.match(Task, { id, account: r.param("acct", Task.fields.account) }).find({ id })
 	})
 	.orderBy(["id", "asc"])
@@ -42,9 +42,9 @@ const firstTwo = query(Work)
 const namedAccounts = (name: string) =>
 	query(Work).rule((r) => {
 		const wanted = r.relation(name, { id: Account.fields.id })
-		const { id: account } = v(wanted)
+		const { id: account } = v(wanted, "wanted")
 		const top = firstTwo.bind({ acct: account })
-		const { id } = v(top)
+		const { id } = v(top, "top")
 		return r.match(wanted, { id: account }).match(top, { id }).find({ account, id })
 	})
 
@@ -70,7 +70,7 @@ describe("a read's per-execution choice", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 2 * parameterNames.length,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					([name, count]) =>

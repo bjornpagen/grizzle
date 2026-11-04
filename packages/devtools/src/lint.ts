@@ -321,11 +321,11 @@ const findingsOf = (source: LintSource, options: SuperlintOptions): ReadonlyArra
 	)
 	const findings: Array<Finding> = []
 	const walk = (node: ts.Node): void => {
-		findings.push(
-			...Arr.flatMap(visitors, ({ rule, visit }) =>
-				Arr.map(visit(node), (report) => findingAt({ sourceFile: source.sourceFile, rule, report }))
-			)
-		)
+		for (const { rule, visit } of visitors) {
+			for (const report of visit(node)) {
+				findings.push(findingAt({ sourceFile: source.sourceFile, rule, report }))
+			}
+		}
 		node.forEachChild(walk)
 	}
 	walk(source.sourceFile)

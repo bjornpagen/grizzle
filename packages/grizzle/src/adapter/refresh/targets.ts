@@ -91,7 +91,7 @@ const derivedOf = (
 		return Result.flatMap(
 			toResult(
 				catchCompileError(() => {
-					hostArguments("db.refresh", value)
+					hostArguments("db.refresh", [value])
 				})
 			),
 			() => {

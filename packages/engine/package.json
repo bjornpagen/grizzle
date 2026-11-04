@@ -87,6 +87,11 @@
 			"types": "./dist/codec/scalar.d.ts",
 			"default": "./dist/codec/scalar.js"
 		},
+		"./internal/core/brand.ts": {
+			"grizzle-source": "./src/core/brand.ts",
+			"types": "./dist/core/brand.d.ts",
+			"default": "./dist/core/brand.js"
+		},
 		"./internal/core/canonical.ts": {
 			"grizzle-source": "./src/core/canonical.ts",
 			"types": "./dist/core/canonical.d.ts",
@@ -121,6 +126,11 @@
 			"grizzle-source": "./src/core/loc.ts",
 			"types": "./dist/core/loc.d.ts",
 			"default": "./dist/core/loc.js"
+		},
+		"./internal/core/nonempty.ts": {
+			"grizzle-source": "./src/core/nonempty.ts",
+			"types": "./dist/core/nonempty.d.ts",
+			"default": "./dist/core/nonempty.js"
 		},
 		"./internal/core/phantom.ts": {
 			"grizzle-source": "./src/core/phantom.ts",
@@ -317,6 +327,11 @@
 			"types": "./dist/physical/ddl/names.d.ts",
 			"default": "./dist/physical/ddl/names.js"
 		},
+		"./internal/physical/ddl/roles.ts": {
+			"grizzle-source": "./src/physical/ddl/roles.ts",
+			"types": "./dist/physical/ddl/roles.d.ts",
+			"default": "./dist/physical/ddl/roles.js"
+		},
 		"./internal/physical/derived/objects.ts": {
 			"grizzle-source": "./src/physical/derived/objects.ts",
 			"types": "./dist/physical/derived/objects.d.ts",
@@ -451,6 +466,11 @@
 			"grizzle-source": "./src/sql/build.ts",
 			"types": "./dist/sql/build.d.ts",
 			"default": "./dist/sql/build.js"
+		},
+		"./internal/sql/catalog.ts": {
+			"grizzle-source": "./src/sql/catalog.ts",
+			"types": "./dist/sql/catalog.d.ts",
+			"default": "./dist/sql/catalog.js"
 		},
 		"./internal/sql/emit.ts": {
 			"grizzle-source": "./src/sql/emit.ts",

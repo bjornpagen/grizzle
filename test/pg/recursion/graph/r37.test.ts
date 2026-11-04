@@ -110,8 +110,8 @@ type NetRule = Rule<typeof Net>
 type NodeSelf = SelfSource<{ readonly node: typeof pg.integer }>
 
 const forward = (r: NetRule, self: NodeSelf) => {
-	const { node } = v(self)
-	const { to } = v(E)
+	const { node } = v(self, "self")
+	const { to } = v(E, "e")
 	return r.match(self, { node }).match(E, { from: node, to }).find({ node: to })
 }
 
@@ -119,7 +119,7 @@ const forward = (r: NetRule, self: NodeSelf) => {
 const page = () =>
 	query(Net)
 		.rule((r) => {
-			const { id } = v(Root)
+			const { id } = v(Root, "root")
 			return r.match(Root, { id }).find({ id })
 		})
 		.orderBy(["id", "asc"])
@@ -129,12 +129,12 @@ const page = () =>
  * The vertices one or more steps below the parent: the base reads the parent's column `from`, its id unless an
  * attachment names another.
  */
-const below = (from: Term<number>) =>
+const below = (from: Term<number, unknown, unknown, "integer">) =>
 	query(Net).recursive("Below", {
 		row: { node: pg.integer },
 		base: [
 			(r) => {
-				const { to } = v(E)
+				const { to } = v(E, "e")
 				return r.match(E, { from, to }).find({ node: to })
 			}
 		],

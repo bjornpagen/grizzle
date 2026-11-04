@@ -78,6 +78,12 @@ const absents = (e: ResolvedExpr, loc: SourceLoc): ReadonlyArray<Absent> => {
 			return sub(e.arg, "arg")
 		case "cond":
 			return [...sub(e.pred, "pred"), ...sub(e.onTrue, "onTrue"), ...sub(e.onFalse, "onFalse")]
+		case "when":
+			return [
+				...sub(e.subject, "subject"),
+				...sub(e.proved, "proved"),
+				...sub(e.otherwise, "otherwise")
+			]
 		case "compare":
 		case "allen":
 			return [...sub(e.left, "left"), ...sub(e.right, "right")]

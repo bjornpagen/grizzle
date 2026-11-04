@@ -42,7 +42,11 @@ export type Artifact =
  * - `nesting`: a container nested deeper than `limit`;
  * - `carriers`: more than `limit` carriers of one heading's column types in one program;
  * - `regexConstructs`: a pattern of more than `limit` regex constructs;
- * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts above PostgreSQL's regex compile space.
+ * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts above PostgreSQL's regex compile space;
+ * - `text`: a text grizzle builds as one string, `needed` UTF-16 code units long, past `limit` (core/policy.ts
+ *   textMaxLength);
+ * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
+ *   (131072), where PostgreSQL's numeric arithmetic would raise.
  */
 export type CompileBound =
 	| {
@@ -67,6 +71,8 @@ export type CompileBound =
 	| { readonly kind: "carriers"; readonly limit: number }
 	| { readonly kind: "regexConstructs"; readonly limit: number }
 	| { readonly kind: "regexCompileSpace"; readonly pattern: string; readonly measure: string }
+	| { readonly kind: "text"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "numericDigits"; readonly limit: number; readonly needed: number }
 
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
@@ -84,6 +90,43 @@ const boundText = (bound: CompileBound): string => {
 			return `the pattern exceeds the fixed budget of ${bound.limit} regex constructs`
 		case "regexCompileSpace":
 			return `${bound.pattern} ${bound.measure}, above the fixed budget that keeps it inside PostgreSQL's regex compile space`
+		case "text":
+			return `a text of at most ${bound.limit} UTF-16 code units, JavaScript's longest string (needed ${bound.needed})`
+		case "numericDigits":
+			return `a numeric value of at most ${bound.limit} integer digits, numeric's limit (this expression's may need ${bound.needed})`
+	}
+}
+
+/**
+ * What a partial operation needs of its operands beyond their types (scalar/compute/registry.ts Precondition, by
+ * kind): a nonzero divisor, a nonnegative radicand, a finite operand, a value that fits its target, a contract that
+ * holds, power's domain, width_bucket's domain.
+ */
+export type PreconditionKind =
+	| "nonzero"
+	| "nonnegative"
+	| "finite"
+	| "fits"
+	| "contract"
+	| "powerDomain"
+	| "bucketDomain"
+
+const preconditionText = (kind: PreconditionKind, operand: string): string => {
+	switch (kind) {
+		case "nonzero":
+			return `${operand} is never zero`
+		case "nonnegative":
+			return `${operand} is never negative`
+		case "finite":
+			return `${operand} is never NaN or an infinity`
+		case "fits":
+			return `${operand} fits its target`
+		case "contract":
+			return `${operand} satisfies its target's contract`
+		case "powerDomain":
+			return `${operand} lies where power is defined and in range`
+		case "bucketDomain":
+			return `${operand} lies where width_bucket is defined`
 	}
 }
 
@@ -113,11 +156,12 @@ const accessText = (role: string, access: RoleAccess): string => {
 
 /**
  * A name declared twice differently, a DuplicateIdentity's, with where the earlier declaration is: a relation, a
- * contract, a context matched with another descriptor, or an alternatives(...) statement repeated by its manual
- * expansion `statement`.
+ * contract, a context matched with another descriptor, an alternatives(...) statement repeated by its manual
+ * expansion `statement`, or a scope name two calls to v give in one rule, which no type tells apart.
  */
 export type Duplicate =
 	| { readonly kind: "relation"; readonly name: string; readonly earlier: SourceLoc }
+	| { readonly kind: "scope"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "contract"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "context"; readonly name: string; readonly earlier: SourceLoc }
 	| {
@@ -131,6 +175,8 @@ const duplicateText = (duplicate: Duplicate): string => {
 	switch (duplicate.kind) {
 		case "relation":
 			return `one declaration per relation name; ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
+		case "scope":
+			return `one scope per name in a rule; scope ${JSON.stringify(duplicate.name)} is also minted at ${formatLoc(duplicate.earlier)}, so give each v call of the rule its own name`
 		case "contract":
 			return `one descriptor per contract name; contract ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
 		case "context":
@@ -159,6 +205,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `IdentifierCollision`: two declarations whose `what` names, `declaration` and `otherDeclaration`, both convert to
  *   the identifier `identifier`; the one refused is `at`, the other `other`.
  * - `ResourceBound`: a bound crossed (CompileBound).
+ * - `PartialOperation`: an operation defined only where its precondition holds, which neither the operands' bounds nor
+ *   a Compute.cond around it proves: `operation` names it, `operand` the operand the precondition reads, and `guard`
+ *   the Compute.cond to write, whose other branch is the caller's value for the undefined case.
  * - `RecursionRefused`: recursion admission refused (check/recursion), for `cause`.
  * - `DerivedRefused`: derived analysis refused a derived relation (analysis/derived), for `cause`.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
@@ -209,6 +258,14 @@ export type CompileReason =
 			readonly otherDeclaration: string
 	  }
 	| { readonly _tag: "ResourceBound"; readonly at: SourceLoc; readonly bound: CompileBound }
+	| {
+			readonly _tag: "PartialOperation"
+			readonly at: SourceLoc
+			readonly operation: string
+			readonly precondition: PreconditionKind
+			readonly operand: string
+			readonly guard: string
+	  }
 	| { readonly _tag: "RecursionRefused"; readonly at: SourceLoc; readonly cause: RecursionRefusal }
 	| { readonly _tag: "DerivedRefused"; readonly at: SourceLoc; readonly cause: DerivedRefusal }
 	| {
@@ -275,6 +332,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `${reason.what} names that convert apart; ${reason.declaration} and ${reason.otherDeclaration} both convert to ${reason.identifier}`
 		case "ResourceBound":
 			return boundText(reason.bound)
+		case "PartialOperation":
+			return `${reason.operation} is defined only where ${preconditionText(reason.precondition, reason.operand)}, which nothing here proves; guard it: ${reason.guard}`
 		case "RecursionRefused":
 			return recursionRefusalText(reason.cause)
 		case "DerivedRefused":
@@ -415,7 +474,7 @@ export const valueFaultWords = [
 ] as const
 export type ValueFault = (typeof valueFaultWords)[number]
 /** A codec's refusal words: the value faults and the null ban (codec/fault.ts). */
-export type CodecFault = ValueFault | "nullValue"
+export type CodecFault = ValueFault | "nullValue" | "refinedValue"
 /** A cursor token's refusal words, in the order validation checks them (codec/cursor/fault.ts). */
 const cursorFaultWords = [
 	"cursorType",

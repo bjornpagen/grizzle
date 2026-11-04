@@ -90,6 +90,13 @@ export const roleName = (schema: string, name: string): string => {
 	return full
 }
 
+/**
+ * An owner login's role (substrate.ts ownerLogin): `<allocation>__login` under an allocation of its own, labelled
+ * `owner`, so no schema's roles share its prefix and the sweep reads its process off it as off any test role.
+ */
+export const ownerLoginName = (allocationNumber: number): string =>
+	roleName(uniqueSchemaName("owner", allocationNumber), "login")
+
 /** The prefix every role and schema that belongs to an allocated `schema` starts with, but the installed schema, which
  * is the allocation itself: each login's and role's PostgreSQL role, each role's schema, and each role a test names
  * under it. */

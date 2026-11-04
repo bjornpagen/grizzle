@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
 import {
 	type Broken,
@@ -9,6 +9,7 @@ import {
 	corrupted as corruptedGen,
 	corruptedFeature
 } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
@@ -25,9 +26,10 @@ import { normalizeDag } from "#compiler/ir/dag.ts"
 import { descText, type QueryDesc, type QueryStageDesc, type RuleDesc } from "#compiler/ir/desc.ts"
 import { fromQueryDescription, toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { sameScalarType } from "#compiler/ir/scalar.ts"
+import { numericTypmodOf, rosterOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { queryFromDesc, queryValueDesc } from "#compiler/query/build/index.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refusalLoc } from "#test/support/assert.ts"
 import { decodeJson } from "#test/support/json.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -413,7 +415,7 @@ type RuleName =
 	| "emptyRelationParam"
 	| "relationParamRetyped"
 	| "scalarParamAsRelation"
-	| "headOnlyParam"
+	| "paramWithoutType"
 	| "missingDiscriminant"
 	| "allenEmptyMask"
 	| "allenLiteralSpan"
@@ -497,14 +499,14 @@ const withMatches = (rule: JsonRecord, matches: ReadonlyArray<JsonRecord>): Json
 	appendAt(rule, "matches", matches)
 
 /** Whether a stored relation's field, by name, has a key kind (program.ts keyKinds). */
-const isKeyField = (relation: Option.Option<Stored>, field: string): boolean =>
-	Option.exists(
-		Option.flatMap(relation, (r) => Arr.findFirst(r.fields, (f) => f.name === field)),
-		(f) => keyKinds.includes(f.kind)
-	)
+/** A variable a match binds to a field of a key kind, and that field. */
+interface KeyVar {
+	readonly variable: string
+	readonly field: ProgramField
+}
 
 /** The variables a match of a stored relation binds to fields of a key kind, in its bindings' order. */
-const keyVarsOf = (match: Json, stored: ReadonlyArray<Stored>): ReadonlyArray<string> => {
+const keyVarsOf = (match: Json, stored: ReadonlyArray<Stored>): ReadonlyArray<KeyVar> => {
 	const source = isRecord(match) ? match["source"] : undefined
 	const bindings = isRecord(match) ? match["bindings"] : undefined
 	if (!isRecord(source) || source["kind"] !== "relation" || !isRecord(bindings)) {
@@ -512,24 +514,65 @@ const keyVarsOf = (match: Json, stored: ReadonlyArray<Stored>): ReadonlyArray<st
 	}
 	const relation = Arr.findFirst(stored, (r) => r.name === source["name"])
 	const entries = Record.toEntries(bindings)
-	return Arr.flatMap(entries, ([field, term]) =>
-		isRecord(term) &&
-		term["kind"] === "var" &&
-		typeof term["var"] === "string" &&
-		isKeyField(relation, field)
-			? [term["var"]]
+	return Arr.flatMap(entries, ([name, term]) => {
+		const field = Option.getOrUndefined(
+			Option.flatMap(relation, (r) => Arr.findFirst(r.fields, (f) => f.name === name))
+		)
+		return isRecord(term) &&
+			term["kind"] === "var" &&
+			typeof term["var"] === "string" &&
+			field !== undefined &&
+			keyKinds.includes(field.kind)
+			? [{ variable: term["var"], field }]
 			: []
-	)
+	})
 }
 
 /**
  * A variable a rule binds to a field of a key kind (program.ts keyKinds), which equality compares with a parameter of
- * its base, from its matches of stored relations; undefined where it binds none.
+ * the field's type, from its matches of stored relations; undefined where it binds none.
  */
-const comparableVar = (rule: JsonRecord, stored: ReadonlyArray<Stored>): string | undefined => {
+const comparableVar = (rule: JsonRecord, stored: ReadonlyArray<Stored>): KeyVar | undefined => {
 	const matches = rule["matches"]
 	return isJsonArray(matches) ? Arr.flatMap(matches, (m) => keyVarsOf(m, stored))[0] : undefined
 }
+
+/** The field descriptor, as a Description spells it, of a field of a key kind: a compared parameter's declared type. */
+const keyFieldDesc = (field: ProgramField): JsonRecord => {
+	switch (field.kind) {
+		case "int4":
+			return { kind: "pg", type: "integer" }
+		case "int8":
+			return { kind: "pg", type: "bigint" }
+		case "bool":
+			return { kind: "pg", type: "boolean" }
+		case "float8":
+			return { kind: "pg", type: "double precision" }
+		case "uuid":
+			return { kind: "uuid" }
+		case "fixed": {
+			const typmod = defined(numericTypmodOf(field.type), "a fixed field's typmod")
+			return { kind: "numeric", precision: typmod.precision, scale: typmod.scale }
+		}
+		case "text": {
+			const regex = defined(textOf(field.type), "a text field's refinement").regex
+			return regex === "wildcard"
+				? { kind: "text", source: "^.*$", flags: "su" }
+				: { kind: "text", source: regex.source, flags: regex.flags }
+		}
+		case "handle":
+			return { kind: "closedId", roster: defined(rosterOf(field.type), "a handle's roster").closed }
+		default:
+			throw new Error(`a key kind, not ${field.kind}`)
+	}
+}
+
+/** A parameter compared with `key`'s variable, declared at the field's type. */
+const keyParam = (key: KeyVar, name: string): JsonRecord => ({
+	kind: "param",
+	name,
+	type: keyFieldDesc(key.field)
+})
 
 /** The arms of the root's own rules stage that bind a variable a comparison with a parameter can read. */
 const comparableRootArms = (
@@ -543,7 +586,7 @@ const comparableRootArms = (
 }
 
 /**
- * A rule with `variable = name` planted in its where, a parameter compared on the right, which types the parameter: the
+ * A rule with `variable = name` planted in its where, a parameter of the variable's field type compared on the right: the
  * precondition of a break or rewrite that reads a compared parameter, planted rather than left to the generator's rate
  * of drawing one.
  */
@@ -552,16 +595,16 @@ const withComparison = (
 	stored: ReadonlyArray<Stored>,
 	name: string
 ): JsonRecord => {
-	const variable = comparableVar(rule, stored)
-	if (variable === undefined) {
-		throw new Error("a chosen rule binds a variable a comparison can read")
-	}
+	const key = defined(
+		comparableVar(rule, stored),
+		"a chosen rule binds a variable a comparison can read"
+	)
 	return appendAt(rule, "where", [
 		{
 			kind: "compare",
 			op: "eq",
-			left: { kind: "var", var: variable },
-			right: { kind: "param", name }
+			left: { kind: "var", var: key.variable },
+			right: keyParam(key, name)
 		}
 	])
 }
@@ -836,7 +879,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 		malformed
 	),
 	atSites(
-		"headOnlyParam",
+		"paramWithoutType",
 		"wild",
 		(q) =>
 			Arr.filter(
@@ -895,7 +938,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 		"allenParamSpan",
 		"wild",
 		(q) => collect(q, (v) => v["kind"] === "allen"),
-		(allen) => ({ ...allen, left: { kind: "param", name: "w" } }),
+		(allen) => ({ ...allen, left: { kind: "param", name: "w", type: { kind: "uuid" } } }),
 		"Allen relation",
 		malformed
 	),
@@ -1115,7 +1158,7 @@ const rewrites: ReadonlyArray<Rewrite> = [
 		edit: (arm, stored) =>
 			rewriteAt(withComparison(arm, stored, "p9004"), ["head"], (head) => ({
 				...head,
-				echoed: { kind: "param", name: "p9004" }
+				echoed: keyParam(defined(comparableVar(arm, stored), "a comparable variable"), "p9004")
 			}))
 	}
 ]
@@ -1315,6 +1358,7 @@ const spanCase: ProgramCase = (() => {
 					inSets: [],
 					allens: [{ left: first, mask: allenBit("overlaps"), right: second }],
 					pointIns: [],
+					connectives: [],
 					negations: [],
 					head: [{ kind: "var", name: column.name, var: key }]
 				}
@@ -1336,6 +1380,8 @@ const spanCase: ProgramCase = (() => {
 		},
 		facts: new Map(),
 		perturbation: unperturbed,
+		ambient: ordinarySession,
+		restorage: { shift: 0, respell: 0 },
 		reads: [read]
 	}
 })()
@@ -1426,17 +1472,15 @@ describe("generated queries round-trip through their descriptions", () => {
 						suite: "unit/check/roundtrip",
 						draw: drawn(drawnCase),
 						literal: Formatter.format,
-						features: features<Feature>([
-							"live",
-							...Arr.map(rewrites, (r) => r.feature),
-							...rulesRequired
-						]),
+						coverage: required<Feature>(
+							["live", ...Arr.map(rewrites, (r) => r.feature), ...rulesRequired],
+							{ cases: 800, sense: notesOnly }
+						),
 						kept: keptBreaks,
 						runs: 800,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(source, k) =>

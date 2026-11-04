@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { type Coverage, noCoverage, required } from "@grizzle/testing/features"
 import { filter, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Schema } from "effect"
@@ -182,14 +183,14 @@ const run = (c: RecursiveCase, left: Lowering, right: Lowering) =>
 /**
  * A kill population: every case the suite explores tells `mutant` apart from the conservative lowering in the given
  * shape, and is the kind of case the population is about (`about`: a message when it is not), each case's generator
- * features noted through its case, the population requiring `required`.
+ * features noted through its case, the population reaching what its `coverage` requires.
  */
 interface Kills {
 	readonly suite: string
 	readonly runs: number
 	readonly mutant: CaseLowering<RecursiveCase>
 	readonly shape: (o: Parameters<typeof repeatsStates>[0]) => boolean
-	readonly required: ReadonlyArray<RecursionOracleFeature>
+	readonly coverage: Coverage<RecursionOracleFeature>
 	/**
 	 * The cases the population is about, and what a case outside them lacks: every case, for a population whose
 	 * generator plants its precondition.
@@ -212,11 +213,10 @@ const killsEvery = (generator: Gen<RecursiveCase>, kills: Kills) =>
 		{
 			suite: kills.suite,
 			literal: Formatter.format,
-			features: features<RecursionOracleFeature>(kills.required),
+			coverage: kills.coverage,
 			kept: [],
 			runs: kills.runs,
 			shrink: completeShrink,
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2),
 			perturb: "none"
 		},
@@ -291,10 +291,10 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						runs: 300,
 						mutant: feedbackUnionAllMutant,
 						shape: repeatsStates,
-						required: [
-							...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`),
-							"parallel edges"
-						],
+						coverage: required<RecursionOracleFeature>(
+							[...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`), "parallel edges"],
+							{ cases: 300, sense: notesOnly }
+						),
 						about: {
 							holds: (c) => c.features.includes("diamond") && c.terminatesAsBag,
 							otherwise: "no terminating diamond"
@@ -366,7 +366,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						runs: 200,
 						mutant: bagRecursion,
 						shape: repeatsStates,
-						required: [],
+						coverage: noCoverage,
 						about: {
 							holds: (c) => !c.features.includes("diamond") && c.terminatesAsBag,
 							otherwise: "a diamond, or no terminating bag"
@@ -388,7 +388,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						runs: 200,
 						mutant: eraseEdgeIdentity,
 						shape: (o) => undercounts(o, "edges") && !o.comparison.equal,
-						required: [],
+						coverage: noCoverage,
 						about: {
 							holds: (c) => c.features.includes("parallel edges"),
 							otherwise: "no parallel edges"
@@ -402,11 +402,10 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						{
 							suite: "recursion/parallel-edges-control",
 							literal: Formatter.format,
-							features: features<RecursionOracleFeature>([]),
+							coverage: noCoverage,
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
 							/** Facts repeated under fresh edge ids are parallel edges, which this population excludes. */
 							perturb: "planner"
@@ -452,16 +451,19 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						runs: 200,
 						mutant: movedInside("endFilterIntoSeed"),
 						shape: told,
-						required: [
-							"shape:chain",
-							"shape:tree",
-							"shape:diamond",
-							"form:reach",
-							"form:walks",
-							"form:pairs",
-							"result filter:param",
-							"result filter:literal"
-						],
+						coverage: required<RecursionOracleFeature>(
+							[
+								"shape:chain",
+								"shape:tree",
+								"shape:diamond",
+								"form:reach",
+								"form:walks",
+								"form:pairs",
+								"result filter:param",
+								"result filter:literal"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						about: everyCase
 					})
 				})
@@ -490,7 +492,10 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						runs: 200,
 						mutant: movedInside("neFilterIntoStep"),
 						shape: told,
-						required: ["form:reach", "form:pairs"],
+						coverage: required<RecursionOracleFeature>(["form:reach", "form:pairs"], {
+							cases: 200,
+							sense: notesOnly
+						}),
 						about: everyCase
 					})
 				})

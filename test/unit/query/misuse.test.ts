@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import {
 	type Drawn,
@@ -11,10 +11,12 @@ import {
 	type Stale,
 	WILD_KINDS
 } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
 import { ALLEN } from "#compiler/allen/mask.ts"
+import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type CompileReasonTag, isCompileError } from "#compiler/core/errors.ts"
 import type { Built } from "#compiler/core/phantom.ts"
 import { descText } from "#compiler/ir/desc.ts"
@@ -46,11 +48,11 @@ import {
  * The query builder's untyped core, handed Live, Stale and Wild arguments at every argument position, and the values it
  * branches on, as a JavaScript caller may hand them (G-lsw).
  *
- * Every argument position of the builder (the schema of query(S), a rule's callback, a match's source, its bindings
- * and one binding's value, a filter's predicate, each side of a comparison, a parameter's name and descriptor, a
- * negation's source and bindings, the head and one head term, an order pair, a take bound, an attachment's name, child
- * and delivery, a stage's name, approximateNearest's column and bound, an Allen left operand, a pointIn point, a
- * vector-valued binding) is given either its Live argument, inside an otherwise valid query, or a Wild value of every
+ * Every argument position of the builder (the schema of query(S), a rule's callback, a match's source, a scope's name,
+ * a match's bindings and one binding's value, a filter's predicate, each side of a comparison, a parameter's name and
+ * descriptor, a negation's source and bindings, the head and one head term, an order pair, a take bound, an
+ * attachment's name, child and delivery, a stage's name, approximateNearest's column and bound, an Allen left operand,
+ * a pointIn point, a vector-valued binding) is given either its Live argument, inside an otherwise valid query, or a Wild value of every
  * kind the library draws (@grizzle/testing/lsw). A Stale argument is a value that was live in another scope of the builder: a
  * variable, a rule builder, a Finished, an interior stage, a parent variable or a self of another rule, attachment or
  * recursive definition, each named by where it comes from. A near miss is a value the builder branches on, one call
@@ -97,7 +99,7 @@ type Position =
 
 /** A valid query whose rule takes one argument at a position. */
 const ruled = (body: (r: RuleValue, task: Vars) => unknown) =>
-	query(Work).rule((r: RuleValue) => body(r, v(Task)))
+	query(Work).rule((r: RuleValue) => body(r, v(Task, "task")))
 
 const live = () =>
 	ruled((r, task) =>
@@ -107,26 +109,26 @@ const live = () =>
 	)
 
 const liveBody = (r: RuleValue) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id }).find({ id })
 }
 
 const note = (parent: ParentVars) =>
 	query(Work).rule((r: RuleValue) => {
-		const { note: n } = v(TaskNote)
+		const { note: n } = v(TaskNote, "taskNote")
 		return r.match(TaskNote, { task: parent["id"], note: n }).find({ note: n })
 	})
 
 const accounts = () =>
 	query(Work).rule((r: RuleValue) => {
-		const { id, name } = v(Account)
+		const { id, name } = v(Account, "account")
 		return r.match(Account, { id, name }).find({ id, name })
 	})
 
 /** The vector example's exact distance per current document revision, through the builder's untyped core. */
 const scoredDocuments = () =>
 	query(Search).rule((r: RuleValue) => {
-		const { document, revision, value } = v(DocumentEmbedding)
+		const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 		return r
 			.match(DocumentEmbedding, { document, revision, value })
 			.match(DocumentCurrent, { document, revision })
@@ -144,8 +146,8 @@ const scoredDocuments = () =>
  */
 const bookings = (predicate: (r: RuleValue, a: Vars, b: Vars) => unknown) =>
 	query(Schedule).rule((r: RuleValue) => {
-		const a = v(Booking)
-		const b = v(Booking)
+		const a = v(Booking, "first")
+		const b = v(Booking, "second")
 		return r
 			.match(Booking, { room: a["room"], during: a["during"] })
 			.match(Booking, { room: a["room"], during: b["during"] })
@@ -169,6 +171,16 @@ const positions = [
 			ruled((r, task) =>
 				r.match(arg({ r, vars: task }), { id: task["id"] }).find({ id: task["id"] })
 			)
+	},
+	{
+		kind: "inner",
+		name: "a scope's name",
+		live: () => "other",
+		build: (arg) =>
+			ruled((r, task) => {
+				const other = v(Task, arg({ r, vars: task }))
+				return r.match(Task, { id: other["id"] }).find({ id: other["id"] })
+			})
 	},
 	{
 		kind: "inner",
@@ -348,7 +360,7 @@ const positions = [
 		live: Vector.make(Float32Array.of(1, 0, 0, 0), 4),
 		build: (value) =>
 			query(Search).rule((r: RuleValue) => {
-				const { document } = v(DocumentEmbedding)
+				const { document } = v(DocumentEmbedding, "documentEmbedding")
 				return r.match(DocumentEmbedding, { document, value }).find({ document })
 			})
 	}
@@ -391,7 +403,7 @@ const strayInterior = holder<Built>()
 query(Work).rule((r: RuleValue) => {
 	strayInterior.hold(
 		r.interior((r2: RuleValue) => {
-			const { id } = v(Task)
+			const { id } = v(Task, "task")
 			return r2.match(Task, { id }).find({ id })
 		})
 	)
@@ -401,7 +413,7 @@ query(Work).rule((r: RuleValue) => {
 const strayParent = holder<ParentVars>()
 query(Work)
 	.rule((r: RuleValue) => {
-		const { id } = v(Account)
+		const { id } = v(Account, "account")
 		return r.match(Account, { id }).find({ id })
 	})
 	.attach(
@@ -409,7 +421,7 @@ query(Work)
 		(a: ParentVars) => {
 			strayParent.hold(a)
 			return query(Work).rule((r: RuleValue) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return r.match(Task, { id, account: a["id"] }).find({ id })
 			})
 		},
@@ -419,14 +431,14 @@ query(Work)
 const unresolvedChild = holder<QueryValue>()
 query(Work)
 	.rule((r: RuleValue) => {
-		const { id } = v(Account)
+		const { id } = v(Account, "account")
 		return r.match(Account, { id }).find({ id })
 	})
 	.attach(
 		"x",
 		(a: ParentVars) => {
 			const child = query(Work).rule((r: RuleValue) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return r.match(Task, { id, account: a["id"] }).find({ id })
 			})
 			unresolvedChild.hold(child)
@@ -440,14 +452,14 @@ query(Work).recursive("Reach", {
 	row: { task: Task.fields.id },
 	base: [
 		(r: RuleValue) => {
-			const { id } = v(Task)
+			const { id } = v(Task, "task")
 			return r.match(Task, { id }).find({ task: id })
 		}
 	],
 	rec: [
 		(r: RuleValue, s: object) => {
 			straySelf.hold(s)
-			const { task } = v(s)
+			const { task } = v(s, "s")
 			return r.match(s, { task }).match(Task, { id: task }).find({ task })
 		}
 	]
@@ -468,7 +480,7 @@ query(Work).rule((r: RuleValue) => {
 
 const strayVariable = holder<Vars>()
 query(Work).rule((r: RuleValue) => {
-	const t = v(Task)
+	const t = v(Task, "task")
 	strayVariable.hold(t)
 	return r.match(Task, { id: t["id"] }).find({ id: t["id"] })
 })
@@ -478,7 +490,7 @@ query(Work).rule((r: RuleValue) => {
  * MalformedDescription at build time.
  */
 const staleSources = [
-	{ from: "v outside every rule", call: () => v(Task) },
+	{ from: "v outside every rule", call: () => v(Task, "task") },
 	{
 		from: "variable of a finished query",
 		call: () =>
@@ -491,9 +503,9 @@ const staleSources = [
 		from: "enclosing rule's variable inside an interior stage",
 		call: () =>
 			query(Work).rule((r: RuleValue) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				const notes = r.interior((r2: RuleValue) => {
-					const { note: n } = v(TaskNote)
+					const { note: n } = v(TaskNote, "taskNote")
 					return r2.match(TaskNote, { task: id, note: n }).find({ note: n })
 				})
 				return r.match(Task, { id }).match(notes, {}).find({ id })
@@ -503,9 +515,9 @@ const staleSources = [
 		from: "enclosing rule's variable inside a nested query",
 		call: () =>
 			query(Work).rule((r: RuleValue) => {
-				const { id, name } = v(Account)
+				const { id, name } = v(Account, "account")
 				const inner = query(Work).rule((r2: RuleValue) => {
-					const t = v(Task)
+					const t = v(Task, "task")
 					return r2.match(Task, { id: t["id"], account: id }).find({ id: t["id"] })
 				})
 				return r.match(Account, { id, name }).match(inner, {}).find({ id })
@@ -515,14 +527,14 @@ const staleSources = [
 		from: "attachment child's free variable in a rule and its interior stage",
 		call: () =>
 			query(Work).rule((outer: RuleValue) => {
-				const { id: parentId } = v(Task)
+				const { id: parentId } = v(Task, "task")
 				return outer
 					.match(Task, { id: parentId })
 					.find({ id: parentId })
 					.attach(
 						"child",
 						() => {
-							const t = v(Task)
+							const t = v(Task, "task")
 							return query(Work).rule((r: RuleValue) => {
 								const i = r.interior((ir: RuleValue) =>
 									ir
@@ -543,14 +555,14 @@ const staleSources = [
 		from: "attachment child's free variable in a rule and a nested query",
 		call: () =>
 			query(Work).rule((outer: RuleValue) => {
-				const { id: parentId } = v(Task)
+				const { id: parentId } = v(Task, "task")
 				return outer
 					.match(Task, { id: parentId })
 					.find({ id: parentId })
 					.attach(
 						"child",
 						() => {
-							const t = v(Task)
+							const t = v(Task, "task")
 							return query(Work).rule((r: RuleValue) => {
 								const inner = query(Work).rule((r2: RuleValue) =>
 									r2
@@ -573,7 +585,7 @@ const staleSources = [
 			query(Work).rule((r: RuleValue) => {
 				const leaked = holder<Vars>()
 				const i = r.interior((ir: RuleValue) => {
-					const t = v(Task)
+					const t = v(Task, "task")
 					leaked.hold(t)
 					return ir.match(Task, { id: t["id"], account: t["account"] }).find({ id: t["id"] })
 				})
@@ -585,7 +597,7 @@ const staleSources = [
 		from: "parent rule's variable captured by an attachment child",
 		call: () =>
 			query(Work).rule((r: RuleValue) => {
-				const { id, kind } = v(Task)
+				const { id, kind } = v(Task, "task")
 				return r
 					.match(Task, { id, kind })
 					.find({ id, kind })
@@ -593,7 +605,7 @@ const staleSources = [
 						"note",
 						() =>
 							query(Work).rule((r2: RuleValue) => {
-								const { note: n } = v(TaskNote)
+								const { note: n } = v(TaskNote, "taskNote")
 								return r2.match(TaskNote, { task: id, note: n }).find({ note: n })
 							}),
 						"array"
@@ -605,7 +617,7 @@ const staleSources = [
 		call: () =>
 			query(Work).rule((r: RuleValue) => {
 				const stage = strayInterior.held()
-				const { id } = v(stage)
+				const { id } = v(stage, "stage")
 				return r.match(stage, { id }).find({ id })
 			})
 	},
@@ -617,14 +629,14 @@ const staleSources = [
 				(a: ParentVars) =>
 					query(Work)
 						.rule((r: RuleValue) => {
-							const { id } = v(Task)
+							const { id } = v(Task, "task")
 							return r.match(Task, { id, account: a["id"] }).find({ id })
 						})
 						.attach(
 							"notes",
 							(t: ParentVars) =>
 								query(Work).rule((r: RuleValue) => {
-									const { note: n } = v(TaskNote)
+									const { note: n } = v(TaskNote, "taskNote")
 									return r
 										.match(TaskNote, { task: t["id"], note: n })
 										.where(r.eq(a["id"], t["id"]))
@@ -645,10 +657,10 @@ const staleSources = [
 					(t: ParentVars) =>
 						query(Work).rule((r: RuleValue) => {
 							const notes = r.interior((r2: RuleValue) => {
-								const { note: n } = v(TaskNote)
+								const { note: n } = v(TaskNote, "taskNote")
 								return r2.match(TaskNote, { task: t["id"], note: n }).find({ note: n })
 							})
-							const { note: n } = v(notes)
+							const { note: n } = v(notes, "notes")
 							return r.match(notes, { note: n }).find({ note: n })
 						}),
 					"array"
@@ -661,11 +673,11 @@ const staleSources = [
 				"tasks",
 				(a: ParentVars) => {
 					const inner = query(Work).rule((r: RuleValue) => {
-						const { id } = v(Task)
+						const { id } = v(Task, "task")
 						return r.match(Task, { id, account: a["id"] }).find({ id })
 					})
 					return query(Work).rule((r: RuleValue) => {
-						const { id } = v(inner)
+						const { id } = v(inner, "inner")
 						return r.match(inner, { id }).find({ id })
 					})
 				},
@@ -695,7 +707,7 @@ const staleSources = [
 		call: () =>
 			query(Work).rule((r: RuleValue) => {
 				const self = straySelf.held()
-				const { task } = v(self)
+				const { task } = v(self, "self")
 				return r.match(self, { task }).find({ task })
 			})
 	},
@@ -703,7 +715,7 @@ const staleSources = [
 		from: "rule builder after its callback returned",
 		call: () =>
 			query(Work).rule(() => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return strayRule.held().match(Task, { id }).find({ id })
 			})
 	},
@@ -713,15 +725,15 @@ const staleSources = [
 		call: () =>
 			query(Work).rule((r: RuleValue) => {
 				const stage = r.interior((r2: RuleValue) => {
-					const { id } = v(Task)
+					const { id } = v(Task, "task")
 					return r2.match(Task, { id }).find({ id })
 				})
 				/** The stage is the enclosing rule's; the nested interior rule matches it as if it were its own. */
 				const nested = r.interior((r2: RuleValue) => {
-					const { id } = v(stage)
+					const { id } = v(stage, "stage")
 					return r2.match(stage, { id }).find({ id })
 				})
-				const { id } = v(nested)
+				const { id } = v(nested, "nested")
 				return r.match(nested, { id }).find({ id })
 			})
 	}
@@ -762,7 +774,7 @@ const nearMisses = [
 		name: "binding a JavaScript number to a bigint field",
 		call: () =>
 			query(Work).rule((r: RuleValue) => {
-				const { task } = v(AutomaticTask)
+				const { task } = v(AutomaticTask, "automaticTask")
 				return r.match(AutomaticTask, { task, budget: 5 }).find({ task })
 			})
 	},
@@ -770,7 +782,7 @@ const nearMisses = [
 		name: "binding 1 to a boolean field",
 		call: () =>
 			query(Settings).rule((r: RuleValue) => {
-				const { account } = v(Preference)
+				const { account } = v(Preference, "preference")
 				return r.match(Preference, { account, enabled: 1 }).find({ account })
 			})
 	},
@@ -799,27 +811,10 @@ const nearMisses = [
 		call: () => scoredDocuments().approximateNearest({ by: "distance", take: 0 })
 	},
 	{
-		name: "empty r.and()",
-		call: () =>
-			ruled((r, task) => r.match(Task, { id: task["id"] }).where(r.and()).find({ id: task["id"] }))
-	},
-	{
-		name: "empty r.or()",
-		call: () =>
-			ruled((r, task) => r.match(Task, { id: task["id"] }).where(r.or()).find({ id: task["id"] }))
-	},
-	{
-		name: "r.inSet over no value",
-		call: () =>
-			ruled((r, task) =>
-				r.match(Task, { id: task["id"] }).where(r.inSet(task["id"], [])).find({ id: task["id"] })
-			)
-	},
-	{
 		name: "sum of a boolean",
 		call: () =>
 			query(Settings).rule((r: RuleValue) => {
-				const { account, enabled } = v(Preference)
+				const { account, enabled } = v(Preference, "preference")
 				return r.match(Preference, { account, enabled }).find({ account, total: r.sum(enabled) })
 			})
 	},
@@ -836,7 +831,7 @@ const nearMisses = [
 		name: "mean of a text",
 		call: () =>
 			query(Work).rule((r: RuleValue) => {
-				const { id, name } = v(Account)
+				const { id, name } = v(Account, "account")
 				return r.match(Account, { id, name }).find({ id, average: r.mean(name) })
 			})
 	}
@@ -958,7 +953,7 @@ const admitted: ReadonlySet<CompileReasonTag> = new Set([
 	"UnsupportedOperation"
 ])
 
-const required: ReadonlyArray<MisuseFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<MisuseFeature> = [
 	"live",
 	...Arr.map(staleSources, (s): MisuseFeature => `stale ${s.from}`),
 	...Arr.map(WILD_KINDS, (k): MisuseFeature => `wild ${k}`),
@@ -977,13 +972,12 @@ describe("the query builder's untyped core", () => {
 						suite: "unit/query/misuse",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						features: features<MisuseFeature>(required),
+						coverage: required<MisuseFeature>(situations, { cases: 1500, sense: notesOnly }),
 						kept: [],
 						runs: 1500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(misuse, c) =>
@@ -1052,48 +1046,106 @@ describe("the query builder's untyped core", () => {
 	)
 })
 
-describe("one variable per field (R1)", () => {
-	it("refuses a second variable minted at a field of a relation the rule matches once, naming the rewrite", () => {
-		const refused = query(Work).rule((r: RuleValue) => {
-			const a = v(Task)
-			const b = v(Task)
+/**
+ * Where a scope's variable is bound: Task's id at Task, Task's id at AutomaticTask's task, a field of another relation,
+ * or AutomaticTask's task at AutomaticTask.
+ */
+const scopeShapes = [
+	{ source: Task, label: "Task", at: Task, field: "id", column: "id" },
+	{ source: Task, label: "Task", at: AutomaticTask, field: "id", column: "task" },
+	{
+		source: AutomaticTask,
+		label: "AutomaticTask",
+		at: AutomaticTask,
+		field: "task",
+		column: "task"
+	}
+] as const
+
+/** Two scopes of one rule, each of a shape, and their names: two names, or one name given twice. */
+interface TwoScopes {
+	readonly first: (typeof scopeShapes)[number]
+	readonly second: (typeof scopeShapes)[number]
+	readonly names: readonly [string, string]
+}
+
+const twoScopes: Gen<TwoScopes> = (source) => ({
+	first: source.draw(element(scopeShapes)),
+	second: source.draw(element(scopeShapes)),
+	names: source.draw(
+		element([
+			["task", "other"],
+			["task", "task"]
+		] as const)
+	)
+})
+
+/** The rule of two scopes, each bound by its own match, built through the builder's untyped core. */
+const twoScoped = ({ first, second, names }: TwoScopes) =>
+	catchCompileError(() =>
+		query(Work).rule((r: RuleValue) => {
+			const a = v(first.source, names[0])
+			const b = v(second.source, names[1])
 			return r
-				.match(Task, { id: a["id"] })
-				.match(AutomaticTask, { task: b["id"] })
-				.find({ id: a["id"], task: b["id"] })
+				.match(first.at, { [first.column]: a[first.field] })
+				.match(second.at, { [second.column]: b[second.field] })
+				.find({ first: a[first.field], second: b[second.field] })
 		})
-		const outcome = compileTemplate(refused, undefined, testCompile)
-		assert.ok(
-			!outcome.ok && outcome.error.reason._tag === "MalformedDescription",
-			"a second variable of Task.id is refused"
-		)
-		assert.ok(
-			Str.includes("mint it where it is bound, v(AutomaticTask).task")(outcome.error.message)
-		)
-		const reminted = query(Work).rule((r: RuleValue) => {
-			const a = v(Task)
-			const b = v(AutomaticTask)
-			return r
-				.match(Task, { id: a["id"] })
-				.match(AutomaticTask, { task: b["task"] })
-				.find({ id: a["id"], task: b["task"] })
-		})
-		assert.ok(
-			compileTemplate(reminted, undefined, testCompile).ok,
-			"the variable minted where it is bound compiles"
-		)
-		const matchedAgain = query(Work).rule((r: RuleValue) => {
-			const a = v(Task)
-			const b = v(Task)
-			return r
-				.match(Task, { id: a["id"] })
-				.match(Task, { id: b["id"] })
-				.match(AutomaticTask, { task: b["id"] })
-				.find({ id: a["id"], task: b["id"] })
-		})
-		assert.ok(
-			compileTemplate(matchedAgain, undefined, testCompile).ok,
-			"two matches of Task bind two variables of Task.id"
-		)
-	})
+	)
+
+describe("named scopes", () => {
+	it.effect(
+		"a rule's two scopes of two names compile, one relation's and a field of another's included, its Description spelling each variable by its scope; one name given twice is DuplicateIdentity naming both calls",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/query/named-scopes",
+						generator: twoScopes,
+						literal: (c) =>
+							`${c.first.label}@${c.first.column} ${c.second.label}@${c.second.column} ${Arr.join(c.names, "/")}`,
+						limit: 18,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(2)
+					},
+					(c) =>
+						Effect.sync(() => {
+							const built = twoScoped(c)
+							const [name, again] = c.names
+							if (name !== again) {
+								assert.ok(
+									built.ok && compileTemplate(built.value, undefined, testCompile).ok,
+									"two scopes of two names compile"
+								)
+								const stage = built.ok ? queryValueDesc(built.value)?.stage : undefined
+								const spelled: ReadonlyArray<string> =
+									stage?.kind === "rules" ? Arr.map(stage.arms[0].vars, (d) => d.id) : []
+								assert.deepEqual(
+									spelled,
+									[`${name}.${c.first.field}`, `${again}.${c.second.field}`],
+									"the Description names each variable by its scope and field"
+								)
+								return
+							}
+							const reason = built.ok ? undefined : built.error.reason
+							assert.deepEqual(
+								reason?._tag === "DuplicateIdentity" && reason.duplicate.kind === "scope"
+									? {
+											name: reason.duplicate.name,
+											at: reason.at.label,
+											earlier: reason.duplicate.earlier.label
+										}
+									: reason?._tag,
+								{
+									name,
+									at: `v(${c.second.label}, "${name}")`,
+									earlier: `v(${c.first.label}, "${name}")`
+								},
+								"one name given twice is DuplicateIdentity of the scope at the second call, the first its earlier"
+							)
+						})
+				)
+			)
+	)
 })

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
@@ -10,6 +10,7 @@ import { runTransaction, type Transaction } from "#adapter/wire/batch.ts"
 import { defaultPool, poolFor, roleDefaults, substrateLogin } from "#test/pg/adapter/support.ts"
 import { backendPid, onVercel, vercelRuntime } from "#test/pg/serverless/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -81,7 +82,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 							generator: modes,
 							literal: Formatter.format,
 							limit: 8,
-							features: features<DeadlineFeature>(
+							coverage: requiredInSpace<DeadlineFeature>(
 								Arr.flatMap(accesses, (i) => Arr.map(contexts, (c): DeadlineFeature => `${i} ${c}`))
 							),
 							caseHang: Duration.minutes(2)
@@ -111,10 +112,10 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 												session,
 												[
 													{
-														sql: settingsQuery,
+														sql: testSql(settingsQuery),
 														params: [`{${Arr.join(deadlineSettings, ",")}}`]
 													},
-													{ sql: backendPid, params: [] }
+													{ sql: testSql(backendPid), params: [] }
 												],
 												{ access, end: "COMMIT" }
 											)

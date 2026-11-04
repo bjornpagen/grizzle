@@ -12,6 +12,7 @@ import {
 	Stream
 } from "effect"
 import { queryInput } from "#compiler/program/compile.ts"
+import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 
 const boot = performance.now()
 
@@ -49,7 +50,7 @@ export interface ProbeDatabase {
 	/** The committed snapshot.json the installation reached, which the application passes to Db.open. */
 	readonly snapshot: string
 	/** The account whose tasks the parameterized queries read. */
-	readonly account: string
+	readonly account: Uuid
 }
 
 /** A compile probe, or a database probe with the installation it reads. */

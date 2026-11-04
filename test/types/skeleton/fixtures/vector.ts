@@ -1,6 +1,7 @@
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { pg, type Uuid, uuid, Vector } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import type { ParamType } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { Infer } from "#compiler/types/fields/field.ts"
 import type { EvidenceOfQuery, HeadOf, ParamsOf } from "#compiler/types/query/query.ts"
@@ -34,7 +35,7 @@ export const DocumentEmbedding = relation(
 )
 export const Search = schema("Search", { DocumentEmbedding }, [])
 export const scored = query(Search).rule((r) => {
-	const { document, value } = v(DocumentEmbedding)
+	const { document, value } = v(DocumentEmbedding, "documentEmbedding")
 	return r.match(DocumentEmbedding, { document, value }).find({
 		document,
 		distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
@@ -42,12 +43,14 @@ export const scored = query(Search).rule((r) => {
 })
 
 export type ScoredHead = Expect<
-	Equals<HeadOf<typeof scored>, { readonly document: string; readonly distance: number }>
+	Equals<HeadOf<typeof scored>, { readonly document: Uuid; readonly distance: number }>
 >
-export type ScoredParams = Expect<Equals<ParamsOf<typeof scored>, { readonly vector: Vector<3> }>>
+export type ScoredParams = Expect<
+	Equals<ParamsOf<typeof scored>, { readonly vector: ParamType<Vector<3>, "vector"> }>
+>
 export const selfDistance = query(Search).rule((r) => {
-	const a = v(DocumentEmbedding)
-	const b = v(DocumentEmbedding)
+	const a = v(DocumentEmbedding, "first")
+	const b = v(DocumentEmbedding, "second")
 	return r
 		.match(DocumentEmbedding, { document: a.document, value: a.value })
 		.match(DocumentEmbedding, { document: b.document, value: b.value })
@@ -55,7 +58,7 @@ export const selfDistance = query(Search).rule((r) => {
 })
 
 export const wrongDimensionsDistance = query(Search).rule((r) => {
-	const { document, value, other } = v(DocumentEmbedding)
+	const { document, value, other } = v(DocumentEmbedding, "documentEmbedding")
 	return (
 		r
 			.match(DocumentEmbedding, { document, value, other })
@@ -66,7 +69,7 @@ export const wrongDimensionsDistance = query(Search).rule((r) => {
 
 /** Vectors are model-agnostic: any two vector fields of one dimension count have a cosine distance. */
 export const sameDimensionsDistance = query(Search).rule((r) => {
-	const { document, value, image } = v(DocumentEmbedding)
+	const { document, value, image } = v(DocumentEmbedding, "documentEmbedding")
 	return r
 		.match(DocumentEmbedding, { document, value, image })
 		.find({ document, distance: Compute.cosineDistance(value, image) })
@@ -75,12 +78,12 @@ export const sameDimensionsDistance = query(Search).rule((r) => {
 export type SameDimensionsHead = Expect<
 	Equals<
 		HeadOf<typeof sameDimensionsDistance>,
-		{ readonly document: string; readonly distance: number }
+		{ readonly document: Uuid; readonly distance: number }
 	>
 >
 
 export const notAVector = query(Search).rule((r) => {
-	const { document } = v(DocumentEmbedding)
+	const { document } = v(DocumentEmbedding, "documentEmbedding")
 	return (
 		r
 			.match(DocumentEmbedding, { document })

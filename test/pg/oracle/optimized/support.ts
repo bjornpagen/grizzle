@@ -1,7 +1,8 @@
 import { exact, ordered } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Option, Order, Record as Rec, Result, Schema } from "effect"
-import { decodePlan, explainStatement } from "#adapter/explain/plan.ts"
+import { decodePlan } from "#adapter/explain/plan.ts"
 import { type PlanLabel, planEdges, planNodeTypes } from "#bench/harness/explain.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -48,6 +49,7 @@ import {
 	type ValuesInput
 } from "#compiler/lower/shapes/relparam/index.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
+import { explainOf } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -255,8 +257,8 @@ const asDriverText = (cell: unknown): string => JSON.stringify(cell)
 
 /**
  * The plan PostgreSQL chooses for each of `statements`, under the settings and with the parameter values the statements
- * run with, planned as db.explain plans a statement: its own EXPLAIN statement (adapter/explain/plan.ts
- * explainStatement), estimate-only, sent as a statement of its own, whose one cell db.explain's decoder reads as a Plan
+ * run with, planned as db.explain plans a statement: its own EXPLAIN statement (sql/emit.ts explainOf),
+ * estimate-only, sent as a statement of its own, whose one cell db.explain's decoder reads as a Plan
  * and the plan readers read as node types and edges (bench/harness/explain.ts planNodeTypes and planEdges). A
  * statement PostgreSQL refuses to plan, or a plan db.explain does not decode, fails the case.
  */
@@ -271,7 +273,7 @@ const explainStatements = (
 		for (const [i, statement] of statements.entries()) {
 			const params = yield* placeholders(statement, i, name, fill)
 			const rows = yield* session
-				.queryValues(explainStatement(statement.sql.text), params)
+				.queryValues(explainOf(statement.sql.text), params)
 				.pipe(
 					Effect.mapError((e) =>
 						failure("explain", name, `statement ${i}: ${sqlMessage(e)}\n${statement.sql.text}`)
@@ -561,7 +563,10 @@ const unfused = (
 			if (Result.isFailure(children)) {
 				return yield* failure("unfuse", name, `${fusedLabel}: ${children.failure}`)
 			}
-			rows.push(...Arr.map(children.success, (c) => [...key, ...c]))
+			appendAll(
+				rows,
+				Arr.map(children.success, (c) => [...key, ...c])
+			)
 		}
 		for (const [j, col] of child.entries()) {
 			if (Arr.some(layout.correlated, (c) => c.child === col.name)) {
@@ -644,7 +649,7 @@ export const delivered = (
 				const fusedLabel = `${label}/${f.name}`
 				const u = yield* unfused(session, dag, name, fusedLabel, heading, raw, output.fusedAt(k), f)
 				statements.push(u.statement)
-				sequences.push(...u.sequence)
+				appendAll(sequences, u.sequence)
 			}
 		}
 		return { run: { name, statements }, sequences: new Map(sequences), fusedAttachments }
@@ -677,8 +682,9 @@ export const orderProblems = (
 		}
 		const a = groups(l.rows)
 		const b = groups(r.rows)
-		out.push(
-			...Arr.flatMap([...a], ([key, seq]) => {
+		appendAll(
+			out,
+			Arr.flatMap([...a], ([key, seq]) => {
 				const other = b.get(key) ?? []
 				return Option.isNone(ordered(exact)(seq, other))
 					? []
@@ -955,10 +961,11 @@ const runDifferential = (
 						)
 					]
 					for (const [k, [where, s]] of judged.entries()) {
-						typed.push(
-							...(yield* typeProblems(session, s, names, `type_probe_${k}`, where).pipe(
+						appendAll(
+							typed,
+							yield* typeProblems(session, s, names, `type_probe_${k}`, where).pipe(
 								Effect.mapError((e) => failure("types", where, `${sqlMessage(e)}\n${s.sql.text}`))
-							))
+							)
 						)
 					}
 					if (typed.length > 0) {

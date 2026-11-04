@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,6 +12,7 @@ import {
 	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -25,6 +26,8 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
+import type { KeyFault } from "#compiler/core/causes.ts"
 import * as Result from "#compiler/core/result.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
@@ -90,7 +93,7 @@ const utf8Bytes = (text: string): number => utf8.encode(text).length
 const ownValue = (value: unknown) => ownedInput(value)
 
 const ownOne = (r: AnyRelation | AnyClosed, statements: ReadonlyArray<Statement>) =>
-	ownValue(schema("Keys", { r }, statements))
+	ownValue(schema("Keys", { r }, statements, []))
 
 /** The field Descriptions of a relation, read through its accessor. */
 const fieldDescsOf = (r: unknown): Readonly<Record<string, FieldDesc>> => {
@@ -230,7 +233,9 @@ const repetitions = (q: Quantifier): number => {
  * empty, and a back-reference repeats a match of unknown size.
  */
 const atomBytes = (a: RegexAtom): number =>
-	a.kind === "symbol" ? a.symbol.bytes : Math.max(...Arr.map(a.alternatives, sequenceBytes))
+	a.kind === "symbol"
+		? a.symbol.bytes
+		: maxOf(Arr.map(a.alternatives, sequenceBytes), Number.NEGATIVE_INFINITY)
 
 const itemBytes = (item: RegexItem): number => {
 	switch (item.kind) {
@@ -492,23 +497,25 @@ describe("pattern byte bounds", () => {
 						suite: "unit/schema/pattern-byte-bound",
 						draw: drawn(patternSketchGen),
 						literal: Formatter.format,
-						features: features<RegexFeature>([
-							"bounded",
-							"exact",
-							"long run",
-							"unanchored",
-							"unbounded repetition",
-							"back-reference",
-							"lookaround",
-							"four-byte code point",
-							"group alternation"
-						]),
+						coverage: required<RegexFeature>(
+							[
+								"bounded",
+								"exact",
+								"long run",
+								"unanchored",
+								"unbounded repetition",
+								"back-reference",
+								"lookaround",
+								"four-byte code point",
+								"group alternation"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -517,7 +524,10 @@ describe("pattern byte bounds", () => {
 							const source = patternSource(alternatives)
 							const bound = textByteBound({ kind: "text", source, flags: s.flags })
 							const anchored = Arr.every(alternatives, (a) => a.start && a.end)
-							const longest = Math.max(...Arr.map(alternatives, (a) => sequenceBytes(a.items)))
+							const longest = maxOf(
+								Arr.map(alternatives, (a) => sequenceBytes(a.items)),
+								Number.NEGATIVE_INFINITY
+							)
 							if (
 								Arr.some(alternatives, (a) =>
 									hasItem(a.items, (item) => item.kind === "lookaround")
@@ -777,32 +787,26 @@ describe("charLength bounds", () => {
 							)
 						})),
 						literal: Formatter.format,
-						features: features<LengthFeature>([
-							"bounded",
-							"unbounded",
-							"satisfiable",
-							"base tighter",
-							"length tighter",
-							"mirrored"
-						]),
+						coverage: required<LengthFeature>(
+							["bounded", "unbounded", "satisfiable", "base tighter", "length tighter", "mirrored"],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
 						Effect.sync(() => {
 							const [first, ...rest] = s.conjuncts
 							const tail = Arr.map(rest, conjunctExpr)
-							const predicate: ExprDesc =
-								rest.length === 0
-									? conjunctExpr(first)
-									: s.nested
-										? { kind: "and", args: [conjunctExpr(first), { kind: "and", args: tail }] }
-										: { kind: "and", args: [conjunctExpr(first), ...tail] }
+							const predicate: ExprDesc = !Arr.isReadonlyArrayNonEmpty(tail)
+								? conjunctExpr(first)
+								: s.nested
+									? { kind: "and", args: [conjunctExpr(first), { kind: "and", args: tail }] }
+									: { kind: "and", args: [conjunctExpr(first), ...tail] }
 							const bound = charLengthBound(predicate)
 							if (
 								Arr.some(s.conjuncts, (x) => x.kind === "compare" && x.mirrored && boundsAbove(x))
@@ -839,7 +843,7 @@ describe("charLength bounds", () => {
 								c.note(baseBytes < lengthBytes ? "base tighter" : "length tighter")
 							}
 							assert.equal(
-								textByteBound({ kind: "contract", name: "Memo", base, predicate }),
+								textByteBound({ kind: "contract", name: "Memo", base, predicate, facts: [] }),
 								expected
 							)
 						})
@@ -941,7 +945,7 @@ const boundedDatums = (fields: ReadonlyArray<KeyFieldSketch>): ReadonlyArray<Dat
 const btreeTupleBytes = (datums: ReadonlyArray<Datum>): number =>
 	maxalign(Arr.reduce(datums, indexTupleHeader, (size, d) => size + d.align - 1 + d.bytes))
 
-const Kind = closed("Kind", ["A", "B"])
+const Kind = closed("Kind", ["A", "B"], [])
 
 /** The descriptor of a fixed-width key field's type. */
 const fixedDescriptor = (type: FixedType): FieldBase => {
@@ -1169,21 +1173,23 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 							)
 						})),
 						literal: Formatter.format,
-						features: features<KeySizeFeature>([
-							"admitted",
-							"refused, unbounded",
-							"refused, over the limit",
-							"at the limit, admitted",
-							"at the limit, refused",
-							"primary",
-							"candidate"
-						]),
+						coverage: required<KeySizeFeature>(
+							[
+								"admitted",
+								"refused, unbounded",
+								"refused, over the limit",
+								"at the limit, admitted",
+								"at the limit, refused",
+								"primary",
+								"candidate"
+							],
+							{ cases: 150, sense: notesOnly }
+						),
 						kept: [],
 						runs: 150,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -1196,9 +1202,11 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 							)
 							const names = Rec.keys(keyFields)
 							const R = s.primary
-								? relation("R", keyFields, names)
-								: relation("R", { id: uuid, ...keyFields }, ["id"])
-							const owned = ownValue(schema("Keys", { Kind, R }, s.primary ? [] : [key(R, names)]))
+								? relation("R", keyFields, names, [])
+								: relation("R", { id: uuid, ...keyFields }, ["id"], [])
+							const owned = ownValue(
+								schema("Keys", { Kind, R }, s.primary ? [] : [key(R, names)], [])
+							)
 							const bounded = boundedDatums(fields)
 							if (bounded.length < fields.length) {
 								c.note("refused, unbounded")
@@ -1236,20 +1244,22 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 							)
 						})),
 						literal: Formatter.format,
-						features: features<`${"primary" | "candidate" | "span"} ${"admitted" | "refused"}`>([
-							"primary admitted",
-							"primary refused",
-							"candidate admitted",
-							"candidate refused",
-							"span admitted",
-							"span refused"
-						]),
+						coverage: required<`${"primary" | "candidate" | "span"} ${"admitted" | "refused"}`>(
+							[
+								"primary admitted",
+								"primary refused",
+								"candidate admitted",
+								"candidate refused",
+								"span admitted",
+								"span refused"
+							],
+							{ cases: 120, sense: notesOnly }
+						),
 						kept: [],
 						runs: 120,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ width, kind }, c) =>
@@ -1263,8 +1273,8 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 							const names = Rec.keys(fields)
 							const R =
 								kind === "candidate"
-									? relation("Wide", fields, ["f00"])
-									: relation("Keyed", fields, names)
+									? relation("Wide", fields, ["f00"], [])
+									: relation("Keyed", fields, names, [])
 							const result = ownOne(R, kind === "candidate" ? [key(R, names)] : [])
 							if (admitted) {
 								succeeded(result)
@@ -1310,14 +1320,10 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 							(s) => s
 						),
 						literal: Formatter.format,
-						features: features<SpanKeyFeature>([
-							"two spans",
-							"span first",
-							"span inside",
-							"span last",
-							"int4range",
-							"int8range"
-						]),
+						coverage: required<SpanKeyFeature>(
+							["two spans", "span first", "span inside", "span last", "int4range", "int8range"],
+							{ cases: 120, sense: notesOnly }
+						),
 						kept: [
 							{
 								note: "the span between two text fields",
@@ -1338,7 +1344,6 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -1362,8 +1367,8 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 								? [...ordered, ["other", span(rawPg.bigint)] as const]
 								: ordered
 							const names = Arr.map(keyed, ([name]) => name)
-							const R = relation("Booking", Rec.fromEntries(keyed), names)
-							const owned = ownValue(schema("Keys", { Kind, R }, []))
+							const R = relation("Booking", Rec.fromEntries(keyed), names, [])
+							const owned = ownValue(schema("Keys", { Kind, R }, [], []))
 							if (s.second) {
 								c.note("two spans")
 								refused(owned, "UnrepresentableKey")
@@ -1441,11 +1446,10 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 							(datums) => datums
 						),
 						literal: Formatter.format,
-						features: features<GistFeature>([
-							"vector refused",
-							"within a GiST page",
-							"above a GiST page"
-						]),
+						coverage: required<GistFeature>(
+							["vector refused", "within a GiST page", "above a GiST page"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [
 							{
 								note: "two text datums of 3,000 bytes",
@@ -1461,7 +1465,6 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(drawnDatums, c) =>
@@ -1495,7 +1498,7 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 	)
 })
 
-describe("a vector field is never a key field, since its float equality (-0 equal to 0) is no identity", () => {
+describe("a vector field is a key field like any other: every vector has one form, so its equality is identity", () => {
 	/**
 	 * The key's other fields: bounded scalar types, each with a btree_gist operator class, so a key of at most three of
 	 * them, a span and nothing else is always representable.
@@ -1544,8 +1547,9 @@ describe("a vector field is never a key field, since its float equality (-0 equa
 		| "vector in the primary key"
 		| "vector in a candidate key"
 		| "contract over a vector"
-		| "vector beside a span"
-		| "a vector key the B-tree limit admits"
+		| "vector beside a span refused"
+		| "a vector key admitted"
+		| "a vector key above the B-tree limit"
 
 	/** The production bound of a key field's datum; every field the sketch draws has one. */
 	const boundOf = (descriptor: FieldBase): DatumBound => {
@@ -1557,7 +1561,7 @@ describe("a vector field is never a key field, since its float equality (-0 equa
 	}
 
 	it.effect(
-		"refuses a key holding a vector field, and admits the same relation with the vector as payload only",
+		"admits a key holding a vector where its B-tree entry fits, and refuses one beside a span, which btree_gist cannot index",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1566,23 +1570,26 @@ describe("a vector field is never a key field, since its float equality (-0 equa
 						suite: "unit/schema/vector-keys",
 						draw: drawn(vectorKeySketchGen),
 						literal: Formatter.format,
-						features: features<VectorKeyFeature>([
-							"vector in the primary key",
-							"vector in a candidate key",
-							"contract over a vector",
-							"vector beside a span",
-							"a vector key the B-tree limit admits"
-						]),
+						coverage: required<VectorKeyFeature>(
+							[
+								"vector in the primary key",
+								"vector in a candidate key",
+								"contract over a vector",
+								"vector beside a span refused",
+								"a vector key admitted",
+								"a vector key above the B-tree limit"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						/**
-						 * Five independent booleans' worth of features, which 100 cases reach with near certainty; the
-						 * required list checks it.
+						 * The rotating stream's sample of six independent booleans' worth of features, which the required list
+						 * holds the floor and the steered phase to.
 						 */
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -1604,24 +1611,38 @@ describe("a vector field is never a key field, since its float equality (-0 equa
 							const fields = Rec.fromEntries(keyFields)
 							const scalarKey = Arr.map(others, ([name]) => name)
 							const vectorKey = Arr.map(keyFields, ([name]) => name)
-							const keyed = relation("R", fields, s.primary ? vectorKey : scalarKey)
-							refused(
-								ownValue(schema("Keys", { R: keyed }, s.primary ? [] : [key(keyed, vectorKey)])),
-								"UnrepresentableKey"
+							const keyed = relation("R", fields, s.primary ? vectorKey : scalarKey, [])
+							const owned = ownValue(
+								schema("Keys", { R: keyed }, s.primary ? [] : [key(keyed, vectorKey)], [])
 							)
-							succeeded(ownValue(schema("Keys", { R: relation("R", fields, scalarKey) }, [])))
+							const layout = keyLayout(
+								Arr.map(keyFields, ([field, descriptor]) => ({ field, desc: descOf(descriptor) }))
+							)
+							const bytes = btreeEntryBytes(
+								Arr.map(keyFields, ([, descriptor]) => boundOf(descriptor))
+							)
 							c.note(s.primary ? "vector in the primary key" : "vector in a candidate key")
 							if (s.contract) {
 								c.note("contract over a vector")
 							}
 							if (s.span) {
-								c.note("vector beside a span")
-							}
-							if (
-								btreeEntryBytes(Arr.map(keyFields, ([, descriptor]) => boundOf(descriptor))) <=
-								btreeMaxItemSize
-							) {
-								c.note("a vector key the B-tree limit admits")
+								assert.deepEqual(
+									layout,
+									Result.err<KeyFault>({ kind: "gistOperatorClass", field: "v" })
+								)
+								refused(owned, "UnrepresentableKey")
+								c.note("vector beside a span refused")
+							} else if (bytes > btreeMaxItemSize) {
+								assert.deepEqual(
+									layout,
+									Result.err<KeyFault>({ kind: "btreeEntry", bytes, limit: btreeMaxItemSize })
+								)
+								refused(owned, "UnrepresentableKey")
+								c.note("a vector key above the B-tree limit")
+							} else {
+								assert.ok(layout.ok, "the key's layout")
+								succeeded(owned)
+								c.note("a vector key admitted")
 							}
 						})
 				)

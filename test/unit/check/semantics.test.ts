@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { codePoint, element, int, oneOf, string } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -19,12 +20,16 @@ import { typeLabel } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
-import type { MemberDesc, QueryDesc, RuleDesc } from "#test/support/fixtures/ir/desc.ts"
+import {
+	f,
+	type MemberDesc,
+	type QueryDesc,
+	type RuleDesc
+} from "#test/support/fixtures/ir/desc.ts"
 import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { checking, checkMemberOf, checkOptions, checkReadBackOf } from "#test/support/policy.ts"
 import {
-	attach,
 	compute,
 	count,
 	delta,
@@ -47,7 +52,7 @@ import {
 	varRef,
 	vars
 } from "#test/unit/check/dsl.ts"
-import { Lab } from "#test/unit/check/schemas.ts"
+import { Code, Lab, Lower, Qty } from "#test/unit/check/schemas.ts"
 import { taskPayloads } from "#test/unit/check/work-queries.ts"
 
 /** The conservative program of a checked query, which must lower. */
@@ -117,32 +122,15 @@ const admittedWith = (
 const lab = (q: QueryDesc) => () => checkQuery(checking(Lab), q, checkOptions("query"))
 const work = (q: QueryDesc) => () => checkQuery(checking(WorkDesc), q, checkOptions("query"))
 
-/**
- * Arms of one heading x: the first delivers the head parameter p, the second Item.qty where qty = p, which types it.
- */
-const headParamArms: readonly [RuleDesc, RuleDesc] = [
-	rule({
-		vars: [],
-		matches: [match(relationSource("Item"), {})],
-		where: [],
-		head: { x: param("p") },
-		interiors: [],
-		attach: []
-	}),
-	rule({
-		vars: vars("Item", "qty"),
-		matches: [match(relationSource("Item"), { qty: ref("Item", "qty") })],
-		where: [eq(ref("Item", "qty"), param("p"))],
-		head: { x: ref("Item", "qty") },
-		interiors: [],
-		attach: []
-	})
-]
-
 const byColor = query(
 	rule({
 		vars: vars("Item", "id"),
-		matches: [match(relationSource("Item"), { id: ref("Item", "id"), color: param("c") })],
+		matches: [
+			match(relationSource("Item"), {
+				id: ref("Item", "id"),
+				color: param("c", f.closedId("Color"))
+			})
+		],
 		where: [],
 		head: { id: ref("Item", "id") },
 		interiors: [],
@@ -248,7 +236,7 @@ const negatedFixed = (source: "Wide" | "Tag", column: "price" | "label") =>
 		where: [
 			not(relationSource(source), {
 				[source === "Wide" ? "id" : "item"]: ref("Item", "id"),
-				[column]: param("p")
+				[column]: param("p", source === "Wide" ? f.unconstrainedNumeric : Code)
 			})
 		],
 		head: { id: ref("Item", "id") }
@@ -261,7 +249,7 @@ const computedNegation = query(
 		matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
 		where: [
 			not(relationSource("Entry"), {
-				amount: compute("add", typedLit(1n, { kind: "pg", type: "bigint" }), param("p"))
+				amount: compute("add", typedLit(1n, f.bigint), param("p", f.bigint))
 			})
 		],
 		head: { id: ref("Item", "id") },
@@ -275,7 +263,7 @@ const notedOf = query(
 	rule({
 		vars: vars("Task", "id"),
 		matches: [
-			match(relationSource("Task"), { id: ref("Task", "id"), account: param("acct") }),
+			match(relationSource("Task"), { id: ref("Task", "id"), account: param("acct", f.uuid) }),
 			match(relationSource("TaskNote"), { task: ref("Task", "id") })
 		],
 		where: [],
@@ -344,7 +332,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				rule({
 					vars: vars("Item", "id"),
 					matches: [
-						match(relationSource("Item"), { id: ref("Item", "id"), label: param("label") })
+						match(relationSource("Item"), { id: ref("Item", "id"), label: param("label", Lower) })
 					],
 					where: [],
 					head: { id: ref("Item", "id") },
@@ -359,17 +347,17 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		what: "one parameter used twice is one parameter",
 		check: lab(
 			items({
-				where: [eq(ref("Item", "qty"), param("n")), gt(ref("Item", "qty"), param("n"))],
+				where: [eq(ref("Item", "qty"), param("n", Qty)), gt(ref("Item", "qty"), param("n", Qty))],
 				head: { id: ref("Item", "id") }
 			})
 		),
 		expected: admittedWith([{ name: "n", type: "contract Qty over integer" }])
 	},
 	{
-		what: "one parameter used at incompatible types",
+		what: "one parameter declared at incompatible types",
 		check: lab(
 			items({
-				where: [eq(ref("Item", "qty"), param("x")), eq(ref("Item", "id"), param("x"))],
+				where: [eq(ref("Item", "qty"), param("x", Qty)), eq(ref("Item", "id"), param("x", f.uuid))],
 				head: { id: ref("Item", "id") }
 			})
 		),
@@ -389,22 +377,22 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		expected: admittedWith([{ name: "k", type: "integer" }])
 	},
 	{
-		what: "a head parameter typed by a later arm's use",
+		what: "a head parameter of its declared type, in arms that also bind it",
 		check: lab(
 			query(
 				rule({
 					vars: vars("Item", "id"),
 					matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
 					where: [],
-					head: { asked: param("who") },
+					head: { asked: param("who", f.uuid) },
 					interiors: [],
 					attach: []
 				}),
 				rule({
 					vars: vars("Item", "id"),
-					matches: [match(relationSource("Item"), { id: param("who") })],
+					matches: [match(relationSource("Item"), { id: param("who", f.uuid) })],
 					where: [],
-					head: { asked: param("who") },
+					head: { asked: param("who", f.uuid) },
 					interiors: [],
 					attach: []
 				})
@@ -413,33 +401,9 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		expected: admittedWith([{ name: "who", type: "uuid" }])
 	},
 	{
-		what: "a head parameter nothing types",
-		check: lab(items({ where: [], head: { asked: param("who") } })),
-		expected: refusedFor("MalformedDescription")
-	},
-	{
-		/**
-		 * The first pass stops at the union, so it never reaches the attachment's head parameter q; the pass that knows p
-		 * does, and nothing types q.
-		 */
-		what: "a head parameter of an attachment that only a later pass reaches, which nothing types",
-		check: lab(
-			attach(
-				query(...headParamArms),
-				"kids",
-				query(
-					rule({
-						vars: vars("Item", "id"),
-						matches: [match(relationSource("Item"), { qty: parent("x"), id: ref("Item", "id") })],
-						where: [],
-						head: { id: ref("Item", "id"), z: param("q") },
-						interiors: [],
-						attach: []
-					})
-				)
-			)
-		),
-		expected: refusedFor("MalformedDescription")
+		what: "a head parameter no other use types, of its declared type",
+		check: lab(items({ where: [], head: { asked: param("who", f.uuid) } })),
+		expected: admittedWith([{ name: "who", type: "uuid" }])
 	},
 	{
 		what: "two imports binding one parameter name differently, hygienically",
@@ -449,7 +413,9 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 					vars: [plainVar("a"), plainVar("b")],
 					matches: [
 						match(imported(byColor, { c: lit("red") }), { id: varRef("a") }),
-						match(imported(byColor, { c: param("other") }), { id: varRef("b") })
+						match(imported(byColor, { c: param("other", f.closedId("Color")) }), {
+							id: varRef("b")
+						})
 					],
 					where: [],
 					head: { a: varRef("a"), b: varRef("b") },
@@ -588,7 +554,9 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 			query(
 				rule({
 					vars: [plainVar("x")],
-					matches: [match(imported(computedNegation, { p: param("outer") }), { id: varRef("x") })],
+					matches: [
+						match(imported(computedNegation, { p: param("outer", f.bigint) }), { id: varRef("x") })
+					],
 					where: [],
 					head: { id: varRef("x") },
 					interiors: [],
@@ -605,7 +573,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	},
 	{
 		what: "a negated import bound to a parameter",
-		check: work(unnoted({ acct: param("a") })),
+		check: work(unnoted({ acct: param("a", f.uuid) })),
 		expected: admittedWith([{ name: "a", type: "uuid" }])
 	},
 	{
@@ -621,7 +589,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 					vars: [...vars("Account", "id"), plainVar("t")],
 					matches: [
 						match(relationSource("Account"), { id: ref("Account", "id") }),
-						match(imported(unnoted({ acct: param("a") }), { a: ref("Account", "id") }), {
+						match(imported(unnoted({ acct: param("a", f.uuid) }), { a: ref("Account", "id") }), {
 							id: varRef("t")
 						})
 					],
@@ -688,7 +656,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		expected: refusedFor("DescribedHeadingMismatch")
 	},
 	{
-		what: "an insert member's parameter, typed by its target field and written as the domain",
+		what: "an insert member's parameter, of its declared type and written as the domain",
 		check: () =>
 			checkMemberOf(
 				checking(Lab),
@@ -698,7 +666,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 							vars: vars("Item", "id"),
 							matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
 							where: [],
-							head: { item: ref("Item", "id"), amount: param("amount") },
+							head: { item: ref("Item", "id"), amount: param("amount", f.bigint) },
 							interiors: [],
 							attach: []
 						})
@@ -729,7 +697,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 							vars: vars("Item", "id"),
 							matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
 							where: [],
-							head: { item: ref("Item", "id"), amount: param("amount") },
+							head: { item: ref("Item", "id"), amount: param("amount", f.bigint) },
 							interiors: [],
 							attach: []
 						})
@@ -791,7 +759,7 @@ describe("the checker's binding, typing and scope rules", () => {
 						generator: element(planted),
 						literal: Formatter.format,
 						limit: planted.length,
-						features: features<Answer>(["refused", "admitted", "a read-back admitted"]),
+						coverage: requiredInSpace<Answer>(["refused", "admitted", "a read-back admitted"]),
 						caseHang: Duration.minutes(2)
 					},
 					(p, c) =>
@@ -848,13 +816,12 @@ describe("the checker's binding, typing and scope rules", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: features<Bound>(["within", "outside"]),
+						coverage: required<Bound>(["within", "outside"], { cases: 60, sense: notesOnly }),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(bound, c) =>

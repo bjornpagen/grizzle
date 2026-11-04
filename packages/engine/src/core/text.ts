@@ -66,3 +66,12 @@ export const codePoints = (text: string): ReadonlyArray<number> => {
 	}
 	return out
 }
+
+/** The text of `points` in order, each one code point: String.fromCodePoint over a list of any length. */
+export const codePointsText = (points: Iterable<number>): string => {
+	let text = ""
+	for (const point of points) {
+		text += String.fromCodePoint(point)
+	}
+	return text
+}

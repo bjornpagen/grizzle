@@ -1,11 +1,13 @@
-import { element, type Gen } from "@grizzle/testing/gen"
+import { element, type Gen, proportional } from "@grizzle/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Option, Schema, String as Str } from "effect"
+import { Array as Arr, Option, Order, Schema, String as Str } from "effect"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { isName } from "#compiler/schema/protocol.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { catalogAlphabet, catalogTypeAlphabet } from "#test/support/kernel/catalog-alphabet.ts"
 
 export type IdentifierFeature =
 	| "alias"
@@ -13,6 +15,7 @@ export type IdentifierFeature =
 	| "long, at the limit"
 	| "long, past the limit"
 	| "reserved word"
+	| "catalog type"
 	| "plain"
 
 /**
@@ -24,7 +27,10 @@ export type IdentifierFeature =
  *
  * - Identifiers. Declared names that convert to one identifier (HTTPRoute, HttpRoute, Http_Route, http_route), digit
  *   boundaries (Task2Note, Task_2_Note), names whose conversions fill exactly 63 bytes and differ only in their last
- *   segment, names one segment past the limit, reserved words, and names the rule refuses. The naming door's rule
+ *   segment, names one segment past the limit, reserved words, names the rule refuses, and the catalog-type names:
+ *   every type and function name of pg_catalog and the vector extension the pinned build holds (catalog-alphabet.ts),
+ *   spelled as a declared name that converts to exactly that name, so a relation, a closed relation or a contract
+ *   takes a name PostgreSQL's own types and functions hold. The naming door's rule
  *   (core/identity.ts parseDeclaredName) classifies every entry: an alias group is a set of admitted names whose conversions
  *   coincide, computed, not asserted, and a refused name carries the production reason. A property over them:
  *   installing succeeds exactly when no two names of one scope convert to one identifier, an alias rename drafts no DDL,
@@ -60,8 +66,33 @@ const reservedWords = [
 const longName = (segments: number, tail: string): string =>
 	`${Str.repeat(segments)("Segment")}${tail}`
 
+/** A catalog name spelled as a declared name: each `_`-separated segment capitalized, `int4range` as `Int4range`. */
+const declaredSpelling = (name: string): string =>
+	Arr.join(
+		Arr.map(Str.split(name, "_"), (segment) => Str.capitalize(segment)),
+		""
+	)
+
+/**
+ * The declared name of a catalog name: its declared spelling when the rule admits it and converts it back to exactly
+ * that name, none when no declared name converts to it (`int4range` spells `Int4range`, which converts to
+ * `int_4_range`).
+ */
+export const catalogDeclared = (name: string): string | undefined => {
+	const declared = declaredSpelling(name)
+	const parsed = parseDeclaredName(declared)
+	return parsed.ok && conversionOf(parsed.value) === name ? declared : undefined
+}
+
+/** The catalog-type candidates: each catalog name a declared name converts to. */
+const catalogCandidates: ReadonlyArray<DeclaredName> = Arr.flatMap(catalogAlphabet, (name) => {
+	const declared = catalogDeclared(name)
+	return declared === undefined ? [] : [{ declared, feature: "catalog type" as const }]
+})
+
 /** The candidate declared names, before the production conversion classifies them. */
 const candidates: ReadonlyArray<DeclaredName> = [
+	...catalogCandidates,
 	...Arr.map(
 		["HTTPRoute", "HttpRoute", "Http_Route", "http_route", "HTTP_Route", "HttpRoute_"],
 		(declared): DeclaredName => ({ declared, feature: "alias" })
@@ -159,8 +190,73 @@ export const aliasGroups: ReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = (()
 	)
 })()
 
-/** An admitted declared name of the dictionary. */
-export const dictionaryNameGen: Gen<Admitted> = element(nonEmpty(admittedNames, "admitted name"))
+/**
+ * The admitted names by feature, each feature that admits a name once: a draw picks a feature first, so the many
+ * catalog-type names are one kind among the others, never most of the draws.
+ */
+export const admittedByFeature: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<Admitted>> =
+	nonEmpty(
+		Arr.flatMap(Arr.dedupe(Arr.map(admittedNames, (n) => n.feature)), (feature) => {
+			const group = Arr.filter(admittedNames, (n) => n.feature === feature)
+			return Arr.isReadonlyArrayNonEmpty(group) ? [group] : []
+		}),
+		"admitted feature"
+	)
+
+/** How often a draw takes each identifier feature: a whole-number weight of every feature, zero for one never drawn. */
+export type IdentifierWeights = { readonly [F in IdentifierFeature]: number }
+
+/** Every feature as often as every other. */
+const evenWeights: IdentifierWeights = {
+	alias: 1,
+	"digit boundary": 1,
+	"long, at the limit": 1,
+	"long, past the limit": 1,
+	"reserved word": 1,
+	"catalog type": 1,
+	plain: 1
+}
+
+/**
+ * An admitted declared name of `names`: its feature drawn by `weights` among the features `names` holds a name of, then
+ * one of its names of that feature.
+ */
+export const weightedNameGen = (
+	weights: IdentifierWeights,
+	names: Arr.NonEmptyReadonlyArray<Admitted>
+): Gen<Admitted> =>
+	proportional(
+		Arr.map(
+			Arr.groupWith(
+				Arr.sortWith(names, (n) => n.feature, Order.String),
+				(a, b) => a.feature === b.feature
+			),
+			(group) => [weights[Arr.headNonEmpty(group).feature], element(group)] as const
+		)
+	)
+
+/** An admitted declared name of the dictionary: its feature, each equally often, then a name of it. */
+export const dictionaryNameGen: Gen<Admitted> = weightedNameGen(
+	evenWeights,
+	nonEmpty(admittedNames, "an admitted name")
+)
+
+/** The catalog-type names' conversions: the identifiers a relation shares with a PostgreSQL type or function. */
+export const catalogConversions: ReadonlySet<string> = new Set(
+	Arr.flatMap(admittedNames, (n) => (n.feature === "catalog type" ? [n.converted] : []))
+)
+
+/**
+ * The declared names of PostgreSQL's own types, each converting to a type name of the pinned build: what a relation's
+ * row type, a closed relation's enum or a contract's domain shadows where the installation's schema comes first.
+ */
+export const catalogTypeNames: Arr.NonEmptyReadonlyArray<string> = nonEmpty(
+	Arr.flatMap(catalogTypeAlphabet, (name) => {
+		const declared = catalogDeclared(name)
+		return declared === undefined ? [] : [declared]
+	}),
+	"a declared name of a catalog type"
+)
 
 /** The edge values of every carrier a literal can be. */
 const edgeLiterals: ReadonlyArray<TypedLiteral> = [
@@ -179,8 +275,8 @@ const edgeLiterals: ReadonlyArray<TypedLiteral> = [
 		(value): TypedLiteral => ({ kind: "int", value })
 	),
 	...Arr.map(
-		[0, -0, 1.5, -1e-308, 5e-324, 3.4028234663852886e38, 1.7976931348623157e308, 0.1],
-		(value): TypedLiteral => ({ kind: "float", value })
+		[0, 1.5, -1e-308, 5e-324, 3.4028234663852886e38, 1.7976931348623157e308, 0.1],
+		(value): TypedLiteral => ({ kind: "float", value: canonicalZero(value) })
 	),
 	...Arr.map(["NaN", "Infinity", "-Infinity"] as const, (value): TypedLiteral => ({
 		kind: "floatSpecial",

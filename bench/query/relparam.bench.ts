@@ -63,7 +63,7 @@ const Params = schema("Params", { Item }, [])
 
 const itemsByIds = query(Params).rule((r) => {
 	const wanted = r.relation("ids", { id: pg.bigint })
-	const { id, price } = v(Item)
+	const { id, price } = v(Item, "item")
 	return r.match(wanted, { id }).match(Item, { id, price }).find({ id, price })
 })
 

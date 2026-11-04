@@ -1,9 +1,10 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	boolean,
 	characterOf,
+	constant,
 	element,
 	filter,
 	type Gen,
@@ -16,6 +17,7 @@ import {
 } from "@grizzle/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, pipe, String as Str } from "effect"
@@ -36,8 +38,8 @@ import { decimalGen, decimalText } from "#test/unit/values/support.ts"
 
 import { regex } from "arkregex"
 /**
- * An exact spelling numeric_in reads, with the canonical text of the value it reads (numeric_out at its display
- * scale) and what the spelling exercises.
+ * An exact spelling numeric_in reads, with the one text of the value it reads (numeric_out of trim_scale(value)) and
+ * what the spelling exercises.
  */
 type SpellingFeature =
 	| "signed"
@@ -46,15 +48,65 @@ type SpellingFeature =
 	| "an exponent"
 	| "a zero"
 	| "a special"
+	| "trailing zeros"
+	| "forty trailing zeros"
 
-const spellingFeatures: ReadonlyArray<SpellingFeature> = [
+const spellingFeatures: Arr.NonEmptyReadonlyArray<SpellingFeature> = [
 	"signed",
 	"leading zeros",
 	"a bare point",
 	"an exponent",
 	"a zero",
-	"a special"
+	"a special",
+	"trailing zeros",
+	"forty trailing zeros"
 ]
+
+/** Trailing fractional zeros a spelling carries: none, one, a few, and the deep paddings 24 and 40, each weighted. */
+const trailingZeros: Gen<number> = weighted([
+	[4, constant(0)],
+	[2, constant(1)],
+	[2, int(2, 8)],
+	[1, constant(24)],
+	[1, constant(40)]
+])
+
+/** A finite value's one text: trailing fractional zeros, and a then bare point, dropped; no minus zero. */
+const trimmed = (text: string): string => {
+	const negative = Str.startsWith("-")(text)
+	const unsigned = negative ? Str.slice(1)(text) : text
+	const point = Str.indexOf(".")(unsigned)
+	const kept = Option.match(point, {
+		onNone: () => unsigned,
+		onSome: () => Str.replace(regex("\\.?0*$"), "")(unsigned)
+	})
+	return negative && Str.replace(regex("[0.]", "g"), "")(kept) !== "" ? `-${kept}` : kept
+}
+
+/** The pad of a finite value's text by `k` trailing fractional zeros: the text numeric_out writes at a larger scale. */
+const padded = (text: string, k: number): string =>
+	k === 0 ? text : `${Str.includes(".")(text) ? text : `${text}.`}${Str.repeat(k)("0")}`
+
+/** Whether a Decimal's parts are its one form: no trailing zero past the point, zero unsigned at scale 0. */
+const canonicalParts = (d: Decimal): boolean => {
+	const p = d.parts
+	if (p.kind !== "finite") {
+		return true
+	}
+	if (p.coefficient === 0n) {
+		return !p.negative && p.minScale === 0
+	}
+	return p.minScale === 0 || p.coefficient % 10n !== 0n
+}
+
+/** Two Decimals' parts field by field. */
+const sameParts = (a: Decimal, b: Decimal): boolean => {
+	const x = a.parts
+	const y = b.parts
+	return x.kind === "finite" && y.kind === "finite"
+		? x.negative === y.negative && x.coefficient === y.coefficient && x.minScale === y.minScale
+		: x.kind === y.kind
+}
 
 interface Spelling {
 	readonly text: string
@@ -71,6 +123,7 @@ const exactSpelling: Gen<Spelling> = map(
 			whole: source.draw(digitsOf(6)),
 			point: source.draw(boolean),
 			fraction: source.draw(digitsOf(6)),
+			zeros: source.draw(trailingZeros),
 			exponent: Option.getOrUndefined(
 				source.draw(
 					option((inner) => ({
@@ -84,8 +137,8 @@ const exactSpelling: Gen<Spelling> = map(
 		({ whole, point, fraction }) => whole.length + (point ? fraction.length : 0) > 0,
 		10
 	),
-	({ sign, whole, point, fraction, exponent }): Spelling => {
-		const frac = point ? fraction : ""
+	({ sign, whole, point, fraction, zeros, exponent }): Spelling => {
+		const frac = point ? `${fraction}${Str.repeat(zeros)("0")}` : ""
 		const e = exponent === undefined ? 0 : exponent.e
 		const scale = Math.max(0, frac.length - e)
 		/**
@@ -103,13 +156,15 @@ const exactSpelling: Gen<Spelling> = map(
 				: `${exponent.mark}${exponent.plus && e >= 0 ? "+" : ""}${exponent.e}`
 		return {
 			text: `${sign}${whole}${point ? "." : ""}${frac}${exponentText}`,
-			canonical: sign === "-" && coefficient !== 0n ? `-${unsigned}` : unsigned,
+			canonical: trimmed(sign === "-" && coefficient !== 0n ? `-${unsigned}` : unsigned),
 			features: [
 				...(sign === "" ? [] : ["signed" as const]),
 				...(whole.length > 1 && Str.startsWith("0")(whole) ? ["leading zeros" as const] : []),
 				...(point && (whole === "" || frac === "") ? ["a bare point" as const] : []),
 				...(exponent === undefined ? [] : ["an exponent" as const]),
-				...(coefficient === 0n ? ["a zero" as const] : [])
+				...(coefficient === 0n ? ["a zero" as const] : []),
+				...(point && zeros > 0 ? ["trailing zeros" as const] : []),
+				...(point && zeros === 40 ? ["forty trailing zeros" as const] : [])
 			]
 		}
 	}
@@ -183,7 +238,7 @@ const corrupted = (text: string, corruption: Corruption, at: number): string => 
 const signOf = (n: number): -1 | 0 | 1 => (n < 0 ? -1 : n > 0 ? 1 : 0)
 
 describe("Decimal parsing", () => {
-	it.effect("reads every exact spelling to numeric_in's value and display scale", (ctx) =>
+	it.effect("reads every exact spelling to numeric_in's value, in its one form", (ctx) =>
 		searched(
 			ctx,
 			explore(
@@ -191,13 +246,12 @@ describe("Decimal parsing", () => {
 					suite: "unit/values/decimal-spelling",
 					draw: drawn(spellingGen),
 					literal: Formatter.format,
-					features: features<SpellingFeature>(spellingFeatures),
+					coverage: required<SpellingFeature>(spellingFeatures, { cases: 2000, sense: notesOnly }),
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(spelling, c) =>
@@ -205,11 +259,9 @@ describe("Decimal parsing", () => {
 						for (const f of spelling.features) {
 							c.note(f)
 						}
-						assert.equal(
-							succeeded(Decimal.fromString(spelling.text)).toString(),
-							spelling.canonical,
-							spelling.text
-						)
+						const d = succeeded(Decimal.fromString(spelling.text))
+						assert.equal(d.toString(), spelling.canonical, spelling.text)
+						assert.ok(canonicalParts(d), `${spelling.text}: its parts are the one form`)
 					})
 			)
 		)
@@ -227,13 +279,12 @@ describe("Decimal parsing", () => {
 						at: source.draw(pickGen)
 					})),
 					literal: Formatter.format,
-					features: features<Corruption>(corruptions),
+					coverage: required<Corruption>(corruptions, { cases: 1000, sense: notesOnly }),
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ spelling, corruption, at }, c) =>
@@ -259,21 +310,23 @@ describe("Decimal parsing", () => {
 							margin: source.draw(int(1, 4))
 						})),
 						literal: Formatter.format,
-						features:
-							features<`${"display scale" | "integer digits" | "exponent"} ${"at" | "past"}`>([
-								"display scale at",
-								"display scale past",
-								"integer digits at",
-								"integer digits past",
-								"exponent at",
-								"exponent past"
-							]),
+						coverage:
+							required<`${"display scale" | "integer digits" | "exponent"} ${"at" | "past"}`>(
+								[
+									"display scale at",
+									"display scale past",
+									"integer digits at",
+									"integer digits past",
+									"exponent at",
+									"exponent past"
+								],
+								{ cases: 100, sense: notesOnly }
+							),
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ limit, past, margin }, c) =>
@@ -298,6 +351,9 @@ describe("Decimal parsing", () => {
 				faulted(Decimal.fromBigInt(10n ** 131072n), "decimalRange")
 				faulted(Decimal.fromParts(false, 1n, 16384), "decimalRange")
 				faulted(Decimal.fromParts(false, -1n, 0), "decimalType")
+				/** Admission is by value: a written scale past the limit whose value's least scale fits is that value. */
+				assert.equal(succeeded(Decimal.fromString(`1.${Str.repeat(20000)("0")}`)).text, "1")
+				assert.equal(succeeded(Decimal.fromParts(false, 10n ** 20000n, 20000)).text, "1")
 				return explored
 			})
 		)
@@ -311,77 +367,73 @@ describe("Decimal parsing", () => {
 					suite: "unit/values/decimal-1",
 					draw: drawn(decimalGen),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(x) =>
 					Effect.sync(() => {
 						const back = succeeded(Decimal.fromString(x.toString()))
 						assert.equal(back.toString(), x.toString())
-						assert.equal(back.scale, x.scale)
+						assert.ok(sameParts(back, x))
 						assert.equal(back.equals(x), true)
+						assert.ok(canonicalParts(x))
+						if (x.isFinite()) {
+							const { negative, coefficient, minScale } = x.parts
+							for (const k of [1, 8, 24, 40]) {
+								const scaled = succeeded(
+									Decimal.fromParts(negative, coefficient * 10n ** BigInt(k), minScale + k)
+								)
+								assert.ok(sameParts(scaled, x), `fromParts at scale ${minScale + k}`)
+								assert.equal(scaled.text, x.text)
+							}
+						}
 					})
 			)
 		)
 	)
 
 	it.effect(
-		"converts an output text, the text the parsed value writes, to that value at its display scale",
+		"converts numeric_out text at every display scale to the value's one form, its text and parts the value's",
 		(ctx) =>
 			searched(
 				ctx,
-				Effect.gen(function* () {
-					const spelling = oneOf<string>([
-						matching(regex("^[+-]?[0-9]{0,4}(\\.[0-9]{0,4})?([eE][+-]?[0-9]{1,2})?$")),
-						element([
-							"NaN",
-							"Infinity",
-							"+Infinity",
-							"-Infinity",
-							"-0",
-							"-0.00",
-							"00",
-							"0.",
-							".5",
-							""
-						]),
-						map(decimalGen, (x) => x.toString())
-					])
-					return yield* explore(
-						{
-							suite: "unit/values/decimal-2",
-							draw: drawn(spelling),
-							literal: Formatter.format,
-							features: noFeatures,
-							kept: [],
-							runs: 2000,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							steering: { kind: "none" },
-							caseHang: Duration.minutes(2)
-						},
-						(text) =>
-							Effect.sync(() => {
-								const parsed = Decimal.fromString(text)
-								if (!parsed.ok || parsed.value.toString() !== text) {
-									return
-								}
-								const converted = Decimal.fromOutput(text)
-								assert.equal(converted.toString(), text)
-								assert.equal(converted.kind, parsed.value.kind)
-								assert.equal(converted.negative, parsed.value.negative)
-								assert.equal(converted.coefficient, parsed.value.coefficient)
-								assert.equal(converted.scale, parsed.value.scale)
-							})
-					)
-				})
+				explore(
+					{
+						suite: "unit/values/decimal-2",
+						draw: drawn(
+							(source) =>
+								[source.draw(decimalGen), source.draw(element([0, 1, 8, 24, 40]))] as const
+						),
+						literal: Formatter.format,
+						coverage: required<"padded" | "canonical" | "special">(
+							["padded", "canonical", "special"],
+							{
+								cases: 2000,
+								sense: notesOnly
+							}
+						),
+						kept: [],
+						runs: 2000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					([x, k], c) =>
+						Effect.sync(() => {
+							const text = x.isFinite() ? padded(x.text, k) : x.text
+							c.note(!x.isFinite() ? "special" : k === 0 ? "canonical" : "padded")
+							const converted = Decimal.fromOutput(text)
+							assert.equal(converted.text, x.text, text)
+							assert.ok(sameParts(converted, x), `${text}: the parts of ${x.text}`)
+							assert.ok(converted.equals(x))
+						})
+				)
 			)
 	)
 })
@@ -398,19 +450,20 @@ describe("Decimal identity and order", () => {
 							[source.draw(decimalGen), source.draw(decimalGen), source.draw(decimalGen)] as const
 					),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([a, b, c]) =>
 					Effect.sync(() => {
 						assert.equal(a.compare(b), signOf(-b.compare(a)))
-						assert.equal(a.compare(b) === 0, a.identityText() === b.identityText())
+						assert.equal(a.compare(b) === 0, a.equals(b))
+						assert.equal(a.equals(b), a.toString() === b.toString())
+						assert.equal(a.equals(b), sameParts(a, b))
 						if (a.compare(b) <= 0 && b.compare(c) <= 0) {
 							assert.ok(a.compare(c) <= 0)
 						}
@@ -430,13 +483,12 @@ describe("Decimal in the canonical serializer", () => {
 						suite: "unit/values/decimal-19182",
 						draw: drawn(decimalGen),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(x) =>
@@ -457,16 +509,18 @@ describe("Decimal in the canonical serializer", () => {
 					{
 						suite: "unit/values/decimal-19183",
 						draw: drawn(
-							oneOf<string>([candidate, element(["NaN", "Infinity", "-Infinity", "-0", "0.00"])])
+							oneOf<string>([
+								candidate,
+								element(["NaN", "Infinity", "-Infinity", "-0", "0.00", "1.50", "1.5", "10", "0.10"])
+							])
 						),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 5000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(text) =>
@@ -501,17 +555,15 @@ describe("numeric(p, s) normalization", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: features<"admitted" | "refused" | "one element">([
-							"admitted",
-							"refused",
-							"one element"
-						]),
+						coverage: required<"admitted" | "refused" | "one element">(
+							["admitted", "refused", "one element"],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(list, c) =>
@@ -550,13 +602,12 @@ describe("numeric(p, s) normalization", () => {
 						suite: "unit/values/decimal-4",
 						draw: drawn((source) => [source.draw(decimalGen), source.draw(typmod)] as const),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([x, type]) =>
@@ -570,9 +621,10 @@ describe("numeric(p, s) normalization", () => {
 								return
 							}
 							assert.equal(succeeded(normalizeNumeric(n, type)).toString(), n.toString())
-							assert.equal(n.scale, Math.max(type.scale, 0))
+							assert.ok(canonicalParts(n), `${n.text}: the one form`)
+							assert.ok(n.parts.minScale <= Math.max(type.scale, 0))
 							/** |x - n| * 10^s <= 1/2, exactly: compare 2 * |x * 10^k - n * 10^k| with 10^(k - s) at a common k. */
-							const k = Math.max(x.scale, n.scale, type.scale, 0)
+							const k = Math.max(x.parts.minScale, n.parts.minScale, type.scale, 0)
 							const xs = roundedUnits(x, k)
 							const ns = roundedUnits(n, k)
 							const diff = xs > ns ? xs - ns : ns - xs
@@ -595,17 +647,16 @@ describe("Decimal admission of a JavaScript caller's value", () => {
 						suite: "unit/values/decimal-wild",
 						draw: drawn(lsw<string>({ live: decimalText, stale: Option.none(), wild: WILD_KINDS })),
 						literal: Formatter.format,
-						features: features<DrawnFeature<never>>([
-							"live",
-							...Arr.map(WILD_KINDS, (kind): DrawnFeature<never> => `wild ${kind}`)
-						]),
+						coverage: required<DrawnFeature<never>>(
+							["live", ...Arr.map(WILD_KINDS, (kind): DrawnFeature<never> => `wild ${kind}`)],
+							{ cases: 500, sense: notesOnly }
+						),
 						kept: [],
-						/** Fourteen wild kinds beside the live arm: a few hundred cases reach every one many times over. */
+						/** The rotating stream's sample of fourteen wild kinds beside the live arm. */
 						runs: 500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(d, c) =>

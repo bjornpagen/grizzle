@@ -15,8 +15,18 @@ import {
 	type Seek,
 	seekPredicate
 } from "#compiler/lower/shapes/page/seek.ts"
-import type { Expr, OrderItem, Select, SelectBody, SelectCore } from "#compiler/sql/ast.ts"
-import { core, countStar, exists, lit, lt, select, target, types } from "#compiler/sql/build.ts"
+import type { Expr, OrderItem, Select, SelectCore } from "#compiler/sql/ast.ts"
+import {
+	core,
+	countStar,
+	exists,
+	lit,
+	lt,
+	select,
+	setOp,
+	target,
+	types
+} from "#compiler/sql/build.ts"
 import type { NameOrigin } from "#compiler/sql/naming.ts"
 
 interface PagedRowsSpec {
@@ -113,17 +123,16 @@ interface RetainedGroupSpec {
  */
 export const retainedGroupRows = (cx: LowerContext, spec: RetainedGroupSpec): Select => {
 	const kept = cx.wrap(spec.own.rows(), spec.own.heading, spec.origin)
-	const [first, ...rest] = mapNonEmpty(spec.groups, (g): SelectCore => {
-		const source = cx.wrap(g.rows(), g.heading, spec.origin)
-		return core(
-			spec.comparators.map((c) => target(comparatorColumn(source.map, c))),
-			[source.item],
-			undefined
-		)
-	})
-	const union = rest.reduce<SelectBody>(
-		(left, right) => ({ kind: "setOp", op: "UNION ALL", left, right }),
-		first
+	const union = setOp(
+		"UNION ALL",
+		mapNonEmpty(spec.groups, (g): SelectCore => {
+			const source = cx.wrap(g.rows(), g.heading, spec.origin)
+			return core(
+				spec.comparators.map((c) => target(comparatorColumn(source.map, c))),
+				[source.item],
+				undefined
+			)
+		})
 	)
 	const comparatorHeading: Heading = spec.comparators.map((c) => ({ name: c.field, type: c.type }))
 	const all = cx.wrap(select(union), comparatorHeading, spec.origin)

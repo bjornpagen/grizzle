@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import {
@@ -13,6 +14,7 @@ import {
 	levels,
 	runDirectCase
 } from "#test/pg/direct-writers/model.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
 	type FactsSketch,
@@ -178,7 +180,7 @@ const casesOf = (run: DirectRun): ReadonlyArray<DirectCase> =>
 		return [...cases.slice(0, at), plantedCase(p), ...cases.slice(at)]
 	})
 
-const required: ReadonlyArray<DirectFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<DirectFeature> = [
 	"statement insert",
 	"statement insert without overriding",
 	"statement insert generated",
@@ -235,7 +237,7 @@ export const directWriterSuite = () =>
 							suite: "direct-writers",
 							draw: drawn(directRunGen),
 							literal: Formatter.format,
-							features: features<DirectFeature>(required),
+							coverage: required<DirectFeature>(situations, { cases: runs, sense: notesOnly }),
 							kept: [],
 							runs,
 							/**
@@ -244,7 +246,6 @@ export const directWriterSuite = () =>
 							shrink: { kind: "bounded", candidates: 300 },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(run, cx) =>
@@ -256,10 +257,12 @@ export const directWriterSuite = () =>
 										groups: [...drawnSchema.groups, plantedGroup(drawnSchema.groups.length)]
 									}
 									const cases = casesOf(run)
-									const target = yield* Effect.mapError(openTarget(schema, "analyzed"), (e) =>
-										CaseFailed.make({
-											report: `${printSchema(schema)}\ndid not install: ${messageOf(e)}`
-										})
+									const target = yield* Effect.mapError(
+										openTarget(schema, "analyzed", ordinarySession),
+										(e) =>
+											CaseFailed.make({
+												report: `${printSchema(schema)}\ndid not install: ${messageOf(e)}`
+											})
 									)
 									const writer = yield* Effect.orDie(
 										s.psql({

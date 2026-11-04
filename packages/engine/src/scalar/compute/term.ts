@@ -3,6 +3,7 @@ import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
+import type { GuardDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { scalarTypeShape } from "#compiler/ir/scalar-shape.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -12,6 +13,18 @@ import type { SqlTag } from "#compiler/scalar/registry.ts"
 export interface PredicateValue extends Built {
 	readonly predicate: true
 	readonly expr: OpenExpr
+}
+
+/**
+ * The key a guard holds the term its Compute.when branch receives under: the guard's subject, which the guard refines
+ * inside the branch. The public barrel exports no key, so only Compute.when hands it out, to its branch's function, and
+ * compilation proves its facts only inside the branch (a copy used elsewhere is refused, PartialOperation).
+ */
+export const guarded: unique symbol = Symbol("grizzle.guarded")
+
+/** A guard a Compute guard builder made: a predicate, and under `guarded` the term its branch receives. */
+export interface GuardValue<out S> extends PredicateValue {
+	readonly [guarded]: S
 }
 
 /** A term's carrier: the column that reads its cell into its host value, and its SQL type. */
@@ -26,8 +39,8 @@ export interface TermCarrier<out T = unknown, out S extends SqlTag = SqlTag> {
  * A term is a frozen value with an `expr` member holding its expression; a predicate has `predicate: true` and an
  * `expr`. The phantom members the public types give
  * Term and Predicate (`type`, `params`, `origin`) exist only in the types. A parameter (r.param) is a term over
- * `{ kind: "param", name }` of its descriptor's type, which never stands first. An expression is open (ir/open.ts
- * OpenExpr): a query variable, a parent variable or an interior stage in it is the builder's reference object until the
+ * `{ kind: "param", name, type }` of its descriptor's type, which stands wherever a term of that type stands. An
+ * expression is open (ir/open.ts OpenExpr): a query variable, a parent variable or an interior stage in it is the builder's reference object until the
  * rule that uses it spells it, and a row check or a contract parses it into a Description's. This is the protocol the field
  * package's contract predicates (scalar/contract.ts), the query builder and the row checks build terms with, so a
  * Compute expression over a contract's VALUE composes with the value's own comparisons:
@@ -66,7 +79,7 @@ export interface ScalarTerm<out T = unknown, out S extends SqlTag = SqlTag>
 
 /**
  * What a builder recorded for a value it made: a typed term, with its type and carrier; a carried term, whose carrier
- * is known but whose type the checker reads from the term it meets (a head literal r.literal(x), or a variable over a
+ * is known but whose type the checker reads from the term it meets (a JavaScript value in a head, or a variable over a
  * union field whose arms disagree on its type); a field of a query rebuilt from its Description alone, which has
  * neither type nor carrier; or a predicate.
  */
@@ -80,6 +93,12 @@ type Registered =
 	| { readonly kind: "carried"; readonly expr: OpenExpr; readonly carrier: TermCarrier }
 	| { readonly kind: "untyped"; readonly expr: OpenExpr }
 	| { readonly kind: "predicate"; readonly expr: OpenExpr }
+	| {
+			readonly kind: "guard"
+			readonly expr: OpenExpr
+			readonly guard: GuardDesc
+			readonly subject: object
+	  }
 
 /**
  * The terms and predicates the builders made, by identity. A WeakMap holds nothing alive and is never enumerated, so
@@ -124,6 +143,28 @@ export const registerPredicate = <V extends Built>(value: V, expr: OpenExpr): V 
 }
 
 /**
+ * A guard a Compute guard builder made (Compute.nonzero and its kin): a predicate, `expr`, that Compute.when also reads
+ * as its guard over `subject`, the term it refines.
+ */
+export const registerGuard = <V extends Built>(
+	value: V,
+	expr: OpenExpr,
+	guard: GuardDesc,
+	subject: object
+): V => {
+	registered.set(value, { kind: "guard", expr, guard, subject })
+	return value
+}
+
+/** A guard's test and its subject, where `value` is a guard a builder made. */
+export const guardOf = (
+	value: unknown
+): { readonly guard: GuardDesc; readonly subject: object } | undefined => {
+	const entry = registeredOf(value)
+	return entry?.kind === "guard" ? { guard: entry.guard, subject: entry.subject } : undefined
+}
+
+/**
  * What the registry holds for `value`. A value that carries the brand and an `expr` member but that no builder
  * registered is a copy of a term or predicate, an object spread of one: it is refused, since its static type keeps a
  * phantom its expression need not have. Any other unregistered value is simply no term.
@@ -145,7 +186,9 @@ const registeredOf = (value: unknown): Registered | undefined => {
 /** The expression of a scalar term, or undefined when the value is not one. */
 export const termExpr = (value: unknown): OpenExpr | undefined => {
 	const entry = registeredOf(value)
-	return entry === undefined || entry.kind === "predicate" ? undefined : entry.expr
+	return entry === undefined || entry.kind === "predicate" || entry.kind === "guard"
+		? undefined
+		: entry.expr
 }
 
 /**
@@ -171,7 +214,7 @@ export interface TermOf {
  */
 export const termOf = (value: unknown): TermOf | undefined => {
 	const entry = registeredOf(value)
-	if (entry === undefined || entry.kind === "predicate") {
+	if (entry === undefined || entry.kind === "predicate" || entry.kind === "guard") {
 		return undefined
 	}
 	return { expr: entry.expr, typing: entry.kind === "typed" ? typed(entry.scalarType) : untyped }
@@ -207,7 +250,7 @@ export const termCarrier = (value: unknown): TermCarrier | undefined => {
 /** The expression of a predicate, or undefined when the value is not one. */
 export const predicateExpr = (value: unknown): OpenExpr | undefined => {
 	const entry = registeredOf(value)
-	return entry?.kind === "predicate" ? entry.expr : undefined
+	return entry?.kind === "predicate" || entry?.kind === "guard" ? entry.expr : undefined
 }
 
 export const predicateValue = (expr: OpenExpr): PredicateValue =>

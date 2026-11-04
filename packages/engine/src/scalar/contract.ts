@@ -7,6 +7,7 @@ import { hasProperties, isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type CompareOp, decodeDesc, type ExprDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
+import { type Fact, factNames } from "#compiler/ir/proof.ts"
 import { rosterOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import {
 	type PredicateValue,
@@ -41,20 +42,11 @@ interface ScalarTerm extends Built, TermCarrier {
 	readonly in: (values: unknown) => PredicateValue
 }
 
-const paramName = (value: unknown): string | undefined =>
-	hasProperties(value) && typeof value["param"] === "string" && value["expr"] === undefined
-		? value["param"]
-		: undefined
-
-/** The operand opposite a term of type `t`: another term, a parameter, or a literal of t's base. */
+/** The operand opposite a term of type `t`: another term or a literal of t's base. */
 const operandExpr = (operand: unknown, t: ScalarType, label: string): OpenExpr => {
 	const term = termExpr(operand)
 	if (term !== undefined) {
 		return term
-	}
-	const param = paramName(operand)
-	if (param !== undefined) {
-		return { kind: "param", name: param }
 	}
 	if (predicateExpr(operand) !== undefined) {
 		throw malformedDescription(captureLoc(label, []), "a scalar operand, not a predicate")
@@ -91,8 +83,8 @@ const scalarTerm = (expr: OpenExpr, t: ScalarType, carrier: TermCarrier): Scalar
 				high: operandExpr(high, t, "between high")
 			}),
 		in: (values: unknown) => {
-			if (!isList(values) || values.length === 0) {
-				throw malformedDescription(captureLoc("in", []), "a nonempty finite list of literals")
+			if (!isList(values)) {
+				throw malformedDescription(captureLoc("in", []), "a finite list of literals")
 			}
 			const list: ReadonlyArray<unknown> = values
 			const literals = list.map((v) => literalDescOrThrow(t, v, "in value"))
@@ -149,6 +141,37 @@ const buildPredicate = (predicate: unknown, base: Described, name: string): Expr
 }
 
 /**
+ * The facts a contract declares it proves, `{ proves: [...] }` after its predicate: distinct facts, kept in the one
+ * order, which the schema's compilation proves from the predicate (scalar/compute/total.ts contractPredicateTable). A
+ * declaration needs a predicate to prove it from.
+ */
+const declaredFacts = (
+	declared: unknown,
+	predicate: ExprDesc | undefined,
+	contract: string
+): ReadonlyArray<Fact> => {
+	if (declared === undefined) {
+		return []
+	}
+	const loc = captureLoc(`contract ${contract} proves`, [])
+	const proves = hasProperties(declared) ? declared["proves"] : undefined
+	if (!isList(proves)) {
+		throw malformedDescription(loc, "{ proves: [...] }, the facts the predicate proves")
+	}
+	const facts = factNames.filter((f) => proves.includes(f))
+	if (facts.length !== proves.length) {
+		throw malformedDescription(
+			loc,
+			"distinct facts the predicate proves: nonzero, nonnegative or finite, each once"
+		)
+	}
+	if (predicate === undefined && facts.length > 0) {
+		throw malformedDescription(loc, "a predicate that proves the declared facts")
+	}
+	return facts
+}
+
+/**
  * What the admission core decided: the contract's Description and the members and environment its descriptor is
  * defined with.
  */
@@ -166,12 +189,13 @@ interface ContractParts {
 /**
  * The admission core of contract: a JavaScript caller can pass anything in every position. `rest` is what follows the
  * base: none or an undefined predicate is contract(name, base), one predicate, which buildPredicate checks is a
- * callback, contract(name, base, predicate), and more are refused. The predicate is read once, here.
+ * callback, contract(name, base, predicate), the facts it proves after it contract(name, base, predicate, { proves }),
+ * and more are refused. The predicate is read once, here.
  */
 export const contractParts = (
 	name: unknown,
 	base: unknown,
-	...rest: ReadonlyArray<unknown>
+	rest: ReadonlyArray<unknown>
 ): ContractParts => {
 	const declared =
 		typeof name === "string" ? parseDeclaredName(name) : Result.err("a name given as a string")
@@ -182,26 +206,27 @@ export const contractParts = (
 		)
 	}
 	const contract = declared.value
-	if (rest.length > 1) {
+	if (rest.length > 2) {
 		throw malformedDescription(
 			captureLoc(`contract ${contract}`, []),
-			"contract(name, base) or contract(name, base, predicate)"
+			"contract(name, base), contract(name, base, predicate) or contract(name, base, predicate, { proves })"
 		)
 	}
-	const [predicate] = rest
+	const [predicate, declaration] = rest
 	const described = describeFieldOrThrow(base, SourceLoc(`contract ${contract} base`, []))
 	const loc = captureLoc(`contract ${contract}`, [])
 	/** A serial base is refused before the predicate runs: it is a generation declaration, not a value domain. */
-	const domain = contractType(contract, described.scalar, loc, undefined)
+	const domain = contractType(contract, described.scalar, loc, undefined, [])
 	if (!domain.ok) {
 		throw domain.error
 	}
 	const built = predicate === undefined ? undefined : buildPredicate(predicate, described, contract)
+	const facts = declaredFacts(declaration, built, contract)
 	return {
 		name: contract,
 		sql: described.sql,
 		base: described,
-		desc: { kind: "contract", name: contract, base: described.desc, predicate: built },
+		desc: { kind: "contract", name: contract, base: described.desc, predicate: built, facts },
 		predicate: built,
 		loc,
 		env: baseEnv(described.scalar)
@@ -219,16 +244,17 @@ export const contractParts = (
  * The contract value is callable as an unchecked brand constructor: `Cents(1250n)` returns its argument unchanged and
  * checks nothing, ever. The public contract (types/fields) is an unchecked brand constructor to Effect's type-level
  * brand (core/brand.ts nominal), with the contract's members defined onto it; this module's `contract` is the admission
- * core a JavaScript caller reaches, whose brand is the plain identity. PostgreSQL alone evaluates the predicate: on
- * writes into the domain, on an explicit domain cast, and, for a literal that adopts the contract, the compiler's
- * ContractLiteral check at compilation.
+ * core a JavaScript caller reaches, whose brand is the plain identity. PostgreSQL evaluates the predicate on writes
+ * into the domain and on an explicit domain cast; the library evaluates it for a literal that adopts the contract, the
+ * ContractLiteral check at compilation, and for a parameter its uses type by the contract, at bind
+ * (codec/scalar.ts paramEncoder).
  *
  * The predicate callback runs once, at construction, over the domain's VALUE, and records an ExprDesc (callbacks
  * build descriptions; they never run per row). Its value scalar offers the comparisons of a Scalar:
  * eq, ne, lt, le, gt, ge, between and in. A literal operand adopts the base's host type and is checked as a literal of
  * it at construction: over a numeric base a JavaScript number is refused and an exact decimal string is
- * parsed. Whether the predicate lies in the total fragment, and whether each literal fits, is the checker's to decide
- * at compilation.
+ * parsed. Whether each of the predicate's partial operations is proved, each declared fact holds and each literal fits
+ * is the checker's to decide at compilation.
  *
  * The term protocol (compute/term.ts). A scalar term is a value with an `expr` member holding its expression; a predicate
  * also has `predicate: true`. The Compute catalogue (scalar/compute), the query builder and
@@ -245,7 +271,7 @@ export const contractDescriptor = (
 	name: unknown,
 	base: unknown,
 	...rest: ReadonlyArray<unknown>
-): ContractDescriptor => admitContract(name, base, ...rest)
+): ContractDescriptor => admitContract(name, base, rest)
 
 /**
  * The descriptor of the admission core: the unchecked identity brand, with the contract's members.
@@ -256,9 +282,9 @@ export const contractDescriptor = (
 export const admitContract = (
 	name: unknown,
 	base: unknown,
-	...rest: ReadonlyArray<unknown>
+	rest: ReadonlyArray<unknown>
 ): ContractDescriptor => {
-	const parts = contractParts(name, base, ...rest)
+	const parts = contractParts(name, base, rest)
 	if (base === null || (typeof base !== "object" && typeof base !== "function")) {
 		throw malformedDescription(captureLoc(`contract ${parts.name} base`, []), "a field descriptor")
 	}

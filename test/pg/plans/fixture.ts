@@ -1,5 +1,5 @@
 import { pipe, String as Str } from "effect"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { capacity, closed, on, relation, schema, select, within } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
@@ -63,7 +63,7 @@ export const sizes = {
 } as const
 
 /** A deterministic uuid: the family in the first group, the row number in the last. */
-export const uid = (family: number, n: number): string =>
+export const uid = (family: number, n: number): Uuid =>
 	`${pipe(family.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const uidSql = (family: number, n: string): string =>

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Option, Order } from "effect"
@@ -210,7 +210,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							literal: ([[, label], seed]: readonly [Account, number]) =>
 								`account ${label}, probe ${seed}`,
 							limit: accountsABC.length * probes.length,
-							features: features<SearchFeature>(["account A", "account B", "account C"]),
+							coverage: requiredInSpace<SearchFeature>(["account A", "account B", "account C"]),
 							caseHang
 						},
 						([[account, label], seed], k) =>
@@ -275,7 +275,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							generator: element(probes),
 							literal: (seed: number) => `probe ${seed}`,
 							limit: probes.length,
-							features: features<SearchFeature>(
+							coverage: requiredInSpace<SearchFeature>(
 								Arr.map(probes, (seed): SearchFeature => `probe ${seed}`)
 							),
 							caseHang
@@ -362,7 +362,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							generator: element(repeating),
 							literal: ([, label]: Account) => `account ${label}`,
 							limit: repeating.length,
-							features: features<SearchFeature>(["account A", "account C"]),
+							coverage: requiredInSpace<SearchFeature>(["account A", "account C"]),
 							caseHang
 						},
 						([account, label], k) =>
@@ -491,7 +491,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							generator: element(probes),
 							literal: (seed: number) => `probe ${seed}`,
 							limit: probes.length,
-							features: features<SearchFeature>(
+							coverage: requiredInSpace<SearchFeature>(
 								Arr.map(probes, (seed): SearchFeature => `probe ${seed}`)
 							),
 							caseHang
@@ -692,14 +692,14 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							account: r.param("account", Document.fields.account),
 							vector: r.param("vector", DocumentEmbedding.fields.value)
 						})
-						const { document } = v(source)
+						const { document } = v(source, "source")
 						return r.match(source, { document }).find({ document })
 					}
 				],
 				rec: [
 					(r, self) => {
-						const { document } = v(self)
-						const { revision } = v(DocumentCurrent)
+						const { document } = v(self, "self")
+						const { revision } = v(DocumentCurrent, "documentCurrent")
 						return r
 							.match(self, { document })
 							.match(DocumentCurrent, { document, revision })

@@ -39,7 +39,9 @@ import type {
 import type {
 	Alternatives,
 	AnySide,
+	ArmsApartFromParent,
 	ArmsCompatible,
+	ArmsOfRoster,
 	AtLeastOneArm,
 	Capacity,
 	CapacityRule,
@@ -102,7 +104,7 @@ export const relation = <
 	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
 	...extra: ReadonlyArray<never>
 ): Relation<Name, Fields, readonly [...PrimaryKey]> =>
-	relationBuilder<Name, Fields, PrimaryKey>(name, fields, primaryKey, ...extra)
+	relationBuilder<Name, Fields, PrimaryKey>(name, fields, primaryKey, extra)
 
 /**
  * closed(name, handles) is the enum-only form. Its `with(payload, facts)` builds a new closed relation of the same name
@@ -116,7 +118,7 @@ export const closed = <
 	name: Name,
 	handles: Handles & NonEmptyReadonlyArray<Handles[number]>,
 	...extra: ReadonlyArray<never>
-): EnumClosed<Name, readonly [...Handles]> => closedBuilder<Name, Handles>(name, handles, ...extra)
+): EnumClosed<Name, readonly [...Handles]> => closedBuilder<Name, Handles>(name, handles, extra)
 
 /**
  * schema(name, relations, statements). The statements are a frozen copy, `readonly [...Statements]`, which is
@@ -132,7 +134,7 @@ const rootSchema = <
 	statements: Statements & StatementsWithin<Statements, Relations>,
 	...extra: ReadonlyArray<never>
 ): Schema<Name, Relations, readonly [...Statements]> =>
-	schemaBuilder<Name, Relations, Statements>(name, relations, statements, ...extra)
+	schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
  * Adds relations, including derived relations over the base, and statements, under the same name.
@@ -153,7 +155,7 @@ const extend = <
 	Base["relations"] & Relations,
 	readonly [...Base["statements"], ...Statements],
 	Base
-> => schemaBuilder.extend<Base, Relations, Statements>(base, relations, statements, ...extra)
+> => schemaBuilder.extend<Base, Relations, Statements>(base, relations, statements, extra)
 
 export const schema: typeof rootSchema & { readonly extend: typeof extend } = Object.freeze(
 	Object.assign(rootSchema, { extend })
@@ -189,7 +191,7 @@ export const on = <
 	...fields: F & DistinctFields<F>
 ): Side<R, readonly [...F]> => {
 	const list: F = fields
-	return onBuilder<R, F>(side, ...list)
+	return onBuilder<R, F>(side, list)
 }
 
 export const select = <R extends AnyRelation | AnyClosed, const B extends Partial<Fact<R>>>(
@@ -216,7 +218,11 @@ export const alternatives = <
 	parent: PK,
 	discriminator: D,
 	roster: C,
-	arms: Arms & ArmsCompatible<PK, Arms> & AtLeastOneArm<Arms>
+	arms: Arms &
+		ArmsCompatible<PK, Arms> &
+		ArmsOfRoster<C, Arms> &
+		ArmsApartFromParent<PK, Arms> &
+		AtLeastOneArm<Arms>
 ): Alternatives<PK, D, C, Arms> =>
 	alternativesBuilder<PK, D, C, Arms>(parent, discriminator, roster, arms)
 

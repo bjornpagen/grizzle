@@ -11,7 +11,7 @@ export const unbounded: Cardinality = Object.freeze({ kind: "unbounded" })
 export const atMost = (rows: bigint): Cardinality => ({ kind: "atMost", rows })
 
 /** The tightest of several bounds on one relation (its input's, a take's, a key's): the least. */
-export const leastCardinality = (...bounds: ReadonlyArray<Cardinality>): Cardinality =>
+export const leastCardinality = (bounds: ReadonlyArray<Cardinality>): Cardinality =>
 	bounds.reduce<Cardinality>(
 		(a, b) => (a.kind === "unbounded" ? b : b.kind === "unbounded" ? a : b.rows < a.rows ? b : a),
 		unbounded

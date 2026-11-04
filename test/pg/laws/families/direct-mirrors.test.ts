@@ -12,12 +12,12 @@
 
 import { Array as Arr, Option } from "effect"
 import { plantedUpdate } from "#test/pg/laws/families/direct.ts"
-import { mirrorShapes } from "#test/pg/laws/families/families.ts"
+import { mirrorShapes, variantsOf } from "#test/pg/laws/families/families.ts"
 import { directSuite, type Planted } from "#test/pg/laws/families/suites/direct.ts"
 import { casesPerTest } from "#test/pg/laws/families/suites/family.ts"
 import { plantedInsert } from "#test/pg/laws/families/support.ts"
 
-const variants = mirrorShapes.variants(true)
+const variants = variantsOf(mirrorShapes, "mutable")
 const [p, levelLeft] = Option.getOrThrowWith(
 	Arr.findFirstWithIndex(
 		variants,

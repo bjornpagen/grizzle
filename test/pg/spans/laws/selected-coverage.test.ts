@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
@@ -145,15 +146,15 @@ layer(Substrate.layer)("selected-source span coverage at the int8 limits", (it) 
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
-							features: features<CoverFeature>(
+							coverage: required<CoverFeature>(
 								Arr.flatMap(["covered", "refused"] as const, (o) =>
 									Arr.map(
 										["from the lower limit", "to the upper limit", "inside the limits"] as const,
 										(where): CoverFeature => `${o} ${where}`
 									)
-								)
+								),
+								{ cases: 60, sense: notesOnly }
 							)
 						},
 						(sketch, c) =>

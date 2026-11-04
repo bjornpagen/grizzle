@@ -23,8 +23,46 @@
  *
  * It lives in core so that every layer that declares a phantom (scalar, text, schema, types, query, write) shares the
  * one pair of keys.
+ *
+ * A carrier's domain rides under `domain`, as every other phantom rides under `phantom`: the host type a term bound at
+ * the carrier, or a variable minted over it, has (Domained); the facts its values are proved to have under `proved`
+ * (Proving); and its language, the values of its type, under `language` (Languaged).
  */
 export declare const phantom: unique symbol
+
+/** The key a carrier's domain rides under: a phantom, as `phantom` is. */
+export declare const domain: unique symbol
+
+/** What a heading carrier states: its domain, the host type a term bound at it or a variable minted over it has. */
+export interface Domained<out D> {
+	readonly [domain]?: D | undefined
+}
+
+/** The key the facts a carrier's values are proved to have ride under: a phantom, as `domain` is. */
+export declare const proved: unique symbol
+
+/** What a carrier or a term states beside its domain: the facts its values are proved to have. */
+export interface Proving<out F> {
+	readonly [proved]?: F | undefined
+}
+
+/** The key a carrier's language rides under: a phantom, as `domain` is. */
+export declare const language: unique symbol
+
+/**
+ * What a carrier or a term states beside its domain: its language, every value of its type, which a JavaScript value
+ * standing at it is one of: a refined text's pattern's language, a roster's handles, uuid_out's spelling, and the base
+ * host type of every other type. A constant's values are one member of it.
+ */
+export interface Languaged<out L> {
+	readonly [language]?: L | undefined
+}
+
+/** The key a JavaScript value's stated domain in a head rides under (types/core/phantom.ts Retyped). */
+export declare const retyped: unique symbol
+
+/** The key a union carrier's constants' values ride under (types/core/phantom.ts Constants). */
+export declare const constants: unique symbol
 
 export const built: unique symbol = Symbol("grizzle.built")
 

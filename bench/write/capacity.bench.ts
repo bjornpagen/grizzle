@@ -47,6 +47,7 @@ import {
 	writePhases,
 	writerSession
 } from "#bench/write/support/writes.ts"
+import { maxOf } from "#compiler/core/array.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -189,7 +190,7 @@ export default defineGate({
 			const memberTable = fx.relationName("Member")
 			const c = (rel: string, f: string) => fx.column(rel, f)
 			const batchGroups = options.batches.length * options.samples
-			const maxBatch = Math.max(...options.batches)
+			const maxBatch = maxOf(options.batches, Number.NEGATIVE_INFINITY)
 			yield* fill(fx, "Grp", batchGroups, { id: "g::int4", bound: `${maxBatch * 2}::int4` })
 			yield* fill(fx, "Grp", options.batches.length * (options.samples + 1), {
 				id: `(${grizzleGroups} + g - 1)::int4`,

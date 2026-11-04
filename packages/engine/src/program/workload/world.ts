@@ -41,7 +41,16 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 				return definition === undefined ? s : { kind: "query", query: definition, bind: {} }
 			}
 			case "query":
-				return { ...s, query: inQuery(s.query), bind: bindings(s.bind) }
+				return {
+					...s,
+					query: inQuery(s.query),
+					bind: Object.fromEntries(
+						Object.entries(s.bind).map(([param, b]) => [
+							param,
+							b.kind === "relationParam" ? b : expr(b)
+						])
+					)
+				}
 			case "param":
 			case "paramOf":
 			case "interior":
@@ -64,6 +73,13 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 				return { ...e, arg: expr(e.arg) }
 			case "cond":
 				return { ...e, pred: expr(e.pred), onTrue: expr(e.onTrue), onFalse: expr(e.onFalse) }
+			case "when":
+				return {
+					...e,
+					subject: expr(e.subject),
+					proved: expr(e.proved),
+					otherwise: expr(e.otherwise)
+				}
 			case "compare":
 				return { ...e, left: expr(e.left), right: expr(e.right) }
 			case "between":
@@ -72,7 +88,7 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 				return { ...e, arg: expr(e.arg) }
 			case "and":
 			case "or":
-				return { ...e, args: e.args.map(expr) }
+				return { ...e, args: mapNonEmpty(e.args, expr) }
 			case "allen":
 				return { ...e, left: expr(e.left), right: expr(e.right) }
 			case "pointIn":
@@ -103,6 +119,7 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 			case "compare":
 			case "compute":
 			case "cond":
+			case "when":
 			case "field":
 			case "in":
 			case "literal":

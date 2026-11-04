@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -44,7 +44,7 @@ const startingState = (f: Fixture): ReadonlyArray<string> => {
 const open = () =>
 	Effect.gen(function* () {
 		const f = yield* openFixture(DeskReports, [desk], bareFixture)
-		yield* f.owner(...startingState(f))
+		yield* f.owner(startingState(f))
 		return f
 	})
 
@@ -235,16 +235,18 @@ export const nativeErrorsSuite = (): void =>
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									steering: { kind: "mutate", cases: 160, sense: notesOnly },
 									caseHang: Duration.minutes(2),
-									features: features<NativeFeature>([
-										"23514 at a row check",
-										"23514 at a contract",
-										"23505 at Pair's key",
-										"23505 at Entry's key",
-										"committed",
-										"refused after a statement that ran"
-									])
+									coverage: required<NativeFeature>(
+										[
+											"23514 at a row check",
+											"23514 at a contract",
+											"23505 at Pair's key",
+											"23505 at Entry's key",
+											"committed",
+											"refused after a statement that ran"
+										],
+										{ cases: 160, sense: notesOnly }
+									)
 								},
 								(inserts, cx) =>
 									Effect.gen(function* () {
@@ -341,7 +343,7 @@ export const nativeErrorsSuite = (): void =>
 									generator: element(derivedWrites),
 									literal: Formatter.format,
 									limit: derivedWrites.length,
-									features: features<`${DerivedWrite} refused by privilege`>(
+									coverage: requiredInSpace<`${DerivedWrite} refused by privilege`>(
 										Arr.map(derivedWrites, (write) => `${write} refused by privilege` as const)
 									),
 									caseHang: Duration.minutes(2)

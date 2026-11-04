@@ -10,12 +10,12 @@
 
 import { Array as Arr, Option } from "effect"
 import { plantedUpdate } from "#test/pg/laws/families/direct.ts"
-import { sourceShapes } from "#test/pg/laws/families/families.ts"
+import { sourceShapes, variantsOf } from "#test/pg/laws/families/families.ts"
 import { directSuite, type Planted } from "#test/pg/laws/families/suites/direct.ts"
 import { casesPerTest } from "#test/pg/laws/families/suites/family.ts"
 import { plantedInsert } from "#test/pg/laws/families/support.ts"
 
-const variants = sourceShapes.variants(true)
+const variants = variantsOf(sourceShapes, "mutable")
 const [p, variant] = Option.getOrThrowWith(
 	Arr.findFirstWithIndex(variants, (source) => source.shape.kind === "self" && source.shape.live),
 	() => new Error("no mutable schema whose node is selected when live")

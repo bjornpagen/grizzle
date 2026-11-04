@@ -1,11 +1,13 @@
 import { Array as Arr, Option, Order, Result, Schema, String as Str } from "effect"
 import type { Action } from "#compiler/deploy/diff/plan.ts"
+import { triggerColumns } from "#compiler/deploy/snapshot/objects.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type BuiltinTypeName,
 	type ColumnDef,
+	type CreateConstraintTrigger,
 	type Expr,
-	type FromItem,
+	type FromSource,
 	type ObjectName,
 	type Select,
 	type SqlStatement,
@@ -17,6 +19,7 @@ import { namedType } from "#compiler/sql/build.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
+import { testTypeSchema } from "#test/support/sql.ts"
 
 /** Where a cell's value came from.
  *
@@ -28,7 +31,8 @@ import type { Placeholder } from "#test/support/migrate/review.ts"
  * it would raise:
  *
  * - Namespaces. Tables, materialized views, sequences and indexes share one relation namespace (pg_class); enums,
- *   domains and the row type of every table, view and sequence share the type namespace (pg_type); extended
+ *   domains and the row type of every table and view share the type namespace (pg_type), a sequence and an index
+ *   taking none (heap.c heap_create_with_catalog); extended
  *   statistics have their own; a table's constraints share one per table, and its triggers another. A name taken in
  *   its namespace is refused (42P07 for a relation, 42710 otherwise); a key's or an exclusion's index takes its
  *   constraint's name in the relation namespace.
@@ -39,7 +43,7 @@ import type { Placeholder } from "#test/support/migrate/review.ts"
  *   refused (42830); that index then cannot be dropped, nor its constraint, nor a column under it (2BP01). A key's or
  *   an exclusion's index goes only with its constraint (2BP01). A table another table's foreign key references cannot
  *   be dropped (2BP01). A materialized view pins the tables and views it reads and the columns it names (2BP01 on a
- *   drop, 0A000 on a type change); a trigger's UPDATE OF pins its columns the same way, and a trigger its function
+ *   drop, 0A000 on a type change); a trigger's UPDATE OF and WHEN pin their columns the same way, and a trigger its function
  *   (2BP01). A world's view, in its own schema, pins what it reads of this schema the same way, and so does a row
  *   security policy the columns its predicate names; a world's schema holding a view cannot be dropped (2BP01). A type cannot be dropped while a column or a domain is of it (2BP01), nor a sequence an identity column
  *   owns. Every foreign key's columns compare (42804, see comparable) at the end of each statement, as PostgreSQL adds
@@ -150,10 +154,29 @@ export interface Statistics {
 	readonly columns: ReadonlyArray<string>
 }
 
-/** A trigger of a table: its function and the columns its UPDATE OF names. */
+/** A trigger of a table: its function, the columns its UPDATE OF names and its WHEN reads, and the types its WHEN casts
+ * to, which it pins as a column of the type does. */
 export interface Trigger {
 	readonly function: string
 	readonly columns: ReadonlyArray<string>
+	readonly types: ReadonlyArray<TypeRef>
+}
+
+/** The named types a constraint trigger's WHEN casts to. */
+const whenTypes = (s: CreateConstraintTrigger): ReadonlyArray<TypeRef> => {
+	const named: Array<TypeRef> = []
+	if (s.when !== undefined) {
+		transformExpr(s.when, {
+			...identityHooks,
+			typeRef: (t) => {
+				if (t.kind === "named") {
+					named.push(t)
+				}
+				return t
+			}
+		})
+	}
+	return named
 }
 
 /** A materialized view: its columns, and the columns it names of each relation it reads. */
@@ -310,7 +333,7 @@ const readsOf = (
 	const named = new Set<string>()
 	transformSelect(query, {
 		...identityHooks,
-		fromItem: (item: FromItem) => {
+		fromSource: (item: FromSource) => {
 			if (item.kind === "table" && typeof item.table !== "string" && item.table.schema === schema) {
 				relations.push(item.table.name)
 			}
@@ -409,14 +432,13 @@ class Model {
 		)
 	}
 
-	/** The type namespace (pg_type): enums, domains, and the row types of tables, views and sequences. */
+	/** The type namespace (pg_type): enums, domains, and the row types of tables and views; a sequence has none. */
 	#typeTaken(name: string): boolean {
 		return (
 			this.#enums.has(name) ||
 			this.#domains.has(name) ||
 			this.#tables.has(name) ||
-			this.#views.has(name) ||
-			this.#sequences.has(name)
+			this.#views.has(name)
 		)
 	}
 
@@ -563,8 +585,13 @@ class Model {
 		}
 	}
 
+	/** A sequence takes its name in the relation namespace alone: it has no row type. */
 	#claimSequence(name: string, table: string, column: string): void {
-		this.#claimRelation(name, `the identity sequence of ${table}.${column}`)
+		if (this.#relationTaken(name)) {
+			refuse(
+				`the relation ${name} already exists (42P07), so the identity sequence of ${table}.${column} cannot take it`
+			)
+		}
 		this.#sequences.set(name, { kind: "identity", table, column })
 	}
 
@@ -1064,6 +1091,11 @@ class Model {
 		for (const [n, x] of this.#domains) {
 			this.#domains.set(n, { ...x, base: renamed(x.base) })
 		}
+		for (const of of this.#triggers.values()) {
+			for (const [n, t] of of) {
+				of.set(n, { ...t, types: Arr.map(t.types, renamed) })
+			}
+		}
 	}
 
 	#dropType(name: ObjectName, kind: "TYPE" | "DOMAIN", ifExists: boolean): void {
@@ -1094,6 +1126,15 @@ class Model {
 				)
 			}
 		}
+		for (const [table, of] of this.#triggers) {
+			for (const [trigger, t] of of) {
+				if (Arr.some(t.types, isOf)) {
+					refuse(
+						`the type ${printObjectName(name)} is dropped while the trigger ${trigger} of ${table} casts to it (2BP01)`
+					)
+				}
+			}
+		}
 		this.#enums.delete(name.name)
 		this.#domains.delete(name.name)
 	}
@@ -1114,7 +1155,13 @@ class Model {
 		)
 	}
 
-	#trigger(table: ObjectName, name: string, fn: ObjectName, columns: ReadonlyArray<string>): void {
+	#trigger(
+		table: ObjectName,
+		name: string,
+		fn: ObjectName,
+		columns: ReadonlyArray<string>,
+		types: ReadonlyArray<TypeRef>
+	): void {
 		const t = this.#table(table)
 		if (this.#ours(fn) && !this.#functions.has(fn.name)) {
 			refuse(`the function ${printObjectName(fn)} does not exist (42883)`)
@@ -1126,17 +1173,18 @@ class Model {
 		if (of.has(name)) {
 			refuse(`the trigger ${name} of ${printObjectName(table)} already exists (42710)`)
 		}
-		of.set(name, { function: fn.name, columns })
+		of.set(name, { function: fn.name, columns, types })
 	}
 
 	/** The index becomes the constraint's, under its name. */
 	#alterTable(s: Extract<SqlStatement, { readonly kind: "alterTable" }>): void {
 		for (const a of s.actions) {
 			switch (a.kind) {
+				case "addColumnPlaceholder":
+					throw new Error(
+						`the placeholder of ${a.column.name} is the reviewer's: the model reads it as its drafted action`
+					)
 				case "addColumn": {
-					if (a.column.default !== undefined) {
-						throw new Error(`the model has no value for the default of ${a.column.name}`)
-					}
 					const generated = a.column.generated
 					this.#typeExists(a.column.type)
 					this.#addColumn(s.table, columnOf(a.column), () =>
@@ -1178,21 +1226,28 @@ class Model {
 					}
 					break
 				}
-				case "alterColumnType":
+				case "alterColumnType": {
+					const using = a.using
+					if (using.kind === "placeholder") {
+						throw new Error(
+							`the placeholder converting ${a.column} is the reviewer's: the model reads it as its drafted action`
+						)
+					}
 					this.#typeExists(a.type)
-					if (this.#byText(a.column, a.using, a.type)) {
+					if (this.#byText(a.column, using.expr, a.type)) {
 						this.#convertHandles(s.table, a.column, a.type, () => undefined)
 					} else {
 						this.#retype(
 							s.table,
 							a.column,
 							a.type,
-							this.#byCast(s.table, a.column, a.using, a.type)
+							this.#byCast(s.table, a.column, using.expr, a.type)
 								? { kind: "kept" }
 								: unknownExpression
 						)
 					}
 					break
+				}
 				case "addConstraint":
 					this.#constraint(s.table, a.constraint, !a.notValid)
 					break
@@ -1294,7 +1349,11 @@ class Model {
 				if (q === undefined) {
 					refuse(`the sequence ${printObjectName(s.name)} does not exist (42P01)`)
 				}
-				this.#claimRelation(s.to, `the sequence ${printObjectName(s.name)}`)
+				if (this.#relationTaken(s.to)) {
+					refuse(
+						`the relation ${s.to} already exists (42P07), so the sequence ${printObjectName(s.name)} cannot take it`
+					)
+				}
 				this.#sequences.delete(s.name.name)
 				this.#sequences.set(s.to, q)
 				if (q.kind === "identity") {
@@ -1459,7 +1518,7 @@ class Model {
 			case "TYPE":
 			case "DOMAIN":
 				for (const n of on.names) {
-					this.#typeExists(namedType(n.schema, n.name, []))
+					this.#typeExists(namedType(testTypeSchema(n.schema), n.name, []))
 				}
 				return
 			case "FUNCTION":
@@ -1576,16 +1635,11 @@ class Model {
 				if (!this.#ours(s.table)) {
 					return
 				}
-				this.#trigger(
-					s.table,
-					s.name,
-					s.function,
-					Arr.flatMap(s.events, (e) => (e.kind === "UPDATE" ? e.of : []))
-				)
+				this.#trigger(s.table, s.name, s.function, triggerColumns(s), whenTypes(s))
 				return
 			case "createGuardTrigger":
 				if (this.#ours(s.table)) {
-					this.#trigger(s.table, s.name, s.function, [])
+					this.#trigger(s.table, s.name, s.function, [], [])
 				}
 				return
 			case "dropTrigger": {
@@ -1923,7 +1977,7 @@ class Model {
 				})
 				return
 			case "placeholderHandles": {
-				const type: TypeRef = namedType(a.type.schema, a.type.name, [])
+				const type: TypeRef = a.type
 				this.#convertHandles(a.table, a.column, type, () => placeholder(a))
 				return
 			}
@@ -2134,7 +2188,7 @@ export const catalogOf = (state: State): ReadonlyArray<string> =>
 				Arr.map(
 					[...of],
 					([name, t]) =>
-						`trigger ${table}.${name} executes ${t.function} on update of (${sortedList(t.columns)})`
+						`trigger ${table}.${name} executes ${t.function} over (${sortedList(t.columns)})`
 				)
 			),
 			...Arr.map(

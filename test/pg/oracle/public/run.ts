@@ -12,7 +12,7 @@ import {
 	Schema,
 	type Scope
 } from "effect"
-import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 
 import {
 	type ApplyError,
@@ -25,20 +25,38 @@ import {
 import { AdmissionRefused } from "#adapter/errors/failures.ts"
 import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { CompiledReadValue, ReaderValue } from "#adapter/reader/reader.ts"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { CursorError, isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { nativeEqualityKey } from "#compiler/ir/expr.ts"
+import { baseOf, numericTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	mapTree,
 	type StatementRoots,
 	type StatementTree
 } from "#compiler/lower/conservative/types.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
+import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { CellDisagreement, strictReaderOf } from "#test/pg/oracle/public/cells.ts"
+import {
+	CellDisagreement,
+	type SentRow,
+	type StrictReader,
+	strictReaderOf
+} from "#test/pg/oracle/public/cells.ts"
 import type { Conversion, Stitch } from "#test/pg/oracle/public/planted.ts"
 import type { PublicFeature } from "#test/pg/oracle/public/suite.ts"
 import { defined } from "#test/support/assert.ts"
-import { installMigrated as install } from "#test/support/install-migrate.ts"
+import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import type { SpelledValue } from "#test/support/oracle/gen/domain.ts"
+import {
+	permuted,
+	restoredFacts,
+	spelledRespelling,
+	type StoredRelation
+} from "#test/support/oracle/gen/restorage.ts"
+import { type FactSet, factStatements } from "#test/support/oracle/install/load.ts"
 import { perturbedContext } from "#test/support/oracle/perturb.ts"
 import {
 	type Answer,
@@ -50,10 +68,9 @@ import {
 	publicRows,
 	readBackShape,
 	type Shape,
-	shapeOf,
-	showValue,
-	spelledAnswerEquivalence
+	shapeOf
 } from "#test/support/oracle/public/answer.ts"
+import { storedInput } from "#test/support/oracle/runner.ts"
 
 import {
 	type BuiltSchema,
@@ -75,15 +92,23 @@ import {
 } from "#test/support/oracle/public/meaning.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {
+	type ArgTerm,
+	type ComputedTerm,
+	hasFilter,
+	type HeadItem,
+	isAggregate,
 	type ProgramCase,
+	type ProgramField,
 	type ParentColumn,
 	type Query,
 	type ProgramRead,
-	sourceFields
+	sourceFields,
+	type StoredFact,
+	type Var
 } from "#test/support/oracle/public/program.ts"
-import { valueKey } from "#test/support/oracle/reference/values.ts"
 import { applyRuntime, contextOf, dbReader } from "#test/support/runtime-db.ts"
-import type { Substrate } from "#test/support/substrate/substrate.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 
 /**
@@ -239,53 +264,44 @@ const parentColumnsOf = (q: Query<ParentColumn>): ReadonlyArray<string> => [
 ]
 
 /**
- * Notes the spellings among each attachment's parent keys in a delivery: two parents whose keys are equal by native
- * equality but print differently, and whether such a key has children, under the form the runtime chose.
+ * Notes the spellings among each attachment's parent keys in a delivery as PostgreSQL sent it (cells.ts SentRow): two
+ * parents whose keys are equal by native equality but whose key cells were sent in different spellings, the spellings
+ * their facts were stored in, and whether such a key has children, under the form the runtime chose, and over a vector
+ * key, whose one twin spelling holds -0 components.
  */
 const noteSpellings = (
 	q: Query<ParentColumn>,
-	rows: ReadonlyArray<Nested>,
+	rows: ReadonlyArray<SentRow>,
 	forms: ReadonlyMap<string, "fused" | "pipelined">,
 	path: string,
 	note: Note
 ): void => {
-	for (const [a, attachment] of q.attachments.entries()) {
+	for (const attachment of q.attachments) {
 		const here = path === "" ? attachment.name : `${path}/${attachment.name}`
-		/** Each parent key column's position in the heading; a column the heading lacks keys and spells nothing. */
-		const keyColumns = Arr.map(parentColumnsOf(attachment.child), (name) =>
-			Arr.findFirstIndex(q.heading, (c) => c.name === name)
-		)
+		const bound = new Set(parentColumnsOf(attachment.child))
+		const keyColumns = Arr.filter(q.heading, (c) => bound.has(c.name))
 		const byKey = new Map<string, { readonly spellings: Set<string>; children: number }>()
 		for (const row of rows) {
-			const key = Arr.map(keyColumns, (at) =>
-				Option.match(at, {
-					onNone: () => "",
-					onSome: (i) => {
-						const column = q.heading[i]
-						const v = row.values[i]
-						return column === undefined || v === undefined ? "" : valueKey(v, column.type)
-					}
-				})
+			const texts = Arr.map(keyColumns, (c) =>
+				defined(row.texts.get(c.name), `the sent cell of ${c.name}`)
 			)
-			const spelled = Arr.map(keyColumns, (at) =>
-				Option.match(at, {
-					onNone: () => "",
-					onSome: (i) => {
-						const v = row.values[i]
-						return v === undefined ? "" : showValue(v)
-					}
-				})
+			const id = Arr.join(
+				Arr.map(keyColumns, (c, k) => sentKey(c.type, defined(texts[k], `the key text ${k}`))),
+				"\u0000"
 			)
-			const id = Arr.join(key, "\u0000")
 			const group = byKey.get(id) ?? { spellings: new Set<string>(), children: 0 }
-			group.spellings.add(Arr.join(spelled, "\u0000"))
-			group.children += (row.attachments[a] ?? []).length
+			group.spellings.add(Arr.join(texts, "\u0000"))
+			group.children += defined(row.children.get(attachment.name), `the sent ${here}`).length
 			byKey.set(id, group)
 		}
 		const form = forms.get(here)
+		const vectorKeyed = Arr.some(keyColumns, (c) => baseOf(c.type).carrier === "vector")
 		const twice = Arr.filter([...byKey.values()], (group) => group.spellings.size > 1)
 		const spelledTwice = Arr.flatMap(twice, (group): ReadonlyArray<PublicFeature> => [
 			"two spellings among parent keys",
+			...(group.children > 0 && vectorKeyed
+				? ["a vector parent key stored with a -0 component" as const]
+				: []),
 			...(group.children > 0 && form === "pipelined"
 				? ["pipelined attachment over two spellings of one parent key" as const]
 				: []),
@@ -294,9 +310,234 @@ const noteSpellings = (
 				: [])
 		])
 		noteAll(note, spelledTwice)
-		const children = Arr.flatMap(rows, (row) => row.attachments[a] ?? [])
+		const children = Arr.flatMap(rows, (row) =>
+			defined(row.children.get(attachment.name), `the sent ${here}`)
+		)
 		noteSpellings(attachment.child, children, forms, here, note)
 	}
+}
+
+/** The native identity of a sent key cell: its codec's one text of the value the cell spells. */
+const sentKey = (type: ScalarType, text: string): string => scalarCodec(type).cellText(text)
+
+/** A stored value's spelling: its one form, or its twin text. */
+const spellingOf = (v: SpelledValue): string =>
+	v.spelling.kind === "twin" ? `twin ${v.spelling.text}` : "canonical"
+
+/**
+ * The fields at which two of the case's facts hold one value in two stored spellings: equal by native equality, written
+ * in different input spellings, at a field no typmod coerces to one display scale.
+ */
+const twiceSpelled = (c: ProgramCase): ReadonlySet<ProgramField> => {
+	const out = new Set<ProgramField>()
+	for (const r of c.schema.relations) {
+		const facts = defined(c.facts.get(r.name), `the facts of ${r.name}`)
+		for (const [i, f] of r.fields.entries()) {
+			if (numericTypmodOf(f.type) !== undefined) {
+				continue
+			}
+			const spellings = new Map<string, Set<string>>()
+			for (const fact of facts) {
+				const v = defined(fact[i], `the value of ${r.name}.${f.name}`)
+				const key = nativeEqualityKey(v.literal)
+				const seen = spellings.get(key) ?? new Set<string>()
+				seen.add(spellingOf(v))
+				spellings.set(key, seen)
+			}
+			if (Arr.some([...spellings.values()], (seen) => seen.size > 1)) {
+				out.add(f)
+			}
+		}
+	}
+	return out
+}
+
+/** The field each variable of a rule is first bound at in a match of a stored relation. */
+const storedFields = (rule: Rule): ReadonlyMap<number, ProgramField> => {
+	const out = new Map<number, ProgramField>()
+	for (const m of rule.matches) {
+		if (m.source.kind !== "stored") {
+			continue
+		}
+		for (const b of m.bindings) {
+			if (b.operand.kind === "var" && !out.has(b.operand.var.id)) {
+				out.set(b.operand.var.id, b.field)
+			}
+		}
+	}
+	return out
+}
+
+const argVars = (a: ArgTerm): ReadonlyArray<Var> => [a.kind === "var" ? a.var : a.padding.arg]
+
+/** The variables a Compute term reads. */
+const termVars = (t: ComputedTerm): ReadonlyArray<Var> => {
+	switch (t.kind) {
+		case "base":
+		case "cast numeric":
+		case "cond":
+			return [t.arg]
+		case "padded":
+			return [t.padding.arg]
+		case "div":
+			return argVars(t.dividend)
+		case "sqrt":
+			return argVars(t.radicand)
+		case "power":
+			return argVars(t.base)
+	}
+}
+
+/** What a Compute term reads at the display scale, where it is such a reading: a quotient's, root's or power's operand. */
+const termReading = (t: ComputedTerm): ArgTerm | undefined => {
+	switch (t.kind) {
+		case "div":
+			return t.dividend
+		case "sqrt":
+			return t.radicand
+		case "power":
+			return t.base
+		case "base":
+		case "cast numeric":
+		case "cond":
+		case "padded":
+			return undefined
+	}
+}
+
+/** What a head item reads at the display scale, where it is such a reading: a Compute reading's operand, or a mean's. */
+const readingOf = (h: HeadItem): ArgTerm | undefined => {
+	switch (h.kind) {
+		case "computed":
+			return termReading(h.term)
+		case "fold":
+			return h.fn === "mean" ? h.arg : undefined
+		case "var":
+		case "count":
+		case "literal":
+			return undefined
+	}
+}
+
+/**
+ * Whether a rule's delivered rows collapse two facts that hold one value in two stored spellings into one: a single
+ * match of a stored relation binding every field it binds to a variable of its own, filtered by nothing, whose rows
+ * are the facts projected onto the fields its head reads (every bound field, for an aggregate, whose distinct complete
+ * bindings it folds), two of which agree by native equality there while their spellings differ.
+ */
+const collapses = (c: ProgramCase, rule: Rule): boolean => {
+	const [m, ...more] = rule.matches
+	const source = m.source
+	const vars = Arr.flatMap(m.bindings, (b) => (b.operand.kind === "var" ? [b.operand.var.id] : []))
+	if (
+		more.length > 0 ||
+		hasFilter(rule) ||
+		rule.negations.length > 0 ||
+		source.kind !== "stored" ||
+		vars.length !== m.bindings.length ||
+		new Set(vars).size !== vars.length
+	) {
+		return false
+	}
+	const fieldOf = storedFields(rule)
+	const read = isAggregate(rule)
+		? vars
+		: Arr.flatMap(rule.head, (h) =>
+				h.kind === "var"
+					? [h.var.id]
+					: h.kind === "computed"
+						? Arr.map(termVars(h.term), (v) => v.id)
+						: []
+			)
+	const positions = [
+		...new Set(
+			Arr.flatMap(read, (id) => {
+				const field = fieldOf.get(id)
+				return field === undefined ? [] : [source.fields.indexOf(field)]
+			})
+		)
+	]
+	if (positions.length === 0) {
+		return false
+	}
+	const groups = new Map<string, Set<string>>()
+	for (const fact of defined(c.facts.get(source.name), `the facts of ${source.name}`)) {
+		const at = (i: number) => defined(fact[i], `the value of ${source.name} at ${i}`)
+		const key = Arr.join(
+			Arr.map(positions, (i) => nativeEqualityKey(at(i).literal)),
+			"\u0000"
+		)
+		const spellings = groups.get(key) ?? new Set<string>()
+		spellings.add(
+			Arr.join(
+				Arr.map(positions, (i) => spellingOf(at(i))),
+				"\u0000"
+			)
+		)
+		groups.set(key, spellings)
+	}
+	return Arr.some([...groups.values()], (spellings) => spellings.size > 1)
+}
+
+/**
+ * The value features of one rule, read off the case's construction, since a delivered value no longer carries the
+ * spelling it was stored in: a collapse of two stored spellings of one value; a display-scale reading (a quotient, a
+ * root, a power or a mean) over a padding, or over a variable bound where the facts hold one value in two spellings; a
+ * padding as a head key, which the head's set semantics collapses; and a mean of a padding.
+ */
+const ruleValueFeatures = (
+	c: ProgramCase,
+	spelled: ReadonlySet<ProgramField>,
+	rule: Rule
+): ReadonlyArray<PublicFeature> => {
+	const fieldOf = storedFields(rule)
+	const twice = (v: Var): boolean => {
+		const field = fieldOf.get(v.id)
+		return field !== undefined && spelled.has(field)
+	}
+	return [
+		...(collapses(c, rule) ? ["a collapse over two stored spellings of one value" as const] : []),
+		...Arr.flatMap(rule.head, (h): ReadonlyArray<PublicFeature> => {
+			const reading = readingOf(h)
+			return [
+				...(reading !== undefined && (reading.kind === "padded" || twice(reading.var))
+					? ["a display-scale reading over a collapsed or padded value" as const]
+					: []),
+				...(h.kind === "computed" && h.term.kind === "padded"
+					? ["a padded term at a collapse" as const]
+					: []),
+				...(h.kind === "fold" && h.fn === "mean" && h.arg.kind === "padded"
+					? ["padded mean" as const]
+					: [])
+			]
+		})
+	]
+}
+
+/** The value features of every rule of a query: its arms' and, at every depth, its attachments' children's. */
+const queryValueFeatures = (
+	c: ProgramCase,
+	spelled: ReadonlySet<ProgramField>,
+	q: Query<ParentColumn>
+): ReadonlyArray<PublicFeature> => [
+	...Arr.flatMap(q.arms, (rule) => ruleValueFeatures(c, spelled, rule)),
+	...Arr.flatMap(q.attachments, (a) => queryValueFeatures(c, spelled, a.child))
+]
+
+/** The value features of a case's query and mixed reads (ruleValueFeatures). */
+const valueFeatures = (c: ProgramCase): ReadonlyArray<PublicFeature> => {
+	const spelled = twiceSpelled(c)
+	return Arr.flatMap(c.reads, (read): ReadonlyArray<PublicFeature> => {
+		switch (read.kind) {
+			case "query":
+				return queryValueFeatures(c, spelled, read.query)
+			case "mixed":
+				return Arr.flatMap(read.root.arms, (arm) => ruleValueFeatures(c, spelled, arm.rule))
+			case "key":
+			case "handle":
+				return []
+		}
+	})
 }
 
 /**
@@ -304,6 +545,7 @@ const noteSpellings = (
  * query read.
  */
 const noteProgram = (c: ProgramCase, note: Note): void => {
+	noteAll(note, valueFeatures(c))
 	for (const kind of c.schema.nameKinds) {
 		note(`name ${kind}`)
 	}
@@ -313,6 +555,9 @@ const noteProgram = (c: ProgramCase, note: Note): void => {
 	for (const r of c.schema.relations) {
 		if (r.candidates.length > 0) {
 			note("candidate key")
+		}
+		for (const f of [...r.primaryKey, ...r.candidates.flat()]) {
+			note(`key of ${f.kind}`)
 		}
 	}
 	for (const read of c.reads) {
@@ -586,8 +831,63 @@ const readBackAnswer = (
 		}
 	)
 
+/** The reference observer that notes each of its declines by its reason (reference/values.ts DeclineReason). */
+const observing = (note: Note): ReferenceObserver => ({
+	...unobserved,
+	decline: (reason) => note(`declined ${reason}`)
+})
+
+/** A read's second reading: it must answer exactly as the read first did. */
+type Reading = Effect.Effect<void, Disagreement>
+
+/** A read's second reading, made once the case's facts are stored otherwise (runCase). */
+type Again = () => Reading
+
 /**
- * One query read through every public form, against the reference.
+ * A query read's second reading: db.execute and the perturbed reader over the facts stored otherwise, each exactly
+ * db.execute's first answer, `first`.
+ */
+const queryAgain = (
+	c: ProgramCase,
+	reader: ReaderValue,
+	perturbed: StrictReader,
+	read: Extract<ProgramRead, { readonly kind: "query" }>,
+	q: unknown,
+	params: Readonly<Record<string, unknown>>,
+	label: string,
+	first: Answer,
+	stitch: Stitch
+): Reading =>
+	Effect.gen(function* () {
+		const shape = shapeOf(read.query)
+		const plain = yield* answered(
+			Effect.flatMap(reader.execute(q, params), (r) => r.collect),
+			shape
+		)
+		const planned = yield* answered(
+			Effect.flatMap(perturbed.execute(q, params), (r) => r.collect),
+			shape
+		)
+		const sent = perturbed.sentRows()
+		yield* agreeing(
+			c,
+			`${label}, read again over its facts stored otherwise`,
+			shape,
+			answerEquivalence(shape, read.query.delivery.kind === "ordered"),
+			[
+				{ side: "db.execute", output: first },
+				{ side: "db.execute, read again", output: plain },
+				{
+					side: "db.execute under the planner perturbation, read again",
+					output: Result.map(planned, (rows) => stitch(rows, read.query, sent))
+				}
+			]
+		)
+	})
+
+/**
+ * One query read through every public form, against the reference and against itself, and its second reading
+ * (queryAgain).
  *
  * The program states only deliveries its language proves (delivery.ts): the reference's children per parent keep
  * each one, or the proof is wrong.
@@ -595,7 +895,7 @@ const readBackAnswer = (
 const queryRead = (
 	c: ProgramCase,
 	reader: ReaderValue,
-	perturbed: ReaderValue,
+	perturbed: StrictReader,
 	apply: Applier,
 	built: BuiltSchema,
 	value: SchemaValue,
@@ -603,7 +903,7 @@ const queryRead = (
 	index: number,
 	note: Note,
 	stitch: Stitch
-): Effect.Effect<void, Disagreement> =>
+): Effect.Effect<Again, Disagreement> =>
 	Effect.gen(function* () {
 		const label = `read ${index}`
 		const q = buildRoot(built, value, read.query)
@@ -611,7 +911,7 @@ const queryRead = (
 		const shape = shapeOf(read.query)
 		const inOrder = read.query.delivery.kind === "ordered"
 		const expected = yield* Effect.try({
-			try: () => expectedQuery(c, read, unobserved),
+			try: () => expectedQuery(c, read, observing(note)),
 			catch: (e) =>
 				Disagreement.make({
 					check: "reference",
@@ -700,6 +1000,8 @@ const queryRead = (
 			Effect.flatMap(perturbed.execute(q, params), (r) => r.collect),
 			shape
 		)
+		/** The perturbed execute's rows as PostgreSQL sent them, row for row with its delivery. */
+		const sent = perturbed.sentRows()
 		const readBack = yield* readBackAnswer(apply, value, q, params, shape)
 		const strictlyCompiled = yield* sideExit(perturbed.compile(q))
 		const strictlyExecuted = Exit.isSuccess(strictlyCompiled)
@@ -709,7 +1011,10 @@ const queryRead = (
 			{ side: "reference", output: expected },
 			{ side: "db.execute", output: execute },
 			{ side: "db.execute, collected again", output: again },
-			{ side: "db.execute under the planner perturbation", output: planned },
+			{
+				side: "db.execute under the planner perturbation",
+				output: Result.map(planned, (rows) => stitch(rows, read.query, sent))
+			},
 			{ side: "db.compile, executed", output: compiledOnce },
 			{ side: "db.compile, executed again", output: compiledTwice },
 			{ side: "db.compile under the planner perturbation, executed", output: strictlyExecuted },
@@ -788,36 +1093,33 @@ const queryRead = (
 				note("pages, several")
 			}
 		}
-		const [reference, ...sides] = answers
-		const delivered: Array<Sided> = [
-			...(reference === undefined ? [] : [reference]),
-			...Arr.map(sides, (a) => ({
-				side: a.side,
-				output: Result.map(a.output, (rows) => stitch(rows, read.query))
-			}))
-		]
-		yield* agreeing(c, label, shape, answerEquivalence(shape, inOrder), delivered)
 		/**
-		 * The read-back delivers the query as a read does, from the same cell texts: spelled exactly as the strict
-		 * reader's execute, whose every field is its cell's strict reading.
+		 * Every side, the reference, the read-back and the perturbed reader among them, delivers the same values
+		 * exactly: grizzle delivers each value in its one form, whatever the plan, the storage order or the spelling
+		 * stored, so one exact check judges them all (answer.ts answerEquivalence).
 		 */
-		const spelledAlike = spelledAnswerEquivalence(shape, inOrder)
-		yield* agreeing(c, label, shape, spelledAlike, [
-			{ side: "db.execute under the planner perturbation", output: planned },
-			{ side: "db.apply's read-back", output: readBack }
-		])
+		yield* agreeing(c, label, shape, answerEquivalence(shape, inOrder), answers)
 		/**
-		 * The spellings are read off the rows grizzle delivered, which agree with the reference's by native equality and
-		 * spell each value as PostgreSQL stored it.
+		 * And against itself, with no reference in the judgment: every public side delivers exactly what db.execute
+		 * delivers, the perturbed plans' among them, which judges every column the reference declines.
 		 */
+		yield* agreeing(
+			c,
+			`${label}, against itself`,
+			shape,
+			answerEquivalence(shape, inOrder),
+			Arr.filter(answers, (a) => a.side !== "reference")
+		)
+		/** The spellings are read off the cells PostgreSQL sent the perturbed reader, as their facts stored them. */
 		const template = Exit.isSuccess(compiled) ? compiled.value.compiled : undefined
-		if (template !== undefined && Result.isSuccess(execute)) {
+		if (template !== undefined && Result.isSuccess(planned)) {
 			const forms = attachmentForms(template)
 			for (const form of new Set(forms.values())) {
 				note(`attachment ${form}`)
 			}
-			noteSpellings(read.query, execute.success, forms, "", note)
+			noteSpellings(read.query, sent, forms, "", note)
 		}
+		return () => queryAgain(c, reader, perturbed, read, q, params, label, execute, stitch)
 	}).pipe(Effect.scoped)
 
 /**
@@ -832,13 +1134,14 @@ const mixedRead = (
 	built: BuiltSchema,
 	value: SchemaValue,
 	read: Extract<ProgramRead, { readonly kind: "mixed" }>,
-	index: number
-): Effect.Effect<void, Disagreement> =>
+	index: number,
+	note: Note
+): Effect.Effect<Again, Disagreement> =>
 	Effect.gen(function* () {
 		const label = `read ${index}`
 		const q = buildMixed(built, value, read.root)
 		const expected = yield* Effect.try({
-			try: () => expectedMixed(c, read.root, unobserved),
+			try: () => expectedMixed(c, read.root, observing(note)),
 			catch: (e) =>
 				Disagreement.make({
 					check: "reference",
@@ -853,11 +1156,9 @@ const mixedRead = (
 					Exit.isSuccess(exit) ? mixedRows(read.root, exit.value) : Result.fail(ended(exit.cause))
 			)
 		const compiled = yield* sideExit(reader.compile(q))
+		const executed = yield* grouped(Effect.flatMap(reader.execute(q, {}), (r) => r.collect))
 		const sides = [
-			{
-				side: "db.execute",
-				output: yield* grouped(Effect.flatMap(reader.execute(q, {}), (r) => r.collect))
-			},
+			{ side: "db.execute", output: executed },
 			{
 				side: "db.execute under the planner perturbation",
 				output: yield* grouped(Effect.flatMap(perturbed.execute(q, {}), (r) => r.collect))
@@ -869,15 +1170,58 @@ const mixedRead = (
 					: Result.fail(ended(compiled.cause))
 			}
 		]
-		for (const [g, shape] of mixedShapes(read.root).entries()) {
-			const groupOf = (groups: ReadonlyArray<ReadonlyArray<Nested>>): ReadonlyArray<Nested> =>
-				defined(groups[g], `heading group ${g}`)
-			const reference = defined(expected[g], `the reference's heading group ${g}`)
-			yield* agreeing(c, `${label}, heading group ${g}`, shape, answerEquivalence(shape, false), [
-				{ side: "reference", output: reference },
-				...Arr.map(sides, (s) => ({ side: s.side, output: Result.map(s.output, groupOf) }))
-			])
-		}
+		/** Each heading group's answers agree, `reference` first where it is given. */
+		const judged = (
+			against: string,
+			reference: Option.Option<ReadonlyArray<Answer>>,
+			sided: ReadonlyArray<{
+				readonly side: string
+				readonly output: Result.Result<ReadonlyArray<ReadonlyArray<Nested>>, string>
+			}>
+		): Effect.Effect<void, Disagreement> =>
+			Effect.forEach(
+				mixedShapes(read.root),
+				(shape, g) => {
+					const groupOf = (groups: ReadonlyArray<ReadonlyArray<Nested>>): ReadonlyArray<Nested> =>
+						defined(groups[g], `heading group ${g}`)
+					const stated: ReadonlyArray<Sided> = Option.match(reference, {
+						onNone: () => [],
+						onSome: (answers) => [
+							{
+								side: "reference",
+								output: defined(answers[g], `the reference's heading group ${g}`)
+							}
+						]
+					})
+					return agreeing(
+						c,
+						`${label}, heading group ${g}${against}`,
+						shape,
+						answerEquivalence(shape, false),
+						[
+							...stated,
+							...Arr.map(sided, (s) => ({ side: s.side, output: Result.map(s.output, groupOf) }))
+						]
+					)
+				},
+				{ discard: true }
+			)
+		yield* judged("", Option.some(expected), sides)
+		yield* judged(", against itself", Option.none(), sides)
+		return () =>
+			Effect.gen(function* () {
+				yield* judged(", read again over its facts stored otherwise", Option.none(), [
+					{ side: "db.execute", output: executed },
+					{
+						side: "db.execute, read again",
+						output: yield* grouped(Effect.flatMap(reader.execute(q, {}), (r) => r.collect))
+					},
+					{
+						side: "db.execute under the planner perturbation, read again",
+						output: yield* grouped(Effect.flatMap(perturbed.execute(q, {}), (r) => r.collect))
+					}
+				])
+			})
 	}).pipe(Effect.scoped)
 
 /** A keyed db.get's answer: its one fact or none, or the failure or defect it died with. */
@@ -886,7 +1230,35 @@ const keyed = (shape: Shape, exit: Exit.Exit<Option.Option<unknown>, ReadError>)
 		? publicRows(shape, Option.isSome(exit.value) ? [exit.value.value] : [])
 		: Result.fail(ended(exit.cause))
 
-/** One keyed read: db.get over a primary key or a candidate key, against the facts. */
+/**
+ * A keyed read's second reading: db.get through the plain and the perturbed reader over the facts stored otherwise,
+ * each exactly db.get's first answer, `first`.
+ */
+const getAgain = (
+	c: ProgramCase,
+	label: string,
+	shape: Shape,
+	first: Answer,
+	readers: { readonly plain: ReaderValue; readonly perturbed: ReaderValue },
+	get: (reader: ReaderValue) => Effect.Effect<Option.Option<unknown>, ReadError>
+): Reading =>
+	Effect.gen(function* () {
+		const plain = keyed(shape, yield* sideExit(get(readers.plain)))
+		const planned = keyed(shape, yield* sideExit(get(readers.perturbed)))
+		yield* agreeing(
+			c,
+			`${label}, read again over its facts stored otherwise`,
+			shape,
+			answerEquivalence(shape, false),
+			[
+				{ side: "db.get", output: first },
+				{ side: "db.get, read again", output: plain },
+				{ side: "db.get under the planner perturbation, read again", output: planned }
+			]
+		)
+	})
+
+/** One keyed read: db.get over a primary key or a candidate key, against the facts, and its second reading. */
 const keyRead = (
 	c: ProgramCase,
 	reader: ReaderValue,
@@ -895,7 +1267,7 @@ const keyRead = (
 	read: Extract<ProgramRead, { readonly kind: "key" }>,
 	index: number,
 	note: Note
-): Effect.Effect<void, Disagreement> =>
+): Effect.Effect<Again, Disagreement> =>
 	Effect.gen(function* () {
 		const shape: Shape = { columns: read.relation.fields, attachments: [] }
 		const target = read.candidate
@@ -916,17 +1288,25 @@ const keyRead = (
 		if (Exit.isSuccess(got)) {
 			note(Option.isSome(got.value) ? "key get some" : "key get none")
 		}
+		const first = keyed(shape, got)
 		yield* agreeing(c, `read ${index}`, shape, answerEquivalence(shape, false), [
 			{ side: "reference", output: expectedKey(c, read) },
-			{ side: "db.get", output: keyed(shape, got) },
+			{ side: "db.get", output: first },
 			{
 				side: "db.get under the planner perturbation",
 				output: keyed(shape, yield* sideExit(perturbed.get(target, values)))
 			}
 		])
+		return () =>
+			getAgain(c, `read ${index}`, shape, first, { plain: reader, perturbed }, (r) =>
+				r.get(target, values)
+			)
 	})
 
-/** One read of the closed roster: db.get(roster, { id }), which a closed relation's key ["id"] answers. */
+/**
+ * One read of the closed roster: db.get(roster, { id }), which a closed relation's key ["id"] answers, and its second
+ * reading, which no stored fact can move.
+ */
 const handleRead = (
 	c: ProgramCase,
 	reader: ReaderValue,
@@ -935,21 +1315,136 @@ const handleRead = (
 	read: Extract<ProgramRead, { readonly kind: "handle" }>,
 	index: number,
 	note: Note
-): Effect.Effect<void, Disagreement> =>
+): Effect.Effect<Again, Disagreement> =>
 	Effect.gen(function* () {
 		const shape: Shape = { columns: [c.schema.roster.id], attachments: [] }
 		const got = yield* sideExit(reader.get(built.roster, { id: read.handle }))
 		if (Exit.isSuccess(got) && Option.isSome(got.value)) {
 			note("key get closed some")
 		}
+		const first = keyed(shape, got)
 		yield* agreeing(c, `read ${index}`, shape, answerEquivalence(shape, false), [
 			{ side: "reference", output: expectedHandle(read) },
-			{ side: "db.get", output: keyed(shape, got) },
+			{ side: "db.get", output: first },
 			{
 				side: "db.get under the planner perturbation",
 				output: keyed(shape, yield* sideExit(perturbed.get(built.roster, { id: read.handle })))
 			}
 		])
+		return () =>
+			getAgain(c, `read ${index}`, shape, first, { plain: reader, perturbed }, (r) =>
+				r.get(built.roster, { id: read.handle })
+			)
+	})
+
+/** Whether a stored fact holds a twin spelling, which db.apply cannot store: it stores every value in its one form. */
+const spelledFacts = (c: ProgramCase): boolean =>
+	Arr.some([...c.facts.values()], (facts) =>
+		Arr.some(facts, (fact) => Arr.some(fact, (v) => v.spelling.kind === "twin"))
+	)
+
+/** The case's facts as the oracle loader's records, each value in the spelling its fact drew (runner.ts storedInput). */
+const directFacts = (c: ProgramCase): FactSet =>
+	Rec.fromEntries(
+		Arr.map(
+			c.schema.relations,
+			(r): readonly [string, ReadonlyArray<Readonly<Record<string, unknown>>>] => [
+				r.name,
+				Arr.map(c.facts.get(r.name) ?? [], (fact) =>
+					Rec.fromEntries(
+						Arr.map(r.fields, (f, i): readonly [string, unknown] => [
+							f.name,
+							storedInput(defined(fact[i], `the value of ${r.name}.${f.name}`), f.type)
+						])
+					)
+				)
+			]
+		)
+	)
+
+/**
+ * Stores the case's facts through a direct SQL writer, as the README's direct-writer contract admits one: a session of
+ * the case's login that takes on its role and writes every fact in one SERIALIZABLE transaction, each value in the input
+ * spelling its fact drew, so the database holds two spellings of one value where the case planted them.
+ */
+const storeDirectly = (
+	c: ProgramCase,
+	done: Installed,
+	role: AnyRole
+): Effect.Effect<void, Disagreement, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const unstored = (e: unknown) =>
+			Disagreement.make({
+				check: "setup",
+				report: `the direct writer did not store the facts: ${describe(e)}\n${printCase(c)}`
+			})
+		const statements = factStatements(done.plan, directFacts(c))
+		if (!statements.ok) {
+			return yield* unstored(statements.error)
+		}
+		const substrate = yield* Substrate
+		yield* Effect.mapError(
+			Effect.gen(function* () {
+				const writer = yield* substrate.session(worldSession(done.world(role)))
+				yield* writer.begin
+				for (const sql of statements.value) {
+					yield* writer.query(sql, [])
+				}
+				yield* writer.commit
+			}),
+			unstored
+		)
+	})
+
+/** The case with its facts stored otherwise by its restorage (gen/restorage.ts restoredFacts), and what that moved. */
+const restoredProgram = (
+	c: ProgramCase
+): { readonly case: ProgramCase; readonly reordered: boolean; readonly respelled: boolean } => {
+	const restored = restoredFacts(
+		Arr.map(c.schema.relations, (r): StoredRelation<SpelledValue> => ({
+			name: r.name,
+			columns: Arr.map(r.fields, (f) => spelledRespelling(f.type)),
+			rows: defined(c.facts.get(r.name), `the facts of ${r.name}`)
+		})),
+		permuted,
+		c.restorage
+	)
+	return {
+		case: {
+			...c,
+			facts: new Map(
+				Arr.map(restored.relations, (r): readonly [string, ReadonlyArray<StoredFact>] => [
+					r.name,
+					r.rows
+				])
+			)
+		},
+		reordered: restored.reordered,
+		respelled: restored.respelled
+	}
+}
+
+/**
+ * Stores the case's facts afresh for its second reading: every stored relation truncated in one SERIALIZABLE
+ * transaction of the installation's owner (substrate/replace.ts replaceRows), whose TRUNCATE reads no row, then every
+ * fact written again by the case's direct SQL writer (storeDirectly), in its restored order and spelling.
+ */
+const restore = (
+	c: ProgramCase,
+	done: Installed,
+	role: AnyRole
+): Effect.Effect<void, Disagreement, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		yield* Effect.mapError(
+			replaceRows(substrate.admin, installationGroup(namesOf(done)), []),
+			(e) =>
+				Disagreement.make({
+					check: "setup",
+					report: `the facts were not truncated for their second reading: ${describe(e)}\n${printCase(c)}`
+				})
+		)
+		yield* storeDirectly(c, done, role)
 	})
 
 /** Stores the case's facts through db.apply of the ChangeSet inserting them: accepted, each relation's facts added. */
@@ -1008,7 +1503,9 @@ const store = <R, P>(
  * 2. A DbLayer of the case's login is built, and Db.open admits the database as its full role (build.ts): a login
  *    taking on a world role with only its derived grants, never the owner, so its search path and privileges are an
  *    application's.
- * 3. The facts are stored by db.apply of the ChangeSet that inserts them, which must accept every one.
+ * 3. The facts are stored by db.apply of the ChangeSet that inserts them, which must accept every one, or, where a
+ *    fact holds a twin spelling, which db.apply cannot store, by a direct SQL writer of the case's role at
+ *    SERIALIZABLE, each value as its fact spells it.
  * 4. Every read runs through every public form that answers it, each compared with the reference's answer under the
  *    contract's equivalence (answer.ts):
  *    - a query: db.execute, its result collected twice, db.compile executed twice, db.get, which answers when the
@@ -1024,6 +1521,11 @@ const store = <R, P>(
  *    before. Each attachment states a delivery its program proves (delivery.ts): the reference's children per parent
  *    must keep it, and every public form must deliver exactly it, an Option, the one child or an arm's Some and None
  *    as its parent's handle selects (answer.ts).
+ * 5. Every read is judged against itself too, with no reference in the judgment, which judges every column the
+ *    reference declines (answer.ts unstated): every public side exactly as db.execute, under both plans (the plan
+ *    relation); and once every read has answered, the facts are stored again otherwise (ProgramCase.restorage: another
+ *    storage order through a fresh load, one value in its next twin spelling) and every read is read again, through
+ *    the plain and the perturbed reader, exactly as it first answered (the storage-order and twin-spelling relations).
  *
  * The case's features (features.ts) are noted as it runs: the program's shapes, how the runtime delivered each
  * attachment (fused into its parent's statement or pipelined as one of its own, read off the template it ran), the
@@ -1045,7 +1547,12 @@ export const runCase = (
 		const unready = (what: string) => (e: unknown) =>
 			Disagreement.make({ check: "setup", report: `${what}: ${describe(e)}\n${printCase(c)}` })
 		const done = yield* Effect.mapError(
-			install(built.schema, { label: "real", logins: [built.world.server], extensions: [] }),
+			install(built.schema, {
+				ambient: c.ambient,
+				label: "real",
+				logins: [built.world.server],
+				extensions: []
+			}),
 			unready("the schema did not install")
 		)
 		const value = built.installedAs(done.schema)
@@ -1058,22 +1565,38 @@ export const runCase = (
 			Effect.provideContext(context),
 			Effect.mapError(unready("Db.open refused the installation"))
 		)
-		yield* store(c, db, built, value)
+		if (spelledFacts(c)) {
+			note("facts by a direct writer")
+			yield* storeDirectly(c, done, world.server.roles.app.role)
+		} else {
+			yield* store(c, db, built, value)
+		}
 		const reader = dbReader(db)
 		const apply: Applier = (changes) => applyRuntime(db, changes, {})
-		const perturbed: ReaderValue = strictReaderOf(
-			perturbedContext(contextOf(db), c.perturbation),
-			conversion
-		)
+		const perturbed = strictReaderOf(perturbedContext(contextOf(db), c.perturbation), conversion)
+		const again: Array<Again> = []
 		for (const [i, read] of c.reads.entries()) {
 			if (read.kind === "key") {
-				yield* keyRead(c, reader, perturbed, built, read, i, note)
+				again.push(yield* keyRead(c, reader, perturbed, built, read, i, note))
 			} else if (read.kind === "handle") {
-				yield* handleRead(c, reader, perturbed, built, read, i, note)
+				again.push(yield* handleRead(c, reader, perturbed, built, read, i, note))
 			} else if (read.kind === "mixed") {
-				yield* mixedRead(c, reader, perturbed, built, value, read, i)
+				again.push(yield* mixedRead(c, reader, perturbed, built, value, read, i, note))
 			} else {
-				yield* queryRead(c, reader, perturbed, apply, built, value, read, i, note, stitch)
+				again.push(
+					yield* queryRead(c, reader, perturbed, apply, built, value, read, i, note, stitch)
+				)
 			}
+		}
+		const restored = restoredProgram(c)
+		if (restored.reordered) {
+			note("facts reordered on a second reading")
+		}
+		if (restored.respelled) {
+			note("a fact respelled on a second reading")
+		}
+		yield* restore(restored.case, done, world.server.roles.app.role)
+		for (const readAgain of again) {
+			yield* readAgain()
 		}
 	})

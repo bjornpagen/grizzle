@@ -11,7 +11,7 @@
 
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Result } from "effect"
@@ -22,6 +22,7 @@ import {
 } from "#test/pg/laws/families/generated.ts"
 import { casesPerTest, familySuite } from "#test/pg/laws/families/suites/family.ts"
 import { installLaws } from "#test/pg/laws/families/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -43,14 +44,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							generator: element(refusedCapacities),
 							literal: (r: RefusedCapacity) => r.name,
 							limit: refusedCapacities.length,
-							features: features<RefusedFeature>(
+							coverage: requiredInSpace<RefusedFeature>(
 								Arr.map(refusedCapacities, (r): RefusedFeature => `refused: ${r.name}`)
 							),
 							caseHang: Duration.minutes(2)
 						},
 						(r, c) =>
 							Effect.gen(function* () {
-								const installed = yield* Effect.result(installLaws(r.schema))
+								const installed = yield* Effect.result(installLaws(r.schema, ordinarySession))
 								assert.ok(Result.isFailure(installed), `${r.name} installs`)
 								const failure = installed.failure
 								assert.ok(

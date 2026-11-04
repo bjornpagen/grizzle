@@ -2,8 +2,8 @@ import { Array as Arr, Order, Result, Schema } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Identity } from "#compiler/core/identity.ts"
 import * as EngineResult from "#compiler/core/result.ts"
+import { type CandidatePath, candidatesOf, pathOf, samePath } from "#compiler/deploy/diff/plan.ts"
 import { lossDecisions, splitRenames } from "#compiler/deploy/render/chosen.ts"
-import { readDecisions } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { findMarkers } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -29,6 +29,7 @@ import {
 } from "#test/support/migrate/kit.ts"
 
 import {
+	choosable,
 	type LossReview,
 	type Placeholder,
 	plainPlan,
@@ -40,8 +41,8 @@ import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
  * check`'s reading of it, for the suites that judge a draft by what it writes, never by its plan.
  *
  * A draft is its folder: its SQL files' text, its meta.json as written, read here once by this door's own decoder of
- * the fields a reviewer's decisions name (each candidate's renames, each loss of stored data with its carriers), and
- * its snapshot's fingerprint. A review is the one reviewer's, whose files are text; it runs on the catalog
+ * the fields a reviewer's decisions name (each candidate by its path, each loss of stored data where it stands, with
+ * its carriers by path), and its snapshot's fingerprint. A review is the one reviewer's, whose files are text; it runs on the catalog
  * model of PostgreSQL, which the door hands over as a function of the state, the plan staying inside.
  * `checkOf` is `grizzle check`'s reading of a folder's files against its meta.json: the markers left, the decisions
  * split, and the losses unresolved, each by its kind and file. Rows enter and leave the model as integers by column,
@@ -57,27 +58,24 @@ export type LossView =
 	| { readonly kind: "field"; readonly relation: string; readonly field: string }
 	| { readonly kind: "schema"; readonly schema: string }
 
-/** Where a loss is: at the top of its file, or in the alternative of a candidate, by index. */
+/** Where a loss is: at the top of its file, or in the alternative of a candidate rename, by its path. */
 export type LossWithin =
 	| { readonly kind: "top" }
-	| { readonly kind: "within"; readonly candidate: number }
+	| { readonly kind: "within"; readonly candidate: CandidatePath }
 
 /** A loss as meta.json records it: its file, where it is, what it loses, its statement, and the candidates that carry it
- * instead, by index. */
+ * instead, by path. */
 export interface DraftedLoss {
 	readonly file: string
 	readonly within: LossWithin
 	readonly loses: LossView
 	readonly statement: string
-	readonly carriers: ReadonlyArray<number>
+	readonly carriers: ReadonlyArray<CandidatePath>
 }
 
-/** A candidate as meta.json records what it renames. */
-interface DraftedCandidate {
-	readonly kind: "relation" | "field" | "type"
-	readonly removed: string
-	readonly added: string
-}
+/** Whether a decision, by path, holds a candidate. */
+export const holdsPath = (chosen: ReadonlyArray<CandidatePath>, path: CandidatePath): boolean =>
+	Arr.some(chosen, (p) => samePath(p, path))
 
 /** A drafted folder as the command line writes it. */
 interface DraftedView {
@@ -87,7 +85,7 @@ interface DraftedView {
 	readonly next: Previous
 	readonly folder: string
 	readonly files: ReadonlyArray<TextFile>
-	readonly candidates: ReadonlyArray<DraftedCandidate>
+	readonly candidates: ReadonlyArray<CandidatePath>
 	readonly confirms: number
 	readonly losses: ReadonlyArray<DraftedLoss>
 }
@@ -102,7 +100,7 @@ class Drafted implements DraftedView {
 	readonly next: Previous
 	readonly folder: string
 	readonly files: ReadonlyArray<TextFile>
-	readonly candidates: ReadonlyArray<DraftedCandidate>
+	readonly candidates: ReadonlyArray<CandidatePath>
 	readonly confirms: number
 	readonly losses: ReadonlyArray<DraftedLoss>
 	readonly #result: GenerateResult
@@ -128,38 +126,156 @@ class Drafted implements DraftedView {
 export type { Drafted }
 
 const Text = Schema.String
-const Index = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))
+const Ends = { removed: Text, added: Text } as const
+const RelationPathRead = Schema.Struct({ kind: Schema.Literal("relation"), ...Ends })
+const PathRead = Schema.Union([
+	RelationPathRead,
+	Schema.Struct({ kind: Schema.Literal("type"), ...Ends }),
+	Schema.Struct({ kind: Schema.Literal("login"), ...Ends }),
+	Schema.Struct({ kind: Schema.Literal("field"), relation: Text, ...Ends }),
+	Schema.Struct({ kind: Schema.Literal("nested field"), parent: RelationPathRead, ...Ends })
+])
+
+/** What a root's rename offer renames that is no relation, as the door reads it. */
+const RootRenamesRead = Schema.Union([
+	Schema.Struct({ kind: Schema.Literal("type"), ...Ends }),
+	Schema.Struct({ kind: Schema.Literal("login"), ...Ends }),
+	Schema.Struct({ kind: Schema.Literal("field"), relation: Text, ...Ends })
+])
+
+const LossesRead = Schema.Union([
+	Schema.Struct({ kind: Schema.Literal("relation"), relation: Text }),
+	Schema.Struct({ kind: Schema.Literal("field"), relation: Text, field: Text }),
+	Schema.Struct({ kind: Schema.Literal("schema"), schema: Text })
+])
+
+const PlainRead = Schema.Union([
+	Schema.Struct({ kind: Schema.Literal("replace") }),
+	Schema.Struct({ kind: Schema.Literal("delete") })
+])
+
+/** The steps of one place of meta.json's record as the door reads them: only what a reviewer's decisions name. */
+const stepsRead = <O, E>(offer: Schema.Codec<O, E>) =>
+	Schema.Union([
+		Schema.Struct({ kind: Schema.Literal("statement") }),
+		Schema.Struct({ kind: Schema.Literal("choice"), offers: Schema.Array(offer) }),
+		Schema.Struct({
+			kind: Schema.Literal("loss"),
+			loses: LossesRead,
+			statement: Text,
+			carriers: Schema.Array(PathRead)
+		}),
+		Schema.Struct({ kind: Schema.Literal("confirm") })
+	])
+
+const SealedRead = stepsRead(PlainRead)
+const NestedRead = Schema.Struct({
+	kind: Schema.Literal("nested rename"),
+	...Ends,
+	alternative: Schema.Array(SealedRead)
+})
+const RelationStepsRead = stepsRead(Schema.Union([NestedRead, PlainRead]))
+const TopRead = stepsRead(
+	Schema.Union([
+		Schema.Struct({
+			kind: Schema.Literal("rename"),
+			renames: RootRenamesRead,
+			alternative: Schema.Array(SealedRead)
+		}),
+		Schema.Struct({
+			kind: Schema.Literal("relation rename"),
+			...Ends,
+			alternative: Schema.Array(RelationStepsRead)
+		}),
+		PlainRead
+	])
+)
+
 const MetaRead = Schema.Struct({
-	decisions: Schema.Struct({
-		candidates: Schema.Array(
-			Schema.Struct({
-				renames: Schema.Struct({
-					kind: Schema.Literals(["relation", "field", "type"]),
-					removed: Text,
-					added: Text
-				})
-			})
-		),
-		confirms: Schema.Array(Schema.Unknown),
-		losses: Schema.Array(
-			Schema.Struct({
-				file: Text,
-				within: Schema.Union([
-					Schema.Struct({ kind: Schema.Literal("top") }),
-					Schema.Struct({ kind: Schema.Literal("within"), candidate: Index })
-				]),
-				loses: Schema.Union([
-					Schema.Struct({ kind: Schema.Literal("relation"), relation: Text }),
-					Schema.Struct({ kind: Schema.Literal("field"), relation: Text, field: Text }),
-					Schema.Struct({ kind: Schema.Literal("schema"), schema: Text })
-				]),
-				statement: Text,
-				carriers: Schema.Array(Index)
-			})
-		)
-	})
+	files: Schema.Array(Schema.Struct({ name: Text, steps: Schema.Array(TopRead) }))
 })
 const decodeMeta = Schema.decodeUnknownResult(Schema.fromJsonString(MetaRead))
+
+/** What meta.json's record names that a reviewer decides, walked in draft order: every candidate by its path, the
+ * confirmed groups, and every loss where it stands. */
+interface MetaView {
+	readonly candidates: ReadonlyArray<CandidatePath>
+	readonly confirms: number
+	readonly losses: ReadonlyArray<DraftedLoss>
+}
+
+type FilesRead = (typeof MetaRead.Type)["files"]
+
+/** A step of any place, as the door reads it. */
+type StepRead = typeof TopRead.Type | typeof RelationStepsRead.Type | typeof SealedRead.Type
+
+const metaView = (files: FilesRead): MetaView => {
+	const candidates: Array<CandidatePath> = []
+	const losses: Array<DraftedLoss> = []
+	let confirms = 0
+	/** The steps of one place, each loss within the rename whose alternative holds it, and each offer's own rename at its
+	 * path, read by `named`, which reads a relation's alternative in turn. */
+	const walk = (file: string, steps: ReadonlyArray<StepRead>, within: LossWithin): void => {
+		for (const s of steps) {
+			switch (s.kind) {
+				case "statement":
+					break
+				case "confirm":
+					confirms++
+					break
+				case "loss":
+					losses.push({
+						file,
+						within,
+						loses: s.loses,
+						statement: s.statement,
+						carriers: s.carriers
+					})
+					break
+				case "choice":
+					for (const o of s.offers) {
+						switch (o.kind) {
+							case "relation rename": {
+								const path: CandidatePath = { kind: "relation", removed: o.removed, added: o.added }
+								candidates.push(path)
+								for (const a of o.alternative) {
+									if (a.kind === "choice") {
+										for (const n of a.offers) {
+											if (n.kind === "nested rename") {
+												const nested: CandidatePath = {
+													kind: "nested field",
+													parent: path,
+													removed: n.removed,
+													added: n.added
+												}
+												candidates.push(nested)
+												walk(file, n.alternative, { kind: "within", candidate: nested })
+											}
+										}
+									}
+								}
+								walk(file, o.alternative, { kind: "within", candidate: path })
+								break
+							}
+							case "rename":
+								candidates.push(o.renames)
+								walk(file, o.alternative, { kind: "within", candidate: o.renames })
+								break
+							case "nested rename":
+							case "replace":
+							case "delete":
+								break
+						}
+					}
+					break
+			}
+		}
+	}
+	for (const f of files) {
+		walk(f.name, f.steps, { kind: "top" })
+	}
+	return { candidates, confirms, losses }
+}
 
 /** `grizzle generate`'s answer for `subject`, compiled under the schema identity `installation` with `extensions` and
  * no owner as it compiles it, from `previous`, named `name`. */
@@ -206,7 +322,7 @@ export const draftOf = (
 		generated(subject, extensions, installation, previous, name),
 		`the draft ${name}`
 	)
-	const meta = succeeded(decodeMeta(g.folder.metaText), `the meta.json of ${name}`).decisions
+	const meta = metaView(succeeded(decodeMeta(g.folder.metaText), `the meta.json of ${name}`).files)
 	return new Drafted(
 		{
 			change: g.change,
@@ -214,15 +330,9 @@ export const draftOf = (
 			next: fromSnapshot(g.snapshot),
 			folder: g.folder.name,
 			files: g.folder.files,
-			candidates: Arr.map(meta.candidates, (c) => c.renames),
-			confirms: meta.confirms.length,
-			losses: Arr.map(meta.losses, (l) => ({
-				file: l.file,
-				within: l.within,
-				loses: l.loses,
-				statement: l.statement,
-				carriers: l.carriers
-			}))
+			candidates: meta.candidates,
+			confirms: meta.confirms,
+			losses: meta.losses
 		},
 		g
 	)
@@ -239,26 +349,32 @@ export interface ReviewedFolder {
 	) => Result.Result<State, InterpretFailure>
 }
 
-/** What a reviewer decides: the candidates it chooses, by index; each loss no chosen candidate carries, written in or
+/** What a reviewer decides: the candidates it chooses, by path; each loss no chosen candidate carries, written in or
  * left; and each placeholder's SQL text. */
 export interface ReviewChoices {
-	readonly chosen: ReadonlySet<number>
+	readonly chosen: ReadonlyArray<CandidatePath>
 	readonly losses: LossReview
 	readonly value: (placeholder: Placeholder) => string
 }
 
-/** A review two chosen candidates make inexpressible, naming them. */
+/** A review two chosen candidates make inexpressible, naming them by path. */
 interface Inexpressible {
-	readonly candidates: ReadonlyArray<number>
+	readonly candidates: ReadonlyArray<CandidatePath>
 }
 
 export const reviewOf = (
 	d: Drafted,
 	choices: ReviewChoices
 ): Result.Result<ReviewedFolder, Inexpressible> => {
-	const reviewed = review(Drafted.resultOf(d), choices)
+	const g = Drafted.resultOf(d)
+	const chosen = new Set(
+		Arr.filter(candidatesOf(g.plan), (c) => holdsPath(choices.chosen, pathOf(c)))
+	)
+	const reviewed = review(g, { chosen, losses: choices.losses, value: choices.value })
 	if (Result.isFailure(reviewed)) {
-		return Result.fail({ candidates: reviewed.failure.candidates })
+		return Result.fail({
+			candidates: Arr.map(reviewed.failure.candidates, (c) => pathOf(c))
+		})
 	}
 	const plan = reviewed.success.plan
 	return Result.succeed({
@@ -273,14 +389,20 @@ export const plainReviewOf = (d: Drafted): ReviewedFolder => {
 	return { files: d.files, run: (schema, state, value) => interpret(schema, state, plan, value) }
 }
 
-/** The candidates a reviewer who makes `renames` chooses: each whose own rename renames a relation or a field as they do
- * (`chosenCandidates`), by the physical names of the versions drafted from and to. */
+/** The candidates a reviewer who makes `renames` chooses, by path: each whose own rename renames a relation or a field
+ * as they do (`chosenCandidates`), by the physical names of the versions drafted from and to. */
 export const chosenFor = (
 	d: Drafted,
 	renames: Renames,
 	before: RealInstallPlan,
 	after: RealInstallPlan
-): ReadonlySet<number> => chosenCandidates(Drafted.resultOf(d), renames, before, after)
+): ReadonlyArray<CandidatePath> =>
+	Arr.map([...chosenCandidates(Drafted.resultOf(d), renames, before, after)], (c) => pathOf(c))
+
+/** Every decision a reviewer may make of a draft's candidates (the review kit's `choosable`, the documented rules), each
+ * by path. */
+export const choosableOf = (d: Drafted): ReadonlyArray<ReadonlyArray<CandidatePath>> =>
+	Arr.map(choosable(Drafted.resultOf(d)), (chosen) => Arr.map([...chosen], (c) => pathOf(c)))
 
 /** A finding of `grizzle check` on a reviewed folder: a marker left, a decision split, orphaned or made twice, or a loss
  * unresolved, with its file. */
@@ -290,17 +412,14 @@ export interface Finding {
 }
 
 export const checkOf = (d: Drafted, files: ReadonlyArray<TextFile>): ReadonlyArray<Finding> => {
-	const decisions = succeeded(
-		readDecisions(Drafted.resultOf(d).folder.meta.decisions),
-		`${d.folder}'s meta.json`
-	)
+	const record = Drafted.resultOf(d).record
 	return [
 		...Arr.flatMap(files, (f) =>
 			Arr.map(findMarkers(f.text), (): Finding => ({ kind: "marker", file: f.name }))
 		),
-		...Arr.map(splitRenames(decisions, files), (r): Finding => ({ kind: r.kind, file: r.file })),
-		...Arr.flatMap(lossDecisions(decisions, files), (l): ReadonlyArray<Finding> =>
-			l.kind === "unresolved" ? [{ kind: "unresolved loss", file: l.loss.file }] : []
+		...Arr.map(splitRenames(record, files), (r): Finding => ({ kind: r.kind, file: r.file })),
+		...Arr.flatMap(lossDecisions(record, files), (l): ReadonlyArray<Finding> =>
+			l.kind === "unresolved" ? [{ kind: "unresolved loss", file: l.file }] : []
 		)
 	]
 }

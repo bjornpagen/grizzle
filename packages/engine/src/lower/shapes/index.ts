@@ -1,7 +1,13 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	extendNonEmpty,
+	isNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { attachFuseMaxFields, lateralParentMax } from "#compiler/core/policy.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import {
@@ -713,13 +719,14 @@ export class OptimizedDelivery<
 		const output = statementOutput(statement.role, rows, fused)
 		const log = this.state.drain()
 		let shaped = refineDelivered(this.cx, query, output.heading)
-		if (log.ctes.size > 0) {
+		const logged = [...log.ctes]
+		if (isNonEmpty(logged)) {
 			shaped = {
 				...shaped,
 				with:
 					shaped.with === undefined
-						? { ctes: [...log.ctes], recursive: false }
-						: { ...shaped.with, ctes: [...log.ctes, ...shaped.with.ctes] }
+						? { ctes: logged, recursive: false }
+						: { ...shaped.with, ctes: extendNonEmpty(logged, shaped.with.ctes) }
 			}
 		}
 		const renamed = renameToPublicHeading(shaped, output.names)
@@ -1013,15 +1020,18 @@ export class OptimizedDelivery<
 		/** The group's rows, lowered in the statement being lowered: its own, or an attachment's computing them again. */
 		const lowered = (): Select => {
 			let rel = groupRows(cx, union, group, emptyEnv, this.facts)
-			const [innermost] = plan.filters.slice(-1)
-			if (innermost !== undefined) {
-				const input = cx.wrap(rel, group.heading, { kind: "node", node: innermost.id })
+			const filters = plan.filters
+			if (isNonEmpty(filters)) {
+				const input = cx.wrap(rel, group.heading, {
+					kind: "node",
+					node: lastNonEmpty(filters).id
+				})
 				const scope: Env = new Map(scopeNodes.map((n) => [n.id, input.map]))
 				rel = select(
 					core(
 						headingTargets(group.heading, input.map),
 						[input.item],
-						and(...plan.filters.map((f) => lowerExpr(cx, f.pred, scope)))
+						and(mapNonEmpty(filters, (f) => lowerExpr(cx, f.pred, scope)))
 					)
 				)
 			}

@@ -2,8 +2,9 @@ import { Buffer } from "node:buffer"
 import { Duplex, type DuplexOptions } from "node:stream"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -152,7 +153,7 @@ type PoolFeature =
 	| "a refused connection"
 	| "a connection without a cancellation key"
 
-const required: ReadonlyArray<PoolFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<PoolFeature> = [
 	"leased a new session",
 	"leased an idle session",
 	"released",
@@ -453,13 +454,12 @@ describe("the session pool", () => {
 						suite: "unit/adapter/pool",
 						draw: drawn(sequenceGen),
 						literal: Formatter.format,
-						features: features<PoolFeature>(required),
+						coverage: required<PoolFeature>(situations, { cases: 40, sense: notesOnly }),
 						kept: poolKept,
 						runs: 40,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.seconds(30)
 					},
 					({ max, idle, steps }, c) =>

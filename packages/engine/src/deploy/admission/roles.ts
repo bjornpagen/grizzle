@@ -8,7 +8,12 @@ import type {
 	Grantee,
 	Privilege
 } from "#compiler/sql/ast.ts"
-import { printFunctionSignature, printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import {
+	printFunctionSignature,
+	printObjectName,
+	quoteIdent,
+	storedSettingValue
+} from "#compiler/sql/print.ts"
 
 /** The object families a privilege is held on: a column's is a privilege held on it beyond its table's. */
 export const privilegeFamilyNames = [
@@ -60,11 +65,11 @@ export interface ExpectedPolicy {
 /** What admission requires of one login or role, and of the database's settings, as the target snapshot installs them.
  * Both admissions read these, from the manifest's statements: Db.open's of the opened role and its login, and the drift
  * check after `grizzle migrate` of every login and role the snapshot creates.
- * - Settings, each a map from parameter to value: a login's or role's own exactly (every ALTER ROLE <role> SET the
- *   manifest holds: a login's defaults, a theory role's none), none for it in this database alone (ALTER ROLE ... IN
- *   DATABASE ... SET, which takes precedence over its own at login), and the database's own defaults the
- *   installation's databaseDefault object sets (ALTER DATABASE ... SET) among whatever others the database's owner
- *   sets. grizzle never issues a session-level SET.
+ * - Settings, each a map from parameter to the value PostgreSQL stores (storedSettingValue): a login's or role's own
+ *   exactly (every ALTER ROLE <role> SET the manifest holds: a login's defaults, its search_path pin among them, a
+ *   theory role's none), none for it in this database alone (ALTER ROLE ... IN DATABASE ... SET, which takes
+ *   precedence over its own at login), and the database's own defaults the installation's databaseDefault object sets
+ *   (ALTER DATABASE ... SET) among whatever others the database's owner sets. grizzle never issues a session-level SET.
  * - Privileges, as PostgreSQL itself judges them: what the role may do to each object of the installed schema and of
  *   every role's schema, and to each other schema the snapshot grants on, through its own grants, PUBLIC's and every
  *   role it inherits from (has_*_privilege), is exactly what the manifest grants it, a column-level privilege
@@ -274,7 +279,7 @@ export const roleExpectation = (
 		settings: new Map(
 			statements.flatMap((s) =>
 				s.kind === "alterRole" && s.name === role
-					? [[s.action.parameter, s.action.value] as const]
+					? [[s.action.setting.parameter, storedSettingValue(s.action.setting)] as const]
 					: []
 			)
 		),

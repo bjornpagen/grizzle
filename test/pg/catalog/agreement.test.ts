@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
@@ -8,7 +9,7 @@ import type { TestContext } from "vitest"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
-import * as Result from "#compiler/core/result.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
@@ -55,7 +56,7 @@ const agreementRuns = 12
 type Delivers = "rows" | "maybe none"
 
 /**
- * The compile-target catalog agrees with its compositions on PostgreSQL 19 (R26-R32, R41, R42).
+ * The compile-target catalog agrees with its compositions on PostgreSQL 19 (R26-R31, R41, R42).
  *
  * Each entry's composition is written as an author writes it, checked, and lowered twice: composed (the conservative
  * lowering of the checked DAG) and native (the catalog's rewrite, its targets lowered by native.ts). Over drawn lab
@@ -69,9 +70,8 @@ type Delivers = "rows" | "maybe none"
  * Planted facts hold what a drawn population of small groups cannot: the percentile disagreements the catalog documents
  * (p = 0, which the recognizer refuses because the native form returns the first value where ceil(0) selects no
  * ordinal, and 0.07 · 100 over a group of a hundred, which it refuses because the composition's numeric ceil rounds the
- * product where the native form does not), and R32's exact regression groups, where the native aggregates and the
- * composition's sums are both exact; on near-degenerate groups the two roundings of n·Sxx may straddle zero, and every
- * group still lands in one arm. R24 is the aggregate shapes', held by test/pg/lower-shapes over generated groups.
+ * product where the native form does not). R24 is the aggregate shapes', held by test/pg/lower-shapes over generated
+ * groups.
  *
  * One entry's agreement over drawn lab facts.
  */
@@ -102,13 +102,18 @@ const agree = (
 					suite: `catalog/${label}`,
 					draw: drawn(factsGen),
 					literal: Formatter.format,
-					features: delivers === "rows" ? features<"delivers rows">(["delivers rows"]) : noFeatures,
+					coverage:
+						delivers === "rows"
+							? required<"delivers rows">(["delivers rows"], {
+									cases: agreementRuns,
+									sense: notesOnly
+								})
+							: noCoverage,
 					kept,
 					runs: agreementRuns,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(f, c) =>
@@ -166,37 +171,15 @@ const hundred: Facts = {
 	sittings: Arr.map(indices(100), (k) => [k + 1, 1, k + 1, k + 1] as const)
 }
 
-/** Planted exact regression groups: y = 2x + 1; one point, degenerate; equal x, degenerate; y = -x. */
-const exactPoints: Facts = {
-	...labFacts,
-	points: [
-		[1, 1, 0, 1],
-		[2, 1, 1, 3],
-		[3, 1, 2, 5],
-		[4, 1, 3, 7],
-		[5, 2, 4, 1],
-		[6, 3, 2, 1],
-		[7, 3, 2, 5],
-		[8, 4, -1, 1],
-		[9, 4, 1, -1]
-	]
-}
-
-/** The native targets an entry's rewrite over the lab's facts names: its windows', ordered-set aggregates' and regressions' overloads. */
+/** The native targets an entry's rewrite over the lab's facts names: its windows' and ordered-set aggregates' overloads. */
 const nativeTargets = (desc: QueryDesc): ReadonlyArray<string> => {
 	const r = rewriteCatalog(oracleCase("ops", desc, labFacts).query.dag, labOptions)
 	if (!r.ok) {
 		throw new Error(r.error.message)
 	}
-	return Arr.flatMap(topoOrder(r.value.dag), (n): ReadonlyArray<string> => {
-		if (n.kind === "Window" || n.kind === "OrderedSetAggregate") {
-			return [n.op]
-		}
-		if (n.kind === "Group") {
-			return Arr.flatMap(n.aggs, (a) => (a.fn === "regrSlope" || a.fn === "regrSxx" ? [a.op] : []))
-		}
-		return []
-	})
+	return Arr.flatMap(topoOrder(r.value.dag), (n): ReadonlyArray<string> =>
+		n.kind === "Window" || n.kind === "OrderedSetAggregate" ? [n.op] : []
+	)
 }
 
 /** The five as-of agreements of one comparison mode: bound and attached, ordered and LATERAL, and over a filtered Q. */
@@ -255,8 +238,7 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 						Q.keyedShare(false),
 						Q.discretePercentile([0.5], Q.ordinalStage),
 						Q.continuousPercentile(0.5, "score"),
-						Q.modeOfDays("asc", Q.plainMode),
-						Q.slopeArms(false)
+						Q.modeOfDays("asc", Q.plainMode)
 					],
 					nativeTargets
 				)
@@ -559,7 +541,7 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 					if (spec.kind !== "literal") {
 						throw new Error("a literal fraction")
 					}
-					const literal = ed.expr({ ...spec, value: { kind: "float", value: p } })
+					const literal = ed.expr({ ...spec, value: { kind: "float", value: canonicalZero(p) } })
 					ed.redefine(cell, { ...osa, fractions: [literal] })
 					const built = ed.build()
 					return lowerNative(built, built.roots[0], names)
@@ -607,97 +589,6 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 
 	it.effect("R31: the mode agrees with the count-and-take, ties to the smallest value", (t) =>
 		agree(t, "mode of days", Q.modeOfDays("asc", Q.plainMode), ["R31"], labOptions, "rows")
-	)
-
-	it.effect(
-		"R32: the slope agrees on exact groups, keeps the composition unguarded, and lands every near-degenerate group in one arm",
-		() =>
-			Effect.gen(function* () {
-				yield* agreeOn("slope arms", Q.slopeArms(false), ["R32"], exactPoints)
-				yield* agreeOn("slope cond", Q.slopeCond(), ["R32"], exactPoints)
-				/** An arm the recognizer cannot rewrite still tests the denominator: the composition is kept whole. */
-				const rejoined = Q.slopeArms(true)
-				yield* agreeOn("slope arms, one rejoined", rejoined, [], exactPoints)
-				/**
-				 * The grouped stage itself, delivered alone, on the degenerate groups too: capture refuses a NULL cell,
-				 * so a run is a value in every column of every group's row.
-				 */
-				const stage: Lowering = {
-					name: "the rewritten grouped stage",
-					lower: ({ case: k, names }) =>
-						Result.flatMap(rewriteCatalog(k.query.dag, labOptions), (r) =>
-							lowerNative(
-								r.dag,
-								Option.getOrThrowWith(
-									Arr.findFirst(
-										topoOrder(r.dag),
-										(n) => n.kind === "Group" && Arr.some(n.aggs, (a) => a.fn === "regrSlope")
-									),
-									() => new Error("a grouped stage with REGR_SLOPE")
-								),
-								names
-							)
-						)
-				}
-				const s = yield* Substrate
-				const schema = yield* s.schema({ create: false, label: "catalog" })
-				const groups = new Set(Arr.map(exactPoints.points, ([, grp]) => grp)).size
-				/** A row per group of the grouped stage of `desc`, the degenerate ones included. */
-				const rowPerGroup = (desc: QueryDesc) =>
-					Effect.gen(function* () {
-						const grouped = yield* runLabelledOracle(
-							oracleCase("grouped stage", desc, exactPoints),
-							stage,
-							stage,
-							{
-								...defaultRunOptions,
-								schema: { kind: "named", name: schema }
-							}
-						)
-						assert.equal(
-							rowsOf(grouped.left).length,
-							groups,
-							"a row per group, the degenerate ones included"
-						)
-					})
-				yield* rowPerGroup(Q.slopeArms(false))
-				yield* rowPerGroup(Q.slopeCond())
-				/** Without the zero test the composition raises division_by_zero on a degenerate group, and is kept. */
-				const unguarded = Q.slopeUnguarded()
-				yield* agreeOn("slope unguarded", unguarded, [], {
-					...labFacts,
-					points: [
-						[1, 1, 0, 1],
-						[2, 1, 1, 3]
-					]
-				})
-				/**
-				 * Near-degenerate groups: every group lands in exactly one arm on each side and no slope is NULL
-				 * (capture refuses a NULL cell); the arms may differ where the two roundings of n·Sxx straddle zero.
-				 */
-				const near: Array<readonly [number, number, number, number]> = []
-				for (let g = 0; g < 40; g++) {
-					for (let k = 0; k < 3; k++) {
-						near.push([g * 3 + k + 1, g, 1 + (k === 2 ? g * 2 ** -52 : 0), k + 0.5])
-					}
-				}
-				const side = catalogLowering(labOptions)
-				const run = yield* runLabelledOracle(
-					oracleCase("near-degenerate slopes", Q.slopeArms(false), { ...labFacts, points: near }),
-					conservative,
-					side,
-					{ ...defaultRunOptions, schema: { kind: "named", name: schema } }
-				)
-				assert.deepEqual(appliedRules(side.last()), ["R32"])
-				/** Every group of a side's rows lands in exactly one arm. */
-				const oneArmPerGroup = (ran: Parameters<typeof rowsOf>[0]) => {
-					const landed = Arr.map(rowsOf(ran), (row) => row[0])
-					assert.equal(new Set(landed).size, landed.length, "one arm per group")
-					assert.equal(landed.length, 40, "every group lands in an arm")
-				}
-				oneArmPerGroup(run.left)
-				oneArmPerGroup(run.right)
-			})
 	)
 })
 

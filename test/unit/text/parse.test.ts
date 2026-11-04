@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, codePoint, element, int, map, oneOf, option, string } from "@grizzle/testing/gen"
 import { drawnFeature, lsw, passed, WILD_KINDS, type WildKind } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
@@ -101,16 +102,16 @@ describe("refusals with location and reason", () => {
 							after: source.draw(lowercase(6))
 						})),
 						literal: Formatter.format,
-						features: features<(typeof unsupported)[number]["source"]>(
-							Arr.map(unsupported, (r) => r.source)
+						coverage: required<(typeof unsupported)[number]["source"]>(
+							Arr.map(unsupported, (r) => r.source),
+							{ cases: 600, sense: notesOnly }
 						),
 						kept: [],
-						/** Thirty-three constructs: 600 cases reach each many times over. */
+						/** The rotating stream's sample of thirty-three constructs. */
 						runs: 600,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ refusal, before, after }, c) =>
@@ -156,13 +157,12 @@ describe("refusals with location and reason", () => {
 						suite: "unit/text/parse-7168364",
 						draw: drawn(array(unit, { min: 0, max: 9 })),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 30000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(units) =>
@@ -190,13 +190,15 @@ describe("refusals with location and reason", () => {
 						flags: source.draw(element<RegexFlags>(["u", "su"]))
 					})),
 					literal: Formatter.format,
-					features: features<"a NUL" | "a lone surrogate">(["a NUL", "a lone surrogate"]),
+					coverage: required<"a NUL" | "a lone surrogate">(["a NUL", "a lone surrogate"], {
+						cases: 100,
+						sense: notesOnly
+					}),
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ before, after, planted, flags }, c) =>
@@ -221,13 +223,12 @@ describe("refusals with location and reason", () => {
 						suite: "unit/text/parse-budget",
 						draw: drawn(int(8, 2 * regexMaxNodes)),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(maxNodes) =>
@@ -296,20 +297,22 @@ describe("refusals with location and reason", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						features: features<FlagsFeature>([
-							"admitted flags",
-							"other flags",
-							"a non-string source",
-							"no flags",
-							...Arr.map(WILD_KINDS, (kind): FlagsFeature => `wild ${kind}`)
-						]),
+						coverage: required<FlagsFeature>(
+							[
+								"admitted flags",
+								"other flags",
+								"a non-string source",
+								"no flags",
+								...Arr.map(WILD_KINDS, (kind): FlagsFeature => `wild ${kind}`)
+							],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						/** The replaced flags search's own bound. */
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([sourceDrawn, flagsDrawn], c) =>

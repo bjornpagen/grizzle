@@ -79,6 +79,8 @@ import { type InstallNames, loginIdentity } from "#compiler/physical/ddl/names.t
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { OwnedLogin } from "#compiler/schema/own.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emitCatalog } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 
 /** A claim PostgreSQL refused: its context and field. */
@@ -110,9 +112,15 @@ interface AdmissionInput {
 	readonly claims: ReadonlyArray<ClaimValue>
 }
 
-/** Whether a claim's text is a value of a domain, the domain given as its qualified name. */
+/** Whether a claim's text $1 is a value of a domain, the domain given as its quoted qualified name $2. */
 const claimValidQuery: CatalogQueryOf<boolean> = {
-	sql: "SELECT pg_catalog.pg_input_is_valid($1::text, $2::text)::text AS c0",
+	sql: emitCatalog(
+		C.query(
+			[C.asText(C.call("pg_input_is_valid", [C.param(1, "text"), C.param(2, "text")]))],
+			[],
+			undefined
+		)
+	),
 	what: "whether a claim is a value of its domain",
 	row: ([valid]) => (valid === "true" ? true : valid === "false" ? false : undefined)
 }

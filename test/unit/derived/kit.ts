@@ -34,7 +34,7 @@ const Kit = schema("Kit", { Kind, Item }, [])
 
 /** SUM over every numeric overload, grouped by a closed id. */
 const sums = query(Kit).rule((r) => {
-	const { id, kind, price, qty, small, big, amount, ratio, weight, fee } = v(Item)
+	const { id, kind, price, qty, small, big, amount, ratio, weight, fee } = v(Item, "item")
 	return r.match(Item, { id, kind, price, qty, small, big, amount, ratio, weight, fee }).find({
 		kind,
 		n: r.count(),
@@ -51,7 +51,7 @@ const sums = query(Kit).rule((r) => {
 
 /** AVG over every overload it admits. */
 const means = query(Kit).rule((r) => {
-	const { id, kind, price, qty, small, big, amount, ratio, weight } = v(Item)
+	const { id, kind, price, qty, small, big, amount, ratio, weight } = v(Item, "item")
 	return r.match(Item, { id, kind, price, qty, small, big, amount, ratio, weight }).find({
 		kind,
 		meanQty: r.mean(qty),
@@ -66,7 +66,7 @@ const means = query(Kit).rule((r) => {
 
 /** MIN and MAX return an input unchanged: a contract keeps its domain, a pattern its domain, a typmod its typmod. */
 const extremes = query(Kit).rule((r) => {
-	const { id, kind, price, amount, code, label } = v(Item)
+	const { id, kind, price, amount, code, label } = v(Item, "item")
 	return r.match(Item, { id, kind, price, amount, code, label }).find({
 		kind,
 		minPrice: r.min(price),
@@ -80,7 +80,7 @@ const extremes = query(Kit).rule((r) => {
 
 /** A plain projection keeps every descriptor; the key id is retained, and a serial reads as its plain width. */
 const facts = query(Kit).rule((r) => {
-	const { id, seq, kind, price, code, label, flag, period } = v(Item)
+	const { id, seq, kind, price, code, label, flag, period } = v(Item, "item")
 	return r
 		.match(Item, { id, seq, kind, price, code, label, flag, period })
 		.find({ id, seq, kind, price, code, label, flag, period })
@@ -89,7 +89,7 @@ const facts = query(Kit).rule((r) => {
 /** Computed values: a literal of a declared type, and a conditional over two patterns, which keeps neither
  * (the result is the canonical wildcard). */
 const computed = query(Kit).rule((r) => {
-	const { id, flag, code, label } = v(Item)
+	const { id, flag, code, label } = v(Item, "item")
 	return r.match(Item, { id, flag, code, label }).find({
 		id,
 		pick: Compute.cond(flag, code, label),

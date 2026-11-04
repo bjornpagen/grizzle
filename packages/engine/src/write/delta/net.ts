@@ -191,7 +191,7 @@ export const outcomeCounts = (
 		...netStrata(relationChanges(strata, relation)).counts
 	}))
 
-/** The identity function of a heading's facts as a write statement's rows convert them: each field's identity text in
+/** The identity function of a heading's facts as a write statement's rows convert them: each field's canonical text in
  * field-name order, written as factIdentity writes it (`identity.ts`). The rows are PostgreSQL's output,
  * converted by the fields' own codecs, so nothing is admitted again. */
 export const relationIdentity = (heading: Heading): ((fact: Fact) => string) => {
@@ -208,7 +208,7 @@ export const relationIdentity = (heading: Heading): ((fact: Fact) => string) => 
 	return (fact) => {
 		let identity = ""
 		for (const field of fields) {
-			identity += `${field.prefix}${JSON.stringify(field.codec.identity(fact[field.name]))}]`
+			identity += `${field.prefix}${JSON.stringify(field.codec.text(fact[field.name]))}]`
 		}
 		return `${identity}]`
 	}

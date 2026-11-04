@@ -25,7 +25,9 @@ import { toResult } from "#adapter/engine.ts"
 import type { CatalogRowRefused } from "#adapter/errors/failures.ts"
 import type { BatchOutcome, BatchStatement, Flight, Transaction } from "#adapter/wire/batch.ts"
 import { type CatalogQuery, catalogRow, catalogRows, outcomeRows } from "#adapter/wire/statement.ts"
+import { nominal } from "#compiler/core/brand.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { type ManifestStatement, manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 import {
@@ -36,8 +38,9 @@ import {
 } from "#compiler/deploy/admission/roles.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import type { EmittedText, SqlStatement, TypeSchema } from "#compiler/sql/ast.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emit, emitCatalog, unmetered } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
@@ -75,8 +78,11 @@ import {
  * occurrence of the scratch name is replaced by the installed name as PostgreSQL prints it (quote_ident), and each
  * occurrence quoted, as grizzle's printer writes every identifier into a function body, by the quoted installed name.
  * Nothing of the scratch schema ever commits, and nothing in it refers to the installed schema, so it takes no lock on
- * an installed object. The migration identity may create a schema, since its first migration creates the installed
- * one.
+ * an installed object: the replay's every name is absolute, a relation a regclass value names included (sql/ast.ts
+ * RegclassRef), and the move renames each. The migration identity may create a schema, since its first migration
+ * creates the installed one. The transaction reads under the closed search path (sql/ast.ts closedSearchPath), so a
+ * deparse spells pg_catalog's names bare and every other schema's qualified, each spelling an injective function of the
+ * object it names.
  *
  * Beside the objects: the database holds the defaults the snapshot sets, the owner's default privileges grant no one
  * but the owner anything beyond PostgreSQL's own defaults the snapshot's revokes leave, everywhere and in each schema
@@ -89,8 +95,8 @@ import {
  * (ledgerMismatches). A grant to a role the snapshot does not create is not drift, unless it makes that role a member
  * of a login or theory role beyond what the snapshot grants: then something besides the login acts through it.
  *
- * Every value read is text and never NULL: a description's parts are joined by concat_ws, which leaves out a part the
- * object lacks and returns text in any case.
+ * Every read is a catalog-read AST the engine prints (sql/catalog.ts). Every value read is text and never NULL: a
+ * description's parts are joined by concat_ws, which leaves out a part the object lacks and returns text in any case.
  *
  * A fact the snapshot requires and the database lacks (`missing`), or one the database holds and the snapshot does
  * not (`unexpected`).
@@ -104,32 +110,87 @@ export type DriftMismatch = typeof DriftMismatch.Type
 /** The drift check's transaction: one snapshot for every read, the scratch installation beside them, rolled back. */
 export const driftTransaction: Transaction = { access: "readWrite", end: "ROLLBACK" }
 
-/** The scratch schema a schema's expected objects are deparsed in. */
-const scratchSchema = (schema: string): string =>
-	`grizzle_admission_${pipe(sha256Hex(schema), Str.slice(0, 24))}`
+/** The scratch schema a schema's expected objects are deparsed in: the schema of the replayed types, too. */
+const scratchSchema = (schema: string): TypeSchema =>
+	scratchTypes(`grizzle_admission_${pipe(sha256Hex(schema), Str.slice(0, 24))}`)
 
-const notExtensionMember = (catalog: string, oid: string) =>
-	`NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend AS x WHERE x.classid = '${catalog}'::regclass AND x.objid = ${oid} AND x.deptype = 'e'::"char")`
+const scratchTypes = nominal<string, TypeSchema>()
 
-const owner = (oid: string) => `'owner '::text || pg_catalog.pg_get_userbyid(${oid})::text`
+/** Whether the object `oid` of the catalog `catalog` is no extension's member. */
+const notExtensionMember = (catalog: C.CatalogRelation, oid: C.CatalogExpr): C.CatalogExpr => {
+	const x = C.from("pg_depend", "x")
+	return C.notExists(
+		C.anyRow(
+			[x.item],
+			C.and([
+				C.eq(x.col("classid"), C.catalogRegclass(catalog)),
+				C.eq(x.col("objid"), oid),
+				C.eq(x.col("deptype"), C.letter("e"))
+			])
+		)
+	)
+}
+
+/** `text` and `value`, joined: NULL where the value is, so concat_ws leaves the part out. */
+const labelled = (text: string, value: C.CatalogExpr): C.CatalogExpr =>
+	C.concat([C.text(text), value])
+
+const owner = (oid: C.CatalogExpr): C.CatalogExpr =>
+	labelled("owner ", C.asText(C.call("pg_get_userbyid", [oid])))
+
+/** A name as PostgreSQL quotes it. */
+const quoted = (name: C.CatalogExpr): C.CatalogExpr => C.call("quote_ident", [C.asText(name)])
 
 /** A collation as `<schema>.<name>`; no row, and so no part of the description, for none. */
-const collationOf = (oid: string) =>
-	"(SELECT 'collation '::text || pg_catalog.quote_ident(cn.nspname::text) || '.'::text || pg_catalog.quote_ident(co.collname::text) " +
-	`FROM pg_catalog.pg_collation AS co JOIN pg_catalog.pg_namespace AS cn ON cn.oid = co.collnamespace WHERE co.oid = ${oid})`
+const collationOf = (oid: C.CatalogExpr): C.CatalogExpr => {
+	const co = C.from("pg_collation", "co")
+	const cn = C.from("pg_namespace", "cn")
+	return C.scalar(
+		C.query(
+			[
+				C.concat([
+					C.text("collation "),
+					quoted(cn.col("nspname")),
+					C.text("."),
+					quoted(co.col("collname"))
+				])
+			],
+			[C.join(co.item, cn.item, C.eq(cn.col("oid"), co.col("collnamespace")))],
+			C.eq(co.col("oid"), oid)
+		)
+	)
+}
 
 /** The parts of a description joined by `; `; concat_ws leaves out a part that is absent. */
-const parts = (...items: ReadonlyArray<string>) =>
-	`pg_catalog.concat_ws('; '::text, ${Arr.join(items, ", ")})`
+const parts = (items: NonEmptyReadonlyArray<C.CatalogExpr>): C.CatalogExpr =>
+	C.call("concat_ws", [C.text("; "), ...items])
 
-/** A key's names after its kind: the schema the keys spell ($2) and each name, quoted as PostgreSQL quotes it. */
-const keyOf = (kind: string, ...names: ReadonlyArray<string>) =>
-	`'${kind} '::text || pg_catalog.quote_ident($2::text) || ${Arr.join(
-		Arr.map(names, (n) => `'.'::text || pg_catalog.quote_ident(${n}::text)`),
-		" || "
-	)}`
+/** A key's parts: its kind, then the schema the keys spell ($2) and each name, quoted as PostgreSQL quotes it. */
+const keyParts = (
+	kind: string,
+	names: NonEmptyReadonlyArray<C.CatalogExpr>
+): NonEmptyReadonlyArray<C.CatalogExpr> => [
+	C.text(`${kind} `),
+	C.call("quote_ident", [C.param(2, "text")]),
+	...Arr.flatMap(names, (n) => [C.text("."), quoted(n)])
+]
 
-const inSchema = "n.nspname = $1::text"
+const keyOf = (kind: string, names: NonEmptyReadonlyArray<C.CatalogExpr>): C.CatalogExpr =>
+	C.concat(keyParts(kind, names))
+
+/** A CASE of WHENs alone: NULL, and so no part of the description, where none holds. */
+const when = (condition: C.CatalogExpr, then: C.CatalogExpr): C.CatalogExpr =>
+	C.caseWhen([{ when: condition, result: then }], undefined)
+
+/** The schema read is $1. */
+const inSchema = (n: C.CatalogSource): C.CatalogExpr => C.eq(n.col("nspname"), C.param(1, "text"))
+
+/** `from` joined to its namespace `n` by `namespace`. */
+const inNamespace = (
+	from: C.CatalogFrom,
+	n: C.CatalogSource,
+	namespace: C.CatalogExpr
+): C.CatalogFrom => C.join(from, n.item, C.eq(n.col("oid"), namespace))
 
 /**
  * Each object of a schema with its description, two text columns: $1 the schema read, $2 the schema the keys spell.
@@ -141,111 +202,454 @@ const inSchema = "n.nspname = $1::text"
  * A statistics object's columns by name: PostgreSQL keeps them in column order (stxkeys), which differs between a
  * migrated table, whose retyped column was added last, and a fresh one.
  */
-const descriptionSql = Arr.join(
-	[
-		`SELECT 'schema '::text || pg_catalog.quote_ident($2::text), ${parts(owner("n.nspowner"))} ` +
-			`FROM pg_catalog.pg_namespace AS n WHERE ${inSchema}`,
-		`SELECT ${keyOf("relation", "c.relname")}, ${parts(
-			"'kind '::text || c.relkind::text",
-			owner("c.relowner"),
-			"CASE c.relpersistence WHEN 'u'::\"char\" THEN 'unlogged'::text WHEN 't'::\"char\" THEN 'temporary'::text END",
-			"'options '::text || c.reloptions::text",
-			"CASE WHEN c.relrowsecurity THEN 'row security'::text END",
-			"CASE WHEN c.relforcerowsecurity THEN 'forced row security'::text END",
-			"CASE WHEN c.relkind IN ('m'::\"char\", 'v'::\"char\") THEN 'as '::text || pg_catalog.pg_get_viewdef(c.oid, false) " +
-				"WHEN c.relkind IN ('i'::\"char\", 'I'::\"char\") THEN pg_catalog.pg_get_indexdef(c.oid) END",
-			"(SELECT 'not valid'::text FROM pg_catalog.pg_index AS i WHERE i.indexrelid = c.oid " +
-				"AND NOT (i.indisvalid AND i.indisready AND i.indislive))",
-			"(SELECT 'as '::text || pg_catalog.format_type(q.seqtypid, -1) || ' increment '::text || q.seqincrement::text " +
-				"|| ' minimum '::text || q.seqmin::text || ' maximum '::text || q.seqmax::text || ' cache '::text " +
-				"|| q.seqcache::text || CASE WHEN q.seqcycle THEN ' cycle'::text ELSE ''::text END " +
-				"FROM pg_catalog.pg_sequence AS q WHERE q.seqrelid = c.oid)",
-			"(SELECT 'owned by '::text || pg_catalog.quote_ident(o.relname::text) || '.'::text || pg_catalog.quote_ident(a.attname::text) " +
-				"FROM pg_catalog.pg_depend AS d JOIN pg_catalog.pg_class AS o ON o.oid = d.refobjid " +
-				"JOIN pg_catalog.pg_attribute AS a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid " +
-				"WHERE c.relkind = 'S'::\"char\" AND d.classid = 'pg_catalog.pg_class'::regclass AND d.objid = c.oid " +
-				"AND d.refclassid = 'pg_catalog.pg_class'::regclass AND d.deptype IN ('a'::\"char\", 'i'::\"char\") " +
-				"ORDER BY o.relname, a.attname LIMIT 1)"
-		)} FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace ` +
-			`WHERE ${inSchema} AND c.relkind IN ('r'::"char", 'p'::"char", 'm'::"char", 'v'::"char", 'S'::"char", 'f'::"char", 'c'::"char", 'i'::"char", 'I'::"char") ` +
-			`AND ${notExtensionMember("pg_catalog.pg_class", "c.oid")}`,
-		`SELECT ${keyOf("column", "c.relname", "a.attname")}, ${parts(
-			"pg_catalog.format_type(a.atttypid, a.atttypmod)",
-			collationOf("a.attcollation"),
-			"CASE WHEN a.attnotnull THEN 'not null'::text END",
-			"CASE a.attidentity WHEN 'a'::\"char\" THEN 'generated always as identity'::text " +
-				"WHEN 'd'::\"char\" THEN 'generated by default as identity'::text END",
-			"(SELECT CASE a.attgenerated WHEN 's'::\"char\" THEN 'generated stored as '::text " +
-				"WHEN 'v'::\"char\" THEN 'generated virtual as '::text ELSE 'default '::text END " +
-				"|| pg_catalog.pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attrdef AS d " +
-				"WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum)"
-		)} FROM pg_catalog.pg_attribute AS a JOIN pg_catalog.pg_class AS c ON c.oid = a.attrelid ` +
-			`JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace ` +
-			`WHERE ${inSchema} AND c.relkind IN ('r'::"char", 'p'::"char", 'f'::"char") AND a.attnum > 0::int2 ` +
-			`AND NOT a.attisdropped AND ${notExtensionMember("pg_catalog.pg_class", "c.oid")}`,
-		`SELECT ${keyOf("constraint", "c.relname", "k.conname")}, pg_catalog.pg_get_constraintdef(k.oid) ` +
-			"FROM pg_catalog.pg_constraint AS k JOIN pg_catalog.pg_class AS c ON c.oid = k.conrelid " +
-			"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
-			`WHERE ${inSchema} AND k.contype NOT IN ('n'::"char", 't'::"char") ` +
-			`AND ${notExtensionMember("pg_catalog.pg_class", "c.oid")}`,
-		`SELECT ${keyOf("domain constraint", "t.typname", "k.conname")}, pg_catalog.pg_get_constraintdef(k.oid) ` +
-			"FROM pg_catalog.pg_constraint AS k JOIN pg_catalog.pg_type AS t ON t.oid = k.contypid " +
-			"JOIN pg_catalog.pg_namespace AS n ON n.oid = t.typnamespace " +
-			`WHERE ${inSchema} AND ${notExtensionMember("pg_catalog.pg_type", "t.oid")}`,
-		`SELECT ${keyOf("type", "t.typname")}, ${parts(
-			"'kind '::text || t.typtype::text",
-			owner("t.typowner"),
-			"CASE WHEN t.typtype = 'd'::\"char\" THEN 'over '::text || pg_catalog.format_type(t.typbasetype, t.typtypmod) END",
-			collationOf("t.typcollation"),
-			"CASE WHEN t.typnotnull THEN 'not null'::text END",
-			"'default '::text || pg_catalog.pg_get_expr(t.typdefaultbin, 0::oid)",
-			"(SELECT 'labels '::text || pg_catalog.array_agg(e.enumlabel ORDER BY e.enumsortorder)::text " +
-				"FROM pg_catalog.pg_enum AS e WHERE e.enumtypid = t.oid HAVING pg_catalog.count(*) > 0)"
-		)} FROM pg_catalog.pg_type AS t JOIN pg_catalog.pg_namespace AS n ON n.oid = t.typnamespace ` +
-			`WHERE ${inSchema} ` +
-			`AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class AS r WHERE r.oid = t.typrelid AND r.relkind <> 'c'::"char") ` +
-			`AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type AS e WHERE e.typarray = t.oid) ` +
-			`AND ${notExtensionMember("pg_catalog.pg_type", "t.oid")}`,
-		`SELECT ${keyOf("function", "p.proname")} || '('::text || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')'::text, ${parts(
-			owner("p.proowner"),
-			"CASE WHEN p.prokind IN ('f'::\"char\", 'p'::\"char\") THEN pg_catalog.pg_get_functiondef(p.oid) " +
-				"ELSE 'kind '::text || p.prokind::text END"
-		)} FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace ` +
-			`WHERE ${inSchema} AND ${notExtensionMember("pg_catalog.pg_proc", "p.oid")}`,
-		`SELECT ${keyOf("trigger", "c.relname", "g.tgname")}, ${parts(
-			"pg_catalog.pg_get_triggerdef(g.oid, false)",
-			"CASE WHEN g.tgenabled <> 'O'::\"char\" THEN 'enabled '::text || g.tgenabled::text END"
-		)} FROM pg_catalog.pg_trigger AS g JOIN pg_catalog.pg_class AS c ON c.oid = g.tgrelid ` +
-			`JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace ` +
-			`WHERE ${inSchema} AND NOT g.tgisinternal`,
-		`SELECT ${keyOf("statistics", "x.stxname")}, ${parts(
-			owner("x.stxowner"),
-			"'kinds '::text || x.stxkind::text",
-			"(SELECT 'on '::text || pg_catalog.string_agg(pg_catalog.quote_ident(a.attname::text), ', '::text ORDER BY a.attname::text COLLATE \"C\") " +
-				"FROM pg_catalog.unnest(x.stxkeys) AS u(n) JOIN pg_catalog.pg_attribute AS a ON a.attrelid = x.stxrelid AND a.attnum = u.n)",
-			"'expressions '::text || pg_catalog.pg_get_statisticsobjdef_expressions(x.oid)::text",
-			"(SELECT 'from '::text || pg_catalog.quote_ident(r.relname::text) FROM pg_catalog.pg_class AS r WHERE r.oid = x.stxrelid)"
-		)} FROM pg_catalog.pg_statistic_ext AS x JOIN pg_catalog.pg_namespace AS n ON n.oid = x.stxnamespace ` +
-			`WHERE ${inSchema}`,
-		`SELECT ${keyOf("policy", "c.relname", "p.polname")}, ${parts(
-			"'command '::text || p.polcmd::text",
-			"CASE WHEN p.polpermissive THEN 'permissive'::text ELSE 'restrictive'::text END",
-			"'using '::text || pg_catalog.pg_get_expr(p.polqual, p.polrelid)",
-			"'check '::text || pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid)",
-			"(SELECT 'to '::text || pg_catalog.string_agg(pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(o.role)::text), ', '::text " +
-				'ORDER BY pg_catalog.pg_get_userbyid(o.role)::text COLLATE "C") FROM pg_catalog.unnest(p.polroles) AS o(role))'
-		)} FROM pg_catalog.pg_policy AS p JOIN pg_catalog.pg_class AS c ON c.oid = p.polrelid ` +
-			`JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE ${inSchema}`,
-		`SELECT ${keyOf("rule", "c.relname", "r.rulename")}, pg_catalog.pg_get_ruledef(r.oid, false) ` +
-			"FROM pg_catalog.pg_rewrite AS r JOIN pg_catalog.pg_class AS c ON c.oid = r.ev_class " +
-			"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
-			`WHERE ${inSchema} AND r.rulename <> '_RETURN'::name AND ${notExtensionMember("pg_catalog.pg_class", "c.oid")}`
-	],
-	" UNION ALL "
-)
+const descriptionSelect = (): C.CatalogSelect => {
+	const n = C.from("pg_namespace", "n")
+	const c = C.from("pg_class", "c")
+	const a = C.from("pg_attribute", "a")
+	const k = C.from("pg_constraint", "k")
+	const t = C.from("pg_type", "t")
+	const p = C.from("pg_proc", "p")
+	const g = C.from("pg_trigger", "g")
+	const x = C.from("pg_statistic_ext", "x")
+	const policy = C.from("pg_policy", "p")
+	const rule = C.from("pg_rewrite", "r")
+	const relationKinds = C.letters(["r", "p", "m", "v", "S", "f", "c", "i", "I"])
+	const notValid = (): C.CatalogExpr => {
+		const i = C.from("pg_index", "i")
+		return C.scalar(
+			C.query(
+				[C.text("not valid")],
+				[i.item],
+				C.and([
+					C.eq(i.col("indexrelid"), c.col("oid")),
+					C.not(C.and([i.col("indisvalid"), i.col("indisready"), i.col("indislive")]))
+				])
+			)
+		)
+	}
+	const sequence = (): C.CatalogExpr => {
+		const q = C.from("pg_sequence", "q")
+		return C.scalar(
+			C.query(
+				[
+					C.concat([
+						C.text("as "),
+						C.call("format_type", [q.col("seqtypid"), C.literal(-1n, "integer")]),
+						C.text(" increment "),
+						C.asText(q.col("seqincrement")),
+						C.text(" minimum "),
+						C.asText(q.col("seqmin")),
+						C.text(" maximum "),
+						C.asText(q.col("seqmax")),
+						C.text(" cache "),
+						C.asText(q.col("seqcache")),
+						C.caseWhen([{ when: q.col("seqcycle"), result: C.text(" cycle") }], C.text(""))
+					])
+				],
+				[q.item],
+				C.eq(q.col("seqrelid"), c.col("oid"))
+			)
+		)
+	}
+	const ownedBy = (): C.CatalogExpr => {
+		const d = C.from("pg_depend", "d")
+		const o = C.from("pg_class", "o")
+		const oa = C.from("pg_attribute", "a")
+		return C.scalar(
+			C.select({
+				...C.core(
+					[
+						C.concat([
+							C.text("owned by "),
+							quoted(o.col("relname")),
+							C.text("."),
+							quoted(oa.col("attname"))
+						])
+					],
+					[
+						C.join(
+							C.join(d.item, o.item, C.eq(o.col("oid"), d.col("refobjid"))),
+							oa.item,
+							C.and([
+								C.eq(oa.col("attrelid"), d.col("refobjid")),
+								C.eq(oa.col("attnum"), d.col("refobjsubid"))
+							])
+						)
+					],
+					C.and([
+						C.eq(c.col("relkind"), C.letter("S")),
+						C.eq(d.col("classid"), C.catalogRegclass("pg_class")),
+						C.eq(d.col("objid"), c.col("oid")),
+						C.eq(d.col("refclassid"), C.catalogRegclass("pg_class")),
+						C.inList(d.col("deptype"), C.letters(["a", "i"]))
+					])
+				),
+				orderBy: [o.col("relname"), oa.col("attname")],
+				limit: 1
+			})
+		)
+	}
+	const columnDefault = (): C.CatalogExpr => {
+		const d = C.from("pg_attrdef", "d")
+		return C.scalar(
+			C.query(
+				[
+					C.concat([
+						C.caseOf(
+							a.col("attgenerated"),
+							[
+								{ when: C.letter("s"), result: C.text("generated stored as ") },
+								{ when: C.letter("v"), result: C.text("generated virtual as ") }
+							],
+							C.text("default ")
+						),
+						C.call("pg_get_expr", [d.col("adbin"), d.col("adrelid")])
+					])
+				],
+				[d.item],
+				C.and([C.eq(d.col("adrelid"), a.col("attrelid")), C.eq(d.col("adnum"), a.col("attnum"))])
+			)
+		)
+	}
+	const labels = (): C.CatalogExpr => {
+		const e = C.from("pg_enum", "e")
+		return C.scalar(
+			C.select({
+				...C.core(
+					[
+						labelled(
+							"labels ",
+							C.asText(C.aggregate("array_agg", [e.col("enumlabel")], [e.col("enumsortorder")]))
+						)
+					],
+					[e.item],
+					C.eq(e.col("enumtypid"), t.col("oid"))
+				),
+				having: C.gt(C.countStar, C.literal(0n, "integer"))
+			})
+		)
+	}
+	const statisticsColumns = (): C.CatalogExpr => {
+		const u = C.fromFunction(C.call("unnest", [x.col("stxkeys")]), "u", ["n"], false)
+		const sa = C.from("pg_attribute", "a")
+		return C.scalar(
+			C.query(
+				[
+					labelled(
+						"on ",
+						C.aggregate(
+							"string_agg",
+							[quoted(sa.col("attname")), C.text(", ")],
+							[C.collateC(C.asText(sa.col("attname")))]
+						)
+					)
+				],
+				[
+					C.join(
+						u.item,
+						sa.item,
+						C.and([C.eq(sa.col("attrelid"), x.col("stxrelid")), C.eq(sa.col("attnum"), u.col("n"))])
+					)
+				],
+				undefined
+			)
+		)
+	}
+	const statisticsTable = (): C.CatalogExpr => {
+		const r = C.from("pg_class", "r")
+		return C.scalar(
+			C.query(
+				[labelled("from ", quoted(r.col("relname")))],
+				[r.item],
+				C.eq(r.col("oid"), x.col("stxrelid"))
+			)
+		)
+	}
+	const policyRoles = (): C.CatalogExpr => {
+		const o = C.fromFunction(C.call("unnest", [policy.col("polroles")]), "o", ["role"], false)
+		const roleName = C.asText(C.call("pg_get_userbyid", [o.col("role")]))
+		return C.scalar(
+			C.query(
+				[
+					labelled(
+						"to ",
+						C.aggregate(
+							"string_agg",
+							[C.call("quote_ident", [roleName]), C.text(", ")],
+							[C.collateC(roleName)]
+						)
+					)
+				],
+				[o.item],
+				undefined
+			)
+		)
+	}
+	const notComposite = (): C.CatalogExpr => {
+		const r = C.from("pg_class", "r")
+		return C.notExists(
+			C.anyRow(
+				[r.item],
+				C.and([C.eq(r.col("oid"), t.col("typrelid")), C.ne(r.col("relkind"), C.letter("c"))])
+			)
+		)
+	}
+	const notArray = (): C.CatalogExpr => {
+		const e = C.from("pg_type", "e")
+		return C.notExists(C.anyRow([e.item], C.eq(e.col("typarray"), t.col("oid"))))
+	}
+	const relations = inNamespace(c.item, n, c.col("relnamespace"))
+	return C.unionAll([
+		C.core(
+			[
+				C.concat([C.text("schema "), C.call("quote_ident", [C.param(2, "text")])]),
+				parts([owner(n.col("nspowner"))])
+			],
+			[n.item],
+			inSchema(n)
+		),
+		C.core(
+			[
+				keyOf("relation", [c.col("relname")]),
+				parts([
+					labelled("kind ", C.asText(c.col("relkind"))),
+					owner(c.col("relowner")),
+					C.caseOf(
+						c.col("relpersistence"),
+						[
+							{ when: C.letter("u"), result: C.text("unlogged") },
+							{ when: C.letter("t"), result: C.text("temporary") }
+						],
+						undefined
+					),
+					labelled("options ", C.asText(c.col("reloptions"))),
+					when(c.col("relrowsecurity"), C.text("row security")),
+					when(c.col("relforcerowsecurity"), C.text("forced row security")),
+					C.caseWhen(
+						[
+							{
+								when: C.inList(c.col("relkind"), C.letters(["m", "v"])),
+								result: labelled("as ", C.call("pg_get_viewdef", [c.col("oid"), C.bool(false)]))
+							},
+							{
+								when: C.inList(c.col("relkind"), C.letters(["i", "I"])),
+								result: C.call("pg_get_indexdef", [c.col("oid")])
+							}
+						],
+						undefined
+					),
+					notValid(),
+					sequence(),
+					ownedBy()
+				])
+			],
+			[relations],
+			C.and([
+				inSchema(n),
+				C.inList(c.col("relkind"), relationKinds),
+				notExtensionMember("pg_class", c.col("oid"))
+			])
+		),
+		C.core(
+			[
+				keyOf("column", [c.col("relname"), a.col("attname")]),
+				parts([
+					C.call("format_type", [a.col("atttypid"), a.col("atttypmod")]),
+					collationOf(a.col("attcollation")),
+					when(a.col("attnotnull"), C.text("not null")),
+					C.caseOf(
+						a.col("attidentity"),
+						[
+							{ when: C.letter("a"), result: C.text("generated always as identity") },
+							{ when: C.letter("d"), result: C.text("generated by default as identity") }
+						],
+						undefined
+					),
+					columnDefault()
+				])
+			],
+			[
+				inNamespace(
+					C.join(a.item, c.item, C.eq(c.col("oid"), a.col("attrelid"))),
+					n,
+					c.col("relnamespace")
+				)
+			],
+			C.and([
+				inSchema(n),
+				C.inList(c.col("relkind"), C.letters(["r", "p", "f"])),
+				C.gt(a.col("attnum"), C.literal(0n, "smallint")),
+				C.not(a.col("attisdropped")),
+				notExtensionMember("pg_class", c.col("oid"))
+			])
+		),
+		C.core(
+			[
+				keyOf("constraint", [c.col("relname"), k.col("conname")]),
+				C.call("pg_get_constraintdef", [k.col("oid")])
+			],
+			[
+				inNamespace(
+					C.join(k.item, c.item, C.eq(c.col("oid"), k.col("conrelid"))),
+					n,
+					c.col("relnamespace")
+				)
+			],
+			C.and([
+				inSchema(n),
+				C.notInList(k.col("contype"), C.letters(["n", "t"])),
+				notExtensionMember("pg_class", c.col("oid"))
+			])
+		),
+		C.core(
+			[
+				keyOf("domain constraint", [t.col("typname"), k.col("conname")]),
+				C.call("pg_get_constraintdef", [k.col("oid")])
+			],
+			[
+				inNamespace(
+					C.join(k.item, t.item, C.eq(t.col("oid"), k.col("contypid"))),
+					n,
+					t.col("typnamespace")
+				)
+			],
+			C.and([inSchema(n), notExtensionMember("pg_type", t.col("oid"))])
+		),
+		C.core(
+			[
+				keyOf("type", [t.col("typname")]),
+				parts([
+					labelled("kind ", C.asText(t.col("typtype"))),
+					owner(t.col("typowner")),
+					when(
+						C.eq(t.col("typtype"), C.letter("d")),
+						labelled("over ", C.call("format_type", [t.col("typbasetype"), t.col("typtypmod")]))
+					),
+					collationOf(t.col("typcollation")),
+					when(t.col("typnotnull"), C.text("not null")),
+					labelled(
+						"default ",
+						C.call("pg_get_expr", [t.col("typdefaultbin"), C.literal(0n, "oid")])
+					),
+					labels()
+				])
+			],
+			[inNamespace(t.item, n, t.col("typnamespace"))],
+			C.and([inSchema(n), notComposite(), notArray(), notExtensionMember("pg_type", t.col("oid"))])
+		),
+		C.core(
+			[
+				C.concat([
+					...keyParts("function", [p.col("proname")]),
+					C.text("("),
+					C.call("pg_get_function_identity_arguments", [p.col("oid")]),
+					C.text(")")
+				]),
+				parts([
+					owner(p.col("proowner")),
+					C.caseWhen(
+						[
+							{
+								when: C.inList(p.col("prokind"), C.letters(["f", "p"])),
+								result: C.call("pg_get_functiondef", [p.col("oid")])
+							}
+						],
+						labelled("kind ", C.asText(p.col("prokind")))
+					)
+				])
+			],
+			[inNamespace(p.item, n, p.col("pronamespace"))],
+			C.and([inSchema(n), notExtensionMember("pg_proc", p.col("oid"))])
+		),
+		C.core(
+			[
+				keyOf("trigger", [c.col("relname"), g.col("tgname")]),
+				parts([
+					C.call("pg_get_triggerdef", [g.col("oid"), C.bool(false)]),
+					when(
+						C.ne(g.col("tgenabled"), C.letter("O")),
+						labelled("enabled ", C.asText(g.col("tgenabled")))
+					)
+				])
+			],
+			[
+				inNamespace(
+					C.join(g.item, c.item, C.eq(c.col("oid"), g.col("tgrelid"))),
+					n,
+					c.col("relnamespace")
+				)
+			],
+			C.and([inSchema(n), C.not(g.col("tgisinternal"))])
+		),
+		C.core(
+			[
+				keyOf("statistics", [x.col("stxname")]),
+				parts([
+					owner(x.col("stxowner")),
+					labelled("kinds ", C.asText(x.col("stxkind"))),
+					statisticsColumns(),
+					labelled(
+						"expressions ",
+						C.asText(C.call("pg_get_statisticsobjdef_expressions", [x.col("oid")]))
+					),
+					statisticsTable()
+				])
+			],
+			[inNamespace(x.item, n, x.col("stxnamespace"))],
+			inSchema(n)
+		),
+		C.core(
+			[
+				keyOf("policy", [c.col("relname"), policy.col("polname")]),
+				parts([
+					labelled("command ", C.asText(policy.col("polcmd"))),
+					C.caseWhen(
+						[{ when: policy.col("polpermissive"), result: C.text("permissive") }],
+						C.text("restrictive")
+					),
+					labelled(
+						"using ",
+						C.call("pg_get_expr", [policy.col("polqual"), policy.col("polrelid")])
+					),
+					labelled(
+						"check ",
+						C.call("pg_get_expr", [policy.col("polwithcheck"), policy.col("polrelid")])
+					),
+					policyRoles()
+				])
+			],
+			[
+				inNamespace(
+					C.join(policy.item, c.item, C.eq(c.col("oid"), policy.col("polrelid"))),
+					n,
+					c.col("relnamespace")
+				)
+			],
+			inSchema(n)
+		),
+		C.core(
+			[
+				keyOf("rule", [c.col("relname"), rule.col("rulename")]),
+				C.call("pg_get_ruledef", [rule.col("oid"), C.bool(false)])
+			],
+			[
+				inNamespace(
+					C.join(rule.item, c.item, C.eq(c.col("oid"), rule.col("ev_class"))),
+					n,
+					c.col("relnamespace")
+				)
+			],
+			C.and([
+				inSchema(n),
+				C.ne(rule.col("rulename"), C.literal("_RETURN", "name")),
+				notExtensionMember("pg_class", c.col("oid"))
+			])
+		)
+	])
+}
 
 const descriptions: CatalogQuery<readonly [string, string]> = {
-	sql: descriptionSql,
+	sql: emitCatalog(descriptionSelect()),
 	what: "an object's key and its description",
 	row: ([key, description]) =>
 		key === undefined || description === undefined ? undefined : [key, description]
@@ -253,31 +657,39 @@ const descriptions: CatalogQuery<readonly [string, string]> = {
 
 /** A name as PostgreSQL prints it. */
 const quotedIdent: CatalogQuery<string> = {
-	sql: "SELECT pg_catalog.quote_ident($1::text)",
+	sql: emitCatalog(C.query([C.call("quote_ident", [C.param(1, "text")])], [], undefined)),
 	what: "a quoted name",
-	row: ([quoted]) => quoted
+	row: ([printed]) => printed
 }
+
+const extensions = C.from("pg_extension", "e")
+const extensionNamespaces = C.from("pg_namespace", "n")
 
 /** The schema an extension lives in: one row, none when it is not installed. */
 const extensionSchema: CatalogQuery<string> = {
-	sql:
-		"SELECT n.nspname::text FROM pg_catalog.pg_extension AS e " +
-		"JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace WHERE e.extname = $1::text",
+	sql: emitCatalog(
+		C.query(
+			[C.asText(extensionNamespaces.col("nspname"))],
+			[inNamespace(extensions.item, extensionNamespaces, extensions.col("extnamespace"))],
+			C.eq(extensions.col("extname"), C.param(1, "text"))
+		)
+	),
 	what: "a schema name",
 	row: ([schema]) => schema
 }
 
 /**
  * The hooks that move every name qualified by an installed schema to its scratch schema (sql/transform.ts): an object
- * name, a named type, a qualified function, an extension operator and an extension's schema. A collation is
- * pg_catalog's, which is never a grizzle schema (PostgreSQL reserves the pg_ prefix).
+ * name, a relation a regclass value names, a named type, a qualified function, an extension operator and an
+ * extension's schema. A collation is pg_catalog's, which is never a grizzle schema (PostgreSQL reserves the pg_ prefix).
  */
-const scratchHooks = (scratchOf: ReadonlyMap<string, string>): AstHooks => {
+const scratchHooks = (scratchOf: ReadonlyMap<string, TypeSchema>): AstHooks => {
 	const moved = (schema: string): string => scratchOf.get(schema) ?? schema
+	const movedTypes = (schema: TypeSchema): TypeSchema => scratchOf.get(schema) ?? schema
 	return {
 		...identityHooks,
 		objectName: (n) => ({ ...n, schema: moved(n.schema) }),
-		typeRef: (t) => (t.kind === "named" ? { ...t, schema: moved(t.schema) } : t),
+		typeRef: (t) => (t.kind === "named" ? { ...t, schema: movedTypes(t.schema) } : t),
 		functionRef: (f) => ({ ...f, schema: moved(f.schema) }),
 		expr: (e) =>
 			e.kind === "binary" && e.schema !== undefined ? { ...e, schema: moved(e.schema) } : e,
@@ -292,7 +704,7 @@ const scratchHooks = (scratchOf: ReadonlyMap<string, string>): AstHooks => {
  */
 const inScratch = (
 	s: ManifestStatement,
-	scratchOf: ReadonlyMap<string, string>
+	scratchOf: ReadonlyMap<string, TypeSchema>
 ): ReadonlyArray<SqlStatement> => {
 	const hooks = scratchHooks(scratchOf)
 	switch (s.kind) {
@@ -330,9 +742,9 @@ const inScratch = (
 /** The texts that build the snapshot's objects in the scratch schemas, in the manifest's order. */
 const scratchStatements = (
 	statements: ReadonlyArray<ManifestStatement>,
-	scratchOf: ReadonlyMap<string, string>
-): Result.Result<ReadonlyArray<string>, CompileError> => {
-	const texts: Array<string> = []
+	scratchOf: ReadonlyMap<string, TypeSchema>
+): Result.Result<ReadonlyArray<EmittedText>, CompileError> => {
+	const texts: Array<EmittedText> = []
 	for (const d of Arr.flatMap(statements, (s) => inScratch(s, scratchOf))) {
 		const e = emit(d, emptyNameMap, unmetered)
 		if (!e.ok) {
@@ -434,7 +846,7 @@ const membershipFacts = (d: MembershipDifference, what: string): ReadonlyArray<D
 	}
 }
 
-const command = (sql: string): BatchStatement => ({ sql, params: [] })
+const command = (sql: EmittedText): BatchStatement => ({ sql, params: [] })
 
 /** A catalog statement's place in a flight: its rows read back from the flight's outcomes, at the position it was sent
  * at, captured when it was sent (Sending), so no reader counts positions. */
@@ -445,11 +857,18 @@ interface Slot<Row> {
 	readonly row: (outcomes: ReadonlyArray<BatchOutcome>) => Result.Result<Row, CatalogRowRefused>
 }
 
-/** A flight's statements as they are sent, in order: a command, whose outcome nothing reads, or a catalog query, read
- * through the slot it is sent into. */
+/** Where in a flight a run of commands sits: its first statement's position and how many it sent. */
+export interface FlightSpan {
+	readonly from: number
+	readonly count: number
+}
+
+/** A flight's statements as they are sent, in order: a command, whose outcome nothing reads, a run of commands, whose
+ * span the flight's failure is located by, or a catalog query, read through the slot it is sent into. */
 interface Sending {
 	readonly statements: ReadonlyArray<BatchStatement>
-	readonly command: (sql: string) => void
+	readonly command: (sql: EmittedText) => void
+	readonly commands: (texts: ReadonlyArray<EmittedText>) => FlightSpan
 	readonly query: <Row>(query: CatalogQuery<Row>, params: ReadonlyArray<string>) => Slot<Row>
 }
 
@@ -460,6 +879,13 @@ const sending = (): Sending => {
 		statements,
 		command: (sql) => {
 			sent(command(sql))
+		},
+		commands: (texts) => {
+			const from = statements.length
+			for (const sql of texts) {
+				sent(command(sql))
+			}
+			return { from, count: texts.length }
 		},
 		query: (query, params) => {
 			const at = sent({ sql: query.sql, params })
@@ -478,42 +904,43 @@ const sending = (): Sending => {
 const sorted = (mismatches: ReadonlyArray<DriftMismatch>): ReadonlyArray<DriftMismatch> =>
 	Arr.sort(mismatches, Order.Struct({ fact: Order.String, kind: Order.String }))
 
+/** The drift check's statements, and where in them the replay that builds the snapshot beside the schema sits. */
+export interface DriftFlight {
+	readonly flight: Flight<ReadonlyArray<DriftMismatch>, CatalogRowRefused>
+	readonly replay: FlightSpan
+}
+
 /**
  * The drift check of `snapshot`'s schema as statements of driftTransaction, in order, each read through the slot it is
- * sent into (Sending): each installed schema's name as PostgreSQL prints it, the installed schema's first and then each
- * role's; the installed schema's scratch schema first on the search path, so names the replay leaves unqualified land
- * in it; the replay; the search path without any of them, since the reads qualify every name; each schema's installed
- * and scratch descriptions; then each extension's schema, the database's settings, the owner's default privileges (none
- * for the empty snapshot, which alters no default), and each login's and role's login, settings, privileges,
- * memberships and policies.
+ * sent into (Sending): the closed search path first (sql/ast.ts closedSearchPath), against which every description is
+ * spelled, since PostgreSQL's deparsers spell a name bare exactly when the path finds it first; each installed schema's
+ * name as PostgreSQL prints it, the installed schema's first and then each role's; the replay, whose statements name
+ * every object absolutely; each schema's installed and scratch descriptions; then each extension's schema, the
+ * database's settings, the owner's default privileges (none for the empty snapshot, which alters no default), and each
+ * login's and role's login, settings, privileges, memberships and policies.
  */
-export const driftFlight = (
-	snapshot: DeploySnapshot
-): Result.Result<Flight<ReadonlyArray<DriftMismatch>, CatalogRowRefused>, CompileError> =>
+export const driftFlight = (snapshot: DeploySnapshot): Result.Result<DriftFlight, CompileError> =>
 	Result.gen(function* () {
 		const schema = snapshot.schema
 		const statements = yield* toResult(manifestStatements(snapshot))
 		const schemas = judgedSchemas(statements, schema)
 		const scratchOf = new Map(Arr.map(schemas, (s) => [s, scratchSchema(s)] as const))
 		const replay = yield* scratchStatements(statements, scratchOf)
-		const extensions = Arr.flatMap(statements, (s) => (s.kind === "createExtension" ? [s] : []))
+		const createdExtensions = Arr.flatMap(statements, (s) =>
+			s.kind === "createExtension" ? [s] : []
+		)
 		const roles = Arr.map(manifestRoles(statements), (role) =>
 			roleExpectation(statements, schema, role)
 		)
 		const flight = sending()
+		flight.command(emitCatalog(C.setClosedSearchPath))
 		const printed = Arr.map(schemas, (s) => ({ schema: s, slot: flight.query(quotedIdent, [s]) }))
-		flight.command(
-			`SET LOCAL search_path TO ${quoteIdent(scratchSchema(schema))}, pg_catalog, pg_temp`
-		)
-		for (const s of replay) {
-			flight.command(s)
-		}
-		flight.command("SET LOCAL search_path TO pg_catalog, pg_temp")
+		const replayed = flight.commands(replay)
 		const described = Arr.map(schemas, (s) => ({
 			installed: flight.query(descriptions, [s, s]),
 			expected: flight.query(descriptions, [scratchSchema(s), s])
 		}))
-		const extensionSchemas = Arr.map(extensions, (x) => ({
+		const extensionSchemas = Arr.map(createdExtensions, (x) => ({
 			extension: x,
 			slot: flight.query(extensionSchema, [x.name])
 		}))
@@ -532,80 +959,89 @@ export const driftFlight = (
 			policies: flight.query(policiesQuery, [r.role, schema])
 		}))
 		return {
-			statements: flight.statements,
-			read: (outcomes) =>
-				Effect.fromResult(
-					Result.gen(function* () {
-						const names: Array<{ scratch: string; schema: string; printed: string }> = []
-						for (const p of printed) {
-							names.push({
-								scratch: scratchSchema(p.schema),
-								schema: p.schema,
-								printed: yield* p.slot.row(outcomes)
-							})
-						}
-						const rename = fromScratch(names)
-						const out: Array<DriftMismatch> = []
-						for (const d of described) {
-							const installed = yield* d.installed.rows(outcomes)
-							const expected = yield* d.expected.rows(outcomes)
-							out.push(
-								...compareDescriptions(
+			replay: replayed,
+			flight: {
+				statements: flight.statements,
+				read: (outcomes) =>
+					Effect.fromResult(
+						Result.gen(function* () {
+							const names: Array<{ scratch: string; schema: string; printed: string }> = []
+							for (const p of printed) {
+								names.push({
+									scratch: scratchSchema(p.schema),
+									schema: p.schema,
+									printed: yield* p.slot.row(outcomes)
+								})
+							}
+							const rename = fromScratch(names)
+							const out: Array<DriftMismatch> = []
+							for (const d of described) {
+								const installed = yield* d.installed.rows(outcomes)
+								const expected = yield* d.expected.rows(outcomes)
+								const mismatches = compareDescriptions(
 									new Map(Arr.map(expected, ([k, e]) => [rename(k), rename(e)])),
 									new Map(installed)
 								)
-							)
-						}
-						for (const { extension: x, slot } of extensionSchemas) {
-							const at = yield* slot.rows(outcomes)
-							if (!at.includes(x.schema)) {
-								out.push({ kind: "missing", fact: `extension ${x.name} in schema ${x.schema}` })
-							}
-						}
-						for (const d of databaseDifferences(yield* database.rows(outcomes))) {
-							out.push(...settingFacts(d, "database"))
-						}
-						for (const { expectation, slot } of defaults) {
-							const owned = yield* slot.rows(outcomes)
-							for (const d of defaultPrivilegeDifferences(owned, expectation)) {
-								out.push({ kind: d.kind, fact: `default privilege ${d.grant}` })
-							}
-						}
-						for (const read of roleReads) {
-							const r = read.expectation
-							for (const d of attributeDifferences(yield* read.attributes.rows(outcomes), r)) {
-								out.push({ kind: "missing", fact: `role ${r.role} ${d.expected}` })
-								if (d.attribute !== "existence") {
-									out.push({ kind: "unexpected", fact: `role ${r.role} ${d.observed}` })
+								for (const mismatch of mismatches) {
+									out.push(mismatch)
 								}
 							}
-							for (const d of roleDifferences(yield* read.settings.rows(outcomes), r)) {
-								out.push(
-									...settingFacts(
-										d,
+							for (const { extension: x, slot } of extensionSchemas) {
+								const at = yield* slot.rows(outcomes)
+								if (!at.includes(x.schema)) {
+									out.push({ kind: "missing", fact: `extension ${x.name} in schema ${x.schema}` })
+								}
+							}
+							for (const d of databaseDifferences(yield* database.rows(outcomes))) {
+								for (const fact of settingFacts(d, "database")) {
+									out.push(fact)
+								}
+							}
+							for (const { expectation, slot } of defaults) {
+								const owned = yield* slot.rows(outcomes)
+								for (const d of defaultPrivilegeDifferences(owned, expectation)) {
+									out.push({ kind: d.kind, fact: `default privilege ${d.grant}` })
+								}
+							}
+							for (const read of roleReads) {
+								const r = read.expectation
+								for (const d of attributeDifferences(yield* read.attributes.rows(outcomes), r)) {
+									out.push({ kind: "missing", fact: `role ${r.role} ${d.expected}` })
+									if (d.attribute !== "existence") {
+										out.push({ kind: "unexpected", fact: `role ${r.role} ${d.observed}` })
+									}
+								}
+								for (const d of roleDifferences(yield* read.settings.rows(outcomes), r)) {
+									const scope =
 										d.scope === "roleInDatabase" ? `role ${r.role} in database` : `role ${r.role}`
-									)
-								)
+									for (const fact of settingFacts(d, scope)) {
+										out.push(fact)
+									}
+								}
+								for (const d of yield* read.privileges.rows(outcomes)) {
+									out.push(privilegeFact(d, r.role))
+								}
+								for (const d of membershipDifferences(yield* read.memberships.rows(outcomes), r)) {
+									for (const fact of membershipFacts(d, `role ${r.role} membership in ${d.role}`)) {
+										out.push(fact)
+									}
+								}
+								for (const d of memberDifferences(yield* read.members.rows(outcomes), r)) {
+									for (const fact of membershipFacts(d, `role ${r.role} member ${d.role}`)) {
+										out.push(fact)
+									}
+								}
+								for (const d of policyDifferences(yield* read.policies.rows(outcomes), r)) {
+									out.push({
+										kind: d.kind,
+										fact: `policy ${d.policy.name} on ${d.policy.table} naming role ${r.role}`
+									})
+								}
 							}
-							for (const d of yield* read.privileges.rows(outcomes)) {
-								out.push(privilegeFact(d, r.role))
-							}
-							for (const d of membershipDifferences(yield* read.memberships.rows(outcomes), r)) {
-								out.push(...membershipFacts(d, `role ${r.role} membership in ${d.role}`))
-							}
-							for (const d of memberDifferences(yield* read.members.rows(outcomes), r)) {
-								out.push(...membershipFacts(d, `role ${r.role} member ${d.role}`))
-							}
-							for (const d of policyDifferences(yield* read.policies.rows(outcomes), r)) {
-								out.push({
-									kind: d.kind,
-									fact: `policy ${d.policy.name} on ${d.policy.table} naming role ${r.role}`
-								})
-							}
-						}
-						return sorted(out)
-					})
-				)
+							return sorted(out)
+						})
+					)
+			}
 		}
 	})
 

@@ -6,7 +6,6 @@ import type {
 	DbSessionState,
 	DirectSessionState,
 	EntrySpec,
-	HeadTerm,
 	HostFact,
 	HostState,
 	InstallSpec,
@@ -17,7 +16,8 @@ import type {
 	RoleSpec,
 	Rule,
 	SessionState,
-	ModelStaleReason
+	ModelStaleReason,
+	Term
 } from "#test/support/worlds/model/types.ts"
 
 /** The installed role of that name, or undefined when the installation has none. */
@@ -53,8 +53,7 @@ export const holdsWhole = (role: RoleSpec, relation: string): boolean =>
 	Arr.some(Record.values(role.entries), (e) => e.kind === "whole" && e.relation === relation)
 
 /** The contexts a term reads. */
-const termContexts = (t: HeadTerm): ReadonlyArray<string> =>
-	t.kind === "context" ? [t.context] : []
+const termContexts = (t: Term): ReadonlyArray<string> => (t.kind === "context" ? [t.context] : [])
 
 /** The contexts a rule reads: in a match, a negation, a comparison or its head. */
 const ruleContexts = (rule: Rule): ReadonlyArray<string> => [

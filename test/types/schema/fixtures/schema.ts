@@ -1,6 +1,13 @@
 import type { Brand } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { type ClosedIdField, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import {
+	type ClosedIdField,
+	closedId,
+	contract,
+	pg,
+	type Uuid,
+	uuid
+} from "#compiler/public/fields.ts"
 import {
 	type Alternatives,
 	alternatives,
@@ -35,7 +42,7 @@ import {
 	within
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { InputOrigin, Predicate, Term } from "#compiler/types/core/phantom.ts"
+import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { Field } from "#compiler/types/fields/field.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { BaseSchemaOf } from "#compiler/types/schema/schema.ts"
@@ -76,8 +83,8 @@ export type TaskType = Expect<
 		Relation<
 			"Task",
 			{
-				readonly id: Field<string, "uuid">
-				readonly account: Field<string, "uuid">
+				readonly id: Field<Uuid, "uuid">
+				readonly account: Field<Uuid, "uuid">
 				readonly kind: ClosedIdField<typeof Kind>
 			},
 			readonly ["id"]
@@ -116,13 +123,7 @@ export const BareTier = closed("BareTier", ["Free"]).with(
 	{ Free: { budget: 100n } }
 )
 
-/** Each form's handle(member) is a head term of the member's own literal type at the roster's enum. */
-export const manualHandle = Kind.handle("Manual")
-export type ManualHandle = Expect<
-	Equals<typeof manualHandle, Term<"Manual", unknown, InputOrigin, "enum">>
->
-export const proHandle = Tier.handle("Pro")
-export type ProHandle = Expect<Equals<typeof proHandle, Term<"Pro", unknown, InputOrigin, "enum">>>
+/** A handle is a member of its roster. */
 export const pausedHandle = () =>
 	// @ts-expect-error -- TS2345: a handle is a member of the roster
 	Kind.handle("Paused")
@@ -210,6 +211,18 @@ export type ManualArm = Expect<Equals<ExpansionOf<typeof manualArm>, TaskHead | 
 export type ReversedArms = Expect<Equals<typeof reversedArms, typeof taskArms>>
 // @ts-expect-error -- TS2345 refusal: alternatives takes at least one arm
 export const noArms = alternatives(Task, "kind", Kind, {})
+/**
+ * The arm map is keyed by handles of the roster alone, and no arm is the parent itself; one relation may be the arm of
+ * several handles.
+ */
+export const sharedArm = alternatives(Task, "kind", Kind, {
+	Automatic: ManualTask,
+	Manual: ManualTask
+})
+// @ts-expect-error -- TS2322 refusal: an arm is keyed by a handle of its roster
+export const strayArm = alternatives(Task, "kind", Kind, { Manual: ManualTask, Stray: ManualTask })
+// @ts-expect-error -- TS2322 refusal: an arm is a relation other than its parent
+export const selfArm = alternatives(Task, "kind", Kind, { Manual: Task })
 export const Work = schema(
 	"Work",
 	{ Kind, Tier, Account, Task, Ticket, AutomaticTask, ManualTask },
@@ -246,7 +259,7 @@ export const exactlyTwo = within(2n)
 /** Derived relations and levels. */
 export const Edu = schema("Edu", { Account, Task, Kind }, [])
 export const taskCounts = query(Edu).rule((r) => {
-	const { id, account } = v(Task)
+	const { id, account } = v(Task, "task")
 	return r.match(Task, { id, account }).find({ account, tasks: r.count() })
 })
 export const TaskCounts = derived("TaskCounts", taskCounts)
@@ -265,7 +278,7 @@ export type ReportsBase = Expect<
 
 /** A definition reads no parameter. */
 export const byAccount = query(Edu).rule((r) => {
-	const { id, account } = v(Task)
+	const { id, account } = v(Task, "task")
 	return r
 		.match(Task, { id, account })
 		.where(r.eq(account, r.param("account", uuid)))
@@ -276,7 +289,7 @@ export const ByAccount = derived("ByAccount", byAccount)
 
 /** A definition over an extension does not read its own level: it is no query over a level below it. */
 export const overReports = query(Reports).rule((r) => {
-	const { account, tasks } = v(TaskCounts)
+	const { account, tasks } = v(TaskCounts, "taskCounts")
 	return r.match(TaskCounts, { account, tasks }).find({ account })
 })
 export const OverReports = derived("OverReports", overReports)
@@ -308,7 +321,7 @@ export const baseRefresh = role(Reports, "bad", Reports.relations, { refresh: ["
 
 /** A computed head term keeps the type the derived relation's fields come from. */
 export const centsTotals = query(Edu).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id }).find({ id, one: Compute.literal(pg.integer, 1) })
 })
 export const CentsTotals = derived("CentsTotals", centsTotals)

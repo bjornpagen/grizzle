@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { typeLabel } from "#compiler/ir/scalar.ts"
 import {
@@ -100,7 +101,7 @@ export const feedbackBlock = (
 		if (blocking?.inputs.some(reachesSelf) === true) {
 			return { node, what: blocking.what }
 		}
-		queue.push(...queryInputs(node))
+		appendAll(queue, queryInputs(node))
 	}
 	return undefined
 }
@@ -181,7 +182,7 @@ const lowerRecursive: NodeLowerer<"Recursive"> = (node, cx, env) => {
 	}
 	const base = term(node.base)
 	const step = term(node.step)
-	const body: Select = select({ kind: "setOp", op: "UNION", left: base, right: step })
+	const body: Select = select({ kind: "setOp", op: "UNION", arms: [base, step] })
 	const alias = cx.relationAlias(origin)
 	const map = namedMap(alias, named)
 	return {

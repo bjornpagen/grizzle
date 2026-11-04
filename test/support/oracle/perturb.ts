@@ -2,9 +2,16 @@ import { type Gen, int, subarray } from "@grizzle/testing/gen"
 import { Array as Arr, Context, Effect, Option, Order, pipe, String as Str } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import type { Session } from "#adapter/wire/session.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
+import { lit, qualifiedCall, simpleSelect, target, types } from "#compiler/sql/build.ts"
+import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emptyNameMap } from "#compiler/sql/naming.ts"
+import { canonicallySpelled, type SpelledValue } from "#test/support/oracle/gen/domain.ts"
+import type { GenFacts, StoredRow } from "#test/support/oracle/gen/facts.ts"
 import type { GenRelation, GenSchema } from "#test/support/oracle/gen/schema.ts"
 
 /**
@@ -20,7 +27,10 @@ const plannerSettings = [
 	"enable_mergejoin = off",
 	"enable_sort = off",
 	"debug_parallel_query = regress",
-	"plan_cache_mode = force_generic_plan"
+	"plan_cache_mode = force_generic_plan",
+	"parallel_setup_cost = 0",
+	"parallel_tuple_cost = 0",
+	"min_parallel_table_scan_size = 0"
 ] as const
 
 export type PlannerSetting = (typeof plannerSettings)[number]
@@ -33,12 +43,13 @@ export type PlannerSetting = (typeof plannerSettings)[number]
  *
  * - a random subset of planner settings, each set with SET LOCAL in the case's transaction after its facts are loaded
  *   and analyzed: the hash and merge joins and the explicit sort turned off one by one, debug_parallel_query =
- *   regress, which plans every eligible query in parallel, and plan_cache_mode = force_generic_plan, which plans every
- *   parameterized statement without its parameter values;
+ *   regress, which plans every eligible query in parallel, the parallel setup and tuple costs and the smallest
+ *   parallel scan at zero, so a parallel plan scans even a small table in workers and aggregates partially, and
+ *   plan_cache_mode = force_generic_plan, which plans every parameterized statement without its parameter values;
  * - a fact multiplier: the stored facts repeated under fresh keys, so row counts scale while every value stays small.
  *
- * A correct lowering returns the same rows under every plan and every scale, so every form of a case must still agree
- * with the reference and the conservative lowering. The perturbation reaches the runners through the Effect reference
+ * A correct lowering returns the same values under every plan and every scale, which grizzle delivers in one form, so
+ * every form of a case must still agree exactly with the reference and the conservative lowering. The perturbation reaches the runners through the Effect reference
  * CurrentPerturbation, which oracleCheck and the write oracle provide for each explored case and which is unperturbed
  * everywhere else. A runner that goes through an opened Db (the write oracle, the derived refresh oracle) sets the
  * planner settings in each of its transactions through perturbedContext.
@@ -58,6 +69,21 @@ export interface Perturbation {
 }
 
 export const unperturbed: Perturbation = { settings: [], multiplier: 1 }
+
+/** The settings under which every eligible plan runs in parallel workers, its aggregates partial and then combined. */
+export const forcedParallel: Perturbation = {
+	settings: [
+		"debug_parallel_query = regress",
+		"parallel_setup_cost = 0",
+		"parallel_tuple_cost = 0",
+		"min_parallel_table_scan_size = 0"
+	],
+	multiplier: 1
+}
+
+/** Whether a perturbation forces parallel plans: every setting of forcedParallel among its own. */
+export const forcesParallel = (p: Perturbation): boolean =>
+	Arr.every(forcedParallel.settings, (s) => p.settings.includes(s))
 
 const maxMultiplier = 3
 
@@ -82,6 +108,15 @@ export const CurrentPerturbation = Context.Reference<Perturbation>(
 )
 
 export const isPerturbed = (p: Perturbation): boolean => p.settings.length > 0 || p.multiplier > 1
+
+/**
+ * The planner settings a perturbation leaves off, at its multiplier: the plan a case's answer is read under a second
+ * time (the plan invariance relation), so every setting is on in exactly one of the two readings.
+ */
+export const complementOf = (p: Perturbation): Perturbation => ({
+	settings: Arr.filter(plannerSettings, (s) => !p.settings.includes(s)),
+	multiplier: p.multiplier
+})
 
 /** The statements that set a perturbation's planner settings in the running transaction. */
 export const plannerStatements = (p: Perturbation): ReadonlyArray<string> =>
@@ -111,6 +146,8 @@ const relabelingOf = (type: ScalarType): Relabeling | undefined => {
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			return undefined
 	}
 }
@@ -143,7 +180,7 @@ const valueText = (literal: TypedLiteral): string | undefined =>
 			? literal.value
 			: undefined
 
-const uuidOf = (n: number): string =>
+const uuidOf = (n: number): Uuid =>
 	`f0000000-0000-0000-0000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /**
@@ -165,9 +202,9 @@ export const multiplyFacts = (schema: GenSchema, facts: GenFacts, multiplier: nu
 			continue
 		}
 		for (const row of facts[relation.name] ?? []) {
-			for (const [i, literal] of row.entries()) {
+			for (const [i, stored] of row.entries()) {
 				const how = columns[i]
-				const text = valueText(literal)
+				const text = valueText(stored.literal)
 				if (how !== undefined && text !== undefined) {
 					seen[how].push(text)
 				}
@@ -179,29 +216,33 @@ export const multiplyFacts = (schema: GenSchema, facts: GenFacts, multiplier: nu
 			ranks.set(`${how}:${text}`, rank)
 		}
 	}
-	const relabel = (literal: TypedLiteral, how: Relabeling, copy: number): TypedLiteral => {
-		const text = valueText(literal)
+	/** An integer or uuid key value relabeled for a copy, which is canonical: integers and uuids have one spelling. */
+	const relabel = (stored: SpelledValue, how: Relabeling, copy: number): SpelledValue => {
+		const text = valueText(stored.literal)
 		const rank = text === undefined ? undefined : ranks.get(`${how}:${text}`)
 		if (rank === undefined) {
-			return literal
+			return stored
 		}
-		return how === "int"
-			? { kind: "int", value: BigInt(1000 * copy + rank) }
-			: { kind: "uuid", value: uuidOf(4096 * copy + rank) }
+		return canonicallySpelled(
+			how === "int"
+				? { kind: "int", value: BigInt(1000 * copy + rank) }
+				: { kind: "uuid", value: uuidOf(4096 * copy + rank) }
+		)
 	}
-	const out: Record<string, ReadonlyArray<ReadonlyArray<TypedLiteral>>> = { ...facts }
+	const out: Record<string, ReadonlyArray<StoredRow>> = { ...facts }
 	for (const { relation, columns } of plans) {
 		if (columns === undefined) {
 			continue
 		}
 		const rows = facts[relation.name] ?? []
-		const copies: Array<ReadonlyArray<TypedLiteral>> = [...rows]
+		const copies: Array<StoredRow> = [...rows]
 		for (let copy = 1; copy < multiplier; copy++) {
-			copies.push(
-				...Arr.map(rows, (row) =>
-					Arr.map(row, (literal, i) => {
+			appendAll(
+				copies,
+				Arr.map(rows, (row) =>
+					Arr.map(row, (stored, i) => {
 						const how = columns[i]
-						return how === undefined ? literal : relabel(literal, how, copy)
+						return how === undefined ? stored : relabel(stored, how, copy)
 					})
 				)
 			)
@@ -215,21 +256,37 @@ export const multiplyFacts = (schema: GenSchema, facts: GenFacts, multiplier: nu
  * The one statement that sets a perturbation's planner settings in the running transaction, as SET LOCAL does:
  * set_config with is_local true, all of them in one SELECT.
  */
-const plannerSelect = (p: Perturbation): string =>
-	`SELECT ${Arr.join(
-		Arr.map(p.settings, (setting) => {
-			const [name, value] = Str.split(setting, " = ")
-			return `pg_catalog.set_config('${name}', '${value}', true)`
-		}),
-		", "
-	)}`
+const plannerSelect = (p: Perturbation): EmittedText => {
+	const emitted = emit(
+		simpleSelect(
+			Arr.map(p.settings, (setting) => {
+				const [name, ...value] = Str.split(setting, " = ")
+				return target(
+					qualifiedCall("pg_catalog", "set_config", [
+						lit.text(name, types.text),
+						lit.text(Arr.join(value, " = "), types.text),
+						lit.bool(true)
+					])
+				)
+			}),
+			[],
+			undefined
+		),
+		emptyNameMap,
+		unmetered
+	)
+	if (!emitted.ok) {
+		throw emitted.error
+	}
+	return emitted.value.text
+}
 
 /**
  * A session whose every transaction sets `statement`'s planner settings first: the statement rides right behind the
  * BEGIN of every flight that opens a transaction, unnamed, and its answer is the caller's to ignore. Every write and
  * refresh opens its transaction so (packages/grizzle/src/adapter/wire/batch.ts writeFrame).
  */
-const plannedSession = (session: Session, statement: string): Session => ({
+const plannedSession = (session: Session, statement: EmittedText): Session => ({
 	...session,
 	send: (closes, pipeline, onAnswer, onEnd) => {
 		const [begin, ...rest] = pipeline

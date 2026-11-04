@@ -4,6 +4,7 @@ import { type DbRuntime, dbRuntime } from "#adapter/db/db.ts"
 import { type ReadError } from "#adapter/errors/execution.ts"
 import type { Db } from "#adapter/public/db.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { type CompileError, type CursorError, isCompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
@@ -11,6 +12,7 @@ import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { artifactsAgree } from "#test/support/worlds/execute/artifacts.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 import { headDomains } from "#test/support/worlds/execute/describe.ts"
@@ -64,6 +66,9 @@ export interface DbSession {
 	readonly value: BuiltRole
 	readonly db: Db<BuiltRole, unknown>
 }
+
+/** The role a write or a read is built through: its spec, and its value as the builders made it. */
+export type WritingRole = Pick<DbSession, "role" | "value">
 
 const runtimeOf = (db: Db<BuiltRole, unknown>): Effect.Effect<DbRuntime> => {
 	const runtime = dbRuntime(db)
@@ -127,10 +132,16 @@ const allPages = (
 	Effect.gen(function* () {
 		const rows: Array<unknown> = []
 		let page = yield* reader.page(program, {}, { first: size })
-		rows.push(...Arr.map(page.edges, (e) => e.node))
+		appendAll(
+			rows,
+			Arr.map(page.edges, (e) => e.node)
+		)
 		while (page.pageInfo.hasNextPage && Option.isSome(page.pageInfo.endCursor)) {
 			page = yield* reader.page(program, {}, { first: size, after: page.pageInfo.endCursor.value })
-			rows.push(...Arr.map(page.edges, (e) => e.node))
+			appendAll(
+				rows,
+				Arr.map(page.edges, (e) => e.node)
+			)
 		}
 		return rows
 	})
@@ -144,14 +155,14 @@ const allPages = (
  * when the relation proves the key's fields a key. The builder throws its refusal.
  */
 const relationRead = (
-	session: DbSession,
+	session: WritingRole,
 	relation: string,
 	of: (relation: unknown) => unknown,
 	key: Readonly<Record<string, unknown>>
 ): QueryValue => {
 	const value = relationValue(session, relation)
 	return queryOver(session.value).rule((r: RuleValue): FinishedValue => {
-		const vars = varsOver(value)
+		const vars = varsOver(value, "value")
 		return Arr.reduce(Rec.toEntries(key), r.match(of(value), vars), (matched, [field, literal]) =>
 			matched.where(r.eq(vars[field], literal))
 		).find(vars)
@@ -162,7 +173,7 @@ const itself = (value: unknown): unknown => value
 
 /** The program reading a role relation whole, or the builder's refusal of it. */
 const readProgramOf = (
-	session: DbSession,
+	session: WritingRole,
 	relation: string
 ): Effect.Effect<QueryValue, RealizeRefused> =>
 	attempt(`the read of ${relation}`, () => relationRead(session, relation, itself, {}))
@@ -200,7 +211,7 @@ const rowsVia = (
 			return Effect.flatMap(
 				Effect.mapError(
 					attempt(`the page of ${relation}`, () =>
-						program.orderBy(...Arr.map(fields, (f) => [f.field, "asc"] as const))
+						program.orderBy(...argumentsOf(Arr.map(fields, (f) => [f.field, "asc"] as const)))
 					),
 					(refused) => refused.refusal
 				),
@@ -274,7 +285,7 @@ const carriersOf = (
 /** One stratum: the union of its writes, each through a role relation. */
 const stratumOf = (
 	base: BaseSpec,
-	session: DbSession,
+	session: WritingRole,
 	ops: ReadonlyArray<EntryOp>
 ): ChangeSetValue =>
 	Arr.reduce(ops, changeSetOver.empty(session.value), (changes: ChangeSetValue, op) => {
@@ -288,7 +299,7 @@ const stratumOf = (
 /** The ChangeSet of a write: its strata in ChangeSet.sequence order, built on the builder's runtime path. */
 const changesOf = (
 	base: BaseSpec,
-	session: DbSession,
+	session: WritingRole,
 	strata: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<EntryOp>>
 ): Effect.Effect<Result.Result<ChangeSetValue, unknown>> =>
 	Effect.sync(() =>
@@ -306,36 +317,45 @@ const changesOf = (
 		})
 	)
 
-/** A ChangeSet the builder refuses is compile-refused; any other throw is a defect of the run. */
-const builderRefused = (cause: unknown): Effect.Effect<Seen> =>
-	isCompileError(cause)
-		? Effect.succeed(refusedWith({ kind: "compile-refused" }, cause))
-		: Effect.die(cause)
+/** A ChangeSet the builder refuses is the write's refusal when it compiles; any other throw is a defect of the run. */
+const builderRefused = (cause: unknown): Effect.Effect<Result.Result<never, CompileError>> =>
+	isCompileError(cause) ? Effect.succeed(Result.fail(cause)) : Effect.die(cause)
 
-/** A write through role relations. */
-export const applySession = (
-	session: DbSession,
+/** A write as the executor hands it to db.apply: its ChangeSet with its read-backs, and how each read-back is read. */
+export interface PlannedWrite {
+	readonly changes: ChangeSetValue
+	readonly planned: ReadonlyArray<ReadBackPlan>
+}
+
+/**
+ * The ChangeSet of a write through a role's relations, built on the builder's runtime path as an application builds
+ * one: each read-back's program reading its relation whole, the strata in ChangeSet.sequence order, then each
+ * read-back's rows and, where its delta is read, its added and removed facts. A builder's CompileError is the write's
+ * refusal when it compiles.
+ */
+export const plannedWrite = (
+	base: BaseSpec,
+	writer: WritingRole,
 	strata: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<EntryOp>>,
 	reads: ReadonlyArray<string>
-): Effect.Effect<Seen> =>
+): Effect.Effect<Result.Result<PlannedWrite, CompileError>> =>
 	Effect.gen(function* () {
-		const base = session.base
 		const planned: Array<ReadBackPlan> = []
 		for (const [i, relation] of reads.entries()) {
-			const fields = Option.getOrElse(entryFields(base, session.role, relation), () => [])
-			const program = yield* Effect.result(readProgramOf(session, relation))
+			const fields = Option.getOrElse(entryFields(base, writer.role, relation), () => [])
+			const program = yield* Effect.result(readProgramOf(writer, relation))
 			if (Result.isFailure(program)) {
-				return refusedWith({ kind: "compile-refused" }, program.failure.refusal)
+				return Result.fail(program.failure.refusal)
 			}
 			planned.push({
 				index: i,
 				relation,
 				fields,
 				program: program.success,
-				delta: deltaOf(base, session.role, relation)
+				delta: deltaOf(base, writer.role, relation)
 			})
 		}
-		const changes = yield* changesOf(base, session, strata)
+		const changes = yield* changesOf(base, writer, strata)
 		if (Result.isFailure(changes)) {
 			return yield* builderRefused(changes.failure)
 		}
@@ -347,10 +367,10 @@ export const applySession = (
 						? rows
 						: rows
 								.read(`added${String(p.index)}`, (delta: DeltaValue) =>
-									relationRead(session, p.relation, delta.added, {})
+									relationRead(writer, p.relation, delta.added, {})
 								)
 								.read(`removed${String(p.index)}`, (delta: DeltaValue) =>
-									relationRead(session, p.relation, delta.removed, {})
+									relationRead(writer, p.relation, delta.removed, {})
 								)
 				}),
 			catch: (cause) => cause
@@ -358,8 +378,23 @@ export const applySession = (
 		if (Result.isFailure(withReads)) {
 			return yield* builderRefused(withReads.failure)
 		}
+		return Result.succeed({ changes: withReads.success, planned })
+	})
+
+/** A write through role relations. */
+export const applySession = (
+	session: DbSession,
+	strata: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<EntryOp>>,
+	reads: ReadonlyArray<string>
+): Effect.Effect<Seen> =>
+	Effect.gen(function* () {
+		const write = yield* plannedWrite(session.base, session, strata, reads)
+		if (Result.isFailure(write)) {
+			return refusedWith({ kind: "compile-refused" }, write.failure)
+		}
+		const { changes, planned } = write.success
 		const runtime = yield* runtimeOf(session.db)
-		const outcome = yield* Effect.result(runtime.methods.apply(withReads.success, {}))
+		const outcome = yield* Effect.result(runtime.methods.apply(changes, {}))
 		if (Result.isFailure(outcome)) {
 			return refusedWith(yield* applyFailed(outcome.failure), outcome.failure)
 		}
@@ -388,7 +423,7 @@ const deltaOf = (base: BaseSpec, role: RoleSpec, relation: string): ReadBackDelt
 		: "read"
 
 /** A read-back requested of a write: its role relation, its fields, the program reading it whole and how its delta is had. */
-interface ReadBackPlan {
+export interface ReadBackPlan {
 	readonly index: number
 	readonly relation: string
 	readonly fields: ReadonlyArray<{ readonly field: string; readonly domain: FieldDomain }>
@@ -458,7 +493,7 @@ export const executeValue = (session: DbSession, program: unknown): Effect.Effec
 export const refreshValue = (session: DbSession, relation: unknown): Effect.Effect<Seen> =>
 	Effect.gen(function* () {
 		const runtime = yield* runtimeOf(session.db)
-		const done = yield* Effect.result(runtime.methods.refresh(relation))
+		const done = yield* Effect.result(runtime.methods.refresh([relation]))
 		if (Result.isFailure(done)) {
 			return refusedWith(yield* applyFailed(done.failure), done.failure)
 		}
@@ -466,7 +501,7 @@ export const refreshValue = (session: DbSession, relation: unknown): Effect.Effe
 	})
 
 /** The value of a role relation by its name, or undefined, as a JavaScript caller naming one would pass it. */
-export const relationValue = (session: DbSession, relation: string): unknown =>
+export const relationValue = (session: WritingRole, relation: string): unknown =>
 	Predicate.hasProperty(session.value.relations, relation)
 		? session.value.relations[relation]
 		: undefined

@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, constant, element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Exit, Formatter } from "effect"
@@ -289,19 +290,21 @@ layer(Substrate.layer)(
 								suite: `text/differential/${family.name}`,
 								draw: drawn(familyCase),
 								literal: Formatter.format,
-								features: features<DifferentialFeature>([
-									"domain enforced",
-									"generated pattern admitted",
-									"own member accepted",
-									"member refused"
-								]),
+								coverage: required<DifferentialFeature>(
+									[
+										"domain enforced",
+										"generated pattern admitted",
+										"own member accepted",
+										"member refused"
+									],
+									{ cases: 10, sense: notesOnly }
+								),
 								kept: [],
 								/** The floor's 3 and the rotating 10 batches of up to 500 strings each. */
 								runs: 10,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.minutes(2)
 							},
 							(c, k) => {
@@ -373,7 +376,7 @@ layer(Substrate.layer)(
 								generator: element(atBound),
 								literal: Formatter.format,
 								limit: atBound.length,
-								features: noFeatures,
+								coverage: noCoverage,
 								caseHang: Duration.minutes(2)
 							},
 							([source, flags]) =>
@@ -403,14 +406,16 @@ layer(Substrate.layer)(
 							suite: "text/differential/nested",
 							draw: drawn(nestedPattern),
 							literal: Formatter.format,
-							features: features<"near the budget">(["near the budget"]),
+							coverage: required<"near the budget">(["near the budget"], {
+								cases: 4800,
+								sense: notesOnly
+							}),
 							kept: [],
 							/** The floor's 1,200 and the rotating 4,800. */
 							runs: 4800,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(source, k) =>

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
@@ -13,6 +13,7 @@ import {
 	subarray,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -121,7 +122,7 @@ describe("the attachment fusion rule", () => {
 							}
 						},
 						limit: 400,
-						features: features<"fused" | "pipelined" | "correlated column in the array">([
+						coverage: requiredInSpace<"fused" | "pipelined" | "correlated column in the array">([
 							"fused",
 							"pipelined",
 							"correlated column in the array"
@@ -316,16 +317,18 @@ describe("the fused attachment codec", () => {
 						draw: drawn(fusedCaseGen),
 						runs: 200,
 						shrink: completeShrink,
-						features: features<FusedFeature>([
-							"no element field",
-							"one element field",
-							"several element fields",
-							"correlated",
-							"no child"
-						]),
+						coverage: required<FusedFeature>(
+							[
+								"no element field",
+								"one element field",
+								"several element fields",
+								"correlated",
+								"no child"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c, note) =>
@@ -381,10 +384,12 @@ describe("the fused attachment codec", () => {
 					draw: drawn(array(textGen, { min: 0, max: 5 })),
 					runs: 200,
 					shrink: completeShrink,
-					features: features<"empty" | "quoted">(["empty", "quoted"]),
+					coverage: required<"empty" | "quoted">(["empty", "quoted"], {
+						cases: 200,
+						sense: notesOnly
+					}),
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(elements, note) =>

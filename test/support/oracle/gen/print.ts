@@ -1,7 +1,9 @@
 import { Array as Arr, Record } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
-import type { GenFacts, LiteralRow } from "#test/support/oracle/gen/facts.ts"
+import type { SpelledValue } from "#test/support/oracle/gen/domain.ts"
+import type { GenFacts, LiteralRow, StoredRow } from "#test/support/oracle/gen/facts.ts"
 import { printDag, printLiteral } from "#test/support/oracle/gen/print-dag.ts"
 import type { GenParam, GenQuery } from "#test/support/oracle/gen/query.ts"
 import { closedHeading, type GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -46,13 +48,28 @@ const printSchema = (schema: GenSchema): string => {
 	return Arr.join(lines, "\n")
 }
 
+/** A stored value: its literal, and the twin spelling it is stored in where it is not its canonical one. */
+const printStored = (v: SpelledValue, type: ScalarType): string =>
+	v.spelling.kind === "canonical"
+		? printLiteral(v.literal, type)
+		: `${printLiteral(v.literal, type)} stored as ${JSON.stringify(v.spelling.text)}`
+
+const printStoredRow = (
+	row: StoredRow,
+	columns: ReadonlyArray<{ readonly type: ScalarType }>
+): string =>
+	`(${Arr.join(
+		Arr.map(row, (v, i) => printStored(v, elementAt(columns, i, "a printed row's columns").type)),
+		", "
+	)})`
+
 const printFacts = (schema: GenSchema, facts: GenFacts): string => {
 	const lines = ["facts"]
 	for (const r of schema.relations) {
 		const rows = facts[r.name] ?? []
 		lines.push(`  ${r.name}: ${rows.length === 0 ? "{}" : ""}`)
 		for (const row of rows) {
-			lines.push(`    ${printRow(row, r.columns)}`)
+			lines.push(`    ${printStoredRow(row, r.columns)}`)
 		}
 	}
 	return Arr.join(lines, "\n")
@@ -75,7 +92,7 @@ const printParam = (id: string, p: GenParam): ReadonlyArray<string> => {
 const printQuery = (query: GenQuery): string => {
 	const lines = ["params"]
 	for (const [id, p] of Record.toEntries(query.params)) {
-		lines.push(...printParam(id, p))
+		appendAll(lines, printParam(id, p))
 	}
 	if (lines.length === 1) {
 		lines.push("  (none)")
@@ -94,7 +111,7 @@ const printQuery = (query: GenQuery): string => {
 export const printQueryCase = (c: QueryCase): string =>
 	Arr.join(
 		[
-			`spelling ${c.spelling.mode} [${Arr.join(Arr.map(c.spelling.choices, String), ", ")}]`,
+			`spelling ${c.spelling.mode}${c.spelling.edge ? ", edge classes" : ""}`,
 			printSchema(c.schema),
 			printFacts(c.schema, c.facts),
 			printQuery(c.query)

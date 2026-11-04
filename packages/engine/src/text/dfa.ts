@@ -1,6 +1,6 @@
 import { indices } from "#compiler/core/array.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { codePoints } from "#compiler/core/text.ts"
+import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import {
 	type CharSet,
 	charSet,
@@ -451,19 +451,25 @@ const canonicalize = (dfa: RawDfa): CanonicalDfa => {
 		}
 	}
 	const edgesOf = (c: number): Array<{ set: CharSet; target: number }> => {
-		const byTarget = new Map<number, Array<Atom>>()
+		/** Each live target's atoms, and the least first code point among them. */
+		const byTarget = new Map<number, { readonly atoms: Array<Atom>; first: number }>()
 		for (const [a, t] of entry(targets, c).entries()) {
 			if (!live.has(t)) {
 				continue
 			}
-			const list = byTarget.get(t) ?? []
-			list.push(entry(dfa.atoms, a))
-			byTarget.set(t, list)
+			const atom = entry(dfa.atoms, a)
+			const group = byTarget.get(t)
+			if (group === undefined) {
+				byTarget.set(t, { atoms: [atom], first: atom.first })
+			} else {
+				group.atoms.push(atom)
+				group.first = Math.min(group.first, atom.first)
+			}
 		}
 		return [...byTarget.entries()]
-			.map(([target, atoms]) => ({
-				set: charSet(atoms.flatMap((atom) => atom.set)),
-				first: Math.min(...atoms.map((atom) => atom.first)),
+			.map(([target, group]) => ({
+				set: charSet(group.atoms.flatMap((atom) => atom.set)),
+				first: group.first,
 				target
 			}))
 			.toSorted((x, y) => x.first - y.first)
@@ -588,27 +594,43 @@ export const enumerate = (dfa: CanonicalDfa, limit: number): ReadonlyArray<strin
 		return undefined
 	}
 	const out: Array<string> = []
-	/** The walk's own buffer: the code points of the path to the state being walked. */
+	if (dfa.states.length === 0) {
+		return out
+	}
+	/** The path to the state being walked: its code points, and for each state on it the steps it has left. */
 	const prefix: Array<number> = []
-	const walk = (s: number): void => {
+	const path: Array<Iterator<readonly [number, number]>> = []
+	const enter = (s: number): void => {
 		const state = entry(dfa.states, s)
 		if (state.accept) {
-			out.push(String.fromCodePoint(...prefix))
+			out.push(codePointsText(prefix))
 		}
-		for (const e of state.edges) {
-			for (const [lo, hi] of e.set) {
-				for (let c = lo; c <= hi; c++) {
-					prefix.push(c)
-					walk(e.to)
-					prefix.pop()
-				}
+		path.push(stepsOf(state))
+	}
+	enter(0)
+	for (let top = path.at(-1); top !== undefined; top = path.at(-1)) {
+		const step = top.next()
+		if (step.done === true) {
+			path.pop()
+			prefix.pop()
+		} else {
+			const [c, to] = step.value
+			prefix.push(c)
+			enter(to)
+		}
+	}
+	return out.toSorted(compareByCodePoint)
+}
+
+/** Every step out of a state, in edge and code point order: each code point of each edge's set, with its target. */
+function* stepsOf(state: CanonicalDfa["states"][number]): Generator<readonly [number, number]> {
+	for (const e of state.edges) {
+		for (const [lo, hi] of e.set) {
+			for (let c = lo; c <= hi; c++) {
+				yield [c, e.to]
 			}
 		}
 	}
-	if (dfa.states.length > 0) {
-		walk(0)
-	}
-	return out.toSorted(compareByCodePoint)
 }
 
 /** Code point order, PostgreSQL's order under pg_c_utf8. */

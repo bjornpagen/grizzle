@@ -1,9 +1,9 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { FamilyLaw, LawField, PairedSide } from "#compiler/ir/law.ts"
 import type { FamilyVariable, KeyValue } from "#compiler/laws/families/plugin.ts"
 import { anchorRow, raiseViolation, readAnchor } from "#compiler/laws/residual/sql.ts"
-import type { Expr, PlStatement } from "#compiler/sql/ast.ts"
-import { and, col, core, eq, lit, objectName, select, target, types } from "#compiler/sql/build.ts"
+import type { Expr, PerformQuery, PlStatement } from "#compiler/sql/ast.ts"
+import { and, col, core, eq, lit, objectName, target, types } from "#compiler/sql/build.ts"
 
 /** The record the parent read binds (`p record`). */
 export const parentVariable: FamilyVariable = "p"
@@ -35,9 +35,9 @@ export interface ParentRow {
  * and the body never runs, which is the family's absent-anchor rule, no obligation. A zero/one-row FOR binding never
  * represents an absent parent as a NULL-bearing record.
  *
- * The probe is a PERFORM, an existence witness that sets FOUND, over the child's key, never a probe per arm. The
- * native composite foreign keys enforce the child-to-parent direction, so nothing here looks at a child's own parent
- * again.
+ * The probe and its refusal are one statement (`owed`), a probe of the child's key that refuses when it finds no row,
+ * so nothing reads what a probe left behind it. The native composite foreign keys enforce the child-to-parent
+ * direction, so nothing here looks at a child's own parent again.
  *
  * The DETAIL is the parent's key: the law's projection when it is exactly a key of the parent, otherwise the parent's
  * primary key, read from the parent row, never a payload column. */
@@ -62,22 +62,20 @@ export const childProbe = (
 	schema: string,
 	child: PairedSide,
 	parent: (f: LawField) => Expr
-): PlStatement => ({
-	kind: "perform",
-	query: select(
-		core(
-			[target(lit.int(1, types.integer))],
-			[{ kind: "table", table: objectName(schema, child.relation.ident), alias: "r1" }],
-			and(...child.pairs.map((p) => eq(col("r1", p.field.column), parent(p.anchor))))
-		)
-	)
+): PerformQuery => ({
+	body: core(
+		[target(lit.int(1, types.integer))],
+		[{ kind: "table", table: objectName(schema, child.relation.ident), alias: "r1" }],
+		and(mapNonEmpty(child.pairs, (p) => eq(col("r1", p.field.column), parent(p.anchor))))
+	),
+	orderBy: [],
+	limit: undefined,
+	offset: undefined
 })
 
-/** IF NOT FOUND THEN <raise> END IF: after a probe, the selected child is missing. */
-export const unlessFound = (raise: PlStatement): PlStatement => ({
-	kind: "if",
-	branches: [
-		{ condition: { kind: "not", expr: { kind: "plSpecial", name: "FOUND" } }, body: [raise] }
-	],
-	else: []
+/** The selected child's existence obligation: probe it by the parent's key, refuse when it is absent. */
+export const owed = (schema: string, child: PairedSide, parent: ParentRow): PlStatement => ({
+	kind: "whenAbsent",
+	probe: childProbe(schema, child, parent.field),
+	body: [parent.raise]
 })

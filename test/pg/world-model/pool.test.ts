@@ -1,4 +1,5 @@
 import { layer } from "@effect/vitest"
+import type { Situations } from "@grizzle/testing/features"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	callPastAMigration,
@@ -37,14 +38,14 @@ const pooled: Focus = [
 	"migrate"
 ]
 
-const onePool: Realize = (install) => realizeRace(install, 1)
+const onePool: Realize = (install, ambient) => realizeRace(install, ambient, 1)
 
 /**
  * What a pooled connection shows after each way a transaction ends. While the read of a Db a migration moved past is
  * pending, the suite's lead opens a Db, migrates past it and reads through it (callPastAMigration): a program's own
  * draws seldom take those three moves in that order.
  */
-const required: ReadonlyArray<WorldFeature> = [
+const required: Situations<WorldFeature> = [
 	"connection:shared-by-roles",
 	"connection:after-commit",
 	"connection:after-no-change",

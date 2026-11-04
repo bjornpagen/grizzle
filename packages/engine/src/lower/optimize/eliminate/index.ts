@@ -368,8 +368,7 @@ const eliminationMeasure: Measure = (cx) => {
  *   and S is a stored relation, never a derived one, whose contents are its last refresh and which no law
  *   relates to its inputs.
  *
- * A key match never moves an error frontier: a stored scan evaluates nothing. The certificate carries the key's and
- * the containment's constraint premises and the context the evidence requires.
+ * The certificate carries the key's and the containment's constraint premises and the context the evidence requires.
  *
  * Its key-join rule (R03.keyJoin) folds an occurrence into another of the same stored relation that binds every column
  * of a physical key of it to the same variables: both scan the one fact the key admits, so one occurrence binding what

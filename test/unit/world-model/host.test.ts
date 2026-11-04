@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, map, oneOf, shuffled } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -30,6 +31,7 @@ import { isDrawn, isSpan } from "#test/pg/laws/families/model.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import {
 	type Bindings,
 	noBindings,
@@ -38,6 +40,7 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 
+import type { Uuid } from "#compiler/public/fields.ts"
 import {
 	literalOf,
 	type Row,
@@ -94,7 +97,7 @@ import type {
 
 type Kind = "org" | "doc" | "sub" | "plan" | "int" | "no" | "tier"
 
-const token = (prefix: string, n: number): string =>
+const token = (prefix: string, n: number): Uuid =>
 	`${prefix}${pipe(n.toString(16), Str.padStart(4, "0"))}-7c3e-4a1b-9d2f-0e5c7a9b3d1f`
 
 const pools: Readonly<Record<Kind, Arr.NonEmptyReadonlyArray<HostValue>>> = {
@@ -113,6 +116,7 @@ const kinds: Readonly<Record<string, Readonly<Record<string, Kind>>>> = {
 	Doc: { id: "doc", org: "org", owner: "sub", words: "int" },
 	Share: { doc: "doc", user: "sub" },
 	Note: { no: "no", doc: "doc", author: "sub" },
+	Visit: { no: "no" },
 	Tier: { id: "tier" },
 	OrgDocs: { org: "org", doc: "doc" },
 	Session: { sub: "sub" },
@@ -430,11 +434,13 @@ const referenceRows = (
 			closed: [],
 			containments: []
 		},
-		facts: Rec.fromEntries(
-			Arr.map(
-				[...stored],
-				([name, heading]) =>
-					[name, Arr.map(factsOf(name), (f) => referenceRow(name, heading, f))] as const
+		facts: canonicalFacts(
+			Rec.fromEntries(
+				Arr.map(
+					[...stored],
+					([name, heading]) =>
+						[name, Arr.map(factsOf(name), (f) => referenceRow(name, heading, f))] as const
+				)
 			)
 		),
 		params: {},
@@ -502,7 +508,7 @@ type HostFeature =
 	| "rows"
 	| "no rows"
 
-const required: ReadonlyArray<HostFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<HostFeature> = [
 	"an ordinary source",
 	"the closed source",
 	"the derived source",
@@ -762,7 +768,6 @@ const budget = {
 	shrink: { kind: "complete" },
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(2)
 } as const
 
@@ -777,7 +782,7 @@ describe("the worlds model's host semantics", () => {
 						...budget,
 						suite: "unit/world-model/host",
 						draw: drawn(caseGen),
-						features: features(required),
+						coverage: required(situations, { cases: 200, sense: notesOnly }),
 						runs: 200
 					},
 					(drawnCase, c) =>
@@ -825,7 +830,10 @@ describe("the worlds model's host semantics", () => {
 						...budget,
 						suite: "unit/world-model/host membership",
 						draw: drawn(worldGen),
-						features: features<"a member" | "a non-member">(["a member", "a non-member"]),
+						coverage: required<"a member" | "a non-member">(["a member", "a non-member"], {
+							cases: 100,
+							sense: notesOnly
+						}),
 						runs: 100
 					},
 					({ reality, derived, session }, c) =>
@@ -870,7 +878,10 @@ describe("the worlds model's host semantics", () => {
 						...budget,
 						suite: "unit/world-model/host get keys",
 						draw: drawn(installGen(docsBase)),
-						features: features<"a key" | "no key">(["a key", "no key"]),
+						coverage: required<"a key" | "no key">(["a key", "no key"], {
+							cases: 60,
+							sense: notesOnly
+						}),
 						runs: 60
 					},
 					(install, c) =>
@@ -896,7 +907,7 @@ describe("the worlds model's host semantics", () => {
 											? roleValue.relations[name]
 											: undefined
 										const query = queryBuilt(roleValue).rule((r: RuleValue): FinishedValue => {
-											const vars = varsOver(value)
+											const vars = varsOver(value, "value")
 											return Arr.reduce(fields, r.match(value, vars), (matched, f) =>
 												matched.where(r.eq(vars[f.name], carrierOf(f.domain, pooled(f.domain, 0))))
 											).find(vars)

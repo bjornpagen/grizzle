@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -15,6 +15,7 @@ import {
 	string,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -44,6 +45,8 @@ import {
 	type FieldDesc,
 	type LiteralDesc
 } from "#compiler/ir/desc.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { predicateExpr } from "#compiler/scalar/compute/term.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import {
@@ -82,8 +85,9 @@ const budget: FieldDesc = {
 		kind: "between",
 		arg: { kind: "value" },
 		low: { kind: "literal", value: 0n, type: undefined },
-		high: { kind: "literal", value: dec("1000000.00"), type: undefined }
-	}
+		high: { kind: "literal", value: dec("1000000"), type: undefined }
+	},
+	facts: []
 }
 
 const fields: Readonly<Record<string, FieldDesc>> = {
@@ -110,7 +114,10 @@ const ownerRule: RuleDesc = {
 	matches: [
 		{
 			source: { kind: "relation", name: "Account" },
-			bindings: { id: { kind: "var", var: "v7" }, owner: { kind: "param", name: "owner" } }
+			bindings: {
+				id: { kind: "var", var: "v7" },
+				owner: { kind: "param", name: "owner", type: { kind: "uuid" } }
+			}
 		}
 	],
 	where: [],
@@ -147,7 +154,7 @@ const rule: RuleDesc = {
 			source: {
 				kind: "query",
 				query: versioned(rules(ownerRule)),
-				bind: { owner: { kind: "param", name: "outer" } }
+				bind: { owner: { kind: "param", name: "outer", type: { kind: "uuid" } } }
 			},
 			bindings: { id: { kind: "var", var: "v2" } }
 		}
@@ -157,9 +164,9 @@ const rule: RuleDesc = {
 			kind: "compare",
 			op: "eq",
 			left: { kind: "var", var: "v2" },
-			right: { kind: "param", name: "account" }
+			right: { kind: "param", name: "account", type: { kind: "uuid" } }
 		},
-		{ kind: "in", arg: { kind: "var", var: "v3" }, values: [dec("1.50"), 2n, "~escaped"] },
+		{ kind: "in", arg: { kind: "var", var: "v3" }, values: [dec("1.5"), 2n, "~escaped"] },
 		{
 			kind: "not",
 			arg: {
@@ -390,7 +397,7 @@ const relations: ReadonlyArray<RelationDesc> = [
 		name: "Plan",
 		handles: ["Free", "Pro"],
 		payload: { seats: { kind: "pg", type: "integer" }, price: { kind: "numeric" } },
-		facts: { Free: { seats: 1, price: dec("0") }, Pro: { seats: 10, price: dec("49.00") } }
+		facts: { Free: { seats: 1, price: dec("0") }, Pro: { seats: 10, price: dec("49") } }
 	},
 	{
 		kind: "closed",
@@ -435,7 +442,11 @@ const current: QueryDesc = versioned(
 			}
 		],
 		where: [
-			{ kind: "pointIn", point: { kind: "param", name: "now" }, span: { kind: "var", var: "v2" } }
+			{
+				kind: "pointIn",
+				point: { kind: "param", name: "now", type: { kind: "pg", type: "bigint" } },
+				span: { kind: "var", var: "v2" }
+			}
 		],
 		head: { id: { kind: "var", var: "v1" } },
 		interiors: [],
@@ -508,7 +519,10 @@ const castsAndSpans: ExprDesc = {
 				to: { kind: "numeric", precision: 12, scale: 2 },
 				arg: { kind: "var", var: "v3" }
 			},
-			right: { kind: "base", arg: { kind: "param", name: "limit" } }
+			right: {
+				kind: "base",
+				arg: { kind: "param", name: "limit", type: { kind: "numeric", precision: 12, scale: 2 } }
+			}
 		},
 		{
 			kind: "pointIn",
@@ -632,10 +646,16 @@ describe("Descriptions", () => {
 						literal: Formatter.format,
 						generator: element(nonEmpty(sites, "the location sites")),
 						limit: 2000,
-						features: features<LocatedFeature>(
+						coverage: requiredInSpace<LocatedFeature>(
 							Arr.flatMap(
-								[...new Set(Arr.flatMap(sites, (x) => (x.site === "none" ? [] : [x.kind])))],
-								(kind): ReadonlyArray<LocatedFeature> => [`located ${kind}`, `stated ${kind}`]
+								nonEmpty(
+									Arr.dedupe(Arr.flatMap(sites, (x) => (x.site === "none" ? [] : [x.kind]))),
+									"the located kinds"
+								),
+								(kind): Arr.NonEmptyReadonlyArray<LocatedFeature> => [
+									`located ${kind}`,
+									`stated ${kind}`
+								]
 							)
 						),
 						caseHang: Duration.minutes(2)
@@ -739,13 +759,15 @@ describe("Descriptions", () => {
 						),
 						runs: 500,
 						shrink: completeShrink,
-						features: features<
+						coverage: required<
 							"two chains told apart" | "one chain" | "over a recursion" | "a chain refused"
-						>(["two chains told apart", "one chain", "over a recursion", "a chain refused"]),
+						>(["two chains told apart", "one chain", "over a recursion", "a chain refused"], {
+							cases: 500,
+							sense: notesOnly
+						}),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([overRecursion, a, b], c) =>
@@ -841,7 +863,7 @@ describe("Descriptions", () => {
 						"a derived definition"
 					]),
 					limit: 7,
-					features: features<Position>([
+					coverage: requiredInSpace<Position>([
 						"a page's query",
 						"an attachment child",
 						"a read-back",
@@ -901,9 +923,7 @@ describe("Descriptions", () => {
 				least: 2,
 				greatest: 2,
 				widthBucket: 4,
-				scale: 1,
 				minScale: 1,
-				trimScale: 1,
 				lower: 1,
 				upper: 1,
 				width: 1,
@@ -962,7 +982,7 @@ describe("Descriptions", () => {
 						literal: Formatter.format,
 						generator: space,
 						limit: 100,
-						features: features<
+						coverage: requiredInSpace<
 							| "scale refused"
 							| "scale decoded"
 							| "origin refused"
@@ -1291,7 +1311,7 @@ describe("Descriptions", () => {
 					literal: Formatter.format,
 					generator: corruptions,
 					limit: 20_000,
-					features: features<CorruptFeature>([
+					coverage: requiredInSpace<CorruptFeature>([
 						"null",
 						"unknown property",
 						"a malformed payload",
@@ -1364,7 +1384,7 @@ describe("Descriptions", () => {
 						map(int(0, 3), (depth): Nesting => ({ kind: "shared", depth }))
 					]),
 					limit: 100,
-					features: features<Nesting["kind"] | "past the bound" | "within the bound">([
+					coverage: requiredInSpace<Nesting["kind"] | "past the bound" | "within the bound">([
 						"a chain",
 						"a cycle",
 						"an array cycle",
@@ -1460,7 +1480,11 @@ describe("Descriptions", () => {
 	const exprGen = (depth: number): Gen<ExprDesc> => {
 		const leaves: Arr.NonEmptyReadonlyArray<Gen<ExprDesc>> = [
 			map(text(1), (v): ExprDesc => ({ kind: "var", var: v })),
-			map(text(1), (name): ExprDesc => ({ kind: "param", name })),
+			map(text(1), (name): ExprDesc => ({
+				kind: "param",
+				name,
+				type: { kind: "pg", type: "integer" }
+			})),
 			map(literal, (value): ExprDesc => ({ kind: "literal", value, type: undefined }))
 		]
 		if (depth === 0) {
@@ -1468,6 +1492,10 @@ describe("Descriptions", () => {
 		}
 		const inner = exprGen(depth - 1)
 		const args = array(inner, { min: 1, max: 3 })
+		const operands: Gen<Arr.NonEmptyReadonlyArray<ExprDesc>> = map(
+			(source) => [source.draw(inner), source.draw(array(inner, { min: 0, max: 2 }))] as const,
+			([first, rest]): Arr.NonEmptyReadonlyArray<ExprDesc> => [first, ...rest]
+		)
 		return oneOf<ExprDesc>([
 			...leaves,
 			(source) => ({
@@ -1476,9 +1504,9 @@ describe("Descriptions", () => {
 				left: source.draw(inner),
 				right: source.draw(inner)
 			}),
-			map(args, (a): ExprDesc => ({ kind: "and", args: a })),
+			map(operands, (a): ExprDesc => ({ kind: "and", args: a })),
 			map(inner, (arg): ExprDesc => ({ kind: "not", arg })),
-			map(args, (a): ExprDesc => ({ kind: "or", args: a })),
+			map(operands, (a): ExprDesc => ({ kind: "or", args: a })),
 			map(inner, (arg): ExprDesc => ({ kind: "base", arg })),
 			(source) => ({
 				kind: "cast",
@@ -1583,18 +1611,13 @@ describe("Descriptions", () => {
 						),
 						runs: 500,
 						shrink: completeShrink,
-						features: features<TagFeature>([
-							"~n",
-							"~d",
-							"~m",
-							"~v",
-							"an escaped tilde",
-							"an owned value kept"
-						]),
+						coverage: required<TagFeature>(
+							["~n", "~d", "~m", "~v", "an escaped tilde", "an owned value kept"],
+							{ cases: 500, sense: notesOnly }
+						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(e, c) =>
@@ -1633,11 +1656,10 @@ describe("Descriptions", () => {
 					draw: drawn(exprsGen),
 					runs: 300,
 					shrink: completeShrink,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(e) =>
@@ -1648,5 +1670,99 @@ describe("Descriptions", () => {
 					})
 			)
 		)
+	)
+
+	/**
+	 * An and or or of no operand, written as untyped JavaScript where a Description may hold one: alone, as the first or
+	 * the second operand of a connective beside a generated expression, or negated.
+	 */
+	type EmptyPlace = "alone" | "a first operand" | "a second operand" | "negated"
+	type EmptyFeature = "an empty conjunction" | "an empty disjunction" | EmptyPlace
+	interface Emptied {
+		readonly kind: "and" | "or"
+		readonly place: EmptyPlace
+		readonly outer: "and" | "or"
+		readonly beside: ExprDesc
+	}
+	const emptiedGen: Gen<Emptied> = (source) => ({
+		kind: source.draw(element(["and", "or"] as const)),
+		place: source.draw(
+			element(["alone", "a first operand", "a second operand", "negated"] as const)
+		),
+		outer: source.draw(element(["and", "or"] as const)),
+		beside: source.draw(exprsGen)
+	})
+	/**
+	 * The case as written, and the expression it means: the same expression, its empty connective the constant `unit`
+	 * and the generated expression beside it decoded.
+	 */
+	const emptied = (s: Emptied, unit: ExprDesc, beside: ExprDesc): readonly [unknown, ExprDesc] => {
+		const empty = { kind: s.kind, args: [] }
+		switch (s.place) {
+			case "alone":
+				return [empty, unit]
+			case "a first operand":
+				return [
+					{ kind: s.outer, args: [empty, s.beside] },
+					{ kind: s.outer, args: [unit, beside] }
+				]
+			case "a second operand":
+				return [
+					{ kind: s.outer, args: [s.beside, empty] },
+					{ kind: s.outer, args: [beside, unit] }
+				]
+			case "negated":
+				return [
+					{ kind: "not", arg: empty },
+					{ kind: "not", arg: unit }
+				]
+		}
+	}
+
+	it.effect(
+		"decodes an empty and or or to the constant its builder builds of no predicate",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/ir/desc-empty-connective",
+						literal: Formatter.format,
+						draw: drawn(emptiedGen),
+						runs: 200,
+						shrink: completeShrink,
+						coverage: required<EmptyFeature>(
+							[
+								"an empty conjunction",
+								"an empty disjunction",
+								"alone",
+								"a first operand",
+								"a second operand",
+								"negated"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							c.note(s.kind === "and" ? "an empty conjunction" : "an empty disjunction")
+							c.note(s.place)
+							const unit = succeeded(
+								decodeDesc("expr", predicateExpr(s.kind === "and" ? Compute.and() : Compute.or()))
+							)
+							assert.deepEqual<ExprDesc>(unit, {
+								kind: "literal",
+								value: s.kind === "and",
+								type: undefined
+							})
+							const [written, meant] = emptied(s, unit, succeeded(decodeDesc("expr", s.beside)))
+							assert.deepEqual<ExprDesc>(succeeded(decodeDesc("expr", written)), meant)
+						})
+				)
+			)
 	)
 })

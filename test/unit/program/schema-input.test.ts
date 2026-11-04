@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import {
 	corrupted,
@@ -8,6 +8,7 @@ import {
 	type CorruptedFeature,
 	type Corruption
 } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
@@ -90,7 +91,7 @@ interface Subject {
 /** The query over `value` that reads every field of `relation`. */
 const readOf = (value: object, relation: { readonly name: string }): object =>
 	queryOver(value).rule((r: RuleValue) => {
-		const vars = varsOver(relation)
+		const vars = varsOver(relation, "relation")
 		return r.match(relation, vars).find(vars)
 	})
 
@@ -134,7 +135,7 @@ describe("the schema a query compiles against", () => {
 						generator: (source) => [source.draw(subjects), source.draw(subjects)] as const,
 						literal: Formatter.format,
 						limit: 16,
-						features: features<LevelFeature>(["the schema itself", "a level", "no level"]),
+						coverage: requiredInSpace<LevelFeature>(["the schema itself", "a level", "no level"]),
 						caseHang: Duration.minutes(2)
 					},
 					([built, named], c) =>
@@ -227,7 +228,7 @@ describe("the artifacts of a schema", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 144,
-						features: features<ArtifactsFeature>([
+						coverage: requiredInSpace<ArtifactsFeature>([
 							"the built value and the Owned",
 							"the built value and its description",
 							"the Owned and its description",
@@ -277,7 +278,10 @@ describe("the artifacts of a schema", () => {
 								a.names.schema,
 								(naming.installation ?? declared.installation).identifier
 							)
-							assert.equal(a.names.vectorSchema, naming.vectorSchema ?? declared.vectorSchema)
+							assert.equal<string>(
+								a.names.vectorSchema,
+								naming.vectorSchema ?? declared.vectorSchema
+							)
 						})
 				)
 			)
@@ -480,13 +484,14 @@ const contentOf = ({
 
 /**
  * Planted: a rename to a name of each of the dictionary's kinds, and each change of content at the first relation and
- * field of the first root, which the drawn cases reach a few to twenty times a run each.
+ * field of the first root.
  */
 const identifierFeatures: Arr.NonEmptyReadonlyArray<IdentifierFeature> = [
 	"alias",
 	"digit boundary",
 	"long, at the limit",
 	"reserved word",
+	"catalog type",
 	"plain"
 ]
 
@@ -534,20 +539,22 @@ describe("a level is its content, not its name", () => {
 						suite: "unit/program/schema-input-content",
 						draw: drawn(contentSketchGen),
 						literal: Formatter.format,
-						features: features<ContentFeature>([
-							...Arr.map(identifierFeatures, (feature) => `renamed: ${feature}` as const),
-							...contentChanges
-						]),
+						coverage: required<ContentFeature>(
+							[
+								...Arr.map(identifierFeatures, (feature) => `renamed: ${feature}` as const),
+								...contentChanges
+							],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: keptContent,
 						/**
-						 * Half the cases rename over a dictionary of five kinds of name, half change one of four parts of the
-						 * content: a hundred cases reach each about ten times.
+						 * The rotating stream's sample: half the cases rename over a dictionary of five kinds of name, half change
+						 * one of four parts of the content.
 						 */
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>
@@ -668,12 +675,15 @@ describe("a schema the decoder refuses", () => {
 						suite: "unit/program/schema-input-decoder",
 						draw: drawn(element(lives)),
 						literal: Formatter.format,
-						features: features<CorruptedFeature<DecoderRule>>([
-							"live",
-							"wild an unnamed relation",
-							"wild a field of no kind",
-							"wild a statement of no kind"
-						]),
+						coverage: required<CorruptedFeature<DecoderRule>>(
+							[
+								"live",
+								"wild an unnamed relation",
+								"wild a field of no kind",
+								"wild a statement of no kind"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						/**
 						 * Five cases in six break one of three rules: a hundred cases break each rule more than twenty times.
@@ -682,7 +692,6 @@ describe("a schema the decoder refuses", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(live, c) =>

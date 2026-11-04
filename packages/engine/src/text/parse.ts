@@ -1,6 +1,6 @@
 import { catchSignal } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
-import { codePoints } from "#compiler/core/text.ts"
+import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import {
 	type CharSet,
 	charSet,
@@ -172,7 +172,7 @@ class Parser {
 	}
 
 	#text(from: number, to: number): string {
-		return String.fromCodePoint(...this.#cps.slice(from, to))
+		return codePointsText(this.#cps.slice(from, to))
 	}
 
 	#fail(
@@ -552,7 +552,7 @@ class Parser {
 			throw invalid()
 		}
 		this.#pos += 1
-		return String.fromCodePoint(...name)
+		return codePointsText(name)
 	}
 
 	/** A `\uHHHH`, `\uHHHH\uHHHH` or `\u{H...}` escape in a group name, with the cursor on its backslash. */
@@ -868,7 +868,7 @@ class Parser {
 			}
 		}
 		this.#pos += 1
-		const members = union(charSet(ranges), ...parts)
+		const members = union([charSet(ranges), ...parts])
 		return Ir.set(negated ? complement(members) : members)
 	}
 

@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Context, Duration, Effect, Formatter, Layer, Schema } from "effect"
@@ -28,10 +28,15 @@ import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, role, schema } from "#compiler/public/schema.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { printRoleSetting, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/types/schema/world.ts"
-import { type RoleDefault, roleDefaultParameters, roleDefaults } from "#test/pg/adapter/support.ts"
+import {
+	type RoleDefault,
+	type RoleDefaultSetting,
+	roleDefaults
+} from "#test/pg/adapter/support.ts"
 import { bareDatabase, installed } from "#test/pg/reads/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { pgPin } from "#test/support/env.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
@@ -43,6 +48,7 @@ import {
 	loadMigrated as load
 } from "#test/support/install-migrate.ts"
 import { decodeJson } from "#test/support/json.ts"
+import { testTypeSchema } from "#test/support/sql.ts"
 import { Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { fullWorld, loginLayer, loginLayerIn, testVerify, tokenOf } from "#test/support/worlds.ts"
@@ -90,18 +96,22 @@ const builtinCUtf8 =
  */
 const vectorProbe = query(W.Work).rule((r) => {
 	const wanted = r.relation("qs", { id: uuid, e: pg.vector(3) })
-	const { id, kind } = v(W.Task)
+	const { id, kind } = v(W.Task, "task")
 	return r.match(wanted, { id }).match(W.Task, { id, kind }).find({ id, kind })
 })
 
-/** A value admission must refuse for each role default Publish stores: jit on, no extra float digits, the C locale. */
+/**
+ * A value admission must refuse for each role default Publish stores, as ALTER ROLE ... SET spells it: PostgreSQL's own
+ * search path, jit on, no extra float digits, the C locale.
+ */
 const wrongRoleDefault: { readonly [P in RoleDefault]: string } = {
-	jit: "on",
-	extra_float_digits: "0",
-	lc_monetary: "C",
-	lc_numeric: "C",
-	lc_time: "C",
-	lc_messages: "C"
+	search_path: `${quoteIdent("$user")}, ${quoteIdent("public")}`,
+	jit: quoteString("on"),
+	extra_float_digits: quoteString("0"),
+	lc_monetary: quoteString("C"),
+	lc_numeric: quoteString("C"),
+	lc_time: quoteString("C"),
+	lc_messages: quoteString("C")
 }
 
 /** The member's context: the account a session acts for, read from the payload's `member` claim object. */
@@ -115,7 +125,7 @@ const openWorlds = (Work: W.WorkNamed<string>) => {
 	const full = fullWorld(Work)
 	const auditor = role(Work, "auditor", { Account: W.Account })
 	const myTasks = query(Work).rule((r) => {
-		const { id, account, kind } = v(W.Task)
+		const { id, account, kind } = v(W.Task, "task")
 		return r.match(W.Task, { id, account, kind }).match(Member, { account }).find({ id, kind })
 	})
 	const member = role(Work, "member", { MyTask: myTasks })
@@ -173,7 +183,7 @@ type OpenCase =
 	| {
 			readonly kind: "role default"
 			readonly change: "reset" | "wrong"
-			readonly parameter: RoleDefault
+			readonly setting: RoleDefaultSetting
 	  }
 	| { readonly kind: "libc database" }
 	| { readonly kind: "vector column without pgvector" }
@@ -189,7 +199,7 @@ const featureOf = (openCase: OpenCase): OpenFeature => {
 		case "payload refused":
 			return `payload refused ${openCase.fault}`
 		case "role default":
-			return `role default ${openCase.change} ${openCase.parameter}`
+			return `role default ${openCase.change} ${openCase.setting.parameter}`
 		case "admitted":
 		case "claims admitted":
 		case "absent claim object admitted":
@@ -214,10 +224,10 @@ const faultPayload: { readonly [F in PayloadFault]: unknown } = {
 const roleDefaultCases: Arr.NonEmptyReadonlyArray<OpenCase> = Arr.flatMap(
 	["reset", "wrong"] as const,
 	(change) =>
-		Arr.map(roleDefaultParameters, (parameter): OpenCase => ({
+		Arr.map(roleDefaults, (setting): OpenCase => ({
 			kind: "role default",
 			change,
-			parameter
+			setting
 		}))
 )
 
@@ -242,7 +252,7 @@ const openCases: Arr.NonEmptyReadonlyArray<OpenCase> = [
 	{ kind: "vector column admitted" }
 ]
 
-const openFeatures: ReadonlyArray<OpenFeature> = Arr.map(openCases, featureOf)
+const openFeatures: Arr.NonEmptyReadonlyArray<OpenFeature> = Arr.map(openCases, featureOf)
 
 /**
  * Db.open and minimal admission on PostgreSQL 19, exhaustively over the ways an open can be refused, one stage each:
@@ -252,9 +262,9 @@ const openFeatures: ReadonlyArray<OpenFeature> = Arr.map(openCases, featureOf)
  * - token: a token the layer's verify refuses, and verified payloads that do not decode through the role's contexts (a
  *   claim object that is no object, a field missing from it, a value its field's encoder refuses), each before any
  *   connection, the verifier's TokenError for its own refusal and ClaimRefused for grizzle's;
- * - roleDefaults: each default Publish stores on the login role, removed or stored with a wrong value, read from the
- *   catalog, so a missing jit = off or extra_float_digits = 1 is refused even where the server's own default makes the
- *   effective value right;
+ * - roleDefaults: each default Publish stores on the login role, its search_path among them, removed or stored with a
+ *   wrong value, read from the catalog, so a missing jit = off or extra_float_digits = 1 is refused even where the
+ *   server's own default makes the effective value right;
  * - locale: a libc database, with PostgreSQL's own spellings (provider 'c', a NULL datlocale read as the empty string);
  * - capability: a schema with a vector column on a builtin C.UTF-8 database without pgvector;
  * - each refusal's reason holds every mismatch of the stages judged, a later stage's included: the bare databases of
@@ -279,6 +289,7 @@ export const openSuite = (): void => {
 						const s = yield* Substrate
 						const declared = openWorlds(W.Work)
 						const done = yield* install(W.Work, {
+							ambient: ordinarySession,
 							label: "real",
 							extensions: [],
 							logins: [declared.server, declared.ops, declared.web]
@@ -309,7 +320,7 @@ export const openSuite = (): void => {
 								generator: element(openCases),
 								literal: Formatter.format,
 								limit: 32,
-								features: features<OpenFeature>(openFeatures),
+								coverage: requiredInSpace<OpenFeature>(openFeatures),
 								caseHang: Duration.minutes(2)
 							},
 							(openCase, c) =>
@@ -335,7 +346,7 @@ export const openSuite = (): void => {
 													Member: { account: a2 }
 												})
 												const mine = query(worlds.member).rule((r) => {
-													const { id } = v(worlds.member.relations.MyTask)
+													const { id } = v(worlds.member.relations.MyTask, "myTask")
 													return r.match(worlds.member.relations.MyTask, { id }).find({ id })
 												})
 												const rows = yield* Effect.flatMap(db.execute(mine, {}), (r) => r.collect)
@@ -359,7 +370,7 @@ export const openSuite = (): void => {
 												const db = yield* openMember({})
 												assert.deepEqual(settingFacts(dbContext(db)?.prologue.claims), {})
 												const mine = query(worlds.member).rule((r) => {
-													const { id } = v(worlds.member.relations.MyTask)
+													const { id } = v(worlds.member.relations.MyTask, "myTask")
 													return r.match(worlds.member.relations.MyTask, { id }).find({ id })
 												})
 												const rows = yield* Effect.flatMap(db.execute(mine, {}), (r) => r.collect)
@@ -370,7 +381,10 @@ export const openSuite = (): void => {
 										case "vector column admitted": {
 											yield* Effect.gen(function* () {
 												const db = yield* Db.open(searching.server.roles.app, {})
-												assert.equal(dbContext(db)?.artifacts.names.vectorSchema, "vector_ext")
+												assert.equal(
+													dbContext(db)?.artifacts.names.vectorSchema,
+													testTypeSchema("vector_ext")
+												)
 												const found = yield* db.get(search.Document, {
 													id: "00000000-0000-4000-8000-000000000001"
 												})
@@ -453,19 +467,20 @@ export const openSuite = (): void => {
 											 * refused even where the server's default makes the effective value right (jit,
 											 * extra_float_digits).
 											 */
-											const parameter = quoteIdent(openCase.parameter)
+											const { setting } = openCase
+											const parameter = quoteIdent(setting.parameter)
 											const loginRole = quoteIdent(serverRole)
 											yield* Effect.acquireRelease(
 												s.admin.query(
 													openCase.change === "reset"
 														? `ALTER ROLE ${loginRole} RESET ${parameter}`
-														: `ALTER ROLE ${loginRole} SET ${parameter} = ${quoteString(wrongRoleDefault[openCase.parameter])}`,
+														: `ALTER ROLE ${loginRole} SET ${parameter} = ${wrongRoleDefault[setting.parameter]}`,
 													[]
 												),
 												() =>
 													Effect.orDie(
 														s.admin.query(
-															`ALTER ROLE ${loginRole} SET ${parameter} = ${quoteString(roleDefaults[openCase.parameter])}`,
+															`ALTER ROLE ${loginRole} SET ${printRoleSetting(setting)}`,
 															[]
 														)
 													)
@@ -475,7 +490,7 @@ export const openSuite = (): void => {
 											)
 											assert.equal(error.stage, "settings")
 											assert.deepEqual(mismatchChecks(error), [
-												`role ${serverRole} default ${openCase.parameter}`
+												`role ${serverRole} default ${setting.parameter}`
 											])
 											break
 										}

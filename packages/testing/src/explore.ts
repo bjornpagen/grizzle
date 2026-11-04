@@ -15,28 +15,41 @@ import {
 } from "effect"
 import { type Branch, count, firstBranch, nextBranch } from "#enumerate.ts"
 import {
-	type Features,
-	type GeneratedPhase,
+	type Coverage,
 	keyOf,
-	keysAt,
 	type Pending,
+	type Phase,
 	pendingAt,
 	pendingOf,
-	type Reach,
-	reachOf,
+	type Rate,
+	ratesOf,
+	type Reached,
 	type Residual,
 	residualOf,
-	shortOf,
-	type Short,
+	type SpaceCoverage,
+	type SteeringPhase,
+	situationsOf,
 	type Tally,
 	type TallyBuilder,
-	tallyOf
+	tallyOf,
+	unreachedOf
 } from "#features.ts"
 import type { Corpus, Fuzz, FuzzBudget } from "#fuzz.ts"
 import type { Gen } from "#gen.ts"
 import { liveMillis, liveSleep, stopHung } from "#live.ts"
 import { mutate } from "#mutate.ts"
-import { between, caseSeed, floorSeed, fnv1a32, mix, rotatingSeed, wordsOf } from "#random.ts"
+import {
+	between,
+	caseSeed,
+	floorSeed,
+	fnv1a32,
+	fuzzSeed,
+	type LabelStream,
+	rotatingSeed,
+	type RunStream,
+	steeredSeed,
+	wordsOf
+} from "#random.ts"
 import { type Drawn, type Replay, ReplayCase, replayTokenOf } from "#replay.ts"
 import { seedsOf } from "#seeds.ts"
 import { notesOnly, type Sense } from "#sense.ts"
@@ -84,13 +97,14 @@ const isDiscarded = Schema.is(CaseDiscarded)
 
 /**
  * What a property sees of the case it runs: it notes the situations it reached; steers, where steering is allowed, by
- * reading which of the suite's required situations no generated case had reached when the case's window began
- * (Pending); draws more from the case's own tape; records on the tape what the system under test decided (and learns
- * whether a replay decided the same); and gives the case up when a precondition fails. A note, a draw or an
- * observation made after the case ended is a misuse, reported as one. `steering` is none wherever a case must be a
- * plain draw of its generator: the rotating stream, whose cases alone estimate the residual, and a kept case, which
- * must run as it ran. A property cannot steer there, so the estimate never rests on steered cases. A replay steers
- * exactly as the case it replays did: its token records what the case was drawn under.
+ * reading which of the suite's required situations no witness had reached when the case's window began (Pending);
+ * draws more from the case's own tape; records on the tape what the system under test decided (and learns whether a
+ * replay decided the same); and gives the case up when a precondition fails. A note, a draw or an observation made
+ * after the case ended is a misuse, reported as one. Steering is offered to the witnesses (the floor stream, the
+ * steered phase, an exhaustion's cases) and to a fuzz run, so a property may aim their draws at what is pending.
+ * `steering` is none wherever a case must be a plain draw of its generator: the rotating stream, whose cases alone
+ * estimate the residual, and a kept case, which must run as it ran. A replay steers exactly as the case it replays
+ * did: its token records what the case was drawn under.
  */
 export type Case<F extends string> = Readonly<{
 	note: (feature: F) => void
@@ -140,49 +154,72 @@ export type Kept<S, F extends string> = Readonly<{
 /**
  * A property search over one draw. Every field is stated by the suite, so its budget is on the page:
  * - `literal` prints a sketch as source the suite can paste into its kept cases, and must read back as the same sketch;
- * - `runs` is the rotating stream's cases, and the floor stream runs a quarter as many: the suite's whole budget under
- *   test, where a longer search is a fuzz run with a budget of its own;
+ * - `coverage` is what the search must reach, and the steered phase that reaches what the floor stream misses: the
+ *   floor's and the steered phase's cases alone decide it, so it passes on every run seed or on none;
+ * - `runs` is the rotating stream's cases, the run's fresh sample, and the floor stream runs a quarter as many: the
+ *   suite's budget for finding failures under test, never a dial for coverage, where a longer search is a fuzz run
+ *   with a budget of its own;
  * - `concurrency` is how many cases run at once; cases that share state the property does not isolate run one at a
  *   time;
  * - `steerEvery` is how many cases pass between the snapshots `Case.steering` reads, a constant of the suite, so the
  *   same seed draws the same cases however many run at once;
- * - `steering` is whether a steered phase mutates the cases that found something new before the rotating stream runs;
  * - `caseHang` is how long one case may run before it is stopped and reported.
  */
 export type Exploration<S, T, F extends string> = Readonly<{
 	suite: string
 	draw: Draw<S, T>
 	literal: (sketch: S) => string
-	features: Features<F>
+	coverage: Coverage<F>
 	kept: ReadonlyArray<Kept<S, F>>
 	runs: number
 	shrink: ShrinkBudget
 	concurrency: number
 	steerEvery: number
-	steering: Steering
 	caseHang: Duration.Input
 }>
 
-/**
- * Whether a search steers. A steered phase runs between the floor stream and the rotating one: it keeps every case
- * that noted a situation or pair no earlier case had, or that its sense perceived something new in, and mutates kept
- * cases, the rarest finders most, for up to `cases` cases or until every required situation is reached. Steered
- * cases satisfy required situations, since a generator produced them, but never the residual, which only the
- * rotating stream's independent cases estimate.
- */
-export type Steering =
-	| Readonly<{ kind: "none" }>
-	| Readonly<{ kind: "mutate"; cases: number; sense: Sense }>
+/** Where a falsified case was drawn: a phase of its search, a kept case, or the one case a replay token names. */
+export type CasePhase = Phase | "kept" | "replayed"
+
+const CasePhase = Schema.Literals([
+	"kept",
+	"floor",
+	"steered",
+	"exhaustive",
+	"independent",
+	"fuzzed",
+	"replayed"
+])
 
 /**
- * A property failed on a case; the report names the run, the stream, the shrunk case and how to replay it. `replay` is
- * the case a replay token names, none for a kept case and an exhaustive one.
+ * Whether a falsified case's phase is a witness, one the suite's label fixes: a failure found there is found on every
+ * run seed, so a verdict that requires a failure (a mutant's kill) counts it, and no other.
+ */
+export const isWitness = (phase: CasePhase): boolean => {
+	switch (phase) {
+		case "floor":
+		case "steered":
+		case "exhaustive":
+			return true
+		case "kept":
+		case "independent":
+		case "fuzzed":
+		case "replayed":
+			return false
+	}
+}
+
+/**
+ * A property failed on a case; the report names the run, the stream, the shrunk case and how to replay it. `phase` is
+ * where the case was drawn, as data, so a caller judges a failure by where it came from, never by its prose. `replay`
+ * is the case a replay token names, none for a kept case, which replays by value.
  */
 export class PropertyFalsified extends Schema.TaggedError<
 	PropertyFalsified,
 	{ readonly brand: unique symbol }
 >()("PropertyFalsified", {
 	suite: Schema.String,
+	phase: CasePhase,
 	replay: Schema.Option(ReplayCase),
 	message: Schema.String
 }) {}
@@ -193,17 +230,28 @@ export class CaseHung extends Schema.TaggedError<CaseHung, { readonly brand: uni
 	{ suite: Schema.String, replay: Schema.Option(ReplayCase), message: Schema.String }
 ) {}
 
-/** More cases gave themselves up than ran: the generator rarely meets the property's precondition, and should build
- * values that meet it rather than filter for them. */
+/** More of the floor stream's cases gave themselves up than ran: the generator rarely meets the property's
+ * precondition, and should build values that meet it rather than filter for them. The floor is the label-fixed set of
+ * plain draws, so a stall is the same on every run seed. */
 export class CasesStalled extends Schema.TaggedError<
 	CasesStalled,
 	{ readonly brand: unique symbol }
 >()("CasesStalled", { suite: Schema.String, message: Schema.String }) {}
 
+/** The witnesses a coverage verdict was judged on: an exploration's floor and steered cases, or an exhaustion's every
+ * case. */
+const Witnessed = Schema.Union([
+	Schema.Struct({ kind: Schema.Literal("streams"), floor: Schema.Int, steered: Schema.Int }),
+	Schema.Struct({ kind: Schema.Literal("space"), cases: Schema.Int })
+])
+
+export type Witnessed = typeof Witnessed.Type
+
 /**
- * No generated case reached a required situation within the search's budget: the generator draws it too rarely for the
- * cases it runs, or no longer draws it at all. A kept case never counts, so a situation only a kept case reaches needs a
- * generator arm or a steered phase that reaches it.
+ * No witness reached a required situation: the generator draws it too rarely for the floor and the steered budget, or
+ * no longer draws it at all. Every witness is fixed by the suite's label, so every run seed fails alike. A kept case
+ * and a rotating case never count, so a situation only they reach needs a generator arm, a property that aims its
+ * draws at what is pending, or a larger steered budget.
  */
 export class FeaturesUnreached extends Schema.TaggedError<
 	FeaturesUnreached,
@@ -211,21 +259,7 @@ export class FeaturesUnreached extends Schema.TaggedError<
 >()("FeaturesUnreached", {
 	suite: Schema.String,
 	missing: Schema.Array(Schema.String),
-	message: Schema.String
-}) {}
-
-/**
- * Some cases of a passing search's sample (an exploration's independent cases, an exhaustion's every case) reached a
- * requirement fewer times than the suite's reach margin asks. `short` names each such requirement and how many of
- * those cases reached it.
- */
-export class ReachBelowMargin extends Schema.TaggedError<
-	ReachBelowMargin,
-	{ readonly brand: unique symbol }
->()("ReachBelowMargin", {
-	suite: Schema.String,
-	margin: Schema.Int,
-	short: Schema.Array(Schema.Struct({ requirement: Schema.String, reached: Schema.Int })),
+	witnessed: Witnessed,
 	message: Schema.String
 }) {}
 
@@ -272,7 +306,6 @@ export type SearchFailure =
 	| CaseHung
 	| CasesStalled
 	| FeaturesUnreached
-	| ReachBelowMargin
 	| KeptUnreached
 	| KeptStale
 	| ReplayStale
@@ -367,20 +400,20 @@ const candidateJudgment = <S>(candidate: CaseRun<S, Tape>): Judgment<Attempt<Fai
 /** What a case is drawn under, as its replay token records it, and the steering its property sees of that. */
 type Under<F extends string> = Readonly<{ drawn: Drawn; steering: Option.Option<Pending<F>> }>
 
-const underOf = <F extends string>(declared: Features<F>, how: Drawn): Under<F> => {
+const underOf = <F extends string>(situations: ReadonlyArray<Reached<F>>, how: Drawn): Under<F> => {
 	switch (how.kind) {
 		case "unsteered":
 			return { drawn: how, steering: Option.none() }
 		case "steered":
-			return { drawn: how, steering: Option.some(pendingAt(declared, how.pending)) }
+			return { drawn: how, steering: Option.some(pendingAt(situations, how.pending)) }
 	}
 }
 
-/** Cases drawn under the requirements no case of these tallies reached. */
+/** Cases drawn under the requirements no case of these steering tallies reached. */
 const steeredBy = <F extends string>(
-	declared: Features<F>,
-	generated: ReadonlyArray<Tally<GeneratedPhase>>
-): Under<F> => underOf(declared, { kind: "steered", pending: pendingOf(declared, generated) })
+	situations: ReadonlyArray<Reached<F>>,
+	steering: ReadonlyArray<Tally<SteeringPhase>>
+): Under<F> => underOf(situations, { kind: "steered", pending: pendingOf(situations, steering) })
 
 /** How a case's property ended, before its recording is read. */
 type Settled =
@@ -594,25 +627,136 @@ const falsifiedReport = (
 		"\n"
 	)
 
-/** The requirements under a margin, each with how many sampled cases reached it. */
-const describeShort = (short: ReadonlyArray<Short>): string =>
-	Arr.join(
-		Arr.map(short, (requirement) => `${requirement.requirement} (${requirement.reached})`),
-		", "
+/** How long a case may run, as a failure report prints it. */
+const hangOf = (caseHang: Duration.Input): string =>
+	Duration.format(Duration.fromInputUnsafe(caseHang))
+
+/** The failure of a case its property used after the case ended. */
+const misusedIn = (suite: string, where: string) =>
+	Effect.fail(
+		CaseMisused.make({
+			suite,
+			message: `${suite}: ${where} used its case after the case ended`
+		})
 	)
 
+/** What a failure report says of a case's run, its cause and its draws. */
+const reportedOf = <S>(
+	literal: (sketch: S) => string,
+	caseRun: CaseRun<S, unknown>,
+	cause: Cause.Cause<unknown>,
+	draws: string
+): Reported => ({
+	literal: literal(caseRun.sketch),
+	draws,
+	drew: caseRun.drew,
+	notes: caseRun.notes,
+	cause
+})
+
+/** What the replay of one case needs of its search: how its cases are drawn and printed, and what it requires. */
+type Replaying<S, T, F extends string> = Readonly<{
+	suite: string
+	generator: Gen<S>
+	resolve: (sketch: S) => T
+	literal: (sketch: S) => string
+	situations: ReadonlyArray<Reached<F>>
+	caseHang: Duration.Input
+}>
+
 /**
- * What a passing exploration found: its cases, its discards, the residual estimate of its independent cases, and how
- * its cases reached each requirement (Reach), in the order the suite declares them. A replay's has its one case and
- * no reach: it runs no stream.
+ * Runs the one case a replay token names, under the steering the token records, in place of every stream: a failure
+ * is reported as given, unshrunk, with its token again; a pass that ran exactly its draws is `passed`; a case that no
+ * longer runs as its token says, or steers by a requirement the suite no longer declares, is ReplayStale.
+ */
+const replayOne = <S, T, F extends string, E, R, A>(
+	search: Replaying<S, T, F>,
+	run: Context.Service.Shape<typeof Run>,
+	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>,
+	replayed: ReplayCase,
+	passed: () => A
+): Effect.Effect<A, SearchFailure, Exclude<R, Scope.Scope>> =>
+	Effect.gen(function* () {
+		const undeclared = undeclaredIn(replayed.drawn, search.situations.length)
+		if (Option.isSome(undeclared)) {
+			return yield* ReplayStale.make({
+				suite: search.suite,
+				message: `${search.suite}: the token steers by requirement ${undeclared.value}, and the suite declares ${search.situations.length}; replay it from a fresh failure`
+			})
+		}
+		const values = Float64Array.from(replayed.values)
+		const caseRun = yield* runCase(
+			search.generator,
+			search.resolve,
+			property,
+			forcedChooser(values, values.length),
+			[],
+			underOf(search.situations, replayed.drawn),
+			search.caseHang,
+			keepNothing,
+			notesOnly
+		)
+		const where = "the replayed case"
+		return yield* judge<Effect.Effect<A, SearchFailure>>(caseRun, {
+			passed: () =>
+				ranExactly(caseRun, values.length)
+					? Effect.sync(passed)
+					: Effect.fail(
+							ReplayStale.make({
+								suite: search.suite,
+								message: `${search.suite}: ${where} passed, but not as its token says: ${drewInstead(caseRun, values.length)}; replay it from a fresh failure`
+							})
+						),
+			discarded: () =>
+				Effect.fail(
+					ReplayStale.make({
+						suite: search.suite,
+						message: `${search.suite}: ${where} gave itself up, so it no longer runs; replay it from a fresh failure`
+					})
+				),
+			misused: () => misusedIn(search.suite, where),
+			hung: (hung) =>
+				Effect.fail(
+					CaseHung.make({
+						suite: search.suite,
+						replay: Option.some(replayCaseOf(replayed.drawn, hung.tape)),
+						message: `${search.suite}: ${where} ran past ${hangOf(search.caseHang)}: ${search.literal(caseRun.sketch)}`
+					})
+				),
+			failed: (failed) => {
+				const again = Option.some(replayCaseOf(replayed.drawn, failed.tape))
+				return Effect.fail(
+					PropertyFalsified.make({
+						suite: search.suite,
+						phase: "replayed",
+						replay: again,
+						message: falsifiedReport(
+							run,
+							search.suite,
+							where,
+							reportedOf(search.literal, caseRun, failed.cause, drawsOf(caseRun, failed.tape)),
+							"replayed as given, not shrunk",
+							again
+						)
+					})
+				)
+			}
+		})
+	})
+
+/**
+ * What a passing exploration found: its cases, its discards, how many cases its steered phase ran, the residual
+ * estimate of its independent cases, and how many of them reached each feature its coverage rates (features.ts
+ * rating). A replay's has its one case: it runs no stream.
  */
 export type Explored = Readonly<{
 	kind: "explored"
 	suite: string
 	cases: number
 	discards: number
+	steered: number
 	residual: Residual
-	reach: ReadonlyArray<Reach>
+	rates: ReadonlyArray<Rate>
 }>
 
 /** A line on the process's own console, whatever console the case runs under: a fuzz run reports to the person
@@ -646,9 +790,6 @@ const describeBudget = (budget: FuzzBudget): string => {
 	}
 }
 
-/** Separates the steered phase's stream from the rotating stream it is derived from. */
-const STEER_SALT = 0x5bd1_e995
-
 /** One steered case in this many is a fresh draw rather than a mutant of a seed. */
 const FRESH_EVERY = 4
 
@@ -677,12 +818,44 @@ const replayCorpus = <X, R>(
 	})
 
 /**
- * Searches a property: kept cases first, then the floor stream (fixed by the suite's label) and the rotating stream
- * (fresh each run). Cases run in windows of `steerEvery`, up to `concurrency` at once; each window's results are taken
- * in case order, so concurrency changes how fast a search runs and never what it finds. A failing case, the lowest of
- * its window, is shrunk by editing its tape, property draws included, under the steering it was drawn under. Every
- * required situation must be reached by a generated case, and as many independent cases as the suite's reach margin
- * asks. The residual comes from the independent cases alone. A replay runs its one case instead.
+ * A search of mutants grown from kept seeds: the steered phase, a witness on the stream the floor's seed fixes, or a
+ * fuzz run, on a stream the run's seed draws. The variant ties the stream's kind to the tally its cases fill, so a
+ * witness phase is never drawn from the run's seed.
+ */
+type Mutated =
+	| Readonly<{ phase: "steered"; stream: LabelStream; tally: TallyBuilder<"steered"> }>
+	| Readonly<{ phase: "fuzzed"; stream: RunStream; tally: TallyBuilder<"fuzzed"> }>
+
+/** Where a mutated case came from, as a failure report names it. */
+const mutatedLabel = (mutated: Mutated): string => {
+	switch (mutated.phase) {
+		case "steered":
+			return "the steered phase"
+		case "fuzzed":
+			return "the fuzz run"
+	}
+}
+
+/** What a fuzz run perceives: the steered phase's sense, or the notes alone for a search that requires nothing. */
+const fuzzSenseOf = <F extends string>(coverage: Coverage<F>): Sense => {
+	switch (coverage.kind) {
+		case "none":
+			return notesOnly
+		case "required":
+			return coverage.steered.sense
+	}
+}
+
+/**
+ * Searches a property: kept cases first; then the witnesses, the floor stream and, for a search that requires
+ * situations, the steered phase grown from it, both fixed by the suite's label; then the rotating stream, fresh each
+ * run. Cases run in windows of `steerEvery`, up to `concurrency` at once; each window's results are taken in case
+ * order, so concurrency changes how fast a search runs and never what it finds. A failing case, the lowest of its
+ * window, is shrunk by editing its tape, property draws included, under the steering it was drawn under. The stall
+ * verdict is judged on the floor stream, and the coverage verdict on the witnesses alone, before the rotating stream
+ * runs: neither moves with the run's seed, and a coverage failure spends no sample. The residual comes from the
+ * rotating stream's independent cases alone. A replay runs its one case instead; a fuzz run searches its run-seeded
+ * stream after the floor, in place of the rest.
  */
 export const explore = <S, T, F extends string, E, R>(
 	spec: Exploration<S, T, F>,
@@ -690,12 +863,40 @@ export const explore = <S, T, F extends string, E, R>(
 ): Effect.Effect<Explored, SearchFailure, Run | Exclude<R, Scope.Scope>> =>
 	Effect.gen(function* () {
 		const run = yield* Run
+		const situations = situationsOf(spec.coverage)
+		const replay = Option.filter(run.replay, (requested) => requested.suite === spec.suite)
+		if (Option.isSome(replay)) {
+			return yield* replayOne(
+				{
+					suite: spec.suite,
+					generator: spec.draw.generator,
+					resolve: spec.draw.resolve,
+					literal: spec.literal,
+					situations,
+					caseHang: spec.caseHang
+				},
+				run,
+				property,
+				replay.value.replayed,
+				(): Explored => ({
+					kind: "explored",
+					suite: spec.suite,
+					cases: 1,
+					discards: 0,
+					steered: 0,
+					residual: residualOf(tallyOf("independent").tally()),
+					rates: ratesOf(spec.coverage, tallyOf("independent").tally())
+				})
+			)
+		}
+
 		const floorTally = tallyOf("floor")
-		const steered = tallyOf("steered")
-		const independent = tallyOf("independent")
+		const steeredTally = tallyOf("steered")
+		const independentTally = tallyOf("independent")
+		const fuzzedTally = tallyOf("fuzzed")
 		const pool: Array<Recorder> = []
-		const hang = Duration.format(Duration.fromInputUnsafe(spec.caseHang))
-		const unsteered = underOf(spec.features, { kind: "unsteered" })
+		const hang = hangOf(spec.caseHang)
+		const unsteered = underOf(situations, { kind: "unsteered" })
 		let cases = 0
 		let discards = 0
 		const caseOf = (chooser: Chooser, under: Under<F>) =>
@@ -734,101 +935,15 @@ export const explore = <S, T, F extends string, E, R>(
 				keepTape,
 				notesOnly
 			)
-		const reportOf = (
-			caseRun: CaseRun<S, unknown>,
-			cause: Cause.Cause<unknown>,
-			draws: string
-		): Reported => ({
-			literal: spec.literal(caseRun.sketch),
-			draws,
-			drew: caseRun.drew,
-			notes: caseRun.notes,
-			cause
-		})
-		const misusedIn = (where: string) =>
-			Effect.fail(
-				CaseMisused.make({
-					suite: spec.suite,
-					message: `${spec.suite}: ${where} used its case after the case ended`
-				})
-			)
-		const explored = (reach: ReadonlyArray<Reach>): Explored => ({
+		const explored = (): Explored => ({
 			kind: "explored",
 			suite: spec.suite,
 			cases,
 			discards,
-			residual: residualOf(independent.tally()),
-			reach
+			steered: steeredTally.tally().cases,
+			residual: residualOf(independentTally.tally()),
+			rates: ratesOf(spec.coverage, independentTally.tally())
 		})
-
-		const replayOne = (replayed: ReplayCase) =>
-			Effect.gen(function* () {
-				const undeclared = undeclaredIn(replayed.drawn, spec.features.required.length)
-				if (Option.isSome(undeclared)) {
-					return yield* ReplayStale.make({
-						suite: spec.suite,
-						message: `${spec.suite}: the token steers by requirement ${undeclared.value}, and the suite declares ${spec.features.required.length}; replay it from a fresh failure`
-					})
-				}
-				const values = Float64Array.from(replayed.values)
-				const caseRun = yield* caseOf(
-					forcedChooser(values, values.length),
-					underOf(spec.features, replayed.drawn)
-				)
-				const where = "the replayed case"
-				return yield* judge<Effect.Effect<Explored, SearchFailure>>(caseRun, {
-					passed: () =>
-						ranExactly(caseRun, values.length)
-							? Effect.sync(() => {
-									cases += 1
-									return explored([])
-								})
-							: Effect.fail(
-									ReplayStale.make({
-										suite: spec.suite,
-										message: `${spec.suite}: ${where} passed, but not as its token says: ${drewInstead(caseRun, values.length)}; replay it from a fresh failure`
-									})
-								),
-					discarded: () =>
-						Effect.fail(
-							ReplayStale.make({
-								suite: spec.suite,
-								message: `${spec.suite}: ${where} gave itself up, so it no longer runs; replay it from a fresh failure`
-							})
-						),
-					misused: () => misusedIn(where),
-					hung: (hung) =>
-						Effect.fail(
-							CaseHung.make({
-								suite: spec.suite,
-								replay: Option.some(replayCaseOf(replayed.drawn, hung.tape)),
-								message: `${spec.suite}: ${where} ran past ${hang}: ${spec.literal(caseRun.sketch)}`
-							})
-						),
-					failed: (failed) => {
-						const again = Option.some(replayCaseOf(replayed.drawn, failed.tape))
-						return Effect.fail(
-							PropertyFalsified.make({
-								suite: spec.suite,
-								replay: again,
-								message: falsifiedReport(
-									run,
-									spec.suite,
-									where,
-									reportOf(caseRun, failed.cause, drawsOf(caseRun, failed.tape)),
-									"replayed as given, not shrunk",
-									again
-								)
-							})
-						)
-					}
-				})
-			})
-
-		const replay = Option.filter(run.replay, (requested) => requested.suite === spec.suite)
-		if (Option.isSome(replay)) {
-			return yield* replayOne(replay.value.replayed)
-		}
 
 		for (const kept of spec.kept) {
 			const draws = valuesFromToken(kept.draws)
@@ -875,7 +990,7 @@ export const explore = <S, T, F extends string, E, R>(
 							message: `${spec.suite}: ${where} gave itself up, so its property's precondition no longer holds for it; replay it from a fresh failure and keep that`
 						})
 					),
-				misused: () => misusedIn(where),
+				misused: () => misusedIn(spec.suite, where),
 				hung: () =>
 					Effect.fail(
 						CaseHung.make({
@@ -888,12 +1003,13 @@ export const explore = <S, T, F extends string, E, R>(
 					Effect.fail(
 						PropertyFalsified.make({
 							suite: spec.suite,
+							phase: "kept",
 							replay: Option.none(),
 							message: falsifiedReport(
 								run,
 								spec.suite,
 								where,
-								reportOf(keptRun, failed.cause, kept.draws),
+								reportedOf(spec.literal, keptRun, failed.cause, kept.draws),
 								"kept cases are never shrunk",
 								Option.none()
 							)
@@ -903,17 +1019,16 @@ export const explore = <S, T, F extends string, E, R>(
 		}
 
 		const floor = floorSeed(spec.suite)
-		const rotating = rotatingSeed(run.seed, floor)
-		const generated = () => [floorTally.tally(), steered.tally(), independent.tally()]
 		const seeds = seedsOf()
 
-		/** Judges one case of a stream: a pass counts in its phase's tally, a failure is shrunk under the steering the
-		 * case was drawn under and reported with its replay token, and a hang is reported as drawn. */
+		/** Judges one case of a phase: a pass counts in its phase's tally and a discard is its phase's, a failure is
+		 * shrunk under the steering the case was drawn under and reported with its phase and its replay token, and a
+		 * hang is reported as drawn. */
 		const settle = <K>(
 			caseRun: CaseRun<S, K>,
 			where: string,
 			under: Under<F>,
-			tally: TallyBuilder<GeneratedPhase>
+			tally: TallyBuilder<Phase>
 		) =>
 			judge<Effect.Effect<boolean, SearchFailure, Exclude<R, Scope.Scope>>>(caseRun, {
 				passed: () =>
@@ -925,9 +1040,10 @@ export const explore = <S, T, F extends string, E, R>(
 				discarded: () =>
 					Effect.sync(() => {
 						discards += 1
+						tally.discard()
 						return false
 					}),
-				misused: () => misusedIn(where),
+				misused: () => misusedIn(spec.suite, where),
 				hung: (hung) => {
 					const replayed = replayCaseOf(under.drawn, hung.tape)
 					return Effect.fail(
@@ -954,12 +1070,18 @@ export const explore = <S, T, F extends string, E, R>(
 							return Effect.fail(
 								PropertyFalsified.make({
 									suite: spec.suite,
+									phase: tally.phase,
 									replay: replayed,
 									message: falsifiedReport(
 										run,
 										spec.suite,
 										where,
-										reportOf(best, shrunk.best.failure.cause, drawsOf(best, shrunk.best.tape)),
+										reportedOf(
+											spec.literal,
+											best,
+											shrunk.best.failure.cause,
+											drawsOf(best, shrunk.best.tape)
+										),
 										`shrunk in ${shrunk.candidates} candidates${shrunk.cut ? ", cut short by its budget" : ""}`,
 										replayed
 									)
@@ -974,24 +1096,25 @@ export const explore = <S, T, F extends string, E, R>(
 			seeds.keep(caseRun.kept, caseRun.notes, caseRun.trace)
 
 		/**
-		 * One window of cases from the seeds kept so far, each a mutant of a seed, but one in `FRESH_EVERY` a fresh draw, so a
-		 * steered phase whose seeds sit far from what is missing still finds it as often as plain draws would; `found` sees
-		 * each case that found something new.
+		 * One window of mutated cases from the seeds kept so far, each a mutant of a seed, but one in `FRESH_EVERY` a fresh
+		 * draw, so a phase whose seeds sit far from what is missing still finds it as often as plain draws would; each
+		 * steers by, and picks its seed by, the floor's tally and its own phase's; `found` sees each case that found
+		 * something new.
 		 */
 		const mutatedWindow = <X>(
-			phase: string,
-			stream: number,
+			mutated: Mutated,
 			indices: ReadonlyArray<number>,
 			sense: Sense,
 			found: (caseRun: CaseRun<S, Tape>) => Effect.Effect<void, X>
 		) =>
 			Effect.gen(function* () {
-				const under = steeredBy(spec.features, generated())
-				const pick = seeds.picker(generated())
+				const steering = [floorTally.tally(), mutated.tally.tally()]
+				const under = steeredBy(situations, steering)
+				const pick = seeds.picker(steering)
 				const window = yield* Effect.forEach(
 					indices,
 					(index) => {
-						const words = wordsOf(caseSeed(stream, index))
+						const words = wordsOf(caseSeed(mutated.stream, index))
 						const chooser = Option.match(
 							between(words, 0, FRESH_EVERY - 1) === 0 ? Option.none() : pick(words),
 							{
@@ -1007,14 +1130,13 @@ export const explore = <S, T, F extends string, E, R>(
 					{ concurrency: sense.concurrent ? spec.concurrency : 1 }
 				)
 				for (const [offset, caseRun] of window.entries()) {
-					const where = `${phase} (seed ${hex(stream)}), case ${Arr.getUnsafe(indices, offset)}`
-					if ((yield* settle(caseRun, where, under, steered)) && keepIfNew(caseRun)) {
+					const where = `${mutatedLabel(mutated)} (seed ${hex(mutated.stream)}), case ${Arr.getUnsafe(indices, offset)}`
+					if ((yield* settle(caseRun, where, under, mutated.tally)) && keepIfNew(caseRun)) {
 						yield* found(caseRun)
 					}
 				}
 			})
 
-		const steering = spec.steering
 		const fuzzing = Option.filter(run.fuzz, (fuzz) => fuzz.suite === spec.suite)
 		const floorCases = Math.max(1, Math.ceil(spec.runs / 4))
 
@@ -1028,7 +1150,7 @@ export const explore = <S, T, F extends string, E, R>(
 		) =>
 			Effect.gen(function* () {
 				for (let windowStart = 0; windowStart < floorCases; windowStart += spec.steerEvery) {
-					const under = steeredBy(spec.features, generated())
+					const under = steeredBy(situations, [floorTally.tally()])
 					const indices = Arr.range(
 						windowStart,
 						Math.min(windowStart + spec.steerEvery, floorCases) - 1
@@ -1047,39 +1169,51 @@ export const explore = <S, T, F extends string, E, R>(
 				}
 			})
 
-		if (steering.kind === "mutate" || Option.isSome(fuzzing)) {
+		if (spec.coverage.kind === "required" || Option.isSome(fuzzing)) {
 			yield* floorStream((chooser, under) => seedOf(chooser, under, notesOnly), keepIfNew)
 		} else {
 			yield* floorStream(caseOf, () => undefined)
 		}
 
-		const steerSeed = mix(rotating ^ STEER_SALT)
+		const floored = floorTally.tally()
+		if (floored.discards > floored.cases) {
+			return yield* CasesStalled.make({
+				suite: spec.suite,
+				message: `${spec.suite}: ${floored.discards} of the floor stream's cases gave themselves up and ${floored.cases} ran; build values that meet the precondition instead of filtering for them`
+			})
+		}
+
 		if (Option.isSome(fuzzing)) {
 			const fuzz = fuzzing.value
-			const sense = steering.kind === "mutate" ? steering.sense : notesOnly
+			const fuzzed: Mutated = {
+				phase: "fuzzed",
+				stream: fuzzSeed(rotatingSeed(run.seed, floor)),
+				tally: fuzzedTally
+			}
+			const sense = fuzzSenseOf(spec.coverage)
 			const replayed = yield* replayCorpus(fuzz.corpus, (values, index) =>
 				Effect.gen(function* () {
-					const under = steeredBy(spec.features, generated())
+					const under = steeredBy(situations, [floorTally.tally(), fuzzedTally.tally()])
 					const caseRun = yield* seedOf(
 						prefixChooser(
 							values,
 							values.length,
-							randomChooser(wordsOf(caseSeed(steerSeed, -1 - index)))
+							randomChooser(wordsOf(caseSeed(fuzzed.stream, -1 - index)))
 						),
 						under,
 						sense
 					)
-					const passed = yield* settle(caseRun, `the corpus's case ${index}`, under, steered)
+					const passed = yield* settle(caseRun, `the corpus's case ${index}`, under, fuzzedTally)
 					return passed && keepIfNew(caseRun)
 				})
 			)
 			const started = yield* liveMillis
 			let reported = started
 			let found = 0
-			let fuzzed = 0
+			let fuzzedCases = 0
 			const status = (now: number) =>
 				liveLog(
-					`fuzz: ${spec.suite}: elapsed: ${Math.round((now - started) / 1000)}s, execs: ${fuzzed} (${Math.round((fuzzed * 1000) / Math.max(1, now - started))}/sec), new interesting: ${found} (total: ${seeds.size()})`
+					`fuzz: ${spec.suite}: elapsed: ${Math.round((now - started) / 1000)}s, execs: ${fuzzedCases} (${Math.round((fuzzedCases * 1000) / Math.max(1, now - started))}/sec), new interesting: ${found} (total: ${seeds.size()})`
 				)
 			yield* liveLog(
 				`fuzz: ${spec.suite}: ${replayed.replayed} cases of the corpus replayed, ${replayed.dropped} of them dropped as adding nothing, ${seeds.size()} seeds, fuzzing ${describeBudget(fuzz.budget)}`
@@ -1088,20 +1222,22 @@ export const explore = <S, T, F extends string, E, R>(
 			yield* Effect.gen(function* () {
 				for (;;) {
 					const now = yield* liveMillis
-					if (spent(fuzz.budget, fuzzed, now - started)) {
+					if (spent(fuzz.budget, fuzzedCases, now - started)) {
 						return yield* status(now)
 					}
 					if (now - reported >= STATUS_EVERY) {
 						reported = now
 						yield* status(now)
 					}
-					const indices = Arr.range(fuzzed, fuzzed + spec.steerEvery - 1)
-					fuzzed += indices.length
-					yield* mutatedWindow("the fuzz run", steerSeed, indices, sense, (caseRun) => {
+					const indices = Arr.range(fuzzedCases, fuzzedCases + spec.steerEvery - 1)
+					fuzzedCases += indices.length
+					yield* mutatedWindow(fuzzed, indices, sense, (caseRun) => {
 						found += 1
 						return Effect.andThen(
 							save(caseRun.kept.values),
-							liveLog(`fuzz: ${spec.suite}: new interesting case ${fuzzed}, ${seeds.size()} seeds`)
+							liveLog(
+								`fuzz: ${spec.suite}: new interesting case ${fuzzedCases}, ${seeds.size()} seeds`
+							)
 						)
 					})
 				}
@@ -1115,28 +1251,49 @@ export const explore = <S, T, F extends string, E, R>(
 						: Effect.void
 				)
 			)
-			return explored(
-				reachOf(spec.features, floorTally.tally(), steered.tally(), independent.tally())
-			)
+			return explored()
 		}
 
-		if (steering.kind === "mutate") {
-			for (
-				let windowStart = 0;
-				windowStart < steering.cases &&
-				Arr.isReadonlyArrayNonEmpty(pendingOf(spec.features, generated()));
-				windowStart += spec.steerEvery
-			) {
-				yield* mutatedWindow(
-					"the steered phase",
-					steerSeed,
-					Arr.range(windowStart, Math.min(windowStart + spec.steerEvery, steering.cases) - 1),
-					steering.sense,
-					() => Effect.void
-				)
+		switch (spec.coverage.kind) {
+			case "none":
+				break
+			case "required": {
+				const { situations: requiredSituations, steered } = spec.coverage
+				const steering: Mutated = {
+					phase: "steered",
+					stream: steeredSeed(floor),
+					tally: steeredTally
+				}
+				const witnessed = () => [floorTally.tally(), steeredTally.tally()]
+				for (
+					let windowStart = 0;
+					windowStart < steered.cases &&
+					Arr.isReadonlyArrayNonEmpty(unreachedOf(requiredSituations, witnessed()));
+					windowStart += spec.steerEvery
+				) {
+					yield* mutatedWindow(
+						steering,
+						Arr.range(windowStart, Math.min(windowStart + spec.steerEvery, steered.cases) - 1),
+						steered.sense,
+						() => Effect.void
+					)
+				}
+				const missing = unreachedOf(requiredSituations, witnessed())
+				if (Arr.isReadonlyArrayNonEmpty(missing)) {
+					const floorCount = floorTally.tally().cases
+					const steeredCount = steeredTally.tally().cases
+					return yield* FeaturesUnreached.make({
+						suite: spec.suite,
+						missing,
+						witnessed: { kind: "streams", floor: floorCount, steered: steeredCount },
+						message: `${spec.suite}: no case of its ${floorCount} floor cases or ${steeredCount} steered cases reached ${Arr.join(missing, ", ")}; both streams are fixed by the suite's label, so every run seed fails alike. A kept case and a rotating case never count: give the generator an arm that reaches it, aim the property's draws at what is pending (Case.steering), or give the steered phase more cases`
+					})
+				}
+				break
 			}
 		}
 
+		const rotating = rotatingSeed(run.seed, floor)
 		for (let windowStart = 0; windowStart < spec.runs; windowStart += spec.steerEvery) {
 			const indices = Arr.range(windowStart, Math.min(windowStart + spec.steerEvery, spec.runs) - 1)
 			const window = yield* Effect.forEach(
@@ -1149,63 +1306,37 @@ export const explore = <S, T, F extends string, E, R>(
 					caseRun,
 					`the rotating stream (seed ${hex(rotating)}), case ${windowStart + offset}`,
 					unsteered,
-					independent
+					independentTally
 				)
 			}
 		}
-
-		if (discards > cases) {
-			return yield* CasesStalled.make({
-				suite: spec.suite,
-				message: `${spec.suite}: ${discards} cases gave themselves up and ${cases} ran; build values that meet the precondition instead of filtering for them`
-			})
-		}
-		const missing = pendingOf(spec.features, generated())
-		if (Arr.isReadonlyArrayNonEmpty(missing)) {
-			const keys = keysAt(spec.features, missing)
-			return yield* FeaturesUnreached.make({
-				suite: spec.suite,
-				missing: keys,
-				message: `${spec.suite}: no generated case reached ${Arr.join(keys, ", ")} in ${floorTally.tally().cases} floor, ${steered.tally().cases} steered and ${independent.tally().cases} rotating cases; a kept case never counts toward a requirement, so draw it more often, steer toward it, or give the generator an arm that reaches it`
-			})
-		}
-		const short = shortOf(spec.features, independent.tally())
-		if (Arr.isReadonlyArrayNonEmpty(short)) {
-			return yield* ReachBelowMargin.make({
-				suite: spec.suite,
-				margin: spec.features.reachMargin,
-				short,
-				message: `${spec.suite}: of ${independent.tally().cases} independent cases, fewer than the margin of ${spec.features.reachMargin} reached ${describeShort(short)}; a fresh seed misses a requirement so rarely reached, so draw it more often or give the generator an arm that reaches it`
-			})
-		}
-		return explored(
-			reachOf(spec.features, floorTally.tally(), steered.tally(), independent.tally())
-		)
+		return explored()
 	})
 
 /**
  * An exhaustive check: every case of a bounded generator, smallest first, under a hard limit. `literal` prints a case
- * as source, as an exploration's does.
+ * as source, as an exploration's does; `coverage` is what the space must reach, judged on every case of it.
  */
 export type Exhaustion<A, F extends string> = Readonly<{
 	suite: string
 	generator: Gen<A>
 	literal: (value: A) => string
 	limit: number
-	features: Features<F>
+	coverage: SpaceCoverage<F>
 	caseHang: Duration.Input
 }>
 
-/** What a passing exhaustion checked: every case of its space. */
+/** What a passing exhaustion checked: every case of its space. A replay's has its one case. */
 export type Exhausted = Readonly<{ kind: "exhausted"; suite: string; cases: number }>
 
 /**
  * Checks a property on every case of a bounded generator, smallest first, so a failure needs no shrinking: the first
- * failing case is the smallest. The space is counted before any property runs and refused beyond its limit; draws the
- * property makes are enumerated too, so each case's successor depends on it and cases run one at a time, and a run
- * that would pass the limit stops before it. Each case steers by the requirements no earlier case reached, and every
- * requirement must be reached by as many cases of the space as the suite's reach margin asks. Passing is a proof
- * inside the box the generator draws.
+ * failing case is the smallest, and its replay token runs it alone. The space is counted before any property runs and
+ * refused beyond its limit; draws the property makes are enumerated too, so each case's successor depends on it and
+ * cases run one at a time, and a run that would pass the limit stops before it. Each case steers by the requirements
+ * no earlier case reached. Every case of the space is a witness, fixed by the generator alone, so every requirement
+ * must be reached by one of them, and the verdict is the same on every run seed. Passing is a proof inside the box the
+ * generator draws.
  */
 export const exhaust = <A, F extends string, E, R>(
 	spec: Exhaustion<A, F>,
@@ -1213,6 +1344,24 @@ export const exhaust = <A, F extends string, E, R>(
 ): Effect.Effect<Exhausted, SearchFailure, Run | Exclude<R, Scope.Scope>> =>
 	Effect.gen(function* () {
 		const run = yield* Run
+		const situations = situationsOf(spec.coverage)
+		const replay = Option.filter(run.replay, (requested) => requested.suite === spec.suite)
+		if (Option.isSome(replay)) {
+			return yield* replayOne(
+				{
+					suite: spec.suite,
+					generator: spec.generator,
+					resolve: (value: A) => value,
+					literal: spec.literal,
+					situations,
+					caseHang: spec.caseHang
+				},
+				run,
+				property,
+				replay.value.replayed,
+				(): Exhausted => ({ kind: "exhausted", suite: spec.suite, cases: 1 })
+			)
+		}
 		const refused = SpaceBeyondLimit.make({
 			suite: spec.suite,
 			limit: spec.limit,
@@ -1223,16 +1372,18 @@ export const exhaust = <A, F extends string, E, R>(
 		}
 		const exhaustive = tallyOf("exhaustive")
 		const pool: Array<Recorder> = []
+		const hang = hangOf(spec.caseHang)
 		let branch: Option.Option<Branch> = Option.some(firstBranch)
 		let cases = 0
 		while (Option.isSome(branch)) {
+			const under = steeredBy(situations, [exhaustive.tally()])
 			const caseRun = yield* runCase(
 				spec.generator,
 				(value: A) => value,
 				property,
 				prefixChooser(branch.value.values, branch.value.length, simplestChooser),
 				pool,
-				steeredBy(spec.features, [exhaustive.tally()]),
+				under,
 				spec.caseHang,
 				keepTape,
 				notesOnly
@@ -1246,63 +1397,53 @@ export const exhaust = <A, F extends string, E, R>(
 								cases += 1
 								exhaustive.add(caseRun.notes)
 							}),
-				discarded: () => Effect.void,
-				misused: () =>
-					Effect.fail(
-						CaseMisused.make({
-							suite: spec.suite,
-							message: `${spec.suite}: ${where} used its case after the case ended`
-						})
-					),
-				hung: () =>
-					Effect.fail(
+				discarded: () => Effect.sync(() => exhaustive.discard()),
+				misused: () => misusedIn(spec.suite, where),
+				hung: (hung) => {
+					const replayed = replayCaseOf(under.drawn, hung.tape)
+					return Effect.fail(
 						CaseHung.make({
 							suite: spec.suite,
-							replay: Option.none(),
-							message: `${spec.suite}: ${where} ran past its hang limit: ${spec.literal(caseRun.sketch)}`
+							replay: Option.some(replayed),
+							message: `${spec.suite}: ${where} ran past ${hang}: counterexample ${spec.literal(caseRun.sketch)}, replay it alone: TEST_REPLAY='${replayTokenOf(spec.suite, replayed)}'`
 						})
-					),
-				failed: (failed) =>
-					Effect.fail(
+					)
+				},
+				failed: (failed) => {
+					const replayed = Option.some(replayCaseOf(under.drawn, failed.tape))
+					return Effect.fail(
 						PropertyFalsified.make({
 							suite: spec.suite,
-							replay: Option.none(),
+							phase: "exhaustive",
+							replay: replayed,
 							message: falsifiedReport(
 								run,
 								spec.suite,
 								where,
-								{
-									literal: spec.literal(caseRun.sketch),
-									draws: drawsOf(caseRun, failed.tape),
-									drew: caseRun.drew,
-									notes: caseRun.notes,
-									cause: failed.cause
-								},
+								reportedOf(spec.literal, caseRun, failed.cause, drawsOf(caseRun, failed.tape)),
 								"the smallest failing case: enumeration runs smallest first",
-								Option.none()
+								replayed
 							)
 						})
 					)
+				}
 			})
 			branch = nextBranch(caseRun.kept)
 		}
-		const missing = pendingOf(spec.features, [exhaustive.tally()])
-		if (Arr.isReadonlyArrayNonEmpty(missing)) {
-			const keys = keysAt(spec.features, missing)
-			return yield* FeaturesUnreached.make({
-				suite: spec.suite,
-				missing: keys,
-				message: `${spec.suite}: no case of the space reached ${Arr.join(keys, ", ")}`
-			})
+		switch (spec.coverage.kind) {
+			case "none":
+				return { kind: "exhausted", suite: spec.suite, cases }
+			case "required": {
+				const missing = unreachedOf(spec.coverage.situations, [exhaustive.tally()])
+				if (Arr.isReadonlyArrayNonEmpty(missing)) {
+					return yield* FeaturesUnreached.make({
+						suite: spec.suite,
+						missing,
+						witnessed: { kind: "space", cases },
+						message: `${spec.suite}: no case of the space's ${cases} cases reached ${Arr.join(missing, ", ")}`
+					})
+				}
+				return { kind: "exhausted", suite: spec.suite, cases }
+			}
 		}
-		const short = shortOf(spec.features, exhaustive.tally())
-		if (Arr.isReadonlyArrayNonEmpty(short)) {
-			return yield* ReachBelowMargin.make({
-				suite: spec.suite,
-				margin: spec.features.reachMargin,
-				short,
-				message: `${spec.suite}: of the space's ${cases} cases, fewer than the margin of ${spec.features.reachMargin} reached ${describeShort(short)}`
-			})
-		}
-		return { kind: "exhausted", suite: spec.suite, cases }
 	})

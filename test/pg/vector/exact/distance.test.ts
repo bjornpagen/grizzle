@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, filter, type Gen, int } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -30,9 +30,10 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
-import { pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/vector.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, contains, defined, lacks } from "#test/support/assert.ts"
 import { compileTemplate, paramTexts, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
@@ -61,7 +62,7 @@ const Widths = schema("VectorWidths", { Narrow, Wide, Widest }, [])
 /** The text of any vector's components, the codec's text form without its domain check: the carrier's own. */
 const rawText = (v: Vector): string => Vector.componentText(v)
 
-const id = (prefix: number, n: number): string =>
+const id = (prefix: number, n: number): Uuid =>
 	`00000000-0000-4000-${pipe(prefix.toString(16), Str.padStart(4, "0"))}-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** The element at an index, and a value found, which the test's own fixture guarantees. */
@@ -389,6 +390,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					const draw = yield* runDraw
 					const worlds = search.searchWorlds(search.Search)
 					const installed = yield* install(search.Search, {
+						ambient: ordinarySession,
 						label: "vsearch",
 						logins: [worlds.server],
 						extensions: []
@@ -423,7 +425,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 								[source.draw(element(accounts)), source.draw(element(probeIndices))] as const,
 							literal: ([[, label], index]) => `account ${label}, probe ${index}`,
 							limit: accounts.length * probes.length,
-							features: features<ProbeFeature>([
+							coverage: requiredInSpace<ProbeFeature>([
 								"account A",
 								"account B",
 								...Arr.map(probeIndices, (index): ProbeFeature => `probe ${index}`)
@@ -514,8 +516,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 									q.op(
 										"vector:cosine_distance(vector,vector)",
 										[q.col(embedding, "value"), q.param("probe", vectorType(4), "compare")],
-										T.float8,
-										"total"
+										T.float8
 									),
 									T.float8
 								]
@@ -550,7 +551,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							generator: element(probeIndices),
 							literal: (index: number) => `probe ${index}`,
 							limit: probes.length,
-							features: features<ProbeFeature>(
+							coverage: requiredInSpace<ProbeFeature>(
 								Arr.map(probeIndices, (index): ProbeFeature => `probe ${index}`)
 							),
 							caseHang
@@ -593,7 +594,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							generator: element(dimensionCounts),
 							literal: (dims: Dimensions) => `${dims} dimensions`,
 							limit: dimensionCounts.length,
-							features: features<DimensionFeature>(
+							coverage: requiredInSpace<DimensionFeature>(
 								Arr.map(dimensionCounts, (dims): DimensionFeature => `dimensions ${dims}`)
 							),
 							caseHang
@@ -712,6 +713,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					const draw = yield* runDraw
 					const world = fullWorld(Widths)
 					const installed = yield* install(Widths, {
+						ambient: ordinarySession,
 						label: "vwidth",
 						logins: [world.server],
 						extensions: []
@@ -732,7 +734,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							literal: ([[relation], bound, nudge]: CheckCase) =>
 								`${relation.name} near ${bound} by ${nudge}`,
 							limit: widths.length * 2 * nudges.length,
-							features: features<DimensionFeature>(
+							coverage: requiredInSpace<DimensionFeature>(
 								Arr.map(widths, ([, dims]): DimensionFeature => `dimensions ${dims}`)
 							),
 							caseHang
@@ -815,13 +817,12 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 						suite: "pg/vector/exact/norm",
 						draw: drawn(array(binary32Vector, { min: 1, max: 100 })),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 4,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang
 					},
 					(batch) =>

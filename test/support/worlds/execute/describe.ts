@@ -11,7 +11,6 @@ import type {
 	BaseSpec,
 	Comparison,
 	FieldDomain,
-	HeadTerm,
 	Occurrence,
 	Rule,
 	Term,
@@ -30,7 +29,8 @@ import type {
  * (every variable it reads is the rule's) is a `not` of that relation; any other negation is a `not` of a one-rule
  * query over its occurrences, which mints its own variables where its matches bind them (grizzle refuses a `not` of a
  * relation reading a variable no match binds), and whose head is the variables it shares with the rule around it. A
- * literal is the JavaScript value its field's carrier takes: a 64-bit integer's a bigint.
+ * literal is the JavaScript value its field's carrier takes: a 64-bit integer's a bigint. A handle is its roster's
+ * typed constant, `X.handle(member)` (handleTerm), in every position.
  */
 /** A literal as the carrier of the domain it meets takes it; one that meets no domain is its value. */
 const literalOf = (value: HostValue, domain: Option.Option<FieldDomain>): unknown =>
@@ -81,9 +81,9 @@ const sourceValue = (sources: RuleSources, source: Occurrence["source"]): unknow
 	return value
 }
 
-/** One field's term among a source's fresh variables. */
-const variableOf = (source: unknown, field: string): unknown => {
-	const vars = varsOver(source)
+/** One field's term among a source's fresh variables, minted in the scope `scope`, the one variable it names. */
+const variableOf = (source: unknown, field: string, scope: string): unknown => {
+	const vars = varsOver(source, scope)
 	const term = vars[field]
 	if (term === undefined) {
 		throw new Error(`a rule binds the field ${field}, which its source's heading does not hold`)
@@ -111,13 +111,16 @@ class Terms {
 		for (const o of occurrences) {
 			for (const [field, t] of Rec.toEntries(o.fields)) {
 				if (t.kind === "var" && !this.#vars.has(t.name)) {
-					this.#vars.set(t.name, variableOf(sourceValue(this.#sources, o.source), field))
+					this.#vars.set(t.name, variableOf(sourceValue(this.#sources, o.source), field, t.name))
 				}
 			}
 		}
 	}
 
-	/** A term meeting `domain`: its variable, its context's variable, or its literal as the domain's carrier takes it. */
+	/**
+	 * A term meeting `domain`: its variable, its context's variable, its roster's typed constant, or its literal as the
+	 * domain's carrier takes it.
+	 */
 	of(term: Term, domain: Option.Option<FieldDomain>): unknown {
 		switch (term.kind) {
 			case "var": {
@@ -136,11 +139,17 @@ class Terms {
 				}
 				const minted = variableOf(
 					sourceValue(this.#sources, { kind: "context", name: term.context }),
-					term.field
+					term.field,
+					`context_${term.context}_${term.field}`
 				)
 				fields.set(term.field, minted)
 				return minted
 			}
+			case "handle":
+				return handleTerm(
+					sourceValue(this.#sources, { kind: "closed", name: term.closed }),
+					term.member
+				)
 			case "literal":
 				return literalOf(term.value, domain)
 		}
@@ -165,13 +174,16 @@ class Terms {
 const termsOfOccurrences = (occurrences: ReadonlyArray<Occurrence>): ReadonlyArray<Term> =>
 	Arr.flatMap(occurrences, (o) => Rec.values(o.fields))
 
-const varsOf = (terms: ReadonlyArray<HeadTerm>): ReadonlyArray<string> =>
+const varsOf = (terms: ReadonlyArray<Term>): ReadonlyArray<string> =>
 	Arr.dedupe(Arr.flatMap(terms, (t) => (t.kind === "var" ? [t.name] : [])))
 
-/** The domain a comparison's literal meets: the other side's field's or context field's. */
+/** The domain a comparison's literal meets: the other side's field's, context field's or roster's. */
 const comparisonDomain = (domains: Domains, rule: Rule, term: Term): Option.Option<FieldDomain> => {
 	if (term.kind === "context") {
 		return domains.context(term.context, term.field)
+	}
+	if (term.kind === "handle") {
+		return domains.field({ kind: "closed", name: term.closed }, "id")
 	}
 	if (term.kind === "var") {
 		for (const o of rule.matches) {
@@ -309,7 +321,7 @@ const termDescriptor = (
 	base: BaseSpec,
 	sources: RuleSources,
 	rule: Rule,
-	term: HeadTerm,
+	term: Term,
 	seen: ReadonlySet<string>
 ): unknown => {
 	switch (term.kind) {
@@ -341,7 +353,8 @@ const termDescriptor = (
 /**
  * The type of each field of a query's heading, as the descriptor of the first rule's head term that a declaration
  * types: what a head literal of another rule is typed by (Compute.literal), so every rule delivers the column at one
- * type. A field every rule fills with a literal has none, and its literals are typed by their JavaScript values.
+ * type. A field every rule fills with a literal has none, and its literals are typed by their JavaScript values; so
+ * has a roster's, where a literal is its JavaScript value, which the checker types by the arms' enum.
  */
 const headingDescriptors = (
 	base: BaseSpec,
@@ -359,32 +372,30 @@ const headingDescriptors = (
 	return out
 }
 
-/** A head literal: typed by its heading column's descriptor, or by its JavaScript value where no rule types the column. */
-const headLiteral = (r: RuleValue, descriptor: unknown, value: unknown): unknown =>
-	descriptor === undefined ? r.literal(value) : computeCore.literal(descriptor, value)
+/**
+ * A head literal: typed by its heading column's descriptor, or its JavaScript value where no rule types the column or
+ * the column is a roster's, whose member's typed constant is a handle term, never Compute.literal.
+ */
+const headLiteral = (
+	descriptor: unknown,
+	domain: Option.Option<FieldDomain>,
+	value: unknown
+): unknown =>
+	descriptor === undefined || Option.exists(domain, (d) => d.kind === "handle")
+		? value
+		: computeCore.literal(descriptor, value)
 
 /**
- * A head term as an application writes it: a typed handle as its roster's `handle(member)` (handleTerm, what
- * X.handle records), a literal typed by its heading column or its JavaScript value (headLiteral), any other term the
- * conjunction's.
+ * A head term as an application writes it: a literal typed by its heading column or its JavaScript value
+ * (headLiteral), any other term, a handle among them, the conjunction's.
  */
-const headTerm = (
-	scope: Scope,
-	heading: HeadingTypes,
-	r: RuleValue,
-	terms: Terms,
-	t: HeadTerm,
-	field: string
-): unknown => {
+const headTerm = (heading: HeadingTypes, terms: Terms, t: Term, field: string): unknown => {
 	switch (t.kind) {
+		case "literal": {
+			const domain = heading.domains[field] ?? Option.none()
+			return headLiteral(heading.descriptors[field], domain, literalOf(t.value, domain))
+		}
 		case "handle":
-			return handleTerm(sourceValue(scope.sources, { kind: "closed", name: t.closed }), t.member)
-		case "literal":
-			return headLiteral(
-				r,
-				heading.descriptors[field],
-				literalOf(t.value, heading.domains[field] ?? Option.none())
-			)
 		case "var":
 		case "context":
 			return terms.of(t, Option.none())
@@ -405,7 +416,7 @@ const armOf =
 		terms.bind(rule.matches)
 		const head = Rec.mapEntries(
 			rule.head,
-			(t, field) => [field, headTerm(scope, heading, r, terms, t, field)] as const
+			(t, field) => [field, headTerm(heading, terms, t, field)] as const
 		)
 		const comparisons = Arr.map(rule.comparisons, (c) =>
 			compared(

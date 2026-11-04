@@ -1,10 +1,5 @@
-import {
-	childProbe,
-	parentRead,
-	parentVariable,
-	unlessFound
-} from "#compiler/laws/families/alternatives/parent.ts"
-import type { FamilyPlugin } from "#compiler/laws/families/plugin.ts"
+import { owed, parentRead, parentVariable } from "#compiler/laws/families/alternatives/parent.ts"
+import type { FamilyPlugin, FamilyUnit } from "#compiler/laws/families/plugin.ts"
 import { selectedBy } from "#compiler/laws/residual/sql.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
@@ -34,9 +29,15 @@ import { types } from "#compiler/sql/build.ts"
  *
  * The event table is the alternatives one for a single arm: a P INSERT checks NEW's key, a C DELETE
  * OLD's g; a `mutable` P's UPDATE OF f or its selector fields checks NEW's key, and a `mutable` C's UPDATE OF g checks
- * the old and the new P rows in key order. The skeleton skips a P image outside the selection, which
- * carries no obligation; a C image is never skipped, because C's side is unselected. */
-export const mirrorsFamily: FamilyPlugin<"conditionalMirrors"> = ({ law, schema, shown }) => {
+ * the OLD P row, the one the moved C fact left. A P image outside the selection carries no obligation, and its trigger
+ * does not fire for it; a C image always threatens, because C's side is unselected. The one term reads both relations,
+ * so every participant's units run the whole check. */
+export const mirrorsFamily: FamilyPlugin<"conditionalMirrors"> = ({
+	law,
+	schema,
+	names,
+	shown
+}) => {
 	const check = parentRead(
 		law,
 		schema,
@@ -47,17 +48,14 @@ export const mirrorsFamily: FamilyPlugin<"conditionalMirrors"> = ({ law, schema,
 				kind: "if",
 				branches: [
 					{
-						condition: selectedBy(law.lawId, schema, law.selection, parent.field),
-						body: [childProbe(schema, law.child, parent.field), unlessFound(parent.raise)]
+						condition: selectedBy(law.lawId, names, law.selection, parent.field),
+						body: [owed(schema, law.child, parent)]
 					}
 				],
 				else: []
 			}
 		]
 	)
-	return {
-		declare: [{ name: parentVariable, type: types.record }],
-		/** Steps 2 and 3 for one affected parent key (see `mirrorsFamily`). */
-		check
-	}
+	const unit: FamilyUnit = { declare: [{ name: parentVariable, type: types.record }], check }
+	return () => unit
 }

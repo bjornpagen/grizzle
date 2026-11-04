@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint as bigintGen, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -39,7 +40,7 @@ import {
 	typedLit,
 	vars
 } from "#test/unit/check/dsl.ts"
-import { Lab } from "#test/unit/check/schemas.ts"
+import { Lab, Qty } from "#test/unit/check/schemas.ts"
 import { accountCards, automaticTasksFor, taskCards } from "#test/unit/check/work-queries.ts"
 
 import { regex } from "arkregex"
@@ -112,7 +113,7 @@ const tasks = (head: Parameters<typeof rule>[0]["head"]): QueryDesc =>
 const itemsOfQty = query(
 	rule({
 		vars: vars("Item", "id"),
-		matches: [match(relationSource("Item"), { id: ref("Item", "id"), qty: param("q") })],
+		matches: [match(relationSource("Item"), { id: ref("Item", "id"), qty: param("q", Qty) })],
 		head: { id: ref("Item", "id") },
 		where: [],
 		interiors: [],
@@ -323,23 +324,25 @@ describe("a literal at a typed slot", () => {
 						suite: "unit/check/reasons-literal",
 						draw: drawn(slotGen),
 						literal: Formatter.format,
-						features: features<LiteralFeature>([
-							"Cents bound",
-							"Qty bound",
-							"Qty compared",
-							"Qty an import binds",
-							"lower-case label compared",
-							"lower-case label bound",
-							"admitted",
-							"ContractLiteral",
-							"MalformedDescription"
-						]),
+						coverage: required<LiteralFeature>(
+							[
+								"Cents bound",
+								"Qty bound",
+								"Qty compared",
+								"Qty an import binds",
+								"lower-case label compared",
+								"lower-case label bound",
+								"admitted",
+								"ContractLiteral",
+								"MalformedDescription"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ slot, value }, c) =>
@@ -639,7 +642,8 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 						kind: "contract",
 						name: "Cents",
 						base: integer,
-						predicate: undefined
+						predicate: undefined,
+						facts: []
 					})
 				}),
 				checkOptions("query")
@@ -656,13 +660,15 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 						kind: "contract",
 						name: "Fresh",
 						base: integer,
-						predicate: undefined
+						predicate: undefined,
+						facts: []
 					}),
 					b: cast(typedLit(1n, bigint), {
 						kind: "contract",
 						name: "Fresh",
 						base: bigint,
-						predicate: undefined
+						predicate: undefined,
+						facts: []
 					})
 				}),
 				checkOptions("query")
@@ -685,7 +691,8 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 							op: "ge",
 							left: { kind: "value" },
 							right: { kind: "literal", value: 0n, type: undefined }
-						}
+						},
+						facts: []
 					})
 				}),
 				checkOptions("query")
@@ -707,7 +714,7 @@ describe("checker diagnostics", () => {
 						generator: element(planted),
 						literal: Formatter.format,
 						limit: planted.length,
-						features: features<Answer>(["refused at", "refused", "admitted"]),
+						coverage: requiredInSpace<Answer>(["refused at", "refused", "admitted"]),
 						caseHang: Duration.minutes(2)
 					},
 					(p, c) =>
@@ -744,7 +751,7 @@ describe("checker diagnostics", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: programs.length * budgetKinds.length * 2,
-						features: features<Bound>(["below what it charges", "exactly what it charges"]),
+						coverage: requiredInSpace<Bound>(["below what it charges", "exactly what it charges"]),
 						caseHang: Duration.minutes(2)
 					},
 					([p, kind, bound], c) =>

@@ -1,5 +1,5 @@
 import type { Brand, Option } from "effect"
-import { closedId, uuid } from "#compiler/public/fields.ts"
+import { closedId, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import type { Origin } from "#compiler/types/core/phantom.ts"
 import type { EvidenceOfQuery, HeadOf, ImmediateHeadOf } from "#compiler/types/query/query.ts"
@@ -25,13 +25,13 @@ import type { Equals, Expect } from "#test/types/skeleton/support.ts"
  * A lookup whose primary key is bound to a parameter is atMostOne.
  */
 export const taskById = query(Work).rule((r) => {
-	const { account, kind } = v(Task)
+	const { account, kind } = v(Task, "task")
 	return r.match(Task, { id: r.param("id", Task.fields.id), account, kind }).find({ account, kind })
 })
 export type TaskByIdCard = Expect<Equals<EvidenceOfQuery<typeof taskById>["card"], "atMostOne">>
 /** So is a lookup through a declared candidate key. */
 export const accountByName = query(Work).rule((r) => {
-	const { id } = v(Account)
+	const { id } = v(Account, "account")
 	return r.match(Account, { id, name: r.param("name", Account.fields.name) }).find({ id })
 })
 
@@ -41,7 +41,7 @@ export type AccountByNameCard = Expect<
 
 /** A filter on a non-key field is many, and so is a key bound to a rule variable rather than an input. */
 export const tasksForAccount = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id, account: r.param("account", Task.fields.account) }).find({ id })
 })
 
@@ -51,8 +51,8 @@ export type TasksForAccountCard = Expect<
 
 /** A pinned occurrence determines the join variable, which pins the occurrence it joins: at most one row. */
 export const taskAndNotes = query(Work).rule((r) => {
-	const { account } = v(Task)
-	const { name } = v(Account)
+	const { account } = v(Task, "task")
+	const { name } = v(Account, "account")
 	return r
 		.match(Task, { id: r.param("id", Task.fields.id), account })
 		.match(Account, { id: account, name })
@@ -69,14 +69,14 @@ export type TaskAndNotesCard = Expect<
  * key field the head holds is bound to its variable and fixed by a filter.
  */
 export const labelsOf = query(Work).rule((r) => {
-	const { label } = v(AccountLabel)
+	const { label } = v(AccountLabel, "accountLabel")
 	return r
 		.match(AccountLabel, { account: r.param("account", AccountLabel.fields.account), label })
 		.find({ label })
 })
 export type LabelsOfCard = Expect<Equals<EvidenceOfQuery<typeof labelsOf>["card"], "many">>
 export const labelLookup = query(Work).rule((r) => {
-	const { account } = v(AccountLabel)
+	const { account } = v(AccountLabel, "accountLabel")
 	return r
 		.match(AccountLabel, { account, label: r.param("label", AccountLabel.fields.label) })
 		.where(r.eq(account, r.param("account", AccountLabel.fields.account)))
@@ -88,7 +88,7 @@ export type LabelLookupCard = Expect<
 >
 
 export const labelLiteral = query(Work).rule((r) => {
-	const { account } = v(AccountLabel)
+	const { account } = v(AccountLabel, "accountLabel")
 	return r
 		.match(AccountLabel, { account, label: "urgent" })
 		.where(r.eq(account, r.param("account", AccountLabel.fields.account)))
@@ -101,7 +101,7 @@ export type LabelLiteralCard = Expect<
 
 /** An aggregate-only query has at most one row; a grouped aggregate is keyed by its group terms. */
 export const taskCount = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id }).find({ tasks: r.count() })
 })
 
@@ -117,7 +117,7 @@ export type TaskCountEvidence = Expect<
 >
 
 export const perAccount = query(Work).rule((r) => {
-	const { id, account } = v(Task)
+	const { id, account } = v(Task, "task")
 	return r.match(Task, { id, account }).find({ account, tasks: r.count() })
 })
 
@@ -128,7 +128,7 @@ export type PerAccountEvidence = Expect<
 			readonly keys: readonly [ReadonlyArray<"account">]
 			readonly card: "many"
 			/** account was matched at Task.account, so a query attaching to this one reads it as that field. */
-			readonly origins: { readonly account: Origin<"Task", "account"> }
+			readonly origins: { readonly account: Origin<"Task", "account", "task"> }
 		}
 	>
 >
@@ -140,7 +140,7 @@ export type PerAccountEvidence = Expect<
  * parent's own task fails, a reflexive self-match that proves the group nonempty.
  */
 export const tasks = query(Work).rule((r) => {
-	const { id, account } = v(Task)
+	const { id, account } = v(Task, "task")
 	return r.match(Task, { id, account }).find({ id, account })
 })
 
@@ -149,7 +149,7 @@ export const withNote = tasks
 		"note",
 		(t) =>
 			query(Work).rule((r) => {
-				const { note } = v(TaskNote)
+				const { note } = v(TaskNote, "taskNote")
 				return r.match(TaskNote, { task: t.id, note }).find({ note })
 			}),
 		"option"
@@ -158,7 +158,7 @@ export const withNote = tasks
 		"siblings",
 		(t) =>
 			query(Work).rule((r) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return r.match(Task, { id, account: t.account }).find({ id })
 			}),
 		"array"
@@ -168,7 +168,7 @@ export const withNote = tasks
 		(t) =>
 			query(Work)
 				.rule((r) => {
-					const { id } = v(Task)
+					const { id } = v(Task, "task")
 					return r.match(Task, { id, account: t.account }).find({ id })
 				})
 				.orderBy(["id", "asc"])
@@ -179,7 +179,7 @@ export const withNote = tasks
 		"siblingCount",
 		(t) =>
 			query(Work).rule((r) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return r.match(Task, { id, account: t.account }).find({ account: t.account, n: r.count() })
 			}),
 		"one"
@@ -189,12 +189,12 @@ export type WithNoteHead = Expect<
 	Equals<
 		HeadOf<typeof withNote>,
 		{
-			readonly id: string
-			readonly account: string
+			readonly id: Uuid
+			readonly account: Uuid
 			readonly note: Option.Option<{ readonly note: string }>
-			readonly siblings: ReadonlyArray<{ readonly id: string }>
-			readonly first: Option.Option<{ readonly id: string }>
-			readonly siblingCount: { readonly account: string; readonly n: bigint }
+			readonly siblings: ReadonlyArray<{ readonly id: Uuid }>
+			readonly first: Option.Option<{ readonly id: Uuid }>
+			readonly siblingCount: { readonly account: Uuid; readonly n: bigint }
 		}
 	>
 >
@@ -204,7 +204,7 @@ export const withLabels = tasks.attach(
 	"labels",
 	(t) =>
 		query(Work).rule((r) => {
-			const { label } = v(AccountLabel)
+			const { label } = v(AccountLabel, "accountLabel")
 			return r.match(AccountLabel, { account: t.account, label }).find({ label })
 		}),
 	"array"
@@ -222,7 +222,7 @@ export const withOrdered = tasks.attach(
 	(t) =>
 		query(Work)
 			.rule((r) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return r.match(Task, { id, account: t.account }).find({ id })
 			})
 			.orderBy(["id", "desc"]),
@@ -230,12 +230,12 @@ export const withOrdered = tasks.attach(
 )
 
 export type WithOrderedHead = Expect<
-	Equals<HeadOf<typeof withOrdered>["ordered"], ReadonlyArray<{ readonly id: string }>>
+	Equals<HeadOf<typeof withOrdered>["ordered"], ReadonlyArray<{ readonly id: Uuid }>>
 >
 
 /** An arm may attach before it joins a union, keeping its own attached heading. */
 export const armAttached = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r
 		.match(Task, { id })
 		.find({ id })
@@ -243,7 +243,7 @@ export const armAttached = query(Work).rule((r) => {
 			"note",
 			(t) =>
 				query(Work).rule((r2) => {
-					const { note } = v(TaskNote)
+					const { note } = v(TaskNote, "taskNote")
 					return r2.match(TaskNote, { task: t.id, note }).find({ note })
 				}),
 			"option"
@@ -253,7 +253,7 @@ export const armAttached = query(Work).rule((r) => {
 export type ArmAttachedHead = Expect<
 	Equals<
 		HeadOf<typeof armAttached>,
-		{ readonly id: string; readonly note: Option.Option<{ readonly note: string }> }
+		{ readonly id: Uuid; readonly note: Option.Option<{ readonly note: string }> }
 	>
 >
 /** The orderBy reader: a non-heading field cannot order. */
@@ -265,7 +265,7 @@ export const badOrder = taskById.orderBy(["id", "asc"])
  * (student, week), so a lookup binding both to parameters is atMostOne, and binding student alone is many.
  */
 export const weeklyLookup = query(Reports).rule((r) => {
-	const { passes } = v(StudentWeekly)
+	const { passes } = v(StudentWeekly, "studentWeekly")
 	return r
 		.match(StudentWeekly, {
 			student: r.param("student", uuid),
@@ -280,7 +280,7 @@ export type WeeklyLookupCard = Expect<
 >
 
 export const weeklyOfStudent = query(Reports).rule((r) => {
-	const { week, passes } = v(StudentWeekly)
+	const { week, passes } = v(StudentWeekly, "studentWeekly")
 	return r
 		.match(StudentWeekly, { student: r.param("student", uuid), week, passes })
 		.find({ week, passes })
@@ -293,15 +293,15 @@ export type WeeklyOfStudentCard = Expect<
 /** An attachment bound on the derived key through the parent's variables is an Option. */
 export const studentWeeks = query(Reports)
 	.rule((r) => {
-		const { id } = v(Student)
-		const { week } = v(SchoolCalendar)
+		const { id } = v(Student, "student")
+		const { week } = v(SchoolCalendar, "schoolCalendar")
 		return r.match(Student, { id }).match(SchoolCalendar, { week }).find({ student: id, week })
 	})
 	.attach(
 		"weekly",
 		(p) =>
 			query(Reports).rule((r) => {
-				const { passes } = v(StudentWeekly)
+				const { passes } = v(StudentWeekly, "studentWeekly")
 				return r.match(StudentWeekly, { student: p.student, week: p.week, passes }).find({ passes })
 			}),
 		"option"
@@ -331,7 +331,7 @@ export const Billing = schema("Billing", { Plan, Subscriber, Upgrade }, [
 ])
 type Budget = bigint & Brand.Brand<"Cents">
 export const subscribers = query(Billing).rule((r) => {
-	const { id, plan } = v(Subscriber)
+	const { id, plan } = v(Subscriber, "subscriber")
 	return r.match(Subscriber, { id, plan }).find({ id, plan })
 })
 
@@ -340,8 +340,8 @@ export type SubscriberOrigins = Expect<
 	Equals<
 		EvidenceOfQuery<typeof subscribers>["origins"],
 		{
-			readonly id: Origin<"Subscriber", "id">
-			readonly plan: Origin<"Subscriber", "plan">
+			readonly id: Origin<"Subscriber", "id", "subscriber">
+			readonly plan: Origin<"Subscriber", "plan", "subscriber">
 		}
 	>
 >
@@ -351,7 +351,7 @@ export const withPlan = subscribers
 		"details",
 		(s) =>
 			query(Billing).rule((r) => {
-				const { budget } = v(Plan)
+				const { budget } = v(Plan, "plan")
 				return r.match(Plan, { id: s.plan, budget }).find({ budget })
 			}),
 		"one"
@@ -368,7 +368,7 @@ export const withPlan = subscribers
 		"guarded",
 		(s) =>
 			query(Billing).rule((r) => {
-				const { budget } = v(Plan)
+				const { budget } = v(Plan, "plan")
 				return r
 					.match(Plan, { id: s.plan, budget })
 					.where(r.gt(budget, Cents(1n)))
@@ -380,8 +380,8 @@ export const withPlan = subscribers
 		"joined",
 		(s) =>
 			query(Billing).rule((r) => {
-				const { budget } = v(Plan)
-				const { subscriber } = v(Upgrade)
+				const { budget } = v(Plan, "plan")
+				const { subscriber } = v(Upgrade, "upgrade")
 				return r
 					.match(Plan, { id: s.plan, budget })
 					.match(Upgrade, { subscriber, plan: s.plan })
@@ -394,7 +394,7 @@ export type WithPlanHead = Expect<
 	Equals<
 		HeadOf<typeof withPlan>,
 		{
-			readonly id: string
+			readonly id: Uuid
 			readonly plan: "Free" | "Pro"
 			readonly details: { readonly budget: Budget }
 			readonly filtered: Option.Option<{ readonly plan: "Free" | "Pro" }>
@@ -409,8 +409,8 @@ export type WithPlanHead = Expect<
  * parent's value is not proved to be a Plan id, so the child is an Option.
  */
 export const upgrades = query(Billing).rule((r) => {
-	const { plan } = v(Subscriber)
-	const { subscriber } = v(Upgrade)
+	const { plan } = v(Subscriber, "subscriber")
+	const { subscriber } = v(Upgrade, "upgrade")
 	return r.match(Upgrade, { subscriber, plan }).find({ subscriber, plan })
 })
 
@@ -418,7 +418,7 @@ export const upgradePlan = upgrades.attach(
 	"budget",
 	(u) =>
 		query(Billing).rule((r) => {
-			const { budget } = v(Plan)
+			const { budget } = v(Plan, "plan")
 			return r.match(Plan, { id: u.plan, budget }).find({ budget })
 		}),
 	"option"
@@ -435,23 +435,23 @@ export type UpgradePlanHead = Expect<
  */
 export const noteOwners = query(Work)
 	.rule((r) => {
-		const { task, note } = v(TaskNote)
+		const { task, note } = v(TaskNote, "taskNote")
 		return r.match(TaskNote, { task, note }).find({ task, note })
 	})
 	.attach(
 		"owner",
 		(n) =>
 			query(Work).rule((r) => {
-				const { account } = v(Task)
+				const { account } = v(Task, "task")
 				return r.match(Task, { id: n.task, account }).find({ account })
 			}),
 		"one"
 	)
 
 export type NoteOwnerHead = Expect<
-	Equals<HeadOf<typeof noteOwners>["owner"], { readonly account: string }>
+	Equals<HeadOf<typeof noteOwners>["owner"], { readonly account: Uuid }>
 >
 
 export type NoteOwnerImmediateHead = Expect<
-	Equals<ImmediateHeadOf<typeof noteOwners>["owner"], Option.Option<{ readonly account: string }>>
+	Equals<ImmediateHeadOf<typeof noteOwners>["owner"], Option.Option<{ readonly account: Uuid }>>
 >

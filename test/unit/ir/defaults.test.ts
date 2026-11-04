@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
@@ -279,7 +280,7 @@ const decodedText = (kind: DescKind, json: Json, writing: Writing["kind"]): stri
 	return text.value
 }
 
-const required: ReadonlyArray<Feature> = [
+const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"scale omitted",
 	"scale stated",
 	"bind omitted",
@@ -304,11 +305,10 @@ describe("the Description boundary's defaults", () => {
 						draw: drawn((source) => [source.draw(schemaGen), source.draw(queryGen(2))] as const),
 						runs: 400,
 						shrink: completeShrink,
-						features: features<Feature>(required),
+						coverage: required<Feature>(situations, { cases: 400, sense: notesOnly }),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([schema, query], c) =>

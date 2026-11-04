@@ -28,11 +28,12 @@ import {
 	Client,
 	type ClientConfig,
 	DatabaseError,
-	Pool,
+	type Pool,
 	type PoolClient,
 	type QueryArrayResult
 } from "pg"
 
+import type { SessionKind } from "#adapter/connection/environment.ts"
 import {
 	type AcquireRefusal,
 	AcquisitionBudgetExceeded,
@@ -49,9 +50,14 @@ import {
 } from "#adapter/errors/failures.ts"
 import { type AcquisitionBudgets, connectBudgetMs } from "#adapter/pool/budgets.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
-import type { BatchOutcome, Transaction } from "#adapter/wire/batch.ts"
+import type { BatchOutcome, SentText, Transaction } from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
+import { ReleasingPool } from "#adapter/wire/releasing-pool.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
+import { emitText } from "#compiler/sql/emit.ts"
+import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
  * Sessions: node-postgres clients (pg 8.23) in pipeline mode, pooled by pg's own Pool.
@@ -69,18 +75,21 @@ import { sha256Hex } from "#compiler/core/sha256.ts"
  *   `stream` transport hands pg a stream that is already secured instead, and every CancelRequest opens another one
  *   (the protocol tap, test/support/wire-tap.ts).
  * - Password. A Redacted, or an Effect evaluated once per connection attempt, under the services of the lease it is
- *   opened for: pg calls the password function of each new client when the server asks for it. A client holds those
- *   services only until its connection is set up, so one the server never asked for a password keeps no lease's
+ *   opened for: pg is given a function either way (passwordOf), which it calls when the server asks for a password,
+ *   since pg reads PGPASSWORD, then a password file, for any password it is given as a falsy value. A client holds
+ *   those services only until its connection is set up, so one the server never asked for a password keeps no lease's
  *   context. Its CredentialError fails the attempt at the stage credential, as the failure's reason; a defect or an
  *   interruption of the Effect is the operation's defect.
  * - Failure. A connection attempt that fails is classified once, here, from what pg reports (failures.ts
  *   ConnectRefusal): the CredentialError, no answer within the connect budget, a socket error code, the server's
  *   refusal of the startup with its ErrorResponse as it gave it, TLS, a connection closed before it was ready, pg's own
  *   refusal, or no cancellation key.
- * - Startup. pg sends user, database and application_name. Session settings are never sent: the fixed context is the
- *   login's role defaults, which Db.open's admission verifies, and grizzle never issues a session-level SET. pg
- *   also reads PGOPTIONS from the environment and sends it as `options`; no config value turns that off, since pg
- *   treats an empty value as unset.
+ * - Startup. pg sends user, database and application_name, and a login's session its pinned defaults as `options`
+ *   (physical/ddl/roles.ts loginStartupOptions), the very defaults its role stores, which Db.open's admission
+ *   verifies; an owner's session sends none, starting under its role's and its database's defaults. grizzle never
+ *   issues a session-level SET. pg reads every setting it is given as a falsy value from the environment instead: the
+ *   client config states each it can (clientConfig), and the startup variables it cannot (connection/environment.ts)
+ *   are refused before any session opens, a login's by DbLayer.make, an owner's by the command line.
  * - Values. Every type parser is the identity and results are requested as text, so every cell is the text the server
  *   sent, and parameters are bound as untyped text. grizzle's own SQL never delivers NULL (absence is zero rows), so a
  *   result with a NULL cell is an unreadable answer: the statement ran, and its rows are none grizzle reads. Every row
@@ -121,9 +130,9 @@ export interface TlsConfig {
 export type Password = Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
 
 /**
- * No password, for a role the server authenticates without one (trust, peer, a client certificate). pg spells it as the
- * empty password, which also keeps it from reading PGPASSWORD or ~/.pgpass, and a server that asks for a password
- * refuses it.
+ * No password, for a role the server authenticates without one (trust, peer, a client certificate): the empty text,
+ * which pg's password function yields (passwordOf), so pg reads neither PGPASSWORD nor ~/.pgpass for it, as it would
+ * for an empty text given as the password itself. A server that asks for a password refuses it.
  */
 export const noPassword: Redacted.Redacted = Redacted.make("")
 
@@ -181,6 +190,8 @@ interface SessionSpec {
 	readonly password: Password
 	readonly transport: Transport
 	readonly applicationName: string
+	/** Whose session it is: a login's, every session of a pool, or an owner's, one outside any pool. */
+	readonly startup: SessionKind
 }
 
 /**
@@ -193,7 +204,7 @@ interface SessionSpec {
  */
 export type ServerStatement = {
 	readonly name: string
-	readonly sql: string
+	readonly sql: EmittedText
 } & Brand.Brand<"ServerStatement">
 const mintServerStatement = Brand.nominal<ServerStatement>()
 
@@ -203,7 +214,7 @@ const mintServerStatement = Brand.nominal<ServerStatement>()
  * on every session that parsed it, and each session's parsed set, not the program, decides that the other parses it
  * again at its next use (SessionStatements.release).
  */
-export const serverStatement = (sql: string): ServerStatement =>
+export const serverStatement = (sql: EmittedText): ServerStatement =>
 	mintServerStatement({ name: `grizzle_${pipe(sha256Hex(sql), Str.slice(0, 40))}`, sql })
 
 /**
@@ -273,15 +284,21 @@ export type TxControl =
 	| { readonly kind: "begin"; readonly access: Transaction["access"] }
 	| { readonly kind: "end"; readonly end: Transaction["end"] }
 
-/** The text each BEGIN sends. */
-const beginText: { readonly [A in Transaction["access"]]: string } = {
-	readOnly: "BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY",
-	readWrite: "BEGIN ISOLATION LEVEL SERIALIZABLE"
+/** The text each BEGIN sends, printed from its statement. */
+const beginText: { readonly [A in Transaction["access"]]: EmittedText } = {
+	readOnly: emitText({ kind: "begin", readOnly: true }, emptyNameMap).text,
+	readWrite: emitText({ kind: "begin", readOnly: false }, emptyNameMap).text
+}
+
+/** The text each end sends, printed from its statement. */
+const endText: { readonly [E in Transaction["end"]]: EmittedText } = {
+	COMMIT: emitText({ kind: "commit" }, emptyNameMap).text,
+	ROLLBACK: emitText({ kind: "rollback" }, emptyNameMap).text
 }
 
 /** The text a control sends. */
-export const controlText = (control: TxControl): string =>
-	control.kind === "begin" ? beginText[control.access] : control.end
+export const controlText = (control: TxControl): EmittedText =>
+	control.kind === "begin" ? beginText[control.access] : endText[control.end]
 
 /**
  * One query of a pipeline: a statement, on the extended protocol with its own Sync, or a transaction control, a simple
@@ -290,7 +307,7 @@ export const controlText = (control: TxControl): string =>
 export type WireQuery =
 	| {
 			readonly _tag: "statement"
-			readonly sql: string
+			readonly sql: SentText
 			readonly params: ReadonlyArray<string>
 			/** The session's name for the statement in this execution. */
 			readonly name: StatementName
@@ -479,41 +496,49 @@ interface AttemptServices {
 }
 
 /**
- * The password of one connection attempt: the Redacted itself, or a function pg calls when the server asks for it,
- * which runs the Effect under the services `current` holds then.
+ * The password of one connection attempt: a function pg calls when the server asks for one, which yields the Redacted
+ * or runs the Effect under the services `current` holds then. pg is never given a text, which it would read as unset
+ * when empty, falling back to PGPASSWORD and then to a password file; a function it calls, whatever it yields.
  *
  * A typed failure rejects with the CredentialError, which fails the attempt at the credential stage; a defect or
  * an interruption of the Effect rejects with a PasswordDefect, the operation's defect.
  */
-const passwordOf = (
-	spec: SessionSpec,
-	services: AttemptServices
-): string | (() => Promise<string>) => {
+const passwordOf = (spec: SessionSpec, services: AttemptServices): (() => Promise<string>) => {
 	const configured = spec.password
-	return Redacted.isRedacted(configured)
-		? Redacted.value(configured)
-		: () =>
-				Effect.runPromiseWith(services.current)(
-					configured.pipe(
-						Effect.map(Redacted.value),
-						Effect.sandbox,
-						Effect.mapError((cause) => {
-							const error = Cause.findError(cause)
-							return Result.isSuccess(error)
-								? error.success
-								: PasswordDefect.make({ defect: Cause.squash(cause) })
-						})
-					)
-				)
+	const secret: Effect.Effect<Redacted.Redacted, CredentialError> = Redacted.isRedacted(configured)
+		? Effect.succeed(configured)
+		: configured
+	return () =>
+		Effect.runPromiseWith(services.current)(
+			secret.pipe(
+				Effect.map(Redacted.value),
+				Effect.sandbox,
+				Effect.mapError((cause) => {
+					const error = Cause.findError(cause)
+					return Result.isSuccess(error)
+						? error.success
+						: PasswordDefect.make({ defect: Cause.squash(cause) })
+				})
+			)
+		)
 }
 
+/**
+ * A session's client configuration: it states every startup and wire setting pg would otherwise read from the
+ * environment and can be told, the client encoding and the TLS negotiation among them, so `PGCLIENT_ENCODING` and
+ * `PGSSLNEGOTIATION` reach no session, and a login's session its options, so `PGOPTIONS` reaches none of a login's; the
+ * startup variables it cannot be told are connection/environment.ts's.
+ */
 const clientConfig = (spec: SessionSpec): ClientConfig => {
-	const base = {
+	const base: ClientConfig = {
 		host: spec.host,
 		port: spec.port,
 		database: spec.database,
 		user: spec.role,
 		application_name: spec.applicationName,
+		client_encoding: "utf8",
+		sslnegotiation: "postgres",
+		...(spec.startup === "login" ? { options: loginStartupOptions } : {}),
 		pipeline: true,
 		types: rawText,
 		connectionTimeoutMillis: connectBudgetMs
@@ -671,7 +696,7 @@ const statementQuery = (query: Extract<WireQuery, { readonly _tag: "statement" }
 				name: query.name.name
 			}
 
-const controlQuery = (sql: string) => ({ text: sql, rowMode: "array" as const })
+const controlQuery = (sql: EmittedText) => ({ text: sql, rowMode: "array" as const })
 
 /** The whole flight is written corked and flushed at once; the stream is uncorked whatever the writes threw. */
 const makeSession = (client: Client, spec: SessionSpec, key: BackendKey): Session => {
@@ -755,14 +780,15 @@ const sessionOf = (client: Client, spec: SessionSpec): Session | undefined => {
 }
 
 /**
- * One session outside any pool (the migration owner's, the protocol tap's), closed with the scope. The attempt is
- * interruptible.
+ * One session outside any pool (the migration owner's, the protocol tap's), an owner's, closed with the scope. The
+ * attempt is interruptible.
  */
 export const connectSession = (
-	spec: SessionSpec
+	given: Omit<SessionSpec, "startup">
 ): Effect.Effect<Session, ConnectRefusal, Scope.Scope> =>
 	Effect.uninterruptibleMask((restore) =>
 		Effect.gen(function* () {
+			const spec: SessionSpec = { ...given, startup: "owner" }
 			const transport = spec.transport
 			if (transport._tag === "tls" && caCount(transport.tls) === 0) {
 				return yield* TlsRefused.make({ fault: { kind: "noAuthority" } })
@@ -886,30 +912,9 @@ type Claim =
 
 const unanswered: Claim = { _tag: "unanswered" }
 
-/**
- * pg's Pool, whose `release` listeners each run on their own. A listener is foreign code (Vercel's integration), and a
- * release happens in a lease's finalizer: one that throws never skips the other listeners or the release itself, which
- * pg's Pool would otherwise leave half done, its client neither idle nor closed, so the pool would lose a session for
- * good.
- */
-class ReleasingPool extends Pool {
-	override emit(event: string | symbol, ...args: Array<unknown>): boolean {
-		if (event !== "release") {
-			return super.emit(event, ...args)
-		}
-		const listeners = this.listeners(event)
-		for (const listener of listeners) {
-			Result.try(() => {
-				Reflect.apply(listener, this, args)
-			})
-		}
-		return listeners.length > 0
-	}
-}
-
 interface PoolConfig {
 	/** The destination, the derived login role and the password. */
-	readonly connection: Omit<SessionSpec, "applicationName" | "transport">
+	readonly connection: Omit<SessionSpec, "applicationName" | "transport" | "startup">
 	/** The transport: verify-full TLS, or a stream a test taps the protocol through. */
 	readonly transport: Transport
 	/** The pool's bounds (core/policy.ts poolBounds in production); tests pass smaller ones to observe them. */
@@ -939,7 +944,8 @@ export interface SessionPool {
 }
 
 /**
- * Builds the pool in the current scope; it ends, closing every session, when that scope closes.
+ * Builds the pool in the current scope; it ends, closing every session, when that scope closes. A pool is a login's:
+ * each of its sessions starts under the login's pinned defaults (SessionSpec startup).
  *
  * pg destroys a client released with true instead of returning it to the pool.
  *
@@ -958,7 +964,8 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		const spec: SessionSpec = {
 			...config.connection,
 			transport: config.transport,
-			applicationName: "grizzle"
+			applicationName: "grizzle",
+			startup: "login"
 		}
 		const own = yield* Effect.context()
 		const attemptServices: AttemptServices = { current: own, own }

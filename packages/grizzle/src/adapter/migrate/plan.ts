@@ -203,9 +203,9 @@ export const planApply = (
 	const losses: Array<UnresolvedLoss> = []
 	for (const r of runs) {
 		if (r.folder.meta.kind === "drafted") {
-			for (const d of lossDecisions(r.folder.meta.decisions, r.folder.files)) {
+			for (const d of lossDecisions(r.folder.meta.record, r.folder.files)) {
 				if (d.kind === "unresolved") {
-					losses.push({ folder: r.folder.name, file: d.loss.file, loses: lossText(d.loss.loses) })
+					losses.push({ folder: r.folder.name, file: d.file, loses: lossText(d.loss.loses) })
 				}
 			}
 		}

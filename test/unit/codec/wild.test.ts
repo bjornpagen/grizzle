@@ -1,7 +1,7 @@
 import { inspect } from "node:util"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -26,6 +26,7 @@ import {
 	wild,
 	WILD_KINDS
 } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -98,7 +99,7 @@ const decoded = (written: Written): Carried => {
 	return { label: written.label, type: type.value, live: written.live }
 }
 
-const caps = capabilitySet("storage", "equality")
+const caps = capabilitySet(["storage", "equality"])
 
 const int32 = int(-(2 ** 31), 2 ** 31 - 1)
 const int64 = bigint(int8Min, int8Max)
@@ -139,8 +140,8 @@ const withNonFinite = (finite: Gen<number>): Gen<number> =>
 	])
 
 /**
- * Every carrier with its descriptors: plain, under a typmod, a contract, a fixed width or a serial generation. The
- * table is keyed by carrier, so a new carrier must be listed.
+ * Every carrier with its descriptors: plain, under a typmod, a contract, a fixed width, a serial generation or an exact
+ * value's digit bound. The table is keyed by carrier, so a new carrier must be listed.
  */
 const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } = {
 	int2: [
@@ -256,6 +257,20 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 				(components) => new Float32Array(components)
 			)
 		}
+	],
+	exactInteger: [
+		{
+			label: "exact integer of 40 digits",
+			type: { carrier: "exactInteger", caps, digits: 40 },
+			live: bigint(1n - 10n ** 40n, 10n ** 40n - 1n)
+		}
+	],
+	exactMoney: [
+		{
+			label: "exact money of 30 digits",
+			type: { carrier: "exactMoney", caps, digits: 30 },
+			live: map(bigint(1n - 10n ** 32n, 10n ** 32n - 1n), (n) => Money.exact(n))
+		}
 	]
 }
 
@@ -295,67 +310,66 @@ describe("the encoders", () => {
 	it.effect(
 		"refuse every value with a word of the vocabulary, or admit it to a text that round-trips, and never throw",
 		(ctx) =>
-			Effect.gen(function* () {
-				const required = features<EncoderFeature>([
-					"live",
-					...Arr.map(WILD_KINDS, (kind): EncoderFeature => `wild ${kind}`),
-					"refused",
-					"admitted from another carrier"
-				])
-				yield* searched(
-					ctx,
-					explore(
-						{
-							suite: "unit/codec/wild",
-							draw: drawn(caseGen),
-							literal: Formatter.format,
-							features: required,
-							kept: [],
-							runs: 3000,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							steering: { kind: "none" },
-							caseHang: Duration.minutes(2)
-						},
-						([target, drawn], c) =>
-							Effect.sync(() => {
-								const codec = scalarCodec(target.type)
-								const value = passed(drawn)
-								c.note(drawn.kind === "stale" ? "stale" : drawnFeature(drawn))
-								const encoded = codec.encode(value)
-								if (!encoded.ok) {
-									c.note("refused")
-									assert.ok(
-										isCodecFault(encoded.error),
-										`${target.label}: refused with ${encoded.error}`
-									)
-									assert.notEqual(
-										drawn.kind,
-										"live",
-										`${target.label}: a Live value was refused (${encoded.error})`
-									)
-									const slotted = paramEncoder(target.type, "slot")(value)
-									assert.ok(
-										!slotted.ok,
-										`${target.label}: the slot's encoder admitted what the codec refused`
-									)
-									assert.equal(slotted.error.reason._tag, encoded.error)
-									return
-								}
-								if (drawn.kind === "stale") {
-									c.note("admitted from another carrier")
-								}
-								const again = codec.encode(codec.convert(encoded.value))
-								assert.deepEqual(
-									again,
-									Result.ok(encoded.value),
-									`${target.label}: the converted value encodes otherwise`
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/codec/wild",
+						draw: drawn(caseGen),
+						literal: Formatter.format,
+						coverage: required<EncoderFeature>(
+							[
+								"live",
+								...Arr.map(WILD_KINDS, (kind): EncoderFeature => `wild ${kind}`),
+								"refused",
+								"admitted from another carrier"
+							],
+							{ cases: 3000, sense: notesOnly }
+						),
+						kept: [],
+						runs: 3000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					([target, drawn], c) =>
+						Effect.sync(() => {
+							const codec = scalarCodec(target.type)
+							const value = passed(drawn)
+							c.note(drawn.kind === "stale" ? "stale" : drawnFeature(drawn))
+							const encoded = codec.encode(value)
+							if (!encoded.ok) {
+								c.note("refused")
+								assert.ok(
+									isCodecFault(encoded.error),
+									`${target.label}: refused with ${encoded.error}`
 								)
-							})
-					)
+								assert.notEqual(
+									drawn.kind,
+									"live",
+									`${target.label}: a Live value was refused (${encoded.error})`
+								)
+								const slotted = paramEncoder(target.type, "slot")(value)
+								assert.ok(
+									!slotted.ok,
+									`${target.label}: the slot's encoder admitted what the codec refused`
+								)
+								assert.equal(slotted.error.reason._tag, encoded.error)
+								return
+							}
+							if (drawn.kind === "stale") {
+								c.note("admitted from another carrier")
+							}
+							const again = codec.encode(codec.convert(encoded.value))
+							assert.deepEqual(
+								again,
+								Result.ok(encoded.value),
+								`${target.label}: the converted value encodes otherwise`
+							)
+						})
 				)
-			})
+			)
 	)
 
 	it.effect("name the slot and the word in a template slot's refusal, never the value", (ctx) =>
@@ -374,13 +388,12 @@ describe("the encoders", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 500,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([target, text]) =>
@@ -422,13 +435,12 @@ describe("admission reads a value once", () => {
 					suite: "unit/codec/wild-unstable",
 					draw: drawn((source) => [source.draw(int32), source.draw(int32)] as const),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([first, then], c) =>
@@ -488,11 +500,6 @@ describe("fact identity", () => {
 					map(fieldGen, (fields): DrawnFact => ({ kind: "fields", fields })),
 					map(wild(WILD_KINDS), (wild): DrawnFact => ({ kind: "wild", wild }))
 				])
-				const required = features<"admitted" | "refused at a field" | "refused whole">([
-					"admitted",
-					"refused at a field",
-					"refused whole"
-				])
 				yield* searched(
 					ctx,
 					explore(
@@ -500,13 +507,15 @@ describe("fact identity", () => {
 							suite: "unit/codec/wild-fact",
 							draw: drawn(factGen),
 							literal: Formatter.format,
-							features: required,
+							coverage: required<"admitted" | "refused at a field" | "refused whole">(
+								["admitted", "refused at a field", "refused whole"],
+								{ cases: 1000, sense: notesOnly }
+							),
 							kept: [],
 							runs: 1000,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(drawn, c) =>
@@ -559,13 +568,12 @@ describe("the tuple converter", () => {
 						suite: "unit/codec/wild-rows",
 						draw: drawn(rowCaseGen),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ columns, values }) =>

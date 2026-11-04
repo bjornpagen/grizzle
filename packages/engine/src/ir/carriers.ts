@@ -1,8 +1,22 @@
+import { nominal } from "#compiler/core/brand.ts"
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { DecimalText, decimalTag } from "#compiler/ir/decimal.ts"
+
+declare const canonicalFloat: unique symbol
+
+/**
+ * A float with the one zero: any number but -0. canonicalZero is its one mint; the IR's float literal holds one
+ * (ir/expr.ts TypedLiteral), and scalar/values/float.ts re-exports both.
+ */
+export type CanonicalFloat = number & { readonly [canonicalFloat]: true }
+
+const mintCanonical = nominal<number, CanonicalFloat>()
+
+/** One spelling of zero: -0 as +0, every other number as it is. */
+export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? 0 : x)
 
 export const moneyTag = "m"
 export const vectorTag = "v"

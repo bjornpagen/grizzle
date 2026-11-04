@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures, type Reached } from "@grizzle/testing/features"
+import { noCoverage, type Reached, required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, int } from "@grizzle/testing/gen"
 import { exact } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -43,6 +44,7 @@ import {
 	scriptedSession
 } from "#test/support/flight/scripted.ts"
 import { indices } from "#test/support/oracle/pick.ts"
+import { testSql } from "#test/support/sql.ts"
 
 /**
  * Flights (packages/grizzle/src/adapter/wire/batch.ts) against their contract, at every interruption point.
@@ -62,7 +64,7 @@ import { indices } from "#test/support/oracle/pick.ts"
  *
  * Also here: a stale name is StaleName and is parsed afresh, and joined flights hand each part its own outcomes.
  */
-const statement = (sql: string): BatchStatement => ({ sql, params: [] })
+const statement = (sql: string): BatchStatement => ({ sql: testSql(sql), params: [] })
 
 /** Each statement's SQL is its label. */
 const statementOf = (planned: Planned): BatchStatement => statement(planned.label)
@@ -72,7 +74,7 @@ const statementOf = (planned: Planned): BatchStatement => statement(planned.labe
  * a refused BEGIN or a refused statement, where the ending must follow the whole transaction's fate. Its cases hold no
  * stuck or wedged statement (smallCases), so the drain deadline is the drawn population's.
  */
-const smallRequired: ReadonlyArray<Reached<FlightFeature>> = [
+const smallRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	"ending value",
 	"ending BatchRefused",
 	"ending PrologueRefused",
@@ -104,7 +106,7 @@ const smallRequired: ReadonlyArray<Reached<FlightFeature>> = [
 ]
 
 /** The drawn population's: the exhaustive one's, and the drain deadline, which fires once mid-CancelRequest. */
-const drawnRequired: ReadonlyArray<Reached<FlightFeature>> = [
+const drawnRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	...smallRequired,
 	"drained by the deadline",
 	"deadline during a CancelRequest"
@@ -268,7 +270,7 @@ describe("a flight", () => {
 						generator: smallCases,
 						literal: Formatter.format,
 						limit: 2_000,
-						features: features<FlightFeature>(smallRequired),
+						coverage: requiredInSpace<FlightFeature>(smallRequired),
 						caseHang: Duration.minutes(2)
 					},
 					(flightCase, k) =>
@@ -287,13 +289,12 @@ describe("a flight", () => {
 					suite: "unit/adapter/flight",
 					draw: drawn(caseGen(space)),
 					literal: Formatter.format,
-					features: features<FlightFeature>(drawnRequired),
+					coverage: required<FlightFeature>(drawnRequired, { cases: 500, sense: notesOnly }),
 					kept: [],
 					runs: 500,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(flightCase, k) =>
@@ -309,7 +310,7 @@ describe("a flight", () => {
 		(ctx) =>
 			Effect.gen(function* () {
 				const whole = { access: "readWrite", end: "COMMIT" } as const
-				const server = serverStatement("a")
+				const server = serverStatement(testSql("a"))
 				const named: FlightStatement = { server, params: [] }
 				/** Each SQLSTATE PostgreSQL answers a statement whose prepared plan went stale with. */
 				const exhausted = yield* searched(
@@ -320,7 +321,7 @@ describe("a flight", () => {
 							generator: element(["0A000", "26000"] as const),
 							literal: Formatter.format,
 							limit: 2,
-							features: features<"0A000" | "26000">(["0A000", "26000"]),
+							coverage: requiredInSpace<"0A000" | "26000">(["0A000", "26000"]),
 							caseHang: Duration.minutes(2)
 						},
 						(sqlstate, c) =>
@@ -330,14 +331,14 @@ describe("a flight", () => {
 								const session = scriptedSession(
 									{
 										...answeringScript,
-										statement: (query) => (stale ? refusedAnswer(sqlstate) : rows([query.sql]))
+										statement: (query) => (stale ? refusedAnswer(sqlstate) : rows([[query.sql]]))
 									},
 									immediateDelivery
 								)
 								yield* runTransaction(session, [named], whole)
 								assert.deepEqual(session.flights()[0]?.pipeline[1], {
 									_tag: "statement",
-									sql: "a",
+									sql: testSql("a"),
 									params: [],
 									name: { _tag: "parsing", name: server.name }
 								})
@@ -346,7 +347,7 @@ describe("a flight", () => {
 								assert.ok(failure._tag === "StaleName" && failure.index === 0)
 								assert.deepEqual(session.flights()[1]?.pipeline[1], {
 									_tag: "statement",
-									sql: "a",
+									sql: testSql("a"),
 									params: [],
 									name: { _tag: "parsed", name: server.name }
 								})
@@ -357,7 +358,7 @@ describe("a flight", () => {
 								assert.deepEqual(after?.closes, [server.name])
 								assert.deepEqual(after?.pipeline[1], {
 									_tag: "statement",
-									sql: "a",
+									sql: testSql("a"),
 									params: [],
 									name: { _tag: "parsing", name: server.name }
 								})
@@ -378,7 +379,7 @@ describe("a flight", () => {
 				yield* runTransaction(plain, [statement("a")], whole)
 				assert.deepEqual(plain.flights()[0]?.pipeline[1], {
 					_tag: "statement",
-					sql: "a",
+					sql: testSql("a"),
 					params: [],
 					name: { _tag: "unnamed" }
 				})
@@ -404,13 +405,12 @@ describe("joined flights", () => {
 						suite: "unit/adapter/batch-2",
 						draw: drawn(array(int(0, 3), { min: 0, max: 5 })),
 						literal: Formatter.format,
-						features: noFeatures,
+						coverage: noCoverage,
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(widths) =>

@@ -32,7 +32,7 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -43,6 +43,7 @@ import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { ApplyError } from "#adapter/public/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import { applyFacts, openPlatform, type PlatformDb } from "#test/pg/e2e-platform/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -215,7 +216,7 @@ const nextEvent = () => uid(0x7e57, ++serial)
  */
 const recordAt = (
 	p: Platform,
-	key: string,
+	key: Uuid,
 	t: bigint,
 	tokens: ReadonlyArray<{ readonly kind: TokenKind; readonly tokens: bigint }>
 ): Option.Option<P.UsageRecord> => {
@@ -269,10 +270,10 @@ const activeAt = (p: Platform, key: string): ReadonlyArray<bigint> => {
  * workspace's cap that month and what it has spent of it.
  */
 interface Slot {
-	readonly key: string
+	readonly key: Uuid
 	readonly t: bigint
-	readonly workspace: string
-	readonly org: string
+	readonly workspace: Uuid
+	readonly org: Uuid
 	readonly month: number
 	readonly cap: bigint
 	readonly spent: bigint
@@ -532,7 +533,7 @@ const plantRefundOnlyPaid = (p: Platform, margin: bigint): Option.Option<Planted
 			paid: Arr.findFirst(p.facts.Invoice, (i) => i.state === "paid")
 		}),
 		(at) => {
-			const refund = (invoice: string): Fact<typeof P.Refund> => ({
+			const refund = (invoice: Uuid): Fact<typeof P.Refund> => ({
 				id: nextEvent(),
 				invoice,
 				amount: P.Micros(0n),
@@ -842,13 +843,15 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 							suite: "pg/e2e-platform/laws",
 							draw: drawn(lawSketchGen),
 							literal: Formatter.format,
-							features: features<LawFeature>(Arr.map(faults, (f): LawFeature => `refused by ${f}`)),
+							coverage: required<LawFeature>(
+								Arr.map(faults, (f): LawFeature => `refused by ${f}`),
+								{ cases: 200, sense: notesOnly }
+							),
 							kept,
 							runs: 20,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "mutate", cases: 200, sense: notesOnly },
 							caseHang: Duration.minutes(2)
 						},
 						(sketch, cx) =>

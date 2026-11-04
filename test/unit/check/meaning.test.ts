@@ -1,6 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { rating, required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -8,6 +9,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelKind } from "#compiler/ir/rel.ts"
 import { queryInput } from "#compiler/program/compile.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import {
 	answerEquivalence,
@@ -22,12 +24,14 @@ import {
 	type MixedForm,
 	mixedFeatures,
 	mixedForms,
+	plantedNameCount,
 	type ProgramFeature,
 	programFeatures,
 	programForms,
 	resolveCase
 } from "#test/support/oracle/public/generate.ts"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { type DeclineReason, declineReasons } from "#test/support/oracle/reference/values.ts"
 
 import {
 	expectedFrom,
@@ -43,9 +47,9 @@ type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 type MixedRead = Extract<ProgramRead, { readonly kind: "mixed" }>
 
 /** What a program reached, by the language's own terms (generate.ts), and the kinds of node its checked IR holds. */
-type Feature = ProgramFeature | MixedForm | `checked ${RelKind}` | "a merged numeric read"
+type Feature = ProgramFeature | MixedForm | `checked ${RelKind}` | `declined ${DeclineReason}`
 
-const required: ReadonlyArray<Feature> = [
+const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"arms",
 	"take",
 	"attachment",
@@ -69,7 +73,11 @@ const required: ReadonlyArray<Feature> = [
 /** The picks a shrunk sketch leaves at their floor: a value, a match's bindings, a stage's head, an order. */
 const value0 = { cls: 0, sp: 0 }
 const binds0 = Array.from({ length: 7 }, () => ({ how: 0, pick: 0, value: value0 }))
-const head0 = { vars: [], names: [0, 0, 0, 0, 0, 0], folds: [{ fn: 0, arg: 0 }] }
+const head0 = {
+	vars: [],
+	names: [0, 0, 0, 0, 0, 0],
+	folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+}
 const order0 = { rotate: 0, dirs: [0, 0, 0], size: 0 }
 const match0 = (derived: number) => ({ source: 0, derived, attached: 0, binds: binds0 })
 const read0 = (matches: ReadonlyArray<number>, pair: number): CaseSketch["reads"][number] => ({
@@ -80,6 +88,7 @@ const read0 = (matches: ReadonlyArray<number>, pair: number): CaseSketch["reads"
 		inSet: [],
 		allen: [],
 		pointIn: [],
+		connective: [],
 		computed: [],
 		negation: { source: 0, picks: [0, 0] },
 		head: head0,
@@ -109,13 +118,13 @@ const fact0 = (values: ReadonlyArray<{ readonly cls: number; readonly sp: number
 
 /**
  * Kept: R(k int4, f0 numeric, f1 numeric, h handle) holding (0, 1, 1) and (1, 1.0, 0), matched beside its recursive
- * closure from f1 to f0 where f1 < f0. The closure's step binds one variable to the state's 1.0 and a fact's 1, merging
- * two spellings, and compares it with f0: the reference read that comparison as one over a declined term's value and
- * refused the case, though every spelling the merged value may hold gives false.
+ * closure from f1 to f0 where f1 < f0. The closure's step binds one variable to the state's 1.0 and a fact's 1, two
+ * spellings of one value, and compares it with f0: the reference, which once read that comparison as one over a
+ * declined value and refused the case, states it, since 1.0 and 1 are one Decimal.
  */
 const kept: ReadonlyArray<Kept<CaseSketch, Feature>> = [
 	{
-		note: "a comparison over a variable that merged two spellings, in a closure's step",
+		note: "a comparison over a variable bound to two spellings of one value, in a closure's step",
 		sketch: {
 			population: "delivered",
 			swarm: {
@@ -130,6 +139,8 @@ const kept: ReadonlyArray<Kept<CaseSketch, Feature>> = [
 				recursive: 2
 			},
 			perturbation: { settings: [], multiplier: 1 },
+			ambient: ordinarySession,
+			restorage: { shift: 0, respell: 0 },
 			roster: 0,
 			span: 0,
 			relations: [
@@ -153,9 +164,10 @@ const kept: ReadonlyArray<Kept<CaseSketch, Feature>> = [
 			],
 			reads: [read0([0, 32768], 32768), read0([0], 0)],
 			planted: {
-				names: Array.from({ length: 19 }, () => 0),
+				names: Array.from({ length: plantedNameCount }, () => 0),
 				value: value0,
 				handle: 0,
+				padding: 0,
 				side: { kind: 0, values: [0, 0, 0] }
 			}
 		},
@@ -164,7 +176,7 @@ const kept: ReadonlyArray<Kept<CaseSketch, Feature>> = [
 		 * appear kept, the third left out.
 		 */
 		draws: "1.1.0",
-		reaches: ["a recursive closure", "a merged numeric read"]
+		reaches: ["a recursive closure"]
 	}
 ]
 
@@ -267,13 +279,15 @@ describe("the builder and the checker", () => {
 						suite: "unit/check/meaning",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
-						features: features<Feature>(required),
+						coverage: rating(
+							required<Feature>(situations, { cases: 400, sense: notesOnly }),
+							Arr.map(declineReasons, (reason) => `declined ${reason}` as const)
+						),
 						kept,
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, k) =>
@@ -281,7 +295,7 @@ describe("the builder and the checker", () => {
 							const c = k.draw(resolveCase(sketch))
 							const observer: ReferenceObserver = {
 								...unobserved,
-								reading: () => k.note("a merged numeric read")
+								decline: (reason) => k.note(`declined ${reason}`)
 							}
 							for (const read of c.reads) {
 								if (read.kind === "query") {

@@ -28,7 +28,6 @@ import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type ClosedTheoryRelation,
 	headingColumns,
-	isKeyField,
 	isSpanField,
 	type KeyField,
 	type KeyName,
@@ -250,7 +249,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly #held: ReadonlyMap<string, BaseRelation>
 	/** A role's query entries, by name. */
 	readonly #worlds: ReadonlyMap<string, WorldRelation>
-	readonly #rosters = new Map<string, ReadonlyArray<string>>()
+	readonly #rosters = new Map<string, NonEmptyReadonlyArray<string>>()
 
 	/**
 	 * Reality holds its stored relations, then each derived relation analyzed in level order against the relations held
@@ -359,17 +358,14 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		if (!isNonEmpty(declared)) {
 			return fail("MalformedDescription", loc, "a relation with at least one field")
 		}
-		/** A declared key's fields resolved to their handles, refused when it names a field the relation lacks or one of a
-		 * vector type, whose index entry is unrepresentable as ownership's representability already refuses. */
+		/** A declared key's fields resolved to their handles, refused when it names a field the relation lacks. */
 		const keyed = (key: DeclaredKey): NonEmptyReadonlyArray<KeyField> =>
-			mapNonEmpty(key, (k) => {
-				const field =
+			mapNonEmpty(
+				key,
+				(k) =>
 					declared.find((f) => f.name === k) ??
 					fail("MalformedDescription", loc, `a key over fields of ${name}; ${k} is not one`)
-				return isKeyField(field)
-					? field
-					: unrepresentableKey(name, key, { kind: "vector", field: k }, loc)
-			})
+			)
 		/** A declared key's handles and its one span field, refused for two as ownership's representability already does. */
 		const keyName = (k: OwnedKey): KeyName => {
 			const fields = keyed(k.fields)
@@ -424,7 +420,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			level: r.level,
 			loc,
 			handles: desc.handles,
-			rows: desc.handles.map((handle) =>
+			rows: mapNonEmpty(desc.handles, (handle) =>
 				declared.map((f) => {
 					const value: LiteralDesc | undefined = f === id ? handle : desc.facts[handle]?.[f.name]
 					const typed = value === undefined ? undefined : irLiteral(value, f.type)
@@ -485,8 +481,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		kind: "schema",
 		roster: (name) => this.#rosters.get(name),
 		text: textLookup,
-		contractPredicate: (predicate, base, contract): Result.Result<ExprTable, CompileError> =>
-			contractPredicateTable(predicate, base, contract, {
+		contractPredicate: (predicate, base, contract, facts): Result.Result<ExprTable, CompileError> =>
+			contractPredicateTable(predicate, base, contract, facts, {
 				loc: SourceLoc(`contract ${contract}`, []),
 				fieldType: (d, at) => scalarTypeOf(d, this.#env, at),
 				regexMember

@@ -1,3 +1,5 @@
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { closedRows } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -25,10 +27,12 @@ const placeholderValue = (cx: LowerContext, type: ScalarType, at: string): Expr 
 			return lowerLiteral(cx.names, { kind: "int", value: 0n }, base)
 		case "numeric":
 		case "money":
+		case "exactInteger":
+		case "exactMoney":
 			return lit.decimal("0", cx.baseTypeRef(base))
 		case "float4":
 		case "float8":
-			return lowerLiteral(cx.names, { kind: "float", value: 0 }, base)
+			return lowerLiteral(cx.names, { kind: "float", value: canonicalZero(0) }, base)
 		case "bool":
 			return lit.bool(false)
 		case "uuid":
@@ -65,9 +69,9 @@ const placeholderValue = (cx: LowerContext, type: ScalarType, at: string): Expr 
  *
  * The placeholder is two equal rows, never one. PostgreSQL flattens a one-row VALUES list into constants once its query
  * is pulled up into the one that reads it (an optimized artifact elides the DISTINCT that would prevent that), and then
- * folds every expression over those constants at plan time, before WHERE false discards the row: an expression the
- * placeholder makes fail, `c / 0` over a placeholder 0, would raise although the relation is empty. A list of two rows
- * stays a VALUES scan whose columns are never constants.
+ * folds every expression over those constants at plan time, before WHERE false discards the row: a placeholder need
+ * not have its column type's facts, so `x / c` over a placeholder 0 of a contract proved nonzero would raise although
+ * the relation is empty. A list of two rows stays a VALUES scan whose columns are never constants.
  */
 const lowerClosed: NodeLowerer<"Closed"> = (node, cx) => {
 	const at = nodeLabel(node)
@@ -83,13 +87,15 @@ const lowerClosed: NodeLowerer<"Closed"> = (node, cx) => {
 		node.heading.length === 0
 			? [lit.bool(true)]
 			: node.heading.map((c) => placeholderValue(cx, c.type, at))
-	const values = empty ? [placeholder, placeholder] : rows
+	const values: NonEmptyReadonlyArray<ReadonlyArray<Expr>> = isNonEmpty(rows)
+		? rows
+		: [placeholder, placeholder]
 	const origin = { kind: "node", node: node.id } as const
-	const named = outputNames(node.heading).map((name) => ({
+	const named = mapNonEmpty(outputNames(node.heading), (name) => ({
 		name,
 		column: cx.supply.column(origin)
 	}))
-	const columns = named.map((n) => n.column)
+	const columns = mapNonEmpty(named, (n) => n.column)
 	const alias = cx.relationAlias(origin)
 	const item: FromItem = { kind: "values", rows: values, alias, columns }
 	const map = new Map<string, Expr>()

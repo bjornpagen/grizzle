@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -126,7 +126,7 @@ const admittedAlone = (tapped: Tapped, m: MigrationSession, target: MigrationTar
 		assert.deepEqual(queryTexts(window), ["BEGIN ISOLATION LEVEL SERIALIZABLE", "ROLLBACK"])
 		assert.equal(
 			frontendCount(window, "E"),
-			2 + flight.statements.length,
+			2 + flight.flight.statements.length,
 			"the ledger's reads and the drift check's"
 		)
 		assert.deepEqual(window.backend.at(-1), { type: "Z", status: "I" }, "the drift check ends idle")
@@ -145,7 +145,7 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 						generator: historyGen,
 						literal: Formatter.format,
 						limit: historyCount,
-						features: features<FlightFeature>([
+						coverage: requiredInSpace<FlightFeature>([
 							"an absent ledger admitted",
 							"every folder in one apply",
 							"a no-transaction file",

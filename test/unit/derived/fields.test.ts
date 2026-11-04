@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record } from "effect"
@@ -58,18 +59,20 @@ describe("derived field inference", () => {
 						suite: "unit/derived/fields",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
-						features: features<FieldFeature>([
-							"a derived relation of several columns",
-							"a contract field",
-							"a closed id field",
-							"a refined text field"
-						]),
+						coverage: required<FieldFeature>(
+							[
+								"a derived relation of several columns",
+								"a contract field",
+								"a closed id field",
+								"a refined text field"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, c) =>
@@ -94,8 +97,10 @@ describe("derived field inference", () => {
 								}
 							}
 							const rosters = Record.fromEntries(
-								Arr.flatMap(Record.values(owned.relations), (o) =>
-									o.desc.kind === "closed" ? [[o.desc.name, o.desc.handles]] : []
+								Arr.flatMap(
+									Record.values(owned.relations),
+									(o): ReadonlyArray<readonly [string, Arr.NonEmptyReadonlyArray<string>]> =>
+										o.desc.kind === "closed" ? [[o.desc.name, o.desc.handles]] : []
 								)
 							)
 							for (const o of Record.values(owned.relations)) {
@@ -130,7 +135,9 @@ describe("derived field inference", () => {
 			const contracts = checking(
 				schema("L", { Line: relation("Line", { id: uuid, price: Cents }, ["id"]) }, [])
 			).owned.contracts
-			const rosters = { Tier: ["Free", "Pro"] }
+			const rosters: Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> = {
+				Tier: ["Free", "Pro"]
+			}
 			const kinds: Arr.NonEmptyReadonlyArray<FieldDesc> = [
 				field.smallint,
 				field.integer,
@@ -161,7 +168,7 @@ describe("derived field inference", () => {
 						generator: element(kinds),
 						literal: Formatter.format,
 						limit: kinds.length,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					(d) =>
@@ -191,7 +198,7 @@ describe("derived field inference", () => {
 							generator: element<"declared" | "undeclared">(["declared", "undeclared"]),
 							literal: Formatter.format,
 							limit: 2,
-							features: features<"declared" | "undeclared">(["declared", "undeclared"]),
+							coverage: requiredInSpace<"declared" | "undeclared">(["declared", "undeclared"]),
 							caseHang: Duration.minutes(2)
 						},
 						(declaration, c) =>
@@ -203,7 +210,7 @@ describe("derived field inference", () => {
 										: relation("Line", { id: uuid, amount: pg.bigint }, ["id"])
 								const L = schema("L", { Line }, [])
 								const q = query(L).rule((r) => {
-									const { id, amount } = v(Line)
+									const { id, amount } = v(Line, "line")
 									return r.match(Line, { id, amount }).find({ id, c: Compute.cast(amount, Cents) })
 								})
 								const analyzed = Result.map(
@@ -232,7 +239,7 @@ describe("derived field inference", () => {
 								})
 								const owned = checking(L).owned
 								const out = fieldDescOf(typeOfCents, owned.contracts)
-								assert.deepEqual(!out.ok && out.error, { contract: "Cents" })
+								assert.deepEqual(!out.ok && out.error, { kind: "undeclared", contract: "Cents" })
 							})
 					)
 				)

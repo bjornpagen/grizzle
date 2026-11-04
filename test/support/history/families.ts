@@ -27,17 +27,16 @@ import {
 	ledger,
 	Member,
 	PayLine,
-	Payment,
 	type QueueParams,
 	queue,
 	queueFamily,
 	Reason,
 	Roster,
 	Rota,
-	Run,
 	type RunsParams,
 	rosterVisits,
 	runs,
+	runsRelations,
 	Seat,
 	Shift,
 	type StaffingParams,
@@ -54,7 +53,6 @@ import {
 	timekeepingFamily,
 	Visit,
 	type VisitsParams,
-	Voiding,
 	visits,
 	Wanted,
 	Work,
@@ -62,6 +60,7 @@ import {
 } from "#test/pg/laws/families/families.ts"
 import { type HostSchema, isResidual } from "#test/pg/laws/families/model.ts"
 import { type Domains, familyWriters, openWriter } from "#test/pg/laws/families/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import type { HistoryEnv } from "#test/support/history/run.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
@@ -93,12 +92,11 @@ export interface HistoryRig {
 }
 
 /** An installed family schema, holding no connection: the test's resource. */
-export interface HistoryInstall<P extends { readonly mutable: boolean }> {
+export interface HistoryInstall<P> {
 	/** The parameters it was drawn as, from which a connection rebuilds the schema value under the installed name. */
 	readonly params: P
 	readonly host: HostSchema
 	readonly domains: Domains
-	readonly isMutable: boolean
 	readonly installed: Installed
 	/** The installation's names, through the naming door. */
 	readonly names: Names
@@ -122,9 +120,10 @@ export interface HistoryInstall<P extends { readonly mutable: boolean }> {
  * reopen, so each case opens them and closes them when it ends, and a test holds at most one case's connections
  * whatever the number of schemas it draws.
  *
- * Every family draws `mutable` for all of its relations or for none.
+ * Each relation's mutability is the host's (model.ts HostRelation `mutable`), which every writer's model reads per
+ * relation.
  */
-export interface HistoryFamily<P extends { readonly mutable: boolean }> {
+export interface HistoryFamily<P> {
 	readonly family: Family<P>
 	readonly install: (
 		p: P
@@ -144,7 +143,7 @@ export interface HistoryFamily<P extends { readonly mutable: boolean }> {
  * and not the other, or a native law of the host no installed constraint reports.
  */
 export const enforcementProblem = (host: HostSchema, names: Names): string | undefined => {
-	const installedResiduals = new Set(Arr.map(names.model.residuals, (r) => r.lawId))
+	const installedResiduals = new Set<LawId>(Arr.map(names.model.residuals, (r) => r.lawId))
 	const hostResiduals = new Set(Arr.map(Arr.filter(host.laws, isResidual), (l) => l.law))
 	const reported = new Set<LawId>(Arr.map(names.model.constraints, (c) => c.law))
 	const problems = [
@@ -165,7 +164,7 @@ export const enforcementProblem = (host: HostSchema, names: Names): string | und
 }
 
 /** The installation of the family schema drawn as `p`, with its names. */
-const historyInstall = <P extends { readonly mutable: boolean }>(
+const historyInstall = <P>(
 	family: Family<P>,
 	p: P
 ): Effect.Effect<
@@ -173,11 +172,10 @@ const historyInstall = <P extends { readonly mutable: boolean }>(
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
-	Effect.map(installFamily(family, p), (installed) => ({
+	Effect.map(installFamily(family, p, ordinarySession), (installed) => ({
 		params: p,
 		host: family.host(p),
 		domains: family.domains,
-		isMutable: p.mutable,
 		installed,
 		names: namesOf(installed)
 	}))
@@ -186,7 +184,7 @@ const historyInstall = <P extends { readonly mutable: boolean }>(
  * The history environment of an installation of `schema`: `app` opened as `g` and then as `h`, each writer's actor
  * resolved right after its Db opens, as the one session of the login beside the writers opened before it.
  */
-const historyEnv = <P extends { readonly mutable: boolean }>(
+const historyEnv = <P>(
 	i: HistoryInstall<P>,
 	schema: AnySchema,
 	relations: Readonly<Record<string, unknown>>
@@ -205,7 +203,6 @@ const historyEnv = <P extends { readonly mutable: boolean }>(
 		return {
 			host: i.host,
 			domains: i.domains,
-			isMutable: i.isMutable,
 			rig: {
 				installed: i.installed,
 				schema,
@@ -241,7 +238,7 @@ export const alternativesHistory: HistoryFamily<RunsParams> = {
 	install: (p) => historyInstall(alternativesFamily, p),
 	connect: (i) => {
 		const schema = runs(i.params)(i.installed.declared)
-		return historyEnv(i, schema, { Run, Payment, Voiding })
+		return historyEnv(i, schema, runsRelations(i.params))
 	}
 }
 

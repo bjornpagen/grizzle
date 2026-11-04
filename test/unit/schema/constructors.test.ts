@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -16,6 +16,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -29,6 +30,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { appendAll, maxOf } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { BoundValueDesc, ExprDesc, LiteralDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -83,6 +85,7 @@ import {
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
 import {
@@ -110,8 +113,8 @@ import { regex as arkregex } from "arkregex"
  * refused where the builder admits its arguments, its admission core (admitRelation, admitClosed, ...), which a
  * declaration with no defect reaches through the builder itself.
  */
-const Kind = closed("Kind", ["Automatic", "Manual"])
-const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
+const Kind = closed("Kind", ["Automatic", "Manual"], [])
+const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"], [])
 
 /**
  * A one-rule definition over `over` finding the ids of `sources`, each a relation or a derived relation matched on its
@@ -119,7 +122,7 @@ const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) },
  */
 const idsOf = (over: unknown, sources: Arr.NonEmptyReadonlyArray<unknown>) =>
 	queryOver(over).rule((r: RuleValue) => {
-		const { id } = varsOver(sources[0])
+		const { id } = varsOver(sources[0], "source")
 		return Arr.reduce(sources, r, (rule: RuleValue, source) => rule.match(source, { id })).find({
 			id
 		})
@@ -172,7 +175,7 @@ describe("relation", () => {
 		| "an undeclared key field"
 		| "a repeated key field"
 		| "a fourth argument"
-	const relationDefects: ReadonlyArray<RelationDefect> = [
+	const relationDefects: Arr.NonEmptyReadonlyArray<RelationDefect> = [
 		"none",
 		"an empty name",
 		"no fields",
@@ -237,17 +240,15 @@ describe("relation", () => {
 							}
 						}),
 						literal: Formatter.format,
-						features: features<RelationDefect | Mutation>([
-							...relationDefects,
-							"add a field",
-							"drop a field"
-						]),
+						coverage: required<RelationDefect | Mutation>(
+							[...relationDefects, "add a field", "drop a field"],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -300,7 +301,7 @@ describe("relation", () => {
 								}
 								return
 							}
-							const R = relation(name, descriptors, primaryKey)
+							const R = relation(name, descriptors, primaryKey, [])
 							const desc = relationDescOf(R, "test")
 							assert.deepEqual(recorded(R, "test"), { name, fields: names, primaryKey: key })
 							assert.deepEqual(recorded(lookAlike, "look-alike"), {
@@ -413,7 +414,7 @@ describe("closed", () => {
 		| "an empty roster"
 		| "a payload field named id"
 		| "a payload as a third argument"
-	const closedDefects: ReadonlyArray<ClosedDefect> = [
+	const closedDefects: Arr.NonEmptyReadonlyArray<ClosedDefect> = [
 		"none",
 		"a missing fact",
 		"an extra field in a fact",
@@ -470,13 +471,15 @@ describe("closed", () => {
 							}
 						}),
 						literal: Formatter.format,
-						features: features<ClosedFeature>([...closedDefects, "no payload", "payload"]),
+						coverage: required<ClosedFeature>([...closedDefects, "no payload", "payload"], {
+							cases: 300,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -552,8 +555,8 @@ describe("closed", () => {
 							}
 							const K =
 								drawnPayload.length === 0
-									? closed(s.name, handles)
-									: closed(s.name, handles).with(payload, facts)
+									? closed(s.name, handles, [])
+									: closed(s.name, handles, []).with(payload, facts)
 							const rosterHandles: ReadonlyArray<string> = K.handles
 							assert.deepEqual(rosterHandles, handles)
 							assert.deepEqual(K.facts, facts)
@@ -579,19 +582,26 @@ describe("closed", () => {
 								}
 							}
 							/**
-							 * Either form's handle(h) is h's typed literal at the roster's enum, the literal Compute.literal(closedId(K), h)
-							 * records, its column that handle; a member off the roster is refused as that literal is.
+							 * Either form's handle(h) is h's literal at the roster's enum, the one typed constant of a member: its
+							 * column delivers exactly h. A member off the roster is refused, and so is Compute.literal over the
+							 * roster's descriptor, the JavaScript caller's path the types cannot refuse.
 							 */
 							const rosterId = closedId(K)
 							for (const h of handles) {
 								const term = K.handle(h)
-								assert.deepEqual(term.expr, computeCore.literal(rosterId, h).expr)
+								assert.deepEqual(term.expr, { kind: "literal", value: h, type: descOf(rosterId) })
 								assert.equal(term.sql, "enum")
+								assert.deepEqual(
+									term.column.kind === "handle" ? term.column.handles : [],
+									[h],
+									"a handle's column delivers exactly its member"
+								)
+								throwsRefused(() => computeCore.literal(rosterId, h), "MalformedDescription")
 							}
 							throwsRefused(() => K.handle(`${target}Other`), "MalformedDescription")
 							if (drawnPayload.length === 0) {
 								const withEmpty = relationDescOf(
-									closed(s.name, handles).with(
+									closed(s.name, handles, []).with(
 										{},
 										Rec.fromEntries(Arr.map(handles, (h) => [h, {}]))
 									),
@@ -906,25 +916,28 @@ describe("literals take their field's value", () => {
 							(c) => c
 						),
 						literal: Formatter.format,
-						features: features<LiteralFeature>([
-							"real: rounded",
-							"real: special",
-							"real: overflow",
-							"real: underflow",
-							"real: wrong host kind",
-							"double precision: kept",
-							"double precision: special",
-							"numeric(p, s): rounded",
-							"numeric(p, s): kept",
-							"numeric(p, s): overflow",
-							"numeric(p, s): infinity",
-							"numeric(p, s): wrong host kind",
-							"numeric: kept",
-							"numeric: special",
-							"closed fact",
-							"selection",
-							"check operand"
-						]),
+						coverage: required<LiteralFeature>(
+							[
+								"real: rounded",
+								"real: special",
+								"real: overflow",
+								"real: underflow",
+								"real: wrong host kind",
+								"double precision: kept",
+								"double precision: special",
+								"numeric(p, s): rounded",
+								"numeric(p, s): kept",
+								"numeric(p, s): overflow",
+								"numeric(p, s): infinity",
+								"numeric(p, s): wrong host kind",
+								"numeric: kept",
+								"numeric: special",
+								"closed fact",
+								"selection",
+								"check operand"
+							],
+							{ cases: 600, sense: notesOnly }
+						),
 						kept: [
 							{
 								note: "NaN for a real",
@@ -964,7 +977,6 @@ describe("literals take their field's value", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ case: { field, value }, site }, c) =>
@@ -980,12 +992,12 @@ describe("literals take their field's value", () => {
 							} else {
 								agrees(succeeded(result), expected)
 							}
-							const Rated = relation("Rated", { id: uuid, value: descriptor }, ["id"])
+							const Rated = relation("Rated", { id: uuid, value: descriptor }, ["id"], [])
 							const recorded = (): LiteralDesc => {
 								switch (site) {
 									case "closed fact": {
 										const desc = relationDescOf(
-											closed("P", ["H"]).with({ value: descriptor }, { H: { value: host } }),
+											closed("P", ["H"], []).with({ value: descriptor }, { H: { value: host } }),
 											"test"
 										)
 										if (desc.kind !== "closed") {
@@ -995,7 +1007,7 @@ describe("literals take their field's value", () => {
 									}
 									case "selection":
 										return defined(
-											defined(sideDescOf(on(select(Rated, { value: host }), "id"))).selection[
+											defined(sideDescOf(on(select(Rated, { value: host }), ["id"]))).selection[
 												"value"
 											]
 										)
@@ -1061,13 +1073,14 @@ describe("statements", () => {
 							(c) => c
 						),
 						literal: Formatter.format,
-						features: features<`${FieldListSite}: ${FieldListDefect}`>(
+						coverage: required<`${FieldListSite}: ${FieldListDefect}`>(
 							Arr.flatMap(["key", "on", "on a selection"] as const, (site) =>
 								Arr.map(
 									["none", "an empty list", "an undeclared field", "a repeated field"] as const,
 									(defect) => `${site}: ${defect}` as const
 								)
-							)
+							),
+							{ cases: 200, sense: notesOnly }
 						),
 						kept: Arr.flatMap(["key", "on", "on a selection"] as const, (site) =>
 							Arr.map(
@@ -1084,7 +1097,6 @@ describe("statements", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -1125,13 +1137,13 @@ describe("statements", () => {
 								}
 								case "on":
 									if (defect !== "none") {
-										return void throwsRefused(() => on(Task, ...list), "MalformedDescription")
+										return void throwsRefused(() => on(Task, list), "MalformedDescription")
 									}
 									return assert.deepEqual<{
 										readonly relation: string
 										readonly fields: ReadonlyArray<string>
 										readonly selection: Readonly<Record<string, unknown>>
-									}>(defined(sideDescOf(on(Task, ...list))), {
+									}>(defined(sideDescOf(on(Task, list))), {
 										relation: "Task",
 										fields: list,
 										selection: {}
@@ -1139,7 +1151,7 @@ describe("statements", () => {
 								case "on a selection":
 									if (defect !== "none") {
 										return void throwsRefused(
-											() => on(select(Task, selection), ...list),
+											() => on(select(Task, selection), list),
 											"MalformedDescription"
 										)
 									}
@@ -1147,7 +1159,7 @@ describe("statements", () => {
 										readonly relation: string
 										readonly fields: ReadonlyArray<string>
 										readonly selection: Readonly<Record<string, unknown>>
-									}>(defined(sideDescOf(on(select(Task, selection), ...list))), {
+									}>(defined(sideDescOf(on(select(Task, selection), list))), {
 										relation: "Task",
 										fields: list,
 										selection
@@ -1159,7 +1171,7 @@ describe("statements", () => {
 											"MalformedDescription"
 										)
 									}
-									return assert.deepEqual(sideDescOf(on(select(Task, selection), "id")), {
+									return assert.deepEqual(sideDescOf(on(select(Task, selection), ["id"])), {
 										relation: "Task",
 										fields: ["id"],
 										selection
@@ -1171,7 +1183,7 @@ describe("statements", () => {
 	)
 
 	type SideStatement = "contained" | "mirrors" | "capacity"
-	const Triple = relation("Triple", { a: uuid, b: uuid, c: uuid }, ["a", "b", "c"])
+	const Triple = relation("Triple", { a: uuid, b: uuid, c: uuid }, ["a", "b", "c"], [])
 	const tripleFields: Arr.NonEmptyReadonlyArray<string> = ["a", "b", "c"]
 
 	it.effect("contained, mirrors and capacity relate two sides built by on, of one width", (ctx) =>
@@ -1187,27 +1199,27 @@ describe("statements", () => {
 						bare: source.draw(element<"none" | "left" | "right">(["none", "none", "left", "right"]))
 					})),
 					literal: Formatter.format,
-					features:
-						features<`${SideStatement}: ${"related" | "widths differ" | "a bare relation"}`>(
+					coverage:
+						required<`${SideStatement}: ${"related" | "widths differ" | "a bare relation"}`>(
 							Arr.flatMap(["contained", "mirrors", "capacity"] as const, (st) =>
 								Arr.map(
 									["related", "widths differ", "a bare relation"] as const,
 									(o) => `${st}: ${o}` as const
 								)
-							)
+							),
+							{ cases: 200, sense: notesOnly }
 						),
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(s, c) =>
 					Effect.sync(() => {
-						const left = on(Task, ...taskFields.slice(0, s.left))
-						const right = on(Triple, ...tripleFields.slice(0, s.right))
+						const left = on(Task, taskFields.slice(0, s.left))
+						const right = on(Triple, tripleFields.slice(0, s.right))
 						const l = s.bare === "left" ? Task : left
 						const r = s.bare === "right" ? Triple : right
 						const build = () =>
@@ -1286,11 +1298,12 @@ describe("statements", () => {
 				? { kind: "admitted", bound: "*" }
 				: lowDesc(b)
 
-	const Pool = relation("Pool", { id: uuid, budget: rawPg.bigint }, ["id"])
+	const Pool = relation("Pool", { id: uuid, budget: rawPg.bigint }, ["id"], [])
 	const Claim = relation(
 		"Claim",
 		{ id: uuid, pool: uuid, units: rawPg.bigint, during: span(rawPg.bigint) },
-		["id"]
+		["id"],
+		[]
 	)
 
 	it.effect(
@@ -1316,23 +1329,25 @@ describe("statements", () => {
 							)
 						})),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							"bounded" | "exact" | "no upper bound" | "refused bound" | "refused rule" | WeightArg
-						>([
-							"bounded",
-							"exact",
-							"no upper bound",
-							"refused bound",
-							"refused rule",
-							"a field",
-							"a duration"
-						]),
+						>(
+							[
+								"bounded",
+								"exact",
+								"no upper bound",
+								"refused bound",
+								"refused rule",
+								"a field",
+								"a duration"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -1342,7 +1357,7 @@ describe("statements", () => {
 								? [boundValue(s.low), boundValue(s.high.kind === "omitted" ? s.low : s.high), 3n]
 								: [boundValue(s.low), ...(s.high.kind === "omitted" ? [] : [boundValue(s.high)])]
 							const [lowArg, ...rest] = args
-							const call = () => within(lowArg, ...rest)
+							const call = () => within(lowArg, ...argumentsOf(rest))
 							const lowArgument = lowDesc(s.low)
 							const highArgument = highDesc(s.high, lowArgument)
 							if (s.third || lowArgument.kind === "refused" || highArgument.kind === "refused") {
@@ -1371,8 +1386,8 @@ describe("statements", () => {
 										: { limit: 3n }
 								return void throwsRefused(
 									() =>
-										admitCapacity(on(Pool, "id"), {
-											from: on(Claim, "pool"),
+										admitCapacity(on(Pool, ["id"]), {
+											from: on(Claim, ["pool"]),
 											within: bound,
 											...malformedRule
 										}),
@@ -1387,7 +1402,7 @@ describe("statements", () => {
 										: {}
 							c.note(s.weight)
 							const desc = statementDescOf(
-								capacity(on(Pool, "id"), { from: on(Claim, "pool"), within: bound, ...weight })
+								capacity(on(Pool, ["id"]), { from: on(Claim, ["pool"]), within: bound, ...weight })
 							)
 							if (desc?.kind !== "capacity") {
 								return assert.fail("a capacity statement")
@@ -1451,7 +1466,7 @@ describe("statements", () => {
 		| "a spread copy of a term"
 		| "a symbol operand"
 		| "a derived relation"
-	const checkDefects: ReadonlyArray<CheckDefect> = [
+	const checkDefects: Arr.NonEmptyReadonlyArray<CheckDefect> = [
 		"none",
 		"a fraction for an integer field",
 		"a bigint for an integer field",
@@ -1525,7 +1540,8 @@ describe("statements", () => {
 	const Election = relation(
 		"Election",
 		{ id: uuid, limit: rawPg.integer, maximum: rawPg.integer, label: wildcard },
-		["id"]
+		["id"],
+		[]
 	)
 	const literalExpr = (value: LiteralDesc): ExprDesc => ({
 		kind: "literal",
@@ -1564,7 +1580,7 @@ describe("statements", () => {
 				return e.charLength(e.label)[p.op](p.n)
 			case "and":
 			case "or":
-				return e[p.kind](...Arr.map(p.args, (a) => built(e, a)))
+				return e[p.kind](...argumentsOf(Arr.map(p.args, (a) => built(e, a))))
 			case "not":
 				return e.not(built(e, p.arg))
 		}
@@ -1642,7 +1658,11 @@ describe("statements", () => {
 		"check records the row predicate over its own row, literals adopting the field's type, terms admitted by identity",
 		(ctx) =>
 			Effect.gen(function* () {
-				const D = derived("ElectionIds", idsOf(schema("Votes", { Election }, []), [Election]))
+				const D = derived(
+					"ElectionIds",
+					idsOf(schema("Votes", { Election }, [], []), [Election]),
+					[]
+				)
 				yield* searched(
 					ctx,
 					explore(
@@ -1659,11 +1679,10 @@ describe("statements", () => {
 								(c) => c
 							),
 							literal: Formatter.format,
-							features: features<CheckDefect | "a sum" | "an untyped sum">([
-								...checkDefects,
-								"a sum",
-								"an untyped sum"
-							]),
+							coverage: required<CheckDefect | "a sum" | "an untyped sum">(
+								[...checkDefects, "a sum", "an untyped sum"],
+								{ cases: 300, sense: notesOnly }
+							),
 							kept: [
 								{
 									note: "a typed and an untyped sum",
@@ -1696,7 +1715,6 @@ describe("statements", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ predicate, defect }, c) =>
@@ -1753,13 +1771,15 @@ describe("alternatives", () => {
 		| "an arm off the roster"
 		| "no arms"
 		| "an arm keyed unlike the parent"
-	const alternativesDefects: ReadonlyArray<AlternativesDefect> = [
+		| "the parent as an arm"
+	const alternativesDefects: Arr.NonEmptyReadonlyArray<AlternativesDefect> = [
 		"none",
 		"a discriminator of another type",
 		"a discriminator of another roster",
 		"an arm off the roster",
 		"no arms",
-		"an arm keyed unlike the parent"
+		"an arm keyed unlike the parent",
+		"the parent as an arm"
 	]
 	type AlternativesFeature =
 		| AlternativesDefect
@@ -1767,7 +1787,7 @@ describe("alternatives", () => {
 		| "a Key as an arm"
 		| "an unarmed handle"
 		| "a two-field key"
-	const Alien = closed("Alien", ["X"])
+	const Alien = closed("Alien", ["X"], [])
 
 	it.effect(
 		"is one statement expanding to a containment and one mirrors per armed handle, in roster order, each marked",
@@ -1794,29 +1814,32 @@ describe("alternatives", () => {
 							at: source.draw(pickGen)
 						})),
 						literal: Formatter.format,
-						features: features<AlternativesFeature>([
-							...alternativesDefects,
-							"a Key as the parent",
-							"a Key as an arm",
-							"an unarmed handle",
-							"a two-field key"
-						]),
+						coverage: required<AlternativesFeature>(
+							[
+								...alternativesDefects,
+								"a Key as the parent",
+								"a Key as an arm",
+								"an unarmed handle",
+								"a two-field key"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
 						Effect.sync(() => {
 							c.note(s.defect)
-							const Mode = closed("Mode", rosterOf(s.handles))
+							const Mode = closed("Mode", rosterOf(s.handles), [])
 							const Job = relation(
 								"Job",
 								{ id: uuid, mode: closedId(Mode), other: uuid, alien: closedId(Alien) },
-								["id"]
+								["id"],
+								[]
 							)
 							/** The parent's key: Job's primary key, a one-field Key, or a two-field Key. */
 							const parentFields = s.wide ? ["id", "other"] : s.parentKey ? ["other"] : ["id"]
@@ -1840,7 +1863,7 @@ describe("alternatives", () => {
 							> = {}
 							for (const h of armedHandles) {
 								const i = s.handles.indexOf(h)
-								const Arm = relation(`Arm${i}`, { job: uuid, extra: uuid }, ["job"])
+								const Arm = relation(`Arm${i}`, { job: uuid, extra: uuid }, ["job"], [])
 								const unlike = s.defect === "an arm keyed unlike the parent" && h === target
 								const two = s.wide !== unlike
 								const viaKey = two || s.arming[i] === true
@@ -1853,6 +1876,9 @@ describe("alternatives", () => {
 							}
 							if (s.defect === "an arm off the roster") {
 								arms[`${target}Off`] = arms[target]
+							}
+							if (s.defect === "the parent as an arm") {
+								arms[target] = parent
 							}
 							const discriminator =
 								s.defect === "a discriminator of another type"
@@ -1903,9 +1929,14 @@ describe("alternatives", () => {
 })
 
 describe("schema and schema.extend", () => {
-	const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"])
-	const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"])
-	const TaskRebuilt = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
+	const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
+	const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"], [])
+	const TaskRebuilt = relation(
+		"Task",
+		{ id: uuid, account: uuid, kind: closedId(Kind) },
+		["id"],
+		[]
+	)
 	type Entry = "Kind" | "Task" | "Account" | "Task rebuilt"
 	const entryValue = (e: Entry): AnyRelation | AnyClosed =>
 		e === "Kind" ? Kind : e === "Task" ? Task : e === "Account" ? Account : TaskRebuilt
@@ -1922,7 +1953,7 @@ describe("schema and schema.extend", () => {
 		| "a statement no builder made"
 		| "a derived relation"
 		| "statements that are no list"
-	const schemaDefects: ReadonlyArray<SchemaDefect> = [
+	const schemaDefects: Arr.NonEmptyReadonlyArray<SchemaDefect> = [
 		"none",
 		"a conflicting reuse of a relation name",
 		"a list as a statement",
@@ -1935,7 +1966,7 @@ describe("schema and schema.extend", () => {
 		"records relations once per name and statements in order, expanding alternatives in place, and refuses a conflicting or malformed declaration",
 		(ctx) =>
 			Effect.gen(function* () {
-				const D = derived("TaskIds", idsOf(schema("Edu", { Kind, Task }, []), [Task]))
+				const D = derived("TaskIds", idsOf(schema("Edu", { Kind, Task }, [], []), [Task]), [])
 				yield* searched(
 					ctx,
 					explore(
@@ -1949,17 +1980,15 @@ describe("schema and schema.extend", () => {
 								defect: source.draw(element(Arr.append(schemaDefects, "none" as const)))
 							})),
 							literal: Formatter.format,
-							features: features<SchemaDefect | "one name twice" | "alternatives expanded">([
-								...schemaDefects,
-								"one name twice",
-								"alternatives expanded"
-							]),
+							coverage: required<SchemaDefect | "one name twice" | "alternatives expanded">(
+								[...schemaDefects, "one name twice", "alternatives expanded"],
+								{ cases: 200, sense: notesOnly }
+							),
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(s, c) =>
@@ -1977,7 +2006,7 @@ describe("schema and schema.extend", () => {
 								switch (s.defect) {
 									case "a conflicting reuse of a relation name":
 										given["task"] = Task
-										given["other"] = relation("Task", { id: uuid }, ["id"])
+										given["other"] = relation("Task", { id: uuid }, ["id"], [])
 										return void throwsRefused(
 											() => admitSchema("Work", given, statements, []),
 											"DuplicateIdentity"
@@ -2010,7 +2039,7 @@ describe("schema and schema.extend", () => {
 								if (distinct(names).length < names.length) {
 									c.note("one name twice")
 								}
-								const W = schema("Work", relations, statements)
+								const W = schema("Work", relations, statements, [])
 								const desc = defined(schemaDescOf(W))
 								assert.deepEqual(
 									Arr.map(desc.relations, (r) => r.name),
@@ -2043,7 +2072,7 @@ describe("schema and schema.extend", () => {
 		| "a read of its own level"
 		| "a parameter"
 		| "a definition that is no query"
-	const levelDefects: ReadonlyArray<LevelDefect> = [
+	const levelDefects: Arr.NonEmptyReadonlyArray<LevelDefect> = [
 		"none",
 		"a read of its own level",
 		"a parameter",
@@ -2084,9 +2113,12 @@ describe("schema and schema.extend", () => {
 							(c) => c
 						),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							LevelDefect | "level 2" | "level 3" | "two reads" | "a deeper read named first"
-						>([...levelDefects, "level 2", "level 3", "two reads", "a deeper read named first"]),
+						>([...levelDefects, "level 2", "level 3", "two reads", "a deeper read named first"], {
+							cases: 300,
+							sense: notesOnly
+						}),
 						kept: [
 							{
 								note: "a level-3 view reading AView2x0 and ZView1x0",
@@ -2111,7 +2143,6 @@ describe("schema and schema.extend", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>
@@ -2124,7 +2155,7 @@ describe("schema and schema.extend", () => {
 								readonly derivedLevel: number
 							}
 							const tower = () => {
-								const base = schema("Edu", { Kind, Task }, [])
+								const base = schema("Edu", { Kind, Task }, [], [])
 								const below: Array<Declared> = [{ name: "Task", value: Task, derivedLevel: 0 }]
 								const chain: Array<AnySchema> = [base]
 								const expected: Array<{
@@ -2150,9 +2181,13 @@ describe("schema and schema.extend", () => {
 											idsOf(current, [
 												defined(reads[0]).value,
 												...Arr.map(reads.slice(1), (r) => r.value)
-											])
+											]),
+											[]
 										)
-										const derivedLevel = Math.max(...Arr.map(reads, (r) => r.derivedLevel + 1))
+										const derivedLevel = maxOf(
+											Arr.map(reads, (r) => r.derivedLevel + 1),
+											Number.NEGATIVE_INFINITY
+										)
 										if (reads.length > 1) {
 											c.note("two reads")
 										}
@@ -2188,18 +2223,22 @@ describe("schema and schema.extend", () => {
 											case "a read of its own level":
 												record["own"] = derived(
 													"OwnLevel",
-													idsOf(schema.extend(current, { first: first.value }, []), [first.value])
+													idsOf(schema.extend(current, { first: first.value }, [], []), [
+														first.value
+													]),
+													[]
 												)
 												break
 											case "a parameter":
 												record["param"] = derived(
 													"ByAccount",
 													queryOver(current).rule((r: RuleValue) => {
-														const { id } = varsOver(Task)
+														const { id } = varsOver(Task, "task")
 														return r
 															.match(Task, { id, account: r.param("account", uuid) })
 															.find({ id })
-													})
+													}),
+													[]
 												)
 												break
 											case "a definition that is no query":
@@ -2209,9 +2248,9 @@ describe("schema and schema.extend", () => {
 												break
 										}
 									}
-									current = schema.extend(current, record, [])
+									current = schema.extend(current, record, [], [])
 									chain.push(current)
-									below.push(...declared)
+									appendAll(below, declared)
 								}
 								return { current, chain, expected }
 							}

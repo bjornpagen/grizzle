@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
 import {
 	type Drawn,
 	isDrawn,
@@ -78,16 +79,16 @@ const drawsIn = (state: HostState): ReadonlyArray<Drawn> =>
  * writer's view, where a fact holding a draw the real system has not shown lives.
  */
 export const nextDraw = (state: ModelState): number =>
-	Math.max(
-		0,
-		...Arr.map(
+	maxOf(
+		Arr.map(
 			[
 				...drawsIn(state.reality),
 				...Arr.flatMap(Rec.values(state.derived).flat(), drawsOf),
 				...Arr.flatMap(state.sessions, (s) => (s.kind === "direct" ? drawsIn(s.view) : []))
 			],
 			(d) => d.draw
-		)
+		),
+		0
 	) + 1
 
 /** Whether a fact holds a value an identity drew and the real system has not shown. */

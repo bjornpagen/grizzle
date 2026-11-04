@@ -136,7 +136,9 @@ class Structure {
 			case "query":
 				this.query(s.query, { recursiveStep: false, attachment: false })
 				for (const [param, e] of entries(s.bind)) {
-					this.expr(e, vars, interiors, cx, childLoc(childLoc(loc, "bind"), param))
+					if (e.kind !== "relationParam") {
+						this.expr(e, vars, interiors, cx, childLoc(childLoc(loc, "bind"), param))
+					}
 				}
 				return
 			case "interior":
@@ -233,6 +235,11 @@ class Structure {
 				sub(e.pred, "pred")
 				sub(e.onTrue, "onTrue")
 				sub(e.onFalse, "onFalse")
+				return
+			case "when":
+				sub(e.subject, "subject")
+				sub(e.proved, "proved")
+				sub(e.otherwise, "otherwise")
 				return
 			case "compare":
 				sub(e.left, "left")

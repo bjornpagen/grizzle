@@ -2,6 +2,7 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import type { Source } from "@grizzle/testing/source"
 import { type Swarm, swarm, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
 import type {
 	Expr,
 	FrameBound,
@@ -17,8 +18,10 @@ import {
 	asc,
 	binary,
 	call,
+	asOperand,
 	cast,
 	col,
+	continued,
 	core,
 	countStar,
 	cUtf8Collation,
@@ -303,7 +306,7 @@ class Expressions {
 			}
 			case "connective": {
 				const kind = t.from(["and", "or"] as const)
-				const args = Array.from({ length: t.count(2, 3) }, () => this.bool(depth - 1))
+				const args = Arr.makeBy(t.count(2, 3), () => this.bool(depth - 1))
 				return {
 					type: "bool",
 					expr: { kind, args: Arr.map(args, (a) => a.expr) },
@@ -365,7 +368,11 @@ class Expressions {
 			case "in list": {
 				const negated = t.from([false, true])
 				const a = this.int(depth - 1)
-				const list = Array.from({ length: t.count(1, 3) }, () => this.int(depth - 1))
+				const extra = t.count(0, 2)
+				const list: Arr.NonEmptyReadonlyArray<IntCase> = [
+					this.int(depth - 1),
+					...Array.from({ length: extra }, () => this.int(depth - 1))
+				]
 				const member = Arr.some(list, (x) => x.value === a.value)
 				return {
 					type: "bool",
@@ -375,10 +382,12 @@ class Expressions {
 			}
 			case "row in": {
 				const a = [this.int(depth - 1), this.int(depth - 1)] as const
-				const rows = Array.from(
-					{ length: t.count(1, 2) },
-					() => [this.int(depth - 1), this.int(depth - 1)] as const
-				)
+				const row = () => [this.int(depth - 1), this.int(depth - 1)] as const
+				const extra = t.count(0, 1)
+				const rows: Arr.NonEmptyReadonlyArray<ReturnType<typeof row>> = [
+					row(),
+					...Array.from({ length: extra }, row)
+				]
 				return {
 					type: "bool",
 					expr: {
@@ -566,12 +575,11 @@ const setBody = (tree: SetTree, alias: () => string): Built => {
 		}
 		case "op":
 			return {
-				body: {
-					kind: "setOp",
-					op: tree.op,
-					left: setBody(tree.left, alias).body,
-					right: setBody(tree.right, alias).body
-				},
+				body: continued(
+					tree.op,
+					setBody(tree.left, alias).body,
+					asOperand(setBody(tree.right, alias).body)
+				),
 				key: output
 			}
 		case "top": {
@@ -660,9 +668,9 @@ const aggregateText = (spec: AggregateSpec, values: Arr.NonEmptyReadonlyArray<nu
 		case "sum":
 			return String(Arr.reduce(xs, 0, (a, b) => a + b))
 		case "min":
-			return String(Math.min(...xs))
+			return String(Arr.reduce(xs, Number.POSITIVE_INFINITY, (least, x) => Math.min(least, x)))
 		case "max":
-			return String(Math.max(...xs))
+			return String(maxOf(xs, Number.NEGATIVE_INFINITY))
 		case "array_agg":
 			return `{${Arr.join(
 				Arr.map(
@@ -817,8 +825,8 @@ export type RelationalForm =
 
 /** A relational case as data: r1(c1, c2, c3) as its rows, r2(c1) as its values, and the form over them. */
 export interface RelationalSketch {
-	readonly r1: ReadonlyArray<RelationalRow>
-	readonly r2: ReadonlyArray<number>
+	readonly r1: Arr.NonEmptyReadonlyArray<RelationalRow>
+	readonly r2: Arr.NonEmptyReadonlyArray<number>
 	readonly form: RelationalForm
 }
 
@@ -830,13 +838,18 @@ export interface RelationalSketch {
  */
 export const relationalSketchGen: Gen<RelationalSketch> = (source) => {
 	const t = new Draws(source)
-	const r1 = source.draw(
-		array((row): RelationalRow => ({ value: row.draw(int(0, 3)), group: row.draw(int(0, 1)) }), {
-			min: 1,
-			max: 6
-		})
-	)
-	const r2 = source.draw(array(int(0, 3), { min: 1, max: 4 }))
+	const rowGen = (row: Source): RelationalRow => ({
+		value: row.draw(int(0, 3)),
+		group: row.draw(int(0, 1))
+	})
+	const r1: Arr.NonEmptyReadonlyArray<RelationalRow> = [
+		source.draw(rowGen),
+		...source.draw(array(rowGen, { min: 0, max: 5 }))
+	]
+	const r2: Arr.NonEmptyReadonlyArray<number> = [
+		source.draw(int(0, 3)),
+		...source.draw(array(int(0, 3), { min: 0, max: 3 }))
+	]
 	const kind = t.from(["cross join", "in", "not in", "window", "window"] as const)
 	switch (kind) {
 		case "cross join":
@@ -881,13 +894,13 @@ export const resolveRelational = (sketch: RelationalSketch): RelationalCase => {
 			lit.int(r.group, types.integer)
 		]),
 		alias: "r1",
-		columns: ["c1", "c2", "c3"]
+		columns: ["c1", "c2", "c3"] as const
 	}
 	const r2Values = (alias: string) => ({
 		kind: "values" as const,
 		rows: Arr.map(r2, (x) => [lit.int(x, types.integer)]),
 		alias,
-		columns: ["c1"]
+		columns: ["c1"] as const
 	})
 	const form = sketch.form
 	switch (form.kind) {
@@ -897,7 +910,9 @@ export const resolveRelational = (sketch: RelationalSketch): RelationalCase => {
 					...select(
 						core(
 							[targetAs(col("r1", "c1"), "c1"), targetAs(col("r2", "c1"), "c2")],
-							[{ kind: "crossJoin", left: r1From, right: r2Values("r2") }],
+							[
+								{ kind: "joins", first: r1From, steps: [{ kind: "cross", source: r2Values("r2") }] }
+							],
 							undefined
 						)
 					),

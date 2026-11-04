@@ -31,6 +31,7 @@ import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
+import { canonicalFacts, type ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import { genParamDecls, normalQuery } from "#test/support/oracle/gen/query.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
@@ -201,7 +202,7 @@ export const publicCase = (input: {
 	readonly name: string
 	readonly relations: ReadonlyArray<string>
 	readonly containments: ReadonlyArray<GenContainment>
-	readonly facts: Readonly<Record<string, ReadonlyArray<ReadonlyArray<TypedLiteral>>>>
+	readonly facts: ValueFacts
 	readonly label: string
 	readonly query: unknown
 	readonly params: Readonly<Record<string, TypedLiteral>>
@@ -245,9 +246,9 @@ export const publicCase = (input: {
 	}
 	return {
 		schema,
-		facts: input.facts,
+		facts: canonicalFacts(input.facts),
 		query: { dag, params },
-		spelling: { mode: "perCase", choices: [], edge: false },
+		spelling: { mode: "drawn", edge: false },
 		label: input.label
 	}
 }

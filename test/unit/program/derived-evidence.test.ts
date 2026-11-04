@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
@@ -79,7 +79,7 @@ const installedOf = (view: View): Installed => {
 /** The query over a view's schema that matches the view and finds `columns`. */
 const projectionOf = (view: View, columns: ReadonlyArray<string>): unknown =>
 	queryOver(view.schema).rule((r: RuleValue) => {
-		const vars = varsOver(view.relation)
+		const vars = varsOver(view.relation, "relation")
 		const head = Record.fromEntries(
 			Arr.map(columns, (column) => [column, defined(vars[column], `the variable of ${column}`)])
 		)
@@ -134,7 +134,7 @@ describe("a query over a derived relation", () => {
 							literal: Formatter.format,
 							/** AccountBudget's three projections and RunTotal's seven. */
 							limit: 10,
-							features: features<EvidenceFeature>([
+							coverage: requiredInSpace<EvidenceFeature>([
 								"AccountBudget",
 								"RunTotal",
 								"read-back over a view"

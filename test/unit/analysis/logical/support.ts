@@ -6,7 +6,6 @@ import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { literalDescShape } from "#compiler/ir/desc.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type ClaimedKey,
 	claimedColumns,
@@ -30,7 +29,8 @@ import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { type KernelEnv, KeyKernel } from "#test/support/keys/kernel.ts"
-import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
+import { canonicallySpelled } from "#test/support/oracle/gen/domain.ts"
+import type { GenFacts, StoredRow } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import {
 	noBindings,
@@ -76,7 +76,7 @@ export type HostFacts = Readonly<Record<string, ReadonlyArray<Readonly<Record<st
  * Description literal it is (ir/desc.ts literalDescShape), then typed at its column.
  */
 export const genFactsOf = (t: Theory, facts: HostFacts): GenFacts => {
-	const out: Record<string, ReadonlyArray<ReadonlyArray<TypedLiteral>>> = {}
+	const out: Record<string, ReadonlyArray<StoredRow>> = {}
 	for (const r of Rec.values(t.relations)) {
 		if (r.kind !== "relation") {
 			continue
@@ -87,10 +87,10 @@ export const genFactsOf = (t: Theory, facts: HostFacts): GenFacts => {
 					S.decodeWith(literalDescShape, fact[c.name], `${r.name}.${c.name}`),
 					`${r.name}.${c.name} holds a Description literal`
 				)
-				return succeeded(
-					irLiteral(literal, c.type),
-					`${r.name}.${c.name} holds a literal of its type`
-				).literal
+				return canonicallySpelled(
+					succeeded(irLiteral(literal, c.type), `${r.name}.${c.name} holds a literal of its type`)
+						.literal
+				)
 			})
 		)
 	}

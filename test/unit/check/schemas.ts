@@ -8,10 +8,10 @@ import {
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 
-const Lower = f.regex("^[a-z]+$", "u")
+export const Lower = f.regex("^[a-z]+$", "u")
 /** Bounded, so it can be a key field. */
-const Code = f.regex("^[a-z0-9]{1,32}$", "u")
-const Qty = f.contract("Qty", f.integer, ge(value, literal(0)))
+export const Code = f.regex("^[a-z0-9]{1,32}$", "u")
+export const Qty = f.contract("Qty", f.integer, ge(value, literal(0)))
 
 /**
  * Schemas for the checker's tests: the worked example's Work and a small Lab schema that has

@@ -2,6 +2,7 @@ import type { Draw, Explored, Run, SearchFailure } from "@grizzle/testing/explor
 import type { Gen } from "@grizzle/testing/gen"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import { Array as Arr, Effect, Record, type Scope } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { OpId } from "#compiler/ir/expr.ts"
@@ -115,11 +116,14 @@ const evaluationShapes = (
 		for (const input of inputsOf(node)) {
 			below.push(yield input)
 		}
-		return Math.max(0, ...below)
+		return maxOf(below, 0)
 	})
 	const nodes = topoOrder(dag)
 	return {
-		depth: Math.max(0, ...Arr.map(dag.roots, (root) => depth.of(root))),
+		depth: maxOf(
+			Arr.map(dag.roots, (root) => depth.of(root)),
+			0
+		),
 		perParentTake: Arr.some(
 			nodes,
 			(n) => n.kind === "Take" && n.correlation.length > 0 && depth.of(n.input) > 0

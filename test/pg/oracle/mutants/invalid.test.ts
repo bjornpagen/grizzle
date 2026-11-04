@@ -1,12 +1,15 @@
 /**
- * The invalid mutants I1-I8 are killed within 500 cases each: each of the eight deliberately invalid transformations
- * must produce its listed counterexample.
+ * The invalid mutants I1-I8 are each killed by their population's witnesses, the floor and steered cases the suite's
+ * label fixes, so a kill holds on every run seed: each of the eight deliberately invalid transformations must produce
+ * its listed counterexample.
  *
  * Each runs on generated cases rooted at the construct its flawed rule rewrites (mutants/cases.ts); I3 runs on the
  * hand-built noninjective-key cases, with generated facts. The harness
- * must find, within 500 drawn cases, one on which some statement's raw text multiset differs from the conservative
- * lowering's, and that difference must be the counterexample listed below for the mutant, judged on the shrunk case's
- * comparison (the conservative run on the left, the mutant's on the right):
+ * must find, among those witnesses, one on which some statement's raw text multiset differs from the conservative
+ * lowering's, or, where the two agree, from the mutant's own first reading on its second (its facts stored otherwise,
+ * under the complement plan), and that difference must be the counterexample listed below for the mutant, judged on
+ * the shrunk case's comparison (the conservative run or the mutant's first reading on the left, the mutant's run on
+ * the right):
  *
  * - duplicate answers (I1, I2, I3, I5, I6) and a repeated endpoint state (I8): the same statements, columns and
  *   distinct rows, the mutant repeating some, the conservative lowering none;
@@ -22,11 +25,11 @@
 
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Option, Order } from "effect"
-import { runMutant, within } from "#test/pg/oracle/mutants/support.ts"
+import { runMutant } from "#test/pg/oracle/mutants/support.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
 import { type Comparison, rowMultiset, type Run, rawRowKey } from "#test/support/oracle/compare.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -43,7 +46,7 @@ import {
 	untaggedUnionRoot
 } from "#test/support/oracle/mutants/cases.ts"
 import { type MutantId, mutants } from "#test/support/oracle/mutants/mutants.ts"
-import type { OracleOutcome } from "#test/support/oracle/runner.ts"
+import type { KillVerdict } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 type Shape = "duplicates" | "overcount" | "lostWitness"
@@ -85,14 +88,47 @@ const distinctKeys = (run: Run, label: string): ReadonlyArray<string> =>
 		Order.String
 	)
 
+/**
+ * What a kill is judged on: the case, the run the mutant is judged against on the left, the mutant's run on the right,
+ * and their comparison. A comparison kill's left is the conservative run; an invariance kill's is the mutant's first
+ * reading, which agreed with the conservative run, and its right the mutant's second reading.
+ */
+interface Judged {
+	readonly case: QueryCase
+	readonly left: Run
+	readonly right: Run
+	readonly comparison: Comparison
+}
+
+const judgedOf = (verdict: KillVerdict): Judged => {
+	switch (verdict.kind) {
+		case "comparison":
+			return {
+				case: verdict.outcome.case,
+				left: verdict.outcome.left.run,
+				right: verdict.outcome.right.run,
+				comparison: verdict.outcome.comparison
+			}
+		case "invariance": {
+			const readings = verdict.failure.readings
+			return {
+				case: readings.case,
+				left: readings.first,
+				right: readings.again,
+				comparison: readings.comparison
+			}
+		}
+	}
+}
+
 /** Duplicate answers: the same distinct rows in every statement, the mutant repeating some. */
-const expectDuplicates = (o: OracleOutcome, c: Comparison): void => {
+const expectDuplicates = (j: Judged, c: Comparison): void => {
 	assert.ok(c.rightDuplicates > 0, "the mutant repeats a row")
-	assert.equal(c.leftDuplicates, 0, "the conservative lowering repeats no row")
-	for (const s of o.left.run.statements) {
+	assert.equal(c.leftDuplicates, 0, "the left run repeats no row")
+	for (const s of j.left.statements) {
 		assert.deepEqual(
-			distinctKeys(o.right.run, s.label),
-			distinctKeys(o.left.run, s.label),
+			distinctKeys(j.right, s.label),
+			distinctKeys(j.left, s.label),
 			`${s.label}: the same distinct rows`
 		)
 	}
@@ -102,13 +138,13 @@ const expectDuplicates = (o: OracleOutcome, c: Comparison): void => {
  * An overcount: the same groups, differing only in aggregate columns, at least one of which a repeated contribution
  * changes, and a differing count only upward.
  */
-const expectOvercount = (o: OracleOutcome, c: Comparison): void => {
+const expectOvercount = (j: Judged, c: Comparison): void => {
 	assert.equal(c.rightDuplicates + c.leftDuplicates, 0, "no repeated row")
-	const group = o.case.query.dag.roots[0]
+	const group = j.case.query.dag.roots[0]
 	assert.equal(group.kind, "Group")
 	assertVariant(group, "kind", "Group")
 	const columns = Option.match(
-		Arr.findFirst(o.left.run.statements, (s) => s.label === "main"),
+		Arr.findFirst(j.left.statements, (s) => s.label === "main"),
 		{
 			onNone: (): ReadonlyArray<string> => [],
 			onSome: (s) => s.columns
@@ -170,9 +206,9 @@ const expectOvercount = (o: OracleOutcome, c: Comparison): void => {
 }
 
 /** An incorrect second-value witness: no repeated row, and only left tuples the mutant's semi-join lost. */
-const expectLostWitness = (o: OracleOutcome, c: Comparison): void => {
+const expectLostWitness = (j: Judged, c: Comparison): void => {
 	assert.equal(c.rightDuplicates + c.leftDuplicates, 0, "no repeated row")
-	assert.equal(o.case.query.dag.roots[0].kind, "SemiJoin")
+	assert.equal(j.case.query.dag.roots[0].kind, "SemiJoin")
 	assert.deepEqual(
 		Arr.map(c.diffs, (d) => d.label),
 		["main"]
@@ -186,8 +222,9 @@ const expectLostWitness = (o: OracleOutcome, c: Comparison): void => {
 }
 
 /**
- * One mutant's kill: its population's search finds a case on which some multiset differs, and the shrunk kill is a
- * multiset difference of the listed shape, with no structural change.
+ * One mutant's kill: its population's search finds a case on which some multiset differs, against the conservative run
+ * or against the mutant's own first reading (runner.ts KillVerdict), and the shrunk kill is a multiset difference of the
+ * listed shape, with no structural change.
  */
 const killed = ({ id, gen, shape }: Population) =>
 	Effect.gen(function* () {
@@ -195,13 +232,18 @@ const killed = ({ id, gen, shape }: Population) =>
 		const run = yield* runMutant(mutant, gen, `mutants/${id}`)
 		assert.deepEqual(run.harnessErrors, [], Arr.join(run.harnessErrors, "\n\n"))
 		if (run.result.kind === "survived") {
-			return assert.fail(`${id} (${mutant.check}) survived ${within} cases`)
+			return assert.fail(`${id} (${mutant.check}) survived every case`)
+		}
+		if (run.result.kind === "unwitnessed") {
+			return assert.fail(
+				`${id} (${mutant.check}) survived its witnesses, the floor and steered cases: only a case the run's seed drew killed it\n${run.result.report}`
+			)
 		}
 		if (run.result.kind === "failed") {
 			return assert.fail(`${id} was not killed: ${run.result.report}`)
 		}
 		const report = run.result.report
-		const kill = run.result.outcome
+		const kill = judgedOf(run.result.verdict)
 		const c = kill.comparison
 		assert.equal(c.equal, false, report)
 		assert.deepEqual(c.structural, [], report)
@@ -222,7 +264,7 @@ const killed = ({ id, gen, shape }: Population) =>
 
 layer(Substrate.layer)("the invalid mutants are killed", (it) => {
 	it.effect(
-		`each invalid mutant is killed within ${within} cases by its listed counterexample`,
+		"each invalid mutant is killed by its witnesses with its listed counterexample",
 		(ctx) =>
 			searched(
 				ctx,
@@ -232,7 +274,7 @@ layer(Substrate.layer)("the invalid mutants are killed", (it) => {
 						generator: element(populations),
 						literal: (p: Population) => p.id,
 						limit: populations.length,
-						features: features<KilledFeature>(
+						coverage: requiredInSpace<KilledFeature>(
 							Arr.map(populations, (p): KilledFeature => `killed ${p.id}`)
 						),
 						caseHang: killHang

@@ -108,6 +108,8 @@ const claimHost = (type: ScalarType, value: unknown): Option.Option<unknown> => 
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			return Option.some(value)
 	}
 }

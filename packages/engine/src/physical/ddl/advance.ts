@@ -2,21 +2,20 @@ import { compareText } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
-import type { CreateFunction, ObjectName, Revoke } from "#compiler/sql/ast.ts"
+import type { CreateFunction, Expr, ObjectName, Revoke } from "#compiler/sql/ast.ts"
 import {
 	call,
 	cast,
 	col,
+	core,
 	functionNameOf,
 	gt,
 	lit,
 	row,
-	simpleSelect,
 	table,
 	target,
 	types
 } from "#compiler/sql/build.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
 
 /** The advance function's DDL for `sequence`: its CREATE FUNCTION, then its REVOKE EXECUTE ... FROM PUBLIC. */
 const advanceFunctionDdl = (
@@ -24,7 +23,11 @@ const advanceFunctionDdl = (
 	sequence: ObjectName
 ): readonly [CreateFunction, Revoke] => {
 	const past = { kind: "plVar", name: "past" } as const
-	const seq = lit.text(printObjectName(sequence), types.regclass)
+	const seq: Expr = { kind: "regclass", relation: sequence }
+	const catalogClass: Expr = {
+		kind: "regclass",
+		relation: { schema: "pg_catalog", name: "pg_class" }
+	}
 	const fn: CreateFunction = {
 		kind: "createFunction",
 		language: "plpgsql",
@@ -34,33 +37,45 @@ const advanceFunctionDdl = (
 		volatility: "VOLATILE",
 		parallel: "UNSAFE",
 		security: "DEFINER",
-		searchPath: ["pg_catalog", "pg_temp"],
 		planCacheMode: "force_custom_plan",
 		body: {
 			declare: [],
 			body: [
 				{
 					kind: "perform",
-					query: simpleSelect(
-						[
-							target(
-								call("pg_advisory_xact_lock", [
-									cast(lit.text("pg_catalog.pg_class", types.regclass), types.integer),
-									cast(seq, types.integer)
-								])
-							)
-						],
-						[],
-						undefined
-					)
+					query: {
+						body: core(
+							[
+								target(
+									call("pg_advisory_xact_lock", [
+										cast(catalogClass, types.integer),
+										cast(seq, types.integer)
+									])
+								)
+							],
+							[],
+							undefined
+						),
+						orderBy: [],
+						limit: undefined,
+						offset: undefined
+					}
 				},
 				{
 					kind: "perform",
-					query: simpleSelect(
-						[target(call("setval", [seq, past]))],
-						[table(sequence.schema, sequence.name, "r1")],
-						gt(row(past, lit.bool(true)), row(col("r1", "last_value"), col("r1", "is_called")))
-					)
+					query: {
+						body: core(
+							[target(call("setval", [seq, past]))],
+							[table(sequence.schema, sequence.name, "r1")],
+							gt(
+								row([past, lit.bool(true)]),
+								row([col("r1", "last_value"), col("r1", "is_called")])
+							)
+						),
+						orderBy: [],
+						limit: undefined,
+						offset: undefined
+					}
 				}
 			]
 		}
@@ -90,13 +105,17 @@ export type AdvanceFunctions = ReadonlyMap<string, ReadonlyMap<string, Node<"str
  * only forward, past the largest value given, never back. It does not stop exhaustion: a writer that inserts a very
  * large explicit value moves the counter toward its end, which explicit serial values allow anyway:
  *
- *   CREATE OR REPLACE FUNCTION <schema>.<advance>("past" bigint) RETURNS void LANGUAGE plpgsql
+ *   CREATE OR REPLACE FUNCTION <schema>.<advance>("past" bigint) RETURNS "pg_catalog"."void" LANGUAGE plpgsql
  *   VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp SET plan_cache_mode = force_custom_plan AS $$
  *   BEGIN
- *     PERFORM pg_advisory_xact_lock('pg_catalog.pg_class'::regclass::integer, '<sequence>'::regclass::integer);
- *     PERFORM setval('<sequence>'::regclass, past) FROM <sequence> AS r1
+ *     PERFORM pg_catalog.pg_advisory_xact_lock('"pg_catalog"."pg_class"'::regclass::integer,
+ *       '"<schema>"."<sequence>"'::regclass::integer);
+ *     PERFORM pg_catalog.setval('"<schema>"."<sequence>"'::regclass, past) FROM <sequence> AS r1
  *     WHERE (past, true) > (r1.last_value, r1.is_called);
  *   END $$
+ *
+ * Each relation the body names as a regclass value is a relation reference (sql/ast.ts RegclassRef), so a move of the
+ * function into another schema (the drift check's scratch replay) moves the sequence it names with it.
  *
  * It moves the sequence to `past` when `past` is at least the next value the sequence would generate (a sequence never
  * called reports its start value with is_called false, so `(past, true) > (last_value, is_called)` is the comparison),

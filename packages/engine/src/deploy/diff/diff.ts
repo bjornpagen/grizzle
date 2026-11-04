@@ -1,4 +1,4 @@
-import { sameOrder } from "#compiler/core/array.ts"
+import { sameOrder, appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
@@ -6,7 +6,12 @@ import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "#compiler/core/nonempty.ts"
 import {
 	type Comparator,
 	combine,
@@ -23,18 +28,35 @@ import {
 	type AbandonedSchema,
 	type Action,
 	type AlternativeStep,
-	type CandidateRenames,
-	type Carrier,
+	type Candidate,
 	type Choice,
 	type ColumnConversion,
 	type ColumnHint,
+	candidateLabel,
 	type Draft,
+	draftCandidates,
+	endsOf,
+	type FieldCandidate,
+	type FieldRequires,
+	headOf,
+	type LoginCandidate,
 	type LossDecision,
 	type MigrationPlan,
+	type NestedFieldCandidate,
+	type NestedRename,
 	type Offer,
+	type PlainOffer,
 	type PlainSlot,
+	type RelationCandidate,
+	type RelationRename,
+	type RelationStep,
+	type RootRename,
+	rivals,
+	type SealedStep,
 	type Step,
-	slots
+	slots,
+	type TopOffer,
+	type TypeCandidate
 } from "#compiler/deploy/diff/plan.ts"
 import { ledgerPrivilegesIdent } from "#compiler/deploy/ledger/ledger.ts"
 import {
@@ -47,7 +69,8 @@ import {
 	installed,
 	inTypes,
 	keyOrCheckDefinition,
-	lawOf,
+	type LawUnit,
+	lawUnitsOf,
 	type ManifestObject,
 	nameKey,
 	objectParts,
@@ -63,7 +86,8 @@ import {
 	refuseLaw,
 	renameStatement,
 	same,
-	sameHeading
+	sameHeading,
+	triggerColumns
 } from "#compiler/deploy/snapshot/objects.ts"
 import type { SnapshotContent } from "#compiler/deploy/snapshot/types.ts"
 
@@ -131,23 +155,17 @@ interface DiffInput {
 	readonly abandoned: ReadonlyArray<AbandonedSchema>
 }
 
-/** A candidate rename: the reviewer keeps the drafted drop and add, or replaces the addition with the commented
- * alternative. Choosing the alternative changes what other drafted statements must do, so every statement it touches
- * is offered what it becomes (markRenameCandidates): a statement that creates on the added relation what the
- * alternative brought across, or tears down on the removed relation what the alternative already renamed or dropped,
- * is deleted; any other statement naming what the alternative renamed runs under the new names. A later candidate's
- * alternative that drops a part this one drops or renames is offered the same (droppedOnce). */
-type Candidate = {
-	/** Its index in the plan's candidates. */
-	readonly id: number
-	/** `the candidate rename of <from> to <to>`, named by each of its markers. */
-	readonly label: string
+/** A candidate rename as the differ plans it: the reviewer keeps the drafted drop and add, or replaces the addition
+ * with the commented alternative. Choosing the alternative changes what other drafted statements must do, so every
+ * statement it touches is offered what it becomes (markRenameCandidates): a statement that creates on the added
+ * relation what the alternative brought across, or tears down on the removed relation what the alternative already
+ * renamed or dropped, is deleted; any other statement naming what the alternative renamed runs under the new names. A
+ * later candidate's alternative that drops a part this one drops or renames is offered the same (droppedOnce). Its
+ * `candidate` is the plan's immutable record, which every offer and loss of it names. */
+type Planned = {
 	/** The schema-qualified names the alternative renames: a relation and its identity sequences, or a field's sequence,
 	 * in the relations' namespace; or a type, in the types'. */
 	readonly qualified: QualifiedNames
-	/** The candidates it is chosen only with: for a field's rename whose types agree only under a type's rename, that
-	 * type's candidate. */
-	readonly requires: ReadonlyArray<number>
 	/** The parts of previous tables its alternative drops before what it changes (PreviousPart): a relation's foreign
 	 * keys of other relations that reference a key it drops, and its own constraints and law triggers it does not bring
 	 * across (Pairs); a field's what PostgreSQL refuses to convert its column under (conversionDrops); none for a type's
@@ -156,50 +174,34 @@ type Candidate = {
 } & (
 	| {
 			readonly kind: "relation"
-			/** The removed relation and the added one. */
-			readonly from: ObjectName
-			readonly to: ObjectName
+			readonly candidate: RelationCandidate
 			/** What the alternative does with each part of the removed relation that stands when it runs (Pairs). */
 			readonly pairs: Pairs
 	  }
 	| {
 			readonly kind: "field"
+			readonly candidate: FieldCandidate | NestedFieldCandidate
+			/** The relation the alternative renames the column on: a kept one, or the added relation of the rename the
+			 * candidate is nested in, which that rename has renamed already. */
 			readonly table: ObjectName
-			readonly from: string
-			readonly to: string
 			readonly keys: ReadonlyArray<CarriedKey>
 	  }
-	| { readonly kind: "type"; readonly from: ObjectName; readonly to: ObjectName }
-	| { readonly kind: "login"; readonly from: string; readonly to: string }
+	| { readonly kind: "type"; readonly candidate: TypeCandidate }
+	| { readonly kind: "login"; readonly candidate: LoginCandidate }
 )
 
-/** What a candidate renames, as the plan states it. */
-const renamesOf = (c: Candidate): CandidateRenames => {
-	switch (c.kind) {
-		case "relation":
-		case "type":
-			return { kind: c.kind, removed: printObjectName(c.from), added: printObjectName(c.to) }
-		case "field":
-			return {
-				kind: "field",
-				removed: `${printObjectName(c.table)}.${quoteIdent(c.from)}`,
-				added: `${printObjectName(c.table)}.${quoteIdent(c.to)}`
-			}
-		case "login":
-			return { kind: "login", removed: quoteIdent(c.from), added: quoteIdent(c.to) }
-	}
-}
+type PlannedType = Planned & { readonly kind: "type" }
+type PlannedField = Planned & { readonly kind: "field" }
 
-type TypeCandidate = Candidate & { readonly kind: "type" }
-type FieldCandidate = Candidate & { readonly kind: "field" }
+const labelOf = (x: Planned): string => candidateLabel(x.candidate)
 
 /** A field's candidate rename as its builder offers it on the addition: the added column it names, the offer, the
  * removed column it renames and the candidate. */
-interface FieldOffer {
+interface FieldOffer<O extends RootRename | NestedRename> {
 	readonly added: ColumnDef
-	readonly offer: Offer
+	readonly offer: O
 	readonly removed: ColumnDef
-	readonly candidate: FieldCandidate
+	readonly candidate: PlannedField
 }
 
 /** A part of a previous table: a constraint, in the table's namespace of constraints, or a law trigger, in its namespace
@@ -215,7 +217,7 @@ interface PreviousPart {
 const partDrop = (kind: PreviousPart["kind"], table: ObjectName, name: string): SqlStatement => {
 	switch (kind) {
 		case "constraint":
-			return alter(table, { kind: "dropConstraint", name })
+			return alter(table, [{ kind: "dropConstraint", name }])
 		case "lawTrigger":
 			return { kind: "dropTrigger", name, table, ifExists: false }
 	}
@@ -224,7 +226,7 @@ const partDrop = (kind: PreviousPart["kind"], table: ObjectName, name: string): 
 /** Whether the alternative of `x` drops the part of `kind` named `name` on `table` first (Candidate drops), by their
  * previous names. */
 const dropsPart = (
-	x: Candidate,
+	x: Planned,
 	kind: PreviousPart["kind"],
 	table: ObjectName,
 	name: string
@@ -247,20 +249,20 @@ const leftPart: PartFate = { kind: "left" }
 /** What the alternative of `x` makes of the previous part `p`: drops it, one of the parts it drops first (Candidate
  * drops); renames it, a part of the relation a relation's rename renames, which goes along with its table under its own
  * name or the target's it is brought across as (Pairs), or a key a field's rename renames (CarriedKey); or leaves it. */
-const partFate = (x: Candidate, p: PreviousPart): PartFate => {
+const partFate = (x: Planned, p: PreviousPart): PartFate => {
 	if (dropsPart(x, p.kind, p.table, p.name)) {
 		return { kind: "dropped" }
 	}
 	switch (x.kind) {
 		case "relation": {
-			if (nameKey(p.table) !== nameKey(x.from)) {
+			if (nameKey(p.table) !== nameKey(x.candidate.removed)) {
 				return leftPart
 			}
 			const paired =
 				p.kind === "constraint" ? x.pairs.constraint.find((c) => c.was.name === p.name) : undefined
 			return {
 				kind: "renamed",
-				table: x.to,
+				table: x.candidate.added,
 				name: paired?.kind === "brought" ? paired.pair.name : p.name
 			}
 		}
@@ -280,7 +282,7 @@ const partFate = (x: Candidate, p: PreviousPart): PartFate => {
 /** The offers of `x` on a later alternative's drop of the previous part `p`, by what its alternative makes of the part
  * (partFate): the drop's deletion where it dropped the part, the part's drop under its new names where it renamed it,
  * none where it left it. */
-const dropOffers = (x: Candidate, p: PreviousPart): ReadonlyArray<Offer> => {
+const dropOffers = (x: Planned, p: PreviousPart): ReadonlyArray<PlainOffer> => {
 	const dropped = partText(p.kind, p.table, p.name)
 	const fate = partFate(x, p)
 	switch (fate.kind) {
@@ -290,16 +292,16 @@ const dropOffers = (x: Candidate, p: PreviousPart): ReadonlyArray<Offer> => {
 			return [
 				{
 					kind: "delete",
-					candidate: x.id,
-					note: `the statement below drops ${dropped}, which ${x.label} drops first`
+					candidate: x.candidate,
+					note: `the statement below drops ${dropped}, which ${labelOf(x)} drops first`
 				}
 			]
 		case "renamed":
 			return [
 				{
 					kind: "rewrite",
-					candidate: x.id,
-					note: `the statement below drops ${dropped}, which ${x.label} renames to ${partText(p.kind, fate.table, fate.name)} first`,
+					candidate: x.candidate,
+					note: `the statement below drops ${dropped}, which ${labelOf(x)} renames to ${partText(p.kind, fate.table, fate.name)} first`,
 					statements: [partDrop(p.kind, fate.table, fate.name)]
 				}
 			]
@@ -362,22 +364,24 @@ type Taking = "key" | "cleared"
 
 /** The candidates among `offers` that rename `removed`, which carry its values instead of its drop. */
 const carriersOf = (
-	offers: ReadonlyArray<FieldOffer>,
+	offers: ReadonlyArray<FieldOffer<RootRename | NestedRename>>,
 	removed: ColumnDef
-): ReadonlyArray<Carrier> =>
-	offers.flatMap((f): ReadonlyArray<Carrier> =>
-		f.removed === removed ? [{ candidate: f.candidate.id, label: f.candidate.label }] : []
+): ReadonlyArray<Candidate> =>
+	offers.flatMap((f): ReadonlyArray<Candidate> =>
+		f.removed === removed ? [f.candidate.candidate] : []
 	)
 
-/** The drop of a removed field of `table`, a loss of its values that the candidates in `carriers` carry instead. */
+/** The drop of a removed field of `relation`, the relation that held it in the previous snapshot, by its table as
+ * `table` names it where the drop runs: a loss of its values that the candidates in `carriers` carry instead. */
 const fieldLoss = (
+	relation: ObjectName,
 	table: ObjectName,
 	column: string,
-	carriers: ReadonlyArray<Carrier>
+	carriers: ReadonlyArray<Candidate>
 ): LossDecision => ({
 	kind: "loss",
-	loses: { kind: "field", relation: table, field: column },
-	statement: alter(table, { kind: "dropColumn", column }),
+	loses: { kind: "field", relation, field: column },
+	statement: alter(table, [{ kind: "dropColumn", column }]),
 	carriers
 })
 
@@ -401,18 +405,18 @@ const withActions = (
 
 /** The offers of candidate `x` on a statement that becomes `b`, each with its note: none when it stays as it is. */
 const offersOf = (
-	x: Candidate,
+	x: Planned,
 	b: Becomes,
 	rewrite: string,
 	deletion: string
-): ReadonlyArray<Offer> => {
+): ReadonlyArray<PlainOffer> => {
 	switch (b.kind) {
 		case "same":
 			return []
 		case "deleted":
-			return [{ kind: "delete", candidate: x.id, note: deletion }]
+			return [{ kind: "delete", candidate: x.candidate, note: deletion }]
 		case "rewritten":
-			return [{ kind: "rewrite", candidate: x.id, note: rewrite, statements: b.statements }]
+			return [{ kind: "rewrite", candidate: x.candidate, note: rewrite, statements: b.statements }]
 	}
 }
 
@@ -540,13 +544,15 @@ const carries = (
 	fate: (column: string) => ColumnFate
 ): boolean => columns.every((c) => carriedOver[kind][fate(c).kind])
 
-/** The columns a law trigger is built over: those its UPDATE OF names. */
-const triggerColumns = (t: CreateConstraintTrigger): ReadonlyArray<string> =>
-	t.events.flatMap((e) => (e.kind === "UPDATE" ? e.of : []))
-
 /** The temporary name an index, or a key's index, is built under before it is swapped in for `name`: the naming
  * door's (identity.swap), never a name of a live object, so the build's DROP INDEX ... IF EXISTS can never drop one. */
 export const swapName = (name: string): string => identifierOf(identity.swap(name))
+
+/** The capability a draft refuses when a name moves between a login and a role in one migration, as when the two
+ * exchange names: its PostgreSQL role would turn from a login into a role, or back, which no statement does, so the
+ * draft is refused at that role, never drafted. */
+export const loginRoleExchange =
+	"a login and a role exchanging one name, which no statement turns into each other: rename one of them"
 
 /** What a migration drops: an object of every kind but those no step drops (the schema, its ledger, extensions and the
  * database's defaults outlive it; a validation installs nothing; privileges and memberships are revoked, never dropped;
@@ -624,27 +630,62 @@ const conversionsBy = (count: number, casts: number): string =>
 			: "each by its cast where its new type holds its old values, else by the expression written at its placeholder"
 
 /** An action under the offers of the candidates that decide it, or the action itself when none does. */
-const offered = (offers: ReadonlyArray<Offer>, keep: Action): Choice | Action =>
+const offered = <O extends Offer>(offers: ReadonlyArray<O>, keep: Action): Choice<O> | Action =>
 	isNonEmpty(offers) ? { kind: "choice", offers, keep } : keep
 
-/** The candidates whose own rename offer a draft holds, those of the choices nested in its alternatives included. */
-const ownRenames = (d: Draft): ReadonlyArray<number> =>
-	d.kind === "choice"
-		? d.offers.flatMap((o) =>
-				o.kind === "rename"
-					? [
-							o.candidate,
-							...o.alternative.flatMap((x) => (x.kind === "choice" ? ownRenames(x) : []))
-						]
-					: []
-			)
-		: []
+/** What holds a field a candidate renames, and so what its candidate and its offer are: a table the target keeps,
+ * whose rename carries the keys over the field across (carriedKeys) and whose conversion in place drops first what
+ * PostgreSQL refuses to convert it under (conversionDrops), its candidate a root `field` offered at the top of the file;
+ * or a relation's rename, whose alternative the candidate is nested in and has brought across or dropped every part
+ * over it already, its candidate a `nested field` under that rename, offered in its alternative. `table` is the relation
+ * the alternative renames the column on, `was` the one that held it in the previous snapshot. */
+interface FieldHolder<
+	C extends FieldCandidate | NestedFieldCandidate,
+	O extends RootRename | NestedRename
+> {
+	readonly table: ObjectName
+	readonly was: ObjectName
+	readonly candidate: (removed: string, added: string, requires: FieldRequires) => C
+	readonly offer: (candidate: C, note: string, alternative: ReadonlyArray<SealedStep>) => O
+}
 
-/** Where a removed field a candidate renames goes: dropped by this migration, as a field of a table the target keeps,
- * whose rename carries the keys over it across (carriedKeys) and whose conversion in place drops first what PostgreSQL
- * refuses to convert it under (conversionDrops); or dropped by the rename of its relation, whose alternative the
- * candidate is nested in and has brought across or dropped every part over it already. */
-type FieldRemoval = "dropped by this migration" | "dropped by its relation's rename"
+const keptHolder = (table: ObjectName): FieldHolder<FieldCandidate, RootRename> => ({
+	table,
+	was: table,
+	candidate: (removed, added, requires) => ({
+		kind: "field",
+		relation: table,
+		removed,
+		added,
+		requires
+	}),
+	offer: (candidate, note, alternative) => ({ kind: "rename", candidate, note, alternative })
+})
+
+const nestedHolder = (
+	parent: RelationCandidate
+): FieldHolder<NestedFieldCandidate, NestedRename> => ({
+	table: parent.added,
+	was: parent.removed,
+	candidate: (removed, added, requires) => ({
+		kind: "nested field",
+		parent,
+		removed,
+		added,
+		requires
+	}),
+	offer: (candidate, note, alternative) => ({ kind: "nested rename", candidate, note, alternative })
+})
+
+/** Where the removed field a field's candidate renames goes, as its notes say it. */
+const removedBy = (c: FieldCandidate | NestedFieldCandidate): string => {
+	switch (c.kind) {
+		case "field":
+			return "is dropped by this migration"
+		case "nested field":
+			return `the rename of ${printObjectName(c.parent.removed)} drops`
+	}
+}
 
 /** A removed field an added one may be renamed from as it is: of the added one's type, or of a type a type's candidate
  * rename makes the added one's, which the field's rename then requires; with the keys over it the rename carries
@@ -653,7 +694,7 @@ interface Pairing {
 	readonly column: ColumnDef
 	readonly via:
 		| { readonly kind: "same type" }
-		| { readonly kind: "renamed type"; readonly candidate: TypeCandidate }
+		| { readonly kind: "renamed type"; readonly candidate: PlannedType }
 	readonly keys: ReadonlyArray<CarriedKey>
 }
 
@@ -724,7 +765,7 @@ const droppedHint = (removed: ReadonlyArray<ColumnDef>): ColumnHint => {
 	return isNonEmpty(plain) ? { kind: "dropped", removed: plain } : noHint
 }
 
-const alter = (table: ObjectName, ...actions: AlterTable["actions"]): SqlStatement => ({
+const alter = (table: ObjectName, actions: AlterTable["actions"]): SqlStatement => ({
 	kind: "alterTable",
 	table,
 	actions
@@ -743,8 +784,13 @@ const replacing = (
 const lawIndex = (o: ManifestObject): boolean =>
 	o.kind === "uniqueIndex" && o.reasons.some((r: PhysicalReason) => r.kind === "law")
 
-const isBtreeKey = (c: TableConstraint): boolean =>
+/** A primary key or candidate key a B-tree index implements, one with no span; none for any other constraint. */
+const btreeKeyOf = (
+	c: TableConstraint
+): Extract<TableConstraint, { readonly kind: "primaryKey" | "unique" }> | undefined =>
 	(c.kind === "primaryKey" || c.kind === "unique") && !c.columns.some((k) => k.withoutOverlaps)
+		? c
+		: undefined
 
 /** A table both installations hold, read once before anything is drafted: the target's object, the previous table's
  * position in the install order (publish.removed drops objects of one kind in reverse order), the previous and the
@@ -769,7 +815,7 @@ const columnFate = (kept: KeptTable, column: string): ColumnFate =>
 interface KeptPlan {
 	readonly table: KeptTable
 	readonly pairs: FieldPairs
-	readonly offers: ReadonlyArray<FieldOffer>
+	readonly offers: ReadonlyArray<FieldOffer<RootRename>>
 	readonly sequences: ReadonlyArray<Paired<PartOf<"sequence">>>
 }
 
@@ -779,7 +825,7 @@ interface KeptPlan {
 interface RebuildOffer {
 	readonly table: ObjectName
 	readonly column: string
-	readonly offer: Offer
+	readonly offer: PlainOffer
 }
 
 /** A removal drafted for publish.removed, ordered by the drop order (dropOrder), then reverse install order, then as
@@ -881,8 +927,8 @@ interface Target {
 }
 
 /** The run order of the steps: by slot, then (the sort being stable) as drafted. A residual law's steps are drafted
- * together, law by law, in the target's install order of the law functions (`laws()`), which orders them by the laws'
- * identities. */
+ * together, law by law, in the target's install order of the laws' unit triggers (`laws()`), which orders them by
+ * the laws' identities. */
 const stepOrder: Comparator<Step> = mapInput(compareNumbers, (s: Step) => slots.indexOf(s.slot))
 
 const domainShape = (d: CreateDomain) => ({
@@ -944,7 +990,7 @@ class Differ {
 	/** The candidate renames offered on the creation of a target object, by identity, planned before anything is drafted:
 	 * an enum or domain it adds (typeOffersOf), a login (loginOffers) or a relation (renameCandidateTable). One offered
 	 * none has none. */
-	readonly creationOffers: ReadonlyMap<string, ReadonlyArray<Offer>>
+	readonly creationOffers: ReadonlyMap<string, ReadonlyArray<TopOffer>>
 	/** Each table both installations hold as its visit drafts it, by identity (KeptPlan). */
 	readonly keptPlans: ReadonlyMap<string, KeptPlan>
 	/** Recreated materialized views, by table key: their privileges went with their drop. */
@@ -958,8 +1004,9 @@ class Differ {
 	/** What each installed materialized view reads, by table key: the previous snapshot's edges, and the qualified
 	 * names of every installed definition. */
 	readonly reads: ReadonlyMap<string, ReadonlySet<string>>
-	/** The candidate renames this draft offers, with what each alternative renames, brings across and takes away, by id. */
-	readonly candidates: Array<Candidate> = []
+	/** The candidate renames this draft offers, with what each alternative renames, brings across and takes away, in the
+	 * order they are planned. */
+	readonly planned: Array<Planned> = []
 	/** The names of the roles' views and world functions this migration drops at the start of Structure, by name key,
 	 * whose privileges went with them. */
 	readonly worldGone: ReadonlySet<string>
@@ -1199,7 +1246,7 @@ class Differ {
 	}
 
 	/** The candidate renames offered on the creation of a target object (creationOffers). */
-	offersOnCreation(o: ManifestObject): ReadonlyArray<Offer> {
+	offersOnCreation(o: ManifestObject): ReadonlyArray<TopOffer> {
 		return this.creationOffers.get(o.ident) ?? []
 	}
 
@@ -1284,7 +1331,7 @@ class Differ {
 		this.steps.push({ slot: "validate.law", law, draft })
 	}
 
-	sql(slot: PlainSlot, ...statements: ReadonlyArray<SqlStatement>): void {
+	sql(slot: PlainSlot, statements: ReadonlyArray<SqlStatement>): void {
 		for (const s of statements) {
 			this.push(slot, statement(s))
 		}
@@ -1345,8 +1392,8 @@ class Differ {
 		for (const t of this.targets) {
 			this.visit(t)
 		}
-		this.sql("structure", ...this.rebuildTail)
-		this.sql("validate", ...this.rebuildValidations)
+		this.sql("structure", this.rebuildTail)
+		this.sql("validate", this.rebuildValidations)
 		this.validations()
 		this.laws()
 		for (const p of this.previous.toReversed()) {
@@ -1359,14 +1406,7 @@ class Differ {
 		this.draftRemovals()
 		this.markRenameCandidates()
 		this.comments()
-		return {
-			steps: this.orderedSteps(),
-			candidates: this.candidates.map((c) => ({
-				label: c.label,
-				renames: renamesOf(c),
-				requires: c.requires
-			}))
-		}
+		return { steps: this.orderedSteps() }
 	}
 
 	orderedSteps(): ReadonlyArray<Step> {
@@ -1453,7 +1493,7 @@ class Differ {
 		for (const d of this.viewDrops.toSorted(
 			mapInput(compareNumbers, (x: ViewDrop) => order.indexOf(x.key))
 		)) {
-			this.sql("structure.drop", dropObject(d.view))
+			this.sql("structure.drop", [dropObject(d.view)])
 		}
 	}
 
@@ -1614,7 +1654,7 @@ class Differ {
 			case "isolationFunction":
 			case "snapshotGuard":
 				if (before === undefined) {
-					this.sql("setup", ...o.ddl)
+					this.sql("setup", o.ddl)
 				} else if (!same(before.ddl, o.ddl)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
@@ -1655,7 +1695,7 @@ class Differ {
 				return
 			case "advanceFunction":
 				if (before === undefined || !same(before.ddl, o.ddl)) {
-					this.sql("structure", ...o.ddl)
+					this.sql("structure", o.ddl)
 				}
 				return
 			case "role":
@@ -1664,8 +1704,7 @@ class Differ {
 				} else if (!same(before.ddl, o.ddl)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
-						capability:
-							"a login and a role exchanging one name, which no statement turns into each other: rename one of them"
+						capability: loginRoleExchange
 					})
 				}
 				return
@@ -1676,33 +1715,32 @@ class Differ {
 					return
 				}
 				if (this.worldWithin(v)) {
-					this.sql("structure.worlds", ...o.ddl)
+					this.sql("structure.worlds", o.ddl)
 					this.regrantWorld(v)
 				} else {
-					this.sql("publish.worlds", ...o.ddl)
+					this.sql("publish.worlds", o.ddl)
 				}
 				return
 			case "roleSchema":
 			case "rowSecurity":
 				if (before === undefined) {
-					this.sql("publish.worlds", ...o.ddl)
+					this.sql("publish.worlds", o.ddl)
 				}
 				return
 			case "membership":
 				if (before === undefined) {
-					this.sql("publish.grants", ...o.ddl)
+					this.sql("publish.grants", o.ddl)
 				} else if (!same(before.ddl, o.ddl)) {
 					const was = installed(before)
-					this.sql(
-						"publish.grants",
+					this.sql("publish.grants", [
 						...(was.kind === "membership" ? [revokeRoleOf(was.grant)] : []),
 						...o.ddl
-					)
+					])
 				}
 				return
 			case "isolationTrigger":
 				if (before === undefined) {
-					this.sql(o.phase === "setup" ? "setup" : "structure", ...o.ddl)
+					this.sql(o.phase === "setup" ? "setup" : "structure", o.ddl)
 				}
 				return
 			case "lawFunction":
@@ -1743,23 +1781,20 @@ class Differ {
 		)
 		for (const g of grants) {
 			const on = g.on
-			const names =
-				(v.kind === "view" && on.kind === "TABLE") ||
-				(v.kind === "worldFunction" && on.kind === "FUNCTION")
-					? on.names.filter((n) => nameKey(n) === key)
-					: []
 			const to = g.to.filter((t) => t.kind === "role" && this.prev.has(namedIdent("role", t.name)))
-			if (names.length === 0 || to.length === 0) {
+			if (!isNonEmpty(to)) {
 				continue
 			}
-			if (on.kind === "TABLE") {
-				this.sql("structure.worlds", { ...g, on: { kind: "TABLE", names }, to })
-			} else if (on.kind === "FUNCTION") {
-				this.sql("structure.worlds", {
-					...g,
-					on: { kind: "FUNCTION", names: on.names.filter((n) => nameKey(n) === key) },
-					to
-				})
+			if (v.kind === "view" && on.kind === "TABLE") {
+				const names = on.names.filter((n) => nameKey(n) === key)
+				if (isNonEmpty(names)) {
+					this.sql("structure.worlds", [{ ...g, on: { kind: "TABLE", names }, to }])
+				}
+			} else if (v.kind === "worldFunction" && on.kind === "FUNCTION") {
+				const names = on.names.filter((n) => nameKey(n) === key)
+				if (isNonEmpty(names)) {
+					this.sql("structure.worlds", [{ ...g, on: { kind: "FUNCTION", names }, to }])
+				}
 			}
 		}
 	}
@@ -1773,29 +1808,24 @@ class Differ {
 	 * dropped and created again has none until the operator sets one, while ALTER ROLE ... RENAME keeps it; only the
 	 * reviewer knows which was meant. A theory role holds no data and no password, and everything naming it is created
 	 * again with it, so it is never renamed. */
-	loginOffers(to: string): ReadonlyArray<Offer> {
+	loginOffers(to: string): ReadonlyArray<RootRename> {
 		const removed = [...this.prev.values()].flatMap((o) => {
 			const r = installed(o)
 			return r.kind === "role" && r.create.login && !this.next.has(o.ident) ? [r.create.name] : []
 		})
-		return removed.map((from): Offer => {
-			const id = this.candidates.length
-			const label = `the candidate rename of login ${quoteIdent(from)} to ${quoteIdent(to)}`
-			this.candidates.push({
-				id,
-				label,
+		return removed.map((from): RootRename => {
+			const candidate: LoginCandidate = { kind: "login", removed: from, added: to }
+			this.planned.push({
 				kind: "login",
-				from,
-				to,
+				candidate,
 				qualified: inRelations(new Map()),
-				requires: [],
 				drops: []
 			})
 			return {
 				kind: "rename",
-				candidate: id,
+				candidate,
 				note: `the login ${quoteIdent(to)} may be the removed login ${quoteIdent(from)}, which this migration drops; grizzle never sets a password, so a login dropped and created again has none until its operator sets one, while choosing the rename keeps it, and also decides the statements marked as part of it in this folder's files${this.ambiguity(removed.length, 1)}`,
-				alternative: [statement({ kind: "rename", object: "ROLE", name: from, to })]
+				alternative: []
 			}
 		})
 	}
@@ -1816,7 +1846,7 @@ class Differ {
 		const [create, ...rest] = o.ddl
 		const abandoned = this.input.abandoned
 		if (create === undefined || !isNonEmpty(abandoned)) {
-			this.sql("setup", ...o.ddl)
+			this.sql("setup", o.ddl)
 			return
 		}
 		this.push("setup", {
@@ -1825,7 +1855,7 @@ class Differ {
 			statement: create,
 			carriers: []
 		})
-		this.sql("setup", ...rest)
+		this.sql("setup", rest)
 	}
 
 	/** An enum the target installs, new (undefined) or changed as `change` says.
@@ -1841,7 +1871,7 @@ class Differ {
 		const { object: o, create } = v
 		if (change === undefined) {
 			this.push("setup", offered(this.offersOnCreation(o), statement(create)))
-			this.sql("setup", ...o.ddl.slice(1))
+			this.sql("setup", o.ddl.slice(1))
 			return
 		}
 		const { old, roster } = change
@@ -1862,7 +1892,7 @@ class Differ {
 				const existing = new Set(old.labels)
 				this.sql(
 					"setup.labels",
-					...create.labels.flatMap((label, k): ReadonlyArray<SqlStatement> => {
+					create.labels.flatMap((label, k): ReadonlyArray<SqlStatement> => {
 						if (existing.has(label)) {
 							return []
 						}
@@ -1896,7 +1926,9 @@ class Differ {
 	 * to its name. What a conversion would fail under, or would leave dangling, is dropped first and created again from
 	 * the target's definition once the type is back, at the end of Structure: each CHECK and partial index whose
 	 * definition names the type, each foreign key over a column of it (the other side is converted after or before it),
-	 * each stored tag of it, which cannot be converted, and the indexes over a dropped tag. A removed handle is mapped by
+	 * each stored tag of it, which cannot be converted, and the indexes over a dropped tag. A law trigger whose UPDATE OF
+	 * or WHEN reads a column of the type, or whose WHEN names it, is dropped too, since PostgreSQL converts no column
+	 * under a trigger that reads it, and laws() creates it again. A removed handle is mapped by
 	 * the expression the reviewer writes at each column's placeholder. A domain or a materialized view over the type keeps
 	 * a definition the rebuild cannot carry, and is refused with what to do.
 	 * What it converts and drops is read from the previous manifest alone, so the rebuild is planned before any object is
@@ -1905,8 +1937,8 @@ class Differ {
 	 * The column's one conversion needs its old type standing and its new type in place, which one
 	 * rebuild cannot give when the new type is another roster rebuilt by this migration.
 	 *
-	 * What it drops goes in the drop order (dropOrder): the foreign keys first, then the CHECKs, the indexes and the tags,
-	 * whose drop takes the rest over them. */
+	 * What it drops goes in the drop order (dropOrder): the foreign keys first, then the CHECKs, the indexes, the law
+	 * triggers and the tags, whose drop takes the rest over them. */
 	planRebuild(
 		create: CreateEnum,
 		old: CreateEnum,
@@ -2039,7 +2071,7 @@ class Differ {
 									object: p,
 									drop: {
 										rank: dropOrder[c.kind === "foreignKey" ? "foreignKey" : "check"],
-										draft: statement(alter(part.table, { kind: "dropConstraint", name: c.name }))
+										draft: statement(alter(part.table, [{ kind: "dropConstraint", name: c.name }]))
 									}
 								}
 							]
@@ -2065,10 +2097,13 @@ class Differ {
 							]
 						: []
 				}
+				case "lawTrigger":
+					return overEnum(part.table, triggerColumns(part.create)) || names(part.create)
+						? [{ object: p, drop: { rank: dropOrder.lawTrigger, draft: dropTrigger(part) } }]
+						: []
 				case "statistics":
 				case "column":
 				case "sequence":
-				case "lawTrigger":
 					return []
 			}
 		}
@@ -2127,7 +2162,7 @@ class Differ {
 		const key = nameKey(name)
 		const installedObjects = this.input.previous.manifest.objects
 		const rebuilt = objectName(name.schema, identifierOf(identity.rebuild(name.name)))
-		const rebuiltType: TypeRef = namedType(rebuilt.schema, rebuilt.name, [])
+		const rebuiltType: TypeRef = namedType(this.input.installation.names.types, rebuilt.name, [])
 		const removed = old.labels.filter((l) => !create.labels.includes(l))
 		const reordered = removed.length === 0
 		const rewritten = conversions.map((c) => printObjectName(c.table)).join(", ")
@@ -2144,7 +2179,7 @@ class Differ {
 			...ordered.map((d) => d.drop),
 			...tags.map((t): Drop => ({
 				rank: dropOrder.storedTag,
-				draft: statement(alter(t.table, { kind: "dropColumn", column: t.column }))
+				draft: statement(alter(t.table, [{ kind: "dropColumn", column: t.column }]))
 			}))
 		].toSorted(byDropOrder)
 		for (const d of drops) {
@@ -2162,11 +2197,14 @@ class Differ {
 						statement(
 							alter(
 								table,
-								...mapNonEmpty(columns, (x): AlterTableAction => ({
+								mapNonEmpty(columns, (x): AlterTableAction => ({
 									kind: "alterColumnType",
 									column: x.name,
 									type: rebuiltType,
-									using: cast(cast(tableCol(x.name), types.text), rebuiltType),
+									using: {
+										kind: "expr",
+										expr: cast(cast(tableCol(x.name), types.text), rebuiltType)
+									},
 									collation: undefined
 								}))
 							)
@@ -2176,7 +2214,7 @@ class Differ {
 						kind: "placeholderHandles",
 						table,
 						column: x.name,
-						type: rebuilt,
+						type: rebuiltType,
 						removed: [removedFirst, ...removedRest],
 						labels: [label, ...labels]
 					}))
@@ -2197,18 +2235,17 @@ class Differ {
 				this.changeInPlace(c.table, x.was, x.column, x.change)
 			}
 		}
-		this.sql(
-			"structure",
+		this.sql("structure", [
 			{ kind: "drop", object: "TYPE", name, ifExists: false },
 			{ kind: "rename", object: "TYPE", name: rebuilt, to: name.name }
-		)
+		])
 		for (const s of installedObjects.flatMap((p) => p.ddl)) {
 			if (
 				s.kind === "grant" &&
 				s.on.kind === "TYPE" &&
 				s.on.names.some((n) => nameKey(n) === key)
 			) {
-				this.sql("structure", { ...s, on: { kind: "TYPE", names: [name] } })
+				this.sql("structure", [{ ...s, on: { kind: "TYPE", names: [name] } }])
 			}
 		}
 		for (const s of this.input.previous.manifest.publicRevokes) {
@@ -2217,13 +2254,13 @@ class Differ {
 				s.on.kind === "TYPE" &&
 				s.on.names.some((n) => nameKey(n) === key)
 			) {
-				this.sql("structure", { ...s, on: { kind: "TYPE", names: [name] } })
+				this.sql("structure", [{ ...s, on: { kind: "TYPE", names: [name] } }])
 			}
 		}
 		for (const t of tags) {
 			const target = this.next.get(t.object.ident)
 			if (target !== undefined) {
-				this.rebuildTail.push(...target.ddl)
+				appendAll(this.rebuildTail, target.ddl)
 			}
 		}
 		for (const d of ordered) {
@@ -2237,9 +2274,9 @@ class Differ {
 			} else if (v.kind === "check" || v.kind === "foreignKey") {
 				const c = this.constraintOf(target, this.next)
 				this.rebuildTail.push(
-					alter(v.table, { kind: "addConstraint", constraint: c, notValid: true })
+					alter(v.table, [{ kind: "addConstraint", constraint: c, notValid: true }])
 				)
-				this.rebuildValidations.push(alter(v.table, { kind: "validateConstraint", name: c.name }))
+				this.rebuildValidations.push(alter(v.table, [{ kind: "validateConstraint", name: c.name }]))
 			}
 		}
 		for (const index of overTags) {
@@ -2254,7 +2291,7 @@ class Differ {
 		const { object: o, create } = v
 		if (before === undefined) {
 			this.push("setup", offered(this.offersOnCreation(o), statement(create)))
-			this.sql("setup", ...o.ddl.slice(1))
+			this.sql("setup", o.ddl.slice(1))
 			return
 		}
 		const was = installed(before)
@@ -2285,23 +2322,29 @@ class Differ {
 		}
 		this.reconstrained.add(nameKey(create.name))
 		if (a !== undefined) {
-			this.sql("structure", {
-				kind: "alterDomain",
-				name: create.name,
-				action: { kind: "dropConstraint", name: a.name }
-			})
+			this.sql("structure", [
+				{
+					kind: "alterDomain",
+					name: create.name,
+					action: { kind: "dropConstraint", name: a.name }
+				}
+			])
 		}
 		if (b !== undefined) {
-			this.sql("structure", {
-				kind: "alterDomain",
-				name: create.name,
-				action: { kind: "addConstraint", constraint: b, notValid: true }
-			})
-			this.sql("validate", {
-				kind: "alterDomain",
-				name: create.name,
-				action: { kind: "validateConstraint", name: b.name }
-			})
+			this.sql("structure", [
+				{
+					kind: "alterDomain",
+					name: create.name,
+					action: { kind: "addConstraint", constraint: b, notValid: true }
+				}
+			])
+			this.sql("validate", [
+				{
+					kind: "alterDomain",
+					name: create.name,
+					action: { kind: "validateConstraint", name: b.name }
+				}
+			])
 		}
 	}
 
@@ -2313,10 +2356,10 @@ class Differ {
 	 * constraint is named after the contract, so the rename replaces it under the new name, which validates the stored
 	 * values again. A text pattern's domain is named by its pattern, so one pattern keeps its domain; a domain may be
 	 * renamed into another of its shape, a pattern's or a contract's alike. */
-	typeOffersOf(): ReadonlyMap<string, ReadonlyArray<Offer>> {
+	typeOffersOf(): ReadonlyMap<string, ReadonlyArray<TopOffer>> {
 		return new Map(
 			this.input.target.manifest.objects.flatMap(
-				(o): ReadonlyArray<readonly [string, ReadonlyArray<Offer>]> => {
+				(o): ReadonlyArray<readonly [string, ReadonlyArray<TopOffer>]> => {
 					const v = installed(o)
 					if (v.kind === "enum" && !this.enums.has(o.ident)) {
 						const create = v.create
@@ -2325,9 +2368,10 @@ class Differ {
 								o.ident,
 								this.typeCandidates(
 									create,
+									"TYPE",
 									(t) => (t.kind === "enum" ? t.create : undefined),
 									(a, b) => same(a.labels, b.labels),
-									(from) => [{ kind: "rename", object: "TYPE", name: from, to: create.name.name }]
+									() => []
 								)
 							]
 						]
@@ -2339,10 +2383,10 @@ class Differ {
 								o.ident,
 								this.typeCandidates(
 									create,
+									"DOMAIN",
 									(t) => (t.kind === "domain" ? t.create : undefined),
 									(a, b) => same(domainShape(a), domainShape(b)),
-									(from, old) => [
-										{ kind: "rename", object: "DOMAIN", name: from, to: create.name.name },
+									(old) => [
 										...old.constraints.map((c): SqlStatement => ({
 											kind: "alterDomain",
 											name: create.name,
@@ -2365,14 +2409,16 @@ class Differ {
 	}
 
 	/** The candidate renames to the added enum or domain `create` of each installed one the target removes that `matches`
-	 * it, as their rename offers: the alternative renames the type in place, so every column it types keeps its rows. */
+	 * it, as their rename offers: the alternative renames the type in place, so every column it types keeps its rows,
+	 * then runs what follows the rename (`after`): a domain's constraints replaced under the new name. */
 	typeCandidates<T extends CreateEnum | CreateDomain>(
 		create: T,
+		object: TypeCandidate["object"],
 		/** The type of an installed object, when it is of create's kind. */
 		typeOf: (v: Installed) => T | undefined,
 		matches: (a: T, b: T) => boolean,
-		alternative: (from: ObjectName, old: T) => NonEmptyReadonlyArray<SqlStatement>
-	): ReadonlyArray<Offer> {
+		after: (old: T) => ReadonlyArray<SqlStatement>
+	): ReadonlyArray<RootRename> {
 		const to = create.name
 		const typesOf = (
 			objects: ReadonlyArray<ManifestObject>,
@@ -2386,18 +2432,13 @@ class Differ {
 		const removals = typesOf(this.input.previous.manifest.objects, this.next).filter((old) =>
 			matches(old, create)
 		)
-		return removals.flatMap((old): ReadonlyArray<Offer> => {
+		return removals.flatMap((old): ReadonlyArray<RootRename> => {
 			const from = old.name
-			const candidate = this.candidates.length
-			const label = `the candidate rename of ${printObjectName(from)} to ${printObjectName(to)}`
-			this.candidates.push({
-				id: candidate,
+			const candidate: TypeCandidate = { kind: "type", object, removed: from, added: to }
+			this.planned.push({
 				kind: "type",
-				label,
-				from,
-				to,
+				candidate,
 				qualified: inTypes(new Map([[from.name, to.name]])),
-				requires: [],
 				drops: []
 			})
 			return [
@@ -2405,7 +2446,7 @@ class Differ {
 					kind: "rename",
 					candidate,
 					note: `${printObjectName(to)} has the definition of the removed type ${printObjectName(from)}, which this migration drops; choosing the rename keeps the rows of every column it types in place, and also decides the statements marked as part of it in this folder's files${this.ambiguity(removals.length, added.filter((a) => matches(old, a)).length)}`,
-					alternative: mapNonEmpty(alternative(from, old), (x) => statement(x))
+					alternative: after(old).map((x) => statement(x))
 				}
 			]
 		})
@@ -2413,29 +2454,29 @@ class Differ {
 
 	/** The delete offers of a column's type change that a type candidate makes no change: the column keeps its rows in
 	 * place under the renamed type. */
-	retypeOffers(t: ObjectName, b: ColumnDef, c: ColumnDef): ReadonlyArray<Offer> {
-		return this.typeCandidatesOf().flatMap((x): ReadonlyArray<Offer> => {
+	retypeOffers(t: ObjectName, b: ColumnDef, c: ColumnDef): ReadonlyArray<PlainOffer> {
+		return this.typeCandidatesOf().flatMap((x): ReadonlyArray<PlainOffer> => {
 			if (!this.retypes(x, b, c)) {
 				return []
 			}
 			return [
 				{
 					kind: "delete",
-					candidate: x.id,
-					note: `the statement below replaces ${printObjectName(t)}.${quoteIdent(b.name)}, of the removed type ${printObjectName(x.from)}, by a column of ${printObjectName(x.to)}, which ${x.label} makes the column's own type`
+					candidate: x.candidate,
+					note: `the statement below replaces ${printObjectName(t)}.${quoteIdent(b.name)}, of the removed type ${printObjectName(x.candidate.removed)}, by a column of ${printObjectName(x.candidate.added)}, which ${labelOf(x)} makes the column's own type`
 				}
 			]
 		})
 	}
 
 	/** The type candidates, every one made before any object is visited (typeOffersOf). */
-	typeCandidatesOf(): ReadonlyArray<TypeCandidate> {
-		return this.candidates.flatMap((x) => (x.kind === "type" ? [x] : []))
+	typeCandidatesOf(): ReadonlyArray<PlannedType> {
+		return this.planned.flatMap((x) => (x.kind === "type" ? [x] : []))
 	}
 
 	/** Whether the type candidate `x` makes the column `b`'s type the column `c`'s: `b` is of a type of this schema,
 	 * which `x` renames, and under the new name the two types agree. */
-	retypes(x: TypeCandidate, b: ColumnDef, c: ColumnDef): boolean {
+	retypes(x: PlannedType, b: ColumnDef, c: ColumnDef): boolean {
 		if (b.type.kind !== "named" || b.type.schema !== this.schema) {
 			return false
 		}
@@ -2514,17 +2555,10 @@ class Differ {
 	planKept(kept: KeptTable): KeptPlan {
 		const t = kept.create.table
 		const pairs = this.keptPairs(kept)
-		const removal: FieldRemoval = "dropped by this migration"
+		const holder = keptHolder(t)
 		const offers = addedFields(pairs).flatMap((f) => [
-			...this.renameCandidateColumn(t, f.renames, f.column, (r) => renamingsOf(pairs, r), removal),
-			...this.retypeCandidateColumn(
-				t,
-				t,
-				f.retypes,
-				f.column,
-				(r) => retypingsOf(pairs, r),
-				removal
-			)
+			...this.renameCandidateColumn(holder, f.renames, f.column, (r) => renamingsOf(pairs, r)),
+			...this.retypeCandidateColumn(holder, f.retypes, f.column, (r) => retypingsOf(pairs, r))
 		])
 		const sequences = pairParts(
 			this.partsOf(t, this.prev).sequence,
@@ -2551,7 +2585,7 @@ class Differ {
 			const changed = before === undefined || !same(before.ddl, o.ddl)
 			const recast = [...qualifiedNames(o.ddl, this.schema)].some((k) => this.reconstrained.has(k))
 			if (changed || recast) {
-				this.sql("publish", ...o.ddl)
+				this.sql("publish", o.ddl)
 			}
 		}
 	}
@@ -2576,7 +2610,7 @@ class Differ {
 	keptTable({ table: kept, pairs, offers, sequences }: KeptPlan): void {
 		const t = kept.create.table
 		for (const r of pairs.removed) {
-			this.removal(dropOrder.column, kept.order, fieldLoss(t, r.name, carriersOf(offers, r)))
+			this.removal(dropOrder.column, kept.order, fieldLoss(t, t, r.name, carriersOf(offers, r)))
 		}
 		for (const f of pairs.fields) {
 			if (f.kind === "added") {
@@ -2604,7 +2638,7 @@ class Differ {
 		if (change.kind === "kept") {
 			this.sql(
 				"structure",
-				...sequences.flatMap((p): ReadonlyArray<SqlStatement> =>
+				sequences.flatMap((p): ReadonlyArray<SqlStatement> =>
 					p.kind === "brought" &&
 					p.pair.column === c.name &&
 					nameKey(p.was.sequence) !== nameKey(p.pair.sequence)
@@ -2648,13 +2682,15 @@ class Differ {
 		}
 		return {
 			kind: "statement",
-			statement: alter(t, {
-				kind: "alterColumnType",
-				column: column.name,
-				type: column.type,
-				collation: column.collation,
-				using: cast(tableCol(column.name), column.type)
-			})
+			statement: alter(t, [
+				{
+					kind: "alterColumnType",
+					column: column.name,
+					type: column.type,
+					collation: column.collation,
+					using: { kind: "expr", expr: cast(tableCol(column.name), column.type) }
+				}
+			])
 		}
 	}
 
@@ -2689,8 +2725,8 @@ class Differ {
 			column: r.name,
 			offer: {
 				kind: "convert",
-				candidate: candidate.id,
-				note: `the statement below converts ${printObjectName(was)}.${quoteIdent(r.name)} to the enum this migration rebuilds; choosing ${candidate.label} converts it here to ${printType(c.type)} instead, ${conversionsBy(1, conversion.kind === "statement" ? 1 : 0)}, its one conversion`,
+				candidate,
+				note: `the statement below converts ${printObjectName(was)}.${quoteIdent(r.name)} to the enum this migration rebuilds; choosing ${candidateLabel(candidate)} converts it here to ${printType(c.type)} instead, ${conversionsBy(1, conversion.kind === "statement" ? 1 : 0)}, its one conversion`,
 				conversion
 			}
 		})
@@ -2698,9 +2734,12 @@ class Differ {
 	}
 
 	/** A new column. A new serial field numbers the existing rows from its new sequence. */
-	addColumn(t: ObjectName, c: ColumnDef, offers: ReadonlyArray<Offer>): void {
+	addColumn(t: ObjectName, c: ColumnDef, offers: ReadonlyArray<TopOffer>): void {
 		if (c.generated !== undefined) {
-			this.push("structure", offered(offers, statement(alter(t, { kind: "addColumn", column: c }))))
+			this.push(
+				"structure",
+				offered(offers, statement(alter(t, [{ kind: "addColumn", column: c }])))
+			)
 			return
 		}
 		this.push(
@@ -2729,7 +2768,7 @@ class Differ {
 	 *
 	 * A conversion a type's candidate rename makes unnecessary is a choice nested in this one: choosing
 	 * that rename too, the column already has its new type. */
-	renameCandidateTable(create: CreateTable): ReadonlyArray<Offer> {
+	renameCandidateTable(create: CreateTable): ReadonlyArray<RelationRename> {
 		const removals = this.input.previous.manifest.objects.flatMap((o) => {
 			const old = o.kind === "table" && !this.next.has(o.ident) ? this.createTableOf(o) : undefined
 			return old !== undefined && renamePair(old, create) ? [old] : []
@@ -2737,9 +2776,9 @@ class Differ {
 		return removals.map((old) => this.renameOffer(old, create, removals.length))
 	}
 
-	/** The candidate rename of the removed table `old` to the added `create`, which `rivals` removed tables of its
+	/** The candidate rename of the removed table `old` to the added `create`, which `rivalCount` removed tables of its
 	 * heading could be renamed to. */
-	renameOffer(old: CreateTable, create: CreateTable, rivals: number): Offer {
+	renameOffer(old: CreateTable, create: CreateTable, rivalCount: number): RelationRename {
 		const to = create.table
 		const from = old.table
 		/** The fields only one side has: the relation's rename adds and drops them. */
@@ -2830,13 +2869,15 @@ class Differ {
 				(c, as) =>
 					same(
 						underNewNames(
-							alter(to, {
-								kind: "addConstraint",
-								constraint: { ...c.constraint, name: as.name },
-								notValid: false
-							})
+							alter(to, [
+								{
+									kind: "addConstraint",
+									constraint: { ...c.constraint, name: as.name },
+									notValid: false
+								}
+							])
 						),
-						alter(to, { kind: "addConstraint", constraint: as.constraint, notValid: false })
+						alter(to, [{ kind: "addConstraint", constraint: as.constraint, notValid: false }])
 					)
 			),
 			index: pairParts(
@@ -2861,11 +2902,7 @@ class Differ {
 				(t) => !carries("lawTrigger", triggerColumns(t.create), fate)
 			)
 		}
-		const renames: CandidateRenames = {
-			kind: "relation",
-			removed: printObjectName(from),
-			added: printObjectName(to)
-		}
+		const relation: RelationCandidate = { kind: "relation", removed: from, added: to }
 		const ownPart = (kind: PreviousPart["kind"], name: string): PreviousPart => ({
 			kind,
 			table: from,
@@ -2874,7 +2911,7 @@ class Differ {
 		/** The removed relation's own foreign keys it drops go first, then its other drops and renames. */
 		const ownReferences: Array<PreviousPart> = []
 		const ownDrops: Array<PreviousPart> = []
-		const constraints: Array<AlternativeStep> = []
+		const constraints: Array<SealedStep> = []
 		const dropped: Array<TableConstraint> = []
 		for (const p of paired.constraint) {
 			const c = p.was
@@ -2882,9 +2919,11 @@ class Differ {
 				dropped.push(c.constraint)
 				const part = ownPart("constraint", c.name)
 				ownDrops.push(part)
-				const own = c.constraint.kind === "foreignKey"
-				ownReferences.push(...(own ? [part] : []))
-				constraints.push(...(own ? [] : [this.droppedOnce(renames, part, to)]))
+				if (c.constraint.kind === "foreignKey") {
+					ownReferences.push(part)
+				} else {
+					constraints.push(this.droppedOnce(relation, part, to))
+				}
 			} else if (p.pair.name !== c.name) {
 				constraints.push(
 					statement({ kind: "renameConstraint", table: to, from: c.name, to: p.pair.name })
@@ -2905,27 +2944,27 @@ class Differ {
 		 * sequence go after. A stored tag is the target's only under its own name, so none is renamed. */
 		const carried: {
 			readonly [K in PartKind]: {
-				readonly before: ReadonlyArray<AlternativeStep>
-				readonly after: ReadonlyArray<AlternativeStep>
+				readonly before: ReadonlyArray<SealedStep>
+				readonly after: ReadonlyArray<SealedStep>
 			}
 		} = {
 			constraint: {
 				before: [
-					...references.map((r) => this.droppedOnce(renames, r, r.table)),
-					...ownReferences.map((r) => this.droppedOnce(renames, r, to)),
+					...references.map((r) => this.droppedOnce(relation, r, r.table)),
+					...ownReferences.map((r) => this.droppedOnce(relation, r, to)),
 					...constraints
 				],
 				after: [...toParts.constraint.values()]
 					.filter((c) => c.inline && !brings(paired, "constraint", c.name))
 					.map((c) =>
 						statement(
-							alter(to, { kind: "addConstraint", constraint: c.constraint, notValid: false })
+							alter(to, [{ kind: "addConstraint", constraint: c.constraint, notValid: false }])
 						)
 					)
 			},
 			index: {
 				before: [],
-				after: paired.index.flatMap((p): ReadonlyArray<AlternativeStep> => {
+				after: paired.index.flatMap((p): ReadonlyArray<SealedStep> => {
 					const i = p.was
 					const name = objectName(from.schema, i.name)
 					if (p.kind === "dropped") {
@@ -2938,7 +2977,7 @@ class Differ {
 			},
 			statistics: {
 				before: [],
-				after: paired.statistics.flatMap((p): ReadonlyArray<AlternativeStep> => {
+				after: paired.statistics.flatMap((p): ReadonlyArray<SealedStep> => {
 					const s = p.was
 					if (p.kind === "dropped") {
 						return [{ kind: "dropStatistics", name: s.create.name }]
@@ -2959,13 +2998,13 @@ class Differ {
 				before: [],
 				after: tags.flatMap((p) =>
 					p.kind === "dropped"
-						? [statement(alter(to, { kind: "dropColumn", column: p.was.name }))]
+						? [statement(alter(to, [{ kind: "dropColumn", column: p.was.name }]))]
 						: []
 				)
 			},
 			sequence: { before: [], after: sequenceRenames.map(statement) },
 			lawTrigger: {
-				before: triggers.map((t) => this.droppedOnce(renames, t, to)),
+				before: triggers.map((t) => this.droppedOnce(relation, t, to)),
 				after: []
 			}
 		}
@@ -2974,50 +3013,30 @@ class Differ {
 		 * a type's candidate rename makes its type, or with none, each removed field of another type, neither
 		 * generated, converted in place. Its marked statements are the addition, which it replaces with the rename,
 		 * and the removed field's drop, which it deletes. */
-		const removal: FieldRemoval = "dropped by its relation's rename"
+		const holder = nestedHolder(relation)
 		const fieldOffers = addedFields(pairs).map((f) => ({
 			column: f.column,
 			offers: [
-				...this.renameCandidateColumn(
-					to,
-					f.renames,
-					f.column,
-					(r) => renamingsOf(pairs, r),
-					removal
-				),
-				...this.retypeCandidateColumn(
-					to,
-					from,
-					f.retypes,
-					f.column,
-					(r) => retypingsOf(pairs, r),
-					removal
-				)
+				...this.renameCandidateColumn(holder, f.renames, f.column, (r) => renamingsOf(pairs, r)),
+				...this.retypeCandidateColumn(holder, f.retypes, f.column, (r) => retypingsOf(pairs, r))
 			]
 		}))
-		const additions = fieldOffers.map(({ column: c, offers: fieldOffered }): AlternativeStep =>
+		const additions = fieldOffers.map(({ column: c, offers: fieldOffered }): RelationStep =>
 			offered(
 				fieldOffered.map((f) => f.offer),
 				c.generated === undefined
 					? { kind: "placeholderColumn", table: to, column: c, hint: droppedHint(lost) }
-					: statement(alter(to, { kind: "addColumn", column: c }))
+					: statement(alter(to, [{ kind: "addColumn", column: c }]))
 			)
 		)
 		const renamings = fieldOffers.flatMap((a) => a.offers)
-		const label = `the candidate rename of ${printObjectName(from)} to ${printObjectName(to)}`
-		const candidate = this.candidates.length
-		const relationCandidate: Candidate = {
-			id: candidate,
+		this.planned.push({
 			kind: "relation",
-			label,
-			from,
-			to,
+			candidate: relation,
 			qualified: inRelations(qualified),
-			requires: [],
 			drops,
 			pairs: paired
-		}
-		this.candidates.push(relationCandidate)
+		})
 		const shared = sameHeading(old, create)
 			? "heading"
 			: samePrimaryKey(old, create)
@@ -3047,27 +3066,26 @@ class Differ {
 				? ""
 				: `; the foreign key${references.length === 1 ? "" : "s"} ${references.map((r) => `${printObjectName(r.table)}.${quoteIdent(r.name)}`).join(", ")} that reference${references.length === 1 ? "s" : ""} a key of ${printObjectName(from)} the rename drops ${references.length === 1 ? "is" : "are"} dropped first, then added again NOT VALID and validated by the statements drafted for ${references.length === 1 ? "it" : "them"}`
 		return {
-			kind: "rename",
-			candidate,
-			note: `${printObjectName(to)} has the ${shared} of the removed ${printObjectName(from)}, which this migration drops${differ}${converted}${identities}${keyChange}${referenced}; choosing the rename also decides the statements marked as part of it in this folder's files${this.ambiguity(rivals, this.tableOffers(old))}`,
+			kind: "relation rename",
+			candidate: relation,
+			note: `${printObjectName(to)} has the ${shared} of the removed ${printObjectName(from)}, which this migration drops${differ}${converted}${identities}${keyChange}${referenced}; choosing the rename also decides the statements marked as part of it in this folder's files${this.ambiguity(rivalCount, this.tableOffers(old))}`,
 			alternative: [
-				statement({ kind: "rename", object: "TABLE", name: from, to: to.name }),
 				...partKinds.flatMap((kind) => carried[kind].before),
 				...additions,
-				...held.flatMap(({ was, column, change }): ReadonlyArray<AlternativeStep> => {
+				...held.flatMap(({ was, column, change }): ReadonlyArray<SealedStep> => {
 					const retype = this.typeCandidatesOf()
 						.filter((x) => this.retypes(x, was, column))
-						.map((x): Offer => ({
+						.map((x): PlainOffer => ({
 							kind: "delete",
-							candidate: x.id,
-							note: `the statement below converts ${quoteIdent(column.name)} to ${printObjectName(x.to)}, which ${x.label} already makes its type`
+							candidate: x.candidate,
+							note: `the statement below converts ${quoteIdent(column.name)} to ${printObjectName(x.candidate.added)}, which ${labelOf(x)} already makes its type`
 						}))
 					return inPlace(to, was, column, change, (c) =>
-						this.conversionIn(relationCandidate, from, was, to, c)
+						this.conversionIn(relation, from, was, to, c)
 					).map((step) => offered(retype, step))
 				}),
 				...partKinds.flatMap((kind) => carried[kind].after),
-				...lost.map((c) => fieldLoss(to, c.name, carriersOf(renamings, c)))
+				...lost.map((c) => fieldLoss(from, to, c.name, carriersOf(renamings, c)))
 			]
 		}
 	}
@@ -3108,18 +3126,14 @@ class Differ {
 	 * alternative runs first, by what that alternative makes of the part (partFate): deleted where it dropped the part,
 	 * the part's drop under its new names where it renamed it. The candidates that drop or rename a part, a relation's
 	 * and a field's, are planned in the target's install order and offered in Structure in it (the constructor), so
-	 * the order they are planned in is the order their alternatives run in. Two candidates that take one removed name
-	 * away or give one added name are never chosen together (`grizzle check`), so neither offers in the other's
-	 * alternative. */
-	droppedOnce(own: CandidateRenames, part: PreviousPart, on: ObjectName): AlternativeStep {
+	 * the order they are planned in is the order their alternatives run in. Two rival candidates, which take one
+	 * removed name away or give one added name, are never chosen together (`grizzle check`), so neither offers in the
+	 * other's alternative. */
+	droppedOnce(own: Candidate, part: PreviousPart, on: ObjectName): SealedStep {
 		return offered(
-			this.candidates.flatMap((x): ReadonlyArray<Offer> => {
-				const theirs = renamesOf(x)
-				return theirs.kind === own.kind &&
-					(theirs.removed === own.removed || theirs.added === own.added)
-					? []
-					: dropOffers(x, part)
-			}),
+			this.planned.flatMap((x): ReadonlyArray<PlainOffer> =>
+				rivals(x.candidate, own) ? [] : dropOffers(x, part)
+			),
 			statement(partDrop(part.kind, on, part.name))
 		)
 	}
@@ -3132,14 +3146,17 @@ class Differ {
 	 * is the replaced addition, and only what builds or drops a carried key and a revoke of a renamed sequence are
 	 * marked. Under a type's rename, the column keeps its rows only where that rename renames its type too, so the
 	 * field's candidate requires the type's: check refuses it chosen without it. */
-	renameCandidateColumn(
-		t: ObjectName,
+	renameCandidateColumn<
+		C extends FieldCandidate | NestedFieldCandidate,
+		O extends RootRename | NestedRename
+	>(
+		holder: FieldHolder<C, O>,
 		removed: ReadonlyArray<Pairing>,
 		c: ColumnDef,
-		additions: (r: ColumnDef) => number,
-		removal: FieldRemoval
-	): ReadonlyArray<FieldOffer> {
-		return removed.map(({ column: r, via, keys }): FieldOffer => {
+		additions: (r: ColumnDef) => number
+	): ReadonlyArray<FieldOffer<O>> {
+		const t = holder.table
+		return removed.map(({ column: r, via, keys }): FieldOffer<O> => {
 			/** The identity sequence, renamed too when the target names it otherwise. */
 			const sequence =
 				r.generated?.kind === "identity" &&
@@ -3150,33 +3167,31 @@ class Differ {
 			const qualified = inRelations(
 				new Map(sequence === undefined ? [] : [[sequence.name.name, sequence.to]])
 			)
-			const label = `the candidate rename of ${printObjectName(t)}.${quoteIdent(r.name)} to ${quoteIdent(c.name)}`
-			const requires = via.kind === "same type" ? [] : [via.candidate.id]
-			const candidate: FieldCandidate = {
-				id: this.candidates.length,
+			const requires: FieldRequires =
+				via.kind === "same type"
+					? { kind: "nothing" }
+					: { kind: "type", candidate: via.candidate.candidate }
+			const record = holder.candidate(r.name, c.name, requires)
+			const candidate: PlannedField = {
 				kind: "field",
-				label,
+				candidate: record,
 				qualified,
-				requires,
 				table: t,
-				from: r.name,
-				to: c.name,
 				keys,
 				drops: []
 			}
-			this.candidates.push(candidate)
+			this.planned.push(candidate)
+			const ends = endsOf(record)
 			const under =
 				via.kind === "same type"
 					? ""
-					: `, once ${via.candidate.label} makes its type ${printObjectName(via.candidate.to)}; choose it only with that candidate`
+					: `, once ${labelOf(via.candidate)} makes its type ${printObjectName(via.candidate.candidate.added)}; choose it only with that candidate`
 			return {
 				added: c,
-				offer: {
-					kind: "rename",
-					candidate: candidate.id,
-					note: `${printObjectName(t)}.${c.name} has the type of the removed column ${r.name}, which is ${removal}${under}${this.ambiguity(removed.length, additions(r))}`,
-					alternative: [
-						statement({ kind: "renameColumn", table: t, from: r.name, to: c.name }),
+				offer: holder.offer(
+					record,
+					`${ends.added} has the type of the removed column ${ends.removed}, which ${removedBy(record)}${under}${this.ambiguity(removed.length, additions(r))}`,
+					[
 						...keys.map((k) =>
 							statement({ kind: "renameConstraint", table: t, from: k.from, to: k.to })
 						),
@@ -3184,78 +3199,81 @@ class Differ {
 							? []
 							: [statement({ kind: "rename", object: "SEQUENCE", ...sequence })])
 					]
-				},
+				),
 				removed: r,
 				candidate
 			}
 		})
 	}
 
-	/** A removed column of another type than an added one, of `was` in the previous manifest (`t` itself, or the removed
-	 * relation a relation's rename renames to `t`): the alternative renames the column and its keys, drops what
-	 * PostgreSQL refuses to convert it under (conversionDrops), and converts it in place to the added column's type by
-	 * its conversion (conversionIn). Everything else over the column is drafted under its target names whichever the
-	 * reviewer chooses, as for a rename of one type. */
-	retypeCandidateColumn(
-		t: ObjectName,
-		was: ObjectName,
+	/** A removed column of another type than an added one, of the relation that held it in the previous manifest (its
+	 * holder's: a kept table, or the removed relation of the rename it is nested in): the alternative renames the column
+	 * and its keys, drops what PostgreSQL refuses to convert it under (conversionDrops), and converts it in place to the
+	 * added column's type by its conversion (conversionIn). Everything else over the column is drafted under its target
+	 * names whichever the reviewer chooses, as for a rename of one type. */
+	retypeCandidateColumn<
+		C extends FieldCandidate | NestedFieldCandidate,
+		O extends RootRename | NestedRename
+	>(
+		holder: FieldHolder<C, O>,
 		removed: ReadonlyArray<Retyping>,
 		c: ColumnDef,
-		conversions: (r: ColumnDef) => number,
-		removal: FieldRemoval
-	): ReadonlyArray<FieldOffer> {
-		return removed.map(({ column: r, keys }): FieldOffer => {
-			const label = `the candidate rename of ${printObjectName(t)}.${quoteIdent(r.name)} to ${quoteIdent(c.name)}`
-			const drops = this.conversionDrops(removal, was, r.name)
-			const candidate: FieldCandidate = {
-				id: this.candidates.length,
+		conversions: (r: ColumnDef) => number
+	): ReadonlyArray<FieldOffer<O>> {
+		const { table: t, was } = holder
+		return removed.map(({ column: r, keys }): FieldOffer<O> => {
+			const record = holder.candidate(r.name, c.name, { kind: "nothing" })
+			const drops = this.conversionDrops(record, r.name)
+			const candidate: PlannedField = {
 				kind: "field",
-				label,
+				candidate: record,
 				qualified: inRelations(new Map()),
-				requires: [],
 				drops,
 				table: t,
-				from: r.name,
-				to: c.name,
 				keys
 			}
-			this.candidates.push(candidate)
-			const renames = renamesOf(candidate)
+			this.planned.push(candidate)
+			const ends = endsOf(record)
 			return {
 				added: c,
-				offer: {
-					kind: "rename",
-					candidate: candidate.id,
-					note: `${printObjectName(t)}.${c.name} may be the removed column ${r.name}, which is ${removal}, renamed with its type changed; choosing the rename converts it in place ${conversionsBy(1, this.keepsValues(r, c) ? 1 : 0)}${this.ambiguity(removed.length, conversions(r))}`,
-					alternative: [
-						statement({ kind: "renameColumn", table: t, from: r.name, to: c.name }),
-						...drops.map((p) => this.droppedOnce(renames, p, p.table)),
+				offer: holder.offer(
+					record,
+					`${ends.added} may be the removed column ${ends.removed}, which ${removedBy(record)}, renamed with its type changed; choosing the rename converts it in place ${conversionsBy(1, this.keepsValues(r, c) ? 1 : 0)}${this.ambiguity(removed.length, conversions(r))}`,
+					[
+						...drops.map((p) => this.droppedOnce(record, p, p.table)),
 						...keys.map((k) =>
 							statement({ kind: "renameConstraint", table: t, from: k.from, to: k.to })
 						),
-						...this.conversionIn(candidate, was, r, t, c)
+						...this.conversionIn(record, was, r, t, c)
 					]
-				},
+				),
 				removed: r,
 				candidate
 			}
 		})
 	}
 
-	/** What a candidate's conversion in place of the removed column `column` of `table` drops first, as a conversion in
-	 * place of a column the target keeps does (dropReplaced), in the drop order: what PostgreSQL refuses to convert the
-	 * column under, each foreign key over it or referencing a key over it, each CHECK over it and each law trigger whose
-	 * UPDATE OF names it, of those that stand when the rename runs (standing): a conversion the target makes took the
-	 * rest away before every candidate. A key, an index or a statistics object over it is converted with it. Inside a
-	 * relation's rename there is none: the relation's alternative brought across or dropped every part over it. */
+	/** What a field candidate's conversion in place of its removed column `column` drops first, as a conversion in place
+	 * of a column the target keeps does (dropReplaced), in the drop order: what PostgreSQL refuses to convert the column
+	 * under, each foreign key over it or referencing a key over it, each CHECK over it and each law trigger whose UPDATE
+	 * OF names it, of those that stand when the rename runs (standing): a conversion the target makes took the rest away
+	 * before every candidate. A key, an index or a statistics object over it is converted with it. A field's rename
+	 * nested in a relation's drops none: the relation's alternative brought across or dropped every part over it. */
 	conversionDrops(
-		removal: FieldRemoval,
-		table: ObjectName,
+		candidate: FieldCandidate | NestedFieldCandidate,
 		column: string
 	): ReadonlyArray<PreviousPart> {
-		if (removal === "dropped by its relation's rename") {
-			return []
+		switch (candidate.kind) {
+			case "field":
+				return this.clearedFor(candidate.relation, column)
+			case "nested field":
+				return []
 		}
+	}
+
+	/** What PostgreSQL refuses to convert the column `column` of `table` under, of what stands when the renames run, in
+	 * the drop order (conversionDrops). */
+	clearedFor(table: ObjectName, column: string): ReadonlyArray<PreviousPart> {
 		const over = (v: Installed): boolean => {
 			const built = builtOver(v, (c) => keyOrCheckDefinition(c, this.prev))
 			return (
@@ -3341,9 +3359,9 @@ class Differ {
 			if (same(before.ddl, o.ddl)) {
 				return
 			}
-			this.sql("structure", alter(t, { kind: "dropColumn", column }))
+			this.sql("structure", [alter(t, [{ kind: "dropColumn", column }])])
 		}
-		this.sql("structure", ...o.ddl)
+		this.sql("structure", o.ddl)
 	}
 
 	/** A primary key, candidate key or CHECK of a table, by what it is to this migration (Arrival).
@@ -3363,12 +3381,12 @@ class Differ {
 		const c = keyOrCheckDefinition(v, this.next)
 		if (!this.mayHoldRows(t)) {
 			if (v.placement.kind === "own") {
-				this.sql("structure", ...o.ddl)
+				this.sql("structure", o.ddl)
 			}
 			return
 		}
 		if (arrival.kind === "replaced" && arrival.how === "converted" && c.kind !== "check") {
-			this.sql("structure", alter(t, { kind: "addConstraint", constraint: c, notValid: false }))
+			this.sql("structure", [alter(t, [{ kind: "addConstraint", constraint: c, notValid: false }])])
 			return
 		}
 		const was = arrival.kind === "follows" ? arrival.before : undefined
@@ -3380,35 +3398,34 @@ class Differ {
 		const replacingOld = (add: AlterTableAction): NonEmptyReadonlyArray<AlterTableAction> =>
 			old === undefined ? [add] : [{ kind: "dropConstraint", name: old.name }, add]
 		if (c.kind === "check") {
-			this.sql(
-				"structure",
+			this.sql("structure", [
 				alter(
 					t,
-					...replacing(replace, c.name, {
+					replacing(replace, c.name, {
 						kind: "addConstraint",
 						constraint: c,
 						notValid: true
 					})
 				)
-			)
-			this.sql("validate", alter(t, { kind: "validateConstraint", name: c.name }))
+			])
+			this.sql("validate", [alter(t, [{ kind: "validateConstraint", name: c.name }])])
 			return
 		}
-		if (!isBtreeKey(c)) {
+		const key = btreeKeyOf(c)
+		if (key === undefined) {
 			if (was !== undefined) {
 				this.unbind(o.ident, was.ident)
 			}
-			this.sql(
-				"validate.attach",
+			this.sql("validate.attach", [
 				alter(
 					t,
-					...replacingOld({
+					replacingOld({
 						kind: "addConstraint",
 						constraint: c,
 						notValid: false
 					})
 				)
-			)
+			])
 			return
 		}
 		const index = replace ? swapName(c.name) : c.name
@@ -3418,7 +3435,7 @@ class Differ {
 			table: t,
 			unique: true,
 			method: "btree",
-			keys: constraintColumns(c).map(columnKey),
+			keys: mapNonEmpty(key.columns, (k) => columnKey(k.column)),
 			concurrently: false,
 			include: [],
 			where: undefined
@@ -3426,18 +3443,17 @@ class Differ {
 		if (was !== undefined) {
 			this.unbind(o.ident, was.ident)
 		}
-		this.sql(
-			"validate.attach",
+		this.sql("validate.attach", [
 			alter(
 				t,
-				...replacingOld({
+				replacingOld({
 					kind: "addConstraintUsingIndex",
 					name: c.name,
 					constraint: c.kind === "primaryKey" ? "PRIMARY KEY" : "UNIQUE",
 					index
 				})
 			)
-		)
+		])
 	}
 
 	/** The foreign keys that reference the key the target's key `key` swaps in for, the previous `was`, dropped just
@@ -3449,7 +3465,7 @@ class Differ {
 		for (const { object: o, fate } of this.previous) {
 			const v = installed(o)
 			if (fate.kind === "unbound" && fate.by === key && v.kind === "foreignKey") {
-				this.sql("validate.attach", alter(v.table, { kind: "dropConstraint", name: v.name }))
+				this.sql("validate.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
 			}
 		}
 		this.rebind(was)
@@ -3564,7 +3580,7 @@ class Differ {
 			return false
 		}
 		this.rebind(o.ident)
-		this.sql("validate.attach", alter(t, { kind: "dropConstraint", name }))
+		this.sql("validate.attach", [alter(t, [{ kind: "dropConstraint", name }])])
 		return true
 	}
 
@@ -3593,19 +3609,20 @@ class Differ {
 			if (!same(this.constraintOf(before, this.prev), fk)) {
 				continue
 			}
-			this.sql("validate.attach", alter(source, { kind: "dropConstraint", name: fk.name }))
-			this.sql("validate", alter(source, { kind: "addConstraint", constraint: fk, notValid: true }))
-			this.sql("validate", alter(source, { kind: "validateConstraint", name: fk.name }))
+			this.sql("validate.attach", [alter(source, [{ kind: "dropConstraint", name: fk.name }])])
+			this.sql("validate", [
+				alter(source, [{ kind: "addConstraint", constraint: fk, notValid: true }])
+			])
+			this.sql("validate", [alter(source, [{ kind: "validateConstraint", name: fk.name }])])
 		}
 	}
 
 	buildConcurrently(index: CreateIndex): void {
 		const name = objectName(index.table.schema, index.name)
-		this.sql(
-			"indexes.concurrent",
+		this.sql("indexes.concurrent", [
 			{ kind: "dropIndex", name, concurrently: true, ifExists: true },
 			{ ...index, concurrently: true }
-		)
+		])
 	}
 
 	/** A table that holds no row takes it validated at once, as `addTables` installs it. */
@@ -3618,16 +3635,16 @@ class Differ {
 			if (same(this.constraintOf(before, this.prev), c)) {
 				return
 			}
-			this.sql("structure", alter(t, { kind: "dropConstraint", name: c.name }))
+			this.sql("structure", [alter(t, [{ kind: "dropConstraint", name: c.name }])])
 		}
 		const afterKey = this.attached.has(referencedAfter(c)) || this.replaces(referencedAfter(c))
 		if (!this.mayHoldRows(t) && !afterKey) {
-			this.sql("structure", alter(t, { kind: "addConstraint", constraint: c, notValid: false }))
+			this.sql("structure", [alter(t, [{ kind: "addConstraint", constraint: c, notValid: false }])])
 			return
 		}
 		const slot: PlainSlot = afterKey ? "validate" : "structure"
-		this.sql(slot, alter(t, { kind: "addConstraint", constraint: c, notValid: true }))
-		this.sql("validate", alter(t, { kind: "validateConstraint", name: c.name }))
+		this.sql(slot, [alter(t, [{ kind: "addConstraint", constraint: c, notValid: true }])])
+		this.sql("validate", [alter(t, [{ kind: "validateConstraint", name: c.name }])])
 	}
 
 	/** A materialized view, created WITH NO DATA when it follows no previous view (Arrival): new, or dropped at the start
@@ -3637,7 +3654,7 @@ class Differ {
 		before: ManifestObject | undefined
 	): void {
 		if (before === undefined) {
-			this.sql("structure", ...v.object.ddl)
+			this.sql("structure", v.object.ddl)
 		}
 	}
 
@@ -3651,7 +3668,7 @@ class Differ {
 			return
 		}
 		if (!this.mayHoldRows(t)) {
-			this.sql(o.phase === "structure" ? "structure" : "indexes", ...o.ddl)
+			this.sql(o.phase === "structure" ? "structure" : "indexes", o.ddl)
 			return
 		}
 		if (before === undefined) {
@@ -3661,8 +3678,7 @@ class Differ {
 		/** A changed index on a relation that may hold rows: built under a temporary name, then swapped in. */
 		const next = swapName(create.name)
 		this.buildConcurrently({ ...create, name: next })
-		this.sql(
-			"validate.attach",
+		this.sql("validate.attach", [
 			{
 				kind: "dropIndex",
 				name: objectName(t.schema, create.name),
@@ -3670,7 +3686,7 @@ class Differ {
 				ifExists: false
 			},
 			{ kind: "rename", object: "INDEX", name: objectName(t.schema, next), to: create.name }
-		)
+		])
 	}
 
 	statistics(
@@ -3684,112 +3700,154 @@ class Differ {
 		if (before !== undefined) {
 			this.push("indexes", { kind: "dropStatistics", name: create.name })
 		}
-		this.sql("indexes", create)
+		this.sql("indexes", [create])
 		if (this.mayHoldRows(create.table)) {
 			this.push("indexes", { kind: "analyze", table: create.table })
 		}
 	}
 
-	/** Residual laws, by law: the function replaced in place, its triggers replaced and the law validated. A law whose
-	 * function and triggers are unchanged keeps them; only a trigger a conversion took away (Taken replaced) is created again
-	 * after it, in Structure. A changed or new law's function is created or replaced (CREATE OR REPLACE FUNCTION) in the
-	 * law's own Validate transaction, under the lock that excludes every writer, with its triggers and its full violation
-	 * query, so the new body never runs before the existing rows are validated and a refusal leaves the old law in force.
-	 * A change that declaring or removing `mutable` alone causes replaces the function and the triggers in Publish
-	 * without revalidation.
-	 *
-	 * Unchanged; a trigger a conversion took away is created again over the converted column.
-	 *
-	 * Only the roles a violation reports its keys to changed (`witnessShown`): the function is
-	 * replaced in place, and nothing it enforces is validated again. */
+	/** Residual laws, by law, each law's units by unit: a unit is one function and the one trigger that executes it, for
+	 * one table and event (deploy/snapshot/objects.ts lawUnitsOf). A law whose units are unchanged keeps them; only a
+	 * trigger a conversion or an enum rebuild took away is created again after it, in Structure. A law whose units change
+	 * is validated again in its own Validate transaction, under the lock that excludes every writer: its standing
+	 * triggers dropped, each changed or new unit's function created or replaced (CREATE OR REPLACE FUNCTION), every unit's
+	 * trigger created, then its full violation query, so no new body runs before the existing rows are validated and a
+	 * refusal leaves the old law in force. A change of the roles a violation reports its keys to (`witnessShown`), or of
+	 * a relation's mutability alone, which adds or drops the units of its UPDATE and leaves the others standing, is no
+	 * change of what the law obliges: its units change in Publish, without revalidation. A law the target no longer has
+	 * drops its triggers in Publish; every removed unit's function goes with the removed objects, after its trigger. */
 	laws(): void {
-		const before = lawObjectsOf(this.previous)
-		const after = lawObjectsOf(this.targets)
-		for (const [law, now] of after) {
-			this.lawChange(law, before.get(law), now)
-		}
-		const removedTriggers = [...before].flatMap(([law, was]) =>
-			after.has(law) ? [] : was.triggers.filter((t) => t.entry.fate.kind === "removed")
+		const before = lawUnitsOf(this.previous)
+		const after = lawUnitsOf(this.targets)
+		const records = new Map<LawId, ResidualLaw>(
+			this.input.installation.laws.residuals.map((r) => [r.lawId, r] as const)
 		)
-		for (const t of removedTriggers) {
-			this.push("publish.drop", dropTrigger(t.trigger))
+		for (const [law, now] of after) {
+			const residual = records.get(law)
+			if (residual === undefined) {
+				refuseLaw(law, "a residual law record")
+			}
+			this.lawChange(residual, before.get(law), now)
+		}
+		for (const [law, was] of before) {
+			if (after.has(law)) {
+				continue
+			}
+			for (const u of was) {
+				if (u.trigger.entry.fate.kind === "removed") {
+					this.push("publish.drop", dropTrigger(u.trigger.view))
+				}
+			}
 		}
 	}
 
-	/** What one law the target holds drafts (laws), `was` its objects in the previous installation: nothing but the
-	 * triggers a conversion took away when its function and triggers are unchanged; its function alone when only its
-	 * witness changes; its triggers dropped and created again around its function when only its mutability changes;
-	 * otherwise its full replacement and validation in its own Validate transaction. */
-	lawChange(law: LawId, was: LawObjects<Previous> | undefined, now: LawObjects<Target>): void {
-		const sameFunction =
-			was !== undefined && was.fn.ident === now.fn.ident && same(was.fn.ddl, now.fn.ddl)
-		const sameTriggers =
-			was !== undefined && triggersText(was.triggers) === triggersText(now.triggers)
-		if (sameFunction && sameTriggers) {
-			for (const t of now.triggers.filter((x) => x.entry.arrival.kind === "replaced")) {
-				this.sql("structure", ...t.trigger.object.ddl)
+	/** What one law the target holds drafts (laws), `was` its units in the previous installation, by their functions:
+	 * nothing but the triggers a conversion or a rebuild took away when no unit changes; its units' changes in Publish
+	 * when only its witness or a relation's mutability changes; otherwise its full replacement and validation in its own
+	 * Validate transaction. */
+	lawChange(
+		residual: ResidualLaw,
+		was: NonEmptyReadonlyArray<LawUnit<Previous>> | undefined,
+		now: NonEmptyReadonlyArray<LawUnit<Target>>
+	): void {
+		const law = residual.lawId
+		const previous: ReadonlyArray<LawUnit<Previous>> = was === undefined ? [] : was
+		const prior = new Map(previous.map((u) => [u.fn.ident, u] as const))
+		const kept = new Set(now.map((u) => u.fn.ident))
+		const removed = previous.filter((u) => !kept.has(u.fn.ident))
+		const changedFunctions = now.filter((u) => {
+			const b = prior.get(u.fn.ident)
+			return b === undefined || !same(b.fn.ddl, u.fn.ddl)
+		})
+		const changedTriggers = now.filter((u) => {
+			const b = prior.get(u.fn.ident)
+			return (
+				b === undefined ||
+				b.trigger.view.object.ident !== u.trigger.view.object.ident ||
+				!same(b.trigger.view.object.ddl, u.trigger.view.object.ddl)
+			)
+		})
+		/** A previous unit's trigger that still stands: one no conversion or rebuild took away. */
+		const standing = (u: LawUnit<Previous>): boolean =>
+			u.trigger.entry.fate.kind !== "replaced" && u.trigger.entry.fate.kind !== "rebuild"
+		/** A target unit's trigger a conversion or a rebuild took away, created again. */
+		const takenAway = (u: LawUnit<Target>): boolean =>
+			u.trigger.entry.arrival.kind === "replaced" || u.trigger.entry.arrival.kind === "rebuild"
+		/** Each statement of `ddl`, in `slot`. */
+		const each = (
+			slot: "structure" | "publish.triggers",
+			ddl: ReadonlyArray<SqlStatement>
+		): void => {
+			for (const d of ddl) {
+				this.sql(slot, [d])
+			}
+		}
+		if (removed.length === 0 && changedFunctions.length === 0 && changedTriggers.length === 0) {
+			for (const u of now.filter(takenAway)) {
+				each("structure", u.trigger.view.object.ddl)
 			}
 			return
 		}
-		const replaced = sameFunction ? [] : now.fn.ddl
-		const old = was === undefined ? [] : was.triggers
-		const standing = old.flatMap((t) => (t.entry.fate.kind === "replaced" ? [] : [t.trigger]))
-		if (sameTriggers && this.witnessOnly(law)) {
-			this.sql("publish.triggers", ...replaced)
+		if (was !== undefined && (this.witnessOnly(law) || this.mutabilityOnly(law))) {
+			const changed = new Set(changedTriggers.map((u) => u.fn.ident))
+			for (const u of [...removed, ...was.filter((x) => changed.has(x.fn.ident))].filter(
+				standing
+			)) {
+				this.push("publish.triggers", dropTrigger(u.trigger.view))
+			}
+			for (const u of changedFunctions) {
+				each("publish.triggers", u.fn.ddl)
+			}
+			for (const u of changedTriggers) {
+				each("publish.triggers", u.trigger.view.object.ddl)
+			}
+			for (const u of now.filter((x) => takenAway(x) && !changed.has(x.fn.ident))) {
+				each("structure", u.trigger.view.object.ddl)
+			}
 			return
 		}
-		if (was !== undefined && this.mutabilityOnly(law)) {
-			for (const t of standing) {
-				this.push("publish.triggers", dropTrigger(t))
+		/** The tables locked, each once in name order: every table a unit's trigger is on, its anchor's among them, since
+		 * every family's anchor participates, and every table a standing trigger is on that the target keeps. */
+		const [first, ...more] = sortNonEmpty(
+			[
+				...mapNonEmpty(now, (u) => u.trigger.view.create.table),
+				...previous
+					.map((u) => u.trigger.view.create.table)
+					.filter((t) => this.next.has(tableIdent(t)))
+			],
+			mapInput(compareStrings, nameKey)
+		)
+		const tables: [ObjectName, ...Array<ObjectName>] = [first]
+		let last = nameKey(first)
+		for (const t of more) {
+			const key = nameKey(t)
+			if (key !== last) {
+				tables.push(t)
+				last = key
 			}
-			this.sql("publish.triggers", ...replaced)
-			for (const t of now.triggers) {
-				this.sql("publish.triggers", ...t.trigger.object.ddl)
-			}
-			return
 		}
-		const tables = new Map<string, ObjectName>()
-		for (const { create: on } of [...old, ...now.triggers]
-			.map((t) => t.trigger)
-			.filter((t) => this.next.has(tableIdent(t.create.table)))) {
-			tables.set(nameKey(on.table), on.table)
-		}
-		const residual = this.residual(law)
-		const anchor = this.input.installation.names.relation(residual.anchor.relation.name)
-		tables.set(nameKey(anchor), anchor)
-		/** The tables locked, in the target's install order, which orders them by their identities. */
-		const installOrder = [...this.next.keys()]
 		this.pushLaw(
 			law,
-			statement({
-				kind: "lockTable",
-				tables: [...tables.values()].toSorted(
-					mapInput(compareNumbers, (n: ObjectName) => installOrder.indexOf(tableIdent(n)))
-				),
-				mode: "SHARE ROW EXCLUSIVE",
-				wait: "wait"
-			})
+			statement({ kind: "lockTable", tables, mode: "SHARE ROW EXCLUSIVE", wait: "wait" })
 		)
-		for (const t of standing) {
-			this.pushLaw(law, dropTrigger(t))
+		for (const u of previous.filter(standing)) {
+			this.pushLaw(law, dropTrigger(u.trigger.view))
 		}
-		for (const r of replaced) {
-			this.pushLaw(law, statement(r))
+		for (const u of changedFunctions) {
+			for (const d of u.fn.ddl) {
+				this.pushLaw(law, statement(d))
+			}
 		}
-		for (const d of now.triggers.flatMap((t) => t.trigger.object.ddl)) {
-			this.pushLaw(law, statement(d))
+		for (const u of now) {
+			for (const d of u.trigger.view.object.ddl) {
+				this.pushLaw(law, statement(d))
+			}
 		}
 		this.pushLaw(law, this.violation(residual))
 	}
 
-	/** The installation's residual law record of a law the target's manifest installs objects for. */
-	residual(law: LawId): ResidualLaw {
-		const record = this.input.installation.laws.residuals.find((x) => x.lawId === law)
-		return record ?? refuseLaw(law, "a residual law record")
-	}
-
-	/** Whether a law's change is a change of its function alone: its residual record is unchanged, so only the roles its
-	 * function reports witness keys to changed. */
+	/** Whether a law's change is a change of its units' functions alone: its residual record is unchanged, so only the
+	 * roles its functions report witness keys to changed. */
 	witnessOnly(law: LawId): boolean {
 		return (
 			residualRecord(this.input.previous, law).digest ===
@@ -3797,8 +3855,8 @@ class Differ {
 		)
 	}
 
-	/** Whether a law's change is caused by declaring or removing `mutable` alone: the record without its UPDATE events
-	 * is unchanged, and a participant's mutability flipped. */
+	/** Whether a law's change is caused by declaring or removing `mutable` alone: the record without its UPDATE units is
+	 * unchanged, and a participant's mutability flipped, which adds or drops only its UPDATE units. */
 	mutabilityOnly(law: LawId): boolean {
 		const a = residualRecord(this.input.previous, law)
 		const b = residualRecord(this.input.target, law)
@@ -3906,11 +3964,11 @@ class Differ {
 				return
 			case "rowSecurity":
 				if (!tableGone) {
-					drop(v.kind, statement(alter(v.table, { kind: "disableRowSecurity" })))
+					drop(v.kind, statement(alter(v.table, [{ kind: "disableRowSecurity" }])))
 				}
 				return
 			case "membership":
-				this.sql("publish.grants", revokeRoleOf(v.grant))
+				this.sql("publish.grants", [revokeRoleOf(v.grant)])
 				return
 			case "validation":
 				return
@@ -3939,7 +3997,7 @@ class Differ {
 				return
 			case "storedTag":
 				if (!tableGone) {
-					drop(v.kind, statement(alter(v.table, { kind: "dropColumn", column: v.column })))
+					drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))
 				}
 				return
 			case "primaryKey":
@@ -3950,13 +4008,13 @@ class Differ {
 					return
 				}
 				if (v.kind === "foreignKey" && this.referencesReplaced(v.constraint)) {
-					this.sql("validate.attach", alter(v.table, { kind: "dropConstraint", name: v.name }))
+					this.sql("validate.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
 					return
 				}
 				if (this.replacedKey(o, v.name, v.table)) {
 					return
 				}
-				this.sql("publish.drop", alter(v.table, { kind: "dropConstraint", name: v.name }))
+				this.sql("publish.drop", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
 				return
 			}
 			case "uniqueIndex":
@@ -3967,12 +4025,14 @@ class Differ {
 				const s = v.create
 				const name = objectName(s.table.schema, s.name)
 				if (lawIndex(o)) {
-					this.sql("publish.drop", {
-						kind: "dropIndex",
-						name,
-						concurrently: false,
-						ifExists: false
-					})
+					this.sql("publish.drop", [
+						{
+							kind: "dropIndex",
+							name,
+							concurrently: false,
+							ifExists: false
+						}
+					])
 					return
 				}
 				drop(v.kind, statement({ kind: "dropIndex", name, concurrently: false, ifExists: false }))
@@ -4077,7 +4137,7 @@ class Differ {
 			this.revokes(g)
 		}
 		for (const o of roles.flatMap(({ b }) => b)) {
-			this.sql("publish.grants", ...o.ddl)
+			this.sql("publish.grants", o.ddl)
 		}
 		const ledgerA = this.prev.get(ledgerPrivilegesIdent(this.schema))
 		const ledgerB = this.next.get(ledgerPrivilegesIdent(this.schema))
@@ -4092,12 +4152,12 @@ class Differ {
 					return []
 				}
 				const gone = g.to.filter((t) => t.kind === "role" && !holds(t.name))
-				return gone.length > 0 ? [revokeOf({ ...g, to: gone })] : []
+				return isNonEmpty(gone) ? [revokeOf({ ...g, to: gone })] : []
 			})
-			this.sql("publish.grants", ...revokes)
+			this.sql("publish.grants", revokes)
 		}
 		if (ledgerB !== undefined && (ledgerA === undefined || !same(ledgerA.ddl, ledgerB.ddl))) {
-			this.sql("publish.grants", ...ledgerB.ddl)
+			this.sql("publish.grants", ledgerB.ddl)
 		}
 	}
 
@@ -4108,21 +4168,21 @@ class Differ {
 		const r = revokeOf(g)
 		const renamed = (n: ObjectName) =>
 			n.schema === this.schema &&
-			this.candidates.some(
+			this.planned.some(
 				(x) =>
 					x.qualified.names.has(n.name) || (x.kind === "relation" && dropsSequence(x.pairs, n.name))
 			)
 		const split = (
 			names: ReadonlyArray<ObjectName>,
-			on: (names: ReadonlyArray<ObjectName>) => Revoke
+			on: (names: NonEmptyReadonlyArray<ObjectName>) => Revoke
 		) => {
 			const kept = names.filter((n) => !renamed(n))
-			if (kept.length > 0) {
-				this.sql("publish.grants", on(kept))
+			if (isNonEmpty(kept)) {
+				this.sql("publish.grants", [on(kept)])
 			}
 			for (const n of names) {
 				if (renamed(n)) {
-					this.sql("publish.grants", on([n]))
+					this.sql("publish.grants", [on([n])])
 				}
 			}
 		}
@@ -4149,13 +4209,13 @@ class Differ {
 				return
 			case "FUNCTION": {
 				const names = r.on.names.filter((n) => !this.worldGone.has(nameKey(n)))
-				if (names.length > 0) {
-					this.sql("publish.grants", { ...r, on: { kind: "FUNCTION", names } })
+				if (isNonEmpty(names)) {
+					this.sql("publish.grants", [{ ...r, on: { kind: "FUNCTION", names } }])
 				}
 				return
 			}
 			case "SCHEMA":
-				this.sql("publish.grants", r)
+				this.sql("publish.grants", [r])
 				return
 		}
 	}
@@ -4166,11 +4226,11 @@ class Differ {
 	 * a column of the renamed relation, names what it renames by the names that still stand then, so the candidate
 	 * rewrites no such statement. */
 	markRenameCandidates(): void {
-		if (this.candidates.length === 0) {
+		if (this.planned.length === 0) {
 			return
 		}
 		/** Each step with the candidates whose own rename runs at it or before it, read off the steps in run order. */
-		let ran: ReadonlySet<number> = new Set()
+		let ran: ReadonlySet<Candidate> = new Set()
 		const byPosition = mapInput(compareNumbers, (x: { readonly i: number }) => x.i)
 		const runOrder = this.steps
 			.map((step, i) => ({ step, i }))
@@ -4179,7 +4239,7 @@ class Differ {
 			)
 		const standing = runOrder
 			.map(({ step, i }) => {
-				const own = ownRenames(step.draft)
+				const own = draftCandidates(step.draft)
 				if (own.length > 0) {
 					ran = new Set([...ran, ...own])
 				}
@@ -4195,33 +4255,30 @@ class Differ {
 			if (d.kind !== "statement") {
 				return step
 			}
-			const offers: Array<Offer> = [...own]
-			for (const x of this.candidates) {
-				offers.push(...this.offersOn(d.statement, x))
-			}
+			const offers = [...own, ...this.planned.flatMap((x) => this.offersOn(d.statement, x))]
 			const kept = offers.filter((o) => o.kind !== "rewrite" || renamed.has(o.candidate))
 			return kept.length === own.length ? step : { ...step, draft: offered(kept, d) }
 		})
-		this.steps.splice(0, this.steps.length, ...marked)
+		for (const [i, step] of marked.entries()) {
+			this.steps[i] = step
+		}
 	}
 
 	/** A loss with every candidate that carries what it loses: one it already names, a field's rename of the dropped
 	 * field, or a relation's rename of the dropped relation, whose choice deletes the loss's DROP TABLE (underRename). */
 	carried(loss: LossDecision): LossDecision {
 		const loses = loss.loses
-		const carrier = (x: Candidate): boolean => {
+		const carrier = (x: Planned): boolean => {
 			switch (loses.kind) {
 				case "relation":
-					return x.kind === "relation" && nameKey(x.from) === nameKey(loses.relation)
+					return x.kind === "relation" && nameKey(x.candidate.removed) === nameKey(loses.relation)
 				case "field":
 				case "schema":
 					return false
 			}
 		}
-		const renaming = this.candidates.flatMap((x): ReadonlyArray<Carrier> =>
-			carrier(x) && !loss.carriers.some((c) => c.candidate === x.id)
-				? [{ candidate: x.id, label: x.label }]
-				: []
+		const renaming = this.planned.flatMap((x): ReadonlyArray<Candidate> =>
+			carrier(x) && !loss.carriers.includes(x.candidate) ? [x.candidate] : []
 		)
 		return renaming.length === 0 ? loss : { ...loss, carriers: [...loss.carriers, ...renaming] }
 	}
@@ -4232,8 +4289,9 @@ class Differ {
 	 * statement runs under the new ones; a relation's rename also deletes what it already did.
 	 *
 	 * The removed type's drop, which the rename leaves nothing to find for. */
-	offersOn(s: SqlStatement, x: Candidate): ReadonlyArray<Offer> {
-		const names = `the statement below names what ${x.label} renames`
+	offersOn(s: SqlStatement, x: Planned): ReadonlyArray<PlainOffer> {
+		const label = labelOf(x)
+		const names = `the statement below names what ${label} renames`
 		switch (x.kind) {
 			case "field": {
 				const keyed = this.underKeys(s, x)
@@ -4244,51 +4302,56 @@ class Differ {
 				const clears = keyed.takings.includes("cleared")
 				const why =
 					key && clears
-						? `the statement below builds or drops a key that ${x.label} renames, or drops what it drops before it converts the column`
+						? `the statement below builds or drops a key that ${label} renames, or drops what it drops before it converts the column`
 						: key
-							? `the statement below builds or drops a key that ${x.label} renames`
-							: `the statement below drops what ${x.label} drops before it converts the column`
+							? `the statement below builds or drops a key that ${label} renames`
+							: `the statement below drops what ${label} drops before it converts the column`
 				return offersOf(x, keyed.becomes, why, why)
 			}
-			case "type":
+			case "type": {
+				const from = x.candidate.removed
 				if (
 					s.kind === "drop" &&
 					(s.object === "TYPE" || s.object === "DOMAIN") &&
-					nameKey(s.name) === nameKey(x.from)
+					nameKey(s.name) === nameKey(from)
 				) {
 					return offersOf(
 						x,
 						deleted,
 						names,
-						`the statement below drops ${printObjectName(x.from)}, which ${x.label} renames`
+						`the statement below drops ${printObjectName(from)}, which ${label} renames`
 					)
 				}
 				return offersOf(x, this.underNames(s, x), names, names)
+			}
 			case "relation": {
-				const onFrom = (t: ObjectName) => nameKey(t) === nameKey(x.from)
+				const from = x.candidate.removed
+				const to = x.candidate.added
+				const onFrom = (t: ObjectName) => nameKey(t) === nameKey(from)
 				/** A drop of another relation's foreign key the alternative already dropped, before a key it drops. */
 				const deletion =
 					s.kind === "drop" && s.object === "TABLE" && onFrom(s.name)
-						? `the statement below drops ${printObjectName(x.from)}, which ${x.label} renames`
+						? `the statement below drops ${printObjectName(from)}, which ${label} renames`
 						: s.kind === "dropTrigger"
-							? `the statement below drops a law trigger of ${printObjectName(x.from)} that ${x.label} drops before its fields change`
+							? `the statement below drops a law trigger of ${printObjectName(from)} that ${label} drops before its fields change`
 							: s.kind === "alterTable" && onFrom(s.table)
-								? `the statement below alters ${printObjectName(x.from)}, the removed half of ${x.label}`
-								: s.kind === "alterTable" && nameKey(s.table) !== nameKey(x.to)
-									? `the statement below drops a foreign key that ${x.label} drops before a key of ${printObjectName(x.from)} it drops`
-									: `the statement below adds to ${printObjectName(x.to)} what ${x.label} brings across`
+								? `the statement below alters ${printObjectName(from)}, the removed half of ${label}`
+								: s.kind === "alterTable" && nameKey(s.table) !== nameKey(to)
+									? `the statement below drops a foreign key that ${label} drops before a key of ${printObjectName(from)} it drops`
+									: `the statement below adds to ${printObjectName(to)} what ${label} brings across`
 				return offersOf(x, this.underRename(s, x), names, deletion)
 			}
 			case "login": {
-				if (s.kind === "drop" && s.object === "ROLE" && s.name === x.from) {
+				const { removed: from, added: to } = x.candidate
+				if (s.kind === "drop" && s.object === "ROLE" && s.name === from) {
 					return offersOf(
 						x,
 						deleted,
 						names,
-						`the statement below drops the login ${quoteIdent(x.from)}, which ${x.label} renames`
+						`the statement below drops the login ${quoteIdent(from)}, which ${label} renames`
 					)
 				}
-				const renamed = renameRole(s, x.from, x.to)
+				const renamed = renameRole(s, from, to)
 				return offersOf(
 					x,
 					renamed === s ? unchanged : { kind: "rewritten", statements: [renamed] },
@@ -4306,18 +4369,19 @@ class Differ {
 	 * same otherwise.
 	 *
 	 * A revoke of a sequence the alternative dropped with its column. */
-	underRename(s: SqlStatement, x: Candidate & { readonly kind: "relation" }): Becomes {
+	underRename(s: SqlStatement, x: Planned & { readonly kind: "relation" }): Becomes {
+		const { removed: from, added: to } = x.candidate
 		const renamed = (original: SqlStatement): SqlStatement =>
 			renameStatement(original, this.schema, x.qualified)
-		if (s.kind === "drop" && s.object === "TABLE" && nameKey(s.name) === nameKey(x.from)) {
+		if (s.kind === "drop" && s.object === "TABLE" && nameKey(s.name) === nameKey(from)) {
 			return deleted
 		}
-		if (s.kind === "createGuardTrigger" && nameKey(s.table) === nameKey(x.to)) {
+		if (s.kind === "createGuardTrigger" && nameKey(s.table) === nameKey(to)) {
 			return deleted
 		}
 		if (s.kind === "alterTable") {
-			const onTo = nameKey(s.table) === nameKey(x.to)
-			const onFrom = nameKey(s.table) === nameKey(x.from)
+			const onTo = nameKey(s.table) === nameKey(to)
+			const onFrom = nameKey(s.table) === nameKey(from)
 			const taken = (a: AlterTable["actions"][number]): boolean => {
 				const added = onTo ? addedPart(a) : undefined
 				return (
@@ -4335,15 +4399,15 @@ class Differ {
 		}
 		if (
 			s.kind === "createIndex" &&
-			nameKey(s.table) === nameKey(x.to) &&
+			nameKey(s.table) === nameKey(to) &&
 			brings(x.pairs, "index", s.name)
 		) {
 			return deleted
 		}
 		if (
 			s.kind === "createStatistics" &&
-			nameKey(s.table) === nameKey(x.to) &&
-			s.name.schema === x.to.schema &&
+			nameKey(s.table) === nameKey(to) &&
+			s.name.schema === to.schema &&
 			brings(x.pairs, "statistics", s.name.name)
 		) {
 			return deleted
@@ -4351,7 +4415,7 @@ class Differ {
 		if (
 			s.kind === "revoke" &&
 			s.on.kind === "SEQUENCE" &&
-			s.on.names.every((n) => n.schema === x.from.schema && dropsSequence(x.pairs, n.name))
+			s.on.names.every((n) => n.schema === from.schema && dropsSequence(x.pairs, n.name))
 		) {
 			return deleted
 		}
@@ -4369,7 +4433,7 @@ class Differ {
 	 * The guard that drops an index of the target key's name before building it, which now names the renamed key. */
 	underKeys(
 		s: SqlStatement,
-		x: Candidate & { readonly kind: "field" }
+		x: PlannedField
 	): { readonly becomes: Becomes; readonly takings: ReadonlyArray<Taking> } {
 		const built = new Set(x.keys.map((k) => k.to))
 		const dropped = new Set(x.keys.map((k) => k.from))
@@ -4410,7 +4474,7 @@ class Differ {
 	}
 
 	/** A statement under the names candidate `x` renames, or the same when it names none of them. */
-	underNames(s: SqlStatement, x: Candidate): Becomes {
+	underNames(s: SqlStatement, x: Planned): Becomes {
 		const r = renameStatement(s, this.schema, x.qualified)
 		return r === s ? unchanged : { kind: "rewritten", statements: [r] }
 	}
@@ -4429,7 +4493,7 @@ class Differ {
 				c.kind === "comment" &&
 				(touched.has(targetKey(c.on)) || before.get(targetKey(c.on)) !== c.text)
 			) {
-				this.sql("publish.comments", c)
+				this.sql("publish.comments", [c])
 			}
 		}
 	}
@@ -4449,26 +4513,26 @@ class Differ {
 			for (const p of prelude) {
 				if (!ran.has(roleDefaultText(p))) {
 					ran.add(roleDefaultText(p))
-					this.sql("publish.defaults", p)
+					this.sql("publish.defaults", [p])
 				}
 			}
-			this.sql("publish.defaults", s)
+			this.sql("publish.defaults", [s])
 		}
 		/** The parameters each kept role still sets. */
 		const kept = new Map<string, Set<string>>()
 		for (const { statement: s } of roleSettings(targetDefaults)) {
 			const set = kept.get(s.name) ?? new Set<string>()
 			if (s.action.kind === "set") {
-				set.add(s.action.parameter)
+				set.add(s.action.setting.parameter)
 			}
 			kept.set(s.name, set)
 		}
 		for (const { statement: s, prelude } of roleSettings(previousDefaults)) {
-			if (s.action.kind === "set" && kept.get(s.name)?.has(s.action.parameter) === false) {
+			if (s.action.kind === "set" && kept.get(s.name)?.has(s.action.setting.parameter) === false) {
 				run(prelude, {
 					kind: "alterRole",
 					name: s.name,
-					action: { kind: "reset", parameter: s.action.parameter }
+					action: { kind: "reset", parameter: s.action.setting.parameter }
 				})
 			}
 		}
@@ -4481,7 +4545,7 @@ class Differ {
 		if (
 			!same(this.input.previous.manifest.publicRevokes, this.input.target.manifest.publicRevokes)
 		) {
-			this.sql("publish.defaults", ...this.input.target.manifest.publicRevokes)
+			this.sql("publish.defaults", this.input.target.manifest.publicRevokes)
 		} else {
 			/** A recreated identity sequence took its PUBLIC revoke with its drop: it is revoked again. */
 			const again = this.input.target.manifest.publicRevokes.flatMap(
@@ -4490,10 +4554,10 @@ class Differ {
 						return []
 					}
 					const names = r.on.names.filter((n) => this.sequences.get(nameKey(n)) === "recreated")
-					return names.length > 0 ? [{ ...r, on: { kind: "SEQUENCE", names } }] : []
+					return isNonEmpty(names) ? [{ ...r, on: { kind: "SEQUENCE", names } }] : []
 				}
 			)
-			this.sql("publish.defaults", ...again)
+			this.sql("publish.defaults", again)
 		}
 	}
 }
@@ -4508,7 +4572,7 @@ const draftStatements = (d: Draft | AlternativeStep): ReadonlyArray<SqlStatement
 		case "confirm":
 			return d.keep
 		case "choice":
-			return [...draftStatements(d.keep), ...d.offers.flatMap(offerStatements)]
+			return [...draftStatements(d.keep), ...d.offers.flatMap((o: Offer) => offerStatements(o))]
 		case "placeholderColumn":
 			return [
 				{ kind: "alterTable", table: d.table, actions: [{ kind: "addColumn", column: d.column }] }
@@ -4525,7 +4589,9 @@ const draftStatements = (d: Draft | AlternativeStep): ReadonlyArray<SqlStatement
 const offerStatements = (o: Offer): ReadonlyArray<SqlStatement> => {
 	switch (o.kind) {
 		case "rename":
-			return o.alternative.flatMap(draftStatements)
+		case "relation rename":
+		case "nested rename":
+			return [headOf(o.candidate), ...o.alternative.flatMap((a) => draftStatements(a))]
 		case "rewrite":
 			return o.statements
 		case "delete":
@@ -4841,10 +4907,10 @@ const inPlace = (
 	convert: (column: ColumnDef) => ReadonlyArray<ColumnConversion>
 ): ReadonlyArray<Action> => {
 	const take = (sequence: ObjectName): ReadonlyArray<Action> => [
-		statement(alter(t, { kind: "addIdentity", column: c.name, sequence })),
+		statement(alter(t, [{ kind: "addIdentity", column: c.name, sequence }])),
 		statement(advance(t, c.name, sequence, c.type))
 	]
-	const giveUp = statement(alter(t, { kind: "dropIdentity", column: b.name }))
+	const giveUp = statement(alter(t, [{ kind: "dropIdentity", column: b.name }]))
 	switch (change.kind) {
 		case "kept":
 			return []
@@ -5004,9 +5070,9 @@ const installedReads = (
 	return out
 }
 
-/** The drop of a law trigger object's trigger, which every path drops once (Fate, Pairs, conversionDrops), so it must
- * find it. */
-const dropTrigger = (v: LawTrigger): Action =>
+/** The drop of a law trigger, which every path drops once (Fate, Pairs, conversionDrops, a rebuild), so it must find
+ * it. */
+const dropTrigger = (v: { readonly create: CreateConstraintTrigger }): Action =>
 	statement(partDrop("lawTrigger", v.create.table, v.create.name))
 
 /** The drop of what a conversion in place of a column takes away, in the drop order (dropOrder): the foreign keys
@@ -5071,64 +5137,13 @@ const revokeOf = (g: Grant): Revoke => ({
 	from: g.to
 })
 
-type LawTrigger = Installed & { readonly kind: "lawTrigger" }
-
-/** A law's installed objects in one installation: its one function and its triggers, each with the entry of its
- * installation's objects it is (Previous or Target). */
-interface LawObjects<E> {
-	readonly fn: ManifestObject
-	readonly triggers: ReadonlyArray<{ readonly entry: E; readonly trigger: LawTrigger }>
-}
-
-/** Each law's function and triggers among an installation's objects, accumulated, then parsed: a law's objects are
- * exactly one function and its triggers. */
-const lawObjectsOf = <E extends { readonly object: ManifestObject }>(
-	entries: ReadonlyArray<E>
-): ReadonlyMap<LawId, LawObjects<E>> => {
-	const functions = new Map<LawId, ManifestObject>()
-	const triggers = new Map<LawId, Array<{ readonly entry: E; readonly trigger: LawTrigger }>>()
-	for (const entry of entries) {
-		const o = entry.object
-		const v = installed(o)
-		if (v.kind !== "lawFunction" && v.kind !== "lawTrigger") {
-			continue
-		}
-		const law = lawOf(o.reasons)
-		if (law === undefined) {
-			return refuse(o.ident, "one law reason")
-		}
-		if (v.kind === "lawTrigger") {
-			triggers.set(law, [...(triggers.get(law) ?? []), { entry, trigger: v }])
-		} else if (functions.has(law)) {
-			refuseLaw(law, "one law function")
-		} else {
-			functions.set(law, o)
-		}
-	}
-	for (const law of triggers.keys()) {
-		if (!functions.has(law)) {
-			refuseLaw(law, "a law function with its triggers")
-		}
-	}
-	return new Map(
-		[...functions].map(([law, fn]) => [law, { fn, triggers: triggers.get(law) ?? [] }] as const)
-	)
-}
-
-/** A law's triggers as one canonical text, by identity. */
-const triggersText = (triggers: ReadonlyArray<{ readonly trigger: LawTrigger }>): string =>
-	canonicalTextOf(
-		triggers
-			.map((t) => t.trigger.object)
-			.toSorted(mapInput(compareStrings, (o: ManifestObject) => o.ident))
-			.map((o) => ({ ident: o.ident, ddl: o.ddl }))
-	)
-
 /** A statement with every mention of the PostgreSQL role `from` as `to`: the same statement when it names none. */
 const renameRole = (s: SqlStatement, from: string, to: string): SqlStatement => {
 	const role = (name: string): string => (name === from ? to : name)
-	const grantees = (list: ReadonlyArray<Grantee>): ReadonlyArray<Grantee> =>
-		list.map((g) => (g.kind === "role" && g.name === from ? { kind: "role", name: to } : g))
+	const grantees = (list: NonEmptyReadonlyArray<Grantee>): NonEmptyReadonlyArray<Grantee> =>
+		mapNonEmpty(list, (g) =>
+			g.kind === "role" && g.name === from ? { kind: "role", name: to } : g
+		)
 	const names = (list: ReadonlyArray<Grantee>): boolean =>
 		list.some((g) => g.kind === "role" && g.name === from)
 	switch (s.kind) {
@@ -5328,10 +5343,7 @@ const advance = (
 		...simpleSelect(
 			[
 				targetAs(
-					cast(
-						call("setval", [lit.text(printObjectName(sequence), types.regclass), argument]),
-						types.text
-					),
+					cast(call("setval", [{ kind: "regclass", relation: sequence }, argument]), types.text),
 					"c1"
 				)
 			],

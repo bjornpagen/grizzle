@@ -77,9 +77,9 @@ const wholeHeadingKey = (
  * flat heading of at least one column; and, at its field, a heading name the declared-name rule refuses
  * (MalformedDescription) or two that convert to one column (IdentifierCollision), as a derived relation's
  * (analyze.ts declaredHeading). What role admission refuses before (a parameter, an attachment on the
- * definition's own heading, an approximate search, a relation outside the base) is schema/world.ts's; an operation
- * that can raise is refused by the check itself (check/index.ts checkWorldDefinition), since a world view evaluates its
- * own expressions on facts outside the world.
+ * definition's own heading, an approximate search, a relation outside the base) is schema/world.ts's. A world view
+ * evaluates its own expressions on facts outside the world, which is safe because no expression raises
+ * (scalar/compute/registry.ts Totality).
  */
 export const analyzeWorld = (
 	base: SchemaReading,

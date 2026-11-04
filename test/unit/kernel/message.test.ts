@@ -7,9 +7,10 @@
 
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, element, type Gen, int, map, oneOf, option } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
@@ -150,20 +151,22 @@ describe("a failure's message", () => {
 							at: source.draw(element<At>(["the chain", "a field"]))
 						})),
 						literal: Formatter.format,
-						features: features<`caused: ${InnerSketch["kind"]}` | `inner in ${At}`>([
-							"caused: tagged",
-							"caused: fieldless",
-							"caused: error",
-							"caused: none",
-							"inner in the chain",
-							"inner in a field"
-						]),
+						coverage: required<`caused: ${InnerSketch["kind"]}` | `inner in ${At}`>(
+							[
+								"caused: tagged",
+								"caused: fieldless",
+								"caused: error",
+								"caused: none",
+								"inner in the chain",
+								"inner in a field"
+							],
+							{ cases: 80, sense: notesOnly }
+						),
 						kept: [],
 						runs: 80,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(k, c) =>
@@ -201,18 +204,20 @@ describe("a failure's message", () => {
 					suite: "unit/kernel/no-error-message",
 					draw: drawn(endGen),
 					literal: Formatter.format,
-					features: features<`ended with ${End["kind"]}`>([
-						"ended with undefined",
-						"ended with text",
-						"ended with object",
-						"ended with empty Error"
-					]),
+					coverage: required<`ended with ${End["kind"]}`>(
+						[
+							"ended with undefined",
+							"ended with text",
+							"ended with object",
+							"ended with empty Error"
+						],
+						{ cases: 60, sense: notesOnly }
+					),
 					kept: [],
 					runs: 60,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(end, c) =>

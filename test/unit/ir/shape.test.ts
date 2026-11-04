@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
@@ -15,6 +15,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { type Drawn, passed, wild } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -353,10 +354,9 @@ describe("shapes", () => {
 						})),
 						runs: 300,
 						shrink: completeShrink,
-						features: features<Break>(breakNames),
+						coverage: required<Break>(breakNames, { cases: 300, sense: notesOnly }),
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ live, kind, site }, c) =>
@@ -405,21 +405,23 @@ describe("shapes", () => {
 						})),
 						runs: 300,
 						shrink: completeShrink,
-						features: features<ConformFeature>([
-							"kept",
-							"stated undefined",
-							"broken: null",
-							"broken: unknown key",
-							"broken: symbol key refused",
-							"broken: symbol key passed over",
-							"broken: hole",
-							"broken: unknown tag",
-							"broken: missing member",
-							"broken: class instance"
-						]),
+						coverage: required<ConformFeature>(
+							[
+								"kept",
+								"stated undefined",
+								"broken: null",
+								"broken: unknown key",
+								"broken: symbol key refused",
+								"broken: symbol key passed over",
+								"broken: hole",
+								"broken: unknown tag",
+								"broken: missing member",
+								"broken: class instance"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ live, kind, site, way }, c) =>
@@ -481,11 +483,13 @@ describe("shapes", () => {
 					draw: drawn(liveGen),
 					runs: 100,
 					shrink: completeShrink,
-					features: features<"a list of points" | "a point">(["a list of points", "a point"]),
+					coverage: required<"a list of points" | "a point">(["a list of points", "a point"], {
+						cases: 100,
+						sense: notesOnly
+					}),
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(live, c) =>
@@ -523,11 +527,13 @@ describe("shapes", () => {
 					),
 					runs: 100,
 					shrink: completeShrink,
-					features: features<"an own __proto__ key">(["an own __proto__ key"]),
+					coverage: required<"an own __proto__ key">(["an own __proto__ key"], {
+						cases: 100,
+						sense: notesOnly
+					}),
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(entries, c) =>
@@ -560,7 +566,7 @@ describe("shapes", () => {
 					literal: Formatter.format,
 					generator: element<"a" | "b">(["a", "b"]),
 					limit: 2,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
 				(tag) =>
@@ -592,15 +598,13 @@ describe("shapes", () => {
 					})),
 					runs: 200,
 					shrink: completeShrink,
-					features: features<UnreadableFeature>([
-						"proxy at the root",
-						"proxy nested",
-						"throwing getter nested"
-					]),
+					coverage: required<UnreadableFeature>(
+						["proxy at the root", "proxy nested", "throwing getter nested"],
+						{ cases: 200, sense: notesOnly }
+					),
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ live, site, wild: drawnWild }, c) =>
@@ -646,7 +650,7 @@ describe("shapes", () => {
 							)
 						] as const,
 					limit: 15,
-					features: features<DefectSite>([
+					coverage: requiredInSpace<DefectSite>([
 						"the root",
 						"an array item",
 						"a struct field",
@@ -705,7 +709,7 @@ describe("shapes", () => {
 						})),
 						runs: 200,
 						shrink: completeShrink,
-						features: features<
+						coverage: required<
 							| "names accepted"
 							| "a repeated name refused"
 							| "an empty name refused"
@@ -713,19 +717,21 @@ describe("shapes", () => {
 							| "an integer refused"
 							| "a positive integer refused"
 							| "a positive integer accepted"
-						>([
-							"names accepted",
-							"a repeated name refused",
-							"an empty name refused",
-							"an empty list refused",
-							"an integer refused",
-							"a positive integer refused",
-							"a positive integer accepted"
-						]),
+						>(
+							[
+								"names accepted",
+								"a repeated name refused",
+								"an empty name refused",
+								"an empty list refused",
+								"an integer refused",
+								"a positive integer refused",
+								"a positive integer accepted"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ names, list, n }, c) =>

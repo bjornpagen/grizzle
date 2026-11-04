@@ -1,7 +1,7 @@
 /** Raw text capture: the host side of format('%L'). */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { string, unicodeScalar } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -28,13 +28,12 @@ describe("unquoteLiteral", () => {
 					/** Any Unicode scalar value, never a lone surrogate. */
 					draw: drawn(string(unicodeScalar, { min: 0, max: 10 })),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(text) =>

@@ -179,7 +179,7 @@ export const checkedMask = (value: unknown, operation: string): AllenMask => {
 }
 
 /** The union of the given relations' bits. */
-export const allenMaskOf = (...relations: ReadonlyArray<AllenRelation>): AllenMask => {
+export const allenMaskOf = (relations: ReadonlyArray<AllenRelation>): AllenMask => {
 	let mask = 0
 	for (const relation of relations) {
 		mask |= allenBit(relation)
@@ -248,7 +248,7 @@ export const ALLEN: AllenNamespace = Object.freeze({
 	startedBy: allenBit("startedBy"),
 	contains: allenBit("contains"),
 	finishedBy: allenBit("finishedBy"),
-	intersects: allenMaskOf(
+	intersects: allenMaskOf([
 		"overlaps",
 		"overlappedBy",
 		"starts",
@@ -258,10 +258,10 @@ export const ALLEN: AllenNamespace = Object.freeze({
 		"finishes",
 		"finishedBy",
 		"equals"
-	),
-	covers: allenMaskOf("equals", "contains", "startedBy", "finishedBy"),
-	within: allenMaskOf("equals", "during", "starts", "finishes"),
-	precedes: allenMaskOf("before", "meets"),
+	]),
+	covers: allenMaskOf(["equals", "contains", "startedBy", "finishedBy"]),
+	within: allenMaskOf(["equals", "during", "starts", "finishes"]),
+	precedes: allenMaskOf(["before", "meets"]),
 	complement: (mask: AllenMask | number): AllenMask =>
 		complementMask(checkedMask(mask, "complement")),
 	converse: (mask: AllenMask | number): AllenMask => converseMask(checkedMask(mask, "converse"))

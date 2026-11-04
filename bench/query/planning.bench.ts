@@ -41,6 +41,7 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { outline, planOf, scansOf, summaryOf } from "#bench/query/support/plans.ts"
+import { maxOf } from "#compiler/core/array.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -71,7 +72,7 @@ const Edge = relation("Edge", { src: pg.bigint, dst: pg.bigint, w: pg.integer },
 const Plan = schema("Plan", { Edge }, [])
 
 const path2 = query(Plan).rule((r) => {
-	const [a, b] = [v(Edge), v(Edge)]
+	const [a, b] = [v(Edge, "first"), v(Edge, "second")]
 	return r
 		.match(Edge, { src: r.param("start", Edge.fields.src), dst: a.dst })
 		.match(Edge, { src: a.dst, dst: b.dst })
@@ -79,7 +80,7 @@ const path2 = query(Plan).rule((r) => {
 })
 
 const path4 = query(Plan).rule((r) => {
-	const [a, b, c, d] = [v(Edge), v(Edge), v(Edge), v(Edge)]
+	const [a, b, c, d] = [v(Edge, "first"), v(Edge, "second"), v(Edge, "third"), v(Edge, "fourth")]
 	return r
 		.match(Edge, { src: r.param("start", Edge.fields.src), dst: a.dst })
 		.match(Edge, { src: a.dst, dst: b.dst })
@@ -90,14 +91,14 @@ const path4 = query(Plan).rule((r) => {
 
 const path8 = query(Plan).rule((r) => {
 	const [a, b, c, d, e, f, g, h] = [
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge)
+		v(Edge, "first"),
+		v(Edge, "second"),
+		v(Edge, "third"),
+		v(Edge, "fourth"),
+		v(Edge, "fifth"),
+		v(Edge, "sixth"),
+		v(Edge, "seventh"),
+		v(Edge, "eighth")
 	]
 	return r
 		.match(Edge, { src: r.param("start", Edge.fields.src), dst: a.dst })
@@ -113,18 +114,18 @@ const path8 = query(Plan).rule((r) => {
 
 const path12 = query(Plan).rule((r) => {
 	const [a, b, c, d, e, f, g, h, i, j, k, l] = [
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge),
-		v(Edge)
+		v(Edge, "first"),
+		v(Edge, "second"),
+		v(Edge, "third"),
+		v(Edge, "fourth"),
+		v(Edge, "fifth"),
+		v(Edge, "sixth"),
+		v(Edge, "seventh"),
+		v(Edge, "eighth"),
+		v(Edge, "ninth"),
+		v(Edge, "tenth"),
+		v(Edge, "eleventh"),
+		v(Edge, "twelfth")
 	]
 	return r
 		.match(Edge, { src: r.param("start", Edge.fields.src), dst: a.dst })
@@ -145,14 +146,14 @@ const path12 = query(Plan).rule((r) => {
 /** Unions of arms of one heading, each a filtered scan. */
 const union2 = query(Plan)
 	.rule((r) => {
-		const { src, dst, w } = v(Edge)
+		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
 			.where(r.eq(w, 0), r.lt(src, r.param("below", pg.bigint)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
-		const { src, dst, w } = v(Edge)
+		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
 			.where(r.eq(w, 1), r.lt(src, r.param("below", pg.bigint)))
@@ -161,14 +162,14 @@ const union2 = query(Plan)
 
 const union4 = union2
 	.rule((r) => {
-		const { src, dst, w } = v(Edge)
+		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
 			.where(r.eq(w, 2), r.lt(src, r.param("below", pg.bigint)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
-		const { src, dst, w } = v(Edge)
+		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
 			.where(r.eq(w, 3), r.lt(src, r.param("below", pg.bigint)))
@@ -177,28 +178,28 @@ const union4 = union2
 
 const union8 = union4
 	.rule((r) => {
-		const { src, dst, w } = v(Edge)
+		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
 			.where(r.eq(w, 4), r.lt(src, r.param("below", pg.bigint)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
-		const { src, dst, w } = v(Edge)
+		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
 			.where(r.eq(w, 5), r.lt(src, r.param("below", pg.bigint)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
-		const { src, dst, w } = v(Edge)
+		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
 			.where(r.eq(w, 6), r.lt(src, r.param("below", pg.bigint)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
-		const { src, dst, w } = v(Edge)
+		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
 			.where(r.eq(w, 7), r.lt(src, r.param("below", pg.bigint)))
@@ -492,7 +493,9 @@ export default defineGate({
 				}
 			})
 			const linear = (xs: ReadonlyArray<number>) =>
-				xs.length > 1 && Math.max(...xs) <= 2 * Math.min(...xs)
+				xs.length > 1 &&
+				maxOf(xs, Number.NEGATIVE_INFINITY) <=
+					2 * Arr.reduce(xs, Number.POSITIVE_INFINITY, (least, x) => Math.min(least, x))
 			const r14: VerdictInput = {
 				checks: [
 					mechanism(

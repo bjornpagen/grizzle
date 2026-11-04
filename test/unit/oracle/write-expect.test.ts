@@ -22,7 +22,8 @@
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record, Result } from "effect"
@@ -125,7 +126,7 @@ const otherKey = (group: WGroup, refusal: AcceptableRefusal): Fact | undefined =
 	return undefined
 }
 
-const required = [
+const situations = [
 	"faithful refusal",
 	"faithful domain refusal",
 	"mutant: an unacceptable law",
@@ -137,7 +138,7 @@ const required = [
 	"mutant: a domain's violation unclassified"
 ] as const
 
-type WriteExpectFeature = (typeof required)[number]
+type WriteExpectFeature = (typeof situations)[number]
 
 describe("the write oracle's judgement", () => {
 	it.effect("passes a faithful realization and refuses every planted mutant of it", (ctx) =>
@@ -156,13 +157,12 @@ describe("the write oracle's judgement", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					features: features<WriteExpectFeature>(required),
+					coverage: required<WriteExpectFeature>(situations, { cases: 400, sense: notesOnly }),
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([schemaSketch, groupPick, factsSketch, changesSketch], n) =>

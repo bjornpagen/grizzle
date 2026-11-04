@@ -1,9 +1,11 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
@@ -19,6 +21,7 @@ import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { judged, probe, textProbes } from "#test/pg/physical/checks.ts"
 import { assert } from "#test/support/assert.ts"
+import { installationSql } from "#test/support/compile.ts"
 import {
 	installationNamesOf,
 	type NamedRelation,
@@ -167,7 +170,7 @@ type CheckFeature =
 	| "text check admits"
 	| "text check refuses"
 
-const required = [
+const situations = [
 	"row check admits",
 	"row check refuses",
 	"finite check admits",
@@ -227,8 +230,9 @@ const judgeCase = (
 				`INSERT INTO ${names.table(s.Gauge)} (${names.column(s.Gauge, "id")}, ${names.column(s.Gauge, "level")}) VALUES ($1, $2)`,
 				[level]
 			)
-			problems.push(
-				...judged(`Gauge level ${level} against level >= ${p.k}`, holds, verdict, checks.row.name)
+			appendAll(
+				problems,
+				judged(`Gauge level ${level} against level >= ${p.k}`, holds, verdict, checks.row.name)
 			)
 			reached.add(holds ? "row check admits" : "row check refuses")
 		}
@@ -239,13 +243,9 @@ const judgeCase = (
 				`INSERT INTO ${names.table(s.Mark)} (${names.column(s.Mark, "id")}, ${names.column(s.Mark, "grade")}, ${names.column(s.Mark, "score")}) VALUES ($1, $2, $3)`,
 				[grade, m.score]
 			)
-			problems.push(
-				...judged(
-					`Mark (${grade}, ${m.score}) in Grade's facts`,
-					holds,
-					verdict,
-					checks.finite.name
-				)
+			appendAll(
+				problems,
+				judged(`Mark (${grade}, ${m.score}) in Grade's facts`, holds, verdict, checks.finite.name)
 			)
 			reached.add(holds ? "finite check admits" : "finite check refuses")
 		}
@@ -256,8 +256,9 @@ const judgeCase = (
 				`INSERT INTO ${names.table(s.Stay)} (${names.column(s.Stay, "id")}, ${names.column(s.Stay, "during")}) VALUES ($1, int4range($2::integer, $3::integer))`,
 				[st.lower, upper]
 			)
-			problems.push(
-				...judged(
+			appendAll(
+				problems,
+				judged(
 					`Stay [${st.lower}, ${upper}) in Level ${p.lo}..${s.hi}`,
 					holds,
 					verdict,
@@ -275,8 +276,9 @@ const judgeCase = (
 				`INSERT INTO ${names.table(s.Amount)} (${names.column(s.Amount, "id")}, ${names.column(s.Amount, "amount")}) VALUES ($1, $2)`,
 				[amount]
 			)
-			problems.push(
-				...judged(`Amount ${amount} in Level ${p.lo}..${s.hi}`, holds, verdict, checks.domain.name)
+			appendAll(
+				problems,
+				judged(`Amount ${amount} in Level ${p.lo}..${s.hi}`, holds, verdict, checks.domain.name)
 			)
 			reached.add(holds ? "contract check admits" : "contract check refuses")
 		}
@@ -288,8 +290,9 @@ const judgeCase = (
 				`INSERT INTO ${names.table(s.Tagged)} (${names.column(s.Tagged, "id")}, ${names.column(s.Tagged, "code")}) VALUES ($1, $2)`,
 				[text]
 			)
-			problems.push(
-				...judged(`Tagged code ${Formatter.format(text)}`, holds, verdict, checks.text.name)
+			appendAll(
+				problems,
+				judged(`Tagged code ${Formatter.format(text)}`, holds, verdict, checks.text.name)
 			)
 			reached.add(holds ? "text check admits" : "text check refuses")
 		}
@@ -411,7 +414,7 @@ layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 							suite: "physical/checks",
 							draw: drawn(plantedGen),
 							literal: Formatter.format,
-							features: features<CheckFeature>(required),
+							coverage: required<CheckFeature>(situations, { cases: 40, sense: notesOnly }),
 							kept: [],
 							/**
 							 * The floor stream runs 10 and the rotating stream 40 cases; each class is judged both ways in
@@ -421,7 +424,6 @@ layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 							shrink: { kind: "complete" },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(p, c) =>
@@ -432,7 +434,7 @@ layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 									const pinned = yield* substrate.admin.pin
 									const { problems, reached } = yield* inInstallation(
 										pinned,
-										installation.sql,
+										installationSql(installation),
 										judgeCase(pinned, installation, s, p)
 									)
 									c.noteAll(reached)
@@ -469,7 +471,7 @@ layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 				const checks = checksOf(installation, s)
 				const intact = yield* inInstallation(
 					pinned,
-					installation.sql,
+					installationSql(installation),
 					judgeCase(pinned, installation, s, p)
 				)
 				assert.deepEqual(intact.problems, [])

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Result, Schema, Stream } from "effect"
@@ -14,6 +14,7 @@ import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, failureOf, bareRecord, unorderedEqual } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -81,7 +82,7 @@ const space: Gen<readonly [Change, Entry]> = (source) =>
 type ApplyFeature = `${Change} through ${Entry}`
 
 /** Every value of the space, each reached. */
-const everyValue: ReadonlyArray<ApplyFeature> = Arr.flatMap(changes, (change) =>
+const everyValue: Arr.NonEmptyReadonlyArray<ApplyFeature> = Arr.flatMap(changes, (change) =>
 	Arr.map(entries, (entry): ApplyFeature => `${change} through ${entry}`)
 )
 
@@ -117,6 +118,7 @@ export const applySuite = () => {
 						const s = yield* Substrate
 						const declared = levels("Levels")
 						const done = yield* install(declared.Extended, {
+							ambient: ordinarySession,
 							extensions: [],
 							label: "apply_levels",
 							logins: [declared.server]
@@ -158,7 +160,7 @@ export const applySuite = () => {
 							 */
 							const notesFor = query(s0).rule((r) => {
 								const wanted = r.relation("wanted", { task: uuid })
-								const { id } = v(W.Task)
+								const { id } = v(W.Task, "task")
 								return r
 									.match(wanted, { task: id })
 									.match(W.Task, { id })
@@ -214,7 +216,7 @@ export const applySuite = () => {
 									generator: space,
 									literal: Formatter.format,
 									limit: 14,
-									features: features<ApplyFeature>(everyValue),
+									coverage: requiredInSpace<ApplyFeature>(everyValue),
 									caseHang: Duration.minutes(2)
 								},
 								([change, entry], c) =>

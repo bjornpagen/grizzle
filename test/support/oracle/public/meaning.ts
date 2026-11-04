@@ -15,8 +15,7 @@ import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import {
 	type ExprSpec,
-	type OpId,
-	rangeOp,
+	type DefinedOp,
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
@@ -34,10 +33,18 @@ import {
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import { type LowerEnv, lowerTerm, noExtension, noParams } from "#compiler/scalar/compute/lower.ts"
+import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
+import { widening } from "#compiler/scalar/compute/types.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { regexMember } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
-import { bool, compareParamType, typedLiteralDesc } from "#test/support/oracle/gen/domain.ts"
+import {
+	bool,
+	compareParamType,
+	numeric,
+	typedLiteralDesc
+} from "#test/support/oracle/gen/domain.ts"
+import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
 import {
 	aggregateOpId,
 	andOp,
@@ -59,16 +66,22 @@ import type { Answer, Nested } from "#test/support/oracle/public/answer.ts"
 import { generatedSchemaName } from "#test/support/oracle/public/build.ts"
 import {
 	type AllenAtom,
+	type ArgTerm,
 	type ProgramCase,
 	type Closure,
 	type Column,
+	type Comparison,
 	type ComputedTerm,
+	factValues,
 	type ProgramFact,
 	type HeadItem,
 	isAggregate,
 	type MixedRoot,
 	type Operand,
 	type OrderKey,
+	type Padding,
+	paddingBounds,
+	powerBounds,
 	type Param,
 	type ParentColumn,
 	type Query,
@@ -80,6 +93,7 @@ import {
 	type Source,
 	type Stored,
 	sourceFields,
+	unguarded,
 	type Var
 } from "#test/support/oracle/public/program.ts"
 
@@ -99,8 +113,8 @@ import {
 	asDecimal,
 	equal,
 	literalOf,
-	possibleValues,
 	type Row,
+	statedValue,
 	type Value,
 	valueAt
 } from "#test/support/oracle/reference/values.ts"
@@ -163,34 +177,96 @@ const completed = (order: ReadonlyArray<OrderKey>): CompletedOrder => ({
 const refusal = (loc: SourceLoc, capability: string): CompileError =>
 	malformedDescription(loc, capability)
 
+const literalDesc = (literal: TypedLiteral, type: ScalarType): ExprDesc => ({
+	kind: "literal",
+	value: typedLiteralDesc(literal, type),
+	type: undefined
+})
+
+/**
+ * A padding's Description (program.ts Padding): Compute.when(Compute.within(v, low, high), (v) =>
+ * Compute.cast(Compute.cast(v, pg.numeric(1000, scale)), pg.numeric), Compute.cast(v, pg.numeric)), whose branch reads
+ * the guarded subject, which is the variable.
+ */
+const paddingDesc = (p: Padding, name: (v: Var) => string): ExprDesc => {
+	const type = p.arg.field.type
+	const arg: ExprDesc = { kind: "var", var: name(p.arg) }
+	const [low, high] = paddingBounds(type)
+	return {
+		kind: "when",
+		guard: {
+			kind: "within",
+			low: typedLiteralDesc(low, type),
+			high: typedLiteralDesc(high, type)
+		},
+		subject: arg,
+		proved: {
+			kind: "cast",
+			to: { kind: "numeric" },
+			arg: { kind: "cast", to: { kind: "numeric", precision: 1000, scale: p.scale }, arg }
+		},
+		otherwise: { kind: "cast", to: { kind: "numeric" }, arg }
+	}
+}
+
+/** The Description of what an aggregate or a reading reads: its variable, or its padding. */
+const argDesc = (a: ArgTerm, name: (v: Var) => string): ExprDesc =>
+	a.kind === "var" ? { kind: "var", var: name(a.var) } : paddingDesc(a.padding, name)
+
 /** A Compute term's Description over a node whose heading names each variable's declaration. */
 const termDesc = (t: ComputedTerm, name: (v: Var) => string): ExprDesc => {
-	const arg: ExprDesc = { kind: "var", var: name(t.arg) }
 	switch (t.kind) {
 		case "base":
-			return { kind: "base", arg }
+			return { kind: "base", arg: { kind: "var", var: name(t.arg) } }
 		case "cast numeric":
-			return { kind: "cast", to: { kind: "numeric" }, arg }
-		case "cond":
+			return { kind: "cast", to: { kind: "numeric" }, arg: { kind: "var", var: name(t.arg) } }
+		case "cond": {
+			const arg: ExprDesc = { kind: "var", var: name(t.arg) }
 			return {
 				kind: "cond",
 				pred: {
 					kind: "compare",
 					op: t.op,
 					left: arg,
-					right: {
-						kind: "literal",
-						value: typedLiteralDesc(t.than, t.arg.field.type),
-						type: undefined
-					}
+					right: literalDesc(t.than, t.arg.field.type)
 				},
 				onTrue: arg,
-				onFalse: {
-					kind: "literal",
-					value: typedLiteralDesc(t.otherwise, t.arg.field.type),
-					type: undefined
-				}
+				onFalse: literalDesc(t.otherwise, t.arg.field.type)
 			}
+		}
+		case "padded":
+			return paddingDesc(t.padding, name)
+		case "div":
+			return {
+				kind: "compute",
+				fn: "div",
+				args: [argDesc(t.dividend, name), literalDesc(t.divisor, numeric)]
+			}
+		case "sqrt": {
+			const radicand = argDesc(t.radicand, name)
+			return {
+				kind: "when",
+				guard: { kind: "nonnegative" },
+				subject: radicand,
+				proved: { kind: "compute", fn: "sqrt", args: [radicand] },
+				otherwise: literalDesc(unguarded, numeric)
+			}
+		}
+		case "power": {
+			const base = argDesc(t.base, name)
+			const [low, high] = powerBounds
+			return {
+				kind: "when",
+				guard: {
+					kind: "within",
+					low: typedLiteralDesc(low, numeric),
+					high: typedLiteralDesc(high, numeric)
+				},
+				subject: base,
+				proved: { kind: "compute", fn: "power", args: [base, literalDesc(t.exponent, numeric)] },
+				otherwise: literalDesc(unguarded, numeric)
+			}
+		}
 	}
 }
 
@@ -252,16 +328,15 @@ class Translation {
 		})
 	}
 
-	/** A total, strict, immutable Boolean operation. */
-	predicate(op: OpId, args: ReadonlyArray<ScalarExpr>): ScalarExpr {
+	/** A strict, immutable Boolean operation defined on every value. */
+	predicate(op: DefinedOp, args: ReadonlyArray<ScalarExpr>): ScalarExpr {
 		return this.b.expr({
 			kind: "op",
 			op,
 			args,
 			type: bool,
 			nonNull: "strict",
-			volatility: "immutable",
-			failure: "total"
+			volatility: "immutable"
 		})
 	}
 
@@ -270,7 +345,7 @@ class Translation {
 	}
 
 	/** One expression of several: itself alone, or their `and` or `or`. */
-	connective(op: OpId, args: ReadonlyArray<ScalarExpr>): ScalarExpr {
+	connective(op: DefinedOp, args: ReadonlyArray<ScalarExpr>): ScalarExpr {
 		const [only, ...more] = args
 		return only !== undefined && more.length === 0 ? only : this.predicate(op, args)
 	}
@@ -290,7 +365,7 @@ class Translation {
 				Arr.map(conjunction, (literal) => {
 					const a = literalAtom(literal)
 					const positive = this.predicate(
-						rangeOp(rangeOperatorCodes[a.op], carrier),
+						definedRangeOp(rangeOperatorCodes[a.op], carrier),
 						atomOperands(a, left, right)
 					)
 					return literalNegated(literal) ? this.predicate(notOp, [positive]) : positive
@@ -339,7 +414,10 @@ class Translation {
 		}
 		const expr = this.b.expr({
 			kind: "cast",
-			checked: false,
+			cast: defined(
+				widening(term.expr.type, term.nominal),
+				"a computed head key's widening into its nominal type"
+			),
 			args: [term.expr],
 			type: term.nominal,
 			nonNull: "strict",
@@ -688,6 +766,10 @@ class Translation {
 			}
 		}
 		const left = (v: Var): ScalarExpr => this.col(region.node, declOf(v.id))
+		const comparison = (c: Comparison): ScalarExpr => {
+			const type = declOf(c.left.id).type
+			return this.compare(c.op, type, left(c.left), operand(c.right, type))
+		}
 		const conjuncts = [
 			...Arr.map(fixed, (f) =>
 				this.compare(
@@ -697,10 +779,7 @@ class Translation {
 					operand(f.operand, f.decl.type)
 				)
 			),
-			...Arr.map(rule.where, (c) => {
-				const type = declOf(c.left.id).type
-				return this.compare(c.op, type, left(c.left), operand(c.right, type))
-			}),
+			...Arr.map(rule.where, comparison),
 			...Arr.flatMap(rule.between, (b) => {
 				const type = declOf(b.left.id).type
 				return [
@@ -710,23 +789,31 @@ class Translation {
 			}),
 			...Arr.map(rule.inSets, (s) => {
 				const type = declOf(s.left.id).type
-				return this.connective(
-					orOp,
-					Arr.map(s.values, (value) =>
-						this.compare("eq", type, left(s.left), this.literal(value, type))
-					)
-				)
+				return Arr.isReadonlyArrayNonEmpty(s.values)
+					? this.connective(
+							orOp,
+							Arr.map(s.values, (value) =>
+								this.compare("eq", type, left(s.left), this.literal(value, type))
+							)
+						)
+					: this.literal({ kind: "bool", value: false }, bool)
 			}),
 			...Arr.map(rule.allens, (a) => this.allen(a, left(a.left), left(a.right))),
 			...Arr.map(rule.pointIns, (p) =>
 				this.predicate(
-					rangeOp(
+					definedRangeOp(
 						"range_contains_elem",
 						defined(spanCarrierOf(declOf(p.span.id).type), "a pointIn span's carrier")
 					),
 					[left(p.span), left(p.point)]
 				)
-			)
+			),
+			...Arr.map(rule.connectives, (j) => {
+				const args = Arr.map(j.args, comparison)
+				return Arr.isReadonlyArrayNonEmpty(args)
+					? this.connective(j.kind === "and" ? andOp : orOp, args)
+					: this.literal({ kind: "bool", value: j.kind === "and" }, bool)
+			})
 		]
 		let current: Built = region
 		if (conjuncts.length > 0) {
@@ -832,20 +919,43 @@ class Translation {
 				correlation
 			}
 		}
-		/** The group's input: every variable, then each computed key as a column of its own. */
+		/**
+		 * The group's input: every variable, then each computed key and each padding an aggregate folds as a column of
+		 * its own.
+		 */
 		const keyed = Arr.flatMap(rule.head, (h, i) =>
 			h.kind === "computed" ? [{ item: h, column: `c${i}` }] : []
 		)
+		const paddings = Arr.flatMap(rule.head, (h, i) =>
+			h.kind === "fold" && h.arg.kind === "padded"
+				? [{ item: h, padding: h.arg.padding, column: `f${i}` }]
+				: []
+		)
 		const grouped: Built =
-			keyed.length === 0
+			keyed.length === 0 && paddings.length === 0
 				? current
 				: project(current, [
 						...Arr.map(decls, (d) => columnItem(current, d.name, declColumn(d))),
 						...Arr.map(keyed, (k) => {
 							const term = this.computed(current, k.item.term, nameOf)
 							return { name: k.column, type: term.type, expr: term.expr }
+						}),
+						...Arr.map(paddings, (p) => {
+							const term = this.computed(current, { kind: "padded", padding: p.padding }, nameOf)
+							return { name: p.column, type: term.type, expr: term.expr }
 						})
 					])
+		/** The column of the group's input an aggregate folds: its variable's, or its padding's. */
+		const foldedColumn = (h: HeadItem, arg: ArgTerm): HeadingColumn =>
+			arg.kind === "var"
+				? declColumn(declOf(arg.var.id))
+				: Option.getOrThrowWith(
+						Option.flatMap(
+							Arr.findFirst(paddings, (p) => p.item === h),
+							(p) => Arr.findFirst(grouped.heading, (c) => c.name === p.column)
+						),
+						() => new Error(`no group column of the padding ${h.name} folds`)
+					)
 		const computedColumn = (h: HeadItem): HeadingColumn =>
 			Option.getOrThrowWith(
 				Option.flatMap(
@@ -891,12 +1001,12 @@ class Translation {
 				})
 			} else {
 				const fn = h.fn === "mean" ? "avg" : h.fn
-				const arg = declOf(h.arg.id)
+				const arg = foldedColumn(h, h.arg)
 				aggs.push({
 					name,
 					fn,
 					op: aggregateOpId(fn, arg.type),
-					args: [this.col(grouped.node, declColumn(arg))],
+					args: [this.col(grouped.node, arg)],
 					filter: undefined
 				})
 			}
@@ -1063,8 +1173,8 @@ const meaningOf = (
 	return { dag: t.b.build([node]), root: node }
 }
 
-const factsOf = (c: ProgramCase): Readonly<Record<string, ReadonlyArray<ProgramFact>>> =>
-	Rec.fromEntries(c.facts)
+/** The case's facts as the reference takes them: each stored fact in the spelling that stored it. */
+const factsOf = (c: ProgramCase): GenFacts => Rec.fromEntries(c.facts)
 
 /**
  * A query read's parameters as the reference binds them: each scalar one's value, and each relation parameter's facts
@@ -1247,25 +1357,22 @@ export const expectedMixed = (
 ): ReadonlyArray<Answer> => expectedMixedFrom(c, root, mixedMeaningOf(c, root), observer)
 
 /**
- * A reference value as the text cell PostgreSQL's output function writes for it, for the carriers whose output text is
- * the host value's own: an integer's decimal digits, a numeric's toString (numeric_out with its display scale,
- * scalar/values/decimal.ts), and a text, uuid or handle as it is. A merged value's text is read by the one rule for
- * unstated values (reference/values.ts): its spellings' texts differ, so the cell is stated by its value alone, and it
- * is written as one spelling, its first, any of which PostgreSQL may write; the decoded rows are compared by value
- * (answer.ts answerEquivalence), which every spelling gives alike. A planted mixed root's arms read fields and literals
- * alone, so it holds no other carrier and no declined term's value.
+ * A reference value as a text cell PostgreSQL's output function may write for it, for the carriers whose output text
+ * is the host value's own: an integer's decimal digits (an exact integer's too), a numeric's one text (scalar/values/decimal.ts), and a text,
+ * uuid or handle as it is. A planted mixed root's arms read fields and literals alone, so it holds no other carrier
+ * and no declined term's value.
  */
 const cellText = (v: Value, type: ScalarType): string => {
 	const carrier = baseOf(type).carrier
-	const values = possibleValues(v)
-	if (values === undefined) {
+	const value = statedValue(v)
+	if (value === undefined) {
 		throw new Error("a mixed root's cell holds a declined term's value its arms never compute")
 	}
-	const value = Arr.headNonEmpty(values)
 	switch (carrier) {
 		case "int2":
 		case "int4":
 		case "int8":
+		case "exactInteger":
 			return asBigint(value).toString()
 		case "numeric":
 			return asDecimal(value).toString()
@@ -1280,6 +1387,7 @@ const cellText = (v: Value, type: ScalarType): string => {
 		case "float4":
 		case "float8":
 		case "money":
+		case "exactMoney":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -1326,7 +1434,7 @@ export const expectedKey = (
 	const at = (fact: ProgramFact, field: (typeof fields)[number]) =>
 		literalOf(elementAt(fact, fields.indexOf(field)), field.type)
 	const rows = Arr.map(
-		Arr.filter(c.facts.get(read.relation.name) ?? [], (fact) =>
+		Arr.filter(Arr.map(c.facts.get(read.relation.name) ?? [], factValues), (fact) =>
 			Arr.every(read.key, (field, i) =>
 				equal(at(fact, field), literalOf(elementAt(read.values, i), field.type), field.type)
 			)

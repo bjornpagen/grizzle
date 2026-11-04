@@ -10,7 +10,9 @@ export type ActionSource =
 /**
  * The serial class of an insertion's facts: generated, an addition that omits the relation's serial fields, which the
  * relation's sequences draw; complete, facts that carry every field. A put and a deletion name complete facts. Complete
- * facts of a relation with serial fields carry explicit serial values (write/serial/advance.ts carriesSerial).
+ * facts of a relation with serial fields carry explicit serial values (write/serial/advance.ts carriesSerial). An
+ * insertion into a target with serial fields drafts both classes whatever facts it is applied with (the front end's
+ * InsertClasses), and a class whose facts carry no field is the unit relation: the one empty fact, or none.
  */
 export type SerialClass = "generated" | "complete"
 

@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { exact } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, pipe, String as Str } from "effect"
@@ -129,19 +130,21 @@ describe("compile budgets", () => {
 							budgets: source.draw(budgetsGen)
 						})),
 						literal: Formatter.format,
-						features: features<BudgetsFeature>([
-							"compiled",
-							"compiled under drawn budgets",
-							"refused budgets.nodes",
-							"refused budgets.fields",
-							"refused budgets.sqlBytes"
-						]),
+						coverage: required<BudgetsFeature>(
+							[
+								"compiled",
+								"compiled under drawn budgets",
+								"refused budgets.nodes",
+								"refused budgets.fields",
+								"refused budgets.sqlBytes"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ c, budgets }, notes) =>

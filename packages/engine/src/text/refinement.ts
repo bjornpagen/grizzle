@@ -3,6 +3,7 @@ import { CompileError, prose, resourceBound, unsupported } from "#compiler/core/
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { regexMaxNodes, regexMaxRepeat } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints } from "#compiler/core/text.ts"
@@ -90,7 +91,8 @@ type TextCheck =
 	| { readonly kind: "tautology" }
 	| {
 			readonly kind: "finite"
-			readonly members: ReadonlyArray<string>
+			/** At least one: `VALUE IN (...)` has no empty list, and an analyzed language has a member. */
+			readonly members: NonEmptyReadonlyArray<string>
 			readonly bounds: TextBounds
 	  }
 	| { readonly kind: "regex"; readonly pattern: string; readonly bounds: TextBounds | undefined }
@@ -179,7 +181,7 @@ const choose = (ir: RegexNode, known: Known, are: string, limits: TextLimits): T
 				return { kind: "tautology" }
 			}
 			const members = enumerate(dfa, limits.finiteMembers)
-			if (members !== undefined) {
+			if (members !== undefined && isNonEmpty(members)) {
 				return { kind: "finite", members, bounds: boundsOfMembers(members) }
 			}
 			return { kind: "regex", pattern: are, bounds: longest(dfa) }
@@ -407,7 +409,7 @@ export const membership = (check: NontrivialCheck, value: Expr): Expr => {
 			return {
 				kind: "inList",
 				expr: value,
-				list: check.members.map((m) => lit.text(m, types.text)),
+				list: mapNonEmpty(check.members, (m) => lit.text(m, types.text)),
 				not: false
 			}
 		case "regex":

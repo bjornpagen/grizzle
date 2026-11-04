@@ -1,4 +1,11 @@
-import { type ConstraintName, NodeId, ParamId, type PremiseObject } from "#compiler/core/ids.ts"
+import {
+	type ConstraintName,
+	type LawFunctionName,
+	NodeId,
+	ParamId,
+	type PremiseObject
+} from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import * as S from "#compiler/ir/shape.ts"
 
@@ -55,11 +62,13 @@ export interface KeyConstraint {
 }
 
 /**
- * What enforces a containment: an installed constraint, or a residual law's function; or the closed relation's enum
- * type itself, whose roster the schema fingerprint covers, so it is no premise.
+ * What enforces a containment: an installed constraint; a residual law's units, each function a premise, since every
+ * unit checks what its own event can break; or the closed relation's enum type itself, whose roster the schema
+ * fingerprint covers, so it is no premise.
  */
 export type Enforcement =
-	| { readonly kind: "constraint"; readonly name: PremiseObject }
+	| { readonly kind: "constraint"; readonly name: ConstraintName }
+	| { readonly kind: "residualLaw"; readonly functions: NonEmptyReadonlyArray<LawFunctionName> }
 	| { readonly kind: "type"; readonly enum: string }
 
 /** An installed containment proving that a referencing fact has a referenced one. */
@@ -186,10 +195,10 @@ const nodeIdShape = S.branded(NodeId, S.nonEmptyString)
 export const premiseShape: S.Shape<Premise> = S.tagged("kind", {
 	constraint: S.struct({
 		constraint: S.premiseObjectShape,
-		constraintKind: S.literalsShape(...constraintKinds)
+		constraintKind: S.literalsShape(constraintKinds)
 	}),
 	node: S.struct({ node: nodeIdShape }),
 	param: S.struct({ param: S.branded(ParamId, S.nonEmptyString) })
 })
 
-export const evidenceContextShape: S.Shape<EvidenceContext> = S.literalsShape(...evidenceContexts)
+export const evidenceContextShape: S.Shape<EvidenceContext> = S.literalsShape(evidenceContexts)

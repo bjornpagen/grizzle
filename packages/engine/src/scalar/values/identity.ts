@@ -6,7 +6,7 @@ import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints, validateText } from "#compiler/core/text.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal, type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { compareFloat, floatIdentityText, toDouble, toReal } from "#compiler/scalar/values/float.ts"
+import { compareFloat, floatText, toDouble, toReal } from "#compiler/scalar/values/float.ts"
 import { toInt2, toInt4, toInt8 } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { admitSpan, compareSpan, type Span, spanText } from "#compiler/scalar/values/span.ts"
@@ -40,6 +40,8 @@ export interface CarrierHost {
 	readonly range4: Span<number>
 	readonly range8: Span<bigint>
 	readonly vector: Vector
+	readonly exactInteger: bigint
+	readonly exactMoney: Money
 }
 
 export type HostOf<S extends CarrierSpec> = CarrierHost[S["carrier"]]
@@ -60,6 +62,8 @@ interface SpecExtras {
 	readonly vector: { readonly dimensions: number }
 	readonly range4: { readonly width: bigint | undefined }
 	readonly range8: { readonly width: bigint | undefined }
+	readonly exactInteger: unknown
+	readonly exactMoney: unknown
 }
 
 /** The spec of one carrier, its carrier exactly C. */
@@ -75,19 +79,33 @@ type Admitters = {
 		spec: SpecOf<C>
 	) => Result.Result<CarrierHost[C], ValueFault>
 }
-type IdentityTexts = { readonly [C in Carrier]: (value: CarrierHost[C], spec: SpecOf<C>) => string }
+type CanonicalTexts = { readonly [C in Carrier]: (value: CarrierHost[C]) => string }
 type Comparators = {
 	readonly [C in Carrier]: (a: CarrierHost[C], b: CarrierHost[C], spec: SpecOf<C>) => -1 | 0 | 1
 }
 
+/** The integer digits a bare numeric value has at most (T4, README Limits): its column's CHECK states the same. */
+export const bareNumericDigits = 1000
+
+/**
+ * A numeric value admitted at its typmod, rounded as PostgreSQL's coercion rounds; a bare numeric's at most 1000
+ * integer digits, so every numeric expression over it has a known digit bound (scalar/compute/lower.ts).
+ */
 const admitDecimal = (
 	value: unknown,
 	typmod: NumericTypmod | undefined
 ): Result.Result<Decimal, ValueFault> => {
-	if (value instanceof Decimal) {
-		return normalizeNumeric(value, typmod)
+	if (!(value instanceof Decimal)) {
+		return Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
 	}
-	return Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
+	if (
+		typmod === undefined &&
+		value.parts.kind === "finite" &&
+		value.parts.coefficient.toString().length - value.parts.minScale > bareNumericDigits
+	) {
+		return Result.err("numericOverflow")
+	}
+	return normalizeNumeric(value, typmod)
 }
 
 /**
@@ -115,7 +133,10 @@ const admitters: Admitters = {
 			: Result.err("enumHandle"),
 	range4: (value, spec) => admitSpan("int4", value, spec.width),
 	range8: (value, spec) => admitSpan("int8", value, spec.width),
-	vector: (value, spec) => admitVector(value, spec.dimensions)
+	vector: (value, spec) => admitVector(value, spec.dimensions),
+	exactInteger: (value) =>
+		typeof value === "bigint" ? Result.ok(value) : Result.err("integerType"),
+	exactMoney: (value) => (value instanceof Money ? Result.ok(value) : Result.err("moneyType"))
 }
 
 /**
@@ -137,7 +158,9 @@ export const unreadableFault: { readonly [C in Carrier]: ValueFault } = {
 	enum: "enumHandle",
 	range4: "spanType",
 	range8: "spanType",
-	vector: "vectorType"
+	vector: "vectorType",
+	exactInteger: "integerType",
+	exactMoney: "moneyType"
 }
 
 /** The stored value PostgreSQL holds for a host value of this carrier, or the boundary's refusal. */
@@ -179,7 +202,9 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	enum: isString,
 	range4: isSpanOf(isNumber),
 	range8: isSpanOf(isBigint),
-	vector: isVector
+	vector: isVector,
+	exactInteger: isBigint,
+	exactMoney: (value) => value instanceof Money
 }
 
 /** Whether a value has the host type of a carrier. */
@@ -191,21 +216,23 @@ export const isHostValue = <C extends Carrier>(
 	return is(value)
 }
 
-const identityTexts: IdentityTexts = {
+const canonicalTexts: CanonicalTexts = {
 	int2: (v) => String(v),
 	int4: (v) => String(v),
 	int8: (v) => String(v),
-	bool: (v) => String(v),
-	numeric: (v) => v.identityText(),
-	float4: (v) => floatIdentityText(v),
-	float8: (v) => floatIdentityText(v),
-	money: (v) => v.minorUnits.toString(),
+	bool: (v) => (v ? "true" : "false"),
+	numeric: (v) => v.text,
+	float4: (v) => floatText(v),
+	float8: (v) => floatText(v),
+	money: (v) => v.toString(),
 	uuid: (v) => v,
 	text: (v) => v,
 	enum: (v) => v,
 	range4: (v) => spanText(v),
 	range8: (v) => spanText(v),
-	vector: (v) => Vector.componentText(v)
+	vector: (v) => Vector.componentText(v),
+	exactInteger: (v) => String(v),
+	exactMoney: (v) => v.toString()
 }
 
 /**
@@ -218,8 +245,10 @@ const identityTexts: IdentityTexts = {
  *   PostgreSQL applies on the way in (numeric precision and scale, binary32 rounding of real, -0 as +0, uuid case),
  *   because coercion happens before fact identity is established: two inputs that coerce to one stored
  *   value are one admitted value.
- * - `identityText` gives every admitted value one text, equal exactly when PostgreSQL's equality for the type holds:
- *   numeric 1.0 = 1.00 and NaN = NaN, float NaN = NaN and -0 = +0, text by exact scalar sequence.
+ * - `canonicalText` gives every admitted value its one text, equal exactly when PostgreSQL's equality for the type
+ *   holds, because every host value is in its one form (a Decimal has no display scale, a float and a vector component
+ *   one zero): numeric 1.0 = 1.00 are one Decimal written 1, NaN = NaN, -0 = +0, text by exact scalar sequence. It is
+ *   the parameter text, the recordset field and the fact identity's part alike (codec/scalar.ts text).
  * - `compareValues` is PostgreSQL's B-tree order for the type: float and numeric total orders with NaN last, text in
  *   code point order, uuid by bytes, closed handles in roster order, spans by start then end, vectors as vector_cmp.
  * - `factIdentity` admits a whole fact against its heading and gives it one text, so two facts are the same fact
@@ -229,13 +258,13 @@ const identityTexts: IdentityTexts = {
  *
  * The one text of an admitted value. Texts of different carriers are not comparable.
  */
-export const identityText = <C extends Carrier>(
+export const canonicalText = <C extends Carrier>(
 	spec: SpecOf<C> & CarrierSpec,
 	value: CarrierHost[C]
 ): string => {
 	const own: SpecOf<C> = spec
-	const text: (value: CarrierHost[C], spec: SpecOf<C>) => string = identityTexts[own.carrier]
-	return text(value, own)
+	const text: (value: CarrierHost[C]) => string = canonicalTexts[own.carrier]
+	return text(value)
 }
 
 const sign = (n: number): -1 | 0 | 1 => (n < 0 ? -1 : n > 0 ? 1 : 0)
@@ -257,7 +286,9 @@ const comparators: Comparators = {
 	enum: (x, y, spec) => sign(spec.handles.indexOf(x) - spec.handles.indexOf(y)),
 	range4: (x, y) => compareSpan(x, y),
 	range8: (x, y) => compareSpan(x, y),
-	vector: (x, y) => Vector.compare(x, y)
+	vector: (x, y) => Vector.compare(x, y),
+	exactInteger: (x, y) => compareOrdered(x, y),
+	exactMoney: (x, y) => x.compare(y)
 }
 
 /** PostgreSQL's order of two admitted values of one carrier. */
@@ -291,11 +322,11 @@ export const admitted = <C extends Carrier>(
 	return value
 }
 
-/** The identity text of a value this spec already admitted (admitted). */
-export const admittedIdentityText = <C extends Carrier>(
+/** The canonical text of a value this spec already admitted (admitted). */
+export const admittedText = <C extends Carrier>(
 	spec: SpecOf<C> & CarrierSpec,
 	value: unknown
-): string => identityText(spec, admitted(spec, value))
+): string => canonicalText(spec, admitted(spec, value))
 
 export interface HeadingField {
 	readonly name: string
@@ -329,7 +360,7 @@ const isPlainRecord = (value: unknown): value is { readonly [field: string]: unk
 /**
  * What admitting a fact reads of its heading, worked out once per heading rather than once per fact (the relation
  * codec plans its heading when it is built, codec/recordset.ts): its fields in name order, the JSON text before each
- * field's identity text in the identity, and whether a name repeats.
+ * field's canonical text in the identity, and whether a name repeats.
  */
 export interface HeadingPlan {
 	readonly fields: ReadonlyArray<HeadingField>
@@ -373,7 +404,7 @@ const ownField = (fact: object, name: string): Result.Result<unknown, FactFault>
 /**
  * Admits a fact against its heading: a plain object whose own keys are exactly the heading's field names, each value
  * admitted by its carrier. Its shape and each field are read once (hostRead), and only the admitted values are kept.
- * The identity is the JSON text of the [field, identityText] pairs in field-name order, written directly rather than
+ * The identity is the JSON text of the [field, canonicalText] pairs in field-name order, written directly rather than
  * through an array of pairs.
  *
  * A per-fact hot path: the heading's plan is worked out once per heading, and each fact costs one pass over its
@@ -418,7 +449,7 @@ export const admitFact = (
 			return Result.err({ fault: value.error, field: field.name })
 		}
 		kept[field.name] = value.value
-		identity += `${prefix}${JSON.stringify(identityText(field.spec, value.value))}]`
+		identity += `${prefix}${JSON.stringify(canonicalText(field.spec, value.value))}]`
 	}
 	if (names === "repeated") {
 		return Result.err({ fault: "factShape", field: undefined })

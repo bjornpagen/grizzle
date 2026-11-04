@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -44,13 +45,13 @@ describe("the RelNode family", () => {
 						draw: drawn(dags),
 						runs: 100,
 						shrink: completeShrink,
-						features: features<`a ${RelKind}`>(
-							Arr.map(relKinds, (kind): `a ${RelKind}` => `a ${kind}`)
+						coverage: required<`a ${RelKind}`>(
+							Arr.map(relKinds, (kind): `a ${RelKind}` => `a ${kind}`),
+							{ cases: 100, sense: notesOnly }
 						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(dag, c) =>
@@ -100,23 +101,25 @@ describe("the RelNode family", () => {
 					draw: drawn(dags),
 					runs: 100,
 					shrink: completeShrink,
-					features: features<`keeps rows of a ${RelKind}` | "keeps every row">([
-						...Arr.map(
-							[
-								"Filter",
-								"Take",
-								"OrderedResult",
-								"Attach",
-								"Forbid"
-							] satisfies ReadonlyArray<Keeping>,
-							(kind): `keeps rows of a ${RelKind}` => `keeps rows of a ${kind}`
-						),
-						"keeps every row"
-					]),
+					coverage: required<`keeps rows of a ${RelKind}` | "keeps every row">(
+						[
+							"keeps every row",
+							...Arr.map(
+								[
+									"Filter",
+									"Take",
+									"OrderedResult",
+									"Attach",
+									"Forbid"
+								] satisfies ReadonlyArray<Keeping>,
+								(kind): `keeps rows of a ${RelKind}` => `keeps rows of a ${kind}`
+							)
+						],
+						{ cases: 100, sense: notesOnly }
+					),
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(dag, c) =>

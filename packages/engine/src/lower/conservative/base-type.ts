@@ -1,10 +1,10 @@
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { PhysicalNames } from "#compiler/lower/conservative/types.ts"
-import type { ObjectName, TypeRef } from "#compiler/sql/ast.ts"
+import type { TypeName, TypeRef } from "#compiler/sql/ast.ts"
 import { namedType, numericType, types } from "#compiler/sql/build.ts"
 
 /** The type an installed name names: an enum, a domain. */
-export const qualifiedType = (name: ObjectName): TypeRef => namedType(name.schema, name.name, [])
+export const qualifiedType = (name: TypeName): TypeRef => namedType(name.schema, name.name, [])
 
 /**
  * The PostgreSQL base type of a scalar: what a literal in a persistent expression, and a cast that must not reach a
@@ -44,5 +44,9 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 			return qualifiedType(names.enumType(b.roster.closed))
 		case "vector":
 			return namedType(names.vectorSchema, "vector", [b.typmod.dims])
+		case "exactInteger":
+			return b.digits <= 18 ? types.bigint : types.numeric
+		case "exactMoney":
+			return types.numeric
 	}
 }

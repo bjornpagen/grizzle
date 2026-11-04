@@ -90,13 +90,6 @@ export const paramRefs = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<Param
 ]
 
 /**
- * Whether every expression of the trees is total: no checked narrowing, domain cast or failing operator, so it cannot
- * raise wherever it is evaluated. A root's failure is its tree's (ir/expr.ts exprEffects).
- */
-export const total = (roots: ReadonlyArray<ScalarExpr>): boolean =>
-	roots.every((e) => e.failure === "total")
-
-/**
  * What a graph reader reads of a node whose data edges are `V`: an editor's cells, whose nodes are their current edit
  * forms, or a finished DAG's nodes themselves. Every other reference is a live one.
  */

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -23,7 +23,7 @@ import { hasProperties, isList } from "#compiler/core/record.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { ChangeSet as PublicChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
@@ -37,6 +37,7 @@ import { realizeConservative } from "#compiler/write/conservative/realize.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare, type WriteStatement } from "#compiler/write/insert/statement.ts"
 import { textRows } from "#test/pg/codec/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, lacksText, bareRecord, succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
@@ -93,7 +94,7 @@ const decodedComponents = (stored: string): string => {
 	return components(d.success)
 }
 
-const id = (n: number): string =>
+const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const compiled = (q: unknown, installed: Installed): QueryTemplate => {
@@ -295,6 +296,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 			Effect.gen(function* () {
 				const s = yield* Substrate
 				const installed = yield* install(Pairs, {
+					ambient: ordinarySession,
 					label: "vpairs",
 					logins: [pairsWorld.server],
 					extensions: []
@@ -333,7 +335,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 				/** A parameter binding of a vector column (the finding's reproduction). */
 				const byValue = compiled(
 					query(Pairs).rule((r) => {
-						const { id: key } = v(A)
+						const { id: key } = v(A, "a")
 						return r
 							.match(A, { id: key, value: r.param("probe", A.fields.value) })
 							.find({ id: key })
@@ -351,9 +353,8 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 				/** A vector variable shared by two relations: a join on native equality. */
 				const join = compiled(
 					query(Pairs).rule((r) => {
-						const { id: a } = v(A)
-						const { id: b } = v(B)
-						const { value } = v(A)
+						const { id: a, value } = v(A, "a")
+						const { id: b } = v(B, "b")
 						return r.match(A, { id: a, value }).match(B, { id: b, value }).find({ a, b })
 					}),
 					installed
@@ -371,7 +372,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 				/** One variable bound to two columns of one relation: the loops, -0 = +0 included. */
 				const loops = compiled(
 					query(Pairs).rule((r) => {
-						const { id: key, from } = v(Edge)
+						const { id: key, from } = v(Edge, "edge")
 						return r.match(Edge, { id: key, from, to: from }).find({ id: key })
 					}),
 					installed
@@ -383,7 +384,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 				/** An anti-join correlated on a vector: the A facts whose value no B fact has. */
 				const unmatched = compiled(
 					query(Pairs).rule((r) => {
-						const { id: key, value } = v(A)
+						const { id: key, value } = v(A, "a")
 						return r.match(A, { id: key, value }).where(r.not(B, { value })).find({ id: key })
 					}),
 					installed
@@ -401,14 +402,14 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 				const world = fullWorld(value)
 				const twins = query(value)
 					.rule((r) => {
-						const { id: key, value: pair } = v(A)
+						const { id: key, value: pair } = v(A, "a")
 						return r.match(A, { id: key, value: pair }).find({ id: key, value: pair })
 					})
 					.attach(
 						"twins",
 						(a) =>
 							query(value).rule((r) => {
-								const { id: key } = v(B)
+								const { id: key } = v(B, "b")
 								return r.match(B, { id: key, value: a.value }).find({ id: key })
 							}),
 						"array"
@@ -418,7 +419,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 						(a) =>
 							query(value)
 								.rule((r) => {
-									const { id: key } = v(B)
+									const { id: key } = v(B, "b")
 									return r.match(B, { id: key, value: a.value }).find({ id: key })
 								})
 								.orderBy(["id", "asc"])
@@ -459,6 +460,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 			Effect.gen(function* () {
 				const s = yield* Substrate
 				const installed = yield* install(Pairs, {
+					ambient: ordinarySession,
 					label: "vwrite",
 					logins: [pairsWorld.server],
 					extensions: []
@@ -534,7 +536,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 							generator: element(clashings),
 							literal: ([differs]: readonly [string, typeof n1]) => `differs in its ${differs}`,
 							limit: clashings.length,
-							features: features<`clash in its ${"rank" | "vector"}`>([
+							coverage: requiredInSpace<`clash in its ${"rank" | "vector"}`>([
 								"clash in its rank",
 								"clash in its vector"
 							]),

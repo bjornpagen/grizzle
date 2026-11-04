@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 /**
  * The cursor's byte layer, a hot path: every page encodes and every request decodes a cursor through it, so it is
  * native code over bounded loops, reading code units with charCodeAt and allocating nothing per byte or character.
@@ -35,7 +36,7 @@ export class ByteWriter {
 	/** A varint length, then the bytes. */
 	field(bytes: Uint8Array): this {
 		this.varint(bytes.length)
-		this.#bytes.push(...bytes)
+		appendAll(this.#bytes, bytes)
 		return this
 	}
 

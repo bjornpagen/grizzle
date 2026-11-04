@@ -1,3 +1,4 @@
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	distinctSelect,
 	extendEnv,
@@ -5,7 +6,7 @@ import {
 	type NodeLowerer
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { lit, target } from "#compiler/sql/build.ts"
+import { target, unitTargets } from "#compiler/sql/build.ts"
 
 /**
  * ProjectSet: evaluate a new tuple for each input tuple and take the set of results.
@@ -20,11 +21,10 @@ import { lit, target } from "#compiler/sql/build.ts"
  */
 const lowerProjectSet: NodeLowerer<"ProjectSet"> = (node, cx, env) => {
 	const input = cx.source(node.input, env)
-	const scope = extendEnv(env, [node.input.id, input.map])
-	const targets =
-		node.out.length === 0
-			? [target(lit.bool(true))]
-			: node.out.map((o) => target(lowerExpr(cx, o.expr, scope)))
+	const scope = extendEnv(env, [[node.input.id, input.map]])
+	const targets = isNonEmpty(node.out)
+		? mapNonEmpty(node.out, (o) => target(lowerExpr(cx, o.expr, scope)))
+		: unitTargets
 	return distinctSelect(targets, [input.item], [])
 }
 

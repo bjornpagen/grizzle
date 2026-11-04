@@ -52,6 +52,7 @@ import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
 import { keyLookup } from "#compiler/query/build/key.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import type { QueryBase } from "#compiler/types/query/query.ts"
@@ -139,19 +140,19 @@ const namingExecutor = (executor: ReadExecutor, naming: StatementNaming): ReadEx
 
 /** Every statement text a run statement can send: its own form, and its large form when it has one. */
 const runTexts = (run: {
-	readonly spec: { readonly sql: string }
+	readonly spec: { readonly sql: EmittedText }
 	readonly forms:
 		| { readonly kind: "one" }
-		| { readonly kind: "chosen"; readonly large: { readonly spec: { readonly sql: string } } }
-}): ReadonlyArray<string> =>
+		| { readonly kind: "chosen"; readonly large: { readonly spec: { readonly sql: EmittedText } } }
+}): ReadonlyArray<EmittedText> =>
 	run.forms.kind === "chosen" ? [run.spec.sql, run.forms.large.spec.sql] : [run.spec.sql]
 
 /** Every statement text a read program can send. */
-export const programTexts = (program: ReadProgram): ReadonlyArray<string> =>
+export const programTexts = (program: ReadProgram): ReadonlyArray<EmittedText> =>
 	Arr.flatMap(program.records, (r) => runTexts(r.run))
 
 /** Every statement text a page runtime template can send, for its every request variant and probe, of both artifacts. */
-const pageTexts = (runtime: PageRuntime): ReadonlyArray<string> =>
+const pageTexts = (runtime: PageRuntime): ReadonlyArray<EmittedText> =>
 	Arr.flatMap(Rec.values(runtime.artifacts), (artifact) => [
 		...Arr.flatMap(Rec.values(artifact.requests), (request) =>
 			Arr.flatMap(request.records, (r) => runTexts(r.run))

@@ -107,6 +107,11 @@ export interface HostRelation {
 	/** The fields in heading order, each with its column. */
 	readonly fields: ReadonlyArray<{ readonly name: string; readonly column: string }>
 	readonly key: ReadonlyArray<string>
+	/**
+	 * Whether the relation is declared `mutable`: its writers hold UPDATE on it, and grizzle's put replaces a fact in
+	 * place; an immutable relation's UPDATE is refused by privilege, and a put is its DELETE-then-insert pair.
+	 */
+	readonly mutable: boolean
 }
 
 /** A side of a law: a relation, its paired fields in pair order, and the field values a selector fixes. */

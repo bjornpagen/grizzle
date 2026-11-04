@@ -82,7 +82,7 @@ export const pageRequest = (
 	}
 	if (
 		!catchCompileError(() => {
-			hostArguments("reader.page", request)
+			hostArguments("reader.page", [request])
 		}).ok
 	) {
 		return Result.fail(shapeError())

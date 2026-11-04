@@ -81,7 +81,7 @@ const build = (name: string) => {
 	const StudentWeekly = derived(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
-			const { id, student, week, passed } = v(Sitting)
+			const { id, student, week, passed } = v(Sitting, "sitting")
 			return r.match(Sitting, { id, student, week, passed }).find({
 				student,
 				week,
@@ -93,7 +93,7 @@ const build = (name: string) => {
 	const TopFee = derived(
 		"TopFee",
 		query(Edu).rule((r) => {
-			const { id, student, amount } = v(Fee)
+			const { id, student, amount } = v(Fee, "fee")
 			return r.match(Fee, { id, student, amount }).find({ student, top: r.max(amount) })
 		})
 	)
@@ -101,7 +101,7 @@ const build = (name: string) => {
 	const WeekBusy = derived(
 		"WeekBusy",
 		query(Level1).rule((r) => {
-			const { student, week } = v(StudentWeekly)
+			const { student, week } = v(StudentWeekly, "studentWeekly")
 			return r.match(StudentWeekly, { student, week }).find({ week, students: r.count() })
 		})
 	)

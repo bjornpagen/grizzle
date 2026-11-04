@@ -1,15 +1,18 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Result, Schema } from "effect"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import { defined } from "#test/support/assert.ts"
 import { annGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { float8, int4 } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { expectedStatements } from "#test/support/oracle/reference/deliver.ts"
@@ -131,13 +134,13 @@ const tiedAtTheCutoff: QueryCase = (() => {
 	const dag = normalQuery(q.b.build(Arr.of(root)))
 	const fact = (k: number, score: number): ReadonlyArray<TypedLiteral> => [
 		{ kind: "int", value: BigInt(k) },
-		{ kind: "float", value: score }
+		{ kind: "float", value: canonicalZero(score) }
 	]
 	return {
 		schema: { name: schemaName, relations: [r], closed: [], containments: [] },
-		facts: { R0: [fact(1, 0.5), fact(2, 0.5), fact(3, 0.75)] },
+		facts: canonicalFacts({ R0: [fact(1, 0.5), fact(2, 0.5), fact(3, 0.75)] }),
 		query: { dag, params: {} },
-		spelling: { mode: "perCase", choices: [], edge: false }
+		spelling: { mode: "drawn", edge: false }
 	}
 })()
 
@@ -149,12 +152,15 @@ const agree = Effect.gen(function* () {
 		{
 			suite: "vector/ann-oracle",
 			literal: Formatter.format,
-			features: features<AnnOracleFeature>([
-				"approximate nearest",
-				"tie at the cutoff",
-				"correlated under a source boundary",
-				"nonempty"
-			]),
+			coverage: required<AnnOracleFeature>(
+				[
+					"approximate nearest",
+					"tie at the cutoff",
+					"correlated under a source boundary",
+					"nonempty"
+				],
+				{ cases: cases, sense: notesOnly }
+			),
 			kept: [
 				{
 					note: "the nearest one of three facts whose two least scores are equal",
@@ -165,7 +171,6 @@ const agree = Effect.gen(function* () {
 			],
 			runs: cases,
 			shrink: completeShrink,
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2),
 			perturb: "all"
 		},

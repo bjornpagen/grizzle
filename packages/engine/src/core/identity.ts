@@ -158,13 +158,12 @@ const declaredNameOf = nominal<string, DeclaredName>()
 const schemaNameOf = nominal<DeclaredName, SchemaName>()
 
 /**
- * The rule a declared name keeps: letters, digits and underscores only, at least one
- * letter or digit, no digit first, no underscore first (`__` belongs to grizzle's own names), and a conversion (its
- * segments, lowercased, joined by single underscores) within 63 bytes. Two declared names of one namespace whose
- * conversions agree are one name, which the declaring passes refuse (`DeclaredNamespace`). The name, parsed, or the
- * reason it breaks the rule.
+ * The characters a declared name is written in: ASCII letters, digits and underscores, a letter first (`__` belongs to
+ * grizzle's own names). A scope's name keeps them alone, since it names a rule's variables and never a PostgreSQL
+ * identifier, as its type does (types/core/phantom.ts DeclaredName); a declared name keeps them and the rest of
+ * parseDeclaredName's rule. The name, or the reason it breaks the rule.
  */
-export const parseDeclaredName = (name: string): Result.Result<DeclaredName, string> => {
+export const parseNameCharacters = (name: string): Result.Result<string, string> => {
 	for (const ch of name) {
 		if (!(isUpper(ch) || isLower(ch) || isDigit(ch) || ch === "_")) {
 			return Result.err(
@@ -177,20 +176,27 @@ export const parseDeclaredName = (name: string): Result.Result<DeclaredName, str
 			"a name not starting with an underscore, which grizzle keeps for its own names"
 		)
 	}
-	const segments = nameSegments(name)
-	const first = segments[0]
-	if (first === undefined) {
+	if (name === "") {
 		return Result.err("a name with at least one letter or digit")
 	}
-	if (isDigit(first.charAt(0))) {
+	if (isDigit(name.charAt(0))) {
 		return Result.err("a name not starting with a digit")
 	}
-	const conversion = segments.join("_")
-	if (utf8Length(conversion) > maxIdentifierBytes) {
-		return Result.err(`a name whose conversion ${conversion} fits ${maxIdentifierBytes} bytes`)
-	}
-	return Result.ok(declaredNameOf(name))
+	return Result.ok(name)
 }
+
+/**
+ * The rule a declared name keeps: its characters' (parseNameCharacters), and a conversion (its segments, lowercased,
+ * joined by single underscores) within 63 bytes. Two declared names of one namespace whose conversions agree are one
+ * name, which the declaring passes refuse (`DeclaredNamespace`). The name, parsed, or the reason it breaks the rule.
+ */
+export const parseDeclaredName = (name: string): Result.Result<DeclaredName, string> =>
+	Result.flatMap(parseNameCharacters(name), (named): Result.Result<DeclaredName, string> => {
+		const conversion = conversionOf(named)
+		return utf8Length(conversion) > maxIdentifierBytes
+			? Result.err(`a name whose conversion ${conversion} fits ${maxIdentifierBytes} bytes`)
+			: Result.ok(declaredNameOf(named))
+	})
 
 /**
  * The rule a schema's declared name keeps: `parseDeclaredName`'s, and a conversion not starting with `pg_`, which
@@ -485,6 +491,9 @@ const sideDisplay = (side: KeySide): string =>
 const fieldsOf = (relation: string, fields: ReadonlyArray<string>): string =>
 	`${relation}(${fields.join(", ")})`
 
+/** A row event a residual law's unit fires on: each unit has one trigger for one event. */
+export type LawEvent = "INSERT" | "DELETE" | "UPDATE"
+
 /** One constructor per kind: nothing else mints an identity. */
 export const identity = Object.freeze({
 	/** A schema, by its declared name, or the unique name a test installs a schema under, either parsed. */
@@ -595,6 +604,15 @@ export const identity = Object.freeze({
 			`span ${check.kind === "endpoint" ? `endpoint ${check.contract}` : check.kind} check of ${relation}.${field}`,
 			hashed
 		),
+	/** The CHECK that bounds a bare numeric column at 1,000 integer digits (physical/numeric/bound.ts). */
+	numericBound: (relation: string, field: string): Identity<"numericBound"> =>
+		mint(
+			"numericBound",
+			[relation, field],
+			[relation, "bound", field],
+			`numeric bound check of ${relation}.${field}`,
+			hashed
+		),
 	normCheck: (relation: string, field: string): Identity<"normCheck"> =>
 		mint(
 			"normCheck",
@@ -676,14 +694,25 @@ export const identity = Object.freeze({
 	/** The law of a structural text domain's CHECK. */
 	patternLaw: (domain: Identity<"textDomain">): Identity<"patternLaw"> =>
 		mint("patternLaw", [domain], [domain.stem], `law of ${domain.display}`, hashed),
-	lawFunction: (law: Identity<"law">): Identity<"lawFunction"> =>
-		mint("lawFunction", [law], ["law", law.stem], `function of law ${law.display}`, hashed),
-	lawTrigger: (law: Identity<"law">, relation: string): Identity<"lawTrigger"> =>
+	/** The law of a bare numeric column's bound CHECK. */
+	boundLaw: (check: Identity<"numericBound">): Identity<"boundLaw"> =>
+		mint("boundLaw", [check], [check.stem], `law of ${check.display}`, hashed),
+	/** The function of one unit of a residual law, the one its trigger on `relation` for `event` executes. */
+	lawFunction: (law: Identity<"law">, relation: string, event: LawEvent): Identity<"lawFunction"> =>
+		mint(
+			"lawFunction",
+			[law, relation, event],
+			["law", law.stem],
+			`function of law ${law.display} on ${relation} for ${event}`,
+			hashed
+		),
+	/** The deferred constraint trigger of one unit of a residual law: on `relation`, for `event` alone. */
+	lawTrigger: (law: Identity<"law">, relation: string, event: LawEvent): Identity<"lawTrigger"> =>
 		mint(
 			"lawTrigger",
-			[law, relation],
+			[law, relation, event],
 			["law", law.stem],
-			`trigger of law ${law.display} on ${relation}`,
+			`trigger of law ${law.display} on ${relation} for ${event}`,
 			hashed
 		),
 	/** A login's PostgreSQL role, `<schema>__<login>`: roles are cluster-wide, so its installation is part of it. */
@@ -807,8 +836,5 @@ export const identity = Object.freeze({
 		mint("swap", [of], ["next", of], `the next ${of}`, hashed),
 	/** The name an enum's new roster is built under before it replaces `of`. */
 	rebuild: (of: string): Identity<"rebuild"> =>
-		mint("rebuild", [of], ["rebuild", of], `the rebuilt ${of}`, hashed),
-	/** The scratch schema the drift check replays the installed schema `of` into. */
-	scratch: (of: string): Identity<"scratch"> =>
-		mint("scratch", [of], ["scratch", of], `scratch of ${of}`, hashed)
+		mint("rebuild", [of], ["rebuild", of], `the rebuilt ${of}`, hashed)
 })

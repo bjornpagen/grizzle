@@ -1,8 +1,9 @@
 import { Buffer } from "node:buffer"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, codePoint, element, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
@@ -107,15 +108,18 @@ describe("BudgetMeter and checkBound", () => {
 						suite: "unit/core/budget",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						features: features<BudgetFeature>([
-							"a charge within its limit",
-							"a charge crossing its limit",
-							"a charge after its kind is exhausted",
-							"a charge to another kind after one is exhausted",
-							"a SQL text of multi-byte characters",
-							"a one-shot bound met exactly",
-							"a one-shot bound exceeded"
-						]),
+						coverage: required<BudgetFeature>(
+							[
+								"a charge within its limit",
+								"a charge crossing its limit",
+								"a charge after its kind is exhausted",
+								"a charge to another kind after one is exhausted",
+								"a SQL text of multi-byte characters",
+								"a one-shot bound met exactly",
+								"a one-shot bound exceeded"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						/**
 						 * Each case runs up to 24 steps over five kinds at limits of 0 to 12: three hundred cases cross, exhaust
@@ -125,7 +129,6 @@ describe("BudgetMeter and checkBound", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ limits, steps }, c) =>

@@ -14,6 +14,7 @@ import { Array as Arr, Equal, Option, Order, pipe, Record as Rec, String as Str 
 import { conversionOf as converts, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as EngineResult from "#compiler/core/result.ts"
+import { type Candidate, candidatesOf } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import {
 	decodeDesc,
@@ -36,13 +37,17 @@ import { statisticsKinds } from "#compiler/physical/statistics/statistics.ts"
 import { own } from "#compiler/schema/own.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
 import { types as sqlTypes } from "#compiler/sql/build.ts"
-import { printObjectName, printType, quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { printType, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
 import type {
 	SchemaDesc,
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { admittedNames } from "#test/support/kernel/dict.ts"
+import {
+	admittedByFeature,
+	catalogConversions,
+	catalogTypeNames
+} from "#test/support/kernel/dict.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import {
 	fieldDescOf,
@@ -53,16 +58,16 @@ import {
 	resolveValue,
 	literalRowKey,
 	type Spelling,
-	scalarOfSpec,
-	spellingChoiceCount
+	scalarOfSpec
 } from "#test/support/oracle/gen/domain.ts"
 
 import {
 	type FactsSketch,
 	factsSketchGen,
-	type GenFacts,
+	factValues,
 	type LiteralRow,
-	resolveFacts
+	resolveFacts,
+	type ValueFacts
 } from "#test/support/oracle/gen/facts.ts"
 
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -116,7 +121,8 @@ import { pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
  * roster, a relation renamed to the name a roster renamed away had (a hop across kinds, whose PostgreSQL type names
  * collide), a name renamed to another spelling of it that converts to the same identifier (an alias, which drafts no
  * statement), a name renamed to a name of the identifier dictionary (identifiers longer
- * than 63 bytes that differ after byte 54, digit boundaries, reserved words), and, in C, a name renamed to the name of
+ * than 63 bytes that differ after byte 54, digit boundaries, reserved words), a relation or a closed roster renamed to
+ * the name of a PostgreSQL type or function (its row type or enum then a type of that name), and, in C, a name renamed to the name of
  * one B removed, which B's migration dropped; each name maybe renamed twice or back. It may also reorder a closed roster's handles or
  * remove its last one, which the draft rebuilds the enum for, a removed handle mapped by the reviewer to the new roster's
  * first, or rename one of its handles in place, which the reviewer confirms. Where the draft offers a candidate rename
@@ -182,6 +188,7 @@ const renameKinds = [
 	"hop",
 	"alias",
 	"dictionary",
+	"catalog",
 	"ontoRemoved",
 	"reorderRoster",
 	"removeHandle",
@@ -592,7 +599,6 @@ export interface PathSketch {
 	readonly extrasToB: ReadonlyArray<ExtraEdit>
 	readonly extrasToC: ReadonlyArray<ExtraEdit>
 	readonly facts: FactsSketch
-	readonly spelling: ReadonlyArray<number>
 }
 
 /** Between `min` and two more changes, each of a kind the swarm chooses among `kinds`. */
@@ -614,8 +620,7 @@ const pathSketchGen: Gen<PathSketch> = (source) => {
 		extras: source.draw(extrasSketchGen),
 		extrasToB: source.draw(changesGen(drawn, extraKinds, 0)),
 		extrasToC: source.draw(changesGen(drawn, extraKinds, 0)),
-		facts: source.draw(factsSketchGen({ maxRows: 4 }, pathLimits.maxRelations)),
-		spelling: source.draw(array(int(0, 2), { min: spellingChoiceCount, max: spellingChoiceCount }))
+		facts: source.draw(factsSketchGen({ maxRows: 4 }, pathLimits.maxRelations))
 	}
 }
 
@@ -631,7 +636,7 @@ export interface MigrationPath {
 	readonly b: Version
 	readonly c: Version
 	/** A's generated facts, before the carry model selects the ones lawful in B. */
-	readonly facts: GenFacts
+	readonly facts: ValueFacts
 	readonly spelling: Spelling
 	readonly edits: { readonly toB: ReadonlyArray<Edit>; readonly toC: ReadonlyArray<Edit> }
 	/** The kinds the path's swarm left on. */
@@ -668,6 +673,8 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			return undefined
 	}
 }
@@ -705,6 +712,19 @@ const checksOf = (schema: GenSchema, extras: Extras): ReadonlyArray<StatementDes
 	})
 
 /** The serial field's name: no oracle schema field is named like it, and no rename takes it. */
+/**
+ * Whether a version names a relation or a closed relation as PostgreSQL names one of its types or functions: the name
+ * the type namespace's builtins shadow-check against.
+ */
+export const holdsCatalogName = (v: Version): boolean =>
+	Arr.some(
+		[...Arr.map(v.schema.relations, (r) => r.name), ...Arr.map(v.schema.closed, (c) => c.name)],
+		(name) => {
+			const ident = converted(name)
+			return ident !== undefined && catalogConversions.has(ident)
+		}
+	)
+
 export const serialField = "sq"
 
 /** The fields a version declares serial, `<relation>.<field>`: its serial field's, and each integer field the extras
@@ -948,7 +968,7 @@ const version = (sketch: SchemaSketch, spelling: Spelling, extras: Extras): Gen<
 const resolvePath =
 	(sketch: PathSketch): Gen<MigrationPath> =>
 	(source) => {
-		const spelling: Spelling = { mode: "perCase", choices: sketch.spelling, edge: false }
+		const spelling: Spelling = { mode: "drawn", edge: false }
 		const b = applyEdits(sketch.a, sketch.donor, sketch.a, pathLimits, sketch.toB)
 		const c = applyEdits(b, sketch.donor, sketch.a, pathLimits, sketch.toC)
 		const extrasA = initialExtras(sketch.swarm, sketch.extras)
@@ -959,7 +979,7 @@ const resolvePath =
 			a,
 			b: source.draw(version(b, spelling, extrasB)),
 			c: source.draw(version(c, spelling, extrasC)),
-			facts: resolveFacts(a.schema, sketch.facts, spelling, fullDataSwarm),
+			facts: factValues(resolveFacts(a.schema, sketch.facts, spelling, fullDataSwarm)),
 			spelling,
 			edits: { toB: sketch.toB, toC: sketch.toC },
 			kinds: Arr.filter(pathKinds, (k) => kindOn(sketch.swarm, k))
@@ -973,7 +993,7 @@ export interface StatedPath {
 	readonly b: GenSchema
 	readonly c: GenSchema
 	readonly extras: StatedExtras
-	readonly facts: GenFacts
+	readonly facts: ValueFacts
 	readonly spelling: Spelling
 	readonly edits: MigrationPath["edits"]
 }
@@ -1375,8 +1395,21 @@ const renamed = (
 			return column === undefined ? t : renameField(t, relation, column.name, `${column.name}_`)
 		}
 		case "dictionary": {
-			const entry = at(admittedNames, picks.third)
-			if (relation === undefined || entry === undefined) {
+			/** A feature, each as often, then a name of it: the catalog-type names are one kind among the others. */
+			const group = at(admittedByFeature, picks.second)
+			const entry = group === undefined ? undefined : at(group, picks.third)
+			if (entry === undefined) {
+				return t
+			}
+			/** A closed relation takes the name: its enum is a type of that name, where a builtin type's lives. */
+			if (picks.mask % 3 === 2) {
+				return renamedRosterTo(
+					t,
+					indexIn(Math.floor(picks.mask / 3), t.schema.closed.length),
+					entry.declared
+				)
+			}
+			if (relation === undefined) {
 				return t
 			}
 			if (!picks.flag) {
@@ -1384,6 +1417,17 @@ const renamed = (
 			}
 			const column = columnOf(relation)
 			return column === undefined ? t : renameField(t, relation, column.name, entry.declared)
+		}
+		case "catalog": {
+			/** A name a PostgreSQL type or function holds: a relation's row type or a closed relation's enum takes it. */
+			const name = at(catalogTypeNames, picks.second)
+			if (name === undefined) {
+				return t
+			}
+			if (picks.flag) {
+				return renamedRosterTo(t, indexIn(picks.mask, t.schema.closed.length), name)
+			}
+			return relation === undefined ? t : renameRelation(t, relation, name)
 		}
 		case "ontoRemoved": {
 			if (relation === undefined) {
@@ -1403,12 +1447,16 @@ const renamed = (
 }
 
 /** A closed roster renamed, which retypes every field it types. */
-const renamedRoster = (t: TracedSchema, k: number, upper: string): TracedSchema => {
+const renamedRoster = (t: TracedSchema, k: number, upper: string): TracedSchema =>
+	renamedRosterTo(t, k, `${upper}${k}K`)
+
+/** The closed roster `k` renamed to `name`, which retypes every field it types; left as it is where `name` is taken. */
+const renamedRosterTo = (t: TracedSchema, k: number, name: string): TracedSchema => {
 	const closed = t.schema.closed[k]
 	if (closed === undefined) {
 		return t
 	}
-	const to = { ...closed, name: `${upper}${k}K` }
+	const to = { ...closed, name }
 	if (!relationNameFree(t.schema, to.name, "")) {
 		return t
 	}
@@ -1446,7 +1494,7 @@ const rosterHandles = (
 		const [id] = row
 		return id?.kind === "enum" ? [id.handle] : []
 	})
-	if (handles.length !== rows.length) {
+	if (!Arr.isReadonlyArrayNonEmpty(handles) || handles.length !== rows.length) {
 		return t
 	}
 	const to = { ...closed, handles, rows }
@@ -1570,6 +1618,16 @@ export const renamedDrawGen: Gen<RenamedDraw> = map(renamedSketchGen, (sketch): 
 	kind: "drawn",
 	sketch
 }))
+
+/**
+ * A renamed path whose B also renames a relation or a closed roster to the name of a PostgreSQL type, whatever the
+ * path's swarm left on: the arm a suite draws so a catalog type's name meets the paths its sessions start under.
+ */
+export const catalogRenamedDrawGen: Gen<RenamedDraw> = (source) => {
+	const sketch = source.draw(renamedSketchGen)
+	const catalog = source.draw(changeGen(sketch.path.swarm, ["catalog"]))
+	return { kind: "drawn", sketch: { ...sketch, toB: [...sketch.toB, catalog] } }
+}
 
 /** A stated renamed path as the suites take it. */
 const statedRenamed = (stated: StatedRenamedPath): RenamedPath => ({
@@ -1852,28 +1910,48 @@ export const bothRenames = (a: Renames, b: Renames): Renames => ({
 	columns: new Map([...a.columns, ...b.columns])
 })
 
-/** The candidates of a draft a reviewer chooses: each whose own offer renames a relation or a field as `renames` does,
- * by the physical names of the version drafted from (`before`) and to (`after`), with every candidate a chosen one
- * requires, as the draft tells the reviewer: a field's rename whose types agree only under its type's rename is chosen
- * with that type's rename, which the path made too, the field's type having moved with its roster. */
+/** A rename a reviewer makes, by the physical names drafted from (`from`) and to (`to`): a relation's, or a field's of
+ * the relation the target names `table`. */
+interface PhysicalRename {
+	readonly from: string
+	readonly to: string
+}
+
+interface PhysicalFieldRename extends PhysicalRename {
+	readonly table: string
+}
+
+/** The candidates of a draft a reviewer chooses: each relation's rename whose ends are a relation rename of `renames`,
+ * by the physical names of the version drafted from (`before`) and to (`after`); each field's rename on a kept relation
+ * whose relation and fields are a field rename of `renames`; each field's rename nested in a chosen relation's rename
+ * whose fields are one of the renamed relation's; and every candidate a chosen one requires, as the draft tells the
+ * reviewer: a field's rename whose types agree only under its type's rename is chosen with that type's rename, which
+ * the path made too, the field's type having moved with its roster. A nested field's rename is chosen only under its
+ * chosen relation's, never by its spelling, so the rival renames of one added relation, which offer the same field
+ * renames, are told apart by their relations. */
 export const chosenCandidates = (
 	g: GenerateResult,
 	renames: Renames,
 	before: RealInstallPlan,
 	after: RealInstallPlan
-): ReadonlySet<number> => {
+): ReadonlySet<Candidate> => {
 	/** A relation set aside is renamed from its aside name (identity.aside, the naming door's own). */
-	const tables = new Set(
-		Arr.flatMap([...renames.relations], ([to, from]) => {
+	const tables = Arr.flatMap(
+		[...renames.relations],
+		([to, from]): ReadonlyArray<PhysicalRename> => {
 			const a = before.tables[from]?.name.name
 			const b = after.tables[to]?.name.name
 			return a === undefined || b === undefined
 				? []
-				: [`${a} ${b}`, `${identity.aside(a).identifier} ${b}`]
-		})
+				: [
+						{ from: a, to: b },
+						{ from: identity.aside(a).identifier, to: b }
+					]
+		}
 	)
-	const columns = new Set(
-		Arr.flatMap([...renames.columns], ([key, from]) => {
+	const columns = Arr.flatMap(
+		[...renames.columns],
+		([key, from]): ReadonlyArray<PhysicalFieldRename> => {
 			const dot = Option.getOrThrowWith(
 				pipe(key, Str.indexOf(".")),
 				() => new Error(`the column key ${key} holds a dot`)
@@ -1889,38 +1967,37 @@ export const chosenCandidates = (
 			)
 			return Option.isNone(table) || Option.isNone(a) || Option.isNone(b)
 				? []
-				: [`${table.value.name.name} ${a.value.column} ${b.value.column}`]
-		})
+				: [{ table: table.value.name.name, from: a.value.column, to: b.value.column }]
+		}
 	)
-	const chosen = new Set<number>()
-	for (const step of g.plan.steps) {
-		if (step.draft.kind !== "choice") {
-			continue
+	const renamesField = (table: string, removed: string, added: string): boolean =>
+		Arr.some(columns, (c) => c.table === table && c.from === removed && c.to === added)
+	const offered = candidatesOf(g.plan)
+	const roots = Arr.filter(offered, (c): boolean => {
+		switch (c.kind) {
+			case "relation":
+				return Arr.some(tables, (t) => t.from === c.removed.name && t.to === c.added.name)
+			case "field":
+				return renamesField(c.relation.name, c.removed, c.added)
+			case "type":
+			case "login":
+			case "nested field":
+				return false
 		}
-		for (const offer of step.draft.offers) {
-			if (offer.kind !== "rename") {
-				continue
-			}
-			const [first] = offer.alternative
-			const s = first.kind === "statement" ? first.statement : undefined
-			if (s?.kind === "rename" && s.object === "TABLE" && tables.has(`${s.name.name} ${s.to}`)) {
-				chosen.add(offer.candidate)
-			}
-			if (s?.kind === "renameColumn" && columns.has(`${s.table.name} ${s.from} ${s.to}`)) {
-				chosen.add(offer.candidate)
-			}
-		}
-	}
-	const pending = [...chosen]
-	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-		for (const required of g.plan.candidates[next]?.requires ?? []) {
-			if (!chosen.has(required)) {
-				chosen.add(required)
-				pending.push(required)
-			}
-		}
-	}
-	return chosen
+	})
+	const nested = Arr.filter(
+		offered,
+		(c) =>
+			c.kind === "nested field" &&
+			roots.includes(c.parent) &&
+			renamesField(c.parent.added.name, c.removed, c.added)
+	)
+	const situations = Arr.flatMap([...roots, ...nested], (c): ReadonlyArray<Candidate> =>
+		(c.kind === "field" || c.kind === "nested field") && c.requires.kind === "type"
+			? [c.requires.candidate]
+			: []
+	)
+	return new Set([...roots, ...nested, ...situations])
 }
 
 /** Renamed paths stated by value, every candidate
@@ -1933,7 +2010,7 @@ const statedRelation = (
 	mutable: boolean
 ): GenRelation => ({ name, columns, primaryKey, keys: [], mutable })
 
-const statedRoster = (name: string, handles: ReadonlyArray<string>): GenClosed => ({
+const statedRoster = (name: string, handles: Arr.NonEmptyReadonlyArray<string>): GenClosed => ({
 	name,
 	handles,
 	payload: [],
@@ -1954,7 +2031,7 @@ const statedOrigins = (
 	relations: ReadonlyArray<readonly [string, string]>,
 	columns: ReadonlyArray<readonly [string, string]>
 ): Origins => ({ relations: new Map(relations), columns: new Map(columns) })
-const firstSpellings: Spelling = { mode: "perCase", choices: [0, 0, 0, 0, 0, 0, 0, 0], edge: false }
+const firstSpellings: Spelling = { mode: "drawn", edge: false }
 const keptRoster = statedRoster("K0", ["H0", "H1"])
 const shortRoster = statedRoster("K0", ["H0"])
 /** R0 keyed by a field of K0, beside an integer field. */
@@ -2201,7 +2278,7 @@ const containedIn = (
 const plantedRenameWith = (
 	versions: { readonly a: GenSchema; readonly b: GenSchema; readonly c: GenSchema },
 	extras: StatedExtras,
-	facts: GenFacts,
+	facts: ValueFacts,
 	origins: StatedRenamedPath["origins"],
 	choose: boolean,
 	renames: StatedRenamedPath["renames"]
@@ -2215,7 +2292,7 @@ const plantedRenameWith = (
 
 const plantedRename = (
 	versions: { readonly a: GenSchema; readonly b: GenSchema; readonly c: GenSchema },
-	facts: GenFacts,
+	facts: ValueFacts,
 	origins: StatedRenamedPath["origins"],
 	choose: boolean,
 	renames: StatedRenamedPath["renames"]
@@ -2501,6 +2578,48 @@ export const relationOntoRemoved: StatedRenamedPath = plantedRename(
 	{ toB: [], toC: ["ontoRemoved"] }
 )
 
+/** Issue #8's shape, shrunk: A holds R0 and R1 of one heading and primary key, B removes both and adds Q0 of that
+ * primary key, with R0's field b renamed to c. The draft offers each removed relation as a rival candidate for Q0, each
+ * with its own nested candidate renaming b to c, the two nested heads spelt alike; C is B. */
+export const rivalsOntoOne: StatedRenamedPath = plantedRename(
+	{
+		a: statedSchema([ints("R0", ["a", "b"], ["a"]), ints("R1", ["a", "b"], ["a"])], []),
+		b: statedSchema([ints("Q0", ["a", "c"], ["a"])], []),
+		c: statedSchema([ints("Q0", ["a", "c"], ["a"])], [])
+	},
+	{ R0: [two(1n, 2n)], R1: [two(3n, 4n)] },
+	{
+		a: statedOrigins(
+			[
+				["R0", "R0"],
+				["R1", "R1"]
+			],
+			[
+				["R0.a", "R0.a"],
+				["R0.b", "R0.b"],
+				["R1.a", "R1.a"],
+				["R1.b", "R1.b"]
+			]
+		),
+		b: statedOrigins(
+			[["Q0", "R0"]],
+			[
+				["Q0.a", "R0.a"],
+				["Q0.c", "R0.b"]
+			]
+		),
+		c: statedOrigins(
+			[["Q0", "R0"]],
+			[
+				["Q0.a", "R0.a"],
+				["Q0.c", "R0.b"]
+			]
+		)
+	},
+	true,
+	{ toB: ["relation", "column"], toC: [] }
+)
+
 /** B removes R0's field b, which B drops; C renames R0's field c onto b's name. */
 export const fieldOntoRemoved: StatedRenamedPath = plantedRename(
 	{
@@ -2581,7 +2700,7 @@ export const renamedWithRetype: StatedRenamedPath = plantedRename(
 /** The value a reviewer supplies for a placeholder of a field of `type`: the first value of its domain, the same on
  * every run (domain.ts: class 0, first spelling). */
 export const typedDefault = (type: GenColumn["type"]): TypedLiteral =>
-	resolveValue(type, { cls: 0, sp: 0 }, { mode: "perFact", choices: [], edge: false }, "stored")
+	resolveValue(type, { cls: 0, sp: 0 }, false)
 
 /** The type of a serial field's column, by its serial descriptor: an integer as wide as its sequence. */
 const serialColumnType: Readonly<Record<"serial" | "bigserial", ScalarType>> = {
@@ -2664,7 +2783,7 @@ export const typedValue = (to: {
 				return `CASE ${column}::text ${Arr.join(
 					Arr.map(p.removed, (h) => `WHEN ${quoteString(h)} THEN ${quoteString(first)}`),
 					" "
-				)} ELSE ${column}::text END::${printObjectName(p.type)}`
+				)} ELSE ${column}::text END::${printType(p.type)}`
 			}
 			case "placeholderRetype":
 				return castsSerial(to, p)
@@ -2691,9 +2810,9 @@ const castToSerial = (was: GenColumn, bc: GenColumn): boolean => {
 
 export interface Carry {
 	/** The facts loaded into A: A's generated facts lawful in A, whose carried forms are lawful in B. */
-	readonly loaded: GenFacts
+	readonly loaded: ValueFacts
 	/** B's facts after the migration, by B relation. */
-	readonly expected: GenFacts
+	readonly expected: ValueFacts
 	/** The fields of B, `<relation>.<field>`, whose values the migration numbers: B declares each serial and its
 	 * relation's rows in A hold no column of its name, so the draft adds it with its identity, which numbers the rows
 	 * from 1 in the order the table is read. The model numbers them in its own order, so a numbered field's values are
@@ -2830,7 +2949,7 @@ const contains = (
 export const carry = (
 	av: Version,
 	bv: Version,
-	facts: GenFacts,
+	facts: ValueFacts,
 	renames: Renames,
 	serial: ReadonlySet<string>
 ): Carry => {
@@ -2916,11 +3035,11 @@ const rowText = (row: LiteralRow): string => literalRowKey(row, indices(row.leng
  * fields B and C declare serial. The result is the A to B carry of the rows so kept. */
 export const carryChain = (
 	versions: { readonly a: Version; readonly b: Version; readonly c: Version },
-	facts: GenFacts,
+	facts: ValueFacts,
 	renames: { readonly ab: Renames; readonly bc: Renames; readonly ac: Renames },
 	serial: { readonly b: ReadonlySet<string>; readonly c: ReadonlySet<string> }
 ): Carry => {
-	let loaded: GenFacts = facts
+	let loaded: ValueFacts = facts
 	for (;;) {
 		const ab = carry(versions.a, versions.b, loaded, renames.ab, serial.b)
 		const bc = carry(versions.b, versions.c, ab.expected, renames.bc, serial.c)
@@ -3423,7 +3542,7 @@ const hazardExtras = (big: boolean): Extras => ({
 	serials: [{ relation: 1, big }]
 })
 
-const hazardFacts: GenFacts = {
+const hazardFacts: ValueFacts = {
 	R0: [
 		[
 			{ kind: "int", value: 1n },

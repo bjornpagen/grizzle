@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -14,6 +14,7 @@ import {
 	shuffled
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record, String as Str } from "effect"
@@ -70,11 +71,7 @@ const generatedSketchGen = schemaSketchGen({
 const generatedGen: Gen<SchemaDesc> = (source) =>
 	schemaDesc(
 		source.draw(
-			resolveSchema(
-				source.draw(generatedSketchGen),
-				{ mode: "perCase", choices: [], edge: false },
-				fullDataSwarm
-			)
+			resolveSchema(source.draw(generatedSketchGen), { mode: "drawn", edge: false }, fullDataSwarm)
 		)
 	)
 
@@ -347,19 +344,15 @@ describe("the fresh installation", () => {
 					suite: "unit/physical/install-order",
 					draw: drawn(generatedGen),
 					literal: Formatter.format,
-					features: features<OrderFeature>([
-						"a foreign key",
-						"an enum",
-						"a domain",
-						"a law index",
-						"a type CHECK"
-					]),
+					coverage: required<OrderFeature>(
+						["a foreign key", "an enum", "a domain", "a law index", "a type CHECK"],
+						{ cases: 100, sense: notesOnly }
+					),
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(desc, c) =>
@@ -444,16 +437,15 @@ describe("the fresh installation", () => {
 							}
 						}),
 						literal: Formatter.format,
-						features: features<"relations reordered" | "statements reordered">([
-							"relations reordered",
-							"statements reordered"
-						]),
+						coverage: required<"relations reordered" | "statements reordered">(
+							["relations reordered", "statements reordered"],
+							{ cases: 60, sense: notesOnly }
+						),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ desc, relations, statements }, c) =>
@@ -464,8 +456,8 @@ describe("the fresh installation", () => {
 							if (Arr.some(statements, (s, k) => s !== desc.statements[k])) {
 								c.note("statements reordered")
 							}
-							const declared = installed(desc).sql
-							assert.deepEqual(installed({ ...desc, relations, statements }).sql, declared)
+							const declared = installed(desc).statements
+							assert.deepEqual(installed({ ...desc, relations, statements }).statements, declared)
 						})
 				)
 			)
@@ -481,42 +473,44 @@ describe("the fresh installation", () => {
 						suite: "unit/physical/install-identifiers",
 						draw: drawn(namesGen),
 						literal: Formatter.format,
-						features: features<
+						coverage: required<
 							| `${DeclaredFault} refused`
 							| `${IdentifierFault} refused`
 							| "schema refused"
 							| `${Slot} refused`
 							| "an extension schema that is the schema"
 							| `${Spelling} installed`
-						>([
-							"a leading underscore refused",
-							"a leading digit refused",
-							"an outside character refused",
-							"a conversion past 63 bytes refused",
-							"the empty name refused",
-							"a pg_ conversion refused",
-							"uppercase refused",
-							"leading digit refused",
-							"pg_ prefix refused",
-							"outside character refused",
-							"64 bytes refused",
-							"empty refused",
-							"schema refused",
-							"owner refused",
-							"vector schema refused",
-							"extension schema refused",
-							"an extension schema that is the schema",
-							"snake installed",
-							"camel installed",
-							"Pascal installed",
-							"a trailing underscore installed"
-						]),
+						>(
+							[
+								"a leading underscore refused",
+								"a leading digit refused",
+								"an outside character refused",
+								"a conversion past 63 bytes refused",
+								"the empty name refused",
+								"a pg_ conversion refused",
+								"uppercase refused",
+								"leading digit refused",
+								"pg_ prefix refused",
+								"outside character refused",
+								"64 bytes refused",
+								"empty refused",
+								"schema refused",
+								"owner refused",
+								"vector schema refused",
+								"extension schema refused",
+								"an extension schema that is the schema",
+								"snake installed",
+								"camel installed",
+								"Pascal installed",
+								"a trailing underscore installed"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(n, c) =>

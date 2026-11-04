@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -122,7 +123,7 @@ const domainKept: ReadonlyArray<Kept<BufferSketch, DomainFeature>> = [
 
 const literalQuery = (literal: Vector<4>) =>
 	query(search.Search).rule((r) => {
-		const { document, revision, value } = v(search.DocumentEmbedding)
+		const { document, revision, value } = v(search.DocumentEmbedding, "documentEmbedding")
 		return r
 			.match(search.DocumentEmbedding, { document, revision, value })
 			.find({ document, distance: Compute.cosineDistance(value, literal) })
@@ -144,23 +145,25 @@ describe("the cosine domain", () => {
 							suite: "unit/vector/cosine-domain",
 							draw: sketched(bufferGen, (b) => b),
 							literal: Formatter.format,
-							features: features<DomainFeature>([
-								"admitted at a bound",
-								"admitted inside",
-								"a norm below the domain",
-								"a norm above the domain",
-								"a non-finite component",
-								"other dimensions",
-								"an underflowing component",
-								"-0 written as 0",
-								"a buffer zeroed after its check"
-							]),
+							coverage: required<DomainFeature>(
+								[
+									"admitted at a bound",
+									"admitted inside",
+									"a norm below the domain",
+									"a norm above the domain",
+									"a non-finite component",
+									"other dimensions",
+									"an underflowing component",
+									"-0 written as 0",
+									"a buffer zeroed after its check"
+								],
+								{ cases: 300, sense: notesOnly }
+							),
 							kept: domainKept,
 							runs: 300,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						({ length, components, zeroedAfter }, c) =>
@@ -231,7 +234,7 @@ describe("the cosine domain", () => {
 						]),
 						literal: Formatter.format,
 						limit: 3,
-						features: features<"held as built" | "refused when built">([
+						coverage: requiredInSpace<"held as built" | "refused when built">([
 							"held as built",
 							"refused when built"
 						]),
@@ -265,7 +268,7 @@ describe("the vector schema in a template's premise", () => {
 	const Note = relation("Note", { id: uuid, n: pg.bigint }, ["id"])
 	const Notes = schema("Notes", { Note }, [])
 	const notes = query(Notes).rule((r) => {
-		const { id, n } = v(Note)
+		const { id, n } = v(Note, "note")
 		return r.match(Note, { id, n }).find({ id, n })
 	})
 	const reading = {
@@ -293,7 +296,10 @@ describe("the vector schema in a template's premise", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 4,
-						features: features<"a vector search" | "no vector">(["a vector search", "no vector"]),
+						coverage: requiredInSpace<"a vector search" | "no vector">([
+							"a vector search",
+							"no vector"
+						]),
 						caseHang: Duration.minutes(2)
 					},
 					([reads, vectorSchema], c) =>

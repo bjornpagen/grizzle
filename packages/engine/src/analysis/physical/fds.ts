@@ -1,4 +1,5 @@
 import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -159,9 +160,9 @@ export const joinJustifications = (justs: Iterable<Justification>): Justificatio
 			premises.set(premiseText(p), p)
 		}
 		contexts.push(j.context)
-		reasons.push(...j.reasons)
-		equality.push(...j.equality)
-		coercions.push(...j.coercions)
+		appendAll(reasons, j.reasons)
+		appendAll(equality, j.equality)
+		appendAll(coercions, j.coercions)
 		for (const o of j.outer) {
 			outer.set(outerKey(o), o)
 		}
@@ -195,7 +196,7 @@ export const justify = (input: Partial<Justification>): Justification =>
 
 export const withReason = (
 	j: Justification,
-	...reasons: ReadonlyArray<MultiplicityReason>
+	reasons: ReadonlyArray<MultiplicityReason>
 ): Justification => joinJustifications([j, { ...structural, reasons }])
 
 export const nodePremise = (node: NodeId): Premise => ({ kind: "node", node })
@@ -439,15 +440,18 @@ export class ProofFds {
 					continue
 				case "implication": {
 					usedImplications.set(how.index, how.implication)
-					stack.push(
+					appendAll(stack, [
 						...how.implication.from.map((c): Fact => ({ kind: "column", column: c })),
 						...how.implication.at.map((s): Fact => ({ kind: "point", span: s }))
-					)
+					])
 					continue
 				}
 				case "point":
 					usedPoints.set(how.index, how.rule)
-					stack.push(...how.rule.from.map((c): Fact => ({ kind: "column", column: c })))
+					appendAll(
+						stack,
+						how.rule.from.map((c): Fact => ({ kind: "column", column: c }))
+					)
 					continue
 			}
 		}

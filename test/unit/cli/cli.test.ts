@@ -3,7 +3,7 @@ import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -169,7 +169,7 @@ describe("the command line", () => {
 					]),
 					literal: Formatter.format,
 					limit: 13,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
 				(argv) =>

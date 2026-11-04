@@ -1,5 +1,5 @@
 import { Array as Arr, Option } from "effect"
-import type { GeneratedPhase, Tally } from "#features.ts"
+import type { SteeringPhase, Tally } from "#features.ts"
 import { between, type Words } from "#random.ts"
 import { TRACE_CLASSES } from "#sense.ts"
 import type { Tape } from "#tape.ts"
@@ -25,7 +25,7 @@ const WORD_SCALE = 0x1_0000_0000
 export type Seeds = Readonly<{
 	keep: (tape: Tape, notes: ReadonlySet<string>, trace: Uint8Array) => boolean
 	picker: (
-		tallies: ReadonlyArray<Tally<GeneratedPhase>>
+		tallies: ReadonlyArray<Tally<SteeringPhase>>
 	) => (words: Words) => Option.Option<readonly [seed: Tape, donor: Tape]>
 	size: () => number
 }>
@@ -96,7 +96,7 @@ export const seedsOf = (): Seeds => {
 		}
 		return novel
 	}
-	const picker = (tallies: ReadonlyArray<Tally<GeneratedPhase>>) => {
+	const picker = (tallies: ReadonlyArray<Tally<SteeringPhase>>) => {
 		const reached = (holder: Held) =>
 			holder.kind === "perceived"
 				? holder.cases

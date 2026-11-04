@@ -1,5 +1,6 @@
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Equivalence, pipe, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
 import {
 	type NativeOp,
@@ -167,7 +168,7 @@ layer(Substrate.layer)("the Compute registry against pg_operator, pg_proc and pg
 					}
 				}
 				for (const op of nativeOps) {
-					problems.push(...(yield* entryProblems(db, op)))
+					appendAll(problems, yield* entryProblems(db, op))
 				}
 				assert.deepEqual(problems, [])
 			})

@@ -152,7 +152,8 @@ export type RegexInfer<S extends string, F extends RegexFlags> =
  * A text field descriptor: its host type, its PostgreSQL base type, and its literal pattern, a TextField
  * (types/fields/field.ts) whose column is a pattern-refined text column (core/decoder.ts textColumn): a cell's text is
  * its value, a member of the pattern's language, which PostgreSQL's CHECK enforces and the host type overapproximates.
- * `desc` is the field's Description (ir/desc.ts FieldDesc), which schema compilation consumes.
+ * The host type is the field's language, which a JavaScript value at it is one of; its domain is text, which a term of
+ * any pattern meets. `desc` is the field's Description (ir/desc.ts FieldDesc), which schema compilation consumes.
  */
 export interface RegexText<
 	out Host extends string,

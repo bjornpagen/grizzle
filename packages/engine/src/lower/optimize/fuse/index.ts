@@ -1,13 +1,9 @@
+import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
-import {
-	columnRefs,
-	DagEditor,
-	derivedMeta,
-	total
-} from "#compiler/lower/optimize/demand/editor.ts"
+import { columnRefs, DagEditor, derivedMeta } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
 	type Measure,
@@ -55,9 +51,6 @@ const fusable = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionChain): 
 		return false
 	}
 	if (columnRefs(inner.occurrences.flatMap((x) => x.constants.map((c) => c.expr))).length > 0) {
-		return false
-	}
-	if (!total(chain.preds.map((p) => p.pred))) {
 		return false
 	}
 	const innerOf = (column: string) => chain.columns.get(column)?.name
@@ -274,7 +267,7 @@ const fuse = (
 		rule: fusionRule,
 		inputs: [...chain.nodes.map((c) => c.id), chain.regionCell.id],
 		outputs,
-		premises: nodePremises(o.source.id),
+		premises: nodePremises([o.source.id]),
 		context: "queryLocal",
 		preservedHeading: original.heading.map((c) => c.name),
 		equality: [],
@@ -320,7 +313,10 @@ const fusionMeasure: Measure = (cx) => {
 		}
 		const node = cell.current
 		if (node.kind === "MatchRegion") {
-			heights.push(...node.occurrences.map((o) => heightOf(o.source)).filter((h) => h > 0))
+			appendAll(
+				heights,
+				node.occurrences.map((o) => heightOf(o.source)).filter((h) => h > 0)
+			)
 		}
 	}
 	return multiset(heights)
@@ -353,9 +349,8 @@ const fusionMeasure: Measure = (cx) => {
  * expression is cast or moved across a write), the evidence context (fusion uses no evidence: queryLocal), and every
  * aggregate, limit and recursive boundary (a chain contains none, and a region on a recursive step is not touched).
  *
- * Refused when moving would change scope or error behavior: a correlated chain, a chain node or source some
- * expression reads laterally, a correlated inner region, a predicate that can fail (inside R it would be evaluated on
- * other rows), or a fixed column whose variable a predicate reads through a non-constant expression. Refused too when
+ * Refused when moving would change scope: a correlated chain, a chain node or source some expression reads laterally,
+ * a correlated inner region, or a fixed column whose variable a predicate reads through a non-constant expression. Refused too when
  * two columns carrying one inner variable are fixed, or one fixed and one bound: the occurrence then also requires the
  * two values to be equal, which the substitution of one image per inner variable cannot state.
  *

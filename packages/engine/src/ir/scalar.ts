@@ -1,12 +1,15 @@
 import { sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
+import type { Fact } from "#compiler/ir/proof.ts"
 
 /**
  * The native carriers grizzle admits. range4 and range8 are int4range and int8range,
- * the only span carriers; there is no timestamp, date, interval, bytea, JSON or array carrier.
+ * the only span carriers; there is no timestamp, date, interval, bytea, JSON or array carrier. exactInteger and
+ * exactMoney are the exact arithmetic carriers (ExactType), never a field's.
  */
 export const carriers = [
 	"int2",
@@ -22,9 +25,17 @@ export const carriers = [
 	"enum",
 	"range4",
 	"range8",
-	"vector"
+	"vector",
+	"exactInteger",
+	"exactMoney"
 ] as const
 export type Carrier = (typeof carriers)[number]
+
+/** The exact arithmetic carriers: what integer and money arithmetic computes (ExactType). */
+export type ExactValueCarrier = "exactInteger" | "exactMoney"
+
+/** The carriers a field, a parameter or a literal of a descriptor can have: every carrier but the exact ones. */
+export type StorageCarrier = Exclude<Carrier, ExactValueCarrier>
 
 /**
  * Whether a column of each carrier holds few values, so that fixing it bounds no scan: a closed handle holds one of a
@@ -45,7 +56,9 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	enum: true,
 	range4: false,
 	range8: false,
-	vector: false
+	vector: false,
+	exactInteger: false,
+	exactMoney: false
 }
 
 /** The serial generation names and the carrier each declares. */
@@ -79,7 +92,7 @@ export const capabilities = [
 export type Capability = (typeof capabilities)[number]
 export type CapabilitySet = ReadonlyArray<Capability>
 
-export const capabilitySet = (...caps: ReadonlyArray<Capability>): CapabilitySet =>
+export const capabilitySet = (caps: ReadonlyArray<Capability>): CapabilitySet =>
 	Object.freeze([...new Set(caps)].toSorted(compareStrings))
 
 /**
@@ -97,8 +110,8 @@ export interface VectorTypmod {
 }
 
 /**
- * A nominal contract: a domain over its base with an optional total predicate. Compatibility is by
- * contract identity (name and base), never by predicate equality: sameScalarType ignores the predicate. The predicate
+ * A nominal contract: a domain over its base with an optional predicate and the facts it proves. Compatibility is by
+ * contract identity (name and base), never by predicate equality: sameScalarType ignores the predicate and the facts. The predicate
  * is the domain's one constraint, <contract>__check, an ExprTable in normal form (expr.ts normalizeExprTable), so its
  * canonical text, which fingerprints include, does not depend on allocation order. The base is a value domain of the contract's own carrier, never a serial declaration.
  * The name is a declared name, parsed where the contract is built (scalar/registry.ts contractOver) and where a
@@ -109,6 +122,12 @@ export interface ContractInfo {
 	readonly name: DeclaredName
 	readonly base: ValueType
 	readonly predicate: ExprTable | undefined
+	/**
+	 * The facts every value of the contract has, which its declaration states and its build proved from its predicate
+	 * (scalar/contract.ts): sorted, each once. A term of the contract carries them in its TypeScript type, so a divisor
+	 * of a nonzero contract needs no guard.
+	 */
+	readonly facts: ReadonlyArray<Fact>
 }
 
 /**
@@ -150,7 +169,7 @@ export type TextInfo =
  */
 export interface Roster {
 	readonly closed: DeclaredName
-	readonly handles: ReadonlyArray<string>
+	readonly handles: NonEmptyReadonlyArray<string>
 }
 
 /** The integer carriers, the serial generation's carriers. */
@@ -236,6 +255,21 @@ interface VectorType {
 	readonly contract: ContractInfo | undefined
 }
 
+/**
+ * An exact arithmetic result: exactInteger, an integer, the value of add, sub, mul, neg, abs, gcd, lcm and integer
+ * division over the integer carriers; exactMoney, an amount of money in cents, the value of add and sub over money and
+ * of a money sum. Delivered as bigint and as Money, so no such operation overflows: `digits` bounds every value,
+ * |x| < 10^digits (of the amount, for money), as its operands' bounds give it (scalar/compute/lower.ts), the way a
+ * typmod bounds numeric(p, 0). In SQL an exact integer of at most 18 digits is bigint, and any other exact value
+ * numeric (exactMoney at scale 2). Neither is a field's carrier, so neither has a contract or a serial form;
+ * Compute.cast narrows one into a storage carrier where the value is proved to fit.
+ */
+interface ExactType {
+	readonly carrier: ExactValueCarrier
+	readonly caps: CapabilitySet
+	readonly digits: number
+}
+
 /** A value domain: every descriptor but a serial declaration. */
 export type ValueType =
 	| IntegerType<"int2">
@@ -247,13 +281,14 @@ export type ValueType =
 	| EnumType
 	| SpanType
 	| VectorType
+	| ExactType
 
 /**
  * The scalar type IR.
  *
  * A ScalarType is the canonical native carrier identity of a value plus everything that changes its meaning:
- * numeric typmod, contract identity, text refinement, closed roster, span endpoint, vector dimensions, serial
- * generation, and the operation capability set. Two descriptors are the same type exactly when they agree in each of
+ * numeric typmod, contract identity, text refinement, closed roster, span endpoint, vector dimensions, an exact
+ * value's digit bound, serial generation, and the operation capability set. Two descriptors are the same type exactly when they agree in each of
  * these, a contract by its identity (sameScalarType). Aliases normalize at construction:
  * `pg.decimal` is `numeric`, `pg.bool` is `bool`, and so on, so no alias reaches the IR.
  *
@@ -280,6 +315,9 @@ export const contractOf = (t: ScalarType): ContractInfo | undefined => {
 		case "range8":
 		case "vector":
 			return t.contract
+		case "exactInteger":
+		case "exactMoney":
+			return undefined
 	}
 }
 
@@ -301,6 +339,8 @@ export const textOf = (t: ScalarType): TextInfo | undefined => {
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			return undefined
 	}
 }
@@ -323,6 +363,8 @@ export const rosterOf = (t: ScalarType): Roster | undefined => {
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			return undefined
 	}
 }
@@ -349,6 +391,8 @@ export const spanOf = (t: ScalarType): SpanInfo | undefined => {
 		case "text":
 		case "enum":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			return undefined
 	}
 }
@@ -371,6 +415,8 @@ export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			return undefined
 	}
 }
@@ -393,9 +439,15 @@ export const vectorTypmodOf = (t: ScalarType): VectorTypmod | undefined => {
 		case "enum":
 		case "range4":
 		case "range8":
+		case "exactInteger":
+		case "exactMoney":
 			return undefined
 	}
 }
+
+/** The digit bound of an exact descriptor; undefined for every other carrier. */
+export const exactDigitsOf = (t: ScalarType): number | undefined =>
+	t.carrier === "exactInteger" || t.carrier === "exactMoney" ? t.digits : undefined
 
 /** Two contracts are one by identity, their names and bases: two descriptors of one contract are one type whatever
  * predicate either carries. */
@@ -440,6 +492,7 @@ export const sameScalarType = (a: ScalarType, b: ScalarType): boolean =>
 		sameContract(contractOf(a), contractOf(b)) &&
 		sameNumericTypmod(numericTypmodOf(a), numericTypmodOf(b)) &&
 		vectorTypmodOf(a)?.dims === vectorTypmodOf(b)?.dims &&
+		exactDigitsOf(a) === exactDigitsOf(b) &&
 		sameText(textOf(a), textOf(b)) &&
 		sameRoster(rosterOf(a), rosterOf(b)) &&
 		sameSpan(spanOf(a), spanOf(b)))
@@ -473,7 +526,9 @@ const nativeNames: Readonly<Record<Carrier, string>> = {
 	enum: "enum",
 	range4: "int4range",
 	range8: "int8range",
-	vector: "vector"
+	vector: "vector",
+	exactInteger: "numeric",
+	exactMoney: "numeric"
 }
 
 /**
@@ -508,6 +563,10 @@ export const typeLabel = (t: ScalarType): string => {
 		case "range4":
 		case "range8":
 			return nativeNames[t.carrier]
+		case "exactInteger":
+			return `exact integer of ${t.digits} digits`
+		case "exactMoney":
+			return `exact money of ${t.digits} digits`
 	}
 }
 

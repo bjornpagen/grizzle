@@ -17,8 +17,9 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -104,7 +105,8 @@ const textDesc = (bound: TextBound, length: number): FieldDesc => {
 					op: "le",
 					left: charLengthOfValue,
 					right: { kind: "literal", value: length, type: undefined }
-				}
+				},
+				facts: []
 			}
 	}
 }
@@ -235,13 +237,15 @@ layer(Substrate.layer)("key representability against PostgreSQL's B-tree item li
 							suite: "oracle/representability",
 							draw: drawn(keyGen),
 							literal: Formatter.format,
-							features: features<ReprFeature>(["accepted key", "key at the computed maximum"]),
+							coverage: required<ReprFeature>(["accepted key", "key at the computed maximum"], {
+								cases: runs,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(sketch, k) =>

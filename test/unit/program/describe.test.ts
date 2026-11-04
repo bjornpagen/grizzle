@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { filter } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Schema } from "effect"
@@ -53,13 +54,12 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 						suite: "unit/program/describe-roundtrip",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
-						features: features<ProgramFeature>(programForms),
+						coverage: required<ProgramFeature>(programForms, { cases: 300, sense: notesOnly }),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(sketch, k) =>
@@ -117,13 +117,12 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 						suite: "unit/program/describe-schema",
 						draw: drawn(named),
 						literal: Formatter.format,
-						features: features<"elsewhere">(["elsewhere"]),
+						coverage: required<"elsewhere">(["elsewhere"], { cases: 20, sense: notesOnly }),
 						kept: [],
 						runs: 20,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(name, k) =>
@@ -131,7 +130,7 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 							const Elsewhere = relation(name, { task: uuid, budget: pg.bigint }, ["task"])
 							const d = describeQuery(
 								query(schema("Elsewhere", { [name]: Elsewhere }, [])).rule((r) => {
-									const { task, budget } = v(Elsewhere)
+									const { task, budget } = v(Elsewhere, "elsewhere")
 									return r.match(Elsewhere, { task, budget }).find({ task, budget })
 								})
 							)

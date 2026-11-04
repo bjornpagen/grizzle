@@ -449,7 +449,9 @@ export const mutantsOf = Effect.fn("testing.mutants.of")(function* (
 				if (parsed === undefined) {
 					return Result.fail(MutationSourceRefused.make({ file: source.file }))
 				}
-				all.push(...locatedOf(source.file, source.text, parsed))
+				for (const mutant of locatedOf(source.file, source.text, parsed)) {
+					all.push(mutant)
+				}
 			}
 			return Result.succeed(all)
 		},

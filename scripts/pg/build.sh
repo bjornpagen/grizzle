@@ -36,9 +36,6 @@ build_core() {
 		git -C "$src" apply -p1 "$patches/$file"
 	done
 
-	local native="$src/grizzle-native.ini"
-	printf "[binaries]\nllvm-config = '%s'\n" "$HOMEBREW_PREFIX/opt/$PG_LLVM_FORMULA/bin/llvm-config" > "$native"
-
 	# Keg-only Homebrew libraries are found only through pkg-config.
 	export PKG_CONFIG_PATH="$HOMEBREW_PREFIX/opt/readline/lib/pkgconfig:$HOMEBREW_PREFIX/opt/openssl@3/lib/pkgconfig:$HOMEBREW_PREFIX/opt/lz4/lib/pkgconfig:$HOMEBREW_PREFIX/opt/zstd/lib/pkgconfig"
 
@@ -46,10 +43,9 @@ build_core() {
 		cd "$src"
 		meson setup build \
 			--prefix="$GRIZZLE_PG_PREFIX" \
-			--native-file "$native" \
 			-DBISON="$HOMEBREW_PREFIX/opt/bison/bin/bison" \
 			-DFLEX="$HOMEBREW_PREFIX/opt/flex/bin/flex" \
-			-Dllvm=enabled -Dssl=openssl -Dlz4=enabled -Dzstd=enabled -Dreadline=enabled \
+			-Dllvm=disabled -Dssl=openssl -Dlz4=enabled -Dzstd=enabled -Dreadline=enabled \
 			-Dicu=disabled -Ddocs=disabled -Dtap_tests=disabled -Dcassert=false
 		meson compile -C build
 		rm -rf "$GRIZZLE_PG_PREFIX"

@@ -58,8 +58,22 @@ const atCommit: Readonly<Record<ExistenceConstraint["kind"], boolean>> = {
 	enum: false
 }
 
+/** The premises a containment rests on: its constraint, every unit function of its residual law, or none for an enum
+ * type. */
+const enforcementPremises = (constraint: ExistenceConstraint): ReadonlyArray<Premise> => {
+	const e = constraint.enforcement
+	switch (e.kind) {
+		case "constraint":
+			return [constraintPremise(e.name, constraint.kind)]
+		case "residualLaw":
+			return e.functions.map((fn) => constraintPremise(fn, constraint.kind))
+		case "type":
+			return []
+	}
+}
+
 /**
- * What a containment proves existence with in the execution context (see the header): the one constraint it rests on,
+ * What a containment proves existence with in the execution context (see the header): the premises it rests on,
  * none when its enum type enforces it; nothing inside a transaction when it holds only at commit.
  */
 export const containmentEvidence = (
@@ -74,11 +88,7 @@ export const containmentEvidence = (
 	if (!contextAdmits(execution, context)) {
 		return undefined
 	}
-	const premises: ReadonlyArray<Premise> =
-		constraint.enforcement.kind === "constraint"
-			? [constraintPremise(constraint.enforcement.name, constraint.kind)]
-			: []
-	return { premises, context }
+	return { premises: enforcementPremises(constraint), context }
 }
 
 /**

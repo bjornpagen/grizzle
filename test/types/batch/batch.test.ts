@@ -24,11 +24,15 @@ const probe: Group = {
 			kind: "program",
 			dir: "test/types/batch",
 			prefix: ".probe-",
-			file: "index.ts",
 			disarm: true,
 			heavy: false,
-			source: () =>
-				'// @ts-expect-error -- TS2322: a string is no number\nexport const probe: number = "probe"\n'
+			source: () => [
+				{
+					file: "index.ts",
+					source:
+						'// @ts-expect-error -- TS2322: a string is no number\nexport const probe: number = "probe"\n'
+				}
+			]
 		}
 	}
 }
@@ -41,11 +45,14 @@ const importing = (planted: string): Group => ({
 			kind: "program",
 			dir: "test/types/batch",
 			prefix: ".importer-",
-			file: "index.ts",
 			disarm: false,
 			heavy: false,
-			source: (entry) =>
-				`import { planted } from "${entry(planted)}"\nexport const read: number = planted\n`
+			source: (entry) => [
+				{
+					file: "index.ts",
+					source: `import { planted } from "${entry(planted)}"\nexport const read: number = planted\n`
+				}
+			]
 		}
 	}
 })

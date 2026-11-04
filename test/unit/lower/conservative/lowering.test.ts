@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element, filter, map, oneOf } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -176,7 +176,7 @@ describe("the kind table", () => {
 								source.draw(element<Subject>(["query", "readBack"]))
 							] as const,
 						limit: 128,
-						features: features<`${KindOutcome} ${Subject}`>([
+						coverage: requiredInSpace<`${KindOutcome} ${Subject}`>([
 							"lowered query",
 							"lowered readBack",
 							"MalformedDescription query",
@@ -280,8 +280,7 @@ const heterogeneousRead = (consumer: Consumer): LogicalQuery => {
 			q.op(
 				"uuid_ne",
 				[q.col(input, "account"), q.lit({ kind: "uuid", value: Cases.A }, T.uuid)],
-				T.bool,
-				"total"
+				T.bool
 			)
 		)
 	switch (consumer.kind) {
@@ -366,7 +365,7 @@ describe("heterogeneous unions", () => {
 						literal: Formatter.format,
 						generator: consumers,
 						limit: 16,
-						features: features<Consumer["kind"]>([
+						coverage: requiredInSpace<Consumer["kind"]>([
 							"delivered",
 							"filtered",
 							"bounded",
@@ -460,7 +459,7 @@ describe("heterogeneous unions", () => {
 							"an arm of several"
 						]),
 						limit: 2,
-						features: features<"a lone arm" | "an arm of several">([
+						coverage: requiredInSpace<"a lone arm" | "an arm of several">([
 							"a lone arm",
 							"an arm of several"
 						]),
@@ -618,7 +617,7 @@ describe("regions", () => {
 						"a correlated take read outside its region"
 					]),
 					limit: 4,
-					features: features<"resolved" | "refused" | "a defect">([
+					coverage: requiredInSpace<"resolved" | "refused" | "a defect">([
 						"resolved",
 						"refused",
 						"a defect"
@@ -689,10 +688,9 @@ describe("take bound parameters", () => {
 						draw: drawn(filter(bounded, (c) => boundParams(c).length > 0, 32)),
 						runs: 60,
 						shrink: completeShrink,
-						features: noFeatures,
+						coverage: noCoverage,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c) =>
@@ -772,7 +770,7 @@ describe("budgets", () => {
 							source.draw(element(budgetKinds))
 						] as const,
 					limit: 32,
-					features: features<`${LoweringBudget} bound`>(["nodes bound", "sqlBytes bound"]),
+					coverage: requiredInSpace<`${LoweringBudget} bound`>(["nodes bound", "sqlBytes bound"]),
 					caseHang: Duration.minutes(2)
 				},
 				([name, kind], c) =>

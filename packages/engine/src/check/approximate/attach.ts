@@ -1,6 +1,7 @@
 import { subtree } from "#compiler/check/approximate/trace.ts"
 import type { ResolvedStage } from "#compiler/check/params.ts"
 import { parentUse } from "#compiler/check/scan.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { inputsOf, keptRowsOf, type NodeOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
@@ -35,7 +36,7 @@ const searchesOnCorrelation = (start: RelNode, column: string): ReadonlySet<RelN
 		if (node.kind === "ApproximateNearest") {
 			found.add(node)
 		}
-		queue.push(...correlationSteps(node, name))
+		appendAll(queue, correlationSteps(node, name))
 	}
 	return found
 }
@@ -106,7 +107,10 @@ const reachableAvoiding = (dag: RelDag, avoid: RelNode): ReadonlySet<RelNode> =>
 			continue
 		}
 		seen.add(node)
-		queue.push(...inputsOf(node).filter((input) => input !== avoid))
+		appendAll(
+			queue,
+			inputsOf(node).filter((input) => input !== avoid)
+		)
 	}
 	return seen
 }
@@ -214,7 +218,7 @@ const searchInRows = (start: RelNode): RelNode | undefined => {
 		for (const input of fresh) {
 			seen.add(input)
 		}
-		queue.push(...fresh)
+		appendAll(queue, fresh)
 	}
 	return undefined
 }

@@ -4,6 +4,7 @@ import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import {
@@ -31,21 +32,22 @@ import {
 	unitColumn
 } from "#compiler/lower/conservative/types.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Expr, FromItem, Select, Target, TypeRef } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, FromSource, Select, Target, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	col,
 	columnDefinition,
 	conjunction,
-	core,
 	derived,
+	distinctCore,
 	lit,
+	sameTypeRef,
 	select,
 	slotParam,
 	target,
-	types
+	types,
+	unitTargets
 } from "#compiler/sql/build.ts"
 import { freshNames, type NameOrigin, NameSupply } from "#compiler/sql/naming.ts"
-import { printType } from "#compiler/sql/print.ts"
 
 /** The SQL expressions of one node's columns, by heading name. */
 export type ColumnMap = ReadonlyMap<string, Expr>
@@ -54,10 +56,7 @@ export type Env = ReadonlyMap<NodeId, ColumnMap>
 
 export const emptyEnv: Env = new Map()
 
-export const extendEnv = (
-	env: Env,
-	...entries: ReadonlyArray<readonly [NodeId, ColumnMap]>
-): Env => {
+export const extendEnv = (env: Env, entries: Iterable<readonly [NodeId, ColumnMap]>): Env => {
 	const next = new Map(env)
 	for (const [id, columns] of entries) {
 		next.set(id, columns)
@@ -80,7 +79,7 @@ export const namedMap = (alias: string, named: ReadonlyArray<NamedColumn>): Colu
 
 /** One input read as a derived table: its FROM item, its alias and its columns. */
 export interface InputSource {
-	readonly item: FromItem
+	readonly item: FromSource
 	readonly alias: string
 	readonly columns: ReadonlyArray<string>
 	readonly map: ColumnMap
@@ -143,7 +142,11 @@ export const relationColumns = (
  */
 export class StatementParams<in out Own extends OwnParamSlot> {
 	readonly #slots: Array<DeclaredParamSlot | Own> = []
-	readonly #scalars = new Map<ParamId, Map<string, ScalarParamSlot>>()
+	/** Each parameter's placeholders, one per cast type, found by the type's structure (sql/build.ts sameTypeRef). */
+	readonly #scalars = new Map<
+		ParamId,
+		Array<{ readonly type: TypeRef; readonly slot: ScalarParamSlot }>
+	>()
 	readonly #relations = new Map<ParamId, RelationParamSlot>()
 
 	get slots(): ReadonlyArray<DeclaredParamSlot | Own> {
@@ -171,22 +174,22 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 	scalar(param: ParamId, type: ScalarType, sqlType: TypeRef): Expr {
 		let casts = this.#scalars.get(param)
 		if (casts === undefined) {
-			casts = new Map()
+			casts = []
 			this.#scalars.set(param, casts)
 		}
-		const cast = printType(sqlType)
-		let slot = casts.get(cast)
-		if (slot === undefined) {
-			slot = this.#allocate((number): ScalarParamSlot => ({
-				kind: "scalar",
-				placeholder: "value",
-				number,
-				param,
-				type,
-				sqlType
-			}))
-			casts.set(cast, slot)
+		const found = casts.find((c) => sameTypeRef(c.type, sqlType))
+		if (found !== undefined) {
+			return slotParam(found.slot, sqlType)
 		}
+		const slot = this.#allocate((number): ScalarParamSlot => ({
+			kind: "scalar",
+			placeholder: "value",
+			number,
+			param,
+			type,
+			sqlType
+		}))
+		casts.push({ type: sqlType, slot })
 		return slotParam(slot, sqlType)
 	}
 
@@ -537,7 +540,7 @@ export class LowerContext {
 		const named = this.freshColumns(outputNames(heading), origin)
 		const columns = named.map((n) => n.column)
 		const alias = this.supply.relation(origin)
-		const item: FromItem = lateral
+		const item: FromSource = lateral
 			? derived(query, alias, columns, true)
 			: derived(query, alias, columns, false)
 		return { item, alias, columns, map: namedMap(alias, named) }
@@ -592,16 +595,12 @@ export class LowerContext {
 
 	/**
 	 * The PostgreSQL type of a value of `t` (physicalTypeOf) under this lowering's subject: a violation probe reads only
-	 * stored values, each of which already satisfies its refinement, so it types a text refinement no domain names as
-	 * pg_catalog.text.
+	 * stored values, so it types an unnamed text refinement by its base, pg_catalog's builtin text.
 	 */
 	physicalType(t: ScalarType): PhysicalType {
 		const p = physicalTypeOf(this.names, t)
 		return p.kind === "unnamedText" && this.options.subject.kind === "violationProbe"
-			? {
-					kind: "type",
-					ref: { kind: "named", schema: "pg_catalog", name: "text", typmod: [], array: false }
-				}
+			? { kind: "type", ref: physicalBaseType(this.names, t) }
 			: p
 	}
 
@@ -700,17 +699,15 @@ export const columnPosition = (heading: Heading, name: string): number =>
 	)
 
 /** The output names of a heading: its columns, or the unit marker. */
-export const outputNames = (heading: Heading): ReadonlyArray<string> =>
-	heading.length === 0 ? [unitColumn] : heading.map((c) => c.name)
+export const outputNames = (heading: Heading): NonEmptyReadonlyArray<string> =>
+	isNonEmpty(heading) ? mapNonEmpty(heading, (c) => c.name) : [unitColumn]
 
 /**
  * The targets that read `heading` from a column map over a heading with its columns, in heading order; the unit marker
  * for a zero-column heading.
  */
-export const headingTargets = (heading: Heading, map: ColumnMap): ReadonlyArray<Target> =>
-	heading.length === 0
-		? [target(lit.bool(true))]
-		: heading.map((c) => target(columnIn(map, c.name)))
+export const headingTargets = (heading: Heading, map: ColumnMap): NonEmptyReadonlyArray<Target> =>
+	isNonEmpty(heading) ? mapNonEmpty(heading, (c) => target(columnIn(map, c.name))) : unitTargets
 
 /**
  * The equalities of an attachment's correlation: each child column of heading `child`, read through `source`, equal to
@@ -732,7 +729,7 @@ export const correlationEqualities = (
  * `where`, which has no WHERE when it is empty.
  */
 export const distinctSelect = (
-	targets: ReadonlyArray<Target>,
+	targets: NonEmptyReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	where: ReadonlyArray<Expr>
-): Select => select({ ...core(targets, from, conjunction(where)), distinct: true })
+): Select => select(distinctCore(targets, from, conjunction(where)))

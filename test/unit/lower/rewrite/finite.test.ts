@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter, Record as Rec } from "effect"
@@ -104,7 +104,7 @@ describe("finite membership", () => {
 								source.draw(int(0, 8))
 							] as const,
 						limit: 432,
-						features: features<FiniteFeature>([
+						coverage: requiredInSpace<FiniteFeature>([
 							"rewritten binding kind",
 							"rewritten binding amount",
 							"rewritten binding both",

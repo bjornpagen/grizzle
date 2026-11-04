@@ -1,6 +1,6 @@
 import type { Vitest } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features, type Reached } from "@grizzle/testing/features"
+import { type Reached, required, type Situations } from "@grizzle/testing/features"
 import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -15,6 +15,7 @@ import {
 	String as Str
 } from "effect"
 import { sameValue, valueText } from "#test/pg/laws/families/model.ts"
+import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
 import { indices } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
@@ -30,8 +31,15 @@ import { installedNames } from "#test/support/worlds/execute/names.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import { requiredWorldFeatures } from "#test/support/worlds/features.ts"
 import { actionGen, withOpener } from "#test/support/worlds/generate/action.ts"
+import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import { defaultScope, enumerateKind } from "#test/support/worlds/generate/enumerate.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
+import {
+	dictionaryNamed,
+	nameFeatures,
+	namesCatalogType,
+	ownConversions
+} from "#test/support/worlds/generate/names.ts"
 import { lawfulOf, realityGen } from "#test/support/worlds/generate/reality.ts"
 import {
 	actionKinds,
@@ -867,13 +875,15 @@ export const docsAtCapacityRealities = (base: BaseSpec, host: HostSchema): Gen<H
 		: realityGen(base, host)
 
 /**
- * A program case: an installation, the case's swarm weights (its kinds the suite's focus), the weights of its lead's
- * draws, and how many actions its program runs after them. The property draws the rest from the case's own tape
- * (`Case.draw`): the reality once the installation's names exist, and each action from the model's state as the program
- * reaches it, so every draw replays and shrinks with the case.
+ * A program case: an installation and the ambient session its owner sessions start under
+ * (test/support/ambient.ts), the case's swarm weights (its kinds the suite's focus), the weights of its lead's draws,
+ * and how many actions its program runs after them. The property draws the rest from the case's own tape (`Case.draw`):
+ * the reality once the installation's names exist, and each action from the model's state as the program reaches it,
+ * so every draw replays and shrinks with the case.
  */
 export interface ProgramCase {
 	readonly install: InstallSpec
+	readonly ambient: AmbientSession
 	readonly weights: Weights
 	readonly lead: Lead
 	/** Whether the program takes a targeted lead (Leading). */
@@ -1075,15 +1085,17 @@ export const programCaseGen =
 	(installs: Gen<InstallSpec>, { lead, ...draws }: Draws, maxSteps: number): Gen<ProgramCase> =>
 	(source) => ({
 		install: source.draw(installs),
+		ambient: source.draw(ambientSessionGen),
 		weights: { ...source.draw(weightsGen), ...draws },
 		steps: source.draw(int(1, maxSteps)),
 		led: source.draw(int(0, 3)) > 0,
 		lead
 	})
 
-/** How a suite realizes a case's installation: fresh, or on a pool of a size it names. */
+/** How a suite realizes a case's installation under its ambient session: fresh, or on a pool of a size it names. */
 export type Realize = (
-	install: InstallSpec
+	install: InstallSpec,
+	ambient: AmbientSession
 ) => Effect.Effect<RealWorld, RealizeRefused | SqlError, Scope.Scope | Substrate>
 
 /** A world brought to a case's start: the real world and the model's state of it. */
@@ -1385,7 +1397,7 @@ export interface ProgramSuite {
 	readonly focus: Focus
 	readonly steps: number
 	readonly cases: number
-	readonly required: ReadonlyArray<Reached<WorldFeature>>
+	readonly required: Situations<WorldFeature>
 	readonly check: StepCheck
 	/** The realities its cases draw (drawnRealities, or a targeted mix). */
 	readonly realities: Realities
@@ -1395,10 +1407,12 @@ export interface ProgramSuite {
 
 /**
  * A generated installation of a documents base (installGen): of the base itself, or of the base with at most one share
- * per document (docsOneShareBase), whose capacity is a unique index a write meets hidden facts at.
+ * per document (docsOneShareBase), whose capacity is a unique index a write meets hidden facts at; half the time with
+ * its objects and query entries named from the kernel dictionary or after PostgreSQL's types (generate/names.ts).
  */
-export const generatedDocsInstalls: Gen<InstallSpec> = (source) =>
+export const generatedDocsInstalls: Gen<InstallSpec> = dictionaryNamed((source) =>
 	source.draw(installGen(source.draw(element(docsBases))))
+)
 
 /**
  * The documents base's installations a suite draws: half the time its README-shaped worlds, whose roles hold every
@@ -1416,6 +1430,26 @@ export const docsInstalls: Gen<InstallSpec> = oneOf([
 
 /** A fresh realization of each case's installation, on the executor's default pools. */
 export const fresh: Realize = realize
+
+/** The conversions of the names the documents bases declare: a dictionary name converting to none was drawn. */
+const docsConversions: ReadonlySet<string> = ownConversions(docsBases)
+
+/**
+ * Notes what a case's realization met of how PostgreSQL resolves names: the ambient session its owner sessions started
+ * under, the dictionary features of the names its installation drew beyond the documents bases' own, and a base object
+ * or a role entry named after a PostgreSQL type.
+ */
+export const noteNaming = (pc: ProgramCase, c: Case<WorldFeature>): void => {
+	for (const feature of ambientFeatures(pc.ambient)) {
+		c.note(feature)
+	}
+	for (const feature of nameFeatures(pc.install, docsConversions)) {
+		c.note(`name:${feature}`)
+	}
+	if (namesCatalogType(pc.install)) {
+		c.note("catalog-type name")
+	}
+}
 
 /**
  * Registers a program suite's test: each case realizes its installation, stages its reality and runs its program under
@@ -1435,19 +1469,22 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 						suite: spec.suite,
 						draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
 						literal: Formatter.format,
-						features: features<WorldFeature>(spec.required),
+						coverage: required<WorldFeature>(spec.required, {
+							cases: 4 * spec.cases,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: spec.cases,
 						shrink: { kind: "bounded", candidates: 200 },
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "mutate", cases: 4 * spec.cases, sense: notesOnly },
 						caseHang: Duration.minutes(2)
 					},
 					(pc, c) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const world = yield* spec.realize(pc.install)
+								const world = yield* spec.realize(pc.install, pc.ambient)
+								noteNaming(pc, c)
 								const staged = yield* stage(world, pc.install, c.draw, spec.realities)
 								yield* driveProgram(staged, pc, c, spec.check)
 							})
@@ -1460,13 +1497,17 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 
 /**
  * The worlds features a suite's area must reach: each required feature of the feature map that `holds` admits, and
- * each required pair whose two features it admits.
+ * each required pair whose two features it admits. An area that admits none is refused when its suite loads, never
+ * left to require nothing.
  */
 export const requiredWhere = (
 	holds: (feature: WorldFeature) => boolean
-): ReadonlyArray<Reached<WorldFeature>> =>
-	Arr.filter(requiredWorldFeatures, (r) =>
-		Predicate.isString(r) ? holds(r) : holds(r[0]) && holds(r[1])
+): Situations<WorldFeature> =>
+	knownNonEmpty(
+		Arr.filter(requiredWorldFeatures, (r) =>
+			Predicate.isString(r) ? holds(r) : holds(r[0]) && holds(r[1])
+		),
+		"the world features an area requires"
 	)
 
 /** Operations of some action kinds, by some writers, observed some ways: a family of op features. */

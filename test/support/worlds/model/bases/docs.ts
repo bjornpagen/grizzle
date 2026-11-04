@@ -17,8 +17,9 @@ const uuid: FieldDomain = { kind: "uuid" }
 const integer: FieldDomain = { kind: "integer", bits: 32 }
 
 /**
- * The documents base: organizations, their documents, the shares of a document with a user, and the notes on a
- * document, with laws of each kind a refusal under a world reaches. A note's document exists (a foreign key); an
+ * The documents base: organizations, their documents, the shares of a document with a user, the notes on a document,
+ * and visits, each nothing but its bigserial number, a relation whose every field is serial, so an addition written
+ * whole may carry no field (the unit relation); with laws of each kind a refusal under a world reaches. A note's document exists (a foreign key); an
  * organization's documents differ in their word counts (a candidate key, a unique index); a document has at most two
  * shares (a capacity, a residual law whose function withholds its witness keys from a role that does not hold Doc
  * whole); a plan is at most five (a row check), and lies in 0..9 by its contract Plan (a domain CHECK), so a plan of
@@ -73,6 +74,12 @@ export const docsBase: BaseSpec = {
 			],
 			key: ["no"],
 			mutability: "mutable"
+		},
+		{
+			name: "Visit",
+			fields: [{ name: "no", domain: { kind: "serial", bits: 64 } }],
+			key: ["no"],
+			mutability: "immutable"
 		}
 	],
 	laws: [
@@ -184,7 +191,7 @@ const subjectClaim = claim("Session", "sub")
  * OrgDocs whole, which it refreshes. Both are in the login `web`. The nightly `job`, in the login `ops`, writes Org
  * whole, reads documents only as their ids, and refreshes OrgDocs: the web login never writes Org, whatever claims it
  * sets. The `admin`, a full role in `ops`, holds every relation of the base whole, so every program over the base runs
- * on it; it writes Org, Doc, Share and Note, and refreshes OrgDocs.
+ * on it; it writes Org, Doc, Share, Note and Visit, and refreshes OrgDocs.
  */
 export const docsInstall: InstallSpec = {
 	base: docsBase,
@@ -271,10 +278,11 @@ export const docsInstall: InstallSpec = {
 				Doc: whole("Doc"),
 				Share: whole("Share"),
 				Note: whole("Note"),
+				Visit: whole("Visit"),
 				Tier: whole("Tier"),
 				OrgDocs: whole("OrgDocs")
 			},
-			write: ["Org", "Doc", "Share", "Note"],
+			write: ["Org", "Doc", "Share", "Note", "Visit"],
 			refresh: ["OrgDocs"]
 		}
 	],

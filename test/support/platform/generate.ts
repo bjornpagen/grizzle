@@ -24,6 +24,7 @@
 import { array, type Gen, int, map, type Size } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
+import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
@@ -62,7 +63,7 @@ export const tierBounds = [1000n, 10_000n] as const
 const daysIn2026 = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const
 
 /** A deterministic uuid: the family in the first group, the row number in the last. */
-export const uid = (family: number, n: number): string =>
+export const uid = (family: number, n: number): Uuid =>
 	`${pipe(family.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 const family = {
@@ -237,8 +238,8 @@ const keyOf = (...parts: ReadonlyArray<string | number | bigint>): string =>
 
 interface ModelView {
 	readonly months: ReadonlyArray<MonthM>
-	readonly workspaceOrg: ReadonlyMap<string, string>
-	readonly keyWorkspace: ReadonlyMap<string, string>
+	readonly workspaceOrg: ReadonlyMap<string, Uuid>
+	readonly keyWorkspace: ReadonlyMap<string, Uuid>
 	readonly keyActive: ReadonlyMap<string, ReadonlyArray<SpanV>>
 	readonly routes: ReadonlySet<string>
 	readonly cards: ReadonlyArray<CardM>
@@ -312,10 +313,10 @@ export const monthAt = (months: ReadonlyArray<MonthM>, t: bigint): Option.Option
 	Arr.findFirst(months, (m) => holds(m.during, t))
 
 export interface UsageRequest {
-	readonly id: string
-	readonly key: string
-	readonly model: string
-	readonly provider: string
+	readonly id: Uuid
+	readonly key: Uuid
+	readonly model: Uuid
+	readonly provider: Uuid
 	readonly during: SpanV
 	/** Tokens per kind; a kind left out used none. */
 	readonly tokens: ReadonlyArray<{ readonly kind: TokenKind; readonly tokens: bigint }>
@@ -489,8 +490,8 @@ const usageFacts = (
  * subscriptions with their segments.
  */
 interface BillingIndex {
-	readonly events: ReadonlyMap<string, ReadonlyArray<string>>
-	readonly modelOf: ReadonlyMap<string, string>
+	readonly events: ReadonlyMap<string, ReadonlyArray<Uuid>>
+	readonly modelOf: ReadonlyMap<string, Uuid>
 	readonly chargesOf: ReadonlyMap<string, ReadonlyArray<Fact<typeof P.UsageCharge>>>
 	readonly subscriptionsOf: ReadonlyMap<string, ReadonlyArray<Fact<typeof P.Subscription>>>
 	readonly segmentsOf: ReadonlyMap<string, ReadonlyArray<Fact<typeof P.Segment>>>
@@ -519,15 +520,12 @@ const billingIndex = (facts: PlatformFacts): BillingIndex => {
  */
 const closeMonthOf = (
 	index: BillingIndex,
-	org: string,
+	org: Uuid,
 	month: MonthM,
 	ids: { readonly invoice: number; readonly firstLine: number }
 ): P.MonthClose => {
 	const invoice = uid(family.invoice, ids.invoice)
-	const usage = new Map<
-		string,
-		{ model: string; kind: TokenKind; tokens: bigint; amount: bigint }
-	>()
+	const usage = new Map<string, { model: Uuid; kind: TokenKind; tokens: bigint; amount: bigint }>()
 	for (const event of index.events.get(keyOf(org, month.month)) ?? []) {
 		const model = index.modelOf.get(event)
 		if (model === undefined) {
@@ -720,7 +718,7 @@ interface PlatformPlan {
 	readonly requests: ReadonlyArray<UsageRequest>
 	/** The organizations' months to close, each with what happens to its invoice. */
 	readonly closes: ReadonlyArray<{
-		readonly org: string
+		readonly org: Uuid
 		readonly month: number
 		readonly settlement: Settlement
 	}>
@@ -778,7 +776,7 @@ export const buildPlatform = (plan: PlatformPlan): Platform => {
 }
 
 /** A card's tiers: one flat tier, or three graduated ones whose rates fall at each boundary. */
-const tiersOf = (card: string, rate: bigint, tiered: boolean): Facts<typeof P.RateTier> =>
+const tiersOf = (card: Uuid, rate: bigint, tiered: boolean): Facts<typeof P.RateTier> =>
 	tiered
 		? [
 				{ card, tier: tokenSpan(platformSpan(0n, tierBounds[0])), rate: P.Rate(rate) },
@@ -793,12 +791,12 @@ const tiersOf = (card: string, rate: bigint, tiered: boolean): Facts<typeof P.Ra
 
 /** The cards of one model's kind over [from, FAR), split at each change instant, each with its rate and tiering. */
 const cardsOf = (
-	model: string,
+	model: Uuid,
 	kind: TokenKind,
 	from: bigint,
 	changes: ReadonlyArray<{ readonly at: bigint; readonly rate: bigint; readonly tiered: boolean }>,
 	first: { readonly rate: bigint; readonly tiered: boolean },
-	nextId: () => string
+	nextId: () => Uuid
 ): Pick<PlatformFacts, "RateCard" | "RateTier"> => {
 	const cuts = Arr.sort(
 		Arr.filter(changes, (c) => c.at > from && c.at < FAR),
@@ -1087,7 +1085,7 @@ export const resolvePlatform =
 					if (i === 0) {
 						return []
 					}
-					const parent = pickFrom<Option.Option<string>>(
+					const parent = pickFrom<Option.Option<Uuid>>(
 						[Option.none(), ...Arr.map(orgs.slice(0, i), Option.some)],
 						o.parentPick
 					)

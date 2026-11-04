@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -13,6 +13,7 @@ import {
 	oneOf,
 	subarray
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -85,8 +86,9 @@ const boundedArms = (query: Select): ReadonlyArray<Select> => {
 	const arms: Array<Select> = []
 	const visit = (body: SelectBody): void => {
 		if (body.kind === "setOp") {
-			visit(body.left)
-			visit(body.right)
+			for (const arm of body.arms) {
+				visit(arm)
+			}
 		} else if (body.kind === "select") {
 			if (body.limit === undefined) {
 				visit(body.body)
@@ -147,7 +149,7 @@ describe("attachments on heading groups", () => {
 			])
 			const f = q.filter(
 				r,
-				q.op(small ? "int8le" : "int8gt", [q.col(r, "amount"), q.int(20, T.int8)], T.bool, "total")
+				q.op(small ? "int8le" : "int8gt", [q.col(r, "amount"), q.int(20, T.int8)], T.bool)
 			)
 			return q.project(
 				f,
@@ -206,7 +208,7 @@ describe("attachments on heading groups", () => {
 								source.draw(element<"optimized" | "conservative">(["optimized", "conservative"]))
 							] as const,
 						limit: 4,
-						features: features<"delivered" | "refused">(["delivered", "refused"]),
+						coverage: requiredInSpace<"delivered" | "refused">(["delivered", "refused"]),
 						caseHang: Duration.minutes(2)
 					},
 					([on, lowering], c) =>
@@ -240,7 +242,7 @@ describe("the bounded union consumed inside a statement", () => {
 						generator: (source) =>
 							[source.draw(int(1, 3)), source.draw(boolean), source.draw(boolean)] as const,
 						limit: 12,
-						features: features<"keyed" | "deduplicated">(["keyed", "deduplicated"]),
+						coverage: requiredInSpace<"keyed" | "deduplicated">(["keyed", "deduplicated"]),
 						caseHang: Duration.minutes(2)
 					},
 					([k, keyedArms, overlap], c) =>
@@ -368,15 +370,12 @@ describe("the runtime merge of heading groups", () => {
 						draw: drawn(mergeCaseGen),
 						runs: 200,
 						shrink: completeShrink,
-						features: features<"every row" | "first k" | "a NaN" | "descending">([
-							"every row",
-							"first k",
-							"a NaN",
-							"descending"
-						]),
+						coverage: required<"every row" | "first k" | "a NaN" | "descending">(
+							["every row", "first k", "a NaN", "descending"],
+							{ cases: 200, sense: notesOnly }
+						),
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(m, c) =>
@@ -490,13 +489,12 @@ describe("the runtime merge of heading groups", () => {
 					),
 					runs: 200,
 					shrink: completeShrink,
-					features: features<"equal at different scales" | "ordered">([
-						"equal at different scales",
-						"ordered"
-					]),
+					coverage: required<"equal at different scales" | "ordered">(
+						["equal at different scales", "ordered"],
+						{ cases: 200, sense: notesOnly }
+					),
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				([a, b], c) =>
@@ -531,7 +529,7 @@ describe("the runtime merge of heading groups", () => {
 							source.draw(subarray(columns))
 						] as const,
 					limit: 16,
-					features: features<"typed" | "untyped">(["typed", "untyped"]),
+					coverage: requiredInSpace<"typed" | "untyped">(["typed", "untyped"]),
 					caseHang: Duration.minutes(2)
 				},
 				([ordered, typed], c) =>

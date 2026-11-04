@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -74,7 +74,7 @@ describe("the seen-state estimate", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 200,
-						features: features<EstimateFeature>([
+						coverage: requiredInSpace<EstimateFeature>([
 							...Arr.map(copied, ([column]): EstimateFeature => `copies ${column}`),
 							"a computed column",
 							"two tags",
@@ -120,7 +120,7 @@ describe("the seen-state estimate", () => {
 																[column]: ref("Vertex", column)
 															})
 														],
-														where: [eq(ref("Vertex", "id"), param("start"))],
+														where: [eq(ref("Vertex", "id"), param("start", { kind: "uuid" }))],
 														head: {
 															node: ref("Vertex", "id"),
 															x: int(0),

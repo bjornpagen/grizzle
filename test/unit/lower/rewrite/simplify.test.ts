@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -32,6 +32,7 @@ import {
 	uuidOf
 } from "#test/unit/lower/conservative/fixtures.ts"
 
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -45,13 +46,14 @@ import {
 } from "#test/unit/lower/rewrite/support.ts"
 
 /**
- * Semantic simplification: the host decides only comparisons and truth values, never arithmetic; folding never drops
- * an evaluation that could raise; finite folding decides a filter over declared facts; branch removal keeps every
- * union's discriminant readable; and every rewrite leaves the delivered result unchanged.
+ * Semantic simplification: the host decides only comparisons and truth values, never arithmetic; finite folding
+ * decides a filter over declared facts; branch removal keeps every union's discriminant readable; and every rewrite
+ * leaves the delivered result unchanged. No evaluation raises (scalar/compute/registry.ts Totality), so folding drops,
+ * and merging moves, any evaluation.
  *
  * Each rule is held to its documented statement (lower/optimize/simplify/rules.ts, boolean.ts) as the oracle, over
- * every shape of a small space: the literals a comparison may meet, the failure of every dropped or moved evaluation,
- * and the reference evaluator's delivery on every database of a few posting and account facts.
+ * every shape of a small space: the literals a comparison may meet, and the reference evaluator's delivery on every
+ * database of a few posting and account facts.
  */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
@@ -99,28 +101,9 @@ const simplifiedJudged = (dag: RelDag, judged: Judged): Ran => {
 
 const simplified = (dag: RelDag): Ran => simplifiedJudged(dag, "by the reference")
 
-/** A predicate the host must leave to PostgreSQL, one that reads a column and can fail: amount + 1 > 5. */
-const risky = (q: Q, node: RelNode): ScalarExpr =>
-	q.op(
-		"int8gt",
-		[
-			q.op("int8pl", [q.col(node, "amount"), q.int(1, T.int8)], T.int8, "canFail"),
-			q.int(5, T.int8)
-		],
-		T.bool,
-		"canFail"
-	)
-
-/** A total predicate that reads a column: amount > 6. */
-const safe = (q: Q, node: RelNode): ScalarExpr =>
-	q.op("int8gt", [q.col(node, "amount"), q.int(6, T.int8)], T.bool, "total")
-
-type Failure = "total" | "canFail"
-
-const failures = element<Failure>(["total", "canFail"])
-
-const predicate = (q: Q, node: RelNode, failure: Failure): ScalarExpr =>
-	failure === "total" ? safe(q, node) : risky(q, node)
+/** A predicate that reads a column: amount > 6. */
+const predicate = (q: Q, node: RelNode): ScalarExpr =>
+	q.op("int8gt", [q.col(node, "amount"), q.int(6, T.int8)], T.bool)
 
 /**
  * What a filter over the postings became: decided true (gone, its input in its place), decided false (the empty
@@ -169,7 +152,7 @@ const numericLit = (text: string): Typed => ({
 
 const floatLit = (value: number): Typed => ({
 	type: "float8",
-	literal: { kind: "float", value },
+	literal: { kind: "float", value: canonicalZero(value) },
 	rank: [value === 0 ? 0 : value]
 })
 
@@ -300,7 +283,7 @@ describe("literal folding", () => {
 						literal: Formatter.format,
 						generator: (source) => [source.draw(literalPairs), source.draw(comparisons)] as const,
 						limit: 462,
-						features: features<FoldFeature>([
+						coverage: requiredInSpace<FoldFeature>([
 							"decided true",
 							"decided false",
 							"compared numeric",
@@ -321,8 +304,7 @@ describe("literal folding", () => {
 										q.op(
 											operatorOf(a.type, cmp),
 											[q.lit(a.literal, type), q.lit(b.literal, type)],
-											T.bool,
-											"total"
+											T.bool
 										),
 									"by the reference"
 								),
@@ -361,7 +343,7 @@ describe("literal folding", () => {
 						literal: Formatter.format,
 						generator: forms,
 						limit: 65,
-						features: features<FoldFeature>([
+						coverage: requiredInSpace<FoldFeature>([
 							"decided true",
 							"decided false",
 							"a vector membership left to PostgreSQL"
@@ -391,28 +373,25 @@ describe("literal folding", () => {
 										return q.op(
 											"between:bigint",
 											Arr.map([form.x, form.lo, form.hi], (n) => q.int(n, T.int8)),
-											T.bool,
-											"total"
+											T.bool
 										)
 									}
 									if (form.kind === "in") {
 										return q.op(
 											"in:bigint",
 											Arr.map([form.x, ...form.among], (n) => q.int(n, T.int8)),
-											T.bool,
-											"total"
+											T.bool
 										)
 									}
 									const vector = (...xs: ReadonlyArray<number>) =>
 										q.lit(
-											{ kind: "vector", value: succeeded(VectorText.of(Float32Array.of(...xs))) },
+											{ kind: "vector", value: succeeded(VectorText.of(Float32Array.from(xs))) },
 											T.vector3
 										)
 									return q.op(
 										"in:vector",
 										[vector(1, 2, 3), form.same ? vector(1, 2, 3) : vector(3, 2, 1)],
-										T.bool,
-										"total"
+										T.bool
 									)
 								},
 								form.kind === "vectors" ? "outside the reference" : "by the reference"
@@ -429,7 +408,7 @@ describe("literal folding", () => {
 		(ctx) => {
 			/**
 			 * Arithmetic compared with a literal (true or false had the host computed it), or a connective whose literal
-			 * operand decides it beside a column predicate that is total or can fail, on either side.
+			 * operand decides it beside a column predicate, on either side.
 			 */
 			type Shape =
 				| {
@@ -440,7 +419,6 @@ describe("literal folding", () => {
 				| {
 						readonly kind: "connective"
 						readonly connective: "and" | "or"
-						readonly other: Failure
 						readonly literalFirst: boolean
 				  }
 			const shapes = oneOf<Shape>([
@@ -456,17 +434,8 @@ describe("literal folding", () => {
 				),
 				map(
 					(source) =>
-						[
-							source.draw(element<"and" | "or">(["and", "or"])),
-							source.draw(failures),
-							source.draw(boolean)
-						] as const,
-					([connective, other, literalFirst]): Shape => ({
-						kind: "connective",
-						connective,
-						other,
-						literalFirst
-					})
+						[source.draw(element<"and" | "or">(["and", "or"])), source.draw(boolean)] as const,
+					([connective, literalFirst]): Shape => ({ kind: "connective", connective, literalFirst })
 				)
 			])
 			return searched(
@@ -477,17 +446,21 @@ describe("literal folding", () => {
 						literal: Formatter.format,
 						generator: shapes,
 						limit: 17,
-						features: features<FoldFeature>(["decided true", "decided false", "decided undecided"]),
+						coverage: requiredInSpace<FoldFeature>([
+							"decided true",
+							"decided false",
+							"decided undecided"
+						]),
 						caseHang: Duration.minutes(2)
 					},
 					(shape, c) =>
 						Effect.sync(() => {
 							/**
 							 * The documented fragment: no computed number is ever folded; a connective's deciding literal drops the
-							 * other operand only when it is total.
+							 * other operand.
 							 */
 							const expected: Decision =
-								shape.kind === "arithmetic" || shape.other === "canFail"
+								shape.kind === "arithmetic"
 									? "undecided"
 									: shape.connective === "and"
 										? "false"
@@ -498,20 +471,18 @@ describe("literal folding", () => {
 									return q.op(
 										"int8eq",
 										[
-											q.op(shape.op, [q.int(1, T.int8), q.int(1, T.int8)], T.int8, "canFail"),
+											q.op(shape.op, [q.int(1, T.int8), q.int(1, T.int8)], T.int8),
 											q.int(shape.against, T.int8)
 										],
-										T.bool,
-										"canFail"
+										T.bool
 									)
 								}
 								const literal = q.lit({ kind: "bool", value: shape.connective === "or" }, T.bool)
-								const other = predicate(q, region, shape.other)
+								const other = predicate(q, region)
 								return q.op(
 									shape.connective,
 									shape.literalFirst ? [literal, other] : [other, literal],
-									T.bool,
-									shape.other
+									T.bool
 								)
 							}, "by the reference")
 							assert.equal(decision, expected)
@@ -539,7 +510,7 @@ describe("finite folding", () => {
 							source.draw(element<Handle>(roster))
 						] as const,
 					limit: 12,
-					features: features<"some facts satisfy" | "no fact satisfies">([
+					coverage: requiredInSpace<"some facts satisfy" | "no fact satisfies">([
 						"some facts satisfy",
 						"no fact satisfies"
 					]),
@@ -556,8 +527,7 @@ describe("finite folding", () => {
 						const pred = q.op(
 							op,
 							[q.col(kinds, "id"), q.lit({ kind: "enum", handle: against }, T.kind)],
-							T.bool,
-							"total"
+							T.bool
 						)
 						const ran = simplified(
 							q.build(q.project(q.filter(kinds, pred), [["id", "id"]], conservativeMeta)).dag
@@ -576,7 +546,7 @@ describe("finite folding", () => {
 })
 
 describe("branch removal", () => {
-	it.effect("an empty input is removed only where every evaluation it drops is total", (ctx) => {
+	it.effect("an empty input is removed, whatever evaluations it drops", (ctx) => {
 		type Site = "region" | "union arm" | "anti-join right side"
 		return searched(
 			ctx,
@@ -584,27 +554,20 @@ describe("branch removal", () => {
 				{
 					suite: "unit/lower/rewrite/simplify-empty",
 					literal: Formatter.format,
-					generator: (source) =>
-						[
-							source.draw(element<Site>(["region", "union arm", "anti-join right side"])),
-							source.draw(failures)
-						] as const,
-					limit: 6,
-					features: features<`${Site} ${"removed" | "kept"}`>([
+					generator: element<Site>(["region", "union arm", "anti-join right side"]),
+					limit: 3,
+					coverage: requiredInSpace<`${Site} removed`>([
 						"region removed",
-						"region kept",
 						"union arm removed",
-						"union arm kept",
-						"anti-join right side removed",
-						"anti-join right side kept"
+						"anti-join right side removed"
 					]),
 					caseHang: Duration.minutes(2)
 				},
-				([site, dropped], c) =>
+				(site, c) =>
 					Effect.sync(() => {
 						const q = new Q()
 						const p = postings(q)
-						const checked = q.filter(p, predicate(q, p, dropped))
+						const checked = q.filter(p, predicate(q, p))
 						const vacuous = q.project(
 							q.region([
 								{ source: checked, bind: { id: "id", account: "account" }, constants: {} },
@@ -625,22 +588,21 @@ describe("branch removal", () => {
 									? q.union([live(), vacuous], [])
 									: q.anti(live(), vacuous, [["id", "id"]])
 						const ran = simplified(q.build(root).dag)
-						const removed = dropped === "total"
-						c.note(`${site} ${removed ? "removed" : "kept"}`)
-						assert.equal(rulesOf(ran.certificates).includes("simplify.empty"), removed)
+						c.note(`${site} removed`)
+						assert.equal(rulesOf(ran.certificates).includes("simplify.empty"), true)
 						const dag = ran.query.dag
 						if (site === "union arm") {
 							assert.equal(
 								Arr.flatMap(nodesOf(dag, "Union"), (n) => Arr.flatMap(n.groups, (g) => g.arms))
 									.length,
-								removed ? 1 : 2
+								1
 							)
 						}
 						if (site === "anti-join right side") {
-							assert.equal(nodesOf(dag, "AntiJoin").length, removed ? 0 : 1)
+							assert.equal(nodesOf(dag, "AntiJoin").length, 0)
 						}
 						if (site === "region") {
-							assert.equal(ran.query.dag.roots[0].kind === "Closed", removed)
+							assert.equal(ran.query.dag.roots[0].kind, "Closed")
 						}
 					})
 			)
@@ -660,7 +622,7 @@ describe("normalization", () => {
 						literal: Formatter.format,
 						generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
 						limit: 4,
-						features: features<"every conjunct an equality" | "a conjunct left">([
+						coverage: requiredInSpace<"every conjunct an equality" | "a conjunct left">([
 							"every conjunct an equality",
 							"a conjunct left"
 						]),
@@ -678,23 +640,13 @@ describe("normalization", () => {
 								{ source: q.base(Account, conservativeMeta), bind: { id: "acct" }, constants: {} }
 							])
 							const sides = [q.col(region, "account"), q.col(region, "acct")]
-							const equality = q.op(
-								"uuid_eq",
-								swapped ? Arr.reverse(sides) : sides,
-								T.bool,
-								"total"
-							)
-							const other = q.op(
-								"uuid_ne",
-								[q.col(region, "id"), q.lit(u(9), T.uuid)],
-								T.bool,
-								"total"
-							)
+							const equality = q.op("uuid_eq", swapped ? Arr.reverse(sides) : sides, T.bool)
+							const other = q.op("uuid_ne", [q.col(region, "id"), q.lit(u(9), T.uuid)], T.bool)
 							/** The filter's rows are keyed by id, each posting meeting its one account; the bare region's are not. */
 							const f = q.b.node({
 								kind: "Filter",
 								input: region,
-								pred: extra ? q.op("and", [equality, other], T.bool, "total") : equality,
+								pred: extra ? q.op("and", [equality, other], T.bool) : equality,
 								heading: region.heading,
 								meta: keyed(["id"], "many"),
 								loc: undefined
@@ -711,37 +663,36 @@ describe("normalization", () => {
 	)
 })
 
-describe("the error frontier", () => {
-	it.effect("an outer filter that can fail is not merged into the filter below it", (ctx) =>
+describe("merging", () => {
+	it.effect("an outer filter is merged into the filter below it", (ctx) =>
 		searched(
 			ctx,
 			exhaust(
 				{
 					suite: "unit/lower/rewrite/simplify-merge-filters",
 					literal: Formatter.format,
-					generator: (source) => [source.draw(failures), source.draw(failures)] as const,
-					limit: 4,
-					features: features<"merged" | "kept apart">(["merged", "kept apart"]),
+					generator: boolean,
+					limit: 2,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
-				([outerFailure, innerFailure], c) =>
+				(projected) =>
 					Effect.sync(() => {
 						const q = new Q()
 						const p = postings(q)
-						const inner = q.filter(p, predicate(q, p, innerFailure))
-						const outer = q.filter(inner, predicate(q, inner, outerFailure))
-						const ran = simplified(q.build(q.project(outer, [["id", "id"]], conservativeMeta)).dag)
-						const merged = outerFailure === "total"
-						c.note(merged ? "merged" : "kept apart")
-						assert.equal(rulesOf(ran.certificates).includes("simplify.mergeFilters"), merged)
-						assert.equal(nodesOf(ran.query.dag, "Filter").length, merged ? 1 : 2)
+						const inner = q.filter(p, predicate(q, p))
+						const outer = q.filter(inner, predicate(q, inner))
+						const root = projected ? q.project(outer, [["id", "id"]], conservativeMeta) : outer
+						const ran = simplified(q.build(root).dag)
+						assert.equal(rulesOf(ran.certificates).includes("simplify.mergeFilters"), true)
+						assert.equal(nodesOf(ran.query.dag, "Filter").length, 1)
 					})
 			)
 		)
 	)
 
 	it.effect(
-		"a projection of a projection is not merged when the composition drops an expression that can fail",
+		"a projection of a projection is merged, whatever expressions the composition drops",
 		(ctx) =>
 			searched(
 				ctx,
@@ -749,19 +700,18 @@ describe("the error frontier", () => {
 					{
 						suite: "unit/lower/rewrite/simplify-merge-projections",
 						literal: Formatter.format,
-						generator: (source) => [source.draw(failures), source.draw(boolean)] as const,
+						generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
 						limit: 4,
-						features: features<"merged" | "kept apart">(["merged", "kept apart"]),
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
-					([computed, outerReads], c) =>
+					([computed, outerReads]) =>
 						Effect.sync(() => {
 							const q = new Q()
 							const p = postings(q)
-							const expr =
-								computed === "total"
-									? q.col(p, "amount")
-									: q.op("int8pl", [q.col(p, "amount"), q.int(1, T.int8)], T.int8, "canFail")
+							const expr = computed
+								? q.op("int8pl", [q.col(p, "amount"), q.int(1, T.int8)], T.int8)
+								: q.col(p, "amount")
 							const inner = q.project(
 								p,
 								[
@@ -781,10 +731,8 @@ describe("the error frontier", () => {
 								conservativeMeta
 							)
 							const ran = simplified(q.build(outer).dag)
-							const merged = outerReads || computed === "total"
-							c.note(merged ? "merged" : "kept apart")
-							assert.equal(rulesOf(ran.certificates).includes("simplify.mergeProjections"), merged)
-							assert.equal(nodesOf(ran.query.dag, "ProjectSet").length, merged ? 1 : 2)
+							assert.equal(rulesOf(ran.certificates).includes("simplify.mergeProjections"), true)
+							assert.equal(nodesOf(ran.query.dag, "ProjectSet").length, 1)
 						})
 				)
 			)

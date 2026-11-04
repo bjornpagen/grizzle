@@ -1,10 +1,13 @@
 import { Array as Arr, Order, String as Str } from "effect"
 import { textArray } from "#adapter/admission/roles.ts"
+import { concatNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { refreshStatement } from "#compiler/physical/derived/objects.ts"
-import type { ObjectName } from "#compiler/sql/ast.ts"
-import { isDecimal } from "#compiler/sql/naming.ts"
-import { printObjectName, printStatement } from "#compiler/sql/print.ts"
+import type { EmittedText, Expr, ObjectName } from "#compiler/sql/ast.ts"
+import { lit, types } from "#compiler/sql/build.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emitCatalog, emitText } from "#compiler/sql/emit.ts"
+import { emptyNameMap, isDecimal } from "#compiler/sql/naming.ts"
 
 /**
  * Plain or CONCURRENTLY: which refresh statement each view takes.
@@ -26,7 +29,7 @@ import { printObjectName, printStatement } from "#compiler/sql/print.ts"
  * would go unmet: the plain statement swaps in a new heap built from this transaction's snapshot instead of diffing
  * tuples, so neither a unique index nor SSI meets the rows the other refresher published, and the later commit would
  * overwrite them with an older state, which no serial order of the two refreshes produces. So before any refresh
- * statement the transaction runs `rewrittenSql` for each named view, and refuses a plain refresh whose view it reports
+ * statement the transaction runs the rewrite check (`rewrittenSelect`) for each named view, and refuses a plain refresh whose view it reports
  * rewritten (a populated view's report decides nothing, run.ts): its CTE names the view, which takes the
  * view's ACCESS SHARE lock, waiting for any plain refresh of it in progress (whose ACCESS EXCLUSIVE lock is held to its
  * commit), and the lock's acquisition processes the catalog invalidations of everything committed meanwhile. It then
@@ -39,9 +42,9 @@ import { printObjectName, printStatement } from "#compiler/sql/print.ts"
  * no other plain refresh can commit between the comparison and this transaction's own refresh statement; two grizzle
  * refreshers that both compared before either refreshed then deadlock on the upgrade, and the 40P01 fails one of them.
  *
- * The statements are adapter-owned catalog SQL, like admission's: every identifier quoted, every parameter cast, every
- * literal typed, and nothing they return can be NULL (relname and relispopulated are NOT NULL catalog columns, and the
- * comparison is IS DISTINCT FROM, never `<>`, over the storage a materialized view always has).
+ * The statements are catalog-read ASTs the engine prints (sql/catalog.ts), like admission's: every name absolute, every
+ * parameter cast, every literal typed, and nothing they return can be NULL (relname and relispopulated are NOT NULL
+ * catalog columns, and the comparison is IS DISTINCT FROM, never `<>`, over the storage a materialized view always has).
  *
  * The choice is the server's (refreshBlock): one DO block reads each named view's populated state, runs every rewrite
  * check, and then issues each refresh statement, plain or CONCURRENTLY as the reading chose, through EXECUTE, so the
@@ -55,16 +58,33 @@ import { printObjectName, printStatement } from "#compiler/sql/print.ts"
  * position in refresh order as its DETAIL, which the host reads back as TransientFailure{ConcurrentRefresh}; any other
  * refusal inside the block keeps its own SQLSTATE.
  */
-export const populatedSql =
-	'SELECT "c"."relname"::text, "c"."relispopulated"::text FROM "pg_catalog"."pg_class" AS "c" ' +
-	'JOIN "pg_catalog"."pg_namespace" AS "n" ON "n"."oid" = "c"."relnamespace" ' +
-	'WHERE "n"."nspname" = $1::name AND "c"."relkind" = \'m\'::"char" AND "c"."relname" = ANY ($2::name[])'
+const views = C.from("pg_class", "c")
+const viewSchemas = C.from("pg_namespace", "n")
+const viewsIn = C.join(
+	views.item,
+	viewSchemas.item,
+	C.eq(viewSchemas.col("oid"), views.col("relnamespace"))
+)
+const isView = C.eq(views.col("relkind"), C.letter("m"))
 
-/** The parameters of `populatedSql` for the views of one PostgreSQL schema. */
+/** The materialized views of the schema $1 among the names $2, each with whether it is populated. */
+export const populatedSql: EmittedText = emitCatalog(
+	C.query(
+		[C.asText(views.col("relname")), C.asText(views.col("relispopulated"))],
+		[viewsIn],
+		C.and([
+			C.eq(viewSchemas.col("nspname"), C.param(1, "name")),
+			isView,
+			C.any(views.col("relname"), C.arrayParam(2, "name"))
+		])
+	)
+)
+
+/** The parameters of `populatedSql` for the views named `names` of one PostgreSQL schema. */
 export const populatedParams = (
 	schema: string,
-	views: ReadonlyArray<string>
-): ReadonlyArray<string> => [schema, textArray(Arr.sort(new Set(views), Order.String))]
+	names: ReadonlyArray<string>
+): ReadonlyArray<string> => [schema, textArray(Arr.sort(new Set(names), Order.String))]
 
 /**
  * The views `populatedSql` reported populated. A row is the view's name and PostgreSQL's boolean text, each a text
@@ -81,23 +101,38 @@ export const populatedViews = (rows: ReadonlyArray<ReadonlyArray<string>>): Read
 }
 
 /** The refresh statement's text for one view: CONCURRENTLY exactly when it is populated. */
-export const refreshSql = (view: ObjectName, populated: boolean): string =>
-	printStatement(refreshStatement(view, populated))
+export const refreshSql = (view: ObjectName, populated: boolean): EmittedText =>
+	emitText(refreshStatement(view, populated), emptyNameMap).text
 
 /**
- * Whether another refresher rewrote `view` after the transaction's snapshot, waiting first for a plain refresh of it in
- * progress (see the header). The view is named in the text, schema-qualified, because only a relation the statement
- * names is locked; its schema and name are also the parameters `rewrittenParams` gives. The CTE reads no row: the
- * planner drops it unreferenced, so a view that is still unpopulated is never scanned.
+ * Whether another refresher rewrote the view of the schema $1 named $2 after the transaction's snapshot, waiting first
+ * for a plain refresh of it in progress (see the header). The view is named in the statement too, as `view`, because
+ * only a relation the statement names is locked. The CTE reads no row: the planner drops it unreferenced, so a view
+ * that is still unpopulated is never scanned.
  */
-const rewrittenSql = (view: ObjectName): string =>
-	`WITH "lock"("c1") AS (SELECT 1::int4 FROM ${printObjectName(view)} AS "r1" WHERE false) ` +
-	'SELECT ("pg_catalog"."pg_relation_filenode"("c"."oid") IS DISTINCT FROM "c"."relfilenode")::text ' +
-	'FROM "pg_catalog"."pg_class" AS "c" JOIN "pg_catalog"."pg_namespace" AS "n" ON "n"."oid" = "c"."relnamespace" ' +
-	'WHERE "n"."nspname" = $1::name AND "c"."relname" = $2::name AND "c"."relkind" = \'m\'::"char"'
+const rewrittenSelect = (view: ObjectName): C.CatalogSelect => {
+	const locked = C.fromObject(view, "r1")
+	return C.withCtes(
+		[C.cte("lock", ["c1"], C.query([C.literal(1n, "integer")], [locked.item], C.bool(false)))],
+		C.query(
+			[
+				C.distinctFrom(C.call("pg_relation_filenode", [views.col("oid")]), views.col("relfilenode"))
+			],
+			[viewsIn],
+			C.and([
+				C.eq(viewSchemas.col("nspname"), C.param(1, "name")),
+				C.eq(views.col("relname"), C.param(2, "name")),
+				isView
+			])
+		)
+	)
+}
 
-/** The parameters of `rewrittenSql` for `view`. */
-const rewrittenParams = (view: ObjectName): ReadonlyArray<string> => [view.schema, view.name]
+/** The parameters of `rewrittenSelect` for `view`, as the EXECUTE binds them. */
+const rewrittenParams = (view: ObjectName): ReadonlyArray<Expr> => [
+	lit.text(view.schema, types.text),
+	lit.text(view.name, types.text)
+]
 
 /**
  * The DETAIL the refresh block raises for the target at `position` in refresh order, and the position a DETAIL names.
@@ -114,66 +149,92 @@ export const concurrentRefreshPosition = (detail: string | undefined): number | 
 	return isDecimal(digits) ? Number(digits) : undefined
 }
 
-/**
- * A text as an SQL string literal: every quote doubled, a backslash taken as itself under standard_conforming_strings,
- * PostgreSQL's default, which no login overrides: admission refuses a role setting the snapshot does not declare.
- */
-const literal = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`
+/** A boolean PL/pgSQL variable of the refresh block. */
+const variable = (name: string): Expr => ({ kind: "plVar", name })
+
+const isTrue = (expr: Expr): Expr => ({ kind: "isTrue", expr })
+
+/** EXECUTE of the refresh statement of `view`, plain or CONCURRENTLY. */
+const refreshOf = (view: ObjectName, concurrently: boolean): C.DoStatement => ({
+	kind: "execute",
+	command: { kind: "statement", statement: refreshStatement(view, concurrently) },
+	into: undefined,
+	using: []
+})
 
 /**
- * The refresh block of `views`, in refresh order (see the header):
+ * The refresh block of the views `targets`, in refresh order (see the header), a DO block (sql/catalog.ts DoBlock):
  *
- *   DO $grizzle$ DECLARE "p0" boolean; "c0" text; ... BEGIN
- *     SELECT "c"."relispopulated" INTO "p0" FROM ... WHERE "n"."nspname" = '<schema>' AND "c"."relname" = '<view>' ...;
- *     EXECUTE '<rewrittenSql>' INTO "c0" USING '<schema>', '<view>';
- *     IF "p0" IS NOT TRUE AND "c0" = 'true' THEN RAISE EXCEPTION ... USING ERRCODE = '40Z01', DETAIL = '... 0'; END IF;
+ *   DO $$
+ *   DECLARE "p0" boolean; "c0" boolean; ...
+ *   BEGIN
+ *     SELECT "c"."relispopulated" INTO "p0" FROM ... WHERE "n"."nspname" = '<schema>'::name AND ...;
+ *     EXECUTE '<the rewrite check of the view>' INTO "c0" USING '<schema>', '<view>';
+ *     IF NOT "p0" IS TRUE AND "c0" IS TRUE THEN RAISE EXCEPTION ... USING ERRCODE = '40Z01', DETAIL = '... 0'; END IF;
  *     IF "p0" IS TRUE THEN EXECUTE '<REFRESH ... CONCURRENTLY>'; ELSE EXECUTE '<REFRESH ...>'; END IF;
- *   END $grizzle$
+ *   END
+ *   $$
  *
  * Every populated reading and every rewrite check comes before the first refresh statement, as they would in their own
- * statements. The body is dollar-quoted under a tag it does not contain.
+ * statements. The printer dollar-quotes the body under a tag it does not contain and quotes each executed statement.
  */
-export const refreshBlock = (views: ReadonlyArray<ObjectName>): string => {
-	/** Each view with its index and the two variables the block reads it into: whether it is populated, and its check. */
-	const slots = Arr.map(views, (view, i) => ({ view, i, p: `"p${i}"`, c: `"c${i}"` }))
-	const declare = Arr.join(
-		Arr.map(slots, (s) => `${s.p} boolean; ${s.c} text;`),
-		" "
-	)
-	const reads = Arr.map(slots, ({ view, p }) => {
-		const schema = view.schema
-		return (
-			`SELECT "c"."relispopulated" INTO ${p} FROM "pg_catalog"."pg_class" AS "c" ` +
-			'JOIN "pg_catalog"."pg_namespace" AS "n" ON "n"."oid" = "c"."relnamespace" ' +
-			`WHERE "n"."nspname" = ${literal(schema)}::name AND "c"."relname" = ${literal(view.name)}::name ` +
-			`AND "c"."relkind" = 'm'::"char";`
-		)
+export const refreshBlock = (targets: NonEmptyReadonlyArray<ObjectName>): EmittedText => {
+	const slots = mapNonEmpty(targets, (view, i) => ({ view, i, p: `p${i}`, c: `c${i}` }))
+	const reads = Arr.map(slots, ({ view, p }): C.DoStatement => ({
+		kind: "selectInto",
+		query: C.core(
+			[views.col("relispopulated")],
+			[viewsIn],
+			C.and([
+				C.eq(viewSchemas.col("nspname"), C.literal(view.schema, "name")),
+				C.eq(views.col("relname"), C.literal(view.name, "name")),
+				isView
+			])
+		),
+		into: [p]
+	}))
+	const checks = Arr.map(slots, ({ view, c }): C.DoStatement => ({
+		kind: "execute",
+		command: { kind: "statement", statement: rewrittenSelect(view) },
+		into: c,
+		using: rewrittenParams(view)
+	}))
+	const refusals = Arr.map(slots, ({ i, p, c }): C.DoStatement => ({
+		kind: "if",
+		branches: [
+			{
+				condition: {
+					kind: "and",
+					args: [{ kind: "not", expr: isTrue(variable(p)) }, isTrue(variable(c))]
+				},
+				body: [
+					{
+						kind: "raise",
+						message: "grizzle refused the refresh",
+						using: [
+							{
+								option: "ERRCODE",
+								value: lit.text(sqlstates.grizzleConcurrentChange, types.text)
+							},
+							{ option: "DETAIL", value: lit.text(concurrentRefreshDetail(i), types.text) }
+						]
+					}
+				]
+			}
+		],
+		else: []
+	}))
+	const refreshes = mapNonEmpty(slots, ({ view, p }): C.DoStatement => ({
+		kind: "if",
+		branches: [{ condition: isTrue(variable(p)), body: [refreshOf(view, true)] }],
+		else: [refreshOf(view, false)]
+	}))
+	return emitCatalog({
+		kind: "do",
+		declare: Arr.flatMap(slots, ({ p, c }) => [
+			{ name: p, type: types.boolean },
+			{ name: c, type: types.boolean }
+		]),
+		body: concatNonEmpty([...reads, ...checks, ...refusals], refreshes)
 	})
-	const checks = Arr.map(
-		slots,
-		({ view, c }) =>
-			`EXECUTE ${literal(rewrittenSql(view))} INTO ${c} USING ` +
-			`${Arr.join(
-				Arr.map(rewrittenParams(view), (p) => literal(p)),
-				", "
-			)};`
-	)
-	const refusals = Arr.map(
-		slots,
-		({ i, p, c }) =>
-			`IF ${p} IS NOT TRUE AND ${c} = 'true' THEN RAISE EXCEPTION 'grizzle refused the refresh' ` +
-			`USING ERRCODE = ${literal(sqlstates.grizzleConcurrentChange)}, DETAIL = ${literal(concurrentRefreshDetail(i))}; END IF;`
-	)
-	const refreshes = Arr.map(
-		slots,
-		({ view, p }) =>
-			`IF ${p} IS TRUE THEN EXECUTE ${literal(refreshSql(view, true))}; ` +
-			`ELSE EXECUTE ${literal(refreshSql(view, false))}; END IF;`
-	)
-	const body = `DECLARE ${declare} BEGIN ${Arr.join([...reads, ...checks, ...refusals, ...refreshes], " ")} END`
-	let tag = "$grizzle$"
-	for (let n = 1; Str.includes(tag)(body); n++) {
-		tag = `$grizzle${n}$`
-	}
-	return `DO ${tag} ${body} ${tag}`
 }

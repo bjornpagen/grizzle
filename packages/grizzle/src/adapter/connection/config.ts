@@ -96,7 +96,7 @@ export const parseConnection = (
 					plain[key] = value[key]
 				}
 			}
-			hostArguments(where, plain)
+			hostArguments(where, [plain])
 			return Result.succeed({ keys, plain, password })
 		}
 	)

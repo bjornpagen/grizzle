@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, filter, type Gen, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Result } from "effect"
@@ -372,7 +372,7 @@ const verdictFeatures = (s: Shape, c: EntryClass): ReadonlyArray<ShapeFeature> =
 	]
 }
 
-const required: ReadonlyArray<ShapeFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<ShapeFeature> = [
 	"refused: several-rules",
 	"refused: no-supplier",
 	"refused: head-term-not-own-field",
@@ -403,7 +403,7 @@ describe("the writable-entry rule", () => {
 						generator: shapes,
 						literal: Formatter.format,
 						limit: 6000,
-						features: features(required),
+						coverage: requiredInSpace(situations),
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>

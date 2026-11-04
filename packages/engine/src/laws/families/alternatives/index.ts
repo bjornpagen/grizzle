@@ -1,72 +1,98 @@
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import type { RosterHandle } from "#compiler/ir/law.ts"
 import {
-	childProbe,
+	owed,
+	type ParentRow,
 	parentRead,
-	parentVariable,
-	unlessFound
+	parentVariable
 } from "#compiler/laws/families/alternatives/parent.ts"
 import type { FamilyPlugin } from "#compiler/laws/families/plugin.ts"
 import { literalExpr } from "#compiler/laws/residual/sql.ts"
-import type { PlStatement } from "#compiler/sql/ast.ts"
-import { types } from "#compiler/sql/build.ts"
+import type { Expr, PlStatement } from "#compiler/sql/ast.ts"
+import { eq, types } from "#compiler/sql/build.ts"
 
-/** The alternatives reverse family. `alternatives(Parent, "kind", Roster, { Handle: Arm, ... })` lowers to native objects and one residual law: the parent's generated UNIQUE (key, kind), each arm's constant STORED tag and its deferred composite
- * foreign key into that unique, which reject orphan and wrong-arm payloads, and the family's reverse law, every parent
- * has the payload of its selected arm. Only that reverse obligation is checked here; the function never repeats the
- * child-to-parent checks the tagged foreign keys already make. For one affected parent key, in the parent's
- * key order:
+/** One WHEN of a PL/pgSQL CASE. */
+type CaseWhen = Extract<PlStatement, { readonly kind: "case" }>["whens"][number]
+
+/** The alternatives reverse family. `alternatives(Parent, "kind", Roster, { Handle: Arm, ... })` lowers to native
+ * objects and one residual law: the parent's generated UNIQUE (key, kind), each arm's constant STORED tag and its
+ * deferred composite foreign key into that unique, which reject orphan and wrong-arm payloads, and the family's reverse
+ * law, every parent has the payload of its selected arm. Only that reverse obligation is checked here; no function
+ * repeats the child-to-parent checks the tagged foreign keys already make.
+ *
+ * The reverse law's violation is a union of one term per armed handle, each reading the parent and that handle's arm
+ * relation, so each participant re-checks exactly the terms its writes can break (`AlternativesCheck`). The parent's
+ * units dispatch its final kind over the whole roster, in roster order, for one affected parent key:
  *
  *   FOR p IN SELECT r1.<k1> AS c1, ..., r1.<kind> AS cn FROM <parent> AS r1 WHERE r1.<k1> = <key1> ... LOOP
  *     CASE p.cn
- *       WHEN '<Handle>'::<roster> THEN
+ *       WHEN '<unarmed handle>'::<roster> THEN
+ *       WHEN '<armed handle>'::<roster> THEN
  *         PERFORM 1 FROM <arm> AS r1 WHERE r1.<armkey1> = p.c1 AND ...;
+ *         IF NOT FOUND THEN RAISE ... END IF;
  *       ...
  *     END CASE;
- *     IF NOT FOUND THEN RAISE ... END IF;
  *   END LOOP;
  *
- * Step 2 reads the parent row with its current discriminator (`parentRead`). A parent that is gone reads no
- * row, which is no obligation. A parent whose kind changed again since the event is judged by its final kind, the one
- * the read returns. The loop body dispatches that kind once and probes the selected arm by its key: one parent key
- * read and one selected child probe, not one probe per arm.
+ * An unarmed handle owes nothing, and its WHEN is empty; the CASE has no ELSE, so a kind outside the roster, which the
+ * enum type already refuses, raises CASE_NOT_FOUND. An arm relation's units check only its own arms, the parent at its
+ * OLD key judged by its final kind:
  *
- * A handle the arm map omits carries no payload: a parent selecting it requires nothing, and the tagged
- * foreign keys of the other arms already forbid a payload in them. Its dispatch is the CASE's ELSE, which does nothing.
- * A CASE without ELSE raises CASE_NOT_FOUND for an unmatched value, so the ELSE is present exactly when the arm map
- * omits a handle. An empty ELSE leaves FOUND as it was before the CASE, so with an ELSE each armed branch raises after
- * its own probe; with every handle armed the one refusal follows END CASE.
+ *   FOR p IN ... WHERE r1.<k1> = OLD.<armkey1> ... LOOP
+ *     IF p.cn = '<handle>'::<roster> THEN
+ *       PERFORM 1 FROM <arm> AS r1 WHERE ...;
+ *       IF NOT FOUND THEN RAISE ... END IF;
+ *     ELSIF ... END IF;
+ *   END LOOP;
  *
- * The event table: a parent INSERT checks NEW's key, an arm DELETE OLD's parent key; for a `mutable`
- * parent an UPDATE OF its key or discriminator checks NEW's key, and for a `mutable` arm an UPDATE OF its key checks
- * the old and the new parent,, in key order. A parent deletion and an arm
- * insertion cannot break the reverse obligation, so neither fires. */
-export const alternativesFamily: FamilyPlugin<"alternativesReverse"> = ({ law, schema, shown }) => {
-	const discriminator = law.discriminator
-	const armed = law.unarmed.length === 0
-	const check = parentRead(
-		law,
-		schema,
-		[discriminator],
-		shown(law.detail.relation.name),
-		(parent): ReadonlyArray<PlStatement> => {
-			const whens = law.arms.map((arm) => {
-				const probe = childProbe(schema, arm, parent.field)
-				return {
-					values: [
-						literalExpr({ kind: "enum", handle: arm.handle }, discriminator.type, schema, law.lawId)
-					],
-					body: armed ? [probe] : [probe, unlessFound(parent.raise)]
-				}
-			})
-			const operand = parent.field(discriminator)
-			const dispatch: PlStatement = armed
-				? { kind: "case", operand, whens, else: undefined }
-				: { kind: "case", operand, whens, else: [] }
-			return armed ? [dispatch, unlessFound(parent.raise)] : [dispatch]
+ * Step 2 reads the parent row with its current discriminator (`parentRead`). A parent that is gone reads no row, which
+ * is no obligation. A parent whose kind changed again since the event is judged by its final kind, the one the read
+ * returns: one parent key read and one selected child probe. The branches of an arm relation two handles share compare
+ * one field with distinct literals, so they are disjoint.
+ *
+ * The event table: a parent INSERT checks NEW's key, an arm DELETE OLD's parent key; for a `mutable` parent an UPDATE OF
+ * its key or discriminator checks NEW's key, and for a `mutable` arm an UPDATE OF its key checks the OLD parent, which
+ * is the parent the moved payload left. A parent deletion and an arm insertion cannot break the reverse obligation, so
+ * neither fires. */
+export const alternativesFamily: FamilyPlugin<"alternativesReverse"> =
+	({ law, schema, names, shown }) =>
+	(participant) => {
+		const handle = (h: string): Expr =>
+			literalExpr({ kind: "enum", handle: h }, law.discriminator.type, names, law.lawId)
+		const rosterWhen = (h: RosterHandle, parent: ParentRow): CaseWhen => {
+			switch (h.kind) {
+				case "armed":
+					return { values: [handle(h.arm.handle)], body: [owed(schema, h.arm, parent)] }
+				case "unarmed":
+					return { values: [handle(h.handle)], body: [] }
+			}
 		}
-	)
-	return {
-		declare: [{ name: parentVariable, type: types.record }],
-		/** Steps 2 and 3 for one affected parent key (see `alternativesFamily`). */
-		check
+		const body = (parent: ParentRow): ReadonlyArray<PlStatement> => {
+			const check = participant.check
+			switch (check.kind) {
+				case "roster":
+					return [
+						{
+							kind: "case",
+							operand: parent.field(law.discriminator),
+							whens: mapNonEmpty(check.handles, (h) => rosterWhen(h, parent))
+						}
+					]
+				case "arms":
+					return [
+						{
+							kind: "if",
+							branches: mapNonEmpty(check.arms, (arm) => ({
+								condition: eq(parent.field(law.discriminator), handle(arm.handle)),
+								body: [owed(schema, arm, parent)]
+							})),
+							else: []
+						}
+					]
+			}
+		}
+		return {
+			declare: [{ name: parentVariable, type: types.record }],
+			check: parentRead(law, schema, [law.discriminator], shown(law.detail.relation.name), body)
+		}
 	}
-}

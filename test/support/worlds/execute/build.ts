@@ -36,6 +36,7 @@ import type { Relation } from "#compiler/types/schema/relation.ts"
 import type { EnumClosed } from "#compiler/types/schema/relation.ts"
 import type { AnyContext } from "#compiler/types/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
+import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { definitionOf, type RuleSources } from "#test/support/worlds/execute/describe.ts"
 import { carrierOf, isWide } from "#test/support/worlds/execute/host.ts"
 import { attempt, type RealizeRefused } from "#test/support/worlds/execute/refused.ts"
@@ -248,10 +249,10 @@ const contextOf = (spec: ContextSpec, kit: Kit): Effect.Effect<AnyContext, Reali
 	Effect.gen(function* () {
 		const fields = yield* recordOf(spec.fields, (domain) => contextFieldOf(domain, kit))
 		const claim = spec.claim
-		const args: ReadonlyArray<unknown> =
-			claim.kind === "top-level" ? [spec.name, fields] : [spec.name, fields, { claim: claim.key }]
-		const value = yield* attempt<unknown>(`context ${spec.name}`, () =>
-			Reflect.apply(context, undefined, args)
+		const value = yield* attempt<unknown>(`context ${spec.name}`, (): unknown =>
+			claim.kind === "top-level"
+				? Reflect.apply(context, undefined, [spec.name, fields])
+				: Reflect.apply(context, undefined, [spec.name, fields, { claim: claim.key }])
 		)
 		return isContext(value)
 			? value
@@ -275,7 +276,9 @@ const sideOf = (space: Space, side: SideSpec) =>
 				(domain) => [field, carrierOf(domain, value)] as const
 			)
 		)
-		return where.length === 0 ? on(r, ...fields) : on(select(r, Rec.fromEntries(where)), ...fields)
+		return where.length === 0
+			? on(r, ...nonEmptyArgumentsOf(fields))
+			: on(select(r, Rec.fromEntries(where)), ...nonEmptyArgumentsOf(fields))
 	})
 
 const boundOf = (bound: HostBound): bigint | ReturnType<typeof ref> =>
@@ -429,7 +432,9 @@ const predicateOf = (
 	domains: Readonly<Record<string, FieldDomain>>
 ): Predicate => {
 	if (predicate.kind === "and") {
-		return row.and(...Arr.map(predicate.parts, (part) => predicateOf(row, part, domains)))
+		return row.and(
+			...argumentsOf(Arr.map(predicate.parts, (part) => predicateOf(row, part, domains)))
+		)
 	}
 	const term = row[predicate.field]
 	const domain = domains[predicate.field]
@@ -487,7 +492,7 @@ export const buildBase = (
 				level,
 				`derived ${d.name}`
 			)
-			const value = yield* attempt(`derived ${d.name}`, () => derived(d.name, definition))
+			const value = yield* attempt(`derived ${d.name}`, () => derived(d.name, definition, []))
 			derivedValues[d.name] = value
 			base = yield* attempt(`derived ${d.name}`, () =>
 				schema.extend(level, { [d.name]: value }, [])

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -52,7 +52,10 @@ const armOf = (arm: Arm): RuleDesc =>
 	rule({
 		vars: [plainVar("self.a")],
 		matches: [
-			match({ kind: "self" }, { a: s("a"), b: arm === "b repeating a" ? s("a") : param("start") })
+			match(
+				{ kind: "self" },
+				{ a: s("a"), b: arm === "b repeating a" ? s("a") : param("start", uuidField) }
+			)
 		],
 		where: [],
 		head: { a: s("a"), b: s("a") },
@@ -95,7 +98,11 @@ describe("factoring transition arms into one feedback scan", () => {
 						generator: subarray<Arm>(["b repeating a", "b fixed to a parameter"]),
 						literal: Formatter.format,
 						limit: 4,
-						features: features<Arm | "both">(["b repeating a", "b fixed to a parameter", "both"]),
+						coverage: requiredInSpace<Arm | "both">([
+							"b repeating a",
+							"b fixed to a parameter",
+							"both"
+						]),
 						caseHang: Duration.minutes(2)
 					},
 					(arms, c) =>

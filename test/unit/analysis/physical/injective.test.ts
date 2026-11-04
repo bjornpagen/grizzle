@@ -1,18 +1,19 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Result } from "effect"
-import { castInjective } from "#compiler/analysis/physical/injective.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { builtExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import { builtExpr, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import { castInjective } from "#compiler/ir/injective.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { compareValues } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { castOf } from "#compiler/scalar/compute/registry.ts"
+import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
@@ -20,7 +21,7 @@ import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 /**
  * Injective representation through a cast: which native casts keep a key, judged by evaluating them.
  *
- * castInjective (analysis/physical/injective.ts) decides, without values, whether a native cast maps values that are
+ * castInjective (ir/injective.ts) decides, without values, whether a native cast maps values that are
  * distinct under native equality to distinct values. The oracle evaluates the cast: every value of a dictionary of the
  * values the casts branch on (integer range edges, the integers binary32 and binary64 round onto their neighbours,
  * halves and ties, scales that round onto each other, the signed zeros, NaN and the infinities) is cast into each
@@ -89,7 +90,7 @@ const float = (value: number): TypedLiteral =>
 			? { kind: "floatSpecial", value: "Infinity" }
 			: value === Number.NEGATIVE_INFINITY
 				? { kind: "floatSpecial", value: "-Infinity" }
-				: { kind: "float", value }
+				: { kind: "float", value: canonicalZero(value) }
 
 /** The dictionary, each value a literal of the widest type of its family. */
 const dictionary: ReadonlyArray<{ readonly literal: TypedLiteral; readonly type: ScalarType }> = [
@@ -170,6 +171,39 @@ const dictionary: ReadonlyArray<{ readonly literal: TypedLiteral; readonly type:
 	)
 ]
 
+/**
+ * A cast of `arg` into `type` as the registry names it: the coercion within a carrier, a cast defined on every value,
+ * or a narrowing beside a proof, which the evaluator never reads; the evaluator states where a narrowing is undefined.
+ */
+const castNode = (arg: ScalarExpr, type: ScalarType, id: ExprId): ScalarExpr => {
+	const from = baseOf(arg.type).carrier
+	const to = baseOf(type).carrier
+	const native = from === to ? undefined : castOf(from, to)
+	const common = {
+		kind: "cast",
+		args: [arg],
+		nonNull: "strict",
+		type,
+		volatility: "immutable"
+	} as const
+	if (native === undefined) {
+		return builtExpr({ ...common, cast: binaryCoercion }, id)
+	}
+	return native.partial
+		? builtExpr(
+				{
+					...common,
+					cast: native.id,
+					proof: {
+						precondition: { kind: "fits" },
+						premises: [{ kind: "checked", operand: 0, by: "literal" }]
+					}
+				},
+				id
+			)
+		: builtExpr({ ...common, cast: native.id }, id)
+}
+
 /** The value a literal casts to in `source`, then in `target`, by the oracle's evaluator: each a value or a refusal. */
 const castChain = (
 	literal: TypedLiteral,
@@ -181,28 +215,8 @@ const castChain = (
 		{ kind: "literal", value: literal, args: [], nonNull: "literal", type: wide },
 		ExprId("e0")
 	)
-	const sourced = builtExpr(
-		{
-			kind: "cast",
-			checked: true,
-			args: [value],
-			nonNull: "strict",
-			type: source,
-			volatility: "immutable"
-		},
-		ExprId("e1")
-	)
-	const targeted = builtExpr(
-		{
-			kind: "cast",
-			checked: true,
-			args: [sourced],
-			nonNull: "strict",
-			type: target,
-			volatility: "immutable"
-		},
-		ExprId("e2")
-	)
+	const sourced = castNode(value, source, ExprId("e1"))
+	const targeted = castNode(sourced, target, ExprId("e2"))
 	return { source: evaluate(sourced, constantEnv), target: evaluate(targeted, constantEnv) }
 }
 
@@ -233,6 +247,7 @@ const family = (t: ScalarType): Family => {
 		case "int2":
 		case "int4":
 		case "int8":
+		case "exactInteger":
 			return "integer"
 		case "float4":
 		case "float8":
@@ -240,6 +255,7 @@ const family = (t: ScalarType): Family => {
 		case "bool":
 		case "enum":
 		case "money":
+		case "exactMoney":
 		case "numeric":
 		case "range4":
 		case "range8":
@@ -262,7 +278,7 @@ describe("castInjective", () => {
 	it.effect(
 		"admits only casts that merge no two values of their source, and every refusal it decides has a merge",
 		(ctx) => {
-			const required = features<InjectiveFeature>([
+			const situations = requiredInSpace<InjectiveFeature>([
 				"integer->integer admitted",
 				"integer->float admitted",
 				"integer->float refused, a merge witnessed",
@@ -285,7 +301,7 @@ describe("castInjective", () => {
 						literal: Formatter.format,
 						/** Every ordered pair of the types, each once. */
 						limit: types.length * types.length,
-						features: required,
+						coverage: situations,
 						caseHang: Duration.minutes(2)
 					},
 					([from, to], c) =>

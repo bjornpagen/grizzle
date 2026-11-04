@@ -1,7 +1,8 @@
-import { type Column, convertColumn } from "#compiler/core/decoder.ts"
+import { type Column, convertColumn, textColumn } from "#compiler/core/decoder.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 
 /** The unbranded host value of each SQL type a plain result can have. */
 export interface PlainHost {
@@ -13,8 +14,10 @@ export interface PlainHost {
 	readonly "double precision": number
 	readonly money: Money
 	readonly boolean: boolean
-	readonly uuid: string
+	readonly uuid: Uuid
 	readonly text: string
+	readonly "exact integer": bigint
+	readonly "exact money": Money
 }
 export type PlainSql = keyof PlainHost
 
@@ -32,7 +35,7 @@ export type PlainSql = keyof PlainHost
  * read the plain column of the SQL type of the result's carrier, which the builder's check narrowed to a plain one
  * (builders.ts finishPlain).
  *
- * The plain column of each SQL type: its carrier's conversion.
+ * The plain column of each SQL type: its carrier's conversion, and a uuid's text column over Uuid (scalar/uuid.ts).
  */
 export const plainColumns: { readonly [S in PlainSql]: Column<PlainHost[S]> } = Object.freeze({
 	smallint: convertColumn(convertByCarrier.int2({ carrier: "int2" })),
@@ -43,8 +46,10 @@ export const plainColumns: { readonly [S in PlainSql]: Column<PlainHost[S]> } = 
 	"double precision": convertColumn(convertByCarrier.float8({ carrier: "float8" })),
 	money: convertColumn(convertByCarrier.money({ carrier: "money" })),
 	boolean: convertColumn(convertByCarrier.bool({ carrier: "bool" })),
-	uuid: convertColumn(convertByCarrier.uuid({ carrier: "uuid" })),
-	text: convertColumn(convertByCarrier.text({ carrier: "text" }))
+	uuid: textColumn<Uuid>(),
+	text: convertColumn(convertByCarrier.text({ carrier: "text" })),
+	"exact integer": convertColumn(convertByCarrier.exactInteger({ carrier: "exactInteger" })),
+	"exact money": convertColumn(convertByCarrier.exactMoney({ carrier: "exactMoney" }))
 })
 
 /**
@@ -60,34 +65,108 @@ export type NumericSql =
 	| "real"
 	| "double precision"
 	| "money"
-export type SignedSql = Exclude<NumericSql, "money">
-export type IntegralSql = "smallint" | "integer" | "bigint" | "numeric"
+	| "exact integer"
+	| "exact money"
+export type SignedSql = Exclude<NumericSql, "money" | "exact money">
+export type IntegralSql = "smallint" | "integer" | "bigint" | "numeric" | "exact integer"
 export type PowerSql = "numeric" | "double precision"
 export type EndpointSql = "integer" | "bigint"
+/** The SQL types whose values a narrowing cast into an integer or money needs proved finite: numeric and the floats. */
+export type InexactSql = "numeric" | "real" | "double precision"
 
-/** money / money is double precision; every other quotient keeps its operand's type. */
+/**
+ * The result of +, -, *, unary minus and abs over each SQL type: integers and money exactly, an exact integer and
+ * exact money, which never overflow (scalar/compute/registry.ts Totality exact); numeric and the floats their own.
+ */
+export interface ArithmeticSql {
+	readonly smallint: "exact integer"
+	readonly integer: "exact integer"
+	readonly bigint: "exact integer"
+	readonly numeric: "numeric"
+	readonly real: "real"
+	readonly "double precision": "double precision"
+	readonly money: "exact money"
+	readonly "exact integer": "exact integer"
+	readonly "exact money": "exact money"
+}
+
+export const arithmeticSql: ArithmeticSql = Object.freeze({
+	smallint: "exact integer",
+	integer: "exact integer",
+	bigint: "exact integer",
+	numeric: "numeric",
+	real: "real",
+	"double precision": "double precision",
+	money: "exact money",
+	"exact integer": "exact integer",
+	"exact money": "exact money"
+})
+
+/**
+ * The result of / over each SQL type: integer division truncates over the exact integers, money / money is double
+ * precision, numeric and the floats keep theirs.
+ */
 export interface QuotientSql {
-	readonly smallint: "smallint"
-	readonly integer: "integer"
-	readonly bigint: "bigint"
+	readonly smallint: "exact integer"
+	readonly integer: "exact integer"
+	readonly bigint: "exact integer"
 	readonly numeric: "numeric"
 	readonly real: "real"
 	readonly "double precision": "double precision"
 	readonly money: "double precision"
+	readonly "exact integer": "exact integer"
+	readonly "exact money": "double precision"
 }
 
 export const quotientSql: QuotientSql = Object.freeze({
+	smallint: "exact integer",
+	integer: "exact integer",
+	bigint: "exact integer",
+	numeric: "numeric",
+	real: "real",
+	"double precision": "double precision",
+	money: "double precision",
+	"exact integer": "exact integer",
+	"exact money": "double precision"
+})
+
+/** gcd's and lcm's result: the integers' exact, numeric's numeric. */
+export interface DivisorSql {
+	readonly smallint: "exact integer"
+	readonly integer: "exact integer"
+	readonly bigint: "exact integer"
+	readonly numeric: "numeric"
+	readonly "exact integer": "exact integer"
+}
+
+export const divisorSql: DivisorSql = Object.freeze({
+	smallint: "exact integer",
+	integer: "exact integer",
+	bigint: "exact integer",
+	numeric: "numeric",
+	"exact integer": "exact integer"
+})
+
+/** % over each SQL type: an integer's remainder keeps its type, as it fits its divisor's; numeric's numeric. */
+export interface RemainderSql {
+	readonly smallint: "smallint"
+	readonly integer: "integer"
+	readonly bigint: "bigint"
+	readonly numeric: "numeric"
+	readonly "exact integer": "exact integer"
+}
+
+export const remainderSql: RemainderSql = Object.freeze({
 	smallint: "smallint",
 	integer: "integer",
 	bigint: "bigint",
 	numeric: "numeric",
-	real: "real",
-	"double precision": "double precision",
-	money: "double precision"
+	"exact integer": "exact integer"
 })
 
 /**
- * SUM's result type: smallint and integer give bigint, bigint and numeric numeric; the floats and money keep theirs.
+ * SUM's result type: smallint and integer give bigint, bigint and numeric numeric, the floats keep theirs, money and
+ * the exact values an exact one (scalar/aggregate.ts).
  */
 export interface SumSql {
 	readonly smallint: "bigint"
@@ -96,7 +175,9 @@ export interface SumSql {
 	readonly numeric: "numeric"
 	readonly real: "real"
 	readonly "double precision": "double precision"
-	readonly money: "money"
+	readonly money: "exact money"
+	readonly "exact integer": "exact integer"
+	readonly "exact money": "exact money"
 }
 
 export const sumSql: SumSql = Object.freeze({
@@ -106,7 +187,9 @@ export const sumSql: SumSql = Object.freeze({
 	numeric: "numeric",
 	real: "real",
 	"double precision": "double precision",
-	money: "money"
+	money: "exact money",
+	"exact integer": "exact integer",
+	"exact money": "exact money"
 })
 
 /**
@@ -119,6 +202,7 @@ export interface AvgSql {
 	readonly numeric: "numeric"
 	readonly real: "double precision"
 	readonly "double precision": "double precision"
+	readonly "exact integer": "numeric"
 }
 
 export const avgSql: AvgSql = Object.freeze({
@@ -127,5 +211,6 @@ export const avgSql: AvgSql = Object.freeze({
 	bigint: "numeric",
 	numeric: "numeric",
 	real: "double precision",
-	"double precision": "double precision"
+	"double precision": "double precision",
+	"exact integer": "numeric"
 })

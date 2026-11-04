@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -13,6 +13,7 @@ import {
 	oneOf,
 	string
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
@@ -27,6 +28,7 @@ import {
 	cliError as cliRefused
 } from "#cli/errors.ts"
 
+import { appendAll } from "#compiler/core/array.ts"
 import {
 	CompileError,
 	type CompileReasonTag,
@@ -221,9 +223,9 @@ const changed = (
 		if (pool.length === 0) {
 			break
 		}
-		permuted.push(...pool.splice(pickIndex(pick, pool.length), 1))
+		appendAll(permuted, pool.splice(pickIndex(pick, pool.length), 1))
 	}
-	permuted.push(...pool)
+	appendAll(permuted, pool)
 	/** The changed position; an empty list has none, so removing or replacing there changes nothing. */
 	const at = permuted.length === 0 ? -1 : pickIndex(defined(picks[0], "six picks"), permuted.length)
 	switch (change) {
@@ -245,7 +247,6 @@ const spec = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(2)
 } as const
 
@@ -281,13 +282,10 @@ describe("the assertion door", () => {
 						other: source.draw(elementGen)
 					})),
 					runs: 300,
-					features: features<`${Change} ${"holds" | "fails"}`>([
-						"permuted holds",
-						"removed fails",
-						"added fails",
-						"replaced holds",
-						"replaced fails"
-					])
+					coverage: required<`${Change} ${"holds" | "fails"}`>(
+						["permuted holds", "removed fails", "added fails", "replaced holds", "replaced fails"],
+						{ cases: 300, sense: notesOnly }
+					)
 				},
 				({ xs, change, picks, other }, c) =>
 					Effect.sync(() => {
@@ -316,11 +314,10 @@ describe("the assertion door", () => {
 						suite: "unit/kernel/refused",
 						draw: drawn(plantedGen(proseTags)),
 						runs: 200,
-						features: features<"success" | "same reason" | "other reason">([
-							"success",
-							"same reason",
-							"other reason"
-						])
+						coverage: required<"success" | "same reason" | "other reason">(
+							["success", "same reason", "other reason"],
+							{ cases: 200, sense: notesOnly }
+						)
 					},
 					({ outcome, same, other, named: reason }, c) =>
 						Effect.sync(() => {
@@ -368,11 +365,10 @@ describe("the assertion door", () => {
 					suite: "unit/kernel/faulted",
 					draw: drawn(plantedGen(valueFaultWords)),
 					runs: 200,
-					features: features<"success" | "same fault" | "other fault">([
-						"success",
-						"same fault",
-						"other fault"
-					])
+					coverage: required<"success" | "same fault" | "other fault">(
+						["success", "same fault", "other fault"],
+						{ cases: 200, sense: notesOnly }
+					)
 				},
 				({ outcome, same, other, named: fault }, c) =>
 					Effect.sync(() => {
@@ -407,11 +403,10 @@ describe("the assertion door", () => {
 							text: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 12 }))
 						})),
 						runs: 200,
-						features: features<"success" | "same stage" | "other stage">([
-							"success",
-							"same stage",
-							"other stage"
-						])
+						coverage: required<"success" | "same stage" | "other stage">(
+							["success", "same stage", "other stage"],
+							{ cases: 200, sense: notesOnly }
+						)
 					},
 					({ planted: { outcome, same, other, named }, text }, c) =>
 						Effect.sync(() => {
@@ -452,16 +447,19 @@ describe("the assertion door", () => {
 							pattern: source.draw(optionPatternGen)
 						})),
 						runs: 200,
-						features:
-							features<`${OptionPattern["kind"]} against ${"none" | "some"} ${"holds" | "fails"}`>([
-								"none against none holds",
-								"none against some fails",
-								"value against none fails",
-								"value against some holds",
-								"value against some fails",
-								"any string against some holds",
-								"any string against none fails"
-							])
+						coverage:
+							required<`${OptionPattern["kind"]} against ${"none" | "some"} ${"holds" | "fails"}`>(
+								[
+									"none against none holds",
+									"none against some fails",
+									"value against none fails",
+									"value against some holds",
+									"value against some fails",
+									"any string against some holds",
+									"any string against none fails"
+								],
+								{ cases: 200, sense: notesOnly }
+							)
 					},
 					({ table, column, pattern }, c) =>
 						Effect.sync(() => {
@@ -505,15 +503,18 @@ describe("the assertion door", () => {
 							named: source.draw(element(namedTags))
 						})),
 						runs: 300,
-						features: features<`${ThunkOutcome} ${"holds" | "fails"}`>([
-							"returns fails",
-							"a refusal holds",
-							"a refusal fails",
-							"a collision holds",
-							"a collision fails",
-							"a look-alike fails",
-							"an Error fails"
-						])
+						coverage: required<`${ThunkOutcome} ${"holds" | "fails"}`>(
+							[
+								"returns fails",
+								"a refusal holds",
+								"a refusal fails",
+								"a collision holds",
+								"a collision fails",
+								"a look-alike fails",
+								"an Error fails"
+							],
+							{ cases: 300, sense: notesOnly }
+						)
 					},
 					({ outcome, same, located, named }, c) =>
 						Effect.sync(() => {

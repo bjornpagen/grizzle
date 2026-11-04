@@ -26,9 +26,12 @@ import type {
 	EvidenceOfQuery,
 	Ordered,
 	OrderedBase,
+	PageOf,
+	PageOverGroups,
 	ParamsOf,
 	Query,
-	QueryBase
+	QueryBase,
+	UnionArms
 } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { LevelsOf } from "#compiler/types/schema/schema.ts"
@@ -122,11 +125,12 @@ export interface DbOf<R, P> extends QueryReader<R> {
 		Hc extends Carriers,
 		W extends string,
 		Reads,
-		Cx extends string
+		Cx extends string,
+		Arms extends UnionArms
 	>(
 		program: (
-			| Query<L, Head, Ev, P, IHead, Hc, Cx>
-			| Ordered<L, Head, Ev, P, IHead, Hc, Cx>
+			| Query<L, Head, Ev, P, IHead, Hc, Cx, Arms>
+			| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
 			| ChangeSet<L, P, W, Reads, Cx>
 		) &
 			WithinRoleContexts<R, Cx>,
@@ -196,9 +200,13 @@ export interface QueryReader<S> {
 		P,
 		IHead,
 		Hc extends Carriers,
-		Cx extends string
+		Cx extends string,
+		Arms extends UnionArms
 	>(
-		query: (Query<L, Head, Ev, P, IHead, Hc, Cx> | Ordered<L, Head, Ev, P, IHead, Hc, Cx>) &
+		query: (
+			| Query<L, Head, Ev, P, IHead, Hc, Cx, Arms>
+			| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
+		) &
 			WithinRoleContexts<S, Cx>,
 		params: NoInfer<ParamArg<P>>
 	): Effect.Effect<QueryResult<Head>, ReadError>
@@ -209,12 +217,18 @@ export interface QueryReader<S> {
 		P,
 		IHead,
 		Hc extends Carriers,
-		Cx extends string
+		Cx extends string,
+		Arms extends UnionArms
 	>(
-		query: Ordered<L, Head, Ev, P, IHead, Hc, Cx> & WithinRoleContexts<S, Cx>,
+		query: Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms> &
+			WithinRoleContexts<S, Cx> &
+			PageOverGroups<Arms, Head, Hc>,
 		params: NoInfer<ParamArg<P>>,
 		request: PageRequest
-	): Effect.Effect<Page<Head, Ordered<L, Head, Ev, P, IHead, Hc, Cx>>, ReadError | CursorError>
+	): Effect.Effect<
+		Page<Head, Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>>,
+		ReadError | CursorError
+	>
 }
 
 /** What db.compile compiles: a query, an ordered query or a ChangeSet. */
@@ -258,7 +272,7 @@ type ReadOp<X> = X extends AnyChangeSet
 type ApplyOp<X> = X extends AnyChangeSet
 	? unknown
 	: Refusal<"a compiled ChangeSet applies, and a compiled query reads">
-type PageOp<X> = X extends OrderedBase ? unknown : Refusal<"page needs an ordered query">
+type PageOp<X> = X extends OrderedBase ? PageOf<X> : Refusal<"page needs an ordered query">
 type GetOp<X> = X extends AnyChangeSet
 	? Refusal<"a compiled ChangeSet applies, and a compiled query reads">
 	: X extends KeyTarget

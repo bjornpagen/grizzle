@@ -29,7 +29,7 @@
 
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	constant,
@@ -45,6 +45,7 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { pctSchedule } from "@grizzle/testing/interleave"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -63,6 +64,7 @@ import {
 import { dbContext } from "#adapter/db/context.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -770,9 +772,7 @@ const changeSetOf = (
 						return changes.put(
 							Note,
 							query(schemaValue).rule((r: RuleValue) =>
-								r
-									.match(Note, { id: Number(m.id) })
-									.find({ id: r.literal(Number(m.id)), label: r.literal(m.label) })
+								r.match(Note, { id: Number(m.id) }).find({ id: Number(m.id), label: m.label })
 							)
 						)
 					case "scoped": {
@@ -782,14 +782,14 @@ const changeSetOf = (
 							.put(
 								Note,
 								query(schemaValue).rule((r: RuleValue) => {
-									const { id, label } = v(Note)
+									const { id, label } = v(Note, "note")
 									return r.match(r.relation(name, Note), { id, label }).find({ id, label })
 								})
 							)
 							.delete(
 								Note,
 								query(schemaValue).rule((r: RuleValue) => {
-									const { id, label } = v(Note)
+									const { id, label } = v(Note, "note")
 									return r
 										.match(Note, { id, label })
 										.where(r.eq(label, m.scope))
@@ -802,10 +802,8 @@ const changeSetOf = (
 						return changes.put(
 							Note,
 							query(schemaValue).rule((r: RuleValue) => {
-								const { label } = v(Item)
-								return r
-									.match(Item, { id: Number(m.id), label })
-									.find({ id: r.literal(Number(m.id)), label })
+								const { label } = v(Item, "item")
+								return r.match(Item, { id: Number(m.id), label }).find({ id: Number(m.id), label })
 							})
 						)
 				}
@@ -891,7 +889,7 @@ type RaceFeature =
  * beyond them (direct SQLSTATEs, deadlocks, nature's branches, the other TransientFailure reasons, PCT) are counted
  * toward the residual risk.
  */
-const required: ReadonlyArray<RaceFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"put target deleteThenInsert",
 	"put target onConflictDoUpdate",
 	"put target updateFrom",
@@ -1147,7 +1145,7 @@ const runRace = (
 						})
 					})
 				const noteRun = (run: Interleaving, observed: ReadonlyArray<Observed>): void => {
-					reached.push(...runFeatures(race, run, observed))
+					appendAll(reached, runFeatures(race, run, observed))
 				}
 				yield* exploreInterleavings(
 					o.rig.env,
@@ -1264,13 +1262,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							suite: "schedules/write/races",
 							draw: drawn(raceCaseGen),
 							literal: Formatter.format,
-							features: features<RaceFeature>(required),
+							coverage: required<RaceFeature>(situations, { cases: runs, sense: notesOnly }),
 							kept: [],
 							runs,
 							shrink: { kind: "bounded", candidates: 40 },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(rc, c) =>

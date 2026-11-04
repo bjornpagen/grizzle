@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -207,19 +208,24 @@ describe("host NFA membership equals ECMAScript", () => {
 						suite: "unit/text/membership-families",
 						draw: drawn(familyCaseGen),
 						literal: Formatter.format,
-						features: features<FamilyFeature>([
-							...Arr.map(patterns, (p): FamilyFeature => `${p.label} accepts`),
-							...Arr.map(
-								Arr.filter(patterns, (p) => p.r.check.kind !== "tautology"),
-								(p): FamilyFeature => `${p.label} refuses`
-							)
-						]),
+						coverage: required<FamilyFeature>(
+							[
+								...Arr.map(
+									nonEmpty(patterns, "the families' admitted patterns"),
+									(p): FamilyFeature => `${p.label} accepts`
+								),
+								...Arr.map(
+									Arr.filter(patterns, (p) => p.r.check.kind !== "tautology"),
+									(p): FamilyFeature => `${p.label} refuses`
+								)
+							],
+							{ cases: 6000, sense: notesOnly }
+						),
 						kept: refusals,
 						runs: 6000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([p, drawnString], c) =>
@@ -248,13 +254,15 @@ describe("host NFA membership equals ECMAScript", () => {
 					suite: "unit/text/membership-5129793",
 					draw: drawn(patternSketchGen),
 					literal: Formatter.format,
-					features: features<GeneratedFeature>(["admitted", "empty", "witness"]),
+					coverage: required<GeneratedFeature>(["admitted", "empty", "witness"], {
+						cases: 2000,
+						sense: notesOnly
+					}),
 					kept,
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ source, flags, strings, walks }, c) =>
@@ -309,19 +317,15 @@ describe("host NFA membership equals ECMAScript", () => {
 								[source.draw(plantedTextGen), source.draw(element(familyPatterns))] as const
 						),
 						literal: Formatter.format,
-						features: features<PlantedFeature>([
-							"live",
-							"nul middle",
-							"lone high middle",
-							"lone low middle",
-							"reversed pair middle"
-						]),
+						coverage: required<PlantedFeature>(
+							["live", "nul middle", "lone high middle", "lone low middle", "reversed pair middle"],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([planted, [source, flags]], c) =>
@@ -353,17 +357,15 @@ describe("every claimed fact holds on the samples", () => {
 					suite: "unit/text/membership-4604227",
 					draw: drawn(caseGen),
 					literal: Formatter.format,
-					features: features<"tautology" | "finite" | "bounded">([
-						"tautology",
-						"finite",
-						"bounded"
-					]),
+					coverage: required<"tautology" | "finite" | "bounded">(
+						["tautology", "finite", "bounded"],
+						{ cases: 2000, sense: notesOnly }
+					),
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ source, flags, strings }, c) =>
@@ -420,13 +422,12 @@ describe("every claimed fact holds on the samples", () => {
 						}
 					}),
 					literal: Formatter.format,
-					features: noFeatures,
+					coverage: noCoverage,
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				({ a, b, flags, strings }) =>
@@ -540,7 +541,7 @@ describe("language-equivalent spellings share one canonical key", () => {
 					literal: Formatter.format,
 					/** The space: every ordered pair of two members of a group, 12 + 6 + 6 + 20 + 6 + 12. */
 					limit: 62,
-					features: features<`group ${Group}`>(
+					coverage: requiredInSpace<`group ${Group}`>(
 						Arr.map(groups, ([group]): `group ${Group}` => `group ${group}`)
 					),
 					caseHang: Duration.minutes(2)

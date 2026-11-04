@@ -5,12 +5,11 @@ import {
 	type ColumnRef,
 	describeOp,
 	type TypedLiteral,
-	OpId,
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
-import { type DagEditor, total } from "#compiler/lower/optimize/demand/editor.ts"
+import type { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import { compareValues, literalValue } from "#compiler/scalar/compute/evaluate.ts"
-import { type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { connectiveOps, type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 type Folded =
 	| { readonly kind: "value"; readonly value: boolean }
@@ -155,8 +154,7 @@ const boolLiteral = (editor: DagEditor, like: ScalarExpr, value: boolean): Scala
  *   ignored, text in code-point order under C.UTF-8, enums in roster order).
  *
  * Anything else, a parameter, an arithmetic operator, a cast, a conditional, is left to PostgreSQL. A connective whose
- * value an operand decides drops the other operands only when they are total, so folding never removes an evaluation
- * that could raise.
+ * value an operand decides drops the other operands, which raise nothing: every expression is total.
  *
  * Only a comparison of constants, or a connective, is decided here.
  */
@@ -177,7 +175,7 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 			const decider = op.fn === "or"
 			const parts = expr.args.map((a) => ({ arg: a, folded: foldBoolean(editor, a, column) }))
 			const decided = decidingPart(parts, decider)
-			if (decided !== undefined && total(parts.toSpliced(decided, 1).map((p) => p.arg))) {
+			if (decided !== undefined) {
 				return { kind: "value", value: decider }
 			}
 			const kept = parts.flatMap((p) =>
@@ -244,9 +242,7 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 		case "least":
 		case "greatest":
 		case "widthBucket":
-		case "scale":
 		case "minScale":
-		case "trimScale":
 		case "lower":
 		case "upper":
 		case "charLength":
@@ -276,11 +272,10 @@ export const conjunction = (
 	}
 	return editor.expr({
 		kind: "op",
-		op: OpId("and"),
+		op: connectiveOps.and,
 		args: parts,
 		type: like.type,
 		nonNull: "strict",
-		volatility: "immutable",
-		failure: "total"
+		volatility: "immutable"
 	})
 }

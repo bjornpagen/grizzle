@@ -5,6 +5,7 @@ import {
 	type RegexValidate,
 	str
 } from "#compiler/public/text.ts"
+import type { DomainOf, LanguageOf } from "#compiler/types/core/phantom.ts"
 import type { Field, Infer, TextField } from "#compiler/types/fields/field.ts"
 import type { Equals, Expect, IsAssignable, Not } from "#test/types/text/support.ts"
 
@@ -48,8 +49,17 @@ export type AnswerDesc = Expect<
 export type IsTextField = Expect<
 	IsAssignable<typeof Answer, TextField<"yes" | "no", "^(yes|no)$", "u">>
 >
-export type IsField = Expect<IsAssignable<typeof Answer, Field<"yes" | "no", "text">>>
+export type IsField = Expect<IsAssignable<typeof Answer, Field<"yes" | "no", "text", string>>>
 export type SqlIsText = Expect<Equals<(typeof Slug)["sql"], "text">>
+/**
+ * Its domain is text whatever its pattern, the identity the checker meets text at; its language, which a JavaScript
+ * value at it is one of, is its host type.
+ */
+export type DomainIsText = Expect<Equals<DomainOf<typeof Answer>, string>>
+export type LanguageIsHost = Expect<Equals<LanguageOf<typeof Answer>, "yes" | "no">>
+export type NoDomainOfItsLanguage = Expect<
+	Not<IsAssignable<typeof Answer, Field<"yes" | "no", "text", "yes" | "no">>>
+>
 /** Its host is no wider than inferred: a "yes" | "no" field is not a field of arbitrary text. */
 export type NotWider = Expect<
 	Not<IsAssignable<typeof Answer, TextField<"maybe", "^(yes|no)$", "u">>>

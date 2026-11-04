@@ -61,16 +61,19 @@ export type Below =
 /** The first refusal a write meets: grizzle's guard, 25000 naming its table, or privilege, 42501. */
 export type Refusal = "the guard" | "privilege"
 
-const refusals: Readonly<Record<BelowForm, (isMutable: boolean) => Refusal>> = {
+/** The first refusal of each form on a relation, by whether it is mutable. */
+const refusals: Readonly<Record<BelowForm, (mutable: boolean) => Refusal>> = {
 	insert: () => "the guard",
-	update: (isMutable) => (isMutable ? "the guard" : "privilege"),
+	update: (mutable) => (mutable ? "the guard" : "privilege"),
 	delete: () => "the guard",
 	"zero-row delete": () => "the guard",
 	truncate: () => "privilege",
 	merge: () => "the guard"
 }
 
-const refusalOf = (form: BelowForm, isMutable: boolean): Refusal => refusals[form](isMutable)
+/** The first refusal a planted write meets on its relation, by the relation's mutability. */
+const refusalOf = (host: HostSchema, b: Extract<Below, { readonly kind: "write" }>): Refusal =>
+	refusals[b.form](relationOf(host, b.relation).mutable)
 
 /** The SQLSTATE of each refusal. */
 const refusalCodes: Readonly<Record<Refusal, string>> = {
@@ -88,11 +91,7 @@ export type BelowFeature =
 	| "below: on a residual law's relation"
 	| "below: on a relation no residual law reads"
 
-export const belowFeaturesOf = (
-	host: HostSchema,
-	b: Below,
-	isMutable: boolean
-): ReadonlyArray<BelowFeature> => {
+export const belowFeaturesOf = (host: HostSchema, b: Below): ReadonlyArray<BelowFeature> => {
 	const read = Arr.some(host.laws, (l) => isResidual(l) && lawRelations(l).includes(b.relation))
 	const on: BelowFeature = read
 		? "below: on a residual law's relation"
@@ -104,7 +103,7 @@ export const belowFeaturesOf = (
 			return [
 				`below: ${b.form}`,
 				`below at ${b.level}`,
-				`refused by ${refusalOf(b.form, isMutable)}`,
+				`refused by ${refusalOf(host, b)}`,
 				...(b.read ? ["below: a read before the write" as const] : []),
 				on
 			]
@@ -195,7 +194,6 @@ export const belowDeparture = (
 	host: HostSchema,
 	schema: string,
 	b: Below,
-	isMutable: boolean,
 	outcomes: ReadonlyArray<StepOutcome>
 ): string | undefined => {
 	const [begun, ...rest] = outcomes
@@ -215,7 +213,7 @@ export const belowDeparture = (
 			if (b.read && !succeeded(read)) {
 				return `the read before the write at ${b.level} did not succeed`
 			}
-			const refusal = refusalOf(b.form, isMutable)
+			const refusal = refusalOf(host, b)
 			const code = refusalCodes[refusal]
 			if (write?._tag !== "PgError" || write.fields.code !== code) {
 				return `the ${b.form} of ${b.relation} at ${b.level} was not refused by ${refusal} (${code})`

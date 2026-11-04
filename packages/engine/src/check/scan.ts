@@ -20,14 +20,19 @@ export const entries = <V>(
 		mapInput(compareStrings, ([key]: readonly [string, unknown]) => key)
 	)
 
+/** A parameter reference an expression reads: a scalar one with its type, or a bind map's relation parameter. */
+export type LeafParam<P extends object, T> =
+	| ({ readonly kind: "param"; readonly type: T } & P)
+	| ({ readonly kind: "relationParam" } & P)
+
 /** What an expression reads in its own scope: its rule variables, its parent variables, and every parameter reference. */
-export interface Leaves<P extends object> {
+export interface Leaves<P extends object, T> {
 	readonly vars: Set<string>
 	readonly parents: Set<string>
-	readonly params: Array<P>
+	readonly params: Array<LeafParam<P, T>>
 }
 
-const emptyLeaves = <P extends object>(): Leaves<P> => ({
+const emptyLeaves = <P extends object, T>(): Leaves<P, T> => ({
 	vars: new Set(),
 	parents: new Set(),
 	params: []
@@ -38,7 +43,10 @@ const emptyLeaves = <P extends object>(): Leaves<P> => ({
  * negation's bindings are read in the rule's scope too, and so is the bind map of the query it negates; the query
  * itself is its own scope.
  */
-const exprLeaves = <P extends object>(e: ExprDesc<Located, ParamsAs<P>>, into: Leaves<P>): void => {
+const exprLeaves = <P extends object, T>(
+	e: ExprDesc<Located, ParamsAs<P, T>>,
+	into: Leaves<P, T>
+): void => {
 	switch (e.kind) {
 		case "var":
 			into.vars.add(e.var)
@@ -68,6 +76,11 @@ const exprLeaves = <P extends object>(e: ExprDesc<Located, ParamsAs<P>>, into: L
 			exprLeaves(e.pred, into)
 			exprLeaves(e.onTrue, into)
 			exprLeaves(e.onFalse, into)
+			return
+		case "when":
+			exprLeaves(e.subject, into)
+			exprLeaves(e.proved, into)
+			exprLeaves(e.otherwise, into)
 			return
 		case "compare":
 			exprLeaves(e.left, into)
@@ -99,9 +112,9 @@ const exprLeaves = <P extends object>(e: ExprDesc<Located, ParamsAs<P>>, into: L
 	}
 }
 
-const bindingLeaves = <P extends object>(
-	bindings: BindingsDesc<Located, ParamsAs<P>>,
-	into: Leaves<P>
+const bindingLeaves = <P extends object, T>(
+	bindings: BindingsDesc<Located, ParamsAs<P, T>>,
+	into: Leaves<P, T>
 ): void => {
 	for (const [, e] of entries(bindings)) {
 		exprLeaves(e, into)
@@ -109,18 +122,24 @@ const bindingLeaves = <P extends object>(
 }
 
 /** A source's bind map is evaluated in the importing rule's scope. */
-const sourceLeaves = <P extends object>(
-	s: SourceDesc<Located, ParamsAs<P>>,
-	into: Leaves<P>
+const sourceLeaves = <P extends object, T>(
+	s: SourceDesc<Located, ParamsAs<P, T>>,
+	into: Leaves<P, T>
 ): void => {
 	if (s.kind === "query") {
-		bindingLeaves(s.bind, into)
+		for (const [, b] of entries(s.bind)) {
+			if (b.kind === "relationParam") {
+				into.params.push(b)
+			} else {
+				exprLeaves(b, into)
+			}
+		}
 	}
 }
 
-const headLeaves = <P extends object>(
-	h: HeadTermDesc<Located, ParamsAs<P>>,
-	into: Leaves<P>
+const headLeaves = <P extends object, T>(
+	h: HeadTermDesc<Located, ParamsAs<P, T>>,
+	into: Leaves<P, T>
 ): void => {
 	if (h.kind === "aggregate") {
 		if (h.fn !== "count") {
@@ -150,11 +169,11 @@ const headLeaves = <P extends object>(
  * `direct`, a parameter that a match binding is exactly is left out: it fixes its column as a constant and needs no
  * value of its own in the region.
  */
-export const ruleLeaves = <P extends object>(
-	rule: RuleDesc<Located, ParamsAs<P>>,
+export const ruleLeaves = <P extends object, T>(
+	rule: RuleDesc<Located, ParamsAs<P, T>>,
 	direct: boolean
-): Leaves<P> => {
-	const into = emptyLeaves<P>()
+): Leaves<P, T> => {
+	const into = emptyLeaves<P, T>()
 	for (const m of rule.matches) {
 		for (const [, e] of entries(m.bindings).filter(
 			([, binding]) => direct || binding.kind !== "param"
@@ -203,7 +222,9 @@ export const freshColumnName = (
 	return name
 }
 
-export const parentUse = <P extends object>(child: QueryDesc<Located, ParamsAs<P>>): ParentUse => {
+export const parentUse = <P extends object, T>(
+	child: QueryDesc<Located, ParamsAs<P, T>>
+): ParentUse => {
 	const use: ParentUse = {
 		columns: new Set(),
 		firstBound: new Map(),
@@ -211,7 +232,7 @@ export const parentUse = <P extends object>(child: QueryDesc<Located, ParamsAs<P
 		headKeys: new Set(),
 		attachments: new Set()
 	}
-	const rule = (r: RuleDesc<Located, ParamsAs<P>>): void => {
+	const rule = (r: RuleDesc<Located, ParamsAs<P, T>>): void => {
 		for (const a of r.attach) {
 			use.attachments.add(a.name)
 		}
@@ -235,7 +256,7 @@ export const parentUse = <P extends object>(child: QueryDesc<Located, ParamsAs<P
 	 * A nested attachment's child reads its own parent, this child's rows, not ours; its name is on this child's
 	 * rows.
 	 */
-	const stage = (s: QueryStageDesc<Located, ParamsAs<P>>): void => {
+	const stage = (s: QueryStageDesc<Located, ParamsAs<P, T>>): void => {
 		switch (s.kind) {
 			case "rules":
 				for (const r of s.arms) {

@@ -30,9 +30,11 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { folderSource, installationAbstraction, sameCatalog } from "#test/pg/migrate/support.ts"
+import { type AmbientOwner, type AmbientSession, ambientOwner } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
+import { installationSql } from "#test/support/compile.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
 import { type FactSet, factStatements, loadFacts } from "#test/support/oracle/install/load.ts"
@@ -66,10 +68,11 @@ import { regex } from "arkregex"
  *    installation carries. The oracle's view of the installation (oracle/install/real.ts) is what loads facts and names
  *    the lowerings' physical objects.
  * 3. The migration. generateMigration drafts the folder from the empty snapshot, and the real
- *    apply runner (packages/grizzle/src/adapter/migrate) runs it on a migration session of the substrate's owner over verify-full TLS (a
- *    test helper's connection, see applyFolders): the ledger is absent, so the database is at the empty snapshot, the
- *    first Prepare file creates the schema and its ledger, every file records its row in its own transaction, and the
- *    drift check after it refuses any drift.
+ *    apply runner (packages/grizzle/src/adapter/migrate) runs it on a migration session of the installation's owner
+ *    login over verify-full TLS (a test helper's connection, see applyFolders), which acts as the substrate's owner
+ *    under the ambient session the caller gives (test/support/ambient.ts AmbientOwner): the ledger is absent, so the
+ *    database is at the empty snapshot, the first Prepare file creates the schema and its ledger, every file records its
+ *    row in its own transaction, and the drift check after it refuses any drift.
  * 4. The equality check. The migration must install the catalog the fresh-install compiler's script of the same
  *    installation installs, the ledger aside: the two paths must produce identical catalogs. An installation is
  *    certified from its statements when the migration runs the script's statements and otherwise only statements that
@@ -111,6 +114,11 @@ export interface Installed {
 	 */
 	readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
 	readonly snapshot: DeploySnapshot
+	/**
+	 * The owner as the installation's own sessions log in, with the ambient session they start under: what every later
+	 * migration or drift check of the installation logs in as.
+	 */
+	readonly ambientOwner: AmbientOwner
 	/**
 	 * The installed theory role of a role, `<schema>__<role>`; a role the installation does not hold is a defect of the
 	 * test. Each lookup takes the value (or its Description), never a spelled name.
@@ -154,7 +162,7 @@ const completePlan = (
 /** The installation's script with every name minted under its schema's identity abstracted
  * (installationAbstraction): one key per installation shape. */
 const shapeKey = (installation: Installation): string =>
-	Arr.join(Arr.map(installation.sql, installationAbstraction(installation)), "\n")
+	Arr.join(Arr.map(installationSql(installation), installationAbstraction(installation)), "\n")
 
 const normalized = (statement: string): string =>
 	pipe(Str.trim(statement), Str.replace(regex(";$"), ""))
@@ -207,7 +215,7 @@ const isPrivilege = (statement: string): boolean => {
  */
 export const runsInstallScript = (folder: FolderSource, installation: Installation): boolean => {
 	const schema = installation.names.schema
-	const script = Arr.map(installation.sql, normalized)
+	const script = Arr.map(installationSql(installation), normalized)
 	const migration = Arr.map(
 		Arr.flatMap(folder.files, (f) => splitStatements(f.text)),
 		normalized
@@ -326,7 +334,8 @@ const applied = (
 	)
 
 /**
- * Runs `folders` with the real apply runner as the substrate's owner on `database`, toward `snapshot`.
+ * Runs `folders` with the real apply runner as `owner`, the installation's owner login, on `database`, toward
+ * `snapshot`.
  * The migration session is scoped to the apply alone: held for the caller's scope, every install of a suite would keep
  * an idle connection until the suite ends, and suites that install many schemas exhaust the cluster's connection slots.
  * Its session is a test helper's (test/support/pg.ts wireSession), which retries a connection attempt that timed out
@@ -335,6 +344,7 @@ const applied = (
  * session over it is the real one (migrationSession), so the apply sends exactly what `grizzle migrate apply` sends.
  */
 const applyFolders = (
+	owner: AmbientOwner,
 	database: string,
 	snapshot: DeploySnapshot,
 	folders: ReadonlyArray<FolderSource>
@@ -344,8 +354,8 @@ const applyFolders = (
 		const connection = yield* Effect.catch(
 			wireSession(substrate.cluster, {
 				database,
-				username: substrate.owner.role,
-				password: substrate.owner.password,
+				username: owner.credentials.role,
+				password: owner.credentials.password,
 				applicationName: migrateApplicationName
 			}),
 			(e) =>
@@ -363,9 +373,9 @@ const applyFolders = (
 
 /**
  * The installation of `plan` under the declared name `declared`, migrated by `folders` to `snapshot` in the
- * substrate's database: every login given a password in the scope, through the substrate, so a test logs in as it over
- * verify-full TLS, and the lookups of its roles and logins by their values. The one representation of an installation
- * a test migrated, whether by one first migration (installMigrated) or a history of versions
+ * substrate's database as `ambientOwner`: every login given a password in the scope, through the substrate, so a test
+ * logs in as it over verify-full TLS, and the lookups of its roles and logins by their values. The one representation
+ * of an installation a test migrated, whether by one first migration (installMigrated) or a history of versions
  * (test/support/installed.ts migrated).
  */
 export const installedOf = (input: {
@@ -373,6 +383,7 @@ export const installedOf = (input: {
 	readonly declared: string
 	readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
 	readonly snapshot: DeploySnapshot
+	readonly ambientOwner: AmbientOwner
 }): Effect.Effect<Installed, SqlError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
@@ -402,6 +413,7 @@ export const installedOf = (input: {
 			names: plan.installation.names,
 			folders: input.folders,
 			snapshot: input.snapshot,
+			ambientOwner: input.ambientOwner,
 			role: (role) => world(role).role,
 			as: (login) => credentialsOf(login.name),
 			world
@@ -409,14 +421,33 @@ export const installedOf = (input: {
 	})
 
 /**
+ * What a migrated installation takes: the installation's own options, and the ambient session (test/support/ambient.ts)
+ * its owner sessions start under, the migration's and the drift check's, its owner login's alone: a suite that draws
+ * none states the cluster's own, ordinarySession.
+ */
+export interface MigratedOptions extends RealInstallOptions {
+	readonly ambient: AmbientSession
+}
+
+/** The schemas an installation creates, its own first, then each role's: the grizzle-first path's schemas. */
+export const installedSchemas = (installation: Installation): Arr.NonEmptyReadonlyArray<string> => [
+	installation.names.schema,
+	...Arr.flatMap(installation.statements, (s) =>
+		s.kind === "createSchema" && s.name !== installation.names.schema ? [s.name] : []
+	)
+]
+
+/**
  * Installs `schema` (a schema value, a SchemaDesc or an owned schema) under a unique schema name in the scope, through
- * its first migration, as the header describes.
+ * its first migration, as the header describes, as an owner login of its own whose sessions start under the ambient
+ * session `options.ambient` (test/support/ambient.ts ambientOwner), made before the migration and dropped when the
+ * scope closes.
  *
  * Every installation holds the installed-catalog posture, whatever the suite tests.
  */
 export const installMigrated = (
 	schema: unknown,
-	options: RealInstallOptions
+	options: MigratedOptions
 ): Effect.Effect<
 	Installed,
 	CompileError | SqlError | TransactionRolledBack,
@@ -440,14 +471,16 @@ export const installMigrated = (
 			})
 		)
 		const folder = folderSource(g.folder)
-		yield* applyFolders(substrate.database, g.snapshot, [folder])
+		const owner = yield* ambientOwner(options.ambient, installedSchemas(installation))
+		yield* applyFolders(owner, substrate.database, g.snapshot, [folder])
 		yield* expectFreshCatalog(desc, installation, folder, options)
 		yield* Effect.fromResult(registerSnapshot(renamed(installation.owned.desc, name), g.snapshot))
 		const installed = yield* installedOf({
 			plan,
 			declared: name,
 			folders: [folder],
-			snapshot: g.snapshot
+			snapshot: g.snapshot,
+			ambientOwner: owner
 		})
 		yield* checkInstallation(installed)
 		return installed
@@ -457,13 +490,16 @@ export const installMigrated = (
  * Installs an installation once more in another database of the cluster, through the same migration, since Db.open
  * admits a schema only where its ledger and catalog are the snapshot's. Login and world roles are cluster-wide and
  * already exist, so the reviewer deletes the statements that create them; every other statement, the memberships and
- * the login defaults included, runs as drafted, and the state reached is the snapshot's.
+ * the login defaults included, runs as drafted, and the state reached is the snapshot's. It runs as the installation's
+ * owner login, whose ambient defaults are the substrate database's alone, so another database's sessions start under
+ * none.
  */
 export const installMigratedIn = (
 	database: string,
 	installed: Installed
 ): Effect.Effect<void, never, Substrate> =>
 	applyFolders(
+		installed.ambientOwner,
 		database,
 		installed.snapshot,
 		Arr.map(installed.folders, (folder) => ({

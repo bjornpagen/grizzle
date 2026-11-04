@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Layer, Result, Schema } from "effect"
@@ -13,6 +13,7 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -50,7 +51,7 @@ const build = (name: string) => {
 	)
 	const Edu = schema(name, { Sitting }, [])
 	const weekly = query(Edu).rule((r) => {
-		const { id, student, week, passed } = v(Sitting)
+		const { id, student, week, passed } = v(Sitting, "sitting")
 		return r.match(Sitting, { id, student, week, passed }).find({
 			student,
 			week,
@@ -62,13 +63,13 @@ const build = (name: string) => {
 	const WeekSittings = derived(
 		"WeekSittings",
 		query(Edu).rule((r) => {
-			const { id, week } = v(Sitting)
+			const { id, week } = v(Sitting, "sitting")
 			return r.match(Sitting, { id, week }).find({ week, sittings: r.count() })
 		})
 	)
 	const Level1 = schema.extend(Edu, { StudentWeekly, WeekSittings }, [])
 	const busy = query(Level1).rule((r) => {
-		const { student, week } = v(StudentWeekly)
+		const { student, week } = v(StudentWeekly, "studentWeekly")
 		return r.match(StudentWeekly, { student, week }).find({ week, students: r.count() })
 	})
 	const WeekBusy = derived("WeekBusy", busy)
@@ -84,7 +85,7 @@ const build = (name: string) => {
 	const Impostor = derived(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
-			const { id, student, week } = v(Sitting)
+			const { id, student, week } = v(Sitting, "sitting")
 			return r.match(Sitting, { id, student, week }).find({ student, week, sittings: r.count() })
 		})
 	)
@@ -228,6 +229,7 @@ layer(Substrate.layer, { excludeTestServices: true })("db.refresh", (it) => {
 					const s = yield* Substrate
 					const declared = build("Edu")
 					const installed = yield* install(declared.Reports, {
+						ambient: ordinarySession,
 						extensions: [],
 						label: "refresh",
 						logins: [declared.server]
@@ -272,7 +274,7 @@ layer(Substrate.layer, { excludeTestServices: true })("db.refresh", (it) => {
 								literal: Formatter.format,
 								limit: 600,
 								caseHang: Duration.minutes(2),
-								features: features<RefreshFeature>([
+								coverage: requiredInSpace<RefreshFeature>([
 									"refused: outside the scope",
 									"refused: base relation",
 									"refused: another definition",

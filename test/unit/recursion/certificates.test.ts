@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,6 +12,7 @@ import {
 	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -26,6 +27,7 @@ import {
 	String as Str
 } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
+import { maxOf } from "#compiler/core/array.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import { recursionMaxStates } from "#compiler/core/policy.ts"
 import { MoneyText } from "#compiler/ir/carriers.ts"
@@ -36,6 +38,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { type LogicalQuery, paramColumns } from "#compiler/ir/products.ts"
 import type { Heading, NodeOf, TerminationCert } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	decodedQuery,
@@ -43,7 +46,7 @@ import {
 	type QueryDesc,
 	type RuleDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
+import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList, indices } from "#test/support/oracle/pick.ts"
@@ -520,7 +523,7 @@ const guardDesc = (carrier: Carrier, g: Guard): ExprDesc => {
 		}
 	}
 	if (g.bound === "param") {
-		return { kind: "compare", op: g.op, left: h, right: param("max") }
+		return { kind: "compare", op: g.op, left: h, right: param("max", typeOf(carrier)) }
 	}
 	const bound = exact(carrier, boundValue(carrier, g.bound))
 	return g.flipped
@@ -583,7 +586,10 @@ const recArm = (carrier: Carrier, arm: ArmSpec): RuleDesc => {
 			match(relationSource("Edge"), { from: varRef("self.node"), to: ref("Edge", "to"), cost }),
 			...(arm.pinned ? [match(relationSource("Vertex"), { id: varRef("self.node"), rank: h })] : [])
 		],
-		where: arm.nested && guards.length > 1 ? [{ kind: "and", args: guards }] : guards,
+		where:
+			arm.nested && Arr.isReadonlyArrayNonEmpty(guards) && guards.length > 1
+				? [{ kind: "and", args: guards }]
+				: guards,
 		head: {
 			node: ref("Edge", "to"),
 			h: stepDesc(carrier, arm.h),
@@ -610,7 +616,7 @@ const descOfSpec = (spec: Spec): QueryDesc =>
 				rule({
 					vars: vars("Vertex", "id"),
 					matches: [match(relationSource("Vertex"), { id: ref("Vertex", "id") })],
-					where: [eq(ref("Vertex", "id"), param("start"))],
+					where: [eq(ref("Vertex", "id"), param("start", { kind: "uuid" }))],
 					head: {
 						node: ref("Vertex", "id"),
 						h: literal(spec.carrier, seed.h),
@@ -882,7 +888,7 @@ const graphSketchGen: Gen<GraphSketch> = (source) => ({
 	max: source.draw(int(-1, 6))
 })
 
-const vertexId = (i: number): string =>
+const vertexId = (i: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(String(i), Str.padStart(12, "0"))}`
 
 const defined = <A>(value: A | undefined, what: string): A => {
@@ -920,6 +926,8 @@ const filler = (type: ScalarType, i: number): TypedLiteral => {
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			throw new Error(`no filler for a ${base.carrier} column`)
 	}
 }
@@ -1037,7 +1045,7 @@ const factsOf = (schema: GenSchema, g: GraphSketch): GenFacts => {
 			return filler(c.type, e.from)
 		})
 	)
-	return { Vertex: vertices, Edge: edges, Blocked: [] }
+	return canonicalFacts({ Vertex: vertices, Edge: edges, Blocked: [] })
 }
 
 /** The parameters the definition reads: the root vertex and the guards' bound, each at its declared type. */
@@ -1094,7 +1102,10 @@ const statesPerVertex = (
 			known.add(state)
 		}
 	}
-	return Math.max(0, ...Arr.map([...perVertex.values()], (set) => set.size))
+	return maxOf(
+		Arr.map([...perVertex.values()], (set) => set.size),
+		0
+	)
 }
 
 /** The features the population must reach, by name, each with the specs that reach it. */
@@ -1372,19 +1383,21 @@ describe("generated recursions against the termination proof rules", () => {
 							(sketch) => sketch
 						),
 						literal: Formatter.format,
-						features: features<CertificateFeature>([
-							...Arr.map(featureTests, ([name]) => name),
-							"a fixpoint reached",
-							"a fixpoint at its estimate",
-							"a vertex holding more states than the estimate with its data once",
-							"a fixpoint past the reference's step limit"
-						]),
+						coverage: required<CertificateFeature>(
+							[
+								...Arr.map(featureTests, ([name]) => name),
+								"a fixpoint reached",
+								"a fixpoint at its estimate",
+								"a vertex holding more states than the estimate with its data once",
+								"a fixpoint past the reference's step limit"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept,
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([spec, graphs], c) =>

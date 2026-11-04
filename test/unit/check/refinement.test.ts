@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -158,7 +158,7 @@ describe("languages and guarantees", () => {
 							[source.draw(element(pool)), source.draw(element(pool))] as const,
 						literal: Formatter.format,
 						limit: pool.length * pool.length,
-						features: features<LatticeFeature>([
+						coverage: requiredInSpace<LatticeFeature>([
 							"one language",
 							"two languages",
 							"the wildcard",
@@ -216,11 +216,11 @@ const unioned: Arr.NonEmptyReadonlyArray<Unioned> = [
 		union: () =>
 			query(Content)
 				.rule((r) => {
-					const { id, slug } = v(Article)
+					const { id, slug } = v(Article, "article")
 					return r.match(Article, { id, slug }).find({ id, value: slug })
 				})
 				.rule((r) => {
-					const { id, slug } = v(Draft)
+					const { id, slug } = v(Draft, "draft")
 					return r.match(Draft, { id, slug }).find({ id, value: slug })
 				})
 	},
@@ -231,11 +231,11 @@ const unioned: Arr.NonEmptyReadonlyArray<Unioned> = [
 		union: () =>
 			query(Content)
 				.rule((r) => {
-					const { id, state } = v(Article)
+					const { id, state } = v(Article, "article")
 					return r.match(Article, { id, state }).find({ id, value: state })
 				})
 				.rule((r) => {
-					const { id, state } = v(Draft)
+					const { id, state } = v(Draft, "draft")
 					return r.match(Draft, { id, state }).find({ id, value: state })
 				})
 	},
@@ -246,11 +246,11 @@ const unioned: Arr.NonEmptyReadonlyArray<Unioned> = [
 		union: () =>
 			query(Content)
 				.rule((r) => {
-					const { id, slug } = v(Article)
+					const { id, slug } = v(Article, "article")
 					return r.match(Article, { id, slug }).find({ id, value: slug })
 				})
 				.rule((r) => {
-					const { id, state } = v(Draft)
+					const { id, state } = v(Draft, "draft")
 					return r.match(Draft, { id, state }).find({ id, value: state })
 				})
 	},
@@ -262,11 +262,11 @@ const unioned: Arr.NonEmptyReadonlyArray<Unioned> = [
 		union: () =>
 			query(Content)
 				.rule((r) => {
-					const { id, amount } = v(Draft)
+					const { id, amount } = v(Draft, "draft")
 					return r.match(Draft, { id, amount }).find({ id, value: amount })
 				})
 				.rule((r) => {
-					const { id, amount } = v(Sheet)
+					const { id, amount } = v(Sheet, "sheet")
 					return r.match(Sheet, { id, amount }).find({ id, value: amount })
 				})
 	},
@@ -277,11 +277,11 @@ const unioned: Arr.NonEmptyReadonlyArray<Unioned> = [
 		union: () =>
 			query(Content)
 				.rule((r) => {
-					const { id, amount } = v(Article)
+					const { id, amount } = v(Article, "article")
 					return r.match(Article, { id, amount }).find({ id, value: amount })
 				})
 				.rule((r) => {
-					const { budget } = v(Tier)
+					const { budget } = v(Tier, "tier")
 					return r.match(Tier, { id: "Free", budget }).find({
 						id: Compute.literal(uuid, "00000000-0000-4000-8000-000000000001"),
 						value: budget
@@ -302,7 +302,7 @@ describe("union propagation", () => {
 						generator: element(unioned),
 						literal: Formatter.format,
 						limit: unioned.length,
-						features: features<never>([]),
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					(u) =>
@@ -403,7 +403,7 @@ describe("refined constants", () => {
 					generator: element(payloadCells),
 					literal: Formatter.format,
 					limit: payloadCells.length,
-					features: features<Cell>(["refined", "unrefined"]),
+					coverage: requiredInSpace<Cell>(["refined", "unrefined"]),
 					caseHang: Duration.minutes(2)
 				},
 				(cell, c) =>
@@ -424,7 +424,7 @@ describe("refined constants", () => {
 	it("list a query's literals of a refined type, and no plain one", () => {
 		const logical = checked(
 			query(Content).rule((r) => {
-				const { id, slug } = v(Article)
+				const { id, slug } = v(Article, "article")
 				return r.match(Article, { id, slug, state: "draft" }).find({
 					id,
 					kind: Compute.literal(Slug, "article"),

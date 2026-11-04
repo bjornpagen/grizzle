@@ -27,6 +27,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { noWorkload, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { lawUnits } from "#compiler/ir/law.ts"
 import { roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { login as loginBuilder } from "#compiler/program/workload/login.ts"
@@ -34,6 +35,7 @@ import { type OwnedRole, ownRole } from "#compiler/schema/own.ts"
 import { roleDescOf, role as roleBuilder } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
+import type { AmbientSession } from "#test/support/ambient.ts"
 import { pgPin } from "#test/support/env.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
@@ -263,11 +265,16 @@ const get = <A>(record: Readonly<Record<string, A>>, key: string, what: string):
 		onSome: Effect.succeed
 	})
 
-const realizeWith = (installSpec: InstallSpec, poolSize: Option.Option<1 | 2>) =>
+const realizeWith = (
+	installSpec: InstallSpec,
+	ambient: AmbientSession,
+	poolSize: Option.Option<1 | 2>
+) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const declared = yield* buildInstall(installSpec, installSpec.base.name)
 		const installed = yield* install(declared.base, {
+			ambient,
 			logins: Rec.values(declared.logins),
 			extensions: [],
 			label: "worlds"
@@ -1117,7 +1124,7 @@ const realizeWith = (installSpec: InstallSpec, poolSize: Option.Option<1 | 2>) =
 					onNone: () => state.current.snapshot,
 					onSome: (p) => p.next.snapshot
 				})
-				const outcome = yield* runFolders(substrate, target, folders, end)
+				const outcome = yield* runFolders(substrate, installed.ambientOwner, target, folders, end)
 				const failedIn =
 					outcome.kind === "refused" ? failedFolder(outcome.error) : Option.none<string>()
 				const stoppedAt =
@@ -1194,7 +1201,7 @@ const realizeWith = (installSpec: InstallSpec, poolSize: Option.Option<1 | 2>) =
 		const driftRun: Effect.Effect<Seen> = Effect.suspend(() => {
 			const directory = state.directory
 			return directory.pending.length === 0
-				? drift(substrate, state.current.snapshot, directory.applied)
+				? drift(substrate, installed.ambientOwner, state.current.snapshot, directory.applied)
 				: Effect.flatMap(runTo(directory, foldersOf(directory), { kind: "runner" }), (outcome) =>
 						ranSeen(outcome, { kind: "drift", objects: [] }, (objects) => ({
 							kind: "drift",
@@ -1431,8 +1438,8 @@ const ownedOf = (v: Version, role: string): Effect.Effect<OwnedRole> =>
 
 /**
  * The schema-qualified, quoted name of a function, as the installation's naming gives it: the one the installation
- * defines, or, for a filter, a probe or a law it holds no function of (a query entry that needs no filter, a native
- * law), a function no call finds.
+ * defines, a residual law's its first unit's, every unit's being revoked from PUBLIC alike, or, for a filter, a probe
+ * or a law it holds no function of (a query entry that needs no filter, a native law), a function no call finds.
  */
 const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 	Effect.gen(function* () {
@@ -1483,13 +1490,20 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 			}
 			case "law": {
+				const residual = Option.getOrUndefined(
+					Arr.findFirst(v.installation.laws.residuals, (r) => r.lawId === fn.law)
+				)
+				if (residual !== undefined) {
+					const [first] = lawUnits(residual)
+					return `${quoteIdent(schema)}.${quoteIdent(identifierOf(first.unit.function))}`
+				}
 				const law = defined(
 					Option.getOrUndefined(
 						Arr.findFirst(v.installation.laws.theory.laws, (l) => l.id === fn.law)
 					),
 					`the law ${fn.law} of the installed theory`
 				)
-				return `${quoteIdent(schema)}.${quoteIdent(identifierOf(identity.lawFunction(law.named)))}`
+				return `${quoteIdent(schema)}.${quoteIdent(identifierOf(identity.lawFunction(law.named, law.id, "INSERT")))}`
 			}
 		}
 	})
@@ -1509,15 +1523,20 @@ const isOpening = (
 ): value is Effect.Effect<Db<BuiltRole, unknown>, OpenError, DbLayerOf<BuiltLogin>> =>
 	Effect.isEffect(value)
 
-/** Realizes an installation: see RealWorld. */
+/** Realizes an installation under the ambient session `ambient` (test/support/ambient.ts): see RealWorld. */
 export const realize = (
-	installSpec: InstallSpec
+	installSpec: InstallSpec,
+	ambient: AmbientSession
 ): Effect.Effect<RealWorld, RealizeRefused | SqlError, Scope.Scope | Substrate> =>
-	realizeWith(installSpec, Option.none())
+	realizeWith(installSpec, ambient, Option.none())
 
-/** Realizes an installation whose every login's pool holds `poolSize` connections, for schedules that race sessions. */
+/**
+ * Realizes an installation under the ambient session `ambient` whose every login's pool holds `poolSize` connections,
+ * for schedules that race sessions.
+ */
 export const realizeRace = (
 	installSpec: InstallSpec,
+	ambient: AmbientSession,
 	poolSize: 1 | 2
 ): Effect.Effect<RacingWorld, RealizeRefused | SqlError, Scope.Scope | Substrate> =>
-	realizeWith(installSpec, Option.some(poolSize))
+	realizeWith(installSpec, ambient, Option.some(poolSize))

@@ -1,12 +1,15 @@
 import { array, type Gen, int } from "@grizzle/testing/gen"
 import { type Swarm, weightOf } from "@grizzle/testing/swarm"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
-	resolveValue,
+	canonicallySpelled,
 	literalRowKey,
+	resolveStored,
 	type Spelling,
+	type SpelledValue,
+	twinsOf,
 	type ValueSketch,
 	valueClasses
 } from "#test/support/oracle/gen/domain.ts"
@@ -26,14 +29,20 @@ import { cyclicAt, elementAt } from "#test/support/oracle/pick.ts"
 
 export type LiteralRow = ReadonlyArray<TypedLiteral>
 
+/** A stored fact: each column's value in column order, in the spelling it is written in (domain.ts SpelledValue). */
+export type StoredRow = ReadonlyArray<SpelledValue>
+
+/** A stored fact's values, in column order: what every reading of it sees, whatever its spellings. */
+export const rowValues = (row: StoredRow): LiteralRow => Arr.map(row, (v) => v.literal)
+
 /**
  * Generated facts.
  *
- * The stored state of a case: for each relation a set of facts, each a row of typed literals in column order. The
- * facts satisfy every declared law the oracle install enforces natively: no two facts share a primary or candidate key
- * under native equality (so 1.0 and 1.00, or 0 and -0, are one key value), and every contained field tuple names an
- * existing fact of its target. Values come from the small domains of domain.ts, so equal payloads, fanout and key
- * collisions are common.
+ * The stored state of a case: for each relation a set of facts, each a row of values in column order, each value in
+ * the spelling it is stored in. The facts satisfy every declared law the oracle install enforces natively: no two
+ * facts share a primary or candidate key under native equality (so 1.0 and 1.00, or 0 and -0, stored in two spellings,
+ * are one key value), and every contained field tuple names an existing fact of its target. Values come from the small
+ * domains of domain.ts, so equal payloads, fanout and key collisions are common.
  *
  * Rows are sketched with more values than any relation has columns and resolved against the schema, so the sketch
  * does not depend on the schema and the whole case is one flat, shrinkable record. A row that would break a key is
@@ -41,7 +50,21 @@ export type LiteralRow = ReadonlyArray<TypedLiteral>
  *
  * Facts by relation name, every relation of the schema present.
  */
-export type GenFacts = Readonly<Record<string, ReadonlyArray<LiteralRow>>>
+export type GenFacts = Readonly<Record<string, ReadonlyArray<StoredRow>>>
+
+/**
+ * Facts as values alone, by relation name: what a harness holds that stores every value in its canonical form, whose
+ * judgments read values and never a stored spelling (a migration's carried rows, a hand-written fixture).
+ */
+export type ValueFacts = Readonly<Record<string, ReadonlyArray<LiteralRow>>>
+
+/** Generated facts as their values alone. */
+export const factValues = (facts: GenFacts): ValueFacts =>
+	Rec.map(facts, (rows) => Arr.map(rows, rowValues))
+
+/** Facts of values, every one stored in its canonical form. */
+export const canonicalFacts = (facts: ValueFacts): GenFacts =>
+	Rec.map(facts, (rows) => Arr.map(rows, (row) => Arr.map(row, canonicallySpelled)))
 
 export interface RowSketch {
 	readonly values: ReadonlyArray<ValueSketch>
@@ -69,14 +92,14 @@ export const rowSketchGen: Gen<RowSketch> = (source) => ({
 export const factsSketchGen = (limits: FactLimits, slots: number): Gen<FactsSketch> =>
 	array(array(rowSketchGen, { min: 0, max: limits.maxRows }), { min: slots, max: slots })
 
-/** A row of `relation` from its sketch, its values resolved as stored values. */
+/** A row of `relation` from its sketch, its values resolved as stored values in their drawn spellings. */
 const resolveRow = (
 	relation: GenRelation,
 	sketch: RowSketch,
 	spelling: Spelling
-): Array<TypedLiteral> =>
+): Array<SpelledValue> =>
 	Arr.map(relation.columns, (c, i) =>
-		resolveValue(c.type, cyclicAt(sketch.values, i, "a row sketch's values"), spelling, "stored")
+		resolveStored(c.type, cyclicAt(sketch.values, i, "a row sketch's values"), spelling.edge)
 	)
 
 /**
@@ -90,7 +113,7 @@ interface Twin {
 
 /**
  * A relation's row sketches as the spelling mode draws them. Under "twinned" (domain.ts SpellingMode), a field whose type
- * has value classes of more than one spelling draws among those classes only, and twins an earlier value there: the
+ * has values of more than one spelling (domain.ts twinsOf) draws among those values only, and twins an earlier value there: the
  * first row takes, at every such field, the class of the first value an earlier relation drew at a field of its type,
  * spelled one place further on (a class of its own where none did, which `twins` then records); each later row takes,
  * at every such field outside the relation's keys, the class of the row before it, spelled one place further on. The
@@ -110,8 +133,8 @@ const spelledRows = (
 	const keyed = new Set(allKeys(relation).flat())
 	/** Per column, the indices of its type's classes of more than one spelling. */
 	const spelled = Arr.map(relation.columns, (c) =>
-		Arr.flatMap(valueClasses(c.type, spelling.edge), (cls, index) =>
-			cls.length > 1 ? [index] : []
+		Arr.flatMap(valueClasses(c.type, spelling.edge), (value, index) =>
+			twinsOf(c.type, value).length > 0 ? [index] : []
 		)
 	)
 	const out: Array<RowSketch> = []
@@ -148,13 +171,13 @@ const spelledRows = (
 /** Whether `row` collides with `kept` on any declared key of `relation` under native equality. */
 const keyConflict = (
 	relation: GenRelation,
-	kept: ReadonlyArray<LiteralRow>,
-	row: LiteralRow
+	kept: ReadonlyArray<StoredRow>,
+	row: StoredRow
 ): boolean =>
 	Arr.some(allKeys(relation), (key) => {
 		const cols = keyIndices(relation, key)
-		const k = literalRowKey(row, cols)
-		return Arr.some(kept, (other) => literalRowKey(other, cols) === k)
+		const k = literalRowKey(rowValues(row), cols)
+		return Arr.some(kept, (other) => literalRowKey(rowValues(other), cols) === k)
 	})
 
 /**
@@ -175,21 +198,21 @@ export const resolveFacts = (
 		weightOf(swarm, "rows"),
 		"the row caps"
 	)
-	const facts: Record<string, ReadonlyArray<LiteralRow>> = {}
+	const facts: Record<string, ReadonlyArray<StoredRow>> = {}
 	let twins: ReadonlyArray<Twin> = []
 	for (const [ri, relation] of schema.relations.entries()) {
 		const rows = (sketch.length === 0 ? [] : cyclicAt(sketch, ri, "the facts sketch")).slice(0, cap)
 		const containment = containmentFrom(schema, relation.name)
-		const kept: Array<LiteralRow> = []
+		const kept: Array<StoredRow> = []
 		/**
 		 * A row contained in its target: its source fields copied from the target fact `pick` names, or none while the
 		 * target holds no fact.
 		 */
 		const containedIn = (
 			to: GenContainment,
-			row: LiteralRow,
+			row: StoredRow,
 			pick: number
-		): Option.Option<LiteralRow> => {
+		): Option.Option<StoredRow> => {
 			const target = relationNamed(schema, to.to.relation)
 			const targetRows = facts[target.name]
 			if (targetRows === undefined) {

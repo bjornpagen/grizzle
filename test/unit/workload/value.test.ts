@@ -1,9 +1,10 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { element, filter, type Gen, map, uniqueArray } from "@grizzle/testing/gen"
 import { type Drawn, passed, wild } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
@@ -155,12 +156,10 @@ describe("workload(schema, programs)", () => {
 						/** Planted: Work's one ChangeSet program, which its drawn workloads hold a few times a run. */
 						draw: drawn(workloadGen),
 						literal: Formatter.format,
-						features: features<ValueFeature>([
-							"query",
-							"changeSet",
-							"an extension's workload",
-							"an empty workload"
-						]),
+						coverage: required<ValueFeature>(
+							["query", "changeSet", "an extension's workload", "an empty workload"],
+							{ cases: 40, sense: notesOnly }
+						),
 						kept: [
 							{
 								note: "a workload of a ChangeSet",
@@ -177,7 +176,6 @@ describe("workload(schema, programs)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([c, entries, other], k) =>
@@ -236,13 +234,12 @@ describe("workload(schema, programs)", () => {
 							filter(matching(regex("^[A-Z][A-Za-z0-9]{0,8}$")), (name) => name !== "Work", 100)
 						),
 						literal: Formatter.format,
-						features: features<"renamed">(["renamed"]),
+						coverage: required<"renamed">(["renamed"], { cases: 10, sense: notesOnly }),
 						kept: [],
 						runs: 10,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(name, k) =>
@@ -294,13 +291,12 @@ describe("workload(schema, programs)", () => {
 						suite: "unit/workload/value-checker",
 						draw: drawn(nameGen),
 						literal: Formatter.format,
-						features: features<"named">(["named"]),
+						coverage: required<"named">(["named"], { cases: 20, sense: notesOnly }),
 						kept: [],
 						runs: 20,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(name, k) =>
@@ -367,7 +363,7 @@ describe("workload()'s signature", () => {
 					generator: element(forbidden),
 					literal: Formatter.format,
 					limit: forbidden.length,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
 				([why, call]) =>
@@ -396,18 +392,20 @@ describe("workload()'s signature", () => {
 							)
 						})),
 						literal: Formatter.format,
-						features: features<UnreadableFeature>([
-							"programs record proxy",
-							"programs record throwing getter",
-							"program proxy",
-							"program throwing getter"
-						]),
+						coverage: required<UnreadableFeature>(
+							[
+								"programs record proxy",
+								"programs record throwing getter",
+								"program proxy",
+								"program throwing getter"
+							],
+							{ cases: 40, sense: notesOnly }
+						),
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					({ site, wild }, k) =>
@@ -443,7 +441,7 @@ const schemas: Arr.NonEmptyReadonlyArray<{
 
 /** One program written at two lines of this file: the same program at other source locations. */
 const writtenOnce = query(W.Work).rule((r) => {
-	const { id, account } = v(W.Task)
+	const { id, account } = v(W.Task, "task")
 	return r
 		.match(W.Task, { id, account })
 		.where(r.eq(account, r.param("account", uuid)))
@@ -451,7 +449,7 @@ const writtenOnce = query(W.Work).rule((r) => {
 })
 
 const writtenTwice = query(W.Work).rule((r) => {
-	const { id, account } = v(W.Task)
+	const { id, account } = v(W.Task, "task")
 	return r
 		.match(W.Task, { id, account })
 		.where(r.eq(account, r.param("account", uuid)))
@@ -498,18 +496,20 @@ describe("page query fingerprints", () => {
 							suite: "unit/workload/value-fingerprint",
 							draw: drawn(sides),
 							literal: Formatter.format,
-							features: features<FingerprintFeature>([
-								"the program",
-								"the rebuilt program",
-								"one program",
-								"one program written at two lines"
-							]),
+							coverage: required<FingerprintFeature>(
+								[
+									"the program",
+									"the rebuilt program",
+									"one program",
+									"one program written at two lines"
+								],
+								{ cases: 200, sense: notesOnly }
+							),
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						([a, b], k) =>

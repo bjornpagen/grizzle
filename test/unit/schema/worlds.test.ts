@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -11,6 +11,7 @@ import * as Result from "#compiler/core/result.ts"
 import { decodeDesc, type RoleDesc } from "#compiler/ir/desc.ts"
 import { lowerQuery } from "#compiler/program/describe.ts"
 import { Compute } from "#compiler/public/compute.ts"
+import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, derived, relation, schema } from "#compiler/public/schema.ts"
 import { queryFromDesc, queryValueDesc } from "#compiler/query/build/query.ts"
@@ -27,15 +28,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { assert, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
-import {
-	bareContract,
-	closedId,
-	descOf,
-	rawPg,
-	regex,
-	span,
-	uuid
-} from "#test/unit/schema/support.ts"
+import { bareContract, closedId, descOf, rawPg, regex, span } from "#test/unit/schema/support.ts"
 
 /**
  * The world builders' admission (context, role, login) and ownership of their decoded descriptions (ownRole,
@@ -60,16 +53,16 @@ const Kind = closed("Kind", ["Draft", "Live"])
 const Author = regex("^user_[a-z]{1,8}$", "u")
 const Post = relation(
 	"Post",
-	{ id: uuid, author: Author, kind: closedId(Kind), words: rawPg.integer },
+	{ id: uuid, author: Author, kind: closedId(Kind), words: pg.integer },
 	["id"]
 )
 const Note = relation("Note", { id: uuid, post: uuid }, ["id"])
-const Doc = relation("Doc", { id: uuid, a: rawPg.vector(3), b: rawPg.vector(3) }, ["id"])
+const Doc = relation("Doc", { id: uuid, a: pg.vector(3), b: pg.vector(3) }, ["id"])
 const Blog = schema("Blog", { Kind, Post, Note, Doc }, [])
 const Counts = derived(
 	"Counts",
 	query(Blog).rule((r) => {
-		const { id, author } = v(Post)
+		const { id, author } = v(Post, "post")
 		return r.match(Post, { id, author }).find({ author, posts: r.count() })
 	})
 )
@@ -80,7 +73,7 @@ const Session = context("Session", { sub: Author })
 
 /** The member's own posts: Post's one occurrence supplies the head, its author fixed to the session's claim. */
 const mine = query(Reports).rule((r) => {
-	const { id, author, kind, words } = v(Post)
+	const { id, author, kind, words } = v(Post, "post")
 	return r
 		.match(Post, { id, author, kind, words })
 		.match(Session, { sub: author })
@@ -89,38 +82,38 @@ const mine = query(Reports).rule((r) => {
 
 /** Every post's id and words: author and kind are neither in the head nor fixed, so no insert could fill them. */
 const unfixed = query(Reports).rule((r) => {
-	const { id, words } = v(Post)
+	const { id, words } = v(Post, "post")
 	return r.match(Post, { id, words }).find({ id, words })
 })
 
 const ofAuthor = query(Reports).rule((r) => {
-	const { id } = v(Post)
+	const { id } = v(Post, "post")
 	return r.match(Post, { id, author: r.param("author", Author) }).find({ id })
 })
 
 const withNotes = query(Reports)
 	.rule((r) => {
-		const { id } = v(Post)
+		const { id } = v(Post, "post")
 		return r.match(Post, { id }).find({ id })
 	})
 	.attach(
 		"notes",
 		(p) =>
 			query(Reports).rule((r) => {
-				const { id } = v(Note)
+				const { id } = v(Note, "note")
 				return r.match(Note, { id, post: p.id }).find({ id })
 			}),
 		"array"
 	)
 const ordered = unfixed.orderBy(["words", "desc"])
 const elsewhere = query(Other).rule((r) => {
-	const { id } = v(Stray)
+	const { id } = v(Stray, "stray")
 	return r.match(Stray, { id }).find({ id })
 })
 
 /** A query over another schema reading only a relation the base declares too: its names pass, its schema does not. */
 const otherPosts = query(Other).rule((r) => {
-	const { id } = v(Post)
+	const { id } = v(Post, "post")
 	return r.match(Post, { id }).find({ id })
 })
 /**
@@ -131,7 +124,7 @@ const strayDescribed = succeeded(queryFromDesc(queryValueDesc(elsewhere), undefi
 /** The nearest documents by the distance between their own two embeddings. */
 const nearest = query(Reports)
 	.rule((r) => {
-		const { id, a, b } = v(Doc)
+		const { id, a, b } = v(Doc, "doc")
 		return r.match(Doc, { id, a, b }).find({ id, distance: Compute.cosineDistance(a, b) })
 	})
 	.approximateNearest({ by: "distance", take: 5 })
@@ -363,7 +356,7 @@ describe("role admission", () => {
 						generator: element(roleDefects),
 						literal: Formatter.format,
 						limit: roleDefects.length,
-						features: features<RoleDefect>(roleDefects),
+						coverage: requiredInSpace<RoleDefect>(roleDefects),
 						caseHang: Duration.minutes(2)
 					},
 					(defect, c) =>
@@ -405,35 +398,39 @@ describe("role admission", () => {
 })
 
 /**
- * A query entry's definition holds only operations that cannot raise: its role's view evaluates the definition on facts
- * outside the world, so one that raises there would fail every read. A program over the role holds any, since it runs
- * past the view's barrier.
+ * A query entry's definition may hold any operation, since none raises: a partial one stands under the guard that
+ * proves its precondition. Its role's view evaluates the definition on facts outside the world, and fails no read.
  */
-type Operation = "a division" | "an addition that can overflow" | "a comparison"
+type Operation = "a guarded division" | "an exact addition" | "a comparison"
 const operations: Arr.NonEmptyReadonlyArray<Operation> = [
-	"a division",
-	"an addition that can overflow",
+	"a guarded division",
+	"an exact addition",
 	"a comparison"
 ]
 
 const definitionOf = (operation: Operation) => {
 	switch (operation) {
-		case "a division":
+		case "a guarded division":
 			return query(Reports).rule((r) => {
-				const { id, words } = v(Post)
+				const { id, words } = v(Post, "post")
 				return r
 					.match(Post, { id, words })
-					.where(r.gt(Compute.div(words, words), 0))
+					.where(
+						r.gt(
+							Compute.when(Compute.nonzero(words), (w) => Compute.div(words, w), 0n),
+							0n
+						)
+					)
 					.find({ id })
 			})
-		case "an addition that can overflow":
+		case "an exact addition":
 			return query(Reports).rule((r) => {
-				const { id, words } = v(Post)
+				const { id, words } = v(Post, "post")
 				return r.match(Post, { id, words }).find({ id, more: Compute.add(words, words) })
 			})
 		case "a comparison":
 			return query(Reports).rule((r) => {
-				const { id, words } = v(Post)
+				const { id, words } = v(Post, "post")
 				return r.match(Post, { id, words }).where(r.gt(words, 0)).find({ id })
 			})
 	}
@@ -442,45 +439,40 @@ const definitionOf = (operation: Operation) => {
 let entrySerial = 0
 
 describe("query entry totality", () => {
-	it.effect(
-		"refuses an operation that can raise in a query entry's definition, and admits it in a program",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/schema/worlds-totality",
-						generator: element(operations),
-						literal: Formatter.format,
-						limit: operations.length,
-						features: features<"refused" | "admitted">(["refused", "admitted"]),
-						caseHang: Duration.minutes(2)
-					},
-					(operation, c) =>
-						Effect.sync(() => {
-							const definition = definitionOf(operation)
-							succeeded(lowerQuery(definition), `${operation} in a program`)
-							/**
-							 * The role is compiled with every query over it, its entries checked once: a query reading its whole
-							 * Note compiles exactly when the entry's definition is total.
-							 */
-							const entries = role(Reports, `t${entrySerial++}`, { Note, Entry: definition })
-							const notes = lowerQuery(
+	it.effect("admits every operation in a query entry's definition, as in a program", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/schema/worlds-totality",
+					generator: element(operations),
+					literal: Formatter.format,
+					limit: operations.length,
+					coverage: requiredInSpace<Operation>(operations),
+					caseHang: Duration.minutes(2)
+				},
+				(operation, c) =>
+					Effect.sync(() => {
+						const definition = definitionOf(operation)
+						succeeded(lowerQuery(definition), `${operation} in a program`)
+						/**
+						 * The role is compiled with every query over it, its entries checked once: a query reading its whole
+						 * Note compiles whatever the entry's definition computes.
+						 */
+						const entries = role(Reports, `t${entrySerial++}`, { Note, Entry: definition })
+						succeeded(
+							lowerQuery(
 								query(entries).rule((r) => {
-									const { id } = v(Note)
+									const { id } = v(Note, "note")
 									return r.match(Note, { id }).find({ id })
 								})
-							)
-							if (operation === "a comparison") {
-								c.note("admitted")
-								succeeded(notes, operation)
-								return
-							}
-							c.note("refused")
-							refused(notes, "UnsupportedOperation", operation)
-						})
-				)
+							),
+							`${operation} in a query entry`
+						)
+						c.note(operation)
+					})
 			)
+		)
 	)
 })
 
@@ -514,7 +506,7 @@ describe("context admission", () => {
 					generator: element(contextFields),
 					literal: Formatter.format,
 					limit: contextFields.length,
-					features: features<"admitted" | "refused">(["admitted", "refused"]),
+					coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
 					caseHang: Duration.minutes(2)
 				},
 				([label, field, admitted], c) =>
@@ -578,7 +570,7 @@ describe("login admission", () => {
 						generator: element(loginDefects),
 						literal: Formatter.format,
 						limit: loginDefects.length,
-						features: features<LoginDefect>(loginDefects),
+						coverage: requiredInSpace<LoginDefect>(loginDefects),
 						caseHang: Duration.minutes(2)
 					},
 					(defect, c) =>

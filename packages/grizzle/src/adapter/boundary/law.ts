@@ -95,6 +95,11 @@ export const LawSchema = exact<Law>()(
 			kind: Schema.Literal("pattern"),
 			source: Schema.String,
 			flags: Schema.Literals(["u", "su"])
+		}),
+		Schema.Struct({
+			kind: Schema.Literal("numericBound"),
+			relation: Schema.String,
+			field: Schema.String
 		})
 	])
 )

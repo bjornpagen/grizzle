@@ -1,3 +1,4 @@
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { exprsOf, inputsOf, type NodeOf } from "#compiler/ir/rel.ts"
@@ -17,7 +18,7 @@ import {
 import { collapseLimit } from "#compiler/lower/optimize/existence/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
-import type { Expr, FromItem, SelectBody } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, JoinStep, SelectBody } from "#compiler/sql/ast.ts"
 import { and, core, lit, select, target } from "#compiler/sql/build.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 
@@ -255,13 +256,7 @@ const impliedBounds = (
 	const out: Array<Expr> = []
 	for (const e of exprConjuncts(filter.pred)) {
 		const fn = e.kind === "op" ? nativeOp(e.op) : undefined
-		if (
-			e.kind !== "op" ||
-			fn === undefined ||
-			!orderFns.has(fn.fn) ||
-			e.args.length !== 2 ||
-			e.failure !== "total"
-		) {
+		if (e.kind !== "op" || fn === undefined || !orderFns.has(fn.fn) || e.args.length !== 2) {
 			continue
 		}
 		const closure = exprClosure([e])
@@ -291,7 +286,7 @@ const impliedBounds = (
 			})
 		)
 		for (const column of columns) {
-			out.push(lowerExpr(cx, e, extendEnv(env, [node.id, new Map([[v.name, column]])])))
+			out.push(lowerExpr(cx, e, extendEnv(env, [[node.id, new Map([[v.name, column]])]])))
 		}
 	}
 	return out
@@ -371,11 +366,17 @@ export const regionLowerer =
 		}))
 		const at = (step: number): ReadonlyArray<Expr> =>
 			placed.flatMap((t) => (t.step === step ? [t.expr] : []))
-		const chain = rest.reduce<FromItem>((left, o, i) => {
-			const on = at(i + 1)
-			return on.length === 0
-				? { kind: "crossJoin", left, right: o.item }
-				: { kind: "join", left, right: o.item, on: and(...on) }
-		}, start.item)
+		const chain: FromItem = isNonEmpty(rest)
+			? {
+					kind: "joins",
+					first: start.item,
+					steps: mapNonEmpty(rest, (o, i): JoinStep => {
+						const on = at(i + 1)
+						return isNonEmpty(on)
+							? { kind: "on", source: o.item, on: and(on) }
+							: { kind: "cross", source: o.item }
+					})
+				}
+			: start.item
 		return distinctSelect(parts.targets, [chain], at(0))
 	}

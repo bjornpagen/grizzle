@@ -75,8 +75,8 @@ export const workWorlds = (installed: WorkNamed<string>) => {
  */
 export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 	const automaticTasksFor = query(installed).rule((r) => {
-		const { id, account } = v(Task)
-		const { budget } = v(AutomaticTask)
+		const { id, account } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
@@ -85,8 +85,8 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 	})
 
 	const automaticBudgetFor = query(installed).rule((r) => {
-		const { id, account } = v(Task)
-		const { budget } = v(AutomaticTask)
+		const { id, account } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
@@ -96,8 +96,8 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 
 	const largestBudgets = query(installed)
 		.rule((r) => {
-			const { id } = v(Task)
-			const { budget } = v(AutomaticTask)
+			const { id } = v(Task, "task")
+			const { budget } = v(AutomaticTask, "automaticTask")
 			return r
 				.match(Task, { id, account: r.param("account", Task.fields.account), kind: "Automatic" })
 				.match(AutomaticTask, { task: id, budget })
@@ -107,9 +107,9 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 		.take(3)
 
 	const largestPerAccount = query(installed).rule((r) => {
-		const { id: account } = v(Account)
+		const { id: account } = v(Account, "account")
 		const top = largestBudgets.bind({ account })
-		const { id, budget } = v(top)
+		const { id, budget } = v(top, "top")
 		return r
 			.match(Account, { id: account })
 			.match(top, { id, budget })
@@ -118,7 +118,7 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 
 	const taskCards = query(installed)
 		.rule((r) => {
-			const { id, account, kind } = v(Task)
+			const { id, account, kind } = v(Task, "task")
 			return r
 				.match(Task, { id, account, kind })
 				.where(r.eq(account, r.param("account", uuid)))
@@ -128,7 +128,7 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 			"note",
 			(t) =>
 				query(installed).rule((r) => {
-					const { note } = v(TaskNote)
+					const { note } = v(TaskNote, "taskNote")
 					return r.match(TaskNote, { task: t.id, note }).find({ note })
 				}),
 			"option"
@@ -137,7 +137,7 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 			"automatic",
 			(t) =>
 				query(installed).rule((r) => {
-					const { budget } = v(AutomaticTask)
+					const { budget } = v(AutomaticTask, "automaticTask")
 					return r.match(AutomaticTask, { task: t.id, budget }).find({ budget })
 				}),
 			arm("kind", "Automatic")
@@ -161,16 +161,16 @@ export const {
 
 export const taskPayloads = query(Work)
 	.rule((r) => {
-		const { id, account } = v(Task)
-		const { budget } = v(AutomaticTask)
+		const { id, account } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
 			.find({ id, account, kind: Kind.handle("Automatic"), budget })
 	})
 	.rule((r) => {
-		const { id, account } = v(Task)
-		const { operator } = v(ManualTask)
+		const { id, account } = v(Task, "task")
+		const { operator } = v(ManualTask, "manualTask")
 		return r
 			.match(Task, { id, account, kind: "Manual" })
 			.match(ManualTask, { task: id, operator })
@@ -179,7 +179,7 @@ export const taskPayloads = query(Work)
 
 export const tasksById = query(Work).rule((r) => {
 	const wanted = r.relation("ids", { id: uuid })
-	const { id, kind } = v(Task)
+	const { id, kind } = v(Task, "task")
 	return r.match(wanted, { id }).match(Task, { id, kind }).find({ id, kind })
 })
 
@@ -189,8 +189,8 @@ export const tasksById = query(Work).rule((r) => {
  */
 export const automaticTasks = query(Work)
 	.rule((r) => {
-		const { id, account } = v(Task)
-		const { budget } = v(AutomaticTask)
+		const { id, account } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
@@ -199,8 +199,8 @@ export const automaticTasks = query(Work)
 	.named("automaticTasks")
 
 export const labeledAutomaticTasks = query(Work).rule((r) => {
-	const { id, account, budget } = v(automaticTasks)
-	const { name } = v(Account)
+	const { id, account, budget } = v(automaticTasks, "automaticTasks")
+	const { name } = v(Account, "account")
 	return r
 		.match(automaticTasks, { id, account, budget })
 		.match(Account, { id: account, name })
@@ -209,7 +209,7 @@ export const labeledAutomaticTasks = query(Work).rule((r) => {
 })
 
 export const tasksWithoutNotes = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r
 		.match(Task, { id })
 		.where(r.not(TaskNote, { task: id }))
@@ -218,17 +218,17 @@ export const tasksWithoutNotes = query(Work).rule((r) => {
 
 export const assignedTasks = query(Work)
 	.rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r.match(Task, { id, kind: "Automatic" }).find({ id })
 	})
 	.rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r.match(Task, { id, kind: "Manual" }).find({ id })
 	})
 
 export const accountCards = query(Work)
 	.rule((r) => {
-		const { id, name } = v(Account)
+		const { id, name } = v(Account, "account")
 		return r.match(Account, { id, name }).find({ id, name })
 	})
 	.attach(
@@ -236,7 +236,7 @@ export const accountCards = query(Work)
 		(a) =>
 			query(Work)
 				.rule((r) => {
-					const { id, kind } = v(Task)
+					const { id, kind } = v(Task, "task")
 					return r.match(Task, { id, account: a.id, kind }).find({ id, kind })
 				})
 				.orderBy(["id", "asc"]),
@@ -246,14 +246,14 @@ export const accountCards = query(Work)
 		"automaticTasks",
 		(a) =>
 			query(Work).rule((r) => {
-				const { id } = v(Task)
+				const { id } = v(Task, "task")
 				return r.match(Task, { id, account: a.id, kind: "Automatic" }).find({ count: r.count() })
 			}),
 		"option"
 	)
 
 export const accountsByPrefix = query(Work).rule((r) => {
-	const { id, name } = v(Account)
+	const { id, name } = v(Account, "account")
 	return r
 		.match(Account, { id, name })
 		.where(
@@ -264,8 +264,8 @@ export const accountsByPrefix = query(Work).rule((r) => {
 })
 
 export const automaticBudget = query(Work).rule((r) => {
-	const { id, account } = v(Task)
-	const { budget } = v(AutomaticTask)
+	const { id, account } = v(Task, "task")
+	const { budget } = v(AutomaticTask, "automaticTask")
 	return r
 		.match(Task, { id, account, kind: "Automatic" })
 		.match(AutomaticTask, { task: id, budget })
@@ -277,7 +277,7 @@ export const Reports = schema.extend(Work, { AccountBudget }, [])
 
 /** AccountBudget matched over Reports, as the reporter reads it. */
 export const accountBudgets = query(Reports).rule((r) => {
-	const { account, tasks, budget } = v(AccountBudget)
+	const { account, tasks, budget } = v(AccountBudget, "accountBudget")
 	return r.match(AccountBudget, { account, tasks, budget }).find({ account, tasks, budget })
 })
 
@@ -286,14 +286,14 @@ export const accountBudgets = query(Reports).rule((r) => {
  * { task, operator }.
  */
 export const switchToManualPutMember = query(Work).rule((r) => {
-	const { account } = v(Task)
+	const { account } = v(Task, "task")
 	return r
 		.match(Task, { id: r.param("task", Task.fields.id), account, kind: "Automatic" })
-		.find({ id: r.param("task", uuid), account, kind: r.literal("Manual") })
+		.find({ id: r.param("task", uuid), account, kind: "Manual" })
 })
 
 export const switchToManualDeleteMember = query(Work).rule((r) => {
-	const { budget } = v(AutomaticTask)
+	const { budget } = v(AutomaticTask, "automaticTask")
 	return r
 		.match(AutomaticTask, { task: r.param("task", AutomaticTask.fields.task), budget })
 		.find({ task: r.param("task", uuid), budget })
@@ -330,8 +330,8 @@ export const plansWorlds = (installed: PlansNamed<string>) => {
 }
 
 export const budgets = query(Plans).rule((r) => {
-	const { account, tier } = v(Subscription)
-	const { budget } = v(Tier)
+	const { account, tier } = v(Subscription, "subscription")
+	const { budget } = v(Tier, "tier")
 	return r
 		.match(Subscription, { account, tier })
 		.match(Tier, { id: tier, budget })

@@ -9,7 +9,7 @@ import type {
 	ConservativeProgram,
 	ConservativeStatement
 } from "#compiler/lower/conservative/types.ts"
-import type { Select, SelectBody, SelectCore } from "#compiler/sql/ast.ts"
+import type { Select, SelectBody, SelectCore, SetOperand, SetOperation } from "#compiler/sql/ast.ts"
 import { and, conjunction, exists, lit, simpleSelect, target, types } from "#compiler/sql/build.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { opMeaning } from "#test/support/oracle/gen/ops.ts"
@@ -143,12 +143,7 @@ const unionAll = (body: SelectBody): SelectBody => {
 	if (body.kind !== "setOp") {
 		return body
 	}
-	return {
-		...body,
-		op: body.op === "UNION" ? "UNION ALL" : body.op,
-		left: unionAll(body.left),
-		right: unionAll(body.right)
-	}
+	return { ...body, op: body.op === "UNION" ? "UNION ALL" : body.op }
 }
 
 const toUnionAll = (
@@ -193,7 +188,7 @@ const withRecursiveBody = (query: Select, body: Select): Select => {
 }
 
 /** The seed or step term: SELECT casts FROM (<node>) AS r(...), with the node's DISTINCT removed. */
-const plainTerm = (term: SelectBody): SelectBody | undefined => {
+const plainTerm = (term: SetOperand): SetOperand | undefined => {
 	if (term.kind !== "core") {
 		return undefined
 	}
@@ -368,7 +363,12 @@ const witnessVisitor = (analysis: KeyAnalysis): StatementVisitor => {
 				count()
 				return {
 					...query,
-					body: { ...core, distinct: false, from: others, where: and(...kept, exists(probe)) }
+					body: {
+						...core,
+						distinct: false,
+						from: others,
+						where: and(Arr.append(kept, exists(probe)))
+					}
 				}
 			}
 		}
@@ -489,19 +489,18 @@ export const mutants: Readonly<Record<MutantId, Mutant>> = {
 						if (terms.body.kind !== "setOp") {
 							return undefined
 						}
-						const left = plainTerm(terms.body.left)
-						const right = plainTerm(terms.body.right)
-						if (left === undefined && right === undefined) {
+						const original = terms.body.arms
+						const [first, second, ...rest] = original
+						const plain = (arm: SetOperand): SetOperand => plainTerm(arm) ?? arm
+						const arms: SetOperation["arms"] = [
+							plain(first),
+							plain(second),
+							...Arr.map(rest, plain)
+						]
+						if (Arr.every(arms, (arm, i) => arm === original[i])) {
 							return undefined
 						}
-						return {
-							...terms,
-							body: {
-								...terms.body,
-								left: left ?? terms.body.left,
-								right: right ?? terms.body.right
-							}
-						}
+						return { ...terms, body: { ...terms.body, arms } }
 					}
 				)
 			)(program)

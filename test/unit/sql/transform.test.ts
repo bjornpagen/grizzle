@@ -1,6 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -57,19 +58,21 @@ describe("the SQL AST traversals", () => {
 						suite: "unit/sql/transform-leaf",
 						draw: drawn(statementGen(sqlCatalog)),
 						literal: Formatter.format,
-						features: features<`statement ${SqlStatement["kind"]}`>([
-							"statement select",
-							"statement insert",
-							"statement update",
-							"statement delete",
-							"statement merge"
-						]),
+						coverage: required<`statement ${SqlStatement["kind"]}`>(
+							[
+								"statement select",
+								"statement insert",
+								"statement update",
+								"statement delete",
+								"statement merge"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(s, c) =>

@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, FileSystem, Formatter, Order, Path } from "effect"
@@ -103,7 +103,7 @@ describe("the generated Allen table", () => {
 						generator: int(0, fullAllenMask),
 						literal: Formatter.format,
 						limit: fullAllenMask + 1,
-						features: features<EntryFeature>([
+						coverage: requiredInSpace<EntryFeature>([
 							"the empty mask",
 							"one disjunct",
 							"several disjuncts",
@@ -176,7 +176,11 @@ describe("the generated Allen table", () => {
 					generator: int(1, fullAllenMask),
 					literal: Formatter.format,
 					limit: fullAllenMask,
-					features: features<CostFeature>(["cost at most three", "cost four", "cost above four"]),
+					coverage: requiredInSpace<CostFeature>([
+						"cost at most three",
+						"cost four",
+						"cost above four"
+					]),
 					caseHang: Duration.minutes(2)
 				},
 				(mask, c) =>
@@ -201,7 +205,7 @@ describe("the generated Allen table", () => {
 						generator: int(1, fullAllenMask),
 						literal: Formatter.format,
 						limit: fullAllenMask,
-						features: features<TieFeature>([
+						coverage: requiredInSpace<TieFeature>([
 							"a tie broken",
 							"one least formula",
 							"above four atoms"
@@ -397,9 +401,9 @@ describe("the verification universe", () => {
 			 * would silently stop checking if the universe lost it.
 			 */
 			const bounds = ["[]", "[)", "(]", "()"] as const
-			const required = Arr.flatMap(types, (type): ReadonlyArray<UniverseFeature> => [
-				...Arr.map(windowSpans(), (span): UniverseFeature => `${type} span ${spanText(span)}`),
+			const situations = Arr.flatMap(types, (type): Arr.NonEmptyReadonlyArray<UniverseFeature> => [
 				`${type} its least value`,
+				...Arr.map(windowSpans(), (span): UniverseFeature => `${type} span ${spanText(span)}`),
 				`${type} its greatest value`,
 				`${type} its whole range`,
 				...Arr.map(bounds, (b): UniverseFeature => `${type} spelled ${b}`),
@@ -442,7 +446,7 @@ describe("the verification universe", () => {
 						 * its growth.
 						 */
 						limit: 100_000,
-						features: features<UniverseFeature>(required),
+						coverage: requiredInSpace<UniverseFeature>(situations),
 						caseHang: Duration.minutes(2)
 					},
 					(item, c) =>
@@ -489,7 +493,7 @@ describe("the verification universe", () => {
 					generator: typedPairs,
 					literal: Formatter.format,
 					limit: pairLimit,
-					features: features<`${RangeType} ${AllenRelation}`>(
+					coverage: requiredInSpace<`${RangeType} ${AllenRelation}`>(
 						Arr.flatMap(types, (type) =>
 							Arr.map(allenRelations, (r): `${RangeType} ${AllenRelation}` => `${type} ${r}`)
 						)
@@ -500,8 +504,8 @@ describe("the verification universe", () => {
 					Effect.sync(() => {
 						c.note(`${type} ${pair.relation}`)
 						assert.deepEqual(
-							Arr.map(relationsHolding(pair.b, pair.a), (r) => allenMaskOf(r)),
-							[converseMask(allenMaskOf(pair.relation))]
+							Arr.map(relationsHolding(pair.b, pair.a), (r) => allenMaskOf([r])),
+							[converseMask(allenMaskOf([pair.relation]))]
 						)
 					})
 			)
@@ -531,8 +535,8 @@ describe("the exhaustive check against the brute-force classifier", () => {
 					generator: typedPairs,
 					literal: Formatter.format,
 					limit: pairLimit,
-					features: features<AtomFeature>(
-						Arr.flatMap(allenAtoms, (atom): ReadonlyArray<AtomFeature> => [
+					coverage: requiredInSpace<AtomFeature>(
+						Arr.flatMap(allenAtoms, (atom): Arr.NonEmptyReadonlyArray<AtomFeature> => [
 							`${atom.text} held`,
 							`${atom.text} failed`
 						])
@@ -545,7 +549,7 @@ describe("the exhaustive check against the brute-force classifier", () => {
 							const truth = (pair.atoms & (1 << i)) !== 0
 							c.note(truth ? `${atom.text} held` : `${atom.text} failed`)
 							assert.equal(
-								(atom.holds & allenMaskOf(pair.relation)) !== 0,
+								(atom.holds & allenMaskOf([pair.relation])) !== 0,
 								truth,
 								`atom ${atom.text} on ${spanText(pair.a)} and ${spanText(pair.b)}: PostgreSQL says ${truth}`
 							)
@@ -567,13 +571,14 @@ describe("the exhaustive check against the brute-force classifier", () => {
 							[source.draw(element(types)), source.draw(int(0, fullAllenMask))] as const,
 						literal: Formatter.format,
 						limit: types.length * (fullAllenMask + 1),
-						features: features<`${RangeType} ${"the empty mask" | "the full mask" | "a mask"}`>(
-							Arr.flatMap(types, (type) => [
-								`${type} the empty mask` as const,
-								`${type} the full mask` as const,
-								`${type} a mask` as const
-							])
-						),
+						coverage:
+							requiredInSpace<`${RangeType} ${"the empty mask" | "the full mask" | "a mask"}`>(
+								Arr.flatMap(types, (type) => [
+									`${type} the empty mask` as const,
+									`${type} the full mask` as const,
+									`${type} a mask` as const
+								])
+							),
 						caseHang: Duration.minutes(2)
 					},
 					([type, mask], c) =>
@@ -598,7 +603,7 @@ describe("the exhaustive check against the brute-force classifier", () => {
 						[source.draw(element(types)), source.draw(element(definingFormulas))] as const,
 					literal: Formatter.format,
 					limit: types.length * definingFormulas.length,
-					features: features<AllenRelation>(allenRelations),
+					coverage: requiredInSpace<AllenRelation>(allenRelations),
 					caseHang: Duration.minutes(2)
 				},
 				([type, [relation, text]], c) =>

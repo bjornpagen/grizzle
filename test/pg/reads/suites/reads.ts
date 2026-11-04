@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -12,6 +12,7 @@ import {
 	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
@@ -36,6 +37,7 @@ import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, failed, succeeded, unorderedEqual } from "#test/support/assert.ts"
@@ -68,7 +70,7 @@ const plain = (value: unknown): unknown => {
 	return value
 }
 
-const uuidAt = (group: number, n: number): string =>
+const uuidAt = (group: number, n: number): Uuid =>
 	`00000000-0000-4000-${(0x9000 + group).toString(16)}-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** A read failure's stage, or its tag for a failure that has none (a TransientFailure). */
@@ -191,7 +193,7 @@ const payloadRows = (f: WorkFacts): ReadonlyArray<Readonly<Record<string, unknow
  */
 const accountTaskNotes = query(W.Work)
 	.rule((r) => {
-		const { id, name } = v(W.Account)
+		const { id, name } = v(W.Account, "account")
 		return r.match(W.Account, { id, name }).find({ id, name })
 	})
 	.attach(
@@ -199,14 +201,14 @@ const accountTaskNotes = query(W.Work)
 		(a) =>
 			query(W.Work)
 				.rule((r) => {
-					const { id, kind } = v(W.Task)
+					const { id, kind } = v(W.Task, "task")
 					return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
 				})
 				.attach(
 					"note",
 					(t) =>
 						query(W.Work).rule((r) => {
-							const { note } = v(W.TaskNote)
+							const { note } = v(W.TaskNote, "taskNote")
 							return r.match(W.TaskNote, { task: t.id, note }).find({ note })
 						}),
 					"option"
@@ -377,7 +379,6 @@ const budget = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	steering: { kind: "none" },
 	caseHang: Duration.minutes(2)
 } as const
 
@@ -426,16 +427,19 @@ export const readSuite = () => {
 								draw: drawn(relationCaseGen),
 								kept: relationKept,
 								runs: 60,
-								features: features<RelationFeature>([
-									"an array",
-									"a Stream",
-									"a repeated fact",
-									"an absent key",
-									"no fact",
-									"at the recordset rule",
-									"past the recordset rule",
-									"past the Stream cap"
-								])
+								coverage: required<RelationFeature>(
+									[
+										"an array",
+										"a Stream",
+										"a repeated fact",
+										"an absent key",
+										"no fact",
+										"at the recordset rule",
+										"past the recordset rule",
+										"past the Stream cap"
+									],
+									{ cases: 60, sense: notesOnly }
+								)
 							},
 							(c, notes) =>
 								Effect.gen(function* () {
@@ -525,14 +529,17 @@ export const readSuite = () => {
 									draw: drawn(unionCaseGen),
 									kept: [],
 									runs: 60,
-									features: features<UnionFeature>([
-										"ascending",
-										"descending",
-										"a take",
-										"no take",
-										"an empty group",
-										"a take past the union"
-									])
+									coverage: required<UnionFeature>(
+										[
+											"ascending",
+											"descending",
+											"a take",
+											"no take",
+											"an empty group",
+											"a take past the union"
+										],
+										{ cases: 60, sense: notesOnly }
+									)
 								},
 								(c, notes) =>
 									Effect.gen(function* () {
@@ -612,10 +619,10 @@ export const readSuite = () => {
 									 * floor's six cases (a quarter of the runs) draw the six waits one each, on every seed.
 									 */
 									steerEvery: 1,
-									features: features<SnapshotFeature>([
-										...Arr.map(waits, waitingOn),
-										"read the state before the commit"
-									])
+									coverage: required<SnapshotFeature>(
+										[...Arr.map(waits, waitingOn), "read the state before the commit"],
+										{ cases: 24, sense: notesOnly }
+									)
 								},
 								(c, notes) =>
 									Effect.gen(function* () {

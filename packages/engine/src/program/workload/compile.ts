@@ -1,5 +1,6 @@
 import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchCompileError, catchRefusal, compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, within } from "#compiler/core/errors.ts"
@@ -267,7 +268,7 @@ const workloadInput = (
 		return Result.ok({ schema: state.schema, desc: state.desc })
 	}
 	/** A workload Description is the caller's value, read once at the builder's boundary before it is decoded. */
-	const read = catchCompileError(() => hostArguments("compileWorkload", input))
+	const read = catchCompileError(() => hostArguments("compileWorkload", [input]))
 	if (!read.ok) {
 		return Result.err(read.error)
 	}
@@ -311,7 +312,7 @@ export const loginAccess = (
 		if (!access.ok) {
 			return access
 		}
-		programs.push(...access.value)
+		appendAll(programs, access.value)
 	}
 	return Result.ok(Object.fromEntries(programs.toSorted(([a], [b]) => compareText(a, b))))
 }
@@ -422,7 +423,7 @@ export const compileWorkload = (
 		if (!filters.ok) {
 			return filters
 		}
-		planned.push(...filters.value)
+		appendAll(planned, filters.value)
 	}
 	const statistics = mergeStatistics(
 		planned.flatMap((p) =>

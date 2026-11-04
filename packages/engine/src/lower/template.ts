@@ -43,7 +43,17 @@ import type {
 	RelationChoice
 } from "#compiler/lower/shapes/index.ts"
 import type { Expr, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
-import { cast, col, core, derived, select, target, targetAs, types } from "#compiler/sql/build.ts"
+import {
+	cast,
+	col,
+	core,
+	derived,
+	mapTargets,
+	select,
+	target,
+	targetAs,
+	types
+} from "#compiler/sql/build.ts"
 import { emit, metered, unmetered } from "#compiler/sql/emit.ts"
 import { NameSupply, renderNameMap } from "#compiler/sql/naming.ts"
 
@@ -71,7 +81,7 @@ const outputTargets = (body: SelectBody): ReadonlyArray<Target> => {
 		case "core":
 			return body.targets
 		case "setOp":
-			return outputTargets(body.left)
+			return outputTargets(body.arms[0])
 		case "select":
 			return outputTargets(body.body)
 	}
@@ -167,9 +177,7 @@ export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>
 	 */
 	const inner = outerCore(ast.body)
 	const query: Select =
-		inner === undefined
-			? ast
-			: { ...ast, body: { ...inner, targets: inner.targets.map((t) => target(t.expr)) } }
+		inner === undefined ? ast : { ...ast, body: mapTargets(inner, (t) => target(t.expr)) }
 	return {
 		...select(
 			core(
@@ -350,8 +358,9 @@ export const statementSpec = <Slot extends ConservativeParamSlot, P extends Para
  *   resultTextCasts), and the converters read PostgreSQL's exact text forms, which the runtime takes as the server sent
  *   them and parses none (adapter/wire/session.ts). A fused attachment's array column is cast to text as well, which
  *   is its array literal. Where the outermost SELECT deduplicates, a cast in its target list would deduplicate the
- *   texts rather than the values (1.0 and 1.00 are one numeric and two texts), so the statement is read as a derived
- *   table and the casts are applied outside it, with its ORDER BY re-applied to the uncast columns;
+ *   texts rather than the values (1.0 and 1.00 are one numeric and two texts: PostgreSQL's output texts are raw, and
+ *   only decode reads them into one form), so the statement is read as a derived table that deduplicates values and
+ *   the casts are applied outside it, with its ORDER BY re-applied to the uncast columns;
  * - one encoder per placeholder: a scalar parameter's text codec, a relation parameter's deduplicating recordset
  *   encoder (codec/recordset.ts), and the delivered parent keys of an attachment, whose texts the runtime reads from
  *   the parent statement's rows;

@@ -1,12 +1,14 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
-import { array, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { required } from "@grizzle/testing/features"
+import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
+import type { CompileError, PreconditionKind } from "#compiler/core/errors.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Carrier, typeLabel } from "#compiler/ir/scalar.ts"
@@ -15,25 +17,26 @@ import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
-	allowedFailures,
 	caseChunk,
 	compareAnswers,
 	type EvalCase,
 	installEvaluator,
+	type PgAnswer,
 	runCases
 } from "#test/pg/compute/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
+import { numericPaddings } from "#test/support/oracle/gen/domain.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	baseParams,
 	type LeafBinding,
 	lowerWith,
-	testPg,
 	plainRender,
 	renderSql,
 	spelled,
 	type TestField,
+	testPg,
 	v
 } from "#test/unit/compute/support.ts"
 import { decimalText } from "#test/unit/values/support.ts"
@@ -50,104 +53,6 @@ const fields: { readonly [C in Gate]: TestField } = {
 	money: testPg.money
 }
 
-const intEdges = (lo: bigint, hi: bigint): ReadonlyArray<bigint> => [
-	lo,
-	lo + 1n,
-	-7n,
-	-3n,
-	-2n,
-	-1n,
-	0n,
-	1n,
-	2n,
-	3n,
-	5n,
-	7n,
-	10n,
-	hi - 1n,
-	hi,
-	hi / 2n,
-	lo / 2n
-]
-
-const numericEdges = [
-	"0",
-	"0.00",
-	"1",
-	"1.0",
-	"1.00",
-	"-1",
-	"0.5",
-	"-0.5",
-	"1.5",
-	"2.5",
-	"-2.5",
-	"3",
-	"7",
-	"0.001",
-	"123.456",
-	"-98765.4321",
-	"1e20",
-	"1e-20",
-	"99999999999999999999.99",
-	"2147483647.5",
-	"-2147483648.5",
-	"9223372036854775807",
-	"9223372036854775808",
-	"NaN",
-	"Infinity",
-	"-Infinity"
-]
-
-const floatEdges = [
-	0,
-	1,
-	-1,
-	0.5,
-	-0.5,
-	1.5,
-	2.5,
-	-2.5,
-	3.5,
-	2,
-	3,
-	7,
-	0.1,
-	1e308,
-	-1e308,
-	Number.MAX_VALUE,
-	Number.MIN_VALUE,
-	2.2250738585072014e-308,
-	1e-300,
-	1e300,
-	123456789012344.5,
-	2 ** 53,
-	2 ** 63,
-	-(2 ** 63),
-	2147483647.5,
-	-2147483648.5,
-	32767.5,
-	-32768.5,
-	3.4028235677973366e38,
-	1e39,
-	1e-46,
-	Number.NaN,
-	Number.POSITIVE_INFINITY,
-	Number.NEGATIVE_INFINITY
-]
-
-const moneyEdges = [
-	0n,
-	1n,
-	-1n,
-	100n,
-	12345n,
-	-99999n,
-	9223372036854775807n,
-	-9223372036854775808n,
-	4611686018427387904n
-]
-
 const limits: Readonly<Record<"int2" | "int4" | "int8", readonly [bigint, bigint]>> = {
 	int2: [-32768n, 32767n],
 	int4: [-2147483648n, 2147483647n],
@@ -155,16 +60,179 @@ const limits: Readonly<Record<"int2" | "int4" | "int8", readonly [bigint, bigint
 }
 
 /**
- * The generated operands of one case, per type: a batch of up to 80 values (120 numerics), the sample each type drew
- * before the search, and the drawn start of the pseudo-random walk over a type's operand values (pick).
+ * How a case spells an operand in SQL, which its value cannot tell: as it is; a finite numeric cast to numeric(1000, s)
+ * and back to bare numeric, the value at display scale s past its least scale, which only a reading of the display
+ * scale sees; or a float zero as neg(0), -0 in PostgreSQL, which only a reading of the sign of zero sees.
+ */
+type Spelling =
+	| { readonly kind: "plain" }
+	| { readonly kind: "padded"; readonly scale: number }
+	| { readonly kind: "negative zero" }
+
+/** An operand of a case: its value, bound as a literal, how the case's expression spells it, and its class. */
+interface Operand {
+	readonly value: LiteralDesc
+	readonly spelling: Spelling
+	/** The boundary class the operand is of, or "drawn" for a generated operand. */
+	readonly boundary: string
+}
+
+const plainOperand = (value: LiteralDesc, boundary: string): Operand => ({
+	value,
+	spelling: { kind: "plain" },
+	boundary
+})
+
+/** One named value class of a carrier's boundary: a value whose neighbourhood an operation treats apart. */
+interface Boundary {
+	readonly name: string
+	readonly value: LiteralDesc
+}
+
+const intBoundaries = (lo: bigint, hi: bigint, asNumber: boolean): ReadonlyArray<Boundary> =>
+	Arr.map(
+		[
+			["min", lo],
+			["min + 1", lo + 1n],
+			["minus one", -1n],
+			["zero", 0n],
+			["one", 1n],
+			["two", 2n],
+			["max - 1", hi - 1n],
+			["max", hi]
+		] as const,
+		([name, x]) => ({ name, value: asNumber ? Number(x) : x })
+	)
+
+/**
+ * The boundary classes of each carrier: its range's ends and their neighbours, zero and the units, and for numeric and
+ * the floats NaN and the infinities, the largest and smallest magnitudes, and the halves an integer cast rounds. Every
+ * (entry, class) pair is a situation the search must reach: an agreement on a value, or a refusal the operand's value
+ * justifies.
+ */
+const boundaries: { readonly [C in Gate]: ReadonlyArray<Boundary> } = {
+	int2: intBoundaries(-32768n, 32767n, true),
+	int4: intBoundaries(-2147483648n, 2147483647n, true),
+	int8: intBoundaries(-(2n ** 63n), 2n ** 63n - 1n, false),
+	numeric: Arr.map(
+		[
+			["zero", "0"],
+			["one", "1"],
+			["minus one", "-1"],
+			["half", "2.5"],
+			["tiny", "1e-20"],
+			["largest", `${Str.repeat(1000)("9")}`],
+			["int4 half", "2147483647.5"],
+			["int8 half", "9223372036854775807.5"],
+			["NaN", "NaN"],
+			["Infinity", "Infinity"],
+			["-Infinity", "-Infinity"]
+		] as const,
+		([name, text]) => ({ name, value: Decimal.of(text) })
+	),
+	float8: [
+		{ name: "zero", value: 0 },
+		{ name: "one", value: 1 },
+		{ name: "minus one", value: -1 },
+		{ name: "half", value: 2.5 },
+		{ name: "largest", value: Number.MAX_VALUE },
+		{ name: "least", value: 5e-324 },
+		{ name: "2^63", value: 2 ** 63 },
+		{ name: "NaN", value: { float: "NaN" } },
+		{ name: "Infinity", value: { float: "Infinity" } },
+		{ name: "-Infinity", value: { float: "-Infinity" } }
+	],
+	float4: [
+		{ name: "zero", value: 0 },
+		{ name: "one", value: 1 },
+		{ name: "minus one", value: -1 },
+		{ name: "half", value: 2.5 },
+		{ name: "largest", value: 3.4028234663852886e38 },
+		{ name: "least", value: 1.401298464324817e-45 },
+		{ name: "NaN", value: { float: "NaN" } },
+		{ name: "Infinity", value: { float: "Infinity" } },
+		{ name: "-Infinity", value: { float: "-Infinity" } }
+	],
+	money: Arr.map(
+		[
+			["zero", 0n],
+			["one cent", 1n],
+			["minus one cent", -1n],
+			["max", 2n ** 63n - 1n],
+			["min", -(2n ** 63n)]
+		] as const,
+		([name, minor]) => ({ name, value: Money.of(minor) })
+	)
+}
+
+/** A boundary class as an operand: as it is, and a float's zero as -0 too. */
+const boundaryOperands = (c: Gate): ReadonlyArray<Operand> => [
+	...Arr.map(boundaries[c], (b) => plainOperand(b.value, b.name)),
+	...(c === "float8" || c === "float4"
+		? [{ value: 0, spelling: { kind: "negative zero" } as const, boundary: "-0" }]
+		: [])
+]
+
+/** The display scale numeric(1000, s) holds at most, NUMERIC_MAX_SCALE. */
+const maxPaddedScale = 1000
+
+/** A numeric operand padded by `digits` fraction digits past its least scale; NaN and the infinities as they are. */
+const numericOperand = (value: Decimal, digits: number, boundary: string): Operand => {
+	const p = value.parts
+	if (digits === 0 || p.kind !== "finite") {
+		return plainOperand(value, boundary)
+	}
+	const scale = p.minScale + digits
+	if (scale > maxPaddedScale) {
+		throw new Error(
+			`a numeric operand of least scale ${p.minScale} padded past numeric's largest scale`
+		)
+	}
+	return { value, spelling: { kind: "padded", scale }, boundary }
+}
+
+/** A drawn float operand: a value, or zero spelled -0. */
+type FloatDraw = number | "-0"
+
+const floatOperand = (x: FloatDraw): Operand => {
+	if (x === "-0") {
+		return { value: 0, spelling: { kind: "negative zero" }, boundary: "-0" }
+	}
+	if (Number.isNaN(x)) {
+		return plainOperand({ float: "NaN" }, "drawn")
+	}
+	if (x === Number.POSITIVE_INFINITY) {
+		return plainOperand({ float: "Infinity" }, "drawn")
+	}
+	if (x === Number.NEGATIVE_INFINITY) {
+		return plainOperand({ float: "-Infinity" }, "drawn")
+	}
+	return plainOperand(x === 0 ? 0 : x, "drawn")
+}
+
+/** A float operand as a real holds it: rounded to binary32, or none where a real cannot hold the value. */
+const realOperand = (o: Operand): ReadonlyArray<Operand> => {
+	const x = o.value
+	if (typeof x !== "number") {
+		return [o]
+	}
+	const r = Math.fround(x)
+	return Number.isFinite(r) && (r !== 0 || x === 0) ? [{ ...o, value: r }] : []
+}
+
+/**
+ * The generated operands of one case, per type: a batch of up to 80 values (120 numerics, each with its drawn padding),
+ * the padding of each numeric boundary class, and the drawn start of the pseudo-random walk over a type's operand
+ * values (pick).
  */
 interface Operands {
 	readonly int2: ReadonlyArray<bigint>
 	readonly int4: ReadonlyArray<bigint>
 	readonly int8: ReadonlyArray<bigint>
-	readonly numeric: ReadonlyArray<string>
-	readonly float8: ReadonlyArray<number>
-	readonly float4: ReadonlyArray<number>
+	readonly numeric: ReadonlyArray<readonly [string, number]>
+	readonly numericBoundaryPaddings: ReadonlyArray<number>
+	readonly float8: ReadonlyArray<FloatDraw>
+	readonly float4: ReadonlyArray<FloatDraw>
 	readonly money: ReadonlyArray<bigint>
 	readonly walk: number
 }
@@ -177,109 +245,29 @@ const integerGen = (c: "int2" | "int4" | "int8"): Gen<bigint> => {
 	return oneOf([bigint(-1000n, 1000n), bigint(lo, hi)])
 }
 
-const floatGen: Gen<number> = oneOf([
-	double(-Number.MAX_VALUE, Number.MAX_VALUE),
-	map(int(-100, 100), (x) => x / 4)
+/** A float operand: any double, a quarter-integer, or zero spelled -0. */
+const floatGen: Gen<FloatDraw> = weighted<FloatDraw>([
+	[8, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+	[8, map(int(-100, 100), (x) => x / 4)],
+	[1, constant<FloatDraw>("-0")]
 ])
+
+/** The fraction digits a numeric operand is padded by past its least scale: none, or one of the paddings. */
+const paddingGen: Gen<number> = element<number>([0, ...numericPaddings])
 
 const operandsGen: Gen<Operands> = (source) => ({
 	int2: source.draw(batchOf(integerGen("int2"), 80)),
 	int4: source.draw(batchOf(integerGen("int4"), 80)),
 	int8: source.draw(batchOf(integerGen("int8"), 80)),
-	numeric: source.draw(batchOf(decimalText, 120)),
+	numeric: source.draw(batchOf((s) => [s.draw(decimalText), s.draw(paddingGen)] as const, 120)),
+	numericBoundaryPaddings: source.draw(
+		array(paddingGen, { min: boundaries.numeric.length, max: boundaries.numeric.length })
+	),
 	float8: source.draw(batchOf(floatGen, 80)),
 	float4: source.draw(batchOf(floatGen, 80)),
 	money: source.draw(batchOf(bigint(-(10n ** 12n), 10n ** 12n), 80)),
 	walk: source.draw(int(0, 2 ** 31 - 1))
 })
-
-/** Operand values of each type as LiteralDescs: edges first, then the case's generated operands. */
-const operandValues = (c: Gate, operands: Operands): ReadonlyArray<LiteralDesc> => {
-	switch (c) {
-		case "int2":
-		case "int4":
-		case "int8": {
-			const [lo, hi] = limits[c]
-			const all = [...intEdges(lo, hi), ...operands[c]]
-			return c === "int8" ? all : Arr.map(all, (x) => Number(x))
-		}
-		case "numeric":
-			return Arr.map([...numericEdges, ...operands.numeric], (t) => Decimal.of(t))
-		case "float8":
-		case "float4": {
-			const all = [...floatEdges, ...operands[c]]
-			const finite = Arr.map(all, (x): LiteralDesc => {
-				if (Number.isNaN(x)) {
-					return { float: "NaN" }
-				}
-				if (x === Number.POSITIVE_INFINITY) {
-					return { float: "Infinity" }
-				}
-				if (x === Number.NEGATIVE_INFINITY) {
-					return { float: "-Infinity" }
-				}
-				return x === 0 ? 0 : x
-			})
-			return c === "float4"
-				? Arr.map(
-						Arr.filter(
-							finite,
-							(x) =>
-								typeof x !== "number" ||
-								(Number.isFinite(Math.fround(x)) && (Math.fround(x) !== 0 || x === 0))
-						),
-						(x) => (typeof x === "number" ? Math.fround(x) : x)
-					)
-				: finite
-		}
-		case "money":
-			return Arr.map([...moneyEdges, ...operands.money], (m) => Money.of(m))
-	}
-}
-
-/** The corner operands each binary operation meets pairwise. */
-const cornerValues = (c: Gate): ReadonlyArray<LiteralDesc> => {
-	switch (c) {
-		case "int2":
-		case "int4":
-		case "int8": {
-			const [lo, hi] = limits[c]
-			const xs = [lo, lo + 1n, -2n, -1n, 0n, 1n, 2n, 3n, hi]
-			return c === "int8" ? xs : Arr.map(xs, (x) => Number(x))
-		}
-		case "numeric":
-			return Arr.map(
-				["0", "1.00", "-1", "2.5", "-2.5", "0.001", "1e20", "NaN", "Infinity", "-Infinity"],
-				(t) => Decimal.of(t)
-			)
-		case "float8":
-			return [
-				0,
-				1,
-				-1,
-				2.5,
-				1e308,
-				-1e308,
-				5e-324,
-				{ float: "NaN" },
-				{ float: "Infinity" },
-				{ float: "-Infinity" }
-			]
-		case "float4":
-			return [
-				0,
-				1,
-				-1,
-				2.5,
-				3.4028234663852886e38,
-				1.401298464324817e-45,
-				{ float: "NaN" },
-				{ float: "Infinity" }
-			]
-		case "money":
-			return Arr.map([0n, 1n, -1n, 9223372036854775807n, -9223372036854775808n], (m) => Money.of(m))
-	}
-}
 
 /** The element at `i`, which the caller's index arithmetic keeps in range. */
 const at = <A>(xs: ReadonlyArray<A>, i: number): A => {
@@ -290,12 +278,75 @@ const at = <A>(xs: ReadonlyArray<A>, i: number): A => {
 	return x
 }
 
+/** The boundary classes of a carrier, a numeric one each padded as drawn. */
+const boundaryValues = (c: Gate, operands: Operands): ReadonlyArray<Operand> =>
+	c === "numeric"
+		? Arr.map(boundaries.numeric, (b, i) => {
+				const value = b.value instanceof Decimal ? b.value : Decimal.zero
+				return numericOperand(value, at(operands.numericBoundaryPaddings, i), b.name)
+			})
+		: boundaryOperands(c)
+
+/** The operands of each type: its boundary classes, then the case's generated operands. */
+const operandValues = (c: Gate, operands: Operands): ReadonlyArray<Operand> => {
+	const drawnOperands = (): ReadonlyArray<Operand> => {
+		switch (c) {
+			case "int2":
+			case "int4":
+				return Arr.map(operands[c], (x) => plainOperand(Number(x), "drawn"))
+			case "int8":
+				return Arr.map(operands.int8, (x) => plainOperand(x, "drawn"))
+			case "numeric":
+				return Arr.map(operands.numeric, ([t, d]) => numericOperand(Decimal.of(t), d, "drawn"))
+			case "float8":
+				return Arr.map(operands.float8, floatOperand)
+			case "float4":
+				return Arr.flatMap(Arr.map(operands.float4, floatOperand), realOperand)
+			case "money":
+				return Arr.map(operands.money, (m) => plainOperand(Money.of(m), "drawn"))
+		}
+	}
+	return [...boundaryValues(c, operands), ...drawnOperands()]
+}
+
+/** The term a case reads operand `name` through: the variable itself, padded, or negated. */
+const spelledTerm = (name: string, f: TestField, operand: Operand): ScalarTerm => {
+	const term = v(name, f)
+	switch (operand.spelling.kind) {
+		case "plain":
+			return term
+		case "padded":
+			return Compute.cast(
+				Compute.cast(term, testPg.numericOf(maxPaddedScale, operand.spelling.scale)),
+				testPg.numeric
+			)
+		case "negative zero":
+			return Compute.neg(term)
+	}
+}
+
+/** The spelling a case's read operands show: the first spelled one's, or plain. */
+const spellingOf = (read: ReadonlyArray<Operand>): Spelling["kind"] => {
+	for (const o of read) {
+		if (o.spelling.kind !== "plain") {
+			return o.spelling.kind
+		}
+	}
+	return "plain"
+}
+
+const literalOf = (f: TestField, operand: Operand): LeafBinding => ({
+	kind: "literal",
+	type: f.scalar,
+	value: operand.value
+})
+
+/** n tuples of a pseudo-random walk over xs from the drawn start. */
 const pick = <A>(
 	xs: ReadonlyArray<A>,
 	n: number,
 	walk: number
 ): ReadonlyArray<ReadonlyArray<A>> => {
-	/** n tuples of a pseudo-random walk over xs from the drawn start. */
 	const out: Array<Array<A>> = []
 	let state = walk >>> 0
 	const next = () => {
@@ -311,12 +362,7 @@ const pick = <A>(
 interface Op {
 	readonly name: string
 	readonly arity: 1 | 2 | 3
-	readonly build: (
-		terms: ReadonlyArray<ScalarTerm>,
-		carrier: Gate
-	) => {
-		readonly expr: OpenExpr
-	}
+	readonly build: (terms: ReadonlyArray<ScalarTerm>, carrier: Gate) => { readonly expr: OpenExpr }
 	readonly predicate: boolean
 }
 
@@ -334,6 +380,12 @@ const inLists: { readonly [C in Gate]: ReadonlyArray<unknown> } = {
 	money: [Money.of(0n), Money.of(100n), Money.of(-1n), Money.of(9223372036854775807n)]
 }
 
+/**
+ * The catalogue's entries. Every operand is a literal, so each partial operation's precondition is decided at
+ * compilation from the literals' own values and bounds: proved, and the case runs, or refused (PartialOperation), and
+ * the refusal is judged against the operands' values. The chained entries put an exact integer or exact money in an
+ * operand: a sum, a product or a quotient of an exact value, and its comparison and narrowing.
+ */
 const ops: ReadonlyArray<Op> = [
 	{ name: "add", arity: 2, build: ([a, b]) => Compute.add(a, b), predicate: false },
 	{ name: "sub", arity: 2, build: ([a, b]) => Compute.sub(a, b), predicate: false },
@@ -359,9 +411,7 @@ const ops: ReadonlyArray<Op> = [
 	{ name: "sqrt", arity: 1, build: ([a]) => Compute.sqrt(a), predicate: false },
 	{ name: "least", arity: 3, build: ([a, b, c]) => Compute.least(a, b, c), predicate: false },
 	{ name: "greatest", arity: 3, build: ([a, b, c]) => Compute.greatest(a, b, c), predicate: false },
-	{ name: "scale", arity: 1, build: ([a]) => Compute.scale(a), predicate: false },
 	{ name: "minScale", arity: 1, build: ([a]) => Compute.minScale(a), predicate: false },
-	{ name: "trimScale", arity: 1, build: ([a]) => Compute.trimScale(a), predicate: false },
 	{ name: "eq", arity: 2, build: ([a, b]) => Compute.eq(a, b), predicate: true },
 	{ name: "ne", arity: 2, build: ([a, b]) => Compute.ne(a, b), predicate: true },
 	{ name: "lt", arity: 2, build: ([a, b]) => Compute.lt(a, b), predicate: true },
@@ -382,6 +432,37 @@ const ops: ReadonlyArray<Op> = [
 		build: ([a, b, c]) =>
 			Compute.or(Compute.and(Compute.le(a, b), Compute.not(Compute.eq(b, c))), Compute.gt(c, a)),
 		predicate: true
+	},
+	{
+		name: "exact add",
+		arity: 3,
+		build: ([a, b, c]) => Compute.add(Compute.add(a, b), c),
+		predicate: false
+	},
+	{
+		name: "exact mul",
+		arity: 3,
+		build: ([a, b, c]) => Compute.mul(Compute.mul(a, b), c),
+		predicate: false
+	},
+	{
+		name: "exact div",
+		arity: 3,
+		build: ([a, b, c]) => Compute.div(Compute.mul(a, b), c),
+		predicate: false
+	},
+	{
+		name: "exact compare",
+		arity: 3,
+		build: ([a, b, c]) => Compute.lt(Compute.sub(a, b), c),
+		predicate: true
+	},
+	{
+		name: "guarded div",
+		arity: 2,
+		build: ([a, b]) =>
+			Compute.when(Compute.nonzero(b), (d: ScalarTerm) => Compute.div(a, d), Compute.sub(a, a)),
+		predicate: false
 	}
 ]
 
@@ -400,29 +481,44 @@ const castTargets: ReadonlyArray<readonly [string, TestField]> = [
 /** Whether `build` returns rather than throwing a CompileError; anything else thrown fails the test. */
 const admitted = (build: () => unknown): boolean => catchCompileError(build).ok
 
+/** What one case of an entry is: a case PostgreSQL runs, or a refusal at compilation with its precondition. */
+type Built =
+	| { readonly kind: "case"; readonly evalCase: EvalCase }
+	| { readonly kind: "refused"; readonly label: string; readonly precondition: PreconditionKind }
+
 let ord = 0
+
+/** The precondition a compilation refusal names, or a defect: a case refuses only for a partial operation. */
+const refusalOf = (label: string, error: CompileError): PreconditionKind => {
+	if (error.reason._tag !== "PartialOperation") {
+		throw new Error(`${label}: ${error.message}`)
+	}
+	return error.reason.precondition
+}
 
 const makeCase = (
 	label: string,
 	expr: OpenExpr,
 	bindings: Readonly<Record<string, LeafBinding>>,
 	predicate: boolean
-): EvalCase => {
+): Built => {
 	const lowered = lowerWith("query", spelled(expr), bindings, predicate, baseParams)
 	if (!lowered.ok) {
-		throw new Error(`${label}: ${String(lowered.error)}`)
+		return { kind: "refused", label, precondition: refusalOf(label, lowered.error) }
 	}
 	const { root } = lowered.value
 	const sql = renderSql(root.expr, plainRender)
 	const money = root.actual.carrier === "money"
 	return {
-		ord: ord++,
-		label,
-		sql,
-		valueSql: money ? `(${sql})::numeric` : sql,
-		type: root.actual,
-		host: evaluate(root.expr, constantEnv),
-		allowed: allowedFailures(root.expr)
+		kind: "case",
+		evalCase: {
+			ord: ord++,
+			label,
+			sql,
+			valueSql: money ? `(${sql})::numeric` : sql,
+			type: root.actual,
+			host: evaluate(root.expr, constantEnv)
+		}
 	}
 }
 
@@ -459,35 +555,180 @@ const admission = () => {
 	return { refusedPairs, admittedPairs }
 }
 
-/** Every admitted (operation, carrier) pair's cases over the edges and the case's generated operands. */
-const buildCases = (operands: Operands): ReadonlyArray<EvalCase> => {
-	const cases: Array<EvalCase> = []
+const operandNames = ["a", "b", "c"] as const
+
+/** The entries an operand of carrier `c` meets: its admitted operations and casts, width_bucket's for numeric. */
+const entriesOf = (c: Gate): ReadonlyArray<string> => {
+	const f = fields[c]
+	const terms = [v("a", f), v("b", f), v("c", f)]
+	return [
+		...Arr.map(
+			Arr.filter(ops, (op) => admitted(() => op.build(terms, c))),
+			(op) => `${op.name}/${c}`
+		),
+		...Arr.map(
+			Arr.filter(castTargets, ([, target]) => admitted(() => Compute.cast(terms[0], target))),
+			([name]) => `cast:${typeLabel(f.scalar)}->${name}`
+		),
+		...(c === "numeric" ? ["widthBucket/numeric"] : [])
+	]
+}
+
+/** The entries the host declines for every value by design (a float's pow, evaluation "database"): no verdict. */
+const declinedEntries: ReadonlySet<string> = new Set(["power/float8", "power/float4"])
+
+/** An entry met at one of its carrier's boundary classes: `<entry> @ <class>`. */
+type BoundarySituation = `${string} @ ${string}`
+
+/** What a spelled operand reached: an entry that read a padded numeric or a float -0 and agreed on a value. */
+type SpelledSituation = `padded ${string}` | `negative zero ${string}`
+
+/** Every admitted entry at every boundary class of its carrier, but the entries the host declines by design. */
+const boundarySituations: ReadonlyArray<BoundarySituation> = Arr.flatMap(gateCarriers, (c) =>
+	Arr.flatMap(
+		Arr.filter(entriesOf(c), (e) => !declinedEntries.has(e)),
+		(e) =>
+			Arr.map(
+				[
+					...Arr.map(boundaries[c], (b) => b.name),
+					...(c === "float8" || c === "float4" ? ["-0"] : [])
+				],
+				(b): BoundarySituation => `${e} @ ${b}`
+			)
+	)
+)
+
+/** Every entry with a numeric operand, read padded, and every float entry, read at -0. */
+const spelledSituations: ReadonlyArray<SpelledSituation> = [
+	...Arr.map(entriesOf("numeric"), (e): SpelledSituation => `padded ${e}`),
+	...Arr.map(
+		Arr.filter([...entriesOf("float8"), ...entriesOf("float4")], (e) => !declinedEntries.has(e)),
+		(e): SpelledSituation => `negative zero ${e}`
+	)
+]
+
+/** A case, the spelling of the operands its expression reads, and their boundary classes. */
+interface ReadCase {
+	readonly built: Built
+	readonly spelling: Spelling["kind"]
+	readonly read: ReadonlyArray<Operand>
+}
+
+/** Whether an operand's value is zero, below zero, or not finite: what a refused precondition must rest on. */
+const isZero = (x: LiteralDesc): boolean =>
+	x === 0 ||
+	x === 0n ||
+	(x instanceof Decimal && x.isFinite() && x.parts.coefficient === 0n) ||
+	(x instanceof Money && x.minorUnits === 0n)
+
+const isNegative = (x: LiteralDesc): boolean =>
+	(typeof x === "number" && x < 0) ||
+	(typeof x === "bigint" && x < 0n) ||
+	(x instanceof Decimal && x.isFinite() && x.parts.negative && x.parts.coefficient !== 0n) ||
+	(x instanceof Decimal && x.parts.kind === "-infinity") ||
+	(typeof x === "object" && "float" in x && x.float === "-Infinity")
+
+const isSpecial = (x: LiteralDesc): boolean =>
+	(x instanceof Decimal && !x.isFinite()) || (typeof x === "object" && "float" in x)
+
+/**
+ * Whether a refusal is the operands' values': a nonzero precondition over a zero operand, a nonnegative one over a
+ * negative operand, a finite one over NaN or an infinity. The others rest on magnitudes compilation bounds (a
+ * narrowing's range, a power's, a bucket's, a digit bound), whose refusals are the residues it decides from intervals.
+ */
+const justified = (precondition: PreconditionKind, read: ReadonlyArray<Operand>): boolean => {
+	switch (precondition) {
+		case "nonzero":
+			return Arr.some(read, (o) => isZero(o.value))
+		case "nonnegative":
+			return Arr.some(read, (o) => isNegative(o.value))
+		case "finite":
+			return Arr.some(read, (o) => isSpecial(o.value))
+		case "fits":
+		case "contract":
+		case "powerDomain":
+		case "bucketDomain":
+			return true
+	}
+}
+
+/** The situations a run reached, from its cases and the answers to those PostgreSQL ran. */
+const reached = (
+	cases: ReadonlyArray<ReadCase>,
+	agreed: ReadonlyMap<ReadCase, boolean>
+): ReadonlyArray<BoundarySituation | SpelledSituation> =>
+	Arr.flatMap(cases, (k): ReadonlyArray<BoundarySituation | SpelledSituation> => {
+		const label = k.built.kind === "case" ? k.built.evalCase.label : k.built.label
+		const ok =
+			k.built.kind === "case" ? agreed.get(k) === true : justified(k.built.precondition, k.read)
+		if (!ok) {
+			return []
+		}
+		const atBoundary = Arr.map(k.read, (o): BoundarySituation => `${label} @ ${o.boundary}`)
+		const spelledReach: ReadonlyArray<SpelledSituation> =
+			k.built.kind !== "case"
+				? []
+				: k.spelling === "padded"
+					? [`padded ${label}`]
+					: k.spelling === "negative zero"
+						? [`negative zero ${label}`]
+						: []
+		return [...atBoundary, ...spelledReach]
+	})
+
+/**
+ * Every admitted entry's cases: each boundary class of its carrier at each operand position, every pair of boundary
+ * classes for a binary entry, and a walk over the boundary and generated operands; each operand read through its
+ * spelling's term.
+ */
+const buildCases = (operands: Operands): ReadonlyArray<ReadCase> => {
+	const cases: Array<ReadCase> = []
+	const add = (
+		label: string,
+		expr: OpenExpr,
+		bindings: Readonly<Record<string, LeafBinding>>,
+		predicate: boolean,
+		read: ReadonlyArray<Operand>
+	) => {
+		cases.push({
+			built: makeCase(label, expr, bindings, predicate),
+			spelling: spellingOf(read),
+			read
+		})
+	}
 	for (const c of gateCarriers) {
 		const f = fields[c]
 		const values = operandValues(c, operands)
+		const classes = boundaryValues(c, operands)
 		const terms = [v("a", f), v("b", f), v("c", f)]
 		for (const op of ops) {
 			if (!admitted(() => op.build(terms, c))) {
 				continue
 			}
-			const expr = op.build(terms, c).expr
-			const tuples = pick(
-				values,
-				op.arity === 1 ? Math.min(values.length * 2, 300) : 300,
-				operands.walk ^ (op.name.length * 31 + c.length)
+			const walk = pick(values, 200, operands.walk ^ (op.name.length * 31 + c.length))
+			const atPositions = Arr.flatMap(Arr.range(0, op.arity - 1), (p) =>
+				Arr.map(classes, (k, i) =>
+					Arr.map([0, 1, 2], (q) => (q === p ? k : at(at(walk, i % walk.length), q)))
+				)
 			)
-			const unaries = op.arity === 1 ? Arr.map(values, (x) => [x, x, x]) : []
-			/** Every pair of the corner values: the minimum over -1, a zero divisor, the infinities. */
-			const corner = cornerValues(c)
 			const pairs =
-				op.arity === 1 ? [] : Arr.flatMap(corner, (x) => Arr.map(corner, (y) => [x, y, y]))
-			for (const tuple of [...unaries, ...pairs, ...tuples]) {
-				const bindings: Record<string, LeafBinding> = {
-					a: { kind: "literal", type: f.scalar, value: at(tuple, 0) },
-					b: { kind: "literal", type: f.scalar, value: at(tuple, 1) },
-					c: { kind: "literal", type: f.scalar, value: at(tuple, 2) }
-				}
-				cases.push(makeCase(`${op.name}/${c}`, expr, bindings, op.predicate))
+				op.arity === 1 ? [] : Arr.flatMap(classes, (x) => Arr.map(classes, (y) => [x, y, y]))
+			for (const tuple of [...atPositions, ...pairs, ...walk]) {
+				const expr = op.build(
+					Arr.map(operandNames, (name, k) => spelledTerm(name, f, at(tuple, k))),
+					c
+				).expr
+				add(
+					`${op.name}/${c}`,
+					expr,
+					{
+						a: literalOf(f, at(tuple, 0)),
+						b: literalOf(f, at(tuple, 1)),
+						c: literalOf(f, at(tuple, 2))
+					},
+					op.predicate,
+					tuple.slice(0, op.arity)
+				)
 			}
 		}
 		for (const [name, target] of castTargets) {
@@ -495,165 +736,65 @@ const buildCases = (operands: Operands): ReadonlyArray<EvalCase> => {
 			if (!admitted(() => Compute.cast(terms[0], target))) {
 				continue
 			}
-			const expr = Compute.cast(terms[0], target).expr
 			for (const x of values) {
-				cases.push(
-					makeCase(label, expr, { a: { kind: "literal", type: f.scalar, value: x } }, false)
+				add(
+					label,
+					Compute.cast(spelledTerm("a", f, x), target).expr,
+					{ a: literalOf(f, x) },
+					false,
+					[x]
 				)
 			}
 		}
 	}
-	/** width_bucket over numeric operands and an integer count. */
+	const numeric = testPg.numeric
 	const numericValues = operandValues("numeric", operands)
 	const counts = [-1, 0, 1, 3, 10, 2147483647]
-	const wb = Compute.widthBucket(
-		v("a", testPg.numeric),
-		v("b", testPg.numeric),
-		v("c", testPg.numeric),
-		v("n", testPg.integer)
-	).expr
+	const bucket = (a: Operand, b: Operand, c: Operand, n: number) =>
+		add(
+			"widthBucket/numeric",
+			Compute.widthBucket(
+				spelledTerm("a", numeric, a),
+				spelledTerm("b", numeric, b),
+				spelledTerm("c", numeric, c),
+				v("n", testPg.integer)
+			).expr,
+			{
+				a: literalOf(numeric, a),
+				b: literalOf(numeric, b),
+				c: literalOf(numeric, c),
+				n: { kind: "literal", type: testPg.integer.scalar, value: n }
+			},
+			false,
+			[a, b, c]
+		)
 	for (const [i, t] of pick(numericValues, 1200, operands.walk ^ 77).entries()) {
-		cases.push(
-			makeCase(
-				"widthBucket/numeric",
-				wb,
-				{
-					a: { kind: "literal", type: testPg.numeric.scalar, value: at(t, 0) },
-					b: { kind: "literal", type: testPg.numeric.scalar, value: at(t, 1) },
-					c: { kind: "literal", type: testPg.numeric.scalar, value: at(t, 2) },
-					n: { kind: "literal", type: testPg.integer.scalar, value: at(counts, i % counts.length) }
-				},
-				false
-			)
-		)
+		bucket(at(t, 0), at(t, 1), at(t, 2), at(counts, i % counts.length))
 	}
-	for (let i = 0; i < 600; i++) {
-		const lo = Decimal.of(BigInt(-(i % 17)))
-		const hi = Decimal.of(`${(i % 13) + 1}.${i % 7}`)
-		const x = at(numericValues, i % numericValues.length)
-		cases.push(
-			makeCase(
-				"widthBucket/numeric",
-				wb,
-				{
-					a: { kind: "literal", type: testPg.numeric.scalar, value: x },
-					b: { kind: "literal", type: testPg.numeric.scalar, value: i % 2 === 0 ? lo : hi },
-					c: { kind: "literal", type: testPg.numeric.scalar, value: i % 2 === 0 ? hi : lo },
-					n: { kind: "literal", type: testPg.integer.scalar, value: (i % 9) + 1 }
-				},
-				false
-			)
-		)
+	for (const [i, k] of boundaryValues("numeric", operands).entries()) {
+		const lo = plainOperand(Decimal.of(BigInt(-(i % 17))), "drawn")
+		const hi = plainOperand(Decimal.of(`${(i % 13) + 1}.${i % 7}`), "drawn")
+		bucket(k, lo, hi, (i % 9) + 1)
+		bucket(lo, k, hi, (i % 9) + 1)
+		bucket(lo, hi, k, (i % 9) + 1)
 	}
 	return cases
 }
 
-const bind = (a: Decimal, b: Decimal): Record<string, LeafBinding> => ({
-	a: { kind: "literal", type: testPg.numeric.scalar, value: a },
-	b: { kind: "literal", type: testPg.numeric.scalar, value: b },
-	c: { kind: "literal", type: testPg.numeric.scalar, value: b }
-})
-
 /**
- * Numeric operands at the format's limits: a 131072-digit integer part with a half to round, the largest
- * power of ten, and the smallest positive value; each meets every operation that can carry it past the limit.
- */
-const limitCases = (): ReadonlyArray<EvalCase> => {
-	const nines = Str.repeat(131072)("9")
-	const extremes = Arr.map([`${nines}.5`, `-${nines}.5`, "1e131071", "1e-16383"], (t) =>
-		Decimal.of(t)
-	)
-	const partners = Arr.map(["0.001", "2", "-0.5"], (t) => Decimal.of(t))
-	const unary = ["round", "round2", "round-1", "trunc", "ceil", "floor", "sqrt", "neg", "abs"]
-	const binary = ["add", "sub", "mul", "div", "quot", "mod", "rem", "power"]
-	const terms = [v("a", testPg.numeric), v("b", testPg.numeric), v("c", testPg.numeric)]
-	const out: Array<EvalCase> = []
-	for (const op of ops) {
-		if (!unary.includes(op.name) && !binary.includes(op.name)) {
-			continue
-		}
-		const expr = op.build(terms, "numeric").expr
-		for (const x of extremes) {
-			if (unary.includes(op.name)) {
-				out.push(makeCase(`${op.name}/numeric`, expr, bind(x, x), false))
-				continue
-			}
-			for (const y of partners) {
-				for (const [a, b] of [
-					[x, y],
-					[y, x]
-				] as const) {
-					out.push(makeCase(`${op.name}/numeric`, expr, bind(a, b), false))
-				}
-			}
-		}
-	}
-	return out
-}
-
-/**
- * The typed failures every case meets over the edges: overflow, division by zero, out-of-range casts, and scale and
- * min_scale raising for NaN and the infinities rather than returning NULL.
- */
-const failureKeys = [
-	"add/int2:22003",
-	"add/int4:22003",
-	"add/int8:22003",
-	"mul/int8:22003",
-	"mul/float8:22003",
-	"div/int4:22012",
-	"div/numeric:22012",
-	"div/float8:22012",
-	"mod/int8:22012",
-	"neg/int4:22003",
-	"abs/int2:22003",
-	"gcd/int2:22003",
-	"sqrt/numeric:2201F",
-	"sqrt/float8:2201F",
-	"widthBucket/numeric:2201G",
-	"cast:numeric->integer:0A000",
-	"cast:numeric->smallint:22003",
-	"cast:double precision->integer:22003",
-	"cast:double precision->real:22003",
-	"cast:bigint->integer:22003",
-	"cast:numeric->numeric(5,2):22003",
-	"scale/numeric:0A000",
-	"minScale/numeric:0A000"
-] as const
-
-/**
- * The failures PostgreSQL raises for a node the host declines by design: float power's refusal, among its listed
- * failures.
- */
-const declinedFailureKeys = ["power/float8:2201F"] as const
-
-/** The typed failures numeric meets at its weight limit. */
-const limitFailureKeys = [
-	"add/numeric:22003",
-	"mul/numeric:22003",
-	"div/numeric:22003",
-	"quot/numeric:22003",
-	"round/numeric:22003",
-	"round-1/numeric:22003",
-	"ceil/numeric:22003",
-	"floor/numeric:22003",
-	"power/numeric:22003",
-	"power/numeric:2201F"
-] as const
-
-/**
- * What a case reached: each typed failure the host agreed on, each failure of a node it declined by design, numeric
- * power agreeing on a value, and a node the host declined by design.
+ * What a case reached: each entry at each boundary class of its carrier, agreeing on a value or refused as the
+ * operands' values justify; each entry over a padded numeric or a float -0, agreeing on a value; numeric power
+ * agreeing on a value; and a node the host declined by design.
  */
 type CatalogueFeature =
-	| (typeof failureKeys)[number]
-	| (typeof declinedFailureKeys)[number]
+	| BoundarySituation
+	| SpelledSituation
 	| "power/numeric value"
 	| "declined by the host"
 
 layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 	it.effect(
-		"agrees with PostgreSQL on the result type and value of every operation, and on every failure",
+		"agrees with PostgreSQL on the result type and value of every operation at every boundary, and refuses only what the values justify",
 		(ctx) =>
 			searched(
 				ctx,
@@ -680,7 +821,9 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 					assert.deepEqual(exercised("power"), ["numeric", "float8"])
 					assert.deepEqual(exercised("sqrt"), ["numeric", "float8"])
 					assert.deepEqual(exercised("round"), ["numeric"])
-					assert.deepEqual(exercised("scale"), ["numeric"])
+					assert.deepEqual(exercised("minScale"), ["numeric"])
+					assert.deepEqual(exercised("exact add"), gate)
+					assert.deepEqual(exercised("guarded div"), gate)
 					assert.deepEqual(
 						Arr.sort(
 							Arr.filter(refusedPairs, (p) => Arr.some(gate, (c) => Str.endsWith(`/${c}`)(p))),
@@ -699,9 +842,7 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 									`trunc-2/${c}`,
 									`ceil/${c}`,
 									`floor/${c}`,
-									`scale/${c}`,
-									`minScale/${c}`,
-									`trimScale/${c}`
+									`minScale/${c}`
 								]),
 								...Arr.flatMap(["int2", "int4", "int8"], (c) => [`power/${c}`, `sqrt/${c}`]),
 								"mod/float8",
@@ -711,52 +852,57 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 							Order.String
 						)
 					)
-					/**
-					 * At numeric's weight limit: every case agrees, overflow and numeric power's refusal met as typed failures.
-					 */
-					const limits = limitCases()
-					const limitResult = compareAnswers(limits, yield* runCases(db, s, limits, 20))
-					assert.deepEqual(limitResult.mismatches.slice(0, 10), [])
-					assert.equal(limitResult.typedOnly, 0)
-					assert.deepEqual(
-						Arr.filter(limitFailureKeys, (key) => !limitResult.failures.has(key)),
-						[],
-						"the typed failures met at numeric's weight limit"
-					)
 					return yield* explore(
 						{
 							suite: "pg/compute/catalogue",
 							draw: drawn(operandsGen),
 							literal: Formatter.format,
-							features: features<CatalogueFeature>([
-								...failureKeys,
-								...declinedFailureKeys,
-								"power/numeric value",
-								"declined by the host"
-							]),
+							coverage: required<CatalogueFeature>(
+								[
+									"power/numeric value",
+									"declined by the host",
+									...boundarySituations,
+									...spelledSituations
+								],
+								{ cases: 1, sense: notesOnly }
+							),
 							kept: [],
 							runs: 1,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(operands, c) =>
 							Effect.gen(function* () {
-								const cases = buildCases(operands)
-								const answers = yield* runCases(db, s, cases, caseChunk)
+								const all = buildCases(operands)
+								const ran = Arr.flatMap(all, (k) => (k.built.kind === "case" ? [k] : []))
+								const cases = Arr.flatMap(ran, (k) =>
+									k.built.kind === "case" ? [k.built.evalCase] : []
+								)
+								const answers: ReadonlyArray<PgAnswer> = yield* runCases(db, s, cases, caseChunk)
 								assert.equal(answers.length, cases.length)
 								const result = compareAnswers(cases, answers)
 								assert.deepEqual(result.mismatches.slice(0, 10), [])
 								assert.equal(result.typedOnly, 0)
+								const unjustified = Arr.flatMap(all, (k) =>
+									k.built.kind === "refused" && !justified(k.built.precondition, k.read)
+										? [
+												`${k.built.label} refused for ${k.built.precondition} at ${Arr.join(
+													Arr.map(k.read, (o) => Formatter.format(o.value)),
+													", "
+												)}`
+											]
+										: []
+								)
+								assert.deepEqual(unjustified.slice(0, 10), [])
+								const agreed = new Map(
+									Arr.map(ran, (k, i) => [k, result.agreed[i] === true] as const)
+								)
 								if (result.declined > 0) {
 									c.note("declined by the host")
 								}
-								c.noteAll(Arr.filter(failureKeys, (key) => result.failures.has(key)))
-								c.noteAll(
-									Arr.filter(declinedFailureKeys, (key) => result.declinedFailures.has(key))
-								)
+								c.noteAll(reached(all, agreed))
 								if (
 									Arr.some(
 										cases,

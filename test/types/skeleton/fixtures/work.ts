@@ -73,8 +73,8 @@ export const Clock = relation("Clock", { id: closedId(Moment), at: Instant }, ["
 export const Edu = schema("Edu", { Moment, Student, Sitting, SchoolCalendar, Clock }, [])
 
 export const studentWeekly = query(Edu).rule((r) => {
-	const { id, student, day, passed } = v(Sitting)
-	const { week } = v(SchoolCalendar)
+	const { id, student, day, passed } = v(Sitting, "sitting")
+	const { week } = v(SchoolCalendar, "schoolCalendar")
 	return r
 		.match(Sitting, { id, student, day, passed })
 		.match(SchoolCalendar, { day, week })
@@ -88,8 +88,8 @@ export const studentWeekly = query(Edu).rule((r) => {
 export const StudentWeekly = derived("StudentWeekly", studentWeekly)
 
 export const recentSittings = query(Edu).rule((r) => {
-	const { at } = v(Clock)
-	const { id, student, sat } = v(Sitting)
+	const { at } = v(Clock, "clock")
+	const { id, student, sat } = v(Sitting, "sitting")
 	return r
 		.match(Clock, { id: "current", at })
 		.match(Sitting, { id, student, sat })

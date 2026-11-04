@@ -1,7 +1,4 @@
-import {
-	placedDeduplication,
-	placementCertificate
-} from "#compiler/analysis/certificates/builder.ts"
+import { placementCertificate } from "#compiler/analysis/certificates/builder.ts"
 
 import {
 	analyzePhysical,
@@ -24,7 +21,6 @@ import { explainPlan, foldReasons } from "#compiler/lower/optimize/dedup/explain
 import type { DedupPlan, FoldPlan, Placement } from "#compiler/lower/optimize/dedup/plan.ts"
 import {
 	edgeFold,
-	evaluatesBound,
 	initialRealization,
 	isPinnedDistinct,
 	placementTarget
@@ -95,10 +91,8 @@ const belowTargets = (
  * Every node goes from plain to `distinct` at most once, and a union from `distinct` to plain at most once, after which
  * a placement on it pins it to UNION; so at most 2V + 1 rounds run, each linear in the DAG. A Group's observing edge is
  * not placed on a node: once nothing else is outstanding, each fold whose input still lacks one row per B deduplicates
- * its contributions on B itself (FoldInput `distinct`), and a fold whose input has one row per B folds it plainly,
- * unless a column of B it reads nowhere else can fail (policy.ts evaluatesBound): that fold deduplicates too, so the
- * column is computed. This is the one decision (foldOf) the emission, the explanation and the test kernel's
- * verification read.
+ * its contributions on B itself (FoldInput `distinct`), and a fold whose input has one row per B folds it plainly. This
+ * is the one decision (foldOf) the emission, the explanation and the test kernel's verification read.
  *
  * Every obligation the placements discharge is recorded, with its own consumer.
  *
@@ -197,15 +191,8 @@ export const placeDeduplication = (
 	}
 }
 
-/**
- * How a fold takes its input under an analysis: deduplicated on B where an obligation on its input is outstanding,
- * deduplicated though its input has one row per B where a bound column it reads nowhere else can fail
- * (policy.ts evaluatesBound), and plainly otherwise.
- */
-type Fold =
-	| { readonly kind: "owed"; readonly owed: Outstanding }
-	| { readonly kind: "evaluates" }
-	| { readonly kind: "plain" }
+/** How a fold takes its input under an analysis: deduplicated on B where an obligation on its input is outstanding, and plainly otherwise. */
+type Fold = { readonly kind: "owed"; readonly owed: Outstanding } | { readonly kind: "plain" }
 
 export const foldOf = (a: PhysicalAnalysis, node: NodeOf<"Group">): Fold => {
 	const [owed] = a.obligations.flatMap((o) =>
@@ -214,7 +201,7 @@ export const foldOf = (a: PhysicalAnalysis, node: NodeOf<"Group">): Fold => {
 	if (owed !== undefined) {
 		return { kind: "owed", owed }
 	}
-	return evaluatesBound(a, node) ? { kind: "evaluates" } : { kind: "plain" }
+	return { kind: "plain" }
 }
 
 const finishPlan = (
@@ -246,10 +233,7 @@ const finishPlan = (
 		if (fold.kind === "plain") {
 			continue
 		}
-		const cert =
-			fold.kind === "owed"
-				? placementCertificate(fold.owed)
-				: placedDeduplication(node.input, node, node.bound)
+		const cert = placementCertificate(fold.owed)
 		if (!cert.ok) {
 			return Result.err(cert.error)
 		}
@@ -271,8 +255,8 @@ const finishPlan = (
 						input: "distinct",
 						bound: node.bound,
 						reasons,
-						/** The node the fold's DISTINCT deduplicates: the obligation's input, or the fold's own. */
-						deduplicates: fold.kind === "owed" ? fold.owed.edge.input.id : node.input.id
+						/** The node the fold's DISTINCT deduplicates: the obligation's input. */
+						deduplicates: fold.owed.edge.input.id
 					}
 	}
 	const realized: Record<NodeId, Realization> = {}

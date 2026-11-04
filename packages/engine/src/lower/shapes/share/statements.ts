@@ -2,6 +2,7 @@ import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/d
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { extendNonEmpty, isNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { type NodeScope, nodeScopes, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
@@ -442,15 +443,16 @@ export class StatementSharing {
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
 			this.#readCarrier(n, ncx, filling) ?? this.#shared(n, ncx, nenv, scope)
 		const query = this.#shared(node, cx.withDispatch(inScope), env, scope)
-		if (scope.ctes.size === 0) {
+		const scoped = [...scope.ctes]
+		if (!isNonEmpty(scoped)) {
 			return query
 		}
 		return {
 			...query,
 			with:
 				query.with === undefined
-					? { ctes: [...scope.ctes], recursive: false }
-					: { ...query.with, ctes: [...scope.ctes, ...query.with.ctes] }
+					? { ctes: scoped, recursive: false }
+					: { ...query.with, ctes: extendNonEmpty(scoped, query.with.ctes) }
 		}
 	}
 

@@ -1,5 +1,5 @@
 import { Array as Arr, Record as Rec } from "effect"
-import { agreementEntriesFrom, agreementProgram } from "#test/support/agreement/queries.ts"
+import { agreementEntriesFrom, agreementModules } from "#test/support/agreement/queries.ts"
 import { checkUnit, type Group, type UnitSpec } from "#test/types/batch/batch.ts"
 import {
 	entriesFrom,
@@ -48,10 +48,9 @@ export const typeGroups: ReadonlyArray<Group> = [
 				kind: "program",
 				dir: "test/types/evidence",
 				prefix: ".agreement-",
-				file: "index.ts",
 				disarm: true,
 				heavy: false,
-				source: (entry, seed) => agreementProgram(agreementEntriesFrom(entry), seed)
+				source: (entry, seed) => agreementModules(agreementEntriesFrom(entry), seed)
 			}
 		}
 	},
@@ -67,10 +66,11 @@ export const typeGroups: ReadonlyArray<Group> = [
 				kind: "program",
 				dir: "test/types/query",
 				prefix: ".budget-",
-				file: "index.ts",
 				disarm: true,
 				heavy: true,
-				source: (entry) => generateQuerySource(largestQuerySize, entriesFrom(entry))
+				source: (entry) => [
+					{ file: "index.ts", source: generateQuerySource(largestQuerySize, entriesFrom(entry)) }
+				]
 			}
 		}
 	},
@@ -81,10 +81,11 @@ export const typeGroups: ReadonlyArray<Group> = [
 				kind: "program",
 				dir: "test/types/regex",
 				prefix: ".schema-",
-				file: "index.ts",
 				disarm: true,
 				heavy: false,
-				source: (entry) => regexSchemaSource(regexSchemaPatterns, entriesFrom(entry))
+				source: (entry) => [
+					{ file: "index.ts", source: regexSchemaSource(regexSchemaPatterns, entriesFrom(entry)) }
+				]
 			}
 		}
 	},
@@ -97,10 +98,9 @@ export const typeGroups: ReadonlyArray<Group> = [
 					kind: "program",
 					dir: "test/types/regex",
 					prefix: ".matrix-",
-					file: "index.ts",
 					disarm,
 					heavy: false,
-					source: (entry) => programSource(entriesFrom(entry))
+					source: (entry) => [{ file: "index.ts", source: programSource(entriesFrom(entry)) }]
 				}
 			])
 		)
@@ -114,10 +114,14 @@ export const typeGroups: ReadonlyArray<Group> = [
 				kind: "program",
 				dir: "test/types/skeleton",
 				prefix: ".budget-",
-				file: "index.ts",
 				disarm: true,
 				heavy: true,
-				source: (entry) => generateSchemaSource(largestSkeletonSize, entriesFrom(entry))
+				source: (entry) => [
+					{
+						file: "index.ts",
+						source: generateSchemaSource(largestSkeletonSize, entriesFrom(entry))
+					}
+				]
 			}
 		}
 	},
@@ -129,10 +133,9 @@ export const typeGroups: ReadonlyArray<Group> = [
 				kind: "program",
 				dir: "test/types/text",
 				prefix: ".contained-",
-				file: "contained.ts",
 				disarm: false,
 				heavy: false,
-				source: (_entry, seed) => containedProgram(seed).source
+				source: (_entry, seed) => [{ file: "contained.ts", source: containedProgram(seed).source }]
 			}
 		}
 	}

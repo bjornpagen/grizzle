@@ -48,7 +48,7 @@ export const WorkLogin = login(Work, "server", [WorkReader, WorkWriter])
 
 /** One fact per account with tasks: AccountCost is keyed by account, its group term. */
 export const accountCost = query(Work).rule((r) => {
-	const { id, account, cost } = v(Task)
+	const { id, account, cost } = v(Task, "task")
 	return r.match(Task, { id, account, cost }).find({ account, total: r.sum(cost) })
 })
 export const AccountCost = derived("AccountCost", accountCost)

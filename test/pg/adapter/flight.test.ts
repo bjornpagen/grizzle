@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { type Case, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { agree, exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -25,6 +25,7 @@ import {
 	prologueIn
 } from "#test/support/flight/model.ts"
 import { observationsOf, plannedBySql, runScripted } from "#test/support/flight/run.ts"
+import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 import { backendCount, tappedSession } from "#test/support/wire-tap.ts"
 
@@ -88,21 +89,28 @@ const statementsOver =
 		switch (planned.kind) {
 			case "rows":
 				return {
-					sql: writes
-						? `INSERT INTO ${table} ("label", "ref") VALUES ('${label}', 1) RETURNING "label"`
-						: `SELECT '${label}'::text AS "label"`,
+					sql: testSql(
+						writes
+							? `INSERT INTO ${table} ("label", "ref") VALUES ('${label}', 1) RETURNING "label"`
+							: `SELECT '${label}'::text AS "label"`
+					),
 					params: []
 				}
 			case "doomed":
 				return {
-					sql: `INSERT INTO ${table} ("label", "ref") VALUES ('${label}', -1) RETURNING "label"`,
+					sql: testSql(
+						`INSERT INTO ${table} ("label", "ref") VALUES ('${label}', -1) RETURNING "label"`
+					),
 					params: []
 				}
 			case "refused":
-				return { sql: `SELECT ${schema}."refuse"('${planned.sqlstate}') AS "${label}"`, params: [] }
+				return {
+					sql: testSql(`SELECT ${schema}."refuse"('${planned.sqlstate}') AS "${label}"`),
+					params: []
+				}
 			case "hold":
 				return {
-					sql: `SELECT '${label}'::text AS "label" FROM pg_catalog.pg_sleep(60)`,
+					sql: testSql(`SELECT '${label}'::text AS "label" FROM pg_catalog.pg_sleep(60)`),
 					params: []
 				}
 			case "nullCell":
@@ -122,7 +130,7 @@ type FlightFeature =
 	| `interrupted ${Exclude<InterruptionPoint, "none">}`
 	| `ending ${Failure["tag"]}`
 
-const required: ReadonlyArray<FlightFeature> = [
+const situations: Arr.NonEmptyReadonlyArray<FlightFeature> = [
 	"interrupted in flight",
 	"interrupted awaiting COMMIT",
 	"interrupted draining",
@@ -133,8 +141,8 @@ const required: ReadonlyArray<FlightFeature> = [
 ]
 
 /**
- * Planted: a write's flight whose COMMIT is refused, and one interrupted while it awaits a COMMIT that commits, which
- * the drawn cases reach a few times a run. Each is a write's flight, its prologue, BEGIN and COMMIT answered.
+ * Planted: a write's flight whose COMMIT is refused, and one interrupted while it awaits a COMMIT that commits. Each is
+ * a write's flight, its prologue, BEGIN and COMMIT answered.
  */
 const writeFlight = (statements: ReadonlyArray<Planned>): FlightCase => ({
 	call: { kind: "framed", frame: "write", prologue: { kind: "answered" }, statements },
@@ -207,7 +215,7 @@ const flightSuite = Effect.gen(function* () {
 				const session = tapped.session
 				const pid = Number(
 					(yield* runAlone(session, {
-						sql: "SELECT pg_catalog.pg_backend_pid()::text",
+						sql: testSql("SELECT pg_catalog.pg_backend_pid()::text"),
 						params: []
 					})).rows[0]?.[0]
 				)
@@ -328,13 +336,12 @@ const flightSuite = Effect.gen(function* () {
 			suite: "pg/adapter/flight",
 			draw: sketched(caseGen(space), expressible),
 			literal: Formatter.format,
-			features: features<FlightFeature>(required),
+			coverage: required<FlightFeature>(situations, { cases: 200, sense: notesOnly }),
 			kept: flightKept,
 			runs: 25,
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			steering: { kind: "mutate", cases: 200, sense: notesOnly },
 			caseHang: Duration.minutes(2)
 		},
 		(c, cx) =>

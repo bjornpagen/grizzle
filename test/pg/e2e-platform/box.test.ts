@@ -20,7 +20,7 @@
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
@@ -31,7 +31,7 @@ import {
 	openPlatform,
 	type PlatformDb
 } from "#test/pg/e2e-platform/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import {
 	calendarOf,
@@ -243,7 +243,7 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 									literal: Formatter.format,
 									limit: 1024,
 									caseHang: Duration.minutes(2),
-									features: features<BoxFeature>([
+									coverage: requiredInSpace<BoxFeature>([
 										"an event exactly at the rate change",
 										"a grant expiring at an event's start",
 										"a grant expiring at an event's end",
@@ -255,7 +255,7 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 									Effect.gen(function* () {
 										yield* clear
 										const grants = Arr.map(point.grants, (g, i) => ({
-											id: grantIds[i] ?? "",
+											id: defined(grantIds[i], "a grant's id"),
 											org,
 											amount: P.Micros(g.amount),
 											valid: { start: P.Instant(JAN), end: P.Instant(g.end) }

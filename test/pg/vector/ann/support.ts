@@ -19,12 +19,12 @@ import { type InstallExtension, noContribution } from "#compiler/physical/instal
 import { queryInput } from "#compiler/program/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent, storedSettingValue } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTestWorkload, lowerAligned, testCompile } from "#test/support/compile.ts"
@@ -87,7 +87,7 @@ export const AnnSearch = schema(
 
 /** Exact scoring of the current revisions of an account's documents. */
 export const scoredDocuments = query(AnnSearch).rule((r) => {
-	const { document, revision, value } = v(DocumentEmbedding)
+	const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 	return r
 		.match(DocumentEmbedding, { document, revision, value })
 		.match(DocumentCurrent, { document, revision })
@@ -107,8 +107,8 @@ export const titles = query(AnnSearch).rule((r) => {
 		account: r.param("account", Document.fields.account),
 		vector: r.param("vector", DocumentEmbedding.fields.value)
 	})
-	const { document, distance } = v(source)
-	const { title } = v(Document)
+	const { document, distance } = v(source, "source")
+	const { title } = v(Document, "document")
 	return r
 		.match(source, { document, distance })
 		.match(Document, { id: document, title })
@@ -121,7 +121,7 @@ export const titles = query(AnnSearch).rule((r) => {
  */
 export const anyRevision = query(AnnSearch)
 	.rule((r) => {
-		const { document, value } = v(DocumentEmbedding)
+		const { document, value } = v(DocumentEmbedding, "documentEmbedding")
 		return r
 			.match(DocumentEmbedding, { document, value })
 			.match(Document, { id: document, account: r.param("account", Document.fields.account) })
@@ -139,7 +139,7 @@ export const anyRevision = query(AnnSearch)
  */
 export const untagged = query(AnnSearch)
 	.rule((r) => {
-		const { document, revision, value } = v(DocumentEmbedding)
+		const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 		return r
 			.match(DocumentEmbedding, { document, revision, value })
 			.match(DocumentCurrent, { document, revision })
@@ -156,7 +156,7 @@ export const untagged = query(AnnSearch)
 /** Every current embedding, unfiltered, the source keyed by (document, revision). */
 export const unfiltered = query(AnnSearch)
 	.rule((r) => {
-		const { document, revision, value } = v(DocumentEmbedding)
+		const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 		return r.match(DocumentEmbedding, { document, revision, value }).find({
 			document,
 			revision,
@@ -175,7 +175,7 @@ export const shared = query(AnnSearch)
 			account: r.param("account", Document.fields.account),
 			vector: r.param("vector", DocumentEmbedding.fields.value)
 		})
-		const { document, distance } = v(near)
+		const { document, distance } = v(near, "near")
 		return r.match(near, { document, distance }).where(r.lt(distance, 1)).find({ document })
 	})
 	.rule((r) => {
@@ -183,14 +183,14 @@ export const shared = query(AnnSearch)
 			account: r.param("account", Document.fields.account),
 			vector: r.param("vector", DocumentEmbedding.fields.value)
 		})
-		const { document } = v(near)
+		const { document } = v(near, "near")
 		return r
 			.match(near, { document })
 			.match(DocumentTag, { document, tag: "gamma" })
 			.find({ document })
 	})
 
-const uuidOf = (prefix: number, n: number): string =>
+const uuidOf = (prefix: number, n: number): Uuid =>
 	`${pipe(prefix.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 export const accountA = uuidOf(0xa, 1)
@@ -516,7 +516,7 @@ export const admittedPolicy = (snapshot: DeploySnapshot, role: string): Readonly
 		s.kind === "alterRole" &&
 		s.name === role &&
 		s.action.kind === "set" &&
-		Str.startsWith("hnsw.")(s.action.parameter)
-			? [`${s.action.parameter}=${s.action.value}`]
+		Str.startsWith("hnsw.")(s.action.setting.parameter)
+			? [`${s.action.setting.parameter}=${storedSettingValue(s.action.setting)}`]
 			: []
 	)

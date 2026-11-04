@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import {
 	type Drawn,
@@ -10,6 +10,7 @@ import {
 	passed,
 	WILD_KINDS
 } from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
@@ -150,7 +151,7 @@ const others: Arr.NonEmptyReadonlyArray<OtherBranch> = [
 	"cents column"
 ]
 
-/** A first branch: a term of its type, or a JavaScript literal or parameter, which no first branch may be. */
+/** A first branch: a term of its type, a parameter of its declared type among them, or a JavaScript literal, which no first branch may be. */
 const firstOf: {
 	readonly [F in FirstBranch]: {
 		readonly operand: ScalarTerm | number
@@ -166,7 +167,7 @@ const firstOf: {
 	"integer column": { operand: int, term: testPg.integer },
 	"cents column": { operand: cents, term: Cents },
 	number: { operand: 1, term: undefined },
-	"integer parameter": { operand: param("n", testPg.integer), term: undefined }
+	"integer parameter": { operand: param("n", testPg.integer), term: testPg.integer }
 }
 
 /** The other branch, and the type it meets as a term or parameter, or the host kind it is as a JavaScript literal. */
@@ -258,34 +259,36 @@ describe("Compute builders", () => {
 						])
 					),
 					literal: Formatter.format,
-					features: features<BuilderFeature>([
-						"binary add typed",
-						"binary add refused",
-						"binary eq typed",
-						"binary eq refused",
-						"binary least typed",
-						"binary least refused",
-						"binary greatest typed",
-						"binary greatest refused",
-						"cond typed",
-						"cond refused",
-						"span lower typed",
-						"span lower refused",
-						"span upper typed",
-						"span upper refused",
-						"span width typed",
-						"span width refused"
-					]),
+					coverage: required<BuilderFeature>(
+						[
+							"binary add typed",
+							"binary add refused",
+							"binary eq typed",
+							"binary eq refused",
+							"binary least typed",
+							"binary least refused",
+							"binary greatest typed",
+							"binary greatest refused",
+							"cond typed",
+							"cond refused",
+							"span lower typed",
+							"span lower refused",
+							"span upper typed",
+							"span upper refused",
+							"span width typed",
+							"span width refused"
+						],
+						{ cases: 600, sense: notesOnly }
+					),
 					kept: [],
 					/**
-					 * Each arm is a third of the cases and each outcome of an arm at least a fifth of those: 600 cases reach
-					 * every feature many times over.
+					 * The rotating stream's sample: each arm is a third of the cases and each outcome of an arm at least a
+					 * fifth of those.
 					 */
 					runs: 600,
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2)
 				},
 				(sketch: BuilderCase, c) =>
@@ -411,23 +414,24 @@ describe("a JavaScript caller's operands", () => {
 						suite: "unit/compute/wild-operands",
 						draw: drawn(boundaryCaseGen),
 						literal: Formatter.format,
-						features: features<BoundaryFeature>([
-							"live",
-							...Arr.map(WILD_KINDS, (kind): BoundaryFeature => `wild ${kind}`),
-							"site literal type",
-							"site cast target",
-							"site literal value"
-						]),
+						coverage: required<BoundaryFeature>(
+							[
+								"live",
+								...Arr.map(WILD_KINDS, (kind): BoundaryFeature => `wild ${kind}`),
+								"site literal type",
+								"site cast target",
+								"site literal value"
+							],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						/**
-						 * Fourteen wild kinds beside the live arm at three sites: a thousand cases reach every pair of a kind and
-						 * a site's arm many times over.
+						 * The rotating stream's sample of fourteen wild kinds beside the live arm at three sites.
 						 */
 						runs: 1000,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					([d, site], c) =>

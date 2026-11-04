@@ -2,7 +2,7 @@ import { createServer, type Socket } from "node:net"
 import { inspect } from "node:util"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Redacted, Schema, String as Str } from "effect"
@@ -187,7 +187,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 					/** The plant's attempt, its precondition set up in the case's scope. */
 					const attemptOf = (plant: Plant) =>
 						Effect.gen(function* () {
-							const writer = yield* substrateLogin(schema, "server", {})
+							const writer = yield* substrateLogin(schema, "server", [])
 							const own = Redacted.value(writer.password)
 							const direct: Attempt = {
 								port: pgPin.port,
@@ -316,8 +316,8 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 							generator: plantPaths,
 							literal: ([plant, path]) => `${plant} through ${path}`,
 							limit: plants.length * 2,
-							features: features<ConnectClassFeature>(
-								Arr.flatMap(plants, (p): ReadonlyArray<ConnectClassFeature> => [
+							coverage: requiredInSpace<ConnectClassFeature>(
+								Arr.flatMap(plants, (p): Arr.NonEmptyReadonlyArray<ConnectClassFeature> => [
 									`${p} through grizzle migrate`,
 									`${p} through Db.open`
 								])

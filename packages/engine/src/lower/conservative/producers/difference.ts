@@ -1,3 +1,4 @@
+import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import type { ProducerNode } from "#compiler/ir/rel.ts"
 import {
 	type Env,
@@ -12,7 +13,7 @@ import {
 	spanArguments
 } from "#compiler/lower/conservative/producers/shared.ts"
 import type { FromItem, Select } from "#compiler/sql/ast.ts"
-import { call, col, core, select, target } from "#compiler/sql/build.ts"
+import { call, col, distinctCoreWhen, select, target } from "#compiler/sql/build.ts"
 
 /**
  * r.difference(a, b): the points of a outside b, zero, one or two spans per binding.
@@ -37,7 +38,7 @@ export const differenceQuery = (
 ): Select => {
 	const at = nodeLabel(node)
 	const input = cx.source(node.input, env)
-	const scope = extendEnv(env, [node.input.id, input.map])
+	const scope = extendEnv(env, [[node.input.id, input.map]])
 	const {
 		args: [a, b]
 	} = spanArguments(cx, node, scope, at)
@@ -51,12 +52,12 @@ export const differenceQuery = (
 		columns: [piece],
 		lateral: true
 	}
-	return select({
-		...core(
-			[...carriedTargets(node, input.map), target(col(alias, piece))],
+	return select(
+		distinctCoreWhen(
+			form.distinct,
+			appendNonEmpty(carriedTargets(node, input.map), target(col(alias, piece))),
 			[input.item, pieces],
 			undefined
-		),
-		distinct: form.distinct
-	})
+		)
+	)
 }

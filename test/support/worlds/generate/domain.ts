@@ -5,13 +5,14 @@ import type {
 	BaseSpec,
 	FieldDomain,
 	FieldSpec,
-	HeadTerm,
 	Occurrence,
 	Rule,
+	Term,
 	HostValue
 } from "#test/support/worlds/model/types.ts"
 
 import { regex } from "arkregex"
+import type { Uuid } from "#compiler/public/fields.ts"
 /** A list known to hold at least one element, or a defect of the harness naming what was empty. */
 export const knownNonEmpty = <A>(
 	items: ReadonlyArray<A>,
@@ -105,7 +106,7 @@ export const inDomain = (domain: FieldDomain, value: HostValue): boolean => {
  * The uuids of the pools: distinct tokens of one shape no message spells by accident, so a search of an error's text
  * for a hidden one finds it only where the value itself was written.
  */
-export const uuidToken = (n: number): string =>
+export const uuidToken = (n: number): Uuid =>
 	`${pipe((0x5eed_a000 + n * 0x0101).toString(16), Str.padStart(8, "0"))}-7c3e-4a1b-9d2f-0e5c7a9b3d1f`
 
 /** The small integers every integer pool holds, straddling the literals the installs compare with. */
@@ -241,7 +242,7 @@ const contextFieldDomain = (base: BaseSpec, context: string, field: string): Fie
  */
 const headTermDomain = (
 	base: BaseSpec,
-	term: HeadTerm,
+	term: Term,
 	matches: ReadonlyArray<Occurrence>,
 	name: string
 ): FieldDomain | undefined => {

@@ -125,7 +125,9 @@ const parse = (source: string): Node => {
 					members.push(String.fromCodePoint(code))
 				}
 			} else {
-				members.push(...start)
+				for (const member of start) {
+					members.push(member)
+				}
 			}
 		}
 		next()

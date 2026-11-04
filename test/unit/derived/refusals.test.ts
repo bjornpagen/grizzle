@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
@@ -171,7 +171,7 @@ const budgetCopy = {
 }
 
 const tasksOf = query(A.Work).rule((r) => {
-	const { id } = v(A.Task)
+	const { id } = v(A.Task, "task")
 	return r.match(A.Task, { id, account: r.param("account", A.Task.fields.account) }).find({ id })
 })
 
@@ -179,7 +179,7 @@ const parameterized = (): unknown => {
 	const D = derived(
 		"Plain",
 		query(A.Work).rule((r) => {
-			const { id } = v(A.Task)
+			const { id } = v(A.Task, "task")
 			return r.match(A.Task, { id }).find({ id })
 		})
 	)
@@ -231,7 +231,7 @@ describe("derived relation refusals", () => {
 							]),
 							literal: Formatter.format,
 							limit: 10,
-							features: features<LawShape>([
+							coverage: requiredInSpace<LawShape>([
 								"key",
 								"mutable",
 								"check",
@@ -284,7 +284,7 @@ describe("derived relation refusals", () => {
 							generator: element<Unwritable>([...shapes]),
 							literal: Formatter.format,
 							limit: 4,
-							features: features<Unwritable>(shapes),
+							coverage: requiredInSpace<Unwritable>(shapes),
 							caseHang: Duration.minutes(2)
 						},
 						(shape, c) =>

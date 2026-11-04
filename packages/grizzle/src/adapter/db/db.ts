@@ -144,7 +144,7 @@ const runtimeOf = <S>(ctx: DbContext) => {
 					? apply(ctx, changes, changes.reads, params)
 					: compileFailure(notAChangeSet())
 			),
-		refresh: (...relations: Arr.NonEmptyReadonlyArray<unknown>) =>
+		refresh: (relations: Arr.NonEmptyReadonlyArray<unknown>) =>
 			Effect.suspend(() => refresh(ctx, relations)),
 		explain: (program: unknown, params: ParamMap) =>
 			Effect.suspend(() => explain(ctx, program, params))
@@ -183,7 +183,7 @@ export interface DbRuntime {
 
 interface DbOperations {
 	apply(changes: unknown, params: ParamMap): Effect.Effect<ApplyOutcome<unknown>, ApplyError>
-	refresh(...relations: Arr.NonEmptyReadonlyArray<unknown>): Effect.Effect<void, ApplyError>
+	refresh(relations: Arr.NonEmptyReadonlyArray<unknown>): Effect.Effect<void, ApplyError>
 	explain(program: unknown, params: ParamMap): Effect.Effect<ReadonlyArray<Plan>, ReadError>
 }
 
@@ -213,7 +213,7 @@ export const makeDb = <R, P>(ctx: DbContext, workload: WorkloadHandles<R, P>): D
 					? apply(ctx, changes, changes.reads, params)
 					: compileFailure(notAChangeSet())
 			),
-		refresh: (...relations) => runtime.methods.refresh(...relations),
+		refresh: (...relations) => runtime.methods.refresh(relations),
 		explain: (program, params) => runtime.methods.explain(program, params)
 	}
 	registerContext(db, ctx)

@@ -74,8 +74,8 @@ const Spans = schema("Spans", { Day, Visit }, [key(Day, ["span"])])
  */
 const dayOf = query(Spans).rule((r) => {
 	const instants = r.relation("instants", { at: pg.bigint })
-	const { at } = v(instants)
-	const { day, span: s, week } = v(Day)
+	const { at } = v(instants, "instants")
+	const { day, span: s, week } = v(Day, "day")
 	return r
 		.match(instants, { at })
 		.match(Day, { day, span: s, week })
@@ -85,8 +85,8 @@ const dayOf = query(Spans).rule((r) => {
 
 /** Every visit's day: a lookup per fact of a joined relation. */
 const visitDays = query(Spans).rule((r) => {
-	const { id, at } = v(Visit)
-	const { day, span: s } = v(Day)
+	const { id, at } = v(Visit, "visit")
+	const { day, span: s } = v(Day, "day")
 	return r
 		.match(Visit, { id, at })
 		.match(Day, { day, span: s })

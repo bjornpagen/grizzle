@@ -1,3 +1,5 @@
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+
 /**
  * Native list lookups whose absence is `undefined`, never the -1 sentinel Array.prototype.findIndex answers.
  *
@@ -26,4 +28,33 @@ export const indices = (n: number): ReadonlyArray<number> => {
 		out.push(i)
 	}
 	return out
+}
+
+/** Every element of `source` appended to `target` in order, one push each: never a call whose arity is a list's length. */
+export const appendAll = <A>(target: Array<A>, source: Iterable<A>): void => {
+	for (const a of source) {
+		target.push(a)
+	}
+}
+
+/** The largest of `values`, `floor` when none is larger: Math.max over a list of any length. */
+export const maxOf = (values: Iterable<number>, floor: number): number => {
+	let max = floor
+	for (const v of values) {
+		if (v > max) {
+			max = v
+		}
+	}
+	return max
+}
+
+/** The smallest of `values`, at least one: Math.min over a list of any length. */
+export const minOf = (values: NonEmptyReadonlyArray<number>): number => {
+	let min = values[0]
+	for (const v of values) {
+		if (v < min) {
+			min = v
+		}
+	}
+	return min
 }

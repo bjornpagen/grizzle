@@ -44,8 +44,10 @@ import { parametersOf } from "#test/support/worlds/model/session/direct.ts"
 import { draftedFrom, samePlain } from "#test/support/worlds/model/session/state.ts"
 import {
 	claimFixedFields,
+	serialHead,
 	type Written,
 	writtenAt,
+	writtenNamed,
 	writtenOf
 } from "#test/support/worlds/model/session/writes.ts"
 import { settle, step } from "#test/support/worlds/model/step.ts"
@@ -62,7 +64,6 @@ import type {
 	EntrySpec,
 	FieldDomain,
 	FieldSpec,
-	HeadTerm,
 	HostFact,
 	HostSchema,
 	HostState,
@@ -113,7 +114,7 @@ const boxPool = (domain: FieldDomain, scope: SmallScope): Arr.NonEmptyReadonlyAr
 }
 
 /** Every value a term holds as a literal: a literal's, a typed handle's member. */
-const termLiterals = (t: HeadTerm): ReadonlyArray<HostValue> =>
+const termLiterals = (t: Term): ReadonlyArray<HostValue> =>
 	t.kind === "literal" ? [t.value] : t.kind === "handle" ? [t.member] : []
 
 const ruleLiterals = (rule: Rule): ReadonlyArray<HostValue> => [
@@ -578,6 +579,24 @@ const entryFacts = (
 	])
 }
 
+/**
+ * The generated facts an insert through an entry tries in the box: each of its facts leaving out every classed serial
+ * field of the entry (serialHead), each once, so a fact of no field is one where the entry carries serial fields only;
+ * none for an entry with no classed serial field.
+ */
+const generatedFacts = (
+	base: BaseSpec,
+	role: RoleSpec,
+	entry: string,
+	facts: ReadonlyArray<HostFact>
+): ReadonlyArray<HostFact> => {
+	const written = writtenNamed(base, role, entry)
+	const classed = written === undefined ? [] : serialHead(base, written).classed
+	return classed.length === 0
+		? []
+		: distinctFacts(Arr.map(facts, (f) => Rec.filter(f, (_, field) => !classed.includes(field))))
+}
+
 /** A contract field of a heading and the value just past its bounds; none for a heading without a contract. */
 const refusedField = (
 	heading: ReadonlyArray<FieldSpec>
@@ -650,7 +669,8 @@ const directStarts = (
 
 /**
  * The apply actions of a session in the box: each written entry's op kinds over its facts, one fact per op, one op per
- * fact kind, and inserts of a fact past a contract's bounds and past an integer type's range.
+ * fact kind, inserts of its generated facts, and inserts of a fact past a contract's bounds and past an integer type's
+ * range.
  */
 const applyActions = (
 	state: ModelState,
@@ -678,13 +698,20 @@ const applyActions = (
 			return []
 		}
 		const facts = entryFacts(state, writer, entry, spec, scope)
-		const live = Arr.flatMap(facts, (f) =>
-			Arr.map(["insert", "delete", "put"] as const, (kind): EntryOp => ({
+		const live = [
+			...Arr.flatMap(facts, (f) =>
+				Arr.map(["insert", "delete", "put"] as const, (kind): EntryOp => ({
+					relation: entry,
+					kind,
+					facts: [f]
+				}))
+			),
+			...Arr.map(generatedFacts(state.install.base, role, entry, facts), (f): EntryOp => ({
 				relation: entry,
-				kind,
+				kind: "insert",
 				facts: [f]
 			}))
-		)
+		]
 		const aimed = Arr.flatMap(factAims, (aim) =>
 			Arr.fromOption(
 				Arr.findFirst(

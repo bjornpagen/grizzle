@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option } from "effect"
 import type { ApplyError } from "#adapter/public/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import type { Decimal } from "#compiler/public/fields.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import {
 	type Answer,
@@ -41,7 +41,6 @@ import {
 } from "#test/support/platform/laws.ts"
 import { pricedAt, type SpanV, platformSpan } from "#test/support/platform/model.ts"
 
-import { regex } from "arkregex"
 /**
  * The platform the races run on, and the application's writes they race (Write), each with its meaning on
  * the host: the operations its program applies to a state (Op).
@@ -66,10 +65,10 @@ export const ids = {
 	line: uid(10, 1),
 	charge: uid(13, 1)
 } as const
-const eventId = (n: number): string => uid(7, n)
-export const grantId = (n: number): string => uid(8, n)
-const refundId = (n: number): string => uid(12, n)
-export const cardId = (n: number): string => uid(6, n)
+const eventId = (n: number): Uuid => uid(7, n)
+export const grantId = (n: number): Uuid => uid(8, n)
+const refundId = (n: number): Uuid => uid(12, n)
+export const cardId = (n: number): Uuid => uid(6, n)
 
 const [first, second] = calendarOf(2)
 const month = defined(first, "the calendar's first month")
@@ -93,14 +92,14 @@ const activeOf = (during: SpanV): Fact<typeof P.ApiKeyActive> => ({
 	during: instants(during)
 })
 
-const cardOf = (id: string, during: SpanV): Fact<typeof P.RateCard> => ({
+const cardOf = (id: Uuid, during: SpanV): Fact<typeof P.RateCard> => ({
 	id,
 	model: ids.model,
 	kind: "input",
 	during: instants(during)
 })
 
-const flatTier = (card: string, rate: bigint): Fact<typeof P.RateTier> => ({
+const flatTier = (card: Uuid, rate: bigint): Fact<typeof P.RateTier> => ({
 	card,
 	tier: { start: P.Tokens(0n), end: P.Tokens(TOKENS_MAX) },
 	rate: P.Rate(rate)
@@ -218,16 +217,6 @@ export const usageWrite = (
 	direct: statementsOf(usageOps(record))
 })
 
-/** A quote's amount, a whole number of micro-dollars, read from its decimal text. */
-const microsOf = (d: Decimal): bigint => {
-	const text = d.toString()
-	const whole = regex("^([0-9]+)(\\.0*)?$").exec(text)
-	if (whole === null) {
-		throw new Error(`a quote's amount ${text} is no whole number of micro-dollars`)
-	}
-	return BigInt(defined(whole[1], "the amount's digits"))
-}
-
 /**
  * A request priced by the application from the fixture's quote, read just before it records the request: the card in
  * force at the window's start in the quote's snapshot prices it, and its charge is what the quote says. `priced` is the
@@ -257,7 +246,7 @@ export const quotedUsageWrite = (priced: P.UsageRecord, tokens: bigint, label: s
 							model: ids.model,
 							priced: instants(pricedAt(window)),
 							tokens: row.tokens,
-							amount: P.Micros(microsOf(row.amount)),
+							amount: P.Micros(row.amount),
 							credited: P.Micros(0n)
 						}))
 						const total = Arr.reduce(charges, 0n, (sum: bigint, c) => sum + c.amount)
@@ -293,7 +282,7 @@ const rateChangeWrite = (kind: string, label: string, change: P.RateChange): Wri
  * The card in force split at an instant: the fixture's changeRate, its first part keeping its id and tier and the new
  * card taking `rate` from the instant on.
  */
-export const splitWrite = (kind: string, at: bigint, card: string, rate: bigint): Write =>
+export const splitWrite = (kind: string, at: bigint, card: Uuid, rate: bigint): Write =>
 	rateChangeWrite(kind, `the rate split at ${at} to ${rate}`, {
 		retired: {
 			card: cardOf(ids.card, platformSpan(JAN, FAR)),

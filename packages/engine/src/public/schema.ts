@@ -112,4 +112,4 @@ export const derived: DerivedConstructor = <const Name extends string, Q extends
 	name: Name,
 	definition: Q & DefinitionCheck<Q>,
 	...extra: ReadonlyArray<unknown>
-): Derived<Name, Q> => derivedBuilder<Name, Q>(name, definition, ...extra)
+): Derived<Name, Q> => derivedBuilder<Name, Q>(name, definition, extra)

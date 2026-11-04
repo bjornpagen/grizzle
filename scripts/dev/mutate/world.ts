@@ -12,6 +12,8 @@ import { regex } from "arkregex"
  * - world-barrier: security_barrier dropped from a view, in the printer and where a view's AST asks for it;
  * - world-definer: a function printed SECURITY INVOKER instead of its declared security;
  * - world-search-path: a function's search_path pin left out of its header;
+ * - world-catalog-bare: a pg_catalog type or a builtin function printed by its bare name, resolved through the session's
+ *   search path, instead of qualified by pg_catalog;
  * - world-grant: SELECT, UPDATE or TRUNCATE added to a privilege list a role is granted: a base-table SELECT,
  *   UPDATE on an immutable relation, TRUNCATE;
  * - world-public-execute: EXECUTE granted to PUBLIC right after a function's REVOKE from PUBLIC;
@@ -20,7 +22,13 @@ import { regex } from "arkregex"
  * - world-context-field: a context source's claims read at the wrong key, each field read at its context's name;
  * - world-witness: a law function's DETAIL witness shown whatever the transaction's role;
  * - world-advance-max: an advance function's setval made unconditional, so it can move the sequence back;
- * - world-isolation-guard: the below-SERIALIZABLE refusal dropped from the isolation guard's body.
+ * - world-isolation-guard: the below-SERIALIZABLE refusal dropped from the isolation guard's body;
+ * - world-reads-flip: a catalogue overload that reads its operands' display scale declared to read values only, so its
+ *   operands reach PostgreSQL without trim_scale, or a float or money aggregate's exact lowering declared native, so
+ *   it accumulates in its argument's type;
+ * - world-precondition-drop: a catalogue overload's totality declared `total`: a partial one's preconditions dropped,
+ *   so a division, a root or a narrowing is emitted with no proof and can raise on a row, or an exact or IEEE 754 one's
+ *   rendering dropped, so integer and money arithmetic overflows and float arithmetic raises at a bound.
  */
 export const worldOperators = [
 	"world-conjunct",
@@ -29,6 +37,7 @@ export const worldOperators = [
 	"world-barrier",
 	"world-definer",
 	"world-search-path",
+	"world-catalog-bare",
 	"world-grant",
 	"world-public-execute",
 	"world-membership",
@@ -36,16 +45,27 @@ export const worldOperators = [
 	"world-context-field",
 	"world-witness",
 	"world-advance-max",
-	"world-isolation-guard"
+	"world-isolation-guard",
+	"world-reads-flip",
+	"world-precondition-drop"
 ] as const
 export type WorldOperator = (typeof worldOperators)[number]
+
+/** The Compute catalogue, whose overloads declare what they read of their operands. */
+const registryPath = "packages/engine/src/scalar/compute/registry.ts"
+
+/** The aggregate overloads, each declaring how it is lowered. */
+const aggregatePath = "packages/engine/src/scalar/aggregate.ts"
 
 /**
  * The files whose code builds the emitted world SQL: the role, view, policy, function and grant DDL, the advance
  * function and the isolation guard, the residual law functions, the membership rendering, the claims lowering, the
- * printer, and the adapter's transaction prologue. Only their code takes a `sql-world` mutant.
+ * printer, and the adapter's transaction prologue; and the declarations every emitted reading and aggregate is
+ * rendered by, the Compute catalogue and the aggregate overloads. Only their code takes a `sql-world` mutant.
  */
 const worldPaths: ReadonlyArray<string> = [
+	registryPath,
+	aggregatePath,
 	"packages/engine/src/physical/ddl/roles.ts",
 	"packages/engine/src/physical/ddl/advance.ts",
 	"packages/engine/src/physical/ddl/isolation.ts",
@@ -362,10 +382,93 @@ const guardElement = (site: WorldSite, list: ts.ArrayLiteralExpression): void =>
 	}
 }
 
+/**
+ * world-reads-flip: a catalogue overload's "displayScale" reading, an argument of its builder, declared "value"; an
+ * aggregate overload's exactSum or exactMean lowering declared native.
+ */
+const readsFlip = (site: WorldSite, node: ts.Node): void => {
+	if (
+		site.file === registryPath &&
+		ts.isStringLiteral(node) &&
+		node.text === "displayScale" &&
+		ts.isCallExpression(node.parent)
+	) {
+		site.add("world-reads-flip", node.getStart(site.source), node.end, '"value"')
+	}
+	if (
+		site.file === aggregatePath &&
+		ts.isCallExpression(node) &&
+		(calleeName(node) === "exactSum" || calleeName(node) === "exactMean")
+	) {
+		site.add("world-reads-flip", node.getStart(site.source), node.end, "native")
+	}
+}
+
+/** The totalities of the catalogue that are not `total`: the requiring constants, and the exact ones. */
+const partialTotalities: ReadonlySet<string> = new Set([
+	"divisor",
+	"narrowing",
+	"finiteNarrowing",
+	"exactInteger",
+	"exactMoney"
+])
+
+/**
+ * world-precondition-drop: in the catalogue, a `requires(...)` or `ieee(...)` totality, or an overload's argument naming
+ * a requiring or exact totality, declared `total`.
+ */
+const preconditionDrop = (site: WorldSite, node: ts.Node): void => {
+	if (site.file !== registryPath) {
+		return
+	}
+	if (
+		ts.isCallExpression(node) &&
+		(calleeName(node) === "requires" || calleeName(node) === "ieee")
+	) {
+		site.add("world-precondition-drop", node.getStart(site.source), node.end, "total")
+	}
+	if (
+		ts.isIdentifier(node) &&
+		partialTotalities.has(node.text) &&
+		ts.isCallExpression(node.parent) &&
+		node.parent.expression !== node &&
+		Arr.some(node.parent.arguments, (a) => a === node)
+	) {
+		site.add("world-precondition-drop", node.getStart(site.source), node.end, "total")
+	}
+}
+
+/** The const a node's code belongs to: the nearest variable declaration it sits in, if any. */
+const enclosingConst = (node: ts.Node): Option.Option<string> => {
+	for (let at = node.parent; !ts.isSourceFile(at); at = at.parent) {
+		if (ts.isVariableDeclaration(at) && ts.isIdentifier(at.name)) {
+			return Option.some(at.name.text)
+		}
+	}
+	return Option.none()
+}
+
+/** The printers that qualify a pg_catalog name: a type's (printCatalogType) and a builtin function's. */
+const catalogPrinters: ReadonlySet<string> = new Set(["printCatalogType", "printFunctionName"])
+
+/** world-catalog-bare: an `inCatalog(name)` of a catalog printer printed as the bare `name`. */
+const catalogBare = (site: WorldSite, call: ts.CallExpression): void => {
+	const [name] = call.arguments
+	if (
+		site.file === "packages/engine/src/sql/print.ts" &&
+		calleeName(call) === "inCatalog" &&
+		name !== undefined &&
+		Option.exists(enclosingConst(call), (printer) => catalogPrinters.has(printer))
+	) {
+		site.add("world-catalog-bare", call.getStart(site.source), call.end, textOf(site, name))
+	}
+}
+
 /** Every `sql-world` mutant one node of a world file holds; the caller visits every node. */
 export const visitWorld: (site: WorldSite, node: ts.Node) => void = (site, node) => {
 	if (ts.isCallExpression(node)) {
 		worldCall(site, node)
+		catalogBare(site, node)
 	}
 	if (ts.isTemplateExpression(node)) {
 		policyTemplate(site, node)
@@ -383,4 +486,6 @@ export const visitWorld: (site: WorldSite, node: ts.Node) => void = (site, node)
 	if (ts.isPropertyAssignment(node)) {
 		worldProperty(site, node)
 	}
+	readsFlip(site, node)
+	preconditionDrop(site, node)
 }

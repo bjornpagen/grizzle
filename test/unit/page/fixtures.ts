@@ -31,7 +31,7 @@ export const Paging = schema("Paging", { Level, Task, Note, Flag }, [
 ])
 
 const tasksForAccount = query(Paging).rule((r) => {
-	const { id, account, priority, title } = v(Task)
+	const { id, account, priority, title } = v(Task, "task")
 	return r
 		.match(Task, { id, account, priority, title })
 		.where(r.eq(account, r.param("account", uuid)))
@@ -48,7 +48,7 @@ export const ascendingTasks = tasksForAccount.orderBy(["priority", "asc"])
 /** A keyless projection whose equal titles collapse into one answer: the order is the title itself. */
 export const titles = query(Paging)
 	.rule((r) => {
-		const { account, title } = v(Task)
+		const { account, title } = v(Task, "task")
 		return r
 			.match(Task, { account, title })
 			.where(r.eq(account, r.param("account", uuid)))
@@ -59,7 +59,7 @@ export const titles = query(Paging)
 /** A grouped result: the task count per priority of one account. */
 export const priorityCounts = query(Paging)
 	.rule((r) => {
-		const { id, account, priority } = v(Task)
+		const { id, account, priority } = v(Task, "task")
 		return r
 			.match(Task, { id, account, priority })
 			.where(r.eq(account, r.param("account", uuid)))
@@ -70,7 +70,7 @@ export const priorityCounts = query(Paging)
 /** Each task of one account with its notes attached. */
 export const tasksWithNotes = query(Paging)
 	.rule((r) => {
-		const { id, account, priority } = v(Task)
+		const { id, account, priority } = v(Task, "task")
 		return r
 			.match(Task, { id, account, priority })
 			.where(r.eq(account, r.param("account", uuid)))
@@ -80,7 +80,7 @@ export const tasksWithNotes = query(Paging)
 		"notes",
 		(parent) =>
 			query(Paging).rule((r) => {
-				const { note } = v(Note)
+				const { note } = v(Note, "note")
 				return r.match(Note, { task: parent.id, note }).find({ note })
 			}),
 		"array"
@@ -93,7 +93,7 @@ export const tasksWithNotes = query(Paging)
  */
 export const flagged = query(Paging)
 	.rule((r) => {
-		const { id, account, priority } = v(Task)
+		const { id, account, priority } = v(Task, "task")
 		return r
 			.match(Task, { id, account, priority })
 			.match(Flag, { task: id, level: "High" })
@@ -101,7 +101,7 @@ export const flagged = query(Paging)
 			.find({ level: Level.handle("High"), id, priority })
 	})
 	.rule((r) => {
-		const { id, account, title } = v(Task)
+		const { id, account, title } = v(Task, "task")
 		return r
 			.match(Task, { id, account, title })
 			.match(Flag, { task: id, level: "Low" })
@@ -116,7 +116,7 @@ export const flagged = query(Paging)
  */
 export const flaggedByTitle = query(Paging)
 	.rule((r) => {
-		const { id, account, priority, title } = v(Task)
+		const { id, account, priority, title } = v(Task, "task")
 		return r
 			.match(Task, { id, account, priority, title })
 			.match(Flag, { task: id, level: "High" })
@@ -124,7 +124,7 @@ export const flaggedByTitle = query(Paging)
 			.find({ level: Level.handle("High"), id, priority, title })
 	})
 	.rule((r) => {
-		const { id, account, title } = v(Task)
+		const { id, account, title } = v(Task, "task")
 		return r
 			.match(Task, { id, account, title })
 			.match(Flag, { task: id, level: "Low" })
@@ -146,7 +146,7 @@ export const Measure = relation(
 export const Measures = schema("Measures", { Measure }, [])
 
 const measures = query(Measures).rule((r) => {
-	const { id, x, amount, big, label } = v(Measure)
+	const { id, x, amount, big, label } = v(Measure, "measure")
 	return r.match(Measure, { id, x, amount, big, label }).find({ id, x, amount, big, label })
 })
 export const byX = measures.orderBy(["x", "asc"])

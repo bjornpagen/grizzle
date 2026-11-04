@@ -1,4 +1,4 @@
-import { firstIndex } from "#compiler/core/array.ts"
+import { firstIndex, appendAll } from "#compiler/core/array.ts"
 import type { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -964,7 +964,7 @@ class Extractor {
 			(columns) => this.keyWithin(base, columns),
 			keyDriven
 		)) {
-			this.paths.push(...contextPaths(ctx))
+			appendAll(this.paths, contextPaths(ctx))
 		}
 		/** Correlated selections. */
 		const selected = sorted([...o.eq.keys()].filter((c) => !isVectorColumn(heading, c)))

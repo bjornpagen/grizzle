@@ -20,7 +20,7 @@
  */
 import { layer } from "@effect/vitest"
 import { sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	constant,
@@ -30,6 +30,7 @@ import {
 	map,
 	uniqueArray
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter } from "effect"
 import { attachFuseMaxFields } from "#compiler/core/policy.ts"
@@ -47,6 +48,7 @@ import {
 } from "#test/pg/oracle/optimized/suite.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, type GenSchema, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { indices } from "#test/support/oracle/pick.ts"
@@ -210,9 +212,9 @@ const resolve = (s: Sketch): QueryCase => {
 	const dag = normalQuery(q.b.build(Arr.of(root)))
 	return {
 		schema,
-		facts: { P: s.accounts, C: s.entries },
+		facts: canonicalFacts({ P: s.accounts, C: s.entries }),
 		query: { dag, params },
-		spelling: { mode: "perCase", choices: [], edge: false }
+		spelling: { mode: "drawn", edge: false }
 	}
 }
 
@@ -220,7 +222,7 @@ const resolve = (s: Sketch): QueryCase => {
  * The features every correlated take must reach: a per-execution variant and the VALUES transport ran, each take
  * shape, rows delivered, and the attachment both fused (the narrow child) and pipelined (the wide one).
  */
-const required = [
+const situations = [
 	"form:optimized variant",
 	"form:optimized VALUES",
 	"R20.lateral",
@@ -243,11 +245,10 @@ layer(Substrate.layer)("the per-execution take forms against the conservative lo
 					{
 						suite: "optimized/variants",
 						literal: Formatter.format,
-						features: features<OptimizedFeature>(required),
+						coverage: required<OptimizedFeature>(situations, { cases: cases, sense: notesOnly }),
 						kept: [],
 						runs: cases,
 						shrink: optimizedShrink,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2),
 						perturb: "all"
 					}

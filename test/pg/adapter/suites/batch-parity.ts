@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noFeatures } from "@grizzle/testing/features"
+import { noCoverage } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -19,6 +19,7 @@ import { assert, failureOf } from "#test/support/assert.ts"
 import { fenceSql, prologueIn } from "#test/support/flight/model.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { indices } from "#test/support/oracle/pick.ts"
+import { testSql } from "#test/support/sql.ts"
 import { fixtureGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession, type WireWindow } from "#test/support/wire-tap.ts"
@@ -95,7 +96,7 @@ const fixture = () =>
 
 /** The rows of one statement in a batch of its own. */
 const readBack = (session: TappedSession, sql: string) =>
-	Effect.map(session.batch([{ sql, params: [] }]), (outcomes) => outcomes[0]?.rows)
+	Effect.map(session.batch([{ sql: testSql(sql), params: [] }]), (outcomes) => outcomes[0]?.rows)
 
 /** One statement of a flight: rows of a drawn count and tag, an insert, or an update that matches nothing. */
 interface Step {
@@ -114,10 +115,14 @@ const stepGen: Gen<Step> = (source) => ({
 const caseHang = Duration.minutes(2)
 
 const refusals = {
-	parse: { sql: `SELECT * FROM "no such table"`, params: [], sqlstate: "42P01" },
-	bind: { sql: `SELECT $1::int4::text AS "n"`, params: ["not a number"], sqlstate: "22P02" },
-	execute: { sql: `SELECT (1 / $1::int4)::text AS "n"`, params: ["0"], sqlstate: "22012" },
-	unique: { sql: "", params: [], sqlstate: "23505" }
+	parse: { sql: testSql(`SELECT * FROM "no such table"`), params: [], sqlstate: "42P01" },
+	bind: {
+		sql: testSql(`SELECT $1::int4::text AS "n"`),
+		params: ["not a number"],
+		sqlstate: "22P02"
+	},
+	execute: { sql: testSql(`SELECT (1 / $1::int4)::text AS "n"`), params: ["0"], sqlstate: "22012" },
+	unique: { sql: testSql(""), params: [], sqlstate: "23505" }
 } as const
 
 /**
@@ -141,23 +146,27 @@ export const batchParitySuite = (): void => {
 					Effect.gen(function* () {
 						const { s, table, group, seq, session } = yield* fixture()
 						const xid: BatchStatement = {
-							sql: "SELECT pg_catalog.txid_current()::text AS xid",
+							sql: testSql("SELECT pg_catalog.txid_current()::text AS xid"),
 							params: []
 						}
 						const statementOf = (planned: Step, index: number): BatchStatement => {
 							switch (planned.kind) {
 								case "rows":
 									return {
-										sql: `SELECT g::text AS "i", $1::text || g::text AS "label" FROM pg_catalog.generate_series(1, $2::int4) AS g`,
+										sql: testSql(
+											`SELECT g::text AS "i", $1::text || g::text AS "label" FROM pg_catalog.generate_series(1, $2::int4) AS g`
+										),
 										params: [planned.tag, String(planned.count)]
 									}
 								case "insert":
 									return {
-										sql: `INSERT INTO ${table} ("k", "v") VALUES (pg_catalog.nextval('${seq}')::int4, $1::text) RETURNING "v"`,
+										sql: testSql(
+											`INSERT INTO ${table} ("k", "v") VALUES (pg_catalog.nextval('${seq}')::int4, $1::text) RETURNING "v"`
+										),
 										params: [`row ${index}`]
 									}
 								case "update":
-									return { sql: `UPDATE ${table} SET "v" = "v" WHERE false`, params: [] }
+									return { sql: testSql(`UPDATE ${table} SET "v" = "v" WHERE false`), params: [] }
 							}
 						}
 						const expected = (planned: Step, index: number): BatchOutcome => {
@@ -182,13 +191,12 @@ export const batchParitySuite = (): void => {
 								suite: `pg/adapter/batch-parity/one-round-trip`,
 								draw: drawn(array(stepGen, { min: 1, max: 10 })),
 								literal: Formatter.format,
-								features: noFeatures,
+								coverage: noCoverage,
 								kept: [],
 								runs: 8,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang
 							},
 							(steps) =>
@@ -222,7 +230,7 @@ export const batchParitySuite = (): void => {
 						const mark = session.mark()
 						const [one] = yield* session.batch([
 							{
-								sql: `INSERT INTO ${table} ("k", "v") VALUES (-7, $1::text) RETURNING "v"`,
+								sql: testSql(`INSERT INTO ${table} ("k", "v") VALUES (-7, $1::text) RETURNING "v"`),
 								params: ["one"]
 							}
 						])
@@ -246,7 +254,9 @@ export const batchParitySuite = (): void => {
 						const { s, table, seq, session } = yield* fixture()
 						yield* s.admin.query(`INSERT INTO ${table} ("k", "v") VALUES (-1, 'kept')`, [])
 						const insert: BatchStatement = {
-							sql: `INSERT INTO ${table} ("k", "v") VALUES (pg_catalog.nextval('${seq}')::int4, $1::text)`,
+							sql: testSql(
+								`INSERT INTO ${table} ("k", "v") VALUES (pg_catalog.nextval('${seq}')::int4, $1::text)`
+							),
 							params: ["doomed"]
 						}
 						const cases: Gen<{
@@ -267,13 +277,12 @@ export const batchParitySuite = (): void => {
 								suite: `pg/adapter/batch-parity/refused`,
 								draw: drawn(cases),
 								literal: Formatter.format,
-								features: noFeatures,
+								coverage: noCoverage,
 								kept: [],
 								runs: 10,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang
 							},
 							({ before, after, refusal }) =>
@@ -282,7 +291,10 @@ export const batchParitySuite = (): void => {
 									const planned = refusals[refusal]
 									const refused: BatchStatement =
 										refusal === "unique"
-											? { sql: `INSERT INTO ${table} ("k", "v") VALUES (-1, 'again')`, params: [] }
+											? {
+													sql: testSql(`INSERT INTO ${table} ("k", "v") VALUES (-1, 'again')`),
+													params: []
+												}
 											: planned
 									const statements = [
 										...Array.from({ length: before }, () => insert),
@@ -332,11 +344,11 @@ export const batchParitySuite = (): void => {
 						const prologueStatements = 2
 						/** The server statements a session draws: two labels, and the refused statement; `c` runs unnamed. */
 						const servers: Readonly<Record<"a" | "b" | "boom", ServerStatement>> = {
-							a: serverStatement(`SELECT $1::text AS "a"`),
-							b: serverStatement(`SELECT $1::text AS "b"`),
-							boom: serverStatement("SELECT (1 / 0)::text")
+							a: serverStatement(testSql(`SELECT $1::text AS "a"`)),
+							b: serverStatement(testSql(`SELECT $1::text AS "b"`)),
+							boom: serverStatement(testSql("SELECT (1 / 0)::text"))
 						}
-						const unnamedSql = `SELECT $1::text AS "c"`
+						const unnamedSql = testSql(`SELECT $1::text AS "c"`)
 						type Label = "a" | "b" | "c" | "boom"
 						const statementOf = (label: Label): FlightStatement =>
 							label === "c"
@@ -457,13 +469,12 @@ export const batchParitySuite = (): void => {
 								suite: `pg/adapter/batch-parity/names`,
 								draw: drawn(steps),
 								literal: Formatter.format,
-								features: noFeatures,
+								coverage: noCoverage,
 								kept: [],
 								runs: 8,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang
 							},
 							(drawnSteps) => Effect.forEach(drawnSteps, run, { discard: true })

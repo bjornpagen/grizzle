@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -11,7 +11,14 @@ import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import type { Expr, FromItem, SelectCore, SqlStatement } from "#compiler/sql/ast.ts"
+import type {
+	Expr,
+	FromItem,
+	FromSource,
+	JoinChain,
+	SelectCore,
+	SqlStatement
+} from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
@@ -94,7 +101,15 @@ const pathDesc = (path: Path): QueryDesc =>
 					bindings: {
 						src: node(i),
 						dst: node(i + 1),
-						...(i === path.restricted ? { w: { kind: "param" as const, name: "w" } } : {})
+						...(i === path.restricted
+							? {
+									w: {
+										kind: "param" as const,
+										name: "w",
+										type: { kind: "pg", type: "integer" } as const
+									}
+								}
+							: {})
 					}
 				})),
 				where: [],
@@ -106,13 +121,16 @@ const pathDesc = (path: Path): QueryDesc =>
 	})
 
 /** The aliases a FROM item defines, leftmost first. */
-const aliasesOf = (item: FromItem): ReadonlyArray<string> => {
+const aliasesOf = (item: FromItem): ReadonlyArray<string> =>
+	item.kind === "joins"
+		? [aliasOf(item.first), ...Arr.map(item.steps, (step) => aliasOf(step.source))]
+		: [aliasOf(item)]
+
+/** The alias a FROM source defines. */
+const aliasOf = (item: FromSource): string => {
 	switch (item.kind) {
-		case "join":
-		case "crossJoin":
-			return [...aliasesOf(item.left), ...aliasesOf(item.right)]
 		case "cte":
-			return [item.alias ?? item.name]
+			return item.alias ?? item.name
 		case "derived":
 		case "enclosing":
 		case "function":
@@ -120,7 +138,7 @@ const aliasesOf = (item: FromItem): ReadonlyArray<string> => {
 		case "table":
 		case "values":
 		case "context":
-			return [item.alias]
+			return item.alias
 	}
 }
 
@@ -145,13 +163,13 @@ const conjuncts = (e: Expr | undefined): ReadonlyArray<Expr> =>
 /** The core whose FROM is the join chain, with the chain. */
 const chainOf = (
 	statement: SqlStatement
-): Option.Option<{ readonly core: SelectCore; readonly chain: FromItem }> => {
-	const found: Array<{ readonly core: SelectCore; readonly chain: FromItem }> = []
+): Option.Option<{ readonly core: SelectCore; readonly chain: JoinChain }> => {
+	const found: Array<{ readonly core: SelectCore; readonly chain: JoinChain }> = []
 	transformStatement(statement, {
 		...identityHooks,
 		core: (c) => {
 			const [first, ...rest] = c.from
-			if (first?.kind === "join" && rest.length === 0) {
+			if (first?.kind === "joins" && rest.length === 0) {
 				found.push({ core: c, chain: first })
 			}
 			return c
@@ -194,14 +212,12 @@ describe("a region past the collapse limit is an explicit JOIN chain", () => {
 						draw: sketched(pathSketchGen, pathOf),
 						runs: 60,
 						shrink: completeShrink,
-						features: features<RegionFeature>([
-							"restricted first written",
-							"restricted written later",
-							"longest path"
-						]),
+						coverage: required<RegionFeature>(
+							["restricted first written", "restricted written later", "longest path"],
+							{ cases: 60, sense: notesOnly }
+						),
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "mutate", cases: 60, sense: notesOnly },
 						caseHang: Duration.minutes(2)
 					},
 					(path, c) =>
@@ -221,19 +237,20 @@ describe("a region past the collapse limit is an explicit JOIN chain", () => {
 							)
 							transformStatement(statement.ast, {
 								...identityHooks,
-								fromItem: (item) => {
-									if (item.kind !== "join") {
-										return item
+								joins: (chain) => {
+									const left = new Set([aliasOf(chain.first)])
+									for (const step of chain.steps) {
+										const right = aliasOf(step.source)
+										if (step.kind === "on") {
+											const read = tablesRead(step.on)
+											assert.ok(
+												Arr.some([...read], (a) => left.has(a)) && read.has(right),
+												"an ON reads both sides"
+											)
+										}
+										left.add(right)
 									}
-									const left = new Set(aliasesOf(item.left))
-									const right = new Set(aliasesOf(item.right))
-									const read = tablesRead(item.on)
-									assert.ok(
-										Arr.some([...read], (a) => left.has(a)) &&
-											Arr.some([...read], (a) => right.has(a)),
-										"an ON reads both sides"
-									)
-									return item
+									return chain
 								}
 							})
 							const [start] = aliasesOf(found.chain)

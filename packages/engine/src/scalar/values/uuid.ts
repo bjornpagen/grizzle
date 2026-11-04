@@ -1,8 +1,29 @@
+import type { regex } from "arkregex"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 
+/** uuid_out's spelling: lowercase hexadecimal in groups of 8, 4, 4, 4 and 12, hyphenated. */
+type CanonicalPattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+
 /**
- * The uuid host value, canonical: UUID case and byte encodings need canonicalization.
+ * A uuid host value: ArkRegex's language of uuid_out's spelling, `${string}-${string}-${string}-${string}-${string}`,
+ * which every canonical uuid is, crypto.randomUUID()'s own type included. It is the uuid descriptor's host type,
+ * domain and language, so a JavaScript value at a uuid column, parameter or fact is one of it, and a plain string
+ * becomes one through Uuid.parse.
+ *
+ * The language is wider than the uuids: TypeScript writes a hexadecimal group as `${string}`, since a template of exact
+ * groups would be a union of 16^32 members, so any text with four hyphens is in it ("a-b-c-d-e") and is refused at the
+ * boundary instead: toUuid when a parameter or a fact encodes, and the checker for a literal in a description.
+ * RegexInfer (text/field.ts), the guarded path for an author's pattern, would widen this one to string twice over: its
+ * scan stops at 40 code units, and a class holding a digit range beside letters could be a union holding `${number}`.
+ * Neither applies to the inference itself: ArkRegex writes the hexadecimal class as `${string}`, never `${number}`, and
+ * the pattern has no escape and anchors only at the two ends of its one alternative. So ArkRegex's own inference is
+ * its language, as is.
+ */
+export type Uuid = regex.infer<CanonicalPattern, "u">
+
+/**
+ * The uuid admission core, canonical: UUID case and byte encodings need canonicalization.
  *
  * A uuid is 16 bytes. The host spelling is the hyphenated 8-4-4-4-12 hexadecimal form in either case; the canonical
  * value is its lowercase spelling, which is PostgreSQL's uuid_out text, so equal uuids have one host string and string
@@ -29,3 +50,18 @@ export const toUuid = (value: unknown): Result.Result<string, ValueFault> => {
 	}
 	return Result.ok(upper ? value.toLowerCase() : value)
 }
+
+/** A canonical uuid text toUuid admitted, as the value it spells: its five groups, hyphenated. */
+const spelled = (text: string): Uuid =>
+	`${text.slice(0, 8)}-${text.slice(9, 13)}-${text.slice(14, 18)}-${text.slice(19, 23)}-${text.slice(24)}`
+
+/**
+ * The public parse of a uuid: any value, refused unless it is a hyphenated 8-4-4-4-12 hexadecimal text in either case
+ * (`uuidSyntax`), and otherwise the Uuid of its canonical spelling. A caller holding a plain string id gets the Uuid a
+ * uuid column, parameter or fact takes through it, once.
+ */
+const parse = (input: unknown): Result.Result<Uuid, ValueFault> =>
+	Result.map(toUuid(input), spelled)
+
+/** The uuid operations, beside the Uuid type of the same name. */
+export const Uuid = Object.freeze({ parse })

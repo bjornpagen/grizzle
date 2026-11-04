@@ -1,3 +1,4 @@
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	type BindingsDesc,
 	type ExprDesc,
@@ -39,7 +40,16 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 		case "interior":
 			return { kind: "interior", id: s.interior(source.id) }
 		case "query":
-			return { kind: "query", query: source.query, bind: spellBindings(source.bind, s) }
+			return {
+				kind: "query",
+				query: source.query,
+				bind: Object.fromEntries(
+					Object.entries(source.bind).map(([k, b]) => [
+						k,
+						b.kind === "relationParam" ? b : spellExpr(b, s)
+					])
+				)
+			}
 		case "param":
 		case "paramOf":
 		case "relation":
@@ -80,6 +90,14 @@ export const spellExpr = (e: OpenExpr, s: Spellings): ExprDesc => {
 				onTrue: spellExpr(e.onTrue, s),
 				onFalse: spellExpr(e.onFalse, s)
 			}
+		case "when":
+			return {
+				kind: "when",
+				guard: e.guard,
+				subject: spellExpr(e.subject, s),
+				proved: spellExpr(e.proved, s),
+				otherwise: spellExpr(e.otherwise, s)
+			}
 		case "compare":
 			return { kind: "compare", op: e.op, left: spellExpr(e.left, s), right: spellExpr(e.right, s) }
 		case "between":
@@ -93,7 +111,7 @@ export const spellExpr = (e: OpenExpr, s: Spellings): ExprDesc => {
 			return { kind: "in", arg: spellExpr(e.arg, s), values: e.values }
 		case "and":
 		case "or":
-			return { kind: e.kind, args: e.args.map((a) => spellExpr(a, s)) }
+			return { kind: e.kind, args: mapNonEmpty(e.args, (a) => spellExpr(a, s)) }
 		case "allen":
 			return {
 				kind: "allen",

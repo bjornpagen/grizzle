@@ -4,13 +4,17 @@ import {
 	everyProperty,
 	type Json,
 	Refusal,
-	toJson
+	toJson,
+	writeCanonicalJson
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
+import { type Lines, textOf } from "#compiler/core/lines.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
+import { textMaxLength } from "#compiler/core/policy.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -19,6 +23,7 @@ import {
 	ledgerPrivilegesObject
 } from "#compiler/deploy/ledger/ledger.ts"
 import type { ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
+import { residualDigests } from "#compiler/deploy/snapshot/residual.ts"
 import type {
 	DeploySnapshot,
 	SnapshotContent,
@@ -27,12 +32,7 @@ import type {
 	SnapshotRelation,
 	SnapshotTheory
 } from "#compiler/deploy/snapshot/types.ts"
-import {
-	familyAbsentAnchor,
-	namedDetail,
-	type ResidualLaw,
-	type TheoryRelation
-} from "#compiler/ir/law.ts"
+import type { ResidualLaw, TheoryRelation } from "#compiler/ir/law.ts"
 import {
 	type AccessIndexRequest,
 	type InstallationManifest,
@@ -62,7 +62,7 @@ const withoutFingerprint: EncodeOptions = {
 
 /** The fingerprint of a snapshot's form, as snapshot.json writes it: the digest of every property but the snapshot's own
  * fingerprint. */
-const formFingerprint = (form: SnapshotForm): Result.Result<SchemaFingerprint, CompileError> =>
+const formFingerprint = (form: RecordOf<SqlForm>): Result.Result<SchemaFingerprint, CompileError> =>
 	Result.map(digest("snapshot", form, withoutFingerprint), toSchemaFingerprint)
 
 /** The fingerprint of a schema's empty snapshot, which a database holds before its first migration: the source of that
@@ -95,47 +95,6 @@ const storedRequest = (r: AccessIndexRequest): StoredIndexRequest => ({
 
 export const isEmptySnapshot = (s: DeploySnapshot): boolean =>
 	s.fingerprint === emptyFingerprint(s.schema)
-
-/** The digest of a value of a residual law's record. */
-const residualDigest = (value: unknown): string => {
-	const result = digest("residual-law", value, everyProperty)
-	if (!result.ok) {
-		throw new Refusal(result.error)
-	}
-	return result.value
-}
-
-/** The residual record's digests: whole, and with every UPDATE event and the allocated identifiers left out. */
-const residualDigests = (
-	r: ResidualLaw
-): { readonly digest: string; readonly withoutUpdates: string } => {
-	const base = {
-		family: r.family,
-		anchor: { relation: r.anchor.relation.name, key: r.anchor.key.map((f) => f.name) },
-		absentAnchor: familyAbsentAnchor[r.family],
-		indexes: r.indexes.map((i) => ({
-			...i,
-			keys: i.keys.map((k) => ({ dir: k.dir, opclass: indexOpclassText(k.opclass) }))
-		})),
-		detail: namedDetail(r.detail)
-	}
-	/** Each participant's events as the digest reads them: INSERT, DELETE, then the UPDATE OF fields, each by name. */
-	const events = (withUpdates: boolean) =>
-		r.participants.map(({ relation, events: e }) => ({
-			relation: relation.name,
-			events: [
-				...(e.insert === undefined ? [] : ["INSERT"]),
-				...(e.delete === undefined ? [] : ["DELETE"]),
-				...(e.update === undefined || !withUpdates
-					? []
-					: [{ updateOf: e.update.of.map((f) => f.name) }])
-			]
-		}))
-	return {
-		digest: residualDigest({ ...base, participants: events(true) }),
-		withoutUpdates: residualDigest({ ...base, participants: events(false) })
-	}
-}
 
 const theoryOf = (installation: Installation): SnapshotTheory => {
 	const owned = installation.owned
@@ -287,8 +246,37 @@ const sortedOwners = <V>(
  * snapshot.json (the shell's) reads exactly this form back. */
 type SnapshotForm = { readonly [key: string]: SqlForm }
 
-const statementsForm = (statements: ReadonlyArray<SqlStatement>): ReadonlyArray<SqlForm> =>
-	statements.map((s) => statementForm(s))
+/** An installed statement as snapshot.json lays it out: its JSON form, compact, on one line of its own. The statement
+ * is the unit the diff compares and a review reads, so a changed statement is one changed line. */
+class StatementLine {
+	readonly form: SqlForm
+	constructor(form: SqlForm) {
+		this.form = form
+	}
+}
+
+/** A value of the snapshot's form whose installed statements are `S`: their JSON forms, which the fingerprint digests,
+ * or their StatementLines, which snapshot.json is written from. */
+type FormOf<S> =
+	| string
+	| number
+	| boolean
+	| bigint
+	| S
+	| ReadonlyArray<FormOf<S>>
+	| { readonly [key: string]: FormOf<S> }
+
+/** A record of the snapshot's form whose installed statements are `S`. */
+type RecordOf<S> = { readonly [key: string]: FormOf<S> }
+
+/** How a form holds an installed statement. */
+type Statement<S> = (s: SqlStatement) => S
+
+/** Each statement as its JSON form. */
+const asForm: Statement<SqlForm> = (s) => statementForm(s)
+
+/** Each statement as its line of snapshot.json. */
+const asLine: Statement<StatementLine> = (s) => new StatementLine(statementForm(s))
 
 const fieldForm = (f: SnapshotField): SnapshotForm => ({
 	name: f.name,
@@ -357,21 +345,24 @@ const reasonForm = (r: PhysicalReason): SnapshotForm => {
 	}
 }
 
-const objectForm = (o: PhysicalObject<SqlStatement>): SnapshotForm => ({
+const objectForm = <S>(o: PhysicalObject<SqlStatement>, statement: Statement<S>): RecordOf<S> => ({
 	kind: o.kind,
 	ident: o.ident,
-	ddl: statementsForm(o.ddl),
+	ddl: o.ddl.map(statement),
 	reasons: o.reasons.map(reasonForm),
 	state: o.state,
 	phase: o.phase
 })
 
-const manifestForm = (m: InstallationManifest<SqlStatement>): SnapshotForm => ({
-	objects: m.objects.map(objectForm),
+const manifestForm = <S>(
+	m: InstallationManifest<SqlStatement>,
+	statement: Statement<S>
+): RecordOf<S> => ({
+	objects: m.objects.map((o) => objectForm(o, statement)),
 	edges: m.edges.map((e) => ({ from: e.from, to: e.to })),
-	roleDefaults: statementsForm(m.roleDefaults),
-	publicRevokes: statementsForm(m.publicRevokes),
-	comments: statementsForm(m.comments)
+	roleDefaults: m.roleDefaults.map(statement),
+	publicRevokes: m.publicRevokes.map(statement),
+	comments: m.comments.map(statement)
 })
 
 const requestForm = (r: StoredIndexRequest): SnapshotForm => ({
@@ -403,69 +394,80 @@ const accessForm = (a: ProgramAccess): SnapshotForm => ({
 })
 
 /** The JSON form of a snapshot's content: every field of the snapshot but its fingerprint. */
-const contentForm = (c: SnapshotContent): SnapshotForm => ({
+const contentForm = <S>(c: SnapshotContent, statement: Statement<S>): RecordOf<S> => ({
 	schemaName: c.schemaName,
 	schema: c.schema,
 	theory: theoryForm(c.theory),
-	manifest: manifestForm(c.manifest),
+	manifest: manifestForm(c.manifest, statement),
 	constraintToLaw: c.constraintToLaw,
 	workload: valuesForm(c.workload, (programs) => valuesForm(programs, accessForm)),
 	accessPaths: c.accessPaths.map(requestForm)
 })
 
 /** The JSON form of a snapshot: its content's, with its fingerprint. */
-const snapshotForm = (s: DeploySnapshot): SnapshotForm => ({
-	...contentForm(s),
+const snapshotForm = <S>(s: DeploySnapshot, statement: Statement<S>): RecordOf<S> => ({
+	...contentForm(s, statement),
 	fingerprint: s.fingerprint
 })
-
-/** A finished snapshot and its form, built once: the fingerprint is the form's digest, and the snapshot's text is the
- * form with its fingerprint written (`writeFinishedSnapshot`), so the snapshot's form is never built again. The
- * snapshot form is the content form with the fingerprint as itself, so the text is the bytes `writeSnapshot` writes for
- * the snapshot. */
-interface FinishedSnapshot {
-	readonly snapshot: DeploySnapshot
-	readonly form: SnapshotForm
-}
 
 /** The finished snapshot: the target state, fingerprinted. */
 export const finishSnapshot = (
 	state: SnapshotContent
-): Result.Result<FinishedSnapshot, CompileError> => {
-	const form = contentForm(state)
-	return Result.map(formFingerprint(form), (fingerprint) => ({
-		snapshot: { ...state, fingerprint },
-		form
+): Result.Result<DeploySnapshot, CompileError> =>
+	Result.map(formFingerprint(contentForm(state, asForm)), (fingerprint) => ({
+		...state,
+		fingerprint
 	}))
-}
 
-/** The JSON form of a canonical value written with tabs: object keys in code point order (RFC 8785's order, as the
- * canonical text), one member per line. */
-const prettyText = (value: Json, indent: string): string => {
+/**
+ * A JSON form value written with tabs, `head` before its first line and `tail` after its last: object keys in code
+ * point order (RFC 8785's order, as the canonical text), one member or item per line, a member's key in its head and
+ * its separating comma in its tail.
+ */
+const jsonValue = (out: Lines, head: string, value: Json, tail: string): void => {
 	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-		return JSON.stringify(value)
+		return out.line(`${head}${JSON.stringify(value)}${tail}`)
 	}
-	const inner = `${indent}\t`
 	if (isList(value)) {
 		if (value.length === 0) {
-			return "[]"
+			return out.line(`${head}[]${tail}`)
 		}
-		return `[\n${value.map((item) => `${inner}${prettyText(item, inner)}`).join(",\n")}\n${indent}]`
+		out.line(`${head}[`)
+		const items = out.nested()
+		for (const [i, item] of value.entries()) {
+			jsonValue(items, "", item, i === value.length - 1 ? "" : ",")
+		}
+		return out.line(`]${tail}`)
 	}
 	const entries = Object.entries(value).toSorted(([a], [b]) => compareStrings(a, b))
 	if (entries.length === 0) {
-		return "{}"
+		return out.line(`${head}{}${tail}`)
 	}
-	const members = entries.map(
-		([key, member]) => `${inner}${JSON.stringify(key)}: ${prettyText(member, inner)}`
-	)
-	return `{\n${members.join(",\n")}\n${indent}}`
+	out.line(`${head}{`)
+	const members = out.nested()
+	for (const [i, [key, member]] of entries.entries()) {
+		jsonValue(members, `${JSON.stringify(key)}: `, member, i === entries.length - 1 ? "" : ",")
+	}
+	return out.line(`}${tail}`)
 }
 
+const jsonTextLoc = SourceLoc("JSON text", [])
+
 /** The reviewable text of a canonical value: its JSON form, keys in code point order, indented by tabs, ending in a
- * newline. Equal values are equal bytes. */
+ * newline. Equal values are equal bytes. A text past JavaScript's longest string is refused as ResourceBound (text),
+ * and a kernel Refusal its writer throws is its failure. */
 export const writeJsonText = (value: unknown): Result.Result<string, CompileError> =>
-	Result.map(toJson(value, everyProperty), (json) => `${prettyText(json, "")}\n`)
+	Result.flatMap(toJson(value, everyProperty), (json) =>
+		Result.flatMap(
+			catchRefusal(() =>
+				textOf(textMaxLength, "\t", jsonTextLoc, (out) => {
+					jsonValue(out, "", json, "")
+					out.line("")
+				})
+			),
+			(text) => text
+		)
+	)
 
 /**
  * Whether a read snapshot's recorded fingerprint is its content's: a snapshot.json edited by hand keeps a fingerprint
@@ -473,18 +475,64 @@ export const writeJsonText = (value: unknown): Result.Result<string, CompileErro
  */
 export const fingerprintHolds = (snapshot: DeploySnapshot): Result.Result<boolean, CompileError> =>
 	Result.map(
-		formFingerprint(snapshotForm(snapshot)),
+		formFingerprint(snapshotForm(snapshot, asForm)),
 		(computed) => computed === snapshot.fingerprint
 	)
 
-/** The text of snapshot.json: the snapshot's form, written. The file `migrations/<schema>/snapshot.json` is the
- * snapshot's canonical JSON form, written with object keys in code point order and indented by tabs for review, so the
- * same snapshot is the same bytes on every machine. */
-export const writeSnapshot = (snapshot: DeploySnapshot): Result.Result<string, CompileError> =>
-	writeJsonText(snapshotForm(snapshot))
+/** A kernel result's value, or its failure thrown as a Refusal for the writer's door to return. */
+const valueOf = <A>(r: Result.Result<A, CompileError>): A => {
+	if (!r.ok) {
+		throw new Refusal(r.error)
+	}
+	return r.value
+}
 
-/** The text of a finished snapshot's snapshot.json: its content form with its fingerprint, written. */
-export const writeFinishedSnapshot = (
-	finished: FinishedSnapshot
-): Result.Result<string, CompileError> =>
-	writeJsonText({ ...finished.form, fingerprint: finished.snapshot.fingerprint })
+/**
+ * snapshot.json's text of a form value, `head` before its first line and `tail` after its last: an installed statement
+ * on one line, its compact canonical JSON; a scalar as its canonical JSON; a list or a record one item or member per
+ * line, a record's keys in code point order.
+ */
+const formValue = (out: Lines, head: string, value: FormOf<StatementLine>, tail: string): void => {
+	if (value instanceof StatementLine) {
+		const compact = valueOf(writeCanonicalJson(valueOf(toJson(value.form, everyProperty))))
+		return out.line(`${head}${compact}${tail}`)
+	}
+	if (typeof value !== "object") {
+		return jsonValue(out, head, valueOf(toJson(value, everyProperty)), tail)
+	}
+	if (isList(value)) {
+		if (value.length === 0) {
+			return out.line(`${head}[]${tail}`)
+		}
+		out.line(`${head}[`)
+		const items = out.nested()
+		for (const [i, item] of value.entries()) {
+			formValue(items, "", item, i === value.length - 1 ? "" : ",")
+		}
+		return out.line(`]${tail}`)
+	}
+	const entries = Object.entries(value).toSorted(([a], [b]) => compareStrings(a, b))
+	if (entries.length === 0) {
+		return out.line(`${head}{}${tail}`)
+	}
+	out.line(`${head}{`)
+	const members = out.nested()
+	for (const [i, [key, member]] of entries.entries()) {
+		formValue(members, `${JSON.stringify(key)}: `, member, i === entries.length - 1 ? "" : ",")
+	}
+	return out.line(`}${tail}`)
+}
+
+/** The text of snapshot.json. The file `migrations/<schema>/snapshot.json` is the snapshot's canonical JSON form,
+ * written with object keys in code point order and indented by tabs for review, each installed statement compact on a
+ * line of its own, so a changed statement is one changed line and the same snapshot is the same bytes on every machine.
+ * The layout is the writer's: the fingerprint digests the form's canonical text, which no layout changes. */
+export const writeSnapshot = (snapshot: DeploySnapshot): Result.Result<string, CompileError> =>
+	catchRefusal(() =>
+		valueOf(
+			textOf(textMaxLength, "\t", jsonTextLoc, (out) => {
+				formValue(out, "", snapshotForm(snapshot, asLine), "")
+				out.line("")
+			})
+		)
+	)

@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { assertNone, assertSome } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
@@ -72,7 +72,7 @@ describe("substrate names", () => {
 								] as const,
 							literal: Formatter.format,
 							limit: 600,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						([label, index]) =>
@@ -112,7 +112,7 @@ describe("substrate names", () => {
 							]),
 							literal: Formatter.format,
 							limit: 4,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						(name) =>
@@ -135,7 +135,7 @@ describe("substrate names", () => {
 							]),
 							literal: Formatter.format,
 							limit: 4,
-							features: noFeatures,
+							coverage: noCoverage,
 							caseHang: Duration.minutes(2)
 						},
 						(name) =>
@@ -221,7 +221,7 @@ describe("psql writer protocol", () => {
 						generator: array(element(stderrLines), { min: 0, max: 3 }),
 						literal: Formatter.format,
 						limit: 400,
-						features: features<"no report" | "reported">(["no report", "reported"]),
+						coverage: requiredInSpace<"no report" | "reported">(["no report", "reported"]),
 						caseHang: Duration.minutes(2)
 					},
 					(lines, c) =>

@@ -4,6 +4,8 @@ import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statem
 import type { TemplateRequirements } from "#compiler/ir/products.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emitCatalog } from "#compiler/sql/emit.ts"
 
 /**
  * C.UTF-8 under any spelling of that locale: "C.", then "UTF" with an optional "-", then "8", ASCII letters in either
@@ -32,9 +34,10 @@ const asciiLower = (text: string): string =>
  *   extension the stored relations do not, through a relation parameter's heading, and that capability is checked
  *   against them when the query compiles, before any SQL (`missingExtension`).
  *
- * This module is pure: the catalog statements, each with the parsing of its rows, and the comparator of the parsed
- * rows against the expectation. Every literal is typed and nothing the statements return can be NULL: datlocale, which
- * is NULL for a libc database, is read through format('%s'), which spells NULL as the empty string.
+ * This module is pure: the catalog statements, catalog-read ASTs the engine prints (sql/catalog.ts), each with the
+ * parsing of its rows, and the comparator of the parsed rows against the expectation. Every literal is typed and nothing
+ * the statements return can be NULL: datlocale, which is NULL for a libc database, is read through format('%s'), which
+ * spells NULL as the empty string.
  */
 export const isCUtf8 = (observed: string): boolean => {
 	const lower = asciiLower(observed)
@@ -93,17 +96,36 @@ interface DatabaseRow {
 	readonly cUtf8Collations: string
 }
 
+const database = C.from("pg_database", "d")
+const collation = C.from("pg_collation", "c")
+
 /** One row. */
 export const databaseQuery: CatalogQuery<DatabaseRow> = {
-	sql:
-		"SELECT pg_catalog.current_setting('server_version_num'::text)::text AS c0, " +
-		"pg_catalog.pg_encoding_to_char(d.encoding)::text AS c1, " +
-		"d.datlocprovider::text AS c2, " +
-		"pg_catalog.format('%s'::text, d.datlocale)::text AS c3, " +
-		"(SELECT pg_catalog.count(*) FROM pg_catalog.pg_collation AS c " +
-		"WHERE c.collname = 'pg_c_utf8'::name AND c.collnamespace = 'pg_catalog'::regnamespace " +
-		"AND c.collprovider = 'b'::\"char\")::text AS c4 " +
-		"FROM pg_catalog.pg_database AS d WHERE d.datname = pg_catalog.current_database()",
+	sql: emitCatalog(
+		C.query(
+			[
+				C.asText(C.call("current_setting", [C.text("server_version_num")])),
+				C.asText(C.call("pg_encoding_to_char", [database.col("encoding")])),
+				C.asText(database.col("datlocprovider")),
+				C.asText(C.call("format", [C.text("%s"), database.col("datlocale")])),
+				C.asText(
+					C.scalar(
+						C.query(
+							[C.countStar],
+							[collation.item],
+							C.and([
+								C.eq(collation.col("collname"), C.literal("pg_c_utf8", "name")),
+								C.eq(collation.col("collnamespace"), C.literal("pg_catalog", "regnamespace")),
+								C.eq(collation.col("collprovider"), C.letter("b"))
+							])
+						)
+					)
+				)
+			],
+			[database.item],
+			C.eq(database.col("datname"), C.call("current_database", []))
+		)
+	),
 	what: "the database's settings",
 	row: ([version, encoding, localeProvider, locale, cUtf8Collations]) =>
 		version === undefined ||
@@ -122,11 +144,31 @@ interface InstalledExtension {
 	readonly version: string
 }
 
+const extension = C.from("pg_extension", "e")
+const namespace = C.from("pg_namespace", "n")
+
 /** Every installed extension. */
 export const extensionsQuery: CatalogQuery<InstalledExtension> = {
-	sql:
-		"SELECT e.extname::text AS c0, n.nspname::text AS c1, e.extversion::text AS c2 FROM pg_catalog.pg_extension AS e " +
-		"JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace ORDER BY e.extname",
+	sql: emitCatalog(
+		C.select({
+			...C.core(
+				[
+					C.asText(extension.col("extname")),
+					C.asText(namespace.col("nspname")),
+					C.asText(extension.col("extversion"))
+				],
+				[
+					C.join(
+						extension.item,
+						namespace.item,
+						C.eq(namespace.col("oid"), extension.col("extnamespace"))
+					)
+				],
+				undefined
+			),
+			orderBy: [extension.col("extname")]
+		})
+	),
 	what: "an extension, its schema and its version",
 	row: ([name, schema, version]) =>
 		name === undefined || schema === undefined || version === undefined

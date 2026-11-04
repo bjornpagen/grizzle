@@ -2,7 +2,7 @@ import { pipe, String as Str } from "effect"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { contained, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -63,7 +63,7 @@ const frontendOptions = (schemaValue: unknown): FrontendOptions => {
 export const compiled = (schemaValue: unknown, value: unknown): WriteFrontend =>
 	succeeded(compileChangeSet(checking(schemaValue), descOf(value), frontendOptions(schemaValue)))
 
-export const uuidOf = (n: number): string =>
+export const uuidOf = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** The worked example's arm switch, described. */
@@ -72,16 +72,16 @@ export const switchToManual = (): ChangeSetValue =>
 		.put(
 			Task,
 			query(Work).rule((r: RuleValue) => {
-				const { account } = v(Task)
+				const { account } = v(Task, "task")
 				return r
 					.match(Task, { id: r.param("task", Task.fields.id), account, kind: "Automatic" })
-					.find({ id: r.param("task", Task.fields.id), account, kind: r.literal("Manual") })
+					.find({ id: r.param("task", Task.fields.id), account, kind: "Manual" })
 			})
 		)
 		.delete(
 			AutomaticTask,
 			query(Work).rule((r: RuleValue) => {
-				const { budget } = v(AutomaticTask)
+				const { budget } = v(AutomaticTask, "automaticTask")
 				return r
 					.match(AutomaticTask, { task: r.param("task", AutomaticTask.fields.task), budget })
 					.find({ task: r.param("task", AutomaticTask.fields.task), budget })

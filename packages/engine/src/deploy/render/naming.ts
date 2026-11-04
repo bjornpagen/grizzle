@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
@@ -227,7 +228,7 @@ export const derivedMigrationName = (previous: DeploySnapshot, next: DeploySnaps
 		const column = (c: string) => innerIdent("column", next.schema, now.ident, c)
 		/** A derived relation stores no field of its own: a stored relation that took its name adds every field. */
 		const wasFields: ReadonlyArray<SnapshotField> = was.kind === "derived" ? [] : was.fields
-		changes.push(
+		appendAll(changes, [
 			...now.fields.flatMap((f): ReadonlyArray<Change> => {
 				const old = wasFields.find((w) => w.name === f.name)
 				if (old === undefined) {
@@ -238,7 +239,7 @@ export const derivedMigrationName = (previous: DeploySnapshot, next: DeploySnaps
 			...wasFields.flatMap((w): ReadonlyArray<Change> =>
 				now.fields.some((f) => f.name === w.name) ? [] : [{ verb: "drop", ident: column(w.column) }]
 			)
-		)
+		])
 	}
 	/** Each change once, at its first occurrence. */
 	const distinct = changes.filter(

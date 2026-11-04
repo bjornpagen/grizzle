@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
@@ -139,8 +139,8 @@ const refusedMalformed = (f: () => unknown): boolean => {
 const allenTerm = (mask: number) =>
 	queryValueDesc(
 		query(Schedule).rule((r) => {
-			const a = v(Booking)
-			const b = v(Booking)
+			const a = v(Booking, "first")
+			const b = v(Booking, "second")
 			return r
 				.match(Booking, { room: a.room, during: a.during })
 				.match(Booking, { room: a.room, during: b.during })
@@ -162,7 +162,7 @@ describe("every entry point a mask reaches", () => {
 						literal: Formatter.format,
 						/** The space holds 8,208 values; the limit guards only against its growth. */
 						limit: 10_000,
-						features: features<EntryFeature>([
+						coverage: requiredInSpace<EntryFeature>([
 							"a mask",
 							"the empty mask",
 							"the full mask",
@@ -221,7 +221,7 @@ describe("every entry point a mask reaches", () => {
 							assert.equal(
 								ALLEN.converse(mask),
 								allenMaskOf(
-									...Arr.map(relationsOf(mask), (relation) => allenConverseRelation[relation])
+									Arr.map(relationsOf(mask), (relation) => allenConverseRelation[relation])
 								)
 							)
 							assert.equal(ALLEN.converse(ALLEN.converse(mask)), mask)

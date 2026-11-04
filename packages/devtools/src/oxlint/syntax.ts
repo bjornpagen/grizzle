@@ -45,7 +45,7 @@ export const argumentsOf = (node: AnyNode, arity: number): ReadonlyArray<AnyNode
 	node.type === "CallExpression" && node.arguments.length >= arity ? node.arguments : []
 
 /** The type arguments a call or a type reference spells, none when it spells none. */
-const typeArgumentsOf = (node: AnyNode): ReadonlyArray<TypeNode> => {
+export const typeArgumentsOf = (node: AnyNode): ReadonlyArray<TypeNode> => {
 	if (node.type !== "CallExpression" && node.type !== "TSTypeReference") {
 		return []
 	}

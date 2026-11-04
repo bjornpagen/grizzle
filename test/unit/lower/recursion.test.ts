@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, filter, type Gen, int, oneOf, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
@@ -48,8 +48,8 @@ import { nodeOfKind, present } from "#test/unit/lower/support.ts"
  *   it moves towards; then N = max over s in S of (s <= L ? floor((L - s) / k) + 1 : 0) for k > 0, and the mirror for
  *   k < 0, and a union of arms is bounded by its weakest arm's guard;
  * - no bound on that side proves nothing (noLiteralBound), nor do arms advancing by different steps (noCounter), a seed
- *   read from data (unboundedSeeds), another expression of the step that can fail (failingExpression), or a value
- *   s + j·k, j up to N, outside the counter's carrier for some seed (counterOverflow);
+ *   read from data (unboundedSeeds), or a value s + j·k, j up to N, outside the counter's carrier for some seed
+ *   (counterOverflow);
  * - the recursion unrolls when N is at most recursionUnrollMax (core/policy.ts), and keeps the recursive CTE
  *   otherwise: its feedback under UNION and no DISTINCT anywhere, the complete final state needing none; a recursion
  *   realized without its UNION is refused in either form.
@@ -214,12 +214,11 @@ const counterRecursion = (c: Counter) => {
 	const g = c.guard
 	const pred =
 		g.kind === "between"
-			? q.op(betweenOp[c.carrier], [hops, q.int(g.low, t), q.int(g.high, t)], T.bool, "total")
+			? q.op(betweenOp[c.carrier], [hops, q.int(g.low, t), q.int(g.high, t)], T.bool)
 			: q.op(
 					`${c.carrier}${g.op}`,
 					g.counter === "left" ? [hops, q.int(g.bound, t)] : [q.int(g.bound, t), hops],
-					T.bool,
-					"total"
+					T.bool
 				)
 	const f = q.filter(m, pred)
 	const magnitude = c.delta > 0n ? c.delta : -c.delta
@@ -233,8 +232,7 @@ const counterRecursion = (c: Counter) => {
 					q.op(
 						`${c.carrier}${c.delta > 0n ? "pl" : "mi"}`,
 						[q.col(f, "hops"), q.int(magnitude, t)],
-						t,
-						"canFail"
+						t
 					),
 					t
 				]
@@ -300,11 +298,10 @@ type CounterFeature =
 	| "depth 0"
 
 /**
- * The graph schema of the public-API cases: a vertex relation with a carrier column a seed may copy, and edges with a
- * cost a step may divide by.
+ * The graph schema of the public-API cases: a vertex relation with a carrier column a seed may copy, and its edges.
  */
 const Vertex = relation("Vertex", { id: uuid, rank: pg.smallint }, ["id"])
-const Edge = relation("Edge", { from: uuid, to: uuid, cost: pg.integer }, ["from", "to"])
+const Edge = relation("Edge", { from: uuid, to: uuid }, ["from", "to"])
 const Graph = schema("Graph", { Vertex, Edge }, [
 	contained(on(Edge, "from"), on(Vertex, "id")),
 	contained(on(Edge, "to"), on(Vertex, "id"))
@@ -365,8 +362,9 @@ const queries = (s: Select): ReadonlyArray<Select> => {
 			return
 		}
 		if (b.kind === "setOp") {
-			visitBody(b.left)
-			visitBody(b.right)
+			for (const arm of b.arms) {
+				visitBody(arm)
+			}
 			return
 		}
 		for (const f of b.from) {
@@ -382,9 +380,11 @@ const queries = (s: Select): ReadonlyArray<Select> => {
 	const visitFrom = (f: NonNullable<SelectCore["from"]>[number]): void => {
 		if (f.kind === "derived") {
 			visitSelect(f.query)
-		} else if (f.kind === "join" || f.kind === "crossJoin") {
-			visitFrom(f.left)
-			visitFrom(f.right)
+		} else if (f.kind === "joins") {
+			visitFrom(f.first)
+			for (const step of f.steps) {
+				visitFrom(step.source)
+			}
 		}
 	}
 	const visitExpr = (e: Expr): void => {
@@ -415,7 +415,7 @@ const walkBelow = (below: number) =>
 		row: { node: uuid, hops: pg.integer },
 		base: [
 			(r) => {
-				const { id } = v(Vertex)
+				const { id } = v(Vertex, "vertex")
 				return r
 					.match(Vertex, { id })
 					.where(r.eq(id, r.param("start", uuid)))
@@ -424,8 +424,8 @@ const walkBelow = (below: number) =>
 		],
 		rec: [
 			(r, self) => {
-				const { node, hops } = v(self)
-				const { to } = v(Edge)
+				const { node, hops } = v(self, "self")
+				const { to } = v(Edge, "edge")
 				return r
 					.match(self, { node, hops })
 					.match(Edge, { from: node, to })
@@ -446,8 +446,8 @@ interface Arm {
 
 const twoArms = (forward: Arm, backward: Arm, backwardFirst: boolean) => {
 	const arm = (isForward: boolean, a: Arm) => (r: Rule<typeof Graph>, self: WalkSelf) => {
-		const { node, hops } = v(self)
-		const { from, to } = v(Edge)
+		const { node, hops } = v(self, "self")
+		const { from, to } = v(Edge, "edge")
 		return r
 			.match(self, { node, hops })
 			.match(Edge, isForward ? { from: node, to } : { from, to: node })
@@ -462,7 +462,7 @@ const twoArms = (forward: Arm, backward: Arm, backwardFirst: boolean) => {
 		row: { node: uuid, hops: pg.integer },
 		base: [
 			(r) => {
-				const { id } = v(Vertex)
+				const { id } = v(Vertex, "vertex")
 				return r
 					.match(Vertex, { id })
 					.where(r.eq(id, r.param("start", uuid)))
@@ -477,7 +477,7 @@ const twoArms = (forward: Arm, backward: Arm, backwardFirst: boolean) => {
  * The recursions no counter bounds, each planted with the reason the rule gives: the rule is about where the counter
  * comes from, which no generated recursion varies.
  */
-type Unbounded = "noCounter" | "unboundedSeeds" | "noLiteralBound" | "failingExpression"
+type Unbounded = "noCounter" | "unboundedSeeds" | "noLiteralBound"
 const unboundedFamilies: Readonly<Record<Unbounded, () => unknown>> = {
 	/** An endpoint closure: no integer state column. */
 	noCounter: () =>
@@ -485,7 +485,7 @@ const unboundedFamilies: Readonly<Record<Unbounded, () => unknown>> = {
 			row: { node: uuid },
 			base: [
 				(r) => {
-					const { id } = v(Vertex)
+					const { id } = v(Vertex, "vertex")
 					return r
 						.match(Vertex, { id })
 						.where(r.eq(id, r.param("start", uuid)))
@@ -494,8 +494,8 @@ const unboundedFamilies: Readonly<Record<Unbounded, () => unknown>> = {
 			],
 			rec: [
 				(r, self) => {
-					const { node } = v(self)
-					const { to } = v(Edge)
+					const { node } = v(self, "self")
+					const { to } = v(Edge, "edge")
 					return r.match(self, { node }).match(Edge, { from: node, to }).find({ node: to })
 				}
 			]
@@ -506,7 +506,7 @@ const unboundedFamilies: Readonly<Record<Unbounded, () => unknown>> = {
 			row: { node: uuid, hops: pg.smallint },
 			base: [
 				(r) => {
-					const { id, rank } = v(Vertex)
+					const { id, rank } = v(Vertex, "vertex")
 					return r
 						.match(Vertex, { id, rank })
 						.where(r.eq(id, r.param("start", uuid)))
@@ -515,8 +515,8 @@ const unboundedFamilies: Readonly<Record<Unbounded, () => unknown>> = {
 			],
 			rec: [
 				(r, self) => {
-					const { node, hops } = v(self)
-					const { to } = v(Edge)
+					const { node, hops } = v(self, "self")
+					const { to } = v(Edge, "edge")
 					return r
 						.match(self, { node, hops })
 						.match(Edge, { from: node, to })
@@ -531,7 +531,7 @@ const unboundedFamilies: Readonly<Record<Unbounded, () => unknown>> = {
 			row: { node: uuid, hops: pg.smallint },
 			base: [
 				(r) => {
-					const { id } = v(Vertex)
+					const { id } = v(Vertex, "vertex")
 					return r
 						.match(Vertex, { id })
 						.where(r.eq(id, r.param("start", uuid)))
@@ -540,39 +540,13 @@ const unboundedFamilies: Readonly<Record<Unbounded, () => unknown>> = {
 			],
 			rec: [
 				(r, self) => {
-					const { node, hops } = v(self)
-					const { to } = v(Edge)
+					const { node, hops } = v(self, "self")
+					const { to } = v(Edge, "edge")
 					return r
 						.match(self, { node, hops })
 						.match(Edge, { from: node, to })
 						.where(r.lt(hops, r.param("limit", pg.smallint)))
 						.find({ node: to, hops: Compute.add(hops, Compute.literal(pg.smallint, 1)) })
-				}
-			]
-		}),
-	/** The step divides by an edge's cost, which an inlined level could evaluate on a row an earlier level removed. */
-	failingExpression: () =>
-		query(Graph).recursive("Dividing", {
-			row: { node: uuid, hops: pg.integer },
-			base: [
-				(r) => {
-					const { id } = v(Vertex)
-					return r
-						.match(Vertex, { id })
-						.where(r.eq(id, r.param("start", uuid)))
-						.find({ node: id, hops: Compute.literal(pg.integer, 0) })
-				}
-			],
-			rec: [
-				(r, self) => {
-					const { node, hops } = v(self)
-					const { to, cost } = v(Edge)
-					return r
-						.match(self, { node, hops })
-						.match(Edge, { from: node, to, cost })
-						.where(r.lt(hops, 4))
-						.where(r.gt(Compute.div(Compute.literal(pg.integer, 100), cost), 1))
-						.find({ node: to, hops: Compute.add(hops, Compute.literal(pg.integer, 1)) })
 				}
 			]
 		})
@@ -597,7 +571,7 @@ describe("the bounded-counter proof (packages/engine/src/lower/shapes/recursion/
 						generator: counters,
 						literal: Formatter.format,
 						limit: 2000,
-						features: features<CounterFeature>([
+						coverage: requiredInSpace<CounterFeature>([
 							"bounded",
 							"no literal bound",
 							"counter overflow",
@@ -646,7 +620,10 @@ describe("the bounded-counter proof (packages/engine/src/lower/shapes/recursion/
 							[source.draw(arms), source.draw(arms), source.draw(boolean)] as const,
 						literal: Formatter.format,
 						limit: 72,
-						features: features<"bounded" | "different steps">(["bounded", "different steps"]),
+						coverage: requiredInSpace<"bounded" | "different steps">([
+							"bounded",
+							"different steps"
+						]),
 						caseHang: Duration.minutes(2)
 					},
 					([forward, backward, backwardFirst], c) =>
@@ -679,20 +656,10 @@ describe("the bounded-counter proof (packages/engine/src/lower/shapes/recursion/
 				exhaust(
 					{
 						suite: "unit/lower/recursion/unbounded",
-						generator: element<Unbounded>([
-							"noCounter",
-							"unboundedSeeds",
-							"noLiteralBound",
-							"failingExpression"
-						]),
+						generator: element<Unbounded>(["noCounter", "unboundedSeeds", "noLiteralBound"]),
 						literal: Formatter.format,
-						limit: 4,
-						features: features<Unbounded>([
-							"noCounter",
-							"unboundedSeeds",
-							"noLiteralBound",
-							"failingExpression"
-						]),
+						limit: 3,
+						coverage: requiredInSpace<Unbounded>(["noCounter", "unboundedSeeds", "noLiteralBound"]),
 						caseHang: Duration.minutes(2)
 					},
 					(reason, c) =>
@@ -720,7 +687,7 @@ describe("the form a recursion lowers to (packages/engine/src/lower/shapes/recur
 						generator: int(0, recursionUnrollMax + 2),
 						literal: Formatter.format,
 						limit: recursionUnrollMax + 3,
-						features: features<"unrolled" | "recursive">(["unrolled", "recursive"]),
+						coverage: requiredInSpace<"unrolled" | "recursive">(["unrolled", "recursive"]),
 						caseHang: Duration.minutes(2)
 					},
 					(below, c) =>

@@ -43,7 +43,6 @@ export const ruleMethods = [
 	"interior",
 	"param",
 	"relation",
-	"literal",
 	"eq",
 	"ne",
 	"lt",

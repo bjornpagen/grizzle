@@ -2,7 +2,8 @@
  * The generators' claims about PostgreSQL 19, checked on PostgreSQL 19.
  *
  * - Every aggregate the generators emit exists over its argument type with the result type ops.ts states, and every
- *   aggregate they leave out of a type does not exist there.
+ *   aggregate they leave out of a type exists in neither PostgreSQL's schema nor the vector extension's, each looked
+ *   up qualified, unless the language states why it leaves it out (declinedAggregates).
  * - The value domains' classes are PostgreSQL's equality classes: two literals are equal under PostgreSQL's `=`
  *   exactly when they share a class (NaN = NaN, -0 = 0, 1.0 = 1.00).
  * - Generated facts satisfy the declared laws natively: an explored population of schemas installs with PRIMARY KEY,
@@ -10,8 +11,9 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
@@ -25,6 +27,7 @@ import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts
 import {
 	baseTypeSpecs,
 	scalarOfSpec,
+	type SpelledValue,
 	valueClasses,
 	literalEqualityKey
 } from "#test/support/oracle/gen/domain.ts"
@@ -36,7 +39,7 @@ import {
 	genAggregates
 } from "#test/support/oracle/gen/ops.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
-import { expectSqlstate } from "#test/support/substrate/expect.ts"
+import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The element at an index the test knows to be in range, or a failed test naming what is missing. */
@@ -48,7 +51,13 @@ const at = <T>(items: ReadonlyArray<T>, index: number, what: string): T => {
 	return item
 }
 
-/** The SQL type of a generated column; an enum is the schema's type named after its roster. */
+/** The schema the cluster holds the vector extension in. */
+const vectorSchema = quoteIdent("vector_ext")
+
+/**
+ * The SQL type of a generated column; an enum is the schema's type named after its roster, and a vector the extension's
+ * type at its dimensions.
+ */
 const sqlType = (type: ScalarType, schema: string): string => {
 	if (type.carrier === "enum") {
 		return `${quoteIdent(schema)}.${quoteIdent(Str.toLowerCase(type.roster.closed))}`
@@ -56,8 +65,15 @@ const sqlType = (type: ScalarType, schema: string): string => {
 	if (type.carrier === "numeric" && type.typmod !== undefined) {
 		return `numeric(${type.typmod.precision},${type.typmod.scale})`
 	}
+	if (type.carrier === "vector") {
+		return `${vectorSchema}.${quoteIdent("vector")}(${type.typmod.dims})`
+	}
 	return nativeName(type.carrier)
 }
+
+/** PostgreSQL's equality operator over a generated type: the extension's for a vector. */
+const equalitySql = (type: ScalarType): string =>
+	type.carrier === "vector" ? `OPERATOR(${vectorSchema}.=)` : "="
 
 const moneyText = (minor: bigint): string => {
 	const negative = minor < 0n
@@ -92,8 +108,19 @@ const sqlLiteral = (literal: TypedLiteral, type: ScalarType, schema: string): st
 		case "enum":
 			return `${quoteString(literal.handle)}::${t}`
 		case "span":
+			return `${quoteString(`[${literal.start},${literal.end})`)}::${t}`
 		case "vector":
-			throw new Error(`the generators emit no ${literal.kind} literal`)
+			return `${quoteString(literal.value[canonicalTag]().payload)}::${t}`
+	}
+}
+
+/** A stored value as SQL: in its twin spelling where it has one, which the column type's input function reads. */
+const storedSql = (stored: SpelledValue, type: ScalarType, schema: string): string => {
+	switch (stored.spelling.kind) {
+		case "canonical":
+			return sqlLiteral(stored.literal, type, schema)
+		case "twin":
+			return `${quoteString(stored.spelling.text)}::${sqlType(type, schema)}`
 	}
 }
 
@@ -106,10 +133,34 @@ const generatedTypes: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.append(
 	roster("K0")
 )
 
-const aggregateSql = (fn: GenAggregate, arg: string): string =>
+/** An aggregate over `arg`, the function qualified by `schema`, never found through a search path. */
+const aggregateSql = (fn: GenAggregate, arg: string, schema: string): string =>
 	fn === "count"
-		? "count(*)"
-		: `${fn === "boolAnd" ? "bool_and" : fn === "boolOr" ? "bool_or" : fn}(${arg})`
+		? `${schema}.count(*)`
+		: `${schema}.${fn === "boolAnd" ? "bool_and" : fn === "boolOr" ? "bool_or" : fn}(${arg})`
+
+/** The schemas an aggregate over a generated type can live in: PostgreSQL's own, and the vector extension's. */
+const aggregateSchemas: Arr.NonEmptyReadonlyArray<string> = [quoteIdent("pg_catalog"), vectorSchema]
+
+/**
+ * Why the language leaves out an aggregate an extension defines over a generated type: its answer depends on the order
+ * it meets its rows in. pgvector's sum(vector) adds the components in float32 in that order and fails where a partial
+ * sum overflows (vector.c vector_add), and its avg(vector) sums them in float8 in that order (vector_accum).
+ */
+type Declined = "its accumulation depends on the order of its rows"
+
+/** The aggregates an extension defines that the language leaves out, by carrier, each with why. */
+const declinedAggregates: ReadonlyArray<{
+	readonly carrier: ScalarType["carrier"]
+	readonly fn: GenAggregate
+	readonly why: Declined
+}> = [
+	{ carrier: "vector", fn: "sum", why: "its accumulation depends on the order of its rows" },
+	{ carrier: "vector", fn: "avg", why: "its accumulation depends on the order of its rows" }
+]
+
+const declinedOver = (t: ScalarType, fn: GenAggregate): boolean =>
+	Arr.some(declinedAggregates, (d) => d.carrier === t.carrier && d.fn === fn)
 
 const cols = (names: ReadonlyArray<string>) => Arr.join(Arr.map(names, quoteIdent), ", ")
 
@@ -151,14 +202,11 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 				Arr.map(genAggregates, (aggregate) => [type, aggregate] as const)
 			)
 			for (const [t, fn] of pairs) {
-				const value = sqlLiteral(
-					at(at(valueClasses(t, false), 0, "a value class"), 0, "a literal"),
-					t,
-					schema
-				)
-				const query = `SELECT pg_typeof(${aggregateSql(fn, "v.x")})::regtype::text FROM (VALUES (${value})) AS v(x)`
+				const value = sqlLiteral(at(valueClasses(t, false), 0, "a value class"), t, schema)
+				const query = (home: string) =>
+					`SELECT pg_typeof(${aggregateSql(fn, "v.x", home)})::regtype::text FROM (VALUES (${value})) AS v(x)`
 				if (aggregateApplies(fn, t)) {
-					const [row = []] = yield* s.admin.queryValues(query, [])
+					const [row = []] = yield* s.admin.queryValues(query(quoteIdent("pg_catalog")), [])
 					const expected = aggregateResult(fn, fn === "count" ? undefined : t)
 					/**
 					 * pg_typeof reports the type without its typmod; min and max keep the argument's descriptor.
@@ -169,7 +217,21 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 					)
 					assert.equal(row[0], want[0], `${fn}(${sqlType(t, schema)})`)
 				} else if (fn !== "count") {
-					yield* expectSqlstate(s.admin.queryValues(query, []), "42883")
+					/** Whether the aggregate resolves in a schema: it runs, or fails with 42883 where it does not exist. */
+					const resolves = (home: string) =>
+						s.admin.queryValues(query(home), []).pipe(
+							Effect.as(true),
+							Effect.catchIf(
+								(e) => pgErrorFields(e)?.code === "42883",
+								() => Effect.succeed(false)
+							)
+						)
+					const found = yield* Effect.forEach(aggregateSchemas, resolves)
+					assert.equal(
+						Arr.some(found, (f) => f),
+						declinedOver(t, fn),
+						`${fn}(${sqlType(t, schema)}): defined in ${Arr.join(aggregateSchemas, " or ")} exactly where the language states why it leaves it out`
+					)
 				}
 			}
 		})
@@ -191,18 +253,18 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 						generator: element(generatedTypes),
 						literal: Formatter.format,
 						limit: generatedTypes.length,
-						features: noFeatures,
+						coverage: noCoverage,
 						caseHang: Duration.minutes(2)
 					},
 					(t) =>
 						Effect.gen(function* () {
-							const literals = valueClasses(t, false).flat()
+							const literals = valueClasses(t, false)
 							const values = Arr.join(
 								Arr.map(literals, (l, i) => `(${i}, ${sqlLiteral(l, t, schema)})`),
 								", "
 							)
 							const rows = yield* s.admin.queryValues(
-								`SELECT a.i, b.i, a.v = b.v FROM (VALUES ${values}) AS a(i, v), (VALUES ${values}) AS b(i, v) ORDER BY a.i, b.i`,
+								`SELECT a.i, b.i, a.v ${equalitySql(t)} b.v FROM (VALUES ${values}) AS a(i, v), (VALUES ${values}) AS b(i, v) ORDER BY a.i, b.i`,
 								[]
 							)
 							assert.equal(rows.length, literals.length * literals.length)
@@ -231,14 +293,13 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 						suite: "oracle-gen/facts",
 						draw: drawn(queryCaseGen(defaultGenConfig)),
 						literal: Formatter.format,
-						features: features<"facts loaded">(["facts loaded"]),
+						coverage: required<"facts loaded">(["facts loaded"], { cases: 160, sense: notesOnly }),
 						kept: [],
 						/** The rotating stream's 160 cases and the floor's 40. */
 						runs: 160,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(c, k) =>
@@ -258,7 +319,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 										(row) =>
 											`(${Arr.join(
 												Arr.map(row, (v, i) =>
-													sqlLiteral(v, at(r.columns, i, "the column").type, schema)
+													storedSql(v, at(r.columns, i, "the column").type, schema)
 												),
 												", "
 											)})`

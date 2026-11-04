@@ -33,6 +33,7 @@ import {
 	type VariantStatement,
 	type VariantTransaction
 } from "#bench/harness/variant.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { bindGroups, type RowDecoder } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -54,6 +55,7 @@ import { workload } from "#compiler/program/workload/value.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	compileTestWorkload,
 	schemaInputOf,
@@ -175,6 +177,7 @@ export const installFixture = Effect.fn("installFixture")(function* <
 	const plan = workloadPlan(schema, programs)
 	const world = fullWorld(schema)
 	const installed = yield* install(schema, {
+		ambient: ordinarySession,
 		label,
 		extensions: [workloadExtension(plan)],
 		logins: [world.server, ...logins]
@@ -462,8 +465,9 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 		...session,
 		send: (closes, pipeline, onAnswer, onEnd) => {
 			runtime.flights++
-			recorded.push(
-				...Arr.filterMap(pipeline, (query) =>
+			appendAll(
+				recorded,
+				Arr.filterMap(pipeline, (query) =>
 					query._tag === "statement" &&
 					query.sql !== prologue.fence.server.sql &&
 					query.sql !== prologue.enter.server.sql
@@ -855,7 +859,7 @@ export const textRowsOf = Effect.fn("textRowsOf")(function* (
 ): Effect.fn.Return<ReadonlyArray<TextRow>, SqlError | MalformedRows> {
 	const out: Array<TextRow> = []
 	for (const [i, s] of statements.entries()) {
-		out.push(...(yield* Effect.fromResult(textRows(yield* raw.values(s.sql, s.params), i))))
+		appendAll(out, yield* Effect.fromResult(textRows(yield* raw.values(s.sql, s.params), i)))
 	}
 	return out
 })

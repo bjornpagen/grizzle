@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { type Gen, map, shuffled } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record } from "effect"
@@ -312,16 +313,15 @@ describe("keys over a retyped field, and key swaps", () => {
 						suite: "unit/deploy/swaps",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						features: features<Feature>([
-							"a key over the retyped field added again",
-							"the primary key swapped"
-						]),
+						coverage: required<Feature>(
+							["a key over the retyped field added again", "the primary key swapped"],
+							{ cases: 60, sense: notesOnly }
+						),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(value, c) => Effect.sync(() => swaps(c, value))

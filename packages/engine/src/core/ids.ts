@@ -51,6 +51,7 @@ export type IdentityKind =
 	| "generatedCheck"
 	| "spanCheck"
 	| "normCheck"
+	| "numericBound"
 	| "domainCheck"
 	| "foreignKey"
 	| "partialUnique"
@@ -59,6 +60,7 @@ export type IdentityKind =
 	| "derivedKey"
 	| "law"
 	| "patternLaw"
+	| "boundLaw"
 	| "lawFunction"
 	| "lawTrigger"
 	| "login"
@@ -79,7 +81,6 @@ export type IdentityKind =
 	| "aside"
 	| "swap"
 	| "rebuild"
-	| "scratch"
 
 declare const identifierBrand: unique symbol
 /**
@@ -89,17 +90,23 @@ declare const identifierBrand: unique symbol
 export type Identifier<K extends IdentityKind> = string & { readonly [identifierBrand]: K }
 
 /**
- * A law's identifier, the snapshot's, its constraints' and its law function's: a theory law's or a text pattern's. An
- * outcome names the law by its description instead (types/changeset Law).
+ * A law's identifier, the snapshot's, its constraints' and its law function's: a theory law's, a text pattern's, or a
+ * bare numeric column's bound. An outcome names the law by its description instead (types/changeset Law).
  */
-export type LawId = Identifier<"law" | "patternLaw">
+export type LawId = Identifier<RaisedLawKind | "boundLaw">
+/**
+ * The kinds of law identity a law function or a write statement's refusal raises: a theory law's or a text pattern's. A
+ * bare numeric column's bound never is: its CHECK raises its own name (numericBound), which the snapshot maps to the law.
+ */
+type RaisedLawKind = "law" | "patternLaw"
+export type RaisedLawId = Identifier<RaisedLawKind>
 /** The table, enum type or materialized view of a relation, or a role relation's view, which a role reads it through. */
 export type RelationIdent = Identifier<"table" | "enum" | "view" | "roleView">
 /** The column of a field, a derived view's head name, or a stored tag. */
 export type ColumnIdent = Identifier<"column" | "tag">
 /**
  * What a violation reports as its constraint: a table constraint, a unique index (a key's or a partial one), a domain
- * constraint, or the law identity a law function or a write statement's refusal raises.
+ * constraint, or the law identity a law function or a write statement's refusal raises (RaisedLawId).
  */
 export type ConstraintName = Identifier<
 	| "primaryKey"
@@ -108,20 +115,20 @@ export type ConstraintName = Identifier<
 	| "generatedCheck"
 	| "spanCheck"
 	| "normCheck"
+	| "numericBound"
 	| "domainCheck"
 	| "foreignKey"
 	| "partialUnique"
 	| "derivedKey"
-	| "law"
-	| "patternLaw"
+	| RaisedLawKind
 >
 /** A non-unique access index the index engine creates. */
 export type IndexName = Identifier<"accessIndex">
 /** A contract's domain or a structural text domain. */
 export type DomainName = Identifier<"contractDomain" | "textDomain">
-/** A residual law's constraint trigger on one table. */
+/** A residual law unit's constraint trigger, on one table for one event. */
 export type TriggerName = Identifier<"lawTrigger">
-/** A residual law's function. */
+/** A residual law unit's function, which that unit's trigger alone executes. */
 export type LawFunctionName = Identifier<"lawFunction">
 /**
  * An installed object a template premise names: a constraint or unique index, or a residual law's function

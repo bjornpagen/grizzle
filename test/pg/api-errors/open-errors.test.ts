@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Schema } from "effect"
@@ -153,14 +154,16 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2),
-							features: features<OpenFeature>([
-								"relations collide",
-								"fields of one relation collide",
-								"compiles",
-								"fields alike across relations"
-							])
+							coverage: required<OpenFeature>(
+								[
+									"relations collide",
+									"fields of one relation collide",
+									"compiles",
+									"fields alike across relations"
+								],
+								{ cases: 100, sense: notesOnly }
+							)
 						},
 						(sketch, c) =>
 							Effect.gen(function* () {

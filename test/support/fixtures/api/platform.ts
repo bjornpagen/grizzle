@@ -8,6 +8,7 @@ import {
 	pg,
 	type Span,
 	span as spanOf,
+	type Uuid,
 	uuid
 } from "#compiler/public/fields.ts"
 import { arm, query, v } from "#compiler/public/query.ts"
@@ -442,9 +443,9 @@ export const Platform = platformOf("Platform")
 
 /** The daily spend rollup: a workspace's charges per calendar day, the day the request started in. */
 export const dailySpendDefinition = query(Platform).rule((r) => {
-	const { event, workspace, amount } = v(EventCharge)
-	const { during } = v(UsageEvent)
-	const { day, during: span } = v(Day)
+	const { event, workspace, amount } = v(EventCharge, "eventCharge")
+	const { during } = v(UsageEvent, "usageEvent")
+	const { day, during: span } = v(Day, "day")
 	return r
 		.match(EventCharge, { event, workspace, amount })
 		.match(UsageEvent, { id: event, during })
@@ -530,10 +531,10 @@ const insideOf = ALLEN.during | ALLEN.starts | ALLEN.finishes | ALLEN.equals
  * tokens reach, the tokens it prices and their cost, rounded half up to the micro-dollar.
  */
 export const eventCost = query(Platform).rule((r) => {
-	const { model, during } = v(UsageEvent)
-	const { kind, tokens } = v(UsageCharge)
-	const { id: card, during: inForce } = v(RateCard)
-	const { tier, rate } = v(RateTier)
+	const { model, during } = v(UsageEvent, "usageEvent")
+	const { kind, tokens } = v(UsageCharge, "usageCharge")
+	const { id: card, during: inForce } = v(RateCard, "rateCard")
+	const { tier, rate } = v(RateTier, "rateTier")
 	const priced = Compute.sub(
 		Compute.least(Compute.base(Compute.upper(tier, Tokens)), Compute.base(tokens)),
 		Compute.base(Compute.lower(tier, Tokens))
@@ -564,9 +565,9 @@ export const quote = query(Platform).rule((r) => {
 		kind: UsageCharge.fields.kind,
 		tokens: UsageCharge.fields.tokens
 	})
-	const { kind, tokens } = v(usage)
-	const { id: card, during } = v(RateCard)
-	const { tier, rate } = v(RateTier)
+	const { kind, tokens } = v(usage, "usage")
+	const { id: card, during } = v(RateCard, "rateCard")
+	const { tier, rate } = v(RateTier, "rateTier")
 	const priced = Compute.sub(
 		Compute.least(Compute.base(Compute.upper(tier, Tokens)), Compute.base(tokens)),
 		Compute.base(Compute.lower(tier, Tokens))
@@ -591,7 +592,7 @@ export const quote = query(Platform).rule((r) => {
 /** A model's cards in force at an instant, with their tiers. */
 export const ratesAt = query(Platform)
 	.rule((r) => {
-		const { id, kind, during } = v(RateCard)
+		const { id, kind, during } = v(RateCard, "rateCard")
 		return r
 			.match(RateCard, { id, model: r.param("model", uuid), kind, during })
 			.where(r.allen(during, holdsPoint, r.param("now", RateCard.fields.during)))
@@ -601,7 +602,7 @@ export const ratesAt = query(Platform)
 		"tiers",
 		(c) =>
 			query(Platform).rule((r) => {
-				const { tier, rate } = v(RateTier)
+				const { tier, rate } = v(RateTier, "rateTier")
 				return r.match(RateTier, { card: c.id, tier, rate }).find({ tier, rate })
 			}),
 		"array"
@@ -609,8 +610,8 @@ export const ratesAt = query(Platform)
 
 /** A model's rate history for one kind: each pair of consecutive cards, the first meeting the second. */
 export const rateHistory = query(Platform).rule((r) => {
-	const { id: before, during: was } = v(RateCard)
-	const { id: after, during: is } = v(RateCard)
+	const { id: before, during: was } = v(RateCard, "before")
+	const { id: after, during: is } = v(RateCard, "after")
 	return r
 		.match(RateCard, {
 			id: before,
@@ -633,11 +634,11 @@ export const rateHistory = query(Platform).rule((r) => {
  * kind starting inside the month, after its first second.
  */
 export const repricedInMonth = query(Platform).rule((r) => {
-	const { event } = v(EventCharge)
-	const { model, during } = v(UsageEvent)
-	const { kind } = v(UsageCharge)
-	const { during: month } = v(Month)
-	const { during: card } = v(RateCard)
+	const { event } = v(EventCharge, "eventCharge")
+	const { model, during } = v(UsageEvent, "usageEvent")
+	const { kind } = v(UsageCharge, "usageCharge")
+	const { during: month } = v(Month, "month")
+	const { during: card } = v(RateCard, "rateCard")
 	return r
 		.match(EventCharge, {
 			event,
@@ -657,9 +658,9 @@ export const repricedInMonth = query(Platform).rule((r) => {
 
 /** A workspace's spend per day over a window: each event's charge on the calendar day its request started. */
 export const spendByDay = query(Platform).rule((r) => {
-	const { event, amount } = v(EventCharge)
-	const { during } = v(UsageEvent)
-	const { day, during: span } = v(Day)
+	const { event, amount } = v(EventCharge, "eventCharge")
+	const { during } = v(UsageEvent, "usageEvent")
+	const { day, during: span } = v(Day, "day")
 	return r
 		.match(EventCharge, { event, workspace: r.param("workspace", uuid), amount })
 		.match(UsageEvent, { id: event, during })
@@ -673,7 +674,7 @@ export const spendByDay = query(Platform).rule((r) => {
 
 /** A workspace's spend per month. */
 export const spendByMonth = query(Platform).rule((r) => {
-	const { event, month, amount } = v(EventCharge)
+	const { event, month, amount } = v(EventCharge, "eventCharge")
 	return r
 		.match(EventCharge, { event, workspace: r.param("workspace", uuid), month, amount })
 		.find({ month, spend: r.sum(amount) })
@@ -681,7 +682,7 @@ export const spendByMonth = query(Platform).rule((r) => {
 
 /** One workspace's month: its events and spend. */
 export const workspaceMonth = query(Platform).rule((r) => {
-	const { event, amount } = v(EventCharge)
+	const { event, amount } = v(EventCharge, "eventCharge")
 	return r
 		.match(EventCharge, {
 			event,
@@ -694,7 +695,7 @@ export const workspaceMonth = query(Platform).rule((r) => {
 
 /** Each workspace's spend per month: the stage nearCap compares with the cap. */
 const monthSpend = query(Platform).rule((r) => {
-	const { event, workspace, month, amount } = v(EventCharge)
+	const { event, workspace, month, amount } = v(EventCharge, "eventCharge")
 	return r
 		.match(EventCharge, { event, workspace, month, amount })
 		.find({ workspace, month, spend: r.sum(amount) })
@@ -702,9 +703,9 @@ const monthSpend = query(Platform).rule((r) => {
 
 /** An organization's workspaces at 90% or more of their cap in a month. */
 export const nearCap = query(Platform).rule((r) => {
-	const { id: workspace } = v(Workspace)
-	const { spend } = v(monthSpend)
-	const { cap } = v(WorkspaceLimit)
+	const { id: workspace } = v(Workspace, "workspace")
+	const { spend } = v(monthSpend, "monthSpend")
+	const { cap } = v(WorkspaceLimit, "workspaceLimit")
 	return r
 		.match(Workspace, { id: workspace, org: r.param("org", uuid) })
 		.match(monthSpend, { workspace, month: r.param("month", MonthNo), spend })
@@ -718,8 +719,8 @@ export const nearCap = query(Platform).rule((r) => {
 /** A workspace's top models by spend in a month. */
 export const topModels = query(Platform)
 	.rule((r) => {
-		const { event, amount } = v(EventCharge)
-		const { model } = v(UsageEvent)
+		const { event, amount } = v(EventCharge, "eventCharge")
+		const { model } = v(UsageEvent, "usageEvent")
 		return r
 			.match(EventCharge, {
 				event,
@@ -736,9 +737,9 @@ export const topModels = query(Platform)
 /** An organization's top providers by spend in a month. */
 export const topProviders = query(Platform)
 	.rule((r) => {
-		const { id: workspace } = v(Workspace)
-		const { event, amount } = v(EventCharge)
-		const { provider } = v(UsageEvent)
+		const { id: workspace } = v(Workspace, "workspace")
+		const { event, amount } = v(EventCharge, "eventCharge")
+		const { provider } = v(UsageEvent, "usageEvent")
 		return r
 			.match(Workspace, { id: workspace, org: r.param("org", uuid) })
 			.match(EventCharge, { event, workspace, month: r.param("month", MonthNo), amount })
@@ -750,10 +751,10 @@ export const topProviders = query(Platform)
 
 /** An organization's margin per provider in a month: what was billed against what the providers charged. */
 export const marginByProvider = query(Platform).rule((r) => {
-	const { id: workspace } = v(Workspace)
-	const { event, amount } = v(EventCharge)
-	const { provider } = v(UsageEvent)
-	const { amount: cost } = v(ProviderCost)
+	const { id: workspace } = v(Workspace, "workspace")
+	const { event, amount } = v(EventCharge, "eventCharge")
+	const { provider } = v(UsageEvent, "usageEvent")
+	const { amount: cost } = v(ProviderCost, "providerCost")
 	return r
 		.match(Workspace, { id: workspace, org: r.param("org", uuid) })
 		.match(EventCharge, { event, workspace, month: r.param("month", MonthNo), amount })
@@ -767,7 +768,7 @@ const Descendants = query(Platform).recursive("Descendants", {
 	row: { org: uuid },
 	base: [
 		(r) => {
-			const { id } = v(Org)
+			const { id } = v(Org, "org")
 			return r
 				.match(Org, { id })
 				.where(r.eq(id, r.param("root", uuid)))
@@ -776,8 +777,8 @@ const Descendants = query(Platform).recursive("Descendants", {
 	],
 	rec: [
 		(r, self) => {
-			const { org } = v(self)
-			const { child } = v(ParentOrg)
+			const { org } = v(self, "self")
+			const { child } = v(ParentOrg, "parentOrg")
 			return r.match(self, { org }).match(ParentOrg, { child, parent: org }).find({ org: child })
 		}
 	]
@@ -786,9 +787,9 @@ const Descendants = query(Platform).recursive("Descendants", {
 /** A reseller's consolidated spend in a month, per organization of its tree. */
 export const consolidatedSpend = query(Platform).rule((r) => {
 	const tree = Descendants.bind({ root: r.param("root", uuid) })
-	const { org } = v(tree)
-	const { id: workspace } = v(Workspace)
-	const { event, amount } = v(EventCharge)
+	const { org } = v(tree, "tree")
+	const { id: workspace } = v(Workspace, "workspace")
+	const { event, amount } = v(EventCharge, "eventCharge")
 	return r
 		.match(tree, { org })
 		.match(Workspace, { id: workspace, org })
@@ -799,7 +800,7 @@ export const consolidatedSpend = query(Platform).rule((r) => {
 /** An organization's grants valid at an instant, each with what it has been debited. */
 export const balanceAt = query(Platform)
 	.rule((r) => {
-		const { id, amount, valid } = v(CreditGrant)
+		const { id, amount, valid } = v(CreditGrant, "creditGrant")
 		return r
 			.match(CreditGrant, { id, org: r.param("org", uuid), amount, valid })
 			.where(r.allen(valid, holdsPoint, r.param("now", CreditGrant.fields.valid)))
@@ -809,7 +810,7 @@ export const balanceAt = query(Platform)
 		"debited",
 		(g) =>
 			query(Platform).rule((r) => {
-				const { event, kind, amount } = v(CreditDebit)
+				const { event, kind, amount } = v(CreditDebit, "creditDebit")
 				return r
 					.match(CreditDebit, { grant: g.id, event, kind, amount })
 					.find({ total: r.sum(amount) })
@@ -819,7 +820,7 @@ export const balanceAt = query(Platform)
 
 /** An organization's grants expiring within a window. */
 export const expiringGrants = query(Platform).rule((r) => {
-	const { id, amount, valid } = v(CreditGrant)
+	const { id, amount, valid } = v(CreditGrant, "creditGrant")
 	return r
 		.match(CreditGrant, { id, org: r.param("org", uuid), amount, valid })
 		.where(r.pointIn(Compute.upper(valid, Instant), r.param("window", CreditGrant.fields.valid)))
@@ -828,8 +829,8 @@ export const expiringGrants = query(Platform).rule((r) => {
 
 /** A grant's burn-down: what it paid for per calendar day. */
 export const burnDown = query(Platform).rule((r) => {
-	const { event, kind, amount, during } = v(CreditDebit)
-	const { day, during: span } = v(Day)
+	const { event, kind, amount, during } = v(CreditDebit, "creditDebit")
+	const { day, during: span } = v(Day, "day")
 	return r
 		.match(CreditDebit, { grant: r.param("grant", uuid), event, kind, amount, during })
 		.match(Day, { day, during: span })
@@ -840,7 +841,7 @@ export const burnDown = query(Platform).rule((r) => {
 /** A key's card: its workspace and state, its active spans, and its revocation when it is revoked. */
 export const keyCard = query(Platform)
 	.rule((r) => {
-		const { id, workspace, state } = v(ApiKey)
+		const { id, workspace, state } = v(ApiKey, "apiKey")
 		return r
 			.match(ApiKey, { id, workspace, state })
 			.where(r.eq(id, r.param("key", uuid)))
@@ -850,7 +851,7 @@ export const keyCard = query(Platform)
 		"active",
 		(k) =>
 			query(Platform).rule((r) => {
-				const { during } = v(ApiKeyActive)
+				const { during } = v(ApiKeyActive, "apiKeyActive")
 				return r.match(ApiKeyActive, { key: k.id, during }).find({ during })
 			}),
 		"array"
@@ -859,7 +860,7 @@ export const keyCard = query(Platform)
 		"revocation",
 		(k) =>
 			query(Platform).rule((r) => {
-				const { at } = v(Revocation)
+				const { at } = v(Revocation, "revocation")
 				return r.match(Revocation, { key: k.id, at }).find({ at })
 			}),
 		arm("state", "revoked")
@@ -868,7 +869,7 @@ export const keyCard = query(Platform)
 /** A key's usage log, newest request first: what the console pages through. */
 export const usageLog = query(Platform)
 	.rule((r) => {
-		const { id, model, provider, during } = v(UsageEvent)
+		const { id, model, provider, during } = v(UsageEvent, "usageEvent")
 		return r
 			.match(UsageEvent, { id, key: r.param("key", uuid), model, provider, during })
 			.find({ id, model, provider, during, start: Compute.lower(during, Instant) })
@@ -877,7 +878,7 @@ export const usageLog = query(Platform)
 
 /** A workspace's active keys with no request overlapping a window. */
 const keysUsedIn = query(Platform).rule((r) => {
-	const { key, during } = v(UsageEvent)
+	const { key, during } = v(UsageEvent, "usageEvent")
 	return r
 		.match(UsageEvent, { key, during })
 		.where(r.allen(during, ALLEN.intersects, r.param("window", UsageEvent.fields.during)))
@@ -885,7 +886,7 @@ const keysUsedIn = query(Platform).rule((r) => {
 })
 
 export const idleKeys = query(Platform).rule((r) => {
-	const { id } = v(ApiKey)
+	const { id } = v(ApiKey, "apiKey")
 	return r
 		.match(ApiKey, { id, workspace: r.param("workspace", uuid), state: "active" })
 		.where(
@@ -897,8 +898,8 @@ export const idleKeys = query(Platform).rule((r) => {
 /** The daily rollup of a workspace over a window, each day with the live sum it must equal. */
 export const rollupVersusLive = query(Billing)
 	.rule((r) => {
-		const { workspace, day, amount } = v(DailySpend)
-		const { during } = v(Day)
+		const { workspace, day, amount } = v(DailySpend, "dailySpend")
+		const { during } = v(Day, "day")
 		return r
 			.match(DailySpend, { workspace, day, amount })
 			.match(Day, { day, during })
@@ -912,9 +913,9 @@ export const rollupVersusLive = query(Billing)
 		"live",
 		(d) =>
 			query(Platform).rule((r) => {
-				const { event, amount } = v(EventCharge)
-				const { during } = v(UsageEvent)
-				const { during: span } = v(Day)
+				const { event, amount } = v(EventCharge, "eventCharge")
+				const { during } = v(UsageEvent, "usageEvent")
+				const { during: span } = v(Day, "day")
 				return r
 					.match(EventCharge, { event, workspace: d.workspace, amount })
 					.match(UsageEvent, { id: event, during })
@@ -928,7 +929,7 @@ export const rollupVersusLive = query(Billing)
 /** An organization's invoices, newest period first: what the billing page pages through. */
 export const invoices = query(Platform)
 	.rule((r) => {
-		const { id, period, amount, state } = v(Invoice)
+		const { id, period, amount, state } = v(Invoice, "invoice")
 		return r
 			.match(Invoice, { id, org: r.param("org", uuid), period, amount, state })
 			.find({ id, period, amount, state, start: Compute.lower(period, Instant) })
@@ -937,7 +938,7 @@ export const invoices = query(Platform)
 
 /** The invoice whose period holds an instant. */
 export const invoiceAt = query(Platform).rule((r) => {
-	const { id, period, amount, state } = v(Invoice)
+	const { id, period, amount, state } = v(Invoice, "invoice")
 	return r
 		.match(Invoice, { id, org: r.param("org", uuid), period, amount, state })
 		.where(r.allen(period, holdsPoint, r.param("now", Invoice.fields.period)))
@@ -946,7 +947,7 @@ export const invoiceAt = query(Platform).rule((r) => {
 
 /** An organization's open invoices whose period ended by a cutoff. */
 export const overdueInvoices = query(Platform).rule((r) => {
-	const { id, period, amount } = v(Invoice)
+	const { id, period, amount } = v(Invoice, "invoice")
 	return r
 		.match(Invoice, { id, org: r.param("org", uuid), period, amount, state: "open" })
 		.where(r.le(Compute.upper(period, Instant), r.param("cutoff", Instant)))
@@ -956,7 +957,7 @@ export const overdueInvoices = query(Platform).rule((r) => {
 /** An invoice with its lines, each line's detail by its source, its refunds, and its settlement by its state. */
 export const invoicePreview = query(Platform)
 	.rule((r) => {
-		const { id, org, period, amount, state } = v(Invoice)
+		const { id, org, period, amount, state } = v(Invoice, "invoice")
 		return r
 			.match(Invoice, { id, org, period, amount, state })
 			.where(r.eq(id, r.param("invoice", uuid)))
@@ -967,7 +968,7 @@ export const invoicePreview = query(Platform)
 		(i) =>
 			query(Platform)
 				.rule((r) => {
-					const { id, source, amount } = v(InvoiceLine)
+					const { id, source, amount } = v(InvoiceLine, "invoiceLine")
 					return r
 						.match(InvoiceLine, { id, invoice: i.id, source, amount })
 						.find({ id, source, amount })
@@ -976,7 +977,7 @@ export const invoicePreview = query(Platform)
 					"usage",
 					(l) =>
 						query(Platform).rule((r) => {
-							const { model, kind, tokens } = v(UsageLine)
+							const { model, kind, tokens } = v(UsageLine, "usageLine")
 							return r
 								.match(UsageLine, { line: l.id, model, kind, tokens })
 								.find({ model, kind, tokens })
@@ -987,7 +988,7 @@ export const invoicePreview = query(Platform)
 					"plan",
 					(l) =>
 						query(Platform).rule((r) => {
-							const { subscription } = v(PlanLine)
+							const { subscription } = v(PlanLine, "planLine")
 							return r.match(PlanLine, { line: l.id, subscription }).find({ subscription })
 						}),
 					arm("source", "plan")
@@ -998,7 +999,7 @@ export const invoicePreview = query(Platform)
 		"refunds",
 		(i) =>
 			query(Platform).rule((r) => {
-				const { id, amount, reason, at } = v(Refund)
+				const { id, amount, reason, at } = v(Refund, "refund")
 				return r
 					.match(Refund, { id, invoice: i.id, amount, reason, at })
 					.find({ id, amount, reason, at })
@@ -1009,7 +1010,7 @@ export const invoicePreview = query(Platform)
 		"payment",
 		(i) =>
 			query(Platform).rule((r) => {
-				const { charge } = v(Payment)
+				const { charge } = v(Payment, "payment")
 				return r.match(Payment, { invoice: i.id, charge }).find({ charge })
 			}),
 		arm("state", "paid")
@@ -1018,7 +1019,7 @@ export const invoicePreview = query(Platform)
 		"dispute",
 		(i) =>
 			query(Platform).rule((r) => {
-				const { at } = v(Dispute)
+				const { at } = v(Dispute, "dispute")
 				return r.match(Dispute, { invoice: i.id, at }).find({ at })
 			}),
 		arm("state", "disputed")
@@ -1030,15 +1031,15 @@ export const invoicePreview = query(Platform)
  */
 export const refundable = query(Platform)
 	.rule((r) => {
-		const { id, amount } = v(Invoice)
-		const { id: refund, amount: refunded } = v(Refund)
+		const { id, amount } = v(Invoice, "invoice")
+		const { id: refund, amount: refunded } = v(Refund, "refund")
 		return r
 			.match(Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
 			.match(Refund, { id: refund, invoice: id, amount: refunded })
 			.find({ invoice: id, amount, refunded: r.sum(refunded) })
 	})
 	.rule((r) => {
-		const { id, amount } = v(Invoice)
+		const { id, amount } = v(Invoice, "invoice")
 		return r
 			.match(Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
 			.where(r.not(Refund, { invoice: id }))
@@ -1047,7 +1048,7 @@ export const refundable = query(Platform)
 
 /** An organization's refunds in a window, per reason. */
 export const refundsByReason = query(Platform).rule((r) => {
-	const { id, invoice, amount, reason, at } = v(Refund)
+	const { id, invoice, amount, reason, at } = v(Refund, "refund")
 	return r
 		.match(Invoice, { id: invoice, org: r.param("org", uuid) })
 		.match(Refund, { id, invoice, amount, reason, at })
@@ -1058,8 +1059,8 @@ export const refundsByReason = query(Platform).rule((r) => {
 /** The organizations refunded most. */
 export const mostRefunded = query(Platform)
 	.rule((r) => {
-		const { id, invoice, amount } = v(Refund)
-		const { org } = v(Invoice)
+		const { id, invoice, amount } = v(Refund, "refund")
+		const { org } = v(Invoice, "invoice")
 		return r
 			.match(Refund, { id, invoice, amount })
 			.match(Invoice, { id: invoice, org })
@@ -1070,7 +1071,7 @@ export const mostRefunded = query(Platform)
 
 /** A subscription's priced segments in force at an instant. */
 export const segmentsAt = query(Platform).rule((r) => {
-	const { during, monthlyPrice } = v(Segment)
+	const { during, monthlyPrice } = v(Segment, "segment")
 	return r
 		.match(Segment, { subscription: r.param("subscription", uuid), during, monthlyPrice })
 		.where(r.allen(during, holdsPoint, r.param("now", Segment.fields.during)))
@@ -1082,9 +1083,9 @@ export const segmentsAt = query(Platform).rule((r) => {
  * the prorated charge: price times overlap over the period's length, rounded to the micro-dollar.
  */
 export const prorationFor = query(Platform).rule((r) => {
-	const { org, period } = v(Invoice)
-	const { id: subscription } = v(Subscription)
-	const { during, monthlyPrice } = v(Segment)
+	const { org, period } = v(Invoice, "invoice")
+	const { id: subscription } = v(Subscription, "subscription")
+	const { during, monthlyPrice } = v(Segment, "segment")
 	const overlap = Compute.sub(
 		Compute.least(
 			Compute.base(Compute.upper(during, Instant)),
@@ -1105,12 +1106,17 @@ export const prorationFor = query(Platform).rule((r) => {
 			during,
 			overlap,
 			prorated: Compute.round(
-				Compute.div(
-					Compute.mul(
-						Compute.cast(Compute.base(monthlyPrice), pg.numeric),
-						Compute.cast(overlap, pg.numeric)
-					),
-					Compute.cast(Compute.base(Compute.width(period, Instant)), pg.numeric)
+				Compute.when(
+					Compute.nonzero(Compute.cast(Compute.base(Compute.width(period, Instant)), pg.numeric)),
+					(width) =>
+						Compute.div(
+							Compute.mul(
+								Compute.cast(Compute.base(monthlyPrice), pg.numeric),
+								Compute.cast(overlap, pg.numeric)
+							),
+							width
+						),
+					0n
 				)
 			)
 		})
@@ -1118,8 +1124,8 @@ export const prorationFor = query(Platform).rule((r) => {
 
 /** Monthly recurring revenue of an organization's subscriptions at an instant. */
 export const mrrAt = query(Platform).rule((r) => {
-	const { id } = v(Subscription)
-	const { during, monthlyPrice } = v(Segment)
+	const { id } = v(Subscription, "subscription")
+	const { during, monthlyPrice } = v(Segment, "segment")
 	return r
 		.match(Subscription, { id, org: r.param("org", uuid) })
 		.match(Segment, { subscription: id, during, monthlyPrice })
@@ -1132,9 +1138,9 @@ export const mrrAt = query(Platform).rule((r) => {
  * overlap with the month.
  */
 export const recognizedIn = query(Platform).rule((r) => {
-	const { id: subscription } = v(Subscription)
-	const { line, during, amount } = v(Allocation)
-	const { during: month } = v(Month)
+	const { id: subscription } = v(Subscription, "subscription")
+	const { line, during, amount } = v(Allocation, "allocation")
+	const { during: month } = v(Month, "month")
 	const overlap = Compute.sub(
 		Compute.least(
 			Compute.base(Compute.upper(during, Instant)),
@@ -1154,12 +1160,17 @@ export const recognizedIn = query(Platform).rule((r) => {
 			line,
 			during,
 			recognized: Compute.round(
-				Compute.div(
-					Compute.mul(
-						Compute.cast(Compute.base(amount), pg.numeric),
-						Compute.cast(overlap, pg.numeric)
-					),
-					Compute.cast(Compute.base(Compute.width(during, Instant)), pg.numeric)
+				Compute.when(
+					Compute.nonzero(Compute.cast(Compute.base(Compute.width(during, Instant)), pg.numeric)),
+					(width) =>
+						Compute.div(
+							Compute.mul(
+								Compute.cast(Compute.base(amount), pg.numeric),
+								Compute.cast(overlap, pg.numeric)
+							),
+							width
+						),
+					0n
 				)
 			)
 		})
@@ -1168,8 +1179,8 @@ export const recognizedIn = query(Platform).rule((r) => {
 /** An invoice's plan lines with their allocations. */
 export const allocationBreakdown = query(Platform)
 	.rule((r) => {
-		const { id, amount } = v(InvoiceLine)
-		const { subscription } = v(PlanLine)
+		const { id, amount } = v(InvoiceLine, "invoiceLine")
+		const { subscription } = v(PlanLine, "planLine")
 		return r
 			.match(InvoiceLine, { id, invoice: r.param("invoice", uuid), source: "plan", amount })
 			.match(PlanLine, { line: id, subscription })
@@ -1179,7 +1190,7 @@ export const allocationBreakdown = query(Platform)
 		"allocations",
 		(l) =>
 			query(Platform).rule((r) => {
-				const { during, amount } = v(Allocation)
+				const { during, amount } = v(Allocation, "allocation")
 				return r.match(Allocation, { line: l.id, during, amount }).find({ during, amount })
 			}),
 		"array"
@@ -1193,7 +1204,7 @@ export const payInvoice = ChangeSet.empty(Platform)
 	.put(
 		Invoice,
 		query(Platform).rule((r) => {
-			const { org, period, amount } = v(Invoice)
+			const { org, period, amount } = v(Invoice, "invoice")
 			return r
 				.match(Invoice, {
 					id: r.param("invoice", Invoice.fields.id),
@@ -1207,7 +1218,7 @@ export const payInvoice = ChangeSet.empty(Platform)
 					org,
 					period,
 					amount,
-					state: r.literal("paid")
+					state: "paid"
 				})
 		})
 	)
@@ -1226,7 +1237,7 @@ export const disputeInvoice = ChangeSet.empty(Platform)
 	.put(
 		Invoice,
 		query(Platform).rule((r) => {
-			const { org, period, amount } = v(Invoice)
+			const { org, period, amount } = v(Invoice, "invoice")
 			return r
 				.match(Invoice, {
 					id: r.param("invoice", Invoice.fields.id),
@@ -1240,14 +1251,14 @@ export const disputeInvoice = ChangeSet.empty(Platform)
 					org,
 					period,
 					amount,
-					state: r.literal("disputed")
+					state: "disputed"
 				})
 		})
 	)
 	.delete(
 		Payment,
 		query(Platform).rule((r) => {
-			const { charge } = v(Payment)
+			const { charge } = v(Payment, "payment")
 			return r
 				.match(Payment, { invoice: r.param("invoice", Payment.fields.invoice), charge })
 				.match(Invoice, { id: r.param("invoice", Invoice.fields.id), state: "paid" })
@@ -1269,7 +1280,7 @@ export const voidInvoice = ChangeSet.empty(Platform)
 	.put(
 		Invoice,
 		query(Platform).rule((r) => {
-			const { org, period, amount } = v(Invoice)
+			const { org, period, amount } = v(Invoice, "invoice")
 			return r
 				.match(Invoice, {
 					id: r.param("invoice", Invoice.fields.id),
@@ -1283,7 +1294,7 @@ export const voidInvoice = ChangeSet.empty(Platform)
 					org,
 					period,
 					amount,
-					state: r.literal("void")
+					state: "void"
 				})
 		})
 	)
@@ -1302,7 +1313,7 @@ export const voidInvoice = ChangeSet.empty(Platform)
  * instant, which the application read from the key's card. Usage after the cut is then outside every active span.
  */
 export const revokeKey = (
-	key: string,
+	key: Uuid,
 	at: Infer<typeof Instant>,
 	active: Span<Infer<typeof Instant>>
 ) =>
@@ -1310,10 +1321,10 @@ export const revokeKey = (
 		.put(
 			ApiKey,
 			query(Platform).rule((r) => {
-				const { workspace } = v(ApiKey)
+				const { workspace } = v(ApiKey, "apiKey")
 				return r
 					.match(ApiKey, { id: r.param("key", ApiKey.fields.id), workspace, state: "active" })
-					.find({ id: r.param("key", ApiKey.fields.id), workspace, state: r.literal("revoked") })
+					.find({ id: r.param("key", ApiKey.fields.id), workspace, state: "revoked" })
 			})
 		)
 		.insert(
@@ -1365,7 +1376,7 @@ export const setCaps = ChangeSet.empty(Platform)
 	.put(
 		WorkspaceLimit,
 		query(Platform).rule((r) => {
-			const { workspace, month, cap } = v(WorkspaceLimit)
+			const { workspace, month, cap } = v(WorkspaceLimit, "workspaceLimit")
 			return r
 				.match(r.relation("caps", WorkspaceLimit), { workspace, month, cap })
 				.find({ workspace, month, cap })
@@ -1374,7 +1385,7 @@ export const setCaps = ChangeSet.empty(Platform)
 	.delete(
 		WorkspaceLimit,
 		query(Platform).rule((r) => {
-			const { workspace, month, cap } = v(WorkspaceLimit)
+			const { workspace, month, cap } = v(WorkspaceLimit, "workspaceLimit")
 			return r
 				.match(WorkspaceLimit, { workspace, month, cap })
 				.where(r.eq(workspace, r.param("workspace", WorkspaceLimit.fields.workspace)))

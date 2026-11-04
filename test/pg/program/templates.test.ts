@@ -11,11 +11,13 @@ import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined, lacks } from "#test/support/assert.ts"
 import {
 	compileTemplate,
+	installationSql,
 	paramTexts,
-	type TestCompileOptions,
-	testCompile
+	testCompile,
+	type TestCompileOptions
 } from "#test/support/compile.ts"
 
+import type { Uuid } from "#compiler/public/fields.ts"
 import {
 	Account,
 	AutomaticTask,
@@ -40,7 +42,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * them: the executable texts, placeholders filled by the statement's own encoders, every result column cast to text by
  * the statement itself.
  */
-const id = (n: number): string =>
+const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 const A = id(0x1001)
 const B = id(0x1002)
@@ -89,7 +91,7 @@ const facts = (names: PhysicalNames): ReadonlyArray<string> => [
 
 /** TaskNote matched to Task on its deferred foreign key: R03 in a snapshot only. */
 const notes = query(Work).rule((r) => {
-	const { task, note } = v(TaskNote)
+	const { task, note } = v(TaskNote, "taskNote")
 	return r.match(TaskNote, { task, note }).match(Task, { id: task }).find({ task, note })
 })
 
@@ -139,7 +141,10 @@ layer(Substrate.layer)("compiled templates on PostgreSQL 19", (it) => {
 		if (!installation.ok) {
 			return yield* Effect.die(new Error(installation.error.message))
 		}
-		yield* transaction(s.admin, [...installation.value.sql, ...facts(installation.value.names)])
+		yield* transaction(s.admin, [
+			...installationSql(installation.value),
+			...facts(installation.value.names)
+		])
 		return { schema, names: installation.value.names }
 	})
 

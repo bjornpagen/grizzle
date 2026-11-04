@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -36,7 +36,14 @@ import { draftSchema, generate } from "#cli/generate.ts"
 import { migrate } from "#cli/migrate.ts"
 import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { Choice, Offer } from "#compiler/deploy/diff/plan.ts"
+import {
+	type Candidate,
+	type Choice,
+	candidatesOf,
+	headOf,
+	type NestedRename,
+	type Offer
+} from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { findMarkers } from "#compiler/deploy/render/markers.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
@@ -71,8 +78,8 @@ import { loginRoleOf } from "#test/support/installed.ts"
 import { contractCheckAt, lawNamesOf, parsedName } from "#test/support/kernel/naming.ts"
 import {
 	type Decisions,
+	draftChoices,
 	draftFiles,
-	offerActions,
 	placeholdersOf,
 	review as reviewFolder,
 	reviewWritten
@@ -343,24 +350,19 @@ const mistaken = (
 	if (mistake === "an orphan nested choice") {
 		/** A member's rename chosen inside its container's rename kept: the kept container's alternative leaves the file,
 		 * and the reviewer writes the member's rename into the file that drafts it. */
-		const [nested] = Arr.flatMap(nestedChoices(g, decisions.chosen), ({ holder, choice }) =>
-			Arr.flatMap(choice.offers, (o) => {
-				if (o.kind !== "rename" || !decisions.chosen.has(o.candidate)) {
-					return []
-				}
-				const [first] = o.alternative
-				return first.kind === "statement" && first.statement.kind === "renameColumn"
-					? [{ holder, candidate: o.candidate, rename: first.statement }]
-					: []
-			})
+		const [nested] = Arr.filter(nestedRenames(g, decisions.chosen), (n) =>
+			decisions.chosen.has(n.candidate)
 		)
 		if (nested === undefined) {
 			return "not makeable"
 		}
 		const kept = new Set(
-			Arr.filter([...decisions.chosen], (c) => c !== nested.holder && c !== nested.candidate)
+			Arr.filter(
+				[...decisions.chosen],
+				(c) => c !== nested.candidate.parent && c !== nested.candidate
+			)
 		)
-		const spelled = `${printStatement(nested.rename)};`
+		const spelled = `${printStatement(headOf(nested.candidate))};`
 		const drafting = Arr.findFirst(g.folder.files, (f) => Str.includes(spelled)(f.text))
 		if (Option.isNone(drafting)) {
 			return "not makeable"
@@ -371,13 +373,12 @@ const mistaken = (
 		}).files
 	}
 	/** A chosen candidate's offer taken at one statement it decides outside Structure and kept at another. */
-	const files = draftFiles(g)
-	const records = g.folder.meta.decisions.choices
+	const choices = draftChoices(g)
 	const split = Arr.findFirstIndex(
-		records,
-		(c) =>
-			Arr.some(c.offers, (o) => decisions.chosen.has(o.candidate)) &&
-			Arr.some(files, (f) => f.name === c.file && f.phase !== "structure")
+		choices,
+		({ file, choice }) =>
+			Arr.some(choice.offers, (o: Offer) => decisions.chosen.has(o.candidate)) &&
+			file.phase !== "structure"
 	)
 	if (Option.isNone(split)) {
 		return "not makeable"
@@ -385,7 +386,7 @@ const mistaken = (
 	const choice = split.value
 	const offer = defined(
 		Option.getOrUndefined(
-			Arr.findFirstIndex(defined(records[choice], "the split choice").offers, (o) =>
+			Arr.findFirstIndex(defined(choices[choice], "the split choice").choice.offers, (o: Offer) =>
 				decisions.chosen.has(o.candidate)
 			)
 		),
@@ -446,7 +447,7 @@ const step = (
 		 * alternative comes with that candidate's marker). */
 		const undecided =
 			Arr.some(g.folder.files, (f) => findMarkers(f.text).length > 0) ||
-			g.folder.meta.decisions.losses.length > 0
+			Arr.some(g.folder.meta.files, (f) => Arr.some(f.steps, (x) => x.kind === "loss"))
 		assert.equal(
 			refused.length > 0,
 			undecided,
@@ -521,20 +522,31 @@ const offersOf = (g: GenerateResult): ReadonlyArray<Offer> =>
 
 /** A choice's offers, and the offers of every choice nested in a rename's alternative, a member's rename within its
  * container's. */
-const choiceOffers = (c: Choice): ReadonlyArray<Offer> =>
-	Arr.flatMap(c.offers, (o) => [
-		o,
-		...(o.kind === "rename"
-			? Arr.flatMap(o.alternative, (x) => (x.kind === "choice" ? choiceOffers(x) : []))
-			: [])
-	])
+const choiceOffers = (c: Choice<Offer>): ReadonlyArray<Offer> =>
+	Arr.flatMap(c.offers, (o: Offer): ReadonlyArray<Offer> => {
+		switch (o.kind) {
+			case "rename":
+			case "relation rename":
+			case "nested rename":
+				return [
+					o,
+					...Arr.flatMap(o.alternative, (x) => (x.kind === "choice" ? choiceOffers(x) : []))
+				]
+			case "rewrite":
+			case "delete":
+			case "convert":
+				return [o]
+		}
+	})
 
-/** Each choice nested in a chosen rename's alternative, with the candidate of the rename holding it. */
-const nestedChoices = (g: GenerateResult, chosen: ReadonlySet<number>) =>
-	Arr.flatMap(offersOf(g), (o) =>
-		o.kind === "rename" && chosen.has(o.candidate)
+/** Each field's rename nested in a chosen relation rename's alternative. */
+const nestedRenames = (g: GenerateResult, chosen: ReadonlySet<Candidate>) =>
+	Arr.flatMap(offersOf(g), (o): ReadonlyArray<NestedRename> =>
+		o.kind === "relation rename" && chosen.has(o.candidate)
 			? Arr.flatMap(o.alternative, (x) =>
-					x.kind === "choice" ? [{ holder: o.candidate, choice: x }] : []
+					x.kind === "choice"
+						? Arr.flatMap(x.offers, (n) => (n.kind === "nested rename" ? [n] : []))
+						: []
 				)
 			: []
 	)
@@ -542,21 +554,17 @@ const nestedChoices = (g: GenerateResult, chosen: ReadonlySet<number>) =>
 /** The first rename a chosen candidate's offer spells, a relation's or a field's: the one the reviewer writes. */
 const renameIn = (
 	g: GenerateResult,
-	chosen: ReadonlySet<number>
-): Option.Option<RenameObject | RenameColumn> => {
-	const actions = Arr.flatMap(offersOf(g), (o) =>
-		o.kind === "rename" && chosen.has(o.candidate) ? offerActions(o) : []
-	)
-	return Arr.findFirst(actions, (a): Option.Option<RenameObject | RenameColumn> => {
-		if (a.kind !== "statement") {
+	chosen: ReadonlySet<Candidate>
+): Option.Option<RenameObject | RenameColumn> =>
+	Arr.findFirst(candidatesOf(g.plan), (c): Option.Option<RenameObject | RenameColumn> => {
+		if (!chosen.has(c)) {
 			return Option.none()
 		}
-		const s = a.statement
+		const s = headOf(c)
 		return (s.kind === "rename" && s.object === "TABLE") || s.kind === "renameColumn"
 			? Option.some(s)
 			: Option.none()
 	})
-}
 
 /** The things a case renames, each with the pool of names it takes, its name before any rename first. Relations,
  * closed relations and the contract take names of disjoint pools (migrate-gen's paths draw hops across kinds); a
@@ -1352,61 +1360,63 @@ const intended = (
 	before: Shape,
 	after: Shape,
 	how: Review
-): ReadonlySet<number> => {
+): ReadonlySet<Candidate> => {
 	const changed = Arr.filter(slotList, (slot) => nameOf(before, slot) !== nameOf(after, slot))
-	const pair = (slot: Slot) =>
-		`${catalogName(slot, nameOf(before, slot))} ${catalogName(slot, nameOf(after, slot))}`
+	/** A rename a step made, by the catalog names it renamed from and to. */
+	const pair = (slot: Slot) => ({
+		from: catalogName(slot, nameOf(before, slot)),
+		to: catalogName(slot, nameOf(after, slot))
+	})
 	/** A moved relation is renamed from the name the naming door sets it aside under. */
-	const asidePair = (slot: Slot) =>
-		`${identifierOf(identity.aside(catalogName(slot, nameOf(before, slot))))} ${catalogName(slot, nameOf(after, slot))}`
+	const asidePair = (slot: Slot) => ({
+		from: identifierOf(identity.aside(catalogName(slot, nameOf(before, slot)))),
+		to: catalogName(slot, nameOf(after, slot))
+	})
 	const objectSlots = Arr.filter(
 		changed,
 		(slot) => kindOf(slot) !== "field" && kindOf(slot) !== "handle"
 	)
-	const objects = new Set([...Arr.map(objectSlots, pair), ...Arr.map(objectSlots, asidePair)])
-	const columns = new Set(
-		Arr.map(
-			Arr.filter(changed, (slot) => kindOf(slot) === "field"),
-			pair
-		)
+	const objects = [...Arr.map(objectSlots, pair), ...Arr.map(objectSlots, asidePair)]
+	const columns = Arr.map(
+		Arr.filter(changed, (slot) => kindOf(slot) === "field"),
+		pair
 	)
-	const chosen = new Set<number>()
-	/** The candidates among them of a type's rename, a closed relation's or a contract's. */
-	const types = new Set<number>()
-	for (const o of offersOf(g)) {
-		if (o.kind !== "rename") {
-			continue
+	const made = (
+		renames: ReadonlyArray<{ readonly from: string; readonly to: string }>,
+		from: string,
+		to: string
+	): boolean => Arr.some(renames, (r) => r.from === from && r.to === to)
+	const offered = candidatesOf(g.plan)
+	const roots = Arr.filter(offered, (c): boolean => {
+		switch (c.kind) {
+			case "relation":
+			case "type":
+				return made(objects, c.removed.name, c.added.name)
+			case "field":
+				return made(columns, c.removed, c.added)
+			case "login":
+			case "nested field":
+				return false
 		}
-		const [first] = o.alternative
-		if (first.kind !== "statement") {
-			continue
-		}
-		const st = first.statement
-		if (
-			st.kind === "rename" &&
-			st.object !== "ROLE" &&
-			st.object !== "SCHEMA" &&
-			objects.has(`${st.name.name} ${st.to}`)
-		) {
-			chosen.add(o.candidate)
-			if (st.object === "TYPE" || st.object === "DOMAIN") {
-				types.add(o.candidate)
-			}
-		}
-		if (st.kind === "renameColumn" && columns.has(`${st.from} ${st.to}`)) {
-			chosen.add(o.candidate)
-		}
-	}
+	})
+	const chosen = [
+		...roots,
+		...Arr.filter(
+			offered,
+			(c) =>
+				c.kind === "nested field" && roots.includes(c.parent) && made(columns, c.removed, c.added)
+		)
+	]
 	switch (how) {
 		case "the renames chosen":
-			return chosen
+			return new Set(chosen)
 		case "a type's rename kept": {
-			const required = new Set(
-				Arr.flatMap([...chosen], (k) =>
-					types.has(k) ? [] : defined(g.plan.candidates[k], `the candidate ${k}`).requires
-				)
+			const situations = Arr.flatMap(chosen, (c): ReadonlyArray<Candidate> =>
+				(c.kind === "field" || c.kind === "nested field") && c.requires.kind === "type"
+					? [c.requires.candidate]
+					: []
 			)
-			return new Set(Arr.filter([...chosen], (k) => !types.has(k) || required.has(k)))
+			return new Set(Arr.filter(chosen, (c) => c.kind !== "type" || situations.includes(c)))
 		}
 	}
 }
@@ -1493,23 +1503,25 @@ const renames = explore(
 		shrink: { kind: "bounded", candidates: 10 },
 		concurrency: 1,
 		steerEvery: 16,
-		steering: { kind: "mutate", cases: 160, sense: notesOnly },
-		features: features<RenameFeature>([
-			"a relation renamed",
-			"a field renamed",
-			"a closed relation renamed",
-			"a handle renamed",
-			"a contract renamed",
-			"a name renamed again",
-			"a name renamed back",
-			"several renames in one step",
-			...Arr.map(compositions, (composition): RenameFeature => `${composition} composed`),
-			"a rename misspelt refused",
-			"a candidate split across files refused",
-			"an orphan nested choice refused",
-			"a closed relation's field converted by the reviewer's placeholder",
-			"a type's rename kept"
-		]),
+		coverage: required<RenameFeature>(
+			[
+				"a relation renamed",
+				"a field renamed",
+				"a closed relation renamed",
+				"a handle renamed",
+				"a contract renamed",
+				"a name renamed again",
+				"a name renamed back",
+				"several renames in one step",
+				...Arr.map(compositions, (composition): RenameFeature => `${composition} composed`),
+				"a rename misspelt refused",
+				"a candidate split across files refused",
+				"an orphan nested choice refused",
+				"a closed relation's field converted by the reviewer's placeholder",
+				"a type's rename kept"
+			],
+			{ cases: 160, sense: notesOnly }
+		),
 		caseHang: Duration.minutes(2)
 	},
 	(sketch, c) =>
@@ -1595,8 +1607,8 @@ const renames = explore(
 						if (
 							next.review === "a type's rename kept" &&
 							Arr.some(
-								turn.g.plan.candidates,
-								(x, k) => x.renames.kind === "type" && !decisions.chosen.has(k)
+								candidatesOf(turn.g.plan),
+								(x) => x.kind === "type" && !decisions.chosen.has(x)
 							)
 						) {
 							c.note("a type's rename kept")

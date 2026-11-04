@@ -15,7 +15,7 @@ import {
 import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import { type LawId, ParamId } from "#compiler/core/ids.ts"
+import { ParamId, type RaisedLawId } from "#compiler/core/ids.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	headNonEmpty,
@@ -84,16 +84,27 @@ export interface FrontendOptions {
 	readonly world: WriteWorld
 }
 
-/** An enumerated action's relation input: the facts of the ChangeSet value's array and Stream member slots `members`,
- * normalized on the host (normalize/) and sent as one relation parameter, for the operation and serial class of its
- * action. Its codecs are built with it, over its heading's positional columns (). */
-export type WriteSlot = ActionOp & {
+/** The classes an insertion into a target's facts fall in, each with what it carries, decided once per target where
+ * its member is checked (`targetOf`). Unclassed: a target with no serial field, every fact complete. Classed: every fact
+ * omits all of `serial` (generated) or none (complete). A generated class of no field is the unit relation: it holds
+ * the one empty fact or none. */
+export type InsertClasses<A> =
+	| { readonly kind: "unclassed"; readonly complete: A }
+	| {
+			readonly kind: "classed"
+			readonly serial: NonEmptyReadonlyArray<string>
+			readonly complete: A
+			readonly generated: A
+	  }
+
+/** One relation parameter of a write: the facts of one class of one operation's enumerated members, normalized on the
+ * host (normalize/) and sent as one recordset. Its codecs are built with it, over its heading's positional columns. */
+export interface MemberSlot {
 	readonly slot: ParamId
 	/** stream when some member is a Stream, collected on the host up to recordsetMaxRows facts. */
-	readonly kind: "enumerated" | "stream"
-	readonly members: ReadonlyArray<SlotMember>
-	/** The fields its facts carry, in heading order: the relation's heading, without the serial fields for generated
-	 * additions, typed without the serial generation flag. */
+	readonly transport: "enumerated" | "stream"
+	/** The fields its facts carry, in heading order, typed without the serial generation flag: its class's
+	 * (`InsertClasses`), none for the unit relation. */
 	readonly heading: Heading
 	/** The normal form of its admitted facts, which its relation parameter's placeholders encode. */
 	readonly normalForm: NormalForm
@@ -101,28 +112,67 @@ export type WriteSlot = ActionOp & {
 	readonly input: RelationInput
 }
 
-/** A member slot a write slot reads, and the normalizer that admits its facts against the slot's heading, whose faults
- * name the member. */
-export interface SlotMember {
+/** A member an enumerated input reads, by its member slot, with what admits its facts, whose faults name the member. */
+export interface InputMember<N> {
 	readonly name: string
-	readonly normalize: RelationNormalizer
+	readonly normalize: N
 }
 
-/** The enumerated slots of one relation in one stratum, which the host normalizes together (normalize/): a same-key
- * refusal compares their additions. */
+/** An operation an enumerated input of one slot is read by: a deletion, a put, or an insertion into an unclassed
+ * target, whose every fact is complete. */
+export type SingleAct =
+	| { readonly op: "delete" }
+	| { readonly op: "put" }
+	| { readonly op: "insert"; readonly serial: "complete" }
+
+/** The enumerated members of one operation on one relation in one stratum, and the slot each of their facts travels
+ * in: one slot, for a deletion, a put and an insertion into an unclassed target; or an insertion into a classed
+ * target, every fact of which the host routes to exactly one of its two slots or refuses. */
+export type EnumeratedInput =
+	| {
+			readonly kind: "single"
+			readonly act: SingleAct
+			readonly slot: MemberSlot
+			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
+	  }
+	| {
+			readonly kind: "classed"
+			readonly serial: NonEmptyReadonlyArray<string>
+			readonly complete: MemberSlot
+			readonly generated: MemberSlot
+			readonly members: NonEmptyReadonlyArray<
+				InputMember<{
+					readonly complete: RelationNormalizer
+					readonly generated: RelationNormalizer
+				}>
+			>
+	  }
+
+/** The member slots an enumerated input fills, in the order the front end drafts them: its one slot, or the complete
+ * slot and then the generated one. */
+export const inputSlots = (input: EnumeratedInput): NonEmptyReadonlyArray<MemberSlot> => {
+	switch (input.kind) {
+		case "single":
+			return [input.slot]
+		case "classed":
+			return [input.complete, input.generated]
+	}
+}
+
+/** The enumerated inputs of one relation in one stratum, one per operation, which the host normalizes together
+ * (normalize/): a same-key refusal compares their additions. */
 export interface SlotGroup {
 	readonly stratum: number
 	readonly relation: WrittenRelation
-	readonly slots: NonEmptyReadonlyArray<WriteSlot>
-	/** The facts the slots carry as the host checks them: the relation's, or a query entry's. */
+	readonly inputs: NonEmptyReadonlyArray<EnumeratedInput>
+	/** The facts as the host checks them: the relation's or a query entry's name, and its same-key checks. */
 	readonly facts: SlotFacts
 }
 
 /** What the host's normalization reads of the facts of a slot group: the relation the facts are of as a refusal names
- * it, its serial fields, and its same-key checks, over the facts' own fields. */
+ * it, and its same-key checks, over the facts' own fields. */
 export interface SlotFacts {
 	readonly name: string
-	readonly serial: ReadonlyArray<string>
 	readonly host: HostChecks
 }
 
@@ -130,7 +180,7 @@ export interface SlotFacts {
  * description: identity must be declared honestly. */
 export interface KeyLaw {
 	readonly fields: NonEmptyReadonlyArray<KeyField>
-	readonly law: LawId
+	readonly law: RaisedLawId
 	readonly described: Law
 }
 
@@ -163,12 +213,12 @@ export type NamedDelta =
 	  }
 
 /** The law of a written relation's primary key, the insert protocol's arbiter. */
-export const arbiterLaw = (relation: WrittenRelation): LawId => relation.keyLaws[0].law
+export const arbiterLaw = (relation: WrittenRelation): RaisedLawId => relation.keyLaws[0].law
 
 /** What the write lowering needs about one action beyond the WriteIR's record. */
 export interface ActionInfo {
 	readonly relation: WrittenRelation
-	readonly reads: ActionReads
+	readonly reads: SourceReads
 	/** The heading its source delivers. */
 	readonly heading: Heading
 	/** What the action writes: its relation whole, or a role's query entry, whose fill its source reads through and whose
@@ -193,9 +243,6 @@ const describedIn = (
 ): Extract<SourceReads, { readonly kind: "described" }> =>
 	Object.freeze({ kind: "described", node: at(node) })
 
-const readsIn = (reads: ActionReads, at: Counterpart): ActionReads =>
-	reads.kind === "described" ? describedIn(reads.node, at) : reads
-
 const sourceReadsIn = (reads: SourceReads, at: Counterpart): SourceReads =>
 	reads.kind === "described" ? describedIn(reads.node, at) : reads
 
@@ -205,7 +252,7 @@ export const sourceIn = (source: ActionSource, at: Counterpart): ActionSource =>
 
 /** An action's information with the node its reads name read through `at`. */
 export const infoIn = (info: ActionInfo, at: Counterpart): ActionInfo =>
-	Object.freeze({ ...info, reads: readsIn(info.reads, at) })
+	Object.freeze({ ...info, reads: sourceReadsIn(info.reads, at) })
 
 /** A refused addition with the node its sources name read through `at`. */
 export const outsideIn = (write: OutsideWrite, at: Counterpart): OutsideWrite =>
@@ -256,17 +303,10 @@ export interface OutsideWrite {
 
 /** What a source of facts reads, the write-side refinement of an action's source (`ActionSource`): its enumerated slot
  * alone, an enumerated or stream source; or a described source, its node, which holds the slot as one more union arm
- * when the action has one. */
+ * when the action has one. A slot of no field is read like any other, as the unit relation. */
 export type SourceReads =
-	| { readonly kind: "slot"; readonly slot: WriteSlot }
+	| { readonly kind: "slot"; readonly slot: MemberSlot }
 	| { readonly kind: "described"; readonly node: RelNode }
-
-/** What an action reads: its source's facts (`SourceReads`); or, for a generated addition into a relation whose every
- * field is serial, its slot alone, whose facts carry no field, each the one empty fact the host makes one, so the
- * addition is one row of identity defaults when the slot holds any. The front end refuses a described member there
- * (`compile`), and builds it only for a relation written whole: a query entry's fill reads a relation parameter of at
- * least one field. */
-export type ActionReads = SourceReads | { readonly kind: "defaults"; readonly slot: WriteSlot }
 
 /** A node the write names, read in another form of the write DAG: the node standing in its place there. */
 export type Counterpart = (node: RelNode) => RelNode
@@ -325,23 +365,28 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	return r.value
 }
 
-/** The parameter a write's member slot binds, spelled by the one slot rule, its kind the serial class
- * of its facts: generated; explicit, complete facts of a relation with serial fields; or none. `relation` is the
- * member's own: an ordinary relation, or a query entry's facts. */
-const writeSlotId = (stratum: number, act: ActionOp, relation: MemberRelation): ParamId =>
-	ParamId(
-		slotSpelling(
-			"slot",
-			stratum,
-			act.op,
-			act.op === "insert" && act.serial === "generated"
-				? "generated"
-				: relation.serial.length > 0
-					? "explicit"
-					: "none",
-			relation.name
-		)
-	)
+/** The serial kind a member slot's parameter is spelled with, by its target's classes: none for an unclassed target;
+ * for a classed one, generated for its generated class, explicit for complete facts, a deletion's or a put's. */
+const slotKind = (
+	act: ActionOp,
+	classes: InsertClasses<Heading>
+): "none" | "explicit" | "generated" => {
+	switch (classes.kind) {
+		case "unclassed":
+			return "none"
+		case "classed":
+			return act.op === "insert" && act.serial === "generated" ? "generated" : "explicit"
+	}
+}
+
+/** The parameter a write's member slot binds, spelled by the one slot rule (`slotKind`). `relation` is the member's
+ * own: an ordinary relation, or a query entry's facts. */
+const writeSlotId = (
+	stratum: number,
+	act: ActionOp,
+	classes: InsertClasses<Heading>,
+	relation: string
+): ParamId => ParamId(slotSpelling("slot", stratum, act.op, slotKind(act, classes), relation))
 
 /** The sides a read-back names of one delta: both, or the one it names. */
 const sidesOf = (
@@ -359,22 +404,32 @@ const sameHeading = (a: Heading, b: Heading): boolean =>
 		return d !== undefined && sameScalarType(c.type, d.type)
 	})
 
-/** A relation's heading as the facts of `act` carry it: names and types, serial generation flags dropped, and a
- * generated addition's serial fields. */
-const inputHeading = (relation: MemberRelation, act: ActionOp): Heading =>
-	relation.heading
-		.filter(
-			(c) => act.op !== "insert" || act.serial === "complete" || !relation.serial.includes(c.name)
-		)
-		.map((c) => ({ name: c.name, type: withoutSerial(c.type) }))
+/** A member relation's classes, each the heading its facts carry, typed without the serial generation flag: an entry's
+ * serial head fields (`entryRelation`), a whole relation's serial fields. */
+const classesOf = (member: MemberRelation): InsertClasses<Heading> => {
+	const complete = member.heading.map((c) => ({ name: c.name, type: withoutSerial(c.type) }))
+	const [first, ...rest] = member.serial
+	return first === undefined
+		? { kind: "unclassed", complete }
+		: {
+				kind: "classed",
+				serial: [first, ...rest],
+				complete,
+				generated: complete.filter((c) => !member.serial.includes(c.name))
+			}
+}
 
-/** The serial class of a described insert from the heading its query delivers (checkMemberHeading has refused a head
- * that supplies some serial fields and not others). */
-const insertSerial = (relation: MemberRelation, query: LogicalQuery): SerialClass => {
-	const delivered = query.dag.roots[0].heading
-	return relation.serial.every((f) => delivered.some((c) => c.name === f))
-		? "complete"
-		: "generated"
+/** A described insertion's class, by the head its query delivers (checkMemberHeading has refused a head that supplies
+ * some serial fields and not others). */
+const describedClass = (classes: InsertClasses<Heading>, delivered: Heading): SerialClass => {
+	switch (classes.kind) {
+		case "unclassed":
+			return "complete"
+		case "classed":
+			return classes.serial.every((f) => delivered.some((c) => c.name === f))
+				? "complete"
+				: "generated"
+	}
 }
 
 /** What a member writes: its relation whole; or a query entry, its target its relation, `member` the entry's facts its
@@ -389,12 +444,17 @@ type MemberEntry =
 			readonly fillable: boolean
 	  }
 
-/** A stratum's member, checked: its operation, its relation, what it writes, and its source, an array or Stream member
- * slot, or a query with its root in the write DAG, whose head is the member relation's. */
-interface CheckedMember {
-	readonly op: MemberDesc["op"]
+/** A target as its members write it: its relation, whole or through a query entry, and its classes' carried headings. */
+interface CheckedTarget {
 	readonly relation: WrittenRelation
 	readonly entry: MemberEntry
+	readonly classes: InsertClasses<Heading>
+}
+
+/** A stratum's member, checked: its operation, its target, and its source, an array or Stream member slot, or a query
+ * with its root in the write DAG, whose head is the member relation's. */
+interface CheckedMember extends CheckedTarget {
+	readonly op: MemberDesc["op"]
 	readonly loc: SourceLoc
 	readonly source:
 		| {
@@ -407,10 +467,10 @@ interface CheckedMember {
 /** What an action reads before its source is built: its enumerated slot alone, or the roots of its described members,
  * with its slot as one more arm of their union when it has one. */
 type DraftReads =
-	| { readonly kind: "slot"; readonly slot: WriteSlot }
+	| { readonly kind: "slot"; readonly slot: MemberSlot }
 	| {
 			readonly kind: "described"
-			readonly slot: WriteSlot | undefined
+			readonly slot: MemberSlot | undefined
 			readonly roots: NonEmptyReadonlyArray<RelNode>
 	  }
 
@@ -426,19 +486,20 @@ type DraftEntry =
 			readonly fill: RelNode
 	  }
 
-/** An action before its source is built: what it does, its relation, what it reads, and what it writes. */
+/** An action before its source is built: what it does, its relation, the heading its sources' facts carry, what it
+ * reads, and what it writes. */
 interface Draft {
 	readonly act: ActionOp
 	readonly relation: WrittenRelation
+	readonly carried: Heading
 	readonly reads: DraftReads
 	readonly entry: DraftEntry
 }
 
-/** A refused addition before its source is built (OutsideWrite). */
+/** A refused addition before its source is built (OutsideWrite), its sources' facts carrying `carried`. */
 interface OutsideDraft {
 	readonly entry: string
-	readonly member: MemberRelation
-	readonly act: ActionOp
+	readonly carried: Heading
 	readonly reads: DraftReads
 }
 
@@ -483,8 +544,10 @@ const merge = (params: Map<string, ParamDecl>, decl: ParamDecl, loc: SourceLoc):
  *    ChangeSet.bind closed and no name of a member slot: a name declared twice must be declared alike,
  *    which the checked types of its declarations decide.
  * 2. Group. Within a stratum, the enumerated members (arrays and Streams) of one operation on one relation are one
- *    action reading one slot, the relation input the host normalizes (normalize/): an insert into a relation with
- *    serial fields has two, one for complete facts and one for generated additions, because an array may hold both.
+ *    enumerated input (`EnumeratedInput`), the facts the host normalizes (normalize/): one slot read by one action, or,
+ *    for an insert into a target with serial fields, one slot per class (`InsertClasses`), each read by its own action,
+ *    because the program is compiled before its facts are drawn and an array may hold both. The host routes each fact
+ *    to exactly one of them. A class whose facts carry no field is the unit relation, read like any other input.
  *    Every generated addition of one relation in one stratum, the generated slot and each described
  *    generated insert, is one action over the Union of its sources, because equal generated additions are one
  *    requested addition and yield one new fact; every other described insert or delete member is its
@@ -498,9 +561,10 @@ const merge = (params: Map<string, ParamDecl>, decl: ParamDecl, loc: SourceLoc):
  *    the union of its sources, so it writes the target's facts. An addition into an entry whose fixed fields read a
  *    context the Db holds no fact of is no action but a refusal of its sources (WriteStratum.outside), and a deletion
  *    there is dropped.
- * 3. Serial class. Each insertion's serial class: generated, when its facts omit the relation's serial fields, or
- *    complete. The statement that realizes an action is the lowering's, a put's chosen with the proofs the whole
- *    ChangeSet gives.
+ * 3. Serial class. Each insertion's serial class, decided once per target (`classesOf`): generated, when its facts
+ *    omit every serial field of the target, or complete; a described member's by the head its query delivers
+ *    (`describedClass`). The statement that realizes an action is the lowering's, a put's chosen with the proofs the
+ *    whole ChangeSet gives.
  * 4. Schedule. The stratum's dependency graph, from the relation phases and the schema's immediate foreign
  *    keys (`natives`).
  * 5. Evidence. The whole write DAG is analyzed in the transaction context, so a read-back, and a
@@ -561,14 +625,16 @@ const compile = (
 	const writtenOf = (name: string, loc: SourceLoc): WrittenRelation =>
 		writable.get(name) ??
 		refuse("MalformedDescription", loc, `an ordinary relation of the schema, not ${name}`)
-	/** What a member's relation name writes (see `compileChangeSet`). */
-	const targetOf = (
-		name: string,
-		loc: SourceLoc
-	): { relation: WrittenRelation; entry: MemberEntry } => {
+	/** A relation written whole, its classes its own serial fields'. */
+	const wholeTarget = (name: string, loc: SourceLoc): CheckedTarget => {
+		const relation = writtenOf(name, loc)
+		return { relation, entry: { kind: "whole" }, classes: classesOf(relation) }
+	}
+	/** What a member's relation name writes (see `compileChangeSet`), and its classes, decided once. */
+	const targetOf = (name: string, loc: SourceLoc): CheckedTarget => {
 		const world = checked.world
 		if (world.kind === "reality") {
-			return { relation: writtenOf(name, loc), entry: { kind: "whole" } }
+			return wholeTarget(name, loc)
 		}
 		const role = world.role
 		const write = world.writes.get(name)
@@ -583,7 +649,7 @@ const compile = (
 			)
 		}
 		if (write.kind === "whole") {
-			return { relation: writtenOf(name, loc), entry: { kind: "whole" } }
+			return wholeTarget(name, loc)
 		}
 		const entry = write.writable
 		const relation = writtenOf(entry.target.name, loc)
@@ -599,25 +665,23 @@ const compile = (
 				)
 			)
 		}
+		const member = entryRelation(entry)
 		return {
 			relation,
 			entry: {
 				kind: "entry",
 				entry,
 				names: writeWorld.names,
-				member: entryRelation(entry),
+				member,
 				fillable: entryFillable(entry, options.claims)
-			}
+			},
+			classes: classesOf(member)
 		}
 	}
-	/** A described generated addition into a relation whose every field is serial has a head of no field. No
-	 * relation input holds zero columns (`InputSet`), so it could meet no enumerated slot in a
-	 * generated action's union (group, below), and alone it would be no slot's defaults (`ActionReads`), the one empty
-	 * fact the host normalized: such an addition is an enumerated member, an array or a Stream of empty facts. */
 	const strataMembers = desc.strata.map((stratum) =>
 		stratum.members.map((member): CheckedMember => {
 			const loc = member.loc
-			const { relation, entry } = targetOf(member.relation, loc)
+			const { relation, entry, classes } = targetOf(member.relation, loc)
 			const written: MemberRelation = entry.kind === "entry" ? entry.member : relation
 			const source = member.member
 			if (source.kind !== "query") {
@@ -625,6 +689,7 @@ const compile = (
 					op: member.op,
 					relation,
 					entry,
+					classes,
 					loc,
 					source: { kind: "enumerated", member: source }
 				}
@@ -639,21 +704,11 @@ const compile = (
 			for (const p of query.params) {
 				merge(params, p, loc)
 			}
-			if (
-				member.op === "insert" &&
-				written.heading.every((c) => written.serial.includes(c.name)) &&
-				insertSerial(written, query) === "generated"
-			) {
-				refuse(
-					"UnsupportedOperation",
-					loc,
-					`a generated addition into ${written.name}, whose every field is serial, as an array or a Stream of empty facts; a described member's head holds no field to add`
-				)
-			}
 			return {
 				op: member.op,
 				relation,
 				entry,
+				classes,
 				loc,
 				source: { kind: "described", query, root: merger.add(query) }
 			}
@@ -737,8 +792,9 @@ const compile = (
 			const relation = list[0].relation
 			/** One writable entry per base relation per role, so every member of the relation writes it alike. */
 			const target = list[0].entry
+			const classes = list[0].classes
 			const written: MemberRelation = target.kind === "entry" ? target.member : relation
-			const groupSlots: Array<WriteSlot> = []
+			const groupInputs: Array<EnumeratedInput> = []
 			const ops = (["delete", "put", "insert"] as const).flatMap((op) => {
 				const ofOp = list.filter((m) => m.op === op)
 				return isNonEmpty(ofOp) ? [{ op, ofOp }] : []
@@ -750,43 +806,92 @@ const compile = (
 				)
 				const queries = ofOp.flatMap((m) => (m.source.kind === "described" ? [m.source] : []))
 				const loc = firstOfOp.loc
-				/** The slot of the operation's enumerated members, read as `act`, when it has any. */
-				const slotOf = (act: ActionOp): WriteSlot | undefined => {
-					if (enumerated.length === 0) {
-						return undefined
-					}
-					const heading = inputHeading(written, act)
-					const columns = positionalColumns(heading)
+				const transport = enumerated.some((m) => m.kind === "stream") ? "stream" : "enumerated"
+				/** The member slot of one class of the operation's enumerated members, its facts carrying `carried`, and
+				 * the normalizer that admits a member's facts against it. */
+				const classSlot = (
+					act: ActionOp,
+					carried: Heading
+				): {
+					readonly slot: MemberSlot
+					readonly normalizer: (member: string) => RelationNormalizer
+				} => {
+					const columns = positionalColumns(carried)
 					const spec = (slot: RelationSlot): RelationSpec => ({
 						relation: written.name,
 						columns,
 						slot
 					})
-					const id = writeSlotId(s, act, written)
-					const slot: WriteSlot = Object.freeze({
-						...act,
-						slot: id,
-						kind: enumerated.some((m) => m.kind === "stream") ? "stream" : "enumerated",
-						members: Object.freeze(
-							enumerated.map((m): SlotMember =>
-								Object.freeze({
-									name: m.slot,
-									normalize: relationNormalizer(spec({ kind: "slot", name: m.slot }))
-								})
+					const id = writeSlotId(s, act, classes, written.name)
+					return {
+						slot: Object.freeze({
+							slot: id,
+							transport,
+							heading: carried,
+							normalForm: normalForm(spec({ kind: "none" })),
+							input: relationInput(id, carried, relation)
+						}),
+						normalizer: (member) => relationNormalizer(spec({ kind: "slot", name: member }))
+					}
+				}
+				/** The operation's enumerated input of one slot, read as `act`, when it has enumerated members. */
+				const singleInput = (act: SingleAct, carried: Heading): MemberSlot | undefined => {
+					if (!isNonEmpty(enumerated)) {
+						return undefined
+					}
+					const { slot, normalizer } = classSlot(act, carried)
+					groupInputs.push(
+						Object.freeze({
+							kind: "single",
+							act,
+							slot,
+							members: Object.freeze(
+								mapNonEmpty(enumerated, (m) =>
+									Object.freeze({ name: m.slot, normalize: normalizer(m.slot) })
+								)
 							)
-						),
-						heading,
-						normalForm: normalForm(spec({ kind: "none" })),
-						input: relationInput(id, heading, relation)
-					})
-					groupSlots.push(slot)
+						})
+					)
 					return slot
 				}
-				/** The action `act` over its slot and the described members' `roots`, when it reads any: written whole, through
-				 * its entry's fill, or refused outright when the fill can fill nothing, where a deletion is a no-op. */
+				/** The insertion's enumerated input into a classed target, one slot per class, when it has enumerated
+				 * members. */
+				const classedInput = (
+					classed: Extract<InsertClasses<Heading>, { readonly kind: "classed" }>
+				): { readonly complete: MemberSlot; readonly generated: MemberSlot } | undefined => {
+					if (!isNonEmpty(enumerated)) {
+						return undefined
+					}
+					const complete = classSlot({ op: "insert", serial: "complete" }, classed.complete)
+					const generated = classSlot({ op: "insert", serial: "generated" }, classed.generated)
+					groupInputs.push(
+						Object.freeze({
+							kind: "classed",
+							serial: classed.serial,
+							complete: complete.slot,
+							generated: generated.slot,
+							members: Object.freeze(
+								mapNonEmpty(enumerated, (m) =>
+									Object.freeze({
+										name: m.slot,
+										normalize: Object.freeze({
+											complete: complete.normalizer(m.slot),
+											generated: generated.normalizer(m.slot)
+										})
+									})
+								)
+							)
+						})
+					)
+					return { complete: complete.slot, generated: generated.slot }
+				}
+				/** The action `act` over its slot and the described members' `roots`, their facts carrying `carried`, when
+				 * it reads any: written whole, through its entry's fill, or refused outright when the fill can fill
+				 * nothing, where a deletion is a no-op. */
 				const draft = (
 					act: ActionOp,
-					slot: WriteSlot | undefined,
+					carried: Heading,
+					slot: MemberSlot | undefined,
 					roots: ReadonlyArray<RelNode>
 				): void => {
 					const reads: DraftReads | undefined = isNonEmpty(roots)
@@ -798,19 +903,20 @@ const compile = (
 						return
 					}
 					if (target.kind === "whole") {
-						drafts.push({ act, relation, reads, entry: { kind: "whole" } })
+						drafts.push({ act, relation, carried, reads, entry: { kind: "whole" } })
 						return
 					}
 					if (!target.fillable) {
 						if (act.op !== "delete") {
-							outside.push({ entry: target.entry.entry, member: written, act, reads })
+							outside.push({ entry: target.entry.entry, carried, reads })
 						}
 						return
 					}
-					const fill = mergeFill(target.entry, relation, act.op, inputHeading(written, act), loc)
+					const fill = mergeFill(target.entry, relation, act.op, carried, loc)
 					drafts.push({
 						act,
 						relation,
+						carried,
 						reads,
 						entry: { kind: "entry", entry: target.entry, names: target.names, fill }
 					})
@@ -820,50 +926,64 @@ const compile = (
 						const act = { op }
 						draft(
 							act,
-							slotOf(act),
+							classes.complete,
+							singleInput(act, classes.complete),
 							queries.map((q) => q.root)
 						)
 						break
 					}
 					case "delete": {
 						const act = { op }
-						draft(act, slotOf(act), [])
+						draft(act, classes.complete, singleInput(act, classes.complete), [])
 						for (const q of queries) {
-							draft(act, undefined, [q.root])
+							draft(act, classes.complete, undefined, [q.root])
 						}
 						break
 					}
 					case "insert": {
-						const classed = queries.map((q) => ({
+						const complete = { op, serial: "complete" } as const
+						const described = queries.map((q) => ({
 							root: q.root,
-							serial: insertSerial(written, q.query)
+							serial: describedClass(classes, q.query.dag.roots[0].heading)
 						}))
-						const generated = classed.flatMap((d) => (d.serial === "generated" ? [d.root] : []))
-						/** The facts' own serial fields decide: a query entry's facts carry every serial field its
-						 * filter reads (`entryRelation`). */
-						const classes: ReadonlyArray<SerialClass> =
-							written.serial.length === 0 ? ["complete"] : ["complete", "generated"]
-						for (const serial of classes) {
-							const act = { op, serial }
-							draft(act, slotOf(act), serial === "generated" ? generated : [])
+						/** The insertion acts the target drafts for its enumerated members, whatever facts they are
+						 * applied with: a classed target's both classes, each reading its own slot, the generated
+						 * one with every described generated addition. */
+						switch (classes.kind) {
+							case "unclassed":
+								draft(complete, classes.complete, singleInput(complete, classes.complete), [])
+								break
+							case "classed": {
+								const classSlots = classedInput(classes)
+								draft(complete, classes.complete, classSlots?.complete, [])
+								draft(
+									{ op, serial: "generated" },
+									classes.generated,
+									classSlots?.generated,
+									described.flatMap((d) => (d.serial === "generated" ? [d.root] : []))
+								)
+								break
+							}
 						}
-						for (const d of classed.filter((x) => x.serial !== "generated")) {
-							draft({ op, serial: d.serial }, undefined, [d.root])
+						for (const d of described) {
+							if (d.serial === "complete") {
+								draft(complete, classes.complete, undefined, [d.root])
+							}
 						}
 						break
 					}
 				}
 			}
-			if (isNonEmpty(groupSlots)) {
+			if (isNonEmpty(groupInputs)) {
 				slots.push(
 					Object.freeze({
 						stratum: s,
 						relation,
-						slots: Object.freeze(groupSlots),
+						inputs: Object.freeze(groupInputs),
 						facts:
 							target.kind === "entry"
-								? entryFacts(target.entry, target.member, relation.host)
-								: { name: relation.name, serial: relation.serial, host: relation.host }
+								? entryFacts(target.entry, relation.host)
+								: { name: relation.name, host: relation.host }
 					})
 				)
 			}
@@ -899,14 +1019,13 @@ const compile = (
 	}
 	const builtByStratum = draftsByStratum.map(({ drafts, outside }) => ({
 		outside,
-		built: drafts.map(({ act, relation, reads, entry }): Built => {
-			const heading = inputHeading(relation, act)
+		built: drafts.map(({ act, relation, carried, reads, entry }): Built => {
 			/** The source, what it reads and the heading it delivers: the slot alone; one described member's query alone;
 			 * or the Union of the slot's InputSet and of every described member's query. A query entry's sources, in its
 			 * facts, fill its fill's relation parameter, and the fill is the source. */
 			const read = ((): {
 				readonly source: ActionSource
-				readonly reads: ActionReads
+				readonly reads: SourceReads
 				readonly heading: Heading
 			} => {
 				if (entry.kind === "entry") {
@@ -925,18 +1044,16 @@ const compile = (
 				switch (reads.kind) {
 					case "slot":
 						return {
-							source: { kind: reads.slot.kind, slot: reads.slot.slot },
-							reads: isNonEmpty(reads.slot.heading)
-								? reads
-								: { kind: "defaults", slot: reads.slot },
-							heading
+							source: { kind: reads.slot.transport, slot: reads.slot.slot },
+							reads,
+							heading: carried
 						}
 					case "described": {
 						const [first, ...more] = reads.roots
 						const node =
 							reads.slot === undefined && more.length === 0
 								? first
-								: sourceOf(reads, relation.name, heading)
+								: sourceOf(reads, relation.name, carried)
 						return {
 							source: { kind: "described", node },
 							reads: { kind: "described", node },
@@ -962,11 +1079,10 @@ const compile = (
 		built,
 		outside: Object.freeze(
 			outside.map((d): OutsideWrite => {
-				const heading = inputHeading(d.member, d.act)
 				const reads: SourceReads =
 					d.reads.kind === "slot"
 						? d.reads
-						: { kind: "described", node: sourceOf(d.reads, d.entry, heading) }
+						: { kind: "described", node: sourceOf(d.reads, d.entry, d.carried) }
 				return Object.freeze({ entry: d.entry, reads })
 			})
 		)
@@ -1130,7 +1246,7 @@ const compile = (
 		)
 	)
 
-	const slotParams = slots.flatMap((g) => g.slots.map((s) => s.slot))
+	const slotParams = slots.flatMap((g) => g.inputs.flatMap((i) => inputSlots(i).map((s) => s.slot)))
 	const userParams = [...params.values()].toSorted(
 		Order.mapInput(Order.compareStrings, (p: ParamDecl) => p.name)
 	)

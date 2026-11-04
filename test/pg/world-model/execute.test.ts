@@ -1,5 +1,6 @@
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect } from "effect"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, runStep } from "#test/support/worlds/drive/index.ts"
@@ -94,7 +95,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			"a context field of a contract is decoded from the token and read, and a claim outside it is refused at token",
 			() =>
 				Effect.gen(function* () {
-					const world = yield* realize(planInstall)
+					const world = yield* realize(planInstall, ordinarySession)
 					yield* world.reset(reality)
 					const start = yield* checkStart(world, initialState(planInstall, world.names, reality))
 					const opened = yield* runStep(world, start, memberAt(1), 0, unnoted)
@@ -124,7 +125,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			"the leak scan reports a hidden token a refusal spells",
 			() =>
 				Effect.gen(function* () {
-					const world = yield* realize(docsInstall)
+					const world = yield* realize(docsInstall, ordinarySession)
 					yield* world.reset(reality)
 					const begun = yield* world.perform(
 						{

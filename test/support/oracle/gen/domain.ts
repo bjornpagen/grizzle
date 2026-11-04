@@ -1,17 +1,20 @@
-import { Array as Arr, Option, String as Str } from "effect"
+import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { VectorText } from "#compiler/ir/carriers.ts"
+import { canonicalZero, VectorText } from "#compiler/ir/carriers.ts"
+import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { literalProblem, nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
 	type Capability,
+	type Carrier,
 	contractOf,
 	numericTypmodOf,
 	type Roster,
 	rosterOf,
 	type ScalarType,
+	type StorageCarrier,
 	textOf,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
@@ -22,7 +25,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import { toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
-import { at, elementAt } from "#test/support/oracle/pick.ts"
+import { elementAt } from "#test/support/oracle/pick.ts"
 
 /**
  * Scalar types and small value domains for the oracle generators.
@@ -30,28 +33,26 @@ import { at, elementAt } from "#test/support/oracle/pick.ts"
  * The differential harness runs over small generated domains, so that joins, projections, groups and keys collide
  * often, and over the values whose equality and spelling PostgreSQL treats specially: NaN (equal to itself, sorting
  * greatest), signed zero (one value), numeric display scale (1.0 = 1.00), and text beyond the Basic Multilingual Plane
- * (code point order, not UTF-16 order, under C.UTF-8). Every value is a typed Literal of the scalar IR, so the fact
- * loader and the conservative lowering print it exactly.
+ * (code point order, not UTF-16 order, under C.UTF-8). Every value is a typed Literal of the scalar IR, in its one form,
+ * so the fact loader and the conservative lowering print it exactly.
  *
- * A domain is a list of value classes; the spellings in one class are equal under PostgreSQL's native equality
- * and differ only in their text: "1", "1.0" and "1.00", or 0 and -0. Raw text
- * multisets distinguish spellings, so a collapsing operator (DISTINCT, UNION, GROUP BY, min, max) over two spellings of
- * one class keeps whichever PostgreSQL meets first, which no reference can predict. The spelling rule therefore has
- * two roles:
+ * A domain is a list of value classes (ValueClass): one value, and the input spellings PostgreSQL reads as that value
+ * and may store differently (twinSpellings): "1", "1.0" and "1.000000000000000000000000", or "0" and "-0". A stored
+ * value (a fact) is written in one drawn spelling of its class (SpelledValue), and grizzle's answer must not depend on
+ * which: a collapsing operator (DISTINCT, UNION, GROUP BY, min, max), a join and every reading over two spellings of one
+ * class give one value, which the reference states exactly. So the generators draw spellings freely, at every merge
+ * and under every reading, and keep nothing away from one:
  *
- * - a stored value (a fact, a closed payload, an input-set row, a projected literal) takes the case's one spelling of
- *   its class under the default "perCase" mode; a value PostgreSQL's arithmetic spells (a numeric or float sum or
- *   avg, query.ts computedSpelling) is kept away from every merge by the query resolver: never unioned, intersected,
- *   grouped by, joined through a variable, folded by min or max, nor projected by a projection that drops columns.
- *   So no merge ever meets two spellings of one class and raw multisets are deterministic
- *   (test/unit/oracle-gen/spelling.test.ts checks this at every merge of the reference); "perFact" lets every stored
- *   value pick its own spelling, for harnesses that compare modulo native equality;
- * - a comparison operand (a filter literal or parameter, a match constant) never reaches the output, so it always
- *   picks its own spelling, and equality across spellings (1.0 = 1.00, -0 = 0) is exercised in every case.
+ * - "drawn": every stored value picks its own spelling;
+ * - "twinned": each fact after a relation's first takes, at every field outside the relation's keys, the value class
+ *   of the fact before it, spelled one place further on (facts.ts), so two spellings of one value meet wherever a merge
+ *   reads such a field.
  *
- * The carriers the generators draw from: every scalar the oracle install lowers to a plain column or an enum, and, for
- * the extended types a schema configuration may ask for (extendedTypeSpecs), spans over integer and bigint and
- * vectors. Contracts and refined text keep their base's carrier.
+ * A comparison operand (a filter literal or parameter, a match constant) is a value, never stored, so it has no
+ * spelling.
+ *
+ * The carriers the generators draw from: every carrier a field can have (carrierDraws), spans over integer and bigint
+ * and three-dimensional vectors among them. Contracts and refined text keep their base's carrier.
  */
 export const genCarriers = [
 	"int2",
@@ -80,13 +81,13 @@ export type GenCarrier = (typeof genCarriers)[number]
 const genTextSource = "^.{0,2}$"
 
 /** The dimensions of every generated vector. */
-const vectorDimensions = 3
+export const vectorDimensions = 3
 const genTextFlags = "su"
 
 /**
  * The type of a generated column, before it becomes a ScalarType: bare numeric is "numeric", numeric under a typmod
- * "numericTypmod". The extended types (extendedTypeSpecs) are a contract over bigint, a contract over regex-refined
- * text, unbounded text, spans over integer and bigint, and a three-dimensional vector.
+ * "numericTypmod". The extended flavors (carrierDraws) are a contract over bigint, a contract over regex-refined text
+ * and unbounded text.
  */
 type TypeSpec =
 	| {
@@ -100,7 +101,10 @@ type TypeSpec =
 	| { readonly carrier: "numericTypmod"; readonly precision: number; readonly scale: number }
 	| {
 			readonly carrier: "enum"
-			readonly roster: { readonly closed: string; readonly handles: ReadonlyArray<string> }
+			readonly roster: {
+				readonly closed: string
+				readonly handles: Arr.NonEmptyReadonlyArray<string>
+			}
 	  }
 	| { readonly carrier: "contract"; readonly name: "Tick" | "Code" }
 
@@ -151,13 +155,15 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 						kind: "contract",
 						name: "Tick",
 						base: { kind: "pg", type: "bigint" },
-						predicate: undefined
+						predicate: undefined,
+						facts: []
 					}
 				: {
 						kind: "contract",
 						name: "Code",
 						base: { kind: "text", source: codeSource, flags: "u" },
-						predicate: undefined
+						predicate: undefined,
+						facts: []
 					}
 		case "longText":
 			return { kind: "text", source: longTextSource, flags: "u" }
@@ -215,9 +221,10 @@ export const compareParamType = (type: ScalarType): ScalarType => {
  * is representable: fixed-width, an enum, or the bounded generated text. A bare numeric payload field keeps NaN,
  * Infinity and every display scale; numeric(5,2) keeps NaN and 1.0 = 1.00 in keys.
  *
- * Of the extended types, unbounded text proves no bound and is keyed as the generated bounded text, and a vector field
- * stays out of keys, taking integer. A span in a key is a temporal key, its facts never overlapping: only the field a
- * span key marks "span" keeps its range (schema.ts); any other key field drawn as a span takes its endpoint's type.
+ * Of the extended flavors, unbounded text proves no bound and is keyed as the generated bounded text. A vector of the
+ * generated dimensions is a key as it is, its equality pgvector's. A span in a key is a temporal key, its facts never
+ * overlapping: only the field a span key marks "span" keeps its range (schema.ts); any other key field drawn as a span
+ * takes its endpoint's type.
  */
 export const keyFieldType = (type: ScalarType, keep: "span" | "scalar"): ScalarType => {
 	if (type.carrier === "numeric" && type.typmod === undefined) {
@@ -235,44 +242,79 @@ export const keyFieldType = (type: ScalarType, keep: "span" | "scalar"): ScalarT
 	if (type.carrier === "range8") {
 		return scalarOfSpec({ carrier: "int8" })
 	}
-	if (type.carrier === "vector") {
-		return scalarOfSpec({ carrier: "int4" })
-	}
 	return type
 }
 
 /**
- * The scalar types the schema generator chooses columns from, besides the enums of the case's closed rosters. Two
- * numeric typmods let typmod normalization and the typmod-identity of sameScalarType both appear.
- * The extended types, drawn only where a schema configuration asks for them (schema.ts SchemaLimits.extended): their
- * palette picks follow baseTypeSpecs' in allTypeSpecs, so a sketch that picks only base types resolves as before.
+ * How the palette reaches a storage carrier: by its type specs, those every population draws (`base`) and those drawn
+ * only where a schema configuration asks for the extended flavors (`extended`, schema.ts SchemaLimits.extended), or by
+ * the handles of the case's closed rosters, which the palette gains beside its picks (schema.ts resolveSchema).
  */
-const extendedTypeSpecs: ReadonlyArray<TypeSpec> = [
-	{ carrier: "contract", name: "Tick" },
-	{ carrier: "contract", name: "Code" },
-	{ carrier: "longText" },
-	{ carrier: "range4" },
-	{ carrier: "range8" },
-	{ carrier: "vector" }
-]
+type CarrierDraw =
+	| {
+			readonly kind: "specs"
+			readonly base: Arr.NonEmptyReadonlyArray<TypeSpec>
+			readonly extended: ReadonlyArray<TypeSpec>
+	  }
+	| { readonly kind: "rosters" }
 
-export const baseTypeSpecs: ReadonlyArray<TypeSpec> = [
-	{ carrier: "int4" },
-	{ carrier: "text" },
-	{ carrier: "numeric" },
-	{ carrier: "int8" },
-	{ carrier: "float8" },
-	{ carrier: "bool" },
-	{ carrier: "uuid" },
-	{ carrier: "int2" },
-	{ carrier: "float4" },
-	{ carrier: "money" },
-	{ carrier: "numericTypmod", precision: 5, scale: 2 },
-	{ carrier: "numericTypmod", precision: 3, scale: 1 }
-]
+const only = (spec: TypeSpec): CarrierDraw => ({ kind: "specs", base: [spec], extended: [] })
+
+/**
+ * The generators' alphabet: every carrier a field can have (ir/scalar.ts StorageCarrier) with how the palette draws it,
+ * so a carrier added there without a draw fails the typecheck. Two numeric typmods let typmod normalization and the
+ * typmod-identity of sameScalarType both appear; the extended flavors are a contract over bigint, a contract over
+ * regex-refined text and unbounded text with TOAST-sized values. A palette pick names an index of allTypeSpecs: the base
+ * specs in this record's order, then the extended ones, so the first base specs keep the indices kept sketches name.
+ */
+const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
+	int4: only({ carrier: "int4" }),
+	text: {
+		kind: "specs",
+		base: [{ carrier: "text" }],
+		extended: [{ carrier: "contract", name: "Code" }, { carrier: "longText" }]
+	},
+	numeric: {
+		kind: "specs",
+		base: [
+			{ carrier: "numeric" },
+			{ carrier: "numericTypmod", precision: 5, scale: 2 },
+			{ carrier: "numericTypmod", precision: 3, scale: 1 }
+		],
+		extended: []
+	},
+	int8: {
+		kind: "specs",
+		base: [{ carrier: "int8" }],
+		extended: [{ carrier: "contract", name: "Tick" }]
+	},
+	float8: only({ carrier: "float8" }),
+	bool: only({ carrier: "bool" }),
+	uuid: only({ carrier: "uuid" }),
+	int2: only({ carrier: "int2" }),
+	float4: only({ carrier: "float4" }),
+	money: only({ carrier: "money" }),
+	range4: only({ carrier: "range4" }),
+	range8: only({ carrier: "range8" }),
+	vector: only({ carrier: "vector" }),
+	enum: { kind: "rosters" }
+}
+
+const drawnSpecs = (tier: "base" | "extended"): ReadonlyArray<TypeSpec> =>
+	Arr.flatMap(Rec.values(carrierDraws), (draw): ReadonlyArray<TypeSpec> => {
+		switch (draw.kind) {
+			case "specs":
+				return draw[tier]
+			case "rosters":
+				return []
+		}
+	})
+
+/** The specs every population draws its columns from, besides the enums of the case's closed rosters. */
+export const baseTypeSpecs: ReadonlyArray<TypeSpec> = drawnSpecs("base")
 
 /** Every type spec, the base types first. */
-export const allTypeSpecs: ReadonlyArray<TypeSpec> = [...baseTypeSpecs, ...extendedTypeSpecs]
+export const allTypeSpecs: ReadonlyArray<TypeSpec> = [...baseTypeSpecs, ...drawnSpecs("extended")]
 
 export const bool: ScalarType = scalarOfSpec({ carrier: "bool" })
 export const int4: ScalarType = scalarOfSpec({ carrier: "int4" })
@@ -307,7 +349,8 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 			kind: "contract",
 			name: contract.name,
 			base: fieldDescOf(contract.base),
-			predicate: undefined
+			predicate: undefined,
+			facts: contract.facts
 		}
 	}
 	switch (genCarrierOf(type)) {
@@ -387,11 +430,20 @@ export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): Liter
 
 const int = (value: bigint): TypedLiteral => ({ kind: "int", value })
 const num = (text: string): TypedLiteral => ({ kind: "numeric", value: Decimal.of(text) })
-const flt = (value: number): TypedLiteral => ({ kind: "float", value })
+const flt = (value: number): TypedLiteral => ({ kind: "float", value: canonicalZero(value) })
 const special = (value: "NaN" | "Infinity" | "-Infinity"): TypedLiteral => ({
 	kind: "floatSpecial",
 	value
 })
+/** A double as the IR's literal: a special for NaN and either infinity, a float with the one zero otherwise. */
+export const floatLiteralOf = (x: number): TypedLiteral =>
+	Number.isNaN(x)
+		? special("NaN")
+		: x === Number.POSITIVE_INFINITY
+			? special("Infinity")
+			: x === Number.NEGATIVE_INFINITY
+				? special("-Infinity")
+				: flt(x)
 const cash = (minor: bigint): TypedLiteral => ({ kind: "money", value: Money.of(minor) })
 const text = (value: string): TypedLiteral => ({ kind: "text", value })
 const uuid = (value: string): TypedLiteral => ({ kind: "uuid", value })
@@ -404,22 +456,23 @@ const vector = (...components: ReadonlyArray<number>): TypedLiteral => {
 	return { kind: "vector", value: value.value }
 }
 
-type Classes = ReadonlyArray<ReadonlyArray<TypedLiteral>>
+/** The values of one carrier's classes, each one value in its one form. */
+type Classes = ReadonlyArray<TypedLiteral>
 
 const intClasses = (min: bigint, max: bigint): Classes => [
-	[int(0n)],
-	[int(1n)],
-	[int(-1n)],
-	[int(2n)],
-	[int(3n)],
-	[int(min)],
-	[int(max)]
+	int(0n),
+	int(1n),
+	int(-1n),
+	int(2n),
+	int(3n),
+	int(min),
+	int(max)
 ]
 
 /**
- * Value classes before typmod filtering, by carrier. Small values first: shrinking moves a class index toward 0. The
- * float classes are dyadic, so every sum over them is exact in any order (float sums depend on input order only when
- * they round).
+ * Value classes before typmod filtering, by carrier, each one value: its input spellings are twinSpellings'. Small values
+ * first: shrinking moves a class index toward 0. The plain float classes are dyadic; the edge classes add non-dyadic
+ * values whose IEEE sums depend on their order, which grizzle's exact sums do not (scalar/aggregate.ts).
  */
 const rawClasses: Readonly<Record<Exclude<GenCarrier, "enum">, Classes>> = {
 	int2: intClasses(-32768n, 32767n),
@@ -428,50 +481,49 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "enum">, Classes>> = {
 	 * Besides the bounds, the integers nearest zero no binary64 holds, 2^53 + 1 and its negation, last so shrinking moves
 	 * away from them: a host path that takes an int8 through a JavaScript number rounds them silently to another bigint.
 	 */
-	int8: [
-		...intClasses(-(2n ** 63n), 2n ** 63n - 1n),
-		[int(2n ** 53n + 1n)],
-		[int(-(2n ** 53n + 1n))]
-	],
+	int8: [...intClasses(-(2n ** 63n), 2n ** 63n - 1n), int(2n ** 53n + 1n), int(-(2n ** 53n + 1n))],
 	numeric: [
-		[num("0"), num("0.0"), num("0.00")],
-		[num("1"), num("1.0"), num("1.00")],
-		[num("-1"), num("-1.0"), num("-1.00")],
-		[num("2.5"), num("2.50")],
-		[num("10")],
-		[num("NaN")],
-		[num("0.1"), num("0.10")],
-		[num("-0.25")],
-		[num("Infinity")],
-		[num("-Infinity")]
+		num("0"),
+		num("1"),
+		num("-1"),
+		num("2.5"),
+		num("10"),
+		num("NaN"),
+		num("0.1"),
+		num("-0.25"),
+		num("Infinity"),
+		num("-Infinity")
 	],
 	float4: [
-		[flt(0), flt(-0)],
-		[flt(1)],
-		[flt(-1.5)],
-		[special("NaN")],
-		[flt(0.25)],
-		[special("Infinity")],
-		[special("-Infinity")],
-		[flt(3)]
+		flt(0),
+		flt(1),
+		flt(-1.5),
+		special("NaN"),
+		flt(0.25),
+		special("Infinity"),
+		special("-Infinity"),
+		flt(3)
 	],
 	float8: [
-		[flt(0), flt(-0)],
-		[flt(1)],
-		[flt(-1.5)],
-		[special("NaN")],
-		[flt(0.25)],
-		[special("Infinity")],
-		[special("-Infinity")],
-		[flt(3)]
+		flt(0),
+		flt(1),
+		flt(-1.5),
+		special("NaN"),
+		flt(0.25),
+		special("Infinity"),
+		special("-Infinity"),
+		flt(3)
 	],
-	money: [[cash(0n)], [cash(100n)], [cash(1n)], [cash(-250n)], [cash(99999n)]],
-	bool: [[{ kind: "bool", value: false }], [{ kind: "bool", value: true }]],
+	money: [cash(0n), cash(100n), cash(1n), cash(-250n), cash(99999n)],
+	bool: [
+		{ kind: "bool", value: false },
+		{ kind: "bool", value: true }
+	],
 	uuid: [
-		[uuid("00000000-0000-0000-0000-000000000000")],
-		[uuid("00000000-0000-0000-0000-000000000001")],
-		[uuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")],
-		[uuid("ffffffff-ffff-ffff-ffff-ffffffffffff")]
+		uuid("00000000-0000-0000-0000-000000000000"),
+		uuid("00000000-0000-0000-0000-000000000001"),
+		uuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"),
+		uuid("ffffffff-ffff-ffff-ffff-ffffffffffff")
 	],
 	/**
 	 * Code point order differs from UTF-16 order between U+E000 and a supplementary character such as U+1F600, whose
@@ -480,103 +532,95 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "enum">, Classes>> = {
 	 * Spans in a small window around zero, adjacent, nested, overlapping and equal-bound, and the endpoint type's limits.
 	 */
 	range4: [
-		[span(0n, 1n)],
-		[span(1n, 3n)],
-		[span(0n, 3n)],
-		[span(2n, 5n)],
-		[span(-3n, 8n)],
-		[span(5n, 6n)],
-		[span(3n, 4n)],
-		[span(-2147483648n, 2147483647n)]
+		span(0n, 1n),
+		span(1n, 3n),
+		span(0n, 3n),
+		span(2n, 5n),
+		span(-3n, 8n),
+		span(5n, 6n),
+		span(3n, 4n),
+		span(-2147483648n, 2147483647n)
 	],
 	range8: [
-		[span(0n, 1n)],
-		[span(1n, 3n)],
-		[span(0n, 3n)],
-		[span(2n, 5n)],
-		[span(-3n, 8n)],
-		[span(5n, 6n)],
-		[span(-(2n ** 63n), 2n ** 63n - 1n)]
+		span(0n, 1n),
+		span(1n, 3n),
+		span(0n, 3n),
+		span(2n, 5n),
+		span(-3n, 8n),
+		span(5n, 6n),
+		span(-(2n ** 63n), 2n ** 63n - 1n)
 	],
 	/**
 	 * Vectors in the cosine domain: unit vectors along each axis and between them, one opposite, one not unit-length.
 	 */
 	vector: [
-		[vector(1, 0, 0)],
-		[vector(0, 1, 0)],
-		[vector(0.6, 0.8, 0)],
-		[vector(-1, 0, 0)],
-		[vector(0, 0, 1)],
-		[vector(0.5, 0.5, 0.5)],
-		[vector(3, 4, 0)]
+		vector(1, 0, 0),
+		vector(0, 1, 0),
+		vector(0.6, 0.8, 0),
+		vector(-1, 0, 0),
+		vector(0, 0, 1),
+		vector(0.5, 0.5, 0.5),
+		vector(3, 4, 0)
 	],
 	text: [
-		[text("a")],
-		[text("")],
-		[text("b")],
-		[text("A")],
-		[text("\u{1F600}")],
-		[text("")],
-		[text("é")],
-		[text("é")],
-		[text("a\u{1F600}")],
-		[text("퟿")],
-		[text("\u{10FFFF}")]
+		text("a"),
+		text(""),
+		text("b"),
+		text("A"),
+		text("\u{1F600}"),
+		text(""),
+		text("é"),
+		text("é"),
+		text("a\u{1F600}"),
+		text("퟿"),
+		text("\u{10FFFF}")
 	]
 }
 
 /**
  * Edge values, appended to a carrier's classes when a configuration asks
  * for them, so shrinking a class index moves away from them: wide numerics and the smallest scale steps; float
- * subnormals, the smallest normal, ±MAX, and non-dyadic values whose sums depend on their order; money a few steps
- * from its int8 bounds, whose sums overflow (22003); combining-only, zero-width and right-to-left text.
+ * subnormals, the smallest normal, ±MAX, and non-dyadic values whose IEEE sums depend on their order (0.1, 0.3, ±1e20
+ * beside 1); money at and a few steps from its int8 bounds, whose sums leave money's range in some order but not in
+ * total; combining-only, zero-width and right-to-left text.
  */
 const edgeClasses: Readonly<Partial<Record<Exclude<GenCarrier, "enum">, Classes>>> = {
 	numeric: [
-		[num("99999999999999999999.99999999999999999999")],
-		[num("0.000000000000000000000000000001")],
-		[num(`1${Str.repeat(120)("0")}`)],
-		[num("-12345678901234567890123456789.123456789")]
+		num("99999999999999999999.99999999999999999999"),
+		num("0.000000000000000000000000000001"),
+		num(`1${Str.repeat(120)("0")}`),
+		num("-12345678901234567890123456789.123456789")
 	],
 	float4: [
-		[flt(Math.fround(2 ** -149))],
-		[flt(Math.fround(3.4028234663852886e38))],
-		[flt(-Math.fround(3.4028234663852886e38))],
-		[flt(Math.fround(0.1))],
-		[flt(Math.fround(2 ** -126))]
+		flt(Math.fround(2 ** -149)),
+		flt(Math.fround(3.4028234663852886e38)),
+		flt(-Math.fround(3.4028234663852886e38)),
+		flt(Math.fround(0.1)),
+		flt(Math.fround(2 ** -126))
 	],
 	float8: [
-		[flt(5e-324)],
-		[flt(Number.MAX_VALUE)],
-		[flt(-Number.MAX_VALUE)],
-		[flt(0.1)],
-		[flt(2.2250738585072014e-308)],
-		[flt(0.3)]
+		flt(5e-324),
+		flt(Number.MAX_VALUE),
+		flt(-Number.MAX_VALUE),
+		flt(0.1),
+		flt(2.2250738585072014e-308),
+		flt(0.3),
+		flt(1e20),
+		flt(-1e20),
+		flt(0.2)
 	],
 	money: [
-		[cash(2n ** 63n - 1n)],
-		[cash(-(2n ** 63n))],
-		[cash(2n ** 62n)],
-		[cash(-(2n ** 62n) - 1n)]
+		cash(2n ** 63n - 1n),
+		cash(-(2n ** 63n)),
+		cash(2n ** 62n),
+		cash(-(2n ** 62n) - 1n),
+		cash(-1n)
 	],
-	text: [
-		[text("\u0301")],
-		[text("\u200B")],
-		[text("\u05D0\u05D1")],
-		[text("\u200F")],
-		[text("a\u0301")]
-	]
+	text: [text("\u0301"), text("\u200B"), text("\u05D0\u05D1"), text("\u200F"), text("a\u0301")]
 }
 
 /** The values of the Code contract's refined text: one or two of a, b and c. */
-const codeClasses: Classes = [
-	[text("a")],
-	[text("b")],
-	[text("ab")],
-	[text("c")],
-	[text("ca")],
-	[text("bb")]
-]
+const codeClasses: Classes = [text("a"), text("b"), text("ab"), text("c"), text("ca"), text("bb")]
 
 /**
  * Unbounded text: short values, and TOAST-sized incompressible ones stored out of line, two of which share every code
@@ -584,13 +628,13 @@ const codeClasses: Classes = [
  */
 const [toastA, toastB] = toastPair(0x7a, 6_000)
 const longTextClasses: Classes = [
-	[text("a")],
-	[text("")],
-	[text(toastText(0x71, 2_100))],
-	[text(toastA)],
-	[text(toastB)],
-	[text("b")],
-	[text(toastText(0x72, 20_000))]
+	text("a"),
+	text(""),
+	text(toastText(0x71, 2_100)),
+	text(toastA),
+	text(toastB),
+	text("b"),
+	text(toastText(0x72, 20_000))
 ]
 
 /** Which text a text type holds: the generated bounded text, the Code refinement, or unbounded text. */
@@ -617,16 +661,13 @@ const typmodText = (type: ScalarType): string => {
 }
 
 /**
- * The value classes of a type: the raw classes with every spelling the type cannot hold exactly removed (a numeric
- * typmod's rounding or overflow, infinity under a typmod; literalProblem), and the classes left empty dropped. An enum
- * has one class per handle, in roster order.
+ * The value classes of a type: the raw classes whose value the type holds exactly (a numeric typmod's rounding or
+ * overflow and infinity under a typmod refused; literalProblem). An enum has one class per handle, in roster order.
  */
 export const valueClasses = (type: ScalarType, edge: boolean): Classes => {
 	const carrier = genCarrierOf(type)
 	if (carrier === "enum") {
-		return Arr.map(enumRoster(type).handles, (handle) => [
-			{ kind: "enum", handle } satisfies TypedLiteral
-		])
+		return Arr.map(enumRoster(type).handles, (handle): TypedLiteral => ({ kind: "enum", handle }))
 	}
 	const flavor = carrier === "text" ? textFlavor(type) : "plain"
 	const drawn =
@@ -635,12 +676,7 @@ export const valueClasses = (type: ScalarType, edge: boolean): Classes => {
 			: flavor === "long"
 				? longTextClasses
 				: [...rawClasses[carrier], ...(edge ? (edgeClasses[carrier] ?? []) : [])]
-	const classes = Arr.filter(
-		Arr.map(drawn, (cls) =>
-			Arr.filter(cls, (literal) => literalProblem(literal, type) === undefined)
-		),
-		(cls) => cls.length > 0
-	)
+	const classes = Arr.filter(drawn, (literal) => literalProblem(literal, type) === undefined)
 	if (classes.length === 0) {
 		throw new Error(
 			`no generated value fits the ${carrier} type (typmod ${typmodText(type)}, ${flavor} text, edge ${edge})`
@@ -650,29 +686,124 @@ export const valueClasses = (type: ScalarType, edge: boolean): Classes => {
 }
 
 /**
- * "perCase" spells every stored value of a class alike in a case; "perFact" lets each stored value pick its own
- * spelling; "twinned" does too, and each fact after a relation's first takes, at every field outside the relation's
- * keys, the value class of the fact before it, spelled one place further on (facts.ts), so two spellings of one class
- * meet wherever a merge reads such a field.
+ * A carrier's input spellings beside its canonical one: none ("canonical": every input of one value is stored and
+ * output as one text), or the twins PostgreSQL reads as the value and stores differently, each a text the type's input
+ * function reads. The table is total over the IR's carriers, so a carrier added to ir/scalar.ts without its twins fails
+ * the typecheck, and a carrier with one spelling says so.
  */
-export type SpellingMode = "perCase" | "perFact" | "twinned"
+export type TwinSpellings =
+	| { readonly kind: "canonical" }
+	| { readonly kind: "twins"; readonly of: (literal: TypedLiteral) => ReadonlyArray<string> }
+
+const canonicalOnly: TwinSpellings = { kind: "canonical" }
+
+/** The fraction paddings a numeric is spelled at past its least scale: one digit, 8, 24 and 40. */
+export const numericPaddings: Arr.NonEmptyReadonlyArray<number> = [1, 8, 24, 40]
+
+/** A numeric's one text padded by `k` trailing fractional zeros, which numeric_in stores at that display scale. */
+export const paddedText = (text: string, k: number): string =>
+	`${Str.includes(".")(text) ? text : `${text}.`}${Str.repeat(k)("0")}`
+
+const floatTwins: TwinSpellings = {
+	kind: "twins",
+	of: (literal) => (literal.kind === "float" && literal.value === 0 ? ["-0"] : [])
+}
+
+export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
+	int2: canonicalOnly,
+	int4: canonicalOnly,
+	int8: canonicalOnly,
+	numeric: {
+		kind: "twins",
+		of: (literal) =>
+			literal.kind === "numeric" && literal.value.parts.kind === "finite"
+				? Arr.map(numericPaddings, (k) => paddedText(decimalPayload(literal.value), k))
+				: []
+	},
+	float4: floatTwins,
+	float8: floatTwins,
+	money: canonicalOnly,
+	bool: canonicalOnly,
+	uuid: canonicalOnly,
+	text: canonicalOnly,
+	enum: canonicalOnly,
+	range4: canonicalOnly,
+	range8: canonicalOnly,
+	vector: {
+		kind: "twins",
+		of: (literal) =>
+			literal.kind === "vector" && Arr.some(literal.value.components, (x) => x === 0)
+				? [
+						`[${Arr.join(
+							Arr.map(literal.value.components, (x) => (x === 0 ? "-0" : String(x))),
+							","
+						)}]`
+					]
+				: []
+	},
+	exactInteger: canonicalOnly,
+	exactMoney: canonicalOnly
+}
+
+/** The twin spellings of a value of `type`: the input texts beside its canonical one that store it differently. */
+export const twinsOf = (type: ScalarType, literal: TypedLiteral): ReadonlyArray<string> =>
+	carrierTwins(baseOf(type).carrier, literal)
+
+/** The twin spellings of a value of `carrier`, by the carrier's row of the twin table. */
+export const carrierTwins = (carrier: Carrier, literal: TypedLiteral): ReadonlyArray<string> => {
+	const twins = twinSpellings[carrier]
+	switch (twins.kind) {
+		case "canonical":
+			return []
+		case "twins":
+			return twins.of(literal)
+	}
+}
+
+/** How a stored value is written: in its canonical form, or as one of its twin input spellings. */
+export type Spelled =
+	| { readonly kind: "canonical" }
+	| { readonly kind: "twin"; readonly text: string }
+
+/** A stored value: its one value, and the spelling it is written in, which no answer may depend on. */
+export interface SpelledValue {
+	readonly literal: TypedLiteral
+	readonly spelling: Spelled
+}
+
+const canonicalSpelling: Spelled = { kind: "canonical" }
+
+/** A value written in its canonical form. */
+export const canonicallySpelled = (literal: TypedLiteral): SpelledValue => ({
+	literal,
+	spelling: canonicalSpelling
+})
+
+/** A value of `type` in its spelling `sp`, modulo its spellings: 0 the canonical one, then each twin. */
+export const spelledAt = (type: ScalarType, literal: TypedLiteral, sp: number): SpelledValue => {
+	const twins = twinsOf(type, literal)
+	const k = sp % (twins.length + 1)
+	return k === 0
+		? canonicallySpelled(literal)
+		: { literal, spelling: { kind: "twin", text: elementAt(twins, k - 1, "a value's twins") } }
+}
 
 /**
- * The case-level spelling choice: one index per class position. Under "perCase" every stored value of class k takes
- * spelling choices[k mod n] of that class; the all-zero choice, which shrinking reaches, is the first spelling.
+ * How the generators spell stored values: "drawn", each stored value its own drawn spelling; "twinned", besides, each
+ * fact after a relation's first takes, at every field outside the relation's keys, the value class of the fact before
+ * it, spelled one place further on (facts.ts), so two spellings of one value meet wherever a merge reads such a field.
  */
+export type SpellingMode = "drawn" | "twinned"
+
 export interface Spelling {
 	readonly mode: SpellingMode
-	readonly choices: ReadonlyArray<number>
 	/** Whether values are drawn from the edge classes too (edgeClasses). */
 	readonly edge: boolean
 }
 
-export const spellingChoiceCount = 8
-
 /**
  * A value before resolution against its column type: a class index and a spelling index, each reduced modulo the
- * type's domain, so every sketch resolves for every type and shrinks toward the first value.
+ * type's domain, so every sketch resolves for every type and shrinks toward the first value in its canonical spelling.
  */
 export interface ValueSketch {
 	readonly cls: number
@@ -680,38 +811,29 @@ export interface ValueSketch {
 }
 
 /**
- * The value sketches of the float specials among a float type's classes: negative zero, NaN, Infinity and -Infinity,
- * each a spelling the lowerings print as a special literal. A float4 and a float8 type share the classes' layout.
+ * The value sketches of the float specials among a float type's classes: NaN, Infinity and -Infinity, each a value the
+ * lowerings print as a special literal. A float4 and a float8 type share the classes' layout. A float's -0 is no value:
+ * the compute generator reaches it as Compute.neg(0), and a stored value as its twin spelling.
  */
 export const floatSpecialSketches: ReadonlyArray<ValueSketch> = Arr.flatMap(
 	valueClasses(float8, false),
-	(cls, k) =>
-		Arr.flatMap(cls, (literal, sp): ReadonlyArray<ValueSketch> =>
-			literal.kind === "floatSpecial" || (literal.kind === "float" && Object.is(literal.value, -0))
-				? [{ cls: k, sp }]
-				: []
-		)
+	(literal, k): ReadonlyArray<ValueSketch> =>
+		literal.kind === "floatSpecial" ? [{ cls: k, sp: 0 }] : []
 )
 
-type ValueRole = "stored" | "compare"
-
+/** The value a sketch names among a type's classes. */
 export const resolveValue = (
 	type: ScalarType,
 	sketch: ValueSketch,
-	spelling: Spelling,
-	role: ValueRole
+	edge: boolean
 ): TypedLiteral => {
-	const classes = valueClasses(type, spelling.edge)
-	const k = sketch.cls % classes.length
-	const cls = elementAt(classes, k, "the value classes")
-	const sp =
-		role === "compare" || spelling.mode !== "perCase"
-			? sketch.sp
-			: spelling.choices.length === 0
-				? 0
-				: at(spelling.choices, k)
-	return at(cls, sp)
+	const classes = valueClasses(type, edge)
+	return elementAt(classes, sketch.cls % classes.length, "the value classes")
 }
+
+/** The stored value a sketch names: its class's value, in the spelling `sketch.sp` picks. */
+export const resolveStored = (type: ScalarType, sketch: ValueSketch, edge: boolean): SpelledValue =>
+	spelledAt(type, resolveValue(type, sketch, edge), sketch.sp)
 
 /** A literal's identity under native equality, the identity keys and fact equality use. */
 export const literalEqualityKey = (literal: TypedLiteral): string => nativeEqualityKey(literal)

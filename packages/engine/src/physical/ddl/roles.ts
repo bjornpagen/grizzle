@@ -10,6 +10,7 @@ import {
 } from "#compiler/analysis/schema.ts"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { hnswSearchSettings } from "#compiler/check/approximate/policy.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { catchCompileError, catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -20,7 +21,12 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
@@ -54,16 +60,19 @@ import type { OwnedEntry, OwnedLogin, OwnedRole, OwnedWorldEntry } from "#compil
 
 import {
 	type ColumnPrivilege,
-	type ConfigurationParameter,
-	configurationParameters,
 	type Expr,
 	type FunctionName,
 	type Grant,
 	type Grantee,
 	type ObjectName,
 	type Privilege,
+	type RoleSetting,
 	type Select,
-	type SqlStatement
+	type SessionSetting,
+	type SqlStatement,
+	type TextSetting,
+	textParameters,
+	type TypeSchema
 } from "#compiler/sql/ast.ts"
 
 import {
@@ -82,6 +91,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { printStartupOptions } from "#compiler/sql/print.ts"
 import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
 import { filterFields, filterReadsOther, renderMembership } from "#compiler/write/entry/render.ts"
@@ -93,33 +103,48 @@ import {
 } from "#compiler/write/insert/unique.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
-/** The fixed login defaults. */
-const roleDefaultSettings = [
+/** The fixed login defaults a login's own sessions may set at startup, which each of its sessions does too. */
+const sessionSettings = [
+	{ parameter: "search_path" },
 	{ parameter: "jit", value: "off" },
 	{ parameter: "extra_float_digits", value: "1" },
 	{ parameter: "lc_monetary", value: "C.UTF-8" },
 	{ parameter: "lc_numeric", value: "C.UTF-8" },
-	{ parameter: "lc_time", value: "C.UTF-8" },
-	{ parameter: "lc_messages", value: "C.UTF-8" }
-] as const
+	{ parameter: "lc_time", value: "C.UTF-8" }
+] as const satisfies NonEmptyReadonlyArray<SessionSetting>
 
-interface RoleSetting {
-	readonly parameter: ConfigurationParameter
-	readonly value: string
-}
+/** The fixed login defaults only the migration identity may set, through its SET privilege on each. */
+const superuserSettings = [
+	{ parameter: "lc_messages", value: "C.UTF-8" }
+] as const satisfies ReadonlyArray<RoleSetting>
+
+/**
+ * The fixed login defaults, every login's: one list, which the installation stores as ALTER ROLE ... SET, admission
+ * reads back from the manifest that holds those statements (deploy/admission/roles.ts roleExpectation), and every
+ * session of a login's pool sets again at its startup, as far as a login may (loginStartupOptions).
+ */
+export const roleDefaultSettings = [...sessionSettings, ...superuserSettings] as const
+
+/**
+ * The startup packet's `options` of every session of a login's pool (wire/session.ts): each fixed default a login may
+ * set itself, at its stored value. The client's own options outrank every default a session starts under, a database's
+ * and a role's included, and pg sends them in place of the environment's PGOPTIONS, which it reads only when a client
+ * names none. lc_messages, which no login may set (42501), stands by its role default alone.
+ */
+export const loginStartupOptions: string = printStartupOptions(sessionSettings)
 
 /** The search policy's session parameters as login defaults. Each is a name of
- * configurationParameters, which the SQL AST checks; a unit test holds this list to the policy's, entry for entry. */
-export const searchPolicySettings: ReadonlyArray<RoleSetting> = hnswSearchSettings().flatMap(
+ * textParameters, which the SQL AST checks; a unit test holds this list to the policy's, entry for entry. */
+export const searchPolicySettings: ReadonlyArray<TextSetting> = hnswSearchSettings().flatMap(
 	(s) => {
-		const parameter = configurationParameters.find((p) => p === s.parameter)
+		const parameter = textParameters.find((p) => p === s.parameter)
 		return parameter === undefined ? [] : [{ parameter, value: s.value }]
 	}
 )
 
 /** The statement that loads the vector library in the migration session, so its `hnsw.*` parameters are known when the
  * login defaults store them: a call of one of its C functions on a vector it parses. */
-const vectorLibraryLoad = (vectorSchema: string): Select =>
+const vectorLibraryLoad = (vectorSchema: TypeSchema): Select =>
 	simpleSelect(
 		[
 			target(
@@ -591,8 +616,8 @@ const writePlan = (
 ): WritePlan => {
 	const e = w.write
 	const written = w.relation
-	const grantee: ReadonlyArray<Grantee> = [{ kind: "role", name: identifierOf(theory) }]
-	const grant = (privileges: ReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
+	const grantee: NonEmptyReadonlyArray<Grantee> = [{ kind: "role", name: identifierOf(theory) }]
+	const grant = (privileges: NonEmptyReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
 		kind: "grant",
 		privileges,
 		on,
@@ -604,8 +629,9 @@ const writePlan = (
 		...b.names.advance(written.name, field),
 		args: [types.bigint]
 	}))
-	const advanceGrants: ReadonlyArray<SqlStatement> =
-		advances.length === 0 ? [] : [grant(["EXECUTE"], { kind: "FUNCTION", names: advances })]
+	const advanceGrants: ReadonlyArray<SqlStatement> = isNonEmpty(advances)
+		? [grant(["EXECUTE"], { kind: "FUNCTION", names: advances })]
+		: []
 	if (e.kind === "whole") {
 		const r = e.relation
 		const tableName = b.names.relation(r.name)
@@ -706,7 +732,6 @@ const writePlan = (
 						volatility: "STABLE",
 						parallel: "UNSAFE",
 						security: "DEFINER",
-						searchPath: ["pg_catalog", "pg_temp"],
 						planCacheMode: "force_generic_plan",
 						returns: "boolean",
 						params: params.map((p) => ({ name: p.column, type: p.type })),
@@ -715,11 +740,15 @@ const writePlan = (
 								[target(lit.bool(true))],
 								[table(tableName.schema, tableName.name, probeRow)],
 								and(
-									...within(u, stored),
-									...within(u, given),
-									...u.equal.map((f) => binary("=", stored(f), given(f))),
-									...(u.kind === "span" ? [binary("&&", stored(u.span), given(u.span))] : []),
-									outside
+									appendNonEmpty(
+										[
+											...within(u, stored),
+											...within(u, given),
+											...u.equal.map((f) => binary("=", stored(f), given(f))),
+											...(u.kind === "span" ? [binary("&&", stored(u.span), given(u.span))] : [])
+										],
+										outside
+									)
 								)
 							)
 						)
@@ -745,7 +774,7 @@ const writePlan = (
 			)
 	).probes.map(probe)
 	const probeGrants: ReadonlyArray<SqlStatement> = isNonEmpty(probes)
-		? [grant(["EXECUTE"], { kind: "FUNCTION", names: probes.map((p) => p.name) })]
+		? [grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(probes, (p) => p.name) })]
 		: []
 	if (!filterReadsOther(writable)) {
 		const membership = unwrap(
@@ -791,7 +820,6 @@ const writePlan = (
 				volatility: "STABLE",
 				parallel: "UNSAFE",
 				security: "DEFINER",
-				searchPath: ["pg_catalog", "pg_temp"],
 				planCacheMode: "force_generic_plan",
 				returns: "boolean",
 				params: fields.map((f) => ({ name: f.column, type: f.type })),
@@ -884,8 +912,8 @@ const addRole = (
 	const use = emptyUse()
 	const grants: Array<SqlStatement> = []
 	const after: Array<Node<DeployPhase>> = [roleObject, b.schemaNode, schemaObject]
-	const grantee: ReadonlyArray<Grantee> = [{ kind: "role", name: theory }]
-	const grant = (privileges: ReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
+	const grantee: NonEmptyReadonlyArray<Grantee> = [{ kind: "role", name: theory }]
+	const grant = (privileges: NonEmptyReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
 		kind: "grant",
 		privileges,
 		on,
@@ -923,14 +951,14 @@ const addRole = (
 		const tableName = b.names.relation(relation)
 		const written = b.table(relation)
 		useColumns(b, w.relation.fields, use)
-		grants.push(...plan.grants)
-		after.push(
+		appendAll(grants, plan.grants)
+		appendAll(after, [
 			written,
 			...serialFields(w.relation).flatMap((f) => {
 				const fn = advance.get(relation)?.get(f)
 				return fn === undefined ? [] : [fn]
 			})
-		)
+		])
 		const policyNamed = identity.policy(named, relation)
 		const policyName = b.name(policyNamed)
 		const policyDdl: SqlStatement = {
@@ -958,7 +986,7 @@ const addRole = (
 			},
 			[written, roleObject, ...readsOf(b, [policyDdl])]
 		)
-		after.push(...functions)
+		appendAll(after, functions)
 		if (plan.kind === "rows") {
 			secured.push({ relation, policy })
 		}
@@ -982,19 +1010,21 @@ const addRole = (
 	if (use.vector) {
 		privileges.push(grant(["USAGE"], { kind: "SCHEMA", names: [b.settings.vectorSchema] }))
 	}
-	if (use.enums.size > 0) {
-		privileges.push(grant(["USAGE"], { kind: "TYPE", names: sortedNames(use.enums) }))
+	const enums = sortedNames(use.enums)
+	if (isNonEmpty(enums)) {
+		privileges.push(grant(["USAGE"], { kind: "TYPE", names: enums }))
 	}
-	if (use.domains.size > 0) {
-		privileges.push(grant(["USAGE"], { kind: "DOMAIN", names: sortedNames(use.domains) }))
+	const domains = sortedNames(use.domains)
+	if (isNonEmpty(domains)) {
+		privileges.push(grant(["USAGE"], { kind: "DOMAIN", names: domains }))
 	}
-	if (views.length > 0) {
+	if (isNonEmpty(views)) {
 		privileges.push(grant(["SELECT"], { kind: "TABLE", names: views }))
 	}
-	if (refreshed.length > 0) {
+	if (isNonEmpty(refreshed)) {
 		privileges.push(grant(["MAINTAIN"], { kind: "TABLE", names: refreshed }))
 	}
-	privileges.push(...grants)
+	appendAll(privileges, grants)
 	if (refuses) {
 		privileges.push(grant(["EXECUTE"], { kind: "FUNCTION", names: [refusalFunction(b.schema)] }))
 	}
@@ -1084,7 +1114,10 @@ const addLogin = (
  *   USAGE on the base schema, SELECT on the ledger and EXECUTE on the snapshot guard: the fence Db.open's admission and
  *   every transaction of its Dbs take as the login, the ledger's lock (deploy/ledger/ledger.ts) and the guard
  *   (physical/ddl/ledger.ts);
- * - the login's defaults, as ALTER ROLE ... SET, which PostgreSQL applies at login and never on SET ROLE: `jit = off`,
+ * - the login's defaults (`roleDefaultSettings`), as ALTER ROLE ... SET, which PostgreSQL applies at login and never on
+ *   SET ROLE, over any default of the database's or the cluster's, and which every session of a login's pool sets
+ *   again in its startup options, all but lc_messages (`loginStartupOptions`): `search_path = pg_catalog, pg_temp`
+ *   (closedSearchPath), so no name a login's statement holds resolves through a path anyone else chose, `jit = off`,
  *   `extra_float_digits = 1` (float text is shortest round-trip only when it is positive) and the four locale
  *   categories at C.UTF-8. lc_messages is superuser-only: the migration identity sets it through the SET privilege
  *   the cluster grants it. For a login one of whose roles can name the vector type, the fixed HNSW search policy too
@@ -1163,19 +1196,19 @@ export const addWorlds = (
 	for (const login of logins) {
 		const added = addLogin(b, cx, login, advance)
 		worlds.push(added.installed)
-		views.push(...added.views)
+		appendAll(views, added.views)
 		for (const s of added.secured) {
 			secured.set(s.relation, [...(secured.get(s.relation) ?? []), s.policy])
 		}
 		const settings = (list: ReadonlyArray<RoleSetting>): ReadonlyArray<SqlStatement> =>
-			list.map((s) => ({
+			list.map((setting) => ({
 				kind: "alterRole",
 				name: added.installed.role,
-				action: { kind: "set", parameter: s.parameter, value: s.value }
+				action: { kind: "set", setting }
 			}))
-		roleDefaults.push(...settings(roleDefaultSettings))
+		appendAll(roleDefaults, settings(roleDefaultSettings))
 		if (added.vector) {
-			searchDefaults.push(...settings(searchPolicySettings))
+			appendAll(searchDefaults, settings(searchPolicySettings))
 		}
 	}
 	for (const [relation, policies] of [...secured].toSorted(([x], [y]) => compareText(x, y))) {
@@ -1192,7 +1225,7 @@ export const addWorlds = (
 		)
 	}
 	if (searchDefaults.length > 0) {
-		roleDefaults.push(vectorLibraryLoad(b.settings.vectorSchema), ...searchDefaults)
+		appendAll(roleDefaults, [vectorLibraryLoad(b.names.vectorSchema), ...searchDefaults])
 	}
 	return {
 		roleDefaults,
@@ -1223,7 +1256,7 @@ const publicRevokes = (
 		readonly views: ReadonlyArray<ObjectName>
 	}
 ): ReadonlyArray<SqlStatement> => {
-	const from: ReadonlyArray<Grantee> = [{ kind: "PUBLIC" }]
+	const from: NonEmptyReadonlyArray<Grantee> = [{ kind: "PUBLIC" }]
 	const out: Array<SqlStatement> = [
 		{
 			kind: "revoke",
@@ -1233,30 +1266,31 @@ const publicRevokes = (
 		}
 	]
 	const tables = [...objects.tables, ...objects.views]
-	if (tables.length > 0) {
+	if (isNonEmpty(tables)) {
 		out.push({ kind: "revoke", privileges: ["ALL"], on: { kind: "TABLE", names: tables }, from })
 	}
-	if (objects.sequences.length > 0) {
+	const { sequences, enums, domains } = objects
+	if (isNonEmpty(sequences)) {
 		out.push({
 			kind: "revoke",
 			privileges: ["ALL"],
-			on: { kind: "SEQUENCE", names: objects.sequences },
+			on: { kind: "SEQUENCE", names: sequences },
 			from
 		})
 	}
-	if (objects.enums.length > 0) {
+	if (isNonEmpty(enums)) {
 		out.push({
 			kind: "revoke",
 			privileges: ["ALL"],
-			on: { kind: "TYPE", names: objects.enums },
+			on: { kind: "TYPE", names: enums },
 			from
 		})
 	}
-	if (objects.domains.length > 0) {
+	if (isNonEmpty(domains)) {
 		out.push({
 			kind: "revoke",
 			privileges: ["ALL"],
-			on: { kind: "DOMAIN", names: objects.domains },
+			on: { kind: "DOMAIN", names: domains },
 			from
 		})
 	}

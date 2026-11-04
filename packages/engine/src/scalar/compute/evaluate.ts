@@ -24,21 +24,22 @@ import {
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import {
 	castOf,
-	type FailureCode,
 	firstOperand,
 	type NativeOp,
-	nativeOp
+	nativeOp,
+	type Undefined
 } from "#compiler/scalar/compute/registry.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { compareFloat } from "#compiler/scalar/values/float.ts"
+import { canonicalZero, compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 
 /**
- * Why an evaluation has no value: PostgreSQL's failure, or an expression the evaluator does not evaluate (a read other
- * than the VALUE, an operation outside the total fragment, an operand of another kind).
+ * Why an evaluation has no value: the precondition an operation's operands fail, which no admitted expression meets
+ * (every partial operation stands with its proof), or an expression the evaluator does not evaluate (a read other than
+ * the VALUE, an operation outside a check's vocabulary, an operand of another kind).
  */
 type EvalStop =
-	| { readonly kind: "failure"; readonly code: FailureCode }
+	| { readonly kind: "undefined"; readonly precondition: Undefined }
 	| { readonly kind: "unsupported"; readonly what: string }
 
 type EvalResult = Result.Result<CarrierValue, EvalStop>
@@ -49,7 +50,8 @@ type EvalResult = Result.Result<CarrierValue, EvalStop>
  */
 export type RegexMember = (regex: RegexRef, text: string) => boolean
 
-const failure = (code: FailureCode): EvalResult => Result.err({ kind: "failure", code })
+const undefinedAt = (precondition: Undefined): EvalResult =>
+	Result.err({ kind: "undefined", precondition })
 const unsupported = (what: string): EvalResult => Result.err({ kind: "unsupported", what })
 
 /** A value's membership in a regex refinement, by the caller's NFA; a value that is not text has none to judge. */
@@ -62,8 +64,8 @@ const regexHolds = (
 		? Result.ok(regexMember(regex, v))
 		: Result.err({ kind: "unsupported", what: "regex membership of a value that is not text" })
 
-const lift = <A extends CarrierValue>(r: Result.Result<A, FailureCode>): EvalResult =>
-	r.ok ? Result.ok(r.value) : failure(r.error)
+const lift = <A extends CarrierValue>(r: Result.Result<A, Undefined>): EvalResult =>
+	r.ok ? Result.ok(r.value) : undefinedAt(r.error)
 
 /** The exact carrier value of a typed IR literal. */
 export const literalValue = (literal: TypedLiteral): CarrierValue => {
@@ -127,6 +129,7 @@ export const compareValues = (
 		case "int2":
 		case "int4":
 		case "int8":
+		case "exactInteger":
 			if (!isBigint(a) || !isBigint(b)) {
 				return undefined
 			}
@@ -137,6 +140,7 @@ export const compareValues = (
 		case "float8":
 			return isNumber(a) && isNumber(b) ? compareFloat(a, b) : undefined
 		case "money":
+		case "exactMoney":
 			return isMoney(a) && isMoney(b) ? a.compare(b) : undefined
 		case "bool":
 			if (typeof a !== "boolean" || typeof b !== "boolean") {
@@ -182,12 +186,45 @@ const mismatch = (op: NativeOp): EvalResult =>
 	unsupported(`${op.fn} over operands that are not values of ${firstOperand(op.operands)}`)
 
 /**
- * The total fragment's native operations (total.ts) applied to their evaluated operands: comparisons, BETWEEN, IN, NOT,
- * numeric arithmetic, abs, sign and neg of a numeric or float, char_length and span endpoints. Each case checks its
- * operands' host kinds; the IR's typing guarantees them, so a mismatch is `unsupported`. Every other operation is
- * outside the fragment: unsupported. `and`, `or` and casts are evaluated by their nodes, never applied.
+ * IEEE 754 arithmetic of a float carrier, as the host's own: binary64 for double precision, binary32 for real by one
+ * rounding of the binary64 result (correct for +, -, *, / and the square root, whose binary64 results round to binary32
+ * exactly as a binary32 operation does), the one zero.
  */
-const totalApply = (
+const ieee = (
+	fn: "add" | "sub" | "mul" | "div",
+	a: number,
+	b: number,
+	carrier: Carrier
+): number => {
+	const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : a / b
+	return canonicalZero(carrier === "float4" ? Math.fround(r) : r)
+}
+
+/** Truncated integer division and remainder, defined where the divisor is not zero. */
+const intDiv = (a: bigint, b: bigint): EvalResult =>
+	b === 0n ? undefinedAt("nonzero") : Result.ok(a / b)
+const intMod = (a: bigint, b: bigint): EvalResult =>
+	b === 0n ? undefinedAt("nonzero") : Result.ok(a % b)
+
+const gcdOf = (a: bigint, b: bigint): bigint => {
+	let x = a < 0n ? -a : a
+	let y = b < 0n ? -b : b
+	while (y !== 0n) {
+		const r = x % y
+		x = y
+		y = r
+	}
+	return x
+}
+
+/**
+ * The native operations a check admits (lower.ts checkMembers) applied to their evaluated operands, each defined on
+ * every value or where its proved precondition holds: integer and money arithmetic exactly (an exact integer, exact
+ * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length and span
+ * endpoints. Each case checks its operands' host kinds; the IR's typing guarantees them, so a mismatch is
+ * `unsupported`. `and`, `or` and casts are evaluated by their nodes, never applied.
+ */
+const apply = (
 	op: NativeOp,
 	args: ReadonlyArray<CarrierValue>,
 	argTypes: ReadonlyArray<ScalarType>
@@ -200,29 +237,84 @@ const totalApply = (
 		case "mul":
 		case "div":
 		case "mod": {
-			if (c !== "numeric") {
-				return unsupported(`${op.fn} over ${c}, outside the total fragment`)
+			const fn = op.fn
+			if (c === "numeric") {
+				if (!isDecimal(a) || !isDecimal(b)) {
+					return mismatch(op)
+				}
+				return lift({ add: N.add, sub: N.sub, mul: N.mul, div: N.div, mod: N.mod }[fn](a, b))
 			}
-			if (!isDecimal(a) || !isDecimal(b)) {
+			if (c === "float4" || c === "float8") {
+				return isNumber(a) && isNumber(b) && fn !== "mod"
+					? Result.ok(ieee(fn, a, b, c))
+					: mismatch(op)
+			}
+			if (c === "money" || c === "exactMoney") {
+				if (!isMoney(a) || !isMoney(b)) {
+					return mismatch(op)
+				}
+				if (fn === "div") {
+					return b.minorUnits === 0n
+						? undefinedAt("nonzero")
+						: Result.ok(canonicalZero(Number(a.minorUnits) / Number(b.minorUnits)))
+				}
+				return fn === "add"
+					? Result.ok(Money.exact(a.minorUnits + b.minorUnits))
+					: fn === "sub"
+						? Result.ok(Money.exact(a.minorUnits - b.minorUnits))
+						: mismatch(op)
+			}
+			if (!isBigint(a) || !isBigint(b)) {
 				return mismatch(op)
 			}
-			const f = { add: N.add, sub: N.sub, mul: N.mul, div: N.div, mod: N.mod }[op.fn]
-			return lift(f(a, b))
+			switch (fn) {
+				case "add":
+					return Result.ok(a + b)
+				case "sub":
+					return Result.ok(a - b)
+				case "mul":
+					return Result.ok(a * b)
+				case "div":
+					return intDiv(a, b)
+				case "mod":
+					return intMod(a, b)
+			}
 		}
 		case "quot":
 			return isDecimal(a) && isDecimal(b) ? lift(N.divTrunc(a, b)) : mismatch(op)
+		case "rem":
+			return isDecimal(a) && isDecimal(b) ? lift(N.mod(a, b)) : mismatch(op)
 		case "neg":
 		case "abs":
-		case "sign":
-			if (c === "numeric") {
-				return isDecimal(a)
-					? lift({ neg: N.neg, abs: N.abs, sign: N.sign }[op.fn](a))
+		case "sign": {
+			const fn = op.fn
+			if (isDecimal(a)) {
+				return lift({ neg: N.neg, abs: N.abs, sign: N.sign }[fn](a))
+			}
+			if (isNumber(a)) {
+				return Result.ok(canonicalZero(totalFloat[fn](a)))
+			}
+			if (isBigint(a)) {
+				return Result.ok(
+					fn === "neg" ? -a : fn === "abs" ? (a < 0n ? -a : a) : a < 0n ? -1n : a > 0n ? 1n : 0n
+				)
+			}
+			return mismatch(op)
+		}
+		case "gcd":
+		case "lcm": {
+			if (!isBigint(a) || !isBigint(b)) {
+				return isDecimal(a) && isDecimal(b)
+					? unsupported(`${op.fn} over numeric, outside a check`)
 					: mismatch(op)
 			}
-			if (c === "float4" || c === "float8") {
-				return isNumber(a) ? Result.ok(totalFloat[op.fn](a)) : mismatch(op)
+			const g = gcdOf(a, b)
+			if (op.fn === "gcd") {
+				return Result.ok(g)
 			}
-			return unsupported(`${op.fn} over ${c}, outside the total fragment`)
+			const product = a * b
+			return Result.ok(g === 0n ? 0n : (product < 0n ? -product : product) / g)
+		}
 		case "lower":
 			return isSpanValue(a) ? Result.ok(a.start) : mismatch(op)
 		case "upper":
@@ -278,23 +370,18 @@ const totalApply = (
 		}
 		case "not":
 			return typeof a === "boolean" ? Result.ok(!a) : mismatch(op)
-		case "rem":
 		case "round":
 		case "trunc":
 		case "ceil":
 		case "floor":
-		case "gcd":
-		case "lcm":
 		case "power":
 		case "sqrt":
 		case "least":
 		case "greatest":
 		case "widthBucket":
-		case "scale":
 		case "minScale":
-		case "trimScale":
 		case "cosineDistance":
-			return unsupported(`${op.fn}, outside the total fragment`)
+			return unsupported(`${op.fn}, outside a check's vocabulary`)
 		case "and":
 		case "or":
 		case "cast":
@@ -337,7 +424,7 @@ const evaluatePredicate = (
 			values.push(v.value)
 			types.push(operand.type)
 		}
-		return totalApply(op, values, types)
+		return apply(op, values, types)
 	}
 	const run = (id: ExprId): EvalResult => {
 		const expr = at(id)
@@ -385,7 +472,7 @@ const evaluatePredicate = (
 				if (!member.ok) {
 					return member
 				}
-				return member.value ? coerced : failure("23514")
+				return member.value ? coerced : undefinedAt("contract")
 			}
 			case "op": {
 				/**
@@ -408,8 +495,8 @@ const evaluatePredicate = (
  * A registered cast's host conversion of `v`, a value of the cast's source family; a value of another kind is
  * unsupported.
  */
-const converted = (r: Result.Result<CastValue, FailureCode>): EvalResult =>
-	!r.ok ? failure(r.error) : Result.ok(r.value)
+const converted = (r: Result.Result<CastValue, Undefined>): EvalResult =>
+	!r.ok ? undefinedAt(r.error) : Result.ok(r.value)
 
 const hostCast = (host: HostCast, v: CarrierValue, source: Carrier): EvalResult => {
 	switch (host.from) {
@@ -447,7 +534,7 @@ const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): EvalResult =
 		}
 		const normalized = normalizeNumeric(out, typmod)
 		if (!normalized.ok) {
-			return failure("22003")
+			return undefinedAt("fits")
 		}
 		out = normalized.value
 	}
@@ -469,20 +556,23 @@ interface LiteralRefusal {
 }
 
 /**
- * The pure evaluator of the total fragment of scalar expression IR over exact carriers.
+ * The pure evaluator of a check's scalar expression IR over exact carriers: the language's one semantics, on the host.
  *
  * The places grizzle evaluates an expression outside PostgreSQL are a literal that adopts a contract, which the compiler
  * checks against the contract's predicate at compile time (a refusal is CompileError ContractLiteral), and constant
  * folding of a comparison, BETWEEN or IN over literals (lower/optimize/simplify/boolean.ts, by compareValues and
- * literalValue). A contract predicate is in the total fragment (total.ts) and reads only its VALUE, so its evaluation
- * never fails, and this evaluator covers exactly that: comparisons, BETWEEN, IN, boolean composition, numeric
- * arithmetic, abs, sign and neg, char_length, span endpoints and the casts between them. Any other operation, and any
- * read but the VALUE, is `unsupported`, never an approximation.  The host never substitutes JavaScript arithmetic for a SQL
+ * literalValue). A contract predicate reads only its VALUE through a check's vocabulary (lower.ts checkMembers), whose
+ * every operation is total or proved where it stands, so its evaluation never meets an undefined operation, and this
+ * evaluator covers exactly that: comparisons, BETWEEN, IN, boolean composition, integer arithmetic exactly (bigint),
+ * money exactly, numeric as numeric.c computes it, floats as IEEE 754, abs, sign and neg, gcd and lcm of integers,
+ * char_length, span endpoints, conditionals, guards and the casts between them. Any other operation, and any read but
+ * the VALUE, is `unsupported`, never an approximation. The host never substitutes JavaScript arithmetic for a SQL
  * expression in a query.
  *
- * Values are exact carriers: integers as bigint, numeric as Decimal, floats as number, money as Money, booleans, text,
+ * Values are exact carriers: integers and exact integers as bigint, numeric as Decimal, floats as number, money and
+ * exact money as Money, booleans, text,
  * uuids and enum handles as primitives, spans as { start, end } bigints. Comparison follows PostgreSQL's total orders:
- * NaN above every number and equal to itself, -0 equal to 0, numeric display scale ignored, text in code point order
+ * NaN above every number and equal to itself, -0 equal to 0, numeric by value, text in code point order
  * under the fixed C.UTF-8 collation, enums in roster order. A regex refinement's membership is the text package's NFA,
  * which the caller supplies.
  *
@@ -510,7 +600,7 @@ export const admitLiteral = (
 	if (!member.ok) {
 		return Result.err({
 			reason: "UnsupportedOperation",
-			capability: `the ContractLiteral check of ${typeLabel(type)}: ${member.error.kind === "unsupported" ? member.error.what : member.error.code}`
+			capability: `the ContractLiteral check of ${typeLabel(type)}: ${member.error.kind === "unsupported" ? member.error.what : `an operation its predicate holds undefined at the literal (${member.error.precondition})`}`
 		})
 	}
 	if (!member.value) {
@@ -538,7 +628,7 @@ const predicateHolds = (
 /**
  * Whether a value of a contract's base satisfies the contract at every level: each level's base refinement (a regex),
  * then its predicate, innermost first, as PostgreSQL checks a domain over a domain. Each predicate reads its VALUE and
- * regex membership by `regexMember`, and is evaluated in the total fragment.
+ * regex membership by `regexMember`.
  */
 const membership = (
 	v: CarrierValue,
@@ -565,4 +655,17 @@ const membership = (
 		}
 	}
 	return Result.ok(true)
+}
+
+/**
+ * Whether a typed literal is a value of `type`'s refinements at every level (membership), or undefined where the
+ * evaluator cannot decide it: the ContractLiteral judgment of a literal cast into a refined type.
+ */
+export const literalMember = (
+	literal: TypedLiteral,
+	type: ScalarType,
+	regexMember: RegexMember
+): boolean | undefined => {
+	const member = membership(literalValue(literal), type, regexMember)
+	return member.ok ? member.value : undefined
 }

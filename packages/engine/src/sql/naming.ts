@@ -3,7 +3,8 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
+import type { OrderItem, Select, SelectBody, SelectCore, SetOperand } from "#compiler/sql/ast.ts"
+import { mapTargets } from "#compiler/sql/build.ts"
 
 /**
  * Single-assignment SQL names.
@@ -150,22 +151,17 @@ const describeOrigin = (origin: NameOrigin): string => {
 export const renderNameMap = (map: NameMap): string =>
 	map.map((entry) => `${entry.name} ${entry.role} ${describeOrigin(entry.origin)}`).join("\n")
 
-/** The lengths are equal, so every alias has its target. */
-const renameTargets = (
-	targets: ReadonlyArray<Target>,
+/** The core's targets aliased by the heading, position by position: the lengths are equal, so every target has its alias. */
+const renameCore = (
+	c: SelectCore,
 	heading: ReadonlyArray<string>
-): Result.Result<ReadonlyArray<Target>, CompileError> =>
-	targets.length === heading.length
-		? Result.ok(
-				heading.flatMap((alias, i) => {
-					const target = targets[i]
-					return target === undefined ? [] : [{ expr: target.expr, alias }]
-				})
-			)
+): Result.Result<SelectCore, CompileError> =>
+	c.targets.length === heading.length
+		? Result.ok(mapTargets(c, (target, i) => ({ expr: target.expr, alias: heading[i] })))
 		: Result.err(
 				malformedDescription(
 					SourceLoc("sql outermost select", []),
-					`a public heading of ${targets.length} columns, not ${heading.length}`
+					`a public heading of ${c.targets.length} columns, not ${heading.length}`
 				)
 			)
 
@@ -182,7 +178,7 @@ export const bodyPositionNames = (body: SelectBody): ReadonlyArray<string | unde
 				(target) => target.alias ?? (target.expr.kind === "column" ? target.expr.column : undefined)
 			)
 		case "setOp":
-			return bodyPositionNames(body.left)
+			return bodyPositionNames(body.arms[0])
 		case "select":
 			return bodyPositionNames(body.body)
 	}
@@ -233,15 +229,35 @@ const renameBody = (
 ): Result.Result<SelectBody, CompileError> => {
 	switch (body.kind) {
 		case "core":
-			return Result.map(renameTargets(body.targets, heading), (targets) => ({ ...body, targets }))
-		case "setOp":
-			return Result.flatMap(renameBody(body.left, heading), (left) =>
-				Result.map(renameBody(body.right, heading), (right) => ({ ...body, left, right }))
-			)
 		case "select":
-			return renameSelect(body, heading)
+			return renameOperand(body, heading)
+		case "setOp": {
+			const [first, second, ...rest] = body.arms
+			return Result.flatMap(renameOperand(first, heading), (a) =>
+				Result.flatMap(
+					renameOperand(second, heading),
+					(b): Result.Result<SelectBody, CompileError> => {
+						const more: Array<SetOperand> = []
+						for (const arm of rest) {
+							const renamed = renameOperand(arm, heading)
+							if (!renamed.ok) {
+								return renamed
+							}
+							more.push(renamed.value)
+						}
+						return Result.ok({ ...body, arms: [a, b, ...more] })
+					}
+				)
+			)
+		}
 	}
 }
+
+const renameOperand = (
+	operand: SetOperand,
+	heading: ReadonlyArray<string>
+): Result.Result<SetOperand, CompileError> =>
+	operand.kind === "core" ? renameCore(operand, heading) : renameSelect(operand, heading)
 
 /**
  * Renames the outermost SELECT's output columns to the public heading, by position, and the ORDER BY

@@ -4,8 +4,10 @@ import type { Phantom } from "#compiler/core/phantom.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
 	Carrier,
-	InputOrigin,
+	ConstantOrigin,
+	Facts,
 	Refusal,
+	Rostered,
 	Simplify,
 	Source,
 	Term
@@ -93,25 +95,30 @@ export interface Closed<
 	readonly payload: Payload
 	readonly facts: FactsOf<Handle, Payload>
 	readonly fact: RowDecoder<ClosedFactOf<Handle, Payload>>
-	readonly heading: ClosedId<Handle> & Payload
+	readonly heading: ClosedId<Handle, Name> & Payload
 	/**
-	 * The typed handle of a member of the roster: a head term at the closed relation's enum, of the member's own literal
-	 * type, which Compute.literal(closedId(X), member) records. A method, so no member's name meets a property's.
+	 * A member of the roster as a typed constant: a term of the roster's enum, whose one value, which its column
+	 * delivers, is the member, and whose language is every handle, which a JavaScript value opposite it may be. It
+	 * stands wherever a term of the roster's enum stands. A method, so no member's name meets a property's.
 	 */
-	readonly handle: <const M extends Handle>(member: M) => Term<M, unknown, InputOrigin, "enum">
+	readonly handle: <const M extends Handle>(
+		member: M
+	) => Term<Handle & Rostered<Name>, unknown, ConstantOrigin, "enum", M, Facts, Handle>
 }
 
 /**
- * The id part of a closed relation's facts and heading: its roster's handle column under `id`, an enum. A record type,
- * so it is a part of a record (core/decoder.ts Part).
+ * The id part of a closed relation's facts and heading: its roster's handle column under `id`, an enum, of the roster
+ * Name's identity. A record type, so it is a part of a record (core/decoder.ts Part).
  */
-export type ClosedId<Handle> = { readonly id: Carrier<Handle, "enum"> }
+export type ClosedId<Handle, Name extends string> = {
+	readonly id: Carrier<Handle, "enum", Handle & Rostered<Name>>
+}
 
 /**
  * What a closed relation's fact decoder delivers: its handle under `id` beside its payload's fields. Fact reads it
  * flattened, which is mutually assignable with it.
  */
-type ClosedFactOf<Handle, Payload> = Decoded<[ClosedId<Handle>, Payload]>
+type ClosedFactOf<Handle, Payload> = Decoded<[{ readonly id: Carrier<Handle, "enum"> }, Payload]>
 
 /**
  * The enum-only form closed(name, handles) returns: a closed relation with the empty payload, whose `with` adds one.
@@ -129,9 +136,12 @@ export interface EnumClosed<
 /** The host fact of a record of descriptors: the output of its fact decoder, each field's column's host value. */
 export type FactOfFields<Fields> = Decoded<[Fields]>
 
-/** The host fact of a relation, closed relation, derived relation, or record of descriptors. */
+/**
+ * The host fact of a relation, closed relation, derived relation, or record of descriptors. A closed relation is
+ * matched at its own name: its handle's domain is its roster's (Rostered<Name>), invariantly, so no other name meets it.
+ */
 export type Fact<R> =
-	R extends Closed<string, infer H, infer Payload>
+	R extends Closed<infer _Name, infer H, infer Payload>
 		? Simplify<{ readonly id: H } & FactOfFields<Payload>>
 		: R extends { readonly fields: infer Fields }
 			? FactOfFields<Fields>

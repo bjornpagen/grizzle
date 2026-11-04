@@ -1,6 +1,6 @@
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
-import { atMostOne, classifyEntry } from "#test/support/worlds/model/host.ts"
+import { atMostOne, classifyEntry, writableSupplier } from "#test/support/worlds/model/host.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,
@@ -44,6 +44,66 @@ export const filterReadsStored = (rules: Arr.NonEmptyReadonlyArray<Rule>): boole
 			(o) => o.source.kind === "ordinary" || o.source.kind === "derived"
 		).length > 1
 	)
+}
+
+/**
+ * A written relation's serial head fields, by how an insertion treats them (README "Writes", "Writing through a role"):
+ * `classed`, those a fact may leave out for the identity to draw, all of them or none, a whole entry's every serial
+ * field and a query entry's every head field writing a serial field its filter does not read; and `filtered`, a query
+ * entry's head fields writing a serial field its filter reads, which every inserted fact carries, since the fact is
+ * checked against the filter before its identity is drawn. A variable the filter reads is one another match, a negation
+ * or a comparison of the entry's rule names.
+ */
+export const serialHead = (
+	base: BaseSpec,
+	w: Written
+): { readonly classed: ReadonlyArray<string>; readonly filtered: ReadonlyArray<string> } => {
+	const fields = relationSpecOf(base, w.target)?.fields ?? []
+	const serial = (field: string): boolean =>
+		Arr.some(fields, (f) => f.name === field && f.domain.kind === "serial")
+	if (w.kind === "whole") {
+		return {
+			classed: Arr.filter(
+				Arr.map(fields, (f) => f.name),
+				serial
+			),
+			filtered: []
+		}
+	}
+	const supplied = writableSupplier(base, w.rules)
+	const reads = new Set<string>()
+	if (supplied !== undefined) {
+		const { rule, supplier } = supplied
+		const named = (t: Rule["head"][string]): ReadonlyArray<string> =>
+			t.kind === "var" ? [t.name] : []
+		const occurrences = [
+			...Arr.filter(rule.matches, (_, i) => i !== supplier),
+			...rule.negations.flat()
+		]
+		for (const o of occurrences) {
+			for (const t of Rec.values(o.fields)) {
+				for (const v of named(t)) {
+					reads.add(v)
+				}
+			}
+		}
+		for (const c of rule.comparisons) {
+			for (const v of [...named(c.left), ...named(c.right)]) {
+				reads.add(v)
+			}
+		}
+	}
+	const supplierFields =
+		supplied === undefined ? {} : (supplied.rule.matches[supplied.supplier]?.fields ?? {})
+	const serialHeads = Arr.filter(Rec.toEntries(w.head), ([, h]) => serial(h.field))
+	const readByFilter = (field: string): boolean => {
+		const t = supplierFields[field]
+		return t !== undefined && t.kind === "var" && reads.has(t.name)
+	}
+	return {
+		classed: Arr.flatMap(serialHeads, ([head, h]) => (readByFilter(h.field) ? [] : [head])),
+		filtered: Arr.flatMap(serialHeads, ([head, h]) => (readByFilter(h.field) ? [head] : []))
+	}
 }
 
 /** Every relation a role writes, in its write list's order. */

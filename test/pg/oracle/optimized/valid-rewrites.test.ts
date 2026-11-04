@@ -19,8 +19,9 @@
 
 import { layer } from "@effect/vitest"
 import { sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
 import type { TestContext } from "vitest"
@@ -112,9 +113,9 @@ const plainQuery = (query: Select): boolean => query.body.kind === "core" && pla
 const plainExists = (statements: ReadonlyArray<{ readonly ast: Select }>): boolean =>
 	Arr.some(partsOf(statements).exprs, (e) => e.kind === "exists" && plainQuery(e.query))
 
-/** The set operations of a query body, nested ones included; a parenthesized query arm is a query of its own. */
+/** The set operation a query body is, if any; a parenthesized query arm is a query of its own. */
 const setOperations = (body: SelectBody): ReadonlyArray<SetOperation> =>
-	body.kind === "setOp" ? [body, ...setOperations(body.left), ...setOperations(body.right)] : []
+	body.kind === "setOp" ? [body] : []
 
 const unionAll = (statements: ReadonlyArray<{ readonly ast: Select }>): boolean =>
 	Arr.some(partsOf(statements).selects, (q) =>
@@ -125,7 +126,7 @@ const unionAll = (statements: ReadonlyArray<{ readonly ast: Select }>): boolean 
 const armCores = (body: SelectBody): ReadonlyArray<SelectCore> => {
 	switch (body.kind) {
 		case "setOp":
-			return [...armCores(body.left), ...armCores(body.right)]
+			return Arr.flatMap(body.arms, armCores)
 		case "select":
 			return armCores(body.body)
 		case "core":
@@ -214,11 +215,10 @@ const performed = (ctx: TestContext, id: ValidId, gen: Gen<QueryCase>, rule: Val
 				{
 					suite: `optimized/valid-${Str.toLowerCase(id)}`,
 					literal: Formatter.format,
-					features: features<ValidRule>([rule]),
+					coverage: required<ValidRule>([rule], { cases: cases, sense: notesOnly }),
 					kept: [],
 					runs: cases,
 					shrink: optimizedShrink,
-					steering: { kind: "none" },
 					caseHang: Duration.minutes(2),
 					perturb: "all"
 				},

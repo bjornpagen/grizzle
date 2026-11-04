@@ -1,5 +1,6 @@
 import { element, filter, map } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Record } from "effect"
+import { maxOf } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { violations } from "#test/pg/laws/families/model.ts"
 import { sameDomain } from "#test/support/worlds/generate/domain.ts"
@@ -176,7 +177,7 @@ const newLaws = (state: ModelState): ReadonlyArray<LawSpec> => {
 								kind: "compare",
 								field: f.name,
 								op: "<=",
-								value: Math.max(first, ...rest)
+								value: maxOf(rest, first)
 							}
 						}
 					]

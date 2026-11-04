@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { constant, element, subarray, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
@@ -108,12 +109,15 @@ describe("the worked example's workload in the installation", () => {
 							])
 						),
 						literal: Formatter.format,
-						features: features<SubFeature>([
-							"an index only removed programs asked for",
-							"a key or law object a kept program asks for too",
-							"an index a kept program asks for alone",
-							"the empty workload"
-						]),
+						coverage: required<SubFeature>(
+							[
+								"an index only removed programs asked for",
+								"a key or law object a kept program asks for too",
+								"an index a kept program asks for alone",
+								"the empty workload"
+							],
+							{ cases: 20, sense: notesOnly }
+						),
 						kept: [
 							{ note: "the empty workload", sketch: [], draws: "", reaches: ["the empty workload"] }
 						],
@@ -121,7 +125,6 @@ describe("the worked example's workload in the installation", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(kept, c) =>
@@ -161,11 +164,11 @@ describe("the worked example's workload in the installation", () => {
 								})),
 								expected
 							)
-							/** The same workload listed in reverse installs byte for byte the same. */
+							/** The same workload listed in reverse installs the same statements. */
 							const reversed = succeeded(
 								installWith(W.Work, planOf(W.Work, Rec.fromEntries(Arr.reverse(kept))))
 							)
-							assert.deepEqual(reversed.sql, sub.sql)
+							assert.deepEqual(reversed.statements, sub.statements)
 							if (kept.length === 0) {
 								c.note("the empty workload")
 							}
@@ -228,7 +231,7 @@ describe("a workload that cannot install", () => {
 					generator: element(refusals),
 					literal: Formatter.format,
 					limit: refusals.length,
-					features: noFeatures,
+					coverage: noCoverage,
 					caseHang: Duration.minutes(2)
 				},
 				(r) =>

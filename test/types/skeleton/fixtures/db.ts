@@ -4,8 +4,9 @@ import type { ApplyOutcome, Compiled, DbConstructor, QueryResult } from "#adapte
 import type { DbLayerConstructor } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { type Uuid, uuid } from "#compiler/public/fields.ts"
 import type { ReadsOf, WritesOf } from "#compiler/types/changeset/changeset.ts"
+import type { ParamType } from "#compiler/types/core/phantom.ts"
 import type { WorkloadConstructor } from "#compiler/types/db/workload.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import type { EvidenceOfQuery, ParamsOf, Query } from "#compiler/types/query/query.ts"
@@ -78,9 +79,13 @@ declare const writer: Writer
 declare const reader: Reader
 declare const refresher: Refresher
 declare const reporter: Reporter
+const accountId = "0193d8f2-7c1e-7000-8000-0000000000a1"
+const taskId = "0193d8f2-7c1e-7000-8000-0000000000a2"
+const otherTaskId = "0193d8f2-7c1e-7000-8000-0000000000a3"
+const studentId = "0193d8f2-7c1e-7000-8000-0000000000a4"
 
 /** get: a keyed lookup by primary or candidate key, or any query proved at most one row. */
-export const byId = writer.get(Task, { id: "t" })
+export const byId = writer.get(Task, { id: taskId })
 export type ById = Expect<
 	Equals<typeof byId, Effect.Effect<Option.Option<Fact<typeof Task>>, ReadError>>
 >
@@ -90,48 +95,48 @@ export type ByAccountName = Expect<
 >
 
 export const taskById = query(Work).rule((r) => {
-	const { account } = v(Task)
+	const { account } = v(Task, "task")
 	return r.match(Task, { id: r.param("id", Task.fields.id), account }).find({ account })
 })
-export const one = writer.get(taskById, { id: "t" })
+export const one = writer.get(taskById, { id: taskId })
 export type One = Expect<
-	Equals<typeof one, Effect.Effect<Option.Option<{ readonly account: string }>, ReadError>>
+	Equals<typeof one, Effect.Effect<Option.Option<{ readonly account: Uuid }>, ReadError>>
 >
 
 export const tasksForAccount = query(Work).rule((r) => {
-	const { id } = v(Task)
+	const { id } = v(Task, "task")
 	return r.match(Task, { id, account: r.param("account", Task.fields.account) }).find({ id })
 })
 // @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-export const many = writer.get(tasksForAccount, { account: "a" })
+export const many = writer.get(tasksForAccount, { account: accountId })
 /** A partial binding of a composite key, and a union of keyed lookups, can each return several rows. */
 export const labelsOf = query(Work).rule((r) => {
-	const { label } = v(AccountLabel)
+	const { label } = v(AccountLabel, "accountLabel")
 	return r
 		.match(AccountLabel, { account: r.param("account", AccountLabel.fields.account), label })
 		.find({ label })
 })
 // @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-export const partialKey = writer.get(labelsOf, { account: "a" })
+export const partialKey = writer.get(labelsOf, { account: accountId })
 export const labelLookup = query(Work).rule((r) => {
-	const { label } = v(AccountLabel)
+	const { label } = v(AccountLabel, "accountLabel")
 	return r
 		.match(AccountLabel, { account: r.param("account", AccountLabel.fields.account), label })
 		.where(r.eq(label, r.param("label", AccountLabel.fields.label)))
 		.find({ label })
 })
-export const fullKey = writer.get(labelLookup, { account: "a", label: "l" })
+export const fullKey = writer.get(labelLookup, { account: accountId, label: "l" })
 export const eitherTask = taskById.rule((r) => {
-	const { account } = v(Task)
+	const { account } = v(Task, "task")
 	return r.match(Task, { id: r.param("other", Task.fields.id), account }).find({ account })
 })
 // @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-export const unionGet = writer.get(eitherTask, { id: "t", other: "u" })
+export const unionGet = writer.get(eitherTask, { id: taskId, other: otherTaskId })
 // @ts-expect-error -- TS2322: the parameters are the ones the query's uses inferred
 export const wrongParams = writer.execute(tasksForAccount, { account: 1 })
-export const executed = writer.execute(tasksForAccount, { account: "a" })
+export const executed = writer.execute(tasksForAccount, { account: accountId })
 export type Executed = Expect<
-	Equals<typeof executed, Effect.Effect<QueryResult<{ readonly id: string }>, ReadError>>
+	Equals<typeof executed, Effect.Effect<QueryResult<{ readonly id: Uuid }>, ReadError>>
 >
 
 /**
@@ -141,13 +146,13 @@ export type Executed = Expect<
 export const lowerLevel = reporter.execute(recentSittings, {})
 export const ownLevel = reporter.execute(
 	query(Reports).rule((r) => {
-		const { student, sittings } = v(StudentWeekly)
+		const { student, sittings } = v(StudentWeekly, "studentWeekly")
 		return r.match(StudentWeekly, { student, sittings }).find({ student, sittings })
 	}),
 	{}
 )
 // @ts-expect-error -- TS2345: a query over Work is not a query over Reports
-export const otherSchema = reporter.execute(tasksForAccount, { account: "a" })
+export const otherSchema = reporter.execute(tasksForAccount, { account: accountId })
 
 /**
  * The opened database's members: its workload's handles, and its operations, each one call: the three reads, compile,
@@ -165,36 +170,36 @@ export type CompiledType = Expect<
 	Equals<
 		typeof compiled,
 		Effect.Effect<
-			Compiled<typeof WriterRole, typeof tasksForAccount, { readonly id: string }>,
+			Compiled<typeof WriterRole, typeof tasksForAccount, { readonly id: Uuid }>,
 			CompileError,
 			Scope.Scope
 		>
 	>
 >
 declare const compiledTasks: Effect.Success<typeof compiled>
-export const compiledRun = compiledTasks.execute({ account: "a" })
+export const compiledRun = compiledTasks.execute({ account: accountId })
 export type CompiledRun = Expect<
-	Equals<Effect.Success<typeof compiledRun>, QueryResult<{ readonly id: string }>>
+	Equals<Effect.Success<typeof compiledRun>, QueryResult<{ readonly id: Uuid }>>
 >
 // @ts-expect-error -- TS2322: a compiled query takes the parameters its uses inferred
 export const compiledWrongParams = compiledTasks.execute({ account: 1 })
 // @ts-expect-error -- TS2345 refusal: page needs an ordered query
-export const compiledPageUnordered = compiledTasks.page({ account: "a" }, { first: 10 })
+export const compiledPageUnordered = compiledTasks.page({ account: accountId }, { first: 10 })
 // @ts-expect-error -- TS2345 refusal: a compiled ChangeSet applies, and a compiled query reads
-export const compiledQueryApplies = compiledTasks.apply({ account: "a" })
+export const compiledQueryApplies = compiledTasks.apply({ account: accountId })
 
 /** Pages over ordered queries. */
 export const ordered = tasksForAccount.orderBy(["id", "asc"])
-export const page = writer.page(ordered, { account: "a" }, { first: 10 })
+export const page = writer.page(ordered, { account: accountId }, { first: 10 })
 export type PageNode = Expect<
-	Equals<Effect.Success<typeof page>, Page<{ readonly id: string }, typeof ordered>>
+	Equals<Effect.Success<typeof page>, Page<{ readonly id: Uuid }, typeof ordered>>
 >
 // @ts-expect-error -- TS2741: page takes an ordered query
-export const unorderedPage = writer.page(tasksForAccount, { account: "a" }, { first: 10 })
+export const unorderedPage = writer.page(tasksForAccount, { account: accountId }, { first: 10 })
 
 /** The apply reader: only ChangeSets within the role's write list typecheck. */
 export const addTask = ChangeSet.empty(Work).insert(Task, [
-	{ id: "t", account: "a", kind: "Manual" }
+	{ id: taskId, account: accountId, kind: "Manual" }
 ])
 export const applied = writer.apply(addTask, {})
 export type Applied = Expect<Equals<Effect.Success<typeof applied>, ApplyOutcome<unknown>>>
@@ -202,19 +207,21 @@ export type Applied = Expect<Equals<Effect.Success<typeof applied>, ApplyOutcome
 export const readerApply = reader.apply(addTask, {})
 export const accountApply = writer.apply(
 	// @ts-expect-error -- TS2345 refusal: a ChangeSet writes only relations its role's write list names
-	ChangeSet.empty(Work).put(Account, [{ id: "a", name: "acme" }]),
+	ChangeSet.empty(Work).put(Account, [{ id: accountId, name: "acme" }]),
 	{}
 )
 /** Generated additions omit every serial field, or none. */
-export const generated = ChangeSet.empty(Work).insert(Ticket, [{ account: "a", amount: Cents(5n) }])
+export const generated = ChangeSet.empty(Work).insert(Ticket, [
+	{ account: accountId, amount: Cents(5n) }
+])
 export const explicit = ChangeSet.empty(Work).insert(Ticket, [
-	{ id: 7n, account: "a", amount: Cents(5n) }
+	{ id: 7n, account: accountId, amount: Cents(5n) }
 ])
 // @ts-expect-error -- TS2322: an addition omits no field other than its serial fields
-export const missing = ChangeSet.empty(Work).insert(Ticket, [{ id: 7n, account: "a" }])
+export const missing = ChangeSet.empty(Work).insert(Ticket, [{ id: 7n, account: accountId }])
 export const generatedDelete = ChangeSet.empty(Work).delete(Ticket, [
 	// @ts-expect-error -- TS2741: a deletion names complete facts; a serial is never omitted from one
-	{ account: "a", amount: Cents(5n) }
+	{ account: accountId, amount: Cents(5n) }
 ])
 
 /** A query member contributes its parameters; read-backs arrive under their names. */
@@ -222,24 +229,26 @@ export const noteAll = ChangeSet.empty(Work)
 	.insert(
 		TaskNote,
 		query(Work).rule((r) => {
-			const { id } = v(Task)
+			const { id } = v(Task, "task")
 			const note: string = "todo"
 			return r
 				.match(Task, { id, account: r.param("account", Task.fields.account) })
-				.find({ task: id, note: r.literal(note) })
+				.find({ task: id, note: note })
 		})
 	)
 	.read("added", (delta) =>
 		query(Work).rule((r) => {
-			const { task } = v(delta.added(TaskNote))
+			const { task } = v(delta.added(TaskNote), "addedTaskNote")
 			return r.match(delta.added(TaskNote), { task }).find({ task })
 		})
 	)
-export type NoteAllParams = Expect<Equals<ParamsOf<typeof noteAll>, { readonly account: string }>>
-export type NoteAllReads = Expect<
-	Equals<ReadsOf<typeof noteAll>, { readonly added: ReadonlyArray<{ readonly task: string }> }>
+export type NoteAllParams = Expect<
+	Equals<ParamsOf<typeof noteAll>, { readonly account: ParamType<Uuid, "uuid"> }>
 >
-export const appliedNotes = writer.apply(noteAll, { account: "a" })
+export type NoteAllReads = Expect<
+	Equals<ReadsOf<typeof noteAll>, { readonly added: ReadonlyArray<{ readonly task: Uuid }> }>
+>
+export const appliedNotes = writer.apply(noteAll, { account: accountId })
 // @ts-expect-error -- TS2345: the ChangeSet's parameters are required
 export const missingParams = writer.apply(noteAll, {})
 export const compiledNotes = writer.compile(noteAll)
@@ -249,14 +258,14 @@ export type CompiledNotes = Expect<
 		Compiled<
 			typeof WriterRole,
 			typeof noteAll,
-			{ readonly added: ReadonlyArray<{ readonly task: string }> }
+			{ readonly added: ReadonlyArray<{ readonly task: Uuid }> }
 		>
 	>
 >
 declare const compiledNoting: Effect.Success<typeof compiledNotes>
-export const compiledApply = compiledNoting.apply({ account: "a" })
+export const compiledApply = compiledNoting.apply({ account: accountId })
 // @ts-expect-error -- TS2345 refusal: a compiled ChangeSet applies, and a compiled query reads
-export const compiledChangeReads = compiledNoting.execute({ account: "a" })
+export const compiledChangeReads = compiledNoting.execute({ account: accountId })
 /** A closed relation is a roster, not a ChangeSet member. */
 // @ts-expect-error -- TS2345 refusal: a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes
 export const writesRoster = ChangeSet.empty(Work).insert(Kind, [{ id: "Manual" }])
@@ -281,7 +290,7 @@ export const reporterRefresh = reporter.refresh(StudentWeekly)
  * one row.
  */
 export const weeklyLookup = query(Reports).rule((r) => {
-	const { passes } = v(StudentWeekly)
+	const { passes } = v(StudentWeekly, "studentWeekly")
 	return r
 		.match(StudentWeekly, {
 			student: r.param("student", uuid),
@@ -290,7 +299,7 @@ export const weeklyLookup = query(Reports).rule((r) => {
 		})
 		.find({ passes })
 })
-export const weekly = reporter.get(weeklyLookup, { student: "s", week: EpochDay(3n) })
+export const weekly = reporter.get(weeklyLookup, { student: studentId, week: EpochDay(3n) })
 export type Weekly = Expect<
 	Equals<typeof weekly, Effect.Effect<Option.Option<{ readonly passes: bigint }>, ReadError>>
 >
@@ -301,15 +310,15 @@ export type Weekly = Expect<
  */
 // @ts-expect-error -- TS2345: noteAll still needs account
 export const unboundApply = writer.apply(noteAll, {})
-export const boundApply = writer.apply(noteAll.bind({ account: "a" }), {})
+export const boundApply = writer.apply(noteAll.bind({ account: accountId }), {})
 // @ts-expect-error -- TS2322: a query needing account is not a query needing nothing
 export const upcast: Query<
 	typeof Work,
-	{ readonly id: string },
+	{ readonly id: Uuid },
 	EvidenceOfQuery<typeof tasksForAccount>,
 	{}
 > = tasksForAccount
-export const explained = writer.explain(noteAll, { account: "a" })
+export const explained = writer.explain(noteAll, { account: accountId })
 
 /** The workload names programs over the schema or any level below it. */
 export const programs = workload(Reports, { recentSittings, clockTick })

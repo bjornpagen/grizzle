@@ -50,6 +50,7 @@ import {
 	rowsReadFrom,
 	scansOf
 } from "#bench/query/support/plans.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
@@ -58,7 +59,7 @@ import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { BinaryOperator, Expr, FromItem, SqlStatement } from "#compiler/sql/ast.ts"
+import type { BinaryOperator, Expr, FromSource, SqlStatement } from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -101,7 +102,7 @@ export const Access = schema("Access", { Kind, Entry }, [])
 
 /** R04 and R18: open entries in an amount range. */
 const openInRange = query(Access).rule((r) => {
-	const { id, amount } = v(Entry)
+	const { id, amount } = v(Entry, "entry")
 	return r
 		.match(Entry, { id, amount, kind: "Open" })
 		.where(r.ge(amount, r.param("lo", Cents)), r.lt(amount, r.param("hi", Cents)))
@@ -111,7 +112,7 @@ const openInRange = query(Access).rule((r) => {
 /** R05: an account's entries by amount, keyed by id; and its amounts alone, the key dropped. */
 export const byAmount = query(Access)
 	.rule((r) => {
-		const { id, amount } = v(Entry)
+		const { id, amount } = v(Entry, "entry")
 		return r
 			.match(Entry, { id, account: r.param("account", Entry.fields.account), amount })
 			.find({ id, amount })
@@ -120,7 +121,7 @@ export const byAmount = query(Access)
 
 export const amountsOf = query(Access)
 	.rule((r) => {
-		const { amount } = v(Entry)
+		const { amount } = v(Entry, "entry")
 		return r
 			.match(Entry, { account: r.param("account", Entry.fields.account), amount })
 			.find({ amount })
@@ -129,7 +130,7 @@ export const amountsOf = query(Access)
 
 /** R39: an account's entries whose code lies in a code-point interval. */
 const codesIn = query(Access).rule((r) => {
-	const { id, code } = v(Entry)
+	const { id, code } = v(Entry, "entry")
 	return r
 		.match(Entry, { id, account: r.param("account", Entry.fields.account), code })
 		.where(
@@ -243,7 +244,7 @@ const canonicalType = Effect.fn("canonicalType")(function* (raw: RawSession, spe
 
 /** The relation aliases and derived column names one FROM item defines. */
 const definedBy = (
-	item: FromItem
+	item: FromSource
 ): { readonly aliases: ReadonlyArray<string>; readonly columns: ReadonlyArray<string> } => {
 	switch (item.kind) {
 		case "table":
@@ -259,9 +260,6 @@ const definedBy = (
 			return { aliases: [item.alias], columns: Arr.map(item.columns, (c) => c.name) }
 		case "context":
 			return { aliases: [item.alias], columns: Arr.map(item.columns, (c) => c.column.name) }
-		case "join":
-		case "crossJoin":
-			return { aliases: [], columns: [] }
 	}
 }
 
@@ -280,10 +278,10 @@ const singleAssignment = (
 	const columns: Array<string> = []
 	transformStatement(executableQuery(statement), {
 		...identityHooks,
-		fromItem: (item) => {
+		fromSource: (item) => {
 			const defined = definedBy(item)
-			aliases.push(...defined.aliases)
-			columns.push(...defined.columns)
+			appendAll(aliases, defined.aliases)
+			appendAll(columns, defined.columns)
 			return item
 		}
 	})
@@ -332,10 +330,10 @@ type Resolved =
  * a computed target names no stored column.
  */
 const storedColumnOf = (statement: SqlStatement): ((e: Expr) => Resolved) => {
-	const items = new Map<string, Extract<FromItem, { readonly kind: "table" | "derived" }>>()
+	const items = new Map<string, Extract<FromSource, { readonly kind: "table" | "derived" }>>()
 	transformStatement(statement, {
 		...identityHooks,
-		fromItem: (item) => {
+		fromSource: (item) => {
 			if (item.kind === "table" || item.kind === "derived") {
 				items.set(item.alias, item)
 			}
@@ -686,7 +684,7 @@ export default defineGate({
 			const signatures: Array<GateCheck> = []
 			for (const [i, { label, compiled, sql }] of judgedStatements.entries()) {
 				const statement = optimizedStatement(compiled, 0)
-				structural.push(...singleAssignment(label, statement))
+				appendAll(structural, singleAssignment(label, statement))
 				const inferred = yield* serverStatementTypes(raw, sql, `gz_m15b_sig_${i}`)
 				const cast: Array<string> = []
 				for (const slot of statement.params) {

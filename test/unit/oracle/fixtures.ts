@@ -1,5 +1,6 @@
 import { Array as Arr } from "effect"
 import { wild } from "#test/support/kernel/naming.ts"
+import { argumentsOf } from "#test/support/list.ts"
 import { OracleChangeSet, type OracleSchema } from "#test/support/oracle/addwins.ts"
 
 export const kinds = ["a", "b"] as const
@@ -79,5 +80,5 @@ export const sequenceOf = <M>(
 	if (first === undefined) {
 		throw new Error("a sequence of at least one stratum")
 	}
-	return OracleChangeSet.sequence(first, ...rest)
+	return OracleChangeSet.sequence(first, ...argumentsOf(rest))
 }

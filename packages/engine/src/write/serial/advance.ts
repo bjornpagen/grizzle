@@ -5,11 +5,11 @@ import {
 	desc,
 	lit,
 	qualifiedCall,
+	sameTypeRef,
 	simpleSelect,
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { printType } from "#compiler/sql/print.ts"
 import { type RereadInput, scanInput, skipWhenEmptyOf } from "#compiler/write/insert/input.ts"
 import {
 	buildStatement,
@@ -51,7 +51,7 @@ export const buildSequenceAdvance = (
 		const output = supply.column(internal("advance"))
 		const sqlType = read.type.sqlType
 		const argument =
-			sqlType !== undefined && printType(sqlType) === printType(types.bigint)
+			sqlType !== undefined && sameTypeRef(sqlType, types.bigint)
 				? value
 				: cast(value, types.bigint)
 		const ast = {

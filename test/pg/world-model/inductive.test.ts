@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -16,6 +16,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { notedOf, runStep } from "#test/support/worlds/drive/index.ts"
@@ -87,10 +88,10 @@ const cases = 64
  * the cases; a led case's lead first builds a state from which a feature the planned states rarely offer is that one
  * action away.
  */
-const required = requiredWorldFeatures
+const situations = requiredWorldFeatures
 
 /** The leads a led case draws from (drive/suite.ts inductiveLeads). */
-const leads = inductiveLeads(required)
+const leads = inductiveLeads(situations)
 
 /** How many cases the steered phase may run, as a multiple of the cases. */
 const steeredFactor = 10
@@ -502,13 +503,15 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							suite: "pg/world-model/inductive",
 							draw: drawn(caseGen),
 							literal: Formatter.format,
-							features: features<WorldFeature>(required),
+							coverage: required<WorldFeature>(situations, {
+								cases: steeredFactor * cases,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: cases,
 							shrink: { kind: "bounded", candidates: 200 },
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "mutate", cases: steeredFactor * cases, sense: notesOnly },
 							caseHang: Duration.minutes(2)
 						},
 						(ic, c) =>
@@ -516,8 +519,8 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								Effect.gen(function* () {
 									const world =
 										ic.pool === "default"
-											? yield* realize(ic.install)
-											: yield* realizeRace(ic.install, 1)
+											? yield* realize(ic.install, ordinarySession)
+											: yield* realizeRace(ic.install, ordinarySession, 1)
 									const staged = yield* stage(world, ic.install, c.draw, docsAtCapacityRealities)
 									const setup = setupOf(ic.plan)
 									const planned = yield* Effect.reduce(
@@ -532,8 +535,8 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 									reachedPlan(planned, ic.plan)
 									const led: Led =
 										ic.plan.after.kind === "led"
-											? leadOf(leads, required, ic.weights, c)
-											: { moves: [], aims: required }
+											? leadOf(leads, situations, ic.weights, c)
+											: { moves: [], aims: situations }
 									const reached = yield* Effect.reduce(
 										led.moves,
 										(): ModelState => planned,

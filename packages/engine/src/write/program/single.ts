@@ -1,4 +1,10 @@
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { appendAll, maxOf } from "#compiler/core/array.ts"
+import {
+	appendNonEmpty,
+	concatNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import type {
 	Cte,
@@ -6,13 +12,14 @@ import type {
 	Expr,
 	RecordsetPlaceholder,
 	Select,
-	SelectBody,
+	SelectCore,
 	ValuePlaceholder
 } from "#compiler/sql/ast.ts"
-import { col, core, cteRef, lit, select, target, types } from "#compiler/sql/build.ts"
+import { col, core, cteRef, lit, select, setOp, target, types } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { type NameMap, NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
+import { flatMapNonEmpty } from "#compiler/write/defined.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
@@ -87,7 +94,7 @@ const shifted = (
 		: {
 				query: transformSelect(query, {
 					...identityHooks,
-					replaceFromItem: (item) =>
+					replaceSource: (item) =>
 						item.kind === "recordset" ? { ...item, source: moved(item.source, offset) } : undefined,
 					expr: (e) => (e.kind === "param" ? { ...e, slot: moved(e.slot, offset) } : e)
 				}),
@@ -122,40 +129,55 @@ export const singleStatement = (
 	writes: NonEmptyReadonlyArray<WritePart>,
 	start: NameStart
 ): SingleStatement => {
-	const ctes: Array<Cte> = []
+	const shareCtes: Array<Cte> = []
 	const params: Array<WriteParamSlot> = []
 	const nameMap: Array<NameMap[number]> = []
 	let next = start
 	for (const part of shares) {
 		const shift = shifted(part.query, part.params, params.length)
-		ctes.push({
+		shareCtes.push({
 			name: part.name,
 			columns: part.columns,
 			materialized: "MATERIALIZED",
 			query: shift.query
 		})
-		params.push(...shift.params)
-		nameMap.push(...part.nameMap)
+		appendAll(params, shift.params)
+		appendAll(nameMap, part.nameMap)
 	}
 	const outs = mapNonEmpty(writes, (part) => {
 		const statement = part.statement
 		/** The statement's WITH, renumbered as its body is: transformSelect keeps a WITH it is given. */
-		const { query: body, params: own } = shifted(statement.ast, statement.params, params.length)
-		params.push(...own)
-		nameMap.push(...statement.sql.nameMap)
+		const { query: body, params: partParams } = shifted(
+			statement.ast,
+			statement.params,
+			params.length
+		)
+		appendAll(params, partParams)
+		appendAll(nameMap, statement.sql.nameMap)
 		const out = freshNames(next, part.width)
 		next = out.next
-		nameMap.push(...out.nameMap)
-		ctes.push(...(body.with === undefined ? [] : body.with.ctes), {
+		appendAll(nameMap, out.nameMap)
+		const own: Cte = {
 			name: out.relation,
 			columns: out.columns,
 			materialized: undefined,
 			query: { ...body, with: undefined }
-		})
-		return { name: out.relation, columns: out.columns }
+		}
+		return {
+			name: out.relation,
+			columns: out.columns,
+			ctes: appendNonEmpty(body.with === undefined ? [] : body.with.ctes, own)
+		}
 	})
-	const width = Math.max(0, ...outs.map((o) => o.columns.length))
-	const arms = mapNonEmpty(outs, (o, tag): SelectBody => {
+	const ctes = concatNonEmpty(
+		shareCtes,
+		flatMapNonEmpty(outs, (o) => o.ctes)
+	)
+	const width = maxOf(
+		outs.map((o) => o.columns.length),
+		0
+	)
+	const arms = mapNonEmpty(outs, (o, tag): SelectCore => {
 		const padding: ReadonlyArray<Expr> = Array.from({ length: width - o.columns.length }, () =>
 			lit.text("", types.text)
 		)
@@ -169,11 +191,6 @@ export const singleStatement = (
 			undefined
 		)
 	})
-	const [first, ...rest] = arms
-	const body = rest.reduce<SelectBody>(
-		(left, right) => ({ kind: "setOp", op: "UNION ALL", left, right }),
-		first
-	)
-	const ast: Select = { ...select(body), with: { recursive: false, ctes } }
+	const ast: Select = { ...select(setOp("UNION ALL", arms)), with: { recursive: false, ctes } }
 	return { ast, sql: emitText(ast, nameMap), params, width }
 }

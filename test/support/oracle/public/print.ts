@@ -2,22 +2,30 @@ import { Array as Arr } from "effect"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { SpelledValue } from "#test/support/oracle/gen/domain.ts"
 import { printPerturbation } from "#test/support/oracle/perturb.ts"
-import type {
-	ProgramCase,
-	ComputedTerm,
-	ProgramFact,
-	HeadItem,
-	Operand,
-	OrderKey,
-	Param,
-	ParentColumn,
-	Query,
-	ProgramRead,
-	Rule,
-	Source,
-	StatedDelivery,
-	Var
+import {
+	type ArgTerm,
+	type ProgramCase,
+	type Comparison,
+	type ComputedTerm,
+	type ProgramFact,
+	type StoredFact,
+	type HeadItem,
+	type Operand,
+	type OrderKey,
+	type Padding,
+	paddingBounds,
+	type Param,
+	type ParentColumn,
+	powerBounds,
+	type Query,
+	type ProgramRead,
+	type Rule,
+	type Source,
+	type StatedDelivery,
+	unguarded,
+	type Var
 } from "#test/support/oracle/public/program.ts"
 
 /** The items joined by `separator`, or `none` when there is no item. */
@@ -31,7 +39,7 @@ const literal = (l: TypedLiteral): string => {
 		case "numeric":
 			return `${decimalPayload(l.value)}d`
 		case "float":
-			return Object.is(l.value, -0) ? "-0.0" : `${l.value}f`
+			return `${l.value}f`
 		case "floatSpecial":
 			return l.value
 		case "money":
@@ -46,7 +54,7 @@ const literal = (l: TypedLiteral): string => {
 		case "span":
 			return `[${l.start},${l.end})`
 		case "vector":
-			return "vector"
+			return l.value.toString()
 	}
 }
 
@@ -72,6 +80,15 @@ const operand = (o: Operand<ParentColumn>): string => {
 	}
 }
 
+/** A padding as its guarded casts write it, its bounds paddingBounds. */
+const padding = (p: Padding): string => {
+	const v = variable(p.arg)
+	const [low, high] = paddingBounds(p.arg.field.type)
+	return `Compute.when(Compute.within(${v}, ${literal(low)}, ${literal(high)}), (${v}) => Compute.cast(Compute.cast(${v}, pg.numeric(1000, ${p.scale})), pg.numeric), Compute.cast(${v}, pg.numeric))`
+}
+
+const argTerm = (a: ArgTerm): string => (a.kind === "var" ? variable(a.var) : padding(a.padding))
+
 const computed = (t: ComputedTerm): string => {
 	switch (t.kind) {
 		case "base":
@@ -80,6 +97,19 @@ const computed = (t: ComputedTerm): string => {
 			return `Compute.cast(${variable(t.arg)}, pg.numeric)`
 		case "cond":
 			return `Compute.cond(r.${t.op}(${variable(t.arg)}, ${literal(t.than)}), ${variable(t.arg)}, ${literal(t.otherwise)})`
+		case "padded":
+			return padding(t.padding)
+		case "div":
+			return `Compute.div(${argTerm(t.dividend)}, ${literal(t.divisor)})`
+		case "sqrt": {
+			const a = argTerm(t.radicand)
+			return `Compute.when(Compute.nonnegative(${a}), (a) => Compute.sqrt(a), ${literal(unguarded)})`
+		}
+		case "power": {
+			const a = argTerm(t.base)
+			const [low, high] = powerBounds
+			return `Compute.when(Compute.within(${a}, ${literal(low)}, ${literal(high)}), (a) => Compute.power(a, ${literal(t.exponent)}), ${literal(unguarded)})`
+		}
 	}
 }
 
@@ -90,11 +120,11 @@ const head = (h: HeadItem): string => {
 		case "count":
 			return `${h.name}: r.count()`
 		case "fold":
-			return `${h.name}: r.${h.fn}(${variable(h.arg)})`
+			return `${h.name}: r.${h.fn}(${argTerm(h.arg)})`
 		case "computed":
 			return `${h.name}: ${computed(h.term)}`
 		case "literal":
-			return `${h.name}: r.literal(${literal(h.literal)})`
+			return `${h.name}: ${literal(h.literal)}`
 	}
 }
 
@@ -136,8 +166,10 @@ const rule = (r: Rule<ParentColumn>): string => {
 				", "
 			)} })`
 	)
+	const comparison = (c: Comparison): string =>
+		`r.${c.op}(${variable(c.left)}, ${operand(c.right)})`
 	const where = [
-		...Arr.map(r.where, (c) => `r.${c.op}(${variable(c.left)}, ${operand(c.right)})`),
+		...Arr.map(r.where, comparison),
 		...Arr.map(
 			r.between,
 			(b) => `r.between(${variable(b.left)}, ${operand(b.low)}, ${operand(b.high)})`
@@ -148,6 +180,7 @@ const rule = (r: Rule<ParentColumn>): string => {
 		),
 		...Arr.map(r.allens, (a) => `r.allen(${variable(a.left)}, ${a.mask}, ${variable(a.right)})`),
 		...Arr.map(r.pointIns, (p) => `r.pointIn(${variable(p.point)}, ${variable(p.span)})`),
+		...Arr.map(r.connectives, (j) => `r.${j.kind}(${Arr.join(Arr.map(j.args, comparison), ", ")})`),
 		...Arr.map(
 			r.negations,
 			(n) =>
@@ -188,6 +221,14 @@ const query = (q: Query<ParentColumn>, indent: string): string => {
 }
 
 const fact = (f: ProgramFact): string => `(${Arr.join(Arr.map(f, literal), ", ")})`
+
+/** A stored value: its literal, and the twin spelling it is stored in where it is not its one form. */
+const stored = (v: SpelledValue): string =>
+	v.spelling.kind === "canonical"
+		? literal(v.literal)
+		: `${literal(v.literal)} stored as ${JSON.stringify(v.spelling.text)}`
+
+const storedFact = (f: StoredFact): string => `(${Arr.join(Arr.map(f, stored), ", ")})`
 
 const read = (r: ProgramRead, i: number): string => {
 	if (r.kind === "handle") {
@@ -280,9 +321,11 @@ export const printCase = (c: ProgramCase): string =>
 			),
 			...Arr.map(
 				c.schema.relations,
-				(r) => `facts ${r.name}: ${listed(Arr.map(c.facts.get(r.name) ?? [], fact), " ", "none")}`
+				(r) =>
+					`facts ${r.name}: ${listed(Arr.map(c.facts.get(r.name) ?? [], storedFact), " ", "none")}`
 			),
 			printPerturbation(c.perturbation),
+			`second reading: facts rotated by ${c.restorage.shift} and reversed, stored value ${c.restorage.respell} respelled`,
 			...Arr.map(c.reads, read)
 		],
 		"\n"

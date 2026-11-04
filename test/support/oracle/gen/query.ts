@@ -17,14 +17,15 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenExpr } from "#compiler/check/allen.ts"
 import { completeStatedOrders, type StatedOrder } from "#compiler/check/order.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { normalizeDag, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import {
+	type DefinedOp,
 	exprClosure,
 	OpId,
-	rangeOp,
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
@@ -55,6 +56,7 @@ import {
 	spanCarrierOf,
 	spanOf
 } from "#compiler/ir/scalar.ts"
+import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { defined } from "#test/support/assert.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { liveOf, validateDag } from "#test/support/oracle/dag-validate.ts"
@@ -64,7 +66,6 @@ import {
 	type CompareSketch,
 	castChainSketchGen,
 	compareSketchGen,
-	isCastChain,
 	type LowerHooks,
 	type TermScope,
 	type TermSketch,
@@ -433,9 +434,9 @@ export interface QueryConfig {
 	/** The most operations in one computed term. */
 	readonly termDepth: number
 	/**
-	 * Whether every computed term is a chain of one or two casts over one input column (compute.ts castChainSketchGen),
-	 * which a projection may deliver while dropping other columns: the population for the dedup proof's injective
-	 * casts, where a cast that keeps every value lets a DISTINCT go and one that rounds or merges must keep it.
+	 * Whether every computed term is a chain of one or two casts over one input column (compute.ts castChainSketchGen):
+	 * the population for the dedup proof's injective casts, where a cast that keeps every value lets a DISTINCT go and
+	 * one that rounds or merges must keep it.
 	 */
 	readonly castChains: boolean
 	/**
@@ -448,12 +449,6 @@ export interface QueryConfig {
 	 * degrades to a constant); 0 leaves them out.
 	 */
 	readonly endpoints: number
-	/**
-	 * Whether a computed term may be one that can fail on some value (an overflow, a division by zero, a NaN cast to an
-	 * integer). Off, a place whose term can fail takes what it would take without computation, so every expression of
-	 * the query is total and an execution error is a defect: the population of a runner that compares exact rows.
-	 */
-	readonly failing: boolean
 	/**
 	 * Whether takes and ordered roots state only a prefix of their order, which the checker completes over the logical
 	 * keys of the relation they order (check/order.ts completeStatedOrders), so an order that reaches a key stops there
@@ -526,7 +521,6 @@ export const defaultQueryConfig: QueryConfig = {
 	castChains: false,
 	allen: 0,
 	endpoints: 0,
-	failing: true,
 	statedOrders: false,
 	follow: 0,
 	imported: 2,
@@ -1075,14 +1069,7 @@ const windowOps: Readonly<
 interface Built {
 	readonly node: RelNode
 	readonly heading: Heading
-	/**
-	 * The columns whose spelling PostgreSQL's arithmetic chooses rather than the case (computedSpelling), which the
-	 * resolver keeps away from every merge.
-	 */
-	readonly computed: ReadonlySet<string>
 }
-
-const none: ReadonlySet<string> = new Set()
 
 /** Whether projected arms carry an integer literal `tag` column, and its value for each arm. */
 type ArmTag =
@@ -1096,32 +1083,6 @@ const untagged: ArmTag = { kind: "untagged" }
  * carry.
  */
 const outOfContract: TypedLiteral = { kind: "text", value: "abc" }
-
-/**
- * Whether an aggregate's result is spelled by PostgreSQL's arithmetic rather than by the case (gen/domain.ts): a
- * numeric sum or avg takes the largest input display scale, or select_div_scale for avg, so sum('0.00', '1') is
- * '1.00', sum(int8 1) is '1' and avg(int4 1) is '1.00000000000000000000', whatever spelling the case gives its stored
- * numerics; a float sum or avg can turn -0 into 0. Such a value is natively equal to a case-spelled one of its type
- * and spelled differently, so wherever the two could merge (a set boundary, a group key, a join variable, a min or
- * max) PostgreSQL's plan would choose the surviving text. count, an integer sum (bigint), a money sum, min, max and the
- * boolean folds return values the case spelled or that have one spelling.
- */
-const computedSpelling = (fn: GenAggregate, argType: ScalarType | undefined): boolean => {
-	if (fn !== "sum" && fn !== "avg") {
-		return false
-	}
-	const carrier = aggregateResult(fn, argType).carrier
-	return carrier === "numeric" || carrier === "float4" || carrier === "float8"
-}
-
-const plain = (c: HeadingColumn, computed: ReadonlySet<string>): boolean => !computed.has(c.name)
-
-/**
- * Whether a computed value of `type` is spelled by PostgreSQL's arithmetic: a numeric's display scale follows its
- * operands and operations, and float arithmetic can produce -0.
- */
-const arithmeticSpelling = (type: ScalarType): boolean =>
-	type.carrier === "numeric" || type.carrier === "float4" || type.carrier === "float8"
 
 const freshName = (base: string, taken: ReadonlySet<string>): string => {
 	if (!taken.has(base)) {
@@ -1207,9 +1168,11 @@ class QueryResolver {
 	readonly #names: ParamNames
 	#closures = 0
 	/** The value sketches of the parameters a term names before the type they adopt is known. */
-	readonly #termParams = new Map<string, ValueSketch>()
-	/** The expressions that can fail or are stable, which every operator over them inherits. */
-	readonly #canFail = new Set<ScalarExpr>()
+	readonly #termParams = new Map<
+		string,
+		{ readonly value: ValueSketch; readonly type: ScalarType }
+	>()
+	/** The expressions that are stable, which every operator over them inherits. */
 	readonly #stable = new Set<ScalarExpr>()
 
 	readonly #source: Source
@@ -1293,7 +1256,7 @@ class QueryResolver {
 
 	/** A compare operand: a parameter when parameters are on and the sketch asks for one, a literal otherwise. */
 	operand(type: ScalarType, value: ValueSketch, asParam: boolean): ScalarExpr {
-		const literal = resolveValue(type, value, this.spelling, "compare")
+		const literal = resolveValue(type, value, this.spelling.edge)
 		if (!(asParam && this.config.params && this.kept(this.swarm, "params"))) {
 			return this.lit(literal, type)
 		}
@@ -1319,12 +1282,12 @@ class QueryResolver {
 			params: this.config.params && weightOf(this.swarm, "params") > 0,
 			literal: (type, value) => ({
 				kind: "literal",
-				value: typedLiteralDesc(resolveValue(type, value, this.spelling, "compare"), type),
+				value: typedLiteralDesc(resolveValue(type, value, this.spelling.edge), type),
 				type: undefined
 			}),
-			param: (value) => {
+			param: (value, type) => {
 				const name = `t${this.#termParams.size + 1}`
-				this.#termParams.set(name, value)
+				this.#termParams.set(name, { value, type })
 				return name
 			}
 		}
@@ -1340,22 +1303,18 @@ class QueryResolver {
 				type: c.type,
 				nonNull: "storage"
 			}),
-			param: (name, operandType) => {
-				const type = compareParamType(operandType)
-				const sketch = this.#termParams.get(name) ?? { cls: 0, sp: 0 }
+			param: (name) => {
+				const registered = defined(this.#termParams.get(name), "a registered term parameter")
+				const type = compareParamType(registered.type)
 				const param = this.#names.mint("p")
 				this.params[param] = {
 					kind: "scalar",
 					type,
-					value: resolveValue(type, sketch, this.spelling, "compare")
+					value: resolveValue(type, registered.value, this.spelling.edge)
 				}
 				return {
-					kind: "param",
-					param,
-					role: "compare",
-					args: [],
-					type,
-					nonNull: "codec"
+					spec: { kind: "param", param, role: "compare", args: [], type, nonNull: "codec" },
+					type: registered.type
 				}
 			}
 		}
@@ -1366,21 +1325,16 @@ class QueryResolver {
 		return this.config.compute > 0 && this.kept(this.swarm, "compute")
 	}
 
-	/** An operator node; it can fail when an operand can. */
-	op(op: OpId, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
-		const canFail = Arr.some(args, (a) => this.#canFail.has(a))
+	/** An operator node, defined on every value; it is stable when an operand is. */
+	op(op: DefinedOp, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
 		const id = this.b.expr({
 			kind: "op",
 			op,
 			args,
 			type,
 			nonNull: "strict",
-			volatility: Arr.some(args, (a) => this.#stable.has(a)) ? "stable" : "immutable",
-			failure: canFail ? "canFail" : "total"
+			volatility: Arr.some(args, (a) => this.#stable.has(a)) ? "stable" : "immutable"
 		})
-		if (canFail) {
-			this.#canFail.add(id)
-		}
 		if (Arr.some(args, (a) => this.#stable.has(a))) {
 			this.#stable.add(id)
 		}
@@ -1388,14 +1342,7 @@ class QueryResolver {
 	}
 
 	/** Records what a computed term's root can do. */
-	noteTerm(t: {
-		readonly expr: ScalarExpr
-		readonly canFail: boolean
-		readonly stable: boolean
-	}): ScalarExpr {
-		if (t.canFail) {
-			this.#canFail.add(t.expr)
-		}
+	noteTerm(t: { readonly expr: ScalarExpr; readonly stable: boolean }): ScalarExpr {
 		if (t.stable) {
 			this.#stable.add(t.expr)
 		}
@@ -1416,20 +1363,14 @@ class QueryResolver {
 					rows: closed.rows,
 					heading
 				}),
-				heading,
-				computed: none
+				heading
 			}
 		}
 		if (s.tag === "input" && this.config.inputSets && this.kept(this.swarm, "input")) {
 			const heading = Arr.map(s.columns, (pick, i) => column(`i${i}`, at(this.types, pick)))
 			const rows = Arr.map(s.rows, (r) =>
 				Arr.map(heading, (c, i) =>
-					resolveValue(
-						c.type,
-						cyclicAt(r.values, i, "a row sketch's values"),
-						this.spelling,
-						"stored"
-					)
+					resolveValue(c.type, cyclicAt(r.values, i, "a row sketch's values"), this.spelling.edge)
 				)
 			)
 			const param = this.#names.mint("r")
@@ -1442,8 +1383,7 @@ class QueryResolver {
 					input: { kind: "declared", param },
 					heading
 				}),
-				heading,
-				computed: none
+				heading
 			}
 		}
 		if (s.tag === "query" && this.kept(this.swarm, "imported")) {
@@ -1465,7 +1405,7 @@ class QueryResolver {
 			relationKind: "relation",
 			heading
 		})
-		return { node: id, heading, computed: none }
+		return { node: id, heading }
 	}
 
 	/**
@@ -1561,7 +1501,7 @@ class QueryResolver {
 					pred,
 					heading: input.heading
 				})
-				return { node: id, heading: input.heading, computed: input.computed }
+				return { node: id, heading: input.heading }
 			}
 			case "project":
 				return this.project(this.query(s.input), s.out)
@@ -1575,12 +1515,7 @@ class QueryResolver {
 				return this.union(s)
 			case "intersect":
 			case "difference": {
-				/**
-				 * An intersection's row is a left row and a right row merged, so neither side brings a computed
-				 * spelling; a difference returns left rows as they are.
-				 */
-				const first = this.query(s.left)
-				const left = s.tag === "intersect" ? this.dropComputed(first) : first
+				const left = this.query(s.left)
 				const right = this.conform(this.query(s.right), left.heading, s.picks, [])
 				const kind = s.tag === "intersect" ? "Intersect" : "Difference"
 				return {
@@ -1592,8 +1527,7 @@ class QueryResolver {
 						right: right.node,
 						heading: left.heading
 					}),
-					heading: left.heading,
-					computed: left.computed
+					heading: left.heading
 				}
 			}
 			case "group":
@@ -1649,8 +1583,6 @@ class QueryResolver {
 	 * `input` read through a region that binds its every column to a variable of the column's name, declaring besides
 	 * the variables `correlated` copies a column of an enclosing region's earlier source into.
 	 *
-	 * Binding every column merges nothing, so the computed spellings pass through under their names; a copied
-	 * column is case-spelled (lateralPick).
 	 */
 	boundRegion(
 		input: Built,
@@ -1679,7 +1611,7 @@ class QueryResolver {
 			correlated: Arr.map(correlated, (c) => ({ var: c.var, expr: c.expr })),
 			heading
 		})
-		return { node: id, heading, computed: input.computed }
+		return { node: id, heading }
 	}
 
 	/** A fresh variable `name` of the type of `c`. */
@@ -1691,10 +1623,6 @@ class QueryResolver {
 		const vars: Array<VarDecl> = []
 		const names = new Set<string>()
 		const occurrences: Array<Occurrence> = []
-		/**
-		 * The variables bound to a column with a computed spelling: never joined, so no variable merges two columns.
-		 */
-		const computed = new Set<VarDecl>()
 		const fresh = (c: HeadingColumn): VarDecl => {
 			const name = freshName(c.name, names)
 			names.add(name)
@@ -1747,12 +1675,6 @@ class QueryResolver {
 		/** The sources this region's occurrences read, in order, as they are placed. */
 		const placed: Array<Built> = []
 		/**
-		 * An existential witness projects its column away, which merges the region's bindings that differ only there;
-		 * a region over a computed spelling binds every column instead. A constant column needs no such care: it is
-		 * natively one value in every binding.
-		 */
-		const witnesses = Arr.every(plans, (p) => p.tag === "follow" || p.source.computed.size === 0)
-		/**
 		 * One occurrence of `source`: a column in `fixed` bound to its variable, one in `fresh` to a fresh variable, and
 		 * every other as its bind sketch says. Behind a containment (`through`), the target's columns past its key are
 		 * left existential where the sketch would bind them fresh, so the occurrence often only tests that a target fact
@@ -1794,8 +1716,7 @@ class QueryResolver {
 								? this.kept(this.swarm, "joins")
 								: true
 				const mode = allowed ? drawn : 0
-				const spelled = plain(c, source.computed)
-				if (mode === 7 && witnesses) {
+				if (mode === 7) {
 					continue
 				}
 				if (mode === 8 || mode === 9) {
@@ -1816,18 +1737,14 @@ class QueryResolver {
 					constants.push({ column: c.name, expr: this.operand(c.type, bind.value, asParam) })
 					continue
 				}
-				if ((mode === 5 || mode === 6) && spelled) {
-					const same = Arr.filter(vars, (v) => sameScalarType(v.type, c.type) && !computed.has(v))
+				if (mode === 5 || mode === 6) {
+					const same = Arr.filter(vars, (v) => sameScalarType(v.type, c.type))
 					if (same.length > 0) {
 						bindings.push({ column: c.name, var: at(same, bind.pick) })
 						continue
 					}
 				}
-				const v = fresh(c)
-				if (!spelled) {
-					computed.add(v)
-				}
-				bindings.push({ column: c.name, var: v })
+				bindings.push({ column: c.name, var: fresh(c) })
 			}
 			const occurrence: Occurrence = { id, source: source.node, bindings, constants }
 			occurrences.push(occurrence)
@@ -1901,16 +1818,7 @@ class QueryResolver {
 			correlated,
 			heading
 		})
-		return {
-			node,
-			heading,
-			computed: new Set(
-				Arr.map(
-					Arr.filter(vars, (v) => computed.has(v)),
-					(v) => v.name
-				)
-			)
-		}
+		return { node, heading }
 	}
 
 	pred(p: PredSketch, input: Built): ScalarExpr {
@@ -1921,7 +1829,7 @@ class QueryResolver {
 				const built = this.computes()
 					? buildCompare(this.termScope(input.heading), this.termHooks(input.node), p.compare)
 					: undefined
-				return built === undefined || (built.canFail && !this.config.failing)
+				return built === undefined
 					? this.lit({ kind: "bool", value: p.compare.op % 2 === 0 }, bool)
 					: this.noteTerm(built)
 			}
@@ -2030,7 +1938,7 @@ class QueryResolver {
 		)
 		const endpoint = (headingColumn: HeadingColumn, upper: boolean): ScalarExpr =>
 			this.op(
-				rangeOp(upper ? "upper(anyrange)" : "lower(anyrange)", carrier),
+				definedRangeOp(upper ? "upper(anyrange)" : "lower(anyrange)", carrier),
 				[this.col(input.node, headingColumn)],
 				endpointType
 			)
@@ -2047,49 +1955,27 @@ class QueryResolver {
 			p.rhs.tag === "column"
 				? this.col(input.node, rightColumn)
 				: this.operand(leftColumn.type, p.rhs.value, p.rhs.tag === "param")
-		return this.op(rangeOp("range_contains_elem", carrier), [within, point], bool)
+		return this.op(definedRangeOp("range_contains_elem", carrier), [within, point], bool)
 	}
 
 	project(input: Built, out: ReadonlyArray<OutSketch>): Built {
 		const taken = new Set<string>()
 		const items: Array<{ name: string; expr: ScalarExpr }> = []
 		const heading: Array<HeadingColumn> = []
-		const computed = new Set<string>()
 		/**
-		 * A projection that keeps every input column is injective, so it merges nothing and a computed spelling may
-		 * pass through it; any other projection merges the inputs that differ only in what it drops, and draws from
-		 * the case-spelled columns alone.
+		 * Every column and every computed term may be projected, a merging projection included: a computed numeric or
+		 * float is a value, which grizzle delivers in one form and the reference states exactly, whichever spelling
+		 * PostgreSQL's arithmetic or plan gives it.
 		 */
-		const picked = new Set(
-			Arr.flatMap(out, (o) =>
-				!o.literal && input.heading.length > 0 ? [at(input.heading, o.pick).name] : []
-			)
-		)
-		const injective = Arr.every(input.heading, (c) => picked.has(c.name))
-		const choices = injective
-			? input.heading
-			: Arr.filter(input.heading, (c) => plain(c, input.computed))
+		const choices = input.heading
 		for (const [i, o] of out.entries()) {
 			if (o.term.kind === "drawn" && choices.length > 0 && this.computes()) {
 				const t = buildTerm(this.termScope(choices), this.termHooks(input.node), o.term.value)
-				/**
-				 * A computed numeric or float is spelled by PostgreSQL's arithmetic (computedSpelling): two input rows
-				 * that compute natively equal values of different spellings would merge here, so it is projected only
-				 * where the projection keeps every input column and merges nothing.
-				 * A cast chain over one case-spelled column spells each output by its input's class alone: two rows that
-				 * meet in it hold natively equal values, which the case spells one way, or values a cast rounds or merges,
-				 * whose output the target type spells one way. So it may be delivered where the projection merges.
-				 */
-				const chain = this.config.castChains && isCastChain(o.term.value)
-				const spelledHere = t !== undefined && (injective || chain || !arithmeticSpelling(t.type))
-				if (t !== undefined && spelledHere && (this.config.failing || !t.canFail)) {
+				if (t !== undefined) {
 					const name = freshName(`y${i}`, taken)
 					taken.add(name)
 					items.push({ name, expr: this.noteTerm(t) })
 					heading.push(column(name, t.type))
-					if (arithmeticSpelling(t.type)) {
-						computed.add(name)
-					}
 					continue
 				}
 			}
@@ -2099,9 +1985,6 @@ class QueryResolver {
 				taken.add(name)
 				items.push({ name, expr: this.col(input.node, c) })
 				heading.push(column(name, c.type))
-				if (input.computed.has(c.name)) {
-					computed.add(name)
-				}
 				continue
 			}
 			const type = at(this.types, o.pick)
@@ -2109,7 +1992,7 @@ class QueryResolver {
 			taken.add(name)
 			items.push({
 				name,
-				expr: this.lit(resolveValue(type, o.value, this.spelling, "stored"), type)
+				expr: this.lit(resolveValue(type, o.value, this.spelling.edge), type)
 			})
 			heading.push(column(name, type))
 		}
@@ -2122,53 +2005,24 @@ class QueryResolver {
 				out: items,
 				heading
 			}),
-			heading,
-			computed
+			heading
 		}
 	}
 
-	/**
-	 * `input` without its computed spellings: a projection onto its case-spelled columns, which merges nothing a
-	 * computed spelling could tell apart.
-	 */
-	dropComputed(input: Built): Built {
-		if (input.computed.size === 0) {
-			return input
-		}
-		const heading = Arr.filter(input.heading, (c) => plain(c, input.computed))
-		const items = Arr.map(heading, (c) => ({ name: c.name, expr: this.col(input.node, c) }))
-		return {
-			node: this.b.node({
-				loc: undefined,
-				meta: conservativeMeta,
-				kind: "ProjectSet",
-				input: input.node,
-				out: items,
-				heading
-			}),
-			heading,
-			computed: none
-		}
-	}
-
-	/** The column pairs of two inputs at one type, in a fixed order; `spelled` leaves out the computed spellings. */
+	/** The column pairs of two inputs at one type, in a fixed order. */
 	pairs(
 		left: Built,
-		right: Built,
-		spelled: boolean
+		right: Built
 	): ReadonlyArray<{ readonly left: string; readonly right: string }> {
-		const of = (b: Built) =>
-			spelled ? Arr.filter(b.heading, (c) => plain(c, b.computed)) : b.heading
-		return Arr.flatMap(of(left), (l) =>
-			Arr.flatMap(of(right), (r) =>
+		return Arr.flatMap(left.heading, (l) =>
+			Arr.flatMap(right.heading, (r) =>
 				sameScalarType(l.type, r.type) ? [{ left: l.name, right: r.name }] : []
 			)
 		)
 	}
 
 	semi(kind: "SemiJoin" | "AntiJoin", left: Built, right: Built, on: ReadonlyArray<number>): Built {
-		/** A semi- or antijoin compares, and returns left rows as they are: it merges nothing. */
-		const candidates = this.pairs(left, right, false)
+		const candidates = this.pairs(left, right)
 		const chosen: Array<{ left: string; right: string }> = []
 		for (const pick of candidates.length > 0 ? on : []) {
 			const p = at(candidates, pick)
@@ -2186,15 +2040,14 @@ class QueryResolver {
 				on: chosen,
 				heading: left.heading
 			}),
-			heading: left.heading,
-			computed: left.computed
+			heading: left.heading
 		}
 	}
 
 	/**
-	 * A projection of `input` onto `target`'s names and types: each target column from a case-spelled input column of
-	 * its type, or a literal of its type when the input has none; then the `extra` literal columns. Its rows meet
-	 * other inputs' rows at a union or an intersection, so it never carries a computed spelling.
+	 * A projection of `input` onto `target`'s names and types: each target column from an input column of its type,
+	 * computed ones included, or a literal of its type when the input has none; then the `extra` literal columns. Its
+	 * rows meet other inputs' rows at a union or an intersection, where natively equal values of any spelling are one.
 	 */
 	conform(
 		input: Built,
@@ -2204,17 +2057,14 @@ class QueryResolver {
 	): Built {
 		const items: Array<{ name: string; expr: ScalarExpr }> = []
 		for (const [k, t] of target.entries()) {
-			const same = Arr.filter(
-				input.heading,
-				(c) => sameScalarType(c.type, t.type) && plain(c, input.computed)
-			)
+			const same = Arr.filter(input.heading, (c) => sameScalarType(c.type, t.type))
 			const pick = at(picks, k)
 			items.push({
 				name: t.name,
 				expr:
 					same.length > 0
 						? this.col(input.node, at(same, pick))
-						: this.lit(resolveValue(t.type, { cls: pick, sp: 0 }, this.spelling, "stored"), t.type)
+						: this.lit(resolveValue(t.type, { cls: pick, sp: 0 }, this.spelling.edge), t.type)
 			})
 		}
 		for (const e of extra) {
@@ -2233,8 +2083,7 @@ class QueryResolver {
 				out: items,
 				heading
 			}),
-			heading,
-			computed: none
+			heading
 		}
 	}
 
@@ -2286,41 +2135,30 @@ class QueryResolver {
 				discriminant: [],
 				heading
 			}),
-			heading,
-			computed: none
+			heading
 		}
 	}
 
-	/** min and max return one of their arguments, merging the equal ones. */
+	/** min and max return one of their arguments; natively equal ones are one value. */
 	group(s: Extract<QuerySketch, { tag: "group" }>): Built {
 		const input = this.query(s.input)
 		const h = input.heading
 		/**
-		 * The distinct bound tuples merge the input rows that agree on them, unless the bound tuple is the whole
-		 * heading, and a group key merges the tuples it groups: a computed spelling is bound only in a whole heading
-		 * and is never a key.
+		 * The distinct bound tuples merge the input rows that agree on them, and a group key merges the tuples it
+		 * groups, computed columns and sums among them: natively equal values of any spelling are one value.
 		 */
-		const picked = Arr.flatMap(h, (headingColumn, i) =>
+		const bound = Arr.flatMap(h, (headingColumn, i) =>
 			s.full || ((s.boundMask >> i) & 1) === 1 ? [headingColumn] : []
 		)
-		const bound =
-			picked.length === h.length ? picked : Arr.filter(picked, (c) => plain(c, input.computed))
-		const keys = Arr.filter(
-			bound,
-			(c, i) => ((s.keyMask >> i) & 1) === 1 && plain(c, input.computed)
-		)
+		const keys = Arr.filter(bound, (_, i) => ((s.keyMask >> i) & 1) === 1)
 		const taken = new Set(Arr.map(keys, (k) => k.name))
 		const enabled = this.config.aggregates
 		const aggs: Array<AggregateSpec> = []
 		const aggHeading: Array<HeadingColumn> = []
-		const computed = new Set<string>()
 		for (const a of s.aggs) {
 			let fn: GenAggregate = enabled.length === 0 ? "count" : at(enabled, a.fn)
 			const arg = bound.length === 0 ? undefined : at(bound, a.column)
 			if (fn !== "count" && (arg === undefined || !aggregateApplies(fn, arg.type))) {
-				fn = "count"
-			}
-			if ((fn === "min" || fn === "max") && arg !== undefined && !plain(arg, input.computed)) {
 				fn = "count"
 			}
 			const name = freshName(`g${aggs.length}`, taken)
@@ -2338,9 +2176,6 @@ class QueryResolver {
 				aggs.push({ name, fn, op, args: [this.col(input.node, used)], filter: undefined })
 			}
 			aggHeading.push(column(name, aggregateResult(fn, argType)))
-			if (computedSpelling(fn, argType)) {
-				computed.add(name)
-			}
 		}
 		const heading = [...Arr.map(keys, (k) => column(k.name, k.type)), ...aggHeading]
 		const id = this.b.node({
@@ -2353,7 +2188,7 @@ class QueryResolver {
 			aggs,
 			heading
 		})
-		return { node: id, heading, computed }
+		return { node: id, heading }
 	}
 
 	take(s: Extract<QuerySketch, { tag: "take" }>): Built {
@@ -2404,7 +2239,7 @@ class QueryResolver {
 			order,
 			s
 		)
-		return { node: id, heading: h, computed: input.computed }
+		return { node: id, heading: h }
 	}
 
 	/**
@@ -2447,7 +2282,7 @@ class QueryResolver {
 			correlation,
 			heading: h
 		})
-		return { node: id, heading: h, computed: source.computed }
+		return { node: id, heading: h }
 	}
 
 	/**
@@ -2468,8 +2303,8 @@ class QueryResolver {
 	}
 
 	/**
-	 * The choice the pick selects among those `choices` makes of each case-spelled column of `sources`, where the
-	 * soundness population and its swarm draw `feature` and some source has one.
+	 * The choice the pick selects among those `choices` makes of each column of `sources`, where the soundness
+	 * population and its swarm draw `feature` and some source has one.
 	 */
 	lateralChoice<C>(
 		sources: ReadonlyArray<Built>,
@@ -2480,10 +2315,9 @@ class QueryResolver {
 		if (!this.config.soundness || pick.kind === "none" || sources.length === 0) {
 			return undefined
 		}
-		const [first, ...rest] = Arr.flatMap(sources, (source) => {
-			const plainColumns = Arr.filter(source.heading, (c) => plain(c, source.computed))
-			return Arr.flatMap(plainColumns, (headingColumn) => choices(source, headingColumn))
-		})
+		const [first, ...rest] = Arr.flatMap(sources, (source) =>
+			Arr.flatMap(source.heading, (headingColumn) => choices(source, headingColumn))
+		)
 		if (first === undefined || !this.kept(this.soundness, feature)) {
 			return undefined
 		}
@@ -2640,11 +2474,7 @@ class QueryResolver {
 			filter: undefined,
 			frame: undefined
 		})
-		const computed =
-			value !== undefined && !ordinal && input.computed.has(value.name)
-				? new Set([...input.computed, out])
-				: input.computed
-		return { node: id, heading, computed }
+		return { node: id, heading }
 	}
 
 	/** The approximate nearest candidates of the input by its first double precision column. */
@@ -2661,7 +2491,7 @@ class QueryResolver {
 			sealed: true,
 			heading: input.heading
 		})
-		return { node: id, heading: input.heading, computed: input.computed }
+		return { node: id, heading: input.heading }
 	}
 
 	/**
@@ -2682,7 +2512,7 @@ class QueryResolver {
 			...Arr.map(input.heading, (c) => ({ name: c.name, expr: this.col(input.node, c) })),
 			{
 				name: score.name,
-				expr: this.lit(resolveValue(float8, value, this.spelling, "stored"), float8)
+				expr: this.lit(resolveValue(float8, value, this.spelling.edge), float8)
 			}
 		]
 		const id = this.b.node({
@@ -2693,12 +2523,12 @@ class QueryResolver {
 			out,
 			heading
 		})
-		return { input: { node: id, heading, computed: input.computed }, score }
+		return { input: { node: id, heading }, score }
 	}
 
 	/**
-	 * The edges project onto two columns, and the recursion merges the paths that reach one pair: the endpoints are
-	 * case-spelled columns.
+	 * The edges project onto two columns, and the recursion merges the paths that reach one pair: the endpoints may be
+	 * any columns of one hashable type, computed ones included.
 	 *
 	 * A recursive state column needs hashing: no closure over money.
 	 */
@@ -2709,8 +2539,6 @@ class QueryResolver {
 		const candidates: ReadonlyArray<readonly [HeadingColumn, HeadingColumn]> = Arr.flatMap(h, (a) =>
 			Arr.flatMap(h, (b) =>
 				a.name !== b.name &&
-				plain(a, edge.computed) &&
-				plain(b, edge.computed) &&
 				sameScalarType(a.type, b.type) &&
 				hasCap(a.type, "hashing") &&
 				(!acyclic || hasCap(a.type, "ordering"))
@@ -2738,8 +2566,7 @@ class QueryResolver {
 					pred: lt,
 					heading: h
 				}),
-				heading: h,
-				computed: edge.computed
+				heading: h
 			}
 		}
 		const state: Heading = [column("src", from.type), column("dst", to.type)]
@@ -2820,7 +2647,7 @@ class QueryResolver {
 			origin: [],
 			heading: state
 		})
-		const closed: Built = { node: recursive, heading: state, computed: none }
+		const closed: Built = { node: recursive, heading: state }
 		return s.root.kind === "drawn" && this.config.rooted && this.kept(this.rewrite, "rooted")
 			? this.rooted(closed, type, s.root.value)
 			: closed
@@ -2842,8 +2669,7 @@ class QueryResolver {
 					pred,
 					heading: closure.heading
 				}),
-				heading: closure.heading,
-				computed: none
+				heading: closure.heading
 			}
 		}
 		const fixed = s.form % 3 === 1
@@ -2874,7 +2700,7 @@ class QueryResolver {
 			heading
 		})
 		if (fixed) {
-			return { node: region, heading, computed: none }
+			return { node: region, heading }
 		}
 		const pred = this.op(compareOpId(type, "eq"), [this.col(region, src), value], bool)
 		return {
@@ -2886,8 +2712,7 @@ class QueryResolver {
 				pred,
 				heading
 			}),
-			heading,
-			computed: none
+			heading
 		}
 	}
 
@@ -2900,9 +2725,9 @@ class QueryResolver {
 	): Built | undefined {
 		/**
 		 * The delivery keys each child tuple by its parent's correlated columns, the distinct parent keys: the
-		 * correlation pairs case-spelled columns.
+		 * correlation pairs columns of one type, computed ones included, which grizzle stitches by value.
 		 */
-		const candidates = this.pairs(parent, child, true)
+		const candidates = this.pairs(parent, child)
 		if (candidates.length === 0) {
 			return undefined
 		}
@@ -2973,7 +2798,7 @@ class QueryResolver {
 			heading: parent.heading,
 			order: undefined
 		})
-		return { node: id, heading: parent.heading, computed: parent.computed }
+		return { node: id, heading: parent.heading }
 	}
 
 	/**
@@ -3088,7 +2913,7 @@ class QueryResolver {
 				"a heading group's arms"
 			)
 			if (Option.isSome(same)) {
-				same.value.arms.push(...ids)
+				appendAll(same.value.arms, ids)
 			} else {
 				resolved.push({ heading, arms: Arr.copy(ids) })
 			}

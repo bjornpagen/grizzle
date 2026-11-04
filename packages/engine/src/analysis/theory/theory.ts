@@ -298,7 +298,7 @@ export const typingEnv = (
 	) => Result.Result<ContractInfo, CompileError>
 	readonly regexMember: RegexMember
 } => {
-	const rosters = new Map<string, ReadonlyArray<string>>()
+	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
 	for (const r of Object.values(owned.relations)) {
 		if (r.desc.kind === "closed") {
 			rosters.set(r.name, r.desc.handles)
@@ -311,8 +311,8 @@ export const typingEnv = (
 		kind: "schema",
 		roster: (name) => rosters.get(name),
 		text: (source, flags) => Result.map(analyzeText(source, flags, loc), textInfo),
-		contractPredicate: (predicate, base, contract) =>
-			contractPredicateTable(predicate, base, contract, { loc, fieldType, regexMember })
+		contractPredicate: (predicate, base, contract, facts) =>
+			contractPredicateTable(predicate, base, contract, facts, { loc, fieldType, regexMember })
 	})
 	return {
 		fieldType,
@@ -605,7 +605,11 @@ class Builder {
 			if (f.kind !== "alternatives") {
 				continue
 			}
-			for (const arm of f.arms) {
+			for (const h of f.handles) {
+				if (h.kind === "unarmed") {
+					continue
+				}
+				const arm = h.arm
 				containments.push({
 					law: law.id,
 					from: {

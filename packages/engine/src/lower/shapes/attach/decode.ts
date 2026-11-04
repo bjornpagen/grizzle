@@ -55,7 +55,7 @@ export const arrayElements = (text: string): ReadonlyArray<string> => {
 
 /**
  * Where a fused child column's text comes from: a field of the array's element, or the parent row's column it is
- * correlated to and printed alike, which the parent row delivers instead.
+ * correlated to, of the same type, which the parent row delivers instead: equal values decode to one host value.
  */
 export type FusedSource =
 	| { readonly from: "element" }
@@ -93,8 +93,8 @@ export interface FusedLayout {
  *   the keys f1 to fn in column order, each value a JSON string of the field's text form. JSON is a wire encoding here
  *   exactly as for relation parameters; it is never a fact domain.
  *
- * A child column correlated to a parent column of the same type, whose equal values always print alike, is not in the
- * array: the parent row delivers it, and its text is copied into each child's texts. So a child keyed by its parent
+ * A child column correlated to a parent column of the same type is not in the array: the parent row delivers it, and
+ * its text is copied into each child's texts, which decode to the child's value since equal values have one host form. So a child keyed by its parent
  * and one more field, (task, tag) correlated on task, fuses as the single field tag.
  *
  * The parse reads the column's text into each child's texts, in the child heading's order, a straight loop with no

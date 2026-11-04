@@ -1,4 +1,5 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { WritableOf } from "#compiler/types/changeset/changeset.ts"
@@ -84,7 +85,7 @@ export type WeeklyFact = Expect<
 	Equals<
 		Fact<typeof StudentWeekly>,
 		{
-			readonly student: string
+			readonly student: Uuid
 			readonly week: Fact<typeof Sitting>["day"]
 			readonly sittings: bigint
 			readonly passes: bigint
@@ -106,12 +107,12 @@ export type WeekIsEpochDay = Expect<
 
 /** A derived relation is matchable in a rule over its extension, never over its base. */
 export const weeklyPasses = query(Reports).rule((r) => {
-	const { student, passes } = v(StudentWeekly)
+	const { student, passes } = v(StudentWeekly, "studentWeekly")
 	return r.match(StudentWeekly, { student, passes }).find({ student, total: r.sum(passes) })
 })
 export type WeeklyPassesTotal = Expect<Equals<HeadOf<typeof weeklyPasses>["total"], Decimal>>
 export const readsOwnLevel = query(Edu).rule((r) => {
-	const { student } = v(StudentWeekly)
+	const { student } = v(StudentWeekly, "studentWeekly")
 	// @ts-expect-error -- TS2345 refusal: the relation is not in this query's schema
 	return r.match(StudentWeekly, { student }).find({ student })
 })
@@ -121,22 +122,22 @@ export const readsOwnLevel = query(Edu).rule((r) => {
  * is not over a level of the base.
  */
 export const importsOwnLevel = query(Edu).rule((r) => {
-	const { student } = v(weeklyPasses)
+	const { student } = v(weeklyPasses, "weeklyPasses")
 	// @ts-expect-error -- TS2345 refusal: the query is not over a level of this query's schema
 	return r.match(weeklyPasses, { student }).find({ student })
 })
 
 export const weeklyFor = query(Reports).rule((r) => {
-	const { passes } = v(StudentWeekly)
+	const { passes } = v(StudentWeekly, "studentWeekly")
 	return r
 		.match(StudentWeekly, { student: r.param("student", Sitting.fields.student), passes })
 		.find({ passes })
 })
 
 export const bindsOwnLevel = query(Edu).rule((r) => {
-	const { id } = v(Sitting)
+	const { id } = v(Sitting, "sitting")
 	const weekly = weeklyFor.bind({ student: id })
-	const { passes } = v(weekly)
+	const { passes } = v(weekly, "weekly")
 	return (
 		r
 			.match(Sitting, { id })
@@ -148,7 +149,7 @@ export const bindsOwnLevel = query(Edu).rule((r) => {
 
 /** A query over a lower level imports into a query over a higher one. */
 export const importsLowerLevel = query(Reports).rule((r) => {
-	const { student, recent } = v(recentSittings)
+	const { student, recent } = v(recentSittings, "recentSittings")
 	return r.match(recentSittings, { student, recent }).find({ student, recent })
 })
 
@@ -157,7 +158,7 @@ export const importsLowerLevel = query(Reports).rule((r) => {
  * a ChangeSet member naming a derived relation, and a refresh outside the role's refresh list do not typecheck.
  */
 export const parameterized = query(Edu).rule((r) => {
-	const { student } = v(Sitting)
+	const { student } = v(Sitting, "sitting")
 	return r.match(Sitting, { student: r.param("student", Sitting.fields.student) }).find({ student })
 })
 // @ts-expect-error -- TS2345: a derived definition reads no parameter

@@ -5,8 +5,9 @@ import {
 	type SearchFailure,
 	sketched
 } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { Array as Arr, Duration, Effect, Formatter, type Scope, String as Str } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { type CompletedOrder, conservativeMeta } from "#compiler/ir/rel.ts"
@@ -21,6 +22,7 @@ import {
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
 import {
@@ -85,7 +87,7 @@ const firstTwoValues: QueryCase = (() => {
 	const dag = normalQuery(q.b.build(Arr.of(root)))
 	return {
 		schema: { name: schemaName, relations: [r], closed: [], containments: [] },
-		facts: {
+		facts: canonicalFacts({
 			R0: Arr.map(
 				[
 					[1, 1],
@@ -95,9 +97,9 @@ const firstTwoValues: QueryCase = (() => {
 				],
 				(row) => Arr.map(row, int)
 			)
-		},
+		}),
 		query: { dag, params: {} },
-		spelling: { mode: "perCase", choices: [], edge: false }
+		spelling: { mode: "drawn", edge: false }
 	}
 })()
 
@@ -167,11 +169,13 @@ export const nonReproduction = (
 			{
 				suite: `optimized/non-reproduction-${Str.toLowerCase(population.id)}`,
 				literal: Formatter.format,
-				features: features<NonReproductionFeature>(["mutant rewrote", "mutant killed"]),
+				coverage: required<NonReproductionFeature>(["mutant rewrote", "mutant killed"], {
+					cases: within,
+					sense: notesOnly
+				}),
 				kept: population.kept,
 				runs: within,
 				shrink: optimizedShrink,
-				steering: { kind: "none" },
 				caseHang: Duration.minutes(2),
 				perturb: "planner"
 			},

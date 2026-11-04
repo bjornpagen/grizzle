@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Result, String as Str } from "effect"
@@ -204,7 +204,7 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 								[source.draw(element(samples)), source.draw(element(aggregates))] as const,
 							literal: ([sample, name]) => `${name}/${sample.label}`,
 							limit: samples.length * aggregates.length,
-							features: features<AggregateFeature>([
+							coverage: requiredInSpace<AggregateFeature>([
 								"checked min/enum",
 								"checked sum/Cents",
 								"checked max/Cents",

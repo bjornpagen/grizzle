@@ -1,29 +1,30 @@
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { asidesOf, setAside } from "#compiler/deploy/diff/aside.ts"
 import { diff } from "#compiler/deploy/diff/diff.ts"
 import type { AbandonedSchema, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
-import { witnessesOf } from "#compiler/deploy/render/chosen.ts"
 import {
 	type CustomMeta,
+	type DecisionRecord,
 	type DraftedFolder,
 	type DraftedMeta,
+	decisionRecord,
 	type FolderNaming,
 	folderName,
 	type MigrationFolder,
+	type RecordFault,
+	recordFaultText,
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
 import { derivedMigrationName } from "#compiler/deploy/render/naming.ts"
-import { fileChoices, fileConfirms, fileLosses, renderFile } from "#compiler/deploy/render/sql.ts"
+import { recordFile, renderFile } from "#compiler/deploy/render/sql.ts"
 import {
 	type DraftWorkload,
 	finishSnapshot,
 	targetState,
-	writeFinishedSnapshot,
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -53,6 +54,8 @@ export type DraftChange = "none" | "schema"
 export interface GenerateResult {
 	readonly change: DraftChange
 	readonly folder: DraftedFolder
+	/** The folder's meta.json files, read as `grizzle check` reads them (decisionRecord). */
+	readonly record: DecisionRecord
 	readonly snapshot: DeploySnapshot
 	readonly snapshotText: string
 	readonly plan: MigrationPlan
@@ -74,15 +77,30 @@ const comparable = (s: Omit<DeploySnapshot, "fingerprint"> | DeploySnapshot): st
 	return canonicalTextOf(content)
 }
 
+/** A decision record that does not read, as the draft's refusal: two decisions spelled alike, which a review cannot
+ * tell apart, or a path that names no rename offer or two. */
+const recordRefusal = (fault: RecordFault): CompileError => {
+	switch (fault.kind) {
+		case "indistinct":
+			return unsupported(
+				SourceLoc("grizzle generate", []),
+				`a draft whose decisions read apart: ${recordFaultText(fault)}; make the changes in two migrations`
+			)
+		case "unnamed":
+			return malformedArtifact("meta", ["files"], recordFaultText(fault))
+	}
+}
+
 /** The name's shape is checked before anything is compiled.
  *
  * `grizzle generate` and `grizzle generate --custom` as pure functions.
  *
  * generateMigration drafts the next folder of a declared schema from its previous committed snapshot (the empty
  * snapshot before the first migration), the current schema's compiled installation and its logins' workloads: it builds
- * the target snapshot state with the ledger's objects, diffs the two, groups the
- * plan into files and renders them with meta.json (). It returns the
- * folder and the new snapshot; the CLI writes both. It reads no file and no clock: the caller supplies the timestamp.
+ * the target snapshot state with the ledger's objects, diffs the two, groups the plan into files and renders them, with
+ * meta.json's decision record of every file built through the record's one constructor (decisionRecord), the one
+ * `grizzle check` reads it through. It returns the folder and the new snapshot; the CLI writes both. It reads no file
+ * and no clock: the caller supplies the timestamp.
  *
  * A schema whose target equals its previous snapshot drafts nothing: the change is none, the snapshot is the previous
  * one and the folder holds no file, so the CLI can report that there is nothing to generate. */
@@ -128,8 +146,8 @@ export const generateMigration = (
 			})
 		)
 		const finished = unwrap(finishSnapshot(state))
-		const changed = plan.steps.length > 0 || comparable(finished.snapshot) !== comparable(previous)
-		const snapshot = changed ? finished.snapshot : previous
+		const changed = plan.steps.length > 0 || comparable(finished) !== comparable(previous)
+		const snapshot = changed ? finished : previous
 		const name = unwrap(
 			folderName(
 				input.timestamp,
@@ -138,42 +156,26 @@ export const generateMigration = (
 		)
 		const drafted = changed ? planFiles(plan) : []
 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))
-		const choices = drafted.flatMap((f) => unwrap(fileChoices(f)))
-		/**
-		 * Each candidate's decision is witnessed by a statement of its own (`witnessesOf`). The one site of the fact that
-		 * every candidate a draft offers has one, its ALTER ... RENAME, which no other candidate's offer holds and no
-		 * choice keeps as PostgreSQL's scanner reads them (`writtenAs`, which a reviewed file is read by): a property of
-		 * the printed texts of the whole draft, which no type of a statement carries.
-		 */
-		const witnesses = witnessesOf(plan.candidates, choices)
-		if (!witnesses.ok) {
-			throw defect(`a statement of its own for candidate ${witnesses.error}`)
+		const recorded = drafted.map((f) => unwrap(recordFile(f)))
+		const record = decisionRecord(recorded)
+		if (!record.ok) {
+			throw new Refusal(recordRefusal(record.error))
 		}
-		const candidates = witnesses.value.map(([c, witness]) => ({
-			label: c.label,
-			renames: c.renames,
-			requires: c.requires,
-			witness
-		}))
 		const meta: DraftedMeta = {
 			kind: "drafted",
 			schemaName: snapshot.schemaName,
 			schema: snapshot.schema,
 			source: previous.fingerprint,
 			target: snapshot.fingerprint,
-			decisions: {
-				candidates,
-				choices,
-				confirms: drafted.flatMap((f) => fileConfirms(f)),
-				losses: drafted.flatMap((f) => unwrap(fileLosses(f)))
-			}
+			files: recorded
 		}
 		const change: DraftChange = changed ? "schema" : "none"
 		return {
 			change,
 			folder: { name, meta, metaText: unwrap(writeMeta(meta)), files },
+			record: record.value,
 			snapshot,
-			snapshotText: unwrap(changed ? writeFinishedSnapshot(finished) : writeSnapshot(previous)),
+			snapshotText: unwrap(writeSnapshot(snapshot)),
 			plan
 		}
 	})

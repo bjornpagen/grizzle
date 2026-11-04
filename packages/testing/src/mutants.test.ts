@@ -11,9 +11,10 @@ import {
 	String as Str
 } from "effect"
 import { drawn, explore } from "#explore.ts"
-import { features } from "#features.ts"
+import { required } from "#features.ts"
 import { array, element, type Gen, int, shuffled } from "#gen.ts"
 import { applied, mutantsOf, type Operator } from "#mutants.ts"
+import { notesOnly } from "#sense.ts"
 import { searched } from "#vitest/searched.ts"
 
 /**
@@ -182,13 +183,12 @@ layer(NodeServices.layer)("source mutation", (it) => {
 						suite: "mutants",
 						draw: drawn(programGen),
 						literal: Formatter.format,
-						features: features<Shape>(SHAPES),
+						coverage: required<Shape>(SHAPES, { cases: 60, sense: notesOnly }),
 						kept: [],
 						runs: 60,
 						shrink: { kind: "bounded", candidates: 100 },
 						concurrency: 1,
 						steerEvery: 60,
-						steering: { kind: "none" },
 						caseHang: Duration.seconds(30)
 					},
 					(statements, c) =>

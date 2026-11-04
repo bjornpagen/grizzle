@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features, noFeatures } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -11,6 +11,7 @@ import {
 	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -29,9 +30,10 @@ import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.
 import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { cursorCodec } from "#compiler/codec/cursor/codec.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { CursorError, type CursorFault } from "#compiler/core/errors.ts"
 import { cursorMaxBytes, pageMaxSize } from "#compiler/core/policy.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	assertEdges,
@@ -99,7 +101,7 @@ import {
  * test/pg/page/generated.ts the generated ordered queries.
  */
 
-const id = (n: number): string =>
+const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 const A = id(0xa)
 const B = id(0xb)
@@ -141,7 +143,7 @@ const facts = {
  */
 const nonNegativeTasks = query(Paging)
 	.rule((r) => {
-		const { id: tid, account, priority, title } = v(Task)
+		const { id: tid, account, priority, title } = v(Task, "task")
 		return r
 			.match(Task, { id: tid, account, priority, title })
 			.where(r.eq(account, r.param("account", uuid)))
@@ -631,7 +633,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								generator: int(1, 25),
 								literal: String,
 								limit: 25,
-								features: noFeatures,
+								coverage: noCoverage,
 								caseHang: Duration.minutes(2)
 							},
 							(size) =>
@@ -722,24 +724,26 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.minutes(2),
-								features: features<WalkFeature>([
-									...Arr.map(pagedQueryNames, (q): WalkFeature => `query ${q}`),
-									...Arr.flatMap(["first", "last", "after", "before"] as const, (variant) =>
-										Arr.map(
-											["db", "compiled"] as const,
-											(handle): WalkFeature => `${variant} through ${handle}`
-										)
-									),
-									"a cursor of the other handle",
-									"an anchor gone from D",
-									"an anchor still in D",
-									"an opposite flag cleared past a gone anchor",
-									"an empty anchored page",
-									"an emptied D",
-									"a write between requests"
-								])
+								coverage: required<WalkFeature>(
+									[
+										...Arr.map(pagedQueryNames, (q): WalkFeature => `query ${q}`),
+										...Arr.flatMap(["first", "last", "after", "before"] as const, (variant) =>
+											Arr.map(
+												["db", "compiled"] as const,
+												(handle): WalkFeature => `${variant} through ${handle}`
+											)
+										),
+										"a cursor of the other handle",
+										"an anchor gone from D",
+										"an anchor still in D",
+										"an opposite flag cleared past a gone anchor",
+										"an empty anchored page",
+										"an emptied D",
+										"a write between requests"
+									],
+									{ cases: 100, sense: notesOnly }
+								)
 							},
 							(walk, c) =>
 								Effect.gen(function* () {
@@ -977,7 +981,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 											node: e.node,
 											handle: r.handle
 										}))
-										pool.push(...last)
+										appendAll(pool, last)
 									}
 								}).pipe(Effect.scoped)
 						)
@@ -1024,21 +1028,23 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								steering: { kind: "none" },
 								caseHang: Duration.minutes(2),
-								features: features<Tamper["kind"] | `issued by ${PagedQuery}`>([
-									"a character of a digest changed",
-									"truncated",
-									"padded",
-									"a foreign character",
-									"oversized",
-									"another query",
-									"another generation",
-									"not a string",
-									"another request shape",
-									"a size out of range",
-									...Arr.map(pagedQueryNames, (q) => `issued by ${q}` as const)
-								])
+								coverage: required<Tamper["kind"] | `issued by ${PagedQuery}`>(
+									[
+										"a character of a digest changed",
+										"truncated",
+										"padded",
+										"a foreign character",
+										"oversized",
+										"another query",
+										"another generation",
+										"not a string",
+										"another request shape",
+										"a size out of range",
+										...Arr.map(pagedQueryNames, (q) => `issued by ${q}` as const)
+									],
+									{ cases: 200, sense: notesOnly }
+								)
 							},
 							(c, notes) =>
 								Effect.gen(function* () {
@@ -1277,7 +1283,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								]),
 								literal: Formatter.format,
 								limit: 4,
-								features: noFeatures,
+								coverage: noCoverage,
 								caseHang: Duration.minutes(2)
 							},
 							(request) =>

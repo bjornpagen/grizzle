@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	constant,
@@ -11,9 +11,11 @@ import {
 	type Weighted,
 	weighted
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import { nodeScopes, type OuterRefs, toTable } from "#compiler/ir/dag.ts"
 import type { TableExpr } from "#compiler/ir/expr.ts"
@@ -26,6 +28,7 @@ import {
 	type TableNode,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
+import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { liveOf } from "#test/support/oracle/dag-validate.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
@@ -44,7 +47,7 @@ const exprClosure = (d: DagTable, roots: ReadonlyArray<ExprId>): ReadonlyArray<E
 	for (const id of queue) {
 		if (!seen.has(id)) {
 			seen.add(id)
-			queue.push(...(d.exprs[id]?.args ?? []))
+			appendAll(queue, d.exprs[id]?.args ?? [])
 		}
 	}
 	return [...seen]
@@ -265,7 +268,6 @@ const freshReference = (
 	const common = {
 		type,
 		volatility: "immutable",
-		failure: "total",
 		deps: { params: [], nodes: [target.id] }
 	} as const
 	const column: TableExpr = {
@@ -283,7 +285,7 @@ const freshReference = (
 		...common,
 		id: fresh(1),
 		kind: "cast",
-		checked: false,
+		cast: binaryCoercion,
 		args: [column.id],
 		nonNull: "strict"
 	}
@@ -621,7 +623,6 @@ const sketchedDag = (sketches: ReadonlyArray<NodeSketch>): DagTable => {
 		nonNull: "literal",
 		type: scalarTypes.bool,
 		volatility: "immutable",
-		failure: "total",
 		id: truthId,
 		deps: { params: [], nodes: [] }
 	}
@@ -710,7 +711,7 @@ const reference = (
 		}
 		const queue = [maker]
 		for (const at of queue) {
-			queue.push(...climb(at))
+			appendAll(queue, climb(at))
 		}
 	}
 	for (const maker of Rec.values(d.nodes)) {
@@ -807,25 +808,27 @@ describe("a node's scope", () => {
 						draw: drawn(population),
 						runs: 400,
 						shrink: completeShrink,
-						features: features<Feature>([
-							"a free variable",
-							"a reference to a node that is no region",
-							"a reference inside an expression tree",
-							"a reference its maker binds",
-							"a reference bound at the node it names",
-							"a reference bound at a region's source",
-							"a reference bound on one path and carried on another",
-							"a reference bound at an attachment",
-							"a reference bound at an attachment below its parent",
-							"a reference an attachment carries from its parent",
-							"a reference bound at a semi-join",
-							"a reference a semi-join carries from below its left",
-							"a scope shared with an input"
-						]),
+						coverage: required<Feature>(
+							[
+								"a free variable",
+								"a reference to a node that is no region",
+								"a reference inside an expression tree",
+								"a reference its maker binds",
+								"a reference bound at the node it names",
+								"a reference bound at a region's source",
+								"a reference bound on one path and carried on another",
+								"a reference bound at an attachment",
+								"a reference bound at an attachment below its parent",
+								"a reference an attachment carries from its parent",
+								"a reference bound at a semi-join",
+								"a reference a semi-join carries from below its left",
+								"a scope shared with an input"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(d, c) =>

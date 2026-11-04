@@ -21,5 +21,6 @@ export default defineTestConfig({
 	setup: [],
 	conditions: ["grizzle-source"],
 	timeouts: { test: { kind: "unbounded" }, hook: { kind: "unbounded" } },
-	maxWorkers: Option.none()
+	maxWorkers: Option.none(),
+	smallStack: []
 })

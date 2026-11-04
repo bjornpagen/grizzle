@@ -17,12 +17,14 @@ import {
 	mutable,
 	on,
 	type ParamsOf,
+	type ParamType,
 	pg,
 	query,
 	relation,
 	role,
 	schema,
 	str,
+	type Uuid,
 	uuid,
 	v
 } from "#index.ts"
@@ -50,8 +52,8 @@ export type Cents = bigint & Brand.Brand<"Cents">
 
 /** The ids and values a ChangeSet of the worked example writes. */
 export interface SwitchInputs {
-	readonly taskId: string
-	readonly accountId: string
+	readonly taskId: Uuid
+	readonly accountId: Uuid
 	readonly previousBudget: Cents
 	readonly operatorName: string
 }
@@ -76,8 +78,8 @@ export const workExample = <const N extends string>(schemaName: N) => {
 	])
 
 	const automaticTasksFor = query(Work).rule((r) => {
-		const { id, account } = v(Task)
-		const { budget } = v(AutomaticTask)
+		const { id, account } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
@@ -87,16 +89,16 @@ export const workExample = <const N extends string>(schemaName: N) => {
 
 	const taskPayloads = query(Work)
 		.rule((r) => {
-			const { id, account } = v(Task)
-			const { budget } = v(AutomaticTask)
+			const { id, account } = v(Task, "task")
+			const { budget } = v(AutomaticTask, "automaticTask")
 			return r
 				.match(Task, { id, account, kind: "Automatic" })
 				.match(AutomaticTask, { task: id, budget })
 				.find({ id, account, kind: Kind.handle("Automatic"), budget })
 		})
 		.rule((r) => {
-			const { id, account } = v(Task)
-			const { operator } = v(ManualTask)
+			const { id, account } = v(Task, "task")
+			const { operator } = v(ManualTask, "manualTask")
 			return r
 				.match(Task, { id, account, kind: "Manual" })
 				.match(ManualTask, { task: id, operator })
@@ -105,13 +107,13 @@ export const workExample = <const N extends string>(schemaName: N) => {
 
 	const tasksById = query(Work).rule((r) => {
 		const wanted = r.relation("ids", { id: uuid })
-		const { id, kind } = v(Task)
+		const { id, kind } = v(Task, "task")
 		return r.match(wanted, { id }).match(Task, { id, kind }).find({ id, kind })
 	})
 
 	const automaticBudgetFor = query(Work).rule((r) => {
-		const { id, account } = v(Task)
-		const { budget } = v(AutomaticTask)
+		const { id, account } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
@@ -121,8 +123,8 @@ export const workExample = <const N extends string>(schemaName: N) => {
 
 	const largestBudgets = query(Work)
 		.rule((r) => {
-			const { id } = v(Task)
-			const { budget } = v(AutomaticTask)
+			const { id } = v(Task, "task")
+			const { budget } = v(AutomaticTask, "automaticTask")
 			return r
 				.match(Task, { id, account: r.param("account", Task.fields.account), kind: "Automatic" })
 				.match(AutomaticTask, { task: id, budget })
@@ -132,9 +134,9 @@ export const workExample = <const N extends string>(schemaName: N) => {
 		.take(3)
 
 	const largestPerAccount = query(Work).rule((r) => {
-		const { id: account } = v(Account)
+		const { id: account } = v(Account, "account")
 		const top = largestBudgets.bind({ account })
-		const { id, budget } = v(top)
+		const { id, budget } = v(top, "top")
 		return r
 			.match(Account, { id: account })
 			.match(top, { id, budget })
@@ -143,8 +145,8 @@ export const workExample = <const N extends string>(schemaName: N) => {
 
 	const automaticTasks = query(Work)
 		.rule((r) => {
-			const { id, account } = v(Task)
-			const { budget } = v(AutomaticTask)
+			const { id, account } = v(Task, "task")
+			const { budget } = v(AutomaticTask, "automaticTask")
 			return r
 				.match(Task, { id, account, kind: "Automatic" })
 				.match(AutomaticTask, { task: id, budget })
@@ -153,8 +155,8 @@ export const workExample = <const N extends string>(schemaName: N) => {
 		.named("automaticTasks")
 
 	const labeledAutomaticTasks = query(Work).rule((r) => {
-		const { id, account, budget } = v(automaticTasks)
-		const { name } = v(Account)
+		const { id, account, budget } = v(automaticTasks, "automaticTasks")
+		const { name } = v(Account, "account")
 		return r
 			.match(automaticTasks, { id, account, budget })
 			.match(Account, { id: account, name })
@@ -163,7 +165,7 @@ export const workExample = <const N extends string>(schemaName: N) => {
 	})
 
 	const tasksWithoutNotes = query(Work).rule((r) => {
-		const { id } = v(Task)
+		const { id } = v(Task, "task")
 		return r
 			.match(Task, { id })
 			.where(r.not(TaskNote, { task: id }))
@@ -172,17 +174,17 @@ export const workExample = <const N extends string>(schemaName: N) => {
 
 	const assignedTasks = query(Work)
 		.rule((r) => {
-			const { id } = v(Task)
+			const { id } = v(Task, "task")
 			return r.match(Task, { id, kind: "Automatic" }).find({ id })
 		})
 		.rule((r) => {
-			const { id } = v(Task)
+			const { id } = v(Task, "task")
 			return r.match(Task, { id, kind: "Manual" }).find({ id })
 		})
 
 	const taskCards = query(Work)
 		.rule((r) => {
-			const { id, account, kind } = v(Task)
+			const { id, account, kind } = v(Task, "task")
 			return r
 				.match(Task, { id, account, kind })
 				.where(r.eq(account, r.param("account", uuid)))
@@ -192,7 +194,7 @@ export const workExample = <const N extends string>(schemaName: N) => {
 			"note",
 			(t) =>
 				query(Work).rule((r) => {
-					const { note } = v(TaskNote)
+					const { note } = v(TaskNote, "taskNote")
 					return r.match(TaskNote, { task: t.id, note }).find({ note })
 				}),
 			"option"
@@ -201,7 +203,7 @@ export const workExample = <const N extends string>(schemaName: N) => {
 			"automatic",
 			(t) =>
 				query(Work).rule((r) => {
-					const { budget } = v(AutomaticTask)
+					const { budget } = v(AutomaticTask, "automaticTask")
 					return r.match(AutomaticTask, { task: t.id, budget }).find({ budget })
 				}),
 			arm("kind", "Automatic")
@@ -209,7 +211,7 @@ export const workExample = <const N extends string>(schemaName: N) => {
 
 	const accountCards = query(Work)
 		.rule((r) => {
-			const { id, name } = v(Account)
+			const { id, name } = v(Account, "account")
 			return r.match(Account, { id, name }).find({ id, name })
 		})
 		.attach(
@@ -217,7 +219,7 @@ export const workExample = <const N extends string>(schemaName: N) => {
 			(a) =>
 				query(Work)
 					.rule((r) => {
-						const { id, kind } = v(Task)
+						const { id, kind } = v(Task, "task")
 						return r.match(Task, { id, account: a.id, kind }).find({ id, kind })
 					})
 					.orderBy(["id", "asc"]),
@@ -227,14 +229,14 @@ export const workExample = <const N extends string>(schemaName: N) => {
 			"automaticTasks",
 			(a) =>
 				query(Work).rule((r) => {
-					const { id } = v(Task)
+					const { id } = v(Task, "task")
 					return r.match(Task, { id, account: a.id, kind: "Automatic" }).find({ count: r.count() })
 				}),
 			"option"
 		)
 
 	const accountsByPrefix = query(Work).rule((r) => {
-		const { id, name } = v(Account)
+		const { id, name } = v(Account, "account")
 		return r
 			.match(Account, { id, name })
 			.where(
@@ -245,8 +247,8 @@ export const workExample = <const N extends string>(schemaName: N) => {
 	})
 
 	const automaticBudget = query(Work).rule((r) => {
-		const { id, account } = v(Task)
-		const { budget } = v(AutomaticTask)
+		const { id, account } = v(Task, "task")
+		const { budget } = v(AutomaticTask, "automaticTask")
 		return r
 			.match(Task, { id, account, kind: "Automatic" })
 			.match(AutomaticTask, { task: id, budget })
@@ -269,7 +271,7 @@ export const workExample = <const N extends string>(schemaName: N) => {
 
 	/** The reporter's read of the derived relation the refresher maintains. */
 	const accountBudgets = query(Reports).rule((r) => {
-		const { account, tasks, budget } = v(AccountBudget)
+		const { account, tasks, budget } = v(AccountBudget, "accountBudget")
 		return r.match(AccountBudget, { account, tasks, budget }).find({ account, tasks, budget })
 	})
 
@@ -283,16 +285,16 @@ export const workExample = <const N extends string>(schemaName: N) => {
 		.put(
 			Task,
 			query(Work).rule((r) => {
-				const { account } = v(Task)
+				const { account } = v(Task, "task")
 				return r
 					.match(Task, { id: r.param("task", Task.fields.id), account, kind: "Automatic" })
-					.find({ id: r.param("task", Task.fields.id), account, kind: r.literal("Manual") })
+					.find({ id: r.param("task", Task.fields.id), account, kind: "Manual" })
 			})
 		)
 		.delete(
 			AutomaticTask,
 			query(Work).rule((r) => {
-				const { budget } = v(AutomaticTask)
+				const { budget } = v(AutomaticTask, "automaticTask")
 				return r
 					.match(AutomaticTask, { task: r.param("task", AutomaticTask.fields.task), budget })
 					.find({ task: r.param("task", AutomaticTask.fields.task), budget })
@@ -309,7 +311,7 @@ export const workExample = <const N extends string>(schemaName: N) => {
 		)
 		.read("previous", (delta) =>
 			query(Work).rule((r) => {
-				const { task, budget } = v(delta.removed(AutomaticTask))
+				const { task, budget } = v(delta.removed(AutomaticTask), "removedAutomaticTask")
 				return r.match(delta.removed(AutomaticTask), { task, budget }).find({ task, budget })
 			})
 		)
@@ -377,7 +379,7 @@ export const workPrograms = <const N extends string>(W: ReturnType<typeof workEx
 		})
 	)
 
-	const readBudget = (validatedAccountId: string) =>
+	const readBudget = (validatedAccountId: Uuid) =>
 		Effect.scoped(
 			Effect.gen(function* () {
 				const db = yield* Db.open(W.Server.roles.reader, {})
@@ -396,7 +398,7 @@ export const workPrograms = <const N extends string>(W: ReturnType<typeof workEx
 			})
 		)
 
-	const appliedDescribed = (taskId: string, operatorName: string) =>
+	const appliedDescribed = (taskId: Uuid, operatorName: string) =>
 		Effect.scoped(
 			Effect.gen(function* () {
 				const db = yield* Db.open(W.Server.roles.writer, {})
@@ -428,14 +430,14 @@ export type TaskPayloads = Expect<
 	Equals<
 		HeadOf<W["taskPayloads"]>,
 		| {
-				readonly id: string
-				readonly account: string
+				readonly id: Uuid
+				readonly account: Uuid
 				readonly kind: "Automatic"
 				readonly budget: Cents
 		  }
 		| {
-				readonly id: string
-				readonly account: string
+				readonly id: Uuid
+				readonly account: Uuid
 				readonly kind: "Manual"
 				readonly operator: string
 		  }
@@ -443,11 +445,11 @@ export type TaskPayloads = Expect<
 >
 
 export type AutomaticTasksForParams = Expect<
-	Equals<ParamsOf<W["automaticTasksFor"]>, { readonly account: string }>
+	Equals<ParamsOf<W["automaticTasksFor"]>, { readonly account: ParamType<Uuid, "uuid"> }>
 >
 
 export type AutomaticTasksForHead = Expect<
-	Equals<HeadOf<W["automaticTasksFor"]>, { readonly id: string; readonly budget: Cents }>
+	Equals<HeadOf<W["automaticTasksFor"]>, { readonly id: Uuid; readonly budget: Cents }>
 >
 
 /** A relation parameter is a list or a stream of its rows. */
@@ -455,7 +457,7 @@ export type TasksByIdParams = Expect<
 	Equals<
 		ParamsOf<W["tasksById"]>,
 		{
-			readonly ids: ReadonlyArray<{ readonly id: string }> | Stream.Stream<{ readonly id: string }>
+			readonly ids: ReadonlyArray<{ readonly id: Uuid }> | Stream.Stream<{ readonly id: Uuid }>
 		}
 	>
 >
@@ -464,7 +466,7 @@ export type AutomaticBudgetForHead = HeadOf<W["automaticBudgetFor"]>
 export type AutomaticBudgetForTasks = Expect<Equals<AutomaticBudgetForHead["tasks"], bigint>>
 export type LargestPerAccountParams = Expect<Equals<ParamNamesOf<W["largestPerAccount"]>, never>>
 export type TasksWithoutNotesHead = Expect<
-	Equals<HeadOf<W["tasksWithoutNotes"]>, { readonly id: string }>
+	Equals<HeadOf<W["tasksWithoutNotes"]>, { readonly id: Uuid }>
 >
 /** An Automatic task's automatic attachment is Some, a Manual task's None. */
 export type TaskCardsHead = HeadOf<W["taskCards"]>
@@ -486,7 +488,7 @@ export type AccountCardsHead = HeadOf<W["accountCards"]>
 export type AccountCardTasks = Expect<
 	Equals<
 		AccountCardsHead["tasks"],
-		ReadonlyArray<{ readonly id: string; readonly kind: "Automatic" | "Manual" }>
+		ReadonlyArray<{ readonly id: Uuid; readonly kind: "Automatic" | "Manual" }>
 	>
 >
 
@@ -495,19 +497,22 @@ export type AccountCardCount = Expect<
 >
 
 export type AccountsByPrefixParams = Expect<
-	Equals<ParamsOf<W["accountsByPrefix"]>, { readonly lo: string; readonly hi: string }>
+	Equals<
+		ParamsOf<W["accountsByPrefix"]>,
+		{ readonly lo: ParamType<string, "text">; readonly hi: ParamType<string, "text"> }
+	>
 >
 
 /** The read-back is delivered under its name, typed by immediate evidence. */
 export type DescribedParams = Expect<
 	Equals<
 		ParamsOf<W["switchToManualDescribed"]>,
-		{ readonly task: string; readonly operator: string }
+		{ readonly task: ParamType<Uuid, "uuid">; readonly operator: ParamType<string, "text"> }
 	>
 >
 
 export type DescribedOutcome = ApplyOutcome<{
-	readonly previous: ReadonlyArray<{ readonly task: string; readonly budget: Cents }>
+	readonly previous: ReadonlyArray<{ readonly task: Uuid; readonly budget: Cents }>
 }>
 
 export type DescribedApplied = Expect<

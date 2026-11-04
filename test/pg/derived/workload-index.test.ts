@@ -4,9 +4,10 @@ import { planIndexNames } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	compileTemplate,
@@ -30,14 +31,15 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * serves the program's own optimized statement: with sequential scans off, PostgreSQL plans the statement through it
  * rather than the key index, and returns the rows the definition says. */
 const busyAccounts = query(W.Reports).rule((r) => {
-	const { account, tasks, budget } = v(W.AccountBudget)
+	const { account, tasks, budget } = v(W.AccountBudget, "accountBudget")
 	return r
 		.match(W.AccountBudget, { account, tasks, budget })
 		.where(r.ge(tasks, r.param("least", pg.bigint)))
 		.find({ account, budget })
 })
 
-const id = (n: number) => `00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
+const id = (n: number): Uuid =>
+	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
 /** 300 accounts with one automatic task each, and account 1 with three: a range on `tasks` from 3 selects one row of
  * 300, which the view's `tasks` index reaches in a few pages where its key index would read them all. */
@@ -73,6 +75,7 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 					throw new Error(plan.error.message)
 				}
 				const installed = yield* install(W.Reports, {
+					ambient: ordinarySession,
 					extensions: [workloadExtension(plan.value)],
 					label: "derived_workload",
 					logins: []

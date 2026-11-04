@@ -1,7 +1,5 @@
-import type { PhysicalAnalysis } from "#compiler/analysis/physical/analyze.ts"
 import { type ConsumerEdge, consumerIn } from "#compiler/analysis/physical/consumers.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
-import { exprClosure } from "#compiler/ir/expr.ts"
 import { deliveredInput, type NodeOf, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
 
 /** The kinds whose realization the policy fixes to their exact set form. */
@@ -26,10 +24,6 @@ const pinnedDistinctKinds: ReadonlyArray<RelKind> = ["Recursive", "Intersect", "
  *   ordered (the conservative lowering lowers each as that input): none is a fragment of its own that a
  *   DISTINCT could close, so a duplicate elimination owed on one sits on the node whose rows it delivers, and none is
  *   ever realized `distinct`.
- * - A fold whose input has one row per B still deduplicates its contributions where a column of B it reads nowhere
- *   else can fail (evaluatesBound): without the DISTINCT, PostgreSQL drops that column from the fold's input, and a
- *   failure the definition raises computing it goes unmet. Like a projection composed away only over total
- *   expressions (simplify.mergeProjections), no form may hide an error the program would raise.
  */
 export const isPinnedDistinct = (node: RelNode): boolean => pinnedDistinctKinds.includes(node.kind)
 
@@ -85,22 +79,4 @@ export const placementTarget = (node: RelNode): RelNode => {
 		at = next
 	}
 	return at
-}
-
-/**
- * Whether a fold deduplicates its contributions to evaluate them (see the header): a column of its bound tuple that no
- * grouping key, aggregate argument or aggregate filter reads can fail to compute, by the analysis of its DAG
- * (PhysicalNode.failing).
- */
-export const evaluatesBound = (a: PhysicalAnalysis, group: NodeOf<"Group">): boolean => {
-	const read = new Set<string>(group.keys)
-	for (const e of exprClosure(
-		group.aggs.flatMap((ag) => (ag.filter === undefined ? ag.args : [...ag.args, ag.filter]))
-	)) {
-		if (e.kind === "column") {
-			read.add(e.column.name)
-		}
-	}
-	const failing = a.of(group.input).failing
-	return group.bound.some((c) => !read.has(c) && failing.has(c))
 }

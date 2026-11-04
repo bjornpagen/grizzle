@@ -63,7 +63,7 @@ export const charSet = (intervals: Iterable<Interval>): CharSet => {
 }
 
 export const single = (cp: number): CharSet => charSet([[cp, cp]])
-export const union = (...sets: ReadonlyArray<CharSet>): CharSet => charSet(sets.flat())
+export const union = (sets: ReadonlyArray<CharSet>): CharSet => charSet(sets.flat())
 
 /** The admitted code points not in the set. */
 export const complement = (set: CharSet): CharSet => {

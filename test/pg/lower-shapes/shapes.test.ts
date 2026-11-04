@@ -1,8 +1,9 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -114,6 +115,8 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 		case "range4":
 		case "range8":
 		case "vector":
+		case "exactInteger":
+		case "exactMoney":
 			throw new Error(`no fixture column type for ${c.type.carrier}`)
 	}
 }
@@ -617,13 +620,15 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 							suite: "pg/lower-shapes/conditional",
 							draw: drawn(conditionalCaseGen),
 							literal: Formatter.format,
-							features: features<Qualifying>(["none qualify", "some qualify", "all qualify"]),
+							coverage: required<Qualifying>(["none qualify", "some qualify", "all qualify"], {
+								cases: 60,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: 60,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							steering: { kind: "none" },
 							caseHang: Duration.minutes(2)
 						},
 						(c, k) =>

@@ -12,7 +12,13 @@ import {
 import { sameMembers, sameOrder } from "#compiler/core/array.ts"
 import { catchRefusal, encode, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { type Identity, identifierOf, identity, type KeySide } from "#compiler/core/identity.ts"
+import {
+	type Identity,
+	identifierOf,
+	identity,
+	type KeySide,
+	type LawEvent
+} from "#compiler/core/identity.ts"
 import {
 	type ConstraintName,
 	type DomainName,
@@ -21,17 +27,11 @@ import {
 	type LawId,
 	makeIdSupply,
 	type NodeId,
+	type RaisedLawId,
 	type RelationIdent
 } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	dedupeNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray,
-	sortNonEmpty
-} from "#compiler/core/nonempty.ts"
-import * as Order from "#compiler/core/order.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
@@ -43,44 +43,47 @@ import {
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import {
+	type AlternativesParticipant,
 	type DomainCheck,
 	type DomainCheckTerm,
 	type DomainNative,
+	type EventsOf,
+	type EventUnit,
+	type FamilyDetail,
 	fieldNames,
 	headingColumns,
-	type ImageGuard,
+	type Images,
 	type KeyImage,
 	type LawField,
 	type LawLowering,
 	type LawRelation,
-	mapEventImages,
+	mapEvents,
 	type NativeObject,
 	type NativeOf,
 	type Participant,
-	type ParticipantEvents,
-	participantEvents,
 	type RelationInfo,
 	type ResidualLaw,
 	type SpanKeyScalars,
-	type TheoryRelation
+	type TheoryRelation,
+	type UpdateOf,
+	withParticipants
 } from "#compiler/ir/law.ts"
 import type { ConstraintLaws, ConstraintOwner } from "#compiler/ir/products.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { type ContractInfo, contractOf, textOf } from "#compiler/ir/scalar.ts"
 
 import {
+	type AlternativesPlan,
 	type CheckPredicate,
 	type CheckRefs,
 	type CheckTerm,
 	type ImagePlan,
 	type LawPlan,
-	type LeadParticipant,
 	type NativePlan,
 	type ParticipantPlan,
 	type PrimaryKeyPlan,
 	primaryKeyPlan,
-	Recognizer,
-	type ResidualParticipants
+	Recognizer
 } from "#compiler/laws/model/plan.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
 import { lowerPredicate, noParams } from "#compiler/scalar/compute/lower.ts"
@@ -163,20 +166,20 @@ type Merged =
 			readonly kind: "primary"
 			readonly relation: RelationInfo
 			readonly object: PrimaryNative
-			readonly laws: [LawId, ...Array<LawId>]
+			readonly laws: [RaisedLawId, ...Array<RaisedLawId>]
 			readonly law: TheoryLaw
 	  }
 	| {
 			readonly kind: "native"
 			readonly object: NativeObject
-			readonly laws: [LawId, ...Array<LawId>]
+			readonly laws: [RaisedLawId, ...Array<RaisedLawId>]
 			readonly law: TheoryLaw
 	  }
 
 /** A primary key's planned object as the model holds it, discharging `lawIds`. */
 const primaryNative = (
 	plan: PrimaryKeyPlan,
-	lawIds: NonEmptyReadonlyArray<LawId>
+	lawIds: NonEmptyReadonlyArray<RaisedLawId>
 ): PrimaryNative => ({
 	...plan,
 	lawIds
@@ -273,10 +276,13 @@ export interface LawModel {
 	readonly checked: CheckedSchema
 }
 
-/** A participant before its trigger is named: its relation and its events. */
-interface Untriggered {
-	readonly relation: TheoryRelation
-	readonly events: ParticipantEvents
+/** A participant's events, each with the images it checks, before its units are named. */
+type PlannedEvents = EventsOf<Images, UpdateOf>
+
+/** A participant as planned, with its events before its units are named. */
+interface Planned<P extends ParticipantPlan> {
+	readonly plan: P
+	readonly events: PlannedEvents
 }
 
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
@@ -287,7 +293,7 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 }
 
 /** The law a violation of a native object reports: the first it discharges. */
-const reportedLaw = (object: NativeObject): LawId => object.lawIds[0]
+const reportedLaw = (object: NativeObject): RaisedLawId => object.lawIds[0]
 
 /** A native object as its structural identity reads it, every law it discharges left out: each handle by its name, so
  * two plans of one object are one object. */
@@ -370,7 +376,7 @@ const structuralKey = (object: unknown): string => {
 /** A contract's domain CHECK (`DomainCheck`): its base's refined text pattern, when the base is no contract, and
  * its predicate. */
 export const domainCheck = (info: ContractInfo): DomainCheck => {
-	const regex = info.base.contract === undefined ? textOf(info.base)?.regex : undefined
+	const regex = contractOf(info.base) === undefined ? textOf(info.base)?.regex : undefined
 	const pattern: ReadonlyArray<DomainCheckTerm> =
 		regex === undefined || regex === "wildcard" ? [] : [{ kind: "pattern", regex }]
 	const predicate: ReadonlyArray<DomainCheckTerm> =
@@ -524,13 +530,18 @@ class Specializer {
 				return { kind: "LoweredCheck", relation: n.relation, predicate }
 			})
 		}))
-		/** Each row image's anchor key, read from a Delta of the participant and made reachable by a ProjectSet named by
-		 * the anchor key's fields. */
-		const keyImage = (relation: TheoryRelation, image: ImagePlan): KeyImage => {
+		/** Each row image's anchor key, read from a Delta of the participant, of its added facts for an INSERT's image on
+		 * NEW and its removed facts for a DELETE's on OLD, and made reachable by a ProjectSet named by the anchor key's
+		 * fields. */
+		const keyImage = (
+			relation: TheoryRelation,
+			image: ImagePlan,
+			event: "INSERT" | "DELETE"
+		): KeyImage => {
 			const delta = ext.node({
 				kind: "Delta",
 				relation: relation.name,
-				side: image.side === "new" ? "added" : "removed",
+				side: event === "INSERT" ? "added" : "removed",
 				keys: [relation.primaryKey, ...relation.keys],
 				heading: headingColumns(relation.fields),
 				meta: conservativeMeta,
@@ -547,55 +558,39 @@ class Specializer {
 					key.map((c) => [c.pair.anchor.name, c.expr] as const)
 				)
 			)
-			return { side: image.side, key, guard: image.guard }
+			return { key, guard: image.guard }
 		}
-		/** A participant's DELETE and UPDATE images, each kind when it checks any. */
-		const laterEvents = (p: ParticipantPlan) => {
-			const del = p.delete.map((i) => keyImage(p.relation, i))
-			const update =
-				p.update === undefined
-					? undefined
-					: {
-							of: p.update.of,
-							images: mapNonEmpty(p.update.images, (i) => keyImage(p.relation, i))
-						}
-			return { delete: isNonEmpty(del) ? del : undefined, update }
-		}
-		/** A participant's events, each with the images it checks, each when it checks any; a participant no event
-		 * threatens has no trigger. */
-		const participantOf = (p: ParticipantPlan): ReadonlyArray<Untriggered> => {
-			const insert = p.insert.map((i) => keyImage(p.relation, i))
-			const later = laterEvents(p)
-			const events = participantEvents(
-				isNonEmpty(insert) ? insert : undefined,
-				later.delete,
-				later.update
-			)
-			return events === undefined ? [] : [{ relation: p.relation, events }]
-		}
-		/** The lead participant's events: its INSERT always threatens the law. */
-		const leadOf = (p: LeadParticipant): Untriggered => {
-			const insert = mapNonEmpty(p.insert, (i) => keyImage(p.relation, i))
-			const later = laterEvents(p)
-			return { relation: p.relation, events: { insert, ...later } }
-		}
-		/** Each residual law's plan with its participants' triggers to be, in plan order. */
+		/** The participants with their events, each image's anchor key read from the DAG. */
+		const planned = <P extends ParticipantPlan>(
+			participants: NonEmptyReadonlyArray<P>
+		): NonEmptyReadonlyArray<Planned<P>> =>
+			mapNonEmpty(participants, (plan) => ({
+				plan,
+				events: mapEvents(
+					plan.events,
+					(images, event) => mapNonEmpty(images, (i) => keyImage(plan.relation, i, event)),
+					(of): UpdateOf => ({ of })
+				)
+			}))
+		/** Each residual law's plan with its participants' events, their units to be named, in plan order. */
 		const extracted: Array<{
 			readonly plan: LawPlan
 			readonly residual: Exclude<LawPlan["residual"], undefined>
-			readonly participants: NonEmptyReadonlyArray<Untriggered>
+			readonly participants: FamilyDetail<
+				NonEmptyReadonlyArray<Planned<ParticipantPlan>>,
+				NonEmptyReadonlyArray<Planned<AlternativesPlan>>
+			>
 		}> = []
 		for (const plan of plans) {
 			const residual = plan.residual
 			if (residual === undefined) {
 				continue
 			}
-			const [lead, ...rest] = mergeParticipants(residual.participants)
-			const participants: NonEmptyReadonlyArray<Untriggered> = [
-				leadOf(lead),
-				...rest.flatMap(participantOf)
-			]
-			extracted.push({ plan, residual, participants })
+			extracted.push({
+				plan,
+				residual,
+				participants: withParticipants(residual.checks, planned, planned)
+			})
 		}
 		/** A schema with no residual law and no generated CHECK adds nothing to the DAG. */
 		const merged =
@@ -625,7 +620,7 @@ class Specializer {
 				const key = structuralKey(nativeIdentity(object))
 				const known = byKey.get(key)
 				if (known === undefined) {
-					const laws: [LawId, ...Array<LawId>] = [plan.law.id]
+					const laws: [RaisedLawId, ...Array<RaisedLawId>] = [plan.law.id]
 					const seen: NativeObject = { ...object, lawIds: laws }
 					byKey.set(key, { kind: "native", object: seen, laws, law: plan.law })
 					objects.push(seen)
@@ -668,14 +663,12 @@ class Specializer {
 			}
 		}
 
-		/** Residual laws, each with its function and its trigger on each participating relation, named for the law. */
+		/** Residual laws, each participant's event units named for the law, the relation and the event. */
 		const residuals: Array<ResidualLaw> = []
 		const residualOf = new Map<LawId, ResidualLaw>()
-		for (const { plan, residual: r, participants: untriggered } of extracted) {
+		for (const { plan, residual: r, participants: extractedParticipants } of extracted) {
 			const lawId = plan.law.id
-			const fn = this.#named(identity.lawFunction(plan.law.named))
 			const renamed = (image: KeyImage): KeyImage => ({
-				side: image.side,
 				key: mapNonEmpty(image.key, (c) => ({
 					field: c.field,
 					pair: c.pair,
@@ -683,17 +676,32 @@ class Specializer {
 				})),
 				guard: image.guard
 			})
-			const participants = mapNonEmpty(untriggered, (p): Participant => ({
-				relation: p.relation,
-				trigger: this.#named(identity.lawTrigger(plan.law.named, p.relation.name)),
-				events: mapEventImages(p.events, renamed)
-			}))
+			const unit = <E>(relation: TheoryRelation, event: LawEvent, on: E): EventUnit<E> => ({
+				on,
+				trigger: this.#named(identity.lawTrigger(plan.law.named, relation.name, event)),
+				function: this.#named(identity.lawFunction(plan.law.named, relation.name, event))
+			})
+			const participant = (p: Planned<ParticipantPlan>): Participant => ({
+				relation: p.plan.relation,
+				events: mapEvents(
+					p.events,
+					(images, event) => unit(p.plan.relation, event, mapNonEmpty(images, renamed)),
+					(update) => unit(p.plan.relation, "UPDATE", update)
+				)
+			})
+			const family = withParticipants(
+				extractedParticipants,
+				(ps) => mapNonEmpty(ps, participant),
+				(ps) =>
+					mapNonEmpty(ps, (p): AlternativesParticipant => ({
+						...participant(p),
+						check: p.plan.check
+					}))
+			)
 			const residual: ResidualLaw = {
+				...family,
 				lawId,
-				...r.checks,
-				function: fn,
 				anchor: r.anchor,
-				participants,
 				violation: r.violation,
 				indexes: mapNonEmpty(r.indexes, (i) => ({
 					...i,
@@ -727,7 +735,7 @@ class Specializer {
 
 	/** Seeds `byKey` with the primary key of `pk`'s relation, planned from its key and discharging its law. */
 	#seed(byKey: Map<string, Merged>, pk: PrimaryKeyLaw): void {
-		const laws: [LawId, ...Array<LawId>] = [pk.law.id]
+		const laws: [RaisedLawId, ...Array<RaisedLawId>] = [pk.law.id]
 		const object = primaryNative(
 			primaryKeyPlan(pk.relation, pk.relation.keyNames[0], pk.law.loc),
 			laws
@@ -769,7 +777,7 @@ class Specializer {
 			fk.target.fields.some((c) => !fk.targetColumns.includes(c))
 	}
 
-	/** A generated CHECK predicate lowered in the total fragment over a scan of its table. Each field is
+	/** A generated CHECK predicate lowered in "check" mode over a scan of its table. Each field is
 	 * read at its own type, so a literal bound adopts the field's contract as in a declared row check;
 	 * when that adoption refuses (a bound outside the contract, or two contracts compared), the comparison is made over
 	 * the base types instead, which is the same predicate on every stored value. */
@@ -787,7 +795,7 @@ class Specializer {
 		) =>
 			lowerPredicate(desc, {
 				...env,
-				mode: "total",
+				mode: "check",
 				loc,
 				emit,
 				params: noParams,
@@ -808,7 +816,7 @@ class Specializer {
 		deferred: (fk: DeferralQuery) => boolean,
 		renamed: (e: ScalarExpr) => ScalarExpr
 	): NativeObject {
-		const lawIds: NonEmptyReadonlyArray<LawId> = [plan.law.id]
+		const lawIds: NonEmptyReadonlyArray<RaisedLawId> = [plan.law.id]
 		switch (n.kind) {
 			case "PrimaryKey":
 			case "WithoutOverlaps":
@@ -1067,87 +1075,6 @@ const tagOf = (tag: {
 	readonly value: TypedLiteral
 }): Identity<"tag"> => identity.tag(tag.target.name, tag.field.name, identityValueOf(tag.value))
 
-/** The guard of one image two sides of a relation share: always when either side's image is, else the union of their
- * selections, the earlier plan's first. */
-const uniteGuards = (a: ImageGuard, b: ImageGuard): ImageGuard =>
-	a.kind === "always" || b.kind === "always"
-		? { kind: "always" }
-		: { kind: "selected", selections: [...a.selections, ...b.selections] }
-
-const imageKey = (i: ImagePlan) => `${i.side}\u0000${i.key.map((c) => c.field.name).join("\u0000")}`
-
-/** An image of one plan under the union of its guard and its twin's in the other plan's `b`. */
-const twinned =
-	(b: ReadonlyArray<ImagePlan>) =>
-	(i: ImagePlan): ImagePlan => {
-		const twin = b.findLast((x) => imageKey(x) === imageKey(i))
-		return twin === undefined ? i : { ...i, guard: uniteGuards(i.guard, twin.guard) }
-	}
-
-/** The images of `b` that `a` lacks. */
-const fresh = (
-	a: ReadonlyArray<ImagePlan>,
-	b: ReadonlyArray<ImagePlan>
-): ReadonlyArray<ImagePlan> => {
-	const seen = new Set(a.map(imageKey))
-	return b.filter((i) => !seen.has(imageKey(i)))
-}
-
-/** Two UPDATE plans of one relation as one: the fields of either in heading order (`order`), and their images united. */
-const uniteUpdates = (
-	a: Exclude<ParticipantPlan["update"], undefined>,
-	b: Exclude<ParticipantPlan["update"], undefined>
-): Exclude<ParticipantPlan["update"], undefined> => {
-	const of = sortNonEmpty(
-		dedupeNonEmpty([...a.of, ...b.of]),
-		Order.mapInput(Order.compareNumbers, (f: LawField) => f.position)
-	)
-	return { of, images: [...mapNonEmpty(a.images, twinned(b.images)), ...fresh(a.images, b.images)] }
-}
-
-/** Two image lists of one event as one. */
-const unite = (
-	a: ReadonlyArray<ImagePlan>,
-	b: ReadonlyArray<ImagePlan>
-): ReadonlyArray<ImagePlan> => [...a.map(twinned(b)), ...fresh(a, b)]
-
-/** Two plans of one relation as one: events and images united. */
-const mergeTwo = (prior: ParticipantPlan, p: ParticipantPlan): ParticipantPlan => {
-	const update =
-		prior.update === undefined
-			? p.update
-			: p.update === undefined
-				? prior.update
-				: uniteUpdates(prior.update, p.update)
-	return {
-		relation: p.relation,
-		insert: unite(prior.insert, p.insert),
-		delete: unite(prior.delete, p.delete),
-		update
-	}
-}
-
-/** One trigger per participating table: the plans of one relation merged, events and images united, the lead's first.
- * Two images of one (side, fields) are one image, under the union of their guards; an image one plan has and the other
- * lacks keeps its own guard. */
-const mergeParticipants = (plans: ResidualParticipants): ResidualParticipants => {
-	const [first, ...rest] = plans
-	let lead = first
-	const byRelation = new Map<string, ParticipantPlan>()
-	for (const p of rest) {
-		if (p.relation.name === lead.relation.name) {
-			lead = {
-				...mergeTwo(lead, p),
-				insert: [...mapNonEmpty(lead.insert, twinned(p.insert)), ...fresh(lead.insert, p.insert)]
-			}
-			continue
-		}
-		const prior = byRelation.get(p.relation.name)
-		byRelation.set(p.relation.name, prior === undefined ? p : mergeTwo(prior, p))
-	}
-	return [lead, ...byRelation.values()]
-}
-
 const columnLeaf = (node: NodeId, field: LawField): ExprSpec => ({
 	kind: "column",
 	column: { node, name: field.name },
@@ -1174,7 +1101,7 @@ const baseFields = (predicate: CheckPredicate): ExprDesc<Located, CheckRefs> => 
 				return { ...p, left: term(p.left), right: term(p.right) }
 			case "and":
 			case "or":
-				return { ...p, args: p.args.map(wrap) }
+				return { ...p, args: mapNonEmpty(p.args, wrap) }
 			case "not":
 				return { ...p, arg: wrap(p.arg) }
 		}

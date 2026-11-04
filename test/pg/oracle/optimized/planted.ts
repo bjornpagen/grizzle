@@ -15,7 +15,8 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import type { OptimizedFeature } from "#test/pg/oracle/optimized/suite.ts"
 import { publicCase } from "#test/pg/recursion/graph/support.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
-import { bool, int4, spellingChoiceCount } from "#test/support/oracle/gen/domain.ts"
+import { bool, int4 } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { aggregateOpId, aggregateResult, compareOpId } from "#test/support/oracle/gen/ops.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import {
@@ -67,9 +68,9 @@ const storedCase = (
 	const s: GenSchema = { name: schemaName, relations, closed: [], containments: [] }
 	return {
 		schema: s,
-		facts: Rec.fromEntries(Arr.map(relations, (r) => [r.name, facts])),
+		facts: canonicalFacts(Rec.fromEntries(Arr.map(relations, (r) => [r.name, facts]))),
 		query: { dag, params },
-		spelling: { mode: "perCase", choices: [], edge: false }
+		spelling: { mode: "drawn", edge: false }
 	}
 }
 
@@ -84,7 +85,7 @@ const annotated = (c: QueryCase): QueryCase => {
 
 /** The predicate that two integer expressions are equal. */
 const equal = (q: Q, left: ScalarExpr, right: ScalarExpr): ScalarExpr =>
-	q.op(compareOpId(int4, "eq"), [left, right], bool, "total")
+	q.op(compareOpId(int4, "eq"), [left, right], bool)
 
 /** The rows of `input` whose integer column equals `value`. */
 const where = (q: Q, input: RelNode, column: string, value: number): RelNode =>
@@ -198,14 +199,14 @@ const Closure = query(Net).recursive("Closure", {
 	row: { origin: pg.integer, node: pg.integer },
 	base: [
 		(r) => {
-			const { from, to } = v(E)
+			const { from, to } = v(E, "e")
 			return r.match(E, { from, to }).find({ origin: from, node: to })
 		}
 	],
 	rec: [
 		(r, self) => {
-			const { origin, node } = v(self)
-			const { to } = v(E)
+			const { origin, node } = v(self, "self")
+			const { to } = v(E, "e")
 			return r.match(self, { origin, node }).match(E, { from: node, to }).find({ origin, node: to })
 		}
 	]
@@ -339,7 +340,7 @@ export const plantedRewrites: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> =
 					...firstRecursionSketch,
 					consumer: defaultRecursiveLimits.consumers.indexOf("originFilter")
 				},
-				spelling: Array.from({ length: spellingChoiceCount }, () => 0)
+				spelling: [0, 0, 0, 0, 0, 0, 0, 0]
 			},
 			defaultRecursiveLimits,
 			"unmutated"
@@ -351,7 +352,7 @@ export const plantedRewrites: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> =
 		netCase(
 			"constant",
 			query(Net).rule((r) => {
-				const { node } = v(Closure)
+				const { node } = v(Closure, "closure")
 				return r.match(Closure, { origin: 2, node }).find({ node })
 			})
 		)
@@ -367,7 +368,7 @@ export const plantedRewrites: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> =
 		netCase(
 			"region",
 			query(Net).rule((r) => {
-				const { origin, node } = v(Closure)
+				const { origin, node } = v(Closure, "closure")
 				return r.match(Closure, { origin, node }).where(r.eq(origin, 2)).find({ node })
 			})
 		)

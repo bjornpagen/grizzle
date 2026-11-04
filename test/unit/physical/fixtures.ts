@@ -56,7 +56,8 @@ const Handle: FieldDesc = {
 		op: "le",
 		left: { kind: "compute", fn: "charLength", args: [value] },
 		right: lit(1000)
-	}
+	},
+	facts: []
 }
 
 const Content: SchemaDesc = {
@@ -101,28 +102,32 @@ const Cents: FieldDesc = {
 	kind: "contract",
 	name: "Cents",
 	base: F.bigint,
-	predicate: { kind: "compare", op: "ge", left: value, right: lit(0n) }
+	predicate: { kind: "compare", op: "ge", left: value, right: lit(0n) },
+	facts: []
 }
 
 const Rate: FieldDesc = {
 	kind: "contract",
 	name: "Rate",
 	base: { kind: "numeric", precision: 7, scale: 6 },
-	predicate: { kind: "between", arg: value, low: lit(0n), high: lit(1n) }
+	predicate: { kind: "between", arg: value, low: lit(0n), high: lit(1n) },
+	facts: []
 }
 
 const Refund: FieldDesc = {
 	kind: "contract",
 	name: "Refund",
 	base: Cents,
-	predicate: { kind: "compare", op: "le", left: value, right: lit(100000n) }
+	predicate: { kind: "compare", op: "le", left: value, right: lit(100000n) },
+	facts: []
 }
 
 const EpochDay: FieldDesc = {
 	kind: "contract",
 	name: "EpochDay",
 	base: F.bigint,
-	predicate: undefined
+	predicate: undefined,
+	facts: []
 }
 const Code: FieldDesc = { kind: "text", source: "^[A-Z]{3}$", flags: "u" }
 
@@ -237,7 +242,13 @@ const Fee: FieldDesc = {
 	kind: "contract",
 	name: "Fee",
 	base: F.money,
-	predicate: { kind: "between", arg: value, low: lit(Money.of(100n)), high: lit(Money.of(100000n)) }
+	predicate: {
+		kind: "between",
+		arg: value,
+		low: lit(Money.of(100n)),
+		high: lit(Money.of(100000n))
+	},
+	facts: []
 }
 
 export const Charges: SchemaDesc = {

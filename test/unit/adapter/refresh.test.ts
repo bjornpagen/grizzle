@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	characterOf,
@@ -11,6 +11,7 @@ import {
 	oneOf,
 	string
 } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -93,7 +94,7 @@ const Sitting = relation(
 )
 const Edu = schema("Edu", { Sitting }, [])
 const weekly = query(Edu).rule((r) => {
-	const { id, student, week, passed } = v(Sitting)
+	const { id, student, week, passed } = v(Sitting, "sitting")
 	return r.match(Sitting, { id, student, week, passed }).find({
 		student,
 		week,
@@ -103,14 +104,14 @@ const weekly = query(Edu).rule((r) => {
 })
 
 const totals = query(Edu).rule((r) => {
-	const { id, student } = v(Sitting)
+	const { id, student } = v(Sitting, "sitting")
 	return r.match(Sitting, { id, student }).find({ student, total: r.count() })
 })
 const B = derived("B", weekly)
 const A = derived("A", totals)
 const Level1 = schema.extend(Edu, { B, A }, [])
 const busy = query(Level1).rule((r) => {
-	const { student, week } = v(B)
+	const { student, week } = v(B, "b")
 	return r.match(B, { student, week }).find({ week, students: r.count() })
 })
 const C = derived("C", busy)
@@ -179,7 +180,7 @@ describe("db.refresh targets", () => {
 		 * B's: a depth order would refresh it at level 1 and sort A before B by name.
 		 */
 		const passes = query(Edu).rule((r) => {
-			const { id, student, passed } = v(Sitting)
+			const { id, student, passed } = v(Sitting, "sitting")
 			return r
 				.match(Sitting, { id, student, passed })
 				.find({ student, passed, sittings: r.count() })
@@ -249,7 +250,7 @@ describe("db.refresh targets", () => {
 						generator: element<readonly [NotDerived, unknown]>(notDerived),
 						literal: (row) => Formatter.format(row[0]),
 						limit: notDerived.length,
-						features: features<NotDerived>(Arr.map(notDerived, ([name]) => name)),
+						coverage: requiredInSpace<NotDerived>(Arr.map(notDerived, ([name]) => name)),
 						caseHang: Duration.minutes(2)
 					},
 					(row, c) =>
@@ -364,20 +365,22 @@ describe("plain or CONCURRENTLY", () => {
 							)
 						),
 						literal: Formatter.format,
-						features: features<TextArrayFeature>([
-							"no element",
-							"an empty element",
-							"an element with a quote",
-							"an element with a backslash",
-							"an element with a comma or brace",
-							"a repeated view"
-						]),
+						coverage: required<TextArrayFeature>(
+							[
+								"no element",
+								"an empty element",
+								"an element with a quote",
+								"an element with a backslash",
+								"an element with a comma or brace",
+								"a repeated view"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						steering: { kind: "none" },
 						caseHang: Duration.minutes(2)
 					},
 					(views, c) =>
@@ -430,7 +433,7 @@ describe("plain or CONCURRENTLY", () => {
 						generator: detailGen,
 						literal: Formatter.format,
 						limit: 200,
-						features: features<Detail["kind"]>(["a position", "no position"]),
+						coverage: requiredInSpace<Detail["kind"]>(["a position", "no position"]),
 						caseHang: Duration.minutes(2)
 					},
 					(detail, c) =>
@@ -499,10 +502,10 @@ const refreshSession = (populated: ReadonlyArray<string>, script: Script) =>
 					query.sql === asRefresher.fence.server.sql ||
 					query.sql === asRefresher.enter.server.sql
 				) {
-					return rows()
+					return rows([])
 				}
 				if (query.sql === populatedSql) {
-					return rows(...Arr.map(populated, (v) => [v, "true"]))
+					return rows(Arr.map(populated, (v) => [v, "true"]))
 				}
 				return script.statement(query)
 			}
@@ -523,7 +526,7 @@ const rewrittenAt = (position: number): Script => ({
 						detail: concurrentRefreshDetail(position)
 					})
 				}
-			: rows()
+			: rows([])
 })
 
 /** The refresh of `relations` on `session`, its exit. */
@@ -557,7 +560,7 @@ describe("how a refresh ends", () => {
 					]),
 					literal: (row) => Formatter.format(row[0]),
 					limit: 2,
-					features: features<"40001" | "40P01">(["40001", "40P01"]),
+					coverage: requiredInSpace<"40001" | "40P01">(["40001", "40P01"]),
 					caseHang: Duration.minutes(2)
 				},
 				([sqlstate, reason], c) =>
@@ -602,7 +605,9 @@ describe("how a refresh ends", () => {
 						generator: element<readonly [OtherRefusal, ServerError]>(otherRefusals),
 						literal: (row) => Formatter.format(row[0]),
 						limit: otherRefusals.length,
-						features: features<OtherRefusal>(Arr.map(otherRefusals, ([sqlstate]) => sqlstate)),
+						coverage: requiredInSpace<OtherRefusal>(
+							Arr.map(otherRefusals, ([sqlstate]) => sqlstate)
+						),
 						caseHang: Duration.minutes(2)
 					},
 					([sqlstate, raised], c) =>
@@ -614,7 +619,7 @@ describe("how a refresh ends", () => {
 							const session = refreshSession(["b"], {
 								...answeringScript,
 								statement: (query) =>
-									query.sql !== populatedSql ? { _tag: "refused", error: raised } : rows()
+									query.sql !== populatedSql ? { _tag: "refused", error: raised } : rows([])
 							})
 							const failure = failureOf(yield* refreshOn(session, [B]))
 							assert.ok(Schema.is(ExecutionFailure)(failure))
@@ -629,7 +634,7 @@ describe("how a refresh ends", () => {
 		"reads populated views, then the block that checks and refreshes in refresh order, and commits, in one SERIALIZABLE flight",
 		() =>
 			Effect.gen(function* () {
-				const session = refreshSession(["b"], { ...answeringScript, statement: () => rows() })
+				const session = refreshSession(["b"], { ...answeringScript, statement: () => rows([]) })
 				const exit = yield* refreshOn(session, [C, A, B])
 				assert.ok(Exit.isSuccess(exit), "the refresh succeeds")
 				const [only, ...rest] = session.flights()
@@ -687,7 +692,7 @@ describe("how a refresh ends", () => {
 				const refreshing = (sqlstate: string) =>
 					refreshSession(["b"], {
 						...answeringScript,
-						statement: (query) => (query.sql !== populatedSql ? refusedAnswer(sqlstate) : rows())
+						statement: (query) => (query.sql !== populatedSql ? refusedAnswer(sqlstate) : rows([]))
 					})
 				assert.deepEqual(
 					(yield* refreshOn(refreshing("40001"), [B])).pipe(failureOf, told),
@@ -695,13 +700,13 @@ describe("how a refresh ends", () => {
 				)
 				const atCommit = refreshSession(["b"], {
 					...answeringScript,
-					statement: () => rows(),
+					statement: () => rows([]),
 					commit: () => serverError({ ...nothingReported, sqlstate: "40001" })
 				})
 				assert.deepEqual((yield* refreshOn(atCommit, [B])).pipe(failureOf, told), serialization)
 				const lostCommit = refreshSession(["b"], {
 					...answeringScript,
-					statement: () => rows(),
+					statement: () => rows([]),
 					commit: () => "lose"
 				})
 				assert.ok((yield* refreshOn(lostCommit, [B])).pipe(failureOf, Schema.is(CommitUnknown)))

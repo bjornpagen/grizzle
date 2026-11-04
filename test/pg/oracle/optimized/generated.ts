@@ -1,14 +1,12 @@
 import { layer } from "@effect/vitest"
 import { type Draw, type Kept, sketched } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter, Record } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
-import { type FinishedSketch, finishedDraw } from "#test/pg/oracle/frontier/finish.ts"
-import { exploreFrontier, type FrontierFeature } from "#test/pg/oracle/frontier/support.ts"
 import { plantedRewrites } from "#test/pg/oracle/optimized/planted.ts"
 import {
 	differential,
@@ -21,13 +19,13 @@ import { denseQueryCaseGen } from "#test/pg/oracle/support.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import {
 	defaultGenConfig,
-	optimizerFailingGenConfig,
 	optimizerGenConfig,
 	paramNameGenConfig,
 	perEvaluationGenConfig,
 	queryCaseGen
 } from "#test/support/oracle/gen/case.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { aggregateOpId, aggregateResult } from "#test/support/oracle/gen/ops.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
@@ -54,21 +52,6 @@ const perEvaluationRequired = [
 	"nonempty"
 ] as const satisfies ReadonlyArray<OptimizedFeature>
 
-/** Failing cases per part: each runs every form on PostgreSQL and the frontier reference's verdict. */
-const failingCasesPerPart = 400
-
-/**
- * What the failing population must reach: a needed expression that must fail, one that only may, a case that delivers
- * the reference's rows, and an optimized artifact that raises.
- */
-const failingRequired = [
-	"forced failure",
-	"may fail",
-	"reference rows",
-	"optimized error",
-	"optimized rows"
-] as const satisfies ReadonlyArray<FrontierFeature>
-
 /** Schema labels are lowercase words (test/support/substrate/names.ts). */
 const partLetter = (part: number): string => String.fromCharCode(0x61 + part)
 
@@ -77,7 +60,7 @@ const partLetter = (part: number): string => String.fromCharCode(0x61 + part)
  * pipelined attachments and heading groups run, relation parameters also travel by VALUES, computed terms are
  * evaluated, and cases deliver rows.
  */
-const required = [
+const situations = [
 	...generatedRules,
 	...rewriteFamilies,
 	"fused attachment",
@@ -135,9 +118,11 @@ const keptCase = (
 			closed: [],
 			containments: []
 		},
-		facts: Record.fromEntries(Arr.map(stored, ([r, rows]) => [r.name, factsOf(rows)])),
+		facts: canonicalFacts(
+			Record.fromEntries(Arr.map(stored, ([r, rows]) => [r.name, factsOf(rows)]))
+		),
 		query: { dag, params: {} },
-		spelling: { mode: "perCase", choices: [], edge: false }
+		spelling: { mode: "drawn", edge: false }
 	}
 }
 
@@ -267,17 +252,8 @@ const densePopulation = resolved(denseQueryCaseGen(defaultGenConfig))
  * evaluation of a correlated subtree only. Its
  * escaped counterexamples are kept cases replayed before its streams (perEvaluationKept).
  *
- * A fourth population is the optimizer's with failing terms (gen/case.ts optimizerFailingGenConfig): computed terms that
- * divide by zero, overflow or cast out of range on the generated facts, and half its plain roots ending in the
- * frontier's division by zero over the rows they deliver (frontier/finish.ts finishedDraw), so failures every lowering
- * must raise meet every run. A failing case has no rows to compare, so it is judged by the frontier reference (test/pg/oracle/frontier/support.ts): where a needed expression must fail, the
- * conservative artifact, the optimized one and every per-execution variant raise one of the query's own SQLSTATEs;
- * where one may fail, each raises one of them or delivers the reference's rows; otherwise each delivers them. Every
- * rewrite family the optimizer reaches is thereby searched for a failure it hides or invents.
- *
- * The optimizer's population with the per-evaluation shapes, against the conservative lowering.
- *
- * The optimizer's population with failing terms, judged by the frontier reference's verdict.
+ * The optimizer's population with the per-evaluation shapes, against the conservative lowering. No generated term
+ * raises (every partial operation is guarded, gen/compute.ts), so an execution error of any form is a defect.
  */
 export const generatedSuite = (part: number): void => {
 	layer(Substrate.layer)(
@@ -291,11 +267,13 @@ export const generatedSuite = (part: number): void => {
 						differential(optimizerPopulation, `opt${partLetter(part)}`, {
 							suite: `optimized/generated-${part}`,
 							literal: Formatter.format,
-							features: features<OptimizedFeature>(required),
+							coverage: required<OptimizedFeature>(situations, {
+								cases: casesPerPopulation,
+								sense: notesOnly
+							}),
 							kept: plantedRewrites,
 							runs: casesPerPopulation,
 							shrink: optimizedShrink,
-							steering: { kind: "mutate", cases: casesPerPopulation, sense: notesOnly },
 							caseHang: Duration.minutes(2),
 							perturb: "all"
 						})
@@ -311,39 +289,16 @@ export const generatedSuite = (part: number): void => {
 						differential(perEvaluationPopulation, `opte${partLetter(part)}`, {
 							suite: `optimized/per-evaluation-${part}`,
 							literal: Formatter.format,
-							features: features<OptimizedFeature>(perEvaluationRequired),
+							coverage: required<OptimizedFeature>(perEvaluationRequired, {
+								cases: casesPerPopulation,
+								sense: notesOnly
+							}),
 							kept: perEvaluationKept,
 							runs: casesPerPopulation,
 							shrink: optimizedShrink,
-							steering: { kind: "mutate", cases: casesPerPopulation, sense: notesOnly },
 							caseHang: Duration.minutes(2),
 							perturb: "all"
 						})
-					),
-				1_800_000
-			)
-
-			it.effect(
-				`keeps every failure on ${failingCasesPerPart} cases of the optimizer's population with failing terms`,
-				(ctx) =>
-					searched(
-						ctx,
-						exploreFrontier<FinishedSketch, never>(
-							finishedDraw(optimizerFailingGenConfig),
-							`optf${partLetter(part)}`,
-							{
-								suite: `optimized/failing-${part}`,
-								literal: Formatter.format,
-								features: features<FrontierFeature>(failingRequired),
-								kept: [],
-								runs: failingCasesPerPart,
-								shrink: { kind: "bounded", candidates: 150 },
-								steering: { kind: "mutate", cases: failingCasesPerPart, sense: notesOnly },
-								caseHang: Duration.minutes(2),
-								perturb: "all"
-							},
-							() => []
-						)
 					),
 				1_800_000
 			)
@@ -356,11 +311,13 @@ export const generatedSuite = (part: number): void => {
 						differential(densePopulation, `dense${partLetter(part)}`, {
 							suite: `optimized/dense-${part}`,
 							literal: Formatter.format,
-							features: features<OptimizedFeature>(["nonempty"]),
+							coverage: required<OptimizedFeature>(["nonempty"], {
+								cases: casesPerPopulation,
+								sense: notesOnly
+							}),
 							kept: [],
 							runs: casesPerPopulation,
 							shrink: optimizedShrink,
-							steering: { kind: "mutate", cases: casesPerPopulation, sense: notesOnly },
 							caseHang: Duration.minutes(2),
 							perturb: "all"
 						})
@@ -388,13 +345,13 @@ export const paramNamesSuite = (): void => {
 						differential(resolved(queryCaseGen(paramNameGenConfig)), "optp", {
 							suite: "optimized/param-names",
 							literal: Formatter.format,
-							features: features<OptimizedFeature>([
-								["form:optimized VALUES", "relation parameter named from the dictionary"]
-							]),
+							coverage: required<OptimizedFeature>(
+								[["form:optimized VALUES", "relation parameter named from the dictionary"]],
+								{ cases: casesPerPopulation, sense: notesOnly }
+							),
 							kept: [],
 							runs: casesPerPopulation,
 							shrink: optimizedShrink,
-							steering: { kind: "mutate", cases: casesPerPopulation, sense: notesOnly },
 							caseHang: Duration.minutes(2),
 							perturb: "all"
 						})

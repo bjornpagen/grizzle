@@ -1,8 +1,9 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
-import { features } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Formatter } from "effect"
+import { Array as Arr, Duration, Formatter } from "effect"
 import { aggregateKeys, caseSketchGen, plantedAggregates } from "#test/pg/derived/oracle/gen.ts"
 import { type DerivedFeature, derivedCase } from "#test/pg/derived/oracle/property.ts"
 import { oracleCheck } from "#test/support/oracle/runner.ts"
@@ -15,8 +16,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const casesPerSeed = 200
 
 /** What every seed's cases must reach, so the oracle is not vacuous: every feature a case notes, each aggregate over
- * every kind it takes, the four over an aggregate's own result planted (`plantedNumSketchGen`). */
-const required: ReadonlyArray<DerivedFeature> = [
+ * every kind it takes, the four over an aggregate's own result planted (`plantedNumSketchGen`), and a second reading
+ * over a respelled value. */
+const situations: Arr.NonEmptyReadonlyArray<DerivedFeature> = [
 	"form rule",
 	"form union",
 	"form take",
@@ -33,7 +35,8 @@ const required: ReadonlyArray<DerivedFeature> = [
 	"unpopulated reads",
 	"identical reloads",
 	"reordered reloads",
-	"base changes"
+	"base changes",
+	"a fact respelled on a second reading"
 ]
 
 /** One suite's cases, explored: the kept case, the floor stream the library derives from the suite's label, and the
@@ -44,7 +47,7 @@ const explored = (suite: string) =>
 		{
 			suite,
 			literal: Formatter.format,
-			features: features<DerivedFeature>(required),
+			coverage: required<DerivedFeature>(situations, { cases: casesPerSeed, sense: notesOnly }),
 			kept: [
 				{
 					note: "every aggregate over every kind it takes",
@@ -55,7 +58,6 @@ const explored = (suite: string) =>
 			],
 			runs: casesPerSeed,
 			shrink: { kind: "complete" },
-			steering: { kind: "none" },
 			caseHang: Duration.minutes(2),
 			perturb: "planner"
 		},

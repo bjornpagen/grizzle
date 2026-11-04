@@ -10,7 +10,6 @@ import {
 	type CatalogOpId,
 	type ExprSpec,
 	type TypedLiteral,
-	rangeOp,
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
 import { headingColumns, type LawField, type TheoryRelation } from "#compiler/ir/law.ts"
@@ -26,7 +25,12 @@ import {
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, type SpanCarrier, sameScalarType } from "#compiler/ir/scalar.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { castOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
+import {
+	binaryCoercion,
+	castOf,
+	definedRangeOp,
+	overloadOf
+} from "#compiler/scalar/compute/registry.ts"
 import {
 	commonType,
 	type PlainCarrier,
@@ -198,6 +202,13 @@ export class ViolationBuilder {
 				`a native ${fn} over ${carriers.join(", ")} (the Compute catalogue)`
 			)
 		}
+		if (native.partial || native.totality.kind === "exact") {
+			return refuse(
+				"UnsupportedOperation",
+				this.loc,
+				`a native ${fn} over ${carriers.join(", ")} defined on every value at its own type: a law's violation query computes only comparisons, connectives and numeric differences`
+			)
+		}
 		const plain = plainCarriers.find((c) => c === native.result)
 		const result: ScalarType = plain === undefined ? args[0].type : plainType(plain)
 		return this.expr({
@@ -206,8 +217,7 @@ export class ViolationBuilder {
 			args,
 			type: result,
 			nonNull: "strict",
-			volatility: native.volatility,
-			failure: native.failures.length > 0 ? "canFail" : "total"
+			volatility: native.volatility
 		})
 	}
 
@@ -223,12 +233,11 @@ export class ViolationBuilder {
 	): ScalarExpr {
 		return this.expr({
 			kind: "op",
-			op: rangeOp(code, carrier),
+			op: definedRangeOp(code, carrier),
 			args: [left, right],
 			type: boolType,
 			nonNull: "strict",
-			volatility: "immutable",
-			failure: "total"
+			volatility: "immutable"
 		})
 	}
 
@@ -258,7 +267,7 @@ export class ViolationBuilder {
 		}
 		return this.expr({
 			kind: "cast",
-			checked: false,
+			cast: binaryCoercion,
 			args: [e],
 			type,
 			nonNull: "strict",
@@ -267,8 +276,9 @@ export class ViolationBuilder {
 	}
 
 	/**
-	 * The native cast to a plain carrier, or the identity-preserving cast to the value type when the
-	 * carrier is already that one. A narrowing that can fail is a checked cast.
+	 * The native cast to a plain carrier, or the identity-preserving cast to the value type when the carrier is already
+	 * that one: a widening, defined on every value, since a law compares in the wider carrier; a partial cast is
+	 * refused, as it would need a proof no law states.
 	 */
 	toCarrier(e: ScalarExpr, target: PlainCarrier): ScalarExpr {
 		const source = baseOf(e.type).carrier
@@ -276,12 +286,16 @@ export class ViolationBuilder {
 			return this.as(e, plainType(target))
 		}
 		const native = castOf(source, target)
-		if (native === undefined) {
-			return refuse("UnsupportedOperation", this.loc, `a native cast from ${source} to ${target}`)
+		if (native === undefined || native.partial) {
+			return refuse(
+				"UnsupportedOperation",
+				this.loc,
+				`a native cast from ${source} to ${target} defined on every value`
+			)
 		}
 		return this.expr({
 			kind: "cast",
-			checked: native.failures.length > 0,
+			cast: native.id,
 			args: [this.as(e, valueType(e.type))],
 			type: plainType(target),
 			nonNull: "strict",
