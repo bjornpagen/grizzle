@@ -1100,7 +1100,7 @@ const noteRun = (
  */
 const setUp = (race: WorldRace, world: RacingWorld): Effect.Effect<ModelState, CaseFailed> =>
 	Effect.gen(function* () {
-		const failed = (report: string) => CaseFailed.make({ report: `${race.name}: setup: ${report}` })
+		const failed = (report: string) => new CaseFailed({ report: `${race.name}: setup: ${report}` })
 		yield* Effect.mapError(world.reset(race.reality), (e) =>
 			failed(`the reset failed: ${messageOf(e)}`)
 		)
@@ -1139,7 +1139,7 @@ export const runWorldRace = ({
 	readonly note: (f: WorldRaceFeature) => void
 }): Effect.Effect<void, CaseFailed, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
-		const failed = (report: string) => CaseFailed.make({ report: `${race.name}: ${report}` })
+		const failed = (report: string) => new CaseFailed({ report: `${race.name}: ${report}` })
 		const s = yield* Substrate
 		const world = yield* Effect.mapError(
 			realizeRace(race.install, ordinarySession, race.poolSize),

@@ -19,7 +19,7 @@ const written = (
 ): Effect.Effect<void> => (lines.length === 0 ? Effect.void : write(Arr.join(lines, "\n")))
 
 /** The refusal of a configuration that could not be found or imported, for what was thrown. */
-const unloaded = (cause: unknown): CliError => cliError(ConfigUnloaded.make({ cause }))
+const unloaded = (cause: unknown): CliError => cliError(new ConfigUnloaded({ cause }))
 
 /**
  * The application's grizzle.config.ts in `directory`, imported once.
@@ -38,7 +38,7 @@ const configIn = (
 		const path = yield* Path.Path
 		const file = path.join(directory, configFileName)
 		if (!(yield* Effect.mapError(fs.exists(file), unloaded))) {
-			return yield* cliError(ConfigMissing.make({ directory }))
+			return yield* cliError(new ConfigMissing({ directory }))
 		}
 		const url = (yield* Effect.mapError(path.toFileUrl(file), unloaded)).href
 		yield* Effect.sync(() =>
@@ -54,7 +54,7 @@ const configIn = (
 			catch: unloaded
 		})
 		if (typeof module !== "object" || module === null || !("default" in module)) {
-			return yield* cliError(ExportRefused.make({ fault: "missing" }))
+			return yield* cliError(new ExportRefused({ fault: "missing" }))
 		}
 		const loaded: ConfigFile = { file, value: module.default }
 		return loaded

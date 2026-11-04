@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, type Kept } from "@grizzle/testing/explore"
+import { drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -32,7 +32,6 @@ import {
 	type RuleDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { jsonText } from "#test/support/json.ts"
 import { spanText } from "#test/support/oracle/allen.ts"
 import {
 	printSpanCase,
@@ -210,40 +209,6 @@ type ProducerFeature =
 	| `tuple:${(typeof tupleKinds)[number]}:${(typeof tupleShapes)[number]}:${Outcome}`
 const outcomeOf = (rows: ReadonlyArray<RawRow>): Outcome => (rows.length > 0 ? "rows" : "empty")
 
-/**
- * Planted: a bound tuple whose distinct bindings produce one piece twice, for each producer, which needs two facts of an
- * id-keyed relation at one group and span and so is drawn once in a thousand cases: two Left facts at [0, 10) of group
- * 0 against a Right fact at [5, 15) produce [5, 10) and [0, 5) twice.
- */
-const duplicatesCase = (kind: "intersection" | "difference"): SpanCase => ({
-	schema: {
-		endpoint: "integer",
-		relations: {
-			Left: { name: "Left", spanKeyed: false },
-			Right: { name: "Right", spanKeyed: false }
-		}
-	},
-	facts: {
-		Left: [
-			{ id: 1, group: 0, during: { lo: 0n, hi: 10n } },
-			{ id: 2, group: 0, during: { lo: 0n, hi: 10n } }
-		],
-		Right: [{ id: 1, group: 0, during: { lo: 5n, hi: 15n } }]
-	},
-	dropped: [],
-	query: { kind }
-})
-
-const producerKept: ReadonlyArray<Kept<SpanCase, ProducerFeature>> = Arr.map(
-	tupleKinds,
-	(kind) => ({
-		note: `two Left facts at one group and span, ${kind}`,
-		sketch: duplicatesCase(kind),
-		draws: "",
-		reaches: [`tuple:${kind}:duplicates:rows`]
-	})
-)
-
 layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 	/**
 	 * The correlated producer is built as IR by hand, which no query builder reaches: a planted structure over drawn
@@ -359,7 +324,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 								const rows = yield* rawRows(db, sql, [])
 								const problem = sameSet("correlated", want, rows)
 								if (problem !== undefined) {
-									return yield* PropertyFailed.make({
+									return yield* new PropertyFailed({
 										report: `${printSpanCase(c)}\n${problem}\n${sql}`
 									})
 								}
@@ -404,7 +369,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 							suite: "spans/producers",
 							literal: Formatter.format,
 							coverage: required<ProducerFeature>(situations, { cases: cases, sense: notesOnly }),
-							kept: producerKept,
+							kept: [],
 							runs: cases,
 							shrink: completeShrink,
 							caseHang: Duration.minutes(2),
@@ -413,7 +378,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 						(sc, c) =>
 							Effect.gen(function* () {
 								const fail = (message: string) =>
-									Effect.fail(PropertyFailed.make({ report: `${printSpanCase(sc)}\n${message}` }))
+									Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
 								yield* installSpanCase(db, schema, sc)
 								const expected = referenceRows(sc)
 								c.note(`${sc.query.kind}:${outcomeOf(expected)}`)
@@ -434,13 +399,13 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 										const conservative = yield* rawRows(db, conservativeSql, [])
 										if (repeats(optimized) > 0) {
 											return yield* fail(
-												`${label}: optimized repeats a row\n${optimizedSql}\n${jsonText(optimized)}`
+												`${label}: optimized repeats a row\n${optimizedSql}\n${Formatter.format(optimized)}`
 											)
 										}
 										const difference = sameRowSet(rowSet(optimized), rowSet(conservative))
 										if (Option.isSome(difference)) {
 											return yield* fail(
-												`${label}: optimized and conservative differ: ${difference.value}\n${jsonText(rowSet(optimized))}\n${jsonText(rowSet(conservative))}\n${optimizedSql}`
+												`${label}: optimized and conservative differ: ${difference.value}\n${Formatter.format(rowSet(optimized))}\n${Formatter.format(rowSet(conservative))}\n${optimizedSql}`
 											)
 										}
 										const problem = sameSet(

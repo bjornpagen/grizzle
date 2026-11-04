@@ -10,10 +10,10 @@ import {
 	Order,
 	pipe,
 	type PlatformError,
-	Schema,
 	String as Str
 } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { assert, contains, containsText, like, matchers } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { hardenedNode, run, runOptions, sourceCondition } from "#test/support/process.ts"
@@ -23,7 +23,7 @@ import {
 	erase,
 	type Finding,
 	modulesIn,
-	PackageJson,
+	type PackageJson,
 	packageDirectories,
 	packageOf
 } from "#test/unit/deps/audit.ts"
@@ -56,22 +56,17 @@ const modulesUnder = (
 		return modulesIn(entries, dir)
 	})
 
-const decodePackageJson = Schema.decodeUnknownEffect(Schema.fromJsonString(PackageJson))
-
 /** The packages' entry points (audit.ts entriesOf), read from each package.json under root, sorted, each once. */
 const entryPoints: Effect.Effect<
 	ReadonlyArray<string>,
-	PlatformError.PlatformError | Schema.SchemaError,
+	PlatformError.PlatformError,
 	FileSystem.FileSystem
 > = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
 	const targets: Array<string> = []
 	for (const directory of packageDirectories) {
-		const pkg = yield* Effect.flatMap(
-			fs.readFileString(`${root}packages/${directory}/package.json`),
-			decodePackageJson
-		)
-		appendAll(targets, entriesOf(directory, pkg))
+		const text = yield* fs.readFileString(`${root}packages/${directory}/package.json`)
+		appendAll(targets, entriesOf(directory, trustedJson<PackageJson>(text)))
 	}
 	return Arr.sort(Arr.dedupe(targets), Order.String)
 })
@@ -314,21 +309,19 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 		)
 	})
 
-	/** The probe's one JSON line is the output of another process, admitted by its schema. */
-	const ProbeOutput = Schema.Struct({
-		control: Schema.Boolean,
-		controlLine: Schema.Finite,
-		protoAccessor: Schema.Boolean,
-		resolved: Schema.Array(Schema.Struct({ importer: Schema.String, url: Schema.String })),
-		trapped: Schema.Array(Schema.Struct({ kind: Schema.String, frame: Schema.String })),
-		loadedTrapped: Schema.Finite,
-		admitted: Schema.Finite,
-		checked: Schema.Finite,
-		refused: Schema.Finite,
-		decoded: Schema.Finite
-	})
-	type ProbeOutput = typeof ProbeOutput.Type
-	const decodeProbeOutput = Schema.decodeUnknownEffect(Schema.fromJsonString(ProbeOutput))
+	/** The probe's one JSON line, which runtime-probe.ts, the test's own child process, prints. */
+	type ProbeOutput = {
+		readonly control: boolean
+		readonly controlLine: number
+		readonly protoAccessor: boolean
+		readonly resolved: ReadonlyArray<{ readonly importer: string; readonly url: string }>
+		readonly trapped: ReadonlyArray<{ readonly kind: string; readonly frame: string }>
+		readonly loadedTrapped: number
+		readonly admitted: number
+		readonly checked: number
+		readonly refused: number
+		readonly decoded: number
+	}
 
 	/** The negative control: a module that builds and runs RegExps at load, on lines 5, 6 and 8. */
 	const planted = "test/unit/deps/fixtures/planted-regex.ts"
@@ -352,7 +345,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 				Arr.last(Str.split(Str.trim(result.stdout), "\n")),
 				() => new Error("the runtime probe printed nothing")
 			)
-			return yield* decodeProbeOutput(last)
+			return trustedJson<ProbeOutput>(last)
 		})
 
 	/**
@@ -368,7 +361,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 		"loads every entry point and drives every text parser under hardened Node, with no arkregex module and no RegExp from src/",
 		() =>
 			Effect.gen(function* () {
-				const out = yield* probe([...(yield* entryPoints), planted])
+				const entries = yield* entryPoints
+				const out = yield* probe([...entries, planted])
 				assert.equal(
 					out.protoAccessor,
 					false,

@@ -59,7 +59,8 @@ type Context = (typeof contexts)[number]
 layer(NodeServices.layer, { excludeTestServices: true })("evidence types", (it) => {
 	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
 		Effect.gen(function* () {
-			assert.equal((yield* checked("evidence/fixtures")).output, "")
+			const diagnostics = yield* checked("evidence/fixtures")
+			assert.equal(diagnostics.output, "")
 		})
 	)
 

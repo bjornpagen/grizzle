@@ -7,9 +7,9 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { assert, contains, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { decimalGen, decimalText, orderOf } from "#test/unit/values/support.ts"
@@ -167,7 +167,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 							ELSE (pg_input_error_info(c.v, ${typeSql})).sql_error_code END
 					FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text, p int4, s int4)
 					ORDER BY c.ord`,
-									[jsonText(chunk)]
+									[jsonText(Arr.map(chunk, ({ ord, v, p, s }) => ({ ord, v, p, s })))]
 								)
 								assert.equal(rows.length, chunk.length)
 								const mismatches: Array<unknown> = []

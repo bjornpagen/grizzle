@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, pipe, Record, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Option, pipe, Record, Result, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
@@ -8,17 +8,13 @@ import { regex } from "arkregex"
 export type RawRow = ReadonlyArray<string>
 
 /** What a capture refused, and where: the result as a whole, a row of it, or one cell. */
-export class RawCaptureError extends Schema.TaggedError<
-	RawCaptureError,
-	{ readonly brand: unique symbol }
->()("RawCaptureError", {
-	reason: Schema.String,
-	at: Schema.Union([
-		Schema.Struct({ kind: Schema.Literal("result") }),
-		Schema.Struct({ kind: Schema.Literal("row"), row: Schema.Finite }),
-		Schema.Struct({ kind: Schema.Literal("cell"), row: Schema.Finite, column: Schema.Finite })
-	])
-}) {}
+export class RawCaptureError extends Data.TaggedError("RawCaptureError")<{
+	readonly reason: string
+	readonly at:
+		| { readonly kind: "result" }
+		| { readonly kind: "row"; readonly row: number }
+		| { readonly kind: "cell"; readonly row: number; readonly column: number }
+}> {}
 
 /** What capture needs from a session: PgConnection, or a substrate RawSession. */
 export interface QueryRunner {
@@ -50,13 +46,13 @@ const cellText = (
 ): Result.Result<string, RawCaptureError> => {
 	if (value === "NULL") {
 		return Result.fail(
-			RawCaptureError.make({ reason: "the query returned NULL", at: { kind: "cell", row, column } })
+			new RawCaptureError({ reason: "the query returned NULL", at: { kind: "cell", row, column } })
 		)
 	}
 	const text = typeof value === "string" ? unquoteLiteral(value) : undefined
 	return text === undefined
 		? Result.fail(
-				RawCaptureError.make({
+				new RawCaptureError({
 					reason: "format('%L') returned no quoted literal",
 					at: { kind: "cell", row, column }
 				})
@@ -108,20 +104,21 @@ export const unquoteLiteral = (quoted: string): string | undefined => {
 /**
  * The output-function texts of every row `sql` returns, in the order the server sent them. The query's own column count
  * is always read, because a column alias list shorter than the derived table's columns is legal in PostgreSQL and would
- * silently drop the extra trailing columns; where the caller expects a count, typically a lowering's heading, a query of
- * another count fails instead of being compared on a prefix.
+ * silently drop the extra trailing columns: a query of another count than the caller expects, typically a lowering's
+ * heading, fails instead of being compared on a prefix.
  */
 const capture = (
 	runner: QueryRunner,
 	sql: string,
 	params: ReadonlyArray<unknown>,
-	expected: { readonly kind: "any" } | { readonly kind: "exactly"; readonly count: number }
+	expected: number
 ): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
 	Effect.gen(function* () {
-		const columns = (yield* runner.query(columnsSql(sql), params)).fields.length
-		if (expected.kind === "exactly" && expected.count !== columns) {
-			return yield* RawCaptureError.make({
-				reason: `expected ${expected.count} columns, the query has ${columns}`,
+		const described = yield* runner.query(columnsSql(sql), params)
+		const columns = described.fields.length
+		if (expected !== columns) {
+			return yield* new RawCaptureError({
+				reason: `expected ${expected} columns, the query has ${columns}`,
 				at: { kind: "result" }
 			})
 		}
@@ -130,7 +127,7 @@ const capture = (
 		for (const [r, record] of result.rows.entries()) {
 			const values = Record.values(record)
 			if (values.length !== columns) {
-				return yield* RawCaptureError.make({
+				return yield* new RawCaptureError({
 					reason: `expected ${columns} columns, got ${values.length}`,
 					at: { kind: "row", row: r }
 				})
@@ -166,4 +163,4 @@ export const captureRows = (
 	params: ReadonlyArray<unknown>,
 	expected: { readonly columns: number }
 ): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
-	capture(runner, sql, params, { kind: "exactly", count: expected.columns })
+	capture(runner, sql, params, expected.columns)

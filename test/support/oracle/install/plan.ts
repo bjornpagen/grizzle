@@ -1,20 +1,6 @@
 import { exact, set } from "@grizzle/testing/oracle"
-import {
-	Array as Arr,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	Schema,
-	String as Str
-} from "effect"
-import {
-	CompileError,
-	type CompileReason,
-	isCompileError,
-	prose,
-	type ProseTag
-} from "#compiler/core/errors.ts"
+import { Array as Arr, Data, Formatter, Option, Order, Record as Rec, String as Str } from "effect"
+import { CompileError, type CompileReason, prose, type ProseTag } from "#compiler/core/errors.ts"
 
 import {
 	type DeclaredName,
@@ -90,25 +76,20 @@ import { regex } from "arkregex"
  * The planner reports its first refusal; internally it unwinds with this wrapper and planInstall turns it back into
  * a Result, so the build reads top to bottom.
  */
-class PlanFailure extends Schema.TaggedError<PlanFailure, { readonly brand: unique symbol }>()(
-	"PlanFailure",
-	{
-		refusal: Schema.declare(isCompileError)
-	}
-) {}
+class PlanFailure extends Data.TaggedError("PlanFailure")<{ readonly refusal: CompileError }> {}
 
 const refuse = (tag: ProseTag, location: string, text: string): never => {
-	throw PlanFailure.make({ refusal: CompileError.make(prose(tag, SourceLoc(location, []), text)) })
+	throw new PlanFailure({ refusal: CompileError.make(prose(tag, SourceLoc(location, []), text)) })
 }
 
 /** A refusal for `reason`, a reason with facts beyond a sentence. */
 const refuseWith = (reason: CompileReason): never => {
-	throw PlanFailure.make({ refusal: CompileError.make(reason) })
+	throw new PlanFailure({ refusal: CompileError.make(reason) })
 }
 
 const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 	if (!result.ok) {
-		throw PlanFailure.make({ refusal: result.error })
+		throw new PlanFailure({ refusal: result.error })
 	}
 	return result.value
 }
@@ -1105,7 +1086,7 @@ const admitInstallPlan = (
 	try {
 		return Result.ok(build(input, schema, options))
 	} catch (error) {
-		if (Schema.is(PlanFailure)(error)) {
+		if (error instanceof PlanFailure) {
 			return Result.err(error.refusal)
 		}
 		throw error

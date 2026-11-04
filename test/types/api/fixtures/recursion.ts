@@ -3,7 +3,6 @@ import {
 	type Db,
 	type Evidence,
 	type EvidenceOfQuery,
-	type Field,
 	type HeadOf,
 	type Origin,
 	type ParamsOf,
@@ -137,4 +136,3 @@ export const selfBinding = query(Work).recursive("Bound", {
 /** The row signature is a record of descriptors, never host values. */
 // @ts-expect-error -- TS2322: a row field is a descriptor
 export const hostRow = query(Work).recursive("Host", { row: { from: "uuid" }, base: [], rec: [] })
-export type RowDescriptor = Field<Uuid, "uuid">

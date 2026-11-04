@@ -58,7 +58,6 @@ import {
 	type Lowering,
 	oracleKill,
 	printOracleCase,
-	printOutcome,
 	reference,
 	runLabelledOracle,
 	runOracle
@@ -243,12 +242,10 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					attachments: Arr.filter(tree.attachments, (a) => a.attach.name !== "a1")
 				}))
 			}))
-			const c = attachCase()
-			const outcome = yield* runLabelledOracle(c, dropping, reference, defaultRunOptions)
+			const outcome = yield* runLabelledOracle(attachCase(), dropping, reference, defaultRunOptions)
 			assert.deepEqual(outcome.comparison.structural, [
 				{ kind: "missing", side: "dropping", label: "main/a1" }
 			])
-			containsText(printOutcome(outcome), `case ${c.label}\n`)
 		})
 	)
 

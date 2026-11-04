@@ -3,13 +3,13 @@ import { agree, type Equivalence, type Side } from "@grizzle/testing/oracle"
 import {
 	Array as Arr,
 	Cause,
+	Data,
 	Effect,
 	Exit,
 	Layer,
 	Option,
 	Record as Rec,
 	Result,
-	Schema,
 	type Scope
 } from "effect"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
@@ -116,15 +116,12 @@ import { loginLayer } from "#test/support/worlds.ts"
  * reading, a refusal with the one the contract names, the case's setup (install, layer, open, store), or the
  * reference and the language's own proofs.
  */
-export type DisagreementCheck = Disagreement["check"]
+export type DisagreementCheck = "answer" | "cell" | "refusal" | "setup" | "reference"
 
-export class Disagreement extends Schema.TaggedError<
-	Disagreement,
-	{ readonly brand: unique symbol }
->()("Disagreement", {
-	check: Schema.Literals(["answer", "cell", "refusal", "setup", "reference"]),
-	report: Schema.String
-}) {
+export class Disagreement extends Data.TaggedError("Disagreement")<{
+	readonly check: DisagreementCheck
+	readonly report: string
+}> {
 	override get message(): string {
 		return this.report
 	}
@@ -143,8 +140,8 @@ const sideExit = <A, E, R>(
 	Effect.flatMap(Effect.exit(effect), (exit) => {
 		if (Exit.isFailure(exit)) {
 			const defect = Cause.findDefect(exit.cause)
-			if (Result.isSuccess(defect) && Schema.is(CellDisagreement)(defect.success)) {
-				return Effect.fail(Disagreement.make({ check: "cell", report: defect.success.report }))
+			if (Result.isSuccess(defect) && defect.success instanceof CellDisagreement) {
+				return Effect.fail(new Disagreement({ check: "cell", report: defect.success.report }))
 			}
 		}
 		return Effect.succeed(exit)
@@ -152,22 +149,22 @@ const sideExit = <A, E, R>(
 
 const describe = (error: unknown): string => {
 	if (
-		Schema.is(ReadFailure)(error) ||
-		Schema.is(TransientFailure)(error) ||
-		Schema.is(StaleSnapshot)(error)
+		error instanceof ReadFailure ||
+		error instanceof TransientFailure ||
+		error instanceof StaleSnapshot
 	) {
 		return `${error._tag}{${error.message}}`
 	}
 	if (error instanceof CursorError) {
 		return `CursorError{reason: ${error.reason._tag}}`
 	}
-	if (Schema.is(OpenError)(error)) {
+	if (error instanceof OpenError) {
 		return `${error._tag}{stage: ${error.stage}, reason: ${describe(error.reason)}}`
 	}
 	if (isCompileError(error)) {
 		return `CompileError{${error.message}}`
 	}
-	if (Schema.is(AdmissionRefused)(error)) {
+	if (error instanceof AdmissionRefused) {
 		return `AdmissionRefused{${Arr.join(
 			Arr.map(
 				error.mismatches,
@@ -218,11 +215,13 @@ const agreeing = (
 		return Effect.void
 	}
 	const sides = Arr.map(answers, (a): Side<Answer> => [a.side, a.output])
-	return Effect.mapError(agree(sides, equivalence), (disagreement) =>
-		Disagreement.make({
-			check: "answer",
-			report: `${label}: ${answersReport(shape, disagreement.message, sides)}\n${printCase(c)}`
-		})
+	return Effect.mapError(
+		agree(sides, equivalence),
+		(disagreement) =>
+			new Disagreement({
+				check: "answer",
+				report: `${label}: ${answersReport(shape, disagreement.message, sides)}\n${printCase(c)}`
+			})
 	)
 }
 
@@ -706,7 +705,7 @@ const refused = (
 	}
 	const got = Exit.isSuccess(exit) ? "an answer" : Cause.pretty(exit.cause)
 	return Effect.fail(
-		Disagreement.make({
+		new Disagreement({
 			check: "refusal",
 			report: `${what} was not refused as the contract names: ${got}\n${printCase(c)}`
 		})
@@ -731,7 +730,7 @@ const gotten = (shape: Shape, exit: Exit.Exit<Option.Option<unknown>, ReadError>
 		}
 	}
 	const error = Cause.squash(exit.cause)
-	return !Cause.hasDies(exit.cause) && Schema.is(ReadFailure)(error) && error.stage === "compile"
+	return !Cause.hasDies(exit.cause) && error instanceof ReadFailure && error.stage === "compile"
 		? { kind: "refused" }
 		: { kind: "answered", output: Result.fail(ended(exit.cause)), got: "failed" }
 }
@@ -913,7 +912,7 @@ const queryRead = (
 		const expected = yield* Effect.try({
 			try: () => expectedQuery(c, read, observing(note)),
 			catch: (e) =>
-				Disagreement.make({
+				new Disagreement({
 					check: "reference",
 					report: `${label}: the reference could not evaluate the program: ${describe(e)}\n${printCase(c)}`
 				})
@@ -921,7 +920,7 @@ const queryRead = (
 		if (Result.isSuccess(expected)) {
 			const broken = brokenDelivery(shape, expected.success)
 			if (Option.isSome(broken)) {
-				return yield* Disagreement.make({
+				return yield* new Disagreement({
 					check: "reference",
 					report: `${label}: the language proves a delivery the reference breaks: ${broken.value}\n${printCase(c)}`
 				})
@@ -941,7 +940,7 @@ const queryRead = (
 					c,
 					`${label}: a parameter of another host type`,
 					exit,
-					(e) => Schema.is(ReadFailure)(e) && e.stage === "encode"
+					(e) => e instanceof ReadFailure && e.stage === "encode"
 				)
 				note("refused encode")
 				break
@@ -952,7 +951,7 @@ const queryRead = (
 					c,
 					`${label}: a page of ${probe.size} rows`,
 					exit,
-					(e) => Schema.is(ReadFailure)(e) && e.stage === "request"
+					(e) => e instanceof ReadFailure && e.stage === "request"
 				)
 				note("refused page size")
 				break
@@ -1035,7 +1034,7 @@ const queryRead = (
 			note(`get ${plainGet.got}`)
 		}
 		if (plainGet.kind !== strictGet.kind) {
-			return yield* Disagreement.make({
+			return yield* new Disagreement({
 				check: "answer",
 				report: `${label}: db.get ${plainGet.kind} and under the planner perturbation ${strictGet.kind}\n${printCase(c)}`
 			})
@@ -1141,7 +1140,7 @@ const mixedRead = (
 		const expected = yield* Effect.try({
 			try: () => expectedMixed(c, read.root, observing(note)),
 			catch: (e) =>
-				Disagreement.make({
+				new Disagreement({
 					check: "reference",
 					report: `${label}: the reference could not evaluate the mixed root: ${describe(e)}\n${printCase(c)}`
 				})
@@ -1376,7 +1375,7 @@ const storeDirectly = (
 ): Effect.Effect<void, Disagreement, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const unstored = (e: unknown) =>
-			Disagreement.make({
+			new Disagreement({
 				check: "setup",
 				report: `the direct writer did not store the facts: ${describe(e)}\n${printCase(c)}`
 			})
@@ -1441,7 +1440,7 @@ const restore = (
 		yield* Effect.mapError(
 			replaceRows(substrate.admin, installationGroup(namesOf(done)), []),
 			(e) =>
-				Disagreement.make({
+				new Disagreement({
 					check: "setup",
 					report: `the facts were not truncated for their second reading: ${describe(e)}\n${printCase(c)}`
 				})
@@ -1487,7 +1486,7 @@ const store = <R, P>(
 								", "
 							)}`
 						: outcome.kind
-			return yield* Disagreement.make({
+			return yield* new Disagreement({
 				check: "setup",
 				report: `db.apply did not store the facts: ${answer}\n${printCase(c)}`
 			})
@@ -1547,7 +1546,7 @@ export const runCase = (
 		noteProgram(c, note)
 		const built = buildSchema(c.schema)
 		const unready = (what: string) => (e: unknown) =>
-			Disagreement.make({ check: "setup", report: `${what}: ${describe(e)}\n${printCase(c)}` })
+			new Disagreement({ check: "setup", report: `${what}: ${describe(e)}\n${printCase(c)}` })
 		const done = yield* Effect.mapError(
 			install(built.schema, {
 				ambient: c.ambient,

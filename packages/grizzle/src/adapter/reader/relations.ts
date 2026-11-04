@@ -138,7 +138,7 @@ const prepareInput = (
 		return Result.fail(normalized.error)
 	}
 	if (!relationBound(normalized.value.count, limits).ok) {
-		return Result.fail(InputTooLarge.make())
+		return Result.fail(new InputTooLarge())
 	}
 	/**
 	 * The input over a statement's column list: as normalized above in the declared order, and in another order the

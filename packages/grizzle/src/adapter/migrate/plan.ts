@@ -143,7 +143,7 @@ export const planApply = (
 	const schema = target.schema
 	const edits = appliedEdits(target, state)
 	if (Arr.isReadonlyArrayNonEmpty(edits)) {
-		return Result.fail(stopped(AppliedEdited.make({ schema, edits })))
+		return Result.fail(stopped(new AppliedEdited({ schema, edits })))
 	}
 	const runs: Array<FolderRun> = []
 	let at = state
@@ -157,7 +157,7 @@ export const planApply = (
 		switch (decision.kind) {
 			case "refused":
 				return Result.fail(
-					stopped(FolderRefused.make({ schema, folder: folder.name, refusal: decision.refusal }))
+					stopped(new FolderRefused({ schema, folder: folder.name, refusal: decision.refusal }))
 				)
 			case "applied":
 				continue
@@ -180,7 +180,7 @@ export const planApply = (
 	if (at.latest !== known) {
 		return Result.fail(
 			stopped(
-				SnapshotUnreached.make({
+				new SnapshotUnreached({
 					schema,
 					known,
 					reached: at.latest,
@@ -198,7 +198,7 @@ export const planApply = (
 		}
 	}
 	if (Arr.isReadonlyArrayNonEmpty(markers)) {
-		return Result.fail(stopped(MarkersUnresolved.make({ schema, markers })))
+		return Result.fail(stopped(new MarkersUnresolved({ schema, markers })))
 	}
 	const losses: Array<UnresolvedLoss> = []
 	for (const r of runs) {
@@ -211,7 +211,7 @@ export const planApply = (
 		}
 	}
 	if (Arr.isReadonlyArrayNonEmpty(losses)) {
-		return Result.fail(stopped(LossesUndecided.make({ schema, losses })))
+		return Result.fail(stopped(new LossesUndecided({ schema, losses })))
 	}
 	return Result.succeed({ schema, before: state, runs, after: at.latest })
 }

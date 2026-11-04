@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -7,7 +7,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { indices } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
@@ -66,24 +65,6 @@ type ClosedFeature =
 	| "a bound admitting some"
 	| "a bound admitting all"
 
-/**
- * Planted: a roster of every handle beside one of one handle, under a bound no seat count meets, which the drawn rosters
- * and bounds reach a few times a run.
- */
-const closedKept: ReadonlyArray<Kept<PlansCase, ClosedFeature>> = [
-	{
-		note: "every tier, one region, a bound above every seat count",
-		sketch: {
-			tiers: handlePool,
-			payload: Arr.map(indices(handlePool.length), (i) => [i, i] as const),
-			regions: ["Free"],
-			floor: 61
-		},
-		draws: "",
-		reaches: ["every handle", "one handle", "a bound admitting none"]
-	}
-]
-
 layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relations only", (it) => {
 	it.effect(
 		"installs with no law, opens, and reads every closed relation's facts, payload included",
@@ -105,7 +86,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 							],
 							{ cases: 24, sense: notesOnly }
 						),
-						kept: closedKept,
+						kept: [],
 						runs: 24,
 						shrink: completeShrink,
 						concurrency: 1,

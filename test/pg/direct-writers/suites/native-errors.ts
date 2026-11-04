@@ -140,6 +140,7 @@ export const nativeErrorsSuite = (): void =>
 							const amount = laws.contract("Amount")
 							const rowCheck = lawIdOf(DeskReports, DistinctPair)
 							const w = yield* f.psql(writer)
+							const { admin } = yield* Substrate
 							/**
 							 * The row's CHECK, then the key's unique index.
 							 *
@@ -251,7 +252,7 @@ export const nativeErrorsSuite = (): void =>
 								(inserts, cx) =>
 									Effect.gen(function* () {
 										yield* replaceRows(
-											(yield* Substrate).admin,
+											admin,
 											installationGroup(namesOf(f.installed)),
 											Arr.map(startingState(f), (sql) => ({ sql, params: [] }))
 										)
@@ -351,7 +352,8 @@ export const nativeErrorsSuite = (): void =>
 								(write, c) =>
 									Effect.gen(function* () {
 										const statement = statementOf(write)
-										assert.equal((yield* failure(reader.run(statement))).code, "42501", statement)
+										const refused = yield* failure(reader.run(statement))
+										assert.equal(refused.code, "42501", statement)
 										c.note(`${write} refused by privilege`)
 									})
 							)

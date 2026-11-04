@@ -26,13 +26,18 @@ import {
 	Formatter,
 	pipe,
 	Record as Rec,
-	Schema,
 	String as Str
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { type Canonicalizable, canonicalTag, maxNestingDepth } from "#compiler/core/canonical.ts"
+import {
+	type Canonicalizable,
+	canonicalTag,
+	type Json,
+	maxNestingDepth
+} from "#compiler/core/canonical.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import {
@@ -71,7 +76,6 @@ import type {
 	SchemaDesc,
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { decodeJson } from "#test/support/json.ts"
 import { fail } from "#test/unit/ir/fixture.ts"
 
 import { regex } from "arkregex"
@@ -546,9 +550,9 @@ const samples: ReadonlyArray<readonly [DescKind, unknown]> = [
 	["workload", workload]
 ]
 
-/** JSON.stringify of the JSON form, then JSON.parse: what a process boundary does. */
+/** The JSON form written as JSON text and parsed back: what a process boundary does. */
 const throughJson = (value: unknown): unknown =>
-	decodeJson(Schema.Unknown)(JSON.stringify(succeeded(descToJson(value))))
+	trustedJson<Json>(jsonText(succeeded(descToJson(value))))
 
 const refuses = (kind: DescKind, value: unknown) => {
 	assert.equal(fail(decodeDesc(kind, value)).reason._tag, "MalformedDescription")
@@ -1188,12 +1192,12 @@ describe("Descriptions", () => {
 			["\ud800", "a\u0000b"],
 			(bad): ReadonlyArray<readonly [string, DescKind, unknown]> => [
 				[
-					`a relation name ${JSON.stringify(bad)}`,
+					`a relation name ${Formatter.format(bad)}`,
 					"relation",
 					{ kind: "relation", name: bad, fields: { a: { kind: "uuid" } }, primaryKey: ["a"] }
 				],
 				[
-					`a field name ${JSON.stringify(bad)}`,
+					`a field name ${Formatter.format(bad)}`,
 					"relation",
 					{
 						kind: "relation",
@@ -1203,7 +1207,7 @@ describe("Descriptions", () => {
 					}
 				],
 				[
-					`a program name ${JSON.stringify(bad)}`,
+					`a program name ${Formatter.format(bad)}`,
 					"workload",
 					{ schema: "S", programs: { [bad]: { kind: "query", query } } }
 				]

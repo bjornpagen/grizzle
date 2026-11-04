@@ -34,9 +34,10 @@ const bound = Effect.fn("bound")(function* (name: string) {
 		Arr.some(program.params, (p) => p.name === name),
 		name
 	)
+	const members = yield* membersOf(program, value)
 	const b = succeeded(
 		bindWrite(program, {
-			members: yield* membersOf(program, value),
+			members,
 			params: { [name]: [fact(1), fact(2)] }
 		})
 	)

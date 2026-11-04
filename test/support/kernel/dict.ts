@@ -1,7 +1,8 @@
 import { element, type Gen, proportional } from "@grizzle/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Option, Order, Schema, String as Str } from "effect"
+import { Array as Arr, Order, String as Str } from "effect"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -306,17 +307,15 @@ const edgeLiterals: ReadonlyArray<TypedLiteral> = [
 /** A double-quoted string literal on one line, of at most 64 characters, an escape counting as one. */
 const quotedString = regex('"(?:[^"\\\\\\n]|\\\\.){0,64}"', "g")
 
-const decodeString = Schema.decodeOption(Schema.fromJsonString(Schema.String))
-
 /**
  * The text a README harvests: the string literals of its examples, each value once, in the order the values first
- * appear. Every double-quoted literal of at most 64 characters on one line that decodes as JSON counts, so an escape
- * reads as what it stands for.
+ * appear. Every double-quoted literal of at most 64 characters on one line counts, read as the JSON string it spells,
+ * so an escape reads as what it stands for.
  */
 export const readmeStrings = (readme: string): ReadonlyArray<string> =>
 	Arr.dedupe(
-		Arr.flatMap(Arr.fromIterable(Str.matchAll(quotedString)(readme)), (match) =>
-			Option.toArray(decodeString(match[0]))
+		Arr.map(Arr.fromIterable(Str.matchAll(quotedString)(readme)), (match) =>
+			trustedJson<string>(match[0])
 		)
 	)
 

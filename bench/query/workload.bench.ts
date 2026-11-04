@@ -198,7 +198,7 @@ export default defineGate({
 					testCompile
 				)
 				if (!planned.ok) {
-					return yield* Effect.die(GateSetupError.make({ what: planned.error.message }))
+					return yield* Effect.die(new GateSetupError({ what: planned.error.message }))
 				}
 				const installed = compileInstallation(
 					owned,
@@ -213,7 +213,7 @@ export default defineGate({
 					)
 				)
 				if (!installed.ok) {
-					return yield* Effect.die(GateSetupError.make({ what: installed.error.message }))
+					return yield* Effect.die(new GateSetupError({ what: installed.error.message }))
 				}
 				const indexes = Arr.filter(installed.value.manifest.objects, (o) => o.kind === "index")
 				return {

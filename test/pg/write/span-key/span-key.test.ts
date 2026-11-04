@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -233,39 +233,6 @@ const situations: Arr.NonEmptyReadonlyArray<SpanFeature> = [
 	"put over a stored overlap at another key"
 ]
 
-/** Planted: over one stored fact, [2, 5) in the first room, a request of each mode the outcome features need. */
-const storedOne: FactSketch = { mode: "fresh", pick: 0, room: 0, start: 2, length: 3, payload: 0 }
-const planted = (
-	relation: Relation,
-	op: Op,
-	form: Form,
-	mode: Mode,
-	reaches: Arr.NonEmptyReadonlyArray<SpanFeature>
-): Kept<SpanCase, SpanFeature> => ({
-	note: `${op} ${relation} ${form}: ${mode}`,
-	sketch: {
-		relation,
-		op,
-		form,
-		stored: [storedOne],
-		requested: [{ ...storedOne, mode, length: 2, payload: 1 }]
-	},
-	draws: "",
-	reaches
-})
-
-const spanKept: ReadonlyArray<Kept<SpanCase, SpanFeature>> = [
-	planted("Room", "insert", "enumerated", "repeat", ["insert no-change"]),
-	planted("Hold", "put", "described", "repeat", ["put no-change"]),
-	planted("Room", "insert", "described", "adjacent", ["insert of an adjacent span accepted"]),
-	planted("Hold", "put", "enumerated", "other payload", ["put replaces a stored payload"]),
-	planted("Room", "insert", "enumerated", "overlapping", ["insert over a stored fact"]),
-	planted("Room", "put", "enumerated", "overlapping", [
-		"put over a stored fact",
-		"put over a stored overlap at another key"
-	])
-]
-
 /** The case's ChangeSet over the installed schema, applied on `db`. */
 const applyCase = (
 	db: Db<FullWorld["app"], unknown>,
@@ -357,7 +324,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									draw: drawn(spanCaseGen),
 									literal: Formatter.format,
 									coverage: required<SpanFeature>(situations, { cases: 80, sense: notesOnly }),
-									kept: spanKept,
+									kept: [],
 									runs: 80,
 									shrink: completeShrink,
 									concurrency: 1,

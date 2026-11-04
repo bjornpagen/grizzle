@@ -31,7 +31,7 @@ export const catalogRows = <Row>(
 	for (const cells of rows) {
 		const row = query.row(cells)
 		if (row === undefined) {
-			return Result.fail(CatalogRowRefused.make({ what: query.what }))
+			return Result.fail(new CatalogRowRefused({ what: query.what }))
 		}
 		out.push(row)
 	}
@@ -46,7 +46,7 @@ export const catalogRow = <Row>(
 	const only = rows.length === 1 ? rows[0] : undefined
 	const row = only === undefined ? undefined : query.row(only)
 	return row === undefined
-		? Result.fail(CatalogRowRefused.make({ what: query.what }))
+		? Result.fail(new CatalogRowRefused({ what: query.what }))
 		: Result.succeed(row)
 }
 

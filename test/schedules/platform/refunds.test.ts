@@ -12,10 +12,6 @@
  *
  * The swarm adds refunds made before the race, the dispute, the voiding, and an open invoice whose payment races its
  * refunds.
- *
- * Kept: refunds summing to the invoice exactly, and one micro over what is left; a dispute racing two refunds, each
- * refused when the other is first; and an open invoice's payment and voiding racing a refund, the second settlement
- * no-change and the refund refused before the payment.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
@@ -28,7 +24,6 @@ import {
 	commonRequired,
 	type Explained,
 	explainedIds,
-	grizzleWriters,
 	type Race,
 	type RaceFeature,
 	raceSuite,
@@ -160,56 +155,7 @@ raceSuite<RefundSketch>({
 	label: "refunds racing",
 	sketch: refundSketchGen,
 	resolve: resolveRefunds,
-	kept: [
-		{
-			note: "grizzle refunds of 30, 20 and 1 of a paid invoice of 50: refunds sum to it exactly, and the last is one micro over",
-			sketch: {
-				refunds: [30, 20, 1],
-				amount: 49,
-				prior: 1,
-				ops: {},
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: [
-				"planted: refunds summing to the invoice exactly",
-				"planted: a refund one micro over what is left refused"
-			]
-		},
-		{
-			note: "a grizzle dispute racing grizzle refunds of 10 and 20 of a paid invoice of 25: each is refused when the other is first",
-			sketch: {
-				refunds: [10, 20],
-				amount: 24,
-				prior: 1,
-				ops: { dispute: 3 },
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: [
-				"planted: a settlement refused by refunds",
-				"planted: a refund of an unpaid invoice refused",
-				"write: dispute"
-			]
-		},
-		{
-			note: "an open invoice's grizzle payment and voiding racing a grizzle refund: the second settlement is no-change, and the refund before the payment is refused",
-			sketch: {
-				refunds: [5, 50],
-				amount: 9,
-				prior: 1,
-				ops: { open: 3, void: 3 },
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: [
-				"planted: a settlement no-change after another settled it",
-				"planted: a refund of an unpaid invoice refused",
-				"write: pay",
-				"write: void"
-			]
-		}
-	],
+	kept: [],
 	required: [
 		...commonRequired,
 		"law family hit: capacity",

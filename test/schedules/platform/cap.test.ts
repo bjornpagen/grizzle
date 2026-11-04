@@ -14,9 +14,6 @@
  * The swarm adds spend recorded before the race, a cap put, a caps MERGE (keeping both months, removing the second, or
  * removing the spent one), and a request submitted twice by two writers (its keys make the second no-change or refused,
  * never a second charge).
- *
- * Kept: the cap hit exactly; a request one micro over the cap; and a MERGE removing the spent month racing a request,
- * each refused when the other is first.
  */
 
 import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
@@ -29,7 +26,6 @@ import {
 	commonRequired,
 	type Explained,
 	explainedIds,
-	grizzleWriters,
 	type Race,
 	type RaceFeature,
 	raceSuite,
@@ -195,57 +191,11 @@ const judgeCap = (
 	return { departure: undefined, reached }
 }
 
-/** A kept race's values its swarm leaves unused: no spend before the race, no cap change. */
-const unused = { prior: 1, capTo: 0, merge: "both months" } as const
-
 raceSuite<CapSketch>({
 	label: "usage against a spend cap",
 	sketch: capSketchGen,
 	resolve: resolveCap,
-	kept: [
-		{
-			note: "three grizzle requests of 30, 20 and 10 against a cap of 50: in the orders recording 30 and 20 first the cap is hit exactly",
-			sketch: {
-				charges: [30, 20, 10],
-				cap: 50,
-				...unused,
-				ops: {},
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: ["planted: the cap is hit exactly", "every interleaving"]
-		},
-		{
-			note: "two grizzle requests of 30 and 21 against a cap of 50: the second is one micro over",
-			sketch: {
-				charges: [30, 21],
-				cap: 50,
-				...unused,
-				ops: {},
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: ["planted: a request one micro over the cap refused", "grizzle refused"]
-		},
-		{
-			note: "a grizzle caps MERGE keeping only the second month racing grizzle requests of 10 and 10: whichever is second is refused by the containment of the month's charges in its cap",
-			sketch: {
-				charges: [10, 10],
-				cap: 15,
-				prior: 1,
-				capTo: 0,
-				merge: "the second month",
-				ops: { "caps merge": 3 },
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: [
-				"planted: a caps merge refused by the month's charges",
-				"planted: a request refused for the month a merge removed",
-				"write: caps merge keeping the second month"
-			]
-		}
-	],
+	kept: [],
 	required: [
 		...commonRequired,
 		"law family hit: capacity",

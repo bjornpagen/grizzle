@@ -1,13 +1,4 @@
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	Result,
-	Schema
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { type CompiledPage, compilePageTemplate } from "#adapter/page/page.ts"
@@ -15,6 +6,7 @@ import type { CompiledReadValue, QueryResultValue, ReadExecutor } from "#adapter
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { assert } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
@@ -22,22 +14,20 @@ import { mergeComparator } from "#test/support/merge.ts"
 import { statementSql } from "#test/support/sql.ts"
 
 /**
- * A page as the runtime delivers it, admitted by its documented shape: the runtime readers type it
- * unknown, since their queries are.
+ * A page as the runtime delivers it, trusted at its documented shape: the runtime readers type it unknown, since their
+ * queries are.
  */
-const PageShape = Schema.Struct({
-	edges: Schema.Array(Schema.Struct({ node: Schema.Unknown, cursor: Schema.String })),
-	pageInfo: Schema.Struct({
-		startCursor: Schema.Option(Schema.String),
-		endCursor: Schema.Option(Schema.String),
-		hasPreviousPage: Schema.Boolean,
-		hasNextPage: Schema.Boolean
-	})
-})
-export type PageValue = typeof PageShape.Type
+export interface PageValue {
+	readonly edges: ReadonlyArray<{ readonly node: unknown; readonly cursor: string }>
+	readonly pageInfo: {
+		readonly startCursor: Option.Option<string>
+		readonly endCursor: Option.Option<string>
+		readonly hasPreviousPage: boolean
+		readonly hasNextPage: boolean
+	}
+}
 
-const admitPage = (page: unknown): Effect.Effect<PageValue> =>
-	Effect.orDie(Schema.decodeUnknownEffect(PageShape)(page))
+const admitPage = (page: unknown): PageValue => trusted<PageValue>(page)
 
 /** A reader over unknown values, for loops over queries of different types and for the requests the types refuse. */
 interface UntypedReader {
@@ -64,7 +54,7 @@ interface RuntimeReads {
 
 export const untyped = (reader: RuntimeReads): UntypedReader => ({
 	execute: (query, params) => reader.execute(query, params),
-	page: (query, params, request) => Effect.flatMap(reader.page(query, params, request), admitPage)
+	page: (query, params, request) => Effect.map(reader.page(query, params, request), admitPage)
 })
 
 /**
@@ -81,7 +71,7 @@ export const compiledPage = (
 	params: unknown,
 	request: unknown
 ): Effect.Effect<PageValue, ReadError | CursorError> =>
-	Effect.flatMap(compiled.page(params, request), admitPage)
+	Effect.map(compiled.page(params, request), admitPage)
 
 /** A delivered row as the record it is. */
 export const rowOf = (row: unknown): Readonly<Record<string, unknown>> => {

@@ -35,7 +35,7 @@ import type { ParamMap, ParamValue } from "#compiler/types/core/phantom.ts"
  * slot, as a write's names it.
  */
 export const unreadableArguments = (): ReadFailure =>
-	ReadFailure.make({ reason: encodeFailure("factShape", factPlace) })
+	new ReadFailure({ reason: encodeFailure("factShape", factPlace) })
 
 /** Parameter values by name, each a data property's value off the caller's map. */
 type ParamValues = Readonly<Record<string, ParamValue>>
@@ -106,15 +106,16 @@ const collect = (
 ): Effect.Effect<ReadonlyArray<unknown>, ReadFailure> =>
 	Stream.runCollect(
 		Stream.take(
-			Stream.mapError(stream, () =>
-				ReadFailure.make({ reason: encodeFailure("factShape", slotPlace(decl.name)) })
+			Stream.mapError(
+				stream,
+				() => new ReadFailure({ reason: encodeFailure("factShape", slotPlace(decl.name)) })
 			),
 			maxRows + 1
 		)
 	).pipe(
 		Effect.filterOrFail(
 			(facts) => facts.length <= maxRows,
-			() => ReadFailure.make({ reason: InputTooLarge.make() })
+			() => new ReadFailure({ reason: new InputTooLarge() })
 		)
 	)
 

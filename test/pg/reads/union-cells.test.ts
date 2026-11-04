@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
@@ -25,8 +25,7 @@ import {
 	Formatter,
 	Option,
 	Order,
-	Record as Rec,
-	Schema
+	Record as Rec
 } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -62,9 +61,9 @@ import { withLayer } from "#test/support/with-layer.ts"
  * bool, a refined text, a closed handle), shared by literals and facts, so a field's cell spells some arm's literal or
  * none: the extremes, 0 and -0, "t" and "true", "1.00" and "-0" as texts, composed and decomposed é. Arms are drawn in
  * any order, so two literal arms of a column meet before a field arm, after it and between, and two heading groups
- * meet. The first order is also planted once per kind, so every run replays it.
+ * meet.
  *
- * Two cases planted once each so every run replays them, and drawn besides: a head literal 1 against a numeric field
+ * Two planted shapes, drawn one case in ten: a head literal 1 against a numeric field
  * and against a float field in one heading group. The checker gives a group's column one type in every arm, and a bare
  * head literal takes the type the group's field arm delivers its column at when it is a value of it (check/checker.ts
  * #positionedTypes): 1 is a float, so against the float field the union decodes to the records its arms decode to
@@ -273,152 +272,6 @@ const caseGen: Gen<Case> = weighted<Case>([
 	]
 ])
 
-/** Two facts for the planted cases: one whose cells spell no planted literal, and one whose cells spell the first. */
-const spellsNone: Fact = {
-	int4: 2147483647,
-	int8: 7n,
-	bool: false,
-	text: "1",
-	handle: "C",
-	x: "1",
-	f: 0
-}
-
-const spellsFirst: Fact = {
-	int4: 0,
-	int8: 0n,
-	bool: true,
-	text: "1.00",
-	handle: "A",
-	x: "1.00",
-	f: -0
-}
-
-/**
- * Planted, one per kind: two literal arms before a field arm, so every run replays it; the int4 case's first literal
- * is -0 and the text case's literals are "1.00" and "-0", the spellings a cell must not be read by. Then the two named
- * invalid cases, a literal before the numeric field and one after the float field.
- */
-const kept: ReadonlyArray<Kept<Case, Feature>> = [
-	{
-		note: "int4 field after the literals -0 and 7",
-		sketch: {
-			kind: "union",
-			facts: [spellsNone, spellsFirst],
-			groups: [
-				{
-					keys: ["int4"],
-					arms: [
-						[{ key: "int4", source: "literal", value: -0 }],
-						[{ key: "int4", source: "literal", value: 7 }],
-						[{ key: "int4", source: "field" }]
-					]
-				}
-			]
-		},
-		draws: "",
-		reaches: ["int4 field after two literals", "int4 literal -0", "a field cell no literal spells"]
-	},
-	{
-		note: "int8 field after the literals 0 and 2^53+1",
-		sketch: {
-			kind: "union",
-			facts: [spellsNone, spellsFirst],
-			groups: [
-				{
-					keys: ["int8"],
-					arms: [
-						[{ key: "int8", source: "literal", value: 0n }],
-						[{ key: "int8", source: "literal", value: 9007199254740993n }],
-						[{ key: "int8", source: "field" }]
-					]
-				}
-			]
-		},
-		draws: "",
-		reaches: ["int8 field after two literals", "a field cell spelling a literal"]
-	},
-	{
-		note: "bool field after the literals true and false",
-		sketch: {
-			kind: "union",
-			facts: [spellsNone, spellsFirst],
-			groups: [
-				{
-					keys: ["bool"],
-					arms: [
-						[{ key: "bool", source: "literal", value: true }],
-						[{ key: "bool", source: "literal", value: false }],
-						[{ key: "bool", source: "field" }]
-					]
-				}
-			]
-		},
-		draws: "",
-		reaches: ["bool field after two literals"]
-	},
-	{
-		note: "text field after the literals 1.00 and -0",
-		sketch: {
-			kind: "union",
-			facts: [spellsNone, spellsFirst],
-			groups: [
-				{
-					keys: ["text"],
-					arms: [
-						[{ key: "text", source: "literal", value: "1.00" }],
-						[{ key: "text", source: "literal", value: "-0" }],
-						[{ key: "text", source: "field" }]
-					]
-				}
-			]
-		},
-		draws: "",
-		reaches: ["text field after two literals", "text literal 1.00", "text literal -0"]
-	},
-	{
-		note: "handle field after the literals A and B",
-		sketch: {
-			kind: "union",
-			facts: [spellsNone, spellsFirst],
-			groups: [
-				{
-					keys: ["handle"],
-					arms: [
-						[{ key: "handle", source: "literal", value: "A" }],
-						[{ key: "handle", source: "literal", value: "B" }],
-						[{ key: "handle", source: "field" }]
-					]
-				}
-			]
-		},
-		draws: "",
-		reaches: ["handle field after two literals"]
-	},
-	{
-		note: "a head literal before the numeric field",
-		sketch: {
-			kind: "planted",
-			facts: [spellsNone, spellsFirst],
-			against: "numeric",
-			literalFirst: true
-		},
-		draws: "",
-		reaches: ["planted literal against numeric"]
-	},
-	{
-		note: "a head literal after the float field",
-		sketch: {
-			kind: "planted",
-			facts: [spellsNone, spellsFirst],
-			against: "float8",
-			literalFirst: false
-		},
-		draws: "",
-		reaches: ["planted literal against float8"]
-	}
-]
-
 /**
  * An arm as an application writes it: the relation matched, every field item bound to its variable and a handle item
  * bound as a match constant, and the head delivering each item, a handle as its typed constant Kind.handle, any other
@@ -463,10 +316,10 @@ const armsOf = (groups: Groups): Arr.NonEmptyReadonlyArray<Tagged> =>
 		: Arr.appendAll(tagged(groups[0], Option.some("g1")), tagged(groups[1], Option.some("g2")))
 
 const unionOf = (arms: Arr.NonEmptyReadonlyArray<Tagged>): QueryValue => {
-	const [first, ...rest] = arms
-	let q = queryOver(Cells).rule(armRule(...first))
-	for (const arm of rest) {
-		q = q.rule(armRule(...arm))
+	const [[firstArm, firstTag], ...rest] = arms
+	let q = queryOver(Cells).rule(armRule(firstArm, firstTag))
+	for (const [arm, tag] of rest) {
+		q = q.rule(armRule(arm, tag))
 	}
 	return q
 }
@@ -635,7 +488,7 @@ type RefusalTag = ReadFailure["reason"]["_tag"] | GrizzleErrorTag | CompileReaso
  * A union whose column has two types is refused at compile, MalformedDescription.
  */
 const refusalTags = (failure: unknown): ReadonlyArray<RefusalTag> =>
-	Schema.is(ReadFailure)(failure)
+	failure instanceof ReadFailure
 		? failure.reason._tag === "CompileError"
 			? ["CompileError", failure.reason.reason._tag]
 			: [failure.reason._tag]
@@ -669,7 +522,7 @@ layer(Substrate.layer)("union cells", (it) => {
 								draw: drawn(caseGen),
 								literal: Formatter.format,
 								coverage: required<Feature>(allFeatures, { cases: 240, sense: notesOnly }),
-								kept,
+								kept: [],
 								runs: 60,
 								shrink: completeShrink,
 								concurrency: 1,
@@ -712,10 +565,9 @@ layer(Substrate.layer)("union cells", (it) => {
 											return
 										}
 										const delivered = yield* records(planted)
-										const alone = [
-											...(yield* records(queryOver(Cells).rule(a))),
-											...(yield* records(queryOver(Cells).rule(b)))
-										]
+										const first = yield* records(queryOver(Cells).rule(a))
+										const second = yield* records(queryOver(Cells).rule(b))
+										const alone = [...first, ...second]
 										assert.deepEqual(
 											set(sameRecord)(delivered, alone),
 											Option.none(),

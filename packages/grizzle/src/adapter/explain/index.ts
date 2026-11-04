@@ -55,7 +55,7 @@ const plansOf = Effect.fn("plansOf")(function* (
 	frame: Transaction,
 	statements: ReadonlyArray<Explained>
 ): Effect.fn.Return<ReadonlyArray<Plan>, ReadError, Scope.Scope> {
-	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => ReadFailure.make({ reason }))
+	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
 	const outcomes = yield* Effect.mapError(
 		runFramed(
 			session,
@@ -71,8 +71,8 @@ const plansOf = Effect.fn("plansOf")(function* (
 		}
 		const plan = decodePlan(outcome.rows[0]?.[0])
 		if (Result.isFailure(plan)) {
-			return yield* ReadFailure.make({
-				reason: UnreadableAnswer.make({ index, fate: "rolledBack" })
+			return yield* new ReadFailure({
+				reason: new UnreadableAnswer({ index, fate: "rolledBack" })
 			})
 		}
 		plans.push(plan.success)
@@ -92,18 +92,18 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 		})
 	)
 	if (!compiled.ok) {
-		return yield* ReadFailure.make({ reason: compiled.error })
+		return yield* new ReadFailure({ reason: compiled.error })
 	}
 	const read = compiled.value
 	const template = read.template
 	const missing = missingExtension(template.requirements, ctx.installedExtensions)
 	if (missing !== undefined) {
-		return yield* ReadFailure.make({ reason: MissingCapability.make({ capability: missing }) })
+		return yield* new ReadFailure({ reason: new MissingCapability({ capability: missing }) })
 	}
 	const values = yield* hostParams(template.params, params, recordsetMaxRows)
 	const ready = executionInputs(paramCodecs(template.params), values, transportLimits)
 	if (Result.isFailure(ready)) {
-		return yield* ReadFailure.make({ reason: ready.failure })
+		return yield* new ReadFailure({ reason: ready.failure })
 	}
 	const inputs = ready.success
 	const exceeds = readExceeds(inputs)
@@ -112,7 +112,7 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 	for (const run of flight(templateStatements(template, read.selection.artifact))) {
 		const execution = executionOf(formFor(run, exceeds), (slot) => readBinding(slot, inputs))
 		if (Result.isFailure(execution)) {
-			return yield* ReadFailure.make({ reason: execution.failure })
+			return yield* new ReadFailure({ reason: execution.failure })
 		}
 		statements.push(planned(execution.success.sql, execution.success.params))
 	}
@@ -126,18 +126,19 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 ): Effect.fn.Return<ReadonlyArray<Plan>, ReadError> {
 	const compiled = compiledWrite(ctx, changes, ctx.claims)
 	if (Result.isFailure(compiled)) {
-		return yield* ReadFailure.make({ reason: compiled.failure })
+		return yield* new ReadFailure({ reason: compiled.failure })
 	}
 	const entry = compiled.success
 	const missing = missingCapability(entry, ctx.installedExtensions)
 	if (missing !== undefined) {
-		return yield* ReadFailure.make({ reason: missing })
+		return yield* new ReadFailure({ reason: missing })
 	}
-	const inputs = yield* Effect.mapError(hostInputs(entry, params), (reason) =>
-		ReadFailure.make({ reason })
+	const inputs = yield* Effect.mapError(
+		hostInputs(entry, params),
+		(reason) => new ReadFailure({ reason })
 	)
 	if (inputs.kind === "rejected") {
-		return yield* ReadFailure.make({ reason: LawRejected.make({ law: inputs.law }) })
+		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.law }) })
 	}
 	const program = entry.program
 	const artifact = program.artifacts.optimized
@@ -151,7 +152,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 		const sql = inputs.bound.form(s).sql
 		const texts = inputs.bound.values(s)
 		if (!texts.ok) {
-			return yield* ReadFailure.make({ reason: texts.error })
+			return yield* new ReadFailure({ reason: texts.error })
 		}
 		const step = s.step
 		statements.push(
@@ -215,7 +216,7 @@ export const explain = (
 			return explainChangeSet(ctx, program, params)
 		}
 		return Effect.fail(
-			ReadFailure.make({
+			new ReadFailure({
 				reason: malformedDescription(
 					SourceLoc("db.explain", []),
 					"a query, an ordered query or a ChangeSet value"

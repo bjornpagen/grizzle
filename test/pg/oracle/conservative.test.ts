@@ -109,7 +109,7 @@ const agreeOn = (ctx: TestContext, gen: Gen<QueryCase>, suite: string) =>
 						} as const
 						const outcome = yield* runOracle(c, conservative, reference, options)
 						if (!outcome.comparison.equal || outcome.comparison.leftDuplicates > 0) {
-							return yield* PropertyFailed.make({ report: printOutcome(outcome) })
+							return yield* new PropertyFailed({ report: printOutcome(outcome) })
 						}
 						if (outcome.right.kind === "reference") {
 							k.noteAll(Arr.map(outcome.right.declines, (reason) => `declined ${reason}` as const))

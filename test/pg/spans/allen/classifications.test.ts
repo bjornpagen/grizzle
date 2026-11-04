@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace, type Situations } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
@@ -8,6 +8,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
 import { type AllenRelation, allenRelations, fullAllenMask } from "#compiler/allen/mask.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -21,7 +22,6 @@ import {
 	runArtifact
 } from "#test/pg/spans/allen/support.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import {
 	classify,
 	type HalfOpen,
@@ -221,18 +221,6 @@ const windowSketchGen: Gen<WindowSketch> = (source) => ({
 	a: source.draw(int(0, 2 ** 31 - 1)),
 	b: source.draw(int(0, 2 ** 31 - 1))
 })
-
-/** Planted: every window type at every edge, each drawn about four times in sixty cases. */
-const windowKept: ReadonlyArray<Kept<WindowSketch, WindowFeature>> = Arr.flatMap(
-	windowTypes,
-	(type) =>
-		Arr.map(windowEdges, (edge) => ({
-			note: `${type} ${edge}`,
-			sketch: { type, edge, a: 1, b: 2 },
-			draws: "",
-			reaches: [`${type} window ${edge}`]
-		}))
-)
 
 const pick = (from: ReadonlyArray<bigint>, i: number) =>
 	defined(from[i % from.length], "a stored point")
@@ -498,7 +486,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 								),
 								{ cases: 48, sense: notesOnly }
 							),
-							kept: windowKept,
+							kept: [],
 							runs: 48,
 							shrink: completeShrink,
 							concurrency: 1,

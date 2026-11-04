@@ -1,11 +1,11 @@
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Formatter,
 	Layer,
 	Option,
 	Record as Rec,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
@@ -177,12 +177,7 @@ export const insertAll = (f: PlatformFacts) =>
 const factCount = (f: PlatformFacts): number => Arr.reduce(loadOrder, 0, (n, r) => n + f[r].length)
 
 /** A load the laws refused, or that changed nothing: a defect of the generator or of grizzle. */
-class LoadRefused extends Schema.TaggedError<LoadRefused, { readonly brand: unique symbol }>()(
-	"LoadRefused",
-	{
-		reason: Schema.String
-	}
-) {
+class LoadRefused extends Data.TaggedError("LoadRefused")<{ readonly reason: string }> {
 	override get message(): string {
 		return this.reason
 	}
@@ -197,13 +192,13 @@ export const applyFacts = (db: PlatformDb, f: PlatformFacts) =>
 		const outcome = yield* db.apply(insertAll(f), {})
 		if (outcome.kind === "invariant-rejected") {
 			return yield* Effect.die(
-				LoadRefused.make({
+				new LoadRefused({
 					reason: `the load was refused by ${Formatter.format(outcome.law)}: ${Formatter.format(outcome.witness)}`
 				})
 			)
 		}
 		if (outcome.kind === "no-change") {
-			return yield* Effect.die(LoadRefused.make({ reason: "the load changed nothing" }))
+			return yield* Effect.die(new LoadRefused({ reason: "the load changed nothing" }))
 		}
 	})
 

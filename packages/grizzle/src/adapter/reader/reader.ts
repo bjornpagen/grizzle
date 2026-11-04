@@ -115,15 +115,17 @@ export const poolExecutor = (ctx: Pick<DbContext, "pool" | "prologue">): ReadExe
 	run: (flight) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const session = yield* Effect.mapError(ctx.pool.lease, (reason) =>
-					ReadFailure.make({ reason })
+				const session = yield* Effect.mapError(
+					ctx.pool.lease,
+					(reason) => new ReadFailure({ reason })
 				)
 				const outcomes = yield* Effect.mapError(
 					runFramed(session, dbReadFrame(ctx), flight.statements),
 					asReadFailure
 				)
-				return yield* Effect.mapError(flight.read(outcomes), (reason) =>
-					ReadFailure.make({ reason })
+				return yield* Effect.mapError(
+					flight.read(outcomes),
+					(reason) => new ReadFailure({ reason })
 				)
 			})
 		)
@@ -324,7 +326,7 @@ const runBound = <A, X>(
 				Effect.fromResult(executionInputs(compiled.codecs, values, transportLimits)),
 				(ready) => delivery(compiled.program, ready, bound.read)
 			),
-			(reason) => ReadFailure.make({ reason })
+			(reason) => new ReadFailure({ reason })
 		)
 		return yield* through.run(flight)
 	})
@@ -341,7 +343,7 @@ export const whileLive = <X, E>(
 ): Effect.Effect<X, E> => Effect.suspend(() => (live() ? run() : Effect.fail(released())))
 
 /** A read of a handle whose Scope ended. */
-const readReleased = (): ReadFailure => ReadFailure.make({ reason: HandleReleased.make() })
+const readReleased = (): ReadFailure => new ReadFailure({ reason: new HandleReleased() })
 
 /**
  * A query compiled once for a role, ahead of the reads that run it: its template and parameters' codecs, its decoder
@@ -415,7 +417,7 @@ export const readHandle = <A>(
 		get: (params) =>
 			alive(() =>
 				Result.isFailure(eligible)
-					? Effect.fail(ReadFailure.make({ reason: eligible.failure }))
+					? Effect.fail(new ReadFailure({ reason: eligible.failure }))
 					: runBound(bound, params, named, programGetFlight)
 			),
 		page: <Q>(params: ParamMap, request: unknown) =>
@@ -449,17 +451,17 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 		Effect.suspend(() => {
 			const compiled = compileArtifacts(ctx, query)
 			if (Result.isFailure(compiled)) {
-				return Effect.fail(ReadFailure.make({ reason: compiled.failure }))
+				return Effect.fail(new ReadFailure({ reason: compiled.failure }))
 			}
 			const missing = missingOf(compiled.success, ctx.installedExtensions)
 			if (missing !== undefined) {
 				return Effect.fail(
-					ReadFailure.make({ reason: MissingCapability.make({ capability: missing }) })
+					new ReadFailure({ reason: new MissingCapability({ capability: missing }) })
 				)
 			}
 			return Effect.mapError(
 				Effect.fromResult(bindArtifacts(compiled.success, decoder)),
-				(reason) => ReadFailure.make({ reason })
+				(reason) => new ReadFailure({ reason })
 			)
 		})
 
@@ -481,7 +483,7 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 		Effect.flatMap(readable(query, decoder), (bound) => {
 			const eligible = getEligibility(bound.compiled.compiled.template)
 			if (Result.isFailure(eligible)) {
-				return Effect.fail(ReadFailure.make({ reason: eligible.failure }))
+				return Effect.fail(new ReadFailure({ reason: eligible.failure }))
 			}
 			return runBound(bound, params, executor, programGetFlight)
 		})
@@ -502,7 +504,7 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 			const lookup = keyLookup(ctx.schema.value, target)
 			if (lookup === undefined) {
 				return Effect.fail(
-					ReadFailure.make({
+					new ReadFailure({
 						reason: malformedDescription(
 							SourceLoc("reader.get", []),
 							"a query, a relation, a closed relation or a Key built by key()"

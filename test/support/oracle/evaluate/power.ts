@@ -1,4 +1,4 @@
-import { Array as Arr, Option, pipe, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Data, Option, pipe, Result, String as Str } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -33,36 +33,26 @@ const DIV_NORMALIZE_LIMIT = Number(
 	(PG_INT64_MAX - PG_INT64_MAX / NBASE_SQR_N - 1n) / (NBASE_SQR_N - 1n)
 )
 
+/** The SQLSTATEs numeric power fails with: overflow, division by zero, and an invalid argument for power. */
+type PowerFailureCode = "22003" | "22012" | "2201F"
+
 /**
  * Why numeric power yields no value: PostgreSQL's failure, or a result that hangs on a libm estimate (libmEstimate) in a
  * way the host cannot pin down, which PostgreSQL alone computes.
  */
-const PowerStopReason = Schema.Union([
-	Schema.Struct({
-		kind: Schema.Literal("failure"),
-		code: Schema.Literals(["22003", "22012", "2201F"])
-	}),
-	Schema.Struct({ kind: Schema.Literal("libm"), what: Schema.String })
-])
-type PowerStopReason = typeof PowerStopReason.Type
-
-/** The SQLSTATEs numeric power fails with: overflow, division by zero, and an invalid argument for power. */
-type PowerFailureCode = Extract<PowerStopReason, { readonly kind: "failure" }>["code"]
+type PowerStopReason =
+	| { readonly kind: "failure"; readonly code: PowerFailureCode }
+	| { readonly kind: "libm"; readonly what: string }
 
 /** A stop inside the port, thrown and caught at the boundary (power) by caught. */
-class PowerStop extends Schema.TaggedError<PowerStop, { readonly brand: unique symbol }>()(
-	"PowerStop",
-	{
-		reason: PowerStopReason
-	}
-) {}
+class PowerStop extends Data.TaggedError("PowerStop")<{ readonly reason: PowerStopReason }> {}
 
 /** Runs `f`, turning a thrown PowerStop into a failure with its reason; any other throw is a defect and propagates. */
 const caught = <A>(f: () => A): Result.Result<A, PowerStopReason> => {
 	try {
 		return Result.succeed(f())
 	} catch (thrown) {
-		if (Schema.is(PowerStop)(thrown)) {
+		if (thrown instanceof PowerStop) {
 			return Result.fail(thrown.reason)
 		}
 		throw thrown
@@ -70,7 +60,7 @@ const caught = <A>(f: () => A): Result.Result<A, PowerStopReason> => {
 }
 
 const fail = (code: PowerFailureCode): never => {
-	throw PowerStop.make({ reason: { kind: "failure", code } })
+	throw new PowerStop({ reason: { kind: "failure", code } })
 }
 
 const failed = (code: PowerFailureCode): Result.Result<never, PowerStopReason> =>
@@ -135,7 +125,7 @@ const libmEstimate = (e: Estimate, what: string, k: (estimate: number) => NumVar
 		return k(e.at)
 	}
 	const declined = (): never => {
-		throw PowerStop.make({ reason: { kind: "libm", what } })
+		throw new PowerStop({ reason: { kind: "libm", what } })
 	}
 	if (e.hi - e.lo >= 1) {
 		return declined()
@@ -150,7 +140,7 @@ const libmEstimate = (e: Estimate, what: string, k: (estimate: number) => NumVar
 	if (Result.isSuccess(first)) {
 		return first.success
 	}
-	throw PowerStop.make({ reason: first.failure })
+	throw new PowerStop({ reason: first.failure })
 }
 
 const sameOutcome = (

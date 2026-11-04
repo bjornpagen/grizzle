@@ -15,7 +15,6 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { statementForm } from "#compiler/sql/form.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	alternatives,
@@ -52,7 +51,7 @@ import type {
  * node counts, the size oracle every outcome oracle lacks.
  *
  * For each scalable dimension of a schema and of its worlds, the installation at size n and at 2n of that dimension
- * alone: every installed object's statements, counted as AST nodes (their JSON forms' nodes, a structural property,
+ * alone: every installed object's statements, counted as AST nodes (as snapshot.json holds them, a structural property,
  * never printed text), the installation's total with its role defaults, revokes and comments, and the snapshot's encoded
  * size each grow by at most 2 + ε from n to 2n. A product of two dimensions, a function whose body is tables × handles,
  * a law compiled once per trigger into every table's text, a role's grants listing every other role, grows by 4 there,
@@ -392,13 +391,15 @@ const installationOf = (scaledAt: Scaled): Effect.Effect<Installation> => {
 	}
 }
 
-/** The nodes of a JSON form: each object, list and scalar one. */
+/** The nodes of a statement as snapshot.json holds it: each object, list and scalar one, and an absent clause none. */
 const nodes = (v: unknown): number =>
-	isList(v)
-		? Arr.reduce(v, 1, (n, x) => n + nodes(x))
-		: isRecord(v)
-			? Arr.reduce(Rec.values(v), 1, (n, x) => n + nodes(x))
-			: 1
+	v === undefined
+		? 0
+		: isList(v)
+			? Arr.reduce(v, 1, (n, x) => n + nodes(x))
+			: isRecord(v)
+				? Arr.reduce(Rec.values(v), 1, (n, x) => n + nodes(x))
+				: 1
 
 /**
  * An installation's sizes in AST nodes: each object's statements, and each role default, public
@@ -407,11 +408,9 @@ const nodes = (v: unknown): number =>
 const sizesOf = (installation: Installation) => {
 	const manifest = installation.manifest
 	const sizes = [
-		...Arr.map(manifest.objects, (o) =>
-			Arr.reduce(o.ddl, 0, (n, st) => n + nodes(statementForm(st)))
-		),
+		...Arr.map(manifest.objects, (o) => Arr.reduce(o.ddl, 0, (n, st) => n + nodes(st))),
 		...Arr.map([...manifest.roleDefaults, ...manifest.publicRevokes, ...manifest.comments], (st) =>
-			nodes(statementForm(st))
+			nodes(st)
 		)
 	]
 	const snapshot = succeeded(

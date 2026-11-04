@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Result, String as Str } from "effect"
 import { ExecutionFailure, TransientFailure } from "#adapter/errors/execution.ts"
 import {
 	Deadlock,
@@ -16,10 +16,10 @@ import { decodePlan } from "#adapter/explain/plan.ts"
 import { classifyServerError, transientFailureOf } from "#adapter/outcomes/index.ts"
 import { violationClassifier } from "#adapter/witness/classify.ts"
 import { keyLaws } from "#adapter/witness/keylaw.ts"
-import { jsonText } from "#compiler/core/trusted.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { UniqueAbort } from "#compiler/write/program/artifact.ts"
 import type { KeyDecoder } from "#compiler/write/program/outcome.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { contained, on } from "#test/support/fixtures/ir/desc.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import {
@@ -48,11 +48,6 @@ const law = L.alternativesOfDesc(
 const pk = L.primaryKeyLaw({ name: "TaskNote" })
 const fk = L.lawOfDesc(contained(on("TaskNote", ["task"]), on("Task", ["id"])))
 
-/** The test's own DETAIL payload after its `w` tag: the relation and the key, as a JSON pair. */
-const decodeDetail = Schema.decodeUnknownResult(
-	Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String]))
-)
-
 /**
  * A witness decoder that reads `w["<relation>","<key>"]` as the relation's `id` (the program's own decoder is
  * write/program/outcome.ts witnessDecoder, pinned by its own tests). No test here raises a write statement's refusal.
@@ -62,7 +57,7 @@ const decoder: KeyDecoder = {
 		throw new Error("no write statement's refusal is raised here")
 	},
 	fromDetail: (detail) => {
-		const [relation, key] = succeeded(decodeDetail(Str.slice(1)(detail)), "the DETAIL payload")
+		const [relation, key] = trustedJson<readonly [string, string]>(Str.slice(1)(detail))
 		return { kind: "key", relation, values: { id: key } }
 	}
 }
@@ -115,12 +110,12 @@ describe("the transient failure of a server error", () => {
 		const serialization = serverError({ ...nothingReported, sqlstate: "40001" })
 		assert.deepEqual(
 			transientFailureOf(serialization, []),
-			TransientFailure.make({ reason: SerializationFailure.make(), error: serialization })
+			new TransientFailure({ reason: new SerializationFailure(), error: serialization })
 		)
 		const deadlock = serverError({ ...nothingReported, sqlstate: "40P01" })
 		assert.deepEqual(
 			transientFailureOf(deadlock, []),
-			TransientFailure.make({ reason: Deadlock.make(), error: deadlock })
+			new TransientFailure({ reason: new Deadlock(), error: deadlock })
 		)
 		/** The constraints a statement lists are matched by equality, so the names are opaque tokens. */
 		const seatPk = wild.constraint("seat_pk")
@@ -132,8 +127,8 @@ describe("the transient failure of a server error", () => {
 		const onSeatPk = serverError({ ...nothingReported, sqlstate: "23505", constraint: seatPk })
 		assert.deepEqual(
 			transientFailureOf(onSeatPk, serial),
-			TransientFailure.make({
-				reason: GeneratedSerialUnique.make({ relation: "Seat", constraint: seatPk }),
+			new TransientFailure({
+				reason: new GeneratedSerialUnique({ relation: "Seat", constraint: seatPk }),
 				error: onSeatPk
 			})
 		)
@@ -150,8 +145,8 @@ describe("the transient failure of a server error", () => {
 		]
 		assert.deepEqual(
 			transientFailureOf(onSeatX, probed),
-			TransientFailure.make({
-				reason: UnseenOccupant.make({ relation: "Seat", constraint: seatX }),
+			new TransientFailure({
+				reason: new UnseenOccupant({ relation: "Seat", constraint: seatX }),
 				error: onSeatX
 			})
 		)
@@ -162,8 +157,8 @@ describe("the transient failure of a server error", () => {
 		})
 		assert.deepEqual(
 			transientFailureOf(exclusion, probed),
-			TransientFailure.make({
-				reason: UnseenOccupant.make({ relation: "Seat", constraint: seatRoomDuring }),
+			new TransientFailure({
+				reason: new UnseenOccupant({ relation: "Seat", constraint: seatRoomDuring }),
 				error: exclusion
 			})
 		)
@@ -180,8 +175,8 @@ describe("the transient failure of a server error", () => {
 		]
 		assert.deepEqual(
 			transientFailureOf(onSeatPk, merge),
-			TransientFailure.make({
-				reason: PutTargetConflict.make({ relation: "Seat" }),
+			new TransientFailure({
+				reason: new PutTargetConflict({ relation: "Seat" }),
 				error: onSeatPk
 			})
 		)
@@ -333,7 +328,7 @@ describe("the outcome mapping", () => {
 							c.note(name)
 							assert.deepEqual(classifyServerError(raised, context), {
 								kind: "failed",
-								error: ExecutionFailure.make({ reason: raised })
+								error: new ExecutionFailure({ reason: raised })
 							})
 						})
 				)

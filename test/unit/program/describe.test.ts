@@ -6,8 +6,10 @@ import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import type { Json } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { descText } from "#compiler/ir/desc.ts"
 import { describeQuery, lowerQuery } from "#compiler/program/describe.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -17,7 +19,6 @@ import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { queryFromDescription } from "#test/support/describe.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
-import { decodeJson, jsonText } from "#test/support/json.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {
 	caseSketchGen,
@@ -36,11 +37,10 @@ import { regex } from "arkregex"
  * Description, sent as JSON or not, is the same Description and lowers to the same statements; lowering is
  * byte-identical across runs; a query rebuilt without its schema lowers to a refusal; and a Description is checked
  * against the schema it is given.
+ *
+ * A Description as the rebuild receives it: the value itself, and the value read back from its JSON text.
  */
-const descriptionFromJson = decodeJson(Schema.Unknown)
-
-/** A Description as the rebuild receives it: the value itself, and the value read back from its JSON text. */
-const sentForms = (d: unknown): ReadonlyArray<unknown> => [d, descriptionFromJson(jsonText(d))]
+const sentForms = (d: Json): ReadonlyArray<unknown> => [d, trustedJson<unknown>(jsonText(d))]
 
 const text = (q: unknown): string =>
 	succeeded(descText(queryValueDesc(q)), "the query's Description text")

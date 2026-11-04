@@ -134,7 +134,7 @@ export const transactionControl = (statement: string): string | undefined => {
 export const parseTarget = (target: MigrationTarget): Result.Result<ParsedTarget, MigrateError> => {
 	const snapshot = target.snapshot
 	const schema = snapshot.schema
-	const refuse = (fault: InputFault) => Result.fail(stopped(InputRefused.make({ schema, fault })))
+	const refuse = (fault: InputFault) => Result.fail(stopped(new InputRefused({ schema, fault })))
 	const names = new Set<string>()
 	const folders: Array<ParsedFolder> = []
 	for (const source of target.folders) {

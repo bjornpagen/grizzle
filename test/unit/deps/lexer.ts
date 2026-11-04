@@ -1,8 +1,8 @@
 import { regex } from "arkregex"
 /**
- * A JavaScript tokenizer for the dependency audit. It reads the erased JavaScript that
- * Node's type stripping produces from each src/ module (node:module stripTypeScriptTypes), so it needs no TypeScript
- * syntax: types are blanked to spaces, positions and lines are kept.
+ * A JavaScript tokenizer for the dependency audit. It reads the erased JavaScript that amaro's strip-only
+ * transform produces from each src/ module, so it needs no TypeScript syntax: types are blanked to spaces, positions
+ * and lines are kept.
  *
  * It skips comments, keeps string and template text out of the code stream, and tells a regular expression literal
  * from a division the usual way: a `/` begins a regex where an expression may begin, after an operator, an opening
@@ -15,7 +15,7 @@ import { regex } from "arkregex"
  * of input. A function expression's `}` is read as a block's, so a division right after one reads as a regex: an
  * extra finding or a lexing error, never a missed regex.
  */
-import { Array as Arr, Option, Schema, String as Str } from "effect"
+import { Array as Arr, Data, Option, String as Str } from "effect"
 export type TokenKind =
 	| "ident"
 	| "punct"
@@ -158,12 +158,7 @@ const opensBlock = (
 	return prev.text === ";" || prev.text === "{" || prev.text === "}" || prev.text === "=>"
 }
 
-class LexError extends Schema.TaggedError<LexError, { readonly brand: unique symbol }>()(
-	"LexError",
-	{
-		message: Schema.String
-	}
-) {}
+class LexError extends Data.TaggedError("LexError")<{ readonly message: string }> {}
 
 export const tokenize = (source: string): ReadonlyArray<Token> => {
 	const tokens: Array<Token> = []
@@ -179,7 +174,7 @@ export const tokenize = (source: string): ReadonlyArray<Token> => {
 		tokens.push({ kind, text, line: startLine })
 	}
 	const fail: (message: string) => never = (message) => {
-		throw LexError.make({ message: `line ${line}: ${message}` })
+		throw new LexError({ message: `line ${line}: ${message}` })
 	}
 	const newlines = (text: string) => {
 		for (const c of text) {

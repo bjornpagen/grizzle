@@ -6,6 +6,7 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
+	Data,
 	Duration,
 	Effect,
 	Exit,
@@ -16,8 +17,7 @@ import {
 	Path,
 	Record as Rec,
 	Result,
-	Schedule,
-	Schema
+	Schedule
 } from "effect"
 
 import {
@@ -49,7 +49,6 @@ import {
 	equivalence,
 	gateFindings,
 	type GateRun,
-	jsonText,
 	mechanism,
 	type RanRecord,
 	recordProblems,
@@ -74,6 +73,7 @@ import {
 import { gateCatalog, type GateId, gateOwner, ownerDirectories } from "#bench/harness/rules.ts"
 import { discoverGates, recordOf } from "#bench/harness/runner.ts"
 import { MalformedRows, resultSet, rowsAgree, textRows } from "#bench/harness/variant.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { assert, assertVariant, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 
@@ -444,7 +444,7 @@ describe("EXPLAIN capture", () => {
 		const refused = (value: unknown, why: string): void => {
 			const read = parsePlan(value)
 			assert.ok(Result.isFailure(read), why)
-			assert.ok(Schema.is(MalformedPlan)(read.failure), why)
+			assert.ok(read.failure instanceof MalformedPlan, why)
 		}
 		const scan = defined(sortedRangeTop.Plan.Plans[0])
 		const { "WAL Bytes": _bytes, ...scanWithoutWalBytes } = scan
@@ -453,7 +453,6 @@ describe("EXPLAIN capture", () => {
 		refused([], "no result")
 		refused([sortedRangeTop, sortedRangeTop], "two results")
 		refused([{ Plan: {} }], "an empty plan")
-		refused("[{", "text that is not JSON")
 		refused(
 			[{ ...sortedRangeTop, Plan: { ...sortedRangeTop.Plan, "Plan Rows": "49" } }],
 			"a figure as text"
@@ -757,7 +756,7 @@ describe("result rows", () => {
 			0
 		)
 		assertVariant(read, "_tag", "Failure")
-		assert.ok(Schema.is(MalformedRows)(read.failure))
+		assert.ok(read.failure instanceof MalformedRows)
 		assert.deepEqual([read.failure.statement, read.failure.row, read.failure.column], [0, 1, 1])
 		const rows = [
 			["1", "x"],
@@ -891,12 +890,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 		type RecordFeature = "run failed" | "release clean" | "release leaked" | "failed run leaked"
 
 		/** What a run or a release failed with. */
-		class Failure extends Schema.TaggedError<Failure, { readonly brand: unique symbol }>()(
-			"Failure",
-			{
-				what: Schema.String
-			}
-		) {}
+		class Failure extends Data.TaggedError("Failure")<{ readonly what: string }> {}
 
 		suite.effect("a run's record keeps its cases when only the release fails", (ctx) =>
 			Effect.gen(function* () {
@@ -949,11 +943,11 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 								const run =
 									ran === "passed"
 										? Exit.succeed({ server: pinnedServer(pin.version), result })
-										: Exit.fail(Failure.make({ what: "the run failed" }))
+										: Exit.fail(new Failure({ what: "the run failed" }))
 								const release =
 									released === "clean"
 										? Exit.void
-										: Exit.fail(Failure.make({ what: "a role still had sessions" }))
+										: Exit.fail(new Failure({ what: "a role still had sessions" }))
 								const record = recordOf(gate, base, run, release)
 								if (ran === "failed") {
 									c.note("run failed")

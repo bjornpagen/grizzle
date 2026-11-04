@@ -7,7 +7,8 @@ import { checked } from "#test/types/batch/groups.ts"
 layer(NodeServices.layer, { excludeTestServices: true })("page types", (it) => {
 	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
 		Effect.gen(function* () {
-			assert.equal((yield* checked("page/fixtures")).output, "")
+			const diagnostics = yield* checked("page/fixtures")
+			assert.equal(diagnostics.output, "")
 		})
 	)
 

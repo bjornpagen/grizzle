@@ -21,7 +21,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("the 200-relation progr
 layer(NodeServices.layer, { excludeTestServices: true })("typed query facade", (it) => {
 	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
 		Effect.gen(function* () {
-			assert.equal((yield* checked("query/fixtures")).output, "")
+			const diagnostics = yield* checked("query/fixtures")
+			assert.equal(diagnostics.output, "")
 		})
 	)
 

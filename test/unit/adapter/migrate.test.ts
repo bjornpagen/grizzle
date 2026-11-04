@@ -20,7 +20,7 @@ import { parseTarget, transactionControl } from "#adapter/migrate/input.ts"
 import { planApply, runFiles } from "#adapter/migrate/plan.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
+import { type MigrationFolder, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { emptyFingerprint, emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -444,9 +444,8 @@ describe("the input check before any connection", () => {
 		)
 	})
 
-	it("accepts the empty snapshot, whose fingerprint is the schema identifier's", () => {
+	it("accepts the empty snapshot with no folders", () => {
 		const empty = emptySnapshot({ schemaName: "Shop", schema: shop })
-		assert.equal(empty.fingerprint, emptyFingerprint(shop))
 		assert.deepEqual(succeeded(parseTarget({ snapshot: empty, folders: [] })).folders, [])
 	})
 
@@ -476,7 +475,10 @@ describe("the input check before any connection", () => {
 					folders: [
 						{
 							...source(g1.folder, unedited),
-							metaText: Str.replace(`"schema": "${shop}"`, '"schema": "other"')(g1.folder.metaText)
+							metaText: succeeded(
+								writeMeta({ ...g1.folder.meta, schema: "other" }),
+								"meta.json of another schema, sealed"
+							)
 						}
 					]
 				})

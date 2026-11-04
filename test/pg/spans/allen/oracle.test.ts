@@ -8,7 +8,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { compileSpanDesc, installSpans, rowsAs, runArtifact } from "#test/pg/spans/allen/support.ts"
-import { jsonText } from "#test/support/json.ts"
 import {
 	printSpanCase,
 	referenceRows,
@@ -98,7 +97,7 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 							Effect.gen(function* () {
 								const kind = sc.query.kind
 								if (kind !== "allenFilter" && kind !== "allenJoin" && kind !== "pointIn") {
-									return yield* PropertyFailed.make({
+									return yield* new PropertyFailed({
 										report: `${printSpanCase(sc)}\na ${kind} case outside the drawn kinds`
 									})
 								}
@@ -140,14 +139,14 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 										const difference = sameRowSet(got.rows, expected)
 										if (Option.isSome(difference)) {
 											problems.push(
-												`${artifact}: ${difference.value}\n  reference  ${jsonText(expected)}\n  postgresql ${jsonText(got.rows)}`
+												`${artifact}: ${difference.value}\n  reference  ${Formatter.format(expected)}\n  postgresql ${Formatter.format(got.rows)}`
 											)
 										}
 									}
 									return problems
 								}).pipe(Effect.ensuring(Effect.ignore(db.rollback)))
 								if (outcome.length > 0) {
-									return yield* PropertyFailed.make({
+									return yield* new PropertyFailed({
 										report: `${printSpanCase(sc)}\n${Arr.join(outcome, "\n")}`
 									})
 								}

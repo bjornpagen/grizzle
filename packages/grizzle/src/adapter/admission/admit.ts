@@ -149,9 +149,9 @@ type AdmissionFailure = AdmissionFailed["failure"]
  */
 const serializableRefusal = (error: ServerError): Option.Option<AdmissionTransient["reason"]> =>
 	error.sqlstate === sqlstates.serializationFailure
-		? Option.some(SerializationFailure.make())
+		? Option.some(new SerializationFailure())
 		: error.sqlstate === sqlstates.deadlockDetected
-			? Option.some(Deadlock.make())
+			? Option.some(new Deadlock())
 			: Option.none()
 
 /**
@@ -162,12 +162,14 @@ const serializableRefusal = (error: ServerError): Option.Option<AdmissionTransie
 export const admissionFailure = (failure: AdmissionFailure): OpenError => {
 	switch (failure._tag) {
 		case "ServerError":
-			return OpenError.make({
+			return new OpenError({
 				reason: Option.getOrElse(
-					Option.map(serializableRefusal(failure), (reason): AdmissionFailed | AdmissionTransient =>
-						AdmissionTransient.make({ reason, error: failure })
+					Option.map(
+						serializableRefusal(failure),
+						(reason): AdmissionFailed | AdmissionTransient =>
+							new AdmissionTransient({ reason, error: failure })
 					),
-					() => AdmissionFailed.make({ failure })
+					() => new AdmissionFailed({ failure })
 				)
 			})
 		case "ConnectionLost":
@@ -176,7 +178,7 @@ export const admissionFailure = (failure: AdmissionFailure): OpenError => {
 		case "UnreadableAnswer":
 		case "CatalogRowRefused":
 		case "CompileError":
-			return OpenError.make({ reason: AdmissionFailed.make({ failure }) })
+			return new OpenError({ reason: new AdmissionFailed({ failure }) })
 	}
 }
 
@@ -203,7 +205,7 @@ const flightFailure = (failure: BatchFailure): AdmissionFailure => {
 /** A refusal with every mismatch, if there is any. */
 const refusedAt = (mismatches: ReadonlyArray<AdmissionMismatch>): Effect.Effect<void, OpenError> =>
 	Arr.isReadonlyArrayNonEmpty(mismatches)
-		? Effect.fail(OpenError.make({ reason: AdmissionRefused.make({ mismatches }) }))
+		? Effect.fail(new OpenError({ reason: new AdmissionRefused({ mismatches }) }))
 		: Effect.void
 
 /** The rows of a statement the server answered; its refusal is the admission's failure. */
@@ -485,7 +487,7 @@ export const admit = Effect.fn("admit")(function* (
 	]
 	const flown = yield* Effect.scoped(
 		Effect.flatMap(
-			Effect.mapError(pool.lease, (reason) => OpenError.make({ reason })),
+			Effect.mapError(pool.lease, (reason) => new OpenError({ reason })),
 			(session) =>
 				Effect.mapError(runAlongside(session, flight, fence, fenceTransaction), admissionFailure)
 		)
@@ -564,7 +566,7 @@ export const admit = Effect.fn("admit")(function* (
 	for (const [i, j] of judged.entries()) {
 		const [valid, ...more] = yield* rowsAt(claimValidQuery, claimsAt + i)
 		if (valid === undefined || more.length > 0) {
-			return yield* fromResult(Result.fail(CatalogRowRefused.make({ what: claimValidQuery.what })))
+			return yield* fromResult(Result.fail(new CatalogRowRefused({ what: claimValidQuery.what })))
 		}
 		if (!valid) {
 			refusedClaims.push({ context: j.claim.context, field: j.claim.field })

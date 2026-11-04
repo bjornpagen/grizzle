@@ -1,4 +1,4 @@
-import { Array as Arr, Option, pipe, Record as Rec, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Data, Option, pipe, Record as Rec, Result, String as Str } from "effect"
 import { decodeMeta, readMeta } from "#adapter/boundary/meta.ts"
 import {
 	type Action,
@@ -132,10 +132,7 @@ interface Inexpressible {
 }
 
 /** The defect of a draft whose text the reviewer cannot follow: the text, meta.json and the plan disagree. */
-class DraftTextDefect extends Schema.TaggedError<
-	DraftTextDefect,
-	{ readonly brand: unique symbol }
->()("DraftTextDefect", { defect: Schema.String }) {}
+class DraftTextDefect extends Data.TaggedError("DraftTextDefect")<{ readonly defect: string }> {}
 
 const isPlaceholder = (a: Action): a is Placeholder =>
 	a.kind === "placeholderColumn" ||
@@ -364,11 +361,11 @@ const reviewPlan = (
 export const plainPlan = (g: GenerateResult): ReadonlyArray<ReviewedFile> => {
 	const offered = candidatesOf(g.plan).length
 	if (offered > 0) {
-		throw DraftTextDefect.make({ defect: `a draft taken as plain offers ${offered} candidates` })
+		throw new DraftTextDefect({ defect: `a draft taken as plain offers ${offered} candidates` })
 	}
 	const plan = reviewPlan(g, { chosen: new Set(), losses: "written" })
 	if (Result.isFailure(plan)) {
-		throw DraftTextDefect.make({ defect: "a draft without candidates is inexpressible" })
+		throw new DraftTextDefect({ defect: "a draft without candidates is inexpressible" })
 	}
 	return plan.success
 }
@@ -396,14 +393,14 @@ const resolvePlaceholders = (
 		}
 		const value = values[next++]
 		if (value === undefined) {
-			throw DraftTextDefect.make({
+			throw new DraftTextDefect({
 				defect: `${where}: more placeholders than the reviewed plan holds`
 			})
 		}
 		out.push(Str.replace(placeholderToken, value)(line))
 	}
 	if (next !== values.length) {
-		throw DraftTextDefect.make({
+		throw new DraftTextDefect({
 			defect: `${where}: ${values.length} placeholders in the reviewed plan, ${next} in the text`
 		})
 	}
@@ -417,7 +414,7 @@ export const renderReviewed = (
 ): string => {
 	const text = renderFile({ ...file.draft, drafts: file.actions })
 	if (!text.ok) {
-		throw DraftTextDefect.make({ defect: `${file.draft.name}: ${text.error.message}` })
+		throw new DraftTextDefect({ defect: `${file.draft.name}: ${text.error.message}` })
 	}
 	return resolvePlaceholders(
 		file.draft.name,
@@ -493,7 +490,7 @@ const decideLines = (
 	const nextMarked = (what: string): Marked => {
 		const step = marked[next]
 		if (step === undefined) {
-			throw DraftTextDefect.make({
+			throw new DraftTextDefect({
 				defect: `${file}: ${what} past the ${marked.length} marked steps the draft holds here`
 			})
 		}
@@ -506,7 +503,7 @@ const decideLines = (
 		if (Str.startsWith(lossMarker)(line)) {
 			const loss = nextMarked("a loss marker")
 			if (loss.kind !== "loss") {
-				throw DraftTextDefect.make({
+				throw new DraftTextDefect({
 					defect: `${file}: a loss marker where the draft holds a ${loss.kind}`
 				})
 			}
@@ -548,7 +545,7 @@ const decideLines = (
 		if (!offerInstructions.has(at(i + 1))) {
 			const group = nextMarked("a confirm marker")
 			if (group.kind !== "confirm") {
-				throw DraftTextDefect.make({
+				throw new DraftTextDefect({
 					defect: `${file}: a confirm marker where the draft holds a ${group.kind}`
 				})
 			}
@@ -557,7 +554,7 @@ const decideLines = (
 		}
 		const choice = nextMarked("a marked statement")
 		if (choice.kind !== "choice") {
-			throw DraftTextDefect.make({
+			throw new DraftTextDefect({
 				defect: `${file}: a marked statement where the draft holds a ${choice.kind}`
 			})
 		}
@@ -580,7 +577,7 @@ const decideLines = (
 			blocks.push({ alternative, rest: lines.slice(start, i) })
 		}
 		if (blocks.length !== choice.offers.length) {
-			throw DraftTextDefect.make({
+			throw new DraftTextDefect({
 				defect: `${file}: a marked statement with ${blocks.length} offers, which the draft holds with ${choice.offers.length}`
 			})
 		}
@@ -605,7 +602,7 @@ const decideLines = (
 		const chosenBlock = blocks[taken]
 		const one = choice.offers[taken]
 		if (chosenBlock === undefined || one === undefined) {
-			throw DraftTextDefect.make({
+			throw new DraftTextDefect({
 				defect: `${file}: offer ${taken} of a marked statement with ${blocks.length} offers`
 			})
 		}
@@ -629,7 +626,7 @@ const decideLines = (
 		i++
 	}
 	if (next !== marked.length) {
-		throw DraftTextDefect.make({
+		throw new DraftTextDefect({
 			defect: `${file}: the draft holds ${marked.length} marked steps here, the text ${next}`
 		})
 	}
@@ -676,7 +673,7 @@ const writtenPick = (g: GenerateResult, chosen: ReadonlySet<Candidate>, written:
 			const choices = Arr.map(draftChoices(g), (x) => x.choice)
 			const flipped = choices[written.choice % Math.max(choices.length, 1)]
 			if (flipped === undefined) {
-				throw DraftTextDefect.make({
+				throw new DraftTextDefect({
 					defect: "a split review writes a marked statement the other way; this folder marks none"
 				})
 			}
@@ -712,10 +709,10 @@ export const reviewWritten = (
 	for (const [n, f] of g.folder.files.entries()) {
 		const reviewed = writes.success[n]
 		if (reviewed === undefined || reviewed.draft.name !== f.name) {
-			throw DraftTextDefect.make({ defect: `${f.name}: the folder's files are not the plan's` })
+			throw new DraftTextDefect({ defect: `${f.name}: the folder's files are not the plan's` })
 		}
 		if (isNoTransaction(f.text) === reviewed.draft.transaction) {
-			throw DraftTextDefect.make({ defect: `${f.name}: its transaction mode is not the plan's` })
+			throw new DraftTextDefect({ defect: `${f.name}: its transaction mode is not the plan's` })
 		}
 		const text = decideLines(
 			f.name,
@@ -737,7 +734,7 @@ export const reviewWritten = (
 		})
 	}
 	if (g.folder.files.length !== writes.success.length) {
-		throw DraftTextDefect.make({
+		throw new DraftTextDefect({
 			defect: `the folder holds ${g.folder.files.length} files, the plan ${writes.success.length}`
 		})
 	}
@@ -763,19 +760,19 @@ export const leftUnfilled = (
 } => {
 	const left = review(g, { chosen, losses: "written", value: () => placeholderToken })
 	if (Result.isFailure(left)) {
-		throw DraftTextDefect.make({
+		throw new DraftTextDefect({
 			defect: "a review that fills its placeholders is expressible, so one that leaves them is too"
 		})
 	}
 	const lines = Arr.flatMap(left.success.files, (f, n) => {
 		const other = filled.files[n]
 		if (other === undefined || other.name !== f.name) {
-			throw DraftTextDefect.make({ defect: `${f.name}: not a file of the filled review` })
+			throw new DraftTextDefect({ defect: `${f.name}: not a file of the filled review` })
 		}
 		const written = Str.split(other.text, "\n")
 		const leaving = Str.split(f.text, "\n")
 		if (leaving.length !== written.length) {
-			throw DraftTextDefect.make({
+			throw new DraftTextDefect({
 				defect: `${f.name}: a value the filled review writes spans lines`
 			})
 		}
@@ -1081,7 +1078,7 @@ export const reviewSites = (
 				}
 			case "nested rename":
 				if (parent === undefined) {
-					throw DraftTextDefect.make({ defect: "a nested field's rename outside a relation's" })
+					throw new DraftTextDefect({ defect: "a nested field's rename outside a relation's" })
 				}
 				return {
 					kind: "own",

@@ -38,7 +38,7 @@ export const pageRuntime = (compiled: Compiled): PageRuntime => {
 		artifacts: compiled.artifacts
 	})
 	if (Result.isFailure(built)) {
-		throw GateSetupError.make({ what: `the page template: ${built.failure.message}` })
+		throw new GateSetupError({ what: `the page template: ${built.failure.message}` })
 	}
 	return built.success
 }
@@ -65,31 +65,31 @@ export const deliverPage = Effect.fn("deliverPage")(
 	): Effect.fn.Return<DeliveredPage, DeliveryFailed | ReadError | FlightFailure> {
 		const inputs = executionInputs(paramCodecs(pages.params), values, transportLimits)
 		if (Result.isFailure(inputs)) {
-			return yield* deliveryFailed(ReadFailure.make({ reason: inputs.failure }))
+			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
 		const flight = yield* Effect.mapError(
 			pageFlight(pages, artifact, inputs.success, call),
-			(reason) => ReadFailure.make({ reason })
+			(reason) => new ReadFailure({ reason })
 		)
 		runtime.recorded.length = 0
 		runtime.flights = 0
 		yield* Effect.flatMap(
 			runFramed(runtime.session, readFrame(runtime.prologue), flight.statements),
-			(outcomes) => Effect.mapError(flight.read(outcomes), (reason) => ReadFailure.make({ reason }))
+			(outcomes) => Effect.mapError(flight.read(outcomes), (reason) => new ReadFailure({ reason }))
 		)
 		const statements = sentStatements(runtime)
 		/** The flight sends the request's statements in program order, its probe after them. */
 		const program = pages.artifacts[artifact].requests[call.variant]
 		const delivery = program.delivery
 		if (delivery.kind !== "concat") {
-			throw GateSetupError.make({
+			throw new GateSetupError({
 				what: `the ${call.variant} request delivers heading groups, not one rows statement`
 			})
 		}
 		const record = delivery.groups[0].record
 		const sent = statements[answerOf(record.arrival)]
 		if (sent === undefined) {
-			throw GateSetupError.make({
+			throw new GateSetupError({
 				what: `the ${call.variant} request sent no rows statement ${answerOf(record.arrival)}`
 			})
 		}

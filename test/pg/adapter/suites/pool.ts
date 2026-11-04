@@ -212,7 +212,8 @@ export const poolSuite = (): void => {
 										}
 										const leased = yield* pool.leased
 										assert.equal(leased, held.length)
-										assert.ok((yield* pool.size) <= max)
+										const size = yield* pool.size
+										assert.ok(size <= max)
 									}
 									for (const h of Arr.copy(held)) {
 										yield* release(h, false)

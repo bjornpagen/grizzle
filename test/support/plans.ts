@@ -1,7 +1,8 @@
-import { Array as Arr, Effect, Option, Result, Schema } from "effect"
+import { Array as Arr, Effect, Option, Result } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { countingExecutor, untyped } from "#test/pg/page/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -258,21 +259,21 @@ export const sentProblems = (
 		return { problems, read }
 	})
 
-const Sized = Schema.Array(Schema.Tuple([Schema.String, Schema.String]))
-
 /** Each table's and materialized view's rows in `schema`, by name, as the last VACUUM ANALYZE counted them. */
 export const relationRows = (schema: string) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const sized = yield* Effect.flatMap(
-			admin.queryValues(
-				"SELECT c.relname::text, c.reltuples::bigint::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n " +
-					"ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind IN ('r', 'm')",
-				[schema]
-			),
-			Schema.decodeUnknownEffect(Sized)
+		const sized = yield* admin.queryValues(
+			"SELECT c.relname::text, c.reltuples::bigint::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n " +
+				"ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind IN ('r', 'm')",
+			[schema]
 		)
-		return new Map(Arr.map(sized, ([r, n]) => [r, Number(n)]))
+		return new Map(
+			Arr.map(
+				trusted<ReadonlyArray<readonly [relation: string, tuples: string]>>(sized),
+				([r, n]) => [r, Number(n)]
+			)
+		)
 	})
 
 /** The names of every index the installation planned: each key and enforcement index, and each it created. */
@@ -286,17 +287,14 @@ export const plannedIndexes = (installation: Installation): ReadonlySet<string> 
 export const createdIndexes = (schema: string) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const names = yield* Effect.flatMap(
-			admin.queryValues(
-				"SELECT c.relname::text FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid " +
-					"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text " +
-					"AND NOT i.indisunique AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint AS k WHERE k.conindid = i.indexrelid) " +
-					"ORDER BY 1",
-				[schema]
-			),
-			Schema.decodeUnknownEffect(Schema.Array(Schema.Tuple([Schema.String])))
+		const names = yield* admin.queryValues(
+			"SELECT c.relname::text FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid " +
+				"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text " +
+				"AND NOT i.indisunique AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint AS k WHERE k.conindid = i.indexrelid) " +
+				"ORDER BY 1",
+			[schema]
 		)
-		return Arr.map(names, ([name]) => name)
+		return Arr.map(trusted<ReadonlyArray<readonly [name: string]>>(names), ([name]) => name)
 	})
 
 /** The runtime's own reader of `db` over the Db's pool, through an executor that records every statement it sends. */

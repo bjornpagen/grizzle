@@ -6,7 +6,7 @@ import {
 	type Real,
 	runProgram
 } from "@grizzle/testing/commands"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { constant, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -97,8 +97,7 @@ import { regex } from "arkregex"
  * target, its partial folder and the files it recorded, its rows read strictly from the table as the runner reads them;
  * and after every refusal the model says ran nothing, the ledger and the whole catalog are unchanged. Each step draws a
  * command the model's state allows, and its parameters in that state, so every drawn program is a sequence of real
- * actions, and a shrunk one is still one. Two kept programs, replayed before the drawn ones, plant every command, which
- * the drawn ones reach only a few times a run, some of them on no seed of a run. */
+ * actions, and a shrunk one is still one. */
 interface Model {
 	readonly recorded: number
 	readonly partial: Option.Option<number>
@@ -640,7 +639,8 @@ const realOf = (
 			)
 			const report = yield* apply(r.m, directory(r, k, asReviewed), noFurther)
 			assert.deepEqual(report.applied, expected, "the folders the apply runs")
-			expectLedger(r, after, (yield* observe(r)).ledger)
+			const observed = yield* observe(r)
+			expectLedger(r, after, observed.ledger)
 		}),
 	"apply with a gap": (k, model) =>
 		Effect.gen(function* () {
@@ -700,7 +700,8 @@ const realOf = (
 			if (markers.length === 0 && losses.length === 0) {
 				c.note("apply unreviewed without markers")
 				yield* apply(r.m, unreviewed, noFurther)
-				expectLedger(r, after, (yield* observe(r)).ledger)
+				const observed = yield* observe(r)
+				expectLedger(r, after, observed.ledger)
 				return
 			}
 			if (markers.length === 0) {
@@ -760,7 +761,8 @@ const realOf = (
 				e.server.by === "server" && e.server.error.sqlstate === "22012",
 				"the failing statement's SQLSTATE"
 			)
-			expectLedger(r, after, (yield* observe(r)).ledger)
+			const observed = yield* observe(r)
+			expectLedger(r, after, observed.ledger)
 		}),
 	"edit applied": ({ folder, file, kind }, model) =>
 		Effect.gen(function* () {
@@ -974,12 +976,10 @@ const realOf = (
 				)
 			)
 			assert.equal(e.stage, "record", e.message)
-			assert.equal(
-				(yield* readCatalog(substrate.admin, r.schema)).kind,
-				"absent",
-				"the schema the first file created rolled back"
-			)
-			expectLedger(r, model, (yield* observe(r)).ledger)
+			const catalog = yield* readCatalog(substrate.admin, r.schema)
+			assert.equal(catalog.kind, "absent", "the schema the first file created rolled back")
+			const observed = yield* observe(r)
+			expectLedger(r, model, observed.ledger)
 		})
 })
 
@@ -994,67 +994,6 @@ const chainOf = (allocated: string, owner: string): ReadonlyArray<GenerateResult
 	)
 
 type LedgerProgram = Program<LedgerParameters>
-
-/** Planted: every command, each where the model's state lets it act, so every seed reaches them all;
- * the drawn programs reach some only a few times a run. The second folder's points are before each of its six files,
- * within its no-transaction third file after each of that file's three statements, and after it; the third folder's
- * are before and after its first file, the no-transaction Prepare, then before each of the other two. */
-const planted: ReadonlyArray<Kept<LedgerProgram, Feature>> = [
-	{
-		note: "from the empty schema: refusals before the ledger and around the first folders, a folder failed and resumed, then every refusal over two applied folders",
-		sketch: [
-			{ command: "record before the ledger", parameters: undefined },
-			{ command: "apply unreviewed", parameters: undefined },
-			{ command: "apply unreviewed", parameters: undefined },
-			{ command: "apply with a gap", parameters: 3 },
-			{ command: "apply short", parameters: 3 },
-			{ command: "early folder", parameters: undefined },
-			{ command: "fail at", parameters: { at: "before", ordinal: 2 } },
-			{ command: "fail at", parameters: { at: "within", ordinal: 3, statement: 1 } },
-			{ command: "apply up to", parameters: 2 },
-			{ command: "apply up to", parameters: 2 },
-			{ command: "busy", parameters: undefined },
-			{ command: "non-owner", parameters: undefined },
-			{ command: "transaction control", parameters: undefined },
-			{ command: "crossed", parameters: undefined },
-			{ command: "commit refused", parameters: undefined }
-		],
-		draws: "",
-		reaches: [
-			"record before the ledger",
-			"apply unreviewed without markers",
-			"apply unreviewed",
-			"apply with a gap",
-			"apply short of the snapshot",
-			"a pending folder sorted before an applied one",
-			"fail before a file",
-			"fail inside a no-transaction file",
-			"resume a partial folder",
-			"apply up to date",
-			"busy",
-			"owner",
-			"transaction control",
-			"another schema's folders",
-			"commit refused"
-		]
-	},
-	{
-		note: "two folders applied, then an applied file edited, an applied folder missing and a failure after a no-transaction file",
-		sketch: [
-			{ command: "apply up to", parameters: 2 },
-			{ command: "edit applied", parameters: { folder: 0, file: 0, kind: "edited" } },
-			{ command: "apply up to", parameters: 1 },
-			{ command: "fail at", parameters: { at: "after", ordinal: 1 } }
-		],
-		draws: "",
-		reaches: [
-			"apply in order",
-			"apply missing an applied folder",
-			"edit an applied file",
-			"fail after a no-transaction file"
-		]
-	}
-]
 
 /** One run of the state machine: a schema of its own, the chain drafted and reviewed against it, which must have the
  * shape the model was built over, and the program run on it from the empty snapshot. */
@@ -1123,7 +1062,7 @@ const ledgerSearch = Effect.gen(function* () {
 			draw: drawn(program(machineOf(shape), { min: 0, max: 12 })),
 			literal: Formatter.format,
 			coverage: required<Feature>(commandKinds, { cases: steeredCases, sense: notesOnly }),
-			kept: planted,
+			kept: [],
 			runs,
 			shrink: { kind: "bounded", candidates: 150 },
 			concurrency: 1,

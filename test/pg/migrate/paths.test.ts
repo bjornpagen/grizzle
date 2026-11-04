@@ -120,7 +120,7 @@ type Feature =
 	| AmbientFeature
 	| "catalog-type name"
 
-const failed = (report: string) => Effect.fail(PropertyFailed.make({ report: report }))
+const failed = (report: string) => Effect.fail(new PropertyFailed({ report: report }))
 
 /** Fails with the report of a structural difference. */
 const same = (
@@ -130,7 +130,7 @@ const same = (
 ): Effect.Effect<void, PropertyFailed> =>
 	Effect.try({
 		try: () => assert.deepEqual(actual, expected),
-		catch: (error) => PropertyFailed.make({ report: `${what}: ${messageOf(error)}` })
+		catch: (error) => new PropertyFailed({ report: `${what}: ${messageOf(error)}` })
 	})
 
 /** The rename kinds a path made, by successor, as features. */

@@ -77,9 +77,8 @@ const openPayroll: Effect.Effect<
 		h: { kind: "psql", as: f.installed.world(worlds.hr) }
 	})
 	/** The grizzle writer's login is the psql child's too: its backend is the one the child does not run. */
-	const g = yield* grizzleActor("g", f.installed.as(worlds.server).role, [
-		yield* Effect.orDie(psql.h.pid)
-	])
+	const psqlPid = yield* Effect.orDie(psql.h.pid)
+	const g = yield* grizzleActor("g", f.installed.as(worlds.server).role, [psqlPid])
 	const actors: Actors<"h", "g"> = { direct: psql, grizzle: { g } }
 	const env = yield* exploreEnv(substrate)
 	return {

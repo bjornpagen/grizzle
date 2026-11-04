@@ -70,7 +70,7 @@ const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"
 
 /** The refusal of a command line that does not parse, for `fault`. */
 const malformed = (fault: ArgumentsRefused["fault"]): Result.Result<Command, CliError> =>
-	Result.fail(cliError(ArgumentsRefused.make({ fault })))
+	Result.fail(cliError(new ArgumentsRefused({ fault })))
 
 const plain = (
 	rest: ReadonlyArray<string>,

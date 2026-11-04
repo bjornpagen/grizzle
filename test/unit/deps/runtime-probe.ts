@@ -1,6 +1,7 @@
 import { registerHooks } from "node:module"
 import { pathToFileURL } from "node:url"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
+import { jsonText } from "#compiler/core/trusted.ts"
 
 /**
  * The runtime half of the dependency audit, run by deps.test.ts in a child Node process:
@@ -332,12 +333,12 @@ for (const q of [
 }
 
 process.stdout.write(
-	`${JSON.stringify({
+	`${jsonText({
 		control: control[1],
 		controlLine: control[0],
 		protoAccessor: Object.getOwnPropertyDescriptor(Object.prototype, "__proto__") !== undefined,
-		resolved: run.resolved,
-		trapped: run.trapped,
+		resolved: Arr.map(run.resolved, (r) => ({ importer: r.importer, url: r.url })),
+		trapped: Arr.map(run.trapped, (t) => ({ kind: t.kind, frame: t.frame })),
 		loadedTrapped: loaded,
 		admitted: admittedChecks.length,
 		checked: Arr.reduce(admittedChecks, 0, (n, checks) => n + checks.length),

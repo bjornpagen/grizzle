@@ -28,7 +28,6 @@ import {
 	Option,
 	Record as Rec,
 	Redacted,
-	Schema,
 	String as Str
 } from "effect"
 import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
@@ -385,12 +384,12 @@ describe("DbLayer.make", () => {
 							assert.ok(Exit.isFailure(exit), `the fault at ${names} builds a layer`)
 							const error = Cause.squash(exit.cause)
 							assert.ok(
-								Schema.is(OpenError)(error),
+								error instanceof OpenError,
 								`the fault at ${names} fails with ${String(error)}`
 							)
 							assert.equal(error.stage, "config")
 							assert.ok(
-								Schema.is(DbConfigRefused)(error.reason),
+								error.reason instanceof DbConfigRefused,
 								`the fault at ${names} has no DbConfigRefused reason`
 							)
 							const detail = error.reason.detail
@@ -460,10 +459,10 @@ describe("DbLayer.make", () => {
 							}
 							assert.ok(Exit.isFailure(exit), "PGREPLICATION builds a layer")
 							const error = Cause.squash(exit.cause)
-							assert.ok(Schema.is(OpenError)(error), `the environment fails with ${String(error)}`)
+							assert.ok(error instanceof OpenError, `the environment fails with ${String(error)}`)
 							assert.equal(error.stage, "config")
 							assert.ok(
-								Schema.is(ConnectionEnvironmentRefused)(error.reason),
+								error.reason instanceof ConnectionEnvironmentRefused,
 								`the environment's refusal is ${error.reason._tag}`
 							)
 							assert.equal(error.reason.variable, "PGREPLICATION")

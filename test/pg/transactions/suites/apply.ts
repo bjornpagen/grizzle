@@ -3,9 +3,8 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, Schema, Stream } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Result, Stream } from "effect"
 import { makeDb } from "#adapter/db/db.ts"
-import { ExecutionFailure, TransportFailure } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -132,7 +131,7 @@ export const applySuite = () => {
 						const password = Effect.suspend(() =>
 							credential.ok
 								? Effect.succeed(credentials.password)
-								: Effect.fail(CredentialError.make({ cause: "the test turned the credential off" }))
+								: Effect.fail(new CredentialError({ cause: "the test turned the credential off" }))
 						)
 						const state = Effect.all({
 							notes: tableState(done, W.TaskNote),
@@ -258,7 +257,8 @@ export const applySuite = () => {
 												const outcome = yield* applyOnce
 												assert.ok(outcome.kind === "no-change", outcome.kind)
 												assert.deepEqual(outcome.reads, bareRecord({}))
-												unorderedEqual((yield* state).notes, before.notes)
+												const after = yield* state
+												unorderedEqual(after.notes, before.notes)
 												break
 											}
 											case "a bound Stream, twice": {
@@ -266,7 +266,8 @@ export const applySuite = () => {
 												const first = yield* applyOnce
 												assert.ok(first.kind === "accepted", first.kind)
 												assert.deepEqual(first.counts, added)
-												unorderedEqual((yield* state).notes, [
+												const after = yield* state
+												unorderedEqual(after.notes, [
 													...before.notes,
 													{ task: t3, note: "streamed" },
 													{ task: t4, note: "streamed" }
@@ -293,7 +294,8 @@ export const applySuite = () => {
 												const outcome = yield* applyOnce
 												assert.ok(outcome.kind === "accepted", outcome.kind)
 												assert.deepEqual(outcome.counts, [counts("TaskNote", 1n, 0n, 0n)])
-												unorderedEqual((yield* state).notes, [
+												const after = yield* state
+												unorderedEqual(after.notes, [
 													...before.notes,
 													{ task: t3, note: "base level" }
 												])
@@ -309,7 +311,7 @@ export const applySuite = () => {
 												if (handle.kind === "apply") {
 													const applied = yield* failureOf(applyOnce)
 													assert.ok(
-														Schema.is(ExecutionFailure)(applied) &&
+														applied._tag === "ExecutionFailure" &&
 															applied.reason._tag === "CompileError",
 														String(applied)
 													)
@@ -335,8 +337,9 @@ export const applySuite = () => {
 													0,
 													"no statement before the refusal"
 												)
-												unorderedEqual((yield* state).notes, before.notes)
-												unorderedEqual((yield* state).accounts, before.accounts)
+												const after = yield* state
+												unorderedEqual(after.notes, before.notes)
+												unorderedEqual(after.accounts, before.accounts)
 												break
 											}
 											case "acquisition fails": {
@@ -345,12 +348,13 @@ export const applySuite = () => {
 														yield* pool.lease
 														credential.ok = false
 														const applied = yield* failureOf(applyOnce)
-														assert.ok(Schema.is(TransportFailure)(applied), String(applied))
+														assert.ok(applied._tag === "TransportFailure", String(applied))
 														assert.equal(applied.stage, "acquire")
 													})
 												)
 												credential.ok = true
-												unorderedEqual((yield* state).notes, before.notes)
+												const after = yield* state
+												unorderedEqual(after.notes, before.notes)
 												break
 											}
 										}

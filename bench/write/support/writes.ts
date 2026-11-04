@@ -7,7 +7,6 @@ import {
 	Option,
 	Record as Rec,
 	Result,
-	Schema,
 	type Scope
 } from "effect"
 import { writeProgramOf, runApplication } from "#adapter/apply/index.ts"
@@ -37,6 +36,7 @@ import { type Fixture, GateSetupError, installFixture } from "#bench/query/suppo
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { ResidualLaw } from "#compiler/ir/law.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
@@ -94,26 +94,19 @@ const round = (x: number): number => Math.round(x * 1000) / 1000
  * SECURITY DEFINER law function run in the same backend), and the trigger calls an explained statement fired with a
  * law's triggers set IMMEDIATE.
  *
- *  The rows of a catalog or statistics query, each decoded by `row`: rows from PostgreSQL are external input.
+ * The rows of a catalog or statistics query come as the row type its SQL casts them to. The one row a query returns:
+ * none or several is a defect of the gate's setup.
  */
-export const decodeRows = <A, I>(
-	row: Schema.Codec<A, I>,
-	rows: ReadonlyArray<ReadonlyArray<unknown>>
-): ReadonlyArray<A> => Result.getOrThrow(Schema.decodeUnknownResult(Schema.Array(row))(rows))
-
-/** The one row a query returns, decoded; none or several is a defect of the gate's setup. */
-export const decodeOne = <A, I>(
-	row: Schema.Codec<A, I>,
-	rows: ReadonlyArray<ReadonlyArray<unknown>>
-): A => {
-	const [only, ...more] = decodeRows(row, rows)
+export const oneRow = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<unknown> => {
+	const [only, ...more] = rows
 	if (only === undefined || more.length > 0) {
-		throw GateSetupError.make({ what: `${rows.length} rows where the gate reads one` })
+		throw new GateSetupError({ what: `${rows.length} rows where the gate reads one` })
 	}
 	return only
 }
 
-const TextRow = Schema.Tuple([Schema.String])
+/** One text cell: the row of a catalog query that reads one name or definition. */
+type TextRow = readonly [text: string]
 
 /**
  * Installs `schema`, the template-named value of a gate's builder, complete, with the access paths its workload programs
@@ -360,7 +353,7 @@ export const theStatement = (
 	const found = Arr.filter(statements, (s) => label(s.label))
 	const [only, ...more] = found
 	if (only === undefined || more.length > 0) {
-		throw GateSetupError.make({
+		throw new GateSetupError({
 			what: `${found.length} statements are ${what}: ${Arr.join(
 				Arr.map(statements, (s) => labelText(s.label)),
 				", "
@@ -435,12 +428,12 @@ const isRows = (value: unknown): value is ReadonlyArray<unknown> => Arr.isArray(
 
 const observedReads = (reads: unknown): ObservedReads => {
 	if (!isRecord(reads)) {
-		throw GateSetupError.make({ what: "the outcome's read-backs are no record" })
+		throw new GateSetupError({ what: "the outcome's read-backs are no record" })
 	}
 	return Rec.fromEntries(
 		Arr.map(Rec.toEntries(reads), ([name, rows]) => {
 			if (!isRows(rows)) {
-				throw GateSetupError.make({ what: `the read-back ${name} delivered no rows` })
+				throw new GateSetupError({ what: `the read-back ${name} delivered no rows` })
 			}
 			return [name, rows]
 		})
@@ -457,7 +450,7 @@ const observedOutcome = (value: ApplyOutcome<unknown>): ApplyOutcome<ObservedRea
 export const readBackRows = (reads: ObservedReads, name: string): ReadonlyArray<unknown> => {
 	const rows = reads[name]
 	if (rows === undefined) {
-		throw GateSetupError.make({ what: `the outcome has no read-back ${name}` })
+		throw new GateSetupError({ what: `the outcome has no read-back ${name}` })
 	}
 	return rows
 }
@@ -520,7 +513,7 @@ const probeSession = (session: Session): ProbeSession => ({
 						resume(Effect.fail(answer.error))
 					} else {
 						resume(
-							Effect.fail(ConnectionLost.make({ operation: "query", ended: { by: "transport" } }))
+							Effect.fail(new ConnectionLost({ operation: "query", ended: { by: "transport" } }))
 						)
 					}
 				}
@@ -772,10 +765,10 @@ const observedArtifact = (
 ): Result.Result<ObservedChange, CompileError | GateSetupError> => {
 	const context = dbContext(db)
 	if (context === undefined) {
-		return Result.fail(GateSetupError.make({ what: "observedChange: not an opened Db" }))
+		return Result.fail(new GateSetupError({ what: "observedChange: not an opened Db" }))
 	}
 	if (!isChangeSetValue(changes)) {
-		return Result.fail(GateSetupError.make({ what: "observedChange: not a ChangeSet value" }))
+		return Result.fail(new GateSetupError({ what: "observedChange: not a ChangeSet value" }))
 	}
 	const decoder = changes.reads
 	const entry = writeProgramOf(context, changes)
@@ -797,7 +790,7 @@ const observedArtifact = (
 					const first = log[0]
 					if (first?.kind === "unattributed") {
 						return Effect.die(
-							GateSetupError.make({
+							new GateSetupError({
 								what: `observedChange: the server refused a query the program does not hold: ${first.sql}`
 							})
 						)
@@ -824,7 +817,7 @@ const observedArtifact = (
 export const residualLaw = <S>(fixture: Fixture<S>, law: LawId): ResidualLaw =>
 	Option.getOrThrowWith(
 		Arr.findFirst(fixture.installed.installation.laws.residuals, (r) => r.lawId === law),
-		() => GateSetupError.make({ what: `the installation holds no residual law ${law}` })
+		() => new GateSetupError({ what: `the installation holds no residual law ${law}` })
 	)
 
 /**
@@ -874,17 +867,17 @@ export const lawObjects = Effect.fn("lawObjects")(function* <S>(
 		"SELECT p.proname::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname <> ALL ($2::text[]) ORDER BY 1",
 		[schema, installationFunctions]
 	)
-	const functions = Arr.map(decodeRows(TextRow, functionRows), ([name]) => name)
+	const functions = Arr.map(trusted<ReadonlyArray<TextRow>>(functionRows), ([name]) => name)
 	const triggerRows = yield* s.admin.queryValues(
 		"SELECT c.relname::text || '.' || t.tgname::text FROM pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND NOT t.tgisinternal ORDER BY 1",
 		[schema]
 	)
-	const triggers = Arr.map(decodeRows(TextRow, triggerRows), ([trigger]) => trigger)
+	const triggers = Arr.map(trusted<ReadonlyArray<TextRow>>(triggerRows), ([trigger]) => trigger)
 	const indexRows = yield* s.admin.queryValues(
 		"SELECT c.relname::text FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text ORDER BY 1",
 		[schema]
 	)
-	const indexes = Arr.map(decodeRows(TextRow, indexRows), ([index]) => index)
+	const indexes = Arr.map(trusted<ReadonlyArray<TextRow>>(indexRows), ([index]) => index)
 	const names = namesOf(fixture.installed)
 	const definitions: Record<string, string> = {}
 	for (const residual of fixture.installed.installation.laws.residuals) {
@@ -893,7 +886,7 @@ export const lawObjects = Effect.fn("lawObjects")(function* <S>(
 				"SELECT pg_catalog.pg_get_functiondef(p.oid)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname = $2::text",
 				[schema, unit.function]
 			)
-			definitions[unit.function] = decodeOne(TextRow, definitionRows)[0]
+			definitions[unit.function] = trusted<TextRow>(oneRow(definitionRows))[0]
 		}
 	}
 	return { functions, triggers, indexes, definitions }
@@ -907,14 +900,14 @@ export interface TableScans {
 	readonly deleted: number
 }
 
-const ScanRow = Schema.Tuple([
-	Schema.String,
-	Schema.FiniteFromString,
-	Schema.FiniteFromString,
-	Schema.FiniteFromString,
-	Schema.FiniteFromString,
-	Schema.FiniteFromString
-])
+type ScanRow = readonly [
+	table: string,
+	seq: string,
+	idx: string,
+	inserted: string,
+	updated: string,
+	deleted: string
+]
 
 /**
  * The scans and row changes this session's backend has counted and not yet reported on each table of `schema`, by table
@@ -935,10 +928,19 @@ const transactionScans = (
 		),
 		(rows) =>
 			Rec.fromEntries(
-				Arr.map(decodeRows(ScanRow, rows), ([table, seq, idx, inserted, updated, deleted]) => [
-					table,
-					{ seq, idx, inserted, updated, deleted }
-				])
+				Arr.map(
+					trusted<ReadonlyArray<ScanRow>>(rows),
+					([table, seq, idx, inserted, updated, deleted]) => [
+						table,
+						{
+							seq: Number(seq),
+							idx: Number(idx),
+							inserted: Number(inserted),
+							updated: Number(updated),
+							deleted: Number(deleted)
+						}
+					]
+				)
 			)
 	)
 
@@ -949,7 +951,7 @@ export const tableScans = (
 ): TableScans => {
 	const reading = scans[table]
 	if (reading === undefined) {
-		throw GateSetupError.make({ what: `the statistics reading lists no table ${table}` })
+		throw new GateSetupError({ what: `the statistics reading lists no table ${table}` })
 	}
 	return reading
 }
@@ -997,7 +999,7 @@ interface LawProbe {
 export const callsOn = (probe: LawProbe, relation: string): number => {
 	const participant = Option.getOrThrowWith(
 		Arr.findFirst(probe.calls, (c) => c.relation === relation),
-		() => GateSetupError.make({ what: `${relation} is no participant of the probed law` })
+		() => new GateSetupError({ what: `${relation} is no participant of the probed law` })
 	)
 	return participant.calls
 }
@@ -1066,11 +1068,7 @@ export interface RoleSamples {
 	readonly lockWaitSessionMs: number
 }
 
-const RoleRow = Schema.Tuple([
-	Schema.FiniteFromString,
-	Schema.FiniteFromString,
-	Schema.FiniteFromString
-])
+type RoleRow = readonly [held: string, running: string, locked: string]
 
 export const sampleRole = Effect.fn("sampleRole")(function* <A, E, R>(
 	observer: RawSession,
@@ -1087,10 +1085,10 @@ export const sampleRole = Effect.fn("sampleRole")(function* <A, E, R>(
 			[role]
 		),
 		(rows) => {
-			const [held, running, locked] = decodeOne(RoleRow, rows)
-			backends.push(held)
-			active.push(running)
-			waiting.push(locked)
+			const [held, running, locked] = trusted<RoleRow>(oneRow(rows))
+			backends.push(Number(held))
+			active.push(Number(running))
+			waiting.push(Number(locked))
 		}
 	)
 	const fiber = yield* Effect.forkChild(

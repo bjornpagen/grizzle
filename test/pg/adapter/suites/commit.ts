@@ -3,17 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Cause,
-	Duration,
-	Effect,
-	Exit,
-	Fiber,
-	Formatter,
-	Option,
-	Schema
-} from "effect"
+import { Array as Arr, Cause, Duration, Effect, Exit, Fiber, Formatter, Option } from "effect"
 import { TransientFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -41,7 +31,7 @@ type CommitFeature = `${Concurrent} ${End}` | "40001 at COMMIT" | "a serializabl
 
 /** Whether a failure is SERIALIZABLE's refusal: TransientFailure{SerializationFailure}, carrying the server's 40001. */
 const serializationRefused = (failure: Option.Option<unknown>): boolean => {
-	if (Option.isNone(failure) || !Schema.is(TransientFailure)(failure.value)) {
+	if (Option.isNone(failure) || !(failure.value instanceof TransientFailure)) {
 		return false
 	}
 	const sqlstate: string = failure.value.error.sqlstate

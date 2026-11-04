@@ -42,7 +42,7 @@ layer(Substrate.layer)("mutation stage 2: query oracles", (it) => {
 								Effect.gen(function* () {
 									const o = yield* differentialCase(c, { ...plainDifferential, schema })
 									if (!baselineIsSet(o) || !agrees(o)) {
-										return yield* PropertyFailed.make({ report: printDifferential(o) })
+										return yield* new PropertyFailed({ report: printDifferential(o) })
 									}
 								})
 						})
@@ -69,7 +69,7 @@ layer(Substrate.layer)("mutation stage 2: query oracles", (it) => {
 										schema: { kind: "named", name: schema }
 									})
 									if (!outcome.comparison.equal || outcome.comparison.leftDuplicates > 0) {
-										return yield* PropertyFailed.make({ report: printOutcome(outcome) })
+										return yield* new PropertyFailed({ report: printOutcome(outcome) })
 									}
 								})
 						})

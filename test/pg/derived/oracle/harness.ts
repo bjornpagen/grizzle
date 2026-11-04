@@ -1,11 +1,11 @@
 import {
 	Array as Arr,
 	type Context,
+	Data,
 	Effect,
 	Layer,
 	Order,
 	Record as Rec,
-	Schema,
 	type Scope
 } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
@@ -80,7 +80,7 @@ export interface Snapshot {
 export const readOf = <A>(reads: ReadonlyMap<string, A>, relation: string): A => {
 	const rows = reads.get(relation)
 	if (rows === undefined) {
-		throw OracleFixtureFailed.make({ message: `the snapshot did not read ${relation}` })
+		throw new OracleFixtureFailed({ message: `the snapshot did not read ${relation}` })
 	}
 	return rows
 }
@@ -106,13 +106,12 @@ export interface Definition {
 
 /** A fixture the oracle cannot use: a refusal of a generated schema, with what the compiler said, so a counterexample
  * report shows it, or a definition the oracle cannot evaluate. */
-export class OracleFixtureFailed extends Schema.TaggedError<
-	OracleFixtureFailed,
-	{ readonly brand: unique symbol }
->()("OracleFixtureFailed", { message: Schema.String }) {}
+export class OracleFixtureFailed extends Data.TaggedError("OracleFixtureFailed")<{
+	readonly message: string
+}> {}
 
 const compileFailed = (e: CompileError): OracleFixtureFailed =>
-	OracleFixtureFailed.make({
+	new OracleFixtureFailed({
 		message: `the generated schema does not compile: ${e.message}`
 	})
 
@@ -152,7 +151,7 @@ export const installDerived = (
 		const heading = (relation: string) => {
 			const r = analysis.relations[relation]
 			if (r === undefined) {
-				throw OracleFixtureFailed.make({ message: `no derived relation ${relation}` })
+				throw new OracleFixtureFailed({ message: `no derived relation ${relation}` })
 			}
 			return r
 		}
@@ -171,7 +170,7 @@ export const installDerived = (
 			}
 			const [main, ...rest] = flight(program.value.roots)
 			if (rest.length > 0) {
-				return yield* OracleFixtureFailed.make({
+				return yield* new OracleFixtureFailed({
 					message: `${relation}'s definition lowers to ${flight(program.value.roots).length} statements`
 				})
 			}
@@ -183,7 +182,7 @@ export const installDerived = (
 		const definition = (relation: string): Definition => {
 			const known = definitions.get(relation)
 			if (known === undefined) {
-				throw OracleFixtureFailed.make({ message: `no derived relation ${relation}` })
+				throw new OracleFixtureFailed({ message: `no derived relation ${relation}` })
 			}
 			return known
 		}

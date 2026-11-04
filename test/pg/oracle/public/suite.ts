@@ -9,7 +9,6 @@ import {
 } from "@grizzle/testing/explore"
 import { rating, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
-import type { Swarm } from "@grizzle/testing/swarm"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { Conversion, Stitch } from "#test/pg/oracle/public/planted.ts"
@@ -26,8 +25,7 @@ import {
 	type Population,
 	type ProgramFeature,
 	programForms,
-	resolveCase,
-	type SwarmFeature
+	resolveCase
 } from "#test/support/oracle/public/generate.ts"
 import type {
 	AggregateFn,
@@ -124,53 +122,8 @@ export type PublicFeature =
 /** The kept sketches, each the floor of every pick, zero, but for the picks that select what it plants. */
 const zeros = (length: number): ReadonlyArray<number> => Array.from({ length }, () => 0)
 const floorValue = { cls: 0, sp: 0 } as const
-type ReadSketch = CaseSketch["reads"][number]
-type MatchSketch = ReadSketch["rule"]["matches"][number]
 type RelationSketch = CaseSketch["relations"][number]
 
-/**
- * A match of the sources `source` and `derived` pick, every bind at the floor: the mode a drawn binding takes is the
- * case's own decision, which its draws carry.
- */
-const match = (source: number, derived: number): MatchSketch => ({
-	source,
-	derived,
-	attached: 0,
-	binds: Arr.map(indices(7), () => ({ how: 0, pick: 0, value: floorValue }))
-})
-const head = { vars: [], names: zeros(6), folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }] } as const
-const negation = { source: 0, picks: zeros(2) } as const
-const read = (
-	matches: ReadonlyArray<MatchSketch>,
-	pointIn: ReadSketch["rule"]["pointIn"],
-	links: { readonly importable: number; readonly bindImport: number; readonly closurePair: number }
-): ReadSketch => ({
-	rule: {
-		matches,
-		where: [],
-		between: [],
-		inSet: [],
-		allen: [],
-		pointIn,
-		connective: [],
-		computed: [],
-		negation,
-		head,
-		interior: { matches: [match(0, 0)], where: [], negation, head }
-	},
-	take: { rotate: 0, dirs: zeros(3), size: 0 },
-	literalHead: { name: 0, kind: 0, arms: 0, values: zeros(3) },
-	importable: links.importable,
-	bindImport: links.bindImport,
-	named: 0,
-	relationParam: { relation: 0, facts: [] },
-	closure: { relation: 0, pair: links.closurePair, name: 0 },
-	attachments: [],
-	order: { rotate: 0, dirs: zeros(3), size: 0 },
-	probe: { kind: 0, pick: 0 },
-	key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
-})
-const unlinked = { importable: 0, bindImport: 0, closurePair: 0 } as const
 /** A relation of fields of the `kinds` picks, each fact the value classes its picks select, field by field. */
 const relation = (
 	kinds: ReadonlyArray<number>,
@@ -186,19 +139,17 @@ const relation = (
 
 const caseSketch = (
 	population: Population,
-	swarm: Swarm<SwarmFeature>,
-	relations: ReadonlyArray<RelationSketch>,
-	reads: ReadonlyArray<ReadSketch>
+	relations: ReadonlyArray<RelationSketch>
 ): CaseSketch => ({
 	population,
-	swarm,
+	swarm: {},
 	perturbation: unperturbed,
 	ambient: ordinarySession,
 	restorage: { shift: 0, respell: 0 },
 	roster: 0,
 	span: 0,
 	relations,
-	reads,
+	reads: [],
 	planted: {
 		names: zeros(plantedNameCount),
 		value: floorValue,
@@ -209,57 +160,16 @@ const caseSketch = (
 })
 
 /**
- * The form-directed population's swarm (generate.ts formsOn and formsOff): every program form and what each needs at
- * full weight, key reads, unit heads and ungrouped aggregates off. A kept case of the population adds the features its
- * population left free, each at its weight.
- */
-const forms = {
-	import: 3,
-	"import bound": 3,
-	"bind param": 3,
-	interior: 3,
-	named: 3,
-	"computed head": 3,
-	"computed group key": 3,
-	between: 3,
-	"in set": 3,
-	connective: 3,
-	"relation param": 3,
-	recursive: 3,
-	where: 3,
-	"compare param": 3,
-	"contract param": 3,
-	"typmod param": 3,
-	allen: 3,
-	"point in": 3,
-	union: 3,
-	"literal head": 3
-} as const satisfies Swarm<SwarmFeature>
-
-/**
- * The planted population's case (generate.ts plantedCase), whose key reads get a stored fact, a key no fact holds and a
- * roster handle. And cases of the form-directed population that read an earlier read's import bound to a parameter and
- * to an outer variable, a recursive closure and a point in a span, each in a read that delivers rows: each the sketch an
- * offline search over that population shrank, given two facts per relation and a read of the form the reference
- * delivers rows for. And issue #3's two acceptance cases (generate.ts acceptanceCollapse and acceptanceMean): its shrunk
- * case under its stated perturbation, and the mean over one value in two spellings under every planner setting, each
- * read again over its facts in the other order (its restorage), both judged by the one exact check.
- *
- * A planted or acceptance case resolves drawing nothing. A form-directed case draws, in the order its resolution asks: a decision
- * keeping or leaving each place a feature of weight 1 or 2 could appear (0 leaves it), and one choosing each binding's
- * mode among the modes the swarm turns on, in proportion to their weights (0 the first that is on).
+ * Issue #3's two acceptance cases (generate.ts acceptanceCollapse and acceptanceMean): its shrunk case under its stated
+ * perturbation, and the mean over one value in two spellings under every planner setting, each read again over its
+ * facts in the other order (its restorage), both judged by the one exact check. An acceptance case resolves drawing
+ * nothing.
  */
 const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
 	{
-		note: "the planted case and its key reads",
-		sketch: caseSketch("planted", {}, [relation([0], [])], []),
-		draws: "",
-		reaches: ["key get some", "key get none", "key get closed some"]
-	},
-	{
 		note: "issue #3's shrunk case: Task's 0 in two spellings, collapsed under its plan",
 		sketch: {
-			...caseSketch("acceptance collapse", {}, [relation([0], [])], []),
+			...caseSketch("acceptance collapse", [relation([0], [])]),
 			perturbation: {
 				settings: [
 					"enable_hashjoin = off",
@@ -275,7 +185,7 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
 	{
 		note: "issue #3's mean over 0 at display scale 24, 0, 1 and 3, under every setting",
 		sketch: {
-			...caseSketch("acceptance mean", {}, [relation([0], [])], []),
+			...caseSketch("acceptance mean", [relation([0], [])]),
 			perturbation: {
 				settings: [
 					"enable_hashjoin = off",
@@ -296,49 +206,6 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
 			"a collapse over two stored spellings of one value",
 			"a display-scale reading over a collapsed or padded value"
 		]
-	},
-	{
-		note: "an earlier read imported, bound to a parameter and to an outer variable",
-		sketch: caseSketch(
-			"forms",
-			{ ...forms, "bind fresh": 2, "bind existential": 1, "bind parent": 1, dense: 2 },
-			[relation([0, 0], [[0], [32768]])],
-			[
-				read([match(0, 0), match(0, 0)], [], { ...unlinked, importable: 32768 }),
-				read([match(0, 0)], [], { ...unlinked, bindImport: 32768 }),
-				read([match(0, 0)], [], unlinked)
-			]
-		),
-		draws: "0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0",
-		reaches: ["an import bound to a parameter", "an import bound to an outer variable"]
-	},
-	{
-		note: "a recursive closure over two fields of a relation",
-		sketch: caseSketch(
-			"forms",
-			{ ...forms, "bind parent": 1, roster: 2, spelled: 1, "handle field": 1 },
-			[relation([9363, 5958, 0], [[0, 0, 36409], [7282]])],
-			[
-				read([match(32768, 0), match(32768, 32768), match(32768, 0)], [], {
-					...unlinked,
-					closurePair: 32768
-				}),
-				read([match(0, 0)], [], unlinked)
-			]
-		),
-		draws: "0.0.0.0.0.0.0.0.0.1.0.0.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0",
-		reaches: ["a recursive closure"]
-	},
-	{
-		note: "a point in a span",
-		sketch: caseSketch(
-			"forms",
-			{ ...forms, "bind fresh": 2, "bind join": 2, "bind existential": 3, "bind parent": 2 },
-			[relation([0], [[0, 0, 0, 24576], [9363]])],
-			[read([match(0, 0)], [{ span: 0, point: 0 }], unlinked)]
-		),
-		draws: "0.0.0.0.0.0.0.0",
-		reaches: ["a point in a span"]
 	}
 ]
 

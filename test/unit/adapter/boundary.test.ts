@@ -24,7 +24,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { RequestFault } from "#adapter/errors/failures.ts"
 import { pageRequest } from "#adapter/page/request.ts"
@@ -247,7 +247,7 @@ describe("the public boundary", () => {
 							}
 							if (d.kind === "stale") {
 								const refusal = failed(result)
-								assert.ok(Schema.is(ReadFailure)(refusal))
+								assert.ok(refusal instanceof ReadFailure)
 								assert.equal(requestFault(refusal), "requestSize")
 								k.note("refused request")
 								return
@@ -265,7 +265,7 @@ describe("the public boundary", () => {
 								k.note("refused cursorType")
 								return
 							}
-							assert.ok(Schema.is(ReadFailure)(failure), String(failure))
+							assert.ok(failure instanceof ReadFailure, String(failure))
 							assert.equal(requestFault(failure), verdict)
 							k.note("refused request")
 						})
@@ -284,7 +284,7 @@ describe("the public boundary", () => {
 			}
 		})
 		const refusal = failed(pageRequest(request, pageMaxSize))
-		assert.ok(Schema.is(ReadFailure)(refusal))
+		assert.ok(refusal instanceof ReadFailure)
 		assert.equal(requestFault(refusal), "requestShape")
 		assert.equal(calls, 0, "the caller's getter never runs")
 	})

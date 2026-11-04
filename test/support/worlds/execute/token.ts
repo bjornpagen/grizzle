@@ -1,10 +1,9 @@
-import { Effect, Option, Schema } from "effect"
-import { TokenError } from "#adapter/errors/failures.ts"
+import { Effect, Option } from "effect"
+import type { TokenError } from "#adapter/errors/failures.ts"
+import type { Json } from "#compiler/core/canonical.ts"
+import { trusted } from "#compiler/core/trusted.ts"
+import { testVerify, tokenOf } from "#test/support/worlds.ts"
 import type { Token, TokenWild } from "#test/support/worlds/model/types.ts"
-
-const json = Schema.fromJsonString(Schema.Unknown)
-const decodePayload = Schema.decodeUnknownEffect(json)
-const encodePayload = Schema.encodeUnknownEffect(json)
 
 /**
  * The token the open in flight hands verify, as the executor performs it: its text, and the wild kind it was drawn as,
@@ -18,20 +17,15 @@ export interface Handed {
 }
 
 /** The token `Db.open` is handed: none, a live or stale payload's JSON text, or a wild token's own text and kind. */
-export const handedOf = (token: Token): Effect.Effect<Option.Option<Handed>> => {
+export const handedOf = (token: Token): Option.Option<Handed> => {
 	switch (token.kind) {
 		case "none":
-			return Effect.succeedNone
+			return Option.none()
 		case "live":
 		case "stale":
-			return Effect.asSome(
-				Effect.map(Effect.orDie(encodePayload(token.payload)), (text) => ({
-					text,
-					wild: Option.none<TokenWild>()
-				}))
-			)
+			return Option.some({ text: tokenOf(trusted<Json>(token.payload)), wild: Option.none() })
 		case "wild":
-			return Effect.succeedSome({ text: token.text, wild: Option.some(token.wild) })
+			return Option.some({ text: token.text, wild: Option.some(token.wild) })
 	}
 }
 
@@ -64,5 +58,5 @@ export const worldVerify =
 		if (Option.isSome(wild) && wild.value === "verify-not-object") {
 			return Effect.succeed(42)
 		}
-		return Effect.mapError(decodePayload(token), (cause) => TokenError.make({ cause }))
+		return testVerify(token)
 	}

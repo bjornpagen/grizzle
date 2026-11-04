@@ -4,8 +4,9 @@ import { required } from "@grizzle/testing/features"
 import { type Gen, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Record, Result, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Order, Record, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -199,16 +200,7 @@ const kept: ReadonlyArray<Kept<WorkloadSketch, StatisticsFeature>> = [
 
 /** Each statistics object of the schema: its name, its relation, the relation's kind (m for a materialized view, r for a
  * table), its columns in code point order joined by commas, its kinds, and the statement that creates it. */
-const StatisticsRows = Schema.Array(
-	Schema.Tuple([
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String
-	])
-)
+type StatisticsRow = readonly [string, string, string, string, string, string]
 
 layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 	it.effect(
@@ -266,7 +258,7 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 								/** The catalog's statistics are exactly the plan's, each on its relation with all three
 								 * kinds. */
 								const installed = () =>
-									Effect.flatMap(
+									Effect.map(
 										m.owner.values(
 											`SELECT x.stxname::text, c.relname::text, c.relkind::text,
 													(SELECT string_agg(a.attname::text, ',' ORDER BY a.attname::text COLLATE "C")
@@ -280,7 +272,7 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 												 ORDER BY 1`,
 											[]
 										),
-										Schema.decodeUnknownEffect(StatisticsRows)
+										(rows) => trusted<ReadonlyArray<StatisticsRow>>(rows)
 									)
 								const before = yield* installed()
 								const expected = Arr.sort(
@@ -336,7 +328,8 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 								}
 								/** Both paths admit the installed catalog. */
 								const admitted = Effect.gen(function* () {
-									assert.deepEqual((yield* m.reapply).applied, [])
+									const reapplied = yield* m.reapply
+									assert.deepEqual(reapplied.applied, [])
 									yield* withDb(m, b.server.roles.reader, () => Effect.void)
 								})
 								yield* admitted

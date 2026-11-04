@@ -80,12 +80,14 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 				schemas: [{ name: "ChkMark", fixture: "shop", version: 1, workload: "none" }],
 				connection: viaDatabaseUrl
 			})
-			assert.equal((yield* cli(ws, ["generate", "--name", "init"], at(0), {})).code, 0)
+			const first = yield* cli(ws, ["generate", "--name", "init"], at(0), {})
+			assert.equal(first.code, 0)
 			yield* writeConfig(ws, {
 				schemas: [{ name: "ChkMark", fixture: "shop", version: 2, workload: "none" }],
 				connection: viaDatabaseUrl
 			})
-			assert.equal((yield* cli(ws, ["generate", "--name", "tier"], at(1), {})).code, 0)
+			const tier = yield* cli(ws, ["generate", "--name", "tier"], at(1), {})
+			assert.equal(tier.code, 0)
 			const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkMark")))}/20261014120001_tier`
 			const folder = join(ws, rel)
 			const folderFiles = yield* list(folder)
@@ -139,7 +141,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					schemas: [{ name: "ChkOld", fixture: "shop", version: 1, workload: "none" }],
 					connection: viaDatabaseUrl
 				})
-				assert.equal((yield* cli(ws, ["generate", "--name", "init"], at(0), {})).code, 0)
+				const first = yield* cli(ws, ["generate", "--name", "init"], at(0), {})
+				assert.equal(first.code, 0)
 				yield* writeConfig(ws, {
 					schemas: [{ name: "ChkNew", fixture: "shop", version: 1, workload: "none" }],
 					connection: viaDatabaseUrl
@@ -202,11 +205,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					schemas: [{ name: "ChkTamp", fixture: "shop", version: 1, workload: "none" }],
 					connection: viaDatabaseUrl
 				})
-				assert.equal((yield* cli(ws, ["generate", "--name", "init"], at(0), {})).code, 0)
-				assert.equal(
-					(yield* cli(ws, ["generate", "--custom", "--name", "seed"], at(1), {})).code,
-					0
-				)
+				const first = yield* cli(ws, ["generate", "--name", "init"], at(0), {})
+				assert.equal(first.code, 0)
+				const custom = yield* cli(ws, ["generate", "--custom", "--name", "seed"], at(1), {})
+				assert.equal(custom.code, 0)
 				const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkTamp")))}`
 				const dir = join(ws, rel)
 				const init = "20261014120000_init"
@@ -227,9 +229,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					Arr.findFirst(initFiles, (f) => Str.endsWith("-structure.sql")(f)),
 					() => new Error("the first migration has a Structure file")
 				)
+				const generatedStructure = yield* read(join(dir, init, structure))
 				yield* write(
 					join(dir, init, structure),
-					`${yield* read(join(dir, init, structure))}\nCOMMIT;\n${noTransactionMarker}\n`
+					`${generatedStructure}\nCOMMIT;\n${noTransactionMarker}\n`
 				)
 				yield* write(join(dir, seed, "notes.sql"), "SELECT 1;\n")
 				const fs = yield* FileSystem.FileSystem

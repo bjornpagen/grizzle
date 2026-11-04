@@ -1,10 +1,9 @@
-import { Array as Arr, Deferred, Effect, Fiber, Result, Schema } from "effect"
+import { Array as Arr, Deferred, Effect, Fiber, Formatter, Result } from "effect"
 import type { ApplyError } from "#adapter/errors/execution.ts"
 import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	jsonText,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -17,14 +16,14 @@ import {
 import { GateSetupError, settle } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
-	decodeOne,
 	insertsOf,
 	installWrites,
 	loadedByOwner,
 	loginRoleOf,
 	type ObservedApply,
-	type ObservedStatement,
 	observedChange,
+	type ObservedStatement,
+	oneRow,
 	openFull,
 	owner,
 	plainStatement,
@@ -37,6 +36,7 @@ import {
 	writerSession
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
@@ -111,7 +111,7 @@ const shuffled = (n: number, w: number): ReadonlyArray<number> => {
 	return out
 }
 
-const CountPair = Schema.Tuple([Schema.FiniteFromString, Schema.FiniteFromString])
+type CountPair = readonly [first: string, second: string]
 
 /**
  * The caller's second call of an in-flight schedule: made when the first attempt was transient, once the holder ended.
@@ -145,7 +145,7 @@ const insertStatement = (statements: ReadonlyArray<ObservedStatement>, relation:
 const theInsert = (statement: ObservedStatement): Insert => {
 	const [only, ...more] = insertsOf(statement.ast)
 	if (only === undefined || more.length > 0) {
-		throw GateSetupError.make({
+		throw new GateSetupError({
 			what: `an insert statement running ${insertsOf(statement.ast).length} INSERTs`
 		})
 	}
@@ -309,7 +309,9 @@ export default defineGate({
 				`SELECT pg_catalog.count(*)::text, pg_catalog.count(DISTINCT ${c("Coded", "code")})::text FROM ${fx.table("Coded")}`,
 				[]
 			)
-			const [codedRows, codedCodes] = decodeOne(CountPair, rows)
+			const [codedRowsText, codedCodesText] = trusted<CountPair>(oneRow(rows))
+			const codedRows = Number(codedRowsText)
+			const codedCodes = Number(codedCodesText)
 
 			const itemStatements = statementsOf(itemInsert(9n, 1))
 			const noteStatements = statementsOf(ChangeSet.empty(S).insert(Note, [{ id: 9n, v: 1 }]))
@@ -524,7 +526,7 @@ export default defineGate({
 					mechanism(
 						"two overlapping additions on a relation whose only unique index is the key never deadlock",
 						deadlocks(overlapItem) === undefined,
-						jsonText(overlapItem.retries)
+						Formatter.format(overlapItem.retries)
 					),
 					equivalence(
 						"an enumerated insert waiting on an identical one in flight fails with a 40001 TransientFailure, and the caller's second call is the exact repeat",
@@ -557,7 +559,7 @@ export default defineGate({
 						Arr.every([overlapItem, overlapCoded], (l) => l.outcomes.committed === l.operations) &&
 							codedRows === options.rounds * options.keys &&
 							codedCodes === options.rounds * options.keys,
-						jsonText({
+						Formatter.format({
 							item: overlapItem.outcomes,
 							coded: overlapCoded.outcomes,
 							state: [codedRows, codedCodes]

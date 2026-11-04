@@ -44,5 +44,5 @@ export const installSkill = Effect.fn("installSkill")(
 		}
 		return skillTargets
 	},
-	Effect.mapError((cause) => cliError(SkillUninstalled.make({ cause })))
+	Effect.mapError((cause) => cliError(new SkillUninstalled({ cause })))
 )

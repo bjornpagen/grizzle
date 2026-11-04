@@ -266,7 +266,8 @@ const migrates = (history: History) =>
 			Arr.map(state.complete, (f) => [f.folder, completedFiles(f)]),
 			Arr.map(folders, (f) => [f.name, Arr.map(indices(f.files.length), (k) => k + 1)])
 		)
-		assert.deepEqual((yield* apply(m, { snapshot, folders }, noFurther)).applied, [])
+		const again = yield* apply(m, { snapshot, folders }, noFurther)
+		assert.deepEqual(again.applied, [])
 
 		/** Db.open of every role of the last version's logins, each login's layer given the committed snapshot. */
 		const installation = compiledAt(last, name, owner)

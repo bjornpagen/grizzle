@@ -1,7 +1,8 @@
-import { Array as Arr, Effect, Option, Order, Record, Schema } from "effect"
+import { Array as Arr, Effect, Option, Order, Record } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import { roleIdentity } from "#compiler/physical/ddl/names.ts"
@@ -666,36 +667,42 @@ export const expectedPrivileges = (install: InstallSpec, names: InstalledNames):
 }
 
 /** The rows of the privilege queries: grantee, object kind, schema, relation or name, column or "", privilege, grant option. */
-const PrivilegeRows = Schema.Array(
-	Schema.Tuple([
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.Boolean
-	])
-)
+type PrivilegeRows = ReadonlyArray<
+	readonly [
+		grantee: string,
+		kind: string,
+		schema: string,
+		name: string,
+		column: string,
+		privilege: string,
+		grantable: boolean
+	]
+>
 
-const MemberRows = Schema.Array(
-	Schema.Tuple([Schema.String, Schema.String, Schema.Boolean, Schema.Boolean, Schema.Boolean])
-)
+/** The rows of the membership query: member, role, and its INHERIT, SET and ADMIN options. */
+type MemberRows = ReadonlyArray<
+	readonly [member: string, role: string, inherit: boolean, set: boolean, admin: boolean]
+>
 
-const AttributeRows = Schema.Array(
-	Schema.Tuple([
-		Schema.String,
-		Schema.Boolean,
-		Schema.Boolean,
-		Schema.Boolean,
-		Schema.Boolean,
-		Schema.Boolean,
-		Schema.Boolean,
-		Schema.Boolean
-	])
-)
-const FlagRows = Schema.Array(Schema.Tuple([Schema.String, Schema.Boolean, Schema.Boolean]))
-const NameRows = Schema.Array(Schema.Tuple([Schema.String]))
+/** The rows of the attribute query: a role, and whether it holds each attribute, in attributeOrder. */
+type AttributeRows = ReadonlyArray<
+	readonly [
+		role: string,
+		login: boolean,
+		inherit: boolean,
+		superuser: boolean,
+		createDb: boolean,
+		createRole: boolean,
+		replication: boolean,
+		bypassRls: boolean
+	]
+>
+
+/** The rows of the row-security query: a table, and whether row security is enabled and forced on it. */
+type FlagRows = ReadonlyArray<readonly [table: string, enabled: boolean, forced: boolean]>
+
+/** The rows of the grantee query: a role's name. */
+type NameRows = ReadonlyArray<readonly [name: string]>
 
 /** Whether a namespace (aliased `alias`) is the installation's: the base schema, or a schema under its prefix. */
 const ours = (alias: string): string =>
@@ -846,16 +853,11 @@ export const installedPrivileges = (
 ): Effect.Effect<PrivilegeSet, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const read = <A>(
-			sql: string,
-			grantees: ReadonlyArray<string>,
-			decode: (rows: ReadonlyArray<ReadonlyArray<unknown>>) => Effect.Effect<A, Schema.SchemaError>
-		) =>
-			Effect.flatMap(admin.queryValues(sql, [names.schema, grantees]), (rows) =>
-				Effect.orDie(decode(rows))
-			)
+		const read = (sql: string, grantees: ReadonlyArray<string>) =>
+			admin.queryValues(sql, [names.schema, grantees])
 		const known = [...Record.values(names.logins), ...Record.values(names.roles)]
-		const granteeRows = yield* read(queries.grantees, known, Schema.decodeUnknownEffect(NameRows))
+		const granteeRead = yield* read(queries.grantees, known)
+		const granteeRows = trusted<NameRows>(granteeRead)
 		const roles = Arr.map(granteeRows, ([name]) => name)
 		const grantees = [...roles, "public"]
 		const byRole = new Map<string, Grantee>([
@@ -871,21 +873,24 @@ export const installedPrivileges = (
 		const granteeOf = (role: string): Grantee =>
 			role === "public" ? { kind: "public" } : (byRole.get(role) ?? { kind: "stranger", role })
 		const privilegesFrom = (sql: string) =>
-			Effect.map(read(sql, grantees, Schema.decodeUnknownEffect(PrivilegeRows)), (rows) =>
-				Arr.map(rows, ([g, kind, schema, name, column, named, grantable]): PrivilegeFact => {
-					const [k, object] = objectOf(kind, schema, name, column)
-					const privilegeType = Option.getOrThrowWith(
-						Arr.findFirst(privilegeTypes[k], (p: PrivilegeType) => p === named),
-						() => new Error(`privileges: a catalog row's privilege ${named} on a ${k}`)
-					)
-					return {
-						kind: "privilege",
-						grantee: granteeOf(g),
-						object,
-						privilege: privilegeType,
-						grantable
+			Effect.map(read(sql, grantees), (rows) =>
+				Arr.map(
+					trusted<PrivilegeRows>(rows),
+					([g, kind, schema, name, column, named, grantable]): PrivilegeFact => {
+						const [k, object] = objectOf(kind, schema, name, column)
+						const privilegeType = Option.getOrThrowWith(
+							Arr.findFirst(privilegeTypes[k], (p: PrivilegeType) => p === named),
+							() => new Error(`privileges: a catalog row's privilege ${named} on a ${k}`)
+						)
+						return {
+							kind: "privilege",
+							grantee: granteeOf(g),
+							object,
+							privilege: privilegeType,
+							grantable
+						}
 					}
-				})
+				)
 			)
 		const privileges = yield* Effect.forEach(
 			[
@@ -898,7 +903,8 @@ export const installedPrivileges = (
 			],
 			privilegesFrom
 		)
-		const memberRows = yield* read(queries.members, roles, Schema.decodeUnknownEffect(MemberRows))
+		const memberRead = yield* read(queries.members, roles)
+		const memberRows = trusted<MemberRows>(memberRead)
 		const members = Arr.flatMap(memberRows, ([member, role, inherit, set, adminOption]) => {
 			const edge = (option: MembershipOption): PrivilegeFact => ({
 				kind: "membership",
@@ -913,21 +919,15 @@ export const installedPrivileges = (
 				...(adminOption ? [edge("admin")] : [])
 			]
 		})
-		const attributeRows = yield* read(
-			queries.attributes,
-			roles,
-			Schema.decodeUnknownEffect(AttributeRows)
-		)
+		const attributeRead = yield* read(queries.attributes, roles)
+		const attributeRows = trusted<AttributeRows>(attributeRead)
 		const attributes = Arr.flatMap(attributeRows, ([role, ...held]) =>
 			Arr.flatMap(Arr.zip(attributeOrder, held), ([attribute, on]): ReadonlyArray<PrivilegeFact> =>
 				on ? [{ kind: "attribute", grantee: granteeOf(role), attribute }] : []
 			)
 		)
-		const rowSecurityRows = yield* read(
-			queries.rowSecurity,
-			roles,
-			Schema.decodeUnknownEffect(FlagRows)
-		)
+		const rowSecurityRead = yield* read(queries.rowSecurity, roles)
+		const rowSecurityRows = trusted<FlagRows>(rowSecurityRead)
 		const rowSecurity = Arr.flatMap(
 			rowSecurityRows,
 			([table, enabled, forced]): ReadonlyArray<PrivilegeFact> => [
@@ -952,18 +952,19 @@ export interface InstalledObject {
 	readonly trigger: boolean
 }
 
-const ObjectRows = Schema.Array(
-	Schema.Tuple([
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.Array(Schema.String),
-		Schema.Int,
-		Schema.Boolean
-	])
-)
+/** The rows of objectsQuery: kind, schema, name, column or "", target or "", columns, arity, and whether it returns trigger. */
+type ObjectRows = ReadonlyArray<
+	readonly [
+		kind: string,
+		schema: string,
+		name: string,
+		column: string,
+		target: string,
+		columns: ReadonlyArray<string>,
+		arity: number,
+		trigger: boolean
+	]
+>
 
 /**
  * Every object of the installation's schemas a privilege is held on, as installedObjects reads them, in one order, so
@@ -994,11 +995,9 @@ export const installedObjects = (
 ): Effect.Effect<ReadonlyArray<InstalledObject>, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const rows = yield* Effect.flatMap(admin.queryValues(objectsQuery, [names.schema, []]), (r) =>
-			Effect.orDie(Schema.decodeUnknownEffect(ObjectRows)(r))
-		)
+		const rows = yield* admin.queryValues(objectsQuery, [names.schema, []])
 		return Arr.map(
-			rows,
+			trusted<ObjectRows>(rows),
 			([kind, schema, name, column, target, columns, arity, trigger]): InstalledObject => ({
 				object: objectOf(kind, schema, name, column)[1],
 				target: present(target),

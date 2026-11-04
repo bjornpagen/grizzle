@@ -30,7 +30,6 @@ import {
 	Record as Rec,
 	Redacted,
 	type Result,
-	Schema,
 	String as Str
 } from "effect"
 import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
@@ -692,7 +691,7 @@ describe("the migration's process environment, generated", () => {
 							}
 							const refused = refusedAt(result, "stage", "config")
 							assert.ok(
-								Schema.is(ConnectionEnvironmentRefused)(refused.reason),
+								refused.reason instanceof ConnectionEnvironmentRefused,
 								`the environment's refusal is ${refused.reason._tag}`
 							)
 							assert.equal(refused.reason.variable, expected.value)

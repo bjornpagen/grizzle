@@ -22,7 +22,8 @@ export const tappedDb = <R>(
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
-		const tap = makeTap((yield* Substrate).cluster)
+		const substrate = yield* Substrate
+		const tap = makeTap(substrate.cluster)
 		const pool = yield* poolFor(credentials, {
 			...defaultPool,
 			transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },

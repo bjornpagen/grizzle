@@ -1,6 +1,6 @@
 import type { Case } from "@grizzle/testing/explore"
 import { multiset } from "@grizzle/testing/oracle"
-import { Array as Arr, Effect, Option, Record, Schema } from "effect"
+import { Array as Arr, Effect, Option, Record } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import {
 	type ApplyError,
@@ -61,9 +61,8 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  * - a view the call did not name keeps every tuple: separate calls are separate transactions;
  * - every row the call wrote, across all the views it named, carries one xmin: one call publishes in one commit;
  * - a call after no base change wrote nothing, even when every base row was rewritten with the same facts, in the
- *   same or another physical order: the case's values have one spelling and its doubles
- *   are exact, so no aggregate here depends on the order PostgreSQL meets its inputs in; allowance.`covers`
- *   the exceptions;
+ *   same or another physical order: the case's values have one spelling, and no aggregate depends on the order
+ *   PostgreSQL meets its inputs in; allowance.`covers` the exception, a numeric's spelling;
  * - before a view's first refresh a read of it through the Db is ReadError, and after it the Db reads
  *   exactly the rows the view stores.
  *
@@ -223,7 +222,7 @@ export const derivedCase = (
 			const read = (name: string) => {
 				const d = byName.get(name)
 				if (d === undefined) {
-					return Effect.die(OracleFixtureFailed.make({ message: `no derived relation ${name}` }))
+					return Effect.die(new OracleFixtureFailed({ message: `no derived relation ${name}` }))
 				}
 				return readAll(
 					db,
@@ -237,7 +236,7 @@ export const derivedCase = (
 			assert.ok(lowest !== undefined, "the case declares a derived relation")
 			const early = yield* failureOf(read(lowest))
 			assert.ok(
-				Schema.is(ReadFailure)(early),
+				early instanceof ReadFailure,
 				`a read before the first refresh is ReadFailure, not ${String(early)}`
 			)
 			const populated = new Set<string>()
@@ -254,11 +253,12 @@ export const derivedCase = (
 			for (const name of order) {
 				if (populated.has(name)) {
 					const rows = yield* read(name)
-					const stored = readOf((yield* snapshotOf(o, [name], [])).stored, name)
+					const snapshot = yield* snapshotOf(o, [name], [])
+					const stored = readOf(snapshot.stored, name)
 					assert.equal(rows.length, stored.length, `the Db reads every row ${name} stores`)
 				} else {
 					const refused = yield* failureOf(read(name))
-					assert.ok(Schema.is(ReadFailure)(refused), `${name}, still unpopulated, is ReadFailure`)
+					assert.ok(refused instanceof ReadFailure, `${name}, still unpopulated, is ReadFailure`)
 					c.note("unpopulated reads")
 				}
 			}

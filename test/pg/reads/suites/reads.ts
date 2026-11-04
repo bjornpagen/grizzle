@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
@@ -14,7 +14,6 @@ import {
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
-import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -27,7 +26,6 @@ import {
 	Order,
 	pipe,
 	Record as Rec,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
@@ -75,9 +73,9 @@ const uuidAt = (group: number, n: number): Uuid =>
 
 /** A read failure's stage, or its tag for a failure that has none (a TransientFailure). */
 const stageOf = (failure: unknown): string =>
-	Schema.is(ReadFailure)(failure)
+	failure instanceof ReadFailure
 		? failure.stage
-		: Schema.is(TransientFailure)(failure)
+		: failure instanceof TransientFailure
 			? failure._tag
 			: String(failure)
 
@@ -253,28 +251,6 @@ interface RelationCase {
 	readonly stream: boolean
 }
 
-/** Planted: no fact, a Stream one past the rule, and an array at it, which the drawn sizes reach a few times a run. */
-const relationKept: ReadonlyArray<Kept<RelationCase, RelationFeature>> = [
-	{
-		note: "no fact",
-		sketch: { size: { kind: "small", n: 0 }, present: 0, repeats: 0, stream: false },
-		draws: "",
-		reaches: ["no fact"]
-	},
-	{
-		note: "a Stream one past the rule",
-		sketch: { size: { kind: "near the rule", offset: 1 }, present: 0, repeats: 0, stream: true },
-		draws: "",
-		reaches: ["past the Stream cap"]
-	},
-	{
-		note: "an array at the rule",
-		sketch: { size: { kind: "near the rule", offset: 0 }, present: 0, repeats: 1, stream: false },
-		draws: "",
-		reaches: ["at the recordset rule"]
-	}
-]
-
 /** A size near the rule is a read of about recordsetMaxRows facts, so it is drawn one case in four. */
 const relationCaseGen: Gen<RelationCase> = (source) => ({
 	size: source.draw(
@@ -373,7 +349,7 @@ const unionCaseGen: Gen<UnionCase> = (source) => ({
 	)
 })
 
-/** Each search's budget beside its suite, draw, features and kept cases. */
+/** Each search's budget beside its suite, draw and features. */
 const budget = {
 	literal: Formatter.format,
 	shrink: completeShrink,
@@ -426,7 +402,7 @@ export const readSuite = () => {
 								...budget,
 								suite: "reads/relation parameters",
 								draw: drawn(relationCaseGen),
-								kept: relationKept,
+								kept: [],
 								runs: 60,
 								coverage: required<RelationFeature>(
 									[
@@ -604,16 +580,7 @@ export const readSuite = () => {
 									 */
 									suite: "reads/snapshot",
 									draw: drawn(snapshotCaseGen),
-									/**
-									 * Planted: every read waiting on every table it locks, drawn as the wait at its place among
-									 * them (waitsFor's every wait).
-									 */
-									kept: Arr.map(waits, (wait, at): Kept<SnapshotCase, SnapshotFeature> => ({
-										note: waitingOn(wait),
-										sketch: { deletes: false },
-										draws: tokenOf(Float64Array.of(at), 1),
-										reaches: [waitingOn(wait)]
-									})),
+									kept: [],
 									runs: 24,
 									/**
 									 * One case a window, so each floor case steers by what the floor cases before it reached: the

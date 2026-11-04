@@ -3,11 +3,11 @@ import {
 	Duration,
 	Effect,
 	Fiber,
+	Formatter,
 	Option,
 	Record as Rec,
 	Result,
 	Schedule,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
@@ -18,7 +18,6 @@ import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	jsonText,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -61,27 +60,27 @@ import {
 
 import {
 	type BeforeCommit,
-	decodeOne,
-	decodeRows,
 	displacedThenInserted,
 	installWrites,
 	labelText,
 	lawObjects,
 	loadedByOwner,
 	type ObservedApply,
+	observedChange,
 	type ObservedStatement,
 	type ObservedValue,
-	observedChange,
+	oneRow,
 	openDb,
 	owner,
-	type RoleSamples,
 	readBackRows,
+	type RoleSamples,
 	sampleRole,
 	updatesInPlace,
 	writeConditions,
 	writesOf
 } from "#bench/write/support/writes.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
@@ -158,22 +157,23 @@ const now = 1_000_000n
 /** A lease that does not expire during a load. */
 const forever = 1_000_000_000_000n
 
-/** The claimed rows of a claim's read-back, decoded: external input to the gate. */
-const Claimed = Schema.Array(
-	Schema.Struct({ key: Schema.String, epoch: Schema.BigInt, seat: Schema.Finite })
-)
-
-const decodeClaimed = (rows: unknown): typeof Claimed.Type =>
-	Result.getOrThrow(Schema.decodeUnknownResult(Claimed)(rows))
+/** A claimed row of a claim's read-back. */
+interface Claimed {
+	readonly key: string
+	readonly epoch: bigint
+	readonly seat: number
+}
 
 /** The leases an observed claim made, by its read-back: none unless it was accepted. */
-const leasedRows = (o: ObservedApply) =>
-	o.value.kind === "accepted" ? decodeClaimed(readBackRows(o.value.reads, "claimed")) : []
+const leasedRows = (o: ObservedApply): ReadonlyArray<Claimed> =>
+	o.value.kind === "accepted"
+		? trusted<ReadonlyArray<Claimed>>(readBackRows(o.value.reads, "claimed"))
+		: []
 
-const TextRow = Schema.Tuple([Schema.String])
-const ItemRow = Schema.Tuple([Schema.String, Schema.BigIntFromString])
-const SettingsRow = Schema.Tuple([Schema.String, Schema.String, Schema.String])
-const JsonRow = Schema.Tuple([Schema.Unknown])
+type TextRow = readonly [text: string]
+type ItemRow = readonly [key: string, epoch: string]
+type SettingsRow = readonly [perTransaction: string, perRelation: string, perPage: string]
+type JsonRow = readonly [json: unknown]
 
 interface HolderStats {
 	claims: Array<number>
@@ -214,7 +214,7 @@ const bump = <K>(counts: Map<K, number>, key: K): void => {
 }
 
 const tally = <K extends string>(counts: ReadonlyMap<K, number>): string =>
-	jsonText(Rec.fromEntries(counts))
+	Formatter.format(Rec.fromEntries(counts))
 
 const round2 = (x: number): number => Math.round(x * 100) / 100
 
@@ -239,7 +239,7 @@ const predicateLocksSql = (who: string): string =>
 	`WHERE l.mode = 'SIReadLock'::text AND l.database = (SELECT d.oid FROM pg_catalog.pg_database AS d WHERE d.datname = pg_catalog.current_database()) AND ${who} ` +
 	"GROUP BY 1, 2, 3 ORDER BY 1, 2, 3"
 
-const LockRow = Schema.Tuple([Schema.String, Schema.String, Schema.String, Schema.FiniteFromString])
+type LockRow = readonly [table: string, relation: string, locktype: string, count: string]
 
 interface PredicateLocks {
 	/** The table the locked relation belongs to: itself, or an index's table. */
@@ -252,11 +252,11 @@ interface PredicateLocks {
 const predicateLocks = (
 	rows: ReadonlyArray<ReadonlyArray<unknown>>
 ): ReadonlyArray<PredicateLocks> =>
-	Arr.map(decodeRows(LockRow, rows), ([table, relation, locktype, count]) => ({
+	Arr.map(trusted<ReadonlyArray<LockRow>>(rows), ([table, relation, locktype, count]) => ({
 		table,
 		relation,
 		locktype,
-		count
+		count: Number(count)
 	}))
 
 /** The locks as `<relation> <locktype>` -> count, for the record. */
@@ -470,7 +470,7 @@ export default defineGate({
 					)
 					const [first] = built
 					if (first === undefined) {
-						throw GateSetupError.make({ what: "a load of no holder" })
+						throw new GateSetupError({ what: "a load of no holder" })
 					}
 					return { holders: Arr.map(built, (b) => b.holder), claimStatements: first.statements }
 				})
@@ -485,7 +485,7 @@ export default defineGate({
 					}
 					const key = fixed[w]
 					if (key === undefined) {
-						throw GateSetupError.make({ what: `no fixed start key for holder ${w}` })
+						throw new GateSetupError({ what: `no fixed start key for holder ${w}` })
 					}
 					return key
 				}
@@ -686,7 +686,7 @@ export default defineGate({
 							`SELECT ${digestOf("x")} FROM pg_catalog.unnest($1::int8[]) AS x`,
 							[`{${Arr.join(keys, ",")}}`]
 						)
-						const digests = decodeRows(TextRow, rows)
+						const digests = trusted<ReadonlyArray<TextRow>>(rows)
 						const facts = Arr.map(digests, ([key], i) => ({ key: Digest(key), i }))
 						const change = ChangeSet.empty(Q)
 							.insert(
@@ -798,7 +798,7 @@ export default defineGate({
 									if (Result.isSuccess(plan)) {
 										footprint.plans.push(
 											`-- statement ${statement.number}\n${Arr.join(
-												Arr.map(decodeRows(TextRow, plan.success), ([line]) => line),
+												Arr.map(trusted<ReadonlyArray<TextRow>>(plan.success), ([line]) => line),
 												"\n"
 											)}`
 										)
@@ -807,7 +807,7 @@ export default defineGate({
 											"SELECT pg_temp.grizzle_bench_explain_json($1::text)",
 											[statement.sql]
 										)
-										const [json] = decodeOne(JsonRow, rows)
+										const [json] = trusted<JsonRow>(oneRow(rows))
 										const tree = parsePlanTree(json)
 										if (Result.isFailure(tree)) {
 											return yield* Effect.die(tree.failure)
@@ -852,7 +852,7 @@ export default defineGate({
 						"SELECT pg_catalog.current_setting('max_pred_locks_per_transaction'), pg_catalog.current_setting('max_pred_locks_per_relation'), pg_catalog.current_setting('max_pred_locks_per_page')",
 						[]
 					)
-					const lockSettings = decodeOne(SettingsRow, rows)
+					const lockSettings = trusted<SettingsRow>(oneRow(rows))
 					const claimFootprint = {
 						live,
 						held: held.length,
@@ -871,7 +871,7 @@ export default defineGate({
 					 */
 					const [reclaimer] = holders
 					if (reclaimer === undefined) {
-						throw GateSetupError.make({ what: "no holder" })
+						throw new GateSetupError({ what: "no holder" })
 					}
 					const deadLeases: Array<{
 						readonly key: string
@@ -992,26 +992,18 @@ export default defineGate({
 				const begin = step({ kind: "begin" }, beginSerializable, [])
 				const commit = step({ kind: "commit" }, "COMMIT", [])
 				/** The first unlocked row at or after `from`, then below it. */
-				const wrapped = <A, I>(
-					row: Schema.Codec<A, I>,
-					label: string,
-					sql: (side: ">=" | "<") => string,
-					from: string
-				) =>
+				const wrapped = (label: string, sql: (side: ">=" | "<") => string, from: string) =>
 					Effect.gen(function* () {
-						const aboveRows = yield* statement(label, sql(">="), [from])
-						const above = decodeRows(row, aboveRows)
-						return above.length > 0
-							? above
-							: yield* Effect.map(statement(label, sql("<"), [from]), (belowRows) =>
-									decodeRows(row, belowRows)
-								)
+						const above = yield* statement(label, sql(">="), [from])
+						return above.length > 0 ? above : yield* statement(label, sql("<"), [from])
 					})
 				const attempt = Effect.gen(function* () {
 					const t0 = performance.now()
 					yield* begin
-					const [item] = yield* wrapped(ItemRow, "pick item", pick, randomDigest())
-					const [free] = yield* wrapped(TextRow, "pick seat", seat, String(w % seats))
+					const itemRows = yield* wrapped("pick item", pick, randomDigest())
+					const seatRows = yield* wrapped("pick seat", seat, String(w % seats))
+					const [item] = trusted<ReadonlyArray<ItemRow>>(itemRows)
+					const [free] = trusted<ReadonlyArray<TextRow>>(seatRows)
 					if (item === undefined || free === undefined) {
 						yield* Effect.orDie(session.values("ROLLBACK", []))
 						baselineStats.empty += 1
@@ -1020,7 +1012,7 @@ export default defineGate({
 						return empty
 					}
 					const [key, current] = item
-					const epoch = current + 1n
+					const epoch = BigInt(current) + 1n
 					yield* statement(
 						"lease item",
 						`UPDATE ${W} SET ${c("Work", "standing")} = 'leased'::${standing}, ${c("Work", "epoch")} = ${epoch} WHERE ${c("Work", "key")} = $1::text`,
@@ -1121,8 +1113,8 @@ export default defineGate({
 					...p95Of("claimP95Ms", run.stats.claims),
 					...p95Of("settleP95Ms", run.stats.settles),
 					retryRate: retryRate(run.load),
-					retriesByReason: jsonText(run.load.retries.byReason),
-					retriesByLabel: jsonText(run.load.retries.byLabel),
+					retriesByReason: Formatter.format(run.load.retries.byReason),
+					retriesByLabel: Formatter.format(run.load.retries.byLabel),
 					leased: run.stats.leased,
 					leasedPerHolder: round2(run.stats.leased / holderCount),
 					empty: run.stats.empty,
@@ -1139,7 +1131,7 @@ export default defineGate({
 						: {
 								predicateLockSamples: run.predicateLocks.samples,
 								predicateLocksMaxTotal: run.predicateLocks.maxTotal,
-								predicateLocksMax: jsonText(run.predicateLocks.max)
+								predicateLocksMax: Formatter.format(run.predicateLocks.max)
 							})
 				}
 			})
@@ -1224,7 +1216,7 @@ export default defineGate({
 							? {}
 							: { probeTransient: claimFootprint.probeTransient.reason }),
 						indexes: Arr.join(installedIndexes, "\n"),
-						predicateLocks: jsonText(lockCounts(claimFootprint.locks)),
+						predicateLocks: Formatter.format(lockCounts(claimFootprint.locks)),
 						predicateLockSettings: `max_pred_locks_per_transaction / per_relation / per_page: ${claimFootprint.settings}`,
 						claimPlans: Arr.join(claimFootprint.plans, "\n"),
 						mutableClaimSql: Arr.join(
@@ -1323,7 +1315,7 @@ export default defineGate({
 					mechanism(
 						"reclaim after worker loss: the next epoch in the dead lease's seat, and the late settlement is no-change",
 						reclaimOk && Arr.every(lateSettles, (k) => k === "no-change"),
-						jsonText({ dead: deadLeases.length, reclaimed: reclaimed.length, lateSettles })
+						Formatter.format({ dead: deadLeases.length, reclaimed: reclaimed.length, lateSettles })
 					),
 					mechanism(
 						"one claim's every read of Work and Wanted in its generic plans is an index scan with an index condition: key seeks and key joins, no sequential or unbounded scan",
@@ -1347,7 +1339,7 @@ export default defineGate({
 									(l.table === workRelation || l.table === wantedRelation) &&
 									l.locktype === "relation"
 							),
-						jsonText(lockCounts(locks))
+						Formatter.format(lockCounts(locks))
 					),
 					equivalence(
 						"no two accepted claims leased the same (key, epoch)",

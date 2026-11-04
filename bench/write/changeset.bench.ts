@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Result, Schema, type Scope } from "effect"
+import { Array as Arr, Effect, Option, Result, type Scope } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
@@ -10,16 +10,16 @@ import { retried, retryPolicy } from "#bench/harness/load.ts"
 import { type Fixture, fill, settle } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
-	decodeOne,
 	displacedThenInserted,
 	installWrites,
 	labelText,
 	loadedByOwner,
 	type ObservedApply,
-	type ObservedStatement,
-	type ObservedValue,
 	observedChange,
 	observedConservative,
+	type ObservedStatement,
+	type ObservedValue,
+	oneRow,
 	openFull,
 	readBackRows,
 	timedSamples,
@@ -29,6 +29,7 @@ import {
 	writtenInPlace
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -148,8 +149,8 @@ interface Options extends Readonly<Record<string, unknown>> {
 
 const catalogTables = ["pg_class", "pg_attribute", "pg_type", "pg_depend"] as const
 
-const CountRow = Schema.Tuple([Schema.FiniteFromString])
-const BalanceRow = Schema.Tuple([Schema.BigIntFromString])
+type CountRow = readonly [count: string]
+type BalanceRow = readonly [balance: string]
 
 /**
  * The tuples inserted into the catalogs a temporary relation writes, in this database, as the statistics report them.
@@ -164,8 +165,8 @@ const catalogInserts = Effect.fn("catalogInserts")(function* (): Effect.fn.Retur
 		`SELECT COALESCE(pg_catalog.sum(n_tup_ins), 0)::text FROM pg_catalog.pg_stat_sys_tables WHERE schemaname = 'pg_catalog' AND relname = ANY ($1::text[])`,
 		[`{${Arr.join(catalogTables, ",")}}`]
 	)
-	const [inserted] = decodeOne(CountRow, rows)
-	return inserted
+	const [inserted] = trusted<CountRow>(oneRow(rows))
+	return Number(inserted)
 })
 
 const statementsText = (statements: ReadonlyArray<ObservedStatement>) =>
@@ -291,10 +292,10 @@ export default defineGate({
 							`SELECT ${fx.column("Account", "balance")}::text FROM ${fx.table("Account")} WHERE ${fx.column("Account", "id")} = ${options.accounts}`,
 							[]
 						)
-						const [balance] = decodeOne(BalanceRow, rows)
+						const [balance] = trusted<BalanceRow>(oneRow(rows))
 						const flat = results.flat()
 						return {
-							balance,
+							balance: BigInt(balance),
 							values: Arr.map(flat, (o) => o.last.value),
 							retries: Arr.reduce(flat, 0, (n, o) => n + o.retries)
 						}
@@ -368,8 +369,8 @@ export default defineGate({
 					`SELECT pg_catalog.count(*)::text FROM ${imm.table(relation)} WHERE ${imm.column(relation, "account")} = ANY ($1::int8[])`,
 					[`{${Arr.join(Arr.map(accounts, String), ",")}}`]
 				)
-				const [n] = decodeOne(CountRow, rows)
-				return n
+				const [n] = trusted<CountRow>(oneRow(rows))
+				return Number(n)
 			})
 			const finalPosts = {
 				single: {

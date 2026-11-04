@@ -84,7 +84,7 @@ const check = (
 	const bag = BagReference.bag(dag, input, (node) => analysis.of(node).realization)
 	const violations = soundness(analysis, bag)
 	if (violations.length > 0) {
-		throw new Error(`unsound claims: ${JSON.stringify(violations)}`)
+		throw new Error(`unsound claims: ${Formatter.format(violations)}`)
 	}
 	const readers = new Map<RelNode, number>()
 	for (const node of topoOrder(dag)) {

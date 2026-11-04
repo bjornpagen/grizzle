@@ -25,8 +25,9 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Option, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Option } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -191,9 +192,6 @@ const coverage = (): Planted => {
 /** One planted schema per family. */
 const plantedGen: Gen<Planted> = element([containment(), capacityOverSelected(), coverage()])
 
-const Counts = Schema.Array(Schema.Tuple([Schema.Finite]))
-const Texts = Schema.Array(Schema.Tuple([Schema.String]))
-
 layer(Substrate.layer)("partial law-probe indexes", (it) => {
 	it.effect(
 		"a selected probe reads a partial index that holds exactly its selection, never the whole source",
@@ -248,22 +246,22 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 								yield* transaction(substrate.admin, p.load(t, col))
 								yield* substrate.admin.query(`ANALYZE ${t(p.source)}`, [])
 								/** The catalog's predicate of the index holds exactly the selected rows. */
-								const predicates = yield* Effect.flatMap(
-									substrate.admin.queryValues(
-										`SELECT pg_catalog.pg_get_expr(x.indpred, x.indrelid) FROM pg_catalog.pg_index AS x WHERE x.indexrelid = ${quoteString(indexName)}::regclass`,
-										[]
-									),
-									Schema.decodeUnknownEffect(Texts)
+								const predicates = yield* substrate.admin.queryValues(
+									`SELECT pg_catalog.pg_get_expr(x.indpred, x.indrelid) FROM pg_catalog.pg_index AS x WHERE x.indexrelid = ${quoteString(indexName)}::regclass`,
+									[]
 								)
-								const [predicate] = defined(predicates[0], "the index's predicate")
-								const counted = yield* Effect.flatMap(
-									substrate.admin.queryValues(
-										`SELECT count(*)::int4 FROM ${t(p.source)} WHERE ${predicate}`,
-										[]
-									),
-									Schema.decodeUnknownEffect(Counts)
+								const [predicate] = defined(
+									trusted<ReadonlyArray<readonly [string]>>(predicates)[0],
+									"the index's predicate"
 								)
-								const [held] = defined(counted[0], "the count of the predicate's rows")
+								const counted = yield* substrate.admin.queryValues(
+									`SELECT count(*)::int4 FROM ${t(p.source)} WHERE ${predicate}`,
+									[]
+								)
+								const [held] = defined(
+									trusted<ReadonlyArray<readonly [number]>>(counted)[0],
+									"the count of the predicate's rows"
+								)
 								assert.equal(held, p.selected)
 								assert.ok(held < p.rows, "the index holds fewer rows than the source")
 								yield* substrate.admin.queryValues(
@@ -279,14 +277,14 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 										})
 										const indexScans = Effect.gen(function* () {
 											yield* w.values("SELECT pg_catalog.pg_stat_force_next_flush()", [])
-											const rows = yield* Effect.flatMap(
-												w.values(
-													`SELECT idx_scan::int4 FROM pg_catalog.pg_stat_all_indexes WHERE indexrelid = ${quoteString(indexName)}::regclass`,
-													[]
-												),
-												Schema.decodeUnknownEffect(Counts)
+											const rows = yield* w.values(
+												`SELECT idx_scan::int4 FROM pg_catalog.pg_stat_all_indexes WHERE indexrelid = ${quoteString(indexName)}::regclass`,
+												[]
 											)
-											return defined(rows[0], "the index's statistics")[0]
+											return defined(
+												trusted<ReadonlyArray<readonly [number]>>(rows)[0],
+												"the index's statistics"
+											)[0]
 										})
 										const sequential = Effect.map(
 											w.values(

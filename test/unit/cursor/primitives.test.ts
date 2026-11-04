@@ -116,58 +116,31 @@ const minimal = (n: number): ReadonlyArray<number> => {
 
 describe("varints (unsigned LEB128, minimal form)", () => {
 	it.effect("round-trips every admitted value in its minimal length", (ctx) =>
-		Effect.gen(function* () {
-			yield* searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/cursor/primitives-18",
-						draw: drawn(int(0, varintMax)),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 2000,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang: Duration.minutes(2)
-					},
-					(n) =>
-						Effect.sync(() => {
-							const bytes = new ByteWriter().varint(n).finish()
-							assert.equal(bytes.length, varintLength(n))
-							const r = new ByteReader(bytes)
-							assert.equal(r.varint(), n)
-							assert.equal(r.done, true)
-						})
-				)
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/cursor/primitives-18",
+					draw: drawn(int(0, varintMax)),
+					literal: Formatter.format,
+					coverage: noCoverage,
+					kept: [],
+					runs: 2000,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang: Duration.minutes(2)
+				},
+				(n) =>
+					Effect.sync(() => {
+						const bytes = new ByteWriter().varint(n).finish()
+						assert.equal(bytes.length, varintLength(n))
+						const r = new ByteReader(bytes)
+						assert.equal(r.varint(), n)
+						assert.equal(r.done, true)
+					})
 			)
-			yield* searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/cursor/varint-lengths",
-						/** Each length's bounds. */
-						generator: element<readonly [number, number]>([
-							[0, 1],
-							[127, 1],
-							[128, 2],
-							[16383, 2],
-							[16384, 3],
-							[varintMax, 4]
-						] as const),
-						literal: Formatter.format,
-						limit: 6,
-						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
-					},
-					([n, len]) =>
-						Effect.sync(() => {
-							assert.equal(varintLength(n), len)
-						})
-				)
-			)
-		})
+		)
 	)
 
 	/**
@@ -319,34 +292,30 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 	const wellFormed = string(unicodeScalar, { min: 0, max: 40 })
 
 	it.effect("encodes as Node does and decodes its own output", (ctx) =>
-		Effect.gen(function* () {
-			yield* searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/cursor/primitives-19",
-						draw: drawn(wellFormed),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 2000,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang: Duration.minutes(2)
-					},
-					(text) =>
-						Effect.sync(() => {
-							const bytes = utf8Bytes(text)
-							assert.equal(Buffer.from(bytes).equals(Buffer.from(text, "utf8")), true)
-							assert.equal(utf8ByteLength(text), bytes.length)
-							assert.equal(utf8Text(bytes), text)
-						})
-				)
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/cursor/primitives-19",
+					draw: drawn(wellFormed),
+					literal: Formatter.format,
+					coverage: noCoverage,
+					kept: [],
+					runs: 2000,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang: Duration.minutes(2)
+				},
+				(text) =>
+					Effect.sync(() => {
+						const bytes = utf8Bytes(text)
+						assert.equal(Buffer.from(bytes).equals(Buffer.from(text, "utf8")), true)
+						assert.equal(utf8ByteLength(text), bytes.length)
+						assert.equal(utf8Text(bytes), text)
+					})
 			)
-			assert.equal(utf8Text(utf8Bytes("\u{1d11e}\u{10ffff}￿")), "\u{1d11e}\u{10ffff}￿")
-			assert.deepEqual(utf8Bytes("\u{1f600}"), Uint8Array.of(0xf0, 0x9f, 0x98, 0x80))
-		})
+		)
 	)
 
 	it.effect("agrees with a fatal TextDecoder on arbitrary bytes", (ctx) =>

@@ -1,5 +1,5 @@
 import { transformSync } from "amaro"
-import { Array as Arr, Order, Record as Rec, Schema, String as Str } from "effect"
+import { Array as Arr, Order, Record as Rec, String as Str } from "effect"
 import { type Token, tokenize } from "#test/unit/deps/lexer.ts"
 
 /**
@@ -236,17 +236,15 @@ export const packageOf = (specifier: string): string => {
 }
 
 /**
- * The fields of package.json the entry points come from, admitted by their schema: an export is a path, or its
+ * The fields of package.json the entry points come from, a file the repository holds: an export is a path, or its
  * declarations' and its code's paths.
  */
-export const PackageJson = Schema.Struct({
-	exports: Schema.Record(
-		Schema.String,
-		Schema.Union([Schema.String, Schema.Struct({ types: Schema.String, default: Schema.String })])
-	),
-	bin: Schema.optional(Schema.Record(Schema.String, Schema.String))
-})
-export type PackageJson = typeof PackageJson.Type
+export type PackageJson = {
+	readonly exports: Readonly<
+		Record<string, string | { readonly types: string; readonly default: string }>
+	>
+	readonly bin?: Readonly<Record<string, string>>
+}
 
 /** The source of a published module: dist/<module>.js is built from src/<module>.ts alone (scripts/build.ts). */
 const sourceOf = (entry: string, path: string): string => {

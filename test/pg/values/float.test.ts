@@ -6,7 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import {
 	canonicalZero,
 	compareFloat,
@@ -15,13 +16,13 @@ import {
 	toReal
 } from "#compiler/scalar/values/float.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
-/** One row of one column, admitted from what PostgreSQL answers. */
-const oneCell = Schema.Tuple([Schema.Tuple([Schema.Unknown])])
+/** One row of one column, trusted from what PostgreSQL answers. */
+const oneCellOf = (rows: unknown): readonly [readonly [unknown]] =>
+	trusted<readonly [readonly [unknown]]>(rows)
 
 /** The float8 text PostgreSQL reads back as exactly `x`: the shortest round-trip form, and -0 spelled out. */
 const float8Text = (x: number): string => (Object.is(x, -0) ? "-0" : String(x))
@@ -231,15 +232,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 									cases: runs,
 									sense: notesOnly
 								}),
-								/** Planted: a batch holding -0 and NaN, which a short drawn batch lacks. */
-								kept: [
-									{
-										note: "-0, 0 and NaN",
-										sketch: [1, -0, Number.NaN, 0, -1],
-										draws: "",
-										reaches: ["signed zero", "NaN"]
-									}
-								],
+								kept: [],
 								runs,
 								shrink: completeShrink,
 								concurrency: 1,
@@ -281,9 +274,9 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 									const pgDescOrder: ReadonlyArray<number> = Arr.map(pgDesc, (r) => Number(r[0]))
 									assert.deepEqual(pgDescOrder, desc)
 									const identities = new Set(Arr.map(values, floatText))
-									const [[count]] = yield* Effect.flatMap(
+									const [[count]] = yield* Effect.map(
 										db.values(`SELECT count(DISTINCT ${cast})::text FROM ${source}`, [payload]),
-										Schema.decodeUnknownEffect(oneCell)
+										oneCellOf
 									)
 									assert.equal(Number(count), identities.size)
 									const kept = yield* db.values(

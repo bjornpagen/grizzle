@@ -1,70 +1,53 @@
 import { DevtoolFailure, failureFrom } from "@grizzle/devtools/devtool"
-import {
-	Array as Arr,
-	Effect,
-	FileSystem,
-	Option,
-	Order,
-	Record as Rec,
-	Result,
-	Schema
-} from "effect"
+import { Array as Arr, Effect, FileSystem, Option, Order, Record as Rec, Result } from "effect"
+import type { Json } from "#compiler/core/canonical.ts"
+import { jsonDocument, trustedJson } from "#compiler/core/trusted.ts"
 
 /** A mutant some test killed, or killed by timing out: the stage that killed it and its killing files and tests. */
-const Killed = Schema.Struct({
-	status: Schema.Literals(["killed", "timeout"]),
-	stage: Schema.Literals([1, 2]),
-	killedBy: Schema.NonEmptyArray(Schema.String),
+type Killed = {
+	readonly status: "killed" | "timeout"
+	readonly stage: 1 | 2
+	readonly killedBy: Arr.NonEmptyReadonlyArray<string>
 	/** The failing tests, "file > suite > test", leaves only. */
-	killedByTests: Schema.Array(Schema.String)
-})
+	readonly killedByTests: ReadonlyArray<string>
+}
 
 /** A mutant no test killed: it survived, no test executes it, or the type checker rejects it. */
-const Unkilled = Schema.Struct({ status: Schema.Literals(["survived", "no-coverage", "invalid"]) })
+type Unkilled = { readonly status: "survived" | "no-coverage" | "invalid" }
 
 /** What the tests made of one mutant. A survivor names no stage and no killer. */
-export const Verdict = Schema.Union([Killed, Unkilled])
-export type Verdict = typeof Verdict.Type
+export type Verdict = Killed | Unkilled
 
 /** Where a mutant is and what it does. */
-const where = {
-	id: Schema.String,
-	area: Schema.String,
-	file: Schema.String,
-	line: Schema.Int,
-	column: Schema.Int,
-	function: Schema.String,
-	operator: Schema.String,
-	original: Schema.String,
-	replacement: Schema.String
-} as const
-const Described = Schema.Struct(where)
+type Described = {
+	readonly id: string
+	readonly area: string
+	readonly file: string
+	readonly line: number
+	readonly column: number
+	readonly function: string
+	readonly operator: string
+	readonly original: string
+	readonly replacement: string
+}
 
 /** One mutant in the report: where it is, what it does, and its verdict. */
-const Entry = Schema.Union([
-	Schema.Struct({ ...where, ...Killed.fields }),
-	Schema.Struct({ ...where, ...Unkilled.fields })
-])
-export type Entry = typeof Entry.Type
+export type Entry = (Described & Killed) | (Described & Unkilled)
 
 /** One run that contributed entries: the commit it tested and how. */
-const Run = Schema.Struct({
-	commit: Schema.String,
-	generated: Schema.String,
-	settings: Schema.Unknown
-})
-type Run = typeof Run.Type
+type Run = {
+	readonly commit: string
+	readonly generated: string
+	readonly settings: Json
+}
 
 /** What a report keeps to be merged into or rebuilt: the rest is computed from it. */
-const Stored = Schema.Struct({
-	runs: Schema.Array(Run),
-	population: Schema.Record(Schema.String, Schema.Int),
-	covers: Schema.Record(Schema.String, Schema.Int),
-	mutants: Schema.Array(Entry)
-})
-export type Stored = typeof Stored.Type
-
-const decodeStored = Schema.decodeEffect(Schema.fromJsonString(Stored))
+export type Stored = {
+	readonly runs: ReadonlyArray<Run>
+	readonly population: Readonly<Record<string, number>>
+	readonly covers: Readonly<Record<string, number>>
+	readonly mutants: ReadonlyArray<Entry>
+}
 
 /**
  * The report at `path`, or none when there is none yet.
@@ -82,20 +65,19 @@ export const readStored = Effect.fn("readStored")(function* (path: string) {
 	const text = yield* fs
 		.readFileString(path)
 		.pipe(Effect.mapError(failureFrom(`the report ${path} could not be read`)))
-	const stored = yield* decodeStored(text).pipe(
-		Effect.mapError(failureFrom(`the report ${path} is not a report`))
-	)
+	const stored = yield* Effect.try({
+		try: () => trustedJson<Stored>(text),
+		catch: failureFrom(`the report ${path} is not JSON`)
+	})
 	return Option.some(stored)
 })
 
-const Triage = Schema.Struct({
-	id: Schema.String,
-	verdict: Schema.Literals(["equivalent", "gap-fixed"]),
-	reason: Schema.String
-})
-type Triage = typeof Triage.Type
-
-const TriageJson = Schema.fromJsonString(Schema.Array(Triage), { space: "\t" })
+/** A person's verdict on a surviving mutant, by its id, and the reason for it. */
+type Triage = {
+	readonly id: string
+	readonly verdict: "equivalent" | "gap-fixed"
+	readonly reason: string
+}
 
 /** The triage verdicts file and the population of mutant ids it judges. */
 export interface TriageInput {
@@ -108,9 +90,10 @@ const readVerdicts = Effect.fn("readVerdicts")(function* (path: string) {
 	const text = yield* fs
 		.readFileString(path)
 		.pipe(Effect.mapError(failureFrom(`${path} could not be read`)))
-	return yield* Schema.decodeEffect(TriageJson)(text).pipe(
-		Effect.mapError(failureFrom(`${path} is not a triage`))
-	)
+	return yield* Effect.try({
+		try: () => trustedJson<ReadonlyArray<Triage>>(text),
+		catch: failureFrom(`${path} is not JSON`)
+	})
 })
 
 /**
@@ -156,11 +139,8 @@ export const pruneTriage = Effect.fn("pruneTriage")(function* (input: TriageInpu
 	const [kept, dropped] = Arr.partition(verdicts, (t) =>
 		input.population.has(t.id) ? Result.succeed(t) : Result.fail(t.id)
 	)
-	const text = yield* Schema.encodeEffect(TriageJson)(kept).pipe(
-		Effect.mapError(failureFrom("the triage could not be encoded"))
-	)
 	yield* fs
-		.writeFileString(input.path, `${text}\n`)
+		.writeFileString(input.path, `${jsonDocument(kept)}\n`)
 		.pipe(Effect.mapError(failureFrom(`${input.path} could not be written`)))
 	const pruned: Pruned = { kept: kept.length, dropped }
 	return pruned
@@ -185,25 +165,18 @@ export const merged = (prior: Stored, next: Stored): Stored => {
  * The run's score counts what the tests killed; equivalent mutants and those the type checker rejects are left out. The
  * score after triage also counts a survivor whose gap a new test closed as killed.
  */
-const Score = Schema.Struct({
-	mutants: Schema.Int,
-	killed: Schema.Int,
-	timeout: Schema.Int,
-	survived: Schema.Int,
-	noCoverage: Schema.Int,
-	invalid: Schema.Int,
-	equivalent: Schema.Int,
-	gapFixed: Schema.Int,
-	score: Schema.Finite,
-	scoreAfterTriage: Schema.Finite
-})
-type Score = typeof Score.Type
-
-const scoreJson = Schema.fromJsonString(Score)
-
-/** A score as one line of JSON. */
-export const encodeScore = (score: Score): Effect.Effect<string, Schema.SchemaError> =>
-	Schema.encodeEffect(scoreJson)(score)
+type Score = {
+	readonly mutants: number
+	readonly killed: number
+	readonly timeout: number
+	readonly survived: number
+	readonly noCoverage: number
+	readonly invalid: number
+	readonly equivalent: number
+	readonly gapFixed: number
+	readonly score: number
+	readonly scoreAfterTriage: number
+}
 
 /** The share `n` of `d` to four places; an empty denominator scores 1, since nothing escaped. */
 const ratio = (n: number, d: number): number =>
@@ -262,8 +235,7 @@ const byKey: Order.Order<readonly [string, unknown]> = Order.mapInput(
 const keySorted = <A>(record: Readonly<Record<string, A>>): Record<string, A> =>
 	Rec.fromEntries(Arr.sort(Rec.toEntries(record), byKey))
 
-const KillSet = Schema.Record(Schema.String, Schema.Array(Schema.String))
-type KillSet = typeof KillSet.Type
+type KillSet = Readonly<Record<string, ReadonlyArray<string>>>
 
 /** Per killer, the ids of the mutants it names, in order. */
 const killSet = (pairs: ReadonlyArray<readonly [string, string]>): KillSet =>
@@ -300,51 +272,41 @@ const killingFiles = (e: Entry): ReadonlyArray<string> =>
 const killingTests = (e: Entry): ReadonlyArray<string> =>
 	e.status === "killed" || e.status === "timeout" ? e.killedByTests : []
 
-const survivorStatus = Schema.Literals(["survived", "no-coverage"])
+type SurvivorStatus = "survived" | "no-coverage"
 
 /** A mutant no test killed, as triage judged it: untriaged, or with its verdict and the reason for it. */
-const Survivor = Schema.Union([
-	Schema.Struct({ ...where, status: survivorStatus, triage: Schema.Literal("untriaged") }),
-	Schema.Struct({
-		...where,
-		status: survivorStatus,
-		triage: Triage.fields.verdict,
-		reason: Schema.String
-	})
-])
-type Survivor = typeof Survivor.Type
+type Survivor =
+	| (Described & { readonly status: SurvivorStatus; readonly triage: "untriaged" })
+	| (Described & {
+			readonly status: SurvivorStatus
+			readonly triage: Triage["verdict"]
+			readonly reason: string
+	  })
 
 /**
  * The report a run writes: every mutant with its verdict, the scores per area, operator and module, before and after
  * triage, the survivors with their triage, per test file how many of the mutants it executes, by the coverage passes,
  * and the kill sets per test file and per test.
  */
-const Report = Schema.Struct({
-	tool: Schema.Literal("scripts/dev/mutate"),
-	runs: Schema.Array(Run),
-	population: Schema.Record(Schema.String, Schema.Int),
-	total: Score,
-	areas: Schema.Record(Schema.String, Score),
-	operators: Schema.Record(Schema.String, Score),
-	modules: Schema.Record(Schema.String, Score),
-	survivors: Schema.Array(Survivor),
-	invalid: Schema.Array(Described),
-	mutants: Schema.Array(Entry),
-	covers: Schema.Record(Schema.String, Schema.Int),
-	kills: KillSet,
-	uniqueKills: KillSet,
-	testKills: KillSet,
-	uniqueTestKills: KillSet
-})
-export type Report = typeof Report.Type
+export type Report = {
+	readonly tool: "scripts/dev/mutate"
+	readonly runs: ReadonlyArray<Run>
+	readonly population: Readonly<Record<string, number>>
+	readonly total: Score
+	readonly areas: Readonly<Record<string, Score>>
+	readonly operators: Readonly<Record<string, Score>>
+	readonly modules: Readonly<Record<string, Score>>
+	readonly survivors: ReadonlyArray<Survivor>
+	readonly invalid: ReadonlyArray<Described>
+	readonly mutants: ReadonlyArray<Entry>
+	readonly covers: Readonly<Record<string, number>>
+	readonly kills: KillSet
+	readonly uniqueKills: KillSet
+	readonly testKills: KillSet
+	readonly uniqueTestKills: KillSet
+}
 
-const reportJson = Schema.fromJsonString(Report, { space: "\t" })
-
-/** The report as the file holds it: JSON indented by tabs. */
-export const encodeReport = (report: Report): Effect.Effect<string, Schema.SchemaError> =>
-	Schema.encodeEffect(reportJson)(report)
-
-const describe = (e: Entry): typeof Described.Type => ({
+const describe = (e: Entry): Described => ({
 	id: e.id,
 	area: e.area,
 	file: e.file,

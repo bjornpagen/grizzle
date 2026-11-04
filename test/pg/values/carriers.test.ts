@@ -5,13 +5,13 @@ import { array, boolean, element, filter, type Gen, int, map, oneOf } from "@gri
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, Schema, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { compareSpan, makeSpan, spanText } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -44,9 +44,11 @@ const exhaustive = {
 	caseHang: Duration.minutes(2)
 } as const
 
-/** One row of one and of two columns, admitted from what PostgreSQL answers. */
-const oneCell = Schema.Tuple([Schema.Tuple([Schema.Unknown])])
-const twoCells = Schema.Tuple([Schema.Tuple([Schema.Unknown, Schema.Unknown])])
+/** One row of one and of two columns, trusted from what PostgreSQL answers. */
+const oneCellOf = (rows: unknown): readonly [readonly [unknown]] =>
+	trusted<readonly [readonly [unknown]]>(rows)
+const twoCellsOf = (rows: unknown): readonly [readonly [unknown, unknown]] =>
+	trusted<readonly [readonly [unknown, unknown]]>(rows)
 
 const pgFloatArray = (text: unknown): ReadonlyArray<number> => {
 	const inner = pipe(String(text), Str.slice(1, -1))
@@ -242,12 +244,12 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 								assert.deepEqual(mismatches.slice(0, 5), [])
 							})
 					)
-					const [[signedZero, tie]] = yield* Effect.flatMap(
+					const [[signedZero, tie]] = yield* Effect.map(
 						db.values(
 							`SELECT ('[-0,1]'::${vectorType} OPERATOR(${extension}.=) $1::text::${vectorType})::text, ('[1.0000000596046448]'::${vectorType})::real[]::float8[]::text`,
 							[Vector.componentText(Vector.make(Float32Array.of(-0, 1), 2))]
 						),
-						Schema.decodeUnknownEffect(twoCells)
+						twoCellsOf
 					)
 					assert.equal(signedZero, "true")
 					assert.deepEqual(pgFloatArray(tie), [1.0000001192092896])
@@ -312,11 +314,11 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 					const widest = succeeded(
 						Vector.admit(Float32Array.from(ones(vectorMaxDimensions)), vectorMaxDimensions)
 					)
-					const [[dims]] = yield* Effect.flatMap(
+					const [[dims]] = yield* Effect.map(
 						db.values(`SELECT ${extension}.vector_dims($1::text::${vectorType})::text`, [
 							Vector.componentText(widest)
 						]),
-						Schema.decodeUnknownEffect(oneCell)
+						oneCellOf
 					)
 					assert.equal(Number(dims), vectorMaxDimensions)
 					yield* expectSqlstate(
@@ -337,11 +339,11 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 									Vector.componentText(Vector.make(Float32Array.of(tiny, 1), 2)),
 									"[0,1]"
 								)
-								const [[read]] = yield* Effect.flatMap(
+								const [[read]] = yield* Effect.map(
 									db.values(`SELECT (($1::text::${vectorType})::real[])::float8[]::text`, [
 										`[${String(tiny)},1]`
 									]),
-									Schema.decodeUnknownEffect(oneCell)
+									oneCellOf
 								)
 								assert.deepEqual(
 									Arr.map(pgFloatArray(read), (x) => x === 0),

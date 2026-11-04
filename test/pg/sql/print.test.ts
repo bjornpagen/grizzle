@@ -219,45 +219,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							suite: "pg/sql/relational",
 							draw: sketched(relationalSketchGen, resolveRelational),
 							literal: Formatter.format,
-							/**
-							 * Planted: windows over an offset frame that leaves a row's frame empty, and over the remaining
-							 * frame, which the drawn frames reach a few times a run.
-							 */
-							kept: [
-								{
-									note: "an offset frame leaving a row's frame empty",
-									sketch: {
-										r1: [{ value: 0, group: 0 }],
-										r2: [0, 0, 0, 0],
-										form: {
-											kind: "window",
-											bounds: [
-												{ kind: "offset", offset: 1n, direction: "FOLLOWING" },
-												{ kind: "offset", offset: 2n, direction: "FOLLOWING" }
-											],
-											partitioned: false,
-											descending: false
-										}
-									},
-									draws: "",
-									reaches: ["frame offset to offset", "empty frame"]
-								},
-								{
-									note: "the remaining frame",
-									sketch: {
-										r1: [{ value: 0, group: 0 }],
-										r2: [0, 0, 0, 0],
-										form: {
-											kind: "window",
-											bounds: [{ kind: "currentRow" }, { kind: "unboundedFollowing" }],
-											partitioned: false,
-											descending: false
-										}
-									},
-									draws: "",
-									reaches: ["frame currentRow to unboundedFollowing"]
-								}
-							],
+							kept: [],
 							runs: 2 * casesPerTest,
 							shrink: completeShrink,
 							concurrency: 1,

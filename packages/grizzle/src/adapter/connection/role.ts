@@ -25,7 +25,7 @@ export const loginRole = (
 	return fitted.ok
 		? Result.succeed(identifierOf(fitted.value))
 		: Result.fail(
-				LoginNameRefused.make({
+				new LoginNameRefused({
 					login: login.name,
 					role: fitted.error.role,
 					limit: fitted.error.limit

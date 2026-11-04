@@ -22,7 +22,7 @@ export const transaction = (
 			)
 			const committed = yield* pinned.query("COMMIT", [])
 			if (committed.command !== "COMMIT") {
-				return yield* TransactionRolledBack.make({
+				return yield* new TransactionRolledBack({
 					label: "oracle install",
 					command: committed.command
 				})

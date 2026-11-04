@@ -1116,7 +1116,7 @@ export const runDirect = (
 			)
 			const log: Array<string> = [`initial ${Formatter.format(stateRows(host, state))}`]
 			const fail = (problem: string) =>
-				CaseFailed.make({ report: `${Arr.join(log, "\n  ")}\n  ${problem}` })
+				new CaseFailed({ report: `${Arr.join(log, "\n  ")}\n  ${problem}` })
 			/** Notes how a transaction settled: what it ended in, and what its moves and rekeys met. */
 			const noteSettled = (
 				v: Settled,

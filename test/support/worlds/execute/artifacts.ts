@@ -82,7 +82,7 @@ const flown = (
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, ReadError> =>
 	Effect.scoped(
 		Effect.flatMap(
-			Effect.mapError(ctx.pool.lease, (reason) => ReadFailure.make({ reason })),
+			Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason })),
 			(session) => Effect.mapError(runFramed(session, dbReadFrame(ctx), statements), asReadFailure)
 		)
 	)
@@ -166,7 +166,7 @@ const finished = (ctx: DbContext, meeting: Ref.Ref<Meeting>, side: Side): Effect
 const executorAt = (ctx: DbContext, meeting: Ref.Ref<Meeting>, side: Side): ReadExecutor => ({
 	run: (flight) =>
 		Effect.flatMap(arrive(ctx, meeting, side, flight.statements), (outcomes) =>
-			Effect.mapError(flight.read(outcomes), (reason) => ReadFailure.make({ reason }))
+			Effect.mapError(flight.read(outcomes), (reason) => new ReadFailure({ reason }))
 		)
 })
 

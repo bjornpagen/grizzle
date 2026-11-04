@@ -7,7 +7,6 @@ import {
 	Option,
 	Record as Rec,
 	Result,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
@@ -825,7 +824,7 @@ const runDirect = (
 			return commits
 		}
 		const fields = pgErrorFields(committed.failure)
-		if (Schema.is(TransactionRolledBack)(committed.failure) || fields === undefined) {
+		if (committed.failure instanceof TransactionRolledBack || fields === undefined) {
 			return yield* Effect.die(committed.failure)
 		}
 		const met: Met = {
@@ -976,7 +975,7 @@ export const runDirectCase = (
 			)
 		}
 		const report = (why: string) =>
-			CaseFailed.make({
+			new CaseFailed({
 				report: Arr.join(
 					[
 						why,

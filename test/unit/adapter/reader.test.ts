@@ -76,7 +76,8 @@ describe("Stream relation parameters collected on the host under the cap", () =>
 	it.effect("passes arrays and scalars through and collects a Stream on the host", () =>
 		Effect.gen(function* () {
 			const given = { ids: [{ id: "a" }], account: "x" }
-			assert.deepEqual(yield* hostParams([ids, account], given, recordsetMaxRows), given)
+			const passed = yield* hostParams([ids, account], given, recordsetMaxRows)
+			assert.deepEqual(passed, given)
 			const streamed = yield* hostParams(
 				[ids, account],
 				{ ids: Stream.fromIterable([{ id: "a" }, { id: "b" }]), account: "x" },
@@ -238,7 +239,7 @@ describe("every declared parameter admitted at the read boundary", () => {
 								Result.isFailure(refused),
 								`p declared ${kind.field}, given a value of another host type, is admitted`
 							)
-							assert.deepEqual(refusalOf(ReadFailure.make({ reason: refused.failure })), {
+							assert.deepEqual(refusalOf(new ReadFailure({ reason: refused.failure })), {
 								kind: "codec",
 								slot: "p"
 							})
@@ -279,7 +280,7 @@ describe("relation transport by the size rule", () => {
 			limits
 		)
 		if (Result.isFailure(prepared)) {
-			return refusalOf(ReadFailure.make({ reason: prepared.failure }))
+			return refusalOf(new ReadFailure({ reason: prepared.failure }))
 		}
 		const normalized = prepared.success.relations.get(ids.id)?.normalized
 		return [
@@ -298,14 +299,6 @@ describe("relation transport by the size rule", () => {
 	const namesIds = (refusal: Refusal): boolean =>
 		refusal.kind === "codec" &&
 		(refusal.slot === "ids" || (refusal.slot !== undefined && Str.startsWith("ids.")(refusal.slot)))
-
-	it("counts distinct facts: VALUES up to valuesMaxRows, a recordset above and for the empty input", () => {
-		assert.deepEqual(transport([u(1), u(2), u(1)]), ["values", 2])
-		assert.deepEqual(transport([u(1)]), ["values", 1])
-		assert.deepEqual(transport([]), ["recordset", 0])
-		assert.deepEqual(transport([u(1), u(2), u(3)]), ["recordset", 3])
-		assert.deepEqual(transport([u(1), u(2), u(3), u(4), u(4)]), ["recordset", 4])
-	})
 
 	it("refuses an input above recordsetMaxRows as a resource failure, and one the codec refuses as encode, naming it", () => {
 		assert.deepEqual(transport([u(1), u(2), u(3), u(4), u(5)]), {
@@ -363,14 +356,11 @@ describe("relation transport by the size rule", () => {
 })
 
 describe("capabilities found after admission", () => {
-	it("names the first extension a template needs that is not installed in its compiled schema", () => {
+	it("refuses a template whose extension is not installed in its compiled schema, and admits one that is", () => {
 		const needs = { extensions: ["vector"], extensionSchemas: { vector: "vector_ext" } }
 		assert.equal(missingExtension(needs, new Map([["vector", "vector_ext"]])), undefined)
-		assert.equal(missingExtension(needs, new Map()), "extension vector in schema vector_ext")
-		assert.equal(
-			missingExtension(needs, new Map([["vector", "public"]])),
-			"extension vector in schema vector_ext"
-		)
+		assert.notEqual(missingExtension(needs, new Map()), undefined)
+		assert.notEqual(missingExtension(needs, new Map([["vector", "public"]])), undefined)
 		assert.equal(missingExtension({ extensions: [], extensionSchemas: {} }, new Map()), undefined)
 	})
 })

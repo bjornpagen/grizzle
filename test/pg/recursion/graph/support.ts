@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Record as Rec, Schema } from "effect"
+import { Array as Arr, Data, Effect, Option, Record as Rec } from "effect"
 import {
 	explainStatementWith,
 	type PlanNode,
@@ -255,12 +255,7 @@ export const publicCase = (input: {
 }
 
 /** A failure of the harness itself, with the SQL that failed. */
-class HarnessFailure extends Schema.TaggedError<
-	HarnessFailure,
-	{ readonly brand: unique symbol }
->()("HarnessFailure", {
-	message: Schema.String
-}) {}
+class HarnessFailure extends Data.TaggedError("HarnessFailure")<{ readonly message: string }> {}
 
 /**
  * The case installed and loaded the way the oracle runner installs it (runner.ts runOracle): the real installer's plan
@@ -283,18 +278,18 @@ export const inInstalledCase = <A, E>(
 				substrate.owner.role
 			)
 			if (!planned.ok) {
-				return yield* HarnessFailure.make({ message: planned.error.message })
+				return yield* new HarnessFailure({ message: planned.error.message })
 			}
 			const plan = planned.value
 			const facts = factStatements(plan, factSet(c))
 			if (!facts.ok) {
-				return yield* HarnessFailure.make({ message: facts.error.message })
+				return yield* new HarnessFailure({ message: facts.error.message })
 			}
 			const session = yield* substrate.admin.pin
 			const exec = (sql: string) =>
 				session
 					.query(sql, [])
-					.pipe(Effect.mapError((e) => HarnessFailure.make({ message: `${String(e)}\n${sql}` })))
+					.pipe(Effect.mapError((e) => new HarnessFailure({ message: `${String(e)}\n${sql}` })))
 			yield* exec("BEGIN")
 			return yield* Effect.gen(function* () {
 				yield* exec("SET LOCAL statement_timeout = '60s'")
@@ -387,10 +382,10 @@ export const executedPlan = (session: PgConnection, sql: string, params: Readonl
 	Effect.gen(function* () {
 		const result = yield* session
 			.query(explainStatementWith(sql, { serialize: { kind: "off" }, wal: false }), params)
-			.pipe(Effect.mapError((e) => HarnessFailure.make({ message: `${String(e)}\n${sql}` })))
+			.pipe(Effect.mapError((e) => new HarnessFailure({ message: `${String(e)}\n${sql}` })))
 		const explained = parsePlan(Rec.values(defined(result.rows[0], "the EXPLAIN row"))[0])
 		if (explained._tag === "Failure") {
-			return yield* HarnessFailure.make({ message: `${explained.failure.message}\n${sql}` })
+			return yield* new HarnessFailure({ message: `${explained.failure.message}\n${sql}` })
 		}
 		return explained.success.plan
 	})

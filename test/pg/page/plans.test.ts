@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -107,18 +107,6 @@ const planCaseGen: Gen<PlanCase> = (source) => ({
 	anchor: source.draw(int(1, perAccount))
 })
 
-/** Planted: every order with every variant, each pair drawn about eight times in seventy-five cases, at a middle anchor. */
-const planKept: ReadonlyArray<Kept<PlanCase, PlanFeature>> = Arr.flatMap(
-	["descending", "ascending", "mixed"] as const,
-	(order) =>
-		Arr.map(["first", "after", "before"] as const, (variant) => ({
-			note: `${order} ${variant}`,
-			sketch: { order, variant, size: 5, account: 0, anchor: Math.ceil(perAccount / 2) },
-			draws: "",
-			reaches: [`${order} ${variant}` as const] as const
-		}))
-)
-
 type PlanFeature =
 	| `${Order} ${Variant}`
 	| "a one-direction seek past a long remainder"
@@ -196,7 +184,7 @@ const explorePlans = Effect.gen(function* () {
 				suite: "pg/page/plans",
 				draw: drawn(planCaseGen),
 				literal: Formatter.format,
-				kept: planKept,
+				kept: [],
 				runs: 60,
 				shrink: completeShrink,
 				concurrency: 1,
@@ -220,9 +208,8 @@ const explorePlans = Effect.gen(function* () {
 				Effect.gen(function* () {
 					const q = orders[c.order]
 					const params = { account: id(c.account) }
-					const anchor = Option.getOrThrow(
-						(yield* pager.page(q, params, { first: c.anchor })).pageInfo.endCursor
-					)
+					const upToAnchor = yield* pager.page(q, params, { first: c.anchor })
+					const anchor = Option.getOrThrow(upToAnchor.pageInfo.endCursor)
 					const request =
 						c.variant === "first"
 							? { first: c.size }

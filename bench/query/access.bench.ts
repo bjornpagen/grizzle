@@ -1,11 +1,10 @@
-import { Array as Arr, Effect, Option, Result, Schema } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { PlanNode } from "#bench/harness/explain.ts"
 import {
 	type CaseRecord,
-	type GateCheck,
 	defineGate,
 	equivalence,
-	jsonText,
+	type GateCheck,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -51,6 +50,7 @@ import {
 	scansOf
 } from "#bench/query/support/plans.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
@@ -196,10 +196,8 @@ interface Options extends Readonly<Record<string, unknown>> {
 
 type Gates = "R04" | "R18" | "R39"
 
-const decodeTypeList = Schema.decodeUnknownResult(
-	Schema.Array(Schema.Tuple([Schema.Array(Schema.String)]))
-)
-const decodeOneText = Schema.decodeUnknownResult(Schema.Array(Schema.Tuple([Schema.String])))
+type TypeListRow = readonly [types: ReadonlyArray<string>]
+type TextRow = readonly [text: string]
 
 /**
  * The parameter types PostgreSQL infers for `sql` as a server statement without declared types, which only its casts can fix (typed
@@ -216,15 +214,9 @@ const serverStatementTypes = Effect.fn("serverStatementTypes")(function* (
 		[name]
 	)
 	yield* raw.values(`DEALLOCATE ${name}`, [])
-	const decoded = decodeTypeList(rows)
-	if (Result.isFailure(decoded)) {
-		throw GateSetupError.make({
-			what: `the server statement ${name}: ${decoded.failure.message}`
-		})
-	}
-	const [row] = decoded.success
+	const [row] = trusted<ReadonlyArray<TypeListRow>>(rows)
 	if (row === undefined) {
-		throw GateSetupError.make({ what: `no server statement ${name}` })
+		throw new GateSetupError({ what: `no server statement ${name}` })
 	}
 	return row[0]
 })
@@ -232,13 +224,9 @@ const serverStatementTypes = Effect.fn("serverStatementTypes")(function* (
 /** A type spelling as PostgreSQL prints the type it names: regtype's text, as parameter_types prints its elements. */
 const canonicalType = Effect.fn("canonicalType")(function* (raw: RawSession, spelling: string) {
 	const rows = yield* raw.values("SELECT ($1::text)::regtype::text", [spelling])
-	const decoded = decodeOneText(rows)
-	if (Result.isFailure(decoded)) {
-		throw GateSetupError.make({ what: `the type ${spelling}: ${decoded.failure.message}` })
-	}
-	const [row] = decoded.success
+	const [row] = trusted<ReadonlyArray<TextRow>>(rows)
 	if (row === undefined) {
-		throw GateSetupError.make({ what: `no type ${spelling}` })
+		throw new GateSetupError({ what: `no type ${spelling}` })
 	}
 	return row[0]
 })
@@ -303,7 +291,7 @@ const singleAssignment = (
 /** The cast type of a statement's parameter slot: every slot of the statements R18 judges here is a declared scalar. */
 const slotType = (label: string, slot: ConservativeParamSlot): string => {
 	if (slot.kind !== "scalar") {
-		throw GateSetupError.make({
+		throw new GateSetupError({
 			what: `${label}: a ${slot.kind} slot, where R18 judges scalar parameters`
 		})
 	}
@@ -467,13 +455,9 @@ export default defineGate({
 				`SELECT pg_catalog.count(*)::text FROM ${E} WHERE ${col("amount")} >= ${rangeValues.lo} AND ${col("amount")} < ${rangeValues.hi}`,
 				[]
 			)
-			const counted = decodeOneText(rows)
-			if (Result.isFailure(counted)) {
-				throw GateSetupError.make({ what: `the range count: ${counted.failure.message}` })
-			}
-			const [countRow] = counted.success
+			const [countRow] = trusted<ReadonlyArray<TextRow>>(rows)
 			if (countRow === undefined) {
-				throw GateSetupError.make({ what: "the range count returned no row" })
+				throw new GateSetupError({ what: "the range count returned no row" })
 			}
 			const rangeRows = Number(countRow[0])
 			/**
@@ -563,7 +547,7 @@ export default defineGate({
 				return bounds === undefined ? [] : [{ prefix: p, lo: bounds.lo, hi: bounds.hi }]
 			})
 			if (!Arr.isReadonlyArrayNonEmpty(tried)) {
-				throw GateSetupError.make({ what: "no prefix has a code-point interval" })
+				throw new GateSetupError({ what: "no prefix has a code-point interval" })
 			}
 			const startsWith = (p: string): VariantStatement => ({
 				sql: handwrittenRows(
@@ -600,7 +584,7 @@ export default defineGate({
 				const versusPattern = rowsAgree(generatedRows, pattern)
 				prefixChecks.push(
 					equivalence(
-						`prefix ${jsonText(t.prefix)}: the interval agrees with starts_with`,
+						`prefix ${Formatter.format(t.prefix)}: the interval agrees with starts_with`,
 						Option.isNone(versusPattern) && m.agreement.kind === "agree",
 						`starts_with: ${Option.getOrElse(versusPattern, () => "agree")}; conservative: ${m.agreement.kind === "agree" ? "agree" : m.agreement.difference}`
 					)
@@ -608,7 +592,7 @@ export default defineGate({
 				const plan = planOf(m.generated, 0)
 				prefixChecks.push(
 					mechanism(
-						`prefix ${jsonText(t.prefix)}: the interval is an Index Cond on the (account, code) index`,
+						`prefix ${Formatter.format(t.prefix)}: the interval is an Index Cond on the (account, code) index`,
 						Arr.some(
 							indexAccessOn(plan, entry, indexes),
 							(a) =>
@@ -628,7 +612,7 @@ export default defineGate({
 			/** Agreement on prefixes that select nothing proves nothing: the fixture must give several prefixes rows. */
 			const nonempty = Arr.filter(prefixCases, (c) => c.rows > 0).length
 			if (nonempty < 3) {
-				throw GateSetupError.make({ what: `${nonempty} prefixes select rows, fewer than three` })
+				throw new GateSetupError({ what: `${nonempty} prefixes select rows, fewer than three` })
 			}
 			const prefixStatement = optimizedStatement(prefix, 0)
 			const bounds = parameterBounds(prefixStatement, { table: entry, column: codeColumn })

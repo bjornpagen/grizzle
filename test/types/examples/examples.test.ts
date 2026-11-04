@@ -9,7 +9,8 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 	(it) => {
 		it.effect("typechecks the program and its refusals under tsgo with Effect diagnostics", () =>
 			Effect.gen(function* () {
-				assert.equal((yield* checked("examples/fixtures")).output, "")
+				const diagnostics = yield* checked("examples/fixtures")
+				assert.equal(diagnostics.output, "")
 			})
 		)
 

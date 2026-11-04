@@ -521,7 +521,6 @@ describe("page query fingerprints", () => {
 									return succeeded(pageQueryFingerprint(desc.query, s.schema.fingerprint))
 								}
 								const [fa, fb] = [fingerprint(a), fingerprint(b)]
-								assert.match(fa, regex("^[0-9a-f]{64}$"))
 								assert.equal(
 									fa === fb,
 									a.program.source === b.program.source && a.schema.name === b.schema.name

@@ -4,6 +4,7 @@ import { checkServerIdentity, type PeerCertificate, connect as tlsConnect } from
 import {
 	Array as Arr,
 	Clock,
+	Data,
 	DateTime,
 	Effect,
 	Function,
@@ -11,13 +12,11 @@ import {
 	pipe,
 	Predicate,
 	Redacted,
-	Schema,
 	type Scope,
 	Semaphore,
 	String as Str
 } from "effect"
 import { Client, DatabaseError } from "pg"
-import { nameSchemas } from "#adapter/boundary/names.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { BatchRefused } from "#adapter/errors/failures.ts"
 import {
@@ -28,10 +27,11 @@ import {
 	sentAnswer
 } from "#adapter/wire/batch.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
+import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
-import { decodeJson } from "#test/support/json.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 
 import { regex } from "arkregex"
@@ -39,20 +39,20 @@ import { regex } from "arkregex"
  * The fields of a PostgreSQL ErrorResponse that tests assert on: `code` is the SQLSTATE; the fields PostgreSQL may omit
  * are decoded once, none where it sent none; `where` is the CONTEXT lines, where in a function or trigger the error was
  * raised; `dataType` is the data type it reported, a domain constraint's domain; and `constraint` is the one PostgreSQL
- * reported, admitted at this decode boundary (adapter/boundary/names.ts nameSchemas), or none.
+ * reported, admitted at this decode boundary (reportedConstraintOf), or none.
  */
-export const PgErrorFieldsSchema = Schema.Struct({
-	code: Schema.String,
-	message: Schema.String,
-	detail: Schema.Option(Schema.String),
-	hint: Schema.Option(Schema.String),
-	where: Schema.Option(Schema.String),
-	schema: Schema.Option(Schema.String),
-	table: Schema.Option(Schema.String),
-	column: Schema.Option(Schema.String),
-	dataType: Schema.Option(Schema.String),
-	constraint: Schema.UndefinedOr(nameSchemas.constraint)
-})
+export interface PgErrorFields {
+	readonly code: string
+	readonly message: string
+	readonly detail: Option.Option<string>
+	readonly hint: Option.Option<string>
+	readonly where: Option.Option<string>
+	readonly schema: Option.Option<string>
+	readonly table: Option.Option<string>
+	readonly column: Option.Option<string>
+	readonly dataType: Option.Option<string>
+	readonly constraint: ConstraintName | undefined
+}
 
 /**
  * Sessions and test databases on the local cluster, over verify-full TLS as the adapter connects.
@@ -73,17 +73,13 @@ export const PgErrorFieldsSchema = Schema.Struct({
  *
  * A test connection's statement failed: PostgreSQL refused it (its ErrorResponse fields), or the connection failed.
  */
-export class SqlError extends Schema.TaggedError<SqlError, { readonly brand: unique symbol }>()(
-	"SqlError",
-	{
-		reason: Schema.Union([
-			Schema.TaggedStruct("ServerError", { fields: PgErrorFieldsSchema }),
-			Schema.TaggedStruct("ConnectionError", { message: Schema.String })
-		]),
-		/** What the driver raised. */
-		cause: Schema.Unknown
-	}
-) {}
+export class SqlError extends Data.TaggedError("SqlError")<{
+	readonly reason:
+		| { readonly _tag: "ServerError"; readonly fields: PgErrorFields }
+		| { readonly _tag: "ConnectionError"; readonly message: string }
+	/** What the driver raised. */
+	readonly cause: unknown
+}> {}
 
 export interface RawQueryResult {
 	readonly command: string
@@ -175,8 +171,8 @@ const intervalOf = (text: string) => {
 	return { months, days, microseconds }
 }
 
-/** A json or jsonb column's text as the JSON value it holds, for a test to read with a schema of its own. */
-const jsonValue = decodeJson(Schema.Unknown)
+/** A json or jsonb column's text as the JSON value it holds, for a test to read as the type it names. */
+const jsonValue = (text: string): unknown => trustedJson<unknown>(text)
 
 const scalarParsers: ReadonlyMap<number, (text: string) => unknown> = new Map<
 	number,
@@ -312,18 +308,17 @@ const textOf = (value: unknown): unknown => {
 }
 
 /**
- * The constraint an ErrorResponse reported: a non-empty name, admitted at this boundary (adapter/boundary/names.ts
- * nameSchemas), or none. The test connection's errors, a psql child's verbose report and a recorded error all read it here.
+ * The constraint an ErrorResponse reported: a non-empty name, admitted at this boundary as the adapter admits one
+ * (core/identity.ts admittedIdentifier), or none. The test connection's errors, a psql child's verbose report and a
+ * recorded error all read it here.
  */
 export const reportedConstraintOf = (value: unknown): ConstraintName | undefined =>
-	Predicate.isString(value) && value.length > 0
-		? Option.getOrUndefined(Schema.decodeOption(nameSchemas.constraint)(value))
-		: undefined
+	Predicate.isString(value) && value.length > 0 ? admittedIdentifier(value) : undefined
 
 /** The SqlError of a failed statement. */
 export const sqlErrorOf = (error: unknown): SqlError => {
 	if (error instanceof DatabaseError && error.code !== undefined) {
-		return SqlError.make({
+		return new SqlError({
 			reason: {
 				_tag: "ServerError",
 				fields: {
@@ -342,7 +337,7 @@ export const sqlErrorOf = (error: unknown): SqlError => {
 			cause: error
 		})
 	}
-	return SqlError.make({
+	return new SqlError({
 		reason: {
 			_tag: "ConnectionError",
 			message: Error.isError(error) ? error.message : String(error)
@@ -583,11 +578,16 @@ export const wireSession = (
 	const retried = (retries: number): typeof attempt =>
 		Effect.catchIf(
 			attempt,
-			(failure) => retries > 0 && OpenError.make({ reason: failure }).stage === "connect",
+			(failure) => retries > 0 && new OpenError({ reason: failure }).stage === "connect",
 			() => retried(retries - 1)
 		)
-	return Effect.mapError(retried(2), (failure) =>
-		SqlError.make({ reason: { _tag: "ConnectionError", message: failure.message }, cause: failure })
+	return Effect.mapError(
+		retried(2),
+		(failure) =>
+			new SqlError({
+				reason: { _tag: "ConnectionError", message: failure.message },
+				cause: failure
+			})
 	)
 }
 
@@ -600,8 +600,9 @@ export const runAlone = (
 	statement: BatchStatement
 ): Effect.Effect<BatchOutcome, ApartFailure | BatchRefused> =>
 	Effect.flatMap(runApart(session, [statement]), (answers) =>
-		Effect.mapError(Effect.fromResult(sentAnswer(answers, 0)), (failure) =>
-			BatchRefused.make({ index: 0, failure })
+		Effect.mapError(
+			Effect.fromResult(sentAnswer(answers, 0)),
+			(failure) => new BatchRefused({ index: 0, failure })
 		)
 	)
 

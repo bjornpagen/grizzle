@@ -2,26 +2,22 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import {
 	Array as Arr,
 	Console,
+	Data,
 	Effect,
 	FileSystem,
 	Inspectable,
 	Option,
 	Path,
 	Record as Rec,
-	Schema,
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import { trustedJson } from "#compiler/core/trusted.ts"
 
 import { transformSync } from "amaro"
 import { regex } from "arkregex"
 /** Why the build stopped, in words. The build prints it and exits with status 1. */
-class BuildFailure extends Schema.TaggedError<BuildFailure, { readonly brand: unique symbol }>()(
-	"BuildFailure",
-	{
-		detail: Schema.String
-	}
-) {}
+class BuildFailure extends Data.TaggedError("BuildFailure")<{ readonly detail: string }> {}
 
 /** A specifier of a package's own, `#<module>.ts`, quoted after `from`, a bare `import`, or `import(`. */
 const ownSpecifier = regex(
@@ -33,10 +29,10 @@ const ownSpecifier = regex(
 const leftover = regex("[\"']#[^\"']+\\.ts[\"']")
 
 /** The fields of a package's package.json the build reads: its name, and where its own specifiers resolve. */
-const Manifest = Schema.Struct({
-	name: Schema.String,
-	imports: Schema.Record(Schema.String, Schema.String)
-})
+interface Manifest {
+	readonly name: string
+	readonly imports: Readonly<Record<string, string>>
+}
 
 /**
  * Where the own specifiers under one prefix of package.json's "imports" lead (`#adapter/` in `"#adapter/*"`): modules
@@ -86,12 +82,12 @@ const write = Effect.fnUntraced(function* (target: string, text: string) {
 /** The route of one "imports" entry: a pattern whose target is a directory of src or another package's subpath. */
 const routeOf = Effect.fnUntraced(function* (name: string, key: string, target: string) {
 	if (!Str.startsWith("#")(key) || !Str.endsWith("/*")(key) || !Str.endsWith("/*")(target)) {
-		return yield* BuildFailure.make({
+		return yield* new BuildFailure({
 			detail: `${name}'s import ${key} is not a "#<prefix>/*" pattern to a "<prefix>/*" target`
 		})
 	}
 	if (Str.startsWith(".")(target) && !Str.startsWith("./src/")(target)) {
-		return yield* BuildFailure.make({
+		return yield* new BuildFailure({
 			detail: `${name}'s import ${key} leads outside its src: ${target}`
 		})
 	}
@@ -116,11 +112,7 @@ const packageAt = Effect.fnUntraced(function* (
 	const path = yield* Path.Path
 	const location = path.join(root, "packages", directory)
 	const text = yield* fs.readFileString(path.join(location, "package.json"))
-	const manifest = yield* Schema.decodeEffect(Schema.fromJsonString(Manifest))(text).pipe(
-		Effect.mapError((cause) =>
-			BuildFailure.make({ detail: `packages/${directory}/package.json: ${cause.message}` })
-		)
-	)
+	const manifest = trustedJson<Manifest>(text)
 	const routes = yield* Effect.forEach(Rec.toEntries(manifest.imports), ([key, target]) =>
 		routeOf(manifest.name, key, target)
 	)
@@ -156,7 +148,7 @@ const targetOf = Effect.fnUntraced(function* (
 		Str.startsWith(candidate.prefix)(specifier)
 	)
 	if (Option.isNone(route)) {
-		return yield* BuildFailure.make({
+		return yield* new BuildFailure({
 			detail: `${pkg.name} dist/${file} imports ${specifier}, which no import of package.json takes`
 		})
 	}
@@ -166,7 +158,7 @@ const targetOf = Effect.fnUntraced(function* (
 	}
 	const module = `${route.value.directory}${Str.slice(0, -".ts".length)(rest)}`
 	if (!emitted.has(module)) {
-		return yield* BuildFailure.make({
+		return yield* new BuildFailure({
 			detail: `${pkg.name} dist/${file} imports ${specifier}, a module with no emitted file`
 		})
 	}
@@ -201,7 +193,7 @@ const rewrite = Effect.fnUntraced(function* (
 		""
 	)
 	if (leftover.test(rewritten)) {
-		return yield* BuildFailure.make({
+		return yield* new BuildFailure({
 			detail: `${pkg.name} dist/${file} keeps a specifier of its own the build did not rewrite`
 		})
 	}
@@ -220,7 +212,7 @@ const emitModules = Effect.fnUntraced(function* (pkg: Package) {
 			const stripped = yield* Effect.try({
 				try: () => transformSync(source, { mode: "strip-only" }).code,
 				catch: (cause) =>
-					BuildFailure.make({
+					new BuildFailure({
 						detail: `packages/${pkg.directory}/src/${file} is not erasable TypeScript: ${Inspectable.toStringUnknown(cause)}`
 					})
 			})
@@ -249,7 +241,7 @@ const relocateMap = Effect.fnUntraced(function* (
 		`"sources":["${posixPath(path, path.relative(path.dirname(from), source))}"]`
 	const before = sources(staged)
 	if (!Str.includes(before)(text)) {
-		return yield* BuildFailure.make({
+		return yield* new BuildFailure({
 			detail: `${pkg.name} dist/${module}.d.ts.map names no source ${before}`
 		})
 	}
@@ -285,7 +277,7 @@ const emitDeclarations = Effect.fnUntraced(function* (
 		})
 	)
 	if (exitCode !== 0) {
-		return yield* BuildFailure.make({ detail: `tsc -b ${project} exited with status ${exitCode}` })
+		return yield* new BuildFailure({ detail: `tsc -b ${project} exited with status ${exitCode}` })
 	}
 	yield* Effect.forEach(
 		packages,
@@ -295,7 +287,7 @@ const emitDeclarations = Effect.fnUntraced(function* (
 				Effect.map(fs.exists(path.join(pkg.types, `${module}.d.ts`)), (exists) => !exists)
 			)
 			if (Arr.isReadonlyArrayNonEmpty(absent)) {
-				return yield* BuildFailure.make({
+				return yield* new BuildFailure({
 					detail: `tsc emitted no declarations for ${Arr.join(
 						Arr.map(absent, (module) => `packages/${pkg.directory}/src/${module}.ts`),
 						", "

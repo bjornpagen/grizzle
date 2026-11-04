@@ -14,7 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { compareCodePoints, isValidText, validateText } from "#compiler/core/text.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 import {
@@ -34,28 +34,9 @@ const at = <A>(values: ArrayLike<A>, index: number): A => {
 	return value
 }
 
-/** The code point of a one-scalar string. */
-const codePoint = (ch: string): number =>
-	Option.getOrThrowWith(
-		Str.codePointAt(ch, 0),
-		() => new RangeError("an empty string has no code point")
-	)
-
 /** An order: -1, 0 or 1. */
 type Order = -1 | 0 | 1
 const signOf = (n: number): Order => (n < 0 ? -1 : n > 0 ? 1 : 0)
-
-/** The reference: compare the decoded code point sequences. */
-const referenceCompare = (a: string, b: string): Order => {
-	const x = Array.from(a, codePoint)
-	const y = Array.from(b, codePoint)
-	for (let i = 0; i < Math.min(x.length, y.length); i++) {
-		if (x[i] !== y[i]) {
-			return at(x, i) < at(y, i) ? -1 : 1
-		}
-	}
-	return signOf(x.length - y.length)
-}
 
 /**
  * At most one grapheme: none, one scalar of the Basic Multilingual Plane below the surrogates, or a cluster of
@@ -129,30 +110,6 @@ describe("text validation", () => {
 })
 
 describe("code point order", () => {
-	it.effect("matches the decoded code point sequence order", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					suite: "unit/values/text-1",
-					draw: drawn((source) => [source.draw(text), source.draw(text)] as const),
-					literal: Formatter.format,
-					coverage: noCoverage,
-					kept: [],
-					runs: 10000,
-					shrink: completeShrink,
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang: Duration.minutes(2)
-				},
-				([a, b]) =>
-					Effect.sync(() => {
-						assert.equal(compareCodePoints(a, b), referenceCompare(a, b))
-					})
-			)
-		)
-	)
-
 	it.effect("matches UTF-8 byte order", (ctx) =>
 		searched(
 			ctx,

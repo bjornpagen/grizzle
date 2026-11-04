@@ -74,7 +74,7 @@ const ledgerExists: CatalogQuery<boolean> = {
  */
 export const statementsFor = (schema: string): Result.Result<LedgerStatements, MigrateError> =>
 	Result.mapError(toResult(ledgerStatements(schema)), (error) =>
-		stopped(LedgerUncompiled.make({ schema, error }))
+		stopped(new LedgerUncompiled({ schema, error }))
 	)
 
 /**
@@ -102,7 +102,7 @@ const ledgerOfRows = (
 ): Result.Result<LedgerState, LedgerDamaged> =>
 	Result.mapError(
 		toResult(ledgerState(Arr.map(rows, ledgerRowOf), emptyFingerprint(schema))),
-		(error) => LedgerDamaged.make({ schema, error })
+		(error) => new LedgerDamaged({ schema, error })
 	)
 
 /** The two statements that read a schema's ledger: whether it exists, then its rows. */
@@ -130,7 +130,7 @@ export const ledgerOfAnswers = (
 	exists: ApartAnswer,
 	rows: ApartAnswer
 ): Result.Result<LedgerRead, LedgerUnread | LedgerDamaged> => {
-	const unread = (failure: StatementFailure) => Result.fail(LedgerUnread.make({ schema, failure }))
+	const unread = (failure: StatementFailure) => Result.fail(new LedgerUnread({ schema, failure }))
 	const present = apartRow(ledgerExists, exists)
 	if (Result.isFailure(present)) {
 		return unread(present.failure)

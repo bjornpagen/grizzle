@@ -389,7 +389,7 @@ layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
 							Effect.gen(function* () {
 								c.noteAll(caseFeatures(sc))
 								const fail = (message: string) =>
-									Effect.fail(PropertyFailed.make({ report: `${printSpanCase(sc)}\n${message}` }))
+									Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
 								for (const statement of spanInstallStatements(schema, sc)) {
 									yield* db.query(statement, [])
 								}

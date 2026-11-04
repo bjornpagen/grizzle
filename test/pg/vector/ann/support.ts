@@ -1,14 +1,15 @@
 import { int } from "@grizzle/testing/gen"
-import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
+import { floorSeed, rotatingSeed, type Stream } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
 import { runOfProcess } from "@grizzle/testing/vitest/run"
-import { Array as Arr, Effect, Option, pipe, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, pipe, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { indices } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { LogicalQuery, StatementSpec } from "#compiler/ir/products.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -238,16 +239,17 @@ export interface DocumentFact {
 
 export const sizes = { A: 2400, B: 400, C: 12 } as const
 
+/** One draw of a stream: the seed of a population's and its probes' vectors. */
+const drawOf = (stream: Stream): number =>
+	defined(sample(int(0, 2 ** 31 - 1), stream, 1)[0], "the stream's draw")
+
 /**
  * The run's draw of the population's and the probes' vectors: one value of the label's rotating stream under the run's
  * seed, the same in every process of one run and new in every run, never a fixed seed. The population's structure (the
  * account sizes, the revisions, the pending and repeated documents) is planted by index.
  */
 const runDraw = Effect.map(runOfProcess, (run) =>
-	defined(
-		sample(int(0, 2 ** 31 - 1), rotatingSeed(run.seed, floorSeed("pg/vector/ann/vectors")), 1)[0],
-		"the run's draw"
-	)
+	drawOf(rotatingSeed(run.seed, floorSeed("pg/vector/ann/vectors")))
 )
 
 const population = (draw: number): ReadonlyArray<DocumentFact> => {
@@ -396,17 +398,17 @@ export interface Fixture {
 	readonly opened: AnnOpened
 	readonly facts: ReadonlyArray<DocumentFact>
 	readonly table: (relation: string) => string
-	/** The query vector a test numbers `n`: distinct per number, drawn anew in every run with the population. */
+	/** The query vector a test numbers `n`: distinct per number, drawn with the population. */
 	readonly probe: (n: number) => ReadonlyArray<number>
 }
 
 /**
- * Installs the schema with the workload's HNSW index, loads the population, and analyzes the tables so plans are those
- * of the pinned sizes. The installation's first migration stores the fixed search policy as the defaults of the login
- * whose role names a vector (physical/ddl/roles.ts), so every search here runs under it. `opened` is the installed
- * schema with its full world and the layer of its login.
+ * Installs the schema with the workload's HNSW index, loads the population of `draw`, and analyzes the tables so plans
+ * are those of the pinned sizes. The installation's first migration stores the fixed search policy as the defaults of
+ * the login whose role names a vector (physical/ddl/roles.ts), so every search here runs under it. `opened` is the
+ * installed schema with its full world and the layer of its login.
  */
-export const installFixture = (programs: Readonly<Record<string, unknown>>) =>
+const installDrawn = (programs: Readonly<Record<string, unknown>>, draw: number) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const opened = yield* openAnn(programs)
@@ -415,7 +417,6 @@ export const installFixture = (programs: Readonly<Record<string, unknown>>) =>
 			const name = fixture.names.relation(relation)
 			return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 		}
-		const draw = yield* runDraw
 		const facts = population(draw)
 		const statements: Array<string> = []
 		for (const batch of chunks(facts, 500)) {
@@ -459,6 +460,17 @@ export const installFixture = (programs: Readonly<Record<string, unknown>>) =>
 		return { installed: fixture, opened, facts, table, probe: probeOf(draw) } satisfies Fixture
 	})
 
+/** The fixture over the run's population: new vectors in every run. */
+export const installFixture = (programs: Readonly<Record<string, unknown>>) =>
+	Effect.flatMap(runDraw, (draw) => installDrawn(programs, draw))
+
+/**
+ * The fixture over the population `label` alone fixes, the way a witness phase's stream is fixed: the same vectors and
+ * probes on every run seed, so a statistical verdict over it is the test source's, never the run's.
+ */
+export const installLabelled = (programs: Readonly<Record<string, unknown>>, label: string) =>
+	installDrawn(programs, drawOf(floorSeed(label)))
+
 export interface Compiled {
 	readonly logical: LogicalQuery
 	readonly program: OptimizedProgram
@@ -500,12 +512,9 @@ export const compile = (
 export const vectorParam = (components: ReadonlyArray<number>) =>
 	Vector.make(Float32Array.from(components), dimensions)
 
-const decodeTextRows = Schema.decodeUnknownEffect(Schema.Array(Schema.Array(Schema.String)))
-
-/** Rows of text columns from PostgreSQL, admitted as such: every statement here casts each result column to text. */
-export const textRows = (
-	rows: unknown
-): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>, Schema.SchemaError> => decodeTextRows(rows)
+/** Rows of text columns from PostgreSQL, trusted as such: every statement here casts each result column to text. */
+export const textRows = (rows: unknown): ReadonlyArray<ReadonlyArray<string>> =>
+	trusted<ReadonlyArray<ReadonlyArray<string>>>(rows)
 
 /**
  * The search policy the snapshot stores for `role`, as `parameter=value`: its role defaults, which Db.open's admission

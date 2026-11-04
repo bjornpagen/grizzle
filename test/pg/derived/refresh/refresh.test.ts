@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Layer, Result, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Layer, Result } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -193,7 +193,7 @@ const raisedOf = (outcome: Result.Result<unknown, unknown>): unknown => {
 		return outcome.success
 	}
 	const failure = outcome.failure
-	if (!Schema.is(ExecutionFailure)(failure)) {
+	if (!(failure instanceof ExecutionFailure)) {
 		return failure
 	}
 	const reason = failure.reason

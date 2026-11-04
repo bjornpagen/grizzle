@@ -99,13 +99,13 @@ export const expectSqlstate = <A, E, R>(
 		switch (outcome.kind) {
 			case "succeeded":
 				return Effect.fail(
-					ExpectationFailed.make({
+					new ExpectationFailed({
 						message: `expected SQLSTATE ${sqlstate}, but the statement succeeded${attemptNote(outcome.attempt)}`
 					})
 				)
 			case "not PostgreSQL's":
 				return Effect.fail(
-					ExpectationFailed.make({
+					new ExpectationFailed({
 						message: `expected SQLSTATE ${sqlstate}, but the failure is not a PostgreSQL error: ${describe(outcome.error)}${attemptNote(outcome.attempt)}`
 					})
 				)
@@ -113,7 +113,7 @@ export const expectSqlstate = <A, E, R>(
 				return outcome.fields.code === sqlstate
 					? Effect.succeed(outcome.fields)
 					: Effect.fail(
-							ExpectationFailed.make({
+							new ExpectationFailed({
 								message: `expected SQLSTATE ${sqlstate}, got ${describe(outcome.error)}${attemptNote(outcome.attempt)}`
 							})
 						)
@@ -130,27 +130,27 @@ export const expectConstraint = <A, E, R>(
 		switch (outcome.kind) {
 			case "succeeded":
 				return Effect.fail(
-					ExpectationFailed.make({
+					new ExpectationFailed({
 						message: `expected a violation of ${constraint}, but the statement succeeded${attemptNote(outcome.attempt)}`
 					})
 				)
 			case "not PostgreSQL's":
 				return Effect.fail(
-					ExpectationFailed.make({
+					new ExpectationFailed({
 						message: `expected a violation of ${constraint}, but the failure is not a PostgreSQL error: ${describe(outcome.error)}${attemptNote(outcome.attempt)}`
 					})
 				)
 			case "refused":
 				if (outcome.fields.code !== sqlstate) {
 					return Effect.fail(
-						ExpectationFailed.make({
+						new ExpectationFailed({
 							message: `expected SQLSTATE ${sqlstate} on ${constraint}, got ${describe(outcome.error)}${attemptNote(outcome.attempt)}`
 						})
 					)
 				}
 				if (outcome.fields.constraint !== constraint) {
 					return Effect.fail(
-						ExpectationFailed.make({
+						new ExpectationFailed({
 							message: `expected a violation of ${constraint}, got ${outcome.fields.constraint ?? "no constraint"}: ${describe(outcome.error)}${attemptNote(outcome.attempt)}`
 						})
 					)

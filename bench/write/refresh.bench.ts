@@ -1,11 +1,11 @@
 import {
 	Array as Arr,
 	Effect,
+	Formatter,
 	Option,
 	Order,
 	pipe,
 	Record as Rec,
-	Schema,
 	String as Str
 } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
@@ -16,7 +16,6 @@ import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	jsonText,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -30,9 +29,9 @@ import {
 import { fill, GateSetupError, settle } from "#bench/query/support/kit.ts"
 import {
 	baselineSchema,
-	decodeOne,
 	installWrites,
 	loadedByOwner,
+	oneRow,
 	openDb,
 	owner,
 	plainStatement,
@@ -42,6 +41,7 @@ import {
 	writePhases,
 	writerSession
 } from "#bench/write/support/writes.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -128,14 +128,10 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly samples: number
 }
 
-const CountRow = Schema.Tuple([Schema.FiniteFromString])
-const TextRow = Schema.Tuple([Schema.String])
-const FeeRow = Schema.Tuple([Schema.String, Schema.String])
-const ViewRows = Schema.Tuple([
-	Schema.FiniteFromString,
-	Schema.FiniteFromString,
-	Schema.FiniteFromString
-])
+type CountRow = readonly [count: string]
+type TextRow = readonly [text: string]
+type FeeRow = readonly [id: string, amount: string]
+type ViewRow = readonly [generated: string, hand: string, differing: string]
 
 /** A SERIALIZABLE transaction of one refresh statement, with its backend's WAL read around it. */
 const refreshTransaction = (sql: string): TransactionPlan => ({
@@ -188,7 +184,7 @@ export default defineGate({
 			const db = yield* openDb(fx, R.refreshers.roles.refresher)
 			const context = dbContext(db)
 			if (context === undefined) {
-				throw GateSetupError.make({ what: "the refresher's Db has no context" })
+				throw new GateSetupError({ what: "the refresher's Db has no context" })
 			}
 			/** db.refresh of `relations`, reporting the statements its one transaction ran. */
 			const refreshed = (relations: Arr.NonEmptyReadonlyArray<{ readonly name: string }>) =>
@@ -255,7 +251,7 @@ export default defineGate({
 						`SELECT pg_catalog.count(*)::text FROM ${view(rel)} AS v WHERE NOT EXISTS (SELECT 1 FROM pg_temp.${fx.relationName(rel)}_before AS b WHERE b.t = v.ctid AND b.x = v.xmin)`,
 						[]
 					),
-					(rows) => decodeOne(CountRow, rows)[0]
+					(rows) => Number(trusted<CountRow>(oneRow(rows))[0])
 				)
 			const rewritten = Effect.gen(function* () {
 				return {
@@ -282,7 +278,7 @@ export default defineGate({
 				`SELECT ${c("Fee", "id")}::text, ${c("Fee", "amount")}::text FROM ${fx.table("Fee")} WHERE ${c("Fee", "student")} = 1 ORDER BY ${c("Fee", "amount")} DESC, ${c("Fee", "id")} LIMIT 1`,
 				[]
 			)
-			const [topId, topAmount] = decodeOne(FeeRow, topFee)
+			const [topId, topAmount] = trusted<FeeRow>(oneRow(topFee))
 			yield* owner(
 				`UPDATE ${fx.table("Fee")} SET ${c("Fee", "amount")} = (${c("Fee", "amount")}::text || '0')::numeric WHERE ${c("Fee", "id")} = ${topId}`
 			)
@@ -300,7 +296,7 @@ export default defineGate({
 					(statement) => statement.relation === R.StudentWeekly.name
 				),
 				() =>
-					GateSetupError.make({
+					new GateSetupError({
 						what: "the second refresh of level 1 reports no statement for StudentWeekly"
 					})
 			)
@@ -327,7 +323,7 @@ export default defineGate({
 			const definitionOf = (qualified: string) =>
 				Effect.map(
 					s.admin.queryValues(`SELECT pg_catalog.pg_get_viewdef($1::regclass, true)`, [qualified]),
-					(rows) => pipe(decodeOne(TextRow, rows)[0], Str.replace(regex(";\\s*$"), ""))
+					(rows) => pipe(trusted<TextRow>(oneRow(rows))[0], Str.replace(regex(";\\s*$"), ""))
 				)
 			const generatedDefinition = yield* definitionOf(view("StudentWeekly"))
 			const captureOptions = { wal: true, serialize: { kind: "off" as const } }
@@ -340,7 +336,10 @@ export default defineGate({
 				`SELECT (SELECT pg_catalog.count(*) FROM ${view("StudentWeekly")})::text, (SELECT pg_catalog.count(*) FROM ${B}.student_weekly)::text, (SELECT pg_catalog.count(*) FROM (SELECT student, week, sittings, passes FROM ${B}.student_weekly EXCEPT SELECT ${c("StudentWeekly", "student")}, ${c("StudentWeekly", "week")}, ${c("StudentWeekly", "sittings")}, ${c("StudentWeekly", "passes")} FROM ${view("StudentWeekly")}) AS d)::text`,
 				[]
 			)
-			const [generatedCount, handCount, differing] = decodeOne(ViewRows, viewCounts)
+			const [generatedText, handText, differingText] = trusted<ViewRow>(oneRow(viewCounts))
+			const generatedCount = Number(generatedText)
+			const handCount = Number(handText)
+			const differing = Number(differingText)
 
 			const data = `${sittings} sittings of ${options.students} students over ${options.weeks} weeks; ${options.students * 2} fees`
 			const cases: Array<CaseRecord<"R40" | "refresh-lifetime">> = [
@@ -385,11 +384,11 @@ export default defineGate({
 					loads: {},
 					measures: {
 						unchangedRefreshMs: unchanged.ms,
-						unchangedRowsWritten: jsonText(unchangedRows),
+						unchangedRowsWritten: Formatter.format(unchangedRows),
 						smallChangeRefreshMs: smallChange.ms,
-						smallChangeRowsWritten: jsonText(smallChangeRows),
+						smallChangeRowsWritten: Formatter.format(smallChangeRows),
 						churnRefreshMs: churn.ms,
-						churnRowsWritten: jsonText(churnRows),
+						churnRowsWritten: Formatter.format(churnRows),
 						churnValue: `${topAmount} rewritten as ${topAmount}0`
 					}
 				},
@@ -429,19 +428,19 @@ export default defineGate({
 					mechanism(
 						"a refresh with no base change writes nothing",
 						allZero(unchangedRows),
-						jsonText(unchangedRows)
+						Formatter.format(unchangedRows)
 					),
 					mechanism(
 						"one new sitting of a student already in its week rewrites exactly its group's StudentWeekly row",
 						smallChangeRows.StudentWeekly === 1 &&
 							smallChangeRows.WeekBusy === 0 &&
 							smallChangeRows.TopFee === 0,
-						jsonText(smallChangeRows)
+						Formatter.format(smallChangeRows)
 					),
 					mechanism(
 						"an equal numeric with another spelling rewrites at most its one TopFee row (record-image churn)",
 						churnRows.TopFee <= 1 && churnRows.StudentWeekly === 0 && churnRows.WeekBusy === 0,
-						jsonText(churnRows)
+						Formatter.format(churnRows)
 					),
 					equivalence(
 						"the generated view holds exactly the hand-written view's rows",
@@ -452,7 +451,7 @@ export default defineGate({
 						"every replayed refresh committed",
 						Arr.every(replayed, (m) => m.outcome.kind === "committed"),
 						Arr.join(
-							Arr.map(replayed, (m) => jsonText(m.outcome)),
+							Arr.map(replayed, (m) => Formatter.format(m.outcome)),
 							", "
 						)
 					)

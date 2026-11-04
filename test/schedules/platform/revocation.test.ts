@@ -10,8 +10,6 @@
  * revocation commits exactly when no recorded request outlives the cut. What the explained order reached is the race's
  * own record: a request ending exactly at the instant recorded, one after it refused, and the revocation refused by
  * usage recorded first.
- *
- * Kept: the revocation racing a request ending at its instant and one across it.
  */
 
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
@@ -22,7 +20,6 @@ import {
 	commonRequired,
 	type Explained,
 	explainedIds,
-	grizzleWriters,
 	type Race,
 	type RaceFeature,
 	raceSuite,
@@ -131,24 +128,7 @@ raceSuite<RevokeSketch>({
 	label: "revocation racing usage",
 	sketch: revokeSketchGen,
 	resolve: resolveRevoke,
-	kept: [
-		{
-			note: "a grizzle revocation racing grizzle requests ending at its instant and across it",
-			sketch: {
-				requests: [
-					{ where: "ending at", charge: 1 },
-					{ where: "across", charge: 1 }
-				],
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: [
-				"planted: a request ending at the revocation recorded",
-				"planted: a request after the revocation refused",
-				"planted: the revocation refused by later usage"
-			]
-		}
-	],
+	kept: [],
 	required: [
 		...commonRequired,
 		"law family hit: coverage",

@@ -1,16 +1,8 @@
-import {
-	type Explored,
-	type Kept,
-	type Run,
-	type SearchFailure,
-	sketched
-} from "@grizzle/testing/explore"
+import { type Explored, type Run, type SearchFailure, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { Array as Arr, Duration, Effect, Formatter, type Scope, String as Str } from "effect"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { type CompletedOrder, conservativeMeta } from "#compiler/ir/rel.ts"
 import { optimizedShrink } from "#test/pg/oracle/optimized/suite.ts"
 import {
 	agrees,
@@ -21,10 +13,6 @@ import {
 } from "#test/pg/oracle/optimized/support.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
-import { int4 } from "#test/support/oracle/gen/domain.ts"
-import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
-import { normalQuery } from "#test/support/oracle/gen/query.ts"
-import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
 import {
 	closureRoot,
 	existsOverTakeRoot,
@@ -41,7 +29,6 @@ import { type MutantId, mutants } from "#test/support/oracle/mutants/mutants.ts"
 import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { Q } from "#test/unit/lower/conservative/fixtures.ts"
 
 /** The cases of a population's rotating stream: the mutant suite's kill population. */
 export const within = 500
@@ -52,89 +39,17 @@ type NonReproductionFeature = "mutant rewrote" | "mutant killed"
 export interface Population {
 	readonly id: MutantId
 	readonly gen: Gen<QueryCase>
-	/** The cases replayed before the population's streams: what it reaches too rarely to leave to it. */
-	readonly kept: ReadonlyArray<Kept<QueryCase, NonReproductionFeature>>
 }
 
-const int = (value: number): TypedLiteral => ({ kind: "int", value: BigInt(value) })
-
-/**
- * I7's counterexample, which its population's drawn cases kill a few times a run: R0(k, a) keyed by k, a repeating,
- * and the values of a among the first two values of a. Under the DISTINCT the bound keeps 1 and 2; without it, two
- * copies of 1 fill the bound and hide 2.
- */
-const firstTwoValues: QueryCase = (() => {
-	const r: GenRelation = {
-		name: "R0",
-		columns: [
-			{ name: "k", type: int4 },
-			{ name: "a", type: int4 }
-		],
-		primaryKey: ["k"],
-		keys: [],
-		mutable: false
-	}
-	const q = new Q()
-	const values = () =>
-		q.project(
-			q.base({ name: r.name, heading: r.columns, primaryKey: r.primaryKey }, conservativeMeta),
-			[["a", "a"]],
-			conservativeMeta
-		)
-	const order: CompletedOrder = { keys: [{ column: "a", dir: "asc" }] }
-	const firstTwo = q.take(values(), order, { kind: "literal", k: 2n }, [], conservativeMeta)
-	const root = q.semi(values(), firstTwo, [["a", "a"]])
-	const dag = normalQuery(q.b.build(Arr.of(root)))
-	return {
-		schema: { name: schemaName, relations: [r], closed: [], containments: [] },
-		facts: canonicalFacts({
-			R0: Arr.map(
-				[
-					[1, 1],
-					[2, 1],
-					[3, 2],
-					[4, 3]
-				],
-				(row) => Arr.map(row, int)
-			)
-		}),
-		query: { dag, params: {} },
-		spelling: { mode: "drawn", edge: false }
-	}
-})()
-
 export const populations: ReadonlyArray<Population> = [
-	{ id: "I1", gen: rootedCaseGen(projectRoot, defaultGenConfig), kept: [] },
-	{ id: "I2", gen: rootedCaseGen(fanoutJoinRoot, defaultGenConfig), kept: [] },
-	{ id: "I3", gen: noninjectiveKeyCaseGen, kept: [] },
-	{ id: "I4", gen: rootedCaseGen(groupRoot, defaultGenConfig), kept: [] },
-	{
-		id: "I5",
-		gen: rootedCaseGen(projectGroupRoot, defaultGenConfig),
-		kept: []
-	},
-	{
-		id: "I6",
-		gen: rootedCaseGen(untaggedUnionRoot, defaultGenConfig),
-		kept: []
-	},
-	{
-		id: "I7",
-		gen: rootedCaseGen(existsOverTakeRoot, defaultGenConfig),
-		kept: [
-			{
-				note: "the values of a among the first two values of a, 1 repeated",
-				sketch: firstTwoValues,
-				draws: "",
-				reaches: ["mutant rewrote", "mutant killed"]
-			}
-		]
-	},
-	{
-		id: "I8",
-		gen: rootedCaseGen(closureRoot(true), defaultGenConfig),
-		kept: []
-	}
+	{ id: "I1", gen: rootedCaseGen(projectRoot, defaultGenConfig) },
+	{ id: "I2", gen: rootedCaseGen(fanoutJoinRoot, defaultGenConfig) },
+	{ id: "I3", gen: noninjectiveKeyCaseGen },
+	{ id: "I4", gen: rootedCaseGen(groupRoot, defaultGenConfig) },
+	{ id: "I5", gen: rootedCaseGen(projectGroupRoot, defaultGenConfig) },
+	{ id: "I6", gen: rootedCaseGen(untaggedUnionRoot, defaultGenConfig) },
+	{ id: "I7", gen: rootedCaseGen(existsOverTakeRoot, defaultGenConfig) },
+	{ id: "I8", gen: rootedCaseGen(closureRoot(true), defaultGenConfig) }
 ]
 
 /**
@@ -173,7 +88,7 @@ export const nonReproduction = (
 					cases: within,
 					sense: notesOnly
 				}),
-				kept: population.kept,
+				kept: [],
 				runs: within,
 				shrink: optimizedShrink,
 				caseHang: Duration.minutes(2),
@@ -184,7 +99,7 @@ export const nonReproduction = (
 					const c = k.draw(resolved)
 					const sites = mutationSites(mutant, c)
 					if (sites.kind === "refused") {
-						return yield* PropertyFailed.make({
+						return yield* new PropertyFailed({
 							report: `mutant ${mutant.id} refused at ${sites.stage}: ${sites.message}`
 						})
 					}
@@ -200,7 +115,7 @@ export const nonReproduction = (
 						}
 					}
 					if (!baselineIsSet(o) || !agrees(o)) {
-						return yield* PropertyFailed.make({
+						return yield* new PropertyFailed({
 							report: `the optimized lowering reproduces ${mutant.id}'s counterexample\n${printDifferential(o)}`
 						})
 					}

@@ -1,26 +1,27 @@
-/**
- * The growing-schema generator, one type test of inference at scale. It writes one
- * TypeScript program over the declare-only skeleton with `relations` relations, and for each relation the shapes the
- * seven statement readers see: candidate keys, containments, mutability, a parameterized query with an
- * attachment, a keyed lookup, a grouped aggregate, a ChangeSet with a read-back, and reads and applies through Db.
- *
- * The program also asserts what is inferred, at the first relation and at the last, so it fails at any size where
- * inference widens rather than only where it stops typechecking: exact parameters, heads, evidence,
- * keys and contract hosts, and refusals that must keep firing. Each refusal carries a `@ts-expect-error -- TSnnnn`
- * directive, which the harness checks the way it checks the fixtures.
- *
- * The relation count whose refusals the type-test batch checks.
- */
 import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { BudgetEntries } from "#test/types/query/budget/generate.ts"
+
+/**
+ * The growing-schema ChangeSet program, one type test of write inference at scale. It writes one TypeScript program
+ * over the public barrels with `relations` relations, each with a contract column, and for each relation a ChangeSet
+ * with a read-back applied through Db, beside the queries it writes from. The query shapes at scale are the
+ * growing-schema query program's (test/types/query/budget/generate.ts); this one holds what it lacks.
+ *
+ * The program asserts what is inferred at the first relation and at the last, so it fails at any size where inference
+ * widens rather than only where it stops typechecking: a contract host through a query head, candidate keys, the
+ * relations a ChangeSet writes, and refusals that must keep firing. Each refusal carries a
+ * `@ts-expect-error -- TSnnnn` directive, which the harness checks the way it checks the fixtures.
+ *
+ * The relation count whose refusals the type-test batch checks.
+ */
 export const largestSkeletonSize = 200
 
 const relationDeclaration = (i: number): string =>
 	`export const R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: Cents, label: Label, kind: closedId(Kind), qty: pg.integer }, ["id"])\n`
 
-/** One relation's queries, ChangeSet and database calls. */
+/** One relation's queries, ChangeSet and apply. */
 const relationBlock = (i: number, relations: number): string => {
 	const child = (i + 1) % relations
 	return `
@@ -31,34 +32,17 @@ export const byParent${i} = query(S).rule((r) => {
 	const { id } = v(R${child}, "r${child}")
 	return r.match(R${child}, { id, parent: p.id }).find({ id })
 }), "array")
-export const byId${i} = query(S).rule((r) => {
-	const { amount, label } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id: r.param("id", uuid), amount, label }).find({ amount, label })
-})
-export const total${i} = query(S).rule((r) => {
-	const { id, kind, qty } = v(R${i}, "r${i}")
-	return r.match(R${i}, { id, kind, qty }).find({ kind, total: r.sum(qty), n: r.count() })
-})
 export const owned${i} = query(S).rule((r) => {
 	const { id, parent, kind } = v(R${i}, "r${i}")
 	return r.match(R${i}, { id, parent, kind }).find({ id, parent, kind })
-}).attach("owner", (p) => query(S).rule((r) => {
-	const { label } = v(R${(i + relations - 1) % relations}, "r${(i + relations - 1) % relations}")
-	return r.match(R${(i + relations - 1) % relations}, { id: p.parent, label }).find({ label })
-}), ${i > 0 ? '"one"' : '"option"'}).attach("handle", (p) => query(S).rule((r) => r.match(Kind, { id: p.kind }).find({ handle: p.kind })), "one")
+})
 export const change${i} = ChangeSet.empty(S)
 	.insert(R${i}, [{ id: "00000000-0000-4000-8000-000000000001", parent: "00000000-0000-4000-8000-000000000002", amount: Cents(1n), label: "abc", kind: "A", qty: 1 }])
 	.read("added", (d) => query(S).rule((r) => {
 		const { id } = v(d.added(R${i}), "addedR${i}")
 		return r.match(d.added(R${i}), { id }).find({ id })
 	}))
-export const run${i} = [
-	db.get(byId${i}, { id: "00000000-0000-4000-8000-000000000001" }),
-	db.get(R${i}, { id: "00000000-0000-4000-8000-000000000001" }),
-	db.execute(byParent${i}, { parent: "00000000-0000-4000-8000-000000000002" }),
-	db.execute(total${i}.orderBy(["kind", "asc"]).take(1), {}),
-	db.apply(change${i}, {})
-] as const
+export const run${i} = db.apply(change${i}, {})
 `
 }
 
@@ -87,13 +71,12 @@ const statements = (relations: number): string => {
 }
 
 /**
- * Exact assertions over relation i: parameters, heads (an attachment's array, Option and bare shapes included),
- * evidence, keys and the contract host; and refusals that widened inference would let through.
+ * Exact assertions over relation i: the contract host in a query head, keys and the relations a ChangeSet writes; and
+ * refusals that widened inference would let through.
  */
 const assertions = (i: number, relations: number): string => {
 	const owner = (i + relations - 1) % relations
 	return `
-export type Params${i} = Expect<Equals<ParamsOf<typeof byParent${i}>, { readonly parent: ParamType<Uuid, "uuid"> }>>
 export type Head${i} = Expect<
 	Equals<
 		HeadOf<typeof byParent${i}>,
@@ -105,32 +88,11 @@ export type Head${i} = Expect<
 		}
 	>
 >
-export type Total${i} = Expect<
-	Equals<HeadOf<typeof total${i}>, { readonly kind: "A" | "B" | "C"; readonly total: bigint; readonly n: bigint }>
->
-export type ById${i} = Expect<Equals<EvidenceOfQuery<typeof byId${i}>["card"], "atMostOne">>
-export type ByParentCard${i} = Expect<Equals<EvidenceOfQuery<typeof byParent${i}>["card"], "many">>
-export type Owned${i} = Expect<
-	Equals<
-		HeadOf<typeof owned${i}>,
-		{
-			readonly id: Uuid
-			readonly parent: Uuid
-			readonly kind: "A" | "B" | "C"
-			readonly owner: ${i > 0 ? "{ readonly label: string }" : "Option.Option<{ readonly label: string }>"}
-			readonly handle: { readonly handle: "A" | "B" | "C" }
-		}
-	>
->
 export type Keys${i} = Expect<Equals<KeysOf<typeof S, typeof R${i}>, ${i % 5 === 0 ? 'readonly ["id"] | readonly ["label"]' : 'readonly ["id"]'}>>
 export type Amount${i} = Expect<Equals<Fact<typeof R${i}>["amount"], bigint & Brand.Brand<"Cents">>>
 export type ChangeWrites${i} = Expect<Equals<WritesOf<typeof change${i}>, "R${i}">>
 // @ts-expect-error -- TS2345 refusal: a ChangeSet writes only relations its role's write list names
 export const readerApply${i} = reader.apply(change${i}, {})
-// @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-export const manyGet${i} = db.get(byParent${i}, { parent: "00000000-0000-4000-8000-000000000002" })
-// @ts-expect-error -- TS2322: the parameters are the ones the query's uses inferred
-export const wrongParams${i} = db.execute(byParent${i}, { parent: 1 })
 // @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
 export const wrongMember${i} = ChangeSet.empty(S).insert(R${owner}, owned${i})
 `
@@ -159,14 +121,14 @@ export const generateSchemaSource = (relations: number, entries: BudgetEntries):
 		""
 	)
 	return `// Generated by test/types/skeleton/budget/generate.ts with ${relations} relations.
-import type { Brand, Option } from "effect"
+import type { Brand } from "effect"
 import type { WritesOf } from ${jsonText(entries.changesetTypes)}
 import type { DbOf } from ${jsonText(entries.db)}
 import { closed, contained, type Fact, key, type KeysOf, mutable, on, relation, role, schema } from ${jsonText(entries.schema)}
 import { ChangeSet } from ${jsonText(entries.changeset)}
 import { closedId, contract, pg, type Uuid, uuid } from ${jsonText(entries.fields)}
 import { str } from ${jsonText(entries.text)}
-import { type EvidenceOfQuery, type HeadOf, type ParamsOf, type ParamType, query, v } from ${jsonText(entries.query)}
+import { type HeadOf, query, v } from ${jsonText(entries.query)}
 
 type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false
 type Expect<T extends true> = T

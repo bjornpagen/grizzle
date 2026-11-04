@@ -18,7 +18,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("the largest generated 
 layer(NodeServices.layer, { excludeTestServices: true })("declare-only type skeleton", (it) => {
 	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
 		Effect.gen(function* () {
-			assert.equal((yield* checked("skeleton/fixtures")).output, "")
+			const diagnostics = yield* checked("skeleton/fixtures")
+			assert.equal(diagnostics.output, "")
 		})
 	)
 

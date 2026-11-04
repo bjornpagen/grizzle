@@ -1,4 +1,4 @@
-import { Array as Arr, Formatter, Result, Schema } from "effect"
+import { Array as Arr, Data, Formatter, Result } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { VectorText } from "#compiler/ir/carriers.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -124,12 +124,9 @@ export const valueAt = (row: Row, i: number): Value => {
  * partial operation stands with its proof, so an operation met where its precondition fails is a defect, thrown
  * (outcomeOf).
  */
-export class ReferenceUnsupported extends Schema.TaggedError<
-	ReferenceUnsupported,
-	{ readonly brand: unique symbol }
->()("ReferenceUnsupported", {
-	refusal: Schema.Struct({ kind: Schema.Literal("unsupported"), what: Schema.String })
-}) {
+export class ReferenceUnsupported extends Data.TaggedError("ReferenceUnsupported")<{
+	readonly refusal: { readonly kind: "unsupported"; readonly what: string }
+}> {
 	override get message(): string {
 		return `the reference evaluator does not evaluate ${this.refusal.what}`
 	}
@@ -137,7 +134,7 @@ export class ReferenceUnsupported extends Schema.TaggedError<
 
 /** The refusal of a construct outside the fragment the reference evaluates, naming what it lacks. */
 export const referenceUnsupported = (what: string): ReferenceUnsupported =>
-	ReferenceUnsupported.make({ refusal: { kind: "unsupported", what } })
+	new ReferenceUnsupported({ refusal: { kind: "unsupported", what } })
 
 /**
  * The value a column of `type` holds for `v`: numeric typmod coercion; every other carrier holds the value unchanged,

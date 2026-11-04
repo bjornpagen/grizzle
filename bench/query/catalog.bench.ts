@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Result, Schema } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { findNodes, type PlanNode } from "#bench/harness/explain.ts"
 import {
 	type CaseRecord,
@@ -74,6 +74,7 @@ import {
 	scansOf
 } from "#bench/query/support/plans.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import type { Expr, FunctionCall, WindowSpec } from "#compiler/sql/ast.ts"
@@ -156,8 +157,6 @@ const callsOf = (statement: OptimizedStatement): ReadonlyArray<FunctionCall> => 
 
 /** An expression with its casts seen through. */
 const uncast = (e: Expr): Expr => (e.kind === "cast" ? uncast(e.expr) : e)
-
-const decodeOneText = Schema.decodeUnknownResult(Schema.Array(Schema.Tuple([Schema.String])))
 
 /** @internal */
 export default defineGate({
@@ -317,7 +316,7 @@ export default defineGate({
 			})
 			const [firstConditional, ...moreConditional] = conditionalChecks
 			if (firstConditional === undefined) {
-				throw GateSetupError.make({ what: "R24 judged no threshold" })
+				throw new GateSetupError({ what: "R24 judged no threshold" })
 			}
 			const r24: VerdictInput = { checks: [firstConditional, ...moreConditional] }
 
@@ -351,7 +350,7 @@ export default defineGate({
 			const single = Arr.filter(runningRows, (r) => r[studentAt] === "1")
 			const zeroAbove = Arr.filter(runningRows, (r) => r[aboveAt] === "0").length
 			if (zeroAbove === 0) {
-				throw GateSetupError.make({
+				throw new GateSetupError({
 					what: "no running conditional count is zero: no row precedes a qualifying one"
 				})
 			}
@@ -615,17 +614,13 @@ export default defineGate({
 				`SELECT count(*)::text FROM (SELECT ${r("room")} FROM ${S} GROUP BY ${r("room")} HAVING count(*) = 100) AS full_rooms`,
 				[]
 			)
-			const decodedRooms = decodeOneText(roomRows)
-			if (Result.isFailure(decodedRooms)) {
-				throw GateSetupError.make({ what: `the full rooms: ${decodedRooms.failure.message}` })
-			}
-			const [fullRoomsRow] = decodedRooms.success
+			const [fullRoomsRow] = trusted<ReadonlyArray<readonly [count: string]>>(roomRows)
 			if (fullRoomsRow === undefined) {
-				throw GateSetupError.make({ what: "no count of the full rooms" })
+				throw new GateSetupError({ what: "no count of the full rooms" })
 			}
 			const fullRooms = Number(fullRoomsRow[0])
 			if (fullRooms === 0) {
-				throw GateSetupError.make({ what: "the fixture has no room of 100 sittings" })
+				throw new GateSetupError({ what: "the fixture has no room of 100 sittings" })
 			}
 			const cont = compile(fx, continuousMedian, reading)
 			const contM = yield* measureQuery(runtime, raw, cont, {}, measure)

@@ -60,8 +60,9 @@ export const installVariant = <P>(
 	p: P,
 	ambient: AmbientSession
 ): Effect.Effect<Installed, CaseFailed, Scope.Scope | Substrate> =>
-	Effect.mapError(installFamily(family, p, ambient), (e) =>
-		CaseFailed.make({ report: `${family.describe(p)} did not install: ${messageOf(e)}` })
+	Effect.mapError(
+		installFamily(family, p, ambient),
+		(e) => new CaseFailed({ report: `${family.describe(p)} did not install: ${messageOf(e)}` })
 	)
 
 /**
@@ -397,10 +398,12 @@ export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): 
 								const installed = elementAt(installs, k.variant, "the family's installations")
 								yield* Effect.scoped(
 									Effect.flatMap(
-										Effect.mapError(family.connect(p, installed), (e) =>
-											CaseFailed.make({
-												report: `${family.describe(p)} did not connect: ${messageOf(e)}`
-											})
+										Effect.mapError(
+											family.connect(p, installed),
+											(e) =>
+												new CaseFailed({
+													report: `${family.describe(p)} did not connect: ${messageOf(e)}`
+												})
 										),
 										(session) => runSteps(session, family.domains, k.steps, note)
 									)

@@ -243,7 +243,7 @@ const headingNames = (heading: ReadonlyArray<{ readonly name: string }>): Readon
 const idsOf = (rows: ReadonlyArray<unknown>): ReadonlyArray<string> =>
 	Arr.map(rows, (row) => {
 		if (!Predicate.hasProperty(row, "id") || typeof row.id !== "bigint") {
-			throw GateSetupError.make({ what: "a delivered row without its bigint id" })
+			throw new GateSetupError({ what: "a delivered row without its bigint id" })
 		}
 		return String(row.id)
 	})
@@ -531,7 +531,7 @@ export default defineGate({
 			const [parentSent, ...children] = sent
 			const [childSent] = children
 			if (childSent === undefined) {
-				throw GateSetupError.make({ what: "the shared attachments sent no child statement" })
+				throw new GateSetupError({ what: "the shared attachments sent no child statement" })
 			}
 			/** The shared form: the parent and one attachment statement, whose rows feed both attachments. */
 			const once = yield* measureVariant(

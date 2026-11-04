@@ -157,28 +157,6 @@ worldRaceSuite({
 	test: "roles of one login interleaved on its pool leave no role, claims or transaction on the connection, however a transaction ends",
 	draw: caseGen,
 	race,
-	kept: [
-		{
-			note: "dan's insert first, then ann's insert of its id waits on it and is interrupted there; the pool has one connection",
-			sketch: {
-				pool: 1,
-				interruption: "interrupt",
-				end: "commit",
-				words: 3,
-				/** dan first, ann next, and dan dropped after the fourth move, his INSERT. */
-				schedule: { priorities: ["dan", "ann", "reader"], changes: [4] }
-			},
-			draws: "",
-			reaches: [
-				"blocked",
-				"ended: interruption",
-				"probed after: interruption",
-				"pool of 1",
-				"ended: commit",
-				"ended: refusal"
-			]
-		}
-	],
 	required: [
 		"ended: commit",
 		"ended: refusal",

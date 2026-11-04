@@ -3,18 +3,19 @@ import {
 	Array as Arr,
 	Config,
 	ConfigProvider,
+	Data,
 	DateTime,
 	Effect,
 	FileSystem,
 	Inspectable,
 	Option,
 	Record as Rec,
-	Schema,
 	type Scope,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 import { regex } from "arkregex"
@@ -37,15 +38,14 @@ export const repoRoot: string = Str.slice(
 )(decodeURIComponent(new URL("../../", import.meta.url).pathname))
 
 /** Why a part of the identity could not be read: a file, git, or the machine did not answer. */
-export class IdentityUnreadable extends Schema.TaggedError<
-	IdentityUnreadable,
-	{ readonly brand: unique symbol }
->()("IdentityUnreadable", { detail: Schema.String }) {}
+export class IdentityUnreadable extends Data.TaggedError("IdentityUnreadable")<{
+	readonly detail: string
+}> {}
 
 const unreadable =
 	(detail: string) =>
 	(cause: unknown): IdentityUnreadable =>
-		IdentityUnreadable.make({ detail: `${detail}: ${Inspectable.toStringUnknown(cause)}` })
+		new IdentityUnreadable({ detail: `${detail}: ${Inspectable.toStringUnknown(cause)}` })
 
 /** The record format; a reader refuses a record of another format. */
 const benchFormat = "grizzle-bench/1"
@@ -110,7 +110,7 @@ export interface BenchIdentity {
 	readonly options: Readonly<Record<string, unknown>>
 }
 
-const pinValue = (key: string): Config.Config<string> => Config.schema(Schema.NonEmptyString, key)
+const pinValue = (key: string): Config.Config<string> => Config.NonEmptyString(key)
 
 const pinConfig = Config.all({
 	tag: pinValue("PG_PIN_TAG"),
@@ -175,9 +175,9 @@ export const sourceIdentity: Effect.Effect<
 const pinnedPackages = ["effect", "pg", "typescript", "@effect/tsgo"] as const
 
 /** A package manifest, read from disk; only its version is read. */
-const decodeManifest = Schema.decodeEffect(
-	Schema.fromJsonString(Schema.Struct({ version: Schema.String }))
-)
+interface Manifest {
+	readonly version: string
+}
 
 /**
  * The installed version of each pinned package.
@@ -192,11 +192,8 @@ export const packageVersions: Effect.Effect<
 	const fs = yield* FileSystem.FileSystem
 	const versions = yield* Effect.forEach(pinnedPackages, (name) =>
 		Effect.map(
-			Effect.flatMap(
-				fs.readFileString(`${repoRoot}/node_modules/${name}/package.json`),
-				decodeManifest
-			),
-			(manifest) => [name, manifest.version] as const
+			fs.readFileString(`${repoRoot}/node_modules/${name}/package.json`),
+			(text): readonly [string, string] => [name, trustedJson<Manifest>(text).version]
 		)
 	)
 	return Rec.fromEntries(versions)
@@ -209,7 +206,7 @@ const runtimeIdentity: Effect.Effect<RuntimeIdentity, IdentityUnreadable> = Effe
 	Option.match(Arr.head(cpus()), {
 		onNone: () =>
 			Effect.fail(
-				IdentityUnreadable.make({ detail: "the machine reports no CPU to identify the run by" })
+				new IdentityUnreadable({ detail: "the machine reports no CPU to identify the run by" })
 			),
 		onSome: (cpu) =>
 			Effect.succeed({

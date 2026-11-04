@@ -1,5 +1,5 @@
 import { type Equivalence, multiset, ordered } from "@grizzle/testing/oracle"
-import { Array as Arr, Option, Record as Rec, Result, Schema } from "effect"
+import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -182,7 +182,7 @@ export const agrees = (c: QueryCase, rewritten: LogicalQuery): RewriteAgreement 
 		catch: (thrown): unknown => thrown
 	})
 	if (Result.isFailure(evaluated)) {
-		if (Schema.is(ReferenceUnsupported)(evaluated.failure)) {
+		if (evaluated.failure instanceof ReferenceUnsupported) {
 			return "unsupported"
 		}
 		throw evaluated.failure

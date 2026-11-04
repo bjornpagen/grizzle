@@ -230,7 +230,7 @@ const unconditionedLoops = (plan: PlanNode): number =>
 	Arr.filter(findNodes(plan, "Nested Loop"), (loop) => {
 		const [outer, inner] = loop.children
 		if (outer === undefined || inner === undefined) {
-			throw GateSetupError.make({ what: "a nested loop with one input" })
+			throw new GateSetupError({ what: "a nested loop with one input" })
 		}
 		if (loop.joinFilter.kind === "filter") {
 			return false
@@ -445,7 +445,7 @@ export default defineGate({
 			const longDelivered = yield* deliver(runtime, long, "optimized", { start }, transportLimits)
 			const [longStatement] = longDelivered.statements
 			if (longDelivered.statements.length !== 1) {
-				throw GateSetupError.make({
+				throw new GateSetupError({
 					what: `the 12-edge path sent ${longDelivered.statements.length} statements, not one`
 				})
 			}
@@ -458,7 +458,7 @@ export default defineGate({
 			const longLoops = unconditionedLoops(longRun.explained.plan)
 			const handLoops = unconditionedLoops(longHand.explained.plan)
 			if (handLoops !== 0) {
-				throw GateSetupError.make({
+				throw new GateSetupError({
 					what: `the loop check finds ${handLoops} unconditioned loops in the handwritten JOIN chain\n${outline(longHand.explained.plan, 0)}`
 				})
 			}

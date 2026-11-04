@@ -5,7 +5,7 @@ import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -193,7 +193,7 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 								let attempts = 0
 								const password = Effect.suspend(() => {
 									attempts++
-									return Effect.fail(CredentialError.make({ cause: "no connection is expected" }))
+									return Effect.fail(new CredentialError({ cause: "no connection is expected" }))
 								})
 								const layer = DbLayer.make({
 									login: world.server,
@@ -211,7 +211,7 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 								const error = yield* Effect.flip(
 									Effect.scoped(Db.open(world.server.roles.app, {})).pipe(withLayer(layer))
 								)
-								assert.ok(Schema.is(OpenError)(error), String(error))
+								assert.ok(error instanceof OpenError, String(error))
 								assert.equal(error.stage, "schema")
 								assert.equal(attempts, 0, "no connection is attempted")
 								if (collision) {

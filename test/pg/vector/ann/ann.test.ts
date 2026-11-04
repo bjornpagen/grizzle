@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Option, Order } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { hnswPolicy, hnswSearchSettings } from "#compiler/check/approximate/policy.ts"
 import { subtree } from "#compiler/check/approximate/trace.ts"
@@ -36,6 +36,7 @@ import {
 	duplicatePair,
 	type Fixture,
 	installFixture,
+	installLabelled,
 	repeated,
 	scoredDocuments,
 	shared,
@@ -56,7 +57,6 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
-import { jsonText } from "#test/support/json.ts"
 import { namesOf, parsedSchemaName, wild } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -78,7 +78,7 @@ const isApproximate = (dag: RelDag): boolean =>
 
 const run = (session: RawSession, c: Compiled, params: Readonly<Record<string, unknown>>) => {
 	const spec = defined(c.specs[0], "statement 0")
-	return Effect.flatMap(session.values(spec.sql, paramTexts(spec, params)), textRows)
+	return Effect.map(session.values(spec.sql, paramTexts(spec, params)), textRows)
 }
 
 /**
@@ -106,7 +106,7 @@ const exactScores = (
 	account: string,
 	vector: ReadonlyArray<number>
 ) =>
-	Effect.flatMap(
+	Effect.map(
 		session.values(
 			`SELECT e."document"::text, e."revision"::text, vector_ext.cosine_distance(e."value", $1::text::vector_ext.vector)::text
 			 FROM ${fx.table("DocumentEmbedding")} AS e
@@ -129,7 +129,7 @@ const exactDistinct = (
 	account: string,
 	vector: ReadonlyArray<number>
 ) =>
-	Effect.flatMap(
+	Effect.map(
 		session.values(
 			`SELECT q."document"::text, q."distance"::text FROM (
 				SELECT DISTINCT e."document", vector_ext.cosine_distance(e."value", $1::text::vector_ext.vector) AS "distance"
@@ -262,12 +262,12 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 	)
 
 	it.effect(
-		"the fixed search policy fills a filtered request that the default HNSW search underfills",
+		"the fixed search policy fills a filtered request that the default HNSW search underfills, over a label-fixed population",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const fx = yield* installFixture({ candidates })
+					const fx = yield* installLabelled({ candidates }, "pg/vector/ann/policy")
 					const session = yield* searcher(fx)
 					const c = compile(candidates, fx.installed, "query")
 					const eligible = Arr.filter(
@@ -292,7 +292,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 								const params = { account: accountB, vector: vectorParam(fx.probe(seed)) }
 								/** The premise: the account filter is applied to rows the HNSW index scan produces. */
 								const p = yield* plan(session, c, params)
-								assert.equal(readsHnsw(fx, p.indexes), true, jsonText(p))
+								assert.equal(readsHnsw(fx, p.indexes), true, Formatter.format(p))
 								/** Under the policy, strict iterative scans keep exploring until the request is filled. */
 								const filled = yield* run(session, c, params)
 								assert.equal(filled.length, 20, `seed ${seed} under the policy`)
@@ -301,9 +301,8 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 								yield* session.values(`RESET hnsw.iterative_scan`, [])
 								assert.ok(underfilled.length < 20, `seed ${seed} under the default search`)
 								const keys = new Set(Arr.map(filled, (r) => `${r[1]}/${r[2]}`))
-								const exact = new Set(
-									Arr.map(yield* exactScores(session, fx, accountB, fx.probe(seed)), key)
-								)
+								const scored = yield* exactScores(session, fx, accountB, fx.probe(seed))
+								const exact = new Set(Arr.map(scored, key))
 								for (const r of underfilled) {
 									assert.equal(exact.has(`${r[1]}/${r[2]}`), true)
 								}
@@ -333,7 +332,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					const directPlan = yield* plan(session, direct, { vector })
 					lacks(directPlan.nodes, "Unique")
 					lacks(directPlan.nodes, "HashAggregate")
-					assert.equal(hnsw(directPlan.indexes), true, jsonText(directPlan))
+					assert.equal(hnsw(directPlan.indexes), true, Formatter.format(directPlan))
 
 					/**
 					 * The example's candidates: (document, revision) retained through the current-revision match, no DISTINCT.
@@ -346,7 +345,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					assert.equal(has(shapeOf(flight(keyed.program.roots)[0].ast), "distinct"), false)
 					const keyedPlan = yield* plan(session, keyed, { account: accountA, vector })
 					lacks(keyedPlan.nodes, "Unique")
-					assert.equal(hnsw(keyedPlan.indexes), true, jsonText(keyedPlan))
+					assert.equal(hnsw(keyedPlan.indexes), true, Formatter.format(keyedPlan))
 
 					/** Every revision, the revision projected away: multiplicity resolved before top-k. */
 					const fanout = compile(anyRevision, fx.installed, "query")
@@ -357,7 +356,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					assert.ok(has(shapeOf(flight(fanout.program.roots)[0].ast), "distinct"))
 					const fanoutPlan = yield* plan(session, fanout, { account: accountA, vector })
 					contains(fanoutPlan.nodes, "Unique")
-					assert.equal(hnsw(fanoutPlan.indexes), true, jsonText(fanoutPlan))
+					assert.equal(hnsw(fanoutPlan.indexes), true, Formatter.format(fanoutPlan))
 
 					const repeating: Arr.NonEmptyReadonlyArray<Account> = [
 						[accountA, "A"],
@@ -424,10 +423,10 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 	)
 
 	it.effect(
-		"recall against the exact baseline is recorded, ties and duplicates under different keys are distinct facts",
+		"recall against the exact baseline holds its floor over a label-fixed population, ties and duplicates under different keys are distinct facts",
 		(ctx) =>
 			Effect.gen(function* () {
-				const fx = yield* installFixture({ candidates })
+				const fx = yield* installLabelled({ candidates }, "pg/vector/ann/recall")
 				const session = yield* searcher(fx)
 				const c = compile(candidates, fx.installed, "query")
 				const recalls: Array<string> = []
@@ -508,14 +507,12 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 								const vector = fx.probe(seed)
 								const params = { account: accountB, vector: vectorParam(vector) }
 								const p = yield* plan(session, c, params)
-								assert.equal(readsHnsw(fx, p.indexes), true, jsonText(p))
+								assert.equal(readsHnsw(fx, p.indexes), true, Formatter.format(p))
 								const rows = yield* run(session, c, params)
+								const scored = yield* exactScores(session, fx, accountB, vector)
 								const exact = new Map(
 									Arr.map(
-										Arr.filter(
-											yield* exactScores(session, fx, accountB, vector),
-											(r) => r[0] === undefined || !gamma.has(r[0])
-										),
+										Arr.filter(scored, (r) => r[0] === undefined || !gamma.has(r[0])),
 										(r) => [key(r), r[2]]
 									)
 								)
@@ -548,7 +545,8 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 				const c = compile(candidates, fx.installed, "query")
 				const vector = fx.probe(31)
 				const params = { account: accountB, vector: vectorParam(vector) }
-				const before = Arr.map(yield* run(session, c, params), asTriple)
+				const nearest = yield* run(session, c, params)
+				const before = Arr.map(nearest, asTriple)
 				assert.equal(before.length, 20)
 				yield* Effect.forEach(["DocumentEmbedding", "DocumentCurrent"], (r) =>
 					s.admin.query(`ALTER TABLE ${fx.table(r)} SET (autovacuum_enabled = false)`, [])
@@ -581,11 +579,11 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					)
 				}
 				const p = yield* plan(session, c, params)
-				assert.equal(readsHnsw(fx, p.indexes), true, jsonText(p))
-				const after = Arr.map(yield* run(session, c, params), asTriple)
-				const exact = new Map(
-					Arr.map(yield* exactScores(session, fx, accountB, vector), (r) => [key(r), r[2]])
-				)
+				assert.equal(readsHnsw(fx, p.indexes), true, Formatter.format(p))
+				const searchedAgain = yield* run(session, c, params)
+				const after = Arr.map(searchedAgain, asTriple)
+				const scored = yield* exactScores(session, fx, accountB, vector)
+				const exact = new Map(Arr.map(scored, (r) => [key(r), r[2]]))
 				const gone = new Set(Arr.map(removed, ([document]) => document))
 				const moved = new Set(Arr.map(superseded, ([document]) => document))
 				for (const [document, revision, distance] of after) {

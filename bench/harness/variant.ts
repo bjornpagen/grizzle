@@ -1,5 +1,5 @@
 import { by, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
-import { Array as Arr, Effect, type Ordering, Result, Schema } from "effect"
+import { Array as Arr, Data, Effect, type Ordering, Result } from "effect"
 import { type Summary, summarizePhases } from "#bench/cold/stats.ts"
 import {
 	type Explained,
@@ -88,10 +88,11 @@ export interface VariantOptions {
 	readonly serverPlans: ReadonlyArray<PlanMode>
 }
 
-export class MalformedRows extends Schema.TaggedError<
-	MalformedRows,
-	{ readonly brand: unique symbol }
->()("MalformedRows", { statement: Schema.Int, row: Schema.Int, column: Schema.Int }) {}
+export class MalformedRows extends Data.TaggedError("MalformedRows")<{
+	readonly statement: number
+	readonly row: number
+	readonly column: number
+}> {}
 
 /**
  * One statement's rows as text rows: every cell must be text or NULL, since every statement casts its outputs to text.
@@ -105,7 +106,7 @@ export const textRows = (
 		const text: Array<string | null> = []
 		for (const [column, cell] of cells.entries()) {
 			if (typeof cell !== "string" && cell !== null) {
-				return Result.fail(MalformedRows.make({ statement, row, column }))
+				return Result.fail(new MalformedRows({ statement, row, column }))
 			}
 			text.push(cell)
 		}

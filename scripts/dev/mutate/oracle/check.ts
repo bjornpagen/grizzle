@@ -2,7 +2,14 @@ import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { type Coverage, noCoverage } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
 import { boundedShrink } from "@grizzle/testing/shrink"
-import { Config, Duration, Effect, Formatter, Schema } from "effect"
+import { Config, Data, Duration, Effect, Formatter } from "effect"
+
+/** MUTATE_ORACLE_CASES names no positive case count. */
+class NoOracleCases extends Data.TaggedError("NoOracleCases")<{ readonly cases: number }> {
+	override get message(): string {
+		return `MUTATE_ORACLE_CASES must be a positive integer, not ${this.cases}`
+	}
+}
 
 /**
  * The oracle subset the mutation tester runs as its second stage (scripts/dev/mutate/main.ts): each `*.test.ts` file
@@ -12,7 +19,12 @@ import { Config, Duration, Effect, Formatter, Schema } from "effect"
  * The case count per property is MUTATE_ORACLE_CASES, which main.ts sets for every run (--oracle-cases).
  */
 export const oracleCases = Effect.runSync(
-	Config.schema(Schema.Int.check(Schema.isGreaterThan(0)), "MUTATE_ORACLE_CASES")
+	Config.Int("MUTATE_ORACLE_CASES").pipe(
+		Effect.filterOrFail(
+			(cases) => cases > 0,
+			(cases) => new NoOracleCases({ cases })
+		)
+	)
 )
 
 /** One exploration: its suite label, its generator, its run count and its property. */

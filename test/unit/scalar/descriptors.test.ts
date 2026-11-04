@@ -787,7 +787,7 @@ describe("closedId", () => {
 			ctx,
 			explore(
 				{
-					suite: "unit/scalar/closed-id",
+					suite: "unit/scalar/closed-id-forgeries",
 					draw: drawn(corrupted(Kind, forgeries)),
 					literal: Formatter.format,
 					coverage: required<CorruptedFeature<ClosedRule>>(

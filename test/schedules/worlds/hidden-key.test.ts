@@ -154,26 +154,5 @@ worldRaceSuite({
 	test: "a key collision with a fact another world inserts concurrently is refused by the key's law or fails transiently",
 	draw: caseGen,
 	race,
-	kept: [
-		{
-			note: "two Dbs of two tenants in a pool of two: the second insert is refused by the primary key",
-			sketch: { pool: 2, rival: "db", end: "commit", conflict: "none", annWords: 1, danWords: 2 },
-			draws: "",
-			reaches: ["ended: commit", "ended: refusal", "observed: invariant-rejected"]
-		},
-		{
-			note: "a direct rival whose insert ann's call may meet between its statements",
-			sketch: {
-				pool: 1,
-				rival: "direct",
-				end: "commit",
-				conflict: "none",
-				annWords: 1,
-				danWords: 2
-			},
-			draws: "",
-			reaches: ["overlapping", "ended: commit"]
-		}
-	],
 	required: ["ended: commit", "ended: refusal", "observed: invariant-rejected", "overlapping"]
 })

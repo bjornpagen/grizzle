@@ -47,7 +47,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("the grizzle skill", (i
 				}
 				yield* fs.makeDirectory(`${ws}/.claude/skills/grizzle`, { recursive: true })
 				yield* fs.writeFileString(`${ws}/.claude/skills/grizzle/SKILL.md`, "stale\n")
-				assert.equal((yield* cli(ws, ["skill"], nextNow(), {})).code, 0)
+				const rerun = yield* cli(ws, ["skill"], nextNow(), {})
+				assert.equal(rerun.code, 0)
 				const text = yield* fs.readFileString(`${ws}/.claude/skills/grizzle/SKILL.md`)
 				assert.equal(text, skill)
 			})

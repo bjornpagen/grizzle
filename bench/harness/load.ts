@@ -1,4 +1,4 @@
-import { Array as Arr, Duration, Effect, Fiber, Record as Rec, Schedule, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Fiber, Record as Rec, Schedule } from "effect"
 import type { TransientReason } from "#adapter/errors/failures.ts"
 import { transientFailureOf } from "#adapter/outcomes/index.ts"
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"
@@ -10,6 +10,7 @@ import {
 } from "#bench/harness/outcome.ts"
 import type { Observed } from "#bench/harness/phases.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { UniqueAbort } from "#compiler/write/program/artifact.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
@@ -253,20 +254,16 @@ export const committedOrConflicted = (load: LoadMeasure): boolean =>
 		(r) => r === "SerializationFailure" || r === "Deadlock"
 	)
 
-/** The count's one row, from PostgreSQL: external input, decoded. */
-const CountRows = Schema.Tuple([Schema.Tuple([Schema.FiniteFromString])])
-
 const sampleOnce = (sampler: LockWaitSampler): Effect.Effect<number, SqlError> =>
-	Effect.flatMap(
+	Effect.map(
 		sampler.observer.values(
 			"SELECT pg_catalog.count(*)::text FROM pg_catalog.pg_stat_activity WHERE pid = ANY ($1::int4[]) AND wait_event_type = 'Lock'::text",
 			[`{${Arr.join(Arr.map(sampler.pids, String), ",")}}`]
 		),
-		(rows) =>
-			Effect.map(
-				Effect.orDie(Schema.decodeUnknownEffect(CountRows)(rows)),
-				([[waiting]]) => waiting
-			)
+		(rows) => {
+			const [[waiting]] = trusted<readonly [readonly [waiting: string]]>(rows)
+			return Number(waiting)
+		}
 	)
 
 interface Done {

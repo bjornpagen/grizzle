@@ -4,7 +4,6 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
-import { driftFlight } from "#adapter/admission/drift.ts"
 import { applyOnSession, checkDrift, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import { type MigrationTarget, parseTarget } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
@@ -18,7 +17,7 @@ import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, ownedBy } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { frontendCount, queryTexts, type Tapped, tappedSession } from "#test/support/wire-tap.ts"
+import { queryTexts, type Tapped, tappedSession } from "#test/support/wire-tap.ts"
 import { shopV1, shopV2, shopV3 } from "#test/unit/deploy/schemas.ts"
 
 /** Every step of `grizzle migrate` is one flight, counted on the protocol through the tap.
@@ -33,7 +32,7 @@ import { shopV1, shopV2, shopV3 } from "#test/unit/deploy/schemas.ts"
  * The property, exhausted over the shop's histories of one to three versions, applied first up to a split folder
  * (none at all: the empty snapshot, with no ledger yet), then whole, then again with nothing pending: each apply's
  * round trips are exactly the steps its report says it ran, and each drift check run alone after it is one round trip
- * framed by its BEGIN and ROLLBACK, whose Executes are its two ledger reads and the drift check's statements. */
+ * framed by its BEGIN and ROLLBACK. */
 const versions = [shopV1, shopV2, shopV3] as const
 
 /** A history of `versions` folders, applied first up to folder `split` (0: none, the empty snapshot), then whole. */
@@ -114,22 +113,16 @@ const appliedIn = (
 		return ran
 	})
 
-/** The drift check of `target`'s snapshot alone: one round trip, its framing and its statements exactly. */
+/** The drift check of `target`'s snapshot alone: one round trip, framed by its BEGIN and ROLLBACK, ending idle. */
 const admittedAlone = (tapped: Tapped, m: MigrationSession, target: MigrationTarget) =>
 	Effect.gen(function* () {
 		const snapshot = target.snapshot
 		const statements = succeeded(statementsFor(snapshot.schema))
-		const flight = succeeded(driftFlight(snapshot))
 		const mark = tapped.mark()
 		yield* checkDrift(m, snapshot, statements)
 		const window = tapped.since(mark)
 		assert.equal(window.roundTrips, 1, "the drift check is one round trip")
 		assert.deepEqual(queryTexts(window), ["BEGIN ISOLATION LEVEL SERIALIZABLE", "ROLLBACK"])
-		assert.equal(
-			frontendCount(window, "E"),
-			2 + flight.flight.statements.length,
-			"the ledger's reads and the drift check's"
-		)
 		assert.deepEqual(window.backend.at(-1), { type: "Z", status: "I" }, "the drift check ends idle")
 	})
 

@@ -1,9 +1,8 @@
-import { Array as Arr, Effect, Schema } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	jsonText,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -25,7 +24,6 @@ import {
 import {
 	baselineSchema,
 	callsOn,
-	decodeRows,
 	installWrites,
 	lawObjects,
 	loadedByOwner,
@@ -39,6 +37,7 @@ import {
 	writePhases,
 	writerSession
 } from "#bench/write/support/writes.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { contained, on, relation as defineRelation, schema } from "#compiler/public/schema.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -76,7 +75,7 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly samples: number
 }
 
-const ConstraintRow = Schema.Tuple([Schema.String, Schema.String, Schema.String])
+type ConstraintRow = readonly [string, string, string]
 
 const split = (sql: string) => transactionOf([plainStatement("children", sql, [])], "split")
 
@@ -165,7 +164,7 @@ END $f$`,
 				`SELECT c.conname::text, c.condeferrable::text, c.condeferred::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.connamespace WHERE n.nspname = $1::text AND c.contype = 'f'`,
 				[fk.installed.schema]
 			)
-			const fkConstraints = decodeRows(ConstraintRow, rows)
+			const fkConstraints = trusted<ReadonlyArray<ConstraintRow>>(rows)
 
 			/**
 			 * 2. The queue's alternatives. Its reverse law is read through the door from the alternatives value that declares
@@ -243,7 +242,7 @@ END $f$`,
 				`SELECT cl.relname::text, c.contype::text, pg_catalog.count(*)::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_class AS cl ON cl.oid = c.conrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.connamespace WHERE n.nspname = $1::text GROUP BY 1, 2 ORDER BY 1, 2`,
 				[q.installed.schema]
 			)
-			const constraints = decodeRows(ConstraintRow, constraintRows)
+			const constraints = trusted<ReadonlyArray<ConstraintRow>>(constraintRows)
 			const constraintText = Arr.join(
 				Arr.map(constraints, (r) => Arr.join(r, ":")),
 				", "
@@ -328,12 +327,12 @@ END $f$`,
 							", "
 						),
 						constraints: constraintText,
-						enqueueLawCalls: jsonText(enqueue.calls),
+						enqueueLawCalls: Formatter.format(enqueue.calls),
 						enqueueArmScans: armScans(enqueue.scans, notWanted),
-						armSwitchLawCalls: jsonText(armSwitch.calls),
+						armSwitchLawCalls: Formatter.format(armSwitch.calls),
 						armSwitchArmScans: armScans(armSwitch.scans, notLeased),
 						payloadOnlyLawCalls: payloadOnly.total,
-						scans: jsonText(armSwitch.scans)
+						scans: Formatter.format(armSwitch.scans)
 					}
 				}
 			]
@@ -342,7 +341,7 @@ END $f$`,
 					mechanism(
 						"the containment is a native foreign key, with no residual law",
 						fkConstraints.length === 1 && fk.installed.installation.laws.residuals.length === 0,
-						jsonText(fkConstraints)
+						Formatter.format(fkConstraints)
 					),
 					mechanism(
 						"the alternatives leave exactly one residual law, the reverse obligation, whose units' functions are the ones installed",
@@ -362,32 +361,32 @@ END $f$`,
 					mechanism(
 						"an enqueue fires the reverse check once per parent insertion and never for an arm insertion",
 						callsOn(enqueue, QueueWork.name) === options.items && armCalls(enqueue) === 0,
-						jsonText(enqueue.calls)
+						Formatter.format(enqueue.calls)
 					),
 					mechanism(
 						"the reverse check dispatches the current kind once: no other arm is read",
 						armScans(enqueue.scans, notWanted) === 0 && armScans(armSwitch.scans, notLeased) === 0,
-						jsonText(armSwitch.scans)
+						Formatter.format(armSwitch.scans)
 					),
 					mechanism(
 						"an arm switch queues two reverse checks of one key",
 						armSwitch.total === 2,
-						jsonText(armSwitch.calls)
+						Formatter.format(armSwitch.calls)
 					),
 					mechanism(
 						"a payload-only update queues none",
 						payloadOnly.total === 0,
-						jsonText(payloadOnly.calls)
+						Formatter.format(payloadOnly.calls)
 					),
 					equivalence(
 						"the native FK accepts every lawful batch",
 						n.outcomes.committed === n.samples,
-						jsonText(n.outcomes)
+						Formatter.format(n.outcomes)
 					),
 					equivalence(
 						"the native FK refuses an orphan with 23503",
 						orphanNative.outcome.kind === "failed" && orphanNative.outcome.sqlstate === "23503",
-						jsonText(orphanNative.outcome)
+						Formatter.format(orphanNative.outcome)
 					)
 				]
 			}

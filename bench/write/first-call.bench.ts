@@ -1,11 +1,5 @@
-import { Array as Arr, Effect, Order } from "effect"
-import {
-	type CaseRecord,
-	defineGate,
-	jsonText,
-	mechanism,
-	type VerdictInput
-} from "#bench/harness/gate.ts"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { type CaseRecord, defineGate, mechanism, type VerdictInput } from "#bench/harness/gate.ts"
 import {
 	measureTransaction,
 	summarizeTransactions,
@@ -82,7 +76,7 @@ const rosterSchema = (size: number, armedAll: boolean) => (name: string) => {
 const median = (xs: ReadonlyArray<number>): number => {
 	const at = Arr.sort(xs, Order.Number)[Math.floor(xs.length / 2)]
 	if (at === undefined) {
-		throw GateSetupError.make({ what: "no sample measured" })
+		throw new GateSetupError({ what: "no sample measured" })
 	}
 	return at
 }
@@ -90,8 +84,8 @@ const median = (xs: ReadonlyArray<number>): number => {
 const commitMs = (m: TransactionMeasure): number => {
 	const ms = m.phases.commitMs
 	if (ms === undefined || m.outcome.kind !== "committed") {
-		throw GateSetupError.make({
-			what: `a measured transaction did not commit: ${jsonText(m.outcome)}`
+		throw new GateSetupError({
+			what: `a measured transaction did not commit: ${Formatter.format(m.outcome)}`
 		})
 	}
 	return ms
@@ -215,14 +209,14 @@ export default defineGate({
 			const at = (m: ReadonlyMap<string, number>, size: number, armedAll: boolean): number => {
 				const v = m.get(`${size} handles, ${armedAll ? "every handle armed" : "one unarmed"}`)
 				if (v === undefined) {
-					throw GateSetupError.make({ what: `no measurement at ${size} handles` })
+					throw new GateSetupError({ what: `no measurement at ${size} handles` })
 				}
 				return v
 			}
 			const small = options.sizes.at(-2)
 			const large = options.sizes.at(-1)
 			if (small === undefined || large === undefined) {
-				throw GateSetupError.make({ what: "fewer than two roster sizes" })
+				throw new GateSetupError({ what: "fewer than two roster sizes" })
 			}
 			const unarmedRatios = Arr.map(
 				options.sizes,

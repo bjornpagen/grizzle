@@ -3,20 +3,12 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Order,
-	pipe,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -53,14 +45,6 @@ import * as K from "#test/unit/derived/kit.ts"
  *
  * That every refreshed view equals its definition, over drawn levels, take forms and aggregates, is the derived
  * oracle's; the installed catalog is the catalog spec checker's. */
-
-/** The rows, at least one, of a catalog query whose columns are text: rows from PostgreSQL are external input, decoded. */
-const rowsOf =
-	<A>(row: Schema.Codec<A>) =>
-	<E, R>(rows: Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E, R>) =>
-		Effect.flatMap(rows, Schema.decodeUnknownEffect(Schema.NonEmptyArray(row)))
-const textRows1 = rowsOf(Schema.Tuple([Schema.String]))
-const textRows3 = rowsOf(Schema.Tuple([Schema.String, Schema.String, Schema.String]))
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -181,12 +165,12 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 									const column = installed.names.column(relation, c.name)
 									const desc = c.desc
 									const expected = printType(columnType(installed.names, c.type).type)
-									const [[sameType, typmod, collation]] = yield* textRows3(
-										owner.values(
-											`SELECT (a.atttypid = '${Str.replaceAll("'", "''")(expected)}'::regtype)::text, a.atttypmod::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attname = '${column}'`,
-											[]
-										)
+									const attribute = yield* owner.values(
+										`SELECT (a.atttypid = '${Str.replaceAll("'", "''")(expected)}'::regtype)::text, a.atttypmod::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attname = '${column}'`,
+										[]
 									)
+									const [[sameType, typmod, collation]] =
+										trusted<Arr.NonEmptyReadonlyArray<readonly [string, string, string]>>(attribute)
 									assert.equal(sameType, "true", `${relation}.${c.name} is ${expected}`)
 									assert.equal(Number(typmod), typmodOf(desc), `${relation}.${c.name} typmod`)
 									if (baseOf(c.type).carrier === "text") {
@@ -296,12 +280,11 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 				const names = namesOf(installed)
 				const { view, columns } = viewOf(installed, "OwnedTasks")
 				const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
-				const [[deferrable]] = yield* textRows1(
-					owner.values(
-						`SELECT condeferrable::text FROM pg_catalog.pg_constraint WHERE conrelid = '${names.table(W.Task)}'::regclass AND contype = 'f'`,
-						[]
-					)
+				const constraint = yield* owner.values(
+					`SELECT condeferrable::text FROM pg_catalog.pg_constraint WHERE conrelid = '${names.table(W.Task)}'::regclass AND contype = 'f'`,
+					[]
 				)
+				const [[deferrable]] = trusted<Arr.NonEmptyReadonlyArray<readonly [string]>>(constraint)
 				assert.equal(deferrable, "true")
 				yield* load(installed, workFacts)
 				yield* owner.query(`REFRESH MATERIALIZED VIEW ${view}`, [])

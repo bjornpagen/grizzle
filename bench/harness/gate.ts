@@ -1,11 +1,11 @@
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	type FileSystem,
+	Formatter,
 	Option,
 	Record as Rec,
-	Result,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
@@ -109,14 +109,6 @@ export const verdictOf = (gate: GateId, input: VerdictInput): VerdictRecord => {
 	}
 	return { gate, outcome: "pass", checks: input.checks }
 }
-
-const encodeJsonText = Schema.encodeResult(Schema.fromJsonString(Schema.Unknown))
-
-/**
- * A value as one line of JSON, for the text of a measure or a check's detail. A value JSON cannot hold (a bigint) is a
- * defect of the gate that renders it.
- */
-export const jsonText = (value: unknown): string => Result.getOrThrow(encodeJsonText(value))
 
 /** Why a verdict is what it is, in a line. The first line of a text: all of it when it has no line break. */
 export const firstLine = (text: string): string =>
@@ -230,12 +222,7 @@ export interface Gate {
 }
 
 /** A gate file that does not define a gate: its name, ids, phases or options are not what a gate's must be. */
-class InvalidGate extends Schema.TaggedError<InvalidGate, { readonly brand: unique symbol }>()(
-	"InvalidGate",
-	{
-		what: Schema.String
-	}
-) {
+class InvalidGate extends Data.TaggedError("InvalidGate")<{ readonly what: string }> {
 	override get message(): string {
 		return `invalid gate: ${this.what}`
 	}
@@ -255,16 +242,16 @@ const admitGateSpec = (spec: {
 	readonly scope: string
 }): void => {
 	if (!namePattern.test(spec.name)) {
-		throw InvalidGate.make({ what: `name ${jsonText(spec.name)}` })
+		throw new InvalidGate({ what: `name ${Formatter.format(spec.name)}` })
 	}
 	if (new Set(spec.gates).size !== spec.gates.length) {
-		throw InvalidGate.make({ what: `${spec.name}: a gate listed twice` })
+		throw new InvalidGate({ what: `${spec.name}: a gate listed twice` })
 	}
 	if (new Set(spec.phases).size !== spec.phases.length) {
-		throw InvalidGate.make({ what: `${spec.name}: a phase listed twice` })
+		throw new InvalidGate({ what: `${spec.name}: a phase listed twice` })
 	}
 	if (spec.title === "" || spec.scope === "") {
-		throw InvalidGate.make({ what: `${spec.name}: no title or scope` })
+		throw new InvalidGate({ what: `${spec.name}: no title or scope` })
 	}
 }
 

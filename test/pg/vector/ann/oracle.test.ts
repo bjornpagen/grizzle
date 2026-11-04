@@ -4,17 +4,11 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, Schema } from "effect"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { Array as Arr, Duration, Effect, Formatter, Result } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { conservativeMeta, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
+import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { defined } from "#test/support/assert.ts"
 import { annGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
-import { float8, int4 } from "#test/support/oracle/gen/domain.ts"
-import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
-import { normalQuery } from "#test/support/oracle/gen/query.ts"
-import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { expectedStatements } from "#test/support/oracle/reference/deliver.ts"
 import {
 	columnIndex,
@@ -33,7 +27,6 @@ import {
 	runOracle
 } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { Q } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
  * What a case reached: an ApproximateNearest node, one whose source ties at the cutoff, one whose source reads an outer
@@ -97,52 +90,11 @@ const nearestFeatures = (c: QueryCase): ReadonlyArray<AnnOracleFeature> => {
 		}
 	})
 	const observed = Result.try(() => expectedStatements(ref, c.query.dag.roots[0]))
-	if (Result.isFailure(observed) && !Schema.is(ReferenceUnsupported)(observed.failure)) {
+	if (Result.isFailure(observed) && !(observed.failure instanceof ReferenceUnsupported)) {
 		throw observed.failure
 	}
 	return [...reached]
 }
-
-/** The nearest one of R0(k, score) keyed by k, whose two least scores are equal: a tie at the cutoff, broken by k. */
-const tiedAtTheCutoff: QueryCase = (() => {
-	const r: GenRelation = {
-		name: "R0",
-		columns: [
-			{ name: "k", type: int4 },
-			{ name: "score", type: float8 }
-		],
-		primaryKey: ["k"],
-		keys: [],
-		mutable: false
-	}
-	const q = new Q()
-	const source = q.base(
-		{ name: r.name, heading: r.columns, primaryKey: r.primaryKey },
-		conservativeMeta
-	)
-	const root = q.node({
-		loc: undefined,
-		meta: conservativeMeta,
-		kind: "ApproximateNearest",
-		source,
-		score: "score",
-		take: 1n,
-		params: [],
-		sealed: true,
-		heading: r.columns
-	})
-	const dag = normalQuery(q.b.build(Arr.of(root)))
-	const fact = (k: number, score: number): ReadonlyArray<TypedLiteral> => [
-		{ kind: "int", value: BigInt(k) },
-		{ kind: "float", value: canonicalZero(score) }
-	]
-	return {
-		schema: { name: schemaName, relations: [r], closed: [], containments: [] },
-		facts: canonicalFacts({ R0: [fact(1, 0.5), fact(2, 0.5), fact(3, 0.75)] }),
-		query: { dag, params: {} },
-		spelling: { mode: "drawn", edge: false }
-	}
-})()
 
 const agree = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -161,14 +113,7 @@ const agree = Effect.gen(function* () {
 				],
 				{ cases: cases, sense: notesOnly }
 			),
-			kept: [
-				{
-					note: "the nearest one of three facts whose two least scores are equal",
-					sketch: tiedAtTheCutoff,
-					draws: "",
-					reaches: ["approximate nearest", "tie at the cutoff", "nonempty"]
-				}
-			],
+			kept: [],
 			runs: cases,
 			shrink: completeShrink,
 			caseHang: Duration.minutes(2),

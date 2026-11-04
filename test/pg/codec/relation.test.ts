@@ -23,13 +23,13 @@ import {
 	recordsetEncoder
 } from "#compiler/codec/recordset.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { factIdentity, type HeadingField } from "#compiler/scalar/values/identity.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { jsonText } from "#test/support/json.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 

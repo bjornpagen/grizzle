@@ -1,4 +1,5 @@
-import { Array as Arr, Config, Effect, Exit, Fiber, Option, Schema, Scope } from "effect"
+import { Array as Arr, Config, Effect, Exit, Fiber, Option, Scope } from "effect"
+import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
 import {
@@ -128,8 +129,6 @@ const leaseSlotsQuery = `SELECT GREATEST(1, (pg_catalog.current_setting('max_con
 	- pg_catalog.current_setting('superuser_reserved_connections')::int4
 	- pg_catalog.current_setting('reserved_connections')::int4 - $1::int4) / $2::int4)`
 
-const leaseSlots = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Finite]))
-
 /** Takes a slot on `lock`: the first free one, else waits in the server for the slot this process's id names. */
 const takeLease = (lock: PgConnection): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
@@ -137,7 +136,7 @@ const takeLease = (lock: PgConnection): Effect.Effect<void, SqlError> =>
 			unleasedConnections,
 			connectionsPerLease
 		])
-		const [slots] = yield* Effect.orDie(leaseSlots(row))
+		const [slots] = trusted<readonly [slots: number]>(row)
 		for (let slot = 0; slot < slots; slot++) {
 			const [[taken] = []] = yield* lock.queryValues(claimStatement, [leaseKey, slot])
 			if (taken === true) {

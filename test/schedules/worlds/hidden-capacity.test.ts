@@ -115,13 +115,5 @@ worldRaceSuite({
 	test: "writers filling a capacity that counts facts outside their worlds never break it",
 	draw: caseGen,
 	race,
-	kept: [
-		{
-			note: "carl's share stored and a direct rival: the third share is refused, or meets ann's in flight",
-			sketch: { pool: 1, rival: "direct", end: "commit", words: 2, stored: 1 },
-			draws: "",
-			reaches: ["ended: commit", "ended: refusal", "overlapping"]
-		}
-	],
 	required: ["ended: commit", "ended: refusal", "overlapping"]
 })

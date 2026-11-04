@@ -5,7 +5,7 @@ import { filter, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Schema } from "effect"
+import { Array as Arr, Data, Duration, Effect, Formatter, Option } from "effect"
 import {
 	bagRecursion,
 	type CaseLowering,
@@ -163,12 +163,7 @@ const resultLimits = (
 /** The vertex index a case's result predicate names. */
 const endIndex = (c: RecursiveCase): number => c.parts.endPick % (c.graph.n + 1)
 
-class NotKilled extends Schema.TaggedError<NotKilled, { readonly brand: unique symbol }>()(
-	"NotKilled",
-	{
-		report: Schema.String
-	}
-) {}
+class NotKilled extends Data.TaggedError("NotKilled")<{ readonly message: string }> {}
 
 const run = (c: RecursiveCase, left: Lowering, right: Lowering) =>
 	Effect.gen(function* () {
@@ -224,14 +219,14 @@ const killsEvery = (generator: Gen<RecursiveCase>, kills: Kills) =>
 			Effect.gen(function* () {
 				notes.noteAll(c.features)
 				if (!kills.about.holds(c)) {
-					return yield* NotKilled.make({
-						report: `outside the population: ${kills.about.otherwise}`
+					return yield* new NotKilled({
+						message: `outside the population: ${kills.about.otherwise}`
 					})
 				}
 				const outcome = yield* run(c, conservative, forCase(kills.mutant, c))
 				if (!kills.shape(outcome)) {
-					return yield* NotKilled.make({
-						report: `not killed as expected:\n${printOutcome(outcome)}`
+					return yield* new NotKilled({
+						message: `not killed as expected:\n${printOutcome(outcome)}`
 					})
 				}
 			})

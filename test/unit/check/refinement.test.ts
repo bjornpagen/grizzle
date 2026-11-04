@@ -28,7 +28,7 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { plainType, sameRegex, wildcardText } from "#compiler/scalar/compute/types.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
@@ -389,33 +389,14 @@ const payloadCells: Arr.NonEmptyReadonlyArray<{
 })
 
 describe("refined constants", () => {
-	it.effect("list exactly the closed payload cells of a type with a CHECK", (ctx) => {
-		type Cell = "refined" | "unrefined"
+	it("list exactly the closed payload cells of a type with a CHECK, each at its field's type", () => {
 		const listed = refinedConstants(schemaChecked)
-		assert.equal(listed.length, Arr.filter(payloadCells, (x) => x.refined).length)
 		assert.ok(Arr.every(listed, (x) => hasConstraint(x.type)))
-		return searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/check/refinement-constants",
-					generator: element(payloadCells),
-					literal: Formatter.format,
-					limit: payloadCells.length,
-					coverage: requiredInSpace<Cell>(["refined", "unrefined"]),
-					caseHang: Duration.minutes(2)
-				},
-				(cell, c) =>
-					Effect.sync(() => {
-						const site = `closed Tier.${cell.field} of ${cell.handle}`
-						const found = Arr.filter(listed, (x) => x.site === site)
-						assert.deepEqual(
-							Arr.map(found, (x) => x.literal),
-							cell.refined ? [cell.value] : [],
-							site
-						)
-						c.note(cell.refined ? "refined" : "unrefined")
-					})
+		unorderedEqual(
+			Arr.map(listed, (x) => ({ literal: x.literal, type: x.type })),
+			Arr.map(
+				Arr.filter(payloadCells, (x) => x.refined),
+				(x) => ({ literal: x.value, type: payloadType("Tier", x.field) })
 			)
 		)
 	})

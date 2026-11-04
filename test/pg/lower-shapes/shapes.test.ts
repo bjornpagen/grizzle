@@ -659,15 +659,14 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 								for (const form of forms) {
 									const built = conditional(form, c.threshold)
 									const query = conservativeInput(built)
-									const base = defined(
-										(yield* runProgram(conservative(query, schema), {}))[0],
-										"the composition's statement"
-									)
+									const composed = yield* runProgram(conservative(query, schema), {})
+									const base = defined(composed[0], "the composition's statement")
 									const { facts } = shapedFacts(built.dag, {}, "placement")
-									const shaped = defined(
-										(yield* runProgram(shapedProgram(query, facts, testOptions(schema)), {}))[0],
-										"the shaped statement"
+									const shapedRuns = yield* runProgram(
+										shapedProgram(query, facts, testOptions(schema)),
+										{}
 									)
+									const shaped = defined(shapedRuns[0], "the shaped statement")
 									unorderedEqual(shaped.text, base.text, `${form} > ${c.threshold}`)
 									if (form === "int4") {
 										for (const [account, passed] of base.columns) {
@@ -717,14 +716,13 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 					})
 				const topAmountsFaults = yield* program(topAmounts().query, [0], {})
 				assert.deepEqual(topAmountsFaults, [])
-				assert.ok(
-					(yield* program(topAmounts().query, [0], unique)).length > 0,
-					"a unique fact the take does not have disagrees"
-				)
+				const topAmountsUnsound = yield* program(topAmounts().query, [0], unique)
+				assert.ok(topAmountsUnsound.length > 0, "a unique fact the take does not have disagrees")
 				const byAmountFaults = yield* program(Cases.byAmount().query, [], {})
 				assert.deepEqual(byAmountFaults, [])
+				const byAmountUnsound = yield* program(Cases.byAmount().query, [], exact)
 				assert.ok(
-					(yield* program(Cases.byAmount().query, [], exact)).length > 0,
+					byAmountUnsound.length > 0,
 					"an exact contribution the aggregate does not have disagrees"
 				)
 				/** take, row_number and DISTINCT ON over every group: (A, 100) ranks first and second. */
@@ -735,22 +733,22 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 				) =>
 					Effect.gen(function* () {
 						const built = amountsPerAccount({ kind: "literal", k })
-						const base = defined(
-							(yield* runProgram(conservative(conservativeInput(built), schema), {}))[0],
-							"statement run"
-						)
+						const composed = yield* runProgram(conservative(conservativeInput(built), schema), {})
+						const base = defined(composed[0], "statement run")
 						const { facts } = shapedFacts(built.dag, overrides, "shapes")
 						const cx = context(built.dag, facts, options)
 						const d = decorrelatedTake(takeOf(built.dag), cx, new Map(), facts, shape)
 						const s = statementOf(cx, d.query, ["account", "amount"], {})
-						return disagreements([base], [yield* runText(s.text, 2, s.values)], [])
+						const taken = yield* runText(s.text, 2, s.values)
+						return disagreements([base], [taken], [])
 					})
 				const rowNumberFaults = yield* perGroup("rowNumber", 2n, {})
 				assert.deepEqual(rowNumberFaults, [])
 				const distinctOnFaults = yield* perGroup("distinctOn", 1n, {})
 				assert.deepEqual(distinctOnFaults, [])
+				const rowNumberUnsound = yield* perGroup("rowNumber", 2n, unique)
 				assert.ok(
-					(yield* perGroup("rowNumber", 2n, unique)).length > 0,
+					rowNumberUnsound.length > 0,
 					"a unique fact the per-group take does not have disagrees"
 				)
 				/** union: the delivered manual group repeats t2 under UNION ALL. */
@@ -761,10 +759,8 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 						if (union.kind !== "Union") {
 							throw new Error("a union")
 						}
-						const base = defined(
-							(yield* runProgram(conservative(conservativeInput(built), schema), {}))[1],
-							"statement run"
-						)
+						const composed = yield* runProgram(conservative(conservativeInput(built), schema), {})
+						const base = defined(composed[1], "statement run")
 						const { facts } = shapedFacts(built.dag, overrides, "shapes")
 						const gx = context(built.dag, facts, options)
 						const s = statementOf(
@@ -773,12 +769,14 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 							["kind", "id"],
 							{}
 						)
-						return disagreements([base], [yield* runText(s.text, 2, s.values)], [])
+						const grouped = yield* runText(s.text, 2, s.values)
+						return disagreements([base], [grouped], [])
 					})
 				const groupFaults = yield* group({})
 				assert.deepEqual(groupFaults, [])
+				const groupUnsound = yield* group(unique)
 				assert.ok(
-					(yield* group(unique)).length > 0,
+					groupUnsound.length > 0,
 					"a unique fact the delivered group does not have disagrees"
 				)
 				/** attach, pipelined and fused: A's children hold (A, 100) twice. */

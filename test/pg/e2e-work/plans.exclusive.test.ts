@@ -26,19 +26,11 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Layer,
-	pipe,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Layer, pipe, String as Str } from "effect"
 import type { TestContext } from "vitest"
 import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -63,8 +55,6 @@ interface Sizes {
 	/** Even; each task's kind alternates, and every third task has a note. */
 	readonly tasks: number
 }
-
-const Texts = Schema.Array(Schema.Tuple([Schema.String]))
 
 /** The entities a case asks about: accounts busiest first, and task ids. */
 interface Entities {
@@ -156,23 +146,17 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 			}
 			const column = (relation: string, field: string): string =>
 				quoteIdent(names.column(relation, field))
-			const busiest = yield* Effect.flatMap(
-				s.admin.queryValues(
-					`SELECT ${column("Task", "account")}::text FROM ${table("Task")} GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 200`,
-					[]
-				),
-				Schema.decodeUnknownEffect(Texts)
+			const busiest = yield* s.admin.queryValues(
+				`SELECT ${column("Task", "account")}::text FROM ${table("Task")} GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 200`,
+				[]
 			)
-			const tasks = yield* Effect.flatMap(
-				s.admin.queryValues(
-					`SELECT ${column("Task", "id")}::text FROM ${table("Task")} ORDER BY 1 LIMIT 400`,
-					[]
-				),
-				Schema.decodeUnknownEffect(Texts)
+			const tasks = yield* s.admin.queryValues(
+				`SELECT ${column("Task", "id")}::text FROM ${table("Task")} ORDER BY 1 LIMIT 400`,
+				[]
 			)
 			const e: Entities = {
-				accounts: Arr.map(busiest, ([a]) => a),
-				tasks: Arr.map(tasks, ([id]) => id)
+				accounts: Arr.map(trusted<ReadonlyArray<readonly [string]>>(busiest), ([a]) => a),
+				tasks: Arr.map(trusted<ReadonlyArray<readonly [string]>>(tasks), ([id]) => id)
 			}
 			const used = new Set<string>()
 			const explored = yield* explore(

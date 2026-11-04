@@ -18,9 +18,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Schema, String as Str } from "effect"
-import { SqlStatementSchema } from "#adapter/boundary/sql.ts"
-import { decode, noRevivers } from "#compiler/core/canonical.ts"
+import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { BlockLines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
@@ -46,7 +45,6 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
-import { statementForm } from "#compiler/sql/form.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import {
 	commented,
@@ -664,16 +662,18 @@ describe("identifiers, types and literals", () => {
 						Effect.sync(() => {
 							const s = simpleSelect([target(lit.float(x, types.double))], [], undefined)
 							const written = succeeded(
-								writeJsonText(statementForm(s)),
+								writeJsonText(s),
 								"the snapshot writer writes a float literal"
 							)
 							const read = succeeded(
-								Schema.decodeUnknownResult(SqlStatementSchema)(
-									succeeded(decode(written, noRevivers))
-								),
+								decode(written, noRevivers),
 								"the snapshot reader reads its own float literal"
 							)
-							assert.deepEqual(read, s, "the snapshot's codec reads the literal back as itself")
+							assert.equal(
+								succeeded(encode(read, everyProperty), "the read literal's canonical text"),
+								succeeded(encode(s, everyProperty), "the literal's canonical text"),
+								"the snapshot reads the literal back as itself"
+							)
 							/** JavaScript's own reading of a number's text stands in for the float input function. */
 							const text = printStatement(s)
 							const [spelled, ...more] = Arr.flatMap(lex(text).tokens, (token) =>

@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, pipe, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, pipe, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -97,7 +98,7 @@ const notes = query(Work).rule((r) => {
 
 type Raw = ReadonlyArray<ReadonlyArray<string>>
 /** The rows a statement returns: every result column cast to text by the statement itself, never NULL. */
-const decodeRaw = Schema.decodeUnknownEffect(Schema.Array(Schema.Array(Schema.String)))
+const rawOf = (rows: unknown): Raw => trusted<Raw>(rows)
 
 /** The statements an artifact runs, in order, on `session`, a raw session inside its own transaction. */
 const runSpecs = (
@@ -108,11 +109,8 @@ const runSpecs = (
 	Effect.gen(function* () {
 		const raws: Array<Raw> = []
 		for (const spec of specs) {
-			const decoded = yield* Effect.flatMap(
-				session.values(spec.sql, paramTexts(spec, params)),
-				decodeRaw
-			)
-			raws.push(decoded)
+			const rows = yield* Effect.map(session.values(spec.sql, paramTexts(spec, params)), rawOf)
+			raws.push(rows)
 		}
 		return raws
 	})

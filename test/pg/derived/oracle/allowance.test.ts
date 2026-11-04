@@ -36,27 +36,25 @@ import { regex } from "arkregex"
 /** The menu's schemas differ per case, so their definitions drive the builder runtime as a JavaScript caller does,
  * over the typed Amount; the typed facade is the type tests' subject.
  *
- * The exceptions to "a refresh with no base change writes nothing": order-dependent float aggregates and
- * equal-not-identical numerics.
+ * The one exception to "a refresh with no base change writes nothing": equal-not-identical numerics.
  *
- * The generated oracle keeps one spelling per value and exact doubles, so there no refresh without a
- * definition change writes anything. Here the facts are chosen to make the exceptions possible: an unconstrained
- * numeric whose equal values are spelled differently (1, 1.0, 1.00), which min and max return whichever of them they
- * meet last, and doubles that are not exact binary fractions, whose sum and mean depend on the order PostgreSQL adds
- * them in. Each case installs Amount with generated facts and derived relations drawn from a menu of such definitions,
- * refreshes them, and then:
+ * The generated oracle keeps one spelling per value, so there no refresh without a definition change writes anything.
+ * Here the facts are chosen to make the exception possible, and to show that a float aggregate is none: an
+ * unconstrained numeric whose equal values are spelled differently (1, 1.0, 1.00), which min and max return whichever
+ * of them they meet last, and doubles that are not exact binary fractions, whose sum and mean are their exact total
+ * rounded once, the same in any order. Each case installs Amount with generated facts and derived relations drawn from
+ * a menu of such definitions, refreshes them, and then:
  *
- * - checks every view against its definition evaluated by the conservative lowering on one snapshot, modulo native
- *   equality: numerics compared by value, the float aggregates within a relative 1e-12, every other column exactly
- *   (raw text cannot be compared);
+ * - checks every view against its definition evaluated by the conservative lowering on one snapshot: numerics compared
+ *   by value, every other column exactly (raw text cannot be compared);
  * - reloads the same facts in another physical order, refreshes again with no base change, and checks that every row
- *   the refresh wrote is one whose record image changed only in those ways: the same group, a numeric equal but not
- *   byte-identical, or a float aggregate rounded differently (a value that is equal but not byte-identical counts as
- *   changed and its row is deleted and reinserted, which is correct); every other row keeps its tuple. */
+ *   the refresh wrote is one whose record image changed only in a numeric's spelling: the same group, the float
+ *   aggregates byte for byte, a numeric equal but not byte-identical (a value that is equal but not byte-identical
+ *   counts as changed and its row is deleted and reinserted, which is correct); every other row keeps its tuple. */
 type Vars = ReturnType<typeof v>
 
-/** How a column is compared: exactly, by numeric value, or as an order-dependent float aggregate. */
-type Compare = "exact" | "numeric" | "float"
+/** How a column is compared: exactly, or by numeric value. */
+type Compare = "exact" | "numeric"
 
 interface MenuItem {
 	readonly name: string
@@ -97,13 +95,13 @@ const menu: ReadonlyArray<MenuItem> = [
 	{
 		name: "Totals",
 		level: 1,
-		columns: { grp: "exact", total: "numeric", drift: "float" },
+		columns: { grp: "exact", total: "numeric", drift: "exact" },
 		build: grouped((r, x) => ({ total: r.sum(x["amount"]), drift: r.sum(x["ratio"]) }))
 	},
 	{
 		name: "Means",
 		level: 1,
-		columns: { grp: "exact", amean: "numeric", rmean: "float", n: "exact" },
+		columns: { grp: "exact", amean: "numeric", rmean: "exact", n: "exact" },
 		build: grouped((r, x) => ({
 			amean: r.mean(x["amount"]),
 			rmean: r.mean(x["ratio"]),
@@ -114,7 +112,7 @@ const menu: ReadonlyArray<MenuItem> = [
 		/** A level-2 sum over a level-1 float aggregate: one fact, keyed by its count. */
 		name: "Overall",
 		level: 2,
-		columns: { groups: "exact", drift: "float" },
+		columns: { groups: "exact", drift: "exact" },
 		build: (over, lower) =>
 			query(over).rule((r: RuleValue) => {
 				const t = v(lower["Totals"], "totals")
@@ -215,22 +213,12 @@ const decimalValue = (text: string): string => {
 	return negative && body !== "0" ? `-${body}` : body
 }
 
-const close = (a: string, b: string): boolean => {
-	const x = Number(a)
-	const y = Number(b)
-	return x === y || Math.abs(x - y) <= 1e-12 * Math.max(Math.abs(x), Math.abs(y))
-}
-
-/** Whether two rows are equal modulo native equality and float-aggregate rounding. */
+/** Whether two rows are equal modulo a numeric's spelling. */
 const equivalent = (columns: Readonly<Record<string, Compare>>, a: Row, b: Row): boolean =>
 	Arr.every(Rec.toEntries(columns), ([c, how]) => {
 		const x = columnText(a, c)
 		const y = columnText(b, c)
-		return how === "exact"
-			? x === y
-			: how === "numeric"
-				? decimalValue(x) === decimalValue(y)
-				: close(x, y)
+		return how === "exact" ? x === y : decimalValue(x) === decimalValue(y)
 	})
 
 /** The columns compared exactly identify a row's group. */
@@ -291,19 +279,14 @@ const rowsOf = (o: Opened, item: MenuItem, from: "view" | "definition") =>
 
 const cases = 300
 
-/** What a case's reordered reload reaches: a row kept, a row rewritten, and each exception among the rewrites, a numeric
- * min or max returned in another spelling and a float sum or mean rounded differently. */
-type AllowanceFeature =
-	| "row kept"
-	| "row rewritten"
-	| "numeric spelling rewritten"
-	| "float aggregate rewritten"
+/** What a case's reordered reload reaches: a row kept, a row rewritten, and the exception among the rewrites, a numeric
+ * min or max returned in another spelling. */
+type AllowanceFeature = "row kept" | "row rewritten" | "numeric spelling rewritten"
 
 const situations: Arr.NonEmptyReadonlyArray<AllowanceFeature> = [
 	"row kept",
 	"row rewritten",
-	"numeric spelling rewritten",
-	"float aggregate rewritten"
+	"numeric spelling rewritten"
 ]
 
 /** The same facts, every base row rewritten in another physical order: no base change. */
@@ -337,7 +320,7 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 					)
 					assert.ok(
 						equivalent(item.columns, row, definedRow),
-						`${item.name}: ${row.text} equals its definition's ${definedRow.text} modulo native equality`
+						`${item.name}: ${row.text} equals its definition's ${definedRow.text} modulo a numeric's spelling`
 					)
 				}
 			}
@@ -375,7 +358,7 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 					)
 					assert.ok(
 						equivalent(item.columns, old, row),
-						`${item.name}: ${old.text} became ${row.text}, which is more than a spelling or float rounding`
+						`${item.name}: ${old.text} became ${row.text}, which is more than a numeric's spelling`
 					)
 					assert.ok(
 						!Arr.some(now, (r) => r.tuple === old.tuple),
@@ -389,9 +372,6 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 					if (Arr.some(changed, ([, how]) => how === "numeric")) {
 						c.note("numeric spelling rewritten")
 					}
-					if (Arr.some(changed, ([, how]) => how === "float")) {
-						c.note("float aggregate rewritten")
-					}
 				}
 				assert.equal(now.length, then.length, `${item.name} keeps its groups`)
 			}
@@ -399,10 +379,10 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 	)
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"a refresh with no base change writes only order-dependent float aggregates and equal-not-identical numerics",
+	"a refresh with no base change writes only equal-not-identical numerics",
 	(it) => {
 		it.effect(
-			`${cases} generated cases: a reordered reload rewrites only rows equal modulo spelling and float rounding`,
+			`${cases} generated cases: a reordered reload rewrites only rows equal modulo a numeric's spelling`,
 			(ctx) =>
 				searched(
 					ctx,

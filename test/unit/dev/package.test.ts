@@ -7,33 +7,28 @@ import {
 	Path,
 	Predicate,
 	Record,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { assert } from "#test/support/assert.ts"
 
 /**
- * A package manifest's publishing fields: its name, the files it publishes besides its package.json, its entry
- * points, the runtime dependencies a consumer's install brings beside it, and its peers.
+ * A package manifest's publishing fields, from a package.json the repository holds: its name, the files it publishes
+ * besides its package.json, its entry points, the runtime dependencies a consumer's install brings beside it, and its
+ * peers.
  */
-const Manifest = Schema.Struct({
-	name: Schema.String,
-	files: Schema.Array(Schema.String),
-	exports: Schema.Record(
-		Schema.String,
-		Schema.Union([Schema.String, Schema.Record(Schema.String, Schema.String)])
-	),
-	dependencies: Schema.Record(Schema.String, Schema.String),
-	peerDependencies: Schema.Record(Schema.String, Schema.String)
-})
+type Manifest = {
+	readonly name: string
+	readonly files: ReadonlyArray<string>
+	readonly exports: Record.ReadonlyRecord<string, string | Record.ReadonlyRecord<string, string>>
+	readonly dependencies: Record.ReadonlyRecord<string, string>
+	readonly peerDependencies: Record.ReadonlyRecord<string, string>
+}
 
 /** The shell's manifest: a package's fields and its bin. */
-const ShellManifest = Schema.Struct({
-	...Manifest.fields,
-	bin: Schema.Record(Schema.String, Schema.String)
-})
+type ShellManifest = Manifest & { readonly bin: Record.ReadonlyRecord<string, string> }
 
 /** The exit status of a child that succeeded. */
 const succeeded = ChildProcessSpawner.ExitCode(0)
@@ -123,7 +118,7 @@ const run = Effect.fnUntraced(function* (
  * modules the shell imports, one path per condition.
  */
 const entryPaths = (
-	manifest: typeof Manifest.Type,
+	manifest: Manifest,
 	bin: Record.ReadonlyRecord<string, string>
 ): ReadonlyArray<string> => [
 	...Arr.flatMap(Record.values(manifest.exports), (entry) =>
@@ -158,14 +153,10 @@ const publishedPackage = Effect.gen(function* () {
 	const root = path.join(import.meta.dirname, "..", "..", "..")
 	const manifestOf = (directory: string) =>
 		fs.readFileString(path.join(root, "packages", directory, "package.json"))
-	const engine = yield* Effect.flatMap(
-		manifestOf("engine"),
-		Schema.decodeEffect(Schema.fromJsonString(Manifest))
-	)
-	const shell = yield* Effect.flatMap(
-		manifestOf("grizzle"),
-		Schema.decodeEffect(Schema.fromJsonString(ShellManifest))
-	)
+	const engineText = yield* manifestOf("engine")
+	const engine = trustedJson<Manifest>(engineText)
+	const shellText = yield* manifestOf("grizzle")
+	const shell = trustedJson<ShellManifest>(shellText)
 	const published = [
 		{ directory: "engine", manifest: engine, bin: noBin },
 		{ directory: "grizzle", manifest: shell, bin: shell.bin }

@@ -1,22 +1,18 @@
-import { Schema } from "effect"
-import { fingerprintSchemas } from "#adapter/boundary/names.ts"
+import { Data } from "effect"
 import {
 	type AcquireRefusal,
-	AcquireRefusalSchema,
 	AdmissionFailed,
 	AdmissionRefused,
 	type AdmissionStage,
 	AdmissionTransient,
 	ClaimRefused,
 	CommitLost,
-	CompileErrorSchema,
 	ConcurrentRefresh,
 	ConnectionEnvironmentRefused,
 	ConnectionLost,
 	DbConfigRefused,
 	Deadlock,
 	DriverFailure,
-	EncodingFailureSchema,
 	GeneratedSerialUnique,
 	HandleReleased,
 	InputTooLarge,
@@ -30,23 +26,24 @@ import {
 	SerializationFailure,
 	ServerError,
 	SpanKeyChange,
-	StaleReasonSchema,
+	type StaleReason,
 	StaleStatement,
 	TokenError,
 	type TransientReason,
-	TransientReasonSchema,
 	UnreadableAnswer,
 	UnseenOccupant
 } from "#adapter/errors/failures.ts"
 
 import type {
+	CompileError,
 	EncodingFailure,
 	TransientReason as EngineTransientReason
 } from "#compiler/core/errors.ts"
+import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 
 /**
- * The execution errors: exactly what the public API's error channels name, each a Schema.TaggedError carried in
+ * The execution errors: exactly what the public API's error channels name, each a Data.TaggedError carried in
  * Effect's error channel, whose classified case is its `reason`, one of failures.ts's classes, so Effect.catchReason,
  * catchReasons and unwrapReason reach it. What follows from a reason (an error's stage) is a getter, never a stored
  * field, and each error's `message` renders a sentence from its reason.
@@ -66,22 +63,20 @@ import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
  * value that does not compile or parse (CompileError); an admission refused; an admission whose transaction
  * SERIALIZABLE refused, which is retryable (AdmissionTransient); or an admission that could not run to a verdict.
  */
-const OpenReasonSchema = Schema.Union([
-	AcquireRefusalSchema,
-	DbConfigRefused,
-	ConnectionEnvironmentRefused,
-	RoleOutsideLayers,
-	LoginNameRefused,
-	TokenError,
-	ClaimRefused,
-	CompileErrorSchema,
-	AdmissionRefused,
-	AdmissionTransient,
-	AdmissionFailed,
-	MissingCapability,
-	WorkloadUngenerated
-])
-export type OpenReason = typeof OpenReasonSchema.Type
+export type OpenReason =
+	| AcquireRefusal
+	| DbConfigRefused
+	| ConnectionEnvironmentRefused
+	| RoleOutsideLayers
+	| LoginNameRefused
+	| TokenError
+	| ClaimRefused
+	| CompileError
+	| AdmissionRefused
+	| AdmissionTransient
+	| AdmissionFailed
+	| MissingCapability
+	| WorkloadUngenerated
 
 /**
  * Where acquiring a session failed: the password Effect, TLS, authentication (a refusal of SQLSTATE class 28), anything
@@ -169,12 +164,7 @@ const openStage = (reason: OpenReason): OpenStage => {
 }
 
 /** Opening a Db, or building a DbLayer, failed for `reason`, at the stage that reason fails at. */
-export class OpenError extends Schema.TaggedError<OpenError, { readonly brand: unique symbol }>()(
-	"OpenError",
-	{
-		reason: OpenReasonSchema
-	}
-) {
+export class OpenError extends Data.TaggedError("OpenError")<{ readonly reason: OpenReason }> {
 	get stage(): OpenStage {
 		return openStage(this.reason)
 	}
@@ -191,22 +181,20 @@ export class OpenError extends Schema.TaggedError<OpenError, { readonly brand: u
  * the admitted database lacks; or the host refused its input before any SQL: a codec's refusal, a ChangeSet's input a
  * law rejects (db.explain), a relation input past the size limit, or a page request.
  */
-const ReadReasonSchema = Schema.Union([
-	ServerError,
-	AcquireRefusalSchema,
-	HandleReleased,
-	ConnectionLost,
-	CommitLost,
-	DriverFailure,
-	UnreadableAnswer,
-	CompileErrorSchema,
-	MissingCapability,
-	EncodingFailureSchema,
-	LawRejected,
-	InputTooLarge,
-	PageRequestRefused
-])
-export type ReadReason = typeof ReadReasonSchema.Type
+export type ReadReason =
+	| ServerError
+	| AcquireRefusal
+	| HandleReleased
+	| ConnectionLost
+	| CommitLost
+	| DriverFailure
+	| UnreadableAnswer
+	| CompileError
+	| MissingCapability
+	| EncodingFailure
+	| LawRejected
+	| InputTooLarge
+	| PageRequestRefused
 
 /** Where a read failed. */
 export type ReadStage =
@@ -269,12 +257,7 @@ const readStage = (reason: ReadReason): ReadStage => {
  * runtime resource failure and at `execute` otherwise, an acquisition's and a released handle's at `acquire`, a session's at `transport`,
  * `driver` or `decode`, the compiler's at `compile` or `capability`, the host's at `encode`, `resource` or `request`.
  */
-export class ReadFailure extends Schema.TaggedError<
-	ReadFailure,
-	{ readonly brand: unique symbol }
->()("ReadFailure", {
-	reason: ReadReasonSchema
-}) {
+export class ReadFailure extends Data.TaggedError("ReadFailure")<{ readonly reason: ReadReason }> {
 	get stage(): ReadStage {
 		return readStage(this.reason)
 	}
@@ -293,10 +276,10 @@ export class ReadFailure extends Schema.TaggedError<
  * with its own Schedule, while the error is a TransientFailure). `reason` says what grizzle read the refusal as, and
  * `error` is the server's report of it.
  */
-export class TransientFailure extends Schema.TaggedError<
-	TransientFailure,
-	{ readonly brand: unique symbol }
->()("TransientFailure", { reason: TransientReasonSchema, error: ServerError }) {
+export class TransientFailure extends Data.TaggedError("TransientFailure")<{
+	readonly reason: TransientReason
+	readonly error: ServerError
+}> {
 	override get message(): string {
 		return `the database refused this attempt, which changed nothing: ${this.reason.message}`
 	}
@@ -306,24 +289,24 @@ export class TransientFailure extends Schema.TaggedError<
 export const transientReason = (reason: EngineTransientReason): TransientReason => {
 	switch (reason._tag) {
 		case "SerializationFailure":
-			return SerializationFailure.make()
+			return new SerializationFailure()
 		case "Deadlock":
-			return Deadlock.make()
+			return new Deadlock()
 		case "PutTargetConflict":
-			return PutTargetConflict.make({ relation: reason.relation })
+			return new PutTargetConflict({ relation: reason.relation })
 		case "GeneratedSerialUnique":
-			return GeneratedSerialUnique.make({
+			return new GeneratedSerialUnique({
 				relation: reason.relation,
 				constraint: reason.constraint
 			})
 		case "SpanKeyChange":
-			return SpanKeyChange.make({ relation: reason.relation })
+			return new SpanKeyChange({ relation: reason.relation })
 		case "UnseenOccupant":
-			return UnseenOccupant.make({ relation: reason.relation, constraint: reason.constraint })
+			return new UnseenOccupant({ relation: reason.relation, constraint: reason.constraint })
 		case "ConcurrentRefresh":
-			return ConcurrentRefresh.make({ relation: reason.relation })
+			return new ConcurrentRefresh({ relation: reason.relation })
 		case "StaleStatement":
-			return StaleStatement.make()
+			return new StaleStatement()
 	}
 }
 
@@ -333,9 +316,9 @@ export const transientReason = (reason: EngineTransientReason): TransientReason 
  */
 export const serializationRefusal = (error: ServerError): TransientFailure | undefined =>
 	error.sqlstate === sqlstates.serializationFailure
-		? TransientFailure.make({ reason: SerializationFailure.make(), error })
+		? new TransientFailure({ reason: new SerializationFailure(), error })
 		: error.sqlstate === sqlstates.deadlockDetected
-			? TransientFailure.make({ reason: Deadlock.make(), error })
+			? new TransientFailure({ reason: new Deadlock(), error })
 			: undefined
 
 /**
@@ -344,14 +327,11 @@ export const serializationRefusal = (error: ServerError): TransientFailure | und
  * server's report: the lock's 55P03, or the guard's 55Z02 or 55Z01. Not retryable: the same call on the same Db meets it
  * again until the migration completes, and after it a Db of the snapshot the database then holds runs the call.
  */
-export class StaleSnapshot extends Schema.TaggedError<
-	StaleSnapshot,
-	{ readonly brand: unique symbol }
->()("StaleSnapshot", {
-	reason: StaleReasonSchema,
-	snapshot: fingerprintSchemas.schema,
-	error: ServerError
-}) {
+export class StaleSnapshot extends Data.TaggedError("StaleSnapshot")<{
+	readonly reason: StaleReason
+	readonly snapshot: SchemaFingerprint
+	readonly error: ServerError
+}> {
 	override get message(): string {
 		return `the database does not hold the snapshot ${this.snapshot} the Db was opened with: ${this.reason.message}`
 	}
@@ -368,22 +348,15 @@ export type ReadError = ReadFailure | TransientFailure | StaleSnapshot
  * Why a write or refresh changed nothing because its session could not be had or broke before COMMIT was sent: the
  * acquisition's refusal, its db.compile handle's ended Scope, or the connection lost or the driver failed.
  */
-const TransportReasonSchema = Schema.Union([
-	AcquireRefusalSchema,
-	HandleReleased,
-	ConnectionLost,
-	DriverFailure
-])
-export type TransportReason = typeof TransportReasonSchema.Type
+export type TransportReason = AcquireRefusal | HandleReleased | ConnectionLost | DriverFailure
 
 /** Where a write's transport failed. */
 export type TransportStage = "acquire" | "transport" | "driver"
 
 /** A write or refresh changed nothing for `reason`, at stage `acquire`, `transport` or `driver`. */
-export class TransportFailure extends Schema.TaggedError<
-	TransportFailure,
-	{ readonly brand: unique symbol }
->()("TransportFailure", { reason: TransportReasonSchema }) {
+export class TransportFailure extends Data.TaggedError("TransportFailure")<{
+	readonly reason: TransportReason
+}> {
 	get stage(): TransportStage {
 		const reason = this.reason
 		return reason._tag === "ConnectionLost"
@@ -404,20 +377,17 @@ export class TransportFailure extends Schema.TaggedError<
  * database lacks; a relation input is past the size limit; or a statement answered rows grizzle cannot read, with what
  * its transaction then did.
  */
-const ExecutionReasonSchema = Schema.Union([
-	ServerError,
-	CompileErrorSchema,
-	MissingCapability,
-	InputTooLarge,
-	UnreadableAnswer
-])
-export type ExecutionReason = typeof ExecutionReasonSchema.Type
+export type ExecutionReason =
+	| ServerError
+	| CompileError
+	| MissingCapability
+	| InputTooLarge
+	| UnreadableAnswer
 
 /** A write or refresh failed at execution, or the host refused it before any SQL was sent, for `reason`. */
-export class ExecutionFailure extends Schema.TaggedError<
-	ExecutionFailure,
-	{ readonly brand: unique symbol }
->()("ExecutionFailure", { reason: ExecutionReasonSchema }) {
+export class ExecutionFailure extends Data.TaggedError("ExecutionFailure")<{
+	readonly reason: ExecutionReason
+}> {
 	override get message(): string {
 		return `the write failed: ${this.reason.message}`
 	}
@@ -427,10 +397,7 @@ export class ExecutionFailure extends Schema.TaggedError<
  * COMMIT was sent and no acknowledgement arrived; the change may be committed. Not retryable: what the database holds
  * is unknown, so a caller reads it back before deciding to run the call again.
  */
-export class CommitUnknown extends Schema.TaggedError<
-	CommitUnknown,
-	{ readonly brand: unique symbol }
->()("CommitUnknown", {}) {
+export class CommitUnknown extends Data.TaggedError("CommitUnknown") {
 	override get message(): string {
 		return "COMMIT was sent and no answer came: the change may have committed"
 	}

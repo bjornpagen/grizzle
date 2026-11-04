@@ -5,13 +5,9 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Redacted, Schema, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Redacted, String as Str } from "effect"
 import { OpenError, type OpenStage } from "#adapter/errors/execution.ts"
-import {
-	type ConnectRefusal,
-	ConnectRefusalSchema,
-	CredentialError
-} from "#adapter/errors/failures.ts"
+import { type ConnectRefusal, CredentialError } from "#adapter/errors/failures.ts"
 import { openMigrationSession } from "#adapter/migrate/session.ts"
 import { acquisitionBudgets, connectBudgetMs } from "#adapter/pool/budgets.ts"
 import { isTlsCode, makePool, noPassword, type Password } from "#adapter/wire/session.ts"
@@ -228,7 +224,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 									return {
 										...direct,
 										password: Effect.fail(
-											CredentialError.make({ cause: "the provider chain resolved nothing" })
+											new CredentialError({ cause: "the provider chain resolved nothing" })
 										)
 									}
 								case "no password for a SCRAM role":
@@ -263,7 +259,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 							)
 							return {
 								refusal: reason.refusal,
-								stage: OpenError.make({ reason: reason.refusal }).stage,
+								stage: new OpenError({ reason: reason.refusal }).stage,
 								stated: reason.refusal.message,
 								text: inspect(failure, { depth: 12 })
 							}
@@ -287,13 +283,10 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								budgets: acquisitionBudgets,
 								attachPool: () => undefined
 							})
-							const failure = yield* Effect.flip(
-								Effect.mapError(Effect.scoped(pool.lease), (reason) => OpenError.make({ reason }))
-							)
-							assert.ok(Schema.is(OpenError)(failure))
-							const refusal = failure.reason
+							const refusal = yield* Effect.flip(Effect.scoped(pool.lease))
+							const failure = new OpenError({ reason: refusal })
 							assert.ok(
-								Schema.is(ConnectRefusalSchema)(refusal),
+								refusal._tag !== "AcquisitionBudgetExceeded" && refusal._tag !== "LayerReleased",
 								`the reason of OpenError at stage ${failure.stage} is a connection attempt's class`
 							)
 							return {

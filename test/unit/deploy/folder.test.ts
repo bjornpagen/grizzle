@@ -26,11 +26,12 @@ import {
 	Order,
 	Record as Rec,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import { decodeMeta, readMeta } from "#adapter/boundary/meta.ts"
+import type { Json } from "#compiler/core/canonical.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import {
 	type CandidatePath,
 	type EndsPath,
@@ -47,8 +48,10 @@ import {
 	type MetaRootRename,
 	type MetaStep,
 	type MetaTopOffer,
+	type CustomMeta,
 	type MigrationMeta,
 	metaFileName,
+	metaSeal,
 	orderFolderFiles,
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
@@ -259,7 +262,7 @@ describe("migration folders, generated", () => {
 			)
 	)
 
-	it("names a folder whose first change is the refined constants' validation after it", () => {
+	it("derives a folder name for a draft whose first change is the refined constants' validation", () => {
 		const first = defined(draftChain([{ desc: work.PlansDesc, options: asDrafted }], fromEmpty)[0])
 		/** The name is generate's own: undefined asks it to derive one. */
 		const g = succeeded(
@@ -272,10 +275,7 @@ describe("migration folders, generated", () => {
 				abandoned: []
 			})
 		)
-		assert.equal(
-			Str.slice("YYYYMMDDHHMMSS_".length)(g.folder.name),
-			"change_validate_refined_constants"
-		)
+		assert.ok(isFolderName(g.folder.name), g.folder.name)
 	})
 })
 
@@ -741,12 +741,32 @@ const faultGen = (meta: MigrationMeta): Gen<Fault> => {
 	return weighted(meta.kind === "drafted" ? Arr.append(arms, recordArm) : arms)
 }
 
-/** A value as JSON text, as a hand-edited meta.json holds it. */
-const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
+/**
+ * A meta.json edited by hand: the faulted value in place of the meta, under the seal grizzle wrote for the original,
+ * null among its faults.
+ */
+const handEdited = (meta: MigrationMeta, value: unknown): string =>
+	jsonText(
+		trusted<Json>({ meta: value, seal: succeeded(metaSeal(meta), "the original meta's seal") })
+	)
+
+/** A custom meta whose source and target are two snapshots, which grizzle never writes: sealed, so its read refuses it. */
+const twoSnapshots = (meta: MigrationMeta): CustomMeta => ({
+	kind: "custom",
+	schemaName: meta.schemaName,
+	schema: meta.schema,
+	source: meta.source,
+	target: SchemaFingerprint(
+		meta.source === Str.repeat(64)("0") ? Str.repeat(64)("1") : Str.repeat(64)("0")
+	)
+})
 
 const faulted = (
 	meta: MigrationMeta,
-	fault: Exclude<Fault, { readonly kind: "record" }>
+	fault: Exclude<
+		Fault,
+		{ readonly kind: "record" } | { readonly kind: "custom with two snapshots" }
+	>
 ): unknown => {
 	const fields: Readonly<Record<string, unknown>> = { ...meta }
 	switch (fault.kind) {
@@ -758,12 +778,6 @@ const faulted = (
 			return { ...meta, [fault.key]: fault.value }
 		case "removed":
 			return Rec.fromEntries(Arr.filter(Rec.toEntries(fields), ([k]) => k !== fault.key))
-		case "custom with two snapshots":
-			return {
-				...Rec.fromEntries(Arr.filter(Rec.toEntries(fields), ([k]) => k !== "files")),
-				kind: "custom",
-				target: meta.source === Str.repeat(64)("0") ? Str.repeat(64)("1") : Str.repeat(64)("0")
-			}
 	}
 }
 
@@ -795,7 +809,7 @@ describe("meta.json, generated", () => {
 						caseHang: Duration.minutes(2)
 					},
 					([meta, roots, fault], c) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const written = succeeded(writeMeta(meta))
 							if (fault.kind === "none") {
 								assert.equal(decodeMeta(written).pipe(succeeded, writeMeta, succeeded), written)
@@ -834,13 +848,18 @@ describe("meta.json, generated", () => {
 								return
 							}
 							if (fault.kind === "record") {
-								const files =
-									meta.kind === "drafted" ? missed(meta.files, roots, fault.miss) : undefined
+								if (meta.kind !== "drafted") {
+									return
+								}
+								const files = missed(meta.files, roots, fault.miss)
 								if (files === undefined) {
 									return
 								}
 								c.note(fault.miss)
-								const text = yield* jsonText({ ...meta, files })
+								const text = succeeded(
+									writeMeta({ ...meta, files: trusted<ReadonlyArray<MetaFile>>(files) }),
+									"a sealed meta short of its record"
+								)
 								const read = readMeta(text)
 								if (Result.isSuccess(read)) {
 									assert.fail(`${fault.miss} is read`)
@@ -848,7 +867,13 @@ describe("meta.json, generated", () => {
 								assert.equal(read.failure.reason._tag, "MalformedArtifact")
 								return
 							}
-							const text = yield* jsonText(faulted(meta, fault))
+							const text =
+								fault.kind === "custom with two snapshots"
+									? succeeded(
+											writeMeta(twoSnapshots(meta)),
+											"a sealed custom meta of two snapshots"
+										)
+									: handEdited(meta, faulted(meta, fault))
 							const read = readMeta(text)
 							if (Result.isSuccess(read)) {
 								assert.fail(`${Formatter.format(fault)} is read`)

@@ -21,7 +21,6 @@ import {
 	Effect,
 	Formatter,
 	Option,
-	pipe,
 	Record as Rec,
 	String as Str
 } from "effect"
@@ -37,7 +36,7 @@ import {
 	ScopeId,
 	VarId
 } from "#compiler/core/ids.ts"
-import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import {
 	cellFold,
@@ -86,6 +85,7 @@ import { decodeWith } from "#compiler/ir/shape.ts"
 import { contractType } from "#compiler/scalar/registry.ts"
 import {
 	assert,
+	containsText,
 	defined,
 	refusalLoc,
 	succeeded,
@@ -402,16 +402,10 @@ describe("DagBuilder.build", () => {
 							const outside: unknown = succeeded(toTable(built))
 							const refusal = fail(decodeWith(dagTableShape, outside, "relational DAG"))
 							assert.equal(refusal.reason._tag, "MalformedDescription")
-							assert.ok(
-								pipe(
-									formatLoc(refusalLoc(refusal)),
-									Str.startsWith(`relational DAG at nodes.${take.id}`)
-								),
-								formatLoc(refusalLoc(refusal))
-							)
-							assert.equal(
+							assert.deepEqual(refusalLoc(refusal).path.slice(0, 2), ["nodes", take.id])
+							containsText(
 								throwsDefect(() => validateDag(built)),
-								`a value this package built has its shape: ${refusal.message}`
+								refusal.message
 							)
 						})
 				)

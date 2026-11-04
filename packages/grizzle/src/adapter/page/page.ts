@@ -97,8 +97,9 @@ export const compilePageTemplate = (
 	ctx: DbContext,
 	query: unknown
 ): Result.Result<CompiledPage, ReadFailure> => {
-	const compiled = Result.mapError(compiledPageTemplate(ctx, query), (reason) =>
-		ReadFailure.make({ reason })
+	const compiled = Result.mapError(
+		compiledPageTemplate(ctx, query),
+		(reason) => new ReadFailure({ reason })
 	)
 	if (Result.isFailure(compiled)) {
 		return compiled
@@ -108,9 +109,7 @@ export const compilePageTemplate = (
 		ctx.installedExtensions
 	)
 	if (missing !== undefined) {
-		return Result.fail(
-			ReadFailure.make({ reason: MissingCapability.make({ capability: missing }) })
-		)
+		return Result.fail(new ReadFailure({ reason: new MissingCapability({ capability: missing }) }))
 	}
 	return Result.succeed(compiled.success)
 }
@@ -213,8 +212,9 @@ export const runPage = <A, Q>(
 		const { compiled, runtime, codecs } = yield* pageTemplateOf(run)
 		const values = yield* hostParams(compiled.template.params, run.params, recordsetMaxRows)
 		const inputs = yield* Effect.fromResult(
-			Result.mapError(executionInputs(codecs, values, transportLimits), (reason) =>
-				ReadFailure.make({ reason })
+			Result.mapError(
+				executionInputs(codecs, values, transportLimits),
+				(reason) => new ReadFailure({ reason })
 			)
 		)
 		const call: PageCall =
@@ -233,10 +233,11 @@ export const runPage = <A, Q>(
 			rowOptions
 		)
 		if (!read.ok) {
-			return yield* ReadFailure.make({ reason: read.error })
+			return yield* new ReadFailure({ reason: read.error })
 		}
-		const flight = yield* Effect.mapError(pageFlight(runtime, artifact, inputs, call), (reason) =>
-			ReadFailure.make({ reason })
+		const flight = yield* Effect.mapError(
+			pageFlight(runtime, artifact, inputs, call),
+			(reason) => new ReadFailure({ reason })
 		)
 		const rows = yield* run.executor.run(flight)
 		return yield* Effect.fromResult(pageOf<A, Q>(runtime, rows, read.value))

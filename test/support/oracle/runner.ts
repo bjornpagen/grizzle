@@ -1,9 +1,10 @@
 import {
 	type Case,
-	CaseDiscarded,
+	type CaseDiscarded,
 	type Draw,
 	type Explored,
 	explore,
+	isCaseDiscarded,
 	isWitness,
 	type Kept,
 	type PropertyFalsified,
@@ -23,7 +24,6 @@ import {
 	Option,
 	Record as Rec,
 	Result,
-	Schema,
 	type Scope
 } from "effect"
 import { BudgetMeter } from "#compiler/core/budget.ts"
@@ -164,18 +164,14 @@ export const conservative: Lowering = {
 }
 
 /** A failure of the harness to run a case: planning, lowering, executing or rendering the reference. */
-class OracleFailure extends Schema.TaggedError<OracleFailure, { readonly brand: unique symbol }>()(
-	"OracleFailure",
-	{
-		stage: Schema.Literals(["plan", "lower", "execute", "reference"]),
-		side: Schema.String,
-		message: Schema.String
-	}
-) {}
+class OracleFailure extends Data.TaggedError("OracleFailure")<{
+	readonly stage: "plan" | "lower" | "execute" | "reference"
+	readonly side: string
+	readonly message: string
+}> {}
 
 /** Which side of a comparison a lowered run is: the baseline, or the side judged against it. */
-const sideRoles = ["left", "right"] as const
-type SideRole = (typeof sideRoles)[number]
+type SideRole = "left" | "right"
 
 /**
  * A side's two readings of a case (runOracle step 5): the case as generated, the run over its facts, the run over its
@@ -194,15 +190,12 @@ class Readings extends Data.Class<{
  * A verdict on a side, never a failure of the harness: its second reading (runOracle step 5) delivered otherwise than
  * its first, so its answer depends on something other than the facts.
  */
-class InvarianceFailed extends Schema.TaggedError<
-	InvarianceFailed,
-	{ readonly brand: unique symbol }
->()("InvarianceFailed", {
-	role: Schema.Literals(sideRoles),
-	side: Schema.String,
-	report: Schema.String,
-	readings: Schema.instanceOf(Readings)
-}) {
+class InvarianceFailed extends Data.TaggedError("InvarianceFailed")<{
+	readonly role: SideRole
+	readonly side: string
+	readonly report: string
+	readonly readings: Readings
+}> {
 	override get message(): string {
 		return this.report
 	}
@@ -378,7 +371,7 @@ export const inputText = (literal: TypedLiteral): string => {
 }
 
 const failure = (stage: OracleFailure["stage"], side: string, message: string) =>
-	OracleFailure.make({ stage, side, message })
+	new OracleFailure({ stage, side, message })
 
 /** A failure of a statement as one line: PostgreSQL's SQLSTATE, message and DETAIL, or the error's own message. */
 export const sqlMessage = (error: unknown): string => {
@@ -649,7 +642,7 @@ const runNamed = (
 		const scaledPast =
 			first !== undefined &&
 			Result.isFailure(first) &&
-			Schema.is(ReferenceUnsupported)(first.failure) &&
+			first.failure instanceof ReferenceUnsupported &&
 			perturbation.multiplier > 1
 		const c: QueryCase = scaledPast ? input : multiplied
 		const expected = scaledPast ? referenceStatements(input, 1) : first
@@ -762,7 +755,7 @@ const runNamed = (
 						const again = yield* runProgram(session, restoration.case, side.program, side.name)
 						const itself = compareRuns(side.first, again)
 						if (comparison.equal && !itself.equal) {
-							return yield* InvarianceFailed.make({
+							return yield* new InvarianceFailed({
 								role: side.role,
 								side: side.name,
 								readings: new Readings({
@@ -833,20 +826,19 @@ export const printOutcome = (o: OracleOutcome): string =>
  * A property's verdict on one case: it holds, or it fails with the report of why (ComparisonFailed when an oracle
  * comparison failed).
  */
-export class PropertyFailed extends Schema.TaggedError<
-	PropertyFailed,
-	{ readonly brand: unique symbol }
->()("PropertyFailed", { report: Schema.String }) {
+export class PropertyFailed extends Data.TaggedError("PropertyFailed")<{
+	readonly report: string
+}> {
 	override get message(): string {
 		return this.report
 	}
 }
 
 /** The failure of an oracle comparison, with the outcome that failed. */
-class ComparisonFailed extends Schema.TaggedError<
-	ComparisonFailed,
-	{ readonly brand: unique symbol }
->()("ComparisonFailed", { report: Schema.String, outcome: Schema.instanceOf(OracleOutcome) }) {
+class ComparisonFailed extends Data.TaggedError("ComparisonFailed")<{
+	readonly report: string
+	readonly outcome: OracleOutcome
+}> {
 	override get message(): string {
 		return this.report
 	}
@@ -854,7 +846,7 @@ class ComparisonFailed extends Schema.TaggedError<
 
 /** The failure of a comparison: its printable report and the outcome itself. */
 export const comparisonFailed = (outcome: OracleOutcome): ComparisonFailed =>
-	ComparisonFailed.make({ report: printOutcome(outcome), outcome })
+	new ComparisonFailed({ report: printOutcome(outcome), outcome })
 
 /**
  * What one exploration of oracleCheck is: the library's exploration minus its draw (oracleCheck's first argument), its
@@ -890,21 +882,21 @@ const underPerturbation = <E, R>(
 					return Effect.interrupt
 				}
 				const error = Cause.squash(cause)
-				if (Schema.is(CaseDiscarded)(error)) {
+				if (isCaseDiscarded(error)) {
 					return Effect.fail(error)
 				}
 				const failed =
-					Schema.is(PropertyFailed)(error) || Schema.is(ComparisonFailed)(error)
+					error instanceof PropertyFailed || error instanceof ComparisonFailed
 						? error
-						: PropertyFailed.make({ report: reportOf(cause) })
+						: new PropertyFailed({ report: reportOf(cause) })
 				if (!isPerturbed(perturbation)) {
 					return Effect.fail(failed)
 				}
 				const report = Arr.join([failed.report, printPerturbation(perturbation)], "\n")
 				return Effect.fail(
-					Schema.is(ComparisonFailed)(failed)
-						? ComparisonFailed.make({ report, outcome: failed.outcome })
-						: PropertyFailed.make({ report })
+					failed instanceof ComparisonFailed
+						? new ComparisonFailed({ report, outcome: failed.outcome })
+						: new PropertyFailed({ report })
 				)
 			}
 		)
@@ -1047,7 +1039,7 @@ export const oracleKill = <S, T, F extends string, R>(
 			property(value, c).pipe(
 				Effect.tapCause((cause) =>
 					Effect.sync(() => {
-						if (!Cause.hasInterruptsOnly(cause) && !Schema.is(CaseDiscarded)(Cause.squash(cause))) {
+						if (!Cause.hasInterruptsOnly(cause) && !isCaseDiscarded(Cause.squash(cause))) {
 							last = Option.some({
 								value,
 								verdict: Option.map(Cause.findErrorOption(cause), verdictOf)
@@ -1088,13 +1080,13 @@ export const oracleKill = <S, T, F extends string, R>(
 const reportOf = (cause: Cause.Cause<unknown>): string => {
 	const error = Cause.squash(cause)
 	if (
-		Schema.is(PropertyFailed)(error) ||
-		Schema.is(ComparisonFailed)(error) ||
-		Schema.is(InvarianceFailed)(error)
+		error instanceof PropertyFailed ||
+		error instanceof ComparisonFailed ||
+		error instanceof InvarianceFailed
 	) {
 		return error.report
 	}
-	if (Schema.is(OracleFailure)(error)) {
+	if (error instanceof OracleFailure) {
 		return `${error.stage} failed on ${error.side}: ${error.message}`
 	}
 	return Cause.pretty(cause)

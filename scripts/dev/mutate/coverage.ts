@@ -1,16 +1,12 @@
-import { Array as Arr, Effect, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Result, String as Str } from "effect"
+import { trustedJson } from "#compiler/core/trusted.ts"
 
 import { regex } from "arkregex"
-const Range = Schema.Struct({ startOffset: Schema.Int, endOffset: Schema.Int, count: Schema.Int })
-const FunctionCoverage = Schema.Struct({ functionName: Schema.String, ranges: Schema.Array(Range) })
-const ScriptHeader = Schema.Struct({ url: Schema.String })
-const ScriptCoverage = Schema.Struct({
-	url: Schema.String,
-	functions: Schema.Array(FunctionCoverage)
-})
-const CoverageFile = Schema.fromJsonString(Schema.Struct({ result: Schema.Array(Schema.Unknown) }))
-
-type Range = typeof Range.Type
+interface Range {
+	readonly startOffset: number
+	readonly endOffset: number
+	readonly count: number
+}
 
 /** The ranges of one script in one dump, as V8 reported them. */
 export type ScriptRanges = ReadonlyArray<Range>
@@ -19,7 +15,21 @@ export type ScriptRanges = ReadonlyArray<Range>
  * One function of one script: its name as V8 reports it ("" when it has none) and its ranges, the first being the
  * function itself and the rest its blocks.
  */
-type FunctionRanges = typeof FunctionCoverage.Type
+interface FunctionRanges {
+	readonly functionName: string
+	readonly ranges: ReadonlyArray<Range>
+}
+
+/** One script of a dump as Node writes it under NODE_V8_COVERAGE: its URL and its functions. */
+interface ScriptCoverage {
+	readonly url: string
+	readonly functions: ReadonlyArray<FunctionRanges>
+}
+
+/** A coverage dump: every script the process loaded. */
+interface CoverageFile {
+	readonly result: ReadonlyArray<ScriptCoverage>
+}
 
 /** One script of one dump: its path relative to the root, and its functions. */
 interface ScriptDump {
@@ -49,25 +59,18 @@ export interface DumpInput {
  * offset of the TypeScript source. A function V8 never compiled may go unreported, which makes its parent's count
  * stand for it: a mutant then selects more test files, never fewer.
  */
-export const scriptsOfDump = Effect.fn("scriptsOfDump")(function* (input: DumpInput) {
+export const scriptsOfDump = (input: DumpInput): ReadonlyArray<ScriptDump> => {
 	const base = Str.endsWith("/")(input.root) ? input.root : `${input.root}/`
-	const dump = yield* Schema.decodeEffect(CoverageFile)(input.text)
-	const scripts = yield* Effect.forEach(dump.result, (entry) =>
-		Effect.gen(function* () {
-			const { url } = yield* Schema.decodeUnknownEffect(ScriptHeader)(entry)
-			const local = Str.startsWith("file://")(url)
-				? decodeURIComponent(Str.slice("file://".length)(url))
-				: ""
-			const relative = Str.startsWith(base)(local) ? Str.slice(base.length)(local) : ""
-			if (!input.wanted.has(relative)) {
-				return Result.failVoid
-			}
-			const script = yield* Schema.decodeUnknownEffect(ScriptCoverage)(entry)
-			return Result.succeed<ScriptDump>({ path: relative, functions: script.functions })
-		})
-	)
-	return Arr.filterMap(scripts, (script) => script)
-})
+	return Arr.filterMap(trustedJson<CoverageFile>(input.text).result, (script) => {
+		const local = Str.startsWith("file://")(script.url)
+			? decodeURIComponent(Str.slice("file://".length)(script.url))
+			: ""
+		const relative = Str.startsWith(base)(local) ? Str.slice(base.length)(local) : ""
+		return input.wanted.has(relative)
+			? Result.succeed<ScriptDump>({ path: relative, functions: script.functions })
+			: Result.failVoid
+	})
+}
 
 /** An offset of a script and the ranges one dump reports for it. */
 export interface Probe {

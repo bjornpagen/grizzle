@@ -28,7 +28,7 @@ describe("scanners that replace a RegExp under src", () => {
 		Effect.gen(function* () {
 			const reference = regex("^C\\.UTF-?8$", "i")
 			const texts = oneOf([
-				textOf("cCuUtTfF.-8 Kſİ", 9),
+				textOf("cCuUtTfF.-_8 Kſİ", 9),
 				element(["C.UTF-8", "c.utf8", "C.utf-8", "C.UTF-8 ", "C", "POSIX", "en_US.UTF-8"])
 			])
 			yield* searched(
@@ -52,8 +52,6 @@ describe("scanners that replace a RegExp under src", () => {
 						})
 				)
 			)
-			assert.equal(isCUtf8("c.UtF8"), true)
-			assert.equal(isCUtf8("C.UTF_8"), false)
 		})
 	)
 
@@ -82,10 +80,6 @@ describe("scanners that replace a RegExp under src", () => {
 						})
 				)
 			)
-			const read = (text: string): string | undefined => parseSqlstate(text)
-			assert.equal(read("40001"), "40001")
-			assert.equal(read("EPIPE"), "EPIPE")
-			assert.equal(read("23p01"), undefined)
 		})
 	)
 

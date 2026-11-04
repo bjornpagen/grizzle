@@ -260,7 +260,7 @@ export const directWriterSuite = () =>
 									const target = yield* Effect.mapError(
 										openTarget(schema, "analyzed", ordinarySession),
 										(e) =>
-											CaseFailed.make({
+											new CaseFailed({
 												report: `${printSchema(schema)}\ndid not install: ${messageOf(e)}`
 											})
 									)
@@ -274,10 +274,11 @@ export const directWriterSuite = () =>
 									)
 									for (const [i, c] of cases.entries()) {
 										yield* runDirectCase(target, writer, c, cx.note).pipe(
-											Effect.mapError((e) =>
-												CaseFailed.make({
-													report: `${printSchema(schema)}\ncase ${i + 1} of ${cases.length}:\n${e.report}`
-												})
+											Effect.mapError(
+												(e) =>
+													new CaseFailed({
+														report: `${printSchema(schema)}\ncase ${i + 1} of ${cases.length}:\n${e.report}`
+													})
 											)
 										)
 									}

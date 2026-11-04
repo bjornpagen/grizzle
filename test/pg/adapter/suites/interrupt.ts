@@ -18,7 +18,6 @@ import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
-import { jsonText } from "#test/support/json.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -519,7 +518,7 @@ const interruptCases = Effect.gen(function* () {
 					const changed = Option.isSome(exactValue(after, before))
 					assert.ok(
 						!changed || (effective && Option.isNone(exactValue(after, write.after))),
-						`the notes are as before the call or as the accepted write leaves them\nbefore: ${jsonText(before)}\nwrite: ${jsonText(write)}\nafter: ${jsonText(after)}`
+						`the notes are as before the call or as the accepted write leaves them\nbefore: ${Formatter.format(before)}\nwrite: ${Formatter.format(write)}\nafter: ${Formatter.format(after)}`
 					)
 					if (interrupted) {
 						cx.note(`${sketch.call} interrupted`)

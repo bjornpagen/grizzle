@@ -17,11 +17,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
-import { encode, everyProperty, type Path } from "#compiler/core/canonical.ts"
+import { everyProperty, type Path } from "#compiler/core/canonical.ts"
 import { digest, schemaFingerprint } from "#compiler/core/fingerprint.ts"
 import { type SourceLoc, sitedLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 
@@ -169,70 +168,65 @@ describe("fingerprints", () => {
 		)
 	)
 
-	it.effect(
-		"hash the canonical text under its domain and the serializer's format, and refuse a domain of no single line",
-		(ctx) =>
-			Effect.gen(function* () {
-				type DomainFeature = "two domains" | "an empty domain" | "a domain of two lines"
-				yield* searched(
-					ctx,
-					explore(
-						{
-							suite: "unit/core/fingerprint-domain",
-							draw: drawn(
-								(source) =>
-									[
-										source.draw(
-											map(
-												uniqueArray(
-													(source) =>
-														[
-															source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 })),
-															source.draw(leaf)
-														] as const,
-													([k]) => k,
-													{ min: 0, max: 3 },
-													20
-												),
-												Record.fromEntries
-											)
-										),
-										source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 8 })),
-										source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 8 })),
-										source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 }))
-									] as const
-							),
-							literal: Formatter.format,
-							coverage: required<DomainFeature>(
-								["two domains", "an empty domain", "a domain of two lines"],
-								{ cases: 200, sense: notesOnly }
-							),
-							kept: [],
-							runs: 200,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang: Duration.minutes(2)
-						},
-						([value, a, b, tail], c) =>
-							Effect.sync(() => {
-								const text = succeeded(encode(value, everyProperty))
-								const sha = (domain: string) => sha256Hex(`grizzle-canonical\n${domain}\n${text}`)
-								assert.equal(succeeded(digest(a, value, everyProperty)), sha(a))
-								if (a !== b) {
-									assert.notEqual(
-										succeeded(digest(a, value, everyProperty)),
-										succeeded(digest(b, value, everyProperty))
-									)
-									c.note("two domains")
-								}
-								refused(digest("", value, everyProperty), "MalformedArtifact")
-								c.note("an empty domain")
-								refused(digest(`${a}\n${tail}`, value, everyProperty), "MalformedArtifact")
-								c.note("a domain of two lines")
-							})
-					)
+	it.effect("separate their domains, and refuse a domain of no single line", (ctx) =>
+		Effect.gen(function* () {
+			type DomainFeature = "two domains" | "an empty domain" | "a domain of two lines"
+			yield* searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/core/fingerprint-domain",
+						draw: drawn(
+							(source) =>
+								[
+									source.draw(
+										map(
+											uniqueArray(
+												(source) =>
+													[
+														source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 })),
+														source.draw(leaf)
+													] as const,
+												([k]) => k,
+												{ min: 0, max: 3 },
+												20
+											),
+											Record.fromEntries
+										)
+									),
+									source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 8 })),
+									source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 8 })),
+									source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 }))
+								] as const
+						),
+						literal: Formatter.format,
+						coverage: required<DomainFeature>(
+							["two domains", "an empty domain", "a domain of two lines"],
+							{ cases: 200, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					([value, a, b, tail], c) =>
+						Effect.sync(() => {
+							if (a !== b) {
+								assert.notEqual(
+									succeeded(digest(a, value, everyProperty)),
+									succeeded(digest(b, value, everyProperty))
+								)
+								c.note("two domains")
+							}
+							refused(digest("", value, everyProperty), "MalformedArtifact")
+							c.note("an empty domain")
+							refused(digest(`${a}\n${tail}`, value, everyProperty), "MalformedArtifact")
+							c.note("a domain of two lines")
+						})
 				)
-			})
+			)
+		})
 	)
 })

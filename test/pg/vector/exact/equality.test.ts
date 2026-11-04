@@ -112,8 +112,7 @@ const compiled = (q: unknown, installed: Installed): QueryTemplate => {
 const run = (session: RawSession, spec: StatementSpec, params: Readonly<Record<string, unknown>>) =>
 	Effect.gen(function* () {
 		const rows = yield* session.values(spec.sql, paramTexts(spec, params))
-		const texts = yield* textRows(rows)
-		return Arr.map(texts, headingRecord(spec.heading))
+		return Arr.map(textRows(rows), headingRecord(spec.heading))
 	})
 
 /**

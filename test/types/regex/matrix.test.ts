@@ -122,7 +122,8 @@ const categories: Arr.NonEmptyReadonlyArray<Category> = [
 layer(NodeServices.layer, { excludeTestServices: true })("ArkRegex inference matrix", (it) => {
 	it.effect("typechecks the generated matrix program with no diagnostic", () =>
 		Effect.gen(function* () {
-			assert.equal((yield* checked("regex/matrix")).output, "")
+			const diagnostics = yield* checked("regex/matrix")
+			assert.equal(diagnostics.output, "")
 		})
 	)
 

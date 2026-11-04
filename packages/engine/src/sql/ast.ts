@@ -102,8 +102,8 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 
 /**
  * The schema of a named type: the installation's, for a domain or an enum, or the vector extension's. Only the doors
- * that name those schemas mint it (physical/ddl/names.ts, physical/install/extension.ts, and the snapshot codec at its
- * boundary), so no named type sits in pg_catalog: a pg_catalog type is builtin.
+ * that name those schemas mint it (physical/ddl/names.ts, physical/install/extension.ts), and a snapshot read back holds
+ * the ones they minted, so no named type sits in pg_catalog: a pg_catalog type is builtin.
  */
 export type TypeSchema = string & { readonly [typeSchemaBrand]: true }
 declare const typeSchemaBrand: unique symbol

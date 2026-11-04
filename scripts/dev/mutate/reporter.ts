@@ -1,28 +1,23 @@
-import { Array as Arr, Effect, Option, Schema } from "effect"
+import { Array as Arr, Option } from "effect"
 import type { Reporter, SerializedError, TestCase, TestModule, TestSuite } from "vitest/node"
+import { jsonText } from "#compiler/core/trusted.ts"
 
 /**
  * One line a mutation run prints for main.ts to read: a failed test, by its file relative to the tree and its path of
  * suite and test names (`(file)` when the file itself failed: it did not load, or a hook outside every suite threw), or
  * the run's end.
  */
-export const RunLine = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("fail"), file: Schema.String, test: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("done") })
-])
-export type RunLine = typeof RunLine.Type
+export type RunLine =
+	| { readonly kind: "fail"; readonly file: string; readonly test: string }
+	| { readonly kind: "done" }
 
-const encodeLine = Schema.encodeEffect(Schema.fromJsonString(RunLine))
+/** What starts each of the reporter's lines, its RunLine's JSON after it: every other stdout line is Vitest's. */
+export const runLineMarker = "GRIZZLE-MUTATE "
 
 /** Prints one line on stdout, at once: main.ts reads each as it comes. */
-const print = (line: RunLine): void =>
-	Effect.runSync(
-		Effect.flatMap(Effect.orDie(encodeLine(line)), (text) =>
-			Effect.sync(() => {
-				process.stdout.write(`${text}\n`)
-			})
-		)
-	)
+const print = (line: RunLine): void => {
+	process.stdout.write(`${runLineMarker}${jsonText(line)}\n`)
+}
 
 /** The file a failure of `module` is charged to: its path relative to the tree, as main.ts names the files it runs. */
 const failed = (module: TestModule, test: string): void => {

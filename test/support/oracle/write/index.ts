@@ -9,16 +9,7 @@ import {
 import type { Coverage } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { boundedShrink } from "@grizzle/testing/shrink"
-import {
-	Array as Arr,
-	Cause,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Schema,
-	type Scope
-} from "effect"
+import { Array as Arr, Cause, Duration, Effect, Formatter, Option, type Scope } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
 import {
@@ -219,7 +210,7 @@ const deltaReads = (group: WGroup, c: WChangeSet) =>
 
 const failureReport = (cause: Cause.Cause<unknown>): string => {
 	const error = Cause.squash(cause)
-	return Schema.is(CaseFailed)(error) ? error.report : Cause.pretty(cause)
+	return error instanceof CaseFailed ? error.report : Cause.pretty(cause)
 }
 
 /**
@@ -235,10 +226,10 @@ export const runWrite = (
 		return runResolved(run, resolved, c.note).pipe(
 			Effect.catchCause((cause) => {
 				const error = Cause.squash(cause)
-				return Schema.is(CaseFailed)(error)
+				return error instanceof CaseFailed
 					? Effect.fail(error)
 					: Effect.fail(
-							CaseFailed.make({
+							new CaseFailed({
 								report: `${printSchema(resolved.schema)}\n${failureReport(cause)}`
 							})
 						)
@@ -261,7 +252,7 @@ const runResolved = (
 		const t = yield* openTarget(schema, run.statistics, run.ambient)
 		const privileges = yield* privilegeProblems(t)
 		if (privileges.length > 0) {
-			return yield* CaseFailed.make({
+			return yield* new CaseFailed({
 				report: `${printSchema(schema)}\n${Arr.join(privileges, "\n")}`
 			})
 		}
@@ -277,8 +268,8 @@ const runResolved = (
 		for (const [i, rc] of cases.entries()) {
 			const ran = yield* runCase(t, rc, note).pipe(
 				Effect.mapError((e) =>
-					Schema.is(CaseFailed)(e)
-						? CaseFailed.make({ report: `case ${i + 1} of ${cases.length}:\n${e.report}` })
+					e instanceof CaseFailed
+						? new CaseFailed({ report: `case ${i + 1} of ${cases.length}:\n${e.report}` })
 						: e
 				)
 			)
@@ -347,7 +338,7 @@ export const exploreWrite = (
 			).pipe(
 				Effect.mapError((e) =>
 					isPerturbed(perturbation)
-						? CaseFailed.make({ report: `${e.report}\n${printPerturbation(perturbation)}` })
+						? new CaseFailed({ report: `${e.report}\n${printPerturbation(perturbation)}` })
 						: e
 				)
 			)

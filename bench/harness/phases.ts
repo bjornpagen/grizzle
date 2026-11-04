@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Record as Rec, Schema } from "effect"
+import { Array as Arr, Data, Effect, Record as Rec } from "effect"
 
 /**
  * Phase timing for the performance gates.
@@ -36,13 +36,10 @@ export type Observed<T> =
 	| { readonly kind: "unobserved" }
 	| { readonly kind: "observed"; readonly value: T }
 
-class OverlappingPhase extends Schema.TaggedError<
-	OverlappingPhase,
-	{ readonly brand: unique symbol }
->()("OverlappingPhase", {
-	running: Schema.Literals(standardPhases),
-	started: Schema.Union([Schema.Literals(standardPhases), Schema.Literal("take")])
-}) {}
+class OverlappingPhase extends Data.TaggedError("OverlappingPhase")<{
+	readonly running: StandardPhase
+	readonly started: StandardPhase | "take"
+}> {}
 
 const round = (x: number): number => Math.round(x * 1000) / 1000
 
@@ -52,7 +49,7 @@ export class PhaseClock {
 
 	#enter(phase: StandardPhase): number {
 		if (this.#running !== undefined) {
-			throw OverlappingPhase.make({ running: this.#running, started: phase })
+			throw new OverlappingPhase({ running: this.#running, started: phase })
 		}
 		this.#running = phase
 		return performance.now()
@@ -105,7 +102,7 @@ export class PhaseClock {
 	/** The phases of the sample so far, and a fresh sample. */
 	take(): Readonly<Partial<Record<StandardPhase, number>>> {
 		if (this.#running !== undefined) {
-			throw OverlappingPhase.make({ running: this.#running, started: "take" })
+			throw new OverlappingPhase({ running: this.#running, started: "take" })
 		}
 		const sample = Rec.fromEntries(Arr.map([...this.#current], ([k, v]) => [k, round(v)]))
 		this.#current = new Map()

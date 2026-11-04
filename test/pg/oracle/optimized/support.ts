@@ -1,14 +1,5 @@
 import { exact, ordered } from "@grizzle/testing/oracle"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	Result,
-	Schema
-} from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { decodePlan } from "#adapter/explain/plan.ts"
 import { type PlanLabel, planEdges, planNodeTypes } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -17,7 +8,6 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
-import { isRecord } from "#compiler/core/record.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -52,7 +42,7 @@ import {
 } from "#compiler/lower/shapes/index.ts"
 
 import { canonicalTextOf, type Json } from "#compiler/core/canonical.ts"
-import { jsonText, trusted } from "#compiler/core/trusted.ts"
+import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import {
 	relationTransport,
 	specializeValues,
@@ -106,17 +96,14 @@ import { typeProblems } from "#test/support/oracle/verify/types.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-class DifferentialFailure extends Schema.TaggedError<
-	DifferentialFailure,
-	{ readonly brand: unique symbol }
->()("DifferentialFailure", {
-	stage: Schema.Literals(["plan", "lower", "verify", "types", "execute", "unfuse", "explain"]),
-	side: Schema.String,
-	message: Schema.String
-}) {}
+class DifferentialFailure extends Data.TaggedError("DifferentialFailure")<{
+	readonly stage: "plan" | "lower" | "verify" | "types" | "execute" | "unfuse" | "explain"
+	readonly side: string
+	readonly message: string
+}> {}
 
 const failure = (stage: DifferentialFailure["stage"], side: string, message: string) =>
-	DifferentialFailure.make({ stage, side, message })
+	new DifferentialFailure({ stage, side, message })
 
 const compileMessage = (e: CompileError): string => e.message
 
@@ -132,9 +119,6 @@ const cellAt = (row: RawRow, i: number, what: string): string => {
 	}
 	return cell
 }
-
-/** A fused array element of several columns: JSON text, parsed as untrusted input. */
-const decodeJsonElement = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))
 
 /**
  * The parameters of a generated query as the checker would declare them (check/params.ts): a scalar by its name with
@@ -408,22 +392,15 @@ const childRowsOf = (
 		} else if (element.length === 1 && only !== undefined) {
 			values = new Map([[only.name, e]])
 		} else {
-			const parsed = decodeJsonElement(e)
-			if (Result.isFailure(parsed)) {
-				return Result.fail(`a malformed JSON element ${Formatter.format(e)}`)
-			}
-			const object = parsed.success
-			if (!isRecord(object) || Arr.isArray(object)) {
-				return Result.fail(`a JSON element that is no object ${Formatter.format(e)}`)
-			}
+			const object = trustedJson<Readonly<Record<string, string>>>(e)
 			if (Rec.keys(object).length !== element.length) {
 				return Result.fail(`a JSON element of another width ${Formatter.format(e)}`)
 			}
 			const m = new Map<string, string>()
 			for (const [i, col] of element.entries()) {
 				const cell = object[`f${i + 1}`]
-				if (typeof cell !== "string") {
-					return Result.fail(`a JSON cell that is no string ${Formatter.format(e)}`)
+				if (cell === undefined) {
+					return Result.fail(`a JSON element without f${i + 1} ${Formatter.format(e)}`)
 				}
 				m.set(col.name, cell)
 			}
@@ -1111,10 +1088,12 @@ export const differentialCase = (
 	c: QueryCase,
 	options: DifferentialOptions
 ): Effect.Effect<DifferentialOutcome, PropertyFailed, Substrate> =>
-	Effect.mapError(runDifferential(c, options), (e) =>
-		PropertyFailed.make({
-			report: `${e.stage} failed on ${e.side}: ${e.message}\n${printOracleCase(c)}`
-		})
+	Effect.mapError(
+		runDifferential(c, options),
+		(e) =>
+			new PropertyFailed({
+				report: `${e.stage} failed on ${e.side}: ${e.message}\n${printOracleCase(c)}`
+			})
 	)
 
 /**

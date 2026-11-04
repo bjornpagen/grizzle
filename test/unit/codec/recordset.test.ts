@@ -24,7 +24,6 @@ import {
 	Option,
 	Order,
 	Record,
-	Schema,
 	String as Str
 } from "effect"
 import {
@@ -40,11 +39,11 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { EncodingFailure } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { decodeJson } from "#test/support/json.ts"
 import { types } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
@@ -55,9 +54,6 @@ import { asDecimal } from "#test/unit/codec/values.ts"
  * PostgreSQL's own DISTINCT on generated cases (test/pg/codec/relation.test.ts); here, the refusals and the canonical
  * encoding PostgreSQL cannot see.
  */
-const decodeJsonArray = decodeJson(Schema.Array(Schema.Unknown))
-/** A recordset of text cells: one object per row, its wire names to its texts. */
-const decodeRecordset = decodeJson(Schema.Array(Schema.Record(Schema.String, Schema.String)))
 
 const reading: RelationSpec = {
 	relation: "Reading",
@@ -295,7 +291,7 @@ describe("relation normalization", () => {
 							const second = succeeded(encode([...shuffled, ...shuffled]))
 							assert.deepEqual(second, first)
 							assert.equal(first.count, facts.length)
-							assert.equal(decodeJsonArray(first.json).length, facts.length)
+							assert.equal(trustedJson<ReadonlyArray<unknown>>(first.json).length, facts.length)
 						})
 				)
 			)
@@ -511,7 +507,12 @@ describe("relation normalization", () => {
 						const objects = Arr.map(rows, (row) =>
 							Record.fromEntries(Arr.map(row, (cell, i) => [defined(wires[i]), cell]))
 						)
-						assert.deepEqual(decodeRecordset(recordsetJson(wires, rows)), objects)
+						assert.deepEqual(
+							trustedJson<ReadonlyArray<Readonly<Record<string, string>>>>(
+								recordsetJson(wires, rows)
+							),
+							objects
+						)
 					})
 			)
 		)

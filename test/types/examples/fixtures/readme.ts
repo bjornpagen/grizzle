@@ -497,17 +497,17 @@ export const WebLayer = DbLayer.make({
 	port: 5432,
 	database: "app",
 	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
-		Effect.mapError((cause) => CredentialError.make({ cause }))
+		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
 	tls: { ca: caPem },
 	attachPool: attachDatabasePool,
 	verify: (token) =>
 		clerkJwtKey.pipe(
-			Effect.mapError((cause) => TokenError.make({ cause })),
+			Effect.mapError((cause) => new TokenError({ cause })),
 			Effect.flatMap((jwtKey) =>
 				Effect.tryPromise({
 					try: () => verifyToken(token, { jwtKey, authorizedParties: ["https://blog.example"] }),
-					catch: (cause) => TokenError.make({ cause })
+					catch: (cause) => new TokenError({ cause })
 				})
 			)
 		)
@@ -585,7 +585,7 @@ export const EtlLayer = DbLayer.make({
 	port: 5432,
 	database: "app",
 	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
-		Effect.mapError((cause) => CredentialError.make({ cause }))
+		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
 	tls: { ca: caPem }
 })
@@ -738,7 +738,7 @@ export const RdsEtlLayer = DbLayer.make({
 	port: 5432,
 	database: "app",
 	password: etlJobRole.pipe(
-		Effect.mapError((cause) => CredentialError.make({ cause })),
+		Effect.mapError((cause) => new CredentialError({ cause })),
 		Effect.flatMap((username) =>
 			Effect.tryPromise({
 				try: () =>
@@ -748,7 +748,7 @@ export const RdsEtlLayer = DbLayer.make({
 						region: "us-east-1",
 						username
 					}).getAuthToken(),
-				catch: (cause) => CredentialError.make({ cause })
+				catch: (cause) => new CredentialError({ cause })
 			})
 		),
 		Effect.map(Redacted.make)

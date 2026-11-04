@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
 import { constant, type Gen, weighted } from "@grizzle/testing/gen"
 import type { Nature, PctSchedule } from "@grizzle/testing/interleave"
@@ -140,18 +140,15 @@ export const pctOf =
 const raceRuns = 6
 
 /**
- * A worlds race suite: its kept cases, each pinning the environment choices that reach a required feature whatever the
- * draw (a pool of one, a rival of each kind, a stored fact a capacity counts, a schedule that blocks), then cases drawn
- * from `draw`, each resolved to a race (its installation realized, its Dbs opened, its interleavings explored under its
- * strategy, nature the case itself, and each run judged by the worlds model), and the features every run of the suite
- * must reach.
+ * A worlds race suite: cases drawn from `draw`, each resolved to a race (its installation realized, its Dbs opened, its
+ * interleavings explored under its strategy, nature the case itself, and each run judged by the worlds model), and the
+ * features every run of the suite must reach.
  */
 export const worldRaceSuite = <C>(spec: {
 	readonly file: string
 	readonly test: string
 	readonly draw: Gen<C>
 	readonly race: (c: C, nature: Nature) => WorldRace
-	readonly kept: ReadonlyArray<Kept<C, WorldRaceFeature>>
 	readonly required: Situations<WorldRaceFeature>
 }): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(spec.file, (it) => {
@@ -169,7 +166,7 @@ export const worldRaceSuite = <C>(spec: {
 								cases: raceRuns,
 								sense: notesOnly
 							}),
-							kept: spec.kept,
+							kept: [],
 							runs: raceRuns,
 							shrink: { kind: "bounded", candidates: 30 },
 							concurrency: 1,

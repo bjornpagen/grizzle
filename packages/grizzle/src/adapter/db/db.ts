@@ -76,7 +76,7 @@ export const readOps = <A>(read: CompiledRead<A>): CompiledOps<A> => ({
 
 /** A compiled ChangeSet's operations; it reads nothing. */
 export const changeOps = <A>(change: CompiledChangeValue<A>): CompiledOps<A> => {
-	const refused = Effect.fail(ReadFailure.make({ reason: notItsOperation() }))
+	const refused = Effect.fail(new ReadFailure({ reason: notItsOperation() }))
 	return {
 		execute: () => refused,
 		get: () => refused,

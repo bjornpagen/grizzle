@@ -1,5 +1,6 @@
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 import type { BenchSession } from "#bench/harness/session.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { SqlError } from "#test/support/pg.ts"
 
 import { regex } from "arkregex"
@@ -89,22 +90,9 @@ const counter = (value: string, what: string): number => {
 }
 
 /**
- * Reads this backend's published WAL counters and the cluster's insert position. Never inside a transaction block: a
- * reading there would see the snapshot taken when the block began. The reading's one row of text cells, from
- * PostgreSQL: external input, decoded.
+ * Reads this backend's published WAL counters and the cluster's insert position, as one row of text cells. Never inside
+ * a transaction block: a reading there would see the snapshot taken when the block began.
  */
-const PositionRows = Schema.Tuple([
-	Schema.Tuple([
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String,
-		Schema.String
-	])
-])
-
 const walPosition = Effect.fn("walPosition")(function* (
 	session: BenchSession
 ): Effect.fn.Return<WalPosition, SqlError> {
@@ -116,9 +104,20 @@ const walPosition = Effect.fn("walPosition")(function* (
 			"pg_catalog.pg_control_checkpoint() AS c",
 		[]
 	)
-	const [[records, fpi, bytes, fpiBytes, buffersFull, lsn, redoLsn]] = yield* Effect.orDie(
-		Schema.decodeUnknownEffect(PositionRows)(rows)
-	)
+	const [[records, fpi, bytes, fpiBytes, buffersFull, lsn, redoLsn]] =
+		trusted<
+			readonly [
+				readonly [
+					records: string,
+					fpi: string,
+					bytes: string,
+					fpiBytes: string,
+					buffersFull: string,
+					lsn: string,
+					redoLsn: string
+				]
+			]
+		>(rows)
 	return {
 		backend: {
 			records: counter(records, "wal_records"),

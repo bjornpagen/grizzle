@@ -12,14 +12,14 @@ import {
 	Formatter,
 	Layer,
 	Order,
-	Record as Rec,
-	Schema
+	Record as Rec
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { maxOf } from "#compiler/core/array.ts"
 import { conversionOf, identity, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import {
@@ -114,9 +114,6 @@ const longestRoleName = (fixture: Fixture): number => {
 /** The length of a schema name whose longest login or role role, `<schema>__<name>`, fills exactly 63 bytes. */
 const limitOf = (fixture: Fixture): number => maxIdentifierBytes - 2 - longestRoleName(fixture)
 
-/** The names among `names` a role of the cluster holds. */
-const Names = Schema.Array(Schema.Tuple([Schema.String]))
-
 const run = (dir: string, argv: ReadonlyArray<string>, env: Readonly<Record<string, string>>) =>
 	cli(dir, argv, nextNow(), env)
 
@@ -154,13 +151,11 @@ const installs = (fixture: Fixture) =>
 			Arr.some([loginRole, ...roles], (role) => utf8Length(role) === maxIdentifierBytes),
 			"a role fills the identifier"
 		)
-		const held = yield* Effect.flatMap(
-			substrate.admin.queryValues(
-				"SELECT r.rolname::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = ANY ($1::text[]) ORDER BY 1",
-				[[loginRole, ...roles]]
-			),
-			Schema.decodeUnknownEffect(Names)
+		const heldRows = yield* substrate.admin.queryValues(
+			"SELECT r.rolname::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = ANY ($1::text[]) ORDER BY 1",
+			[[loginRole, ...roles]]
 		)
+		const held = trusted<ReadonlyArray<readonly [string]>>(heldRows)
 		assert.deepEqual(
 			Arr.map(held, ([name]) => name),
 			Arr.sort([loginRole, ...roles], Order.String),
@@ -192,12 +187,10 @@ const refuses = (fixture: Fixture) =>
 		yield* writeConfig(dir, { schemas: [fixture.spec(declared)], connection: viaDatabaseUrl })
 		const ran = yield* run(dir, ["generate"], {})
 		assert.notEqual(ran.code, 0, "generate refuses a role past the limit")
-		assert.ok(
-			!(yield* fs.exists(
-				`${dir}/migrations/${identity.schema(parsedSchemaName(declared)).identifier}`
-			)),
-			"generate drafts nothing"
+		const drafted = yield* fs.exists(
+			`${dir}/migrations/${identity.schema(parsedSchemaName(declared)).identifier}`
 		)
+		assert.ok(!drafted, "generate drafts nothing")
 	}).pipe(Effect.scoped)
 
 layer(Layer.merge(Substrate.layer, NodeServices.layer))(

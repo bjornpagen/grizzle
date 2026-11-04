@@ -12,7 +12,6 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { unorderedEqual } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -153,7 +152,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									unorderedEqual(
 										rowsOf(viaImport),
 										rowsOf(direct),
-										`${jsonText(b)} over ${jsonText(facts)}`
+										`${Formatter.format(b)} over ${Formatter.format(facts)}`
 									)
 								}
 							}).pipe(Effect.scoped, withLayer(opened.layer))

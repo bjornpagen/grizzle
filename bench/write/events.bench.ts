@@ -1,9 +1,8 @@
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	jsonText,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -93,11 +92,11 @@ const bound = 1000000000
  */
 const usedBytes = (m: TransactionMeasure): number => {
 	if (m.deferredEvents.kind === "unobserved") {
-		throw GateSetupError.make({ what: "the transaction read no deferred-event memory" })
+		throw new GateSetupError({ what: "the transaction read no deferred-event memory" })
 	}
 	const events = m.deferredEvents.value
 	if (!events.available) {
-		throw GateSetupError.make({ what: `the deferred-event memory is unreadable: ${events.reason}` })
+		throw new GateSetupError({ what: `the deferred-event memory is unreadable: ${events.reason}` })
 	}
 	return events.usedBytes
 }
@@ -167,7 +166,7 @@ export default defineGate({
 				const [one] = lawAndNative
 				const [ten] = split
 				if (one === undefined || ten === undefined) {
-					throw GateSetupError.make({ what: `no sample of ${n} rows` })
+					throw new GateSetupError({ what: `no sample of ${n} rows` })
 				}
 				const oneBytes = usedBytes(one)
 				const tenBytes = usedBytes(ten)
@@ -273,7 +272,7 @@ export default defineGate({
 			const [smallest] = perEvent
 			const largest = perEvent.at(-1)
 			if (smallest === undefined || largest === undefined) {
-				throw GateSetupError.make({ what: "no batch size measured" })
+				throw new GateSetupError({ what: "no batch size measured" })
 			}
 			const r12: VerdictInput = {
 				checks: [
@@ -304,7 +303,7 @@ export default defineGate({
 						"every repeated-move transaction committed",
 						Arr.every(moveSeries, (t) => t.outcomes.committed === t.samples),
 						Arr.join(
-							Arr.map(moveSeries, (t) => jsonText(t.outcomes)),
+							Arr.map(moveSeries, (t) => Formatter.format(t.outcomes)),
 							" | "
 						)
 					)

@@ -1,6 +1,5 @@
 import { exact, ordered } from "@grizzle/testing/oracle"
-import { Array as Arr, Option, Record as Rec, Result, Schema } from "effect"
-import { nameSchemas } from "#adapter/boundary/names.ts"
+import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -82,7 +81,7 @@ export const parsedName = (name: string): DeclaredName => {
 	const parsed = parseDeclaredName(name)
 	if (!parsed.ok) {
 		throw new Error(
-			`the test declares ${JSON.stringify(name)}, a name the naming door refuses: ${parsed.error}`
+			`the test declares ${Formatter.format(name)}, a name the naming door refuses: ${parsed.error}`
 		)
 	}
 	return parsed.value
@@ -94,7 +93,7 @@ export const parsedSchemaName = (name: string): SchemaName => {
 	const parsed = parseSchemaName(name)
 	if (!parsed.ok) {
 		throw new Error(
-			`the test names the schema ${JSON.stringify(name)}, which the naming door refuses: ${parsed.error}`
+			`the test names the schema ${Formatter.format(name)}, which the naming door refuses: ${parsed.error}`
 		)
 	}
 	return parsed.value
@@ -1075,25 +1074,21 @@ export interface NameMint {
 	readonly lawFunction: (text: string) => LawFunctionName
 }
 
-/** Names decoded by nameSchemas, as the snapshot decoder admits a name, each `prefix` and the text. */
+/** Names admitted as the snapshot reader admits a name (core/identity.ts admittedIdentifier), each `prefix` and the text. */
 const mint = (prefix: string): NameMint => ({
 	lawId: (text): RaisedLawId => admittedIdentifier(`${prefix}${text}`),
-	constraint: (text) =>
-		Result.getOrThrow(Schema.decodeResult(nameSchemas.constraint)(`${prefix}${text}`)),
-	relation: (text) =>
-		Result.getOrThrow(Schema.decodeResult(nameSchemas.relation)(`${prefix}${text}`)),
-	column: (text) => Result.getOrThrow(Schema.decodeResult(nameSchemas.column)(`${prefix}${text}`)),
-	index: (text) => Result.getOrThrow(Schema.decodeResult(nameSchemas.index)(`${prefix}${text}`)),
-	domain: (text) => Result.getOrThrow(Schema.decodeResult(nameSchemas.domain)(`${prefix}${text}`)),
-	trigger: (text) =>
-		Result.getOrThrow(Schema.decodeResult(nameSchemas.trigger)(`${prefix}${text}`)),
-	lawFunction: (text) =>
-		Result.getOrThrow(Schema.decodeResult(nameSchemas.lawFunction)(`${prefix}${text}`))
+	constraint: (text): ConstraintName => admittedIdentifier(`${prefix}${text}`),
+	relation: (text): RelationIdent => admittedIdentifier(`${prefix}${text}`),
+	column: (text): ColumnIdent => admittedIdentifier(`${prefix}${text}`),
+	index: (text): IndexName => admittedIdentifier(`${prefix}${text}`),
+	domain: (text): DomainName => admittedIdentifier(`${prefix}${text}`),
+	trigger: (text): TriggerName => admittedIdentifier(`${prefix}${text}`),
+	lawFunction: (text): LawFunctionName => admittedIdentifier(`${prefix}${text}`)
 })
 
 /**
- * Spellings the naming rule specifies, for its specification tests only: each decoded by nameSchemas, as the snapshot
- * decoder admits a name.
+ * Spellings the naming rule specifies, for its specification tests only: each admitted as the snapshot reader admits a
+ * name.
  */
 export const spelled: NameMint = mint("")
 

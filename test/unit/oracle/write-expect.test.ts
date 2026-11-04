@@ -212,7 +212,7 @@ describe("the write oracle's judgement", () => {
 								mutant(
 									"mutant: a domain's violation unclassified",
 									Result.fail(
-										ExecutionFailure.make({
+										new ExecutionFailure({
 											reason: serverError({
 												...nothingReported,
 												sqlstate: sqlstates.checkViolation

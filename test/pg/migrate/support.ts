@@ -10,7 +10,6 @@ import {
 	Record as Rec,
 	Redacted,
 	Result,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
@@ -31,6 +30,7 @@ import {
 } from "#adapter/migrate/session.ts"
 import { sentAnswer } from "#adapter/wire/batch.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { type Candidate, candidateLabel } from "#compiler/deploy/diff/plan.ts"
 import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
@@ -195,10 +195,10 @@ export const apply = (
 		const mismatches: ReadonlyArray<DriftMismatch> = Option.isNone(further)
 			? []
 			: yield* Effect.mapError(further.value(session, t.snapshot), (failure) =>
-					stopped(DriftUnchecked.make({ schema, failure }))
+					stopped(new DriftUnchecked({ schema, failure }))
 				)
 		if (Arr.isReadonlyArrayNonEmpty(mismatches)) {
-			return yield* stopped(Drifted.make({ schema, snapshot: t.snapshot.fingerprint, mismatches }))
+			return yield* stopped(new Drifted({ schema, snapshot: t.snapshot.fingerprint, mismatches }))
 		}
 		return report
 	})
@@ -281,11 +281,6 @@ const definitions = (s: RawSession, schema: string, abstract: (text: string) => 
 			)
 	)
 
-/** The parts of a catalog comparable reads: every object keeps all of its fields. */
-const withRest = <F extends Schema.Struct.Fields>(fields: F) =>
-	Schema.StructWithRest(Schema.Struct(fields), [Schema.Record(Schema.String, Schema.Unknown)])
-const isList = Schema.is(Schema.Array(Schema.Unknown))
-/** A grant of an ACL list, which holds nothing else. */
 /** Definitions by their kind, then by their name: a definition's first two texts. */
 const byKindAndName: Order.Order<ReadonlyArray<string>> = Order.combine(
 	Order.mapInput(Order.String, (d: ReadonlyArray<string>) => d[0] ?? ""),
@@ -304,40 +299,63 @@ const byGrantee: Order.Order<Grant> = Order.combine(
 	Order.mapInput(Order.String, (g: Grant) => g.privilege)
 )
 
-const isGrantShape = Schema.is(Schema.Struct({ grantee: Schema.String, privilege: Schema.String }))
-const isGrant = (x: unknown): x is Grant => isGrantShape(x) && Rec.keys(x).length === 2
+/** A grant of an ACL list, which holds nothing else. */
+const isGrant = (x: unknown): x is Grant =>
+	typeof x === "object" &&
+	x !== null &&
+	"grantee" in x &&
+	typeof x.grantee === "string" &&
+	"privilege" in x &&
+	typeof x.privilege === "string" &&
+	Rec.keys(x).length === 2
 
 /** One side of a role's membership, which a list holds per other role. */
-const isMembership = Schema.is(
-	Schema.Struct({
-		role: Schema.String,
-		inherit: Schema.Boolean,
-		set: Schema.Boolean,
-		admin: Schema.Boolean
-	})
-)
-/** A list of objects readCatalog orders by name. */
-const named = Schema.Array(withRest({ name: Schema.String }))
-const ComparableCatalog = withRest({
-	tables: Schema.Array(
-		withRest({ name: Schema.String, columns: Schema.Array(withRest({ name: Schema.String })) })
-	),
-	indexes: Schema.Array(withRest({ name: Schema.String, table: Schema.String })),
-	enums: named,
-	domains: named,
-	sequences: named,
-	functions: Schema.Array(withRest({ name: Schema.String, args: Schema.String })),
-	triggers: Schema.Array(
-		withRest({ name: Schema.String, table: Schema.String, definition: Schema.String })
-	),
-	statistics: named,
-	policies: Schema.Array(withRest({ name: Schema.String, table: Schema.String })),
-	roles: named,
-	worlds: named,
-	foreignGrants: Schema.Array(
-		withRest({ schema: Schema.String, grantee: Schema.String, privilege: Schema.String })
-	)
-})
+interface Membership {
+	readonly role: string
+	readonly inherit: boolean
+	readonly set: boolean
+	readonly admin: boolean
+}
+
+const isMembership = (x: unknown): x is Membership =>
+	typeof x === "object" &&
+	x !== null &&
+	"role" in x &&
+	typeof x.role === "string" &&
+	"inherit" in x &&
+	typeof x.inherit === "boolean" &&
+	"set" in x &&
+	typeof x.set === "boolean" &&
+	"admin" in x &&
+	typeof x.admin === "boolean"
+
+/** An object of the catalog with every field it holds beside `F`. */
+type WithRest<F> = F & Readonly<Record<string, unknown>>
+
+/** An object readCatalog orders by name. */
+type Named = WithRest<{ readonly name: string }>
+
+/** The parts of a catalog comparable reads: every object keeps all of its fields. */
+type ComparableCatalog = WithRest<{
+	readonly tables: ReadonlyArray<
+		WithRest<{ readonly name: string; readonly columns: ReadonlyArray<Named> }>
+	>
+	readonly indexes: ReadonlyArray<WithRest<{ readonly name: string; readonly table: string }>>
+	readonly enums: ReadonlyArray<Named>
+	readonly domains: ReadonlyArray<Named>
+	readonly sequences: ReadonlyArray<Named>
+	readonly functions: ReadonlyArray<WithRest<{ readonly name: string; readonly args: string }>>
+	readonly triggers: ReadonlyArray<
+		WithRest<{ readonly name: string; readonly table: string; readonly definition: string }>
+	>
+	readonly statistics: ReadonlyArray<Named>
+	readonly policies: ReadonlyArray<WithRest<{ readonly name: string; readonly table: string }>>
+	readonly roles: ReadonlyArray<Named>
+	readonly worlds: ReadonlyArray<Named>
+	readonly foreignGrants: ReadonlyArray<
+		WithRest<{ readonly schema: string; readonly grantee: string; readonly privilege: string }>
+	>
+}>
 
 /**
  * Every name an installation minted under its own schema's identity whose spelling depends on it, as the text that
@@ -408,7 +426,7 @@ const comparable = (
 		if (typeof value === "string") {
 			return text(value)
 		}
-		if (isList(value)) {
+		if (Arr.isArray(value)) {
 			const items = Arr.map(value, normal)
 			const grantList = Arr.filter(items, isGrant)
 			if (items.length > 0 && grantList.length === items.length) {
@@ -418,7 +436,7 @@ const comparable = (
 			if (items.length > 0 && memberships.length === items.length) {
 				return Arr.sort(
 					memberships,
-					Order.mapInput(Order.String, (m: { readonly role: string }) => m.role)
+					Order.mapInput(Order.String, (m: Membership) => m.role)
 				)
 			}
 			return items
@@ -428,10 +446,7 @@ const comparable = (
 		}
 		return Rec.fromEntries(Arr.map(Rec.toEntries(value), ([k, v]) => [text(k), normal(v)]))
 	}
-	const c = succeeded(
-		Schema.decodeUnknownResult(ComparableCatalog)(normal(catalog)),
-		"the comparable catalog"
-	)
+	const c = trusted<ComparableCatalog>(normal(catalog))
 	return {
 		...c,
 		tables: ordered(
@@ -563,12 +578,12 @@ export const identitiesPast = (
 				const max = row?.["max"]
 				const next = row?.["next"]
 				if (typeof next !== "string") {
-					return yield* PropertyFailed.make({
+					return yield* new PropertyFailed({
 						report: `${what}: the identity of ${t.relation}.${c.field} reads no next value`
 					})
 				}
 				if (typeof max === "string" && BigInt(next) <= BigInt(max)) {
-					return yield* PropertyFailed.make({
+					return yield* new PropertyFailed({
 						report: `${what}: the identity of ${t.relation}.${c.field} generates ${next} next, which its stored maximum ${max} reaches`
 					})
 				}
@@ -598,7 +613,7 @@ export const drafted = (
 		})
 		if (!g.ok) {
 			return Result.fail(
-				PropertyFailed.make({ report: `step ${i + 1} is refused: ${g.error.message}` })
+				new PropertyFailed({ report: `step ${i + 1} is refused: ${g.error.message}` })
 			)
 		}
 		previous = fromSnapshot(g.value.snapshot)

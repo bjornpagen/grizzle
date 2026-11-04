@@ -8,7 +8,7 @@ import { regex } from "arkregex"
  * so a write gate) under bench/write and bench/queue. The numbering keeps the gaps of the rules that are no gates.
  */
 import { Array as Arr, String as Str } from "effect"
-export const ruleIds = [
+const ruleIds = [
 	"R01",
 	"R02",
 	"R03",
@@ -51,7 +51,7 @@ export const ruleIds = [
 
 export type RuleId = (typeof ruleIds)[number]
 
-export const extraGateIds = ["queue", "refresh-lifetime"] as const
+const extraGateIds = ["queue", "refresh-lifetime"] as const
 
 export type ExtraGateId = (typeof extraGateIds)[number]
 

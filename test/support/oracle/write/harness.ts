@@ -2,13 +2,13 @@ import type { Case } from "@grizzle/testing/explore"
 import { boolean, type Gen } from "@grizzle/testing/gen"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Formatter,
 	Option,
 	Order,
 	Record as Rec,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
@@ -203,12 +203,7 @@ export const plantedCase = (group: WGroup, arm: PlantedArm, facts: FactsSketch):
 }
 
 /** A failed case, with its printable form. */
-export class CaseFailed extends Schema.TaggedError<CaseFailed, { readonly brand: unique symbol }>()(
-	"CaseFailed",
-	{
-		report: Schema.String
-	}
-) {
+export class CaseFailed extends Data.TaggedError("CaseFailed")<{ readonly report: string }> {
 	override get message(): string {
 		return this.report
 	}
@@ -1170,7 +1165,7 @@ export const runCase = (
 		noteShapes(group, c, note)
 		const entry = programOf(t, changes)
 		if (Result.isFailure(entry)) {
-			return yield* CaseFailed.make({
+			return yield* new CaseFailed({
 				report: `${header()}\nthe ChangeSet does not compile: ${entry.failure.message}`
 			})
 		}
@@ -1193,8 +1188,8 @@ export const runCase = (
 			}
 		}
 		const takes = yield* takesOf(entry.success, params).pipe(
-			Effect.mapError((e) =>
-				CaseFailed.make({ report: `${header()}\nthe ChangeSet does not bind: ${e._tag}` })
+			Effect.mapError(
+				(e) => new CaseFailed({ report: `${header()}\nthe ChangeSet does not bind: ${e._tag}` })
 			)
 		)
 		for (const take of takes) {
@@ -1428,7 +1423,7 @@ export const runCase = (
 			}
 		}
 		if (problems.length > 0) {
-			return yield* CaseFailed.make({
+			return yield* new CaseFailed({
 				report: Arr.join(
 					[
 						header(),

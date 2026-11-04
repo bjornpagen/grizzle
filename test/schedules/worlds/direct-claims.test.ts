@@ -127,21 +127,5 @@ worldRaceSuite({
 	test: "concurrent writers through worlds keep every law and fail only with typed transient failures",
 	draw: caseGen,
 	race,
-	kept: [
-		{
-			note: "dan claims another subject: his insert is outside his world, 42501, while ann's share commits",
-			sketch: {
-				pool: 1,
-				end: "commit",
-				claimed: "another",
-				scope: "transaction",
-				reads: "writes blind",
-				stored: 0,
-				words: 1
-			},
-			draws: "",
-			reaches: ["observed: refused", "ended: refusal", "ended: commit", "overlapping"]
-		}
-	],
 	required: ["ended: commit", "ended: refusal", "observed: refused", "overlapping"]
 })

@@ -226,7 +226,7 @@ const performed = (ctx: TestContext, id: ValidId, gen: Gen<QueryCase>, rule: Val
 					Effect.gen(function* () {
 						const o = yield* differentialCase(k.draw(resolved), { ...plainDifferential, schema })
 						if (!baselineIsSet(o) || !agrees(o)) {
-							return yield* PropertyFailed.make({ report: printDifferential(o) })
+							return yield* new PropertyFailed({ report: printDifferential(o) })
 						}
 						if (!Arr.some(o.certificates, (cert) => cert.rule === rule)) {
 							return
@@ -234,7 +234,7 @@ const performed = (ctx: TestContext, id: ValidId, gen: Gen<QueryCase>, rule: Val
 						k.note(rule)
 						const problem = shows[id](o)
 						if (problem !== undefined) {
-							return yield* PropertyFailed.make({
+							return yield* new PropertyFailed({
 								report: `${id}: ${rule} is recorded but the SQL has ${problem}\n${printDifferential(o)}`
 							})
 						}

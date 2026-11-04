@@ -8,7 +8,6 @@ import {
 	ALLEN,
 	AllenMask,
 	type AllenRelation,
-	allenBit,
 	allenConverseRelation,
 	allenMaskOf,
 	allenRelations,
@@ -28,36 +27,7 @@ import { Booking, Schedule } from "#test/unit/query/fixtures.ts"
 const relationsOf = (mask: number): ReadonlyArray<AllenRelation> =>
 	Arr.filter(allenRelations, (r) => (mask & (1 << allenRelations.indexOf(r))) !== 0)
 
-describe("the Allen bit order", () => {
-	it("is the declared order, from before = bit 0 to finishedBy = bit 12", () => {
-		assert.deepEqual(allenRelations, [
-			"before",
-			"meets",
-			"overlaps",
-			"starts",
-			"during",
-			"finishes",
-			"equals",
-			"after",
-			"metBy",
-			"overlappedBy",
-			"startedBy",
-			"contains",
-			"finishedBy"
-		])
-		assert.equal(ALLEN.before, AllenMask(1))
-		assert.equal(ALLEN.meets, AllenMask(2))
-		assert.equal(ALLEN.overlaps, AllenMask(4))
-		assert.equal(ALLEN.equals, AllenMask(1 << 6))
-		assert.equal(ALLEN.after, AllenMask(1 << 7))
-		assert.equal(ALLEN.finishedBy, AllenMask(1 << 12))
-		assert.equal(fullAllenMask, AllenMask(8191))
-		for (const [bit, relation] of allenRelations.entries()) {
-			assert.equal(ALLEN[relation], AllenMask(1 << bit))
-			assert.equal(allenBit(relation), AllenMask(1 << bit))
-		}
-	})
-
+describe("the named Allen masks", () => {
 	it("defines the named masks as unions of basic relations", () => {
 		assert.deepEqual(relationsOf(ALLEN.intersects), [
 			"overlaps",

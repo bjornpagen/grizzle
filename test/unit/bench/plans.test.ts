@@ -5,7 +5,7 @@ import { array, boolean, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
 import {
 	MalformedPlan,
 	type PlanLabel,
@@ -13,8 +13,9 @@ import {
 	planIndexNames,
 	planNodeTypes
 } from "#bench/harness/explain.ts"
+import type { Json } from "#compiler/core/canonical.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { assert } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 
 /**
  * A plan node as the generator states it: its type, the index it reads by name if any, the join type or strategy that
@@ -80,7 +81,7 @@ const planGen: Gen<Node> = nodeGen(3)
  * The node as EXPLAIN (FORMAT JSON) prints it: its keys beside figures an ANALYZE prints, children under Plans only
  * when it has any.
  */
-const printed = (node: Node): Readonly<Record<string, unknown>> => ({
+const printed = (node: Node): { readonly [key: string]: Json } => ({
 	"Node Type": node.type,
 	...(node.index.kind === "named" ? { "Index Name": node.index.name } : {}),
 	...(node.refinement.kind === "join" ? { "Join Type": node.refinement.joinType } : {}),
@@ -109,7 +110,7 @@ const readFails = (read: () => unknown): boolean => {
 	if (Result.isSuccess(outcome)) {
 		return false
 	}
-	if (Schema.is(MalformedPlan)(outcome.failure)) {
+	if (outcome.failure instanceof MalformedPlan) {
 		return true
 	}
 	throw outcome.failure

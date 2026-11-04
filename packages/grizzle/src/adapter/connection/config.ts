@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Record as Rec, Redacted, Result, Schema } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Redacted, Result } from "effect"
 import { readHost } from "#adapter/engine.ts"
 import type { DbConnection } from "#adapter/types/layer.ts"
 import type { Password, TlsConfig } from "#adapter/wire/session.ts"
@@ -49,15 +49,22 @@ const unknownKey = (
 	Option.map(
 		Arr.findFirst(keys, (k) => !allowed.includes(k)),
 		(unknown) =>
-			`${where} has no setting ${JSON.stringify(unknown)}; its settings are ${Arr.join(allowed, ", ")}`
+			`${where} has no setting ${Formatter.format(unknown)}; its settings are ${Arr.join(allowed, ", ")}`
 	)
 
 /** A Redacted whose value is a string: the password form a block can carry as data. */
 const isRedactedText = (v: unknown): v is Redacted.Redacted =>
 	Redacted.isRedacted(v) && typeof Redacted.value(v) === "string"
 
-const caSchema = Schema.Union([Schema.NonEmptyString, Schema.NonEmptyArray(Schema.NonEmptyString)])
-const decodeCa = Schema.decodeUnknownOption(caSchema)
+/** A block's tls.ca, read: PEM text, or a nonempty list of PEM texts, each nonempty; none for anything else. */
+const caBundle = (setting: unknown): Option.Option<string | ReadonlyArray<string>> => {
+	if (nonempty(setting)) {
+		return Option.some(setting)
+	}
+	return Arr.isArray(setting) && setting.length > 0 && Arr.every(setting, nonempty)
+		? Option.some(setting)
+		: Option.none()
+}
 
 /**
  * The block named `where`, of kind `kind` (see BlockKind): parsed, or the refusal's text, which names the setting it
@@ -137,7 +144,7 @@ export const parseConnection = (
 		return Result.fail(tlsExtra.value)
 	}
 	const { ca: caSetting, servername } = tls
-	const ca = decodeCa(caSetting)
+	const ca = caBundle(caSetting)
 	if (Option.isNone(ca)) {
 		return Result.fail(
 			`${where}.tls.ca must be PEM certificate text, or a nonempty list of them: TLS is always verify-full`

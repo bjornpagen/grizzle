@@ -24,6 +24,7 @@ import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from
 import { keyedColumns, positionalColumns, recordsetEncoder } from "#compiler/codec/recordset.ts"
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import * as Result from "#compiler/core/result.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -290,7 +291,7 @@ const read = (codec: TestCodec, text: unknown): Result.Result<CarrierHost[Carrie
 const recordset = (db: RawSession, select: string, column: string, texts: ReadonlyArray<string>) =>
 	db.values(
 		`SELECT ${select} FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, v ${column}) ORDER BY r.ord`,
-		[JSON.stringify(Arr.map(texts, (v, ord) => ({ ord: String(ord), v })))]
+		[jsonText(Arr.map(texts, (v, ord) => ({ ord: String(ord), v })))]
 	)
 
 const setup = Effect.gen(function* () {
@@ -654,7 +655,8 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 								)} FROM ${table} AS r ORDER BY r."id"`,
 								[]
 							)
-							const decoded = Arr.map(yield* textRows(rows), decodeRow)
+							const texts = textRows(rows)
+							const decoded = Arr.map(texts, decodeRow)
 							const expected = new Map<string, (typeof facts)[number]>(
 								Arr.map(facts, (f) => [Str.toLowerCase(f.id), f] as const)
 							)

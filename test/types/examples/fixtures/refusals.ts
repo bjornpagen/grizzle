@@ -65,7 +65,6 @@ export const parameterless = Effect.gen(function* () {
 }).pipe(Effect.scoped)
 
 export const bound = W.switchToManualDescribed.bind({ task: taskId, operator: "Ruth" })
-export type BoundBind = Parameters<typeof bound.bind>
 // @ts-expect-error -- TS2345: ChangeSet.bind of a parameterless ChangeSet takes no number
 export const boundNumber = bound.bind(42)
 

@@ -1,12 +1,12 @@
 import type { Case } from "@grizzle/testing/explore"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Formatter,
 	Option,
 	Predicate,
 	Record as Rec,
-	Schema,
 	String as Str
 } from "effect"
 import { sameValues, valueText } from "#test/pg/laws/families/model.ts"
@@ -32,6 +32,7 @@ import type {
 	DirectStatement,
 	EntryOp,
 	HostFact,
+	InvariantViolation,
 	ModelState,
 	Observation,
 	ActionOutcome,
@@ -41,40 +42,17 @@ import type {
 	WorldFeature
 } from "#test/support/worlds/model/types.ts"
 
-const ProbeSchema = Schema.Union([
-	Schema.Struct({ transaction: Schema.Literal("aborted") }),
-	Schema.Struct({
-		transaction: Schema.Literals(["idle", "in-transaction"]),
-		currentUser: Schema.String,
-		claims: Schema.String
-	})
-])
-
-const InvariantSchema = Schema.Struct({
-	invariant: Schema.Literals([
-		"laws-hold",
-		"no-hidden-value",
-		"claims-end-with-transaction",
-		"role-ends-with-transaction",
-		"login-isolation",
-		"deleted-means-gone",
-		"least-privilege"
-	]),
-	detail: Schema.String
-})
-
 /** A relation whose stored facts differ from the model's: the model's facts it lacks, and the facts it holds besides. */
-const StoredSchema = Schema.Struct({
-	relation: Schema.String,
-	missing: Schema.Array(Schema.String),
-	extra: Schema.Array(Schema.String)
-})
+interface StoredDivergence {
+	readonly relation: string
+	readonly missing: ReadonlyArray<string>
+	readonly extra: ReadonlyArray<string>
+}
 
 /** Where a program and the model parted: the state a program starts from, or the action at an index of the program. */
-const WhereSchema = Schema.Union([
-	Schema.TaggedStruct("start", {}),
-	Schema.TaggedStruct("step", { index: Schema.Int, action: Schema.String })
-])
+type Where =
+	| { readonly _tag: "start" }
+	| { readonly _tag: "step"; readonly index: number; readonly action: string }
 
 /**
  * How the real system left the model: an observation no branch of the action allows (the allowed ones and the
@@ -83,29 +61,30 @@ const WhereSchema = Schema.Union([
  * whose connection is not in the state the model claims, a model state that breaks an invariant, or stored facts other
  * than the model's.
  */
-const DivergenceSchema = Schema.Union([
-	Schema.TaggedStruct("observation", {
-		allowed: Schema.Array(Schema.String),
-		observed: Schema.String,
-		because: Schema.Array(Schema.String)
-	}),
-	Schema.TaggedStruct("leak", {
-		field: Schema.Literals(["message", "detail", "hint", "where", "notice", "witness"]),
-		token: Schema.String
-	}),
-	Schema.TaggedStruct("artifacts", {}),
-	Schema.TaggedStruct("probe", {
-		session: Schema.Int,
-		expected: ProbeSchema,
-		observed: ProbeSchema
-	}),
-	Schema.TaggedStruct("invariant", { violations: Schema.NonEmptyArray(InvariantSchema) }),
-	Schema.TaggedStruct("stored", { relations: Schema.NonEmptyArray(StoredSchema) })
-])
-
-type Divergence = typeof DivergenceSchema.Type
-type Where = typeof WhereSchema.Type
-type StoredDivergence = typeof StoredSchema.Type
+type Divergence =
+	| {
+			readonly _tag: "observation"
+			readonly allowed: ReadonlyArray<string>
+			readonly observed: string
+			readonly because: ReadonlyArray<string>
+	  }
+	| {
+			readonly _tag: "leak"
+			readonly field: Extract<Defect, { readonly kind: "leak" }>["field"]
+			readonly token: string
+	  }
+	| { readonly _tag: "artifacts" }
+	| {
+			readonly _tag: "probe"
+			readonly session: number
+			readonly expected: Probe
+			readonly observed: Probe
+	  }
+	| {
+			readonly _tag: "invariant"
+			readonly violations: Arr.NonEmptyReadonlyArray<InvariantViolation>
+	  }
+	| { readonly _tag: "stored"; readonly relations: Arr.NonEmptyReadonlyArray<StoredDivergence> }
 
 const whereText = (where: Where): string =>
 	where._tag === "start" ? "the program's start state" : `action ${where.index} (${where.action})`
@@ -145,10 +124,10 @@ const divergenceText = (d: Divergence): string => {
  * what no branch of the model allows, showed a hidden value, stored other facts or entered another session state than
  * the model claims, or the model's own state broke an invariant. Its message states the divergence.
  */
-export class ModelMismatch extends Schema.TaggedError<
-	ModelMismatch,
-	{ readonly brand: unique symbol }
->()("ModelMismatch", { where: WhereSchema, divergence: DivergenceSchema }) {
+export class ModelMismatch extends Data.TaggedError("ModelMismatch")<{
+	readonly where: Where
+	readonly divergence: Divergence
+}> {
 	override get message(): string {
 		return `the real world left the worlds model at ${whereText(this.where)}: ${divergenceText(this.divergence)}`
 	}
@@ -427,7 +406,7 @@ const checkState = (
 	Effect.gen(function* () {
 		const violations = invariantsOf(state)
 		if (Arr.isReadonlyArrayNonEmpty(violations)) {
-			return yield* ModelMismatch.make({ where, divergence: { _tag: "invariant", violations } })
+			return yield* new ModelMismatch({ where, divergence: { _tag: "invariant", violations } })
 		}
 		const stored = yield* Effect.orDie(world.stored)
 		const adopted = adoptStored(state, stored)
@@ -444,7 +423,7 @@ const checkState = (
 			)
 		]
 		if (Arr.isReadonlyArrayNonEmpty(differing)) {
-			return yield* ModelMismatch.make({
+			return yield* new ModelMismatch({
 				where,
 				divergence: { _tag: "stored", relations: differing }
 			})
@@ -456,7 +435,7 @@ const checkState = (
 			const expected = expectedProbe(adopted, session)
 			const observed = yield* world.probe(session)
 			if (!sameProbe(expected, observed)) {
-				return yield* ModelMismatch.make({
+				return yield* new ModelMismatch({
 					where,
 					divergence: { _tag: "probe", session, expected, observed }
 				})
@@ -533,7 +512,7 @@ export const judged = (
 			hiddenFor(state, action)
 		)
 		if (isDefect(observed)) {
-			return yield* ModelMismatch.make({ where, divergence: defectDivergence(observed) })
+			return yield* new ModelMismatch({ where, divergence: defectDivergence(observed) })
 		}
 		/**
 		 * A landing whose outcome is the observed one's kind completes under the executor's names for its current
@@ -553,7 +532,7 @@ export const judged = (
 				: Option.none()
 		)
 		if (Option.isNone(taken)) {
-			return yield* ModelMismatch.make({
+			return yield* new ModelMismatch({
 				where,
 				divergence: {
 					_tag: "observation",

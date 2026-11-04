@@ -50,6 +50,7 @@ import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Cause,
+	Data,
 	Duration,
 	Effect,
 	Formatter,
@@ -57,7 +58,6 @@ import {
 	pipe,
 	Record as Rec,
 	Result,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
@@ -914,16 +914,7 @@ const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 ]
 
 /** A race the model refused, or a case that could not run one, with the race and why. */
-class RaceFailed extends Schema.TaggedError<RaceFailed, { readonly brand: unique symbol }>()(
-	"RaceFailed",
-	{
-		report: Schema.String
-	}
-) {
-	override get message(): string {
-		return this.report
-	}
-}
+class RaceFailed extends Data.TaggedError("RaceFailed")<{ readonly message: string }> {}
 
 /** What a grizzle write's retried call answered, its law read back to its LawId through the installation's laws. */
 const answerOf = (
@@ -1022,7 +1013,7 @@ const runRace = (
 		const raceRun = (race: Race) =>
 			Effect.gen(function* () {
 				const report = (why: string) =>
-					RaceFailed.make({ report: `${describeRace(race, sql)}\n${why}` })
+					new RaceFailed({ message: `${describeRace(race, sql)}\n${why}` })
 				if (race.origin.kind === "planted") {
 					c.note(`planted ${race.origin.name}`)
 				}
@@ -1178,8 +1169,8 @@ const runRace = (
 					strategy
 				).pipe(
 					Effect.catchTags({
-						InterleavingFailed: (e) => Effect.fail(RaceFailed.make({ report: e.message })),
-						AfterCycle: (e) => Effect.fail(RaceFailed.make({ report: e.message }))
+						InterleavingFailed: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+						AfterCycle: (e) => Effect.fail(new RaceFailed({ message: e.message }))
 					})
 				)
 				c.noteAll(reached)
@@ -1273,7 +1264,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						(rc, c) =>
 							Effect.scoped(runRace(rc, c)).pipe(
 								Effect.catchCause((cause) =>
-									Effect.fail(RaceFailed.make({ report: Cause.pretty(cause) }))
+									Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
 								)
 							)
 					)

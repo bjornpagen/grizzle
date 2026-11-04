@@ -33,7 +33,7 @@
  * not pull into its join, read every entry of the relation's index on every call, thousands of buffers over a bound of
  * a few.
  */
-import { Array as Arr, Effect, Option, Record as Rec, Result, Schema, type Scope } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import {
 	explainStatementWith,
@@ -45,6 +45,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { worldNames } from "#compiler/physical/ddl/names.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
@@ -436,7 +437,9 @@ const docsLoads = (base: BaseSpec, rows: number): ReadonlyArray<VolumeLoad> => {
 }
 
 /** Rows of texts, as a query of `::text` columns answers. */
-const Texts = Schema.Array(Schema.Array(Schema.String))
+type Texts = ReadonlyArray<ReadonlyArray<string>>
+
+const textsOf = (rows: unknown): Texts => trusted<Texts>(rows)
 
 /** A world function as installed: what the report calls it, its body as one statement, the fields of T it takes. */
 interface WorldFunction {
@@ -696,7 +699,7 @@ const middleRow = (cx: Judging, source: string, fields: ReadonlyArray<FieldSpec>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const table = tableSql(cx, source)
-		const [row] = yield* Effect.flatMap(
+		const [row] = yield* Effect.map(
 			admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(fields, (f) => `${columnSql(cx, source, f.name)}::text`),
@@ -704,7 +707,7 @@ const middleRow = (cx: Judging, source: string, fields: ReadonlyArray<FieldSpec>
 				)} FROM ${table} ORDER BY ctid OFFSET (SELECT count(*) / 2 FROM ${table}) LIMIT 1`,
 				[]
 			),
-			Schema.decodeUnknownEffect(Texts)
+			textsOf
 		)
 		const values = defined(row, `the middle row of ${source}`)
 		return Rec.fromEntries(
@@ -716,7 +719,7 @@ const middleRow = (cx: Judging, source: string, fields: ReadonlyArray<FieldSpec>
 const absentRow = (fields: ReadonlyArray<FieldSpec>) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const [row] = yield* Effect.flatMap(
+		const [row] = yield* Effect.map(
 			admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(fields, (f) => `(${absentSql(f.domain)})::text`),
@@ -724,7 +727,7 @@ const absentRow = (fields: ReadonlyArray<FieldSpec>) =>
 				)}`,
 				[]
 			),
-			Schema.decodeUnknownEffect(Texts)
+			textsOf
 		)
 		const values = defined(row, "the absent row")
 		return Rec.fromEntries(
@@ -927,11 +930,6 @@ const precheck = (
 		)
 	})
 
-/** The claims setting's text: per context, its fields' texts by name. */
-const ClaimsText = Schema.fromJsonString(
-	Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String))
-)
-
 /** The claims every judged statement runs under: a fact of each context of the base, each field a value the load
  * writes (claimSql), as the setting's text (adapter/db/claims.ts) and by claim. */
 const claimsOf = (base: BaseSpec) =>
@@ -943,7 +941,7 @@ const claimsOf = (base: BaseSpec) =>
 		if (!Arr.isReadonlyArrayNonEmpty(fields)) {
 			return { text: "{}", claimed: new Map<string, string>() }
 		}
-		const [row] = yield* Effect.flatMap(
+		const [row] = yield* Effect.map(
 			admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(fields, (f) => `(${claimSql(f.field.domain)})::text`),
@@ -951,7 +949,7 @@ const claimsOf = (base: BaseSpec) =>
 				)}`,
 				[]
 			),
-			Schema.decodeUnknownEffect(Texts)
+			textsOf
 		)
 		const values = defined(row, "the claims' values")
 		const claimed = Arr.map(fields, (f, at) => ({
@@ -959,7 +957,7 @@ const claimsOf = (base: BaseSpec) =>
 			value: defined(values[at], `the claim ${f.context.name}.${f.field.name}`)
 		}))
 		return {
-			text: yield* Schema.encodeEffect(ClaimsText)(
+			text: jsonText(
 				Rec.fromEntries(
 					Arr.map(base.contexts, (c) => [
 						c.name,
@@ -1021,7 +1019,7 @@ const memberRow = (cx: Judging, target: RelationSpec, w: LinkWitness) =>
 			],
 			", "
 		)
-		const [row] = yield* Effect.flatMap(
+		const [row] = yield* Effect.map(
 			admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(target.fields, (f) => `${targetColumn(f.name)}::text`),
@@ -1031,7 +1029,7 @@ const memberRow = (cx: Judging, target: RelationSpec, w: LinkWitness) =>
 					defined(cx.claimed.get(`${c.context}.${c.field}`), `the claim ${c.context}.${c.field}`)
 				)
 			),
-			Schema.decodeUnknownEffect(Texts)
+			textsOf
 		)
 		return Option.map(Option.fromUndefinedOr(row), (values) =>
 			Rec.fromEntries(
@@ -1147,7 +1145,7 @@ export const judgeCase = (
 	note: (feature: WorldServingFeature) => void
 ): Effect.Effect<
 	ReadonlyArray<string>,
-	RealizeRefused | CompileError | SqlError | TransactionRolledBack | Schema.SchemaError,
+	RealizeRefused | CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {

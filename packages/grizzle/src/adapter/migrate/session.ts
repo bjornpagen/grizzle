@@ -96,7 +96,7 @@ export const decidingFailure = (failure: BatchFailure): StatementFailure => {
 		case "CommitRefused":
 			return failure.failure
 		case "CommitLost":
-			return ConnectionLost.make({ operation: "commit", ended: { by: "transport" } })
+			return new ConnectionLost({ operation: "commit", ended: { by: "transport" } })
 		case "ConnectionLost":
 		case "DriverFailure":
 		case "UnreadableAnswer":
@@ -150,9 +150,7 @@ export const openMigrationSession = (
 		}),
 		{
 			onFailure: (refusal) =>
-				stopped(
-					ConnectRefused.make({ role: spec.role, host: spec.host, port: spec.port, refusal })
-				),
+				stopped(new ConnectRefused({ role: spec.role, host: spec.host, port: spec.port, refusal })),
 			onSuccess: migrationSession
 		}
 	)

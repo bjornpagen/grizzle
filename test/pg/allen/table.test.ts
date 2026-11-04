@@ -3,12 +3,12 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, Schema, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
 import { ALLEN, AllenMask, allenRelations, fullAllenMask } from "#compiler/allen/mask.ts"
 import { indices } from "#compiler/core/array.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import { formulaSql, maskSql } from "#test/support/oracle/allen-sql.ts"
 import {
 	type Canonical,
@@ -24,8 +24,6 @@ import {
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
-/** One row of one text column, as PostgreSQL answers a count read as text. */
-const oneText = Schema.Tuple([Schema.Tuple([Schema.String])])
 
 const types = ["int4range", "int8range"] as const satisfies ReadonlyArray<RangeType>
 
@@ -160,11 +158,8 @@ JOIN jsonb_to_recordset($1::text::jsonb) AS j(a text, b text, rel int4) ON j.a =
 								)
 							]
 						)
-						const [[count]] = yield* Effect.flatMap(
-							db.values(`SELECT count(*)::text FROM ${schema}.p`, []),
-							Schema.decodeUnknownEffect(oneText)
-						)
-						assert.equal(Number(count), spans.length ** 2)
+						const counted = yield* db.values(`SELECT count(*)::text FROM ${schema}.p`, [])
+						assert.equal(Number(counted[0]?.[0]), spans.length ** 2)
 
 						/**
 						 * Every other mask: the emitted predicate must hold exactly when the pair's relation is in the mask.

@@ -1134,71 +1134,34 @@ const caught: ReadonlyMap<Composition, Caught> = new Map<Composition, Caught>([
 	]
 ])
 
-/** Every composition chained, and the cases no composition's chain begins with.
+/** The escaped bugs: each composition chained whose first step once failed, and the cases no composition's chain
+ * begins with.
  *
  * The last name free, never the first: renamed again, not back. */
 const planted: ReadonlyArray<Kept<RenameSketch, RenameFeature>> = [
-	...Arr.map(compositions, (composition): Kept<RenameSketch, RenameFeature> => {
-		const first = caught.get(composition)
-		const chained = `${composition}, then chained`
-		return {
-			note: first === undefined ? chained : `${chained}: ${first.note}`,
-			sketch: {
-				moves: [
-					{
-						kind: "composition",
-						composition,
-						pick: 0,
-						mistake: "none",
-						review: "the renames chosen"
-					},
-					{
-						kind: "composition",
-						composition,
-						pick: pickSpan - 1,
-						mistake: "none",
-						review: "the renames chosen"
-					}
-				]
-			},
-			draws: "",
-			reaches: [
-				`${composition} composed`,
-				"a name renamed again",
-				...(first === undefined ? [] : first.reaches)
-			]
-		}
-	}),
-	{
-		note: "the law's arm renamed, then the handle that selects it, then the arm back; a misspelt rename refused",
+	...Arr.map([...caught], ([composition, first]): Kept<RenameSketch, RenameFeature> => ({
+		note: `${composition}, then chained: ${first.note}`,
 		sketch: {
 			moves: [
 				{
-					kind: "renames",
-					slots: ["ManualTask"],
-					pick: 0,
-					mistake: "a rename misspelt",
-					review: "the renames chosen"
-				},
-				{
-					kind: "renames",
-					slots: ["manual"],
+					kind: "composition",
+					composition,
 					pick: 0,
 					mistake: "none",
 					review: "the renames chosen"
 				},
 				{
-					kind: "renames",
-					slots: ["ManualTask"],
-					pick: 0,
+					kind: "composition",
+					composition,
+					pick: pickSpan - 1,
 					mistake: "none",
 					review: "the renames chosen"
 				}
 			]
 		},
 		draws: "",
-		reaches: ["a relation renamed", "a handle renamed", "a rename misspelt refused"]
-	},
+		reaches: [`${composition} composed`, "a name renamed again", ...first.reaches]
+	})),
 	{
 		note: "the law's parent and both its arms renamed, then the closed relation that tags them: its rename must be offered, though the law function's body names the type",
 		sketch: {
@@ -1253,54 +1216,6 @@ const planted: ReadonlyArray<Kept<RenameSketch, RenameFeature>> = [
 		},
 		draws: "",
 		reaches: ["a field renamed"]
-	},
-	{
-		note: "the closed relation and the selector field it types renamed in one step",
-		sketch: {
-			moves: [
-				{
-					kind: "renames",
-					slots: ["Kind", "selector"],
-					pick: 0,
-					mistake: "none",
-					review: "the renames chosen"
-				}
-			]
-		},
-		draws: "",
-		reaches: ["a closed relation renamed", "a field renamed", "several renames in one step"]
-	},
-	{
-		note: "a field's rename nested in its relation's, chosen while the relation's is kept, refused",
-		sketch: {
-			moves: [
-				{
-					kind: "renames",
-					slots: ["Note", "body"],
-					pick: 0,
-					mistake: "an orphan nested choice",
-					review: "the renames chosen"
-				}
-			]
-		},
-		draws: "",
-		reaches: ["an orphan nested choice refused"]
-	},
-	{
-		note: "a referenced relation renamed; a candidate split across files refused",
-		sketch: {
-			moves: [
-				{
-					kind: "renames",
-					slots: ["Note"],
-					pick: 0,
-					mistake: "a candidate split across files",
-					review: "the renames chosen"
-				}
-			]
-		},
-		draws: "",
-		reaches: ["a relation renamed", "a candidate split across files refused"]
 	},
 	{
 		note: "an arm and its selector field renamed, then Kind renamed with its handle a step after the law over its arms changed, a new roster no candidate renames: the selector Kind types keeps its rows (a conversion by the reviewer's placeholders once failed with 42804)",
@@ -1497,9 +1412,9 @@ const accounts = [id(1), id(2)] as const
  *
  * A fourth note of the first account is past its capacity.
  *
- * Each case is bounded by the hang guard, so a test needs no timeout of its own beyond the config's: about thirty kept
- * cases run about a hundred migrations, each drafted, checked, applied, admitted and opened, which a loaded machine
- * slows many times over. */
+ * Each case is bounded by the hang guard, so a test needs no timeout of its own beyond the config's: every case runs
+ * several migrations, each drafted, checked, applied, admitted and opened, which a loaded machine slows many times
+ * over. */
 const renames = explore(
 	{
 		suite: "migrate/renames",

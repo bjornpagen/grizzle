@@ -1,19 +1,17 @@
-import { Array as Arr, Effect, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, String as Str } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-
-const decodeTextRows = Schema.decodeUnknownEffect(Schema.Array(Schema.Array(Schema.String)))
 
 /**
  * Shared helpers for the codec tests against PostgreSQL (test/pg/codec).
  *
  * Rows of PostgreSQL's text output, admitted as what they are: each column its text, or NULL.
  */
-export const textRows = (
-	rows: unknown
-): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>, Schema.SchemaError> => decodeTextRows(rows)
+export const textRows = (rows: unknown): ReadonlyArray<ReadonlyArray<string>> =>
+	trusted<ReadonlyArray<ReadonlyArray<string>>>(rows)
 
 /** A field of a fact, by a name its heading lists. */
 export const fieldOf = (fact: Readonly<Record<string, unknown>>, name: string): unknown =>

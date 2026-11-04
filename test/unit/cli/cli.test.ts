@@ -115,6 +115,13 @@ const write = (path: string, text: string) =>
 /** The path of `parts` joined by slashes. */
 const join = (...parts: Array<string>): string => Arr.join(parts, "/")
 
+/** The installation identifier of the shop fixture's schema declared `name`, as the naming door spells it. */
+const shopIdent = (name: string): string =>
+	owning(shop(name, 1, "none").schema).installation.identifier
+
+/** The migrations directory of the shop fixture's schema declared `name`, below a workspace. */
+const shopDirectory = (name: string): string => join("migrations", shopIdent(name))
+
 describe("the command line", () => {
 	it("parses generate, check, migrate, drift and skill with drizzle's flags", () => {
 		assert.deepEqual(succeeded(parseArgs(["generate"])), {
@@ -415,21 +422,23 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 				schemas: [{ name: "NameShop", fixture: "shop", version: 1, workload: "full" }],
 				connection: viaDatabaseUrl
 			})
-			assert.equal((yield* cli(ws, ["generate"], t0, {})).code, 0)
+			const first = yield* cli(ws, ["generate"], t0, {})
+			assert.equal(first.code, 0)
 			yield* writeConfig(ws, {
 				schemas: [{ name: "NameShop", fixture: "shop", version: 1, workload: "withoutByName" }],
 				connection: viaDatabaseUrl
 			})
-			assert.equal((yield* cli(ws, ["generate"], t1, {})).code, 0)
+			const rewired = yield* cli(ws, ["generate"], t1, {})
+			assert.equal(rewired.code, 0)
 			yield* writeConfig(ws, {
 				schemas: [{ name: "NameShop", fixture: "shop", version: 2, workload: "withoutByName" }],
 				connection: viaDatabaseUrl
 			})
-			assert.equal((yield* cli(ws, ["generate"], t2, {})).code, 0)
-			assert.equal((yield* cli(ws, ["generate", "--custom"], t3, {})).code, 0)
-			const entries = yield* ls(
-				join(ws, "migrations", owning(shop("NameShop", 1, "full").schema).installation.identifier)
-			)
+			const widened = yield* cli(ws, ["generate"], t2, {})
+			assert.equal(widened.code, 0)
+			const custom = yield* cli(ws, ["generate", "--custom"], t3, {})
+			assert.equal(custom.code, 0)
+			const entries = yield* ls(join(ws, shopDirectory("NameShop")))
 			const folders = Arr.filter(entries, (n) => n !== snapshotFileName)
 			assert.equal(folders.length, times.length)
 			for (const [i, time] of times.entries()) {
@@ -486,9 +495,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					at(2026, 10, 12, 12, 0, 0)
 				)
 				assert.equal(r.code, 0, r.stderr)
-				const dir = join(ws, "migrations/gen_tier")
-				const folder = join(dir, "20261012120000_init")
 				const owned = owning(tierSchema("GenTier"))
+				const dir = join(ws, "migrations", owned.installation.identifier)
+				const folder = join(dir, "20261012120000_init")
 				const expected = succeeded(
 					generate({
 						installation: succeeded(compileInstallation(owned, installOptions(owned, undefined))),
@@ -542,18 +551,15 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					connection: viaDatabaseUrl
 				})
 				const now = at(2026, 10, 12, 12, 0, 0)
-				assert.equal((yield* cli(ws, ["generate", "--name", "init"], now, {})).code, 0)
+				const first = yield* cli(ws, ["generate", "--name", "init"], now, {})
+				assert.equal(first.code, 0)
 				yield* writeConfig(ws, {
 					schemas: [{ name: "MarkShop", fixture: "shop", version: 2, workload: "none" }],
 					connection: viaDatabaseUrl
 				})
 				const tier = yield* cli(ws, ["generate", "--name", "tier"], now, {})
 				assert.equal(tier.code, 0, tier.stderr)
-				const dir = join(
-					ws,
-					"migrations",
-					owning(shop("MarkShop", 1, "none").schema).installation.identifier
-				)
+				const dir = join(ws, shopDirectory("MarkShop"))
 				const entries = yield* ls(dir)
 				const folders = Arr.filter(entries, (n) => n !== snapshotFileName)
 				const [init, second] = folders
@@ -579,8 +585,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					schemas: [{ name: "CustShop", fixture: "shop", version: 1, workload: "none" }],
 					connection: viaDatabaseUrl
 				})
-				assert.equal((yield* cli(ws, ["generate"], at(2026, 10, 12, 12, 0, 1), {})).code, 0)
-				const dir = join(ws, "migrations/cust_shop")
+				const first = yield* cli(ws, ["generate"], at(2026, 10, 12, 12, 0, 1), {})
+				assert.equal(first.code, 0)
+				const dir = join(ws, shopDirectory("CustShop"))
 				const before = yield* read(join(dir, "snapshot.json"))
 				const custom = yield* cli(
 					ws,
@@ -617,8 +624,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 				})
 				const both = yield* cli(ws, ["generate"], nextNow(), {})
 				assert.equal(both.code, 0, both.stderr)
-				assert.equal((yield* ls(join(ws, "migrations/two_a"))).length, 2)
-				assert.equal((yield* ls(join(ws, "migrations/two_b"))).length, 2)
+				const draftedA = yield* ls(join(ws, shopDirectory("TwoA")))
+				assert.equal(draftedA.length, 2)
+				const draftedB = yield* ls(join(ws, shopDirectory("TwoB")))
+				assert.equal(draftedB.length, 2)
 
 				const custom = yield* cli(ws, ["generate", "--custom"], nextNow(), {})
 				assert.equal(custom.code, 2)
@@ -626,19 +635,21 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 				assert.equal(unknown.code, 2)
 				const chosen = yield* cli(
 					ws,
-					["generate", "--custom", "--schema", "two_b", "--name", "data"],
+					["generate", "--custom", "--schema", shopIdent("TwoB"), "--name", "data"],
 					nextNow(),
 					{}
 				)
 				assert.equal(chosen.code, 0, chosen.stderr)
-				assert.equal((yield* ls(join(ws, "migrations/two_a"))).length, 2)
-				assert.equal((yield* ls(join(ws, "migrations/two_b"))).length, 3)
+				const keptA = yield* ls(join(ws, shopDirectory("TwoA")))
+				assert.equal(keptA.length, 2)
+				const customB = yield* ls(join(ws, shopDirectory("TwoB")))
+				assert.equal(customB.length, 3)
 
 				yield* writeConfig(ws, {
 					schemas: [{ name: "TwoA", fixture: "shop", version: 1, workload: "none" }],
 					connection: viaDatabaseUrl
 				})
-				const single = yield* cli(ws, ["generate", "--schema", "two_a"], nextNow(), {})
+				const single = yield* cli(ws, ["generate", "--schema", shopIdent("TwoA")], nextNow(), {})
 				assert.equal(single.code, 2)
 			})
 	)
@@ -652,14 +663,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					schemas: [{ name: "HiddenShop", fixture: "shop", version: 1, workload: "none" }],
 					connection: viaDatabaseUrl
 				})
-				assert.equal((yield* cli(ws, ["generate"], nextNow(), {})).code, 0)
-				const dir = join(ws, "migrations/hidden_shop")
+				const first = yield* cli(ws, ["generate"], nextNow(), {})
+				assert.equal(first.code, 0)
+				const dir = join(ws, shopDirectory("HiddenShop"))
 				yield* write(join(dir, ".DS_Store"), "")
 				yield* writeConfig(ws, {
 					schemas: [{ name: "HiddenShop", fixture: "shop", version: 2, workload: "none" }],
 					connection: viaDatabaseUrl
 				})
-				assert.equal((yield* cli(ws, ["generate"], nextNow(), {})).code, 0)
+				const beside = yield* cli(ws, ["generate"], nextNow(), {})
+				assert.equal(beside.code, 0)
 			})
 	)
 
@@ -677,11 +690,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 				})
 				const fs = yield* FileSystem.FileSystem
 				yield* fs.makeDirectory(join(ws, "migrations"))
-				yield* write(join(ws, "migrations/atom_b"), "not a directory\n")
+				yield* write(join(ws, shopDirectory("AtomB")), "not a directory\n")
 				const r = yield* cli(ws, ["generate"], nextNow(), {})
 				assert.equal(r.code, 1)
 				const schemaFolders = yield* ls(join(ws, "migrations"))
-				assert.deepEqual(schemaFolders, ["atom_b"])
+				assert.deepEqual(schemaFolders, [shopIdent("AtomB")])
 			})
 	)
 
@@ -697,9 +710,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 					],
 					connection: viaDatabaseUrl
 				})
-				assert.equal((yield* cli(ws, ["generate"], nextNow(), {})).code, 0)
-				const dirA = join(ws, "migrations/own_a")
-				const dirB = join(ws, "migrations/own_b")
+				const first = yield* cli(ws, ["generate"], nextNow(), {})
+				assert.equal(first.code, 0)
+				const dirA = join(ws, shopDirectory("OwnA"))
+				const dirB = join(ws, shopDirectory("OwnB"))
 				const listing = Effect.all([ls(dirA), ls(dirB)])
 				const before = yield* listing
 				yield* writeConfig(ws, {
@@ -717,7 +731,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 				const after = yield* listing
 				assert.deepEqual(after, before)
 				yield* write(join(dirA, "snapshot.json"), ownSnapshot)
-				assert.equal((yield* cli(ws, ["generate"], nextNow(), {})).code, 0)
+				const restored = yield* cli(ws, ["generate"], nextNow(), {})
+				assert.equal(restored.code, 0)
 			})
 	)
 
@@ -728,22 +743,28 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 				const ws = yield* workspace("config")
 				const missing = yield* bin(ws, ["generate"], {})
 				assert.equal(missing.status, 1)
-				assert.equal((yield* cliOver(ws, { schemas: [] }, ["check"], nextNow())).code, 1)
+				const plain = yield* cliOver(ws, { schemas: [] }, ["check"], nextNow())
+				assert.equal(plain.code, 1)
 				const configured = (text: string) => writeConfigText(ws, text)
 				const define = `import { defineConfig } from "@bjornpagen/grizzle"\n`
 				yield* configured(`${define}export default defineConfig({ schemas: [] })\n`)
-				assert.equal((yield* bin(ws, ["migrate"], {})).status, 1)
+				const empty = yield* bin(ws, ["migrate"], {})
+				assert.equal(empty.status, 1)
 				yield* configured(`${define}export default defineConfig({ schemas: [{ name: "Shop" }] })\n`)
-				assert.equal((yield* bin(ws, ["generate"], {})).status, 1)
+				const malformed = yield* bin(ws, ["generate"], {})
+				assert.equal(malformed.status, 1)
 				yield* configured(`throw new Error("broken config")\n`)
-				assert.equal((yield* bin(ws, ["generate"], {})).status, 1)
+				const broken = yield* bin(ws, ["generate"], {})
+				assert.equal(broken.status, 1)
 
 				yield* writeConfig(ws, {
 					schemas: [{ name: "NameShop", fixture: "shop", version: 1, workload: "none" }],
 					connection: { kind: "typed", database: "unused", password: "owner", port: 70000 }
 				})
-				assert.equal((yield* cli(ws, ["generate"], nextNow(), {})).code, 0)
-				assert.equal((yield* cli(ws, ["check"], nextNow(), {})).code, 0)
+				const generated = yield* cli(ws, ["generate"], nextNow(), {})
+				assert.equal(generated.code, 0)
+				const checked = yield* cli(ws, ["check"], nextNow(), {})
+				assert.equal(checked.code, 0)
 				const refused = yield* cli(ws, ["migrate"], nextNow(), {})
 				assert.equal(refused.code, 1)
 				yield* writeConfig(ws, {

@@ -4,6 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { workloadExtension, withWorkload } from "#compiler/physical/access/extension.ts"
 import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
@@ -21,6 +22,7 @@ import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { asDrafted, type CompileOver, draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 
@@ -101,13 +103,16 @@ const planned = (
 		step.draft.kind === "statement" ? [{ slot: step.slot, statement: step.draft.statement }] : []
 	)
 
+/** AccountBudget's materialized view, as the naming door names it. */
+const budgetView: string = identifierOf(identity.view(parsedName("AccountBudget")))
+
 const onView = (statement: SqlStatement): boolean =>
-	(statement.kind === "createIndex" && statement.table.name === "account_budget") ||
-	(statement.kind === "createMaterializedView" && statement.name.name === "account_budget") ||
+	(statement.kind === "createIndex" && statement.table.name === budgetView) ||
+	(statement.kind === "createMaterializedView" && statement.name.name === budgetView) ||
 	(statement.kind === "drop" &&
 		statement.object !== "ROLE" &&
 		statement.object !== "SCHEMA" &&
-		statement.name.name === "account_budget")
+		statement.name.name === budgetView)
 
 describe("workload indexes on a derived relation", () => {
 	it.effect(

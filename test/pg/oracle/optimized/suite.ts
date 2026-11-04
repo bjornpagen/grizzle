@@ -246,12 +246,12 @@ export const differential = <S>(
 					k.pair("form:optimized VALUES", "relation parameter named from the dictionary")
 				}
 				if (!baselineIsSet(o)) {
-					return yield* PropertyFailed.make({
+					return yield* new PropertyFailed({
 						report: `the conservative baseline repeats a row\n${printDifferential(o)}`
 					})
 				}
 				if (!agrees(o)) {
-					return yield* PropertyFailed.make({ report: printDifferential(o) })
+					return yield* new PropertyFailed({ report: printDifferential(o) })
 				}
 			})
 		)

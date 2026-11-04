@@ -1,5 +1,5 @@
 import { homedir } from "node:os"
-import { Array as Arr, Config, Effect, Schema, String as Str } from "effect"
+import { Array as Arr, Config, ConfigProvider, Effect, String as Str } from "effect"
 import { fileText, repoRoot } from "#test/support/files.ts"
 
 import { regex } from "arkregex"
@@ -30,24 +30,24 @@ const assignments = (text: string): Readonly<Record<string, string>> => {
 }
 
 /**
- * The assignments of pin.env the tests read, parsed once: a pin without one, or with a port that is no number, fails
+ * The assignments of pin.env the tests read, parsed once: a pin without one, or with a port that is no port, fails
  * the load.
  */
-const PinFile = Schema.Struct({
-	PG_PIN_VERSION: Schema.String,
-	PGVECTOR_PIN_VERSION: Schema.String,
-	GRIZZLE_PG_PREFIX: Schema.String,
-	PG_PORT: Schema.FiniteFromString,
-	GRIZZLE_PG_STATE: Schema.String,
-	PG_COVERAGE_PORT: Schema.FiniteFromString,
-	GRIZZLE_PG_COVERAGE_STATE: Schema.String,
-	PG_DEV_ROLE: Schema.String,
-	PG_TEMPLATE_DB: Schema.String
+const pinFile = Config.all({
+	PG_PIN_VERSION: Config.String("PG_PIN_VERSION"),
+	PGVECTOR_PIN_VERSION: Config.String("PGVECTOR_PIN_VERSION"),
+	GRIZZLE_PG_PREFIX: Config.String("GRIZZLE_PG_PREFIX"),
+	PG_PORT: Config.Port("PG_PORT"),
+	GRIZZLE_PG_STATE: Config.String("GRIZZLE_PG_STATE"),
+	PG_COVERAGE_PORT: Config.Port("PG_COVERAGE_PORT"),
+	GRIZZLE_PG_COVERAGE_STATE: Config.String("GRIZZLE_PG_COVERAGE_STATE"),
+	PG_DEV_ROLE: Config.String("PG_DEV_ROLE"),
+	PG_TEMPLATE_DB: Config.String("PG_TEMPLATE_DB")
 })
 
 const pin = await Effect.runPromise(
 	Effect.flatMap(fileText(`${repoRoot}scripts/pg/pin.env`), (text) =>
-		Effect.orDie(Schema.decodeUnknownEffect(PinFile)(assignments(text)))
+		Effect.orDie(pinFile.parse(ConfigProvider.fromEnvRecord(assignments(text))))
 	)
 )
 
@@ -55,11 +55,10 @@ const pin = await Effect.runPromise(
  * The cluster a run's database tests use, from GRIZZLE_PG_CLUSTER: `main`, the default, or `coverage`, the cluster
  * that preloads plpgsql_check. Any other value is refused when the module loads.
  */
-const PgCluster = Schema.Literals(["main", "coverage"])
-export type PgCluster = typeof PgCluster.Type
+export type PgCluster = "main" | "coverage"
 
 const cluster: PgCluster = Effect.runSync(
-	Config.withDefault(Config.schema(PgCluster, "GRIZZLE_PG_CLUSTER"), "main")
+	Config.withDefault(Config.Literals(["main", "coverage"], "GRIZZLE_PG_CLUSTER"), "main")
 )
 
 /** Where a cluster lives: its port and its state directory, which holds tls/, socket/ and the owner's password. */

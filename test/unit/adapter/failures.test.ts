@@ -14,7 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Schema, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
 import { DatabaseError } from "pg"
 import { admissionFailure } from "#adapter/admission/admit.ts"
 import { OpenError, ReadFailure, TransientFailure } from "#adapter/errors/execution.ts"
@@ -246,11 +246,11 @@ const nameFields = ["constraint", "schema", "table", "column", "dataType"] as co
 const flightFailure = (position: Position, failure: ServerError) => {
 	switch (position) {
 		case "statement":
-			return BatchRefused.make({ index: 0, failure })
+			return new BatchRefused({ index: 0, failure })
 		case "COMMIT":
-			return CommitRefused.make({ failure })
+			return new CommitRefused({ failure })
 		case "stale name":
-			return StaleName.make({ index: 0, failure })
+			return new StaleName({ index: 0, failure })
 	}
 }
 
@@ -360,7 +360,7 @@ describe("the failure vocabulary", () => {
 								r.severity === "FATAL" || r.severity === "PANIC" ? "terminated" : "refused"
 							)
 							assert.equal(
-								OpenError.make({ reason: StartupRefused.make({ error }) }).stage,
+								new OpenError({ reason: new StartupRefused({ error }) }).stage,
 								Str.startsWith("28")(r.code) ? "authentication" : "connect"
 							)
 							/**
@@ -396,8 +396,8 @@ describe("the failure vocabulary", () => {
 							/** A read's failure: exactly one class, carrying the same report. */
 							const read = asReadFailure(flightFailure(r.position, error))
 							assert.equal(
-								Schema.is(TransientFailure)(read),
-								!Schema.is(ReadFailure)(read),
+								read instanceof TransientFailure,
+								!(read instanceof ReadFailure),
 								"exactly one class"
 							)
 							const transient: TransientTag | undefined =
@@ -408,7 +408,7 @@ describe("the failure vocabulary", () => {
 										: r.code === deadlock
 											? "Deadlock"
 											: undefined
-							if (Schema.is(TransientFailure)(read)) {
+							if (read instanceof TransientFailure) {
 								c.note("class TransientFailure")
 								assert.ok(
 									read.reason._tag === transient,
@@ -425,7 +425,7 @@ describe("the failure vocabulary", () => {
 								"SERIALIZABLE's refusal and a stale name are transient"
 							)
 							assert.ok(
-								Schema.is(ReadFailure)(read),
+								read instanceof ReadFailure,
 								"a statement's or COMMIT's refusal is never the fence's"
 							)
 							assert.equal(read.reason, error)

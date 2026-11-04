@@ -5,7 +5,7 @@ import { filter, map } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Schema } from "effect"
+import { Array as Arr, Data, Duration, Effect, Formatter } from "effect"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { unrollRule } from "#compiler/lower/shapes/recursion/index.ts"
@@ -92,12 +92,7 @@ const diamondLimits = (
 	}
 }
 
-class NotKilled extends Schema.TaggedError<NotKilled, { readonly brand: unique symbol }>()(
-	"NotKilled",
-	{
-		report: Schema.String
-	}
-) {}
+class NotKilled extends Data.TaggedError("NotKilled")<{ readonly message: string }> {}
 
 const run = (c: RecursiveCase, left: Lowering, right: Lowering) =>
 	Effect.gen(function* () {
@@ -203,20 +198,20 @@ layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering"
 							Effect.gen(function* () {
 								notes.noteAll(c.features)
 								if (!c.features.includes("diamond") || !c.terminatesAsBag) {
-									return yield* NotKilled.make({
-										report: `not a terminating diamond: ${Arr.join(c.features, ", ")}`
+									return yield* new NotKilled({
+										message: `not a terminating diamond: ${Arr.join(c.features, ", ")}`
 									})
 								}
 								const counted = sites(c)
 								const recursions = reachableRecursions(c.query.dag.roots[0])
 								if (!formsHold(recursions, counted)) {
-									return yield* NotKilled.make({
-										report: `${recursions} reachable recursions shown as unrolled: ${counted.unrolled}, recursive: ${counted.recursive}`
+									return yield* new NotKilled({
+										message: `${recursions} reachable recursions shown as unrolled: ${counted.unrolled}, recursive: ${counted.recursive}`
 									})
 								}
 								if (counted.sites === 0) {
-									return yield* NotKilled.make({
-										report: "the mutant found no feedback union to rewrite"
+									return yield* new NotKilled({
+										message: "the mutant found no feedback union to rewrite"
 									})
 								}
 								const outcome = yield* run(
@@ -225,7 +220,7 @@ layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering"
 									optimizedFeedbackUnionAll
 								)
 								if (!repeatsStates(outcome)) {
-									return yield* NotKilled.make({ report: `not killed:\n${printOutcome(outcome)}` })
+									return yield* new NotKilled({ message: `not killed:\n${printOutcome(outcome)}` })
 								}
 								if (counted.unrolled) {
 									notes.note("killed unrolled")

@@ -1,10 +1,10 @@
-import { Option, Predicate, Schema } from "effect"
+import { Data, Option, Predicate } from "effect"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
-import { PgErrorFieldsSchema, reportedConstraintOf, SqlError } from "#test/support/pg.ts"
+import { type PgErrorFields, reportedConstraintOf, SqlError } from "#test/support/pg.ts"
 
 import { regex } from "arkregex"
-export type PgErrorFields = typeof PgErrorFieldsSchema.Type
+export type { PgErrorFields }
 
 /**
  * What a native violation reports its constraint on, as the installation's constraint map keys it (ir/products.ts
@@ -21,38 +21,32 @@ export const reportedOwnerOf = (fields: PgErrorFields): ConstraintOwner | undefi
 }
 
 /** A statement a psql child ran failed; the fields come from psql's verbose error report. */
-export class PsqlStatementError extends Schema.TaggedError<
-	PsqlStatementError,
-	{ readonly brand: unique symbol }
->()("PsqlStatementError", { sql: Schema.String, fields: PgErrorFieldsSchema }) {}
+export class PsqlStatementError extends Data.TaggedError("PsqlStatementError")<{
+	readonly sql: string
+	readonly fields: PgErrorFields
+}> {}
 
 /** The psql child could not start, refused the connection, or exited while a statement was in flight. */
-export class PsqlProcessError extends Schema.TaggedError<
-	PsqlProcessError,
-	{ readonly brand: unique symbol }
->()("PsqlProcessError", { reason: Schema.String, stderr: Schema.String }) {}
-
-const isPsqlStatementError = Schema.is(PsqlStatementError)
+export class PsqlProcessError extends Data.TaggedError("PsqlProcessError")<{
+	readonly reason: string
+	readonly stderr: string
+}> {}
 
 /**
  * A COMMIT that PostgreSQL answered with the command tag ROLLBACK: the transaction had already failed (an earlier
  * statement raised and was caught), so nothing was committed. PostgreSQL reports this without an error, SQLSTATE
  * 00000, so a session that ignored the tag would report a commit that never happened.
  */
-export class TransactionRolledBack extends Schema.TaggedError<
-	TransactionRolledBack,
-	{ readonly brand: unique symbol }
->()("TransactionRolledBack", {
-	label: Schema.String,
+export class TransactionRolledBack extends Data.TaggedError("TransactionRolledBack")<{
+	readonly label: string
 	/** The command tag PostgreSQL answered COMMIT with. */
-	command: Schema.String
-}) {}
+	readonly command: string
+}> {}
 
 /** expectSqlstate or expectConstraint did not see the failure it expected. */
-export class ExpectationFailed extends Schema.TaggedError<
-	ExpectationFailed,
-	{ readonly brand: unique symbol }
->()("ExpectationFailed", { message: Schema.String }) {}
+export class ExpectationFailed extends Data.TaggedError("ExpectationFailed")<{
+	readonly message: string
+}> {}
 
 const sqlstate = regex("^[0-9A-Z]{5}$")
 
@@ -101,10 +95,10 @@ const fromRecord = (value: unknown): PgErrorFields | undefined => {
  * (../pg.ts), whose reason carries the ErrorResponse fields.
  */
 export const pgErrorFields = (error: unknown): PgErrorFields | undefined => {
-	if (isPsqlStatementError(error)) {
+	if (error instanceof PsqlStatementError) {
 		return error.fields
 	}
-	if (Schema.is(SqlError)(error)) {
+	if (error instanceof SqlError) {
 		return error.reason._tag === "ServerError" ? error.reason.fields : undefined
 	}
 	return fromRecord(error)

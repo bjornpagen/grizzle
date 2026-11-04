@@ -98,7 +98,7 @@ const onlyKeys = (value: Record<string, unknown>): Result.Result<void, CliError>
 	return Option.isNone(unknown)
 		? Result.void
 		: Result.fail(
-				cliError(SettingRefused.make({ fault: { kind: "unknown", setting: unknown.value } }))
+				cliError(new SettingRefused({ fault: { kind: "unknown", setting: unknown.value } }))
 			)
 }
 
@@ -106,20 +106,20 @@ const onlyKeys = (value: Record<string, unknown>): Result.Result<void, CliError>
 const malformedSetting = (
 	setting: "schemas" | "logins" | "migrations"
 ): Result.Result<never, CliError> =>
-	Result.fail(cliError(SettingRefused.make({ fault: { kind: "malformed", setting } })))
+	Result.fail(cliError(new SettingRefused({ fault: { kind: "malformed", setting } })))
 
 const nonempty = (v: unknown): v is string => typeof v === "string" && v.length > 0
 
 /** `schemas[index]` parsed as a built schema, read once where the configuration names it. */
 const builtSchema = (value: unknown, index: number): Result.Result<BuiltSchema, CliError> =>
 	Result.mapError(toResult(parseBuiltSchema(value, SourceLoc(configFileName, []))), () =>
-		cliError(SchemaEntryRefused.make({ index, fault: { kind: "notBuilt" } }))
+		cliError(new SchemaEntryRefused({ index, fault: { kind: "notBuilt" } }))
 	)
 
 /** `schemas[index]`, a built schema, owned, or the configuration's refusal of a schema that does not compile. */
 const ownSchema = (schema: BuiltSchema, index: number): Result.Result<Owned, CliError> =>
 	Result.mapError(toResult(own(schema.desc)), (error) =>
-		cliError(SchemaEntryRefused.make({ index, fault: { kind: "uncompiled", error } }))
+		cliError(new SchemaEntryRefused({ index, fault: { kind: "uncompiled", error } }))
 	)
 
 /** Checks a configuration value, the default export of `file`, whose directories `path` resolves. */
@@ -130,11 +130,11 @@ const resolveConfigWith = (
 ): Result.Result<ResolvedConfig, CliError> => {
 	const directory = path.dirname(file)
 	if (!isObject(value)) {
-		return Result.fail(cliError(ExportRefused.make({ fault: "notAnObject" })))
+		return Result.fail(cliError(new ExportRefused({ fault: "notAnObject" })))
 	}
 	const typed = definedConfig(value)
 	if (Option.isNone(typed)) {
-		return Result.fail(cliError(ExportRefused.make({ fault: "notDefined" })))
+		return Result.fail(cliError(new ExportRefused({ fault: "notDefined" })))
 	}
 	const settings = onlyKeys(value)
 	const { migrations: migrationsValue, schemas: schemaValues, logins: loginValues } = value
@@ -173,7 +173,7 @@ const resolveConfigWith = (
 		if (Option.isSome(clash)) {
 			return Result.fail(
 				cliError(
-					SchemaEntryRefused.make({
+					new SchemaEntryRefused({
 						index: i,
 						fault: { kind: "shared", name: o.name, other: clash.value.declared, ident }
 					})
@@ -195,7 +195,7 @@ const resolveConfigWith = (
 	}
 	for (const [i, l] of loginValues.entries()) {
 		const refuseLogin = (fault: LoginEntryRefused["fault"]): CliError =>
-			cliError(LoginEntryRefused.make({ index: i, fault }))
+			cliError(new LoginEntryRefused({ index: i, fault }))
 		const built = ownedEntry(l, "login")
 		if (built === undefined) {
 			return Result.fail(refuseLogin({ kind: "notBuilt" }))

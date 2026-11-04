@@ -16,11 +16,12 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
 import { ALLEN } from "#compiler/allen/mask.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { decodeDesc, descText, type QueryDesc } from "#compiler/ir/desc.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -38,7 +39,6 @@ import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { assert } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { AutomaticTask, Kind, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
-import { decodeJson } from "#test/support/json.ts"
 import { at, Booking, descOf, Schedule } from "#test/unit/query/fixtures.ts"
 
 /**
@@ -74,16 +74,13 @@ const rebuiltQuery = (desc: QueryDesc, schema: unknown): QueryValue => {
 /** The parent variables an attachment passes its child, as the builder's untyped core reads them. */
 type ParentVars = Readonly<Record<string, unknown>>
 
-/** JSON text parsed back as plain JSON, which fromQueryDescription admits as it would any untrusted value. */
-const transportText = decodeJson(Schema.Unknown)
-
 const viaDescription = (desc: QueryDesc): QueryDesc => {
 	const description = toQueryDescription(desc)
 	if (!description.ok) {
 		throw description.error
 	}
 	/** Transported as JSON text, as a caller stores and sends it. */
-	const parsed = fromQueryDescription(transportText(JSON.stringify(description.value)))
+	const parsed = fromQueryDescription(trustedJson<unknown>(jsonText(description.value)))
 	if (!parsed.ok) {
 		throw parsed.error
 	}

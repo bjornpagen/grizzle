@@ -96,12 +96,12 @@ const listed = (stage: CliStage): (typeof cliStages)[number] => stage
 
 /** A CLI refusal at each stage, its text fields `text`: the stage follows from the reason. */
 const cliRefusalAt: { readonly [Stage in CliStage]: (text: string) => CliError } = {
-	usage: (text) => cliRefused(MigrationNameRefused.make({ migration: text })),
-	config: (text) => cliRefused(ConfigMissing.make({ directory: text })),
-	filesystem: (text) => cliRefused(FolderExists.make({ schema: text, path: text })),
+	usage: (text) => cliRefused(new MigrationNameRefused({ migration: text })),
+	config: (text) => cliRefused(new ConfigMissing({ directory: text })),
+	filesystem: (text) => cliRefused(new FolderExists({ schema: text, path: text })),
 	snapshot: (text) =>
 		cliRefused(
-			ChainRefused.make({
+			new ChainRefused({
 				schema: text,
 				ident: text,
 				directory: text,
@@ -110,7 +110,7 @@ const cliRefusalAt: { readonly [Stage in CliStage]: (text: string) => CliError }
 		),
 	generate: (text) =>
 		cliRefused(
-			DraftRefused.make({
+			new DraftRefused({
 				schema: text,
 				step: "draft",
 				error: malformedDescription(SourceLoc("planted", []), text)

@@ -7,13 +7,13 @@ import {
 	type Array as Arr,
 	type Brand,
 	type Cause,
+	Data,
 	Deferred,
 	Duration,
 	Effect,
 	Exit,
 	Option,
-	Result,
-	Schema
+	Result
 } from "effect"
 
 import {
@@ -139,10 +139,9 @@ export interface Frame extends Transaction {
 }
 
 /** The prologue was refused at the pipeline positions right after BEGIN, for no reason of the fence's: nothing ran. */
-class PrologueRefused extends Schema.TaggedError<
-	PrologueRefused,
-	{ readonly brand: unique symbol }
->()("PrologueRefused", { failure: ServerError }) {}
+class PrologueRefused extends Data.TaggedError("PrologueRefused")<{
+	readonly failure: ServerError
+}> {}
 
 /** How a transaction's flight fails: as any flight, at its prologue, or at its fence. */
 export type FlightFailure = BatchFailure | PrologueRefused | StaleSnapshot
@@ -159,13 +158,13 @@ export const fenceReason = (step: FenceStep, failure: ServerError): Option.Optio
 	switch (step) {
 		case "lock":
 			return failure.sqlstate === sqlstates.lockNotAvailable
-				? Option.some(Migrating.make())
+				? Option.some(new Migrating())
 				: Option.none()
 		case "guard":
 			return failure.sqlstate === sqlstates.grizzleMigrating
-				? Option.some(Migrating.make())
+				? Option.some(new Migrating())
 				: failure.sqlstate === sqlstates.grizzleMigrated
-					? Option.some(Migrated.make())
+					? Option.some(new Migrated())
 					: Option.none()
 	}
 }
@@ -180,16 +179,16 @@ export const asReadFailure = (failure: FlightFailure): ReadError => {
 		case "StaleSnapshot":
 			return failure
 		case "StaleName":
-			return TransientFailure.make({ reason: StaleStatement.make(), error: failure.failure })
+			return new TransientFailure({ reason: new StaleStatement(), error: failure.failure })
 		case "BatchRefused":
 		case "CommitRefused":
 		case "PrologueRefused":
-			return serializationRefusal(failure.failure) ?? ReadFailure.make({ reason: failure.failure })
+			return serializationRefusal(failure.failure) ?? new ReadFailure({ reason: failure.failure })
 		case "CommitLost":
 		case "ConnectionLost":
 		case "DriverFailure":
 		case "UnreadableAnswer":
-			return ReadFailure.make({ reason: failure })
+			return new ReadFailure({ reason: failure })
 	}
 }
 
@@ -267,10 +266,12 @@ const asDb = (prologue: Prologue): Principal<FenceStep, PrologueRefused | StaleS
 	],
 	refused: (step, failure) =>
 		Option.getOrElse(
-			Option.map(fenceReason(step, failure), (reason): PrologueRefused | StaleSnapshot =>
-				StaleSnapshot.make({ reason, snapshot: prologue.snapshot, error: failure })
+			Option.map(
+				fenceReason(step, failure),
+				(reason): PrologueRefused | StaleSnapshot =>
+					new StaleSnapshot({ reason, snapshot: prologue.snapshot, error: failure })
 			),
-			() => PrologueRefused.make({ failure })
+			() => new PrologueRefused({ failure })
 		)
 })
 
@@ -399,8 +400,8 @@ type Broken = Exclude<Unanswered, { readonly _tag: "refused" }>
 const broken = (session: Session): ConnectionLost | DriverFailure => {
 	session.retire()
 	return session.lost()
-		? ConnectionLost.make({ operation: "query", ended: { by: "transport" } })
-		: DriverFailure.make({ operation: "query" })
+		? new ConnectionLost({ operation: "query", ended: { by: "transport" } })
+		: new DriverFailure({ operation: "query" })
 }
 
 /** The failure of a query whose answer leaves the session unusable. */
@@ -409,7 +410,7 @@ const lost = (session: Session, answer: Broken): ConnectionLost | DriverFailure 
 		return broken(session)
 	}
 	session.retire()
-	return ConnectionLost.make({ operation: "query", ended: { by: "server", error: answer.error } })
+	return new ConnectionLost({ operation: "query", ended: { by: "server", error: answer.error } })
 }
 
 /** The failure of statement `index`, `planned`, from its answer, with no COMMIT at stake. */
@@ -424,8 +425,8 @@ const statementFailure = (
 	}
 	const failure = answer.error
 	return staleName(session, planned, failure)
-		? StaleName.make({ index, failure })
-		: BatchRefused.make({ index, failure })
+		? new StaleName({ index, failure })
+		: new BatchRefused({ index, failure })
 }
 
 /**
@@ -452,7 +453,7 @@ const failureAt = <P, F>(
 			(answer._tag === "terminated" && position.kind === "end"))
 	) {
 		session.retire()
-		return CommitLost.make()
+		return new CommitLost()
 	}
 	switch (position.kind) {
 		case "begin":
@@ -460,7 +461,7 @@ const failureAt = <P, F>(
 				return lost(session, answer)
 			}
 			session.retire()
-			return ConnectionLost.make({
+			return new ConnectionLost({
 				operation: "begin",
 				ended: { by: "server", error: answer.error }
 			})
@@ -469,10 +470,10 @@ const failureAt = <P, F>(
 				return lost(session, answer)
 			}
 			if (commits) {
-				return CommitRefused.make({ failure: answer.error })
+				return new CommitRefused({ failure: answer.error })
 			}
 			session.retire()
-			return DriverFailure.make({ operation: "rollback" })
+			return new DriverFailure({ operation: "rollback" })
 		case "prologue":
 			if (answer._tag !== "refused") {
 				return lost(session, answer)
@@ -566,7 +567,7 @@ const outcomesOf = <P, F>(
 	for (const answer of decided.slice(from, from + plan.statements.length)) {
 		if (answer._tag === "unreadable") {
 			return Result.fail(
-				UnreadableAnswer.make({ index: outcomes.length, fate: transactionFate(plan, answers) })
+				new UnreadableAnswer({ index: outcomes.length, fate: transactionFate(plan, answers) })
 			)
 		}
 		outcomes.push(answer.outcome)
@@ -716,7 +717,7 @@ const onSession = <A, E>(
 			return Effect.ensuring(Effect.uninterruptibleMask(flight), retireLost(session))
 		}
 		session.retire()
-		return Effect.fail(ConnectionLost.make({ operation: "query", ended: { by: "transport" } }))
+		return Effect.fail(new ConnectionLost({ operation: "query", ended: { by: "transport" } }))
 	})
 
 /**
@@ -763,7 +764,7 @@ const apartAnswer = (
 		case "result":
 			return Result.succeed(Result.succeed(answer.outcome))
 		case "unreadable":
-			return Result.fail(UnreadableAnswer.make({ index, fate: "committed" }))
+			return Result.fail(new UnreadableAnswer({ index, fate: "committed" }))
 		case "refused":
 			forget(session, planned)
 			staleName(session, planned, answer.error)
@@ -891,7 +892,7 @@ const runEntered = <P, F>(
 						return Effect.succeed(settled.success)
 					}
 					session.retire()
-					return Effect.fail(CommitLost.make())
+					return Effect.fail(new CommitLost())
 				}
 			)
 			const answers = yield* Effect.flatMap(

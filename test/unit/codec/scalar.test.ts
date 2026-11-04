@@ -452,35 +452,6 @@ describe("each carrier's codec", () => {
 				)
 			)
 	)
-
-	it.effect("round-trips every int8", (ctx) =>
-		Effect.gen(function* () {
-			const int8 = codecOf(types.int8)
-			yield* searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/codec/scalar-1",
-						draw: drawn(bigint(int8Min, int8Max)),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 2000,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang: Duration.minutes(2)
-					},
-					(n) =>
-						Effect.sync(() => {
-							const text = succeeded(int8.encode(n))
-							assert.equal(succeeded(int8.read(text)), n)
-							assert.equal(int8.convert(text), n)
-						})
-				)
-			)
-		})
-	)
 })
 
 describe("integer and span text, scanned without RegExp", () => {

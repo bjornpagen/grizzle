@@ -100,11 +100,13 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 				"23514"
 			)
 			yield* expectSqlstate(p.run(`UPDATE ${fact} SET "v" = 'uno' WHERE "k" = 1`), "42501")
-			assert.deepEqual((yield* p.run(`SELECT count(*) FROM ${fact}`)).rows, [["1"]])
+			const counted = yield* p.run(`SELECT count(*) FROM ${fact}`)
+			assert.deepEqual(counted.rows, [["1"]])
 			yield* expectSqlstate(inTransaction(p, p.run("SELECT 1 / 0")), "22012")
 			yield* expectSqlstate(p.run("SELECT 1"), "25P02")
 			yield* p.rollback
-			assert.deepEqual((yield* p.run("SELECT 1")).rows, [["1"]])
+			const after = yield* p.run("SELECT 1")
+			assert.deepEqual(after.rows, [["1"]])
 		})
 	)
 
@@ -124,7 +126,8 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 			const [aPid, bPid, pPid] = [yield* a.pid, yield* b.pid, yield* p.pid]
 
 			yield* a.begin
-			assert.equal((yield* a.query(update("a"), [])).rowCount, 1)
+			const updated = yield* a.query(update("a"), [])
+			assert.equal(updated.rowCount, 1)
 
 			yield* p.begin
 			const psqlUpdate = yield* Effect.forkChild(p.run(update("p")))
@@ -135,7 +138,8 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 				mode: "ShareLock",
 				blockedBy: [aPid]
 			})
-			assert.equal((yield* s.awaitBlockedBy(aPid, writer.role)).pid, pPid)
+			const blocked = yield* s.awaitBlockedBy(aPid, writer.role)
+			assert.equal(blocked.pid, pPid)
 			assert.equal(psqlUpdate.pollUnsafe(), undefined)
 
 			yield* b.begin
@@ -144,7 +148,8 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 			assert.equal(rawUpdate.pollUnsafe(), undefined)
 
 			yield* a.rollback
-			assert.equal((yield* Fiber.join(psqlUpdate)).rowCount, 1)
+			const psqlUpdated = yield* Fiber.join(psqlUpdate)
+			assert.equal(psqlUpdated.rowCount, 1)
 			yield* s.awaitLockWait(bPid, Option.some(pPid))
 			assert.equal(rawUpdate.pollUnsafe(), undefined)
 
@@ -171,26 +176,18 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 				schema: Option.some(schema),
 				table: Option.some("fact")
 			})
-			assert.equal(
-				(yield* Effect.flip(expectSqlstate(a.values("SELECT 1::int4", []), "23505")))._tag,
-				"ExpectationFailed"
+			const succeededInstead = yield* Effect.flip(
+				expectSqlstate(a.values("SELECT 1::int4", []), "23505")
 			)
-			assert.equal(
-				(yield* Effect.flip(expectSqlstate(duplicate, "23514")))._tag,
-				"ExpectationFailed"
-			)
-			assert.equal(
-				(yield* Effect.flip(expectConstraint(duplicate, factCheck, "23505")))._tag,
-				"ExpectationFailed"
-			)
-			assert.equal(
-				(yield* Effect.flip(expectConstraint(duplicate, factKey, "23514")))._tag,
-				"ExpectationFailed"
-			)
-			assert.equal(
-				(yield* Effect.flip(expectSqlstate(Effect.fail("plain"), "23505")))._tag,
-				"ExpectationFailed"
-			)
+			assert.equal(succeededInstead._tag, "ExpectationFailed")
+			const otherSqlstate = yield* Effect.flip(expectSqlstate(duplicate, "23514"))
+			assert.equal(otherSqlstate._tag, "ExpectationFailed")
+			const otherConstraint = yield* Effect.flip(expectConstraint(duplicate, factCheck, "23505"))
+			assert.equal(otherConstraint._tag, "ExpectationFailed")
+			const otherCode = yield* Effect.flip(expectConstraint(duplicate, factKey, "23514"))
+			assert.equal(otherCode._tag, "ExpectationFailed")
+			const notSql = yield* Effect.flip(expectSqlstate(Effect.fail("plain"), "23505"))
+			assert.equal(notSql._tag, "ExpectationFailed")
 		})
 	)
 
@@ -210,14 +207,15 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 				const refusedTwice = yield* scripted((n) =>
 					n === 0 ? "40001" : n === 1 ? "40P01" : "23505"
 				)
-				assert.equal((yield* expectSqlstate(refusedTwice.attempt, "23505")).code, "23505")
+				const observed = yield* expectSqlstate(refusedTwice.attempt, "23505")
+				assert.equal(observed.code, "23505")
 				const refusedTwiceRuns = yield* refusedTwice.runs
 				assert.equal(refusedTwiceRuns, 3)
 				const alwaysRefused = yield* scripted(() => "40001")
-				assert.equal(
-					(yield* Effect.flip(expectConstraint(alwaysRefused.attempt, factKey, "23505")))._tag,
-					"ExpectationFailed"
+				const exhausted = yield* Effect.flip(
+					expectConstraint(alwaysRefused.attempt, factKey, "23505")
 				)
+				assert.equal(exhausted._tag, "ExpectationFailed")
 				const alwaysRefusedRuns = yield* alwaysRefused.runs
 				assert.equal(alwaysRefusedRuns, expectationAttempts)
 				const refusalExpected = yield* scripted((n) => (n === 0 ? "40001" : "23505"))

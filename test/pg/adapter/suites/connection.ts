@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, Redacted, Schema } from "effect"
+import { Duration, Effect, Formatter, Redacted } from "effect"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
@@ -36,7 +36,7 @@ const leased = (pool: SessionPool, sql: string) =>
 
 /** A lease's refusal as Db.open reports it, at the stage it fails at. */
 const leaseRefused = (pool: SessionPool) =>
-	Effect.mapError(pool.lease, (reason) => OpenError.make({ reason }))
+	Effect.mapError(pool.lease, (reason) => new OpenError({ reason }))
 
 /** The stage a lease of the pool, which must fail, was refused at; a failure after the lease, by its tag. */
 const refusedStage = (pool: SessionPool) =>
@@ -299,16 +299,15 @@ export const connectionSuite = (): void => {
 					const schema = yield* s.schema(freshSchema)
 					const writer = yield* substrateLogin(schema, "server", roleDefaults)
 					const failing = Effect.fail(
-						CredentialError.make({ cause: "the provider chain resolved nothing" })
+						new CredentialError({ cause: "the provider chain resolved nothing" })
 					)
 					const broken = yield* poolFor(writer, {
 						...defaultPool,
 						password: { kind: "given", password: failing }
 					})
 					const opened = yield* Effect.flip(Effect.scoped(leaseRefused(broken)))
-					assert.ok(Schema.is(OpenError)(opened))
 					assert.equal(opened.stage, "credential")
-					assert.ok(Schema.is(CredentialError)(opened.reason))
+					assert.ok(opened.reason instanceof CredentialError)
 
 					/**
 					 * A provider that works at first and fails later: the first connection succeeds, a later attempt fails.
@@ -317,7 +316,7 @@ export const connectionSuite = (): void => {
 					const flaky = Effect.suspend(() =>
 						state.ok
 							? Effect.succeed(writer.password)
-							: Effect.fail(CredentialError.make({ cause: "the token could not be renewed" }))
+							: Effect.fail(new CredentialError({ cause: "the token could not be renewed" }))
 					)
 					const pool = yield* poolFor(writer, {
 						...defaultPool,
@@ -333,8 +332,8 @@ export const connectionSuite = (): void => {
 							return yield* Effect.flip(pool.lease)
 						})
 					)
-					assert.ok(Schema.is(CredentialError)(later))
-					assert.equal(OpenError.make({ reason: later }).stage, "credential")
+					assert.ok(later instanceof CredentialError)
+					assert.equal(new OpenError({ reason: later }).stage, "credential")
 				}).pipe(Effect.scoped)
 		)
 	})

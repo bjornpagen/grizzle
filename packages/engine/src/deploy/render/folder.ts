@@ -1,10 +1,11 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { catchRefusal, catchSignal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, catchSignal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import {
 	type CompileError,
 	malformedArtifact,
 	malformedDescription
 } from "#compiler/core/errors.ts"
+import { digest } from "#compiler/core/fingerprint.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -834,12 +835,20 @@ const fileOrdinal = (name: string): number | undefined => {
 	return n > 0 ? n : undefined
 }
 
-/** The text of meta.json. */
-export const writeMeta = (meta: MigrationMeta): Result.Result<string, CompileError> =>
-	writeJsonText(meta)
+/**
+ * The seal of a meta.json: the digest of every property of its meta, over the value JSON gave. It is total over any
+ * value, so a read meta.json is checked by it before anything reads its meta (the shell's boundary/meta.ts).
+ */
+export const metaSeal = (meta: unknown): Result.Result<string, CompileError> =>
+	digest("meta", meta, everyProperty)
 
-/** Reads a folder's decoded meta.json: what its form alone does not say. The shell decodes meta.json's form once, as
- * writeMeta writes it (its boundary decoder), and hands the meta here. A custom migration's source and target are one
+/** The text of meta.json: `{ meta, seal }`, the meta sealed by its seal (metaSeal), so a meta.json edited or corrupted
+ * outside grizzle is refused before its meta is read. */
+export const writeMeta = (meta: MigrationMeta): Result.Result<string, CompileError> =>
+	Result.flatMap(metaSeal(meta), (seal) => writeJsonText({ meta, seal }))
+
+/** Reads a folder's meta: what its form alone does not say. The shell trusts meta.json's meta once its seal holds
+ * (boundary/meta.ts), and hands the meta here. A custom migration's source and target are one
  * snapshot; a drafted folder's files read as its decision record (decisionRecord), a fault refused as a malformed
  * meta.json. */
 export const readDecodedMeta = (meta: MigrationMeta): Result.Result<ReadMeta, CompileError> => {

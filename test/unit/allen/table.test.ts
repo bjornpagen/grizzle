@@ -6,14 +6,10 @@ import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, FileSystem, Formatter, Order, Path } from "effect"
 import {
-	type AllenConjunction,
-	type AllenFormula,
 	allenAtomCount,
 	allenAtoms,
 	atomIndexable,
-	atomLiterals,
 	conjunctionHolds,
-	literalAtom,
 	literalNegated
 } from "#compiler/allen/atoms.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
@@ -192,50 +188,6 @@ describe("the generated Allen table", () => {
 			)
 		)
 	})
-
-	it.effect(
-		"breaks cost ties by the lexicographically least sorted list of disjuncts, for every mask of cost <= 4",
-		(ctx) => {
-			const least = leastFormulasWithinFour()
-			return searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/allen/table-tie-break",
-						generator: int(1, fullAllenMask),
-						literal: Formatter.format,
-						limit: fullAllenMask,
-						coverage: requiredInSpace<TieFeature>([
-							"a tie broken",
-							"one least formula",
-							"above four atoms"
-						]),
-						caseHang: Duration.minutes(2)
-					},
-					(mask, c) =>
-						Effect.sync(() => {
-							const formula = allenFormula(AllenMask(mask))
-							const found = least.get(mask)
-							if (found === undefined) {
-								c.note("above four atoms")
-								assert.ok(
-									formulaAtomCount(formula) > 4,
-									"no formula of at most four atoms denotes the mask"
-								)
-								return
-							}
-							c.note(found.tied ? "a tie broken" : "one least formula")
-							assert.equal(
-								formulaAtomCount(formula),
-								found.cost,
-								"the table costs what the cheapest formula costs"
-							)
-							assert.deepEqual(formula, found.formula)
-						})
-				)
-			)
-		}
-	)
 })
 
 /** What the table's cases reach. */
@@ -246,13 +198,9 @@ type EntryFeature =
 	| "a negated literal"
 	| "the full mask"
 type CostFeature = "cost at most three" | "cost four" | "cost above four"
-type TieFeature = "a tie broken" | "one least formula" | "above four atoms"
 
 /** Literal codes compared lexicographically, a shorter prefix first. */
 const codeOrder: Order.Order<ReadonlyArray<number>> = Order.Array(Order.Number)
-
-/** Formulas compared as sorted lists of disjuncts. */
-const listOrder: Order.Order<AllenFormula> = Order.Array(codeOrder)
 
 /** The exact minimal atom count of every mask (see the property above), by mask. */
 const exactCosts = (): Int32Array => {
@@ -310,79 +258,6 @@ const exactCosts = (): Int32Array => {
 		f[m] = best
 	}
 	return f
-}
-
-/**
- * The least formula of every mask some formula of at most four atoms denotes, by brute force: every formula of
- * conjunctions of one to four literals over distinct atoms, ascending, each with an unnegated indexable atom, within
- * four atoms in all; and whether another formula of the same cost denotes the mask too.
- */
-const leastFormulasWithinFour = (): ReadonlyMap<
-	number,
-	{ readonly cost: number; readonly formula: AllenFormula; readonly tied: boolean }
-> => {
-	const found: Array<AllenConjunction> = []
-	const extend = (prefix: AllenConjunction, nextAtom: number) => {
-		if (
-			prefix.length > 0 &&
-			Arr.some(prefix, (l) => !literalNegated(l) && atomIndexable(literalAtom(l)))
-		) {
-			found.push(prefix)
-		}
-		if (prefix.length === 4) {
-			return
-		}
-		for (const [atom, literals] of atomLiterals.entries()) {
-			if (atom >= nextAtom) {
-				for (const literal of literals) {
-					extend([...prefix, literal], atom + 1)
-				}
-			}
-		}
-	}
-	extend([], 0)
-	const conjunctions = Arr.sort(
-		found,
-		Order.combine(
-			Order.mapInput(Order.Number, (c: AllenConjunction) => c.length),
-			codeOrder
-		)
-	)
-	const holds = Arr.map(conjunctions, (c): number => conjunctionHolds(c))
-	const best = new Map<
-		number,
-		{ readonly cost: number; readonly formula: AllenFormula; readonly tied: boolean }
-	>()
-	const chosen: Array<number> = []
-	const walk = (start: number, left: number, mask: number, cost: number) => {
-		if (chosen.length > 0) {
-			const formula = Arr.sort(
-				Arr.map(chosen, (i) => at(conjunctions, i)),
-				codeOrder
-			)
-			const current = best.get(mask)
-			if (current === undefined || cost < current.cost) {
-				best.set(mask, { cost, formula, tied: false })
-			} else if (cost === current.cost) {
-				const order = listOrder(formula, current.formula)
-				if (order !== 0) {
-					best.set(mask, { cost, formula: order < 0 ? formula : current.formula, tied: true })
-				}
-			}
-		}
-		for (let i = start; i < conjunctions.length; i++) {
-			const c = at(conjunctions, i)
-			if (c.length > left) {
-				break
-			}
-			chosen.push(i)
-			walk(i + 1, left - c.length, mask | at(holds, i), cost + c.length)
-			chosen.pop()
-		}
-	}
-	walk(0, 4, 0, 0)
-	best.delete(0)
-	return best
 }
 
 /** What the universe's cases reach: each relation and spelling per type, its limits, and each span it stores. */

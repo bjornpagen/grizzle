@@ -132,7 +132,7 @@ export const openSession = Effect.fnUntraced(function* (
 		commit: Effect.flatMap(query("COMMIT", []), (result) =>
 			result.command === "COMMIT"
 				? Effect.void
-				: Effect.fail(TransactionRolledBack.make({ label, command: result.command }))
+				: Effect.fail(new TransactionRolledBack({ label, command: result.command }))
 		),
 		rollback: Effect.asVoid(query("ROLLBACK", [])),
 		statements: Effect.map(Ref.get(log), (entries) => entries.length),

@@ -8,17 +8,7 @@ import { passed, WILD_KINDS, type Wild, wild } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Cause,
-	Duration,
-	Effect,
-	Exit,
-	Formatter,
-	Option,
-	Schema,
-	Scope
-} from "effect"
+import { Array as Arr, Cause, Duration, Effect, Exit, Formatter, Option, Scope } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import {
@@ -81,9 +71,9 @@ type Refusal = ReadStage | "TransientFailure" | "CursorError"
 const refusalOf = (error: unknown): Refusal | undefined =>
 	error instanceof CursorError
 		? "CursorError"
-		: Schema.is(TransientFailure)(error)
+		: error instanceof TransientFailure
 			? "TransientFailure"
-			: Schema.is(ReadFailure)(error)
+			: error instanceof ReadFailure
 				? error.stage
 				: undefined
 
@@ -306,7 +296,7 @@ const wildParam = (
 ): Effect.Effect<void> =>
 	Effect.gen(function* () {
 		const { error } = yield* wildCall(real, what, wildValue, ["encode"], call)
-		if (!Schema.is(ReadFailure)(error) || error.stage !== "encode") {
+		if (!(error instanceof ReadFailure) || error.stage !== "encode") {
 			return
 		}
 		const reason = error.reason
@@ -329,7 +319,7 @@ const wildQuery = (real: Subject, wildValue: Wild): Effect.Effect<void> =>
 		const { value, error } = yield* wildCall(real, "execute query", wildValue, ["compile"], (q) =>
 			real.reader.execute(q, {})
 		)
-		if (!(Schema.is(ReadFailure)(error) && error.reason._tag === "CompileError")) {
+		if (!(error instanceof ReadFailure && error.reason._tag === "CompileError")) {
 			return
 		}
 		const compiled = yield* Effect.exit(

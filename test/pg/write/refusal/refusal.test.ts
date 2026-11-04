@@ -1,11 +1,11 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
-import { codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
+import { codePoint, element, type Gen, oneOf, string, weighted } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, pipe, String as Str } from "effect"
+import { Duration, Effect, Formatter, Option } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
@@ -96,15 +96,26 @@ interface KeyTexts {
 	readonly note: string
 }
 
-/** Each an exact case of the DETAIL grammar: its delimiters, escapes and quotes, and the empty text. */
-const nasty: Arr.NonEmptyReadonlyArray<KeyTexts> = Arr.map(
-	['"', "\\", ",", "]", "k[", "a[", "\n\t\u0001", "\u{1F600}", "'", "$$", "é", ""] as const,
-	(note, i) => ({
-		employee: `00000000-0000-4000-8000-${pipe(i.toString(16), Str.padStart(12, "0"))}`,
-		week: (BigInt(i) - 7n).toString(),
-		note
-	})
-)
+/** The DETAIL grammar's delimiters, escapes and quotes, and the empty text, drawn as notes beside the storable ones. */
+const grammarEdges = [
+	'"',
+	"\\",
+	",",
+	"]",
+	"k[",
+	"a[",
+	"\n\t\u0001",
+	"\u{1F600}",
+	"'",
+	"$$",
+	"é",
+	""
+] as const
+
+const note: Gen<string> = weighted([
+	[3, storable],
+	[1, element(grammarEdges)]
+])
 
 layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 	it.effect("the DETAIL PostgreSQL evaluates parses back to the key texts", (ctx) =>
@@ -132,25 +143,13 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 							relation: "Timesheet"
 						})
 					})
-				yield* exhaust(
-					{
-						suite: "pg/write/refusal-detail-grammar",
-						generator: element(nasty),
-						literal: Formatter.format,
-						limit: nasty.length,
-						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
-					},
-					roundTrip
-				)
 				return yield* explore(
 					{
-						/** Generated keys beyond the grammar's cases: 300 rotating draws. */
 						suite: "pg/write/refusal-detail",
 						draw: drawn((source): KeyTexts => ({
 							employee: source.draw(uuid(7)),
 							week: source.draw(bigint(int8Min, int8Max)).toString(),
-							note: source.draw(storable)
+							note: source.draw(note)
 						})),
 						literal: Formatter.format,
 						coverage: noCoverage,

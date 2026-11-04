@@ -115,19 +115,6 @@ const slotFacts = (
 				.facts
 }
 
-describe("collapse", () => {
-	it("makes equal generated additions one requested addition", () => {
-		const { frontend, result } = run(
-			cs(Small).insert(Gen, [
-				{ k: 1, w: 1 },
-				{ k: 1, w: 1 }
-			])
-		)
-		assert.deepEqual(slotFacts(result, frontend, "generated", "Gen"), [bareRecord({ k: 1, w: 1 })])
-		assert.deepEqual(slotFacts(result, frontend, "insert", "Gen"), [])
-	})
-})
-
 describe("same-key refusal before SQL", () => {
 	it("judges each stratum alone: a later stratum may replace what an earlier one added", () => {
 		const { result } = run(

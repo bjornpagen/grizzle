@@ -1,9 +1,8 @@
-import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	jsonText,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -165,7 +164,7 @@ const participantsText = (participants: ReadonlyArray<Participant>): string =>
 const participantOn = (participants: ReadonlyArray<Participant>, relation: string): Participant =>
 	Option.getOrThrowWith(
 		Arr.findFirst(participants, (p) => p.relation.name === relation),
-		() => GateSetupError.make({ what: `${relation} is no participant of the law` })
+		() => new GateSetupError({ what: `${relation} is no participant of the law` })
 	)
 
 const c = <F>(fx: Fixture<F>, rel: string, f: string) => fx.column(rel, f)
@@ -514,7 +513,7 @@ export default defineGate({
 						mutableMoveCalls: callsMut.move.total,
 						immutableEvents: participantsText(participantsImm),
 						mutableEvents: participantsText(participantsMut),
-						immutableUpdate: jsonText(updateImm.outcome)
+						immutableUpdate: Formatter.format(updateImm.outcome)
 					}
 				},
 				{
@@ -569,8 +568,8 @@ export default defineGate({
 					]),
 					loads: {},
 					measures: {
-						immutableLawCallsBySize: jsonText(seriesImm.calls),
-						mutableLawCallsBySize: jsonText(seriesMut.calls)
+						immutableLawCallsBySize: Formatter.format(seriesImm.calls),
+						mutableLawCallsBySize: Formatter.format(seriesMut.calls)
 					}
 				},
 				{
@@ -605,7 +604,7 @@ export default defineGate({
 				const relation = p.relation.name
 				const fields = fieldsOf[relation]
 				if (fields === undefined) {
-					throw GateSetupError.make({ what: `${relation} is no relation of the schema` })
+					throw new GateSetupError({ what: `${relation} is no relation of the schema` })
 				}
 				const update = p.events.update
 				if (update === undefined) {
@@ -624,7 +623,7 @@ export default defineGate({
 					mechanism(
 						"UPDATE is refused to the writing world role on an immutable relation",
 						updateImm.outcome.kind === "failed" && updateImm.outcome.sqlstate === "42501",
-						jsonText(updateImm.outcome)
+						Formatter.format(updateImm.outcome)
 					),
 					mechanism(
 						"a mutable payload-only update calls no law; its group move calls it once",
@@ -640,7 +639,7 @@ export default defineGate({
 						`events ${Arr.join(
 							Arr.map(memberRowEvents, (e) => e.text),
 							", "
-						)}; calls ${jsonText(callsImm.payload.calls)} ${jsonText(callsImm.move.calls)}`
+						)}; calls ${Formatter.format(callsImm.payload.calls)} ${Formatter.format(callsImm.move.calls)}`
 					),
 					mechanism(
 						"an immutable put is a displacing DELETE then the put's INSERT; a mutable one is a single statement that updates in place",
@@ -651,14 +650,14 @@ export default defineGate({
 					mechanism(
 						"the law is called once per transaction whatever its unrelated size",
 						sizeCallsOne(seriesImm.calls) && sizeCallsOne(seriesMut.calls),
-						`${jsonText(seriesImm.calls)} ${jsonText(seriesMut.calls)}`
+						`${Formatter.format(seriesImm.calls)} ${Formatter.format(seriesMut.calls)}`
 					),
 					mechanism(
 						"every attempt of an inserter or deleter of one hot group, SQL or grizzle, commits or fails with a serialization failure or a deadlock",
 						committedOrConflicted(hotImm) &&
 							committedOrConflicted(hotMut) &&
 							committedOrConflicted(hotGrizzle),
-						jsonText({
+						Formatter.format({
 							immutable: { outcomes: hotImm.outcomes, retries: hotImm.retries },
 							mutable: { outcomes: hotMut.outcomes, retries: hotMut.retries },
 							grizzle: { outcomes: hotGrizzle.outcomes, retries: hotGrizzle.retries }
@@ -689,7 +688,7 @@ export default defineGate({
 									...Rec.values(x.bySize),
 									...Rec.values(x.byGroup)
 								]),
-								(t) => jsonText(t.outcomes)
+								(t) => Formatter.format(t.outcomes)
 							),
 							" | "
 						)

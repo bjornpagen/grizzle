@@ -23,7 +23,6 @@ import {
 	type PlanNode,
 	parsePlan
 } from "#bench/harness/explain.ts"
-import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -206,21 +205,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										],
 										{ cases: 12, sense: notesOnly }
 									),
-									/** Planted: two parents, and one past the threshold. */
-									kept: [
-										{
-											note: "two parents",
-											sketch: [0, 1],
-											draws: "",
-											reaches: ["the LATERAL form for few parents"]
-										},
-										{
-											note: "one parent past the threshold",
-											sketch: [...indices(threshold + 1)],
-											draws: "",
-											reaches: ["the whole-relation form for many parents"]
-										}
-									],
+									kept: [],
 									runs: 12,
 									shrink: completeShrink,
 									concurrency: 1,

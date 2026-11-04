@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Schema, type Scope } from "effect"
+import { Array as Arr, Effect, Option, type Scope } from "effect"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
 import {
 	type Explained,
@@ -26,6 +26,7 @@ import {
 } from "#bench/harness/phases.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { measureWal, type WalDelta } from "#bench/harness/wal.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
@@ -119,10 +120,8 @@ const memoryReadingRole = "pg_read_all_stats"
  */
 type MemoryAccess = "direct" | "setRole" | "none"
 
-/** The two privileges' answers, from PostgreSQL: external input, decoded. */
-const AccessRows = Schema.Tuple([
-	Schema.Tuple([Schema.Literals(["true", "false"]), Schema.Literals(["true", "false"])])
-])
+/** The text of a boolean PostgreSQL answers. */
+type BooleanText = "true" | "false"
 
 /**
  * This session's access to its memory contexts: its current role's privilege, or the SET option of its session user,
@@ -130,18 +129,17 @@ const AccessRows = Schema.Tuple([
  * block, or in one that has not failed.
  */
 const memoryAccess = (session: BenchSession): Effect.Effect<MemoryAccess, SqlError> =>
-	Effect.flatMap(
+	Effect.map(
 		session.values(
 			"SELECT pg_catalog.has_table_privilege('pg_catalog.pg_backend_memory_contexts'::text, 'SELECT'::text)::text, " +
 				"pg_catalog.pg_has_role(session_user, $1::text, 'SET'::text)::text",
 			[memoryReadingRole]
 		),
-		(rows) =>
-			Effect.map(
-				Effect.orDie(Schema.decodeUnknownEffect(AccessRows)(rows)),
-				([[direct, setRole]]) =>
-					direct === "true" ? "direct" : setRole === "true" ? "setRole" : "none"
-			)
+		(rows): MemoryAccess => {
+			const [[direct, setRole]] =
+				trusted<readonly [readonly [direct: BooleanText, setRole: BooleanText]]>(rows)
+			return direct === "true" ? "direct" : setRole === "true" ? "setRole" : "none"
+		}
 	)
 
 /**
@@ -173,9 +171,6 @@ export const grantMemoryReading = (
 const contextQuery =
 	"SELECT total_bytes::text, used_bytes::text FROM pg_catalog.pg_backend_memory_contexts WHERE name = 'AfterTriggerEvents'::text"
 
-/** The context's rows, from PostgreSQL: external input, decoded. */
-const ContextRows = Schema.Array(Schema.Tuple([Schema.FiniteFromString, Schema.FiniteFromString]))
-
 /**
  * The AfterTriggerEvents context's size now: zero when no AFTER event is queued, since the context is created with the
  * first one. With `setRole`, the reading SETs ROLE to pg_read_all_stats and back to the role it ran as, which ends the
@@ -186,29 +181,25 @@ const deferredEventMemory = Effect.fn("deferredEventMemory")(function* (
 	session: BenchSession,
 	access: Exclude<MemoryAccess, "none">
 ): Effect.fn.Return<DeferredEventMemory, SqlError> {
-	const read = Effect.flatMap(session.values(contextQuery, []), (rows) =>
-		Effect.map(Effect.orDie(Schema.decodeUnknownEffect(ContextRows)(rows)), (sizes) => ({
-			available: true as const,
-			totalBytes: Arr.reduce(sizes, 0, (sum, [total]) => sum + total),
-			usedBytes: Arr.reduce(sizes, 0, (sum, [, used]) => sum + used)
-		}))
-	)
+	const read = Effect.map(session.values(contextQuery, []), (rows): DeferredEventMemory => {
+		const sizes = trusted<ReadonlyArray<readonly [totalBytes: string, usedBytes: string]>>(rows)
+		return {
+			available: true,
+			totalBytes: Arr.reduce(sizes, 0, (sum, [total]) => sum + Number(total)),
+			usedBytes: Arr.reduce(sizes, 0, (sum, [, used]) => sum + Number(used))
+		}
+	})
 	if (access === "direct") {
 		return yield* read
 	}
 	const currentUserRows = yield* session.values("SELECT current_user::text", [])
-	const [[current]] = yield* Effect.orDie(
-		Schema.decodeUnknownEffect(CurrentUserRows)(currentUserRows)
-	)
+	const [[current]] = trusted<readonly [readonly [current: string]]>(currentUserRows)
 	yield* session.values(`SET ROLE ${quoteIdent(memoryReadingRole)}`, [])
 	return yield* Effect.ensuring(
 		read,
 		Effect.orDie(session.values(`SET ROLE ${quoteIdent(current)}`, []))
 	)
 })
-
-/** current_user's one row, from PostgreSQL: external input, decoded. */
-const CurrentUserRows = Schema.Tuple([Schema.Tuple([Schema.String])])
 
 const round = (x: number): number => Math.round(x * 1000) / 1000
 

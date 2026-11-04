@@ -1,28 +1,27 @@
-import { Schema } from "effect"
-import { LawSchema } from "#adapter/boundary/law.ts"
-import { nameSchemas, SqlstateSchema } from "#adapter/boundary/names.ts"
-import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
-import { EncodingFailure, isCompileError } from "#compiler/core/errors.ts"
+import { type Array as Arr, Data } from "effect"
+import type { StartupVariable } from "#adapter/connection/environment.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import type {
+	ColumnIdent,
+	ConstraintName,
+	DomainName,
+	Identifier,
+	RelationIdent
+} from "#compiler/core/ids.ts"
+import type { Sqlstate } from "#compiler/core/sqlstate.ts"
+import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * The reasons of grizzle's errors, and the wire's own classification of a flight's failure.
  *
  * Every error the public API's channels name (execution.ts) carries what happened as its `reason`: one of the classes
- * here, each a Schema.TaggedError, so Effect.catchReason, catchReasons and unwrapReason reach it, and each rendering
+ * here, each a Data.TaggedError, so Effect.catchReason, catchReasons and unwrapReason reach it, and each rendering
  * its own `message`. A reason states only what happened, as data: whatever follows from it (an error's stage, a pool's
  * saturation) is a getter, never a stored field. `cause` is only a foreign value wrapped: what the password Effect
  * (CredentialError) or the layer's verify (TokenError) failed with or threw. The adapter classifies each failure once,
  * where it happens: a connection attempt where pg reports it (wire/session.ts), a statement's answer where its flight
  * drains (wire/batch.ts), an admission where it compares (adapter/admission).
  */
-
-/** A CompileError, the engine's plain class, as a reason: recognized by the engine's tag guard. */
-export const CompileErrorSchema = Schema.declare(isCompileError, { expected: "CompileError" })
-
-/** An EncodingFailure, the engine's plain class, as a reason. */
-export const EncodingFailureSchema = Schema.instanceOf(EncodingFailure)
-
-const MaybeText = Schema.UndefinedOr(Schema.String)
 
 /**
  * An ErrorResponse: PostgreSQL refused a statement with one. It keeps the SQLSTATE, the message (its `message`), DETAIL
@@ -32,20 +31,17 @@ const MaybeText = Schema.UndefinedOr(Schema.String)
  * place, from pg's DatabaseError (adapter/wire/failure.ts serverFailure), and every failure the server raised carries
  * it as it is, so no layer re-states, re-admits or drops what the server said; the application decides what to log.
  */
-export class ServerError extends Schema.TaggedError<
-	ServerError,
-	{ readonly brand: unique symbol }
->()("ServerError", {
-	sqlstate: SqlstateSchema,
-	message: Schema.String,
-	constraint: Schema.UndefinedOr(nameSchemas.constraint),
-	schema: Schema.UndefinedOr(nameSchemas.schema),
-	table: Schema.UndefinedOr(nameSchemas.relation),
-	column: Schema.UndefinedOr(nameSchemas.column),
-	dataType: Schema.UndefinedOr(nameSchemas.domain),
-	detail: MaybeText,
-	hint: MaybeText
-}) {}
+export class ServerError extends Data.TaggedError("ServerError")<{
+	readonly sqlstate: Sqlstate
+	readonly message: string
+	readonly constraint: ConstraintName | undefined
+	readonly schema: Identifier<"schema" | "roleSchema"> | undefined
+	readonly table: RelationIdent | undefined
+	readonly column: ColumnIdent | undefined
+	readonly dataType: DomainName | undefined
+	readonly detail: string | undefined
+	readonly hint: string | undefined
+}> {}
 
 /** The server's report, as a sentence names it: its SQLSTATE and its message. */
 const reportText = (error: ServerError): string => `SQLSTATE ${error.sqlstate}: ${error.message}`
@@ -55,10 +51,9 @@ const reportText = (error: ServerError): string => `SQLSTATE ${error.sqlstate}: 
  * password Effect with it, the provider's failure as its `cause`. grizzle never fails with it on its own: it is the
  * reason of an OpenError, a ReadFailure or a TransportFailure, at stage `credential`.
  */
-export class CredentialError extends Schema.TaggedError<
-	CredentialError,
-	{ readonly brand: unique symbol }
->()("CredentialError", { cause: Schema.Unknown }) {
+export class CredentialError extends Data.TaggedError("CredentialError")<{
+	readonly cause: unknown
+}> {
 	override get message(): string {
 		return "the password Effect failed"
 	}
@@ -68,10 +63,9 @@ export class CredentialError extends Schema.TaggedError<
  * No answer came within the connect budget: the server or a waking provider took longer to reach ReadyForQuery, or
  * nothing answered at all.
  */
-export class ConnectTimedOut extends Schema.TaggedError<
-	ConnectTimedOut,
-	{ readonly brand: unique symbol }
->()("ConnectTimedOut", { millis: Schema.Finite }) {
+export class ConnectTimedOut extends Data.TaggedError("ConnectTimedOut")<{
+	readonly millis: number
+}> {
 	override get message(): string {
 		return `no answer within the connect budget of ${this.millis} ms`
 	}
@@ -81,10 +75,7 @@ export class ConnectTimedOut extends Schema.TaggedError<
  * The transport failed with a socket error code, such as ECONNREFUSED (nothing listens), ENOTFOUND (the host does not
  * resolve) or ECONNRESET.
  */
-export class SocketFailed extends Schema.TaggedError<
-	SocketFailed,
-	{ readonly brand: unique symbol }
->()("SocketFailed", { code: Schema.String }) {
+export class SocketFailed extends Data.TaggedError("SocketFailed")<{ readonly code: string }> {
 	override get message(): string {
 		return `the socket failed (${this.code})`
 	}
@@ -95,10 +86,9 @@ export class SocketFailed extends Schema.TaggedError<
  * connections or 3D000 for no such database: `error` is its report. Its stage is `authentication` for SQLSTATE class 28
  * (invalid authorization) and `connect` for any other.
  */
-export class StartupRefused extends Schema.TaggedError<
-	StartupRefused,
-	{ readonly brand: unique symbol }
->()("StartupRefused", { error: ServerError }) {
+export class StartupRefused extends Data.TaggedError("StartupRefused")<{
+	readonly error: ServerError
+}> {
 	override get message(): string {
 		return `the server refused the login with ${reportText(this.error)}`
 	}
@@ -109,13 +99,11 @@ export class StartupRefused extends Schema.TaggedError<
  * ERR_TLS_CERT_ALTNAME_INVALID, or a failed negotiation, ERR_SSL_*); the server answered the SSLRequest with N, so it
  * offers no TLS; it answered with neither S nor N; or the CA bundle is empty, so nothing could verify.
  */
-const TlsFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("handshake"), code: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("notOffered") }),
-	Schema.Struct({ kind: Schema.Literal("unanswered") }),
-	Schema.Struct({ kind: Schema.Literal("noAuthority") })
-])
-export type TlsFault = typeof TlsFaultSchema.Type
+export type TlsFault =
+	| { readonly kind: "handshake"; readonly code: string }
+	| { readonly kind: "notOffered" }
+	| { readonly kind: "unanswered" }
+	| { readonly kind: "noAuthority" }
 
 const tlsFaultText = (fault: TlsFault): string => {
 	switch (fault.kind) {
@@ -131,22 +119,14 @@ const tlsFaultText = (fault: TlsFault): string => {
 }
 
 /** TLS did not come up verified, for `fault`, and nothing was sent in plaintext. */
-export class TlsRefused extends Schema.TaggedError<TlsRefused, { readonly brand: unique symbol }>()(
-	"TlsRefused",
-	{
-		fault: TlsFaultSchema
-	}
-) {
+export class TlsRefused extends Data.TaggedError("TlsRefused")<{ readonly fault: TlsFault }> {
 	override get message(): string {
 		return tlsFaultText(this.fault)
 	}
 }
 
 /** The server closed the connection before it was ready, without an ErrorResponse. */
-export class ConnectionClosed extends Schema.TaggedError<
-	ConnectionClosed,
-	{ readonly brand: unique symbol }
->()("ConnectionClosed", {}) {
+export class ConnectionClosed extends Data.TaggedError("ConnectionClosed") {
 	override get message(): string {
 		return "the server closed the connection before it was ready"
 	}
@@ -157,20 +137,14 @@ export class ConnectionClosed extends Schema.TaggedError<
  * verify, a mechanism it does not support, or a server that asks a password of a role configured without one. `said`
  * is pg's own words, which name no password.
  */
-export class DriverRefused extends Schema.TaggedError<
-	DriverRefused,
-	{ readonly brand: unique symbol }
->()("DriverRefused", { said: Schema.String }) {
+export class DriverRefused extends Data.TaggedError("DriverRefused")<{ readonly said: string }> {
 	override get message(): string {
 		return `the driver ended the startup: ${this.said}`
 	}
 }
 
 /** The server reached ReadyForQuery without the BackendKeyData every session cancels with, so grizzle refused it. */
-export class NoCancelKey extends Schema.TaggedError<
-	NoCancelKey,
-	{ readonly brand: unique symbol }
->()("NoCancelKey", {}) {
+export class NoCancelKey extends Data.TaggedError("NoCancelKey") {
 	override get message(): string {
 		return "the server sent no cancellation key"
 	}
@@ -181,17 +155,15 @@ export class NoCancelKey extends Schema.TaggedError<
  * failed; no answer within the connect budget; a socket error code; the server refused the startup; TLS; a connection
  * closed before it was ready; pg's own refusal; or no cancellation key. None carries a password.
  */
-export const ConnectRefusalSchema = Schema.Union([
-	CredentialError,
-	ConnectTimedOut,
-	SocketFailed,
-	StartupRefused,
-	TlsRefused,
-	ConnectionClosed,
-	DriverRefused,
-	NoCancelKey
-])
-export type ConnectRefusal = typeof ConnectRefusalSchema.Type
+export type ConnectRefusal =
+	| CredentialError
+	| ConnectTimedOut
+	| SocketFailed
+	| StartupRefused
+	| TlsRefused
+	| ConnectionClosed
+	| DriverRefused
+	| NoCancelKey
 
 /**
  * The acquisition wait budget of `millis` ran out before a session was handed over. `sessions` counts the open
@@ -199,15 +171,12 @@ export type ConnectRefusal = typeof ConnectRefusalSchema.Type
  * handed to a lease and not yet released, when the budget ran out, and `max` is the pool's maximum: every session up to
  * the maximum leased is a saturated pool; otherwise a session was still being established.
  */
-export class AcquisitionBudgetExceeded extends Schema.TaggedError<
-	AcquisitionBudgetExceeded,
-	{ readonly brand: unique symbol }
->()("AcquisitionBudgetExceeded", {
-	millis: Schema.Finite,
-	sessions: Schema.Int,
-	leased: Schema.Int,
-	max: Schema.Int
-}) {
+export class AcquisitionBudgetExceeded extends Data.TaggedError("AcquisitionBudgetExceeded")<{
+	readonly millis: number
+	readonly sessions: number
+	readonly leased: number
+	readonly max: number
+}> {
 	override get message(): string {
 		const pool = `${this.leased} of at most ${this.max} sessions leased, ${this.sessions} open`
 		return `no session within the acquisition wait budget of ${this.millis} ms: ${pool}`
@@ -218,10 +187,7 @@ export class AcquisitionBudgetExceeded extends Schema.TaggedError<
  * The DbLayer the Db was opened under has been released: its scope closed, which ended its session pools, so the Db
  * was used past its layer's lifetime. No connection was attempted.
  */
-export class LayerReleased extends Schema.TaggedError<
-	LayerReleased,
-	{ readonly brand: unique symbol }
->()("LayerReleased", {}) {
+export class LayerReleased extends Data.TaggedError("LayerReleased") {
 	override get message(): string {
 		return "the DbLayer the Db was opened under has been released"
 	}
@@ -231,28 +197,19 @@ export class LayerReleased extends Schema.TaggedError<
  * The db.compile handle was used after the Scope that compiled it ended, which released its server statements. No
  * connection was attempted.
  */
-export class HandleReleased extends Schema.TaggedError<
-	HandleReleased,
-	{ readonly brand: unique symbol }
->()("HandleReleased", {}) {
+export class HandleReleased extends Data.TaggedError("HandleReleased") {
 	override get message(): string {
 		return "the db.compile handle was used after the Scope that compiled it ended"
 	}
 }
 
 /** Why no session was acquired: a connection attempt's refusal, the acquisition wait budget, or a released layer. */
-export const AcquireRefusalSchema = Schema.Union([
-	ConnectRefusalSchema,
-	AcquisitionBudgetExceeded,
-	LayerReleased
-])
-export type AcquireRefusal = typeof AcquireRefusalSchema.Type
+export type AcquireRefusal = ConnectRefusal | AcquisitionBudgetExceeded | LayerReleased
 
 /** A DbConfig no connection can use: `detail` names the setting it refuses, and never quotes a password. */
-export class DbConfigRefused extends Schema.TaggedError<
-	DbConfigRefused,
-	{ readonly brand: unique symbol }
->()("DbConfigRefused", { detail: Schema.String }) {
+export class DbConfigRefused extends Data.TaggedError("DbConfigRefused")<{
+	readonly detail: string
+}> {
 	override get message(): string {
 		return this.detail
 	}
@@ -269,10 +226,9 @@ const variableEffect: { readonly [V in StartupVariable]: string } = {
  * grizzle opens, and that no value grizzle configures turns off (connection/environment.ts): DbLayer.make's refusal
  * for a login's sessions, the command line's for an owner's. Its value is never quoted.
  */
-export class ConnectionEnvironmentRefused extends Schema.TaggedError<
-	ConnectionEnvironmentRefused,
-	{ readonly brand: unique symbol }
->()("ConnectionEnvironmentRefused", { variable: Schema.Literals(startupVariableNames) }) {
+export class ConnectionEnvironmentRefused extends Data.TaggedError("ConnectionEnvironmentRefused")<{
+	readonly variable: StartupVariable
+}> {
 	override get message(): string {
 		return `the environment sets ${this.variable}, which node-postgres would send at the startup of every session it opens, where ${variableEffect[this.variable]}: unset it`
 	}
@@ -282,10 +238,10 @@ export class ConnectionEnvironmentRefused extends Schema.TaggedError<
  * No provided DbLayer serves the role: the context holds no layer built for the login that holds it (`login`), or the
  * role is in no login at all (undefined).
  */
-export class RoleOutsideLayers extends Schema.TaggedError<
-	RoleOutsideLayers,
-	{ readonly brand: unique symbol }
->()("RoleOutsideLayers", { role: Schema.String, login: Schema.String }) {
+export class RoleOutsideLayers extends Data.TaggedError("RoleOutsideLayers")<{
+	readonly role: string
+	readonly login: string
+}> {
 	override get message(): string {
 		return `no provided DbLayer is built for login ${this.login}, which holds role ${this.role}`
 	}
@@ -297,10 +253,11 @@ export class RoleOutsideLayers extends Schema.TaggedError<
  * passes, PostgreSQL's 63 (physical/ddl/names.ts fittedLogin). A name the declared-name rule refuses is the login's
  * CompileError.
  */
-export class LoginNameRefused extends Schema.TaggedError<
-	LoginNameRefused,
-	{ readonly brand: unique symbol }
->()("LoginNameRefused", { login: Schema.String, role: Schema.String, limit: Schema.Int }) {
+export class LoginNameRefused extends Data.TaggedError("LoginNameRefused")<{
+	readonly login: string
+	readonly role: string
+	readonly limit: number
+}> {
 	override get message(): string {
 		return `login ${this.login} has no PostgreSQL role name: ${this.role} is longer than ${this.limit} bytes`
 	}
@@ -311,12 +268,7 @@ export class LoginNameRefused extends Schema.TaggedError<
  * what it threw. The application's verify fails with it; grizzle builds one only for a verify that throws. It is the
  * reason of an OpenError at stage `token`. CredentialError stays the database password failing.
  */
-export class TokenError extends Schema.TaggedError<TokenError, { readonly brand: unique symbol }>()(
-	"TokenError",
-	{
-		cause: Schema.Unknown
-	}
-) {
+export class TokenError extends Data.TaggedError("TokenError")<{ readonly cause: unknown }> {
 	override get message(): string {
 		return "the layer's verify refused the token"
 	}
@@ -328,21 +280,19 @@ export class TokenError extends Schema.TaggedError<TokenError, { readonly brand:
  * field's encoder or, for a refined field, by PostgreSQL. An absent claim object is no fact, never a refusal. No claim
  * value is quoted.
  */
-const ClaimFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("notAnObject") }),
-	Schema.Struct({ kind: Schema.Literal("missing"), field: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("refused"), field: Schema.String })
-])
-export type ClaimFault = typeof ClaimFaultSchema.Type
+export type ClaimFault =
+	| { readonly kind: "notAnObject" }
+	| { readonly kind: "missing"; readonly field: string }
+	| { readonly kind: "refused"; readonly field: string }
 
 /**
  * The verified payload does not decode through `context`'s fields, for `fault`: the reason of an OpenError at stage
  * `token`.
  */
-export class ClaimRefused extends Schema.TaggedError<
-	ClaimRefused,
-	{ readonly brand: unique symbol }
->()("ClaimRefused", { context: Schema.String, fault: ClaimFaultSchema }) {
+export class ClaimRefused extends Data.TaggedError("ClaimRefused")<{
+	readonly context: string
+	readonly fault: ClaimFault
+}> {
 	override get message(): string {
 		const fault = this.fault
 		switch (fault.kind) {
@@ -369,27 +319,24 @@ const admissionStages = [
 	"settings",
 	"privileges"
 ] as const
-const AdmissionStageSchema = Schema.Literals(admissionStages)
-export type AdmissionStage = typeof AdmissionStageSchema.Type
+export type AdmissionStage = (typeof admissionStages)[number]
 
 /** One check admission found unmet: what was checked (a setting, a catalog property or an extension), at its stage. */
-const AdmissionMismatchSchema = Schema.Struct({
-	stage: AdmissionStageSchema,
-	check: Schema.String,
-	expected: Schema.String,
-	observed: Schema.String
-})
-export type AdmissionMismatch = typeof AdmissionMismatchSchema.Type
+export type AdmissionMismatch = {
+	readonly stage: AdmissionStage
+	readonly check: string
+	readonly expected: string
+	readonly observed: string
+}
 
 /**
  * A refused admission: every mismatch found, each naming the check, the value required and the value observed. Its
  * stage is the first, in admission's order, with a mismatch. Settings and catalog properties are not secrets, and
  * nothing else is reported.
  */
-export class AdmissionRefused extends Schema.TaggedError<
-	AdmissionRefused,
-	{ readonly brand: unique symbol }
->()("AdmissionRefused", { mismatches: Schema.NonEmptyArray(AdmissionMismatchSchema) }) {
+export class AdmissionRefused extends Data.TaggedError("AdmissionRefused")<{
+	readonly mismatches: Arr.NonEmptyReadonlyArray<AdmissionMismatch>
+}> {
 	/** The first stage, in admission's order, a mismatch is at. */
 	get stage(): AdmissionStage {
 		let least = this.mismatches[0].stage
@@ -409,10 +356,9 @@ export class AdmissionRefused extends Schema.TaggedError<
 }
 
 /** The catalog answered what its statement cannot: `what` is what the statement answers. */
-export class CatalogRowRefused extends Schema.TaggedError<
-	CatalogRowRefused,
-	{ readonly brand: unique symbol }
->()("CatalogRowRefused", { what: Schema.String }) {
+export class CatalogRowRefused extends Data.TaggedError("CatalogRowRefused")<{
+	readonly what: string
+}> {
 	override get message(): string {
 		return `the catalog's answer is not ${this.what}`
 	}
@@ -429,16 +375,12 @@ const operationText = { query: "a query", begin: "BEGIN", commit: "COMMIT" } as 
  * or a COMMIT whose answer never came. `ended` is how it ended: by the server, with its FATAL or PANIC report or its
  * refusal of BEGIN, or by the transport, with no report.
  */
-export class ConnectionLost extends Schema.TaggedError<
-	ConnectionLost,
-	{ readonly brand: unique symbol }
->()("ConnectionLost", {
-	operation: Schema.Literals(["query", "begin", "commit"]),
-	ended: Schema.Union([
-		Schema.Struct({ by: Schema.Literal("server"), error: ServerError }),
-		Schema.Struct({ by: Schema.Literal("transport") })
-	])
-}) {
+export class ConnectionLost extends Data.TaggedError("ConnectionLost")<{
+	readonly operation: "query" | "begin" | "commit"
+	readonly ended:
+		| { readonly by: "server"; readonly error: ServerError }
+		| { readonly by: "transport" }
+}> {
 	override get message(): string {
 		const during = `the connection was lost during ${operationText[this.operation]}`
 		return this.ended.by === "server"
@@ -451,10 +393,7 @@ export class ConnectionLost extends Schema.TaggedError<
  * The connection failed after COMMIT was sent and before it answered, no statement having been refused before it:
  * the transaction may have committed.
  */
-export class CommitLost extends Schema.TaggedError<CommitLost, { readonly brand: unique symbol }>()(
-	"CommitLost",
-	{}
-) {
+export class CommitLost extends Data.TaggedError("CommitLost") {
 	override get message(): string {
 		return "the connection was lost after COMMIT was sent: the transaction may have committed"
 	}
@@ -464,10 +403,9 @@ export class CommitLost extends Schema.TaggedError<CommitLost, { readonly brand:
  * pg would not send a query, or answered what the pipeline cannot account for. The session is retired. `operation` is
  * what the session was doing: a query, or a ROLLBACK the server refused, after which the transaction's end is unknown.
  */
-export class DriverFailure extends Schema.TaggedError<
-	DriverFailure,
-	{ readonly brand: unique symbol }
->()("DriverFailure", { operation: Schema.Literals(["query", "rollback"]) }) {
+export class DriverFailure extends Data.TaggedError("DriverFailure")<{
+	readonly operation: "query" | "rollback"
+}> {
 	override get message(): string {
 		return this.operation === "query"
 			? "the driver would not send a query, or answered what the pipeline cannot account for"
@@ -481,14 +419,7 @@ export class DriverFailure extends Schema.TaggedError<
  * ("committed" for COMMIT's COMMIT, "rolledBack" for ROLLBACK or a refused COMMIT); or an answer that would decide never
  * came ("unknown").
  */
-const TransactionFateSchema = Schema.Literals([
-	"noTransaction",
-	"aborted",
-	"committed",
-	"rolledBack",
-	"unknown"
-])
-export type TransactionFate = typeof TransactionFateSchema.Type
+export type TransactionFate = "noTransaction" | "aborted" | "committed" | "rolledBack" | "unknown"
 
 const fateText: Readonly<Record<TransactionFate, string>> = {
 	noTransaction: "no transaction ran",
@@ -505,10 +436,10 @@ const fateText: Readonly<Record<TransactionFate, string>> = {
  * one row of one Boolean). The server ran it, so it decided nothing; `fate` is what the flight's transaction then did,
  * "committed" for a statement alone, which commits at its own Sync.
  */
-export class UnreadableAnswer extends Schema.TaggedError<
-	UnreadableAnswer,
-	{ readonly brand: unique symbol }
->()("UnreadableAnswer", { index: Schema.Int, fate: TransactionFateSchema }) {
+export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{
+	readonly index: number
+	readonly fate: TransactionFate
+}> {
 	override get message(): string {
 		return `statement ${this.index} answered rows grizzle cannot read, and ${fateText[this.fate]}`
 	}
@@ -519,20 +450,16 @@ export class UnreadableAnswer extends Schema.TaggedError<
  * the session failed, the catalog answered rows its statements cannot give, or what it read does not compile (the
  * ledger's or the snapshot's statements).
  */
-export class AdmissionFailed extends Schema.TaggedError<
-	AdmissionFailed,
-	{ readonly brand: unique symbol }
->()("AdmissionFailed", {
-	failure: Schema.Union([
-		ServerError,
-		ConnectionLost,
-		CommitLost,
-		DriverFailure,
-		UnreadableAnswer,
-		CatalogRowRefused,
-		CompileErrorSchema
-	])
-}) {
+export class AdmissionFailed extends Data.TaggedError("AdmissionFailed")<{
+	readonly failure:
+		| ServerError
+		| ConnectionLost
+		| CommitLost
+		| DriverFailure
+		| UnreadableAnswer
+		| CatalogRowRefused
+		| CompileError
+}> {
 	override get message(): string {
 		return `admission reached no verdict: ${this.failure.message}`
 	}
@@ -542,10 +469,9 @@ export class AdmissionFailed extends Schema.TaggedError<
  * The capability a program needs and the admitted database lacks, such as an extension (`capability`), found before
  * any SQL.
  */
-export class MissingCapability extends Schema.TaggedError<
-	MissingCapability,
-	{ readonly brand: unique symbol }
->()("MissingCapability", { capability: Schema.String }) {
+export class MissingCapability extends Data.TaggedError("MissingCapability")<{
+	readonly capability: string
+}> {
 	override get message(): string {
 		return `the database lacks ${this.capability}`
 	}
@@ -557,15 +483,14 @@ export class MissingCapability extends Schema.TaggedError<
  * it records that no workload holds, or one whose access paths or statistics moved (`program`, naming it). Running
  * `grizzle generate` records them.
  */
-const UngeneratedFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("schema"), schema: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("program"), sentence: Schema.String })
-])
+type UngeneratedFault =
+	| { readonly kind: "schema"; readonly schema: string }
+	| { readonly kind: "program"; readonly sentence: string }
 
-export class WorkloadUngenerated extends Schema.TaggedError<
-	WorkloadUngenerated,
-	{ readonly brand: unique symbol }
->()("WorkloadUngenerated", { login: Schema.String, fault: UngeneratedFaultSchema }) {
+export class WorkloadUngenerated extends Data.TaggedError("WorkloadUngenerated")<{
+	readonly login: string
+	readonly fault: UngeneratedFault
+}> {
 	override get message(): string {
 		const fault = this.fault
 		switch (fault.kind) {
@@ -581,22 +506,14 @@ export class WorkloadUngenerated extends Schema.TaggedError<
  * db.explain of a ChangeSet whose input `law` rejects before any SQL: two facts of one relation input share a key and
  * differ in payload.
  */
-export class LawRejected extends Schema.TaggedError<
-	LawRejected,
-	{ readonly brand: unique symbol }
->()("LawRejected", {
-	law: LawSchema
-}) {
+export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law: Law }> {
 	override get message(): string {
 		return `the ChangeSet's input breaks a ${this.law.kind} law before any SQL`
 	}
 }
 
 /** A relation input, a relation parameter or a Stream member, is past the size limit, before any SQL. */
-export class InputTooLarge extends Schema.TaggedError<
-	InputTooLarge,
-	{ readonly brand: unique symbol }
->()("InputTooLarge", {}) {
+export class InputTooLarge extends Data.TaggedError("InputTooLarge") {
 	override get message(): string {
 		return "a relation input is past the size limit"
 	}
@@ -607,14 +524,12 @@ export class InputTooLarge extends Schema.TaggedError<
  * property of one direction, no size or both sizes, the other direction's anchor), or its size (no safe integer from 1
  * to the page limit).
  */
-const RequestFaultSchema = Schema.Literals(["requestShape", "requestSize"])
-export type RequestFault = typeof RequestFaultSchema.Type
+export type RequestFault = "requestShape" | "requestSize"
 
 /** A page request refused for `fault`, before any SQL. */
-export class PageRequestRefused extends Schema.TaggedError<
-	PageRequestRefused,
-	{ readonly brand: unique symbol }
->()("PageRequestRefused", { fault: RequestFaultSchema }) {
+export class PageRequestRefused extends Data.TaggedError("PageRequestRefused")<{
+	readonly fault: RequestFault
+}> {
 	override get message(): string {
 		return this.fault === "requestShape"
 			? "the page request is no record of one direction's size and anchor"
@@ -626,20 +541,14 @@ export class PageRequestRefused extends Schema.TaggedError<
  * SQLSTATE 40001, at a statement or raised by COMMIT: PostgreSQL found no serial order of this transaction and a
  * concurrent one.
  */
-export class SerializationFailure extends Schema.TaggedError<
-	SerializationFailure,
-	{ readonly brand: unique symbol }
->()("SerializationFailure", {}) {
+export class SerializationFailure extends Data.TaggedError("SerializationFailure") {
 	override get message(): string {
 		return "PostgreSQL found no serial order of this transaction and a concurrent one"
 	}
 }
 
 /** SQLSTATE 40P01: this transaction and a concurrent one each waited for a lock the other held. */
-export class Deadlock extends Schema.TaggedError<Deadlock, { readonly brand: unique symbol }>()(
-	"Deadlock",
-	{}
-) {
+export class Deadlock extends Data.TaggedError("Deadlock") {
 	override get message(): string {
 		return "this transaction and a concurrent one each waited for a lock the other held"
 	}
@@ -649,10 +558,9 @@ export class Deadlock extends Schema.TaggedError<Deadlock, { readonly brand: uni
  * A put into `relation` deleted the fact at its key, and a concurrent transaction then committed a fact at that key: met
  * as a conflict on the put's insert, or as the unique violation a MERGE raised there.
  */
-export class PutTargetConflict extends Schema.TaggedError<
-	PutTargetConflict,
-	{ readonly brand: unique symbol }
->()("PutTargetConflict", { relation: Schema.String }) {
+export class PutTargetConflict extends Data.TaggedError("PutTargetConflict")<{
+	readonly relation: string
+}> {
 	override get message(): string {
 		return `a concurrent transaction committed a fact of ${this.relation} at a key this put replaced`
 	}
@@ -662,10 +570,10 @@ export class PutTargetConflict extends Schema.TaggedError<
  * A generated addition's own insert into `relation` raised a unique violation on `constraint`, a key holding the serial
  * field it generates: a concurrent writer stored a value the sequence had not yet passed.
  */
-export class GeneratedSerialUnique extends Schema.TaggedError<
-	GeneratedSerialUnique,
-	{ readonly brand: unique symbol }
->()("GeneratedSerialUnique", { relation: Schema.String, constraint: nameSchemas.constraint }) {
+export class GeneratedSerialUnique extends Data.TaggedError("GeneratedSerialUnique")<{
+	readonly relation: string
+	readonly constraint: ConstraintName
+}> {
 	override get message(): string {
 		const stored = "one a concurrent writer stored"
 		return `a serial value generated for ${this.relation} met ${stored}, on ${this.constraint}`
@@ -676,10 +584,9 @@ export class GeneratedSerialUnique extends Schema.TaggedError<
  * An insert into a span primary key of `relation` met an occupant at the key that a concurrent transaction changed: it
  * has since gone, or on a put's insert it was committed after the put deleted the fact at the key.
  */
-export class SpanKeyChange extends Schema.TaggedError<
-	SpanKeyChange,
-	{ readonly brand: unique symbol }
->()("SpanKeyChange", { relation: Schema.String }) {
+export class SpanKeyChange extends Data.TaggedError("SpanKeyChange")<{
+	readonly relation: string
+}> {
 	override get message(): string {
 		return `an insert into ${this.relation}'s span key met an occupant a concurrent transaction changed`
 	}
@@ -689,10 +596,10 @@ export class SpanKeyChange extends Schema.TaggedError<
  * An insert into `relation` raised a unique violation on `constraint`, a unique object besides its primary key, from an
  * occupant this transaction's snapshot did not see: a concurrent transaction's, committed or in flight.
  */
-export class UnseenOccupant extends Schema.TaggedError<
-	UnseenOccupant,
-	{ readonly brand: unique symbol }
->()("UnseenOccupant", { relation: Schema.String, constraint: nameSchemas.constraint }) {
+export class UnseenOccupant extends Data.TaggedError("UnseenOccupant")<{
+	readonly relation: string
+	readonly constraint: ConstraintName
+}> {
 	override get message(): string {
 		const occupant = "an occupant this transaction's snapshot did not see"
 		return `an insert into ${this.relation} met ${occupant}, on ${this.constraint}`
@@ -700,10 +607,9 @@ export class UnseenOccupant extends Schema.TaggedError<
 }
 
 /** A refresh of the derived relation `relation`: another refresh of it committed after this transaction's snapshot. */
-export class ConcurrentRefresh extends Schema.TaggedError<
-	ConcurrentRefresh,
-	{ readonly brand: unique symbol }
->()("ConcurrentRefresh", { relation: Schema.String }) {
+export class ConcurrentRefresh extends Data.TaggedError("ConcurrentRefresh")<{
+	readonly relation: string
+}> {
 	override get message(): string {
 		return `another refresh of ${this.relation} committed after this transaction's snapshot`
 	}
@@ -714,10 +620,7 @@ export class ConcurrentRefresh extends Schema.TaggedError<
  * changed its result type after a migration). The session has forgotten the name, so the next attempt parses the
  * statement afresh.
  */
-export class StaleStatement extends Schema.TaggedError<
-	StaleStatement,
-	{ readonly brand: unique symbol }
->()("StaleStatement", {}) {
+export class StaleStatement extends Data.TaggedError("StaleStatement") {
 	override get message(): string {
 		return "a server statement the session had named went stale"
 	}
@@ -729,13 +632,10 @@ export class StaleStatement extends Schema.TaggedError<
  * committed ones under load, or a deadlock (40P01). Retryable, as a call's TransientFailure is: the same Db.open may
  * succeed if it runs again, and grizzle never retries. `reason` says which, and `error` is the server's report.
  */
-export class AdmissionTransient extends Schema.TaggedError<
-	AdmissionTransient,
-	{ readonly brand: unique symbol }
->()("AdmissionTransient", {
-	reason: Schema.Union([SerializationFailure, Deadlock]),
-	error: ServerError
-}) {
+export class AdmissionTransient extends Data.TaggedError("AdmissionTransient")<{
+	readonly reason: SerializationFailure | Deadlock
+	readonly error: ServerError
+}> {
 	override get message(): string {
 		return `the database refused admission's transaction, which changed nothing: ${this.reason.message}`
 	}
@@ -746,50 +646,41 @@ export class AdmissionTransient extends Schema.TaggedError<
  * had named went stale. Each reason carries the facts every occurrence of it has: the relation and the constraint
  * involved.
  */
-export const TransientReasonSchema = Schema.Union([
-	SerializationFailure,
-	Deadlock,
-	PutTargetConflict,
-	GeneratedSerialUnique,
-	SpanKeyChange,
-	UnseenOccupant,
-	ConcurrentRefresh,
-	StaleStatement
-])
-export type TransientReason = typeof TransientReasonSchema.Type
+export type TransientReason =
+	| SerializationFailure
+	| Deadlock
+	| PutTargetConflict
+	| GeneratedSerialUnique
+	| SpanKeyChange
+	| UnseenOccupant
+	| ConcurrentRefresh
+	| StaleStatement
 
 /**
  * A migration holds the ledger's lock or waits for it (the lock's 55P03), or the ledger holds a folder unfinished, a run
  * stopped part-way included (the guard's 55Z02).
  */
-export class Migrating extends Schema.TaggedError<Migrating, { readonly brand: unique symbol }>()(
-	"Migrating",
-	{}
-) {
+export class Migrating extends Data.TaggedError("Migrating") {
 	override get message(): string {
 		return "a migration is running or stopped part-way"
 	}
 }
 
 /** No folder is unfinished, and the latest complete one's target is another snapshot (the guard's 55Z01). */
-export class Migrated extends Schema.TaggedError<Migrated, { readonly brand: unique symbol }>()(
-	"Migrated",
-	{}
-) {
+export class Migrated extends Data.TaggedError("Migrated") {
 	override get message(): string {
 		return "a migration to another snapshot completed"
 	}
 }
 
 /** Why the fence refused a Db's transaction (physical/ddl/ledger.ts snapshotGuardDdl). */
-export const StaleReasonSchema = Schema.Union([Migrating, Migrated])
-export type StaleReason = typeof StaleReasonSchema.Type
+export type StaleReason = Migrating | Migrated
 
 /** Statement `index` was refused, and nothing committed: the server rejected it and skipped the statements after it. */
-export class BatchRefused extends Schema.TaggedError<
-	BatchRefused,
-	{ readonly brand: unique symbol }
->()("BatchRefused", { index: Schema.Int, failure: ServerError }) {
+export class BatchRefused extends Data.TaggedError("BatchRefused")<{
+	readonly index: number
+	readonly failure: ServerError
+}> {
 	override get message(): string {
 		return `statement ${this.index} was refused with ${reportText(this.failure)}`
 	}
@@ -800,23 +691,19 @@ export class BatchRefused extends Schema.TaggedError<
  * it; 0A000: its cached plan no longer has the statement's result type), and nothing committed. The session has
  * forgotten the name, so running the statement again parses it afresh.
  */
-export class StaleName extends Schema.TaggedError<StaleName, { readonly brand: unique symbol }>()(
-	"StaleName",
-	{
-		index: Schema.Int,
-		failure: ServerError
-	}
-) {
+export class StaleName extends Data.TaggedError("StaleName")<{
+	readonly index: number
+	readonly failure: ServerError
+}> {
 	override get message(): string {
 		return `statement ${this.index} ran under a name the server no longer honors: ${reportText(this.failure)}`
 	}
 }
 
 /** COMMIT was refused after every statement ran, and nothing committed. */
-export class CommitRefused extends Schema.TaggedError<
-	CommitRefused,
-	{ readonly brand: unique symbol }
->()("CommitRefused", { failure: ServerError }) {
+export class CommitRefused extends Data.TaggedError("CommitRefused")<{
+	readonly failure: ServerError
+}> {
 	override get message(): string {
 		return `COMMIT was refused with ${reportText(this.failure)}`
 	}

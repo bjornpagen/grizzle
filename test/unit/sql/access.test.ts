@@ -6,14 +6,13 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { json } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, Schema } from "effect"
-import { SqlStatementSchema } from "#adapter/boundary/sql.ts"
+import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { objectName, types } from "#compiler/sql/build.ts"
 import { type CarrierName, carrierName, isCarrierName } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { assert, assertVariant, unorderedEqual } from "#test/support/assert.ts"
+import { assert, unorderedEqual } from "#test/support/assert.ts"
 
 /**
  * The relations a statement reads and writes (sql/access.ts) beyond DML: a CREATE TEMPORARY TABLE creates its carrier,
@@ -160,7 +159,7 @@ const namedGen: Gen<readonly [unknown, boolean]> = oneOf<readonly [unknown, bool
 
 describe("the ANALYZE statement", () => {
 	it.effect(
-		"admits exactly the carrier names, at decode as everywhere, and no name rewrite touches it",
+		"admits exactly the carrier names, and no name rewrite touches an ANALYZE of them",
 		(ctx) =>
 			searched(
 				ctx,
@@ -186,29 +185,20 @@ describe("the ANALYZE statement", () => {
 								assert.equal(isCarrierName(name), carrier, Formatter.format(name))
 								c.note(carrier ? "live" : typeof name === "string" ? "near miss" : "json")
 							}
-							const decoded = Schema.decodeResult(SqlStatementSchema)({
-								kind: "analyze",
-								carriers: Arr.map(names, ([n]) => n)
-							})
-							assert.equal(
-								Result.isSuccess(decoded),
-								Arr.every(names, ([, carrier]) => carrier)
+							const carriers = Arr.filter(
+								Arr.map(names, ([n]) => n),
+								(n): n is CarrierName => isCarrierName(n)
 							)
-							if (Result.isFailure(decoded)) {
+							if (!Arr.isReadonlyArrayNonEmpty(carriers)) {
 								return
 							}
-							assertVariant(decoded.success, "kind", "analyze", "an ANALYZE decodes as one")
-							const read: ReadonlyArray<CarrierName> = decoded.success.carriers
-							assert.deepEqual(
-								read,
-								Arr.flatMap(names, ([n]) => (isCarrierName(n) ? [n] : []))
-							)
+							const analyze: SqlStatement = { kind: "analyze", carriers }
 							assert.equal(
-								transformStatement(decoded.success, {
+								transformStatement(analyze, {
 									...identityHooks,
 									objectName: (n) => ({ ...n, schema: "elsewhere" })
 								}),
-								decoded.success
+								analyze
 							)
 						})
 				)

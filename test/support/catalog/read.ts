@@ -1,5 +1,4 @@
-import { Array as Arr, Effect, Option, Schema, String as Str } from "effect"
-import { nameSchemas } from "#adapter/boundary/names.ts"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -8,26 +7,23 @@ import type {
 	RelationIdent,
 	TriggerName
 } from "#compiler/core/ids.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /**
  * PostgreSQL's catalog codes, as its catalog spells them. pg_class.relkind: a table, an index, a sequence, a TOAST
  * table, a view, a materialized view, a composite type, a foreign table, a partitioned table or a partitioned index.
  */
-const relKinds = ["r", "i", "S", "t", "v", "m", "c", "f", "p", "I"] as const
-type RelKind = (typeof relKinds)[number]
+type RelKind = "r" | "i" | "S" | "t" | "v" | "m" | "c" | "f" | "p" | "I"
 /**
  * pg_constraint.contype: a check, a foreign key, a not-null, a primary key, a unique, a constraint trigger's or an
  * exclusion constraint.
  */
-const conTypes = ["c", "f", "n", "p", "u", "t", "x"] as const
-type ConType = (typeof conTypes)[number]
+type ConType = "c" | "f" | "n" | "p" | "u" | "t" | "x"
 /** pg_trigger.tgenabled: enabled in origin and local mode, disabled, enabled in replica mode only, or always. */
-const tgEnabled = ["O", "D", "R", "A"] as const
-type TgEnabled = (typeof tgEnabled)[number]
+type TgEnabled = "O" | "D" | "R" | "A"
 /** pg_proc.provolatile: immutable, stable or volatile. */
-const volatilities = ["i", "s", "v"] as const
-type Volatility = (typeof volatilities)[number]
+type Volatility = "i" | "s" | "v"
 
 export interface CatalogGrant {
 	/** A role name, or PUBLIC. */
@@ -466,44 +462,34 @@ const queries = {
 	AND $1::text IS NOT NULL`
 } as const
 
-/** The documented forms of the catalog documents: PostgreSQL's JSON is external input, admitted by a decode. */
-const Strings = Schema.Array(Schema.String)
-const CatalogGrantSchema: Schema.Codec<CatalogGrant> = Schema.Struct({
-	grantee: Schema.String,
-	privilege: Schema.String
-})
-const Grants = Schema.Array(CatalogGrantSchema)
-const CatalogTypeSchema: Schema.Codec<CatalogType> = Schema.Struct({
-	schema: Schema.String,
-	name: Schema.String,
-	typmod: Schema.Int,
-	formatted: Schema.String
-})
+/** A catalog record as its JSON document spells it: what may be none is PostgreSQL's NULL there, an Option here. */
+type Document<T> = {
+	readonly [K in keyof T]: T[K] extends Option.Option<infer A> ? A | null : T[K]
+}
 
 /**
  * A column as the catalog document holds it: pg_attribute.attidentity ("a" ALWAYS, "d" BY DEFAULT, "" none) and
  * attgenerated ("s" STORED, "v" VIRTUAL, "" none), the default or generation expression, and the identity sequence.
  */
-const RawColumnSchema = Schema.Struct({
-	name: nameSchemas.column,
-	type: CatalogTypeSchema,
-	notNull: Schema.Boolean,
-	collation: Schema.OptionFromNullOr(Schema.String),
-	identity: Schema.Literals(["", "a", "d"]),
-	generated: Schema.Literals(["", "s", "v"]),
-	expression: Schema.OptionFromNullOr(Schema.String),
-	sequence: Schema.OptionFromNullOr(Schema.String)
-})
-type RawColumn = typeof RawColumnSchema.Type
+interface ColumnDocument {
+	readonly name: ColumnIdent
+	readonly type: CatalogType
+	readonly notNull: boolean
+	readonly collation: string | null
+	readonly identity: "" | "a" | "d"
+	readonly generated: "" | "s" | "v"
+	readonly expression: string | null
+	readonly sequence: string | null
+}
 
 /** A column's generation; an identity column owning no sequence, or a generated one no expression, is a defect. */
-const generationOf = (raw: RawColumn): CatalogGeneration => {
+const generationOf = (raw: ColumnDocument): CatalogGeneration => {
 	if (raw.identity !== "") {
 		return {
 			kind: "identity",
 			always: raw.identity === "a",
 			sequence: Option.getOrThrowWith(
-				raw.sequence,
+				Option.fromNullOr(raw.sequence),
 				() => new Error(`catalog: identity column ${raw.name} owns no sequence`)
 			)
 		}
@@ -513,218 +499,73 @@ const generationOf = (raw: RawColumn): CatalogGeneration => {
 			kind: "computed",
 			stored: raw.generated === "s",
 			expression: Option.getOrThrowWith(
-				raw.expression,
+				Option.fromNullOr(raw.expression),
 				() => new Error(`catalog: generated column ${raw.name} has no expression`)
 			)
 		}
 	}
-	return { kind: "given", default: raw.expression }
+	return { kind: "given", default: Option.fromNullOr(raw.expression) }
 }
 
-const columnOf = (raw: RawColumn): CatalogColumn => ({
+const columnOf = (raw: ColumnDocument): CatalogColumn => ({
 	name: raw.name,
 	type: raw.type,
 	notNull: raw.notNull,
-	collation: raw.collation,
+	collation: Option.fromNullOr(raw.collation),
 	generation: generationOf(raw)
 })
 
-const CatalogConstraintSchema: Schema.Codec<CatalogConstraint, unknown> = Schema.Struct({
-	name: nameSchemas.constraint,
-	type: Schema.Literals(conTypes),
-	columns: Strings,
-	withoutOverlaps: Schema.Boolean,
-	period: Schema.Boolean,
-	references: Schema.OptionFromNullOr(Schema.String),
-	referencedColumns: Strings,
-	deferrable: Schema.Boolean,
-	deferred: Schema.Boolean,
-	validated: Schema.Boolean,
-	definition: Schema.String
+const constraintOf = (raw: Document<CatalogConstraint>): CatalogConstraint => ({
+	...raw,
+	references: Option.fromNullOr(raw.references)
 })
-/**
- * An index as the catalog document holds it, its name not yet decoded: which brand it takes depends on two of its other
- * fields (indexOf).
- */
-type RawCatalogIndex = Omit<CatalogIndex, "name"> & { readonly name: string }
-const RawCatalogIndexSchema: Schema.Codec<RawCatalogIndex, unknown> = Schema.Struct({
-	name: Schema.String,
-	table: Schema.String,
-	unique: Schema.Boolean,
-	method: Schema.String,
-	columns: Strings,
-	predicate: Schema.OptionFromNullOr(Schema.String),
-	valid: Schema.Boolean,
-	constraint: Schema.OptionFromNullOr(Schema.String),
-	definition: Schema.String
-})
-const decodeConstraintName = Schema.decodeUnknownEffect(nameSchemas.constraint)
-const decodeIndexName = Schema.decodeUnknownEffect(nameSchemas.index)
-/**
- * An index is named as a constraint when it backs one or is unique (a key's, a partial unique law's), and as an access
- * index otherwise; a name of neither form is a defect of this support code, as any other undecodable document is.
- */
-const indexOf = (raw: RawCatalogIndex): Effect.Effect<CatalogIndex> =>
-	Effect.orDie(
-		Option.isSome(raw.constraint) || raw.unique
-			? Effect.map(decodeConstraintName(raw.name), (name): CatalogIndex => ({ ...raw, name }))
-			: Effect.map(decodeIndexName(raw.name), (name): CatalogIndex => ({ ...raw, name }))
-	)
 
-/** A table as the catalog document holds it, its columns raw (columnOf). */
-type RawCatalogTable = Omit<CatalogTable, "columns"> & {
-	readonly columns: ReadonlyArray<RawColumn>
+/** A table as the catalog document holds it, its columns and constraints as their documents. */
+type TableDocument = Omit<CatalogTable, "columns" | "constraints"> & {
+	readonly columns: ReadonlyArray<ColumnDocument>
+	readonly constraints: ReadonlyArray<Document<CatalogConstraint>>
 }
 
-const RawCatalogTableSchema: Schema.Codec<RawCatalogTable, unknown> = Schema.Struct({
-	name: nameSchemas.relation,
-	kind: Schema.Literals(relKinds),
-	owner: Schema.String,
-	columns: Schema.Array(RawColumnSchema),
-	constraints: Schema.Array(CatalogConstraintSchema),
-	rowSecurity: Schema.Boolean,
-	forceRowSecurity: Schema.Boolean,
-	grants: Grants,
-	columnGrants: Schema.Array(
-		Schema.Struct({ column: Schema.String, grantee: Schema.String, privilege: Schema.String })
-	)
+const tableOf = (raw: TableDocument): CatalogTable => ({
+	...raw,
+	columns: Arr.map(raw.columns, columnOf),
+	constraints: Arr.map(raw.constraints, constraintOf)
 })
 
-const CatalogPolicySchema: Schema.Codec<CatalogPolicy, unknown> = Schema.Struct({
-	table: Schema.String,
-	name: Schema.String,
-	command: Schema.String,
-	permissive: Schema.Boolean,
-	roles: Strings,
-	using: Schema.OptionFromNullOr(Schema.String),
-	check: Schema.OptionFromNullOr(Schema.String)
+/**
+ * An index, named as a constraint when it backs one or is unique (a key's, a partial unique law's), and as an access
+ * index otherwise.
+ */
+const indexOf = (raw: Document<CatalogIndex>): CatalogIndex => ({
+	...raw,
+	predicate: Option.fromNullOr(raw.predicate),
+	constraint: Option.fromNullOr(raw.constraint)
 })
 
-const CatalogWorldSchema: Schema.Codec<CatalogWorld> = Schema.Struct({
-	name: Schema.String,
-	owner: Schema.String,
-	grants: Grants,
-	relations: Schema.Array(
-		Schema.Struct({
-			name: Schema.String,
-			kind: Schema.Literals(relKinds),
-			owner: Schema.String,
-			options: Strings,
-			grants: Grants,
-			columns: Schema.Array(Schema.Struct({ name: Schema.String, type: CatalogTypeSchema }))
-		})
-	),
-	functions: Strings,
-	types: Strings
+const policyOf = (raw: Document<CatalogPolicy>): CatalogPolicy => ({
+	...raw,
+	using: Option.fromNullOr(raw.using),
+	check: Option.fromNullOr(raw.check)
 })
 
-const CatalogEnumSchema: Schema.Codec<CatalogEnum> = Schema.Struct({
-	name: Schema.String,
-	labels: Strings,
-	grants: Grants
+const domainOf = (raw: Document<CatalogDomain>): CatalogDomain => ({
+	...raw,
+	collation: Option.fromNullOr(raw.collation)
 })
 
-const CatalogDomainSchema: Schema.Codec<CatalogDomain, unknown> = Schema.Struct({
-	name: nameSchemas.domain,
-	base: CatalogTypeSchema,
-	notNull: Schema.Boolean,
-	collation: Schema.OptionFromNullOr(Schema.String),
-	constraints: Schema.Array(
-		Schema.Struct({
-			name: nameSchemas.constraint,
-			definition: Schema.String,
-			validated: Schema.Boolean
-		})
-	),
-	grants: Grants
-})
-
-const CatalogSequenceSchema: Schema.Codec<CatalogSequence> = Schema.Struct({
-	name: Schema.String,
-	ownedBy: Schema.String,
-	grants: Grants
-})
-
-const CatalogFunctionSchema: Schema.Codec<CatalogFunction> = Schema.Struct({
-	name: Schema.String,
-	args: Schema.String,
-	owner: Schema.String,
-	securityDefiner: Schema.Boolean,
-	volatility: Schema.Literals(volatilities),
-	config: Strings,
-	grants: Grants,
-	definition: Schema.String
-})
-
-const CatalogTriggerSchema: Schema.Codec<CatalogTrigger, unknown> = Schema.Struct({
-	table: Schema.String,
-	name: nameSchemas.trigger,
-	internal: Schema.Boolean,
-	enabled: Schema.Literals(tgEnabled),
-	function: Schema.String,
-	type: Schema.Int,
-	constraint: Schema.Boolean,
-	deferrable: Schema.Boolean,
-	deferred: Schema.Boolean,
-	definition: Schema.String
-})
-
-const CatalogStatisticsSchema: Schema.Codec<CatalogStatistics> = Schema.Struct({
-	name: Schema.String,
-	table: Schema.String,
-	columns: Strings,
-	kinds: Strings,
-	definition: Schema.String
-})
-
-const CatalogRoleSchema: Schema.Codec<CatalogRole> = Schema.Struct({
-	name: Schema.String,
-	login: Schema.Boolean,
-	inherit: Schema.Boolean,
-	superuser: Schema.Boolean,
-	createRole: Schema.Boolean,
-	createDb: Schema.Boolean,
-	replication: Schema.Boolean,
-	bypassRls: Schema.Boolean,
-	config: Strings,
-	databaseConfig: Strings,
-	memberOf: Schema.Array(
-		Schema.Struct({
-			role: Schema.String,
-			inherit: Schema.Boolean,
-			set: Schema.Boolean,
-			admin: Schema.Boolean
-		})
-	),
-	members: Schema.Array(
-		Schema.Struct({
-			role: Schema.String,
-			inherit: Schema.Boolean,
-			set: Schema.Boolean,
-			admin: Schema.Boolean
-		})
-	),
-	inherits: Strings
-})
-
-const CatalogForeignGrantSchema: Schema.Codec<CatalogForeignGrant> = Schema.Struct({
-	schema: Schema.String,
-	grantee: Schema.String,
-	privilege: Schema.String
-})
-
-const CatalogDefaultAclSchema: Schema.Codec<CatalogDefaultAcl, unknown> = Schema.Struct({
-	role: Schema.String,
-	schema: Schema.OptionFromNullOr(Schema.String),
-	objectType: Schema.String,
-	grants: Grants
+const defaultAclOf = (raw: Document<CatalogDefaultAcl>): CatalogDefaultAcl => ({
+	...raw,
+	schema: Option.fromNullOr(raw.schema)
 })
 
 /** The schema's head: its owner and grants, or its absence (queries.schema returns one document either way). */
-const SchemaHead = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("absent") }),
-	Schema.Struct({ kind: Schema.Literal("present"), owner: Schema.String, grants: Grants })
-])
+type SchemaHead =
+	| { readonly kind: "absent" }
+	| {
+			readonly kind: "present"
+			readonly owner: string
+			readonly grants: ReadonlyArray<CatalogGrant>
+	  }
 
 /**
  * What runs one catalog statement with its parameters and returns its rows positionally: an owner connection
@@ -736,26 +577,18 @@ export type CatalogStatement<E> = (
 ) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>
 
 /**
- * The one JSON text document `sql` returns, decoded by `codec`; a document of another form is a defect of this support
- * code, as a missing one is: every query is an aggregate or a COALESCE of a scalar subquery.
- *
- * Every key the queries build is a member of the documented form, so a key the form lacks is refused.
+ * The one JSON text document `sql` returns over `schema`; a missing one is a defect of this support code: every query
+ * is an aggregate or a COALESCE of a scalar subquery.
  */
-const readJson = <A, E>(
-	run: CatalogStatement<E>,
-	sql: string,
-	schema: string,
-	codec: Schema.Codec<A, unknown>
-) =>
-	Effect.flatMap(run(sql, [schema]), (rows) => {
-		const text = rows[0]?.[0]
-		if (typeof text !== "string") {
-			return Effect.die(new Error(`catalog: no JSON document from ${Str.slice(0, 60)(sql)}`))
-		}
-		return Effect.orDie(
-			Schema.decodeEffect(Schema.fromJsonString(codec))(text, { onExcessProperty: "error" })
-		)
-	})
+const documentText =
+	<E>(run: CatalogStatement<E>, schema: string) =>
+	(sql: string): Effect.Effect<string, E> =>
+		Effect.flatMap(run(sql, [schema]), (rows) => {
+			const text = rows[0]?.[0]
+			return typeof text === "string"
+				? Effect.succeed(text)
+				: Effect.die(new Error(`catalog: no JSON document from ${Str.slice(0, 60)(sql)}`))
+		})
 
 /**
  * Reads the installed catalog of one schema, its worlds' schemas and its roles as plain, comparable data.
@@ -772,38 +605,62 @@ export const readCatalogWith = <E>(
 	schema: string
 ): Effect.Effect<InstalledCatalog, E> =>
 	Effect.gen(function* () {
-		const head = yield* readJson(run, queries.schema, schema, SchemaHead)
+		const read = documentText(run, schema)
+		const headText = yield* read(queries.schema)
+		const head = trustedJson<SchemaHead>(headText)
 		if (head.kind === "absent") {
 			return { kind: "absent", schema }
 		}
-		const part = <A>(sql: string, codec: Schema.Codec<A, unknown>) =>
-			readJson(run, sql, schema, Schema.Array(codec))
-		const tables = yield* part(queries.tables, RawCatalogTableSchema)
-		const indexes = yield* part(queries.indexes, RawCatalogIndexSchema)
+		const texts = yield* Effect.all({
+			tables: read(queries.tables),
+			indexes: read(queries.indexes),
+			enums: read(queries.enums),
+			domains: read(queries.domains),
+			sequences: read(queries.sequences),
+			functions: read(queries.functions),
+			triggers: read(queries.triggers),
+			statistics: read(queries.statistics),
+			policies: read(queries.policies),
+			roles: read(queries.roles),
+			worlds: read(queries.worlds),
+			foreignGrants: read(queries.foreignGrants),
+			defaultAcls: read(queries.defaultAcls),
+			otherTypes: read(queries.otherTypes),
+			databaseSettings: read(queries.databaseSettings)
+		})
 		return {
 			kind: "present",
 			catalog: {
 				schema,
 				owner: head.owner,
 				schemaGrants: head.grants,
-				tables: Arr.map(tables, (t): CatalogTable => ({
-					...t,
-					columns: Arr.map(t.columns, columnOf)
-				})),
-				indexes: yield* Effect.forEach(indexes, indexOf),
-				enums: yield* part(queries.enums, CatalogEnumSchema),
-				domains: yield* part(queries.domains, CatalogDomainSchema),
-				sequences: yield* part(queries.sequences, CatalogSequenceSchema),
-				functions: yield* part(queries.functions, CatalogFunctionSchema),
-				triggers: yield* part(queries.triggers, CatalogTriggerSchema),
-				statistics: yield* part(queries.statistics, CatalogStatisticsSchema),
-				policies: yield* part(queries.policies, CatalogPolicySchema),
-				roles: yield* part(queries.roles, CatalogRoleSchema),
-				worlds: yield* part(queries.worlds, CatalogWorldSchema),
-				foreignGrants: yield* part(queries.foreignGrants, CatalogForeignGrantSchema),
-				defaultAcls: yield* part(queries.defaultAcls, CatalogDefaultAclSchema),
-				otherTypes: yield* part(queries.otherTypes, Schema.String),
-				databaseSettings: yield* part(queries.databaseSettings, Schema.String)
+				tables: Arr.map(trustedJson<ReadonlyArray<TableDocument>>(texts.tables), tableOf),
+				indexes: Arr.map(
+					trustedJson<ReadonlyArray<Document<CatalogIndex>>>(texts.indexes),
+					indexOf
+				),
+				enums: trustedJson<ReadonlyArray<CatalogEnum>>(texts.enums),
+				domains: Arr.map(
+					trustedJson<ReadonlyArray<Document<CatalogDomain>>>(texts.domains),
+					domainOf
+				),
+				sequences: trustedJson<ReadonlyArray<CatalogSequence>>(texts.sequences),
+				functions: trustedJson<ReadonlyArray<CatalogFunction>>(texts.functions),
+				triggers: trustedJson<ReadonlyArray<CatalogTrigger>>(texts.triggers),
+				statistics: trustedJson<ReadonlyArray<CatalogStatistics>>(texts.statistics),
+				policies: Arr.map(
+					trustedJson<ReadonlyArray<Document<CatalogPolicy>>>(texts.policies),
+					policyOf
+				),
+				roles: trustedJson<ReadonlyArray<CatalogRole>>(texts.roles),
+				worlds: trustedJson<ReadonlyArray<CatalogWorld>>(texts.worlds),
+				foreignGrants: trustedJson<ReadonlyArray<CatalogForeignGrant>>(texts.foreignGrants),
+				defaultAcls: Arr.map(
+					trustedJson<ReadonlyArray<Document<CatalogDefaultAcl>>>(texts.defaultAcls),
+					defaultAclOf
+				),
+				otherTypes: trustedJson<ReadonlyArray<string>>(texts.otherTypes),
+				databaseSettings: trustedJson<ReadonlyArray<string>>(texts.databaseSettings)
 			}
 		}
 	})

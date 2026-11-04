@@ -1,17 +1,8 @@
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
-import {
-	Array as Arr,
-	Context,
-	Effect,
-	Layer,
-	Option,
-	Redacted,
-	Ref,
-	Schema,
-	type Scope
-} from "effect"
+import { Array as Arr, Context, Effect, Layer, Option, Redacted, Ref, type Scope } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { Client } from "pg"
+import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
 import { coverageAdminUrl, pgPin } from "#test/support/env.ts"
@@ -299,10 +290,6 @@ const asText = (text: string): string => text
 /** Every column as its text: pg's parsers bypassed. */
 const textTypes = { getTypeParser: (): ((text: string) => string) => asText } as const
 
-const decodeTextRows = Schema.decodeUnknownEffect(
-	Schema.Array(Schema.Array(Schema.NullOr(Schema.String)))
-)
-
 /**
  * A connection to `database` as the bootstrap superuser `postgres`, over the cluster's local socket, where peer
  * authentication maps this OS user to it (scripts/pg/init.sh); the TLS sessions of test/support/pg.ts reach no
@@ -359,12 +346,12 @@ const asSuperuserRead = <A, E>(
 			const client = yield* Effect.orDie(superuserClient(database, "grizzle-substrate stored read"))
 			const rows = (sql: string): Effect.Effect<TextRows> =>
 				Effect.orDie(
-					Effect.flatMap(
+					Effect.map(
 						Effect.tryPromise({
 							try: () => client.query({ text: sql, rowMode: "array" }),
 							catch: sqlErrorOf
 						}),
-						(result) => decodeTextRows(result.rows)
+						(result) => trusted<TextRows>(result.rows)
 					)
 				)
 			yield* rows("BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY")

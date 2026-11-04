@@ -311,7 +311,7 @@ export const draftOf = (
 		generated(subject, extensions, installation, previous, name),
 		`the draft ${name}`
 	)
-	const meta = metaView(trustedJson<MetaRead>(g.folder.metaText).files)
+	const meta = metaView(trustedJson<{ readonly meta: MetaRead }>(g.folder.metaText).meta.files)
 	return new Drafted(
 		{
 			change: g.change,

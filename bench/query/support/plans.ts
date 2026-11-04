@@ -22,7 +22,7 @@ import { GateSetupError, type InstalledIndex } from "#bench/query/support/kit.ts
 export const summaryOf = (measure: VariantMeasure, index: number): PlanSummary => {
 	const summary = measure.plans[index]
 	if (summary === undefined) {
-		throw GateSetupError.make({ what: `${measure.label} has no statement ${index}` })
+		throw new GateSetupError({ what: `${measure.label} has no statement ${index}` })
 	}
 	return summary
 }
@@ -45,8 +45,9 @@ export const serverStatementPlanOf = (
 		Arr.findFirst(measure.serverPlans, (p) => p.mode === mode),
 		(p) => Arr.get(p.plans, index)
 	)
-	return Option.getOrThrowWith(plan, () =>
-		GateSetupError.make({ what: `${measure.label} has no ${mode} plan of statement ${index}` })
+	return Option.getOrThrowWith(
+		plan,
+		() => new GateSetupError({ what: `${measure.label} has no ${mode} plan of statement ${index}` })
 	).plan
 }
 
@@ -149,7 +150,7 @@ export const planFigures = (measure: VariantMeasure): Readonly<Record<string, nu
 export const serializedKb = (measure: VariantMeasure, index: number): number => {
 	const serialized = summaryOf(measure, index).serializationKb
 	if (serialized.kind === "notCaptured") {
-		throw GateSetupError.make({
+		throw new GateSetupError({
 			what: `${measure.label}'s statement ${index} was captured without SERIALIZE`
 		})
 	}

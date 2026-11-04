@@ -1,12 +1,4 @@
-import {
-	Array as Arr,
-	Effect,
-	Option,
-	Path,
-	type PlatformError,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Data, Effect, Option, Path, type PlatformError, String as Str } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { repoRoot } from "#bench/cold/identity.ts"
 import { defaultGateDirectories } from "#bench/harness/runner.ts"
@@ -27,15 +19,10 @@ export type BenchCommand =
 	| { readonly kind: "full" }
 
 /** A command line `pnpm bench` cannot read, and why. */
-class UsageError extends Schema.TaggedError<UsageError, { readonly brand: unique symbol }>()(
-	"UsageError",
-	{
-		reason: Schema.String
-	}
-) {}
+class UsageError extends Data.TaggedError("UsageError")<{ readonly reason: string }> {}
 
 const usage = (reason: string): Effect.Effect<never, UsageError> =>
-	Effect.fail(UsageError.make({ reason }))
+	Effect.fail(new UsageError({ reason }))
 
 const suiteEntries: Readonly<Record<"cold", string>> = {
 	cold: `${repoRoot}/bench/cold/main.ts`

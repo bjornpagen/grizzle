@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Schema, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Option, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Actors } from "#test/support/schedules/actors.ts"
@@ -36,16 +36,13 @@ import type {
 
 import { regex } from "arkregex"
 /** The schedule did not go as written. `trace` is the printable trace up to and including the failing step. */
-export class ScheduleFailed extends Schema.TaggedError<
-	ScheduleFailed,
-	{ readonly brand: unique symbol }
->()("ScheduleFailed", {
-	schedule: Schema.String,
-	step: Schema.Finite,
-	reason: Schema.String,
-	trace: Schema.String,
-	report: Schema.String
-}) {
+export class ScheduleFailed extends Data.TaggedError("ScheduleFailed")<{
+	readonly schedule: string
+	readonly step: number
+	readonly reason: string
+	readonly trace: string
+	readonly report: string
+}> {
 	override get message(): string {
 		return this.report
 	}
@@ -533,7 +530,7 @@ export const runSchedule = <D extends string, G extends string>(
 	Effect.gen(function* () {
 		const failed = (step: number, reason: string, entries: ReadonlyArray<TraceEntry>) => {
 			const trace = formatTrace({ schedule: schedule.name, entries })
-			return ScheduleFailed.make({
+			return new ScheduleFailed({
 				schedule: schedule.name,
 				step: step + 1,
 				reason,

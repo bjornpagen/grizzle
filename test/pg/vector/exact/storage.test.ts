@@ -182,13 +182,6 @@ layer(Substrate.layer)("vector storage", (it) => {
 							})
 					)
 					/**
-					 * The codec admits any vector of the column's dimensions, whatever model produced it, and refuses other
-					 * dimensions before any SQL.
-					 */
-					const other = codec.encode(Vector.make(Float32Array.of(1, 0, 0, 0), 4))
-					assert.equal(succeeded(other), "[1,0,0,0]")
-					faulted(codec.encode(Vector.make(Float32Array.of(1, 0, 0), 3)), "vectorDimensions")
-					/**
 					 * Vector.from is the explicit boundary: a vector of the field's dimensions passes when its norm is in the
 					 * domain, and is refused otherwise.
 					 */

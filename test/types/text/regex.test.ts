@@ -10,7 +10,8 @@ import { containedProgram } from "#test/types/text/contained.ts"
 layer(NodeServices.layer, { excludeTestServices: true })("str.regex types", (it) => {
 	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
 		Effect.gen(function* () {
-			assert.equal((yield* checked("text/fixtures")).output, "")
+			const diagnostics = yield* checked("text/fixtures")
+			assert.equal(diagnostics.output, "")
 		})
 	)
 
@@ -28,7 +29,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("str.regex types", (it)
 			 * contributes no member, so every family contributes one from its witnesses, the draws its labels fix.
 			 */
 			const { families, witnesses } = containedProgram(typeRun().seed)
-			assert.equal((yield* checked("text/contained")).output, "")
+			const diagnostics = yield* checked("text/contained")
+			assert.equal(diagnostics.output, "")
 			assert.deepEqual(unreachedOf(families, [witnesses]), [])
 		})
 	)

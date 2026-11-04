@@ -39,7 +39,7 @@ export const collectInputs = (
 			}
 			return Effect.flatMap(Stream.runCollect(Stream.take(input.stream, maxRows + 1)), (facts) =>
 				facts.length > maxRows
-					? Effect.fail(InputTooLarge.make())
+					? Effect.fail(new InputTooLarge())
 					: Effect.succeed([member, facts] as const)
 			)
 		}),

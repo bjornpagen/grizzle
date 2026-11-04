@@ -214,12 +214,11 @@ const flightSuite = Effect.gen(function* () {
 					applicationName: "grizzle-wire-tap"
 				})
 				const session = tapped.session
-				const pid = Number(
-					(yield* runAlone(session, {
-						sql: testSql("SELECT pg_catalog.pg_backend_pid()::text"),
-						params: []
-					})).rows[0]?.[0]
-				)
+				const backend = yield* runAlone(session, {
+					sql: testSql("SELECT pg_catalog.pg_backend_pid()::text"),
+					params: []
+				})
+				const pid = Number(backend.rows[0]?.[0])
 				const mark = tapped.mark()
 				if (k !== undefined) {
 					tapped.gate.hold(k, { kind: "type", type: "Z" })

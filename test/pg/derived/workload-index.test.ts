@@ -1,8 +1,9 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option, pipe, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, pipe, String as Str } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg, type Uuid } from "#compiler/public/fields.ts"
@@ -55,10 +56,8 @@ const facts = {
 	AutomaticTask: Arr.map(taskIds, (t) => ({ task: id(t), budget: 100n }))
 }
 
-/** Each index of the view as (name, unique, valid, kind of the indexed relation): catalog rows, decoded. */
-const indexRows = Schema.decodeUnknownEffect(
-	Schema.Array(Schema.Tuple([Schema.String, Schema.String, Schema.String, Schema.String]))
-)
+/** Each index of the view as (name, unique, valid, kind of the indexed relation). */
+type IndexRow = readonly [name: string, unique: string, valid: string, kind: string]
 
 layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 	it.effect(
@@ -86,15 +85,16 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 				const view = printObjectName(installed.names.relation("AccountBudget"))
 				const keyIndex = namesOf(installed).viewKeyIndex(W.AccountBudget, ["account"])
 				const indexes = () =>
-					owner
-						.values(
+					Effect.map(
+						owner.values(
 							`SELECT c.relname::text, i.indisunique::text, i.indisvalid::text, t.relkind::text
 						FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid
 						JOIN pg_catalog.pg_class AS t ON t.oid = i.indrelid WHERE i.indrelid = '${view}'::regclass
 						ORDER BY c.relname`,
 							[]
-						)
-						.pipe(Effect.flatMap(indexRows))
+						),
+						(rows) => trusted<ReadonlyArray<IndexRow>>(rows)
+					)
 				/** The view's two indexes: its key index, unique, and the workload index, its one non-unique index. */
 				const before = yield* indexes()
 				assert.equal(before.length, 2)

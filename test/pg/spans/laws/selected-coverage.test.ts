@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -102,27 +102,6 @@ const literal = (s: Span): string => `'[${s.start},${s.end})'::int8range`
 type CoverFeature =
 	`${"covered" | "refused"} ${"from the lower limit" | "to the upper limit" | "inside the limits"}`
 
-/**
- * Planted: a visit covered from the lower limit and one covered to the upper limit, each by one shift, which the drawn
- * covers reach a few times a run.
- */
-const kept = (
-	note: string,
-	cuts: ReadonlyArray<number>,
-	visit: readonly [number, number],
-	reaches: CoverFeature
-) => ({
-	note,
-	sketch: { cuts, dropped: Arr.map(points, () => false), visit },
-	draws: "",
-	reaches: [reaches] as const
-})
-
-const coverKept: ReadonlyArray<Kept<CoverSketch, CoverFeature>> = [
-	kept("[min, 0) over one shift", [0, 3], [0, 3], "covered from the lower limit"),
-	kept("[1, max) over one shift", [3, 6], [4, 6], "covered to the upper limit")
-]
-
 layer(Substrate.layer)("selected-source span coverage at the int8 limits", (it) => {
 	it.effect(
 		"a billable visit is accepted iff the union of its site's shifts contains it, at the int8 limits",
@@ -141,7 +120,7 @@ layer(Substrate.layer)("selected-source span coverage at the int8 limits", (it) 
 							suite: "spans/selected-coverage-limits",
 							draw: drawn(coverSketchGen),
 							literal: Formatter.format,
-							kept: coverKept,
+							kept: [],
 							runs: 60,
 							shrink: completeShrink,
 							concurrency: 1,

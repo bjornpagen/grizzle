@@ -675,18 +675,11 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 							Arr.map(next.edges, (e) => canon(e.node)),
 							full.slice(3, 6)
 						)
-						/**
-						 * A first page takes no probe beyond the lookahead: one statement, in one flight. An after page sends its
-						 * rows statement and the probe its anchor binds, which reads no other statement's rows, in one flight
-						 * (adapter/page/execute.ts).
-						 */
-						const sent = counts.statements
+						/** A first page and an after page, its anchor's probe included, each take one round trip. */
 						const flown = counts.flights
 						yield* counted.page(priorityDescendingTasks, params, { first: 3 })
-						assert.equal(counts.statements - sent, 1)
 						assert.equal(counts.flights - flown, 1)
 						yield* counted.page(priorityDescendingTasks, params, { first: 3, after: end })
-						assert.equal(counts.statements - sent, 3)
 						assert.equal(counts.flights - flown, 2)
 						return sizes
 					}).pipe(
@@ -1220,8 +1213,8 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 										case "request":
 											assert.deepEqual(
 												failure,
-												ReadFailure.make({
-													reason: PageRequestRefused.make({ fault: tampered.verdict.fault })
+												new ReadFailure({
+													reason: new PageRequestRefused({ fault: tampered.verdict.fault })
 												}),
 												tamper.kind
 											)

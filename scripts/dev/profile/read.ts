@@ -11,30 +11,30 @@ import {
 	Order,
 	pipe,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
+import { trustedJson } from "#compiler/core/trusted.ts"
 
 import { regex } from "arkregex"
-const CallFrame = Schema.Struct({
-	functionName: Schema.String,
-	url: Schema.String,
-	lineNumber: Schema.Int
-})
+interface CallFrame {
+	readonly functionName: string
+	readonly url: string
+	readonly lineNumber: number
+}
 
 /** A node of the profile's call tree; V8 leaves out the children of a leaf. */
-const ProfileNode = Schema.Struct({
-	id: Schema.Int,
-	callFrame: CallFrame,
-	children: Schema.Array(Schema.Int).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])))
-})
+interface ProfileNode {
+	readonly id: number
+	readonly callFrame: CallFrame
+	readonly children?: ReadonlyArray<number>
+}
 
-const Profile = Schema.Struct({
-	nodes: Schema.Array(ProfileNode),
-	samples: Schema.Array(Schema.Int),
-	timeDeltas: Schema.Array(Schema.Int)
-})
-type Profile = typeof Profile.Type
+/** A V8 .cpuprofile, as node --cpu-prof writes it. */
+interface Profile {
+	readonly nodes: ReadonlyArray<ProfileNode>
+	readonly samples: ReadonlyArray<number>
+	readonly timeDeltas: ReadonlyArray<number>
+}
 
 /** The command line, parsed once. */
 interface Settings {
@@ -103,7 +103,7 @@ interface Tables {
 const tablesOf = (profile: Profile, settings: Settings): Tables => {
 	const nodes = new Map(Arr.map(profile.nodes, (n) => [n.id, n] as const))
 	const parent = new Map(
-		Arr.flatMap(profile.nodes, (n) => Arr.map(n.children, (c) => [c, n.id] as const))
+		Arr.flatMap(profile.nodes, (n) => Arr.map(n.children ?? [], (c) => [c, n.id] as const))
 	)
 	const fnKey = (id: number): string =>
 		Option.match(Option.fromUndefinedOr(nodes.get(id)), {
@@ -193,9 +193,10 @@ const main = Effect.gen(function* () {
 	const text = yield* fs
 		.readFileString(settings.path)
 		.pipe(Effect.mapError(failureFrom(`${settings.path} could not be read`)))
-	const profile = yield* Schema.decodeEffect(Schema.fromJsonString(Profile))(text).pipe(
-		Effect.mapError(failureFrom(`${settings.path} is not a V8 cpu profile`))
-	)
+	const profile = yield* Effect.try({
+		try: () => trustedJson<Profile>(text),
+		catch: failureFrom(`${settings.path} is not JSON`)
+	})
 	const t = tablesOf(profile, settings)
 	yield* Console.log(`total ${t.total.toFixed(0)} ms`)
 	yield* Console.log(table(settings, t.total, "self time by file", t.selfFile))

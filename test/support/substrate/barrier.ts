@@ -16,7 +16,7 @@ export interface LockWait {
  * pg_stat_activity's wait columns are visible only to a viewer with the privileges of the target's role; the
  * allocator grants each test role to the owner for this reason (see substrate.ts). pg_locks is visible to all.
  */
-export const lockWaitQuery = `SELECT a.wait_event::text, l.locktype::text, l.mode::text, array_to_string(pg_catalog.pg_blocking_pids(a.pid), ',')
+const lockWaitQuery = `SELECT a.wait_event::text, l.locktype::text, l.mode::text, array_to_string(pg_catalog.pg_blocking_pids(a.pid), ',')
 FROM pg_catalog.pg_stat_activity AS a
 JOIN pg_catalog.pg_locks AS l ON l.pid = a.pid AND NOT l.granted
 WHERE a.pid = $1::int4 AND a.wait_event_type = 'Lock'::text`
@@ -31,6 +31,15 @@ const parseWait = (pid: number, row: ReadonlyArray<unknown>): LockWait => {
 		blockedBy: (blockers ?? "").length === 0 ? [] : Arr.map(Str.split(blockers ?? "", ","), Number)
 	}
 }
+
+/** The lock wait of backend `pid`, read once on `observer`, or undefined when it waits on no heavyweight lock. */
+export const lockWaitOf = (
+	observer: PgConnection,
+	pid: number
+): Effect.Effect<LockWait | undefined, SqlError> =>
+	Effect.map(observer.queryValues(lockWaitQuery, [pid]), ([first]) =>
+		first === undefined ? undefined : parseWait(pid, first)
+	)
 
 /**
  * The lock-wait barrier: waits until a backend is observed blocked on a heavyweight lock.
@@ -50,18 +59,15 @@ export const awaitLockWait = (
 ): Effect.Effect<LockWait, SqlError> =>
 	Effect.gen(function* () {
 		for (;;) {
-			const rows = yield* observer.queryValues(lockWaitQuery, [pid])
-			const first = rows[0]
-			if (first !== undefined) {
-				const wait = parseWait(pid, first)
-				if (
-					Option.match(blockedBy, {
-						onNone: () => true,
-						onSome: (holder) => wait.blockedBy.includes(holder)
-					})
-				) {
-					return wait
-				}
+			const wait = yield* lockWaitOf(observer, pid)
+			if (
+				wait !== undefined &&
+				Option.match(blockedBy, {
+					onNone: () => true,
+					onSome: (holder) => wait.blockedBy.includes(holder)
+				})
+			) {
+				return wait
 			}
 			yield* Effect.yieldNow
 		}
@@ -95,10 +101,9 @@ export const awaitBlockedBy = (
 				)
 			}
 			if (only !== undefined) {
-				const waiter = Number(only[0])
-				const [wait] = yield* observer.queryValues(lockWaitQuery, [waiter])
+				const wait = yield* lockWaitOf(observer, Number(only[0]))
 				if (wait !== undefined) {
-					return parseWait(waiter, wait)
+					return wait
 				}
 			}
 			yield* Effect.yieldNow

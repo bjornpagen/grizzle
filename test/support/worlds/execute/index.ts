@@ -12,7 +12,6 @@ import {
 	Redacted,
 	Ref,
 	Result,
-	Schema,
 	Scope
 } from "effect"
 import type { Pool } from "pg"
@@ -281,7 +280,7 @@ const realizeWith = (
 		}).pipe(
 			Effect.catchTags({
 				CompileError: (refusal) =>
-					Effect.fail(RealizeRefused.make({ what: "the installation", refusal })),
+					Effect.fail(new RealizeRefused({ what: "the installation", refusal })),
 				TransactionRolledBack: (rolledBack) => Effect.die(rolledBack)
 			})
 		)
@@ -720,7 +719,7 @@ const realizeWith = (
 		const openDb = (action: Extract<Action, { readonly kind: "open-db" }>): Effect.Effect<Seen> =>
 			Effect.gen(function* () {
 				const target = yield* openTarget(action.role, action.snapshot)
-				const handed = yield* handedOf(action.token)
+				const handed = handedOf(action.token)
 				const options = Option.match(handed, {
 					onNone: () => ({}),
 					onSome: (token) => ({ token: token.text })
@@ -918,7 +917,8 @@ const realizeWith = (
 					yield* closeSession(action.session, s)
 					return seen({ kind: "interrupted" })
 				}
-				const fiber = Option.fromNullishOr((yield* Ref.get(inFlight)).get(action.session))
+				const running = yield* Ref.get(inFlight)
+				const fiber = Option.fromNullishOr(running.get(action.session))
 				if (Option.isNone(fiber)) {
 					return seen({ kind: "ok" })
 				}
@@ -987,7 +987,7 @@ const realizeWith = (
 					handing(
 						handed,
 						Effect.provideContext(
-							Effect.mapError(opening, (cause) => Thrown.make({ cause })),
+							Effect.mapError(opening, (cause) => new Thrown({ cause })),
 							context
 						)
 					)
@@ -998,7 +998,7 @@ const realizeWith = (
 						Result.match(Cause.findError(cause), {
 							onFailure: (rest) => Effect.failCause(rest),
 							onSuccess: (thrown) =>
-								isOpenError(thrown.cause)
+								thrown.cause instanceof OpenError
 									? Effect.map(openRefused(thrown.cause, verifyCalls), (observation) =>
 											refusedWith(observation, thrown.cause)
 										)
@@ -1511,8 +1511,6 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 
 /** The wild value of a kind, handed on only at the call it is drawn for. */
 const wildValue = (kind: WildKind): unknown => passed({ kind: "wild", wild: wildOf(kind) })
-
-const isOpenError = Schema.is(OpenError)
 
 /**
  * Whether Db.open, handed a wild value, returned an Effect. It is read with Db.open's declared answer: a Db of the role

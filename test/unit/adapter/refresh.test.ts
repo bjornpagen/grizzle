@@ -23,7 +23,6 @@ import {
 	Formatter,
 	Option,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import { textArray } from "#adapter/admission/roles.ts"
@@ -53,10 +52,8 @@ import {
 import { classifyRefreshFailure, runRefresh } from "#adapter/refresh/run.ts"
 import { refreshTargets } from "#adapter/refresh/targets.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
-import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { RoleDesc } from "#compiler/ir/desc.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -64,8 +61,9 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, role, schema } from "#compiler/public/schema.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
+import type { ObjectName } from "#compiler/sql/ast.ts"
 import { assert, defined, refusalLoc, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { ledgerPrologue } from "#test/support/flight/model.ts"
+import { prologueIn } from "#test/support/flight/model.ts"
 import {
 	answeringScript,
 	immediateDelivery,
@@ -132,6 +130,20 @@ const artifacts = succeeded(
 /** The names of Reports' installation, compiled without a database. */
 const reportsNames = installationNamesOf(installationOf(Reports, { kind: "declared" }))
 
+/** A derived relation's view, as the naming door names it. */
+const viewOf = (relation: { readonly name: string }) => ({
+	schema: reportsNames.schema,
+	name: reportsNames.tableIdent(relation)
+})
+
+/** A refresh target as the test states it: the relation, its level and its position, and its view. */
+const target = (relation: { readonly name: string }, level: number, position: number) => ({
+	relation: relation.name,
+	level,
+	position,
+	view: viewOf(relation)
+})
+
 /** A role value's Description, as Db.open parses it. */
 const declaredOf = (value: unknown): RoleDesc => {
 	const desc = roleDescOf(value)
@@ -144,14 +156,18 @@ const declaredOf = (value: unknown): RoleDesc => {
 const order = (
 	relations: Arr.NonEmptyReadonlyArray<unknown>,
 	as: RoleDesc
-): ReadonlyArray<ReadonlyArray<string | number>> =>
-	Arr.map(succeeded(refreshTargets(as, artifacts, relations)), (t) => [
-		t.relation,
-		t.level,
-		t.position,
-		t.view.schema,
-		t.view.name
-	])
+): ReadonlyArray<{
+	readonly relation: string
+	readonly level: number
+	readonly position: number
+	readonly view: ObjectName
+}> =>
+	Arr.map(succeeded(refreshTargets(as, artifacts, relations)), (t) => ({
+		relation: t.relation,
+		level: t.level,
+		position: t.position,
+		view: t.view
+	}))
 
 const refusal = (relations: Arr.NonEmptyReadonlyArray<unknown>, as: RoleDesc): CompileError => {
 	const targets = refreshTargets(as, artifacts, relations)
@@ -163,15 +179,11 @@ const refusal = (relations: Arr.NonEmptyReadonlyArray<unknown>, as: RoleDesc): C
 
 describe("db.refresh targets", () => {
 	it("refreshes in level order, then declared order, each named relation once", () => {
-		const expected = [
-			["B", 1, 0, "edu", "b"],
-			["A", 1, 1, "edu", "a"],
-			["C", 2, 0, "edu", "c"]
-		]
+		const expected = [target(B, 1, 0), target(A, 1, 1), target(C, 2, 0)]
 		const refresher = declaredOf(Refresher)
 		assert.deepEqual(order([C, A, B], refresher), expected)
 		assert.deepEqual(order([A, C, B, C, A], refresher), expected)
-		assert.deepEqual(order([C], refresher), [["C", 2, 0, "edu", "c"]])
+		assert.deepEqual(order([C], refresher), [target(C, 2, 0)])
 	})
 
 	it("orders by level of schema extension and declared order, never by the depth of a definition's inputs", () => {
@@ -211,7 +223,7 @@ describe("db.refresh targets", () => {
 	it("accepts a JavaScript look-alike of a derived relation value, checked as a built one", () => {
 		assert.deepEqual(
 			order([{ kind: "derived", name: "A", definition: totals }], declaredOf(Refresher)),
-			[["A", 1, 1, "edu", "a"]]
+			[target(A, 1, 1)]
 		)
 	})
 
@@ -463,29 +475,21 @@ type Told =
 	| { readonly other: unknown }
 
 const told = (failure: unknown): Told =>
-	Schema.is(TransientFailure)(failure)
+	failure instanceof TransientFailure
 		? { transient: failure.reason, sqlstate: failure.error.sqlstate }
-		: Schema.is(ExecutionFailure)(failure) && failure.reason._tag === "ServerError"
+		: failure instanceof ExecutionFailure && failure.reason._tag === "ServerError"
 			? { execution: failure.reason.sqlstate }
 			: { other: failure }
-const serialization: Told = { transient: SerializationFailure.make(), sqlstate: "40001" }
+const serialization: Told = { transient: new SerializationFailure(), sqlstate: "40001" }
 
 const targetsOf = (relations: Arr.NonEmptyReadonlyArray<unknown>) =>
 	succeeded(refreshTargets(declaredOf(Refresher), artifacts, relations))
 
-/** What a refresh runs as: the refresher's role, holding no claims. */
-const eduLedger = ledgerStatements("edu")
-if (!eduLedger.ok) {
-	throw new Error(`the ledger statements of edu: ${eduLedger.error.message}`)
-}
+/** The prologue a refresh runs behind: the fence on the installation's ledger, then its role. */
+const asRefresher = prologueIn(reportsNames.schema)
 
-/** The refresher's prologue: the fence on edu's ledger, then its role with no claims. */
-const asRefresher = ledgerPrologue(
-	eduLedger.value,
-	"edu__refresher",
-	"",
-	SchemaFingerprint("edu-snapshot")
-)
+/** B's view, the one view the sessions below report populated. */
+const populatedB = [reportsNames.tableIdent(B)]
 
 /**
  * A session that reports the named views populated and otherwise answers as `script` says: the block succeeds unless
@@ -555,8 +559,8 @@ describe("how a refresh ends", () => {
 				{
 					suite: "unit/adapter/refresh-transients",
 					generator: element<readonly ["40001" | "40P01", TransientReason]>([
-						["40001", SerializationFailure.make()],
-						["40P01", Deadlock.make()]
+						["40001", new SerializationFailure()],
+						["40P01", new Deadlock()]
 					]),
 					literal: (row) => Formatter.format(row[0]),
 					limit: 2,
@@ -569,7 +573,7 @@ describe("how a refresh ends", () => {
 						const raised = serverError({ ...nothingReported, sqlstate })
 						assert.deepEqual(
 							classifyRefreshFailure(raised),
-							TransientFailure.make({ reason, error: raised })
+							new TransientFailure({ reason, error: raised })
 						)
 					})
 			)
@@ -614,16 +618,16 @@ describe("how a refresh ends", () => {
 						Effect.gen(function* () {
 							c.note(sqlstate)
 							const denied = classifyRefreshFailure(raised)
-							assert.ok(Schema.is(ExecutionFailure)(denied))
+							assert.ok(denied instanceof ExecutionFailure)
 							assert.equal(denied.reason, raised)
-							const session = refreshSession(["b"], {
+							const session = refreshSession(populatedB, {
 								...answeringScript,
 								statement: (query) =>
 									query.sql !== populatedSql ? { _tag: "refused", error: raised } : rows([])
 							})
 							const refreshed = yield* refreshOn(session, [B])
 							const failure = failureOf(refreshed)
-							assert.ok(Schema.is(ExecutionFailure)(failure))
+							assert.ok(failure instanceof ExecutionFailure)
 							assert.deepEqual(failure.reason, raised)
 							assert.deepEqual(session.committed(), [])
 						})
@@ -635,7 +639,10 @@ describe("how a refresh ends", () => {
 		"reads populated views, then the block that checks and refreshes in refresh order, and commits, in one SERIALIZABLE flight",
 		() =>
 			Effect.gen(function* () {
-				const session = refreshSession(["b"], { ...answeringScript, statement: () => rows([]) })
+				const session = refreshSession(populatedB, {
+					...answeringScript,
+					statement: () => rows([])
+				})
 				const exit = yield* refreshOn(session, [C, A, B])
 				assert.ok(Exit.isSuccess(exit), "the refresh succeeds")
 				const [only, ...rest] = session.flights()
@@ -645,11 +652,7 @@ describe("how a refresh ends", () => {
 					asRefresher.fence.server.sql,
 					asRefresher.enter.server.sql,
 					populatedSql,
-					refreshBlock([
-						{ schema: "edu", name: "b" },
-						{ schema: "edu", name: "a" },
-						{ schema: "edu", name: "c" }
-					]),
+					refreshBlock([viewOf(B), viewOf(A), viewOf(C)]),
 					"COMMIT"
 				])
 				assert.deepEqual(
@@ -670,17 +673,17 @@ describe("how a refresh ends", () => {
 				const position = Option.getOrThrow(
 					Arr.findFirstIndex(targetsOf([A, B]), (t) => t.relation === "A")
 				)
-				const session = refreshSession(["b"], rewrittenAt(position))
+				const session = refreshSession(populatedB, rewrittenAt(position))
 				const refreshed = yield* refreshOn(session, [A, B])
 				const failure = failureOf(refreshed)
 				assert.deepEqual(told(failure), {
-					transient: ConcurrentRefresh.make({ relation: "A" }),
+					transient: new ConcurrentRefresh({ relation: "A" }),
 					sqlstate: sqlstates.grizzleConcurrentChange
 				})
 				assert.equal(session.flights().length, 1)
 				assert.deepEqual(session.committed(), [])
 				/** A 40Z01 that names no target is no ConcurrentRefresh. */
-				const stray = refreshSession(["b"], rewrittenAt(9))
+				const stray = refreshSession(populatedB, rewrittenAt(9))
 				const strayRefreshed = yield* refreshOn(stray, [A, B])
 				const strayFailure = failureOf(strayRefreshed)
 				assert.deepEqual(told(strayFailure), { execution: sqlstates.grizzleConcurrentChange })
@@ -693,39 +696,40 @@ describe("how a refresh ends", () => {
 			Effect.gen(function* () {
 				/** A refresh statement's refusal inside the block keeps its SQLSTATE. */
 				const refreshing = (sqlstate: string) =>
-					refreshSession(["b"], {
+					refreshSession(populatedB, {
 						...answeringScript,
 						statement: (query) => (query.sql !== populatedSql ? refusedAnswer(sqlstate) : rows([]))
 					})
-				assert.deepEqual(
-					(yield* refreshOn(refreshing("40001"), [B])).pipe(failureOf, told),
-					serialization
-				)
-				const atCommit = refreshSession(["b"], {
+				const refusedInside = yield* refreshOn(refreshing("40001"), [B])
+				assert.deepEqual(refusedInside.pipe(failureOf, told), serialization)
+				const atCommit = refreshSession(populatedB, {
 					...answeringScript,
 					statement: () => rows([]),
 					commit: () => serverError({ ...nothingReported, sqlstate: "40001" })
 				})
-				assert.deepEqual((yield* refreshOn(atCommit, [B])).pipe(failureOf, told), serialization)
-				const lostCommit = refreshSession(["b"], {
+				const refusedAtCommit = yield* refreshOn(atCommit, [B])
+				assert.deepEqual(refusedAtCommit.pipe(failureOf, told), serialization)
+				const lostCommit = refreshSession(populatedB, {
 					...answeringScript,
 					statement: () => rows([]),
 					commit: () => "lose"
 				})
-				assert.ok((yield* refreshOn(lostCommit, [B])).pipe(failureOf, Schema.is(CommitUnknown)))
+				const lostAtCommit = yield* refreshOn(lostCommit, [B])
+				assert.ok(failureOf(lostAtCommit) instanceof CommitUnknown)
 				/** Lost at a statement of the one flight, which carried COMMIT: the commit's fate is unknown. */
 				const lost = scriptedSession(
 					{ ...answeringScript, statement: () => ({ _tag: "lose" }) },
 					immediateDelivery
 				)
-				assert.ok((yield* refreshOn(lost, [B])).pipe(failureOf, Schema.is(CommitUnknown)))
+				const lostInFlight = yield* refreshOn(lost, [B])
+				assert.ok(failureOf(lostInFlight) instanceof CommitUnknown)
 				const unacquired = yield* Effect.exit(
 					runRefresh(
 						{
 							prologue: asRefresher,
 							pool: scriptedPool({
 								lease: Effect.fail(
-									AcquisitionBudgetExceeded.make({ millis: 1, sessions: 1, leased: 1, max: 1 })
+									new AcquisitionBudgetExceeded({ millis: 1, sessions: 1, leased: 1, max: 1 })
 								)
 							})
 						},
@@ -733,7 +737,7 @@ describe("how a refresh ends", () => {
 					)
 				)
 				const acquire = failureOf(unacquired)
-				assert.ok(Schema.is(TransportFailure)(acquire) && acquire.stage === "acquire")
+				assert.ok(acquire instanceof TransportFailure && acquire.stage === "acquire")
 			})
 	)
 })

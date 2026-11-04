@@ -47,7 +47,6 @@ import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { type SqlForm, statementForm } from "#compiler/sql/form.ts"
 
 /** Entries in the code-unit order of their keys. */
 const byKey: Comparator<readonly [string, unknown]> = mapInput(
@@ -60,10 +59,16 @@ const withoutFingerprint: EncodeOptions = {
 	omit: (...[key, , path]) => path.length === 0 && key === "fingerprint"
 }
 
-/** The fingerprint of a snapshot's form, as snapshot.json writes it: the digest of every property but the snapshot's own
- * fingerprint. */
-const formFingerprint = (form: RecordOf<SqlForm>): Result.Result<SchemaFingerprint, CompileError> =>
-	Result.map(digest("snapshot", form, withoutFingerprint), toSchemaFingerprint)
+/**
+ * The fingerprint of a snapshot's JSON value: the digest of every property but its own fingerprint. It is the content
+ * fingerprint a finished snapshot records, and the integrity check of a read one, computed over the value JSON gave
+ * before anything reads it as a snapshot: the digest is total over any value, so an edited or corrupted snapshot.json is
+ * refused by its fingerprint and never reaches typed code (the shell's boundary/snapshot.ts).
+ */
+export const snapshotFingerprint = (
+	value: unknown
+): Result.Result<SchemaFingerprint, CompileError> =>
+	Result.map(digest("snapshot", value, withoutFingerprint), toSchemaFingerprint)
 
 /** The fingerprint of a schema's empty snapshot, which a database holds before its first migration: the source of that
  * migration and the latest target of a database without the schema's ledger. It depends on the installed schema
@@ -239,24 +244,24 @@ const sortedOwners = <V>(
 		)
 	)
 
-/** The JSON form of a snapshot, before the canonical tags: what its fingerprint digests and what snapshot.json writes.
- * Each record of the documented form holds exactly its documented fields, and each statement is its JSON form
- * (`statementForm`), which leaves out every clause that is none, so a snapshot has one spelling. A key whose value is
- * absent is left out, as the type's default operator class of an access path's key is. The boundary decoder of
- * snapshot.json (the shell's) reads exactly this form back. */
-type SnapshotForm = { readonly [key: string]: SqlForm }
+/** The form of a snapshot, before the canonical tags: what its fingerprint digests and what snapshot.json writes. Each
+ * record of the documented form holds exactly its documented fields, and each installed statement is the statement
+ * itself, every clause stated. A key whose value is absent is left out, as an undefined clause of a statement and the
+ * type's default operator class of an access path's key are. The shell reads exactly this value back as the snapshot,
+ * once its fingerprint holds (boundary/snapshot.ts). */
+type SnapshotForm = RecordOf<never>
 
-/** An installed statement as snapshot.json lays it out: its JSON form, compact, on one line of its own. The statement
- * is the unit the diff compares and a review reads, so a changed statement is one changed line. */
+/** An installed statement as snapshot.json lays it out: compact, on one line of its own. The statement is the unit the
+ * diff compares and a review reads, so a changed statement is one changed line. */
 class StatementLine {
-	readonly form: SqlForm
-	constructor(form: SqlForm) {
-		this.form = form
+	readonly statement: SqlStatement
+	constructor(statement: SqlStatement) {
+		this.statement = statement
 	}
 }
 
-/** A value of the snapshot's form whose installed statements are `S`: their JSON forms, which the fingerprint digests,
- * or their StatementLines, which snapshot.json is written from. */
+/** A value of the snapshot's form whose installed statements are `S`: the statements themselves, which the fingerprint
+ * digests, or their StatementLines, which snapshot.json is written from. */
 type FormOf<S> =
 	| string
 	| number
@@ -272,11 +277,11 @@ type RecordOf<S> = { readonly [key: string]: FormOf<S> }
 /** How a form holds an installed statement. */
 type Statement<S> = (s: SqlStatement) => S
 
-/** Each statement as its JSON form. */
-const asForm: Statement<SqlForm> = (s) => statementForm(s)
+/** Each statement as itself. */
+const asStatement: Statement<SqlStatement> = (s) => s
 
 /** Each statement as its line of snapshot.json. */
-const asLine: Statement<StatementLine> = (s) => new StatementLine(statementForm(s))
+const asLine: Statement<StatementLine> = (s) => new StatementLine(s)
 
 const fieldForm = (f: SnapshotField): SnapshotForm => ({
 	name: f.name,
@@ -322,7 +327,7 @@ const lawForm = (l: SnapshotLaw): SnapshotForm => {
 
 const valuesForm = <V>(
 	record: Readonly<Record<string, V>>,
-	form: (v: V) => SqlForm
+	form: (v: V) => SnapshotForm
 ): SnapshotForm =>
 	Object.fromEntries(Object.entries(record).map(([key, value]) => [key, form(value)] as const))
 
@@ -414,7 +419,7 @@ const snapshotForm = <S>(s: DeploySnapshot, statement: Statement<S>): RecordOf<S
 export const finishSnapshot = (
 	state: SnapshotContent
 ): Result.Result<DeploySnapshot, CompileError> =>
-	Result.map(formFingerprint(contentForm(state, asForm)), (fingerprint) => ({
+	Result.map(snapshotFingerprint(contentForm(state, asStatement)), (fingerprint) => ({
 		...state,
 		fingerprint
 	}))
@@ -469,16 +474,6 @@ export const writeJsonText = (value: unknown): Result.Result<string, CompileErro
 		)
 	)
 
-/**
- * Whether a read snapshot's recorded fingerprint is its content's: a snapshot.json edited by hand keeps a fingerprint
- * its content no longer has, and is never trusted.
- */
-export const fingerprintHolds = (snapshot: DeploySnapshot): Result.Result<boolean, CompileError> =>
-	Result.map(
-		formFingerprint(snapshotForm(snapshot, asForm)),
-		(computed) => computed === snapshot.fingerprint
-	)
-
 /** A kernel result's value, or its failure thrown as a Refusal for the writer's door to return. */
 const valueOf = <A>(r: Result.Result<A, CompileError>): A => {
 	if (!r.ok) {
@@ -494,7 +489,7 @@ const valueOf = <A>(r: Result.Result<A, CompileError>): A => {
  */
 const formValue = (out: Lines, head: string, value: FormOf<StatementLine>, tail: string): void => {
 	if (value instanceof StatementLine) {
-		const compact = valueOf(writeCanonicalJson(valueOf(toJson(value.form, everyProperty))))
+		const compact = valueOf(writeCanonicalJson(valueOf(toJson(value.statement, everyProperty))))
 		return out.line(`${head}${compact}${tail}`)
 	}
 	if (typeof value !== "object") {

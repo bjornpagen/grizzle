@@ -15,6 +15,7 @@ import {
 	Effect,
 	Fiber,
 	FileSystem,
+	Formatter,
 	Option,
 	Order,
 	Path,
@@ -22,12 +23,12 @@ import {
 	Record as Rec,
 	Ref,
 	Result,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { indices, maxOf } from "#compiler/core/array.ts"
+import { jsonDocument, trustedJson } from "#compiler/core/trusted.ts"
 import { covered, isDump, type ScriptRanges, scriptsOfDump } from "#scripts/dev/mutate/coverage.ts"
 import {
 	applyMutant,
@@ -39,8 +40,6 @@ import {
 } from "#scripts/dev/mutate/operators.ts"
 
 import {
-	encodeReport,
-	encodeScore,
 	type Entry,
 	merged,
 	pruneTriage,
@@ -50,9 +49,9 @@ import {
 	type ReportInput,
 	reportOf,
 	type Stored,
-	Verdict
+	type Verdict
 } from "#scripts/dev/mutate/report.ts"
-import { RunLine } from "#scripts/dev/mutate/reporter.ts"
+import { type RunLine, runLineMarker } from "#scripts/dev/mutate/reporter.ts"
 import { hardenedNode, sourceCondition } from "#test/support/process.ts"
 
 import { regex } from "arkregex"
@@ -482,9 +481,6 @@ const sampleOf = (all: ReadonlyArray<Planned>, n: number, seed: number): Readonl
 	})
 }
 
-/** A line a run prints for this process to read: a failed test, or the run's end (reporter.ts). */
-const decodeRunLine = Schema.decodeOption(Schema.fromJsonString(RunLine))
-
 /** A failed test: its file and its path of suite and test names, `(file)` for the file's own suite. */
 interface Failure {
 	readonly file: string
@@ -544,14 +540,11 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 		line.kind === "fail"
 			? onFailure({ file: line.file, test: line.test })
 			: Effect.as(Ref.set(reading, "done"), true)
-	/** Records one stdout line and says whether to read on. */
+	/** Records one stdout line and says whether to read on: a line of the reporter's (reporter.ts) is a RunLine. */
 	const read = (line: string): Effect.Effect<boolean> =>
 		Effect.flatMap(record(line), () =>
-			Str.startsWith("{")(line)
-				? Option.match(decodeRunLine(line), {
-						onNone: () => Effect.succeed(true),
-						onSome: onLine
-					})
+			Str.startsWith(runLineMarker)(line)
+				? onLine(trustedJson<RunLine>(Str.slice(runLineMarker.length)(line)))
 				: Effect.succeed(true)
 		)
 	const watch = Effect.scoped(
@@ -671,7 +664,7 @@ const coverageIn = Effect.fn("coverageIn")(function* (
 	const entries = yield* fs.readDirectory(dir, { recursive: true })
 	const dumps = Arr.filter(entries, isDump)
 	const scripts = yield* Effect.forEach(dumps, (name) =>
-		Effect.flatMap(fs.readFileString(path.join(dir, name)), (text) =>
+		Effect.map(fs.readFileString(path.join(dir, name)), (text) =>
 			scriptsOfDump({ text, root, wanted })
 		)
 	)
@@ -936,10 +929,10 @@ const typeErrors = Effect.fn("typeErrors")(function* (tree: string) {
 })
 
 /** The stage-1 verdicts of a run, which a later run resumes from. */
-const Stage1 = Schema.fromJsonString(
-	Schema.Struct({ commit: Schema.String, verdicts: Schema.Record(Schema.String, Verdict) }),
-	{ space: "\t" }
-)
+type Stage1 = {
+	readonly commit: string
+	readonly verdicts: Readonly<Record<string, Verdict>>
+}
 
 /** The mutants with their verdicts, in the planned order. */
 type Judged = ReadonlyArray<readonly [Planned, Verdict]>
@@ -966,12 +959,11 @@ const stage1Of = Effect.fn("stage1Of")(function* (
 	const resumed = yield* Option.match(workspace.settings.resume, {
 		onNone: () => Effect.succeed<Readonly<Record<string, Verdict>>>({}),
 		onSome: (file) =>
-			Effect.map(
-				Effect.flatMap(
-					fs.readFileString(path.resolve(workspace.repo, file)),
-					Schema.decodeEffect(Stage1)
-				),
-				(s) => s.verdicts
+			Effect.flatMap(fs.readFileString(path.resolve(workspace.repo, file)), (text) =>
+				Effect.try({
+					try: () => trustedJson<Stage1>(text).verdicts,
+					catch: failureFrom(`${file} is not JSON`)
+				})
 			)
 	})
 	const baselineErrors = yield* typeErrors(workspace.base)
@@ -1020,11 +1012,11 @@ const stage1Of = Effect.fn("stage1Of")(function* (
 			return [m, verdict] as const
 		})
 	)
-	const recorded = yield* Schema.encodeEffect(Stage1)({
+	const recorded: Stage1 = {
 		commit: workspace.commit,
-		verdicts: Rec.fromEntries(Arr.map(judged, ([m, v]) => [m.id, v] as const))
-	})
-	yield* fs.writeFileString(path.join(logDir, "stage1.json"), `${recorded}\n`)
+		verdicts: Rec.fromEntries(Arr.map(judged, ([m, v]): readonly [string, Verdict] => [m.id, v]))
+	}
+	yield* fs.writeFileString(path.join(logDir, "stage1.json"), `${jsonDocument(recorded)}\n`)
 	return { judged, baseline }
 })
 
@@ -1098,7 +1090,7 @@ const writeReport = Effect.fn("writeReport")(function* (file: string, input: Rep
 	const path = yield* Path.Path
 	const report = reportOf(input)
 	yield* fs.makeDirectory(path.dirname(file), { recursive: true })
-	yield* fs.writeFileString(file, `${yield* encodeReport(report)}\n`)
+	yield* fs.writeFileString(file, `${jsonDocument(report)}\n`)
 	return report
 })
 
@@ -1171,7 +1163,7 @@ const runStages = Effect.fn("runStages")(function* (
 	const stored = Option.match(prior, { onNone: () => thisRun, onSome: (p) => merged(p, thisRun) })
 	const report: Report = yield* writeReport(reportPath, { stored, triage })
 	yield* Console.log(
-		`mutate: score ${report.total.score} (${yield* encodeScore(report.total)}); report ${reportPath}`
+		`mutate: score ${report.total.score} (${Formatter.format(report.total)}); report ${reportPath}`
 	)
 	yield* Effect.forEach(
 		Rec.toEntries(report.areas),
@@ -1182,8 +1174,6 @@ const runStages = Effect.fn("runStages")(function* (
 	)
 })
 
-const encodeOriginal = Schema.encodeEffect(Schema.fromJsonString(Schema.String))
-
 /** Lists the planned mutants and the count per operator. */
 const printPlan = Effect.fn("printPlan")(function* (
 	settings: Settings,
@@ -1192,13 +1182,9 @@ const printPlan = Effect.fn("printPlan")(function* (
 	yield* Effect.forEach(
 		planned,
 		(m) =>
-			Effect.gen(function* () {
-				const original = yield* encodeOriginal(m.original)
-				const replacement = yield* encodeOriginal(m.replacement)
-				yield* Console.log(
-					`${m.id} ${m.file}:${m.line}:${m.column} ${m.operator} ${original} -> ${replacement}`
-				)
-			}),
+			Console.log(
+				`${m.id} ${m.file}:${m.line}:${m.column} ${m.operator} ${Formatter.format(m.original)} -> ${Formatter.format(m.replacement)}`
+			),
 		{ discard: true }
 	)
 	yield* Effect.forEach(

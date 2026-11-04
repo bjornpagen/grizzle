@@ -56,7 +56,7 @@ export const serverFailure = (error: DatabaseError): ServerAnswer | undefined =>
 	if (code === undefined) {
 		return undefined
 	}
-	const kept = ServerError.make({
+	const kept = new ServerError({
 		sqlstate: code,
 		message: error.message,
 		constraint: constraintOf(reported(error.constraint)),

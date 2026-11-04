@@ -460,7 +460,8 @@ export const batchParitySuite = (): void => {
 							]),
 							{ min: 4, max: 14 }
 						)
-						const run = namesOf((yield* fixture()).session)
+						const tapped = yield* fixture()
+						const run = namesOf(tapped.session)
 						return yield* explore(
 							{
 								suite: `pg/adapter/batch-parity/names`,

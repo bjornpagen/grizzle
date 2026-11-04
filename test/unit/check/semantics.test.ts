@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
@@ -16,9 +16,10 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import { type LogicalQuery, paramColumns } from "#compiler/ir/products.ts"
 import { exprsOf } from "#compiler/ir/rel.ts"
-import { typeLabel } from "#compiler/ir/scalar.ts"
+import { type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
+import { plainType } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import {
 	f,
@@ -87,17 +88,40 @@ const items = (parts: Pick<RuleDesc, "where" | "head">): QueryDesc =>
 		})
 	)
 
-/** A parameter of the checked result: its name, its type's label, and the regex of a text type. */
+/** A parameter of the checked result: its name and its type. */
 interface Param {
 	readonly name: string
-	readonly type: string
+	readonly type: ScalarType
 }
 
 const paramsOf = (q: LogicalQuery): ReadonlyArray<Param> =>
 	Arr.map(q.params, (p) => ({
 		name: p.name,
-		type: typeLabel(defined(paramColumns(p)[0], `the type of ${p.name}`).type)
+		type: defined(paramColumns(p)[0], `the type of ${p.name}`).type
 	}))
+
+/** Whether two parameter sets declare the same names, each at the same type. */
+const sameParams = (actual: ReadonlyArray<Param>, expected: ReadonlyArray<Param>): boolean =>
+	actual.length === expected.length &&
+	Arr.every(expected, (want) =>
+		Arr.some(actual, (got) => got.name === want.name && sameScalarType(got.type, want.type))
+	)
+
+const paramsText = (params: ReadonlyArray<Param>): string =>
+	Arr.join(
+		Arr.map(params, (p) => `${p.name}: ${typeLabel(p.type)}`),
+		", "
+	)
+
+/** A field's type in the checked Lab schema. */
+const labField = (relation: string, field: string): ScalarType =>
+	Option.getOrThrowWith(
+		Arr.findFirst(
+			defined(checking(Lab).relations.get(relation), `the relation ${relation}`).heading,
+			(h) => h.name === field
+		),
+		() => new Error(`no field ${relation}.${field}`)
+	).type
 
 /** What a planted check must answer: a refusal for a reason, or the checked result with exactly these parameters. */
 type Expected =
@@ -341,7 +365,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				})
 			)
 		),
-		expected: admittedWith([{ name: "label", type: "text ~ /^[a-z]+$/u" }])
+		expected: admittedWith([{ name: "label", type: labField("Item", "label") }])
 	},
 	{
 		what: "one parameter used twice is one parameter",
@@ -351,7 +375,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				head: { id: ref("Item", "id") }
 			})
 		),
-		expected: admittedWith([{ name: "n", type: "contract Qty over integer" }])
+		expected: admittedWith([{ name: "n", type: labField("Item", "qty") }])
 	},
 	{
 		what: "one parameter declared at incompatible types",
@@ -374,7 +398,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				"k"
 			)
 		),
-		expected: admittedWith([{ name: "k", type: "integer" }])
+		expected: admittedWith([{ name: "k", type: plainType("int4") }])
 	},
 	{
 		what: "a head parameter of its declared type, in arms that also bind it",
@@ -398,12 +422,12 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				})
 			)
 		),
-		expected: admittedWith([{ name: "who", type: "uuid" }])
+		expected: admittedWith([{ name: "who", type: labField("Item", "id") }])
 	},
 	{
 		what: "a head parameter no other use types, of its declared type",
 		check: lab(items({ where: [], head: { asked: param("who", f.uuid) } })),
-		expected: admittedWith([{ name: "who", type: "uuid" }])
+		expected: admittedWith([{ name: "who", type: labField("Item", "id") }])
 	},
 	{
 		what: "two imports binding one parameter name differently, hygienically",
@@ -424,7 +448,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				})
 			)
 		),
-		expected: admittedWith([{ name: "other", type: "enum Color" }])
+		expected: admittedWith([{ name: "other", type: labField("Item", "color") }])
 	},
 	{
 		what: "a match of a union of different headings binding an arm's field without its discriminant",
@@ -521,12 +545,12 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		/** A parameter at a typmod would round the value it is compared with: it binds unconstrained. */
 		what: "a negated source's numeric typmod column fixed to a parameter, unconstrained",
 		check: lab(negatedFixed("Wide", "price")),
-		expected: admittedWith([{ name: "p", type: "numeric" }])
+		expected: admittedWith([{ name: "p", type: plainType("numeric") }])
 	},
 	{
 		what: "a negated source's regex column fixed to a parameter, which keeps the column's language",
 		check: lab(negatedFixed("Tag", "label")),
-		expected: admittedWith([{ name: "p", type: "text ~ /^[a-z0-9]{1,32}$/u" }])
+		expected: admittedWith([{ name: "p", type: labField("Tag", "label") }])
 	},
 	{
 		what: "a computed negation binding over a parameter an import binds to an outer variable",
@@ -564,7 +588,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				})
 			)
 		),
-		expected: admittedWith([{ name: "outer", type: "bigint" }])
+		expected: admittedWith([{ name: "outer", type: plainType("int8") }])
 	},
 	{
 		what: "a negated import bound to the rule's account, which the head projects away",
@@ -574,7 +598,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "a negated import bound to a parameter",
 		check: work(unnoted({ acct: param("a", f.uuid) })),
-		expected: admittedWith([{ name: "a", type: "uuid" }])
+		expected: admittedWith([{ name: "a", type: labField("Item", "id") }])
 	},
 	{
 		what: "a negated import bound to a literal",
@@ -679,7 +703,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				),
 				{}
 			),
-		expected: admittedWith([{ name: "amount", type: "bigint" }], (q) =>
+		expected: admittedWith([{ name: "amount", type: plainType("int8") }], (q) =>
 			assert.ok(
 				Arr.some(
 					exprClosure(Arr.flatMap(topoOrder(q.dag), (n) => exprsOf(n))),
@@ -778,7 +802,10 @@ describe("the checker's binding, typing and scope rules", () => {
 									break
 								case "admitted": {
 									const q = defined(succeeded(r, p.what), `${p.what}: a checked query`)
-									assert.deepEqual(paramsOf(q), p.expected.params, p.what)
+									assert.ok(
+										sameParams(paramsOf(q), p.expected.params),
+										`${p.what}: ${paramsText(paramsOf(q))}, not ${paramsText(p.expected.params)}`
+									)
 									for (const also of p.expected.also) {
 										also(q)
 									}

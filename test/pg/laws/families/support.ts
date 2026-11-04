@@ -1652,7 +1652,7 @@ export const runSteps = (
 			log.push(`${showOps(ops)}\n    expected ${expected.kind}, got ${Formatter.format(outcome)}`)
 			const features = outcomeFeatures(session, state, ops, outcome)
 			if (Result.isFailure(features)) {
-				return yield* CaseFailed.make({
+				return yield* new CaseFailed({
 					report: `${Arr.join(log, "\n  ")}\n  ${features.failure}`
 				})
 			}
@@ -1661,7 +1661,7 @@ export const runSteps = (
 			}
 			const problem = mismatch(session, expected, outcome)
 			if (problem !== undefined) {
-				return yield* CaseFailed.make({ report: `${Arr.join(log, "\n  ")}\n  ${problem}` })
+				return yield* new CaseFailed({ report: `${Arr.join(log, "\n  ")}\n  ${problem}` })
 			}
 			if (expected.kind !== "invariant-rejected") {
 				state = expected.state
@@ -1677,7 +1677,7 @@ export const runSteps = (
 					rowsDifference
 				),
 				(disagreement) =>
-					CaseFailed.make({
+					new CaseFailed({
 						report: `${Arr.join(log, "\n  ")}\n  ${disagreement.message}\n  postgresql: ${Formatter.format(stored)}\n  host: ${Formatter.format(hosted)}`
 					})
 			)

@@ -2,6 +2,7 @@ import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platf
 import {
 	Array as Arr,
 	Cause,
+	Data,
 	Effect,
 	FileSystem,
 	Layer,
@@ -12,11 +13,11 @@ import {
 	Record as Rec,
 	Result,
 	Schedule,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess } from "effect/process"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { defined } from "#test/support/assert.ts"
 import { messageOf } from "#test/support/message.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
@@ -73,19 +74,18 @@ const platform = await ManagedRuntime.make(
 ).context()
 
 /** The batch could not read, write or run what it needs: the platform's failure. */
-export class BatchPlatformFailed extends Schema.TaggedError<
-	BatchPlatformFailed,
-	{ readonly brand: unique symbol }
->()("BatchPlatformFailed", { cause: Schema.Defect() }) {}
+export class BatchPlatformFailed extends Data.TaggedError("BatchPlatformFailed")<{
+	readonly cause: unknown
+}> {}
 
 /**
  * tsgo reported a diagnostic in a file no unit of the batch owns: `file`, its real path, and `line`, the diagnostic's
  * first line as tsgo printed it. The batch answers for its units' files, so a diagnostic it cannot attribute fails it.
  */
-class BatchDiagnosticUnowned extends Schema.TaggedError<
-	BatchDiagnosticUnowned,
-	{ readonly brand: unique symbol }
->()("BatchDiagnosticUnowned", { file: Schema.String, line: Schema.String }) {
+class BatchDiagnosticUnowned extends Data.TaggedError("BatchDiagnosticUnowned")<{
+	readonly file: string
+	readonly line: string
+}> {
 	override get message(): string {
 		return `tsgo reported a diagnostic in ${this.file}, which no unit of the type-test batch owns: ${this.line}`
 	}
@@ -127,59 +127,35 @@ export interface Group {
 	readonly units: Readonly<Record<string, UnitSpec>>
 }
 
+/** A Diagnostic as plain data, which JSON carries as it stands. */
+type PromisedDiagnostic = Pick<Diagnostic, keyof Diagnostic>
+
 /** An error diagnostic, with its text: its first line plus its continuation lines, joined by "\n". */
-const DiagnosticSchema = Schema.Struct({
-	file: Schema.String,
-	line: Schema.Finite,
-	code: Schema.String,
-	text: Schema.String
-})
+type ErrorDiagnostic = PromisedDiagnostic & { readonly text: string }
 
-const DirectiveSchema = Schema.Struct({
-	file: Schema.String,
-	line: Schema.Finite,
-	code: Schema.String
-})
-
-const UnitResultSchema = Schema.Struct({
+/**
+ * One unit's part of the batch, as the global setup writes it as JSON and each test process reads it back: plain data,
+ * so it is Json as it stands.
+ */
+type UnitResult = {
 	/** Every line tsgo printed for the unit's files, continuation lines included. */
-	output: Schema.Array(Schema.String),
+	readonly output: ReadonlyArray<string>
 	/** The unit's error diagnostics, by file name. */
-	errors: Schema.Array(DiagnosticSchema),
+	readonly errors: ReadonlyArray<ErrorDiagnostic>
 	/** The diagnostics the unit's disarmed directives promise, in order, one per directive. */
-	directives: Schema.Array(DirectiveSchema),
+	readonly directives: ReadonlyArray<PromisedDiagnostic>
 	/**
 	 * Why the unit's checks fail whatever tsgo reported: a placement that failed, a disarmed unit with no directive, a
 	 * directive whose diagnostic does not carry what it claims.
 	 */
-	problems: Schema.Array(Schema.String)
-})
+	readonly problems: ReadonlyArray<string>
+}
 
-const BatchResultSchema = Schema.Struct({
-	units: Schema.Record(Schema.String, UnitResultSchema),
+type BatchResult = {
+	readonly units: Readonly<Record<string, UnitResult>>
 	/** Lines no unit owns. */
-	unattributed: Schema.Array(Schema.String)
-})
-
-type BatchResult = typeof BatchResultSchema.Type
-type UnitResult = typeof UnitResultSchema.Type
-type ErrorDiagnostic = typeof DiagnosticSchema.Type
-
-const BatchJson = Schema.fromJsonString(BatchResultSchema)
-
-/** The tsconfig the batch writes for one of its programs. */
-const TsconfigJson = Schema.fromJsonString(
-	Schema.Struct({
-		extends: Schema.Array(Schema.String),
-		compilerOptions: Schema.Struct({
-			noEmit: Schema.Boolean,
-			noErrorTruncation: Schema.Boolean,
-			customConditions: Schema.Array(Schema.String),
-			plugins: Schema.Tuple([])
-		}),
-		files: Schema.Array(Schema.String)
-	})
-)
+	readonly unattributed: ReadonlyArray<string>
+}
 
 /** The `.ts` files of `dir`/fixtures, in name order. */
 const fixtureFiles = (root: string, dir: string) =>
@@ -212,16 +188,13 @@ const vacuous = (dir: string, directives: ReadonlyArray<Directive>): ReadonlyArr
 	directives.length === 0 ? [`${dir}: a disarmed unit with no directive proves nothing`] : []
 
 /** A unit that could not be placed: why, as its problem says. */
-class PlacementFailed extends Schema.TaggedError<
-	PlacementFailed,
-	{ readonly brand: unique symbol }
->()("PlacementFailed", {
-	reason: Schema.String
-}) {}
+class PlacementFailed extends Data.TaggedError("PlacementFailed")<{
+	readonly reason: string
+}> {}
 
 /** A thrown placement step (a directive outside the grammar, a generator's refusal) as the unit's problem. */
 const placing = <A>(step: () => A): Effect.Effect<A, PlacementFailed> =>
-	Effect.try({ try: step, catch: (thrown) => PlacementFailed.make({ reason: messageOf(thrown) }) })
+	Effect.try({ try: step, catch: (thrown) => new PlacementFailed({ reason: messageOf(thrown) }) })
 
 /**
  * Writes a unit's files, if it has any to write, into temporary directories the batch's scope removes; a generated
@@ -436,7 +409,7 @@ const attribute = Effect.fn("attribute")(function* (
 		const owner = owners.get(named)
 		const unit = owner === undefined ? undefined : units.get(owner)
 		if (unit === undefined) {
-			return yield* BatchDiagnosticUnowned.make({ file: named, line })
+			return yield* new BatchDiagnosticUnowned({ file: named, line })
 		}
 		unit.output.push(line)
 		current = unit.output
@@ -505,7 +478,7 @@ export const buildBatch = (groups: ReadonlyArray<Group>, seed: number) =>
 /** The batch of `groups` over the repository at `root`, however `root` spells it. */
 export const buildBatchAt = (root: string, groups: ReadonlyArray<Group>, seed: number) =>
 	buildBatchOn(root, groups, seed).pipe(
-		Effect.catchTag("PlatformError", (cause) => Effect.fail(BatchPlatformFailed.make({ cause }))),
+		Effect.catchTag("PlatformError", (cause) => Effect.fail(new BatchPlatformFailed({ cause }))),
 		Effect.provideContext(platform)
 	)
 
@@ -524,9 +497,10 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 			for (const [unit, spec] of units) {
 				const placed = yield* Effect.result(place(root, spec, seed))
 				if (Result.isFailure(placed)) {
-					const reason = Schema.is(PlacementFailed)(placed.failure)
-						? placed.failure.reason
-						: messageOf(placed.failure)
+					const reason =
+						placed.failure instanceof PlacementFailed
+							? placed.failure.reason
+							: messageOf(placed.failure)
 					placements.set(unit, { directives: [], problems: [`${unit}: ${reason}`] })
 					continue
 				}
@@ -569,7 +543,7 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 						 * never elided from a diagnostic. The package's own name resolves to src, as in tsconfig.json
 						 * (package.json's grizzle-source export).
 						 */
-						const tsconfig = yield* Schema.encodeEffect(TsconfigJson)({
+						const tsconfig = jsonText({
 							extends: Arr.map(
 								["packages/devtools/tsconfig.base.json", "tsconfig.base.json"],
 								(base) => path.relative(batch, path.join(root, base))
@@ -611,7 +585,7 @@ export const writeBatch = (
 
 const writeBatchTo = (groups: ReadonlyArray<Group>, seed: number, path: string) =>
 	writeBatchOn(groups, seed, path).pipe(
-		Effect.catchTag("PlatformError", (cause) => Effect.fail(BatchPlatformFailed.make({ cause }))),
+		Effect.catchTag("PlatformError", (cause) => Effect.fail(new BatchPlatformFailed({ cause }))),
 		Effect.provideContext(platform)
 	)
 
@@ -624,8 +598,7 @@ const writeBatchOn = (groups: ReadonlyArray<Group>, seed: number, path: string) 
 				unattributed: [`the type-test batch failed: ${Cause.pretty(cause)}`]
 			})
 		)
-		const encoded = yield* Schema.encodeEffect(BatchJson)(result)
-		yield* fs.writeFileString(`${path}.partial`, encoded)
+		yield* fs.writeFileString(`${path}.partial`, jsonText(result))
 		yield* fs.rename(`${path}.partial`, path)
 	})
 
@@ -637,7 +610,8 @@ const whenWritten = (path: string) =>
 			until: (exists) => exists,
 			schedule: Schedule.spaced("50 millis")
 		})
-		return yield* Effect.flatMap(fs.readFileString(path), Schema.decodeEffect(BatchJson))
+		const text = yield* fs.readFileString(path)
+		return trustedJson<BatchResult>(text)
 	})
 
 interface Checked {
@@ -676,7 +650,7 @@ export const checkUnit = (
 
 const checkUnitOf = (groups: ReadonlyArray<Group>, unit: string) =>
 	checkUnitOn(groups, unit).pipe(
-		Effect.catchTag("PlatformError", (cause) => Effect.fail(BatchPlatformFailed.make({ cause }))),
+		Effect.catchTag("PlatformError", (cause) => Effect.fail(new BatchPlatformFailed({ cause }))),
 		Effect.provideContext(platform)
 	)
 

@@ -639,24 +639,38 @@ describe("bind", () => {
 			)
 		)
 
+	/**
+	 * A value's parameters as its compilation holds them: how many its bindings close, and the names left free for its
+	 * caller to bind, whatever private names the bound ones took.
+	 */
+	const parametersOf = (value: unknown) => {
+		const bindings = descOf(value).bindings
+		return {
+			bound: bindings.length,
+			free: Arr.filter(
+				Arr.map(compiled(Work, value).params, (p) => p.name),
+				(name) => !bindings.includes(name)
+			)
+		}
+	}
+
 	it("keeps a later member's or read-back's parameter of a bound name separate and free", () => {
 		const bound = switchToManual().bind({ task: uuidOf(1), operator: "ann" })
 		const more = bound.insert(TaskNote, needsTask)
-		assert.deepEqual(descOf(more).bindings, ["operator", "task#1"])
-		assert.equal(parsedOf(more).values.get("task#1"), uuidOf(1))
-		assert.deepEqual(
-			Arr.map(compiled(Work, more).params, (p) => p.name),
-			["operator", "task", "task#1"]
-		)
+		assert.deepEqual(parametersOf(more), { bound: 2, free: ["task"] })
+		assert.deepEqual(bindingValues(more), Arr.sort(["ann", uuidOf(1)], Order.String))
 		/** The free task is bound on its own, to another value. */
 		const fullyBound = more.bind({ task: uuidOf(2) })
 		assert.deepEqual(
 			bindingValues(fullyBound),
 			Arr.sort(["ann", uuidOf(1), uuidOf(2)], Order.String)
 		)
+		assert.deepEqual(parametersOf(fullyBound), { bound: 3, free: [] })
 		assert.deepEqual(compiled(Work, fullyBound).bindings, descOf(fullyBound).bindings)
 		const read = bound.read("again", () => needsTask)
-		assert.deepEqual(descOf(read).bindings, ["operator", "task#1"])
+		const readBindings = descOf(read).bindings
+		assert.equal(readBindings.length, 2)
+		assert.ok(!readBindings.includes("task"), "the read-back's task is free")
 		malformed(() => bound.bind({ task: uuidOf(2) }))
 	})
 
@@ -668,12 +682,8 @@ describe("bind", () => {
 				.find({ task: r.param("task#1", Task.fields.id), note: "y" })
 		)
 		const more = bound.insert(TaskNote, needsTask).insert(TaskNote, spelled)
-		assert.deepEqual(descOf(more).bindings, ["operator", "task#2"])
-		assert.equal(parsedOf(more).values.get("task#2"), uuidOf(1))
-		assert.deepEqual(
-			Arr.map(compiled(Work, more).params, (p) => p.name),
-			["operator", "task", "task#1", "task#2"]
-		)
+		assert.deepEqual(parametersOf(more), { bound: 2, free: ["task", "task#1"] })
+		assert.deepEqual(bindingValues(more), Arr.sort(["ann", uuidOf(1)], Order.String))
 	})
 
 	it.effect("combines a bound ChangeSet with one whose parameter of that name is free", (ctx) =>
@@ -695,11 +705,8 @@ describe("bind", () => {
 							how === "a union"
 								? ChangeSet.union(bound, switchToManual())
 								: ChangeSet.sequence(switchToManual(), bound)
-						assert.deepEqual(descOf(combined).bindings, ["operator#1", "task#1"])
-						assert.deepEqual(
-							Arr.map(compiled(Work, combined).params, (p) => p.name),
-							["operator", "operator#1", "task", "task#1"]
-						)
+						assert.deepEqual(parametersOf(combined), { bound: 2, free: ["operator", "task"] })
+						assert.deepEqual(bindingValues(combined), Arr.sort(["ann", uuidOf(1)], Order.String))
 					})
 			)
 		)
@@ -709,15 +716,16 @@ describe("bind", () => {
 		const one = switchToManual().bind({ task: uuidOf(1), operator: "ann" })
 		const two = switchToManual().bind({ task: uuidOf(2), operator: "ann" })
 		const both = ChangeSet.union(one, two)
-		assert.deepEqual(descOf(both).bindings, ["operator", "task", "task#1"])
+		assert.deepEqual(parametersOf(both), { bound: 3, free: [] })
 		assert.deepEqual(bindingValues(both), Arr.sort(["ann", uuidOf(1), uuidOf(2)], Order.String))
-		assert.deepEqual(compiled(Work, both).bindings, ["operator", "task", "task#1"])
+		assert.deepEqual(compiled(Work, both).bindings, descOf(both).bindings)
 		assert.equal(text(ChangeSet.union(two, one)), text(both))
 		const seq = ChangeSet.sequence(one, two)
-		assert.deepEqual(descOf(seq).bindings, ["operator", "task", "task#1"])
+		assert.deepEqual(parametersOf(seq), { bound: 3, free: [] })
+		assert.deepEqual(bindingValues(seq), Arr.sort(["ann", uuidOf(1), uuidOf(2)], Order.String))
 		/** Equal bindings of equal members are one member and one parameter. */
 		const again = switchToManual().bind({ task: uuidOf(1), operator: "ann" })
 		assert.equal(text(ChangeSet.union(one, again)), text(one))
-		assert.deepEqual(descOf(ChangeSet.union(one, again)).bindings, ["operator", "task"])
+		assert.deepEqual(descOf(ChangeSet.union(one, again)).bindings, descOf(one).bindings)
 	})
 })

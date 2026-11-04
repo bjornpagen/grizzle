@@ -30,7 +30,6 @@ import {
 	Option,
 	Order,
 	Record as Rec,
-	Schema,
 	String as Str
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
@@ -64,11 +63,10 @@ import {
 	succeeded,
 	unorderedEqual
 } from "#test/support/assert.ts"
-import { decodeJson } from "#test/support/json.ts"
 import { isList } from "#test/support/list.ts"
 
 import { regex } from "arkregex"
-import { jsonText, trusted } from "#compiler/core/trusted.ts"
+import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 /**
  * The canonical serializer (core/canonical.ts): one text per value, the JSON Canonicalization Scheme (RFC 8785) over
  * the value's JSON form, and a refusal, at the offending value's path, of everything outside the value model.
@@ -395,9 +393,8 @@ describe("the canonical text", () => {
 					(v) =>
 						Effect.sync(() => {
 							const json = succeeded(toJson(v, everyProperty))
-							const viaJson = succeeded(
-								fromJson(decodeJson(Schema.Unknown)(jsonText(json)), revivers)
-							)
+							const parsed = trustedJson<unknown>(jsonText(json))
+							const viaJson = succeeded(fromJson(parsed, revivers))
 							const viaText = succeeded(decode(succeeded(encode(v, everyProperty)), revivers))
 							assert.equal(succeeded(encode(viaJson, everyProperty)), specified(v))
 							assert.equal(succeeded(encode(viaText, everyProperty)), specified(v))

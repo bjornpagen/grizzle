@@ -1,14 +1,13 @@
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
 import { array, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
-import { fullSwarm, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
-import { tokenOf } from "@grizzle/testing/tape"
+import { fullSwarm, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter, Option, String as Str } from "effect"
-import { Cause, Effect, Record, Schema, type Scope } from "effect"
+import { Cause, Effect, Record, type Scope } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
@@ -967,26 +966,6 @@ const resolveRaceGen =
 		return raceOf(env, sketch, seeded, kinds)
 	}
 
-/**
- * The least decision with which a transaction's threat swarm's choice among `applicable` (resolveRaceGen) takes `kind`:
- * the weights of the threats listed before it, swarmChoice's own layout, as pickOf is pickFrom's inverse.
- */
-const choiceOf = (
-	threatSwarm: Swarm<ThreatKind>,
-	applicable: Arr.NonEmptyReadonlyArray<ThreatKind>,
-	kind: ThreatKind
-): number => {
-	const at = applicable.indexOf(kind)
-	if (at < 0 || weightOf(threatSwarm, kind) === 0) {
-		throw new Error(`the threat swarm cannot choose ${kind} among ${Arr.join(applicable, ", ")}`)
-	}
-	return Arr.reduce(
-		Arr.take(applicable, at),
-		0,
-		(sum, before) => sum + weightOf(threatSwarm, before)
-	)
-}
-
 const zeros: ReadonlyArray<number> = [0, 0, 0, 0, 0, 0]
 
 /**
@@ -1017,9 +996,6 @@ const plantedTxn = (
 	threatSwarm
 })
 
-/** The threat swarm of a kept race's transactions: every threat at full weight, its draws choosing each (choiceOf). */
-const everyThreat: Swarm<ThreatKind> = fullSwarm(threatKinds)
-
 /** A planted race's sketch on the `law`th threatened law: its seed at the first picks, and its transactions. */
 const plantedSketch = (
 	law: number,
@@ -1027,177 +1003,13 @@ const plantedSketch = (
 	txns: ReadonlyArray<TxnSketch>
 ): RaceSketch => ({ law, anchor: zeros, seed: [zeros, zeros], initial, txns })
 
-/** A planted race: its sketch, and the one threat each of its transactions applies. */
-interface PlantedRace {
-	readonly sketch: RaceSketch
-	readonly threats: ReadonlyArray<ThreatKind>
-}
-
-/** A planted race on the `law`th threatened law: its transactions, each with the one threat it applies. */
-const plantedRace = (
-	law: number,
-	initial: CaseSketch,
-	txns: ReadonlyArray<readonly [TxnSketch, ThreatKind]>
-): PlantedRace => ({
-	sketch: plantedSketch(
-		law,
-		initial,
-		Arr.map(txns, ([x]) => x)
-	),
-	threats: Arr.map(txns, ([, kind]) => kind)
-})
-
-/** A planted race's resolution on `env`, every transaction applying its one threat. */
-const plantedRaceOf = (env: RaceModel, planted: PlantedRace): Resolved =>
-	raceOf(
-		env,
-		planted.sketch,
-		seededRace(env, planted.sketch),
-		Arr.map(planted.threats, (kind) => [kind])
-	)
-
-/**
- * A planted race as a kept case on the `v`th schema: its sketch, and as its draws each threat's choice (choiceOf) among
- * the threats that apply to its initial state, which is everything its property draws, since a planted race makes few
- * enough moves to be explored in every interleaving.
- */
-const keptRace = (
-	env: RaceModel,
-	v: number,
-	note: string,
-	planted: PlantedRace,
-	reaches: Arr.NonEmptyReadonlyArray<RaceFeature>
-): Kept<RaceCase, RaceFeature> => {
-	const { applicable } = seededRace(env, planted.sketch)
-	const choices = Float64Array.from(
-		Arr.map(Arr.zip(planted.sketch.txns, planted.threats), ([x, kind]) =>
-			choiceOf(x.threatSwarm, applicable, kind)
-		)
-	)
-	return {
-		note,
-		sketch: { variant: v, race: planted.sketch },
-		draws: tokenOf(choices, choices.length),
-		reaches
-	}
-}
-
-/**
- * Planted races: what every race suite's population must reach, which its drawn races reach a few times a run, as kept
- * cases. They run on the first law of the first of the family's schemas whose seeded initial state every threat applies
- * to (the anchor stored, a source at it). Each is a race of two transactions under the full threat swarm, explored in
- * every interleaving, a grizzle writer's and a direct writer's, one threat each:
- *
- * - the threats in pairs, in the order the threat swarm chooses among them (applicableThreats), so every threat is
- *   drawn;
- * - the first pair of threats the host model accepts from the initial state, each as its writer's own transaction, so
- *   each writer is accepted in the order where it runs first;
- * - both writers deleting the first source at the anchor, so the grizzle writer's operation waits on the row the
- *   direct writer's open transaction deleted;
- * - the anchor deleted while it is inserted again at its key, and a source deleted while it is inserted again exactly:
- *   a deletion and a concurrent insertion at one key;
- * - a grizzle writer's threat while a planted writer below SERIALIZABLE inserts the fact its threat writes.
- */
-const plantedRaces = <P>(
-	h: HistoryFamily<P>,
-	variants: Arr.NonEmptyReadonlyArray<P>
-): ReadonlyArray<Kept<RaceCase, RaceFeature>> => {
-	for (const [v, p] of variants.entries()) {
-		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
-		const laws = Arr.flatMap(env.host.laws, threatened)
-		for (const [l, t] of laws.entries()) {
-			const law = pickOf(l, laws.length)
-			const applicable = seededRace(env, plantedRace(law, [], []).sketch).applicable
-			const n = applicable.length
-			if (n < threatKinds.length) {
-				continue
-			}
-			const pair = (grizzle: ThreatKind, direct: ThreatKind) =>
-				plantedRace(
-					law,
-					[],
-					[
-						[plantedTxn("grizzle", "put", zeros, everyThreat), grizzle],
-						[plantedTxn("direct", "put", zeros, everyThreat), direct]
-					]
-				)
-			const kept = (
-				note: string,
-				planted: PlantedRace,
-				reaches: Arr.NonEmptyReadonlyArray<RaceFeature>
-			) => keptRace(env, v, `${note}, on ${t.law} of ${h.family.describe(p)}`, planted, reaches)
-			const pairs = Arr.map(indices(Math.ceil(n / 2)), (j): Kept<RaceCase, RaceFeature> => {
-				const i = 2 * j
-				const first = defined(applicable[i], "a threat")
-				const second = applicable[i + 1] ?? applicable[0]
-				return kept(`${first} against ${second}`, pair(first, second), [
-					`threat: ${first}`,
-					`threat: ${second}`
-				])
-			})
-			/** Whether the model accepts each transaction of a race from its initial state as its writer's own. */
-			const accepts = (planted: PlantedRace): boolean => {
-				const r = plantedRaceOf(env, planted)
-				const [grizzle, direct] = r.txns
-				return (
-					grizzle?.kind === "grizzle" &&
-					direct?.kind === "direct" &&
-					direct.ops.length > 0 &&
-					expect(env.host, r.initial, grizzle.ops).kind === "accepted" &&
-					expectDirect(env.host, r.initial, direct.ops).kind === "accepted"
-				)
-			}
-			const accepted = Arr.findFirst(
-				Arr.flatMap(applicable, (g) => Arr.map(applicable, (d) => pair(g, d))),
-				accepts
-			)
-			if (Option.isNone(accepted)) {
-				continue
-			}
-			const first = Arr.headNonEmpty(applicable)
-			const below = plantedRace(
-				law,
-				[],
-				[
-					[plantedTxn("grizzle", "put", zeros, everyThreat), first],
-					[plantedTxn("below", "put", zeros, everyThreat), first]
-				]
-			)
-			return [
-				...pairs,
-				kept("two threats each writer's own transaction accepts", accepted.value, [
-					"grizzle accepted",
-					"direct accepted"
-				]),
-				kept("both writers deleting one source", pair("delete source", "delete source"), [
-					"blocked"
-				]),
-				kept(
-					"the anchor deleted while it is inserted again",
-					pair("delete anchor", "insert anchor"),
-					["a deletion beside an insertion at the anchor's key"]
-				),
-				kept(
-					"a source deleted while it is inserted again",
-					pair("delete source", "reinsert source"),
-					["a deletion beside an insertion at a source's key"]
-				),
-				kept("a grizzle threat while a writer below SERIALIZABLE inserts its fact", below, [
-					"refused by the guard"
-				])
-			]
-		}
-	}
-	throw new Error(`no law of a schema of ${h.family.label} has a race every threat applies to`)
-}
-
 /**
  * The initial states a planted search tries on a law: the seeded one, it with one of its sources deleted, and it with
  * every source at the anchor deleted and then the anchor, each a case sketch the seeded state folds; a step the host
  * refuses leaves the state as it was, and the search reads the standing it reaches.
  */
 const plantedInitials = (env: RaceModel, law: number): ReadonlyArray<CaseSketch> => {
-	const base = seededRace(env, plantedRace(law, [], []).sketch)
+	const base = seededRace(env, plantedSketch(law, [], []))
 	const sources = defined(base.standing.state.get(base.t.source.relation), "the seed's sources")
 	const anchors = defined(base.standing.state.get(base.t.anchor.relation), "the seed's anchors")
 	const anchorAt = Arr.findFirstIndex(anchors, (f) =>
@@ -1222,8 +1034,7 @@ const plantedInitials = (env: RaceModel, law: number): ReadonlyArray<CaseSketch>
 
 /**
  * The pairs of threats, a grizzle writer's and then a direct writer's at `redraw`'s payload, that make a write skew
- * from `initial` on `law`: each lawful alone, each refused after the other, as plantedWriteSkew judges them on the host
- * model.
+ * from `initial` on `law`: each lawful alone and each refused after the other, as the host model judges them.
  */
 const skewPairs = (
 	env: RaceModel,
@@ -1231,7 +1042,7 @@ const skewPairs = (
 	initial: CaseSketch,
 	redraw: number
 ): ReadonlyArray<readonly [ThreatKind, ThreatKind]> => {
-	const { t, standing, applicable } = seededRace(env, plantedRace(law, initial, []).sketch)
+	const { t, standing, applicable } = seededRace(env, plantedSketch(law, initial, []))
 	const threat = (kind: ThreatKind, values: ReadonlyArray<number>) =>
 		threatOps(env, t, standing, kind, { pick: 0, form: "put", values })
 	return Arr.flatMap(applicable, (grizzleThreat) => {
@@ -1279,7 +1090,7 @@ interface SkewStart {
 /**
  * Every start of a family's schemas that makes a write skew, as the host model judges it: over each schema, each law
  * its races threaten, each planted initial state of the law and each strided redraw of the direct writer's payload, the
- * pairs of threats skewPairs finds. Computed once, when the suite is built; plantedWriteSkew plants the first.
+ * pairs of threats skewPairs finds. Computed once, when the suite is built.
  */
 const skewStartsOf = <P>(
 	h: HistoryFamily<P>,
@@ -1443,105 +1254,8 @@ const raceCaseGen = (
 		]
 	])
 
-/**
- * The planted replacement race, a direct writer's replacement of the anchor racing a grizzle writer's insertion of a
- * source at it, as a kept case: the anchor's deletion and an insertion at its key of another payload, which the model
- * accepts from the initial state. Its transactions make at most seven moves, so the race is explored in every
- * interleaving, and one of them runs the grizzle writer's operation, and every law it checks, between the
- * replacement's two statements. It is the first window start of a mode's schemas (windowStartsOf).
- */
-const plantedReplacement = <P>(
-	h: HistoryFamily<P>,
-	variants: Arr.NonEmptyReadonlyArray<P>,
-	start: WindowStart
-): Kept<RaceCase, RaceFeature> => {
-	const p = elementAt(variants, start.variant, "the mode's schemas")
-	const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
-	const planted = plantedRace(start.law, start.initial, [
-		[
-			plantedTxn("direct", "replacement", strided(zeros, start.redraw), everyThreat),
-			"replace anchor"
-		],
-		[plantedTxn("grizzle", "put", zeros, everyThreat), "insert source"]
-	])
-	const { t } = seededRace(env, planted.sketch)
-	return keptRace(
-		env,
-		start.variant,
-		`the anchor replaced while a grizzle writer inserts a source at it, on ${t.law} of ${h.family.describe(p)}`,
-		planted,
-		["replacement", "inside a replacement's window"]
-	)
-}
-
-/**
- * The planted write skew, if the family has one: a grizzle writer's threat and a direct writer's, each lawful alone
- * from a planted initial state and refused after the other in either order, so no serial order commits both, and SSI
- * must abort one or the law refuse one at its place. It is the first over the family's schemas, the laws its races
- * threaten, the planted initial states, every pair of applicable threats and the first strided redraws of the direct
- * threat's payload, each pair judged on the host model alone before its race is built.
- */
+/** The strided redraws of the direct writer's payload a write skew's search tries (skewStartsOf). */
 const writeSkewRedraws = 8
-
-const plantedWriteSkew = <P>(
-	h: HistoryFamily<P>,
-	variants: Arr.NonEmptyReadonlyArray<P>
-): Kept<RaceCase, RaceFeature> | undefined => {
-	for (const [v, p] of variants.entries()) {
-		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
-		const laws = Arr.flatMap(env.host.laws, threatened)
-		for (const l of laws.keys()) {
-			const law = pickOf(l, laws.length)
-			for (const initial of plantedInitials(env, law)) {
-				const { t, standing, applicable } = seededRace(env, plantedRace(law, initial, []).sketch)
-				const threat = (kind: ThreatKind, values: ReadonlyArray<number>) =>
-					threatOps(env, t, standing, kind, { pick: 0, form: "put", values })
-				for (const grizzleThreat of applicable) {
-					const grizzle: LawTxn = {
-						kind: "grizzle",
-						writer: "g",
-						session: "g",
-						ops: writtenBy(env, "grizzle", threat(grizzleThreat, zeros), "put").ops,
-						after: undefined
-					}
-					for (const directThreat of applicable) {
-						for (let k = 0; k < writeSkewRedraws; k++) {
-							const writing = writtenBy(
-								env,
-								"direct",
-								threat(directThreat, strided(zeros, k)),
-								"put"
-							)
-							const direct: LawTxn = {
-								kind: "direct",
-								writer: "a",
-								session: "a",
-								immediate: "deferred",
-								ops: directOps(env.host, writing.ops, writing.replacements),
-								after: undefined
-							}
-							if (!writeSkew(env, standing.state, grizzle, direct)) {
-								continue
-							}
-							const planted = plantedRace(law, initial, [
-								[plantedTxn("grizzle", "put", zeros, everyThreat), grizzleThreat],
-								[plantedTxn("direct", "put", strided(zeros, k), everyThreat), directThreat]
-							])
-							return keptRace(
-								env,
-								v,
-								`${grizzleThreat} against ${directThreat}, each lawful alone and refused together, on ${t.law} of ${h.family.describe(p)}`,
-								planted,
-								["write skew"]
-							)
-						}
-					}
-				}
-			}
-		}
-	}
-	return undefined
-}
 
 /** The races whose interleavings are explored to the last one: those of at most this many moves. */
 const exhaustiveMoves = 7
@@ -1710,7 +1424,7 @@ const runRace = <P>(
 		Effect.catchCause((cause) => {
 			const error = Cause.squash(cause)
 			return Effect.fail(
-				Schema.is(CaseFailed)(error) ? error : CaseFailed.make({ report: messageOf(error) })
+				error instanceof CaseFailed ? error : new CaseFailed({ report: messageOf(error) })
 			)
 		})
 	)
@@ -1760,47 +1474,38 @@ const runRace = <P>(
  * opens and closes its own connections, so a test holds one case's connections at a time whatever the variant count.
  */
 /**
- * A population's schemas, window starts, kept races and requirements: its mode and variants, the starts that open a
- * replacement's window (windowStartsOf), its planted races, and whether it plants a write skew.
+ * A population's schemas, window starts and requirements: its mode and variants, the starts that open a replacement's
+ * window (windowStartsOf), and the write skew where its schemas make one (skewStartsOf).
  */
 const modeRaces = <P>(h: HistoryFamily<P>, population: Population<P>) => {
 	const variants = population.variants
 	const windows = windowStartsOf(h, variants)
-	const skew = plantedWriteSkew(h, variants)
-	const kept = [
-		...plantedRaces(h, variants),
-		plantedReplacement(h, variants, Arr.headNonEmpty(windows)),
-		...(skew === undefined ? [] : [skew])
-	]
 	/** A family with a write skew must break it in its population too. */
-	const reach: Arr.NonEmptyReadonlyArray<RaceFeature> =
-		skew === undefined ? situations : Arr.append(situations, "write skew")
-	return { mode: population.mode, variants, windows, kept, reach }
+	const reach: Arr.NonEmptyReadonlyArray<RaceFeature> = Arr.isReadonlyArrayNonEmpty(
+		skewStartsOf(h, variants)
+	)
+		? Arr.append(situations, "write skew")
+		: situations
+	return { mode: population.mode, variants, windows, reach }
 }
 
 /**
  * The generated law races of one family, over every population of its box in one exploration: a case's variant names
  * its schema and so its population, every feature a race notes is paired with its population's mode, and each
- * population must reach, in its own races, everything a family requires, its write skew included when it plants one.
- * Each population's kept races and window starts name its schemas past those of the populations before it.
+ * population must reach, in its own races, everything a family requires, its write skew included when it makes one.
+ * Each population's window starts name its schemas past those of the populations before it.
  */
 export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
 		`generated law races: ${h.family.label}`,
 		(it) => {
 			const populations = Arr.map(populationsOf(h.family), (population) => modeRaces(h, population))
-			/** Each population with the number of schemas before it, which its kept races and windows are offset by. */
+			/** Each population with the number of schemas before it, which its windows are offset by. */
 			const placed = Arr.map(populations, (population, i) => ({
 				...population,
 				offset: Arr.reduce(Arr.take(populations, i), 0, (n, q) => n + q.variants.length)
 			}))
 			const variants = Arr.flatMap(placed, (q) => q.variants)
-			const kept = Arr.flatMap(placed, (q) =>
-				Arr.map(q.kept, (k) => ({
-					...k,
-					sketch: { ...k.sketch, variant: k.sketch.variant + q.offset }
-				}))
-			)
 			const windows: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>> = Arr.map(
 				placed,
 				(q) => Arr.map(q.windows, (w) => ({ ...w, variant: w.variant + q.offset }))
@@ -1815,14 +1520,14 @@ export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 						const i = yield* h.install(p)
 						const problem = enforcementProblem(i.host, i.names)
 						if (problem !== undefined) {
-							return yield* CaseFailed.make({ report: problem })
+							return yield* new CaseFailed({ report: problem })
 						}
 						return i
 					}).pipe(
 						Effect.mapError((e) =>
-							Schema.is(CaseFailed)(e)
+							e instanceof CaseFailed
 								? e
-								: CaseFailed.make({
+								: new CaseFailed({
 										report: `${h.family.describe(p)} did not install: ${messageOf(e)}`
 									})
 						)
@@ -1834,7 +1539,7 @@ export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 						draw: drawn(raceCaseGen(variants.length, windows, skewStartsOf(h, variants))),
 						literal: Formatter.format,
 						coverage: required<RaceFeature>(reach, { cases: 8 * runsPerTest, sense: notesOnly }),
-						kept,
+						kept: [],
 						runs: 2 * runsPerTest,
 						shrink: { kind: "bounded", candidates: 300 },
 						concurrency: 1,

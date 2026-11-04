@@ -630,7 +630,7 @@ export default defineGate({
 			const snapshotRows = yield* textRowsOf(raw, eliminatedM.delivered.generated.statements)
 			const danglingAccount = snapshotRows[0]?.[accountAt]
 			if (danglingAccount === null || danglingAccount === undefined) {
-				throw GateSetupError.make({ what: "the snapshot read delivered no task with an account" })
+				throw new GateSetupError({ what: "the snapshot read delivered no task with an account" })
 			}
 			const dangling = Arr.filter(snapshotRows, (r) => r[accountAt] === danglingAccount)
 			const writer = yield* rawSession(fx, fx.world.app, "m15b fusion writer")

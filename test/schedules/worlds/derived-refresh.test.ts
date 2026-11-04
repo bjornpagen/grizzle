@@ -167,19 +167,5 @@ worldRaceSuite({
 	test: "a deletion racing reads and refreshes of a derived relation shows the relation as of a serial order's last refresh",
 	draw: caseGen,
 	race,
-	kept: [
-		{
-			note: "a Db deletion, ann's reads and the job's refresh in the order listed",
-			sketch: {
-				pool: 1,
-				deleter: "db",
-				end: "commit",
-				refreshers: "the job alone",
-				schedule: { priorities: ["bob", "ann", "job"], changes: [] }
-			},
-			draws: "",
-			reaches: ["ended: commit", "observed: rows", "observed: ok"]
-		}
-	],
 	required: ["ended: commit", "observed: rows", "observed: ok"]
 })

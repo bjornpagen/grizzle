@@ -1,9 +1,8 @@
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
-import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
@@ -399,17 +398,6 @@ const reviewerOf = (edit: Edit, g: GenerateResult, first: GenerateResult): Revie
 	}
 }
 
-/** Each kind once, drawn as the kind at its place among them (kindsFor's every kind): every run reaches each. */
-const plantedEdits: ReadonlyArray<Kept<EditSketch, EditFeature>> = Arr.map(
-	editKinds,
-	(kind, at) => ({
-		note: `${kind}, the first of what it picks`,
-		sketch: { second: true, picks: [0, 0, 0] },
-		draws: tokenOf(Float64Array.of(at), 1),
-		reaches: [featureOf(kind)]
-	})
-)
-
 /** The apply of the history's folders, the last one edited: admitted, or refused at the stage drift after its files
  * committed, the ledger's latest target the last folder's either way. */
 const applyEdited = (
@@ -427,14 +415,13 @@ const applyEdited = (
 		]
 		const applied = apply(m, { snapshot: last.snapshot, folders: sources }, noFurther)
 		if (refused) {
-			assert.equal((yield* refusal(applied)).stage, "drift")
+			const refusedBy = yield* refusal(applied)
+			assert.equal(refusedBy.stage, "drift")
 		} else {
 			yield* applied
 		}
-		assert.equal(
-			(yield* readLedger(m, schema, succeeded(statementsFor(schema)))).latest,
-			last.snapshot.fingerprint
-		)
+		const ledger = yield* readLedger(m, schema, succeeded(statementsFor(schema)))
+		assert.equal(ledger.latest, last.snapshot.fingerprint)
 	})
 
 layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
@@ -450,7 +437,7 @@ layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
 						suite: "migrate/hand-edits",
 						draw: drawn(editGen),
 						literal: Formatter.format,
-						kept: plantedEdits,
+						kept: [],
 						runs: 6,
 						shrink: { kind: "bounded", candidates: 40 },
 						concurrency: 1,

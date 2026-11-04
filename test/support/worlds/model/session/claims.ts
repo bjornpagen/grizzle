@@ -1,4 +1,4 @@
-import { Array as Arr, Option, Order, Record as Rec, Schema, String as Str } from "effect"
+import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { valueText } from "#test/pg/laws/families/model.ts"
 import { roleContexts } from "#test/support/worlds/model/session/state.ts"
 import type {
@@ -14,7 +14,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 import { regex } from "arkregex"
-import { jsonText } from "#compiler/core/trusted.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 /**
  * The claims rules of README "Permissions" and "Security model", restated over a verified payload: a context reads its fields
  * from the payload's own top level or from the nested claim object its `claim` names; an absent claim object is no
@@ -182,7 +182,11 @@ export const payloadFacts = (base: BaseSpec, role: RoleSpec, payload: unknown): 
 	return { kind: "decoded", facts, refinedRefused }
 }
 
-const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
+/**
+ * A wild token's text as the JSON value the world's verify parses it to (execute/token.ts worldVerify), none when it is
+ * no JSON text, which verify refuses.
+ */
+const parsedPayload = Option.liftThrowable((text: string): unknown => trustedJson<unknown>(text))
 
 /** What the test verify returns for a token registered `verify-not-object`: a number, whatever the token's text. */
 const notAnObject = 42
@@ -214,7 +218,7 @@ export const tokenVerdict = (
 			if (token.wild === "verify-not-object") {
 				return payloadFacts(base, role, notAnObject)
 			}
-			const payload = decodeJson(token.text)
+			const payload = parsedPayload(token.text)
 			return Option.isSome(payload)
 				? payloadFacts(base, role, payload.value)
 				: { kind: "refused", by: "verify" }

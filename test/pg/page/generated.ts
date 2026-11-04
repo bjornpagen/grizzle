@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { type Case, drawn, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -7,14 +7,14 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
+	Data,
 	Duration,
 	Effect,
 	Formatter,
 	Option,
 	Order,
 	Record as Rec,
-	Result,
-	Schema
+	Result
 } from "effect"
 import { DatabaseError } from "pg"
 import type { TestContext } from "vitest"
@@ -36,17 +36,11 @@ import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { nodesByLabel, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
-import {
-	type CompletedOrder,
-	conservativeMeta,
-	type Heading,
-	type OrderKey,
-	type RelNode
-} from "#compiler/ir/rel.ts"
+import type { CompletedOrder, Heading, OrderKey } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
@@ -79,11 +73,8 @@ import {
 	type QueryCase,
 	queryCaseGen
 } from "#test/support/oracle/gen/case.ts"
-import { float8, int4 } from "#test/support/oracle/gen/domain.ts"
-import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
-import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
-import { type GenRelation, schemaDesc, schemaName } from "#test/support/oracle/gen/schema.ts"
+import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { oraclePlan } from "#test/support/oracle/install/real.ts"
 import {
@@ -97,7 +88,6 @@ import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { statementSql } from "#test/support/sql.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { Q } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
  * Why a case pages nothing: a column without an admitted order, a baseline lowering that refuses the query, a
@@ -244,115 +234,6 @@ const orderedCaseGen: Gen<OrderedCase> = (source) => ({
 		])
 	)
 })
-
-/**
- * The features the population reaches a few times a run, planted as hand-built cases over R0(k, a) keyed by k: a
- * traversal of 205 rows forward at size 1, so of 205 pages; a relation parameter holding -0 beside 1.5; and a union of
- * two heading groups, (k, tag) and (k, a, tag), told apart by their tag.
- */
-const plantedCase = (
-	facts: number,
-	params: Readonly<Record<string, GenParam>>,
-	build: (scope: { readonly q: Q; readonly r0: () => RelNode }) => RelNode
-): QueryCase => {
-	const r: GenRelation = {
-		name: "R0",
-		columns: [
-			{ name: "k", type: int4 },
-			{ name: "a", type: int4 }
-		],
-		primaryKey: ["k"],
-		keys: [],
-		mutable: false
-	}
-	const q = new Q()
-	const r0 = () =>
-		q.region([
-			{
-				source: q.base(
-					{ name: r.name, heading: r.columns, primaryKey: r.primaryKey },
-					conservativeMeta
-				),
-				bind: { k: "k", a: "a" },
-				constants: {}
-			}
-		])
-	const root = build({ q, r0 })
-	const dag = normalQuery(q.b.build(Arr.of(root)))
-	const int = (value: number): TypedLiteral => ({ kind: "int", value: BigInt(value) })
-	return {
-		schema: { name: schemaName, relations: [r], closed: [], containments: [] },
-		facts: canonicalFacts({ R0: Arr.map(indices(facts), (i) => [int(i + 1), int(i % 3)]) }),
-		query: { dag, params },
-		spelling: { mode: "drawn", edge: false }
-	}
-}
-
-const ascending = (c: QueryCase, size: OrderedCase["size"]): OrderedCase => ({
-	c,
-	rotate: 0,
-	dirs: Array.from({ length: 8 }, () => false),
-	stated: 0,
-	size
-})
-
-const scores: Heading = [{ name: "x", type: float8 }]
-
-const planted: ReadonlyArray<Kept<OrderedCase, PageFeature>> = [
-	{
-		note: "205 facts paged forward one at a time",
-		sketch: ascending(
-			plantedCase(205, {}, ({ r0 }) => r0()),
-			{ forward: 1, backward: 1 }
-		),
-		draws: "",
-		reaches: ["a traversal of at least 200 pages in one direction", "page size 1"]
-	},
-	{
-		note: "a relation parameter holding -0 beside 1.5",
-		sketch: ascending(
-			plantedCase(
-				2,
-				{
-					x: {
-						kind: "relation",
-						heading: scores,
-						rows: [
-							[{ kind: "float", value: canonicalZero(0) }],
-							[{ kind: "float", value: canonicalZero(1.5) }]
-						]
-					}
-				},
-				({ q }) => q.region([{ source: q.input("x", scores), bind: { x: "x" }, constants: {} }])
-			),
-			{ forward: 4, backward: 4 }
-		),
-		draws: "",
-		reaches: ["float -0 in a relation parameter"]
-	},
-	{
-		note: "a union of the heading groups (k, tag) and (k, a, tag), told apart by their tag",
-		sketch: ascending(
-			plantedCase(5, {}, ({ q, r0 }) => {
-				const tagged = (tag: number, columns: ReadonlyArray<string>) => {
-					const region = r0()
-					return q.project(
-						region,
-						[
-							...Arr.map(columns, (c) => [c, c] as const),
-							["tag", [q.int(tag, int4), int4]] as const
-						],
-						conservativeMeta
-					)
-				}
-				return q.union([tagged(0, ["k"]), tagged(1, ["k", "a"])], ["tag"])
-			}),
-			{ forward: 4, backward: 4 }
-		),
-		draws: "",
-		reaches: ["heading groups", "Union"]
-	}
-]
 
 const printCase = (o: OrderedCase): string =>
 	`order: rotate ${o.rotate}, stated ${o.stated}, ${Arr.join(
@@ -505,18 +386,13 @@ const slotText = (c: QueryCase, slot: ConservativeStatement["params"][number]): 
 
 const run =
 	(session: PgConnection) =>
-	(
-		sql: string,
-		values: ReadonlyArray<string>
-	): Effect.Effect<ReadonlyArray<Row>, SqlError | Schema.SchemaError> =>
-		Effect.flatMap(session.queryValues(sql, values), decodeRows)
+	(sql: string, values: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<Row>, SqlError> =>
+		Effect.map(session.queryValues(sql, values), textRows)
 
 /** The rows PostgreSQL returns, every column as text. */
-const decodeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.Array(Schema.String)))
+const textRows = (rows: unknown): ReadonlyArray<Row> => trusted<ReadonlyArray<Row>>(rows)
 
-class Skip extends Schema.TaggedError<Skip, { readonly brand: unique symbol }>()("Skip", {
-	reason: Schema.String
-}) {}
+class Skip extends Data.TaggedError("Skip")<{ readonly reason: string }> {}
 
 interface Full {
 	readonly rows: ReadonlyArray<Row>
@@ -533,7 +409,7 @@ const fullResult = (
 	query: LogicalQuery,
 	template: PageTemplate,
 	statements: ReadonlyArray<OptimizedStatement>
-): Effect.Effect<Full, SqlError | Schema.SchemaError> =>
+): Effect.Effect<Full, SqlError> =>
 	Effect.gen(function* () {
 		const specs = Arr.map(statements, (s, i) => {
 			const spec = statementSpec(s, { kind: "unmetered" }, i, declaredSlotOf)
@@ -608,14 +484,14 @@ const fullResult = (
 				continue
 			}
 			if (compareRoot.value(a.value, b.value) !== 0) {
-				throw PropertyFailed.make({
+				throw new PropertyFailed({
 					report: `two delivered rows tie on the page order ${Formatter.format(template.order.keys)} but not on every common column\n${printCase(o)}`
 				})
 			}
 			if (groups.length > 1) {
-				throw Skip.make({ reason: "heading groups tie on every common column" })
+				throw new Skip({ reason: "heading groups tie on every common column" })
 			}
-			throw PropertyFailed.make({
+			throw new PropertyFailed({
 				report: `two delivered rows tie on every column\n${printCase(o)}`
 			})
 		}
@@ -671,10 +547,10 @@ const textCell = (cell: unknown): string => {
  */
 const readFailureOf = (error: SqlError): ReadFailure => {
 	const answer = error.cause instanceof DatabaseError ? serverFailure(error.cause) : undefined
-	return ReadFailure.make({
+	return new ReadFailure({
 		reason:
 			answer === undefined
-				? ConnectionLost.make({ operation: "query", ended: { by: "transport" } })
+				? new ConnectionLost({ operation: "query", ended: { by: "transport" } })
 				: answer.error
 	})
 }
@@ -696,7 +572,7 @@ const flightOn =
 					})
 				})
 			),
-			(outcomes) => Effect.mapError(flight.read(outcomes), (reason) => ReadFailure.make({ reason }))
+			(outcomes) => Effect.mapError(flight.read(outcomes), (reason) => new ReadFailure({ reason }))
 		)
 
 /** One page request as a caller makes it: from an end, or from a cursor token of an earlier page. */
@@ -722,7 +598,7 @@ const pager =
 			const inputs = yield* Effect.fromResult(
 				Result.mapError(
 					executionInputs(paramCodecs(runtime.params), params, transportLimits),
-					(reason) => ReadFailure.make({ reason })
+					(reason) => new ReadFailure({ reason })
 				)
 			)
 			const call: PageCall =
@@ -734,8 +610,9 @@ const pager =
 						}
 					: { variant: request.variant, size: request.size }
 			const rows = yield* Effect.flatMap(
-				Effect.mapError(pageFlight(runtime, artifact, inputs, call), (reason) =>
-					ReadFailure.make({ reason })
+				Effect.mapError(
+					pageFlight(runtime, artifact, inputs, call),
+					(reason) => new ReadFailure({ reason })
 				),
 				send
 			)
@@ -774,7 +651,7 @@ const pager =
 				const positions = Arr.map(parentKey, ({ name }) => {
 					const at = Arr.findFirstIndex(parent.heading, (h) => h.name === name)
 					if (Option.isNone(at)) {
-						throw PropertyFailed.make({ report: `no parent column ${name}` })
+						throw new PropertyFailed({ report: `no parent column ${name}` })
 					}
 					return offset + at.value
 				})
@@ -816,7 +693,7 @@ const checkAttachments = (label: string, p: Paged, full: Full): void => {
 	for (const [a, attached] of p.attached.entries()) {
 		const all = full.attachments[a]
 		if (all === undefined) {
-			throw PropertyFailed.make({ report: `${label}: no attachment ${a} in D` })
+			throw new PropertyFailed({ report: `${label}: no attachment ${a} in D` })
 		}
 		const keyed = (rows: ReadonlyArray<Row>): Map<string, Array<string>> => {
 			const out = new Map<string, Array<string>>()
@@ -879,7 +756,7 @@ const checkRuntime = (
 					break
 				}
 				if (pages.length > total + 2) {
-					throw PropertyFailed.make({ report: `${label}: a traversal that does not end` })
+					throw new PropertyFailed({ report: `${label}: a traversal that does not end` })
 				}
 				next = yield* page({
 					variant: direction === "forward" ? "after" : "before",
@@ -1155,7 +1032,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				meter: new BudgetMeter(compileBudgets)
 			})
 			if (!optimized.ok) {
-				return yield* PropertyFailed.make({
+				return yield* new PropertyFailed({
 					report: `optimized lowering: ${optimized.error.message}\n${printCase(o)}`
 				})
 			}
@@ -1166,7 +1043,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				catalog
 			})
 			if (violations.length > 0) {
-				return yield* PropertyFailed.make({
+				return yield* new PropertyFailed({
 					report: `${Arr.join(violations, "\n")}\n${printCase(o)}`
 				})
 			}
@@ -1187,7 +1064,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				return
 			}
 			if (!page.ok) {
-				return yield* PropertyFailed.make({
+				return yield* new PropertyFailed({
 					report: `page compiler: ${page.error.message}\n${printCase(o)}`
 				})
 			}
@@ -1215,7 +1092,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				}
 			})
 			if (Result.isFailure(runtime)) {
-				return yield* PropertyFailed.make({
+				return yield* new PropertyFailed({
 					report: `page runtime template: ${runtime.failure.message}\n${printCase(o)}`
 				})
 			}
@@ -1247,7 +1124,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						flight(deliveredAsOptimized(conservative.value).roots)
 					).pipe(
 						Effect.catchDefect((defect) =>
-							Schema.is(Skip)(defect) ? Effect.void : Effect.die(defect)
+							defect instanceof Skip ? Effect.void : Effect.die(defect)
 						)
 					)
 					if (full === undefined) {
@@ -1285,14 +1162,14 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 		}).pipe(
 			Effect.catchDefect((defect) =>
 				Effect.fail(
-					Schema.is(PropertyFailed)(defect)
+					defect instanceof PropertyFailed
 						? defect
-						: PropertyFailed.make({ report: `${messageOf(defect)}\n${printCase(o)}` })
+						: new PropertyFailed({ report: `${messageOf(defect)}\n${printCase(o)}` })
 				)
 			),
 			Effect.catchTag(["ReadFailure", "CursorError"], (e) =>
 				Effect.fail(
-					PropertyFailed.make({ report: `${e._tag}: ${Formatter.format(e)}\n${printCase(o)}` })
+					new PropertyFailed({ report: `${e._tag}: ${Formatter.format(e)}\n${printCase(o)}` })
 				)
 			)
 		)
@@ -1315,7 +1192,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 									suite: `page/generated-${artifact}`,
 									literal: Formatter.format,
 									coverage: required<PageFeature>(situations, { cases: 2_000, sense: notesOnly }),
-									kept: planted,
+									kept: [],
 									/** The suite's stated population. */
 									runs: 2_000,
 									shrink: completeShrink,

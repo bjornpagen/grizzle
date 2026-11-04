@@ -179,9 +179,8 @@ export const compiledPageResult = (
 		const artifacts = yield* toResult(
 			testArtifacts(isRecord(ordered) ? ordered["schema"] : undefined, options)
 		)
-		const stated = yield* toResult(
-			statedOrderOf((yield* toResult(queryInput(ordered))).desc, SourceLoc("query", []))
-		)
+		const { desc } = yield* toResult(queryInput(ordered))
+		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
 		const page = yield* toResult(
 			compilePage({
 				checked: template.programs.checked,

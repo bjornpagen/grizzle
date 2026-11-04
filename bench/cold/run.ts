@@ -1,12 +1,12 @@
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	FileSystem,
 	Option,
 	Record as Rec,
 	Redacted,
 	Result,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
@@ -26,8 +26,9 @@ import {
 	type ProbeResult,
 	resultMarker
 } from "#bench/cold/probe.ts"
-import { decodeProbeResult, encodeProbeInput } from "#bench/cold/protocol.ts"
 import { elapsed, type Summary, summarize, summarizePhases } from "#bench/cold/stats.ts"
+import type { Json } from "#compiler/core/canonical.ts"
+import { jsonDocument, jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { pgPin } from "#test/support/env.ts"
@@ -131,23 +132,18 @@ interface ColdRecord {
 const probePath = `${repoRoot}/bench/cold/probe.ts`
 
 /** A probe process that did not deliver its result: its exit and what it wrote on stderr. */
-class ProbeFailed extends Schema.TaggedError<ProbeFailed, { readonly brand: unique symbol }>()(
-	"ProbeFailed",
-	{
-		detail: Schema.String
-	}
-) {}
+class ProbeFailed extends Data.TaggedError("ProbeFailed")<{ readonly detail: string }> {}
 
 const probeFailed =
 	(detail: string) =>
 	(cause: unknown): ProbeFailed =>
-		ProbeFailed.make({ detail: `${detail}: ${String(cause)}` })
+		new ProbeFailed({ detail: `${detail}: ${String(cause)}` })
 
 /** One fresh process: the probe, its input on stdin, killed with its process group when the sample is interrupted. */
 const sample = Effect.fn("sample")(
 	function* (input: ProbeInput) {
 		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-		const text = yield* encodeProbeInput(input)
+		const text = jsonText(input)
 		const started = performance.now()
 		const [stdout, stderr, status] = yield* Effect.scoped(
 			Effect.gen(function* () {
@@ -173,11 +169,11 @@ const sample = Effect.fn("sample")(
 		const processWallMs = elapsed(started)
 		const line = Arr.findFirst(Str.split(stdout, "\n"), (l) => Str.startsWith(resultMarker)(l))
 		if (status !== 0 || Option.isNone(line)) {
-			return yield* ProbeFailed.make({
+			return yield* new ProbeFailed({
 				detail: `bench/cold/probe.ts exited with ${status}: ${stderr}`
 			})
 		}
-		const result = yield* decodeProbeResult(Str.slice(resultMarker.length)(line.value))
+		const result = trustedJson<ProbeResult>(Str.slice(resultMarker.length)(line.value))
 		const taken: ColdSample = { processWallMs, result }
 		return taken
 	},
@@ -306,13 +302,11 @@ const coldBench = Effect.fn("coldBench")(function* (options: ColdOptions) {
 
 export const recordFile = (outDir: string): string => `${outDir}/cold.json`
 
-const encodeRecord = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown, { space: "\t" }))
-
 const writtenBench = Effect.fn("writtenBench")(function* (options: ColdOptions, outDir: string) {
 	const fs = yield* FileSystem.FileSystem
 	const record = yield* coldBench(options)
 	yield* fs.makeDirectory(outDir, { recursive: true })
-	yield* fs.writeFileString(recordFile(outDir), `${yield* encodeRecord(record)}\n`)
+	yield* fs.writeFileString(recordFile(outDir), `${jsonDocument(trusted<Json>(record))}\n`)
 	return record
 })
 

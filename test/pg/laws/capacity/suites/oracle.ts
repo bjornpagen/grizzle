@@ -4,8 +4,9 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { installCapacity, writerOf } from "#test/pg/laws/capacity/support.ts"
 import { assert, contains, defined } from "#test/support/assert.ts"
 import {
@@ -26,10 +27,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** The foreign key, by its role in the expected outcomes. */
 const containment = "containment"
 
-/** The rows of Pool and of Item, as PostgreSQL returns them: (id, low, high, open) and (id, pool, weight, live). */
-const decodeRows = Schema.decodeUnknownEffect(
-	Schema.Array(Schema.Tuple([Schema.Int, Schema.Int, Schema.Int, Schema.Boolean]))
-)
+/** A row of Pool or of Item, as PostgreSQL returns it: (id, low, high, open) and (id, pool, weight, live). */
+type StoredRow = readonly [number, number, number, boolean]
 
 const poolWeights = capacity(
 	onSelected("Pool", ["id"], { open: true }),
@@ -344,14 +343,16 @@ const capacityOracle = (variant: PoolsVariant) =>
 						for (const o of ops) {
 							yield* w.query(statementOf(o), [])
 						}
-						const poolRows = yield* Effect.flatMap(
-							w.values(`SELECT "id", "low", "high", "open" FROM ${pool}`, []),
-							decodeRows
+						const poolValues = yield* w.values(
+							`SELECT "id", "low", "high", "open" FROM ${pool}`,
+							[]
 						)
-						const itemRows = yield* Effect.flatMap(
-							w.values(`SELECT "id", "pool", "weight", "live" FROM ${item}`, []),
-							decodeRows
+						const itemValues = yield* w.values(
+							`SELECT "id", "pool", "weight", "live" FROM ${item}`,
+							[]
 						)
+						const poolRows = trusted<ReadonlyArray<StoredRow>>(poolValues)
+						const itemRows = trusted<ReadonlyArray<StoredRow>>(itemValues)
 						const expected = violated(
 							Arr.map(poolRows, ([id, low, high, open]) => ({ id, low, high, open })),
 							Arr.map(itemRows, ([id, p, weight, live]) => ({ id, pool: p, weight, live }))
@@ -366,7 +367,7 @@ const capacityOracle = (variant: PoolsVariant) =>
 							c.note("accepted")
 							continue
 						}
-						assert.equal(Schema.is(TransactionRolledBack)(outcome.error), false, describe)
+						assert.equal(outcome.error instanceof TransactionRolledBack, false, describe)
 						const fields = pgErrorFields(outcome.error)
 						if (fields?.code === "23503") {
 							assert.equal(fields.constraint, install.foreignKey("Item"), describe)

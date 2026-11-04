@@ -59,7 +59,7 @@ export const resolveConnection = (
 	typed: MigrationConnectionConfig
 ): Result.Result<MigrationConnection, CliError> =>
 	Result.mapBoth(parseConnection(typed, "connection", "role"), {
-		onFailure: (detail) => cliError(ConnectionRefused.make({ detail })),
+		onFailure: (detail) => cliError(new ConnectionRefused({ detail })),
 		onSuccess: (parsed) => ({ ...parsed, role: typed.role })
 	})
 
@@ -77,7 +77,7 @@ const variable = (name: string): Effect.Effect<Option.Option<string>, CliError> 
 	Config.option(Config.String(name)).pipe(
 		Effect.mapBoth({
 			onSuccess: Option.filter(Str.isNonEmpty),
-			onFailure: (cause) => cliError(EnvironmentUnread.make({ variable: name, cause }))
+			onFailure: (cause) => cliError(new EnvironmentUnread({ variable: name, cause }))
 		})
 	)
 
@@ -93,7 +93,7 @@ export const connectionEnv: Effect.Effect<ConnectionEnv, CliError> = Effect.all(
 })
 
 const urlError = (fault: DatabaseUrlRefused["fault"]): CliError =>
-	cliError(DatabaseUrlRefused.make({ fault }))
+	cliError(new DatabaseUrlRefused({ fault }))
 
 const decoded = (
 	text: string,
@@ -119,13 +119,13 @@ const caFrom = Effect.fn("caFrom")(function* (
 	const fs = yield* FileSystem.FileSystem
 	const file = (yield* Path.Path).resolve(cwd, path)
 	const unread = (cause: PlatformError.PlatformError): CliError =>
-		cliError(CaUnread.make({ source, file, cause }))
+		cliError(new CaUnread({ source, file, cause }))
 	if (!(yield* Effect.mapError(fs.exists(file), unread))) {
-		return yield* cliError(CaRefused.make({ source, file, fault: "missing" }))
+		return yield* cliError(new CaRefused({ source, file, fault: "missing" }))
 	}
 	const text = yield* Effect.mapError(fs.readFileString(file), unread)
 	if (Str.trim(text).length === 0) {
-		return yield* cliError(CaRefused.make({ source, file, fault: "empty" }))
+		return yield* cliError(new CaRefused({ source, file, fault: "empty" }))
 	}
 	return text
 })
@@ -258,7 +258,7 @@ export const ownerEnvironment: Effect.Effect<void, CliError> = Effect.flatMap(
 	Option.match({
 		onNone: () => Effect.void,
 		onSome: (startupVariable) =>
-			Effect.fail(cliError(ConnectionEnvironmentRefused.make({ variable: startupVariable })))
+			Effect.fail(cliError(new ConnectionEnvironmentRefused({ variable: startupVariable })))
 	})
 )
 
@@ -273,7 +273,7 @@ const configuredConnection = (
 	}
 	return Option.isSome(env.DATABASE_URL)
 		? parseDatabaseUrl(env.DATABASE_URL.value, env, cwd)
-		: Effect.fail(cliError(ConnectionUnnamed.make({})))
+		: Effect.fail(cliError(new ConnectionUnnamed()))
 }
 
 /**

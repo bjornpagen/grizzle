@@ -85,7 +85,7 @@ export const replaceRows = (
 			)
 			const committed = yield* pinned.query("COMMIT", [])
 			if (committed.command !== "COMMIT") {
-				return yield* TransactionRolledBack.make({ label: "replace", command: committed.command })
+				return yield* new TransactionRolledBack({ label: "replace", command: committed.command })
 			}
 		})
 	)

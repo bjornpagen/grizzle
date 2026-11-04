@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Predicate, Record as Rec, Result, Schema } from "effect"
+import { Array as Arr, Effect, Option, Predicate, Record as Rec } from "effect"
 import { findNodes } from "#bench/harness/explain.ts"
 import {
 	type CaseRecord,
@@ -48,6 +48,7 @@ import {
 	serializedKb
 } from "#bench/query/support/plans.ts"
 import { attachFuseMaxFields } from "#compiler/core/policy.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -237,17 +238,13 @@ const asText = (value: unknown): unknown => {
  * A handwritten nested row: its first column the parent key's text, each later one a JSON array of records of text.
  * Every handwritten column is cast to text and never NULL, so a NULL cell is a defect of the statement.
  */
-const childrenJson = Schema.fromJsonString(
-	Schema.Array(Schema.Record(Schema.String, Schema.String))
-)
-
-const decodeChildren = (text: string): ReadonlyArray<Readonly<Record<string, string>>> =>
-	Result.getOrThrow(Schema.decodeResult(childrenJson)(text))
+const childrenOf = (text: string): ReadonlyArray<Readonly<Record<string, string>>> =>
+	trustedJson<ReadonlyArray<Readonly<Record<string, string>>>>(text)
 
 const cellText = (row: TextRow, at: number, what: string): string => {
 	const cell = row[at]
 	if (cell === null || cell === undefined) {
-		throw GateSetupError.make({ what: `a handwritten nested row without ${what}` })
+		throw new GateSetupError({ what: `a handwritten nested row without ${what}` })
 	}
 	return cell
 }
@@ -259,7 +256,7 @@ const nestedRows = (
 	Arr.map(rows, (row) =>
 		Rec.fromEntries([
 			["id", cellText(row, 0, "its parent key")],
-			...Arr.map(names, (name, i) => [name, decodeChildren(cellText(row, i + 1, name))] as const)
+			...Arr.map(names, (name, i) => [name, childrenOf(cellText(row, i + 1, name))] as const)
 		])
 	)
 
@@ -267,7 +264,7 @@ const nestedRows = (
 const parentIds = (rows: ReadonlyArray<unknown>): ReadonlyArray<bigint> =>
 	Arr.map(rows, (row) => {
 		if (!Predicate.hasProperty(row, "id") || typeof row.id !== "bigint") {
-			throw GateSetupError.make({ what: "a delivered parent without its bigint id" })
+			throw new GateSetupError({ what: "a delivered parent without its bigint id" })
 		}
 		return row.id
 	})
@@ -557,13 +554,13 @@ export default defineGate({
 			const reachAttachments = attachmentsOf(reach, "reach")
 			const [reachAttachment] = reachAttachments
 			if (reachAttachment === undefined) {
-				throw GateSetupError.make({ what: "the reachable sets pipeline no attachment" })
+				throw new GateSetupError({ what: "the reachable sets pipeline no attachment" })
 			}
 			const reachChild = planOf(reachM.generated, reachAttachment.index)
 			const closures = arrayTotal(reachM.delivered.generated.rows, "reach")
 			const parents = reachM.delivered.generated.rows.length
 			if (closures <= parents) {
-				throw GateSetupError.make({
+				throw new GateSetupError({
 					what: `${closures} reachable people for ${parents} parents, no subtree each`
 				})
 			}

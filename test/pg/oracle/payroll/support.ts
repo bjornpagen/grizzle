@@ -135,7 +135,7 @@ export interface ProgramOutcome {
 	}>
 }
 
-const fail = (message: string) => Effect.fail(PropertyFailed.make({ report: message }))
+const fail = (message: string) => Effect.fail(new PropertyFailed({ report: message }))
 
 /** The input texts of a program's scalar parameters for one case. */
 const bindings = (

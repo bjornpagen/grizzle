@@ -1,9 +1,8 @@
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	jsonText,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -304,7 +303,7 @@ export default defineGate({
 							events.targetDelete.total === 1 &&
 							events.sourceDelete.total === 0 &&
 							events.targetInsert.total === 0,
-						jsonText({
+						Formatter.format({
 							approvedInsert: events.approvedInsert.calls,
 							targetDelete: events.targetDelete.calls,
 							sourceDelete: events.sourceDelete.calls,
@@ -319,7 +318,7 @@ export default defineGate({
 					mechanism(
 						"the probes are indexed: no sequential scan of Shift or Timesheet at either size",
 						seqScans(small.probe) === 0 && seqScans(large.probe) === 0,
-						`${jsonText(small.probe.scans)} | ${jsonText(large.probe.scans)}`
+						`${Formatter.format(small.probe.scans)} | ${Formatter.format(large.probe.scans)}`
 					),
 					mechanism(
 						"the probes' index scans per law call are equal at both sizes",
@@ -329,17 +328,17 @@ export default defineGate({
 					equivalence(
 						"an approved shift without its timesheet is refused at COMMIT with the law's identity",
 						lawFailure(orphan.outcome),
-						jsonText(orphan.outcome)
+						Formatter.format(orphan.outcome)
 					),
 					equivalence(
 						"a draft shift without its timesheet commits",
 						draft.outcome.kind === "committed",
-						jsonText(draft.outcome)
+						Formatter.format(draft.outcome)
 					),
 					equivalence(
 						"removing a timesheet an approved shift needs is refused at COMMIT with the law's identity",
 						lawFailure(removeSheet.outcome),
-						jsonText(removeSheet.outcome)
+						Formatter.format(removeSheet.outcome)
 					),
 					equivalence(
 						"every generated batch committed",
@@ -348,7 +347,7 @@ export default defineGate({
 							(m) => m.generated.outcomes.committed === m.generated.samples
 						),
 						Arr.join(
-							Arr.map([small, large], (m) => jsonText(m.generated.outcomes)),
+							Arr.map([small, large], (m) => Formatter.format(m.generated.outcomes)),
 							" | "
 						)
 					)

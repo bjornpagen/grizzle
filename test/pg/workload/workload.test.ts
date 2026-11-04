@@ -1,5 +1,6 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option, Schema } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
+import { trusted } from "#compiler/core/trusted.ts"
 import { type WorkloadPhysical, workloadExtension } from "#compiler/physical/access/extension.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
@@ -29,9 +30,11 @@ import {
  * test/unit/workload's.
  */
 
-/** Catalog rows of two and of three text columns, admitted as such. */
-const TextPairs = Schema.Array(Schema.Tuple([Schema.String, Schema.String]))
-const TextTriples = Schema.Array(Schema.Tuple([Schema.String, Schema.String, Schema.String]))
+/** Catalog rows of two and of three text columns, trusted as such. */
+const textPairsOf = (rows: unknown): ReadonlyArray<readonly [string, string]> =>
+	trusted<ReadonlyArray<readonly [string, string]>>(rows)
+const textTriplesOf = (rows: unknown): ReadonlyArray<readonly [string, string, string]> =>
+	trusted<ReadonlyArray<readonly [string, string, string]>>(rows)
 
 /**
  * The catalog holds exactly the indexes the installation's DDL creates, with their methods, columns,
@@ -54,7 +57,7 @@ const installWithWorkload = (schema: unknown, workload: WorkloadPhysical, label:
 			expectedCatalog(plan.installation).indexes
 		)
 		const s = yield* substrate.session(ownerSession())
-		const statistics = yield* Effect.flatMap(
+		const statistics = yield* Effect.map(
 			s.values(
 				`SELECT s.stxname::text, array_to_string(s.stxkind, ',')::text,
 			        (SELECT string_agg(a.attname::text, ',' ORDER BY a.attnum) FROM pg_attribute a
@@ -63,7 +66,7 @@ const installWithWorkload = (schema: unknown, workload: WorkloadPhysical, label:
 			 WHERE n.nspname = '${plan.schema}' ORDER BY 1`,
 				[]
 			),
-			Schema.decodeUnknownEffect(TextTriples)
+			textTriplesOf
 		)
 		return { plan, statistics }
 	})
@@ -112,7 +115,7 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 				 * Every key of every index on the task table besides its keys, read from pg_index in key order: the index,
 				 * the key's column and its direction.
 				 */
-				const installed = yield* Effect.flatMap(
+				const installed = yield* Effect.map(
 					session.values(
 						`SELECT i.relname::text, a.attname::text, CASE WHEN (x.indoption[k.n - 1] & 1) = 1 THEN 'desc' ELSE 'asc' END::text
 					 FROM pg_catalog.pg_index x
@@ -125,7 +128,7 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 					 ORDER BY i.relname, k.n`,
 						[plan.schema, task]
 					),
-					Schema.decodeUnknownEffect(TextTriples)
+					textTriplesOf
 				)
 				const shared = Option.getOrThrowWith(
 					Arr.findFirst(
@@ -205,7 +208,7 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 				assert.notDeepEqual(hnsw, [], "an HNSW index")
 				const session = yield* (yield* Substrate).session(ownerSession())
 				for (const i of hnsw) {
-					const opclasses = yield* Effect.flatMap(
+					const opclasses = yield* Effect.map(
 						session.values(
 							`SELECT n.nspname::text, c.opcname::text FROM pg_catalog.pg_index x
 						 JOIN pg_catalog.pg_class r ON r.oid = x.indexrelid
@@ -215,7 +218,7 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 						 WHERE rn.nspname = $1::text AND r.relname = $2::text`,
 							[plan.schema, i.index.name]
 						),
-						Schema.decodeUnknownEffect(TextPairs)
+						textPairsOf
 					)
 					assert.deepEqual(opclasses, [[vectorSchema, "vector_cosine_ops"]])
 				}

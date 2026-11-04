@@ -369,10 +369,8 @@ describe("a flight", () => {
 					{ ...answeringScript, statement: () => refusedAnswer("0A000") },
 					immediateDelivery
 				)
-				assert.equal(
-					(yield* Effect.flip(runTransaction(fresh, [named], whole)))._tag,
-					"BatchRefused"
-				)
+				const freshRefusal = yield* Effect.flip(runTransaction(fresh, [named], whole))
+				assert.equal(freshRefusal._tag, "BatchRefused")
 				/** A statement no server statement names runs unnamed. */
 				const plain = scriptedSession(answeringScript, immediateDelivery)
 				yield* runTransaction(plain, [statement("a")], whole)

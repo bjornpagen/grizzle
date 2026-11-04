@@ -1126,8 +1126,9 @@ export const POST = (request: Request): Promise<Response> => {
 		if (token === undefined) {
 			return 401
 		}
-		const post = yield* Schema.decodeUnknownEffect(Draft)(
-			yield* Effect.promise(() => request.json())
+		const post = yield* Effect.flatMap(
+			Effect.promise(() => request.json()),
+			Schema.decodeUnknownEffect(Draft)
 		)
 		const db = yield* Db.open(Web.roles.member, { token })
 		const outcome = yield* db.apply(draft(post), {})
@@ -1181,9 +1182,7 @@ export const EtlLayer = DbLayer.make({
 const etl = ManagedRuntime.make(EtlLayer)
 
 /** No token and no claims: it writes view counts, and never reads a title. */
-export const loadViews = (
-	views: ReadonlyArray<{ readonly post: Uuid; readonly views: bigint }>
-) =>
+export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly views: bigint }>) =>
 	etl.runPromise(
 		Effect.gen(function* () {
 			const db = yield* Db.open(EtlJob.roles.etl, {})

@@ -1,9 +1,8 @@
-import { Array as Arr, Effect, Record as Rec, Result, Schema } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	jsonText,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -27,13 +26,12 @@ import { fill, GateSetupError, settle } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
 	baselineSchema,
-	decodeOne,
-	decodeRows,
 	installWrites,
 	lawObjects,
 	loadedByOwner,
 	loginRoleOf,
 	observedChange,
+	oneRow,
 	openFull,
 	owner,
 	plainStatement,
@@ -49,6 +47,7 @@ import {
 } from "#bench/write/support/writes.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -142,8 +141,8 @@ const hotLane = 1
 /** The first of the groups the grizzle batches insert into. */
 const grizzleGroups = 500000
 
-const CountRow = Schema.Tuple([Schema.FiniteFromString])
-const CountPair = Schema.Tuple([Schema.FiniteFromString, Schema.FiniteFromString])
+type PidRow = readonly [pid: string]
+type CountPair = readonly [first: string, second: string]
 
 const membersSql = (
 	table: string,
@@ -341,7 +340,7 @@ END $f$`,
 						lawTriggerCalls: probe.total,
 						memberSeqScans: memberScans.seq,
 						memberIndexScans: memberScans.idx,
-						scans: jsonText(probe.scans)
+						scans: Formatter.format(probe.scans)
 					}
 				})
 			}
@@ -426,7 +425,7 @@ END $f$`,
 				"SELECT pid::text FROM pg_catalog.pg_stat_activity WHERE usename = $1::name AND datname = pg_catalog.current_database() AND pid <> ALL ($2::int4[])",
 				[loginRoleOf(fx), `{${Arr.join(Arr.map(pids, String), ",")}}`]
 			)
-			const grizzlePids = Arr.map(decodeRows(CountRow, rows), ([pid]) => pid)
+			const grizzlePids = Arr.map(trusted<ReadonlyArray<PidRow>>(rows), ([pid]) => Number(pid))
 			const grizzleHot = yield* runLoad(
 				dbs,
 				(d) => {
@@ -452,7 +451,7 @@ END $f$`,
 			 */
 			const [a, b] = sessions
 			if (a === undefined || b === undefined) {
-				return yield* Effect.die(GateSetupError.make({ what: "two writers are needed" }))
+				return yield* Effect.die(new GateSetupError({ what: "two writers are needed" }))
 			}
 			const race = yield* Effect.forEach(
 				[a, b],
@@ -494,7 +493,7 @@ END $f$`,
 			).length
 			const [d1, d2] = dbs
 			if (d1 === undefined || d2 === undefined) {
-				return yield* Effect.die(GateSetupError.make({ what: "two grizzle writers are needed" }))
+				return yield* Effect.die(new GateSetupError({ what: "two grizzle writers are needed" }))
 			}
 			const grizzleRace = yield* Effect.forEach(
 				[d1, d2],
@@ -531,7 +530,9 @@ END $f$`,
 				`SELECT (SELECT count(*) FROM ${M} WHERE ${c("Member", "grp")} = ${boundGroup})::text, (SELECT count(*) FROM ${M} WHERE ${c("Member", "grp")} = ${boundGroupGrizzle})::text`,
 				[]
 			)
-			const [boundMembers, boundMembersGrizzle] = decodeOne(CountPair, boundCounts)
+			const [boundText, boundGrizzleText] = trusted<CountPair>(oneRow(boundCounts))
+			const boundMembers = Number(boundText)
+			const boundMembersGrizzle = Number(boundGrizzleText)
 
 			/** 5. The partial-unique specialization, read from the installation record beside the catalog it installed. */
 			const objects = yield* lawObjects(fx)
@@ -615,7 +616,7 @@ END $f$`,
 					loads: {},
 					measures: {
 						directOutcomes: Arr.join(
-							Arr.map(raceOutcomes, (o) => jsonText(o)),
+							Arr.map(raceOutcomes, (o) => Formatter.format(o)),
 							", "
 						),
 						directRetries: Arr.join(raceRetries, ", "),
@@ -692,7 +693,7 @@ END $f$`,
 					mechanism(
 						"every attempt of a concurrent writer of one group, SQL or grizzle, commits or fails with a serialization failure or a deadlock",
 						committedOrConflicted(directHot) && committedOrConflicted(grizzleHot),
-						jsonText({
+						Formatter.format({
 							direct: { outcomes: directHot.outcomes, retries: directHot.retries },
 							grizzle: { outcomes: grizzleHot.outcomes, retries: grizzleHot.retries }
 						})
@@ -701,7 +702,7 @@ END $f$`,
 						"two direct writers at the bound: one commits, the other's COMMIT raises 23000 with the law's identity, after any retry of a serialization failure or deadlock",
 						raceCommitted === 1 && raceRefused === 1,
 						Arr.join(
-							Arr.map(raceOutcomes, (o) => jsonText(o)),
+							Arr.map(raceOutcomes, (o) => Formatter.format(o)),
 							"; "
 						)
 					),
@@ -720,7 +721,7 @@ END $f$`,
 						"every generated batch committed",
 						Arr.every(generatedBatches, (t) => t.outcomes.committed === t.samples),
 						Arr.join(
-							Arr.map(generatedBatches, (t) => jsonText(t.outcomes)),
+							Arr.map(generatedBatches, (t) => Formatter.format(t.outcomes)),
 							" | "
 						)
 					)

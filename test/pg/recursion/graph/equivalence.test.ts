@@ -185,11 +185,11 @@ const agreeOn = (population: Population) =>
 					const program = outcome.left.program
 					const unseen = formsBroken(c.query.dag.roots[0], program, noted)
 					if (unseen !== undefined) {
-						return yield* PropertyFailed.make({ report: `${unseen}\n${printOutcome(outcome)}` })
+						return yield* new PropertyFailed({ report: `${unseen}\n${printOutcome(outcome)}` })
 					}
 					const broken = population.check({ c, program, noted })
 					if (broken.length > 0) {
-						return yield* PropertyFailed.make({
+						return yield* new PropertyFailed({
 							report: `${Arr.join(broken, "\n")}\n${printOutcome(outcome)}`
 						})
 					}
@@ -368,7 +368,7 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 									return yield* comparisonFailed(both)
 								}
 								if (both.right.kind === "reference") {
-									return yield* PropertyFailed.make({
+									return yield* new PropertyFailed({
 										report: `no optimized program of root 1\n${printOutcome(both)}`
 									})
 								}
@@ -383,13 +383,13 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 								for (const [which, program] of sides) {
 									const root = c.query.dag.roots[which]
 									if (root === undefined) {
-										return yield* PropertyFailed.make({
+										return yield* new PropertyFailed({
 											report: `no optimized program of root ${which}\n${printOutcome(both)}`
 										})
 									}
 									const unseen = formsBroken(root, program, noted[which])
 									if (unseen !== undefined) {
-										return yield* PropertyFailed.make({
+										return yield* new PropertyFailed({
 											report: `root ${which}: ${unseen}\n${printOutcome(both)}`
 										})
 									}

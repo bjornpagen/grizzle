@@ -7,7 +7,6 @@ import {
 	Order,
 	Record as Rec,
 	Redacted,
-	Result,
 	Stdio,
 	Stream
 } from "effect"
@@ -39,7 +38,7 @@ const boot = performance.now()
  */
 export const resultMarker = "GRIZZLE-BENCH-COLD "
 
-export interface ProbeDatabase {
+export type ProbeDatabase = {
 	readonly host: string
 	readonly port: number
 	readonly database: string
@@ -58,7 +57,7 @@ export type ProbeInput =
 	| { readonly mode: "compile"; readonly warmRepeats: number }
 	| { readonly mode: "database"; readonly warmRepeats: number; readonly database: ProbeDatabase }
 
-export interface ProbeResult {
+export type ProbeResult = {
 	readonly mode: "compile" | "database"
 	/** Milliseconds per phase, in the order they ran. */
 	readonly phases: Readonly<Record<string, number>>
@@ -102,9 +101,9 @@ const main = Effect.gen(function* () {
 	const { snapshotJson } = yield* Effect.promise(() => import("#test/support/snapshot-json.ts"))
 	const W = yield* Effect.promise(() => import("#test/support/fixtures/api/work.ts"))
 	phases["importWorkloadMs"] = since(t)
-	/** The input is decoded once the entry is loaded, outside every measured phase. */
-	const { decodeProbeInput } = yield* Effect.promise(() => import("#bench/cold/protocol.ts"))
-	const input = Result.getOrThrow(decodeProbeInput(text))
+	/** The input is read once the entry is loaded, outside every measured phase. */
+	const { trustedJson } = yield* Effect.promise(() => import("#compiler/core/trusted.ts"))
+	const input = trustedJson<ProbeInput>(text)
 	if (!(Number.isInteger(input.warmRepeats) && input.warmRepeats >= 1)) {
 		throw new Error(`warmRepeats must be a positive integer, not ${input.warmRepeats}`)
 	}
@@ -246,11 +245,11 @@ const main = Effect.gen(function* () {
 	return result
 })
 
-/** The probe's one result line on stdout, encoded as protocol.ts states it. */
+/** The probe's one result line on stdout: the result as JSON. */
 const probe = Effect.gen(function* () {
 	const result = yield* main
-	const { encodeProbeResult } = yield* Effect.promise(() => import("#bench/cold/protocol.ts"))
-	yield* Console.log(`${resultMarker}${Result.getOrThrow(encodeProbeResult(result))}`)
+	const { jsonText } = yield* Effect.promise(() => import("#compiler/core/trusted.ts"))
+	yield* Console.log(`${resultMarker}${jsonText(result)}`)
 })
 
 if (import.meta.filename === process.argv[1]) {

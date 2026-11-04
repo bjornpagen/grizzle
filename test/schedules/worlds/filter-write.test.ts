@@ -149,19 +149,5 @@ worldRaceSuite({
 	test: "a write through an entry racing a write to the relation its filter reads is one serial order's outcome",
 	draw: caseGen,
 	race,
-	kept: [
-		{
-			note: "a direct deleter in a pool of one: some order puts ann's note between its statements, and every order refuses one write",
-			sketch: { pool: 1, rival: "direct", end: "commit", words: 3, no: 1, reader: "none" },
-			draws: "",
-			reaches: ["pool of 1", "overlapping", "ended: commit", "ended: refusal"]
-		},
-		{
-			note: "a Db deleter beside a reader in a pool of two",
-			sketch: { pool: 2, rival: "db", end: "commit", words: 4, no: 2, reader: "cat reads MyNote" },
-			draws: "",
-			reaches: ["pool of 2", "ended: commit", "ended: refusal"]
-		}
-	],
 	required: ["ended: commit", "ended: refusal", "overlapping", "pool of 1", "pool of 2"]
 })

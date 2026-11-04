@@ -30,7 +30,8 @@ const refusing: Readonly<Record<Refusal, () => unknown>> = {
 layer(NodeServices.layer, { excludeTestServices: true })("ChangeSet facade", (it) => {
 	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
 		Effect.gen(function* () {
-			assert.equal((yield* checked("changeset/fixtures")).output, "")
+			const diagnostics = yield* checked("changeset/fixtures")
+			assert.equal(diagnostics.output, "")
 		})
 	)
 

@@ -13,7 +13,6 @@ import {
 	Formatter,
 	type Redacted,
 	Result,
-	Schema,
 	Scope
 } from "effect"
 import { TestClock } from "effect/testing"
@@ -223,8 +222,8 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									const error = Exit.isFailure(exit) ? Exit.findError(exit) : Result.fail(undefined)
 									assert.ok(Result.isSuccess(error), "the lease fails")
 									const failure = error.success
-									assert.ok(Schema.is(LayerReleased)(failure), String(failure))
-									assert.equal(OpenError.make({ reason: failure }).stage, "released")
+									assert.ok(failure instanceof LayerReleased, String(failure))
+									assert.equal(new OpenError({ reason: failure }).stage, "released")
 									assert.equal(asked(), 0, "pg is never asked for a client")
 									assert.equal(gate.state.attempts, attempts, "no connection is attempted")
 									assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
@@ -279,9 +278,9 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 											: Result.fail(undefined)
 										assert.ok(Result.isSuccess(error), "the wait fails")
 										const failure = error.success
-										assert.ok(Schema.is(AcquisitionBudgetExceeded)(failure), String(failure))
+										assert.ok(failure instanceof AcquisitionBudgetExceeded, String(failure))
 										const exceeded: AcquisitionBudgetExceeded = failure
-										assert.equal(OpenError.make({ reason: exceeded }).stage, "wait")
+										assert.equal(new OpenError({ reason: exceeded }).stage, "wait")
 										matchesObject(exceeded, { millis: w.waitMs, leased: w.held, max: w.max })
 										yield* letThrough
 										break
@@ -320,7 +319,8 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 								}
 								const leasedNow = yield* pool.leased
 								assert.equal(leasedNow, leased)
-								assert.ok((yield* pool.size) <= w.max)
+								const sizeNow = yield* pool.size
+								assert.ok(sizeNow <= w.max)
 								for (const h of held) {
 									yield* Scope.close(h.scope, Exit.void)
 								}

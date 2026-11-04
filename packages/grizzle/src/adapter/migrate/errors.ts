@@ -1,15 +1,14 @@
-import { Array as Arr, Schema } from "effect"
-import { DriftMismatch } from "#adapter/admission/drift.ts"
-import {
+import { Array as Arr, Data, Formatter } from "effect"
+import type { DriftMismatch } from "#adapter/admission/drift.ts"
+import type {
 	CatalogRowRefused,
-	CompileErrorSchema,
 	ConnectionLost,
-	ConnectRefusalSchema,
+	ConnectRefusal,
 	DriverFailure,
 	ServerError,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
-import { compileReasonText } from "#compiler/core/errors.ts"
+import { type CompileError, compileReasonText } from "#compiler/core/errors.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 
 /**
@@ -17,7 +16,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
  *
  * The apply runner is not part of the library's public API: the command line drives it, so its failure is one internal
  * MigrateError the CLI reports, whose classified case is its `reason`: one of the classes here, each a
- * Schema.TaggedError carrying exactly what happened and rendering its own `message`. What follows from a reason is a
+ * Data.TaggedError carrying exactly what happened and rendering its own `message`. What follows from a reason is a
  * getter of the error, never a stored field: the stage, the schema and the place in its migrations directory it
  * concerns, and what the server said. A failure underneath is grizzle's own classified failure (a connection attempt's
  * refusal, a ServerError, a lost connection, a CompileError), kept as it is, so no `cause` wraps a foreign value here.
@@ -80,18 +79,15 @@ export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 }
 
 /** A statement apart's answer that is no row its query reads: the server's refusal, or a row the catalog cannot give. */
-const RowFailureSchema = Schema.Union([ServerError, CatalogRowRefused])
-type RowFailure = typeof RowFailureSchema.Type
+type RowFailure = ServerError | CatalogRowRefused
 
 /** A step that failed as a whole: the connection lost, the driver, or an answer grizzle cannot read. */
-const FlightFailureSchema = Schema.Union([ConnectionLost, DriverFailure, UnreadableAnswer])
-type FlightFailure = typeof FlightFailureSchema.Type
+type FlightFailure = ConnectionLost | DriverFailure | UnreadableAnswer
 
 /**
  * How one statement fails: the server refused it, the session failed, it answered rows grizzle's SQL cannot deliver,
  * or the catalog answered what the statement cannot.
  */
-const StatementFailureSchema = Schema.Union([RowFailureSchema, FlightFailureSchema])
 export type StatementFailure = RowFailure | FlightFailure
 
 const serverSaid = (e: ServerError): string =>
@@ -157,46 +153,41 @@ const directory: MigrationPlace = Object.freeze({ kind: "directory" })
  * What a ledger write records: a folder's row alone (a folder without files, or a no-transaction file's folder before
  * its first statement), or a file's rows.
  */
-const RecordPlaceSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("folder"), folder: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("file"), folder: Schema.String, file: Schema.String })
-])
-export type RecordPlace = typeof RecordPlaceSchema.Type
+export type RecordPlace =
+	| { readonly kind: "folder"; readonly folder: string }
+	| { readonly kind: "file"; readonly folder: string; readonly file: string }
 
 const recordText = (at: RecordPlace): string =>
 	at.kind === "folder" ? at.folder : `${at.folder}/${at.file}`
 
 /** An unresolved placeholder or candidate-rename marker in a file the apply would run; its line is 1-based. */
-const UnresolvedMarker = Schema.Struct({
-	folder: Schema.String,
-	file: Schema.String,
-	kind: Schema.Literals(["placeholder", "rename"]),
-	line: Schema.Int
-})
-export type UnresolvedMarker = typeof UnresolvedMarker.Type
+export type UnresolvedMarker = {
+	readonly folder: string
+	readonly file: string
+	readonly kind: "placeholder" | "rename"
+	readonly line: number
+}
 
 /**
  * A loss of stored data in a folder the apply would run that the reviewer has not decided: its statement still
  * commented, and no candidate rename that carries the data chosen (render/chosen.ts lossDecisions).
  */
-const UnresolvedLoss = Schema.Struct({
-	folder: Schema.String,
-	file: Schema.String,
+export type UnresolvedLoss = {
+	readonly folder: string
+	readonly file: string
 	/** What it loses (chosen.ts lossText). */
-	loses: Schema.String
-})
-export type UnresolvedLoss = typeof UnresolvedLoss.Type
+	readonly loses: string
+}
 
 /**
  * An applied folder's file that no longer matches its ledger row: its text was edited after it ran, it was deleted,
  * or it was added to a folder every file of which had already run.
  */
-const AppliedEdit = Schema.Struct({
-	folder: Schema.String,
-	file: Schema.String,
-	kind: Schema.Literals(["edited", "missing", "added"])
-})
-export type AppliedEdit = typeof AppliedEdit.Type
+export type AppliedEdit = {
+	readonly folder: string
+	readonly file: string
+	readonly kind: "edited" | "missing" | "added"
+}
 
 /** What each applied edit says after its file's path, with its fix. */
 export const appliedEditPhrase: Readonly<Record<AppliedEdit["kind"], string>> = {
@@ -213,60 +204,49 @@ const fileOf = (first: { readonly folder: string; readonly file: string }): Migr
 })
 
 /** The migration identity could not connect to `host`:`port` as `role`, for `refusal`; no schema is concerned yet. */
-export class ConnectRefused extends Schema.TaggedError<
-	ConnectRefused,
-	{ readonly brand: unique symbol }
->()("ConnectRefused", {
-	role: Schema.String,
-	host: Schema.String,
-	port: Schema.Int,
-	refusal: ConnectRefusalSchema
-}) {
+export class ConnectRefused extends Data.TaggedError("ConnectRefused")<{
+	readonly role: string
+	readonly host: string
+	readonly port: number
+	readonly refusal: ConnectRefusal
+}> {
 	override get message(): string {
 		return `the migration identity ${this.role} could not connect to ${this.host}:${this.port}: ${this.refusal.message}`
 	}
 }
 
 /** The survey step, which reads the session's role and each schema's owner, apply lock and ledger, failed whole. */
-export class SurveyFailed extends Schema.TaggedError<
-	SurveyFailed,
-	{ readonly brand: unique symbol }
->()("SurveyFailed", { failure: FlightFailureSchema }) {
+export class SurveyFailed extends Data.TaggedError("SurveyFailed")<{
+	readonly failure: FlightFailure
+}> {
 	override get message(): string {
 		return `the session's role and its schemas' owners, apply locks and ledgers could not be read: ${failureText(this.failure)}`
 	}
 }
 
 /** The session's role could not be read, which concerns no schema. */
-export class RoleUnread extends Schema.TaggedError<RoleUnread, { readonly brand: unique symbol }>()(
-	"RoleUnread",
-	{
-		failure: RowFailureSchema
-	}
-) {
+export class RoleUnread extends Data.TaggedError("RoleUnread")<{ readonly failure: RowFailure }> {
 	override get message(): string {
 		return `the session's role could not be read: ${failureText(this.failure)}`
 	}
 }
 
 /** The owner of `schema` could not be read. */
-export class OwnerUnread extends Schema.TaggedError<
-	OwnerUnread,
-	{ readonly brand: unique symbol }
->()("OwnerUnread", {
-	schema: Schema.String,
-	failure: RowFailureSchema
-}) {
+export class OwnerUnread extends Data.TaggedError("OwnerUnread")<{
+	readonly schema: string
+	readonly failure: RowFailure
+}> {
 	override get message(): string {
 		return `the owner of ${this.schema} could not be read: ${failureText(this.failure)}`
 	}
 }
 
 /** `schema` is owned by `owner`, another role than `user`, the connecting one. */
-export class OwnedByAnother extends Schema.TaggedError<
-	OwnedByAnother,
-	{ readonly brand: unique symbol }
->()("OwnedByAnother", { schema: Schema.String, owner: Schema.String, user: Schema.String }) {
+export class OwnedByAnother extends Data.TaggedError("OwnedByAnother")<{
+	readonly schema: string
+	readonly owner: string
+	readonly user: string
+}> {
 	override get message(): string {
 		return `schema ${this.schema} is owned by ${this.owner}, not by the connecting role ${this.user}; migrations run as the schema's owner`
 	}
@@ -277,43 +257,33 @@ export class OwnedByAnother extends Schema.TaggedError<
  * given twice, its meta.json malformed or another schema's, a file named twice or meta.json among its SQL files, its
  * files' names (`error`, render/folder.ts orderFolderFiles), or a statement that controls the transaction itself.
  */
-const InputFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("repeatedSchema") }),
-	Schema.Struct({ kind: Schema.Literal("folderName"), folder: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("repeatedFolder"), folder: Schema.String }),
-	Schema.Struct({
-		kind: Schema.Literal("malformedMeta"),
-		folder: Schema.String,
-		error: CompileErrorSchema
-	}),
-	Schema.Struct({
-		kind: Schema.Literal("foreignMeta"),
-		folder: Schema.String,
-		belongs: Schema.Struct({ schemaName: Schema.String, schema: Schema.String }),
-		schemaName: Schema.String
-	}),
-	Schema.Struct({ kind: Schema.Literal("repeatedFile"), folder: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("metaAmongFiles"), folder: Schema.String }),
-	Schema.Struct({
-		kind: Schema.Literal("fileNames"),
-		folder: Schema.String,
-		error: CompileErrorSchema
-	}),
-	Schema.Struct({
-		kind: Schema.Literal("transactionControl"),
-		folder: Schema.String,
-		file: Schema.String,
-		statement: Schema.Int,
-		control: Schema.String
-	})
-])
-export type InputFault = typeof InputFaultSchema.Type
+export type InputFault =
+	| { readonly kind: "repeatedSchema" }
+	| { readonly kind: "folderName"; readonly folder: string }
+	| { readonly kind: "repeatedFolder"; readonly folder: string }
+	| { readonly kind: "malformedMeta"; readonly folder: string; readonly error: CompileError }
+	| {
+			readonly kind: "foreignMeta"
+			readonly folder: string
+			readonly belongs: { readonly schemaName: string; readonly schema: string }
+			readonly schemaName: string
+	  }
+	| { readonly kind: "repeatedFile"; readonly folder: string }
+	| { readonly kind: "metaAmongFiles"; readonly folder: string }
+	| { readonly kind: "fileNames"; readonly folder: string; readonly error: CompileError }
+	| {
+			readonly kind: "transactionControl"
+			readonly folder: string
+			readonly file: string
+			readonly statement: number
+			readonly control: string
+	  }
 
 /** `schema`'s snapshot and folders, as the command line read them, are refused for `fault`. */
-export class InputRefused extends Schema.TaggedError<
-	InputRefused,
-	{ readonly brand: unique symbol }
->()("InputRefused", { schema: Schema.String, fault: InputFaultSchema }) {
+export class InputRefused extends Data.TaggedError("InputRefused")<{
+	readonly schema: string
+	readonly fault: InputFault
+}> {
 	/** The folder, meta.json or statement the fault is at; the directory for the schema given twice. */
 	get place(): MigrationPlace {
 		const fault = this.fault
@@ -345,7 +315,7 @@ export class InputRefused extends Schema.TaggedError<
 			case "repeatedSchema":
 				return `schema ${this.schema} is given twice; each declared schema has one snapshot and one migrations directory`
 			case "folderName":
-				return `migration folder ${JSON.stringify(fault.folder)} is not named <YYYYMMDDHHMMSS>_<name>`
+				return `migration folder ${Formatter.format(fault.folder)} is not named <YYYYMMDDHHMMSS>_<name>`
 			case "repeatedFolder":
 				return `migration folder ${fault.folder} is given twice`
 			case "malformedMeta":
@@ -365,45 +335,37 @@ export class InputRefused extends Schema.TaggedError<
 }
 
 /** The apply lock of `schema` could not be taken: its statement did not answer whether it was. */
-export class LockUnread extends Schema.TaggedError<LockUnread, { readonly brand: unique symbol }>()(
-	"LockUnread",
-	{
-		schema: Schema.String,
-		failure: RowFailureSchema
-	}
-) {
+export class LockUnread extends Data.TaggedError("LockUnread")<{
+	readonly schema: string
+	readonly failure: RowFailure
+}> {
 	override get message(): string {
 		return `the apply lock of ${this.schema} could not be taken: ${failureText(this.failure)}`
 	}
 }
 
 /** Another apply of `schema` holds its apply lock. */
-export class ApplyBusy extends Schema.TaggedError<ApplyBusy, { readonly brand: unique symbol }>()(
-	"ApplyBusy",
-	{
-		schema: Schema.String
-	}
-) {
+export class ApplyBusy extends Data.TaggedError("ApplyBusy")<{ readonly schema: string }> {
 	override get message(): string {
 		return `another grizzle migrate of ${this.schema} is running; the apply is refused before any statement runs`
 	}
 }
 
 /** The ledger statements of `schema` do not compile. */
-export class LedgerUncompiled extends Schema.TaggedError<
-	LedgerUncompiled,
-	{ readonly brand: unique symbol }
->()("LedgerUncompiled", { schema: Schema.String, error: CompileErrorSchema }) {
+export class LedgerUncompiled extends Data.TaggedError("LedgerUncompiled")<{
+	readonly schema: string
+	readonly error: CompileError
+}> {
 	override get message(): string {
 		return `the ledger statements of ${this.schema} do not compile: ${compileReasonText(this.error.reason)}`
 	}
 }
 
 /** The ledger of `schema` could not be read. */
-export class LedgerUnread extends Schema.TaggedError<
-	LedgerUnread,
-	{ readonly brand: unique symbol }
->()("LedgerUnread", { schema: Schema.String, failure: StatementFailureSchema }) {
+export class LedgerUnread extends Data.TaggedError("LedgerUnread")<{
+	readonly schema: string
+	readonly failure: StatementFailure
+}> {
 	override get message(): string {
 		return `the ledger of ${this.schema} could not be read: ${failureText(this.failure)}`
 	}
@@ -413,23 +375,20 @@ export class LedgerUnread extends Schema.TaggedError<
  * The ledger of `schema` holds rows that are damage no apply leaves behind (ledger/ledger.ts ledgerState); `error` says
  * what.
  */
-export class LedgerDamaged extends Schema.TaggedError<
-	LedgerDamaged,
-	{ readonly brand: unique symbol }
->()("LedgerDamaged", {
-	schema: Schema.String,
-	error: CompileErrorSchema
-}) {
+export class LedgerDamaged extends Data.TaggedError("LedgerDamaged")<{
+	readonly schema: string
+	readonly error: CompileError
+}> {
 	override get message(): string {
 		return `the ledger of ${this.schema} is damaged: ${compileReasonText(this.error.reason)}`
 	}
 }
 
 /** Applied files of `schema` whose texts are no longer the ones their ledger rows record. */
-export class AppliedEdited extends Schema.TaggedError<
-	AppliedEdited,
-	{ readonly brand: unique symbol }
->()("AppliedEdited", { schema: Schema.String, edits: Schema.NonEmptyArray(AppliedEdit) }) {
+export class AppliedEdited extends Data.TaggedError("AppliedEdited")<{
+	readonly schema: string
+	readonly edits: Arr.NonEmptyReadonlyArray<AppliedEdit>
+}> {
 	override get message(): string {
 		return Arr.join(
 			Arr.map(this.edits, (e) => `${e.folder}/${e.file} ${appliedEditPhrase[e.kind]}`),
@@ -439,23 +398,19 @@ export class AppliedEdited extends Schema.TaggedError<
 }
 
 /** Why a pending folder cannot continue the ledger's chain (deploy/ledger/ledger.ts FolderRefusal). */
-const FolderRefusalSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("moved"), source: Schema.String, target: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("resized"), started: Schema.Int, holds: Schema.Int }),
-	Schema.Struct({ kind: Schema.Literal("partialFirst"), partial: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("sortsBefore"), applied: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("source"), source: Schema.String, latest: Schema.String })
-])
+type FolderRefusal =
+	| { readonly kind: "moved"; readonly source: string; readonly target: string }
+	| { readonly kind: "resized"; readonly started: number; readonly holds: number }
+	| { readonly kind: "partialFirst"; readonly partial: string }
+	| { readonly kind: "sortsBefore"; readonly applied: string }
+	| { readonly kind: "source"; readonly source: string; readonly latest: string }
 
 /** `folder` of `schema` cannot continue the ledger's chain, for `refusal` (ledger/ledger.ts decideFolder). */
-export class FolderRefused extends Schema.TaggedError<
-	FolderRefused,
-	{ readonly brand: unique symbol }
->()("FolderRefused", {
-	schema: Schema.String,
-	folder: Schema.String,
-	refusal: FolderRefusalSchema
-}) {
+export class FolderRefused extends Data.TaggedError("FolderRefused")<{
+	readonly schema: string
+	readonly folder: string
+	readonly refusal: FolderRefusal
+}> {
 	override get message(): string {
 		const refusal = this.refusal
 		switch (refusal.kind) {
@@ -477,15 +432,12 @@ export class FolderRefused extends Schema.TaggedError<
  * The chain does not end at snapshot `known`, the one the application knows: it ends at `reached`, the database's latest
  * applied target with no pending folder (`ledger`), or the last pending folder's target (`folders`).
  */
-export class SnapshotUnreached extends Schema.TaggedError<
-	SnapshotUnreached,
-	{ readonly brand: unique symbol }
->()("SnapshotUnreached", {
-	schema: Schema.String,
-	known: Schema.String,
-	reached: Schema.String,
-	by: Schema.Literals(["ledger", "folders"])
-}) {
+export class SnapshotUnreached extends Data.TaggedError("SnapshotUnreached")<{
+	readonly schema: string
+	readonly known: string
+	readonly reached: string
+	readonly by: "ledger" | "folders"
+}> {
 	override get message(): string {
 		return this.by === "ledger"
 			? `the database's latest applied target is ${this.reached}, but the application knows snapshot ${this.known}, and no pending folder leads there`
@@ -494,13 +446,10 @@ export class SnapshotUnreached extends Schema.TaggedError<
 }
 
 /** Unresolved markers in files of `schema` the apply would run. */
-export class MarkersUnresolved extends Schema.TaggedError<
-	MarkersUnresolved,
-	{ readonly brand: unique symbol }
->()("MarkersUnresolved", {
-	schema: Schema.String,
-	markers: Schema.NonEmptyArray(UnresolvedMarker)
-}) {
+export class MarkersUnresolved extends Data.TaggedError("MarkersUnresolved")<{
+	readonly schema: string
+	readonly markers: Arr.NonEmptyReadonlyArray<UnresolvedMarker>
+}> {
 	override get message(): string {
 		return `unresolved markers, which a reviewer resolves by supplying the value or choosing the rename and deleting the marker line: ${Arr.join(
 			Arr.map(this.markers, (m) => `${m.folder}/${m.file}:${m.line} ${m.kind}`),
@@ -510,10 +459,10 @@ export class MarkersUnresolved extends Schema.TaggedError<
 }
 
 /** Unresolved losses of stored data in folders of `schema` the apply would run. */
-export class LossesUndecided extends Schema.TaggedError<
-	LossesUndecided,
-	{ readonly brand: unique symbol }
->()("LossesUndecided", { schema: Schema.String, losses: Schema.NonEmptyArray(UnresolvedLoss) }) {
+export class LossesUndecided extends Data.TaggedError("LossesUndecided")<{
+	readonly schema: string
+	readonly losses: Arr.NonEmptyReadonlyArray<UnresolvedLoss>
+}> {
 	override get message(): string {
 		return `unresolved losses of stored data, which a reviewer decides by writing in the statement that loses it or choosing a candidate rename that carries it: ${Arr.join(
 			Arr.map(this.losses, (l) => `${l.folder}/${l.file} ${l.loses}`),
@@ -523,31 +472,25 @@ export class LossesUndecided extends Schema.TaggedError<
 }
 
 /** Statement `statement` (1-based) of `folder`/`file` failed. */
-export class StatementFailed extends Schema.TaggedError<
-	StatementFailed,
-	{ readonly brand: unique symbol }
->()("StatementFailed", {
-	schema: Schema.String,
-	folder: Schema.String,
-	file: Schema.String,
-	statement: Schema.Int,
-	failure: StatementFailureSchema
-}) {
+export class StatementFailed extends Data.TaggedError("StatementFailed")<{
+	readonly schema: string
+	readonly folder: string
+	readonly file: string
+	readonly statement: number
+	readonly failure: StatementFailure
+}> {
 	override get message(): string {
 		return `${this.folder}/${this.file} statement ${this.statement} failed: ${failureText(this.failure)}`
 	}
 }
 
 /** The transaction of `folder`/`file` failed whole: its BEGIN refused, the connection lost, or the driver. */
-export class TransactionFailed extends Schema.TaggedError<
-	TransactionFailed,
-	{ readonly brand: unique symbol }
->()("TransactionFailed", {
-	schema: Schema.String,
-	folder: Schema.String,
-	file: Schema.String,
-	failure: FlightFailureSchema
-}) {
+export class TransactionFailed extends Data.TaggedError("TransactionFailed")<{
+	readonly schema: string
+	readonly folder: string
+	readonly file: string
+	readonly failure: FlightFailure
+}> {
 	override get message(): string {
 		const begin = this.failure._tag === "ConnectionLost" && this.failure.operation === "begin"
 		return `${begin ? "BEGIN" : `${this.folder}/${this.file}`} failed: ${failureText(this.failure)}`
@@ -555,14 +498,11 @@ export class TransactionFailed extends Schema.TaggedError<
 }
 
 /** The lock every ledger write takes first, the ledger's ACCESS EXCLUSIVE, was refused or failed. */
-export class LedgerUnlocked extends Schema.TaggedError<
-	LedgerUnlocked,
-	{ readonly brand: unique symbol }
->()("LedgerUnlocked", {
-	schema: Schema.String,
-	at: RecordPlaceSchema,
-	failure: StatementFailureSchema
-}) {
+export class LedgerUnlocked extends Data.TaggedError("LedgerUnlocked")<{
+	readonly schema: string
+	readonly at: RecordPlace
+	readonly failure: StatementFailure
+}> {
 	override get message(): string {
 		return `the ledger of ${this.schema} could not be locked: ${failureText(this.failure)}`
 	}
@@ -573,14 +513,11 @@ export class LedgerUnlocked extends Schema.TaggedError<
  * migration creates it in its first file, so a folder whose first transaction cannot find it ran before the schema was
  * created.
  */
-export class RecordFailed extends Schema.TaggedError<
-	RecordFailed,
-	{ readonly brand: unique symbol }
->()("RecordFailed", {
-	schema: Schema.String,
-	at: RecordPlaceSchema,
-	failure: StatementFailureSchema
-}) {
+export class RecordFailed extends Data.TaggedError("RecordFailed")<{
+	readonly schema: string
+	readonly at: RecordPlace
+	readonly failure: StatementFailure
+}> {
 	override get message(): string {
 		const absent =
 			this.failure._tag === "ServerError" && this.failure.sqlstate === sqlstates.undefinedTable
@@ -595,25 +532,22 @@ export class RecordFailed extends Schema.TaggedError<
 }
 
 /** The COMMIT of `folder`/`file` was refused, so the file rolled back with its ledger row. */
-export class FileCommitRefused extends Schema.TaggedError<
-	FileCommitRefused,
-	{ readonly brand: unique symbol }
->()("FileCommitRefused", {
-	schema: Schema.String,
-	folder: Schema.String,
-	file: Schema.String,
-	failure: ServerError
-}) {
+export class FileCommitRefused extends Data.TaggedError("FileCommitRefused")<{
+	readonly schema: string
+	readonly folder: string
+	readonly file: string
+	readonly failure: ServerError
+}> {
 	override get message(): string {
 		return `the COMMIT of ${this.folder}/${this.file} failed: ${failureText(this.failure)}`
 	}
 }
 
 /** The connection was lost during the COMMIT of `at`, so whether it committed is unknown, and its ledger row tells. */
-export class FileCommitLost extends Schema.TaggedError<
-	FileCommitLost,
-	{ readonly brand: unique symbol }
->()("FileCommitLost", { schema: Schema.String, at: RecordPlaceSchema }) {
+export class FileCommitLost extends Data.TaggedError("FileCommitLost")<{
+	readonly schema: string
+	readonly at: RecordPlace
+}> {
 	override get message(): string {
 		return this.at.kind === "folder"
 			? `the connection was lost during the COMMIT recording ${this.at.folder}; whether it committed is unknown, and its ledger row tells`
@@ -622,14 +556,11 @@ export class FileCommitLost extends Schema.TaggedError<
 }
 
 /** After every folder applied, the catalog of `schema` differs from snapshot `snapshot` by each mismatch. */
-export class Drifted extends Schema.TaggedError<Drifted, { readonly brand: unique symbol }>()(
-	"Drifted",
-	{
-		schema: Schema.String,
-		snapshot: Schema.String,
-		mismatches: Schema.NonEmptyArray(DriftMismatch)
-	}
-) {
+export class Drifted extends Data.TaggedError("Drifted")<{
+	readonly schema: string
+	readonly snapshot: string
+	readonly mismatches: Arr.NonEmptyReadonlyArray<DriftMismatch>
+}> {
 	override get message(): string {
 		const n = this.mismatches.length
 		return `the catalog of ${this.schema} differs from snapshot ${this.snapshot} by ${n} fact${n === 1 ? "" : "s"} (edits are allowed, drift is not)`
@@ -640,10 +571,11 @@ export class Drifted extends Schema.TaggedError<Drifted, { readonly brand: uniqu
  * Statement `statement` of the `of` statements of the drift check's replay, which builds the snapshot's objects beside
  * the schema to compare them, was refused by the server: the check reached no verdict, and rolled back.
  */
-export class ReplayRefused extends Schema.TaggedError<
-	ReplayRefused,
-	{ readonly brand: unique symbol }
->()("ReplayRefused", { statement: Schema.Int, of: Schema.Int, failure: ServerError }) {
+export class ReplayRefused extends Data.TaggedError("ReplayRefused")<{
+	readonly statement: number
+	readonly of: number
+	readonly failure: ServerError
+}> {
 	override get message(): string {
 		return `statement ${this.statement} of ${this.of} of the replay was refused: ${serverSaid(this.failure)}`
 	}
@@ -654,19 +586,10 @@ export class ReplayRefused extends Schema.TaggedError<
  * ledger could not be read, the replay that builds the snapshot beside it was refused, or the catalog could not be read.
  * A StatementFailure here is a read's.
  */
-export class DriftUnchecked extends Schema.TaggedError<
-	DriftUnchecked,
-	{ readonly brand: unique symbol }
->()("DriftUnchecked", {
-	schema: Schema.String,
-	failure: Schema.Union([
-		CompileErrorSchema,
-		LedgerUnread,
-		LedgerDamaged,
-		ReplayRefused,
-		StatementFailureSchema
-	])
-}) {
+export class DriftUnchecked extends Data.TaggedError("DriftUnchecked")<{
+	readonly schema: string
+	readonly failure: CompileError | LedgerUnread | LedgerDamaged | ReplayRefused | StatementFailure
+}> {
 	/** What the server said, when the replay or the catalog's reads failed; nothing for a snapshot or the ledger. */
 	get server(): ServerReport {
 		const failure = this.failure
@@ -707,33 +630,31 @@ export class DriftUnchecked extends Schema.TaggedError<
 }
 
 /** Why `grizzle migrate` or `grizzle drift` stopped. */
-const MigrateReasonSchema = Schema.Union([
-	ConnectRefused,
-	SurveyFailed,
-	RoleUnread,
-	OwnerUnread,
-	OwnedByAnother,
-	InputRefused,
-	LockUnread,
-	ApplyBusy,
-	LedgerUncompiled,
-	LedgerUnread,
-	LedgerDamaged,
-	AppliedEdited,
-	FolderRefused,
-	SnapshotUnreached,
-	MarkersUnresolved,
-	LossesUndecided,
-	StatementFailed,
-	TransactionFailed,
-	LedgerUnlocked,
-	RecordFailed,
-	FileCommitRefused,
-	FileCommitLost,
-	Drifted,
-	DriftUnchecked
-])
-export type MigrateReason = typeof MigrateReasonSchema.Type
+export type MigrateReason =
+	| ConnectRefused
+	| SurveyFailed
+	| RoleUnread
+	| OwnerUnread
+	| OwnedByAnother
+	| InputRefused
+	| LockUnread
+	| ApplyBusy
+	| LedgerUncompiled
+	| LedgerUnread
+	| LedgerDamaged
+	| AppliedEdited
+	| FolderRefused
+	| SnapshotUnreached
+	| MarkersUnresolved
+	| LossesUndecided
+	| StatementFailed
+	| TransactionFailed
+	| LedgerUnlocked
+	| RecordFailed
+	| FileCommitRefused
+	| FileCommitLost
+	| Drifted
+	| DriftUnchecked
 
 /** The stage each reason stops at. */
 const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
@@ -768,10 +689,9 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
  * decision refusal is located at its first edit, marker or loss; a failure in a file, or of the drift check, carries
  * what the server said.
  */
-export class MigrateError extends Schema.TaggedError<
-	MigrateError,
-	{ readonly brand: unique symbol }
->()("MigrateError", { reason: MigrateReasonSchema }) {
+export class MigrateError extends Data.TaggedError("MigrateError")<{
+	readonly reason: MigrateReason
+}> {
 	get stage(): MigrateStage {
 		return stageOf[this.reason._tag]
 	}
@@ -898,4 +818,4 @@ export class MigrateError extends Schema.TaggedError<
 }
 
 /** The MigrateError of `reason`. */
-export const stopped = (reason: MigrateReason): MigrateError => MigrateError.make({ reason })
+export const stopped = (reason: MigrateReason): MigrateError => new MigrateError({ reason })

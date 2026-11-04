@@ -1,9 +1,10 @@
 import { DevtoolFailure, failureFrom } from "@grizzle/devtools/devtool"
 import { nativeSession, openProject } from "@grizzle/devtools/native-api"
-import { Array as Arr, Effect, Schema, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, type Scope, String as Str } from "effect"
 import type { SourceFile } from "typescript/ast"
 import { createFileSystem } from "typescript/fs"
 import type { Diagnostic } from "typescript/sync"
+import { jsonText } from "#compiler/core/trusted.ts"
 
 /**
  * The repository root, three directories above this module, wherever a tool is started from. The dev tools assume
@@ -25,17 +26,11 @@ export type SyntaxSource<I extends SyntaxInput> = I &
 	Readonly<{ sourceFile: SourceFile; diagnostics: ReadonlyArray<Diagnostic> }>
 
 /** Only parsing happens here: no library, no module resolution, no checking. */
-const SyntaxConfig = Schema.Struct({
-	compilerOptions: Schema.Struct({
-		target: Schema.Literal("esnext"),
-		noLib: Schema.Literal(true),
-		noResolve: Schema.Literal(true),
-		types: Schema.Array(Schema.String)
-	}),
-	files: Schema.Array(Schema.String)
-})
-
-const encodeSyntaxConfig = Schema.encodeEffect(Schema.fromJsonString(SyntaxConfig))
+const syntaxConfigText = (files: ReadonlyArray<string>): string =>
+	jsonText({
+		compilerOptions: { target: "esnext", noLib: true, noResolve: true, types: [] },
+		files
+	})
 
 /** The native decoder drops a leading byte order mark but keeps it in offsets; a space in its place keeps every one. */
 const nativeText = (text: string): string =>
@@ -56,10 +51,7 @@ const parseSyntax = Effect.fn("parseSyntax")(function* <I extends SyntaxInput>(
 		input,
 		virtual: `${directory}/source-${index}.ts`
 	}))
-	const configText = yield* encodeSyntaxConfig({
-		compilerOptions: { target: "esnext", noLib: true, noResolve: true, types: [] },
-		files: Arr.map(entries, (entry) => entry.virtual)
-	}).pipe(Effect.mapError(failureFrom("The native syntax project could not be written")))
+	const configText = syntaxConfigText(Arr.map(entries, (entry) => entry.virtual))
 	const files = createFileSystem([
 		[config, configText],
 		...Arr.map(entries, (entry) => [entry.virtual, nativeText(entry.input.text)] as const)

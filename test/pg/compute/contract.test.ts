@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import { type Carrier, contractOf, numericTypmodOf } from "#compiler/ir/scalar.ts"
@@ -19,7 +20,6 @@ import {
 	parseAnswer
 } from "#test/pg/compute/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {

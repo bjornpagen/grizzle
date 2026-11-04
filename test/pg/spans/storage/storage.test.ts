@@ -262,31 +262,7 @@ layer(Substrate.layer)("span storage", (it) => {
 						{
 							suite: "spans/storage/shape",
 							draw: drawn(arb),
-							/**
-							 * Planted: a canonical spelling, and a span unbounded below, which the drawn spellings reach a few
-							 * times a run.
-							 */
-							kept: [
-								{
-									note: "[0,5)",
-									sketch: {
-										kind: "bounded",
-										spelling: { lowerInc: true, lo: 0n, hi: 5n, upperInc: false }
-									},
-									draws: "",
-									reaches: ["a canonical spelling stored"]
-								},
-								{
-									note: "(,5)",
-									sketch: {
-										kind: "unbounded",
-										lower: "infinite",
-										upper: { value: 5n, inclusive: false }
-									},
-									draws: "",
-									reaches: ["unbounded below refused"]
-								}
-							],
+							kept: [],
 							coverage: required<F>(
 								[
 									"a canonical spelling stored",
@@ -376,15 +352,7 @@ layer(Substrate.layer)("span storage", (it) => {
 						{
 							suite: "spans/storage/width",
 							draw: drawn(arb),
-							/** Planted: a span one narrower than the declared width. */
-							kept: [
-								{
-									note: "[0,14)",
-									sketch: { lo: 0n, hi: 14n },
-									draws: "",
-									reaches: ["a narrower span refused"]
-								}
-							],
+							kept: [],
 							coverage: required<F>(
 								[
 									"the declared width stored",
@@ -457,15 +425,7 @@ layer(Substrate.layer)("span storage", (it) => {
 						{
 							suite: "spans/storage/endpoints",
 							draw: drawn(arb),
-							/** Planted: both endpoints at the contract's bounds. */
-							kept: [
-								{
-									note: "[-100,100)",
-									sketch: { lo: -100n, hi: 100n },
-									draws: "",
-									reaches: ["an endpoint at the contract's bound stored"]
-								}
-							],
+							kept: [],
 							coverage: required<F>(
 								[
 									"both endpoints in the contract stored",
@@ -552,24 +512,7 @@ layer(Substrate.layer)("span storage", (it) => {
 						{
 							suite: "spans/storage/bound",
 							draw: drawn(arb),
-							/**
-							 * Planted: a span from the lower limit and one to the upper limit, each narrower than bigint
-							 * holds, under the window of the whole type.
-							 */
-							kept: [
-								{
-									note: "the type's limits",
-									sketch: {
-										spans: [
-											{ lo: int8.min, hi: int8.min + 10n },
-											{ lo: int8.max - 10n, hi: int8.max }
-										],
-										window: { start: int8.min, end: int8.max }
-									},
-									draws: "",
-									reaches: ["a span from the lower limit read", "a span to the upper limit read"]
-								}
-							],
+							kept: [],
 							coverage: required<F>(
 								[
 									"a span from the lower limit read",

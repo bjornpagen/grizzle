@@ -20,7 +20,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 /**
  * A schema's committed migration state as the command line reads it: its snapshot.json and its folders.
  *
- * The snapshot is read by the generator's own reader, which decodes its form once. A schema without snapshot.json is at
+ * The snapshot is read by the generator's own reader, which trusts it once its fingerprint holds. A schema without snapshot.json is at
  * its empty snapshot, whose fingerprint depends on the installed schema identifier alone (snapshot/build.ts
  * emptySnapshot): the empty snapshot is never a file. The snapshot must be the configured schema's: its PostgreSQL
  * schema and declared name are the configuration's. It names no owner: the migration identity is whoever connects.
@@ -37,7 +37,7 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 	const read = readSnapshot(tree.snapshotText.value)
 	if (Result.isFailure(read)) {
 		return yield* cliError(
-			SnapshotUnreadable.make({
+			new SnapshotUnreadable({
 				schema: schema.declared,
 				directory: tree.directory,
 				error: read.failure
@@ -47,7 +47,7 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 	const snapshot = read.success
 	if (snapshot.schema !== schema.ident || snapshot.schemaName !== schema.declared) {
 		return yield* cliError(
-			SnapshotForeign.make({
+			new SnapshotForeign({
 				schema: schema.declared,
 				ident: schema.ident,
 				directory: tree.directory,
@@ -183,7 +183,7 @@ export const continuedChain = Effect.fn("continuedChain")(function* (
 > {
 	const breaks = (fault: ChainBreak): CliError =>
 		cliError(
-			ChainRefused.make({
+			new ChainRefused({
 				schema: schema.declared,
 				ident: schema.ident,
 				directory: tree.directory,

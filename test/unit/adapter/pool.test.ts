@@ -17,7 +17,6 @@ import {
 	Formatter,
 	Result,
 	Scheduler,
-	Schema,
 	Scope
 } from "effect"
 import { TestClock } from "effect/testing"
@@ -548,7 +547,7 @@ describe("the session pool", () => {
 									if (!Exit.hasInterrupts(exit)) {
 										assert.equal(step.ending, "timed out", "only a budget ends a cut lease's wait")
 										const failure = failureOf(exit)
-										assert.ok(Schema.is(AcquisitionBudgetExceeded)(failure), String(failure))
+										assert.ok(failure instanceof AcquisitionBudgetExceeded, String(failure))
 									}
 									return holding
 								})
@@ -629,7 +628,7 @@ describe("the session pool", () => {
 											yield* TestClock.adjust(Duration.millis(waitMs))
 											for (const exit of yield* Fiber.awaitAll(waiters)) {
 												const failure = failureOf(exit)
-												assert.ok(Schema.is(AcquisitionBudgetExceeded)(failure), String(failure))
+												assert.ok(failure instanceof AcquisitionBudgetExceeded, String(failure))
 												matchesObject(failure, { millis: waitMs, leased: max, max })
 											}
 											c.note("waiters for a permit timed out")
@@ -665,7 +664,7 @@ describe("the session pool", () => {
 											assert.ok(Exit.hasInterrupts(exit), "the wait ends as an interruption")
 										} else {
 											const failure = failureOf(exit)
-											assert.ok(Schema.is(AcquisitionBudgetExceeded)(failure), String(failure))
+											assert.ok(failure instanceof AcquisitionBudgetExceeded, String(failure))
 											matchesObject(failure, { millis: waitMs, leased: held.length, max })
 										}
 										c.note(

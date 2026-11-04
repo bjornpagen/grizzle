@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Result, Schema } from "effect"
+import { Array as Arr, Effect, Result } from "effect"
 import {
 	admissionExpectation,
 	databaseQuery,
@@ -33,14 +33,14 @@ const builtinCUtf8 =
 const refusal = (
 	error: unknown
 ): { readonly stage: string; readonly refused: AdmissionRefused } => {
-	assert.ok(Schema.is(OpenError)(error))
-	assert.ok(Schema.is(AdmissionRefused)(error.reason))
+	assert.ok(error instanceof OpenError)
+	assert.ok(error.reason instanceof AdmissionRefused)
 	return { stage: error.stage, refused: error.reason }
 }
 
 /** The stage admission refuses mismatches at, the first in its order; none for no mismatch. */
 const refusalStage = (mismatches: ReadonlyArray<AdmissionMismatch>): AdmissionStage | undefined =>
-	Arr.isReadonlyArrayNonEmpty(mismatches) ? AdmissionRefused.make({ mismatches }).stage : undefined
+	Arr.isReadonlyArrayNonEmpty(mismatches) ? new AdmissionRefused({ mismatches }).stage : undefined
 
 /** Every cell as the wire delivers it: text. */
 const texts = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<ReadonlyArray<string>> =>

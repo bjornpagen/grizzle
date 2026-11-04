@@ -88,7 +88,7 @@ export interface RefreshReport {
  * of it is an abort.
  */
 export const classifyRefreshFailure = (failure: ServerError): TransientFailure | ExecutionFailure =>
-	serializationRefusal(failure) ?? ExecutionFailure.make({ reason: failure })
+	serializationRefusal(failure) ?? new ExecutionFailure({ reason: failure })
 
 /**
  * How a refresh's flight failed (see the header): the block's own refusal of a rewritten view is ConcurrentRefresh of
@@ -106,8 +106,8 @@ const refreshFailure =
 				const target = position === undefined ? undefined : targets[position]
 				if (target !== undefined) {
 					return Effect.fail(
-						TransientFailure.make({
-							reason: ConcurrentRefresh.make({ relation: target.relation }),
+						new TransientFailure({
+							reason: new ConcurrentRefresh({ relation: target.relation }),
 							error: failure.failure
 						})
 					)
@@ -119,15 +119,15 @@ const refreshFailure =
 				return Effect.fail(classifyRefreshFailure(failure.failure))
 			case "StaleName":
 				return Effect.fail(
-					TransientFailure.make({ reason: StaleStatement.make(), error: failure.failure })
+					new TransientFailure({ reason: new StaleStatement(), error: failure.failure })
 				)
 			case "CommitLost":
-				return Effect.fail(CommitUnknown.make())
+				return Effect.fail(new CommitUnknown())
 			case "ConnectionLost":
 			case "DriverFailure":
-				return Effect.fail(TransportFailure.make({ reason: failure }))
+				return Effect.fail(new TransportFailure({ reason: failure }))
 			case "UnreadableAnswer":
-				return Effect.fail(ExecutionFailure.make({ reason: failure }))
+				return Effect.fail(new ExecutionFailure({ reason: failure }))
 			case "StaleSnapshot":
 				return Effect.fail(failure)
 		}
@@ -191,8 +191,9 @@ export const runRefresh = Effect.fn("runRefresh")(function* (
 	ctx: Pick<DbContext, "pool" | "prologue">,
 	targets: Arr.NonEmptyReadonlyArray<RefreshTarget>
 ): Effect.fn.Return<RefreshReport, ApplyError, Scope.Scope> {
-	const session = yield* Effect.mapError(ctx.pool.lease, (reason) =>
-		TransportFailure.make({ reason })
+	const session = yield* Effect.mapError(
+		ctx.pool.lease,
+		(reason) => new TransportFailure({ reason })
 	)
 	const statements = yield* Effect.catch(
 		refreshFlight(ctx, session, targets),

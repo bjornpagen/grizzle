@@ -1,5 +1,7 @@
+import { Array as Arr, Formatter, String as Str } from "effect"
+
 /**
- * templates. The ArkRegex inference matrix.
+ * The ArkRegex inference matrix.
  *
  * One row per pattern shape. Each row states three things:
  *
@@ -14,7 +16,6 @@
  * the rest at runtime with the development oracle (ECMAScript's RegExp, which never appears under src/)
  * and the compiler's own NFA.
  */
-import { Array as Arr, Formatter, String as Str } from "effect"
 export type Admission =
 	| "admitted"
 	| "MalformedDescription"
@@ -102,17 +103,6 @@ export const rows: ReadonlyArray<Row> = [
 		admission: "admitted",
 		members: ["draft", "published"],
 		outside: ["Draft", "draft "]
-	},
-	{
-		name: "status",
-		category: "literal",
-		source: "^(wanted|leased|done)$",
-		flags: "u",
-		call: { kind: "literal" },
-		host: { kind: "inferred" },
-		admission: "admitted",
-		members: ["wanted", "leased", "done"],
-		outside: ["undone"]
 	},
 	{
 		name: "single literal",

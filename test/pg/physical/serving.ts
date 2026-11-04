@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Order, Result, Schema } from "effect"
+import { Array as Arr, Effect, Option, Order, Result } from "effect"
 import {
 	explainStatementWith,
 	type PlanNode,
@@ -6,6 +6,7 @@ import {
 	planNodes
 } from "#bench/harness/explain.ts"
 
+import { trusted } from "#compiler/core/trusted.ts"
 import {
 	type AccessUse,
 	allRows,
@@ -18,7 +19,7 @@ import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { requesting } from "#test/unit/physical/fixtures.ts"
@@ -289,16 +290,16 @@ interface Table {
 }
 
 /** What a column of a table holds, by its type under its domains: a span, few values, or many. */
-const ColumnHolds = Schema.Array(
-	Schema.Tuple([Schema.String, Schema.Literals(["span", "few", "many"])])
-)
+type ColumnHolds = ReadonlyArray<readonly [string, "span" | "few" | "many"]>
+
+const columnHoldsOf = (rows: unknown): ColumnHolds => trusted<ColumnHolds>(rows)
 
 const tableOf = (installed: Judged, relation: string) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const q = installed.installation.names.relation(relation)
 		const quoted = `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
-		const columns = yield* Effect.flatMap(
+		const columns = yield* Effect.map(
 			admin.queryValues(
 				"WITH RECURSIVE base(name, oid, typtype, typbasetype) AS (" +
 					"SELECT a.attname, t.oid, t.typtype, t.typbasetype FROM pg_catalog.pg_attribute AS a " +
@@ -311,7 +312,7 @@ const tableOf = (installed: Judged, relation: string) =>
 					"FROM base WHERE typtype <> 'd'::\"char\"",
 				[quoted]
 			),
-			Schema.decodeUnknownEffect(ColumnHolds)
+			columnHoldsOf
 		)
 		const holding = (holds: "span" | "few"): ReadonlySet<string> =>
 			new Set(
@@ -320,20 +321,20 @@ const tableOf = (installed: Judged, relation: string) =>
 					([name]) => name
 				)
 			)
-		const counted = yield* Effect.flatMap(
-			admin.queryValues(`SELECT count(*)::text FROM ${quoted}`, []),
-			Schema.decodeUnknownEffect(Texts)
-		)
+		const rows = yield* countOf(admin, `SELECT count(*)::text FROM ${quoted}`)
 		return {
 			quoted,
 			name: q.name,
 			spans: holding("span"),
 			few: holding("few"),
-			rows: Number(counted[0]?.[0])
+			rows
 		} satisfies Table
 	})
 
-const PagesAndPredicate = Schema.Array(Schema.Tuple([Schema.String, Schema.NullOr(Schema.String)]))
+/** An index's size in pages, and its predicate when it is partial. */
+type PagesAndPredicate = ReadonlyArray<readonly [string, string | null]>
+
+const pagesAndPredicateOf = (rows: unknown): PagesAndPredicate => trusted<PagesAndPredicate>(rows)
 
 /**
  * Each of `indexes`, by name, with its facts (IndexFacts): its entries are every row of its table or, for a partial
@@ -349,7 +350,7 @@ const indexFacts = (
 		const facts = new Map<string, IndexFacts>()
 		for (const i of indexes) {
 			const table = tableFor(i.relation)
-			const [row] = yield* Effect.flatMap(
+			const [row] = yield* Effect.map(
 				admin.queryValues(
 					"SELECT (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::text, " +
 						"pg_catalog.pg_get_expr(x.indpred, x.indrelid) FROM pg_catalog.pg_class AS c " +
@@ -357,7 +358,7 @@ const indexFacts = (
 						"WHERE n.nspname = $1::text AND c.relname = $2::text",
 					[installed.schema, i.index.name]
 				),
-				Schema.decodeUnknownEffect(PagesAndPredicate)
+				pagesAndPredicateOf
 			)
 			if (row === undefined) {
 				return assert.fail(`no index ${i.index.name} in ${installed.schema}`)
@@ -366,15 +367,7 @@ const indexFacts = (
 			const entries =
 				predicate === null
 					? table.rows
-					: Number(
-							(yield* Effect.flatMap(
-								admin.queryValues(
-									`SELECT count(*)::text FROM ${table.quoted} WHERE ${predicate}`,
-									[]
-								),
-								Schema.decodeUnknownEffect(Texts)
-							))[0]?.[0]
-						)
+					: yield* countOf(admin, `SELECT count(*)::text FROM ${table.quoted} WHERE ${predicate}`)
 			facts.set(i.index.name, {
 				method: i.method,
 				fields: new Set(Arr.map(i.keys, (k) => k.field)),
@@ -389,7 +382,7 @@ const indexFacts = (
 /** Every index the installation planned, by name, with its facts (IndexFacts), each relation's table read once. */
 export const plannedFacts = (
 	installed: Judged
-): Effect.Effect<ReadonlyMap<string, IndexFacts>, SqlError | Schema.SchemaError, Substrate> =>
+): Effect.Effect<ReadonlyMap<string, IndexFacts>, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const indexes = installed.installation.indexes
 		const tables = new Map<string, Table>()
@@ -482,7 +475,13 @@ interface Probe {
 	readonly rechecked: number
 }
 
-const Texts = Schema.Array(Schema.Array(Schema.String))
+type Texts = ReadonlyArray<ReadonlyArray<string>>
+
+const textsOf = (rows: unknown): Texts => trusted<Texts>(rows)
+
+/** The one count a `SELECT count(*)::text` statement answers. */
+const countOf = (admin: PgConnection, sql: string): Effect.Effect<number, SqlError> =>
+	Effect.map(admin.queryValues(sql, []), (rows) => Number(textsOf(rows)[0]?.[0]))
 
 const where = (conditions: ReadonlyArray<string>): string =>
 	conditions.length === 0 ? "" : ` WHERE ${Arr.join(conditions, " AND ")}`
@@ -521,7 +520,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 		const sample =
 			sampled.length === 0
 				? []
-				: (yield* Effect.flatMap(
+				: (yield* Effect.map(
 						admin.queryValues(
 							`SELECT ${Arr.join(
 								Arr.map(sampled, (k) => `${column(k.field)}::text`),
@@ -530,7 +529,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 								`ORDER BY ctid OFFSET (SELECT count(*) / 2 FROM ${table.quoted}${where(selection)}) LIMIT 1`,
 							[]
 						),
-						Schema.decodeUnknownEffect(Texts)
+						textsOf
 					))[0]
 		if (sample === undefined) {
 			return assert.fail(`${label}: ${request.relation} holds no row to probe`)
@@ -555,7 +554,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 			at === 0
 				? Effect.succeed({ lo: value(at), hi: value(at) })
 				: Effect.map(
-						Effect.flatMap(
+						Effect.map(
 							admin.queryValues(
 								`WITH m AS (SELECT (SELECT ${c} FROM ${table.quoted} ORDER BY ${c} LIMIT 1) AS lo, ` +
 									`(SELECT ${c} FROM ${table.quoted} ORDER BY ${c} OFFSET (SELECT count(*) / 2 FROM ${table.quoted}) LIMIT 1) AS mid, ` +
@@ -564,7 +563,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 									`(CASE WHEN ${value(at)} <= mid THEN mid ELSE hi END)::text FROM m`,
 								[]
 							),
-							Schema.decodeUnknownEffect(Texts)
+							textsOf
 						),
 						(extent) => {
 							const [lo, hi] = extent[0] ?? []
@@ -628,14 +627,9 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 		const rechecked =
 			selection.length === 0 || statement.conditions.length === 0
 				? 0
-				: Number(
-						(yield* Effect.flatMap(
-							admin.queryValues(
-								`SELECT count(*)::text FROM ${table.quoted}${where([...statement.conditions, `NOT (${Arr.join(selection, " AND ")})`])}`,
-								[]
-							),
-							Schema.decodeUnknownEffect(Texts)
-						))[0]?.[0]
+				: yield* countOf(
+						admin,
+						`SELECT count(*)::text FROM ${table.quoted}${where([...statement.conditions, `NOT (${Arr.join(selection, " AND ")})`])}`
 					)
 		const bound = conditioned[shape] ? Arr.map(keys, (k) => k.field) : []
 		return { label, shape, table, sql, bound, rechecked } satisfies Probe
@@ -935,7 +929,7 @@ export const judgeServing = (
 	installed: Judged,
 	rowsOf: (request: IndexRequest) => ProbeRows,
 	note: (feature: ServingFeature) => void
-): Effect.Effect<ReadonlyArray<string>, SqlError | Schema.SchemaError, Substrate> =>
+): Effect.Effect<ReadonlyArray<string>, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const indexes = installed.installation.indexes
 		const relations = [...new Set(Arr.map(indexes, (i) => i.relation))]
@@ -1038,13 +1032,13 @@ export const judgeServing = (
 					(i) => i.relation === host.relation && i.index.name !== host.index.name
 				)) {
 					const index = `${quoteIdent(q.schema)}.${quoteIdent(i.index.name)}`
-					const [owner] = yield* Effect.flatMap(
+					const [owner] = yield* Effect.map(
 						admin.queryValues(
 							"SELECT c.conname::text FROM pg_catalog.pg_constraint AS c WHERE c.conindid = $1::text::regclass " +
 								"AND c.conrelid = $2::text::regclass AND c.contype IN ('p'::\"char\", 'u'::\"char\", 'x'::\"char\")",
 							[index, table]
 						),
-						Schema.decodeUnknownEffect(Texts)
+						textsOf
 					)
 					const constraint = owner?.[0]
 					statements.push(

@@ -5,8 +5,16 @@ import { element } from "@grizzle/testing/gen"
 import { type PctSchedule, pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Formatter, Option, String as Str } from "effect"
-import { Cause, Effect, Schema, type Scope } from "effect"
+import {
+	Array as Arr,
+	Cause,
+	Duration,
+	Effect,
+	Formatter,
+	Option,
+	type Scope,
+	String as Str
+} from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { populationsOf } from "#test/pg/laws/families/families.ts"
 import { emptyState, expect, rowsDifference, stateRows } from "#test/pg/laws/families/model.ts"
@@ -230,7 +238,7 @@ const runHistory = (
 		)
 		for (const { r, writer, outcome } of again) {
 			if (outcome.kind !== "no-change") {
-				return yield* CaseFailed.make({
+				return yield* new CaseFailed({
 					report: `the exact repeat of #${r.id} by ${writer} was ${outcome.kind}, not no-change\n${describeHistory(history)}`
 				})
 			}
@@ -241,7 +249,7 @@ const runHistory = (
 		const after = yield* read(env)
 		const difference = rowsDifference(stateRows(env.host, after), stateRows(env.host, committed))
 		if (Option.isSome(difference)) {
-			return yield* CaseFailed.make({
+			return yield* new CaseFailed({
 				report: `exact repeats changed the state: ${difference.value}\n${describeHistory(history)}`
 			})
 		}
@@ -249,7 +257,7 @@ const runHistory = (
 		Effect.catchCause((cause) => {
 			const error = Cause.squash(cause)
 			return Effect.fail(
-				Schema.is(CaseFailed)(error) ? error : CaseFailed.make({ report: messageOf(error) })
+				error instanceof CaseFailed ? error : new CaseFailed({ report: messageOf(error) })
 			)
 		})
 	)
@@ -293,14 +301,15 @@ const installChecked = <P>(
 	p: P
 ): Effect.Effect<HistoryInstall<P>, CaseFailed, Substrate | Scope.Scope> =>
 	Effect.flatMap(
-		Effect.mapError(h.install(p), (e) =>
-			CaseFailed.make({ report: `${h.family.describe(p)} did not install: ${messageOf(e)}` })
+		Effect.mapError(
+			h.install(p),
+			(e) => new CaseFailed({ report: `${h.family.describe(p)} did not install: ${messageOf(e)}` })
 		),
 		(install) => {
 			const problem = enforcementProblem(install.host, install.names)
 			return problem === undefined
 				? Effect.succeed(install)
-				: Effect.fail(CaseFailed.make({ report: `${h.family.describe(p)}: ${problem}` }))
+				: Effect.fail(new CaseFailed({ report: `${h.family.describe(p)}: ${problem}` }))
 		}
 	)
 
@@ -422,7 +431,7 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 								yield* Effect.scoped(
 									Effect.gen(function* () {
 										const didNotConnect = (e: unknown) =>
-											CaseFailed.make({
+											new CaseFailed({
 												report: `${h.family.describe(p)} did not connect: ${messageOf(e)}`
 											})
 										const env = yield* Effect.mapError(h.connect(install), didNotConnect)

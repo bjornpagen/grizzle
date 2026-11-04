@@ -1,4 +1,4 @@
-import { Array as Arr, Formatter, Option, Order, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Data, Formatter, Option, Order, Result, String as Str } from "effect"
 import type { Action } from "#compiler/deploy/diff/plan.ts"
 import { triggerColumns } from "#compiler/deploy/snapshot/objects.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -244,13 +244,11 @@ interface Live {
 }
 
 /** A statement the model refuses, as PostgreSQL would refuse it, with the reason. */
-class Refused extends Schema.TaggedError<Refused, { readonly brand: unique symbol }>()("Refused", {
-	reason: Schema.String
-}) {}
+class Refused extends Data.TaggedError("Refused")<{ readonly reason: string }> {}
 
 /** A function declaration, so that control flow knows a call never returns. */
 function refuse(reason: string): never {
-	throw Refused.make({ reason })
+	throw new Refused({ reason })
 }
 
 /** Indexes in creation order. */
@@ -2049,7 +2047,7 @@ export const interpret = (
 			try {
 				s.action(a, placeholder)
 			} catch (error) {
-				if (Schema.is(Refused)(error)) {
+				if (error instanceof Refused) {
 					return Result.fail({ file: f.draft.name, action: k + 1, reason: error.reason })
 				}
 				throw error

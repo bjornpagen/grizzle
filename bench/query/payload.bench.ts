@@ -98,7 +98,7 @@ interface Options extends Readonly<Record<string, unknown>> {
 const sortFigures = (plan: PlanNode): { readonly width: number; readonly spaceKb: number } => {
 	const sorts = findNodes(plan, (n) => n.nodeType === "Sort" || n.nodeType === "Incremental Sort")
 	if (sorts.length === 0) {
-		throw GateSetupError.make({ what: "the plan sorts nothing" })
+		throw new GateSetupError({ what: "the plan sorts nothing" })
 	}
 	return {
 		width: maxOf(
@@ -112,7 +112,7 @@ const sortFigures = (plan: PlanNode): { readonly width: number; readonly spaceKb
 				s +
 				Option.match(n.sort, {
 					onNone: () => {
-						throw GateSetupError.make({ what: `a ${n.nodeType} node reports no sort space` })
+						throw new GateSetupError({ what: `a ${n.nodeType} node reports no sort space` })
 					},
 					onSome: (sort) => sort.spaceUsedKb
 				})

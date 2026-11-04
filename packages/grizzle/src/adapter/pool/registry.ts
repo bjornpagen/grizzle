@@ -167,7 +167,7 @@ export const dbSessions = <R>(
 				: Context.getOption(context, sessionsKey<DbLayerService<R>>(desc))
 		return found !== undefined && Option.isSome(found)
 			? Effect.succeed(found.value)
-			: Effect.fail(OpenError.make({ reason: RoleOutsideLayers.make({ role, login: login.name }) }))
+			: Effect.fail(new OpenError({ reason: new RoleOutsideLayers({ role, login: login.name }) }))
 	})
 
 /**
@@ -190,7 +190,7 @@ interface ParsedDbConfig extends ParsedConnection {
 const attachNothing = (): void => undefined
 
 const refusedConfig = (detail: string): OpenError =>
-	OpenError.make({ reason: DbConfigRefused.make({ detail }) })
+	new OpenError({ reason: new DbConfigRefused({ detail }) })
 
 /**
  * The config's own settings, read once at the boundary as the connection's are (core/host.ts hostRead): the login
@@ -295,7 +295,7 @@ const layerRole = Effect.fn("layerRole")(
 		const forms = yield* Effect.fromResult(compileRoleWorkload(role, owned, workload))
 		return { ...role, value, theory, contexts, workload: forms }
 	},
-	Effect.mapError((reason) => OpenError.make({ reason }))
+	Effect.mapError((reason) => new OpenError({ reason }))
 )
 
 /**
@@ -306,8 +306,9 @@ const layerRole = Effect.fn("layerRole")(
 const layerSnapshot = (given: object): Effect.Effect<DeploySnapshot, OpenError> => {
 	const registered = registeredSnapshot(given)
 	return Option.isNone(registered)
-		? Effect.mapError(Effect.fromResult(parseSnapshot(given)), (reason) =>
-				OpenError.make({ reason })
+		? Effect.mapError(
+				Effect.fromResult(parseSnapshot(given)),
+				(reason) => new OpenError({ reason })
 			)
 		: Effect.succeed(registered.value)
 }
@@ -324,7 +325,7 @@ const startupCheck = Effect.fn("startupCheck")(function* (
 	workload: ReadonlyArray<AnyWorkload>
 ): Effect.fn.Return<void, OpenError> {
 	const ungenerated = (fault: WorkloadUngenerated["fault"]) =>
-		OpenError.make({ reason: WorkloadUngenerated.make({ login: login.name, fault }) })
+		new OpenError({ reason: new WorkloadUngenerated({ login: login.name, fault }) })
 	if (!servesSchema(snapshot, login.base)) {
 		return yield* ungenerated({ kind: "schema", schema: login.base.name })
 	}
@@ -337,7 +338,7 @@ const startupCheck = Effect.fn("startupCheck")(function* (
 				)
 			)
 		),
-		(reason) => OpenError.make({ reason })
+		(reason) => new OpenError({ reason })
 	)
 	const [drift] = accessDrift(snapshot.workload, login.name, access)
 	if (drift !== undefined) {
@@ -354,22 +355,23 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	config: ParsedDbConfig
 ): Effect.fn.Return<DbSessions, OpenError, Scope.Scope> {
 	const snapshot = yield* layerSnapshot(config.snapshot)
-	const owned = yield* Effect.mapError(fromEngine(ownLogin(config.login)), (reason) =>
-		OpenError.make({ reason })
+	const owned = yield* Effect.mapError(
+		fromEngine(ownLogin(config.login)),
+		(reason) => new OpenError({ reason })
 	)
 	yield* startupCheck(snapshot, owned, config.workload)
 	const roles = yield* Effect.forEach(config.roles, (value) => layerRole(value, config.workload))
 	if (!Arr.isArrayNonEmpty(roles)) {
-		return yield* OpenError.make({ reason: malformedDescription(makeLoc, "a login with a role") })
+		return yield* new OpenError({ reason: malformedDescription(makeLoc, "a login with a role") })
 	}
 	const [first] = roles
 	const role = loginRole(first.artifacts, owned)
 	if (Result.isFailure(role)) {
-		return yield* OpenError.make({ reason: role.failure })
+		return yield* new OpenError({ reason: role.failure })
 	}
 	const ledger = yield* Effect.mapError(
 		fromEngine(ledgerStatements(first.artifacts.names.schema)),
-		(reason) => OpenError.make({ reason })
+		(reason) => new OpenError({ reason })
 	)
 	const pool = yield* makePool({
 		connection: {
@@ -400,7 +402,7 @@ const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
 	Option.match({
 		onNone: () => Effect.void,
 		onSome: (variable) =>
-			Effect.fail(OpenError.make({ reason: ConnectionEnvironmentRefused.make({ variable }) }))
+			Effect.fail(new OpenError({ reason: new ConnectionEnvironmentRefused({ variable }) }))
 	})
 )
 

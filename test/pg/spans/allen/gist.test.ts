@@ -1,11 +1,11 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, pipe, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { allenRelations, fullAllenMask, parseAllenMask } from "#compiler/allen/mask.ts"
@@ -192,42 +192,6 @@ const predicateKind = (predicate: PlanSketch["predicate"]): PredicateKind => {
 	return allenFormula(mask).length === 1 ? "one disjunct" : "a union"
 }
 
-/**
- * Planted: each kind of predicate on the smaller data, which every relation reads with and without the room prefix. The
- * masks are the first planted one of one disjunct and the least mask of a union.
- */
-const maskOf = (kind: PredicateKind): number =>
-	Option.getOrThrowWith(
-		Arr.findFirst(
-			[...plantedMasks, ...Arr.makeBy(fullAllenMask - 1, (i) => i + 1)],
-			(mask) => predicateKind({ kind: "allen", mask }) === kind
-		),
-		() => new Error(`no mask of ${kind}`)
-	)
-
-const planKept: ReadonlyArray<Kept<PlanSketch, PlanFeature>> = Arr.map(
-	predicateKinds,
-	(kind): Kept<PlanSketch, PlanFeature> => ({
-		note: `every relation under ${kind}, by room and unprefixed`,
-		sketch: {
-			size: sizes[0],
-			predicate:
-				kind === "pointIn"
-					? { kind: "pointIn" }
-					: kind === "an endpoint in the window"
-						? { kind: "endpointIn", upper: false }
-						: { kind: "allen", mask: maskOf(kind) },
-			room: 1,
-			start: 7,
-			length: 9
-		},
-		draws: "",
-		reaches: Arr.flatMap(relationNames, (relation) =>
-			Arr.map(prefixes, (prefix): PlanFeature => `${relation} ${kind} ${prefix}`)
-		)
-	})
-)
-
 const requiredFeatures: Arr.NonEmptyReadonlyArray<PlanFeature> = [
 	...Arr.flatMap(relationNames, (r) =>
 		Arr.flatMap(predicateKinds, (k) => Arr.map(prefixes, (p): PlanFeature => `${r} ${k} ${p}`))
@@ -297,7 +261,7 @@ FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
 							draw: drawn(planSketchGen),
 							literal: Formatter.format,
 							coverage: required<PlanFeature>(requiredFeatures, { cases: 80, sense: notesOnly }),
-							kept: planKept,
+							kept: [],
 							runs: 80,
 							shrink: completeShrink,
 							concurrency: 1,

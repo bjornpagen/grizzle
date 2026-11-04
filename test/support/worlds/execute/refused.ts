@@ -1,29 +1,14 @@
-import { Effect, Schema } from "effect"
-import { isCompileError } from "#compiler/core/errors.ts"
-import type { GrizzleErrorTag } from "#test/support/error-tags.ts"
-
-/** The tag a CompileError carries among grizzle's errors. */
-const compileErrorTag: GrizzleErrorTag = "CompileError"
-
-/** A CompileError, recognized as the adapter recognizes one (adapter/errors/execution.ts). */
-const CompileErrorSchema = Schema.declare(isCompileError, { expected: compileErrorTag })
+import { Data, Effect } from "effect"
+import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 
 /** The refusal grizzle raised building a value of an installation: a relation, a law, a role, a login or a query. */
-export class RealizeRefused extends Schema.TaggedError<
-	RealizeRefused,
-	{ readonly brand: unique symbol }
->()("RealizeRefused", {
-	what: Schema.String,
-	refusal: CompileErrorSchema
-}) {}
+export class RealizeRefused extends Data.TaggedError("RealizeRefused")<{
+	readonly what: string
+	readonly refusal: CompileError
+}> {}
 
 /** A builder threw something other than a CompileError: a defect of the run, carried until it is raised as one. */
-export class Thrown extends Schema.TaggedError<Thrown, { readonly brand: unique symbol }>()(
-	"Thrown",
-	{
-		cause: Schema.Unknown
-	}
-) {}
+export class Thrown extends Data.TaggedError("Thrown")<{ readonly cause: unknown }> {}
 
 /**
  * Runs one builder call: a CompileError it throws is the installation's refusal, anything else a defect. The values
@@ -36,9 +21,7 @@ export const attempt = <A>(what: string, build: () => A): Effect.Effect<A, Reali
 		Effect.try({
 			try: build,
 			catch: (cause) =>
-				isCompileError(cause)
-					? RealizeRefused.make({ what, refusal: cause })
-					: Thrown.make({ cause })
+				isCompileError(cause) ? new RealizeRefused({ what, refusal: cause }) : new Thrown({ cause })
 		}),
 		"Thrown",
 		(thrown) => Effect.die(thrown.cause)

@@ -27,7 +27,7 @@ import { layer } from "@effect/vitest"
 import { filter, type Gen, int } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import type { Source } from "@grizzle/testing/source"
-import { Array as Arr, Effect, Formatter, Option, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError, MigrationPlace, ServerReport } from "#adapter/migrate/errors.ts"
 import type { FolderSource, MigrationTarget } from "#adapter/migrate/input.ts"
@@ -161,10 +161,8 @@ const withWorld = (value: Parameters<typeof fullWorld>[0], schemaIdent: string, 
 }
 
 /** The migrator's backend, the one row pg_backend_pid answers. */
-const decodeBackend = (found: unknown) =>
-	Effect.orDie(
-		Schema.decodeUnknownEffect(Schema.Tuple([Schema.Tuple([Schema.FiniteFromString])]))(found)
-	)
+const backendOf = (rows: ReadonlyArray<ReadonlyArray<string>>): number =>
+	Number(defined(rows[0]?.[0], "pg_backend_pid's row"))
 
 /** The migrate apply's result as a step's expectation: it succeeded, or it was refused by `refusing` at Validate. */
 type Migrated = Result.Result<unknown, MigrateError>
@@ -547,9 +545,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						w1: { kind: "psql", as: x.writer },
 						w2: { kind: "psql", as: x.writer }
 					})
-					const [[pid]] = yield* Effect.flatMap(
+					const pid = yield* Effect.map(
 						Effect.orDie(statementRows(x.migrator, "SELECT pg_catalog.pg_backend_pid()::text", [])),
-						decodeBackend
+						backendOf
 					)
 					const m: GrizzleActor = { name: "m", role: x.s.owner.role, pid }
 					const actors = { direct, grizzle: { m } }

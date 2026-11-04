@@ -159,7 +159,8 @@ layer(Substrate.layer)("catalog drift", (it) => {
 				const { login, role: writer } = installedRoleOf(installation, worlds.writer)
 				const reader = installedRoleOf(installation, worlds.reader).role
 				const expectation = worldsExpectation(Ledger, installation, worlds)
-				const database = (yield* Substrate).database
+				const substrate = yield* Substrate
+				const database = substrate.database
 				const owner = catalog.owner
 				const q = (name: string) => `${quoteIdent(schema)}.${quoteIdent(name)}`
 				/** A role outside the installation, unique to this schema and created inside each rolled-back drift. */
@@ -440,7 +441,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 					)
 				)
 				/** Every drift above was rolled back. */
-				const restored = yield* readCatalog((yield* Substrate).admin, schema)
+				const restored = yield* readCatalog(substrate.admin, schema)
 				if (restored.kind === "absent") {
 					return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))
 				}

@@ -11,10 +11,10 @@ import {
 	Order,
 	pipe,
 	Record as Rec,
-	Schema,
 	String as Str
 } from "effect"
 import { Digest } from "effect/crypto"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { compilePhases, fixtures } from "#scripts/dev/profile/phases.ts"
 
 const parseSettings = Effect.fn("parseSettings")(function* (args: ReadonlyArray<string>) {
@@ -45,10 +45,8 @@ const parseSettings = Effect.fn("parseSettings")(function* (args: ReadonlyArray<
 	}
 })
 
-const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
-
 /** The texts of the parts, in order, joined by commas. */
-const joined = (parts: ReadonlyArray<Effect.Effect<string, Schema.SchemaError>>) =>
+const joined = (parts: ReadonlyArray<Effect.Effect<string>>) =>
 	Effect.map(Effect.all(parts), (items) => Arr.join(items, ","))
 
 const byKey: Order.Order<readonly [string, unknown]> = Order.mapInput(
@@ -68,7 +66,7 @@ const dumpText = Effect.fn("dumpText")(function* (root: unknown) {
 	const digests = yield* Digest.Digest
 	const table = new Map<string, string>()
 	const onStack = new Set<object>()
-	const objectText = (v: object): Effect.Effect<string, Schema.SchemaError> => {
+	const objectText = (v: object): Effect.Effect<string> => {
 		if (v instanceof Map) {
 			return Effect.map(
 				joined(
@@ -86,37 +84,40 @@ const dumpText = Effect.fn("dumpText")(function* (root: unknown) {
 		return Effect.map(
 			joined(
 				Arr.map(Arr.sort(Rec.toEntries({ ...v }), byKey), ([k, x]) =>
-					Effect.map(Effect.all([encodeJson(k), go(x)]), ([key, text]) => `${key}:${text}`)
+					Effect.map(go(x), (text) => `${jsonText(k)}:${text}`)
 				)
 			),
 			(fields) => `{${fields}}`
 		)
 	}
 	/** The text a subtree is referred to by: itself, or the digest it is tabled under once it is long. */
-	const shared = (text: string): Effect.Effect<string, Schema.SchemaError> =>
+	const shared = (text: string): Effect.Effect<string> =>
 		text.length > 4096
 			? Effect.gen(function* () {
 					const hex = yield* digests.digestHex(Digest.sha256, new TextEncoder().encode(text))
 					const digest = pipe(hex, Str.slice(0, 24))
 					table.set(digest, text)
-					return yield* encodeJson(`<sub ${digest}>`)
+					return jsonText(`<sub ${digest}>`)
 				})
 			: Effect.succeed(text)
-	const go = (v: unknown): Effect.Effect<string, Schema.SchemaError> => {
+	const go = (v: unknown): Effect.Effect<string> => {
 		if (typeof v === "bigint") {
-			return encodeJson(`${v}n`)
+			return Effect.succeed(jsonText(`${v}n`))
 		}
 		if (typeof v === "function") {
-			return encodeJson(`<function ${v.name}>`)
+			return Effect.succeed(jsonText(`<function ${v.name}>`))
 		}
 		if (typeof v === "symbol") {
-			return encodeJson(v.toString())
+			return Effect.succeed(jsonText(v.toString()))
 		}
 		if (v === undefined) {
 			return Effect.succeed('"<undefined>"')
 		}
+		if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+			return Effect.succeed(jsonText(v))
+		}
 		if (v === null || typeof v !== "object") {
-			return encodeJson(v)
+			return Effect.succeed("null")
 		}
 		if (onStack.has(v)) {
 			return Effect.succeed('"<cycle>"')

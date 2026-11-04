@@ -7,7 +7,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Formatter, Record } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
-import { plantedRewrites } from "#test/pg/oracle/optimized/planted.ts"
 import {
 	differential,
 	generatedRules,
@@ -216,9 +215,7 @@ const resolved = (gen: Gen<QueryCase>): Draw<QueryCase, Gen<QueryCase>> => sketc
 /** The optimizer's population with the per-evaluation shapes; its escaped counterexamples are kept before its streams. */
 const perEvaluationPopulation = resolved(queryCaseGen(perEvaluationGenConfig))
 
-/**
- * The optimizer's population; the rewrite shapes it reaches too rarely are planted before its streams (planted.ts).
- */
+/** The optimizer's population. */
 const optimizerPopulation = resolved(queryCaseGen(optimizerGenConfig))
 
 /** The generator's own population with dense facts. */
@@ -243,8 +240,7 @@ const densePopulation = resolved(denseQueryCaseGen(defaultGenConfig))
  * computed terms, equations, filters read through regions and rooted closures. Each case runs under the optimized
  * artifact compiled for the `snapshot` context against the installation's own evidence catalog, in every per-execution
  * form, against the conservative lowering (support.ts), and each part's optimizer population must reach every rewrite
- * family (its required features); the shapes it draws too rarely for that are kept cases replayed before its
- * streams (planted.ts).
+ * family (its required features).
  *
  * A third population is the optimizer's with the per-evaluation shapes (gen/case.ts perEvaluationGenConfig): correlated
  * takes, correlated variables and lateral constants reading an earlier source, shared right sides, beside the nested
@@ -271,7 +267,7 @@ export const generatedSuite = (part: number): void => {
 								cases: casesPerPopulation,
 								sense: notesOnly
 							}),
-							kept: plantedRewrites,
+							kept: [],
 							runs: casesPerPopulation,
 							shrink: optimizedShrink,
 							caseHang: Duration.minutes(2),

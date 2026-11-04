@@ -28,7 +28,7 @@ import type { AnyRole, LoginRole } from "#compiler/types/schema/world.ts"
 const openLoc = SourceLoc("Db.open", [])
 
 const refusedOption = (capability: string): OpenError =>
-	OpenError.make({ reason: malformedDescription(openLoc, capability) })
+	new OpenError({ reason: malformedDescription(openLoc, capability) })
 
 /**
  * The one site of the fact that the record of handles Db.open builds (workload.ts workloadHandles), one under the name
@@ -53,7 +53,7 @@ const isWorkloadOf = <R, P>(
  */
 const verified = (verify: Verify, token: string): Effect.Effect<unknown, TokenError> =>
 	Effect.flatten(
-		Effect.try({ try: () => verify(token), catch: (thrown) => TokenError.make({ cause: thrown }) })
+		Effect.try({ try: () => verify(token), catch: (thrown) => new TokenError({ cause: thrown }) })
 	)
 
 /**
@@ -73,7 +73,7 @@ const dbClaims = (
 		Effect.flatMap(verified(check.verify, token.value), (payload) =>
 			Effect.fromResult(claimsOf(contexts, payload))
 		),
-		(reason) => OpenError.make({ reason })
+		(reason) => new OpenError({ reason })
 	)
 }
 
@@ -138,8 +138,8 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	/** The role as the layer holds it, parsed with its artifacts, contexts and programs when the layer was built. */
 	const held = Arr.findFirst(sessions.roles, (r) => r.value === reached.role)
 	if (Option.isNone(held)) {
-		return yield* OpenError.make({
-			reason: RoleOutsideLayers.make({ role: reached.role.name, login: sessions.login.name })
+		return yield* new OpenError({
+			reason: new RoleOutsideLayers({ role: reached.role.name, login: sessions.login.name })
 		})
 	}
 	const { schema, declared, artifacts, compile, theory, contexts, witness, workload } = held.value
@@ -150,7 +150,7 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 				hostArguments("Db.open", [options])
 			})
 		),
-		(reason) => OpenError.make({ reason })
+		(reason) => new OpenError({ reason })
 	)
 	const token = yield* Effect.fromResult(givenToken(options))
 	const snapshot = sessions.snapshot
@@ -168,8 +168,8 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	 */
 	const [refusedClaim] = admitted.refusedClaims
 	if (refusedClaim !== undefined) {
-		return yield* OpenError.make({
-			reason: ClaimRefused.make({
+		return yield* new OpenError({
+			reason: new ClaimRefused({
 				context: refusedClaim.context,
 				fault: { kind: "refused", field: refusedClaim.field }
 			})
@@ -189,8 +189,8 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	}
 	const missing = workloadMissing(workload, admitted.extensions)
 	if (Option.isSome(missing)) {
-		return yield* OpenError.make({
-			reason: MissingCapability.make({ capability: missing.value })
+		return yield* new OpenError({
+			reason: new MissingCapability({ capability: missing.value })
 		})
 	}
 	const handles: object = workloadHandles(ctx, workload)

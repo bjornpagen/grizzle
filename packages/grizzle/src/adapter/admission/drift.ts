@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Order, pipe, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Order, pipe, Result, String as Str } from "effect"
 import {
 	attributeDifferences,
 	attributesQuery,
@@ -101,11 +101,10 @@ import {
  * A fact the snapshot requires and the database lacks (`missing`), or one the database holds and the snapshot does
  * not (`unexpected`).
  */
-export const DriftMismatch = Schema.Struct({
-	kind: Schema.Literals(["missing", "unexpected"]),
-	fact: Schema.String
-})
-export type DriftMismatch = typeof DriftMismatch.Type
+export interface DriftMismatch {
+	readonly kind: "missing" | "unexpected"
+	readonly fact: string
+}
 
 /** The drift check's transaction: one snapshot for every read, the scratch installation beside them, rolled back. */
 export const driftTransaction: Transaction = { access: "readWrite", end: "ROLLBACK" }

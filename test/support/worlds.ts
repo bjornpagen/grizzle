@@ -60,7 +60,7 @@ export const tokenOf = (payload: Json): string => jsonText(payload)
 export const testVerify = (token: string): Effect.Effect<unknown, TokenError> =>
 	Effect.try({
 		try: () => trustedJson<unknown>(token),
-		catch: (cause) => TokenError.make({ cause })
+		catch: (cause) => new TokenError({ cause })
 	})
 
 /**

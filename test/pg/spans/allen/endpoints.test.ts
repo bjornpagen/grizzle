@@ -17,6 +17,7 @@ import {
 	String as Str
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { Compute, type Predicate } from "#compiler/public/compute.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -30,7 +31,6 @@ import {
 	runArtifact
 } from "#test/pg/spans/allen/support.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { type HalfOpen, type RangeType, rangeLimits, spanText } from "#test/support/oracle/allen.ts"
@@ -358,7 +358,7 @@ const runCase = (installed: InstalledSpans, db: RawSession, c: EndpointCase) =>
 		})
 		const [rows, ...more] = statements
 		if (rows === undefined || more.length > 0) {
-			return yield* PropertyFailed.make({ report: `${where}: one optimized statement` })
+			return yield* new PropertyFailed({ report: `${where}: one optimized statement` })
 		}
 		const params = oracleParams(c.carrier, window, c.at)
 		const oracle = yield* db.values(
@@ -368,7 +368,7 @@ const runCase = (installed: InstalledSpans, db: RawSession, c: EndpointCase) =>
 		const expected = Arr.map(oracle, (row) => Arr.map(row, (cell) => String(cell)))
 		const difference = sameRowSet(rows, expected)
 		if (Option.isSome(difference)) {
-			return yield* PropertyFailed.make({ report: `${where}: ${difference.value}` })
+			return yield* new PropertyFailed({ report: `${where}: ${difference.value}` })
 		}
 		const ran: Ran = {
 			selected: expected.length,

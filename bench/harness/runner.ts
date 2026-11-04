@@ -1,6 +1,7 @@
 import {
 	Array as Arr,
 	Cause,
+	Data,
 	Effect,
 	Exit,
 	FileSystem,
@@ -12,7 +13,6 @@ import {
 	Predicate,
 	Record as Rec,
 	Result,
-	Schema,
 	Scope,
 	String as Str
 } from "effect"
@@ -44,14 +44,14 @@ import {
 } from "#bench/harness/gate.ts"
 
 import {
-	extraGateIds,
 	type GateId,
 	type GateOwner,
 	gateCatalog,
 	gateOwner,
-	ownerDirectories,
-	ruleIds
+	ownerDirectories
 } from "#bench/harness/rules.ts"
+import type { Json } from "#compiler/core/canonical.ts"
+import { jsonDocument, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
@@ -105,10 +105,9 @@ export interface DiscoveredGate {
 }
 
 /** What discovery found wrong with the gate files: every problem, in path order. */
-class GateDiscoveryError extends Schema.TaggedError<
-	GateDiscoveryError,
-	{ readonly brand: unique symbol }
->()("GateDiscoveryError", { problems: Schema.NonEmptyArray(Schema.String) }) {}
+class GateDiscoveryError extends Data.TaggedError("GateDiscoveryError")<{
+	readonly problems: Arr.NonEmptyReadonlyArray<string>
+}> {}
 
 /**
  * Why a gate's bench file does not sit where its owner's files live, if it does not. Directories outside the
@@ -191,7 +190,7 @@ export const discoverGates = Effect.fn("discoverGates")(function* (
 	const loaded = yield* Effect.forEach(Arr.sort(Arr.flatten(listed), Order.String), loadGate)
 	const problems = Arr.flatMap(loaded, (one, i) => problemsOf(loaded, one, i))
 	if (Arr.isReadonlyArrayNonEmpty(problems)) {
-		return yield* GateDiscoveryError.make({ problems })
+		return yield* new GateDiscoveryError({ problems })
 	}
 	return Arr.getSuccesses(loaded)
 })
@@ -352,11 +351,7 @@ export const writeRecord = Effect.fn("writeRecord")(
 	function* (
 		outDir: string,
 		record: GateRecord
-	): Effect.fn.Return<
-		string,
-		PlatformError.PlatformError | Schema.SchemaError,
-		FileSystem.FileSystem
-	> {
+	): Effect.fn.Return<string, PlatformError.PlatformError, FileSystem.FileSystem> {
 		const fs = yield* FileSystem.FileSystem
 		const scale = scaleOf(record.quick)
 		const path =
@@ -364,28 +359,29 @@ export const writeRecord = Effect.fn("writeRecord")(
 				? recordPath(outDir, record.name, scale)
 				: failedRecordPath(outDir, record.name, scale)
 		yield* fs.makeDirectory(gatesDirectory(outDir), { recursive: true })
-		yield* fs.writeFileString(path, `${yield* encodeJson(record)}\n`)
+		yield* fs.writeFileString(path, recordText(record))
 		if (record.kind === "ran") {
 			yield* fs.remove(failedRecordPath(outDir, record.name, scale), { force: true })
 		}
 		return path
 	},
 	(effect, outDir) =>
-		Effect.mapError(effect, (cause) => RecordUnwritable.make({ outDir, detail: String(cause) }))
+		Effect.mapError(effect, (cause) => new RecordUnwritable({ outDir, detail: String(cause) }))
 )
 
 /** Why a record or the summary could not be written or read back under the output directory. */
-class RecordUnwritable extends Schema.TaggedError<
-	RecordUnwritable,
-	{ readonly brand: unique symbol }
->()("RecordUnwritable", { outDir: Schema.String, detail: Schema.String }) {}
+class RecordUnwritable extends Data.TaggedError("RecordUnwritable")<{
+	readonly outDir: string
+	readonly detail: string
+}> {}
 
 /** A record or summary as its file holds it: JSON indented by tabs. */
-const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown, { space: "\t" }))
+const recordText = (value: GateRecord | GateSummary): string =>
+	`${jsonDocument(trusted<Json>(value))}\n`
 
 /**
  * What a summary reads of a record on disk: the members summarizeRecords and the listing use. A record is a file a run
- * wrote, read back as JSON and admitted by this form; its other members are not read.
+ * wrote, read back as JSON and trusted to hold this form; its other members are not read.
  */
 interface RecordedCommon {
 	readonly file: string
@@ -400,46 +396,6 @@ interface RecordedCommon {
 export type RecordedGate =
 	| (RecordedCommon & { readonly kind: "ran"; readonly verdicts: ReadonlyArray<VerdictRecord> })
 	| (RecordedCommon & { readonly kind: "failed"; readonly cause: string })
-
-const GateIdSchema = Schema.Literals([...ruleIds, ...extraGateIds])
-const CheckSchema = Schema.Struct({
-	kind: Schema.Literals(["mechanism", "equivalence"]),
-	name: Schema.String,
-	holds: Schema.Boolean,
-	detail: Schema.String
-})
-const checks = Schema.Array(CheckSchema)
-const VerdictSchema = Schema.Union([
-	Schema.Struct({ gate: GateIdSchema, outcome: Schema.Literal("pass"), checks }),
-	Schema.Struct({
-		gate: GateIdSchema,
-		outcome: Schema.Literal("fail"),
-		failing: Schema.NonEmptyArray(Schema.String),
-		checks
-	}),
-	Schema.Struct({
-		gate: GateIdSchema,
-		outcome: Schema.Literal("error"),
-		cause: Schema.String,
-		checks
-	})
-])
-
-const common = {
-	file: Schema.String,
-	gates: Schema.Array(GateIdSchema),
-	quick: Schema.Boolean,
-	identity: Schema.Struct({
-		recordedAt: Schema.String,
-		source: Schema.Struct({ gitSha: Schema.String, gitDirty: Schema.Boolean })
-	})
-} as const
-
-const RecordedGateSchema: Schema.Codec<RecordedGate> = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("ran"), ...common, verdicts: Schema.Array(VerdictSchema) }),
-	Schema.Struct({ kind: Schema.Literal("failed"), ...common, cause: Schema.String })
-])
-const decodeRecord = Schema.decodeEffect(Schema.fromJsonString(RecordedGateSchema))
 
 /** The record files a run writes: <name>.<scale>.json and <name>.<scale>.failed.json. */
 const isRecordFile = (f: string): boolean =>
@@ -461,12 +417,12 @@ export const readRecords = Effect.fn("readRecords")(
 		const entries = yield* fs.readDirectory(dir)
 		const files = Arr.sort(Arr.filter(entries, isRecordFile), Order.String)
 		const records = yield* Effect.forEach(files, (f) =>
-			Effect.flatMap(fs.readFileString(path.join(dir, f)), decodeRecord)
+			Effect.map(fs.readFileString(path.join(dir, f)), (text) => trustedJson<RecordedGate>(text))
 		)
 		return yield* Effect.filter(records, (r) => fs.exists(path.join(repoRoot, r.file)))
 	},
 	(effect, outDir) =>
-		Effect.mapError(effect, (cause) => RecordUnwritable.make({ outDir, detail: String(cause) }))
+		Effect.mapError(effect, (cause) => new RecordUnwritable({ outDir, detail: String(cause) }))
 )
 
 const summaryFile = "summary.json"
@@ -564,19 +520,15 @@ export const writeSummary = Effect.fn("writeSummary")(
 	function* (
 		outDir: string,
 		summary: GateSummary
-	): Effect.fn.Return<
-		string,
-		PlatformError.PlatformError | Schema.SchemaError,
-		FileSystem.FileSystem
-	> {
+	): Effect.fn.Return<string, PlatformError.PlatformError, FileSystem.FileSystem> {
 		const fs = yield* FileSystem.FileSystem
 		const path = `${gatesDirectory(outDir)}/${summaryFile}`
 		yield* fs.makeDirectory(gatesDirectory(outDir), { recursive: true })
-		yield* fs.writeFileString(path, `${yield* encodeJson(summary)}\n`)
+		yield* fs.writeFileString(path, recordText(summary))
 		return path
 	},
 	(effect, outDir) =>
-		Effect.mapError(effect, (cause) => RecordUnwritable.make({ outDir, detail: String(cause) }))
+		Effect.mapError(effect, (cause) => new RecordUnwritable({ outDir, detail: String(cause) }))
 )
 
 export interface RunGatesOptions {

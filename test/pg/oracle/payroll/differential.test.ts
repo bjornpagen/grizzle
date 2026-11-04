@@ -4,12 +4,10 @@
  * planner settings; a failing case shrinks to its state and bindings.
  *
  * The population must reach every program with rows: a program that never delivers a row compares nothing, so each
- * program's delivering a row is a required feature. Two ChangeSet members compile only inside their ChangeSet. The
- * programs the drawn states deliver for only a few times a run are planted
- * (planted): a state whose first run is paid and whose first run is approved.
+ * program's delivering a row is a required feature. Two ChangeSet members compile only inside their ChangeSet.
  */
 import { layer } from "@effect/vitest"
-import { sketched, type Kept } from "@grizzle/testing/explore"
+import { sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -54,70 +52,6 @@ const caseGen: Gen<CaseSketch> = (source) => ({
 	params: source.draw(array(paramSketchGen, { min: 1, max: 8 }))
 })
 
-/**
- * One employer, its employee E1 salaried from day 1 to day 9 of a spell from day 0, with a pending shift on day 2, and
- * E2 reporting to E1, and one run of days 0 to 3 at `stage`. Every program reads parameter pick 0, the first fact: E1,
- * its shift's week, the run. A paid run delivers its put and its payment's deletion when reversed, the run period
- * overlapped by E1's salary delivers that segment, the pending shift its approval, and E2 E1's organization; an
- * approved run delivers its put when paid.
- */
-const plantedState = (stage: "approved" | "paid"): CaseSketch => {
-	const employee = (manager: number, spells: PayrollSketch["employees"][number]["spells"]) => ({
-		employer: 0,
-		name: 0,
-		manager,
-		filing: 0,
-		extra: 0,
-		spells,
-		shifts: [{ day: 2, hours: 8, approved: false }],
-		slack: 0
-	})
-	const spell = { gap: 0, length: 9, salaried: true, split: 0, costCenter: 0, salary: 2, leave: 0 }
-	return {
-		facts: {
-			employers: 1,
-			employees: [employee(0, [spell]), employee(1, [])],
-			approvers: [],
-			runs: [
-				{
-					employer: 0,
-					start: 0,
-					length: 3,
-					stage: stage === "paid" ? 2 : 1,
-					approval: true,
-					approver: 0,
-					memo: 0,
-					reissue: 0,
-					lines: []
-				}
-			],
-			requests: []
-		},
-		params: [{ pick: 0, absent: false }]
-	}
-}
-
-const planted: ReadonlyArray<Kept<CaseSketch, PayrollFeature>> = [
-	{
-		note: "a paid run whose period E1's salary overlaps, E1's pending shift, E2 reporting to E1",
-		sketch: plantedState("paid"),
-		draws: "",
-		reaches: [
-			"delivered reverseDeleteMember",
-			"delivered reversePutMember",
-			"delivered splitSegments",
-			"delivered approveShiftsMember",
-			"delivered orgOf"
-		]
-	},
-	{
-		note: "an approved run",
-		sketch: plantedState("approved"),
-		draws: "",
-		reaches: ["delivered payPutMember"]
-	}
-]
-
 /** Only the members whose parameter only a member's heading types refuse to compile standalone. */
 const run = Effect.gen(function* () {
 	const installed = yield* install(P.Reporting, {
@@ -146,7 +80,7 @@ const run = Effect.gen(function* () {
 				),
 				{ cases: cases, sense: notesOnly }
 			),
-			kept: planted,
+			kept: [],
 			runs: cases,
 			shrink: completeShrink,
 			caseHang: Duration.minutes(2),

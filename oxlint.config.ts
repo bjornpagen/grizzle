@@ -17,7 +17,45 @@ const NO_IO = "The engine does no I/O: the shell does."
 const ZOD = {
 	name: "zod",
 	message:
-		'Zod is banned. Admit outside values with Effect Schema (`import { Schema } from "effect"`).'
+		"Zod is banned. Admit a foreign value with a narrowing reader of its own that fails closed with a typed error; JSON grizzle trusts goes through #compiler/core/trusted.ts."
+} as const
+
+/** Effect Schema's modules, as the effect barrel exports them. */
+const SCHEMA_MODULES = [
+	"Schema",
+	"SchemaAST",
+	"SchemaGetter",
+	"SchemaIssue",
+	"SchemaParser",
+	"SchemaRepresentation",
+	"SchemaTransformation"
+] as const
+
+/** grizzle parses JSON once and trusts it (owner, 2026-11-04): Effect Schema types values, and never runs in src. */
+const NO_RUNTIME_SCHEMA =
+	"Effect Schema is for types, never runtime validation (owner, 2026-11-04): JSON grizzle trusts goes through #compiler/core/trusted.ts, a foreign value through a narrowing reader of its own, an error is a Data.TaggedError; a Schema used only as a type is `import type`."
+
+/** Effect Schema at run time, from the barrel or a subpath; a type-only import passes. */
+const SCHEMA_IMPORTS = {
+	path: {
+		name: "effect",
+		importNames: SCHEMA_MODULES,
+		allowTypeImports: true,
+		message: NO_RUNTIME_SCHEMA
+	},
+	pattern: {
+		group: [
+			"effect/Schema",
+			"effect/SchemaAST",
+			"effect/SchemaGetter",
+			"effect/SchemaIssue",
+			"effect/SchemaParser",
+			"effect/SchemaRepresentation",
+			"effect/SchemaTransformation"
+		],
+		allowTypeImports: true,
+		message: NO_RUNTIME_SCHEMA
+	}
 } as const
 
 const PLATFORM_SDKS = {
@@ -40,9 +78,11 @@ const engineImports = () =>
 				allowTypeImports: true,
 				message:
 					"The engine loads no Effect at run time: use its native forms (T | undefined for absence, #compiler/core/result.ts) and import Effect's types with `import type`."
-			}
+			},
+			SCHEMA_IMPORTS.path
 		],
 		patterns: [
+			SCHEMA_IMPORTS.pattern,
 			{
 				group: ["effect/*", "@effect/*"],
 				allowTypeImports: true,
@@ -111,21 +151,6 @@ export default defineConfig(
 						message: "Use the typed deepEqual of #test/support/assert.ts."
 					},
 					{
-						module: "#adapter/boundary/names.ts",
-						guards: { kind: "exports", names: ["nameSchemas"] },
-						doors: [
-							"packages/grizzle/src/adapter/boundary/snapshot.ts",
-							"packages/grizzle/src/adapter/errors/execution.ts",
-							"packages/grizzle/src/adapter/errors/failures.ts",
-							"test/support/kernel/naming.ts",
-							"test/support/catalog/read.ts",
-							"test/support/substrate/errors.ts",
-							"test/support/pg.ts"
-						],
-						message:
-							"Names are admitted only at a decode boundary: the shell's snapshot decoder and error schemas (packages/grizzle/src/adapter/boundary, adapter/errors), and in tests the naming door, the catalog reader and the pg error readers (test/support)."
-					},
-					{
 						module: "#test/support/kernel/naming.ts",
 						guards: { kind: "exports", names: ["spelled"] },
 						doors: ["test/unit/adapter/witness.test.ts"],
@@ -135,6 +160,7 @@ export default defineConfig(
 			},
 			"brands-sole-mint": {
 				mints: [
+					{ doors: ["packages/testing/src/vitest/mutated-file.ts"], brands: ["RealPath"] },
 					{
 						doors: ["packages/engine/src/core/identity.ts"],
 						brands: [
@@ -156,7 +182,6 @@ export default defineConfig(
 					{
 						doors: [
 							"packages/engine/src/physical/ddl/names.ts",
-							"packages/grizzle/src/adapter/boundary/sql.ts",
 							"packages/grizzle/src/adapter/admission/drift.ts",
 							"test/support/sql.ts"
 						],
@@ -224,6 +249,31 @@ export default defineConfig(
 						paths: [ZOD],
 						patterns: [PLATFORM_SDKS]
 					})
+				})
+			},
+			{
+				files: ["packages/grizzle/src/**"],
+				rules: active({
+					"eslint/no-restricted-imports": restrictedImports({
+						paths: [ZOD, SCHEMA_IMPORTS.path],
+						patterns: [PLATFORM_SDKS, SCHEMA_IMPORTS.pattern]
+					})
+				})
+			},
+			{
+				files: ["test/**", "bench/**", "scripts/**"],
+				rules: active({
+					"eslint/no-restricted-imports": restrictedImports({
+						paths: [SCHEMA_IMPORTS.path],
+						patterns: [SCHEMA_IMPORTS.pattern]
+					})
+				})
+			},
+			{
+				files: ["test/types/examples/fixtures/readme.ts"],
+				rules: active({
+					/** The README's application decodes a foreign HTTP body with Effect Schema: the app's choice, which the README shows. */
+					"eslint/no-restricted-imports": restrictedImports({ paths: [], patterns: [] })
 				})
 			},
 			{

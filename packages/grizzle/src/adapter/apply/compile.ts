@@ -136,7 +136,7 @@ export const missingCapability = (
 	installed: ReadonlyMap<string, string>
 ): MissingCapability | undefined => {
 	const missing = missingExtension(entry.program.requirements, installed)
-	return missing === undefined ? undefined : MissingCapability.make({ capability: missing })
+	return missing === undefined ? undefined : new MissingCapability({ capability: missing })
 }
 
 /** A missing capability as the CompileError db.compile's channel carries. */

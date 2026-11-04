@@ -4,6 +4,7 @@ import {
 	Array as Arr,
 	Config,
 	Console,
+	Data,
 	Effect,
 	Inspectable,
 	Number as Num,
@@ -11,11 +12,11 @@ import {
 	Order,
 	Record,
 	Redacted,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
 import { Client } from "pg"
+import { trusted } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
 
@@ -48,33 +49,32 @@ const kindOf = (name: string): Kind => {
 }
 
 /** The database or server the reader refuses. It reports the reason and exits with status 2. */
-export class CoverageRefused extends Schema.TaggedError<
-	CoverageRefused,
-	{ readonly brand: unique symbol }
->()("CoverageRefused", { reason: Schema.String }) {}
+export class CoverageRefused extends Data.TaggedError("CoverageRefused")<{
+	readonly reason: string
+}> {}
 
 /** A statement the server failed. */
-export class QueryFailed extends Schema.TaggedError<
-	QueryFailed,
-	{ readonly brand: unique symbol }
->()("QueryFailed", {
-	sql: Schema.String,
-	cause: Schema.Defect()
-}) {}
+export class QueryFailed extends Data.TaggedError("QueryFailed")<{
+	readonly sql: string
+	readonly cause: unknown
+}> {}
 
-/** One query: its text, its parameters, and the schema of each row it returns. */
-interface Query<A> {
+/** One query: its text and its parameters. */
+interface Query {
 	readonly client: Client
 	readonly sql: string
 	readonly params: ReadonlyArray<string | number>
-	readonly row: Schema.Codec<A, unknown>
 }
 
-const query = <A>(q: Query<A>): Effect.Effect<ReadonlyArray<A>, QueryFailed | Schema.SchemaError> =>
-	Effect.tryPromise({
-		try: () => q.client.query({ text: q.sql, values: [...q.params] }),
-		catch: (cause) => QueryFailed.make({ sql: q.sql, cause })
-	}).pipe(Effect.flatMap((result) => Schema.decodeEffect(Schema.Array(q.row))(result.rows)))
+/** The rows of a query, as the driver returns them: of the row type its SQL selects. */
+const query = (q: Query): Effect.Effect<ReadonlyArray<unknown>, QueryFailed> =>
+	Effect.map(
+		Effect.tryPromise({
+			try: () => q.client.query({ text: q.sql, values: [...q.params] }),
+			catch: (cause) => new QueryFailed({ sql: q.sql, cause })
+		}),
+		(result): ReadonlyArray<unknown> => result.rows
+	)
 
 /** The one row a scalar query returns; any other count is a defect of the query. */
 const oneRow = <A>(rows: ReadonlyArray<A>): Effect.Effect<A> => {
@@ -84,25 +84,30 @@ const oneRow = <A>(rows: ReadonlyArray<A>): Effect.Effect<A> => {
 		: Effect.die(`a scalar query returned ${rows.length} rows`)
 }
 
-const run = (client: Client, sql: string): Effect.Effect<void, QueryFailed | Schema.SchemaError> =>
-	Effect.asVoid(query({ client, sql, params: [], row: Schema.Unknown }))
+const run = (client: Client, sql: string): Effect.Effect<void, QueryFailed> =>
+	Effect.asVoid(query({ client, sql, params: [] }))
 
-const FunctionRow = Schema.Struct({
-	oid: Schema.Int,
-	schema: Schema.String,
-	name: Schema.String,
-	args: Schema.String
-})
+interface FunctionRow {
+	readonly oid: number
+	readonly schema: string
+	readonly name: string
+	readonly args: string
+}
 
-const StatementRow = Schema.Struct({
-	lineno: Schema.Int,
-	stmtname: Schema.String,
-	exec_stmts: Schema.Int
-})
+interface StatementRow {
+	readonly lineno: number
+	readonly stmtname: string
+	readonly exec_stmts: number
+}
 
-const LineRow = Schema.Struct({ lineno: Schema.Int, source: Schema.String })
+interface LineRow {
+	readonly lineno: number
+	readonly source: string
+}
 
-const RatioRow = Schema.Struct({ ratio: Schema.Finite })
+interface RatioRow {
+	readonly ratio: number
+}
 
 /**
  * The PL/pgSQL functions of grizzle's schemas: every schema that holds the isolation guard, which every schema grizzle
@@ -135,27 +140,27 @@ interface PlpgsqlFunctionCoverage {
 const coverageOf = Effect.fn("coverageOf")(function* (input: {
 	readonly client: Client
 	readonly ext: string
-	readonly fn: typeof FunctionRow.Type
+	readonly fn: FunctionRow
 }) {
 	const { client, ext, fn } = input
-	const statements = yield* query({
+	const statementRows = yield* query({
 		client,
 		sql: `SELECT lineno, stmtname, coalesce(exec_stmts, 0)::int4 AS exec_stmts FROM ${ext}.plpgsql_profiler_function_statements_tb($1::oid::regprocedure) WHERE lineno > 0 ORDER BY stmtid`,
-		params: [fn.oid],
-		row: StatementRow
+		params: [fn.oid]
 	})
-	const lines = yield* query({
+	const lineRows = yield* query({
 		client,
 		sql: `SELECT lineno, coalesce(source, '') AS source FROM ${ext}.plpgsql_profiler_function_tb($1::oid::regprocedure)`,
-		params: [fn.oid],
-		row: LineRow
+		params: [fn.oid]
 	})
-	const branches = yield* query({
+	const ratioRows = yield* query({
 		client,
 		sql: `SELECT ${ext}.plpgsql_coverage_branches($1::oid::regprocedure) AS ratio`,
-		params: [fn.oid],
-		row: RatioRow
-	}).pipe(Effect.flatMap(oneRow))
+		params: [fn.oid]
+	})
+	const statements = trusted<ReadonlyArray<StatementRow>>(statementRows)
+	const lines = trusted<ReadonlyArray<LineRow>>(lineRows)
+	const branches = yield* oneRow(trusted<ReadonlyArray<RatioRow>>(ratioRows))
 	const sourceOf = Record.fromEntries(
 		Arr.map(lines, (l) => [String(l.lineno), Str.trim(l.source)] as const)
 	)
@@ -246,7 +251,7 @@ export const readPlpgsqlCoverage = Effect.fn("readPlpgsqlCoverage")(function* (
 	url: string
 ): Effect.fn.Return<
 	ReadonlyArray<PlpgsqlFunctionCoverage>,
-	CoverageRefused | QueryFailed | Schema.SchemaError,
+	CoverageRefused | QueryFailed,
 	Scope.Scope
 > {
 	const client = yield* Effect.acquireRelease(
@@ -256,46 +261,46 @@ export const readPlpgsqlCoverage = Effect.fn("readPlpgsqlCoverage")(function* (
 			Effect.tap((c) =>
 				Effect.tryPromise({
 					try: () => c.connect(),
-					catch: (cause) => QueryFailed.make({ sql: "(connect)", cause })
+					catch: (cause) => new QueryFailed({ sql: "(connect)", cause })
 				})
 			)
 		),
 		(c) => Effect.promise(() => c.end())
 	)
-	const [preload] = yield* query({
+	const preloadRows = yield* query({
 		client,
 		sql: "SELECT pg_catalog.current_setting('shared_preload_libraries') AS libraries",
-		params: [],
-		row: Schema.Struct({ libraries: Schema.String })
+		params: []
 	})
+	const [preload] = trusted<ReadonlyArray<{ readonly libraries: string }>>(preloadRows)
 	if (
 		preload === undefined ||
 		!Arr.contains(Arr.map(Str.split(",")(preload.libraries), Str.trim), "plpgsql_check")
 	) {
-		return yield* CoverageRefused.make({
+		return yield* new CoverageRefused({
 			reason:
 				"the server does not preload plpgsql_check, so no profile was recorded; use the coverage cluster"
 		})
 	}
 	yield* run(client, "BEGIN")
 	const coverage = yield* Effect.gen(function* () {
-		const [installed] = yield* query({
+		const installedRows = yield* query({
 			client,
 			sql: "SELECT n.nspname::text AS schema FROM pg_catalog.pg_extension AS e JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace WHERE e.extname = 'plpgsql_check'",
-			params: [],
-			row: Schema.Struct({ schema: Schema.String })
+			params: []
 		})
+		const [installed] = trusted<ReadonlyArray<{ readonly schema: string }>>(installedRows)
 		const ext = installed === undefined ? "gz_plpgsql_coverage" : installed.schema
 		if (installed === undefined) {
 			yield* run(client, `CREATE SCHEMA ${ext}`)
 			yield* run(client, `CREATE EXTENSION plpgsql_check SCHEMA ${ext}`)
 		}
-		const functions = yield* query({
+		const functionRows = yield* query({
 			client,
 			sql: functionsSql,
-			params: [isolationGuardName],
-			row: FunctionRow
+			params: [isolationGuardName]
 		})
+		const functions = trusted<ReadonlyArray<FunctionRow>>(functionRows)
 		return yield* Effect.forEach(functions, (fn) => coverageOf({ client, ext, fn }))
 	}).pipe(Effect.ensuring(Effect.ignore(run(client, "ROLLBACK"))))
 	return coverage
@@ -305,7 +310,7 @@ const main = Effect.gen(function* () {
 	const url = yield* Config.Redacted("DATABASE_URL")
 	const coverage = yield* readPlpgsqlCoverage(Redacted.value(url))
 	if (!Arr.isReadonlyArrayNonEmpty(coverage)) {
-		return yield* CoverageRefused.make({
+		return yield* new CoverageRefused({
 			reason: "the database holds no PL/pgSQL function in a grizzle schema"
 		})
 	}

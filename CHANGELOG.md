@@ -609,7 +609,7 @@ How to upgrade:
 - **`effect` is a peer dependency at `^4.1.2`.** Install Effect 4.1 beside grizzle; 4.0 is outside the range. Effect
   4.1 moved its crypto services out of the `effect` barrel into `effect/crypto`. No codemod in grizzle code.
 
-#### Effect Schema leaves grizzle's runtime: errors are `Data.TaggedError`, snapshot.json and meta.json are trusted by their digests
+#### Effect Schema leaves grizzle's runtime: errors are `Data.TaggedError`, snapshot.json and meta.json are trusted once their digests hold
 
 - **Every grizzle error is a `Data.TaggedError`.** `OpenError`, `ReadFailure`, `TransientFailure`,
   `TransportFailure`, `ExecutionFailure`, `CommitUnknown`, `StaleSnapshot`, `CredentialError`, `TokenError` and every
@@ -627,7 +627,7 @@ How to upgrade:
   grows by what it now states. Its fingerprint is the digest of the file's own JSON value, every property but the
   fingerprint, checked over that value before anything reads it as a snapshot: a snapshot.json edited by hand is still
   refused (`grizzle check`, `grizzle generate`, `DbLayer.make`), now before it is read. meta.json is
-  `{ "digest": ..., "meta": ... }`, its meta sealed by the digest of its content: a meta.json edited or corrupted
+  `{ "meta": ..., "seal": ... }`, its meta sealed by the digest of its content: a meta.json edited or corrupted
   outside grizzle is refused as malformed by `grizzle check`, `grizzle generate` and `grizzle migrate` before its meta
   is read. Every snapshot fingerprint changes, and a previous snapshot.json or meta.json is refused, never read:
   delete `migrations/`, re-create every database and run `grizzle generate` (step 3 above).

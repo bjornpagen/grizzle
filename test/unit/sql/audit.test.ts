@@ -5,23 +5,12 @@ import { array, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Schema,
-	String as Str
-} from "effect"
-import { SqlStatementSchema } from "#adapter/boundary/sql.ts"
-import { decode, noRevivers } from "#compiler/core/canonical.ts"
+import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { CteBody, PlStatement, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
-import { statementForm } from "#compiler/sql/form.ts"
 import { carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
@@ -142,26 +131,13 @@ const universal = (t: Twinned): void => {
 		s,
 		"a traversal that changes nothing keeps the statement"
 	)
-	/**
-	 * The engine writes the snapshot form natively (sql/form.ts) and the shell's codec reads it back, so the two agree
-	 * on every admitted statement: the engine's form is the bytes the codec encodes, and the codec decodes it to the
-	 * statement itself. Encoding reads the statement through the codec's type side first, so its success is the type
-	 * side's admission of the statement as the compiler holds it.
-	 */
-	const written = succeeded(
-		writeJsonText(statementForm(s)),
-		"the snapshot writer writes an admitted statement"
+	const written = succeeded(writeJsonText(s), "the snapshot writer writes an admitted statement")
+	const read = succeeded(decode(written, noRevivers), "the snapshot reader reads its own statement")
+	assert.equal(
+		succeeded(encode(read, everyProperty), "the read statement's canonical text"),
+		succeeded(encode(s, everyProperty), "the statement's canonical text"),
+		"the snapshot stores the statement as itself and reads it back as itself"
 	)
-	const encoded = succeeded(
-		Schema.encodeResult(SqlStatementSchema)(s),
-		"the codec encodes an admitted statement"
-	)
-	assert.equal(written, succeeded(writeJsonText(encoded)), "the engine's form is the codec's")
-	const read = succeeded(
-		Schema.decodeUnknownResult(SqlStatementSchema)(succeeded(decode(written, noRevivers))),
-		"the snapshot reader reads its own statement"
-	)
-	assert.deepEqual(read, s, "the snapshot's codec reads the statement back as itself")
 	const emitted = succeeded(emit(s, emptyNameMap, unmetered), "emit emits an admitted statement")
 	assert.equal<string>(emitted.text, text, "emit prints the statement")
 	const order: ReadonlyArray<TypeRef> = auditStatementDetailed(s).params

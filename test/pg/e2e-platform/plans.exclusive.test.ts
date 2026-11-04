@@ -13,7 +13,6 @@ import {
 	Order,
 	Record as Rec,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import type { TestContext } from "vitest"
@@ -58,6 +57,7 @@ import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
  * agree with it.
  */
 import { appendAll } from "#compiler/core/array.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -496,7 +496,8 @@ const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<L
 	]
 }
 
-const XactRows = Schema.Array(Schema.Tuple([Schema.String, Schema.String, Schema.String]))
+/** A row of three text columns, as the transaction statistics are read. */
+type XactRow = readonly [string, string, string]
 
 /**
  * Runs a law write in one rolled-back transaction: every deferred law judged at SET CONSTRAINTS ALL IMMEDIATE, then the
@@ -539,24 +540,20 @@ const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 				)
 			}
 		}
-		const tables = yield* Effect.flatMap(
-			admin.queryValues(
-				"SELECT relname::text, seq_scan::text, idx_scan::text FROM pg_catalog.pg_stat_xact_user_tables WHERE schemaname = $1::text",
-				[o.installed.schema]
-			),
-			Schema.decodeUnknownEffect(XactRows)
+		const tableRows = yield* admin.queryValues(
+			"SELECT relname::text, seq_scan::text, idx_scan::text FROM pg_catalog.pg_stat_xact_user_tables WHERE schemaname = $1::text",
+			[o.installed.schema]
 		)
+		const tables = trusted<ReadonlyArray<XactRow>>(tableRows)
 		/**
 		 * PostgreSQL has no per-transaction view of index statistics: an index's scans in this transaction are
 		 * pg_stat_get_xact_numscans of the index, the counter pg_stat_xact_user_tables sums into idx_scan.
 		 */
-		const indexes = yield* Effect.flatMap(
-			admin.queryValues(
-				"SELECT indexrelname::text, relname::text, pg_catalog.pg_stat_get_xact_numscans(indexrelid)::text FROM pg_catalog.pg_stat_user_indexes WHERE schemaname = $1::text",
-				[o.installed.schema]
-			),
-			Schema.decodeUnknownEffect(XactRows)
+		const indexRows = yield* admin.queryValues(
+			"SELECT indexrelname::text, relname::text, pg_catalog.pg_stat_get_xact_numscans(indexrelid)::text FROM pg_catalog.pg_stat_user_indexes WHERE schemaname = $1::text",
+			[o.installed.schema]
 		)
+		const indexes = trusted<ReadonlyArray<XactRow>>(indexRows)
 		yield* admin.query("ROLLBACK", [])
 		return {
 			accepted: Result.isSuccess(applied),

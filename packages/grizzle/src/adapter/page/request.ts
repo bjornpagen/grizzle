@@ -45,7 +45,7 @@ export type PageRequestValue =
 
 /** A page request refused for `fault`. */
 const refused = (fault: RequestFault): ReadError =>
-	ReadFailure.make({ reason: PageRequestRefused.make({ fault }) })
+	new ReadFailure({ reason: new PageRequestRefused({ fault }) })
 
 const shapeError = (): ReadError => refused("requestShape")
 

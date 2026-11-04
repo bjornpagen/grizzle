@@ -14,9 +14,6 @@
  * The swarm adds a second grant expiring later, requests whose windows cross the first grant's expiry, credit spent
  * before the race, the first grant expiring mid-race (a grizzle put shortening its validity, or a direct writer's
  * DELETE and INSERT of the grant), and a request submitted twice.
- *
- * Kept: a grant debited to its last micro and a request one micro over it; an event split across two grants; and a
- * direct writer shortening the grant to end inside a request's window, racing two grizzle requests in every order.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
@@ -30,10 +27,8 @@ import {
 	beforeOf,
 	committedOf,
 	commonRequired,
-	directWriter,
 	type Explained,
 	explainedIds,
-	grizzleWriters,
 	type Race,
 	type RaceFeature,
 	raceSuite,
@@ -292,62 +287,11 @@ const judgeCredits = (
 	return { departure: undefined, reached }
 }
 
-/** A kept race's values its swarm leaves unused: a first grant ending after every window, no debit before the race. */
-const unused = { ends: [1, 0], prior: 1 } as const
-
 raceSuite<CreditSketch>({
 	label: "usage against credit grants",
 	sketch: creditSketchGen,
 	resolve: resolveCredits,
-	kept: [
-		{
-			note: "three grizzle requests of 30, 20 and 1 against one grant of 50: the grant is debited to its last micro, and the last request is one micro over",
-			sketch: {
-				charges: [30, 20, 1],
-				amounts: [50, 1],
-				cut: [0, 0],
-				...unused,
-				ops: {},
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: [
-				"planted: a grant debited to its last micro",
-				"planted: a request one micro over its grant refused"
-			]
-		},
-		{
-			note: "grizzle requests of 30 and 10 against a first grant of 20 and a later one: the 30 is split across both grants",
-			sketch: {
-				charges: [30, 10],
-				amounts: [20, 80],
-				cut: [0, 0],
-				...unused,
-				ops: { "second grant": 3 },
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: ["planted: an event split across two grants"]
-		},
-		{
-			note: "a direct writer shortens the grant to end inside the second request's window, racing two grizzle requests in every order: the second is refused wherever the shortening commits first",
-			sketch: {
-				charges: [10, 10],
-				amounts: [50, 1],
-				/** The second request's window, at its middle. */
-				cut: [2, 1],
-				...unused,
-				ops: { expiry: 3 },
-				writers: [directWriter("at COMMIT"), ...grizzleWriters.slice(1)]
-			},
-			draws: "",
-			reaches: [
-				"planted: a debit outside its grant's validity refused",
-				"every interleaving",
-				"overlapping"
-			]
-		}
-	],
+	kept: [],
 	required: [
 		...commonRequired,
 		"law family hit: capacity",

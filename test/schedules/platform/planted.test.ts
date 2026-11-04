@@ -198,7 +198,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const immutableRelation = immutableOf((yield* Run).seed)
+						const run = yield* Run
+						const immutableRelation = immutableOf(run.seed)
 						const rig = yield* openRig("Platform", racesAt)
 						const names = namesOf(rig.installed)
 						const actors = yield* openActors(s, {

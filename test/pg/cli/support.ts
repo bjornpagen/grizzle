@@ -9,7 +9,6 @@ import {
 	type PlatformError,
 	Redacted,
 	type Result,
-	Schema,
 	type Scope,
 	Stream
 } from "effect"
@@ -19,12 +18,11 @@ import type { GrizzleConfig, MigrationConnectionConfig } from "#adapter/types/co
 import { type ConfigFile, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
 import { type CliError, ConfigMissing, cliError, configFileName } from "#cli/errors.ts"
 import { runCli } from "#cli/run.ts"
-import { jsonText } from "#compiler/core/trusted.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
 import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
-import { decodeJson } from "#test/support/json.ts"
 import { sourceCondition } from "#test/support/process.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 
@@ -69,35 +67,31 @@ export const workspace = (
  * One schema of a configuration (fixture.ts): the shop at a version, its login owning a workload (both programs,
  * ordersOf alone, or none), or the ledger, with its residual law, derived relation and full workload.
  */
-const SchemaSpecSchema = Schema.Union([
-	Schema.Struct({
-		name: Schema.String,
-		fixture: Schema.Literal("shop"),
-		version: Schema.Literals([1, 2]),
-		workload: Schema.Literals(["full", "withoutByName", "none"])
-	}),
-	Schema.Struct({ name: Schema.String, fixture: Schema.Literal("ledger") })
-])
-export type SchemaSpec = typeof SchemaSpecSchema.Type
+export type SchemaSpec =
+	| {
+			readonly name: string
+			readonly fixture: "shop"
+			readonly version: 1 | 2
+			readonly workload: "full" | "withoutByName" | "none"
+	  }
+	| { readonly name: string; readonly fixture: "ledger" }
 
 /**
  * A configuration: its schemas, and where migrate connects: DATABASE_URL, or a typed connection in the configuration to
  * `database` at `port` (a closed port shows a command never connects), with a Redacted password (`owner`), a wrong one,
  * or an Effect yielding it.
  */
-const ConfigSpecSchema = Schema.Struct({
-	schemas: Schema.Array(SchemaSpecSchema),
-	connection: Schema.Union([
-		Schema.Struct({ kind: Schema.Literal("databaseUrl") }),
-		Schema.Struct({
-			kind: Schema.Literal("typed"),
-			database: Schema.String,
-			password: Schema.Literals(["owner", "wrong", "effect"]),
-			port: Schema.Int
-		})
-	])
-})
-export type ConfigSpec = typeof ConfigSpecSchema.Type
+export type ConfigSpec = {
+	readonly schemas: ReadonlyArray<SchemaSpec>
+	readonly connection:
+		| { readonly kind: "databaseUrl" }
+		| {
+				readonly kind: "typed"
+				readonly database: string
+				readonly password: "owner" | "wrong" | "effect"
+				readonly port: number
+		  }
+}
 
 /** Migrate reads DATABASE_URL. */
 export const viaDatabaseUrl: ConfigSpec["connection"] = { kind: "databaseUrl" }
@@ -189,8 +183,6 @@ const configWith = (
 /** The file a workspace's spec lies in, which its grizzle.config.ts builds its configuration from. */
 const specFileName = "grizzle.spec.json"
 
-const decodeSpec = decodeJson(ConfigSpecSchema)
-
 /**
  * The configuration of the spec in `dir`, as its grizzle.config.ts and an in-process run build it: its password and
  * CA are the initialised cluster's, read once for it.
@@ -207,7 +199,7 @@ export const specConfig = (
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const text = yield* fs.readFileString(`${dir}/${specFileName}`)
-		const spec = decodeSpec(text)
+		const spec = trustedJson<ConfigSpec>(text)
 		const cluster = yield* readCluster
 		return configOf(cluster, spec)
 	})
@@ -314,7 +306,7 @@ const workspaceConfig = (
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		if (!(yield* Effect.orDie(fs.exists(`${dir}/${specFileName}`)))) {
-			return yield* cliError(ConfigMissing.make({ directory: dir }))
+			return yield* cliError(new ConfigMissing({ directory: dir }))
 		}
 		const config = yield* Effect.orDie(specConfig(dir))
 		const value = defineConfig(config)

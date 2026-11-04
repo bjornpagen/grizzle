@@ -15,7 +15,7 @@ import { assert } from "#test/support/assert.ts"
 
 /** A page request refused for `fault`, as a read reports it. */
 const requestRefused = (fault: RequestFault): ReadFailure =>
-	ReadFailure.make({ reason: PageRequestRefused.make({ fault }) })
+	new ReadFailure({ reason: new PageRequestRefused({ fault }) })
 
 /**
  * Page request validation (packages/grizzle/src/adapter/page/request.ts).

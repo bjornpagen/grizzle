@@ -93,7 +93,8 @@ export class CaseDiscarded extends Schema.TaggedError<
 	{ readonly brand: unique symbol }
 >()("CaseDiscarded", {}) {}
 
-const isDiscarded = Schema.is(CaseDiscarded)
+/** Whether an error is a case's discard: a case that left the space, never a failure. */
+export const isCaseDiscarded = Schema.is(CaseDiscarded)
 
 /**
  * What a property sees of the case it runs: it notes the situations it reached; steers, where steering is allowed, by
@@ -536,7 +537,7 @@ const runCase = <S, T, F extends string, E, R, K>(
 					if (Exit.isSuccess(exit)) {
 						return { kind: "passed", trace: exit.value[1] }
 					}
-					return Option.exists(Exit.findErrorOption(exit), isDiscarded)
+					return Option.exists(Exit.findErrorOption(exit), isCaseDiscarded)
 						? { kind: "discarded" }
 						: { kind: "failed", cause: exit.cause }
 				})

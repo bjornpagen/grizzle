@@ -7,7 +7,8 @@ import { checked } from "#test/types/batch/groups.ts"
 layer(NodeServices.layer, { excludeTestServices: true })("test harness types", (it) => {
 	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
 		Effect.gen(function* () {
-			assert.equal((yield* checked("harness/fixtures")).output, "")
+			const diagnostics = yield* checked("harness/fixtures")
+			assert.equal(diagnostics.output, "")
 		})
 	)
 

@@ -182,13 +182,13 @@ export const failure = <A, E, R>(
 	Effect.matchEffect(effect, {
 		onSuccess: () =>
 			Effect.fail(
-				ExpectationFailed.make({ message: "expected a PostgreSQL error, but it succeeded" })
+				new ExpectationFailed({ message: "expected a PostgreSQL error, but it succeeded" })
 			),
 		onFailure: (error) => {
 			const fields = pgErrorFields(error)
 			return fields === undefined
 				? Effect.fail(
-						ExpectationFailed.make({ message: `expected a PostgreSQL error, got ${String(error)}` })
+						new ExpectationFailed({ message: `expected a PostgreSQL error, got ${String(error)}` })
 					)
 				: Effect.succeed(fields)
 		}

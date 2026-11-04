@@ -13,7 +13,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record } from "effect"
 import { allenBit } from "#compiler/allen/mask.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { CheckOptions } from "#compiler/check/checker.ts"
@@ -22,6 +22,7 @@ import { catchRefusal, type Json } from "#compiler/core/canonical.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { normalizeDag } from "#compiler/ir/dag.ts"
 import { descText, type QueryDesc, type QueryStageDesc, type RuleDesc } from "#compiler/ir/desc.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
@@ -39,7 +40,6 @@ import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refusalLoc } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
-import { decodeJson } from "#test/support/json.ts"
 import { messageOf } from "#test/support/message.ts"
 import { scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
 import { unperturbed } from "#test/support/oracle/perturb.ts"
@@ -83,9 +83,6 @@ const describedQuery = (
 	Result.flatMap(fromQueryDescription(value), (desc) =>
 		Result.map(checkQuery(checked, desc, options), () => desc)
 	)
-
-/** Canonical text parsed back as plain JSON, which describedQuery admits as it would any untrusted value. */
-const parseDescription = decodeJson(Schema.Unknown)
 
 const text = (desc: QueryDesc): string => ok(descText(desc), "descText")
 
@@ -1272,7 +1269,7 @@ const roundTrip = (
 	const corrupted = draw(corruptedGen(live, corruptions))
 	note(corruptedFeature(corrupted))
 	if (corrupted.kind === "live") {
-		const transported = parseDescription(JSON.stringify(description))
+		const transported = trustedJson<Json>(jsonText(description))
 		const back = ok(
 			describedQuery(transported, checking(schema), checkOptions("query")),
 			"describedQuery"

@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Schema } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { AdmissionRefused } from "#adapter/errors/failures.ts"
@@ -18,7 +18,6 @@ import {
 } from "#test/pg/vector/ann/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { paramTexts } from "#test/support/compile.ts"
-import { jsonText } from "#test/support/json.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -74,7 +73,7 @@ const underfill = (db: object, fx: Fixture) =>
 				])
 			)
 		)
-		return `underfilled: hnsw.iterative_scan ${jsonText(scan)} in the Db's session, plan:\n${Arr.join(
+		return `underfilled: hnsw.iterative_scan ${Formatter.format(scan)} in the Db's session, plan:\n${Arr.join(
 			Arr.map(explained, (r) => String(r[0])),
 			"\n"
 		)}`
@@ -129,9 +128,9 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 				const error = yield* Effect.flip(
 					Db.open(fx.opened.server.roles.app, {}).pipe(Effect.scoped, withLayer(fx.opened.layer))
 				)
-				assert.ok(Schema.is(OpenError)(error))
+				assert.ok(error instanceof OpenError)
 				assert.equal(error.stage, "settings")
-				assert.ok(Schema.is(AdmissionRefused)(error.reason))
+				assert.ok(error.reason instanceof AdmissionRefused)
 				const role = loginRole(fx)
 				assert.deepEqual(
 					Arr.map(error.reason.mismatches, (m) => [m.stage, m.check, m.expected, m.observed]),

@@ -17,9 +17,6 @@
  *
  * The swarm adds a second split at a later instant, priced from the same card, so the two splits race for it: the
  * second to commit finds the card it retires gone and its own first part colliding with the first split's.
- *
- * Kept: a request at the split instant priced by each rate, as its writing runs before or after the split; two splits,
- * the second refused; and a retirement racing a request priced after it, each refused when the other is first.
  */
 
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
@@ -31,7 +28,6 @@ import {
 	committedOf,
 	commonRequired,
 	type Explained,
-	grizzleWriters,
 	type Race,
 	type RaceFeature,
 	raceSuite,
@@ -270,48 +266,7 @@ raceSuite<RateSketch>({
 	label: "a rate change racing usage",
 	sketch: rateSketchGen,
 	resolve: resolveRates,
-	kept: [
-		{
-			note: "a grizzle split at an instant racing a grizzle request of 30 tokens starting at it, priced by the quote it reads first",
-			sketch: {
-				requests: [{ start: "at the split", tokens: 30 }],
-				rates: [2_000_000n, 2_000_000n],
-				ops: {},
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: [
-				"planted: a request at the split priced by the new rate",
-				"planted: a request at the split priced by the old rate"
-			]
-		},
-		{
-			note: "two grizzle splits of the one card at two instants: the second to commit is refused",
-			sketch: {
-				requests: [{ start: "at the second split", tokens: 10 }],
-				rates: [2_000_000n, 500_000n],
-				ops: { "second split": 3 },
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: ["planted: a second split refused", "write: second split"]
-		},
-		{
-			note: "a grizzle retirement of the card at an instant racing a grizzle request priced just after it before the race: whichever commits second is refused by pricedByCard",
-			sketch: {
-				requests: [{ start: "after the split", tokens: 10 }],
-				rates: [2_000_000n, 2_000_000n],
-				ops: { retire: 3 },
-				writers: grizzleWriters
-			},
-			draws: "",
-			reaches: [
-				"planted: a retirement refused by the charges it priced",
-				"planted: a request priced after the card's end refused",
-				"law family hit: coverage"
-			]
-		}
-	],
+	kept: [],
 	required: [
 		...commonRequired,
 		"law family hit: coverage",

@@ -16,8 +16,9 @@ export const readLedger = (
 ): Effect.Effect<LedgerState, MigrateError> =>
 	Effect.mapError(
 		Effect.flatMap(
-			Effect.mapError(session.apart(ledgerReads(schema, statements)), (failure) =>
-				LedgerUnread.make({ schema, failure })
+			Effect.mapError(
+				session.apart(ledgerReads(schema, statements)),
+				(failure) => new LedgerUnread({ schema, failure })
 			),
 			(answers) =>
 				Effect.fromResult(

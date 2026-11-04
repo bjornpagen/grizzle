@@ -1,6 +1,6 @@
-import { Array as Arr, Config, Formatter, Schema } from "effect"
-import { CompileErrorSchema, ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
-import { compileReasonText, isCompileError } from "#compiler/core/errors.ts"
+import { Array as Arr, type Config, Data, Formatter } from "effect"
+import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
+import { type CompileError, compileReasonText, isCompileError } from "#compiler/core/errors.ts"
 import { maxMigrationNameLength, metaFileName } from "#compiler/deploy/render/folder.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 
@@ -9,7 +9,7 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
  *
  * The apply runner fails with its own MigrateError (adapter/migrate/errors.ts), whose stage says what the database
  * holds. Everything the command line itself refuses is a CliError, whose classified case is its `reason`: one of the
- * classes here, each a Schema.TaggedError carrying exactly what was refused and rendering its own `message`. What
+ * classes here, each a Data.TaggedError carrying exactly what was refused and rendering its own `message`. What
  * follows from a reason is a getter of the error, never a stored field: the stage it stopped at, and the declared
  * schema it concerns. The stages:
  *
@@ -33,12 +33,10 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 export type CliStage = "usage" | "config" | "filesystem" | "snapshot" | "generate"
 
 /**
- * The platform's file system failure, as a reason wraps it: an Error whose own cause is the operating system's error.
- * Effect's PlatformError is one, an unstable API a reason does not name.
+ * The operating system's error code a file system failure carries, as a refusal names it, or nothing. The failure is
+ * the platform's, an Error whose own cause is the operating system's error; Effect's PlatformError is one, an unstable
+ * API a reason does not name.
  */
-const FileSystemFailureSchema = Schema.instanceOf(Error)
-
-/** The operating system's error code a file system failure carries, as a refusal names it, or nothing. */
 const codeOf = (failure: Error): string => {
 	const os = failure.cause
 	return Error.isError(os) && "code" in os && typeof os.code === "string" ? ` (${os.code})` : ""
@@ -59,60 +57,51 @@ const thrownText = (thrown: unknown): string => {
 }
 
 /** A configured schema as a refusal names it: its declared name, with its PostgreSQL schema when the two differ. */
-const SchemaNamesSchema = Schema.Struct({ declared: Schema.String, ident: Schema.String })
+type SchemaNames = { readonly declared: string; readonly ident: string }
 
-const schemaListText = (schemas: ReadonlyArray<typeof SchemaNamesSchema.Type>): string =>
+const schemaListText = (schemas: ReadonlyArray<SchemaNames>): string =>
 	Arr.join(
 		Arr.map(schemas, (s) => (s.declared === s.ident ? s.declared : `${s.declared} (${s.ident})`)),
 		", "
 	)
 
 /** The commands of the command line. */
-const CommandNameSchema = Schema.Literals([
-	"generate",
-	"check",
-	"migrate",
-	"drift",
-	"names",
-	"skill"
-])
+type CommandName = "generate" | "check" | "migrate" | "drift" | "names" | "skill"
 
 /** The flags of `grizzle generate`, and those that take a value. */
-const FlagSchema = Schema.Literals(["custom", "name", "schema"])
-const ValuedFlagSchema = Schema.Literals(["name", "schema"])
+type Flag = "custom" | "name" | "schema"
+type ValuedFlag = "name" | "schema"
 
 /**
  * How a command line fails to parse: its command is none of them, a command takes no argument it was given, an option
  * of generate is unknown, a flag is given twice, or a valued flag has no value.
  */
-const ArgumentFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("unknownCommand"), command: Schema.String }),
-	Schema.Struct({
-		kind: Schema.Literal("unexpectedArgument"),
-		command: CommandNameSchema,
-		argument: Schema.String
-	}),
-	Schema.Struct({ kind: Schema.Literal("unknownOption"), option: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("repeatedFlag"), flag: FlagSchema }),
-	Schema.Struct({ kind: Schema.Literal("flagWithoutValue"), flag: ValuedFlagSchema })
-])
+type ArgumentFault =
+	| { readonly kind: "unknownCommand"; readonly command: string }
+	| {
+			readonly kind: "unexpectedArgument"
+			readonly command: CommandName
+			readonly argument: string
+	  }
+	| { readonly kind: "unknownOption"; readonly option: string }
+	| { readonly kind: "repeatedFlag"; readonly flag: Flag }
+	| { readonly kind: "flagWithoutValue"; readonly flag: ValuedFlag }
 
 /** The command line does not parse, for `fault` (args.ts). */
-export class ArgumentsRefused extends Schema.TaggedError<
-	ArgumentsRefused,
-	{ readonly brand: unique symbol }
->()("ArgumentsRefused", { fault: ArgumentFaultSchema }) {
+export class ArgumentsRefused extends Data.TaggedError("ArgumentsRefused")<{
+	readonly fault: ArgumentFault
+}> {
 	override get message(): string {
 		const fault = this.fault
 		switch (fault.kind) {
 			case "unknownCommand":
-				return `unknown command ${JSON.stringify(fault.command)}; the commands are generate, check, migrate, drift, names and skill`
+				return `unknown command ${Formatter.format(fault.command)}; the commands are generate, check, migrate, drift, names and skill`
 			case "unexpectedArgument":
 				return fault.command === "generate"
-					? `grizzle generate takes no argument, not ${JSON.stringify(fault.argument)}; name the migration with --name`
-					: `grizzle ${fault.command} takes no argument, not ${JSON.stringify(fault.argument)}`
+					? `grizzle generate takes no argument, not ${Formatter.format(fault.argument)}; name the migration with --name`
+					: `grizzle ${fault.command} takes no argument, not ${Formatter.format(fault.argument)}`
 			case "unknownOption":
-				return `unknown option ${JSON.stringify(fault.option)}`
+				return `unknown option ${Formatter.format(fault.option)}`
 			case "repeatedFlag":
 				return `--${fault.flag} is given twice`
 			case "flagWithoutValue":
@@ -122,12 +111,11 @@ export class ArgumentsRefused extends Schema.TaggedError<
 }
 
 /** The migration name `--name` gives, `migration`, or a custom folder's, is not of a folder name's shape. */
-export class MigrationNameRefused extends Schema.TaggedError<
-	MigrationNameRefused,
-	{ readonly brand: unique symbol }
->()("MigrationNameRefused", { migration: Schema.String }) {
+export class MigrationNameRefused extends Data.TaggedError("MigrationNameRefused")<{
+	readonly migration: string
+}> {
 	override get message(): string {
-		return `migration name ${JSON.stringify(this.migration)} is not lowercase ASCII letters and digits joined by _ or -, at most ${maxMigrationNameLength} characters`
+		return `migration name ${Formatter.format(this.migration)} is not lowercase ASCII letters and digits joined by _ or -, at most ${maxMigrationNameLength} characters`
 	}
 }
 
@@ -136,20 +124,18 @@ export class MigrationNameRefused extends Schema.TaggedError<
  * `--schema` naming none of the configured `schemas`, or a custom migration without `--schema` while the configuration
  * declares several.
  */
-const SchemaChoiceFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("single") }),
-	Schema.Struct({
-		kind: Schema.Literal("unknown"),
-		named: Schema.String,
-		schemas: Schema.Array(SchemaNamesSchema)
-	}),
-	Schema.Struct({ kind: Schema.Literal("unchosen"), schemas: Schema.Array(SchemaNamesSchema) })
-])
+type SchemaChoiceFault =
+	| { readonly kind: "single" }
+	| {
+			readonly kind: "unknown"
+			readonly named: string
+			readonly schemas: ReadonlyArray<SchemaNames>
+	  }
+	| { readonly kind: "unchosen"; readonly schemas: ReadonlyArray<SchemaNames> }
 
-export class SchemaChoiceRefused extends Schema.TaggedError<
-	SchemaChoiceRefused,
-	{ readonly brand: unique symbol }
->()("SchemaChoiceRefused", { fault: SchemaChoiceFaultSchema }) {
+export class SchemaChoiceRefused extends Data.TaggedError("SchemaChoiceRefused")<{
+	readonly fault: SchemaChoiceFault
+}> {
 	override get message(): string {
 		const fault = this.fault
 		switch (fault.kind) {
@@ -167,30 +153,27 @@ export class SchemaChoiceRefused extends Schema.TaggedError<
 export const configFileName = "grizzle.config.ts"
 
 /** No grizzle.config.ts is in `directory`, the one grizzle runs in. */
-export class ConfigMissing extends Schema.TaggedError<
-	ConfigMissing,
-	{ readonly brand: unique symbol }
->()("ConfigMissing", { directory: Schema.String }) {
+export class ConfigMissing extends Data.TaggedError("ConfigMissing")<{
+	readonly directory: string
+}> {
 	override get message(): string {
 		return `no ${configFileName} in ${this.directory}; grizzle reads its configuration from the directory it runs in`
 	}
 }
 
 /** grizzle.config.ts could not be found or imported: `cause` is what its import, or the file system, threw. */
-export class ConfigUnloaded extends Schema.TaggedError<
-	ConfigUnloaded,
-	{ readonly brand: unique symbol }
->()("ConfigUnloaded", { cause: Schema.Unknown }) {
+export class ConfigUnloaded extends Data.TaggedError("ConfigUnloaded")<{
+	readonly cause: unknown
+}> {
 	override get message(): string {
 		return `${configFileName} failed to load: ${thrownText(this.cause)}`
 	}
 }
 
 /** grizzle.config.ts has no default export, or its default export is no object, or no object defineConfig built. */
-export class ExportRefused extends Schema.TaggedError<
-	ExportRefused,
-	{ readonly brand: unique symbol }
->()("ExportRefused", { fault: Schema.Literals(["missing", "notAnObject", "notDefined"]) }) {
+export class ExportRefused extends Data.TaggedError("ExportRefused")<{
+	readonly fault: "missing" | "notAnObject" | "notDefined"
+}> {
 	override get message(): string {
 		switch (this.fault) {
 			case "missing":
@@ -207,9 +190,9 @@ export class ExportRefused extends Schema.TaggedError<
 export const configSettings = ["schemas", "logins", "migrations", "connection"] as const
 
 /** The settings whose value the configuration reads itself; `connection` is migrate's to check. */
-const ReadSettingSchema = Schema.Literals(["schemas", "logins", "migrations"])
+type ReadSetting = "schemas" | "logins" | "migrations"
 
-const malformedSettingText: Readonly<Record<typeof ReadSettingSchema.Type, string>> = {
+const malformedSettingText: Readonly<Record<ReadSetting, string>> = {
 	schemas: "schemas must be a nonempty list of the declared schema values to migrate",
 	logins:
 		"logins must be a list of the login values whose roles the migrations install, and whose workloads plan its indexes",
@@ -217,20 +200,18 @@ const malformedSettingText: Readonly<Record<typeof ReadSettingSchema.Type, strin
 }
 
 /** A setting no configuration has (`unknown`), or one whose value is not of its kind (`malformed`). */
-const SettingFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("unknown"), setting: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("malformed"), setting: ReadSettingSchema })
-])
+type SettingFault =
+	| { readonly kind: "unknown"; readonly setting: string }
+	| { readonly kind: "malformed"; readonly setting: ReadSetting }
 
-export class SettingRefused extends Schema.TaggedError<
-	SettingRefused,
-	{ readonly brand: unique symbol }
->()("SettingRefused", { fault: SettingFaultSchema }) {
+export class SettingRefused extends Data.TaggedError("SettingRefused")<{
+	readonly fault: SettingFault
+}> {
 	override get message(): string {
 		const fault = this.fault
 		switch (fault.kind) {
 			case "unknown":
-				return `${configFileName} has no setting ${JSON.stringify(fault.setting)}; its settings are ${Arr.join(configSettings, ", ")}`
+				return `${configFileName} has no setting ${Formatter.format(fault.setting)}; its settings are ${Arr.join(configSettings, ", ")}`
 			case "malformed":
 				return malformedSettingText[fault.setting]
 		}
@@ -241,21 +222,20 @@ export class SettingRefused extends Schema.TaggedError<
  * `schemas[index]` is no schema value, does not compile, or is installed in the PostgreSQL schema `ident` of the
  * declared schema `other`, listed before it.
  */
-const SchemaEntryFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("notBuilt") }),
-	Schema.Struct({ kind: Schema.Literal("uncompiled"), error: CompileErrorSchema }),
-	Schema.Struct({
-		kind: Schema.Literal("shared"),
-		name: Schema.String,
-		other: Schema.String,
-		ident: Schema.String
-	})
-])
+type SchemaEntryFault =
+	| { readonly kind: "notBuilt" }
+	| { readonly kind: "uncompiled"; readonly error: CompileError }
+	| {
+			readonly kind: "shared"
+			readonly name: string
+			readonly other: string
+			readonly ident: string
+	  }
 
-export class SchemaEntryRefused extends Schema.TaggedError<
-	SchemaEntryRefused,
-	{ readonly brand: unique symbol }
->()("SchemaEntryRefused", { index: Schema.Int, fault: SchemaEntryFaultSchema }) {
+export class SchemaEntryRefused extends Data.TaggedError("SchemaEntryRefused")<{
+	readonly index: number
+	readonly fault: SchemaEntryFault
+}> {
 	override get message(): string {
 		const at = `schemas[${this.index}]`
 		const fault = this.fault
@@ -274,38 +254,32 @@ export class SchemaEntryRefused extends Schema.TaggedError<
  * What already holds a name alike to one a login takes: another login of the schema, `name`, or a role `name` of login
  * `login`.
  */
-const NameHolderSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("login"), name: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("role"), name: Schema.String, login: Schema.String })
-])
+type NameHolder =
+	| { readonly kind: "login"; readonly name: string }
+	| { readonly kind: "role"; readonly name: string; readonly login: string }
 
 /**
  * `logins[index]` is no login value, does not compile, is over a schema `schemas` does not list or over another version
  * of one it does, or names a login or role (`name`) alike to a name another login or role of its schema holds: their
  * segments agree, so both would be the one PostgreSQL role `<schema>__<conversion>`.
  */
-const LoginEntryFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("notBuilt") }),
-	Schema.Struct({ kind: Schema.Literal("uncompiled"), error: CompileErrorSchema }),
-	Schema.Struct({ kind: Schema.Literal("unlisted"), login: Schema.String, schema: Schema.String }),
-	Schema.Struct({
-		kind: Schema.Literal("otherVersion"),
-		login: Schema.String,
-		schema: Schema.String
-	}),
-	Schema.Struct({
-		kind: Schema.Literal("nameTaken"),
-		login: Schema.String,
-		name: Schema.String,
-		holder: NameHolderSchema,
-		schema: Schema.String
-	})
-])
+type LoginEntryFault =
+	| { readonly kind: "notBuilt" }
+	| { readonly kind: "uncompiled"; readonly error: CompileError }
+	| { readonly kind: "unlisted"; readonly login: string; readonly schema: string }
+	| { readonly kind: "otherVersion"; readonly login: string; readonly schema: string }
+	| {
+			readonly kind: "nameTaken"
+			readonly login: string
+			readonly name: string
+			readonly holder: NameHolder
+			readonly schema: string
+	  }
 
-export class LoginEntryRefused extends Schema.TaggedError<
-	LoginEntryRefused,
-	{ readonly brand: unique symbol }
->()("LoginEntryRefused", { index: Schema.Int, fault: LoginEntryFaultSchema }) {
+export class LoginEntryRefused extends Data.TaggedError("LoginEntryRefused")<{
+	readonly index: number
+	readonly fault: LoginEntryFault
+}> {
 	override get message(): string {
 		const at = `logins[${this.index}]`
 		const fault = this.fault
@@ -333,33 +307,26 @@ export class LoginEntryRefused extends Schema.TaggedError<
  * The configuration's `connection` is refused, for `detail`: the connection parser's own refusal, naming the setting
  * (adapter/connection/config.ts parseConnection), as a DbConfig's is.
  */
-export class ConnectionRefused extends Schema.TaggedError<
-	ConnectionRefused,
-	{ readonly brand: unique symbol }
->()("ConnectionRefused", { detail: Schema.String }) {
+export class ConnectionRefused extends Data.TaggedError("ConnectionRefused")<{
+	readonly detail: string
+}> {
 	override get message(): string {
 		return this.detail
 	}
 }
 
 /** Neither the configuration nor DATABASE_URL says where grizzle migrate connects. */
-export class ConnectionUnnamed extends Schema.TaggedError<
-	ConnectionUnnamed,
-	{ readonly brand: unique symbol }
->()("ConnectionUnnamed", {}) {
+export class ConnectionUnnamed extends Data.TaggedError("ConnectionUnnamed") {
 	override get message(): string {
 		return "grizzle migrate needs DATABASE_URL=postgresql://<role>[:<password>]@<host>[:<port>]/<database>, or a connection in grizzle.config.ts"
 	}
 }
 
 /** The ConfigProvider could not read the environment variable `variable`, for `cause`. */
-export class EnvironmentUnread extends Schema.TaggedError<
-	EnvironmentUnread,
-	{ readonly brand: unique symbol }
->()("EnvironmentUnread", {
-	variable: Schema.String,
-	cause: Schema.instanceOf(Config.ConfigError)
-}) {
+export class EnvironmentUnread extends Data.TaggedError("EnvironmentUnread")<{
+	readonly variable: string
+	readonly cause: Config.ConfigError
+}> {
 	override get message(): string {
 		return `the environment variable ${this.variable} could not be read: ${this.cause.message}`
 	}
@@ -370,26 +337,21 @@ export class EnvironmentUnread extends Schema.TaggedError<
  * a fragment, a part's percent-encoding is malformed, it names no role, host or database, its port is 0, or it asks for
  * an sslmode other than verify-full or has a parameter other than sslmode and sslrootcert.
  */
-const UrlFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("notUrl") }),
-	Schema.Struct({ kind: Schema.Literal("protocol"), protocol: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("fragment") }),
-	Schema.Struct({
-		kind: Schema.Literal("encoding"),
-		part: Schema.Literals(["role", "password", "host", "database"])
-	}),
-	Schema.Struct({ kind: Schema.Literal("noRole") }),
-	Schema.Struct({ kind: Schema.Literal("noHost") }),
-	Schema.Struct({ kind: Schema.Literal("port"), port: Schema.Int }),
-	Schema.Struct({ kind: Schema.Literal("noDatabase") }),
-	Schema.Struct({ kind: Schema.Literal("sslmode"), mode: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("parameter"), parameter: Schema.String })
-])
+type UrlFault =
+	| { readonly kind: "notUrl" }
+	| { readonly kind: "protocol"; readonly protocol: string }
+	| { readonly kind: "fragment" }
+	| { readonly kind: "encoding"; readonly part: "role" | "password" | "host" | "database" }
+	| { readonly kind: "noRole" }
+	| { readonly kind: "noHost" }
+	| { readonly kind: "port"; readonly port: number }
+	| { readonly kind: "noDatabase" }
+	| { readonly kind: "sslmode"; readonly mode: string }
+	| { readonly kind: "parameter"; readonly parameter: string }
 
-export class DatabaseUrlRefused extends Schema.TaggedError<
-	DatabaseUrlRefused,
-	{ readonly brand: unique symbol }
->()("DatabaseUrlRefused", { fault: UrlFaultSchema }) {
+export class DatabaseUrlRefused extends Data.TaggedError("DatabaseUrlRefused")<{
+	readonly fault: UrlFault
+}> {
 	override get message(): string {
 		const fault = this.fault
 		switch (fault.kind) {
@@ -412,40 +374,34 @@ export class DatabaseUrlRefused extends Schema.TaggedError<
 			case "sslmode":
 				return `DATABASE_URL asks for sslmode=${fault.mode}; TLS is always verify-full, so sslmode may only be verify-full`
 			case "parameter":
-				return `DATABASE_URL has the parameter ${JSON.stringify(fault.parameter)}; its parameters are sslmode and sslrootcert`
+				return `DATABASE_URL has the parameter ${Formatter.format(fault.parameter)}; its parameters are sslmode and sslrootcert`
 		}
 	}
 }
 
 /** Where a CA file is named: DATABASE_URL's `sslrootcert` parameter, or the PGSSLROOTCERT variable. */
-const CaSourceSchema = Schema.Literals(["sslrootcert", "PGSSLROOTCERT"])
+type CaSource = "sslrootcert" | "PGSSLROOTCERT"
 
-const caSourceText = (source: typeof CaSourceSchema.Type): string =>
+const caSourceText = (source: CaSource): string =>
 	source === "sslrootcert" ? "DATABASE_URL's sslrootcert" : "PGSSLROOTCERT"
 
 /** The CA file `source` names, `file`, does not exist (`missing`) or holds no certificate (`empty`). */
-export class CaRefused extends Schema.TaggedError<CaRefused, { readonly brand: unique symbol }>()(
-	"CaRefused",
-	{
-		source: CaSourceSchema,
-		file: Schema.String,
-		fault: Schema.Literals(["missing", "empty"])
-	}
-) {
+export class CaRefused extends Data.TaggedError("CaRefused")<{
+	readonly source: CaSource
+	readonly file: string
+	readonly fault: "missing" | "empty"
+}> {
 	override get message(): string {
 		return `${caSourceText(this.source)} names ${this.file}, which ${this.fault === "missing" ? "does not exist" : "holds no certificate"}`
 	}
 }
 
 /** The CA file `source` names, `file`, could not be read, for `cause`. */
-export class CaUnread extends Schema.TaggedError<CaUnread, { readonly brand: unique symbol }>()(
-	"CaUnread",
-	{
-		source: CaSourceSchema,
-		file: Schema.String,
-		cause: FileSystemFailureSchema
-	}
-) {
+export class CaUnread extends Data.TaggedError("CaUnread")<{
+	readonly source: CaSource
+	readonly file: string
+	readonly cause: Error
+}> {
 	override get message(): string {
 		return `${caSourceText(this.source)} names ${this.file}, which could not be read${codeOf(this.cause)}`
 	}
@@ -456,24 +412,16 @@ export class CaUnread extends Schema.TaggedError<CaUnread, { readonly brand: uni
  * holds `entry`, neither snapshot.json nor a migration folder; or the migration folder at `folder` has no meta.json, or
  * holds `entry`, which is no file.
  */
-const TreeFaultSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("notDirectory"), directory: Schema.String }),
-	Schema.Struct({
-		kind: Schema.Literal("strayEntry"),
-		directory: Schema.String,
-		entry: Schema.String
-	}),
-	Schema.Struct({ kind: Schema.Literal("noMeta"), folder: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("notAFile"), folder: Schema.String, entry: Schema.String })
-])
+type TreeFault =
+	| { readonly kind: "notDirectory"; readonly directory: string }
+	| { readonly kind: "strayEntry"; readonly directory: string; readonly entry: string }
+	| { readonly kind: "noMeta"; readonly folder: string }
+	| { readonly kind: "notAFile"; readonly folder: string; readonly entry: string }
 
-export class TreeRefused extends Schema.TaggedError<
-	TreeRefused,
-	{ readonly brand: unique symbol }
->()("TreeRefused", {
-	schema: Schema.String,
-	fault: TreeFaultSchema
-}) {
+export class TreeRefused extends Data.TaggedError("TreeRefused")<{
+	readonly schema: string
+	readonly fault: TreeFault
+}> {
 	override get message(): string {
 		const fault = this.fault
 		switch (fault.kind) {
@@ -490,48 +438,42 @@ export class TreeRefused extends Schema.TaggedError<
 }
 
 /** The migrations directory of `schema`, `directory`, could not be read, for `cause`. */
-export class TreeUnread extends Schema.TaggedError<TreeUnread, { readonly brand: unique symbol }>()(
-	"TreeUnread",
-	{
-		schema: Schema.String,
-		directory: Schema.String,
-		cause: FileSystemFailureSchema
-	}
-) {
+export class TreeUnread extends Data.TaggedError("TreeUnread")<{
+	readonly schema: string
+	readonly directory: string
+	readonly cause: Error
+}> {
 	override get message(): string {
 		return `${this.directory} could not be read${codeOf(this.cause)}`
 	}
 }
 
 /** A drafted folder of `schema` would be written at `path`, which exists: a migration folder is never overwritten. */
-export class FolderExists extends Schema.TaggedError<
-	FolderExists,
-	{ readonly brand: unique symbol }
->()("FolderExists", { schema: Schema.String, path: Schema.String }) {
+export class FolderExists extends Data.TaggedError("FolderExists")<{
+	readonly schema: string
+	readonly path: string
+}> {
 	override get message(): string {
 		return `${this.path} already exists; a migration folder is never overwritten`
 	}
 }
 
 /** The migration folder `folder` of `schema` could not be written, for `cause`. */
-export class FolderUnwritten extends Schema.TaggedError<
-	FolderUnwritten,
-	{ readonly brand: unique symbol }
->()("FolderUnwritten", {
-	schema: Schema.String,
-	folder: Schema.String,
-	cause: FileSystemFailureSchema
-}) {
+export class FolderUnwritten extends Data.TaggedError("FolderUnwritten")<{
+	readonly schema: string
+	readonly folder: string
+	readonly cause: Error
+}> {
 	override get message(): string {
 		return `migration folder ${this.folder} could not be written${codeOf(this.cause)}`
 	}
 }
 
 /** The snapshot.json of `schema` could not be written, for `cause`. */
-export class SnapshotUnwritten extends Schema.TaggedError<
-	SnapshotUnwritten,
-	{ readonly brand: unique symbol }
->()("SnapshotUnwritten", { schema: Schema.String, cause: FileSystemFailureSchema }) {
+export class SnapshotUnwritten extends Data.TaggedError("SnapshotUnwritten")<{
+	readonly schema: string
+	readonly cause: Error
+}> {
 	override get message(): string {
 		return `${snapshotFileName} of ${this.schema} could not be written${codeOf(this.cause)}`
 	}
@@ -541,34 +483,30 @@ export class SnapshotUnwritten extends Schema.TaggedError<
  * The migrations directory, `directory`, could not be read for the schemas a first draft abandons, for `cause`; it
  * concerns no one schema.
  */
-export class MigrationsUnread extends Schema.TaggedError<
-	MigrationsUnread,
-	{ readonly brand: unique symbol }
->()("MigrationsUnread", { directory: Schema.String, cause: FileSystemFailureSchema }) {
+export class MigrationsUnread extends Data.TaggedError("MigrationsUnread")<{
+	readonly directory: string
+	readonly cause: Error
+}> {
 	override get message(): string {
 		return `${this.directory} could not be read${codeOf(this.cause)}`
 	}
 }
 
 /** grizzle skill could not read the skill it ships, or write it, for `cause`. */
-export class SkillUninstalled extends Schema.TaggedError<
-	SkillUninstalled,
-	{ readonly brand: unique symbol }
->()("SkillUninstalled", { cause: FileSystemFailureSchema }) {
+export class SkillUninstalled extends Data.TaggedError("SkillUninstalled")<{
+	readonly cause: Error
+}> {
 	override get message(): string {
 		return `the skill could not be installed${codeOf(this.cause)}`
 	}
 }
 
 /** The snapshot.json of `schema` in `directory` does not decode as a snapshot, for `error`. */
-export class SnapshotUnreadable extends Schema.TaggedError<
-	SnapshotUnreadable,
-	{ readonly brand: unique symbol }
->()("SnapshotUnreadable", {
-	schema: Schema.String,
-	directory: Schema.String,
-	error: CompileErrorSchema
-}) {
+export class SnapshotUnreadable extends Data.TaggedError("SnapshotUnreadable")<{
+	readonly schema: string
+	readonly directory: string
+	readonly error: CompileError
+}> {
 	override get message(): string {
 		return `${this.directory}/snapshot.json is not a snapshot the generator wrote: ${compileReasonText(this.error.reason)}`
 	}
@@ -578,15 +516,12 @@ export class SnapshotUnreadable extends Schema.TaggedError<
  * The snapshot.json in `directory` is the snapshot of another schema: of the declared schema `found.schemaName` in the
  * PostgreSQL schema `found.schema`, not of `schema` in `ident`.
  */
-export class SnapshotForeign extends Schema.TaggedError<
-	SnapshotForeign,
-	{ readonly brand: unique symbol }
->()("SnapshotForeign", {
-	schema: Schema.String,
-	ident: Schema.String,
-	directory: Schema.String,
-	found: Schema.Struct({ schemaName: Schema.String, schema: Schema.String })
-}) {
+export class SnapshotForeign extends Data.TaggedError("SnapshotForeign")<{
+	readonly schema: string
+	readonly ident: string
+	readonly directory: string
+	readonly found: { readonly schemaName: string; readonly schema: string }
+}> {
 	override get message(): string {
 		return `${this.directory}/snapshot.json is the snapshot of schema ${this.found.schemaName} in PostgreSQL schema ${this.found.schema}, not of ${this.schema} in ${this.ident}`
 	}
@@ -598,49 +533,34 @@ export class SnapshotForeign extends Schema.TaggedError<
  * (`foreignMeta`), and the first folder named `<YYYYMMDDHHMMSS>_<name>` whose source is not its predecessor's target,
  * the empty snapshot's for the first (`brokenChain`).
  */
-const ChainFaultSchema = Schema.Union([
-	Schema.Struct({
-		kind: Schema.Literal("unreadableMeta"),
-		folder: Schema.String,
-		failure: CompileErrorSchema
-	}),
-	Schema.Struct({
-		kind: Schema.Literal("foreignMeta"),
-		folder: Schema.String,
-		schema: Schema.String
-	}),
-	Schema.Struct({ kind: Schema.Literal("brokenChain"), folder: Schema.String })
-])
-export type ChainFault = typeof ChainFaultSchema.Type
+export type ChainFault =
+	| { readonly kind: "unreadableMeta"; readonly folder: string; readonly failure: CompileError }
+	| { readonly kind: "foreignMeta"; readonly folder: string; readonly schema: string }
+	| { readonly kind: "brokenChain"; readonly folder: string }
 
 /**
  * Why a draft cannot continue a schema's committed chain: a folder not named `<YYYYMMDDHHMMSS>_<name>` (`misnamed`), a
  * ChainFault, or a whole chain that does not reach snapshot.json's fingerprint `snapshot`: no folder at all
  * (`unreached`), or a newest folder reaching `reached` (`diverged`).
  */
-const ChainBreakSchema = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal("misnamed"), folder: Schema.String }),
-	ChainFaultSchema,
-	Schema.Struct({ kind: Schema.Literal("unreached"), snapshot: Schema.String }),
-	Schema.Struct({
-		kind: Schema.Literal("diverged"),
-		folder: Schema.String,
-		reached: Schema.String,
-		snapshot: Schema.String
-	})
-])
-export type ChainBreak = typeof ChainBreakSchema.Type
+export type ChainBreak =
+	| { readonly kind: "misnamed"; readonly folder: string }
+	| ChainFault
+	| { readonly kind: "unreached"; readonly snapshot: string }
+	| {
+			readonly kind: "diverged"
+			readonly folder: string
+			readonly reached: string
+			readonly snapshot: string
+	  }
 
 /** The committed chain of `schema`, installed in `ident`, in `directory`, breaks at `fault`. */
-export class ChainRefused extends Schema.TaggedError<
-	ChainRefused,
-	{ readonly brand: unique symbol }
->()("ChainRefused", {
-	schema: Schema.String,
-	ident: Schema.String,
-	directory: Schema.String,
-	fault: ChainBreakSchema
-}) {
+export class ChainRefused extends Data.TaggedError("ChainRefused")<{
+	readonly schema: string
+	readonly ident: string
+	readonly directory: string
+	readonly fault: ChainBreak
+}> {
 	override get message(): string {
 		const fault = this.fault
 		const directory = this.directory
@@ -662,9 +582,9 @@ export class ChainRefused extends Schema.TaggedError<
 }
 
 /** The step of a draft the compiler refused: the workload, the schema's installation, the draft, or a custom folder. */
-const DraftStepSchema = Schema.Literals(["workload", "schema", "draft", "custom"])
+type DraftStep = "workload" | "schema" | "draft" | "custom"
 
-const draftStepText: Readonly<Record<typeof DraftStepSchema.Type, string>> = {
+const draftStepText: Readonly<Record<DraftStep, string>> = {
 	workload: "a login's workload does not compile",
 	schema: "the schema does not compile",
 	draft: "the migration could not be drafted",
@@ -672,46 +592,45 @@ const draftStepText: Readonly<Record<typeof DraftStepSchema.Type, string>> = {
 }
 
 /** The compiler refused `step` of the draft of `schema`, for `error`. */
-export class DraftRefused extends Schema.TaggedError<
-	DraftRefused,
-	{ readonly brand: unique symbol }
->()("DraftRefused", { schema: Schema.String, step: DraftStepSchema, error: CompileErrorSchema }) {
+export class DraftRefused extends Data.TaggedError("DraftRefused")<{
+	readonly schema: string
+	readonly step: DraftStep
+	readonly error: CompileError
+}> {
 	override get message(): string {
 		return `${draftStepText[this.step]}: ${this.error.message}`
 	}
 }
 
 /** Why a `grizzle` command stopped before the apply runner, or outside it. */
-const CliReasonSchema = Schema.Union([
-	ArgumentsRefused,
-	MigrationNameRefused,
-	SchemaChoiceRefused,
-	ConfigMissing,
-	ConfigUnloaded,
-	ExportRefused,
-	SettingRefused,
-	SchemaEntryRefused,
-	LoginEntryRefused,
-	ConnectionRefused,
-	ConnectionUnnamed,
-	EnvironmentUnread,
-	ConnectionEnvironmentRefused,
-	DatabaseUrlRefused,
-	CaRefused,
-	CaUnread,
-	TreeRefused,
-	TreeUnread,
-	FolderExists,
-	FolderUnwritten,
-	SnapshotUnwritten,
-	MigrationsUnread,
-	SkillUninstalled,
-	SnapshotUnreadable,
-	SnapshotForeign,
-	ChainRefused,
-	DraftRefused
-])
-type CliReason = typeof CliReasonSchema.Type
+type CliReason =
+	| ArgumentsRefused
+	| MigrationNameRefused
+	| SchemaChoiceRefused
+	| ConfigMissing
+	| ConfigUnloaded
+	| ExportRefused
+	| SettingRefused
+	| SchemaEntryRefused
+	| LoginEntryRefused
+	| ConnectionRefused
+	| ConnectionUnnamed
+	| EnvironmentUnread
+	| ConnectionEnvironmentRefused
+	| DatabaseUrlRefused
+	| CaRefused
+	| CaUnread
+	| TreeRefused
+	| TreeUnread
+	| FolderExists
+	| FolderUnwritten
+	| SnapshotUnwritten
+	| MigrationsUnread
+	| SkillUninstalled
+	| SnapshotUnreadable
+	| SnapshotForeign
+	| ChainRefused
+	| DraftRefused
 
 /** The stage each reason stops at. */
 const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
@@ -748,12 +667,7 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
  * A `grizzle` command stopped for `reason`, at the stage that reason stops at; its message names the stage, the
  * declared schema the reason concerns, if any, and the reason's own message.
  */
-export class CliError extends Schema.TaggedError<CliError, { readonly brand: unique symbol }>()(
-	"CliError",
-	{
-		reason: CliReasonSchema
-	}
-) {
+export class CliError extends Data.TaggedError("CliError")<{ readonly reason: CliReason }> {
 	get stage(): CliStage {
 		return stageOf[this.reason._tag]
 	}
@@ -771,4 +685,4 @@ export class CliError extends Schema.TaggedError<CliError, { readonly brand: uni
 }
 
 /** The CliError of `reason`. */
-export const cliError = (reason: CliReason): CliError => CliError.make({ reason })
+export const cliError = (reason: CliReason): CliError => new CliError({ reason })

@@ -1,6 +1,7 @@
-import { Array as Arr, Effect, Option, Record as Rec, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { quoteString } from "#compiler/sql/print.ts"
 import type { SqlError } from "#test/support/pg.ts"
 
@@ -30,10 +31,9 @@ import type { SqlError } from "#test/support/pg.ts"
  * the transaction and never appear here; COMMIT is timed separately (transaction.ts). EXPLAIN ANALYZE
  * belongs to bench/ alone: the library's db.explain never runs it.
  */
-export class MalformedPlan extends Schema.TaggedError<
-	MalformedPlan,
-	{ readonly brand: unique symbol }
->()("MalformedPlan", { message: Schema.String }) {}
+export class MalformedPlan extends Data.TaggedError("MalformedPlan")<{
+	readonly message: string
+}> {}
 
 export interface Buffers {
 	readonly sharedHit: number
@@ -232,11 +232,8 @@ const isRecord = (value: unknown): value is Json =>
 
 /** The readers below throw MalformedPlan, which parsePlan and parsePlanTree return as their failure. */
 const fail = (what: string): never => {
-	throw MalformedPlan.make({ message: `EXPLAIN output: ${what}` })
+	throw new MalformedPlan({ message: `EXPLAIN output: ${what}` })
 }
-
-/** EXPLAIN's JSON text, decoded to a value the readers below check field by field. */
-const decodeJson = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))
 
 const listOf = (o: Json, key: string): ReadonlyArray<unknown> => {
 	const value = o[key]
@@ -429,10 +426,7 @@ const parseTrigger = (t: unknown): TriggerCalls => {
  * The one object of an EXPLAIN (..., FORMAT JSON) result: the json value as the driver returns it, parsed or as text.
  */
 const topOf = (value: unknown): Json => {
-	const parsed: unknown =
-		typeof value === "string"
-			? Result.getOrElse(decodeJson(value), (error) => fail(`not JSON: ${error.message}`))
-			: value
+	const parsed: unknown = typeof value === "string" ? trustedJson<unknown>(value) : value
 	if (!isList(parsed) || parsed.length !== 1) {
 		return fail("not a one-element array of objects")
 	}
@@ -448,7 +442,7 @@ const reading = <A>(read: () => A): Result.Result<A, MalformedPlan> => {
 	try {
 		return Result.succeed(read())
 	} catch (error) {
-		if (Schema.is(MalformedPlan)(error)) {
+		if (error instanceof MalformedPlan) {
 			return Result.fail(error)
 		}
 		throw error

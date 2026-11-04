@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Formatter, Option, Record, Result, Schema } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Record, Result } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
@@ -19,6 +19,7 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
 import { pageMaxSize } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -32,17 +33,16 @@ import type { Page } from "#compiler/types/page/page.ts"
 import type { Conversion } from "#test/pg/oracle/public/planted.ts"
 import { strictArrayText, strictReader as strictCellReader } from "#test/support/kernel/strict.ts"
 
-export class CellDisagreement extends Schema.TaggedError<
-	CellDisagreement,
-	{ readonly brand: unique symbol }
->()("CellDisagreement", { report: Schema.String }) {
+export class CellDisagreement extends Data.TaggedError("CellDisagreement")<{
+	readonly report: string
+}> {
 	override get message(): string {
 		return this.report
 	}
 }
 
 function disagree(report: string): never {
-	throw CellDisagreement.make({ report })
+	throw new CellDisagreement({ report })
 }
 
 const misread = (type: ScalarType, text: string, what: string): never =>
@@ -68,21 +68,17 @@ const cellCheck = (type: ScalarType, conversion: Conversion): ((text: string) =>
 	}
 }
 
-const elementObject = Schema.decodeUnknownResult(
-	Schema.fromJsonString(Schema.Record(Schema.String, Schema.String))
-)
-
 const fusedCheck = (element: Heading, conversion: Conversion): ((text: string) => void) => {
 	const checks = Arr.map(element, (c) => cellCheck(c.type, conversion))
 	const [only] = checks
 
 	const checkObject = (e: string): void => {
-		const object = elementObject(e)
-		if (Result.isFailure(object) || Record.keys(object.success).length !== checks.length) {
+		const object = trustedJson<Readonly<Record<string, string>>>(e)
+		if (Record.keys(object).length !== checks.length) {
 			disagree(`a fused attachment element that is no object of its fields: ${e}`)
 		}
 		for (const [i, check] of checks.entries()) {
-			const value = object.success[`f${i + 1}`]
+			const value = object[`f${i + 1}`]
 			if (value === undefined) {
 				disagree(`a fused attachment element without f${i + 1}: ${e}`)
 			}

@@ -21,10 +21,12 @@ import {
 import { planIndexNames } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
+import type { Json } from "#compiler/core/canonical.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -40,7 +42,6 @@ import { compileTemplate, paramTexts, testCompile } from "#test/support/compile.
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
-import { jsonText } from "#test/support/json.ts"
 import { namesOf, parsedSchemaName, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { expectConstraint } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -217,7 +218,9 @@ const runRaw = (
 ) => {
 	const texts = paramTexts(spec, params)
 	return Effect.map(session.values(`${prefix}${spec.sql}`, texts), (rows) =>
-		Arr.map(rows, (row) => Arr.map(row, (c) => (typeof c === "string" ? c : jsonText(c))))
+		Arr.map(rows, (row) =>
+			Arr.map(row, (c) => (typeof c === "string" ? c : jsonText(trusted<Json>(c))))
+		)
 	)
 }
 
@@ -770,10 +773,8 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 									if (inside) {
 										yield* insert(v)
 									} else {
-										assert.equal(
-											(yield* expectConstraint(insert(v), constraint, "23514")).code,
-											"23514"
-										)
+										const refused = yield* expectConstraint(insert(v), constraint, "23514")
+										assert.equal(refused.code, "23514")
 									}
 									/**
 									 * Away from the bounds by more than the summation rounding, the host decides alike, and the

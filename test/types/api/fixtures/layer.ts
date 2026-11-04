@@ -122,7 +122,7 @@ const mine = query(Work).rule((r) => {
 })
 const Mine = role(Work, "mine", { Account, Mine: mine })
 const Web = login(Work, "web", [Mine])
-const verify = (token: string) => Effect.fail(TokenError.make({ cause: token }))
+const verify = (token: string) => Effect.fail(new TokenError({ cause: token }))
 export const webLayer = DbLayer.make({
 	...destination,
 	login: Web,

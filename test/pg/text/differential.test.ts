@@ -9,6 +9,7 @@ import { Array as Arr, Duration, Effect, Exit, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { regexMaxNodes } from "#compiler/core/policy.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
@@ -23,7 +24,6 @@ import {
 } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
-import { jsonText } from "#test/support/json.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -221,7 +221,7 @@ const agreeOn = (
 				)
 				assert.equal(rows.length, all.length, label)
 				for (const [i, row] of rows.entries()) {
-					const value = jsonText(all[i])
+					const value = Formatter.format(all[i])
 					const expected = defined(js[i], `the ECMAScript answer on ${value}`)
 					assert.equal(
 						defined(host[i], `the host answer on ${value}`),

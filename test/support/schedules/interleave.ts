@@ -1,16 +1,17 @@
 import * as Interleave from "@grizzle/testing/interleave"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Formatter,
 	Option,
 	Order,
 	Record,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { defined } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
@@ -26,7 +27,7 @@ import type {
 	StepOutcome,
 	Verdict
 } from "#test/support/schedules/types.ts"
-import { type LockWait, lockWaitQuery } from "#test/support/substrate/barrier.ts"
+import { type LockWait, lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { connect } from "#test/support/substrate/session.ts"
 import type { SubstrateShape, TextRows } from "#test/support/substrate/substrate.ts"
 
@@ -357,14 +358,11 @@ interface ExplorationReport {
 
 /** A run the exploration's model refused, with the run's description: the library reports it with its own record of the
  * run and the script that replays it. */
-class RunRefused extends Schema.TaggedError<RunRefused, { readonly brand: unique symbol }>()(
-	"RunRefused",
-	{
-		exploration: Schema.String,
-		reason: Schema.String,
-		report: Schema.String
-	}
-) {
+class RunRefused extends Data.TaggedError("RunRefused")<{
+	readonly exploration: string
+	readonly reason: string
+	readonly report: string
+}> {
 	override get message(): string {
 		return this.report
 	}
@@ -394,37 +392,6 @@ export const exploreEnv = (
 	})
 
 /**
- * A row of lockWaitQuery: wait event, lock type, mode and the blocking pids joined by commas. A row of another shape
- * is a defect of the catalog query.
- */
-const lockWaitRow = (row: ReadonlyArray<unknown>) =>
-	Effect.orDie(
-		Schema.decodeUnknownEffect(
-			Schema.Tuple([Schema.String, Schema.String, Schema.String, Schema.String])
-		)(row)
-	)
-
-/** The lock wait of backend `pid`, read on `observer`, or undefined when it waits on no heavyweight lock. */
-const lockWaitOf = (
-	observer: PgConnection,
-	pid: number
-): Effect.Effect<LockWait | undefined, SqlError> =>
-	Effect.gen(function* () {
-		const [first] = yield* observer.queryValues(lockWaitQuery, [pid])
-		if (first === undefined) {
-			return undefined
-		}
-		const [waitEvent, locktype, mode, blockers] = yield* lockWaitRow(first)
-		return {
-			pid,
-			waitEvent,
-			locktype,
-			mode,
-			blockedBy: blockers === "" ? [] : Arr.map(Str.split(blockers, ","), Number)
-		}
-	})
-
-/**
  * Sleeps on the server until the deadlock check of every backend in $1 that waits on a lock is past: each wait began
  * at pg_locks.waitstart and its check runs deadlock_timeout later, so twice that has passed. A wait whose waitstart is
  * not yet set (PostgreSQL sets it a moment after the wait begins) is counted in the first column, and the caller polls
@@ -438,8 +405,8 @@ SELECT w.unset, pg_catalog.pg_sleep(CASE WHEN w.unset > 0 OR w.latest IS NULL TH
 	GREATEST(0::float8, EXTRACT(epoch FROM w.latest + 2 * pg_catalog.current_setting('deadlock_timeout')::interval - pg_catalog.clock_timestamp())::float8) END)::text
 FROM w`
 
-const deadlockChecksRow = (row: ReadonlyArray<unknown>) =>
-	Effect.orDie(Schema.decodeUnknownEffect(Schema.Tuple([Schema.Finite, Schema.String]))(row))
+/** A row of deadlockChecksQuery: how many waits have no waitstart yet, and the sleep's text. */
+type DeadlockChecksRow = readonly [unset: number, slept: string]
 
 /** Returns once every waiting backend among `pids` is past its deadlock check. */
 const awaitDeadlockChecks = (
@@ -449,7 +416,7 @@ const awaitDeadlockChecks = (
 	Effect.gen(function* () {
 		for (;;) {
 			const [row] = yield* observer.queryValues(deadlockChecksQuery, [pids])
-			const [unset] = yield* deadlockChecksRow(defined(row, "the deadlock-check query's one row"))
+			const [unset] = trusted<DeadlockChecksRow>(defined(row, "the deadlock-check query's one row"))
 			if (unset === 0) {
 				return
 			}
@@ -1041,7 +1008,7 @@ export const exploreInterleavings = <E>(
 					const i = interleavingOf(spec.txns, run, state)
 					const judged = yield* spec.model(i)
 					if (judged._tag === "Refused") {
-						return yield* RunRefused.make({
+						return yield* new RunRefused({
 							exploration: spec.name,
 							reason: judged.why,
 							report: `exploration "${spec.name}": ${judged.why}\n${describeRun(spec.txns, i)}`

@@ -17,7 +17,6 @@ import {
 	pipe,
 	Record as Rec,
 	Result,
-	Schema,
 	type Scope,
 	String as Str
 } from "effect"
@@ -453,15 +452,6 @@ export const writersGen: Gen<ReadonlyArray<WriterChoice>> = (source) => {
 	return source.draw(array(writerChoiceGen(writers), { min: maxTxns, max: maxTxns }))
 }
 
-/** A direct writer checked as given, as a kept case states it. */
-export const directWriter = (checked: Checked): WriterChoice => ({ kind: "direct", checked })
-
-/** The writers of a kept race whose every transaction a grizzle writer records. */
-export const grizzleWriters: ReadonlyArray<WriterChoice> = Arr.makeBy(
-	maxTxns,
-	(): WriterChoice => ({ kind: "grizzle", checked: "at COMMIT" })
-)
-
 /**
  * How a race's transactions are ordered when it makes too many moves to explore every order: its PCT schedule over
  * the race's sessions, with up to two change points among its moves, and, one race in two that has a direct
@@ -740,7 +730,7 @@ const runGrizzle = (form: GrizzleWrite, db: RacesDb): Effect.Effect<GrizzleRan> 
 		const transients: Array<{ readonly reason: string; readonly sqlstate: string }> = []
 		/** Whether the writer runs the write again after `error`, a TransientFailure, which it records. */
 		const again = (error: ReadError | ApplyError): boolean => {
-			if (!Schema.is(TransientFailure)(error)) {
+			if (!(error instanceof TransientFailure)) {
 				return false
 			}
 			transients.push({ reason: error.reason._tag, sqlstate: error.error.sqlstate })

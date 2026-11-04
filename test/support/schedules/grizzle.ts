@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Equal, Formatter, Option, Record, Result, Schema } from "effect"
+import { Array as Arr, Effect, Equal, Formatter, Option, Record, Result } from "effect"
 import { type ApplyError, TransientFailure } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import { type TransientReason } from "#compiler/core/errors.ts"
@@ -43,7 +43,7 @@ export const retried = <A, E, R>(call: Effect.Effect<A, E, R>): Effect.Effect<Re
 				return { refused, answered: result.success }
 			}
 			const error = result.failure
-			if (!Schema.is(TransientFailure)(error) || refused.length === callerRetries) {
+			if (!(error instanceof TransientFailure) || refused.length === callerRetries) {
 				return yield* Effect.fail(error)
 			}
 			refused.push(error.reason._tag)

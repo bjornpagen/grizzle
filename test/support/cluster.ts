@@ -1,5 +1,5 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { Context, Effect, FileSystem, Layer, Redacted, Schema, String as Str } from "effect"
+import { Context, Data, Effect, FileSystem, Layer, Redacted, String as Str } from "effect"
 import { type PgCluster, pgPin } from "#test/support/env.ts"
 
 /** The command that initialises each cluster (scripts/pg/init.sh). */
@@ -11,10 +11,10 @@ const initCommand: { readonly [C in PgCluster]: string } = {
 /**
  * A file scripts/pg/init.sh writes into the cluster's state directory cannot be read: the cluster is not initialised.
  */
-class ClusterNotInitialized extends Schema.TaggedError<
-	ClusterNotInitialized,
-	{ readonly brand: unique symbol }
->()("ClusterNotInitialized", { file: Schema.String, cause: Schema.Unknown }) {
+class ClusterNotInitialized extends Data.TaggedError("ClusterNotInitialized")<{
+	readonly file: string
+	readonly cause: unknown
+}> {
 	override get message(): string {
 		return `the ${pgPin.cluster} PostgreSQL ${pgPin.version} cluster is not initialised: ${this.file} cannot be read; run ${initCommand[pgPin.cluster]}`
 	}
@@ -43,7 +43,7 @@ export const readCluster: Effect.Effect<
 > = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
 	const read = (file: string): Effect.Effect<string, ClusterNotInitialized> =>
-		Effect.mapError(fs.readFileString(file), (cause) => ClusterNotInitialized.make({ file, cause }))
+		Effect.mapError(fs.readFileString(file), (cause) => new ClusterNotInitialized({ file, cause }))
 	const tls = `${pgPin.state}/tls`
 	const caFile = `${tls}/ca.crt`
 	const [devPassword, caPem, wrongCaPem] = yield* Effect.all([

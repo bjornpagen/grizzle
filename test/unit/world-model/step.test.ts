@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import { isDrawn, sameValues } from "#test/pg/laws/families/model.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -326,12 +326,9 @@ describe("the worlds model's migration folders", () => {
 					},
 					({ from, to }, c) =>
 						Effect.gen(function* () {
-							const drafted = yield* Effect.result(draftedPhases(from, to, "worlds_files"))
-							if (Result.isFailure(drafted)) {
-								return
-							}
+							const drafted = yield* Effect.orDie(draftedPhases(from, to, "worlds_files"))
 							assert.deepEqual(
-								drafted.success,
+								drafted,
 								Arr.map(folderFiles(from, to), phaseOf),
 								"the folder's files, by phase"
 							)

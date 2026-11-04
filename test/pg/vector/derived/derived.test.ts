@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Order, pipe, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Order, pipe, String as Str } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -169,8 +169,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 						o.table("DocumentEmbedding")
 					]
 				)
-				const privilegeTexts = yield* textRows(privileges)
-				assert.deepEqual(privilegeTexts, [["true", "false", "false", "false", "true"]])
+				assert.deepEqual(textRows(privileges), [["true", "false", "false", "false", "true"]])
 
 				/**
 				 * The first migration stored the policy for the viewer's login, and its session as the viewer shows it
@@ -194,7 +193,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 				 * A complete scan of the view, as the owner sees it: every embedded document of the account with the
 				 * native distance, the same C function `cosine_distance` calls.
 				 */
-				const oracle = yield* Effect.flatMap(
+				const oracle = yield* Effect.map(
 					s.admin.queryValues(
 						`SELECT "document"::text, ("value" OPERATOR(vector_ext.<=>) $1::vector_ext.vector)::text FROM ${o.table("Embeddings")} WHERE "account" = $2::uuid ORDER BY 1`,
 						[vectorText(o.probe(7)), accountA]
@@ -240,7 +239,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 					const read = yield* Effect.flip(
 						Effect.flatMap(db.execute(o.fixture.nearest, o.params), (r) => r.collect)
 					)
-					assert.ok(Schema.is(ReadFailure)(read) && read.stage === "compile")
+					assert.ok(read instanceof ReadFailure && read.stage === "compile")
 				}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.fixture.server)))
 			}),
 		300_000

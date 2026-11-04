@@ -24,7 +24,6 @@ import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cli, cliClock, viaDatabaseUrl, workspace, writeConfig } from "#test/pg/cli/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 
 /** The clock the in-process command lines of this file read. */
@@ -102,11 +101,8 @@ const drafted = (base: string, label: string, name: string, versions: ReadonlyAr
 				schemas: [{ name, fixture: "shop", version: version, workload: "none" }],
 				connection: viaDatabaseUrl
 			})
-			assert.equal(
-				(yield* cli(dir, ["generate"], at(i), {})).code,
-				0,
-				`${label} drafts version ${version}`
-			)
+			const generated = yield* cli(dir, ["generate"], at(i), {})
+			assert.equal(generated.code, 0, `${label} drafts version ${version}`)
 		}
 		return dir
 	})
@@ -120,9 +116,12 @@ const contents = (dir: string) =>
 		for (const entry of Arr.sort(entries, Order.String)) {
 			const full = `${dir}/${entry}`
 			const info = yield* fs.stat(full)
-			out.push(
-				info.type === "Directory" ? [`${entry}/`, ""] : [entry, yield* fs.readFileString(full)]
-			)
+			if (info.type === "Directory") {
+				out.push([`${entry}/`, ""])
+				continue
+			}
+			const text = yield* fs.readFileString(full)
+			out.push([entry, text])
 		}
 		return out
 	})
@@ -253,7 +252,7 @@ const tampered = (
 			})
 			const before = yield* contents(ws)
 			const generated = yield* cli(ws, ["generate"], at(9), {})
-			const label = jsonText(x)
+			const label = Formatter.format(x)
 			assert.equal(generated.code, 1, `${label}: generate succeeds\n${generated.stdout}`)
 			assert.ok(
 				Str.includes(`refused at stage ${stage} `)(generated.stderr),

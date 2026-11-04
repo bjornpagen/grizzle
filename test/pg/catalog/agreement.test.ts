@@ -553,7 +553,8 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 			 * the native form returns each group's first value, the recorded disagreement.
 			 */
 			const zero = Q.discretePercentile([0], Q.ordinalStage)
-			assert.deepEqual(rowsOf((yield* agreeOn("p = 0", zero, ["R26"], labFacts)).left), [])
+			const composedZero = yield* agreeOn("p = 0", zero, ["R26"], labFacts)
+			assert.deepEqual(rowsOf(composedZero.left), [])
 			const native = yield* runLabelledOracle(
 				oracleCase("p = 0", zero, labFacts),
 				conservative,

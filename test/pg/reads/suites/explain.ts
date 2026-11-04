@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
-import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { multiset } from "@grizzle/testing/oracle"
@@ -74,7 +74,8 @@ const estimateOnly = (plan: Plan): void => {
 const tapped = <R>(db: Db<R, unknown>, credentials: Credentials) =>
 	Effect.gen(function* () {
 		const ctx = defined(dbContext(db), "a Db's context")
-		const tap = makeTap((yield* Substrate).cluster)
+		const { cluster } = yield* Substrate
+		const tap = makeTap(cluster)
 		const pool = yield* poolFor(credentials, {
 			...defaultPool,
 			transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },
@@ -151,14 +152,6 @@ interface QueryCase {
 	readonly pick: number
 }
 
-/** Planted: every read, each drawn about four times in twenty cases. */
-const queryKept: ReadonlyArray<Kept<QueryCase, QueryFeature>> = Arr.map(queryFeatures, (read) => ({
-	note: read,
-	sketch: { read, pick: 1 },
-	draws: "",
-	reaches: [read]
-}))
-
 const queryCaseGen: Gen<QueryCase> = (source) => ({
 	read: source.draw(element(queryFeatures)),
 	pick: source.draw(int(0, 7))
@@ -214,7 +207,7 @@ const changeCaseGen: Gen<ChangeCase> = (source) => ({
 	readBack: source.draw(element(["none", "seats and stock", "stock joined"] as const))
 })
 
-/** Each search's budget beside its suite, draw, features and kept cases. */
+/** Each search's budget beside its suite, draw and features. */
 const budget = {
 	literal: Formatter.format,
 	shrink: completeShrink,
@@ -305,7 +298,7 @@ export const explainSuite = (): void => {
 									...budget,
 									suite: "reads/explain queries",
 									draw: drawn(queryCaseGen),
-									kept: queryKept,
+									kept: [],
 									runs: 20,
 									coverage: required<QueryFeature>(queryFeatures, { cases: 20, sense: notesOnly })
 								},

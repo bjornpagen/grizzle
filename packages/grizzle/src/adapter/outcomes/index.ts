@@ -101,7 +101,7 @@ export const transientFailureOf = (
 		return undefined
 	}
 	const rule = found.value
-	return TransientFailure.make({
+	return new TransientFailure({
 		reason: transientReason(
 			rule.reason === "PutTargetConflict"
 				? { _tag: rule.reason, relation: rule.relation }
@@ -122,7 +122,7 @@ export const classifyServerError = (failure: ServerError, context: ClassifyConte
 	}
 	const violation = context.violation(failure)
 	if (violation === undefined) {
-		return { kind: "failed", error: ExecutionFailure.make({ reason: failure }) }
+		return { kind: "failed", error: new ExecutionFailure({ reason: failure }) }
 	}
 	switch (violation.kind) {
 		case "rejected":
@@ -131,7 +131,7 @@ export const classifyServerError = (failure: ServerError, context: ClassifyConte
 		case "aborted":
 			return {
 				kind: "failed",
-				error: TransientFailure.make({ reason: transientReason(violation.reason), error: failure })
+				error: new TransientFailure({ reason: transientReason(violation.reason), error: failure })
 			}
 	}
 }

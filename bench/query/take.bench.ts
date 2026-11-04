@@ -162,7 +162,7 @@ const attachmentOf = (
 			Arr.map(statements, ({ statement, attach }, index) => ({ index, statement, attach })),
 			(s) => s.attach?.name === name
 		),
-		() => GateSetupError.make({ what: `the optimized artifact pipelines no attachment ${name}` })
+		() => new GateSetupError({ what: `the optimized artifact pipelines no attachment ${name}` })
 	)
 }
 
@@ -170,7 +170,7 @@ const attachmentOf = (
 const scanLoops = (plan: PlanNode, table: string): number => {
 	const scans = scansOf(plan, table)
 	if (scans.length === 0) {
-		throw GateSetupError.make({ what: `the plan scans no ${table}` })
+		throw new GateSetupError({ what: `the plan scans no ${table}` })
 	}
 	return maxOf(
 		Arr.map(scans, (n) => n.actualLoops),
@@ -335,7 +335,7 @@ export default defineGate({
 			const forManyPlan = planOf(forManyM.generated, 0)
 			const studentsParam = Option.getOrThrowWith(
 				Arr.findFirst(forParam.compiled.template.params, (d) => d.name === "students"),
-				() => GateSetupError.make({ what: "bestForStudents declares no students parameter" })
+				() => new GateSetupError({ what: "bestForStudents declares no students parameter" })
 			)
 			const choosesByStudents = Arr.some(
 				flight(forParam.compiled.template.programs.optimized.roots),
@@ -436,7 +436,7 @@ export default defineGate({
 			const reportsLedgerResult = ledgerStatements(reports.installed.schema)
 			if (!reportsLedgerResult.ok) {
 				return yield* Effect.die(
-					GateSetupError.make({ what: `the ledger statements of ${reports.installed.schema}` })
+					new GateSetupError({ what: `the ledger statements of ${reports.installed.schema}` })
 				)
 			}
 			const reportsLedger = reportsLedgerResult.value
@@ -458,35 +458,35 @@ export default defineGate({
 			})
 			const reportsInput = parseSchemaInput(LabReports)
 			if (!reportsInput.ok) {
-				throw GateSetupError.make({
+				throw new GateSetupError({
 					what: `LabReports' schema input: ${reportsInput.error.message}`
 				})
 			}
 			const reportArtifacts = testArtifacts(reportsInput.value, reports.naming)
 			if (!reportArtifacts.ok) {
-				throw GateSetupError.make({
+				throw new GateSetupError({
 					what: `LabReports' artifacts: ${reportArtifacts.error.message}`
 				})
 			}
 			const refresherDesc = roleDescOf(labRefresher)
 			if (refresherDesc === undefined) {
-				throw GateSetupError.make({ what: "the refresher is a role value" })
+				throw new GateSetupError({ what: "the refresher is a role value" })
 			}
 			const targets = refreshTargets(refresherDesc, reportArtifacts.value, [BestThree])
 			if (Result.isFailure(targets)) {
-				throw GateSetupError.make({ what: `the refresh targets: ${targets.failure.message}` })
+				throw new GateSetupError({ what: `the refresh targets: ${targets.failure.message}` })
 			}
 			const [target] = targets.success
 			const views = installedDerivedRelations(reports.installed.installation.manifest)
 			if (!views.ok) {
-				throw GateSetupError.make({ what: `the installed views: ${views.error.message}` })
+				throw new GateSetupError({ what: `the installed views: ${views.error.message}` })
 			}
 			const view = Option.getOrThrowWith(
 				Arr.findFirst(
 					views.value,
 					(v) => v.view.schema === target.view.schema && v.view.name === target.view.name
 				),
-				() => GateSetupError.make({ what: `the manifest installs no view ${target.view.name}` })
+				() => new GateSetupError({ what: `the manifest installs no view ${target.view.name}` })
 			)
 			const definition = view.create.query
 			const definitionShape = shapeOf(definition)

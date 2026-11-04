@@ -2,13 +2,13 @@ import { inspect } from "node:util"
 import { by, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Option,
 	Order,
 	Predicate,
 	Record as Rec,
 	Result,
-	Schema,
 	type Scope
 } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
@@ -21,7 +21,7 @@ import { type FlightFailure, type Prologue, readFrame, runFramed } from "#adapte
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
 import type { ExplainOptions, MalformedPlan, PlanMode } from "#bench/harness/explain.ts"
-import { type GateCheck, type Conditions, equivalence, jsonText } from "#bench/harness/gate.ts"
+import { type GateCheck, type Conditions, equivalence } from "#bench/harness/gate.ts"
 import {
 	type MalformedRows,
 	measureVariant,
@@ -38,6 +38,7 @@ import { bindGroups, type RowDecoder } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
@@ -107,10 +108,7 @@ import { type FullWorld, fullWorld } from "#test/support/worlds.ts"
  * A failure of the kit that is a defect of the gate file, never a measurement: a query that does not compile, a fixture
  * the installer refuses, a statement, plan or reading a check needs and the run did not produce.
  */
-export class GateSetupError extends Schema.TaggedError<
-	GateSetupError,
-	{ readonly brand: unique symbol }
->()("GateSetupError", { what: Schema.String }) {
+export class GateSetupError extends Data.TaggedError("GateSetupError")<{ readonly what: string }> {
 	override get message(): string {
 		return this.what
 	}
@@ -152,7 +150,7 @@ const workloadPlan = (
 		testCompile
 	)
 	if (!planned.ok) {
-		throw GateSetupError.make({ what: `the workload does not compile: ${planned.error.message}` })
+		throw new GateSetupError({ what: `the workload does not compile: ${planned.error.message}` })
 	}
 	return planned.value
 }
@@ -251,12 +249,17 @@ export interface InstalledIndex {
 }
 
 /**
- * One row per index: its name, its table's name and its key columns. An expression key has no column, so its NULL fails
- * the decode rather than vanish from the key, and the gate's setup fails.
+ * A key of index `index` as its column. An expression key has no column, so its NULL fails the gate's setup rather than
+ * vanish from the key.
  */
-const decodeIndexRows = Schema.decodeUnknownResult(
-	Schema.Array(Schema.Tuple([Schema.String, Schema.String, Schema.Array(Schema.String)]))
-)
+const keyColumn =
+	(index: string) =>
+	(key: string | null): string => {
+		if (key === null) {
+			throw new GateSetupError({ what: `the index ${index} has an expression key, no column` })
+		}
+		return key
+	}
 
 /**
  * The indexes installed on the fixture's relations, read from the catalog's structure. The migrations ledger's own
@@ -278,11 +281,12 @@ export const installedIndexes = Effect.fn("installedIndexes")(function* <S>(
 			 GROUP BY c.relname, t.relname ORDER BY 1`,
 		[fixture.installed.schema, ledgerTableName]
 	)
-	const decoded = decodeIndexRows(rows)
-	if (Result.isFailure(decoded)) {
-		throw GateSetupError.make({ what: `the installed indexes: ${decoded.failure.message}` })
-	}
-	return Arr.map(decoded.success, ([name, table, columns]) => ({ name, table, columns }))
+	return Arr.map(
+		trusted<
+			ReadonlyArray<readonly [name: string, table: string, keys: ReadonlyArray<string | null>]>
+		>(rows),
+		([name, table, keys]) => ({ name, table, columns: Arr.map(keys, keyColumn(name)) })
+	)
 })
 
 /**
@@ -313,7 +317,7 @@ export interface Compiled {
 
 const unwrap = <A>(result: Engine.Result<A, CompileError>, what: string): A => {
 	if (!result.ok) {
-		throw GateSetupError.make({ what: `${what}: ${result.error.message}` })
+		throw new GateSetupError({ what: `${what}: ${result.error.message}` })
 	}
 	return result.value
 }
@@ -368,7 +372,7 @@ export const compile = <S>(
 	}
 	const desc = compiled.desc
 	if (!isQueryValue(query) && !isOrderedValue(query)) {
-		throw GateSetupError.make({ what: "a query value built by query(S)" })
+		throw new GateSetupError({ what: "a query value built by query(S)" })
 	}
 	return {
 		compiled,
@@ -393,7 +397,7 @@ export const certifiedRules = (compiled: Compiled): ReadonlyArray<CertificateRul
 export const optimizedStatement = (compiled: Compiled, index: number): OptimizedStatement => {
 	const statement = flight(compiled.compiled.template.programs.optimized.roots)[index]
 	if (statement === undefined) {
-		throw GateSetupError.make({ what: `the optimized artifact has no statement ${index}` })
+		throw new GateSetupError({ what: `the optimized artifact has no statement ${index}` })
 	}
 	return statement
 }
@@ -443,7 +447,7 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 			applicationName: `grizzle-bench ${label}`
 		}),
 		(failure) =>
-			SqlError.make({
+			new SqlError({
 				reason: { _tag: "ConnectionError", message: failure.message },
 				cause: failure
 			})
@@ -451,7 +455,7 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 	const ledger = ledgerStatements(fixture.installed.schema)
 	if (!ledger.ok) {
 		return yield* Effect.die(
-			GateSetupError.make({ what: `the ledger statements of ${fixture.installed.schema}` })
+			new GateSetupError({ what: `the ledger statements of ${fixture.installed.schema}` })
 		)
 	}
 	const prologue = ledgerPrologue(
@@ -483,10 +487,9 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 })
 
 /** A delivery that failed, its message the failure itself as inspect renders it, so a gate's record names it. */
-export class DeliveryFailed extends Schema.TaggedError<
-	DeliveryFailed,
-	{ readonly brand: unique symbol }
->()("DeliveryFailed", { failure: Schema.String }) {
+export class DeliveryFailed extends Data.TaggedError("DeliveryFailed")<{
+	readonly failure: string
+}> {
 	override get message(): string {
 		return this.failure
 	}
@@ -494,7 +497,7 @@ export class DeliveryFailed extends Schema.TaggedError<
 
 /** The DeliveryFailed of a delivery's `failure`, rendered at any depth on one line. */
 export const deliveryFailed = (failure: ReadError | FlightFailure): DeliveryFailed =>
-	DeliveryFailed.make({
+	new DeliveryFailed({
 		failure: inspect(failure, { depth: 8, breakLength: Number.POSITIVE_INFINITY })
 	})
 
@@ -505,7 +508,7 @@ export const deliveryFailed = (failure: ReadError | FlightFailure): DeliveryFail
 export const sentStatements = (runtime: Runtime): Arr.NonEmptyReadonlyArray<VariantStatement> => {
 	const statements = [...runtime.recorded]
 	if (!Arr.isReadonlyArrayNonEmpty(statements)) {
-		throw GateSetupError.make({ what: "the delivery sent no statement" })
+		throw new GateSetupError({ what: "the delivery sent no statement" })
 	}
 	return statements
 }
@@ -536,15 +539,16 @@ export const deliver = Effect.fn("deliver")(
 		const start = performance.now()
 		const inputs = executionInputs(paramCodecs(compiled.compiled.template.params), values, limits)
 		if (Result.isFailure(inputs)) {
-			return yield* deliveryFailed(ReadFailure.make({ reason: inputs.failure }))
+			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
 		const program = templateProgram(compiled.compiled.template, artifact, compiled.facts)
 		const read = unwrap(
 			bindGroups(compiled.decoder, program.layouts, rowOptions),
 			"the query's decoder bound"
 		)
-		const flight = yield* Effect.mapError(programFlight(program, inputs.success, read), (reason) =>
-			ReadFailure.make({ reason })
+		const flight = yield* Effect.mapError(
+			programFlight(program, inputs.success, read),
+			(reason) => new ReadFailure({ reason })
 		)
 		runtime.recorded.length = 0
 		runtime.flights = 0
@@ -886,7 +890,7 @@ export const headingOf = (compiled: Compiled): ReadonlyArray<string> =>
 export const columnAt = (compiled: Compiled, name: string): number => {
 	const at = headingOf(compiled).indexOf(name)
 	if (at < 0) {
-		throw GateSetupError.make({ what: `the heading has no column ${name}` })
+		throw new GateSetupError({ what: `the heading has no column ${name}` })
 	}
 	return at
 }

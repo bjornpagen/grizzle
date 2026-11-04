@@ -101,7 +101,7 @@ const applyBound = <R>(
 		}
 		return yield* Effect.scoped(
 			Effect.flatMap(
-				Effect.mapError(ctx.pool.lease, (reason) => TransportFailure.make({ reason })),
+				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
 				(session) => runWrite(session, dbWriteFrame(ctx), entry, kind, inputs, reads)
 			)
 		)
@@ -195,8 +195,7 @@ export const changeFormMissing = (
 ): string | undefined => missingCapability(form.entry, installed)?.capability
 
 /** An apply of a handle whose Scope ended. */
-const applyReleased = (): TransportFailure =>
-	TransportFailure.make({ reason: HandleReleased.make() })
+const applyReleased = (): TransportFailure => new TransportFailure({ reason: new HandleReleased() })
 
 /**
  * The handle of a change form on a Db: each apply runs the form's program with that call's parameters under its

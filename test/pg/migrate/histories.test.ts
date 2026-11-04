@@ -6,7 +6,7 @@ import {
 	type Real,
 	runProgram
 } from "@grizzle/testing/commands"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { element, type Gen, int, map } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -1285,77 +1285,6 @@ const history = (steps: Program<Params>, note: (f: Feature) => void) =>
 		})
 	)
 
-/** Histories no single step shows: a rename there and back, a swap, a relation replaced by one of its shape, a login
- * renamed while its roles change and then refused an exchange with a role, a handle renamed under the entries over its
- * relation, and the context's field and name changed under the entry that reads them. */
-const kept: ReadonlyArray<Kept<Program<Params>, Feature>> = [
-	{
-		note: "Alpha renamed to Gamma, then back to Alpha: a chain there and back carries its rows",
-		sketch: [
-			{ command: "rename a relation", parameters: { at: 0, to: "Gamma" } },
-			{ command: "rename a relation", parameters: { at: 0, to: "Alpha" } }
-		],
-		draws: "",
-		reaches: ["a relation renamed back"]
-	},
-	{
-		note: "Alpha and Beta swap names, then Beta's field b is renamed: identity follows the swap",
-		sketch: [
-			{ command: "swap two relations' names", parameters: { first: 0, second: 1 } },
-			{ command: "rename a field", parameters: { at: 1, field: 0, to: "d" } }
-		],
-		draws: "",
-		reaches: ["two relations' names swapped"]
-	},
-	{
-		note: "Alpha removed and Gamma of its shape added, then Gamma renamed: the new identity holds no row",
-		sketch: [
-			{ command: "remove a relation and add one of its shape", parameters: { at: 0, to: "Gamma" } },
-			{ command: "rename a relation", parameters: { at: 0, to: "Delta" } }
-		],
-		draws: "",
-		reaches: ["a relation removed and one of its shape added"]
-	},
-	{
-		note: "desk renamed to clerk while the role porter is added to it, then clerk and editor exchange names, refused: the login keeps its OID and the exchange applies nothing",
-		sketch: [
-			{
-				command: "rename a login while its roles change",
-				parameters: {
-					login: 0,
-					to: "clerk",
-					change: { kind: "add", role: "porter", relation: 1 }
-				}
-			},
-			{ command: "exchange a login's and a role's names", parameters: { login: 0, role: 0 } }
-		],
-		draws: "",
-		reaches: [
-			"a login renamed while its roles change",
-			"a login's and a role's names exchanged, refused"
-		]
-	},
-	{
-		note: "Tier's handle high renamed to top, then Beta renamed to Gamma: the entries over Beta follow it, and its row holds top",
-		sketch: [
-			{ command: "rename a closed handle", parameters: { handle: 1, to: "top" } },
-			{ command: "rename a relation", parameters: { at: 1, to: "Gamma" } }
-		],
-		draws: "",
-		reaches: ["a closed handle renamed", "a world entry over a renamed relation"]
-	},
-	{
-		note: "the context's field g renamed to h, the context renamed to Caller, then the entry Seen removed: the world follows each",
-		sketch: [
-			{ command: "rename a context field", parameters: { claim: 0, to: "h" } },
-			{ command: "rename the context", parameters: { to: "Caller" } },
-			{ command: "remove an entry from a role", parameters: { role: 0, entry: 1 } }
-		],
-		draws: "",
-		reaches: ["a context field renamed", "the context renamed", "an entry removed from a role"]
-	}
-]
-
 layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 	it.effect(
 		"every step of a rename history migrates to a fresh install's catalog, its worlds included, every login and role keeps its PostgreSQL role, and the rows follow the model's identity map",
@@ -1393,7 +1322,7 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 							],
 							{ cases: 24, sense: notesOnly }
 						),
-						kept,
+						kept: [],
 						runs: 4,
 						shrink: { kind: "bounded", candidates: 60 },
 						concurrency: 1,

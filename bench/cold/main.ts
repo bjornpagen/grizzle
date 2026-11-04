@@ -4,12 +4,12 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import {
 	Array as Arr,
 	Console,
+	Data,
 	Effect,
 	Layer,
 	pipe,
 	Record,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import { repoRoot } from "#bench/cold/identity.ts"
@@ -35,15 +35,10 @@ import { dropRole, Substrate } from "#test/support/substrate/substrate.ts"
  * completed.
  */
 /** A command line the benchmark cannot read, and why. */
-class ColdUsage extends Schema.TaggedError<ColdUsage, { readonly brand: unique symbol }>()(
-	"ColdUsage",
-	{
-		reason: Schema.String
-	}
-) {}
+class ColdUsage extends Data.TaggedError("ColdUsage")<{ readonly reason: string }> {}
 
 const usage = (reason: string): Effect.Effect<never, ColdUsage> =>
-	Effect.fail(ColdUsage.make({ reason }))
+	Effect.fail(new ColdUsage({ reason }))
 
 /** The parsed command line: the options and the directory the record goes to. */
 interface Cold {

@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option, Order, Record as Rec, Schema } from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { roleReadNames } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
@@ -94,9 +95,8 @@ const physicalOf = (installation: Installation): Physical => {
 }
 
 /** A nonempty result of one text column, as PostgreSQL returns it. */
-const decodeOneText = Schema.decodeUnknownEffect(
-	Schema.NonEmptyArray(Schema.Tuple([Schema.String]))
-)
+const oneText = (rows: unknown): Arr.NonEmptyReadonlyArray<readonly [string]> =>
+	trusted<Arr.NonEmptyReadonlyArray<readonly [string]>>(rows)
 
 /**
  * The fresh-install schema compiler on PostgreSQL 19.
@@ -254,7 +254,7 @@ layer(Substrate.layer)("fresh install", (it) => {
 					[]
 				)
 				yield* w.query("SET lc_monetary = 'ja_JP.UTF-8'", [])
-				const [[monetary]] = yield* Effect.flatMap(w.values("SHOW lc_monetary", []), decodeOneText)
+				const [[monetary]] = yield* Effect.map(w.values("SHOW lc_monetary", []), oneText)
 				assert.equal(monetary, "ja_JP.UTF-8")
 				const charge = (n: number, fee: bigint, surcharge: bigint) =>
 					w.query(
@@ -338,9 +338,9 @@ layer(Substrate.layer)("fresh install", (it) => {
 				`INSERT INTO ${accountTable} (${opening}) VALUES ('ABC'::text, 'Usd'::${currency}, 1::bigint)`,
 				[]
 			)
-			const [[id]] = yield* Effect.flatMap(
+			const [[id]] = yield* Effect.map(
 				w.values(`SELECT ${at.columns("Account", ["id"])}::text FROM ${accountTable}`, []),
-				decodeOneText
+				oneText
 			)
 			yield* expectSqlstate(
 				w.query(
@@ -441,9 +441,9 @@ layer(Substrate.layer)("fresh install", (it) => {
 			yield* expectSqlstate(r.query(`DELETE FROM ${entryTable}`, []), "42501")
 			yield* expectSqlstate(r.query(`SELECT count(*) FROM ${entryTable}`, []), "42501")
 			/** The tagged foreign key is deferred: a payout of a Refund entry fails at COMMIT. */
-			const [[entry]] = yield* Effect.flatMap(
+			const [[entry]] = yield* Effect.map(
 				w.values(`SELECT ${at.columns("Entry", ["id"])}::text FROM ${entryTable}`, []),
-				decodeOneText
+				oneText
 			)
 			yield* expectConstraint(
 				inTransaction(

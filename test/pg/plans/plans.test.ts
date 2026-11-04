@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
 import { array, element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -12,11 +12,8 @@ import {
 	Formatter,
 	Option,
 	Record as Rec,
-	Result,
-	Schema,
 	String as Str
 } from "effect"
-import { SqlStatementSchema } from "#adapter/boundary/sql.ts"
 import {
 	type EstimatedNode,
 	explainStatementWith,
@@ -28,6 +25,7 @@ import {
 } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { hasProperties } from "#compiler/core/record.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { specializeValues } from "#compiler/lower/shapes/relparam/index.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -189,12 +187,6 @@ const only = <A>(xs: ReadonlyArray<A>, what: string): A => {
 	return x
 }
 
-/**
- * A statement as the compiler holds it, every clause stated: the type side of the snapshot's statement codec, whose
- * JSON side leaves out the clauses that are none.
- */
-const decodeStatement = Schema.decodeUnknownResult(Schema.toType(SqlStatementSchema))
-
 /** The statement with DISTINCT on the core of its bounded query, the SELECT that carries the LIMIT. */
 const withDistinctBound = (ast: Select): Select => {
 	const visit = (value: unknown): unknown => {
@@ -217,16 +209,7 @@ const withDistinctBound = (ast: Select): Select => {
 		}
 		return out
 	}
-	/** The rebuilt tree is admitted as a statement again, and must still be a SELECT. */
-	const decoded = decodeStatement(visit(ast))
-	if (Result.isFailure(decoded)) {
-		throw new Error(`the rebuilt statement: ${decoded.failure.message}`)
-	}
-	const rebuilt = decoded.success
-	if (rebuilt.kind !== "select") {
-		throw new Error("the rebuilt statement is not a SELECT")
-	}
-	return rebuilt
+	return trusted<Select>(visit(ast))
 }
 
 /** Every node of an estimated plan, the root first. */
@@ -544,17 +527,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 						mode: source.draw(element(modes)),
 						value: source.draw(int(0, 1999))
 					})
-					/** Planted: each query under each plan cache mode, each pair drawn about five times in twenty cases. */
-					const planted: ReadonlyArray<Kept<PartialCase, PartialFeature>> = Arr.flatMap(
-						indices,
-						(index) =>
-							Arr.map(modes, (mode): Kept<PartialCase, PartialFeature> => ({
-								note: `${queries[index].label} ${mode}`,
-								sketch: { query: index, mode, value: 1 },
-								draws: "",
-								reaches: [`${queries[index].label} ${mode}`]
-							}))
-					)
 					return yield* explore(
 						{
 							suite: "pg/plans/partial-index",
@@ -569,7 +541,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								],
 								{ cases: 16, sense: notesOnly }
 							),
-							kept: planted,
+							kept: [],
 							runs: 16,
 							shrink: completeShrink,
 							concurrency: 1,

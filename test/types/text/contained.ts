@@ -4,6 +4,7 @@ import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
 import { Array as Arr } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import {
@@ -127,11 +128,9 @@ export const containedProgram = (seed: number): Contained => {
 			const members = Arr.take(Arr.dedupe([...fixed, ...sampled]), 24)
 			witnessed = witnessed || (origin === "witness" && Arr.isReadonlyArrayNonEmpty(fixed))
 			const name = `p${fi}_${pi}`
-			lines.push(
-				`export const ${name} = str.regex(${JSON.stringify(source)}, ${JSON.stringify(flags)})`
-			)
+			lines.push(`export const ${name} = str.regex(${jsonText(source)}, ${jsonText(flags)})`)
 			for (const [i, v] of members.entries()) {
-				lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${JSON.stringify(v)}`)
+				lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${jsonText(v)}`)
 			}
 		}
 		witnesses.add(new Set(witnessed ? [family.name] : []))
@@ -143,11 +142,9 @@ export const containedProgram = (seed: number): Contained => {
 			}
 		}
 		const name = `kept${ki}`
-		lines.push(
-			`export const ${name} = str.regex(${JSON.stringify(source)}, ${JSON.stringify(flags)})`
-		)
+		lines.push(`export const ${name} = str.regex(${jsonText(source)}, ${jsonText(flags)})`)
 		for (const [i, v] of members.entries()) {
-			lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${JSON.stringify(v)}`)
+			lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${jsonText(v)}`)
 		}
 	}
 	return {

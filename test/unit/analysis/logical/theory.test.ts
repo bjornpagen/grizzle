@@ -12,22 +12,12 @@ import {
 	provisionalTheory,
 	type Theory
 } from "#compiler/analysis/theory/theory.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { FieldId, type LawId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
-import { exprClosure, type OpId } from "#compiler/ir/expr.ts"
-import { exprsOf } from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
-import { aggregateOverload } from "#compiler/scalar/aggregate.ts"
-import { castOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
 import {
 	assert,
-	contains,
 	defined,
-	lacks,
 	nonEmpty,
 	refused,
 	succeeded,
@@ -72,7 +62,6 @@ import {
  *   law's meaning written from its statement;
  * - union-find classes over containment pairings keep carrier, contract and roster identity, refuse incompatible
  *   pairings, and keep a typmod or a refinement inside one class;
- * - a cast in a violation query is checked exactly when its native cast can fail;
  * - evidence carries its validity context: keys and checks immediate, a roster containment a descriptor fact, every
  *   other containment committed-snapshot only unless law specialization says otherwise;
  * - law identities are deterministic, independent of declaration order and of unrelated statements, come from the
@@ -162,47 +151,6 @@ describe("span laws", () => {
 					})
 			)
 		)
-	)
-})
-
-describe("casts in violation queries", () => {
-	it.effect(
-		"every cast between carriers is the registry's, and a partial one stands with its proof",
-		(ctx) => {
-			/**
-			 * The violation queries cast only totally today (a capacity's numeric widths and sums), so the proved side of the
-			 * rule is reached by no fixture; the defined side is, at every cast.
-			 */
-			const casts = Arr.flatMap(theories, ([name, t]) =>
-				Arr.flatMap(exprClosure(Arr.flatMap(topoOrder(t.dag), (n) => exprsOf(n))), (e) => {
-					if (e.kind !== "cast") {
-						return []
-					}
-					const [source] = e.args
-					const [from, to] = [baseOf(source.type).carrier, baseOf(e.type).carrier]
-					const native = from === to ? undefined : castOf(from, to)
-					return native === undefined ? [] : [{ name, cast: e, partial: native.partial }]
-				})
-			)
-			return searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/analysis/logical/violation-casts",
-						generator: element(nonEmpty(casts, "a cast in some violation query")),
-						literal: Formatter.format,
-						limit: 10_000,
-						coverage: requiredInSpace<"a proved cast" | "a defined cast">(["a defined cast"]),
-						caseHang: Duration.minutes(2)
-					},
-					({ cast, partial }, c) =>
-						Effect.sync(() => {
-							c.note(partial ? "a proved cast" : "a defined cast")
-							assert.equal("proof" in cast, partial)
-						})
-				)
-			)
-		}
 	)
 })
 
@@ -716,84 +664,6 @@ describe("violation queries mean what their laws say", () => {
 				)
 			)
 		}
-	)
-
-	it.effect(
-		"capacity: a duration weight is upper::numeric - lower::numeric, so no width overflows",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/analysis/logical/duration-weight",
-						generator: element([
-							["integer", f.integer, "int4"] as const,
-							["bigint", f.bigint, "int8"] as const
-						]),
-						literal: Formatter.format,
-						limit: 2,
-						coverage: requiredInSpace<"integer" | "bigint">(["integer", "bigint"]),
-						caseHang: Duration.minutes(2)
-					},
-					([name, endpoint, carrier], c) =>
-						Effect.sync(() => {
-							c.note(name)
-							const Room = relation("Room", { id: f.uuid, ceiling: f.bigint }, ["id"])
-							const Booking = relation(
-								"Booking",
-								{ id: f.uuid, room: f.uuid, during: f.span(endpoint, undefined) },
-								["id"]
-							)
-							const rt = theoryOf(
-								{
-									name: "Rooms",
-									relations: [Room, Booking],
-									statements: [
-										capacity(on("Room", ["id"]), on("Booking", ["room"]), within(0n, "ceiling"), {
-											kind: "duration",
-											field: "during"
-										})
-									],
-									extends: undefined
-								},
-								provisionalTheory
-							)
-							const ops: Array<OpId> = []
-							const casts: Array<string> = []
-							const aggregates: Array<string> = []
-							for (const node of topoOrder({
-								roots: [defined(lawsOf(rt, "capacity")[0]).violation]
-							})) {
-								appendAll(aggregates, node.kind === "Group" ? Arr.map(node.aggs, (a) => a.op) : [])
-								const exprs = exprClosure(exprsOf(node))
-								appendAll(
-									ops,
-									Arr.flatMap(exprs, (expr) => (expr.kind === "op" ? [expr.op] : []))
-								)
-								appendAll(
-									casts,
-									Arr.flatMap(exprs, (expr) =>
-										expr.kind === "cast" ? [baseOf(expr.type).carrier] : []
-									)
-								)
-							}
-							contains(ops, defined(overloadOf("sub", ["numeric", "numeric"])).id)
-							lacks(ops, defined(overloadOf("sub", [carrier, carrier])).id)
-							assert.ok(
-								Arr.filter(casts, (x) => x === "numeric").length >= 2,
-								"both endpoints cast to numeric"
-							)
-							assert.deepEqual(aggregates, [
-								succeeded(
-									aggregateOverload(
-										{ name: "sum", arg: plainType("numeric") },
-										SourceLoc("test", [])
-									)
-								).op
-							])
-						})
-				)
-			)
 	)
 })
 

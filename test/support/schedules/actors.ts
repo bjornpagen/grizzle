@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Formatter, Predicate, Record, Schema, type Scope } from "effect"
+import { Array as Arr, Effect, Formatter, Predicate, Record, type Scope } from "effect"
 import { defined } from "#test/support/assert.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 import type { DirectAction, ScheduleOutcome } from "#test/support/schedules/types.ts"
@@ -84,7 +84,7 @@ export const textOfValue = (value: unknown): string | null => {
 
 /** The outcome of a failure: a PostgreSQL error, a COMMIT that rolled back, or another failure. */
 export const failureOutcome = (error: unknown): ScheduleOutcome => {
-	if (Schema.is(TransactionRolledBack)(error)) {
+	if (error instanceof TransactionRolledBack) {
 		return { _tag: "RolledBack", command: error.command }
 	}
 	const fields = pgErrorFields(error)

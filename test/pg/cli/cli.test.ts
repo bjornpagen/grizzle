@@ -381,9 +381,10 @@ const configurations = (ctx: TestContext) =>
 						const ledgers: Array<LedgerState> = []
 						for (const [i, name] of names.entries()) {
 							const state = yield* ledgerOf(name)
+							const folders = yield* foldersOf(ws, name)
 							assert.deepEqual(
 								Arr.map(state.complete, (f) => f.folder),
-								[...(yield* foldersOf(ws, name))],
+								folders,
 								`${name}'s ledger records its own folders`
 							)
 							assert.equal(state.partial, undefined, `${name}'s ledger records no partial folder`)

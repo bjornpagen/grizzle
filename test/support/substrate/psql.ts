@@ -578,7 +578,7 @@ const driver = (input: Queue.Enqueue<string, Cause.Done>): ((event: Event) => vo
 		if (current._tag === "Dead") {
 			return
 		}
-		const error = PsqlProcessError.make({ reason, stderr: allStderr })
+		const error = new PsqlProcessError({ reason, stderr: allStderr })
 		life = { _tag: "Dead", error }
 		for (const statement of [...inPsql(current.line), ...current.queued]) {
 			Deferred.doneUnsafe(statement.outcome, Exit.fail(error))
@@ -695,11 +695,11 @@ const refusalOf = (
 	}
 	const fields = parseVerboseError(completed.sqlstate, completed.stderr)
 	return fields === undefined
-		? PsqlProcessError.make({
+		? new PsqlProcessError({
 				reason: `psql writer ${label}: a statement failed with SQLSTATE ${Formatter.format(completed.sqlstate)} and no PostgreSQL error report: ${sql}`,
 				stderr: completed.stderr
 			})
-		: PsqlStatementError.make({ sql, fields })
+		: new PsqlStatementError({ sql, fields })
 }
 
 const backendPidQuery = "SELECT pg_catalog.pg_backend_pid()"
@@ -742,8 +742,9 @@ export const openPsql = Effect.fnUntraced(function* (
 		env: childEnvironment(options.credentials),
 		stdin: Stream.encodeText(Stream.fromQueue(input))
 	}).pipe(
-		Effect.mapError((cause) =>
-			PsqlProcessError.make({ reason: `psql could not start: ${messageOf(cause)}`, stderr: "" })
+		Effect.mapError(
+			(cause) =>
+				new PsqlProcessError({ reason: `psql could not start: ${messageOf(cause)}`, stderr: "" })
 		)
 	)
 
@@ -921,7 +922,7 @@ export const openPsql = Effect.fnUntraced(function* (
 	const refused = refusalOf(label, backendPidQuery, started)
 	if (refused !== undefined) {
 		return yield* refused._tag === "PsqlStatementError"
-			? PsqlProcessError.make({ reason: refused.fields.message, stderr: started.stderr })
+			? new PsqlProcessError({ reason: refused.fields.message, stderr: started.stderr })
 			: refused
 	}
 	const backendPid = Number(parseRows(started.output)[0]?.[0])
@@ -941,7 +942,7 @@ export const openPsql = Effect.fnUntraced(function* (
 		const completed = yield* complete("COMMIT", "tag", backend)
 		const command = Str.trim(completed.output)
 		if (command !== "COMMIT") {
-			return yield* TransactionRolledBack.make({ label, command })
+			return yield* new TransactionRolledBack({ label, command })
 		}
 	})
 

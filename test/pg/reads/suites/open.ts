@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Context, Duration, Effect, Formatter, Layer, Schema } from "effect"
+import { Array as Arr, Context, Duration, Effect, Formatter, Layer } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { openDb } from "#adapter/db/open.ts"
 import { OpenError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -24,6 +24,7 @@ import type { DbLayerService, DbLayerOf } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"
@@ -48,7 +49,6 @@ import {
 	installMigrated as install,
 	loadMigrated as load
 } from "#test/support/install-migrate.ts"
-import { decodeJson } from "#test/support/json.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 import { Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -58,8 +58,7 @@ import { fullWorld, loginLayer, loginLayerIn, testVerify, tokenOf } from "#test/
  * The facts a claims setting holds, as the JSON value it spells: its contract is the decoded facts of the contexts the
  * role reads, whatever the text's key order or spacing.
  */
-const decodeSetting = decodeJson(Schema.Unknown)
-const settingFacts = (text: string | undefined): unknown => decodeSetting(text ?? "")
+const settingFacts = (text: string | undefined): Json => trustedJson<Json>(text ?? "")
 
 const openError = (error: unknown): OpenError => {
 	assertInstanceOf(error, OpenError)
@@ -407,7 +406,7 @@ export const openSuite = (): void => {
 											assert.equal(error.stage, "role")
 											assert.deepEqual(
 												error.reason,
-												RoleOutsideLayers.make({ role: "auditor", login: "ops" })
+												new RoleOutsideLayers({ role: "auditor", login: "ops" })
 											)
 											const backends = yield* backendsOf(worlds.ops)
 											assert.deepEqual(backends, [["0"]])
@@ -457,10 +456,7 @@ export const openSuite = (): void => {
 												openCase.fault === "notAnObject"
 													? { kind: "notAnObject" }
 													: { kind: openCase.fault, field: "account" }
-											assert.deepEqual(
-												error.reason,
-												ClaimRefused.make({ context: "Member", fault })
-											)
+											assert.deepEqual(error.reason, new ClaimRefused({ context: "Member", fault }))
 											const backends = yield* backendsOf(worlds.web)
 											assert.deepEqual(backends, [["0"]])
 											break
@@ -533,7 +529,7 @@ export const openSuite = (): void => {
 												s,
 												worlds.server,
 												done.snapshot,
-												Effect.fail(CredentialError.make({ cause: "provider unavailable" }))
+												Effect.fail(new CredentialError({ cause: "provider unavailable" }))
 											)
 											const error = yield* refusal(openApp.pipe(withLayer(failing)))
 											assert.equal(error.stage, "credential")

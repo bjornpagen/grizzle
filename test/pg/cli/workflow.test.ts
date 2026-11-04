@@ -26,7 +26,6 @@ import {
 	pipe,
 	Redacted,
 	Result,
-	Schema,
 	Scope,
 	String as Str
 } from "effect"
@@ -272,12 +271,10 @@ const command = (
 /** The real state the model claims: the folders on disk and the folders the ledger records complete. */
 const confirm = (model: Readonly<Model>, r: Workspace) =>
 	Effect.gen(function* () {
-		assert.equal((yield* foldersOnDisk(r)).length, model.folders, "the folders on disk")
-		assert.equal(
-			(yield* r.applied).length,
-			model.applied,
-			"the folders the ledger records complete"
-		)
+		const folders = yield* foldersOnDisk(r)
+		assert.equal(folders.length, model.folders, "the folders on disk")
+		const applied = yield* r.applied
+		assert.equal(applied.length, model.applied, "the folders the ledger records complete")
 	})
 
 /** `grizzle check`, passing exactly when the model says it does. */
@@ -546,7 +543,8 @@ const runGenerate = (r: Workspace, before: Model, after: Model) =>
 const runReview = (r: Workspace, before: Model, after: Model) =>
 	Effect.gen(function* () {
 		r.c.note("review")
-		for (const folder of (yield* foldersOnDisk(r)).slice(before.applied)) {
+		const folders = yield* foldersOnDisk(r)
+		for (const folder of folders.slice(before.applied)) {
 			const dir = `${schemaDir(r)}/${folder}`
 			for (const file of yield* sqlFiles(dir)) {
 				const text = yield* readText(`${dir}/${file}`)
@@ -657,7 +655,8 @@ const runFix = (r: Workspace, before: Model, after: Model) =>
 	Effect.gen(function* () {
 		r.c.note("fix the data step")
 		const failing = defined(before.failing, "a failing custom folder")
-		const folder = defined((yield* foldersOnDisk(r))[failing], "the failing custom folder")
+		const folders = yield* foldersOnDisk(r)
+		const folder = defined(folders[failing], "the failing custom folder")
 		yield* writeText(`${schemaDir(r)}/${folder}/02-check.sql`, "SELECT 2;\n")
 		yield* confirm(after, r)
 	})
@@ -732,7 +731,7 @@ const runOpen = (r: Workspace, model: Model) =>
 				Result.isFailure(opened),
 				"Db.open refuses a database short of the committed snapshot"
 			)
-			assert.ok(Schema.is(OpenError)(opened.failure), `an OpenError, not ${String(opened.failure)}`)
+			assert.ok(opened.failure instanceof OpenError, `an OpenError, not ${String(opened.failure)}`)
 			assert.equal(opened.failure.stage, model.applied === 0 ? "authentication" : "ledger")
 		}
 		yield* confirm(model, r)

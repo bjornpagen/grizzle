@@ -7,11 +7,11 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { jsonText } from "#test/support/json.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
@@ -26,7 +26,7 @@ const units = weighted([
 const batchOf = <A>(values: Gen<A>, max: number): Gen<ReadonlyArray<A>> =>
 	array(values, { min: 1, max })
 
-/** Each search's budget beside its draw and literal: no features of its own unless it names them, nothing kept. */
+/** Each search's budget beside its draw and literal: no features of its own unless it names them. */
 const spec = {
 	literal: Formatter.format,
 	kept: [],

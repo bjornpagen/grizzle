@@ -174,7 +174,8 @@ export const roundTripSuite = (): void => {
 		const tapped = <R>(db: Db<R, unknown>, credentials: Credentials) =>
 			Effect.gen(function* () {
 				const ctx = defined(dbContext(db), "an opened Db's context")
-				const tap = makeTap((yield* Substrate).cluster)
+				const substrate = yield* Substrate
+				const tap = makeTap(substrate.cluster)
 				const pool = yield* poolFor(credentials, {
 					...defaultPool,
 					transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },
