@@ -579,7 +579,18 @@ How to upgrade:
   - The Description format changed for JavaScript callers who build Descriptions by hand: a scalar parameter is
     `{ kind: "param", name, type }`, `type` its field descriptor, and the decoder refuses one without `type`
     (`MalformedDescription`); an import binds a relation parameter to the importer's as `{ kind: "relationParam", name }`
-    in its bind map, where it was `{ kind: "param", name }`.
+    in its bind map, where it was `{ kind: "param", name }`; and a `Compute.when` is
+    `{ kind: "when", guard, subject, proved, otherwise }`, `proved` the branch that receives the subject proved.
+- **`Contract`'s third type argument is the tuple of the fact names it declares.** `contract(name, base, predicate,
+  { proves })` has the type `Contract<Name, Base, Proves>`, `Proves` the `proves` tuple, and `Contract<Name, Base>` is a
+  contract that declares none, the same type `contract(...)` without `proves` gives.
+  - Codemod: a written `Contract<N, B, DeclaredFacts<readonly ["nonzero"]>>` → `Contract<N, B, readonly ["nonzero"]>`;
+    `Contract<N, B>` is unchanged.
+- **A recursive relation's counter types.** A recursive arm's head delivers the row by the same rule a binding meets
+  its column, so `hops: Compute.add(hops, 1)` into `row: { hops: pg.integer }` typechecks, and compilation proves the
+  counter fits its field from the recursion's bound, or refuses it with `PartialOperation`. An arm whose head misses a
+  row field, adds one, or delivers a type that meets no field's is refused at the arm, `Refusal<"an arm's head delivers
+  the row: each of its fields, at a type that meets the field's">`. No codemod.
 - **A parameter is checked against its contract and pattern at bind.** A scalar or relation parameter whose declared
   type is a contract or a refined text is refused at bind, `EncodingFailure` with reason `refinedValue`, when its value
   violates them, before any SQL is sent; before, a read cast it to its domain and PostgreSQL raised 23514. A program
