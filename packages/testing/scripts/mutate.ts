@@ -2,7 +2,6 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import {
 	Array as Arr,
 	Console,
-	Data,
 	Duration,
 	Effect,
 	FileSystem,
@@ -11,6 +10,7 @@ import {
 	Order,
 	Path,
 	Record as Rec,
+	Schema,
 	String as Str
 } from "effect"
 import { Command, Flag } from "effect/cli"
@@ -45,9 +45,10 @@ import { type MutatedFile, type RealPath, realPathOf } from "#vitest/mutated-fil
  * suite's run seed; `--operator` and `--mutant` choose some; `--list` prints them and runs nothing. A test that reads
  * the target's source from disk, or loads it in a child process of its own, sees the unmutated file.
  */
-class MutationRunRefused extends Data.TaggedError("MutationRunRefused")<{
-	readonly message: string
-}> {}
+class MutationRunRefused extends Schema.TaggedError<
+	MutationRunRefused,
+	{ readonly brand: unique symbol }
+>()("MutationRunRefused", { message: Schema.String }) {}
 
 /** Diagnostics a mutant raises only by leaving code unused or unreachable: no type error. */
 const UNUSED: ReadonlySet<number> = new Set([6133, 6138, 6192, 6196, 6198, 6199, 6205, 7027])
@@ -79,7 +80,7 @@ const describe = (mutant: Mutant) =>
 	`${mutant.id} ${mutant.file}:${String(mutant.line)}:${String(mutant.column)} ${mutant.operator} in ${mutant.fn}: ${Str.replaceAll("\n", " ")(mutant.original)} -> ${Str.replaceAll("\n", " ")(mutant.replacement)}`
 
 const refused = (message: string) => (cause: unknown) =>
-	new MutationRunRefused({ message: `${message}: ${Inspectable.toStringUnknown(cause)}` })
+	MutationRunRefused.make({ message: `${message}: ${Inspectable.toStringUnknown(cause)}` })
 
 /** The compiler reads the package from disk and writes nothing. */
 const readOnlyHost: FileSystemCallbacks = {
@@ -106,7 +107,7 @@ const errorsOf = (snapshot: Snapshot, config: string) =>
 		(project) =>
 			project === undefined
 				? Effect.fail(
-						new MutationRunRefused({
+						MutationRunRefused.make({
 							message: `the native compiler opened no project for ${config}`
 						})
 					)
@@ -152,7 +153,7 @@ const typecheckerOf = Effect.fnUntraced(function* (pkg: RealPath) {
 	)
 	const baseline = yield* errorsOf(unmutated, config)
 	if (Arr.isReadonlyArrayNonEmpty(baseline)) {
-		return yield* new MutationRunRefused({
+		return yield* MutationRunRefused.make({
 			message: `the unmutated package does not typecheck:\n${Arr.join(Arr.map(baseline, diagnosticText), "\n")}`
 		})
 	}
@@ -245,7 +246,7 @@ const ownedFreshProcesses = (vitest: Vitest) => {
 	)
 	return Arr.isReadonlyArrayNonEmpty(unowned)
 		? Effect.fail(
-				new MutationRunRefused({
+				MutationRunRefused.make({
 					message: `a mutant's run needs every test file in a fresh process of its own pool, and ${Arr.join(
 						Arr.map(unowned, (project) => project.name),
 						", "
@@ -352,7 +353,7 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 	}
 	const first = Arr.head(sources)
 	if (population.length === 0 || Option.isNone(first)) {
-		return yield* new MutationRunRefused({
+		return yield* MutationRunRefused.make({
 			message: "no mutant matches the chosen files, operators and ids"
 		})
 	}
@@ -367,7 +368,7 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 		suite({ target: first.value.target, text: first.value.text })
 	)
 	if (unmutated.kind !== "survived") {
-		return yield* new MutationRunRefused({
+		return yield* MutationRunRefused.make({
 			message: `the unmutated package's suite does not pass${unmutated.kind === "killed" ? `: ${unmutated.by}` : ""}`
 		})
 	}
