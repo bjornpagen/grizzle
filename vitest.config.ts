@@ -6,7 +6,7 @@ import { Option } from "effect"
  * program, built once per run by its global setup while the files run (test/types/batch/global-setup.ts). A file named
  * `<name>.exclusive.test.ts` runs alone, after every other. The engine's generative suites of the SQL printer and audit,
  * the lowerings, the migration drafter and the write compiler run a second time in the small-stack project, at about a
- * tenth of Node's default stack.
+ * sixth of Node's default stack.
  */
 export default defineTestConfig({
 	include: [

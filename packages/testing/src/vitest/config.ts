@@ -33,10 +33,14 @@ export type Timeout =
 	| Readonly<{ kind: "bounded"; millis: number }>
 
 /**
- * The stack the small-stack project runs under: about a tenth of Node's default, so a per-element use of the stack (a
- * spread argument, a recursion over a list) fails at the widths ordinary generators reach.
+ * The stack the small-stack project runs under: 160 KB, about a sixth of Node's default 984 KB, so a per-element use of
+ * the stack (a spread argument, a recursion over a list) fails at the widths ordinary generators reach. A measured
+ * limit: on Node 26.13.0 (V8 14.6.202.34), a small-stack worker boots and runs every one of grizzle's 52 small-stack
+ * files at 107 KB and no lower (at 106 KB its bootstrap overflows compiling Node's own internals, before any test), and
+ * 160 KB is that floor with half again as headroom for the runtime's own growth. At 160 KB a recursion over a list of
+ * 1,000 elements and a spread of 16,000 arguments overflow, where the regular project runs both.
  */
-const SMALL_STACK = "--stack-size=96"
+const SMALL_STACK = "--stack-size=160"
 
 /** Vitest's form of a timeout, where zero means none. */
 const millisOf = (timeout: Timeout) => (timeout.kind === "unbounded" ? 0 : timeout.millis)
@@ -48,7 +52,7 @@ const millisOf = (timeout: Timeout) => (timeout.kind === "unbounded" ? 0 : timeo
  * global setup files, which run after the library's, beside the run seed; the export conditions its code resolves with;
  * how long a test and a hook may take; and how many files may run at once, when something the files share (a pool of
  * database connections, a set of worker databases) holds fewer than Vitest's default of one per core; and `smallStack`,
- * the files whose suites run a second time under `--stack-size=96`, about a tenth of Node's default stack, so a
+ * the files whose suites run a second time under SMALL_STACK, about a sixth of Node's default stack, so a
  * per-element use of the stack (a spread argument, a recursion over a list) fails at the widths ordinary generators
  * reach. A package with none of a list states it empty, and one with no such limit states none. The exclusive, guided
  * and small-stack lists are projects of their own, so each names its files outright: a glob there reaches every file it
