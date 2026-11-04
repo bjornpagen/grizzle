@@ -1,18 +1,8 @@
 [
 	{
-		"id": "6ab8c4dbc97d",
-		"verdict": "gap-fixed",
-		"reason": "theory.test.ts now pins the capabilities exactly: btree_gist for payroll's span keys with scalar components, nothing for a schema of plain keys."
-	},
-	{
 		"id": "777375414663",
 		"verdict": "gap-fixed",
 		"reason": "logical.test.ts: a scan binding one column to two variables equates them, so fixing either fixes the key."
-	},
-	{
-		"id": "aa9c469e36db",
-		"verdict": "gap-fixed",
-		"reason": "theory.test.ts: a cast between carriers in a violation query is checked exactly when its native cast can fail."
 	},
 	{
 		"id": "1dbda6f40ce1",
@@ -25,16 +15,6 @@
 		"reason": "choose.test.ts: a deletion from another relation in the stratum leaves a put's UPDATE ... FROM."
 	},
 	{
-		"id": "269f0015fe7d",
-		"verdict": "equivalent",
-		"reason": "identityProjection's o.name === col.name is implied by its sameHeading check: a projection's out names are its heading's, which must equal the input's position by position."
-	},
-	{
-		"id": "d5b0e2f9d52e",
-		"verdict": "equivalent",
-		"reason": "A key over the target's fields that includes span.to and matches to.fields as a set: a key has at most one span component (own refuses two), so the dropped count-equals-one test always holds."
-	},
-	{
 		"id": "d74af07e8a3d",
 		"verdict": "equivalent",
 		"reason": "A heterogeneous union has a key only when every two of its arms, those of one heading group included, fix different literals on a key column (logical/props.ts unionProps), and the page compiler refuses a heterogeneous union without one (logical/order.ts). So the arms of a paged heading group are pairwise disjoint, and UNION ALL over them delivers what UNION does; a group of overlapping arms is refused before this code runs."
@@ -45,29 +25,9 @@
 		"reason": "catalog.test.ts: an attached successor whose parent values come from the parent match's second occurrence (Sitting after Point) takes R27; the agreement suite checks its rows against the LATERAL take(1)."
 	},
 	{
-		"id": "7ac2d3822910",
-		"verdict": "gap-fixed",
-		"reason": "simplify.test.ts: var = var conjuncts sharing a variable in every position each become a region equality, and the delivered rows are unchanged."
-	},
-	{
-		"id": "6193f59b951f",
-		"verdict": "gap-fixed",
-		"reason": "simplify.test.ts: two conjuncts sharing their right variable (otherAccount = acct after account = acct) both become region equalities."
-	},
-	{
 		"id": "4aeda2f1f869",
 		"verdict": "gap-fixed",
 		"reason": "simplify.test.ts: two conjuncts sharing their right variable (otherAccount = acct after account = acct) both become region equalities."
-	},
-	{
-		"id": "c69f3747e6ec",
-		"verdict": "gap-fixed",
-		"reason": "simplify.test.ts: a conjunct whose left variable is another's right (acct = third after account = acct) becomes a region equality of its own."
-	},
-	{
-		"id": "08a79fd010f9",
-		"verdict": "gap-fixed",
-		"reason": "simplify.test.ts: a conjunct whose right variable is another's left (fourthAccount = account after account = acct) becomes a region equality of its own."
 	},
 	{
 		"id": "2ce1934afc71",
@@ -78,11 +38,6 @@
 		"id": "ad76f8dc61ba",
 		"verdict": "gap-fixed",
 		"reason": "simplify.test.ts: a conjunct whose right variable is another's left (fourthAccount = account) reaches samePair's reversed comparison and stays."
-	},
-	{
-		"id": "9323af9774f4",
-		"verdict": "gap-fixed",
-		"reason": "simplify.test.ts: a conjunct repeated reversed (acct = account after account = acct) is stated once."
 	},
 	{
 		"id": "15034bfe8c30",
@@ -125,19 +80,9 @@
 		"reason": "derivedMigrationName (deploy/render/naming.ts) never reads one change twice: a theory field's column and a manifest column object (a stored tag's) are never the same column, and no identity is added, dropped, changed or retired at once, so leaving out the deduplication, or keying it by identity alone, names the same changes."
 	},
 	{
-		"id": "19a3975d3355",
-		"verdict": "equivalent",
-		"reason": "label's schema prefix (deploy/render/naming.ts): left with its dot, the rest's words drop it, a name's words never beginning with an underscore."
-	},
-	{
 		"id": "e7e7cb76a9fb",
 		"verdict": "equivalent",
 		"reason": "The violation query's main statement (deploy/diff/diff.ts): the next line requires exactly one statement, which is then the first, whatever its role, and a violation query takes no parameter, so one parameter more or less is refused all the same."
-	},
-	{
-		"id": "2017b073dd4b",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/deploy/drafts.test.ts: a placeholder naming one removed field of another type says column and is."
 	},
 	{
 		"id": "6a940816bf91",
@@ -145,34 +90,9 @@
 		"reason": "An empty list there (sql/print.ts): no statement builder makes an empty DELETE USING, UPDATE FROM, aggregate ORDER BY, window PARTITION BY or ORDER BY, index INCLUDE or locking OF list (an index model's include: [] is no AST), so printing one is unreachable."
 	},
 	{
-		"id": "1e4ea62dd0ed",
-		"verdict": "equivalent",
-		"reason": "A RAISE with no USING option (sql/print.ts) is never built: every RAISE grizzle emits (laws, refusals, drafted violation checks) names ERRCODE and CONSTRAINT at least."
-	},
-	{
 		"id": "6d629468db9a",
 		"verdict": "equivalent",
 		"reason": "A non-associative operator's left operand (sql/print.ts) parenthesized from two levels up instead of one: only more parentheses, which PostgreSQL reads to the same tree."
-	},
-	{
-		"id": "4475fb3dd7fb",
-		"verdict": "equivalent",
-		"reason": "armNeedsParens (sql/print.ts): every builder chains one operator's arms left-nested and wraps a set-operation arm that needs parentheses in a select of its own, which parenthesizes itself, so no arm needs parentheses added, on the left or the right."
-	},
-	{
-		"id": "80bd7fb413b5",
-		"verdict": "equivalent",
-		"reason": "A connective's or construct's operand count (lower/conservative/expr/ops.ts): the validated DAG gives AND, OR, LEAST and GREATEST at least one operand, NOT one and BETWEEN three, so the count tests never decide."
-	},
-	{
-		"id": "d3df943f4d3e",
-		"verdict": "equivalent",
-		"reason": "A connective's or construct's operand count (lower/conservative/expr/ops.ts): the validated DAG gives AND, OR, LEAST and GREATEST at least one operand, NOT one and BETWEEN three, so the count tests never decide."
-	},
-	{
-		"id": "bfe810e0c9f7",
-		"verdict": "equivalent",
-		"reason": "A connective's or construct's operand count (lower/conservative/expr/ops.ts): the validated DAG gives AND, OR, LEAST and GREATEST at least one operand, NOT one and BETWEEN three, so the count tests never decide."
 	},
 	{
 		"id": "3ec14d1aa045",
