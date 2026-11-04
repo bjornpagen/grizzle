@@ -2,11 +2,11 @@
 	"name": "grizzle-workspace",
 	"private": true,
 	"type": "module",
-	"packageManager": "pnpm@12.15.0",
+	"packageManager": "pnpm@12.16.1",
 	"devEngines": {
 		"runtime": {
 			"name": "node",
-			"version": ">=24",
+			"version": ">=26",
 			"onFail": "error"
 		}
 	},
@@ -20,7 +20,7 @@
 		"#index.ts": "./packages/grizzle/src/index.ts"
 	},
 	"scripts": {
-		"build": "node --conditions=grizzle-source --disable-warning=ExperimentalWarning scripts/build.ts",
+		"build": "node --conditions=grizzle-source scripts/build.ts",
 		"prepare": "effect-tsgo patch",
 		"check": "turbo run typecheck superlint oxlint fixtures:superlint fixtures:oxlint format dead-code dedupe",
 		"typecheck": "effect-tsgo tsrs -b",
@@ -30,8 +30,8 @@
 		"format:write": "oxfmt .",
 		"dead-code": "fallow dead-code",
 		"dedupe": "pnpm dedupe --check",
-		"test": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run",
-		"test:network": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
+		"test": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict --no-experimental-websocket --no-experimental-webstorage --no-experimental-global-navigator --no-experimental-sqlite --no-experimental-ffi\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run",
+		"test:network": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict --no-experimental-websocket --no-experimental-webstorage --no-experimental-global-navigator --no-experimental-sqlite --no-experimental-ffi\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
 		"fuzz": "node packages/testing/scripts/fuzz.ts",
 		"mutate": "node --conditions=grizzle-source scripts/dev/mutate/main.ts",
 		"plpgsql-coverage": "node --conditions=grizzle-source scripts/dev/plpgsql-coverage.ts",
@@ -53,7 +53,6 @@
 		"@aws-sdk/rds-signer": "catalog:",
 		"@bjornpagen/grizzle": "workspace:*",
 		"@clerk/backend": "catalog:",
-		"@effect/language-service": "catalog:",
 		"@effect/tsgo": "catalog:",
 		"@effect/vitest": "catalog:",
 		"@grizzle/devtools": "workspace:*",

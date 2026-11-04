@@ -494,7 +494,7 @@ const classBody = (
 }
 
 /**
- * V8 (13.6, Node 24) computes the complement of a class holding U+10FFFE without U+10FFFF, so `/[^\u{10FFFE}]/u`
+ * V8 (14.6, Node 26) computes the complement of a class holding U+10FFFE without U+10FFFF, so `/[^\u{10FFFE}]/u`
  * refuses "\u{10FFFF}", against ECMA-262 (CharacterComplement is every code point outside the set). The oracle
  * therefore spells each negated class `[^X]` as `(?:(?![X])[\0-\u{10FFFF}])`: a negative lookahead over the positive
  * class, then any code point, which is the specification's meaning with no complement computed by the engine.

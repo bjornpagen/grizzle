@@ -341,7 +341,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 				[
 					sourceCondition,
 					...hardenedNode,
-					"--disable-warning=ExperimentalWarning",
 					`${root}test/unit/deps/runtime-probe.ts`,
 					root,
 					...modules

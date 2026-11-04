@@ -18,7 +18,7 @@
 		"superlint": "./src/lint.ts"
 	},
 	"engines": {
-		"node": ">=24"
+		"node": ">=26"
 	},
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs --noEmit -p tsconfig.json",
@@ -29,6 +29,7 @@
 	},
 	"dependencies": {
 		"@effect/platform-node": "catalog:",
+		"@effect/tsgo": "catalog:",
 		"effect": "catalog:",
 		"oxlint": "catalog:",
 		"typescript": "catalog:"

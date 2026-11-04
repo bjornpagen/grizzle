@@ -31,12 +31,28 @@ export const runOptions: RunOptions = { cwd: repoRoot, env: {} }
 export const sourceCondition = "--conditions=grizzle-source"
 
 /**
- * The hardened Node every process of the repository's own code runs under: no
- * `Object.prototype.__proto__` accessor (prototype pollution has no path) and no inspector opened on SIGUSR1.
+ * The hardened Node every process of the repository's own code runs under: no `Object.prototype.__proto__` accessor
+ * (prototype pollution has no path) and no inspector opened on SIGUSR1; a deprecated Node API, a pending deprecation
+ * included, throws instead of warning; only context-aware native addons load; no module resolves from the global
+ * folders; an unhandled rejection is an uncaught exception; and no experimental global or module (WebSocket, Web
+ * Storage, navigator, node:sqlite, node:ffi) exists. V8's JIT and code generation from strings stay on.
  * package.json's test scripts and the mutation tester put them in NODE_OPTIONS, which Vitest's own process, every test
- * process and every child a test spawns inherit; the `grizzle` bin's shebang carries them too.
+ * process and every child a test spawns inherit; the `grizzle` bin's shebang carries the first two.
  */
-export const hardenedNode = ["--disable-proto=delete", "--disable-sigusr1"] as const
+export const hardenedNode = [
+	"--disable-proto=delete",
+	"--disable-sigusr1",
+	"--throw-deprecation",
+	"--pending-deprecation",
+	"--force-context-aware",
+	"--no-global-search-paths",
+	"--unhandled-rejections=strict",
+	"--no-experimental-websocket",
+	"--no-experimental-webstorage",
+	"--no-experimental-global-navigator",
+	"--no-experimental-sqlite",
+	"--no-experimental-ffi"
+] as const
 
 /** What a child run to completion did: its exit code and its output. */
 interface Ran {

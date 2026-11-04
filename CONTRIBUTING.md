@@ -36,7 +36,7 @@ CI. The git hook lefthook installs (`lefthook.yml`) is the CI: pre-commit runs `
 rebase, and only refuses a failing commit; it never formats or stages a file.
 
 - **Toolchain:** `brew install node pnpm meson ninja pkgconf bison flex openssl@3 lz4 zstd readline`. You need
-  Node 24 or later, and pnpm at the version `packageManager` pins; `pnpm install` patches TypeScript 7.1 beta for
+  Node 26 or later, and pnpm at the version `packageManager` pins; `pnpm install` patches TypeScript 7.1 beta for
   `@effect/tsgo` (the `prepare` script). Development has no build step: Node runs each package's `src/*.ts` directly
   through type stripping, and tests and scripts import src. The repository resolves its own package names to their
   `src/` (`packages/grizzle/src/index.ts`, `packages/engine/src/index.ts`) through the `grizzle-source` export
@@ -103,16 +103,21 @@ processes are owned by an `AbortSignal`, `await using` or a `DisposableStack`.
 Vitest runs each test file in a process of its own, never through Vite's module runner: Node runs the files as it runs
 the code, by type stripping. `pnpm test` runs as many files at once as the cores allow; `pnpm test:network` runs six
 (`test/support/substrate/workers.ts`), under what PostgreSQL's default `max_connections` admits. Vitest's own process,
-every test process and every child a file spawns run under `--disable-proto=delete` and `--disable-sigusr1`, which the
-test scripts put in `NODE_OPTIONS` (`test/support/process.ts` `hardenedNode`). A file named `<name>.exclusive.test.ts`
-needs the cluster to itself: it runs after every other file, one at a time, because its long SERIALIZABLE transactions
-would summarize everyone else's. Each pg or schedules file uses its worker's long-lived database,
-`gz_shared_<VITEST_POOL_ID>`, and unique schema names, because roles are cluster-wide. The network run's global setup
-(`test/support/pg-global-setup.ts`) runs the doctor's quick checks, sweeps what ended runs left behind, and clones the
-worker databases. Once every file has ended, its teardown sweeps again. Nothing drops a database while files run: DROP
-DATABASE holds its transaction id through the checkpoint it forces, which makes PostgreSQL summarize every other file's
-SERIALIZABLE transactions, and their writes then fail with 40001. The type tier's checks are one tsgo program, which its
-global setup builds while the files run (`test/types/batch/global-setup.ts`).
+every test process and every child a file spawns run under the hardened flags, which the test scripts put in
+`NODE_OPTIONS` (`test/support/process.ts` `hardenedNode`, `packages/testing/src/vitest/config.ts` `HARDENED_FLAGS`):
+`--disable-proto=delete`, `--disable-sigusr1`, `--throw-deprecation`, `--pending-deprecation`, `--force-context-aware`,
+`--no-global-search-paths`, `--unhandled-rejections=strict`, `--no-experimental-websocket`,
+`--no-experimental-webstorage`, `--no-experimental-global-navigator`, `--no-experimental-sqlite` and
+`--no-experimental-ffi`. V8's JIT and code generation from strings stay on: never `--jitless`,
+`--disallow-code-generation-from-strings`, `--frozen-intrinsics` or `--no-addons`. A file named
+`<name>.exclusive.test.ts` needs the cluster to itself: it runs after every other file, one at a time, because its long
+SERIALIZABLE transactions would summarize everyone else's. Each pg or schedules file uses its worker's long-lived
+database, `gz_shared_<VITEST_POOL_ID>`, and unique schema names, because roles are cluster-wide. The network run's
+global setup (`test/support/pg-global-setup.ts`) runs the doctor's quick checks, sweeps what ended runs left behind, and
+clones the worker databases. Once every file has ended, its teardown sweeps again. Nothing drops a database while files
+run: DROP DATABASE holds its transaction id through the checkpoint it forces, which makes PostgreSQL summarize every
+other file's SERIALIZABLE transactions, and their writes then fail with 40001. The type tier's checks are one tsgo
+program, which its global setup builds while the files run (`test/types/batch/global-setup.ts`).
 
 Every generated suite draws from one run seed, `TEST_SEED`. The run prints the seed first, and setting it reproduces
 a run; `TEST_REPLAY='<suite>:<steering>:<tape>'` replays one case as its failure printed it, under the steering it was drawn with. Each search runs, in order
@@ -191,7 +196,8 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   stored field, and `cause` holds only a foreign value wrapped. No `.match` member call in `packages/*/src`: the
   dependency audit (`test/unit/deps`) reads any as a regular expression's; read an Option with `Option.isSome` and
   `.value`.
-- **Hardened Node.** grizzle works under `--disable-proto=delete` and `--disable-sigusr1`, and so does every test. Never
+- **Hardened Node.** grizzle works under `--disable-proto=delete` and `--disable-sigusr1`, and every test runs under
+  the hardened flags (`hardenedNode`), which add that a deprecation throws and an unhandled rejection is fatal. Never
   read or write the `__proto__` accessor: a null-prototype object is the `{ __proto__: null }` literal or
   `Object.create(null)`, a key from outside is read with `Object.hasOwn`, and a record of such keys is a Map or a
   null-prototype object (oxlint `no-proto`). Nothing sends SIGUSR1.

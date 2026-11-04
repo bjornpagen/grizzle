@@ -2,8 +2,27 @@ import { Array as Arr, Config, Effect, Option } from "effect"
 import { defineConfig } from "vitest/config"
 import { residualReporter } from "#vitest/reporter.ts"
 
-/** The flags every test process runs under: no `__proto__` accessor, and no debugger attach signal. */
-export const HARDENED_FLAGS: ReadonlyArray<string> = ["--disable-proto=delete", "--disable-sigusr1"]
+/**
+ * The flags every test process runs under: no `__proto__` accessor and no inspector opened on SIGUSR1; a deprecated
+ * Node API, a pending deprecation included, throws instead of warning; only context-aware native addons load; no
+ * module resolves from the global folders; an unhandled rejection is an uncaught exception; and no experimental global
+ * or module (WebSocket, Web Storage, navigator, node:sqlite, node:ffi) exists. V8's JIT and code generation from
+ * strings stay on.
+ */
+export const HARDENED_FLAGS: ReadonlyArray<string> = [
+	"--disable-proto=delete",
+	"--disable-sigusr1",
+	"--throw-deprecation",
+	"--pending-deprecation",
+	"--force-context-aware",
+	"--no-global-search-paths",
+	"--unhandled-rejections=strict",
+	"--no-experimental-websocket",
+	"--no-experimental-webstorage",
+	"--no-experimental-global-navigator",
+	"--no-experimental-sqlite",
+	"--no-experimental-ffi"
+]
 
 /**
  * How long a test or a hook may take: without bound, or a number of milliseconds. A long search that keeps making

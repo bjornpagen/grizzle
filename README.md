@@ -867,7 +867,7 @@ Rerun it after upgrading grizzle.
 
 You need:
 
-- **Node 24 or later** and **Effect 4.** `effect` is a peer dependency, so install one copy beside grizzle. grizzle
+- **Node 26 or later** and **Effect 4.1.** `effect` is a peer dependency, so install one copy beside grizzle. grizzle
   runs under `--disable-proto=delete` and `--disable-sigusr1`: it never touches `Object.prototype.__proto__`, the
   `grizzle` command starts with both flags, and every test runs under both.
 - **PostgreSQL 19**, tested on 19rc1 with the two patches under [PostgreSQL known issues](#postgresql-known-issues).
@@ -1985,7 +1985,7 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 grizzle fits applications that own their data end to end, such as accounts, ledgers, billing, scheduling and
 workflows, whose rules are worth declaring and whose users see different slices of it.
 
-- **PostgreSQL 19 only**, tested on 19rc1 with the two patches below; **Node 24 or later**; **Effect 4**.
+- **PostgreSQL 19 only**, tested on 19rc1 with the two patches below; **Node 26 or later**; **Effect 4.1**.
 - **grizzle owns the database.** Existing schemas, and tables created outside its migrations, are not supported.
 - **No nullable columns, outer joins, window functions, SKIP LOCKED or raw SQL at run time.** A query is written in
   grizzle's query language or not at all.

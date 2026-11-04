@@ -175,7 +175,7 @@ const publishedPackage = Effect.gen(function* () {
 
 	const built = yield* run(
 		process.execPath,
-		["--disable-warning=ExperimentalWarning", path.join(root, "scripts", "build.ts"), modules],
+		[path.join(root, "scripts", "build.ts"), modules],
 		root
 	)
 	assert.equal(built.exitCode, succeeded, `the build: ${built.stderr}`)

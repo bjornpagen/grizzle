@@ -31,7 +31,7 @@
 	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
 	"type": "module",
 	"engines": {
-		"node": ">=24"
+		"node": ">=26"
 	},
 	"imports": {
 		"#compiler/*": "./src/*"
@@ -610,7 +610,7 @@
 	],
 	"sideEffects": false,
 	"scripts": {
-		"prepack": "node --conditions=grizzle-source --disable-warning=ExperimentalWarning ../../scripts/build.ts",
+		"prepack": "node --conditions=grizzle-source ../../scripts/build.ts",
 		"typecheck": "effect-tsgo tsrs -b",
 		"superlint": "superlint",
 		"oxlint": "oxlint"
@@ -622,7 +622,7 @@
 		"effect": "catalog:"
 	},
 	"peerDependencies": {
-		"effect": "^4.0.5"
+		"effect": "^4.1.2"
 	},
 	"publishConfig": {
 		"access": "public",

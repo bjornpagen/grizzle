@@ -5,18 +5,16 @@ import { runDevtool } from "@grizzle/devtools/run"
 import {
 	Array as Arr,
 	Console,
-	Crypto,
 	Effect,
 	FileSystem,
 	Option,
 	Order,
 	pipe,
-	type PlatformError,
 	Record as Rec,
 	Schema,
 	String as Str
 } from "effect"
-import { Hex } from "effect/encoding"
+import { Digest } from "effect/crypto"
 import { compilePhases, fixtures } from "#scripts/dev/profile/phases.ts"
 
 const parseSettings = Effect.fn("parseSettings")(function* (args: ReadonlyArray<string>) {
@@ -50,9 +48,8 @@ const parseSettings = Effect.fn("parseSettings")(function* (args: ReadonlyArray<
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
 
 /** The texts of the parts, in order, joined by commas. */
-const joined = (
-	parts: ReadonlyArray<Effect.Effect<string, Schema.SchemaError | PlatformError.PlatformError>>
-) => Effect.map(Effect.all(parts), (items) => Arr.join(items, ","))
+const joined = (parts: ReadonlyArray<Effect.Effect<string, Schema.SchemaError>>) =>
+	Effect.map(Effect.all(parts), (items) => Arr.join(items, ","))
 
 const byKey: Order.Order<readonly [string, unknown]> = Order.mapInput(
 	Order.String,
@@ -68,12 +65,10 @@ const byKey: Order.Order<readonly [string, unknown]> = Order.mapInput(
  * share differently (one memoizes, the other recomputes) dump the same bytes.
  */
 const dumpText = Effect.fn("dumpText")(function* (root: unknown) {
-	const crypto = yield* Crypto.Crypto
+	const digests = yield* Digest.Digest
 	const table = new Map<string, string>()
 	const onStack = new Set<object>()
-	const objectText = (
-		v: object
-	): Effect.Effect<string, Schema.SchemaError | PlatformError.PlatformError> => {
+	const objectText = (v: object): Effect.Effect<string, Schema.SchemaError> => {
 		if (v instanceof Map) {
 			return Effect.map(
 				joined(
@@ -98,22 +93,16 @@ const dumpText = Effect.fn("dumpText")(function* (root: unknown) {
 		)
 	}
 	/** The text a subtree is referred to by: itself, or the digest it is tabled under once it is long. */
-	const shared = (
-		text: string
-	): Effect.Effect<string, Schema.SchemaError | PlatformError.PlatformError> =>
+	const shared = (text: string): Effect.Effect<string, Schema.SchemaError> =>
 		text.length > 4096
 			? Effect.gen(function* () {
-					const digest = pipe(
-						Hex.encode(yield* crypto.digest("SHA-256", new TextEncoder().encode(text))),
-						Str.slice(0, 24)
-					)
+					const hex = yield* digests.digestHex(Digest.sha256, new TextEncoder().encode(text))
+					const digest = pipe(hex, Str.slice(0, 24))
 					table.set(digest, text)
 					return yield* encodeJson(`<sub ${digest}>`)
 				})
 			: Effect.succeed(text)
-	const go = (
-		v: unknown
-	): Effect.Effect<string, Schema.SchemaError | PlatformError.PlatformError> => {
+	const go = (v: unknown): Effect.Effect<string, Schema.SchemaError> => {
 		if (typeof v === "bigint") {
 			return encodeJson(`${v}n`)
 		}
@@ -207,4 +196,4 @@ const main = Effect.gen(function* () {
 	yield* Console.log(`dumped ${settings.dump.value}`)
 })
 
-runDevtool(Effect.as(main, 0))
+runDevtool(Effect.as(Effect.provide(main, Digest.layerWebCrypto), 0))
