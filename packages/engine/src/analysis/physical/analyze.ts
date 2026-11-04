@@ -8,18 +8,9 @@ import {
 	type RootObservation
 } from "#compiler/analysis/physical/consumers.ts"
 
-import {
-	type Justification,
-	physicalKeyBound,
-	withReason
-} from "#compiler/analysis/physical/fds.ts"
+import { type Justification, withReason } from "#compiler/analysis/physical/fds.ts"
 
-import {
-	isUnique,
-	keyedBy,
-	type PhysicalProps,
-	type Realization
-} from "#compiler/analysis/physical/props.ts"
+import { keyedBy, type PhysicalProps, type Realization } from "#compiler/analysis/physical/props.ts"
 
 import {
 	physicalPropsOf,
@@ -30,15 +21,6 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import { Fold } from "#compiler/ir/fold.ts"
-import {
-	type ConsumerSensitivity,
-	insertKey,
-	type MultiplicityMap,
-	type MultiplicityRecord,
-	nothingOwed,
-	type Owed,
-	type PhysicalKey
-} from "#compiler/ir/multiplicity.ts"
 import { inputsOf, type KeySet, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 
 export interface PhysicalEnv {
@@ -104,23 +86,13 @@ export interface PhysicalAnalysis {
 	readonly obligations: ReadonlyArray<Obligation>
 }
 
-const sensitivityOrder: ReadonlyArray<ConsumerSensitivity> = ["ignores", "observes", "preserves"]
-
-const physicalKeyOf = (columns: KeySet, just: Justification): PhysicalKey => ({
-	columns: [...columns].toSorted(),
-	proof: just.premises
-})
-
 /**
  * Physical multiplicity analysis of a query DAG.
  *
  * One pass in topological order computes every node's physical properties under its realization (rules.ts); one
  * classification of every consumer edge follows (consumers.ts); then each observing edge becomes an obligation, the
  * heading its consumer needs distinct, discharged when the input's physical keys prove it and outstanding otherwise.
- * `multiplicityRecords` reads the frozen MultiplicityRecord of ir/multiplicity.ts off an analysis: the physical keys
- * with their premises as a bounded antichain, the maximum cardinality where known, the heading on which elimination is
- * still owed, and the treatment each consumer gives the node's repeats. They live in a map beside the DAG and never
- * touch NodeMeta.
+ * What the analysis knows lives beside the DAG and never touches NodeMeta.
  *
  * The analysis is a pure function of the DAG, the execution context, the evidence catalog and the realization: the
  * placement pass (lower/optimize/dedup) runs it over the plain realization to learn where elimination is owed, decides,
@@ -129,8 +101,8 @@ const physicalKeyOf = (columns: KeySet, just: Justification): PhysicalKey => ({
  * unproved multiplicity"). Work is linear
  * in the DAG with bounded per-node proofs (fds.ts): no search over plans.
  *
- * Physical multiplicity: evidence lifetime, uniqueness inference, consumer sensitivity, and the obligations and
- * records the duplicate-elimination placement reads.
+ * Physical multiplicity: evidence lifetime, uniqueness inference, consumer sensitivity, and the obligations the
+ * duplicate-elimination placement reads.
  */
 export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis => {
 	const order = topoOrder(dag)
@@ -192,52 +164,4 @@ export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis
 		edges,
 		obligations
 	}
-}
-
-/**
- * Each node's MultiplicityRecord (ir/multiplicity.ts), a pure function of the analysis's properties, consumer edges
- * and obligations: its physical keys as a bounded antichain, its proven maximum cardinality, the heading on which
- * elimination is still owed (the first outstanding obligation's, or every column of a node that is not unique), and
- * the treatments its consumers give its repeats.
- *
- * The nodes are in the analysis's node order.
- */
-export const multiplicityRecords = (
-	analysis: Pick<PhysicalAnalysis, "order" | "of" | "edges" | "obligations">
-): MultiplicityMap => {
-	const into = new Map<RelNode, Array<ConsumerEdge>>()
-	for (const e of analysis.edges) {
-		into.set(e.input, [...(into.get(e.input) ?? []), e])
-	}
-	const outstanding = new Map<RelNode, Array<Obligation>>()
-	for (const o of analysis.obligations) {
-		if (!o.discharged) {
-			outstanding.set(o.edge.input, [...(outstanding.get(o.edge.input) ?? []), o])
-		}
-	}
-	const records: Record<NodeId, MultiplicityRecord> = {}
-	for (const node of analysis.order) {
-		const p = analysis.of(node).props
-		let keys: ReadonlyArray<PhysicalKey> = []
-		for (const k of p.keys) {
-			keys = insertKey(keys, physicalKeyOf(k.columns, k.just), physicalKeyBound)
-		}
-		const obligation = outstanding.get(node)?.[0]
-		const owed: Owed =
-			obligation !== undefined
-				? { kind: "on", heading: [...obligation.heading] }
-				: isUnique(p)
-					? nothingOwed
-					: { kind: "on", heading: [...p.columns] }
-		const observers = sensitivityOrder.filter((s) =>
-			(into.get(node) ?? []).some((e) => e.sensitivity === s)
-		)
-		records[node.id] = Object.freeze({
-			keys,
-			maxCard: p.maxCard,
-			owed,
-			observers
-		})
-	}
-	return records
 }

@@ -2,16 +2,13 @@ import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { lawUnits, namedDetail, type ResidualLaw } from "#compiler/ir/law.ts"
-import {
-	emitResidualLaws,
-	type ResidualLawObjects,
-	residualLawStatements
-} from "#compiler/laws/residual/skeleton.ts"
+import { emitResidualLaw, type ResidualLawObjects } from "#compiler/laws/residual/skeleton.ts"
 import {
 	compileInstallation,
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
+import type { Ddl } from "#compiler/sql/ast.ts"
 import { printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { strictDetail } from "#test/support/detail.ts"
@@ -90,17 +87,21 @@ export const installCapacity = (
 		const installation = compiled.value
 		yield* transaction(substrate.admin, installationSql(installation))
 		const writer = yield* oracleWorld(installation)
-		/** The full role holds every relation whole: every violation's DETAIL carries its keys to it. */
-		const emitted = emitResidualLaws(installation.laws, {
-			schema,
-			names: installation.names,
-			holders: () => [writer.role]
-		})
-		if (!emitted.ok) {
-			return yield* Effect.die(new Error(`emit: ${emitted.error.message}`))
+		const objects: Array<ResidualLawObjects> = []
+		for (const law of installation.laws.residuals) {
+			const emitted = emitResidualLaw(law, {
+				schema,
+				names: installation.names,
+				holders: () => [writer.role]
+			})
+			if (!emitted.ok) {
+				return yield* Effect.die(new Error(`emit: ${emitted.error.message}`))
+			}
+			objects.push(emitted.value)
 		}
-		/** Every law function's statements pass the statement and text audits before they run. */
-		const statements = Arr.flatMap(emitted.value, residualLawStatements)
+		const statements = Arr.flatMap(objects, (o) =>
+			Arr.flatMap(o.units, (u): ReadonlyArray<Ddl> => [u.function, u.revoke, u.trigger])
+		)
 		checkedStatements(statements, "residual law statement")
 		yield* transaction(substrate.admin, Arr.map(statements, printStatement))
 		const q = quoteIdent(schema)
@@ -108,7 +109,7 @@ export const installCapacity = (
 			schema,
 			q,
 			installation,
-			objects: emitted.value,
+			objects,
 			writer,
 			table: (relation: string) =>
 				`${q}.${quoteIdent(

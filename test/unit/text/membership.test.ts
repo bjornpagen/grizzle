@@ -8,16 +8,16 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { regexMaxNodes } from "#compiler/core/policy.ts"
+import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import {
-	accepts,
-	analyzeLanguage,
 	analyzeText,
 	refinementBounds,
 	type TextRefinement,
 	textLimits
 } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { pickGen } from "#test/support/pick.ts"
 import {
 	type Flags,
@@ -87,7 +87,7 @@ const caseGen: Gen<{
  * The language a generated pattern recognizes may be empty, which analyzeText refuses; a generated pattern may also
  * exceed the compile-space budgets (ResourceBound), most often by its anchors. Both are refusals, not lowerings, so the
  * membership checks skip them; the refusals themselves are pinned in parse.test.ts. Emptiness is the language's own
- * classification (refinement.ts analyzeLanguage), never a refusal's text.
+ * classification (the IR fixtures' analyzeLanguage), never a refusal's text.
  */
 const refineOrEmpty = (source: string, flags: Flags): TextRefinement | "empty" | "bound" => {
 	const result = analyzeText(source, flags, loc)
@@ -196,7 +196,7 @@ describe("host NFA membership equals ECMAScript", () => {
 				Arr.map(admitted, (p): Gen<FamilyCase> => {
 					const drawnString = oneOf<FamilyCase[1]>([
 						map(stringsOver(p.family.alphabet, 8), (s) => ({ witness: false, s })),
-						map(walkGen(p.r.nfa), (s) => ({ witness: true, s }))
+						map(walkGen(buildNfa(p.r.ir)), (s) => ({ witness: true, s }))
 					])
 					return (source) => [p, source.draw(drawnString)]
 				})
@@ -284,7 +284,7 @@ describe("host NFA membership equals ECMAScript", () => {
 							return
 						}
 						for (const tape of walks) {
-							const w = walk(r.nfa, tape, walkLength)
+							const w = walk(buildNfa(r.ir), tape, walkLength)
 							if (w === undefined) {
 								continue
 							}

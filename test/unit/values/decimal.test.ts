@@ -32,7 +32,7 @@ import {
 	numericMaxIntegerDigits,
 	roundedUnits
 } from "#compiler/scalar/values/decimal.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { decimalGen, decimalText } from "#test/unit/values/support.ts"
 
@@ -495,7 +495,7 @@ describe("Decimal in the canonical serializer", () => {
 							const text = x.toString()
 							assert.equal(isDecimalPayload(text), true)
 							assert.equal(
-								succeeded(encode(succeeded(DecimalText.make(text)), everyProperty)),
+								succeeded(encode(defined(DecimalText.parse(text)), everyProperty)),
 								succeeded(encode(x, everyProperty))
 							)
 						})

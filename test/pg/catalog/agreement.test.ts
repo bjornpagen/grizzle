@@ -19,7 +19,6 @@ import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { Delivery } from "#compiler/lower/conservative/deliver.ts"
 import type { CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
-import { catalogDispatch } from "#compiler/lower/shapes/catalog/native.ts"
 import { rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import {
@@ -32,6 +31,7 @@ import {
 	oracleCase
 } from "#test/pg/catalog/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { catalogDispatch } from "#test/support/compile.ts"
 import type { AuthoredExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import type { RawRow } from "#test/support/oracle/install/capture.ts"
 import {

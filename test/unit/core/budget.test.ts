@@ -7,10 +7,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
-import { BudgetMeter, budgetBoundOf, checkBound } from "#compiler/core/budget.ts"
+import { BudgetMeter, checkBound } from "#compiler/core/budget.ts"
 import { formatLoc, sitedLoc } from "#compiler/core/loc.ts"
 import { type BudgetKind, budgetKinds } from "#compiler/core/policy.ts"
 import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { budgetBoundOf } from "#test/support/kernel/policy.ts"
 
 /**
  * Compiler resource bounds (core/budget.ts): "Exceeding a compiler resource bound yields a source-located error."
@@ -172,7 +173,6 @@ describe("BudgetMeter and checkBound", () => {
 									)
 								}
 								assert.equal(meter.used(budget), used[budget])
-								assert.equal(meter.remaining(budget), Math.max(0, limit - used[budget]))
 							}
 							for (const step of steps) {
 								switch (step.kind) {
@@ -217,14 +217,6 @@ describe("BudgetMeter and checkBound", () => {
 									}
 								}
 							}
-							const usage: Record<BudgetKind, { used: number; limit: number }> = {
-								nodes: { used: used.nodes, limit: limits.nodes },
-								fields: { used: used.fields, limit: limits.fields },
-								sqlBytes: { used: used.sqlBytes, limit: limits.sqlBytes },
-								params: { used: used.params, limit: limits.params },
-								variants: { used: used.variants, limit: limits.variants }
-							}
-							assert.deepEqual(meter.usage(), usage)
 						})
 				)
 			)

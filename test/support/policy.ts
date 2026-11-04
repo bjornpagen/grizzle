@@ -1,4 +1,4 @@
-import type { CheckedSchema } from "#compiler/analysis/schema.ts"
+import { type CheckedSchema, checkedRoleOver, checkedSchema } from "#compiler/analysis/schema.ts"
 import { checkMember, type CheckOptions, checkReadBack } from "#compiler/check/index.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -6,8 +6,8 @@ import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { checkedInput, parseSchemaInput } from "#compiler/program/schema.ts"
-import { type Owned, own } from "#compiler/schema/own.ts"
+import { parseSchemaInput, type SchemaInput } from "#compiler/program/schema.ts"
+import { type Owned, own, ownRole } from "#compiler/schema/own.ts"
 import {
 	decodedMember,
 	decodedReadBack,
@@ -43,6 +43,14 @@ export const schemaDescIn = (schema: unknown): Result.Result<SchemaDesc, Compile
 	Result.map(parseSchemaInput(schema), (input) =>
 		input.kind === "role" ? input.desc.base : input.desc
 	)
+
+/** The checked schema an input's queries are checked against: a role's, over its base, or reality's. */
+const checkedInput = (input: SchemaInput): Result.Result<CheckedSchema, CompileError> =>
+	input.kind === "role"
+		? Result.flatMap(ownRole(input.desc), (role) =>
+				Result.flatMap(checkedSchema(role.base), (base) => checkedRoleOver(role, base))
+			)
+		: Result.flatMap(own(input.desc), checkedSchema)
 
 /** The checked schema of a schema value, or the compiler's refusal of it: its derived relations' analysis among them. */
 export const checkedIn = (schema: unknown): Result.Result<CheckedSchema, CompileError> =>

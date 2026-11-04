@@ -26,7 +26,7 @@ import type {
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { defined } from "#test/support/assert.ts"
 import { closed, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
 import { definedOf } from "#test/support/oracle/gen/ops.ts"
@@ -258,7 +258,7 @@ export class Q {
 	}
 
 	decimal(text: string, type: ScalarType): ScalarExpr {
-		return this.lit({ kind: "numeric", value: succeeded(DecimalText.make(text)) }, type)
+		return this.lit({ kind: "numeric", value: defined(DecimalText.parse(text)) }, type)
 	}
 
 	param(name: string, type: ScalarType, role: ParamRole): ScalarExpr {

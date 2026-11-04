@@ -22,7 +22,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { decodeDesc, descText, type QueryDesc } from "#compiler/ir/desc.ts"
-import { fromQueryDescription, toQueryDescription } from "#compiler/ir/describe.ts"
+import { toQueryDescription } from "#compiler/ir/describe.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import {
 	isOrderedValue,
@@ -30,13 +30,13 @@ import {
 	type OrderedValue,
 	type QueryValue,
 	queryOver as query,
-	queryFromDesc,
-	queryValueHeading,
 	varsOver as v
 } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
+import { queryState } from "#compiler/query/build/state.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { assert } from "#test/support/assert.ts"
+import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { AutomaticTask, Kind, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { decodeJson } from "#test/support/json.ts"
 import { at, Booking, descOf, Schedule } from "#test/unit/query/fixtures.ts"
@@ -97,7 +97,7 @@ const viaDescription = (desc: QueryDesc): QueryDesc => {
 
 /** The names a heading carries: its fields in heading order, and its attachments. */
 const names = (q: unknown) => {
-	const h = queryValueHeading(q)
+	const h = queryState(q)?.heading
 	if (h === undefined) {
 		throw new Error("not a query value")
 	}
@@ -510,8 +510,8 @@ describe("rebuilding from a Description", () => {
 			const original = kinds()
 			const back = rebuilt(descOf(original), Work)
 			assert.deepEqual(
-				queryValueHeading(back)?.fields.get("kind"),
-				queryValueHeading(original)?.fields.get("kind")
+				queryState(back)?.heading.fields.get("kind"),
+				queryState(original)?.heading.fields.get("kind")
 			)
 			type Handle = "a roster handle" | "no handle"
 			return searched(

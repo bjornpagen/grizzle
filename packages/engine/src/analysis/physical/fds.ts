@@ -14,7 +14,7 @@ import { inHeadingOrder, keyOrder } from "#compiler/logical/closure.ts"
  * At most this many physical keys per fragment ("bounded candidate antichain"): the logical analysis's
  * structural bound. Forgetting a key is always sound.
  */
-export const physicalKeyBound = 8
+const physicalKeyBound = 8
 
 /** At most this many dependencies are carried from a fragment to its consumers. Dropping one only weakens proofs. */
 export const dependencyBound = 64

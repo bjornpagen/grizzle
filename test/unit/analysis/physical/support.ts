@@ -2,16 +2,14 @@ import { Array as Arr, Option } from "effect"
 import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import {
 	analyzePhysical,
-	multiplicityRecords,
 	type PhysicalAnalysis,
 	type PhysicalEnv,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { plainLosses } from "#compiler/analysis/physical/props.ts"
+import { isUnique, plainLosses } from "#compiler/analysis/physical/props.ts"
 import type { PhysicalProps, Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import type { MultiplicityRecord } from "#compiler/ir/multiplicity.ts"
-import type { Heading, RelDag, RelNode } from "#compiler/ir/rel.ts"
+import type { Heading, KeySet, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Ir } from "#test/support/fixtures/ir/build.ts"
 import {
@@ -49,16 +47,23 @@ export const snapshotOver = (m: Ir): PhysicalEnv => ({
 	roots: "result"
 })
 
-/** The multiplicity record of `node`: what the kernel's verification reads of the analysis (multiplicityRecords). */
-export const multiplicityRecord = (a: PhysicalAnalysis, node: RelNode): MultiplicityRecord => {
-	const r = multiplicityRecords(a)[node.id]
-	if (r === undefined) {
-		throw new Error(`no record for ${node.id}`)
-	}
-	return r
-}
-
 export const propsOf = (a: PhysicalAnalysis, node: RelNode): PhysicalProps => a.of(node).props
+
+/** Whether duplicate elimination is still owed on a node's rows: nothing, or on an exact heading. */
+type Owed = { readonly kind: "none" } | { readonly kind: "on"; readonly heading: KeySet }
+
+/**
+ * What `node` still owes of duplicate elimination, as the analysis states it: the heading of the first outstanding
+ * obligation on its rows, nothing when its properties prove it unique, and otherwise every column.
+ */
+export const owedOf = (a: PhysicalAnalysis, node: RelNode): Owed => {
+	const outstanding = Arr.findFirst(a.obligations, (o) => !o.discharged && o.edge.input === node)
+	if (Option.isSome(outstanding)) {
+		return { kind: "on", heading: [...outstanding.value.heading] }
+	}
+	const p = propsOf(a, node)
+	return isUnique(p) ? { kind: "none" } : { kind: "on", heading: [...p.columns] }
+}
 
 export const keyColumns = (
 	a: PhysicalAnalysis,
@@ -203,7 +208,7 @@ export const soundness = (
 	const brokenIn = (node: RelNode, rel: Relation): ReadonlyArray<Violation> => {
 		const id = node.id
 		const p = propsOf(analysis, node)
-		const owed = multiplicityRecord(analysis, node).owed
+		const owed = owedOf(analysis, node)
 		return [
 			...Arr.map(
 				Arr.filter(p.keys, (k) => !uniqueOn(rel.heading, rel.rows, k.columns)),

@@ -9,12 +9,13 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Schema } from "effect"
 import * as Result from "#compiler/core/result.ts"
 import { descText } from "#compiler/ir/desc.ts"
-import { describeQuery, lowerQuery, queryFromDescription } from "#compiler/program/describe.ts"
+import { describeQuery, lowerQuery } from "#compiler/program/describe.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { queryFromDescription } from "#test/support/describe.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { decodeJson, jsonText } from "#test/support/json.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
@@ -29,8 +30,9 @@ import { printCase } from "#test/support/oracle/public/print.ts"
 
 import { regex } from "arkregex"
 /**
- * describeQuery, queryFromDescription and lowerQuery (packages/engine/src/program/describe.ts), the engine's internal
- * inspection vocabulary, over every generated query read (test/support/oracle/public): a query rebuilt from its
+ * describeQuery and lowerQuery (packages/engine/src/program/describe.ts), the engine's internal inspection
+ * vocabulary, with describeQuery's inverse (test/support/describe.ts queryFromDescription), over every generated query
+ * read (test/support/oracle/public): a query rebuilt from its
  * Description, sent as JSON or not, is the same Description and lowers to the same statements; lowering is
  * byte-identical across runs; a query rebuilt without its schema lowers to a refusal; and a Description is checked
  * against the schema it is given.

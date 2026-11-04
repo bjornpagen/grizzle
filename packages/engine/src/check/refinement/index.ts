@@ -1,8 +1,6 @@
 import type { RefinementPlugin } from "#compiler/check/context.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
-import { exprClosure, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { exprsOf, type RelDag } from "#compiler/ir/rel.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
 	contractOf,
@@ -94,8 +92,8 @@ const combine = (a: ScalarType, b: ScalarType): ScalarType => {
  *   (lower/shapes/refined). A comparison parameter is bound as the base and is never validated. Closed payloads with
  *   nontrivial refinements are validated by PostgreSQL at installation: `refinedConstants` lists them, and
  *   lower/shapes/refined builds the statement that casts each to its domain and the installer extension that runs it
- *   in the Publish phase. No path validates a query's own refined literals (`queryConstants` lists them), so the
- *   delivery relies on no base-typed constant's membership and casts it where it is delivered.
+ *   in the Publish phase. No path validates a query's own refined literals, so the delivery relies on no base-typed
+ *   constant's membership and casts it where it is delivered.
  *
  * The host never validates application data: the canonical pattern keys come from the text package's bounded automaton
  * construction over declarations, never from a matcher run over values.
@@ -121,13 +119,13 @@ export const hasConstraint = (t: ScalarType): boolean => {
 }
 
 /**
- * A refined constant the compiler relies on: a closed relation's payload value, or a literal in a query, of a type
- * whose domain carries a CHECK. PostgreSQL validates it at installation or admission.
+ * A refined constant the compiler relies on: a closed relation's payload value of a type whose domain carries a CHECK.
+ * PostgreSQL validates it at installation.
  */
 export interface RefinedConstant {
 	readonly literal: TypedLiteral
 	readonly type: ScalarType
-	/** Where the constant is declared, for diagnostics: `closed Tier.label of Pro`, `query literal e#3`. */
+	/** Where the constant is declared, for diagnostics: `closed Tier.label of Pro`. */
 	readonly site: string
 }
 
@@ -149,18 +147,3 @@ export const refinedConstants = (schema: SchemaReading): ReadonlyArray<RefinedCo
 			})
 		)
 	)
-
-/**
- * The literals of a checked query DAG whose type carries a nontrivial refinement: a literal bound opposite a refined
- * field, or a `Compute.literal` of a refined type, in the DAG's order: its nodes inputs first (ir/dag.ts topoOrder),
- * each node's expressions and then their arguments (ir/expr.ts exprClosure).
- */
-export const queryConstants = (dag: RelDag): ReadonlyArray<RefinedConstant> => {
-	const out: Array<RefinedConstant> = []
-	for (const expr of exprClosure(topoOrder(dag).flatMap((node) => exprsOf(node)))) {
-		if (expr.kind === "literal" && hasConstraint(expr.type)) {
-			out.push({ literal: expr.value, type: expr.type, site: `query literal ${expr.id}` })
-		}
-	}
-	return out
-}

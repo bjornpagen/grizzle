@@ -6,7 +6,7 @@ import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, pipe, Record as Rec, String as Str } from "effect"
 import { requireGet } from "#compiler/analysis/logical/get.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { type ClaimedKey, claimedClasses } from "#compiler/ir/keys.ts"
+import { type ClaimedKey, claimedColumns, claimedMembers } from "#compiler/ir/keys.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -1083,12 +1083,22 @@ interface Verdict {
 	readonly keys: ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>
 }
 
-/** A claimed key over its classes, each in name order, by their first names. */
-const classesInNameOrder = (k: ClaimedKey): ReadonlyArray<ReadonlyArray<string>> =>
-	Arr.sort(
-		Arr.map(claimedClasses(k), (members) => Arr.sort(members, Str.Order)),
+/**
+ * A claimed key over its classes, each key column with the columns its members state equal to it, each class in name
+ * order, the classes by their first names.
+ */
+const classesInNameOrder = (k: ClaimedKey): ReadonlyArray<ReadonlyArray<string>> => {
+	const members = claimedMembers(k)
+	return Arr.sort(
+		Arr.map(claimedColumns(k), (column) =>
+			Arr.sort(
+				[column, ...Arr.flatMap(members, (m) => (m.of === column ? [m.column] : []))],
+				Str.Order
+			)
+		),
 		Arr.makeOrder(Str.Order)
 	)
+}
 
 const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	const template = compileTemplate(built(spec), undefined, testCompile)

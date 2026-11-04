@@ -108,10 +108,8 @@ const opTable = (): ReadonlyMap<string, OpForm> => {
 	return table
 }
 
-const table = opTable()
-
 /** The catalogue's operator forms, by oprcode: what the pg test checks against the catalog. */
-export const opForms: ReadonlyMap<string, OpForm> = table
+export const opForms: ReadonlyMap<string, OpForm> = opTable()
 
 /** The connective identities: SQL syntax, not catalog entries. */
 const keywordOps = ["and", "or", "not"] as const
@@ -290,7 +288,7 @@ export const defaultOps = (
 		}
 	}
 	/** The operator forms are of overloads their catalog identity alone names. */
-	const form = typeof expr.op === "string" ? table.get(expr.op) : undefined
+	const form = typeof expr.op === "string" ? opForms.get(expr.op) : undefined
 	if (form === undefined) {
 		const connective = connectiveOf(expr.op)
 		return connective === undefined ? registryForm(expr.op, args) : keyword(connective, args)

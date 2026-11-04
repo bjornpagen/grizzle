@@ -25,7 +25,7 @@ export { ge, le, ne } from "#test/support/fixtures/ir/desc.ts"
 /**
  * A small vocabulary for writing QueryDescs in the checker's tests.
  *
- * The query builder records these descriptions from `query(S).rule(...)`; the checker's tests state them
+ * The query builder records these descriptions from `queryDesc(S).rule(...)`; the checker's tests state them
  * directly, so each test reads like the query's rule while exercising exactly the Description boundary the checker
  * consumes. They are authored as JavaScript states a description, without locations: whatever decodes one, the
  * checker's entry point included, locates every node by its path in the whole description, as it locates a JavaScript
@@ -111,7 +111,7 @@ export const max = (arg: ExprDesc): HeadTermDesc => ({ kind: "aggregate", fn: "m
 /** A rule's Description, every field stated: no variable, filter, interior or attachment is a stated empty list. */
 export const rule = (spec: RuleDesc): RuleDesc => spec
 
-export const query = (...arms: Arr.NonEmptyReadonlyArray<RuleDesc>): QueryDesc => ({
+export const queryDesc = (...arms: Arr.NonEmptyReadonlyArray<RuleDesc>): QueryDesc => ({
 	stage: { kind: "rules", arms }
 })
 

@@ -456,9 +456,6 @@ export class RegexBuilder {
 export const loopsThroughAnchor = (node: RegexNode): boolean =>
 	new RegexBuilder().loopsThroughAnchor(node)
 
-/** The zero-width matches of a node (RegexBuilder.zeroPart). */
-export const zeroPart = (node: RegexNode): RegexNode => new RegexBuilder().zeroPart(node)
-
 /** The NFA positions of a node once its counted repetitions are written out (RegexBuilder.expandedSize). */
 export const expandedSize = (node: RegexNode): number => new RegexBuilder().expandedSize(node)
 

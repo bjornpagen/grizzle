@@ -4,11 +4,8 @@ import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
-import {
-	approximateMisuse,
-	approximatePageMisuse,
-	hnswPolicy
-} from "#compiler/check/approximate/index.ts"
+import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
+import { approximateMisuse, approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -20,13 +17,9 @@ import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import {
-	isQueryValue,
-	type QueryValue,
-	queryFromDesc,
-	queryValueDesc
-} from "#compiler/query/build/index.ts"
+import { isQueryValue, type QueryValue, queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert, defined, matchesObject, refused, succeeded } from "#test/support/assert.ts"
+import { queryFromDesc } from "#test/support/describe.ts"
 import {
 	byDistance,
 	candidates,

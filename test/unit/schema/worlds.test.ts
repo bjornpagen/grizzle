@@ -14,7 +14,7 @@ import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, derived, relation, schema } from "#compiler/public/schema.ts"
-import { queryFromDesc, queryValueDesc } from "#compiler/query/build/query.ts"
+import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { ownLogin, ownRole } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import {
@@ -28,6 +28,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { assert, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { queryFromDesc } from "#test/support/describe.ts"
 import {
 	bareContract,
 	descOf,

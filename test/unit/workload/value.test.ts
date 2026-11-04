@@ -13,7 +13,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
-import { describeQuery, queryFromDescription } from "#compiler/program/describe.ts"
+import { describeQuery } from "#compiler/program/describe.ts"
 import { pageQueryFingerprint } from "#compiler/program/workload/fingerprint.ts"
 import { workload as admitWorkload, programDescOf } from "#compiler/program/workload/value.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
@@ -32,6 +32,7 @@ import {
 	unorderedEqual
 } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { queryFromDescription } from "#test/support/describe.ts"
 import {
 	Board,
 	fixtureLogin,

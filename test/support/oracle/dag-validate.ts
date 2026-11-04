@@ -1,11 +1,27 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { compileReasonText } from "#compiler/core/errors.ts"
-import { ExprId, NodeId, OccurrenceId, ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
+import { admittedIdentifier } from "#compiler/core/identity.ts"
+import {
+	type ConstraintName,
+	ExprId,
+	type LawId,
+	NodeId,
+	OccurrenceId,
+	ParamId,
+	type PremiseObject,
+	ScopeId,
+	VarId
+} from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { assembledDag, relNode, toTable } from "#compiler/ir/dag.ts"
-import { evidenceContextShape, premiseShape } from "#compiler/ir/evidence.ts"
+import {
+	constraintKinds,
+	type EvidenceContext,
+	evidenceContexts,
+	type Premise
+} from "#compiler/ir/evidence.ts"
 import {
 	builtExpr,
 	condProblems,
@@ -23,7 +39,19 @@ import {
 	type TableExprOf
 } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
-import { claimedColumns, claimedKeyIn, claimedKeyShape, viewKeyShape } from "#compiler/ir/keys.ts"
+import {
+	type AtMostOneWitness,
+	type ClaimedKey,
+	claimedColumns,
+	claimedKeyIn,
+	type Dependency,
+	type EqualWitness,
+	type FixedWitness,
+	type Implication,
+	type KeyProof,
+	type Rule,
+	type ViewKey
+} from "#compiler/ir/keys.ts"
 import type { PreconditionProof } from "#compiler/ir/proof.ts"
 import {
 	aggregateArity,
@@ -63,10 +91,10 @@ import {
 import { literalShape, scalarTypeShape, tableExprShape } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, isRefined, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { proofHolds } from "#compiler/scalar/compute/lower.ts"
 import { binaryCoercion, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
 import { defined } from "#test/support/assert.ts"
+import { proofHolds } from "#test/support/oracle/proof.ts"
 
 /**
  * The strict re-reader of a DAG: every rule a DAG grizzle's builders and editors assemble holds by construction,
@@ -1606,6 +1634,134 @@ const headingShape: S.Shape<Heading> = S.uniqueArray(
 
 const keySetShape: S.Shape<KeySet> = S.uniqueStrings("key columns", S.nonEmptyString)
 
+/**
+ * The name brands a DAG admits (a Forbid node's law, an evidence premise's object), through the naming door's admitting
+ * function (core/identity.ts admittedIdentifier): the spelling decoded is one the compiler itself derived when it built
+ * the DAG.
+ */
+const lawIdShape: S.Shape<LawId> = S.branded(
+	(text: string): LawId => admittedIdentifier(text),
+	S.nonEmptyString
+)
+
+/**
+ * A premise names a constraint or unique index, or a residual law's function; a decoded name is typed by its
+ * ConstraintName member, which every PremiseObject reader treats as the object's name.
+ */
+const premiseObjectShape: S.Shape<PremiseObject> = S.branded(
+	(text: string): ConstraintName => admittedIdentifier(text),
+	S.nonEmptyString
+)
+
+const premiseShape: S.Shape<Premise> = S.tagged("kind", {
+	constraint: S.struct({
+		constraint: premiseObjectShape,
+		constraintKind: S.literalsShape(constraintKinds)
+	}),
+	node: S.struct({ node: nodeIdShape }),
+	param: S.struct({ param: paramIdShape })
+})
+
+const evidenceContextShape: S.Shape<EvidenceContext> = S.literalsShape(evidenceContexts)
+
+const implicationShape: S.Shape<Implication> = S.lazy("an implication", () =>
+	S.struct({ node: nodeIdShape, from: keySetShape, steps: S.array(dependencyShape) })
+)
+
+/** The shape of a key proof, as a node's metadata records it (rel.ts NodeMeta). */
+const keyProofShape: S.Shape<KeyProof> = S.lazy("a key proof", () =>
+	S.struct({
+		node: nodeIdShape,
+		key: keySetShape,
+		premises: S.array(premiseShape),
+		context: evidenceContextShape,
+		members: S.array(
+			S.struct({ of: S.nonEmptyString, column: S.nonEmptyString, determines: implicationShape })
+		),
+		basis: S.tagged("kind", {
+			rows: S.struct({ implication: implicationShape }),
+			union: S.struct({
+				arms: S.nonEmptyArray(keyProofShape),
+				separations: S.array(
+					S.struct({
+						arms: S.pairShape(S.nonNegativeInteger),
+						column: S.nonEmptyString,
+						fixed: S.pairShape(implicationShape)
+					})
+				)
+			}),
+			within: S.struct({ implication: implicationShape, inner: keyProofShape })
+		})
+	})
+)
+
+/** The shape of a view's key, as the checker stamps it on a Base over the view (rel.ts ViewBase). */
+const viewKeyShape: S.Shape<ViewKey> = S.struct({
+	fields: S.nonEmptyUniqueStrings("view key columns"),
+	premises: S.array(premiseShape),
+	context: evidenceContextShape,
+	members: S.array(S.struct({ of: S.nonEmptyString, column: S.nonEmptyString }))
+})
+
+/** The shape of a claimed key, as a node's metadata records it (rel.ts NodeMeta). */
+const claimedKeyShape: S.Shape<ClaimedKey> = S.tagged("kind", {
+	proved: S.struct({ proof: keyProofShape }),
+	rewrite: S.struct({
+		key: keySetShape,
+		members: S.array(S.struct({ of: S.nonEmptyString, column: S.nonEmptyString }))
+	})
+})
+
+const fixedWitnessShape: S.Shape<FixedWitness> = S.tagged("kind", {
+	conjunct: S.struct({ expr: exprIdShape }),
+	closedValue: S.struct({}),
+	takeCorrelation: S.struct({ index: S.nonNegativeInteger }),
+	semiJoinPair: S.struct({ index: S.nonNegativeInteger, right: implicationShape }),
+	attachCorrelation: S.struct({ attach: nodeIdShape, index: S.nonNegativeInteger })
+})
+
+const equalWitnessShape: S.Shape<EqualWitness> = S.tagged("kind", {
+	conjunct: S.struct({ expr: exprIdShape }),
+	regionEquality: S.struct({ index: S.nonNegativeInteger }),
+	sharedColumn: S.struct({ occurrence: occurrenceIdShape, column: S.nonEmptyString }),
+	correlatedCopy: S.struct({ index: S.nonNegativeInteger }),
+	viewMember: S.struct({}),
+	arms: S.struct({ arms: S.nonEmptyArray(implicationShape) })
+})
+
+const atMostOneWitnessShape: S.Shape<AtMostOneWitness> = S.tagged("kind", {
+	context: S.struct({}),
+	row: S.struct({}),
+	singleFact: S.struct({}),
+	takeOne: S.struct({}),
+	nearestOne: S.struct({}),
+	falseConjunct: S.struct({ expr: exprIdShape })
+})
+
+const ruleShape: S.Shape<Rule> = S.tagged("rule", {
+	declared: S.struct({ premises: S.array(premiseShape), context: evidenceContextShape }),
+	fixed: S.struct({ witness: fixedWitnessShape }),
+	equal: S.struct({ witness: equalWitnessShape }),
+	correlated: S.struct({ index: S.nonNegativeInteger }),
+	match: S.struct({ occurrence: occurrenceIdShape, source: implicationShape }),
+	projection: S.struct({ input: implicationShape }),
+	group: S.struct({}),
+	grouped: S.struct({ input: implicationShape }),
+	kept: S.struct({ input: implicationShape }),
+	atMostOne: S.struct({ witness: atMostOneWitnessShape }),
+	distinct: S.struct({}),
+	produced: S.struct({ input: keyProofShape }),
+	ranked: S.struct({}),
+	agreed: S.struct({ arms: S.nonEmptyArray(implicationShape) }),
+	unionKey: S.struct({ proof: keyProofShape })
+})
+
+const dependencyShape: S.Shape<Dependency> = S.struct({
+	from: keySetShape,
+	to: keySetShape,
+	rule: ruleShape
+})
+
 const nodeMetaShape: S.Shape<NodeMeta> = S.struct({
 	paramDeps: S.uniqueIds("parameter dependencies", S.branded(ParamId, S.nonEmptyString)),
 	logicalKeys: S.array(claimedKeyShape),
@@ -1881,7 +2037,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 		)
 	}),
 	Forbid: S.structStated(
-		{ ...common, lawId: S.lawIdShape, violation: nodeIdShape },
+		{ ...common, lawId: lawIdShape, violation: nodeIdShape },
 		commonStated,
 		{}
 	),
@@ -2001,7 +2157,7 @@ export const validateTable = (table: DagTable): DagTable => {
 
 /**
  * The problems of an operation's or a cast's proof: the registry's overload is partial exactly where the node carries a
- * proof, and the proof kernel re-derives the precondition from its premises (lower.ts proofHolds), so every partial
+ * proof, and the proof kernel re-derives the precondition from its premises (oracle/proof.ts proofHolds), so every partial
  * operation a DAG holds stands where its precondition is proved, the soundness half of "no read raises".
  */
 const proofProblems = (

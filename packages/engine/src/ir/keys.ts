@@ -1,17 +1,14 @@
 import { compareText } from "#compiler/core/canonical.ts"
-import { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
+import type { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	type EvidenceContext,
-	evidenceContextShape,
 	type Grounds,
 	type Premise,
-	premiseShape,
 	premiseText,
 	strongest
 } from "#compiler/ir/evidence.ts"
 import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
-import * as S from "#compiler/ir/shape.ts"
 
 /**
  * Keys as proofs.
@@ -250,10 +247,6 @@ export type KeyClasses = ReadonlyArray<NonEmptyReadonlyArray<string>>
  * together, are a key.
  */
 export const keyClasses = (proof: KeyProof): KeyClasses => classesOfKey(proof.key, proof.members)
-
-/** A claimed key over its classes (keyClasses). */
-export const claimedClasses = (k: ClaimedKey): KeyClasses =>
-	k.kind === "proved" ? keyClasses(k.proof) : classesOfKey(k.key, k.members)
 
 const classesOfKey = (key: KeySet, members: ReadonlyArray<ClassMember>): KeyClasses =>
 	key.map((k): NonEmptyReadonlyArray<string> => [
@@ -561,106 +554,3 @@ export const keyWithin = (
 	inner: KeyProof,
 	members: ReadonlyArray<KeyMember>
 ): KeyProof => proved(node, key, { kind: "within", implication: determines, inner }, members)
-
-const nodeIdShape = S.branded(NodeId, S.nonEmptyString)
-const exprIdShape = S.branded(ExprId, S.nonEmptyString)
-const occurrenceIdShape = S.branded(OccurrenceId, S.nonEmptyString)
-const columnsShape: S.Shape<KeySet> = S.uniqueStrings("key columns", S.nonEmptyString)
-
-const implicationShape: S.Shape<Implication> = S.lazy("an implication", () =>
-	S.struct({ node: nodeIdShape, from: columnsShape, steps: S.array(dependencyShape) })
-)
-
-/** The shape of a key proof, as a node's metadata records it (rel.ts NodeMeta). */
-const keyProofShape: S.Shape<KeyProof> = S.lazy("a key proof", () =>
-	S.struct({
-		node: nodeIdShape,
-		key: columnsShape,
-		premises: S.array(premiseShape),
-		context: evidenceContextShape,
-		members: S.array(
-			S.struct({ of: S.nonEmptyString, column: S.nonEmptyString, determines: implicationShape })
-		),
-		basis: S.tagged("kind", {
-			rows: S.struct({ implication: implicationShape }),
-			union: S.struct({
-				arms: S.nonEmptyArray(keyProofShape),
-				separations: S.array(
-					S.struct({
-						arms: S.pairShape(S.nonNegativeInteger),
-						column: S.nonEmptyString,
-						fixed: S.pairShape(implicationShape)
-					})
-				)
-			}),
-			within: S.struct({ implication: implicationShape, inner: keyProofShape })
-		})
-	})
-)
-
-/** The shape of a view's key, as the checker stamps it on a Base over the view (rel.ts ViewBase). */
-export const viewKeyShape: S.Shape<ViewKey> = S.struct({
-	fields: S.nonEmptyUniqueStrings("view key columns"),
-	premises: S.array(premiseShape),
-	context: evidenceContextShape,
-	members: S.array(S.struct({ of: S.nonEmptyString, column: S.nonEmptyString }))
-})
-
-/** The shape of a claimed key, as a node's metadata records it (rel.ts NodeMeta). */
-export const claimedKeyShape: S.Shape<ClaimedKey> = S.tagged("kind", {
-	proved: S.struct({ proof: keyProofShape }),
-	rewrite: S.struct({
-		key: columnsShape,
-		members: S.array(S.struct({ of: S.nonEmptyString, column: S.nonEmptyString }))
-	})
-})
-
-const fixedWitnessShape: S.Shape<FixedWitness> = S.tagged("kind", {
-	conjunct: S.struct({ expr: exprIdShape }),
-	closedValue: S.struct({}),
-	takeCorrelation: S.struct({ index: S.nonNegativeInteger }),
-	semiJoinPair: S.struct({ index: S.nonNegativeInteger, right: implicationShape }),
-	attachCorrelation: S.struct({ attach: nodeIdShape, index: S.nonNegativeInteger })
-})
-
-const equalWitnessShape: S.Shape<EqualWitness> = S.tagged("kind", {
-	conjunct: S.struct({ expr: exprIdShape }),
-	regionEquality: S.struct({ index: S.nonNegativeInteger }),
-	sharedColumn: S.struct({ occurrence: occurrenceIdShape, column: S.nonEmptyString }),
-	correlatedCopy: S.struct({ index: S.nonNegativeInteger }),
-	viewMember: S.struct({}),
-	arms: S.struct({ arms: S.nonEmptyArray(implicationShape) })
-})
-
-const atMostOneWitnessShape: S.Shape<AtMostOneWitness> = S.tagged("kind", {
-	context: S.struct({}),
-	row: S.struct({}),
-	singleFact: S.struct({}),
-	takeOne: S.struct({}),
-	nearestOne: S.struct({}),
-	falseConjunct: S.struct({ expr: exprIdShape })
-})
-
-const ruleShape: S.Shape<Rule> = S.tagged("rule", {
-	declared: S.struct({ premises: S.array(premiseShape), context: evidenceContextShape }),
-	fixed: S.struct({ witness: fixedWitnessShape }),
-	equal: S.struct({ witness: equalWitnessShape }),
-	correlated: S.struct({ index: S.nonNegativeInteger }),
-	match: S.struct({ occurrence: occurrenceIdShape, source: implicationShape }),
-	projection: S.struct({ input: implicationShape }),
-	group: S.struct({}),
-	grouped: S.struct({ input: implicationShape }),
-	kept: S.struct({ input: implicationShape }),
-	atMostOne: S.struct({ witness: atMostOneWitnessShape }),
-	distinct: S.struct({}),
-	produced: S.struct({ input: keyProofShape }),
-	ranked: S.struct({}),
-	agreed: S.struct({ arms: S.nonEmptyArray(implicationShape) }),
-	unionKey: S.struct({ proof: keyProofShape })
-})
-
-const dependencyShape: S.Shape<Dependency> = S.struct({
-	from: columnsShape,
-	to: columnsShape,
-	rule: ruleShape
-})

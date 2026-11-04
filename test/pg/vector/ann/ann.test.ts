@@ -6,7 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Option, Order } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { hnswPolicy, hnswSearchSettings } from "#compiler/check/approximate/policy.ts"
-import { isApproximate } from "#compiler/check/approximate/provenance.ts"
+import { subtree } from "#compiler/check/approximate/trace.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId } from "#compiler/core/ids.ts"
@@ -14,6 +14,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import { relNode, rooted } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
+import type { RelDag } from "#compiler/ir/rel.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { compilePageOf, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -68,6 +69,12 @@ const readsHnsw = (fx: Fixture, indexes: ReadonlyArray<string>): boolean => {
 	const hnsw = namesOf(fx.installed).accessIndex(DocumentEmbedding, ["value"])
 	return Arr.some(indexes, (i) => i === hnsw)
 }
+
+/** Whether a result is approximate: some root's rows are computed from an approximate search. */
+const isApproximate = (dag: RelDag): boolean =>
+	Arr.some(dag.roots, (root) =>
+		Arr.some(Arr.fromIterable(subtree(root)), (n) => n.kind === "ApproximateNearest")
+	)
 
 const run = (session: RawSession, c: Compiled, params: Readonly<Record<string, unknown>>) => {
 	const spec = defined(c.specs[0], "statement 0")

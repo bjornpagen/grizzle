@@ -13,13 +13,7 @@ import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
-import {
-	decodeDesc,
-	descText,
-	type ExprDesc,
-	type FieldDesc,
-	type LiteralDesc
-} from "#compiler/ir/desc.ts"
+import { decodeDesc, type ExprDesc, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -431,13 +425,6 @@ export const describeFieldOrThrow = (value: unknown, loc: SourceLoc): Described 
 	}
 	return described.value
 }
-
-/**
- * Descriptor identity is Description identity: aliases normalize at construction, so two descriptors are the same
- * declaration exactly when their FieldDescs are canonically equal.
- */
-export const fieldIdentity = (value: unknown): Result.Result<string, CompileError> =>
-	Result.flatMap(describeField(value, SourceLoc("field identity", [])), (d) => descText(d.desc))
 
 /**
  * The handles of a closed relation by its declared name: a closedId desc names its roster only (ir/desc.ts), which the

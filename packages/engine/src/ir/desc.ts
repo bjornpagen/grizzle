@@ -3,10 +3,8 @@ import {
 	type EncodeOptions,
 	encode,
 	everyProperty,
-	fromJson,
 	type Json,
 	omitSourceLocs,
-	type Revivers,
 	toJson
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -448,8 +446,7 @@ export interface RecursiveDesc<L = Located, R extends Refs = Spelled> {
 }
 
 /**
- * A query is the chain of combinators that built it, in the order they were applied, so that a
- * description rebuilds the same query through queryFromDescription. Each stage but the first names
+ * A query is the chain of combinators that built it, in the order they were applied. Each stage but the first names
  * the stage it was applied to as `input`:
  *
  * - rules: query(S).rule(a).rule(b), the arms of the builder's rules; recursive: query(S).recursive(name, spec);
@@ -1577,8 +1574,8 @@ export const decodeMirrorsStatement = (
  * The Description boundary.
  *
  * THE boundary between the surface builders and the compiler. Builders (schema, query, ChangeSet, workload) record
- * these values and never touch a database; ownership and checking consume them; describeQuery and
- * queryFromDescription serialize them. A pass consumes only Descriptions and IR, never builder objects.
+ * these values and never touch a database; ownership and checking consume them; describeQuery serializes them. A
+ * pass consumes only Descriptions and IR, never builder objects.
  *
  * Every Description is JSON-safe under the canonical serializer: no
  * null anywhere, a bigint travels as "~n:<integer>", a Decimal as "~d:<exact text>", a Money as "~m:<minor units>", a
@@ -1601,14 +1598,6 @@ export const decodeDesc = <K extends DescKind>(
 /** The JSON form, source locations included: what crosses a process boundary. */
 export const descToJson = (desc: unknown): Result.Result<Json, CompileError> =>
 	toJson(desc, everyProperty)
-
-/** Restores tagged values from the JSON form, then decodes. */
-export const descFromJson = <K extends DescKind>(
-	kind: K,
-	json: unknown,
-	revivers: Revivers
-): Result.Result<DescOf<K>, CompileError> =>
-	Result.flatMap(fromJson(json, revivers), (value) => decodeDesc(kind, value))
 
 const identityOptions: EncodeOptions = { omit: omitSourceLocs }
 

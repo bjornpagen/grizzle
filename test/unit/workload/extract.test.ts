@@ -13,7 +13,6 @@ import { BudgetMeter } from "#compiler/core/budget.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import type { AccessPath, StatisticsShape } from "#compiler/ir/products.ts"
 import { extractAccess } from "#compiler/physical/access/extract.ts"
-import { pathLabel } from "#compiler/physical/access/paths.ts"
 import {
 	mergeStatistics,
 	type StatisticsRequest,
@@ -44,6 +43,15 @@ import { regex } from "arkregex"
 
 const sortedUnique = <A extends string>(values: ReadonlyArray<A>): ReadonlyArray<A> =>
 	Arr.sort([...new Set(values)], Order.String)
+
+/**
+ * A readable label of a path, `task(account, priority desc, id) btree for page seek`: its method decides its keys'
+ * operator class.
+ */
+const pathLabel = (p: AccessPath): string => {
+	const keys = Arr.map(p.keys, (k) => (k.dir === "desc" ? `${k.field} desc` : k.field))
+	return `${p.relation}(${Arr.join(keys, ", ")}) ${p.method} for ${p.use}`
+}
 
 /** A path's identity: its label and whether it is on a derived relation. */
 const pathIdentity = (p: AccessPath): string => `${pathLabel(p)}${p.derived ? " (derived)" : ""}`

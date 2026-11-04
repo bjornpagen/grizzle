@@ -11,8 +11,9 @@ import { regexMaxNodes } from "#compiler/core/policy.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { toAre } from "#compiler/text/are.ts"
-import { analyzeLanguage, analyzeText, textLimits } from "#compiler/text/refinement.ts"
+import { analyzeText, textLimits } from "#compiler/text/refinement.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { families, flagsGen, nestedPattern, patternOver } from "#test/unit/text/generators.ts"
 
 /**
@@ -172,7 +173,8 @@ const loops = (node: RegexIr.RegexNode): boolean => {
 			return Arr.some(node.arms, loops)
 		case "repeat":
 			return (
-				(node.max === "unbounded" && RegexIr.expandedAssertions(RegexIr.zeroPart(node.body)) > 0) ||
+				(node.max === "unbounded" &&
+					RegexIr.expandedAssertions(new RegexIr.RegexBuilder().zeroPart(node.body)) > 0) ||
 				loops(node.body)
 			)
 		case "empty":

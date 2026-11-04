@@ -277,10 +277,10 @@ class Structure {
 /**
  * Structural validation of a query description.
  *
- * program/describe.ts queryFromDescription reads a QueryDescription that may come from anywhere: another process, a
- * file, a hand-edited payload. Its envelope and shapes are decoded by the IR's codec (ir/describe.ts), which refuses
- * another version, format or target and any value of the wrong shape. What a shape cannot see is scope, and this
- * module checks it without the schema, so a description is refused before any name is resolved:
+ * The checker reads a query description that may come from anywhere: a JavaScript caller, another process, a
+ * hand-edited payload. Its shapes are decoded by the IR's codec (ir/desc.ts decodeDesc), which refuses any value of
+ * the wrong shape. What a shape cannot see is scope, and this module checks it without the schema, so a description
+ * is refused before any name is resolved:
  *
  * - every variable a rule reads is one the rule itself declares: variables are lexical per rule, so a variable of
  *   another rule, an imported query or an attachment's parent query is never in scope;

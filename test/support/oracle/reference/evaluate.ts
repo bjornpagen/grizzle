@@ -23,8 +23,9 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
-import { accepts, analyzeText } from "#compiler/text/refinement.ts"
+import { analyzeText } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
+import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { type GenFacts, rowValues } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"

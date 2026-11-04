@@ -25,7 +25,6 @@ import type {
 	FromItem,
 	FunctionCall,
 	OrderItem,
-	Select,
 	FrameBound as SqlFrameBound,
 	WindowSpec
 } from "#compiler/sql/ast.ts"
@@ -253,13 +252,3 @@ export const catalogLowerers: Lowerers<RelKind> = {
 	OrderedSetAggregate: lowerOrderedSetAggregateNative,
 	Group: conservativeLowerers.Group
 }
-
-/** The table is a mapped type over the kinds, so its entry at a node's kind takes that kind's node. */
-const catalogLowerer = <K extends RelKind>(node: NodeOf<K>, cx: LowerContext, env: Env): Select => {
-	const lower: NodeLowerer<K> = catalogLowerers[node.kind]
-	return lower(node, cx, env)
-}
-
-/** The catalog kind table's dispatch: a node to its kind's plug-in. */
-export const catalogDispatch = (node: RelNode, cx: LowerContext, env: Env): Select =>
-	catalogLowerer(node, cx, env)

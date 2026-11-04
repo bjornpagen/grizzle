@@ -1,0 +1,279 @@
+EVIDENCE: gistcostestimate() costs a GiST scan by the selectivity of all its quals, whichever columns they constrain
+
+Run 2026-11-04. Machine: Darwin 27.0.0 arm64 (macOS 27.0.1), VirtualMac2,1, Apple M2 Max (virtual), 10 cores, 64 GB.
+The cores were shared with other work, so times are indicative only. Buffer counts and estimated costs are exact and
+are what matter. Each statement in repro.sql runs twice, and the second, warm run is quoted.
+
+1. VERSIONS, BUILDS AND SETTINGS
+   - PostgreSQL 19rc1 (REL_19_RC1, 0b8bff042a), the grizzle dev cluster: release build, clang 21.0.0, jit off.
+     - It carries two local patches, neither of which this reproduction reaches:
+       - scripts/pg/patches/19rc1-recursive-union-hash-mem.patch touches execGrouping.c only;
+       - 19rc1-btree-gist-multibyte-penalty.patch touches btree_gist's varlena opclasses only (gbt_var_*; upstream
+         master b82d69abf6).
+     - repro.sql indexes int4, through btree_gist's gist_int4_ops (btree_utils_num.c), and int4range, through the
+       core range_ops.
+   - PostgreSQL 20devel: master b6178c942e (2026-11-04) plus one unrelated PL/pgSQL commit (34ed71b90b, pl_scanner.c).
+     - The build is ~/Documents/postgres-upstream-plpgsql-lineno-rescan's build-check: meson debugoptimized,
+       -Dcassert=true, installed in ~/.cache/grizzle/scratch/upstream/pg-prefix.
+     - It ran in a throwaway cluster on a Unix socket only (initdb --locale-provider=builtin --builtin-locale=C.UTF-8,
+       shared_buffers 128MB), deleted after the run.
+     - Assertions inflate its times. Its plans, estimated costs, page counts and buffer counts equal 19rc1's.
+     - From b6178c942e to origin/master 73a28d2733 (2026-11-04), the only change under selfuncs.c, access/gist,
+       optimizer/ and contrib/btree_gist is optimizer/plan/subselect.c.
+   - Settings, as repro.sql prints them:
+     - every planner cost GUC at its default: random_page_cost 4, seq_page_cost 1, cpu_operator_cost 0.0025,
+       cpu_index_tuple_cost 0.005, cpu_tuple_cost 0.01;
+     - effective_cache_size 4GB, shared_buffers 128MB, jit off, default_statistics_target 100.
+   - psql -X. repro.sql creates the database gist_cost_repro and drops it at the end.
+
+2. THE MEASUREMENTS (repro.sql at its defaults: 100000 rows, 5000 rooms)
+   - repro.sql ran four times on 19rc1 and three times on master, the last two 19rc1 runs and the last master run
+     with all 8 sections.
+   - Every run gave the same plans, page counts and buffer counts in the sections it had. The estimates vary only as
+     2h records.
+   - Times are 19rc1's: sections 2a to 2e from its first run, and 2f and 2g from its third.
+   booking: heap 834 pages; booking_no_overlap, the exclusion constraint's GiST index on (during, room), built as the
+   rows arrive, 892 pages; booking_room, a B-tree on (room), 140 pages. room: n_distinct about 5000, correlation
+   about 0.
+   The probe row (id 50000) has room 2186 (28 rows) and during [500000,500005).
+
+   2a. room = 2186, every setting at its default (19rc1; master identical):
+         Bitmap Heap Scan on booking  (cost=4.44..75.39 rows=20 width=35) (actual time=1.916..1.923 rows=28.00 loops=1)
+           Buffers: shared hit=920
+           ->  Bitmap Index Scan on booking_no_overlap  (cost=0.00..4.43 rows=20 width=0) (actual ... rows=28.00)
+                 Index Cond: (room = 2186)
+                 Buffers: shared hit=892                       <- all 892 pages of the index
+         Execution Time: 1.928 ms
+       With enable_bitmapscan = off:
+         Index Scan using booking_no_overlap on booking  (cost=0.28..84.63 rows=20 width=35) (actual ... rows=28.00)
+           Buffers: shared hit=920
+         Execution Time: 1.860 ms
+
+   2b. The same lookup with the constraint dropped (rolled back):
+         Bitmap Heap Scan on booking  (cost=4.45..75.41 rows=20 width=35) (actual ... rows=28.00 loops=1)
+           Buffers: shared hit=30
+           ->  Bitmap Index Scan on booking_room  (cost=0.00..4.44 rows=20 width=0) (actual ... rows=28.00 loops=1)
+                 Buffers: shared hit=2
+         Execution Time: 0.032 ms
+
+   2c. Each GiST index alone (the others dropped, rolled back), same lookup:
+         (room, during), built by CREATE INDEX after the load, 655 pages:  cost=0.00..4.43   Buffers 3     0.024 ms
+         (during, room), the constraint's index, 892 pages:                cost=0.00..4.43   Buffers 892   2.522 ms
+
+   2d. The constraint led by room instead, (room WITH =, during WITH &&), 655 pages, beside a GiST index on (during),
+       347 pages. Search by span alone, during && '[500000,500001)', 1 row:
+         constraint last:  Index Scan using booking_room_no_overlap (cost=0.28..8.30 rows=1)  Buffers 656  4.872 ms
+         (during) last:    Index Scan using booking_during          (cost=0.28..8.30 rows=1)  Buffers 4    0.028 ms
+
+   2e. room BETWEEN 2186 AND 2195, 201 rows (estimated 193):
+         both indexes:     Bitmap Index Scan on booking_room        (cost=0.00..6.22 rows=193)  Buffers 2    0.079 ms
+         B-tree dropped:   Bitmap Index Scan on booking_no_overlap  (cost=0.00..10.21 rows=193) Buffers 892  3.543 ms
+
+   2f. slotted, one GiST index on (during, slot, room), 1087 pages. slot = g / 20 follows the spans' order, and room
+       is hashed as in booking:
+         slot = 2500 (20 rows):  Bitmap Index Scan (cost=0.00..4.43 rows=20)  Buffers 3     0.011 ms
+         room = 2186 (28 rows):  Bitmap Index Scan (cost=0.00..4.43 rows=20)  Buffers 1087  2.053 ms
+
+   2g. kinded, one GiST index on (kind, room, during), 804 pages. kind takes 3 values, hashed, and room is hashed as in
+       booking:
+         room = 2186 (28 rows):  Bitmap Index Scan (cost=0.00..4.43 rows=20)  Buffers 5     0.023 ms
+       - Page splits place the entries that tie on kind by room (gistsplit.c), so the lookup on room alone takes about
+         one descent per kind.
+       - The documentation's "A GiST index will be relatively ineffective if its first column has only a few distinct
+         values" dates from 9bd7ed828e (8.1), before that split (1f7ef548ec, 8.2).
+
+   2h. Between runs: ANALYZE samples 30000 of the 100000 rows, so the estimate for room = 2186 is 20 rows in six runs
+       and 47 in one, which drew 2186 into the MCV list.
+       - That run costs the lookup 4.63 on the GiST index and 4.65 on the B-tree, still 0.0125 apart, with the same
+         buffers.
+       - The range in 2e is estimated at 188, 193, 196, 200, 204 and 237 rows across the runs, and the B-tree wins in
+         every one.
+
+   2i. 1,000,000 rows over 50000 rooms (psql -X -v rows=1000000 -v rooms=50000 -f repro.sql, 19rc1, 67 s, with
+       sections 1 to 6; sections 7 and 8 came later):
+         heap 8334 pages; GiST (during, room) 8928 pages; B-tree (room) 1204 pages; room estimated 21 rows (20 actual).
+         room = x, default settings:  Bitmap Index Scan on booking_no_overlap  (cost=0.00..4.44)  8928 of 8928 pages
+                                      25.257 ms; as a plain Index Scan (cost=0.29..88.65), 23.968 ms
+         constraint dropped:          Bitmap Index Scan on booking_room        (cost=0.00..4.58)  3 pages  0.013 ms
+         (room, during) alone, 6516 pages:  cost 4.44, 3 pages
+         led by room, beside (during) 3450 pages, during && x:  constraint created last, 6517 buffers, 59.667 ms;
+                                                                (during) created last, 4 buffers, 0.078 ms
+         range of 10 rooms (216 estimated): B-tree chosen (6.58); with the B-tree dropped, GiST 10.45, 8928 pages
+       With 128MB of shared buffers, the second run's 8928 GiST pages were 8845 hits and 83 reads, since the table and
+       both indexes together exceed shared_buffers.
+
+3. THE SOURCE (each function body identical at REL_19_RC1 0b8bff042a and master 73a28d2733; "rc1 / master" lines)
+   src/backend/utils/adt/selfuncs.c
+   - genericcostestimate(), 7421 / 7461:
+       7449 / 7489   selectivityQuals = add_predicate_to_index_quals(index, indexQuals);   every indexqual
+       7476 / 7516   indexSelectivity = clauselist_selectivity(root, selectivityQuals, ...);
+       7489 / 7529   numIndexTuples = indexSelectivity * index->rel->tuples;   only if the caller passed no count
+       7525 / 7565   numIndexPages = ceil(numIndexTuples * (index->pages - costs->numNonLeafPages) / index->tuples);
+       7582 / 7622   indexTotalCost = numIndexPages * spc_random_page_cost;
+       7606 / 7646   indexTotalCost += numIndexTuples * num_sa_scans * (cpu_index_tuple_cost + qual_op_cost);
+   - btcostestimate(), 7714 / 7754:
+       7737 / 7777   "For a btree scan, only leading '=' quals plus inequality quals for the immediately next attribute
+                     contribute to index selectivity ... Additional quals can suppress visits to the heap, so it's OK to
+                     count them in indexSelectivity, but they should not count for estimating numIndexTuples."
+       7922 / 7962   skip arrays (18+, 92fe23d93a): num_sa_scans *= ndistinct for each column without an '=' qual
+       7941 / 7981   and give up skipping when num_sa_scans exceeds index->pages
+       8024 / 8064   indexBoundQuals = lappend(indexBoundQuals, rinfo);
+       8061 / 8101   btreeSelectivity = clauselist_selectivity(root, selectivityQuals [the bound quals], ...);
+       8065 / 8105   numIndexTuples = btreeSelectivity * index->rel->tuples;
+       8126 / 8166   costs.numIndexTuples = numIndexTuples;     passed to genericcostestimate()
+       8128 / 8168   costs.numNonLeafPages = 1;
+       8145 / 8185   descentCost = ceil(log(index->tuples) / log(2.0)) * cpu_operator_cost;
+       8161 / 8201   descentCost = (index->tree_height + 1) * DEFAULT_PAGE_CPU_MULTIPLIER * cpu_operator_cost;
+                     tree_height is the B-tree's real height: plancat.c 497 / 495 calls amgettreeheight,
+                     btgettreeheight() in nbtree.c, which is _bt_getrootheight().
+   - gistcostestimate(), 8231 / 8271:
+       8240 / 8280   "GiST has no metapage, so we treat all pages as leaf pages"
+       8242 / 8282   genericcostestimate(root, path, loop_count, &costs);   costs = {0}: no numIndexTuples
+       8256 / 8296   index->tree_height = (int) (log(index->pages) / log(100.0));   gist.c sets amgettreeheight = NULL
+       8263 / 8303   "We just use log(N) here not log2(N) since the branching factor isn't necessarily two anyway."
+       8268 / 8308   descentCost = ceil(log(index->tuples)) * cpu_operator_cost;
+       8276 / 8316   descentCost = (index->tree_height + 1) * DEFAULT_PAGE_CPU_MULTIPLIER * cpu_operator_cost;
+     DEFAULT_PAGE_CPU_MULTIPLIER is 50.0 (line 144 / 142).
+   src/backend/access/gist/gistget.c
+   - gistindex_keytest(), 134 / 136, applies every scan key, each to its own column (key->sk_attno), through the
+     opclass consistent function. It does so on internal and leaf entries alike, and gistScanPage(), 337 / 339, calls
+     it for every tuple of every page visited (448 / 453).
+   - So a qual on any column prunes a subtree whose union on that column excludes it, and no other subtree.
+   src/backend/access/gist/gistutil.c gistchoose(), 374 (both)
+   - 397: "The penalty associated with a column that appears earlier in the index definition is strictly more
+     important than the penalty of a column that appears later in the index definition."
+   src/backend/access/gist/gistsplit.c, header lines 6 to 13, and gistSplitByKey(), 623 (both)
+   - picksplit runs on column 1. A later column only redistributes the tuples that are "don't cares" for column 1's
+     split.
+   So subtrees group by the first column that tells entries apart.
+   - A later column's union in a subtree is as wide as that column's spread over the subtree's range of the leading
+     column.
+   - room is hashed independently of during. A lookup on it read every page (2a, 2c, 2f), so every downlink's room
+     union contained the probed room.
+   - slot follows during, so its unions are narrow, and the lookup read 3 pages (2f).
+   src/backend/optimizer/util/plancat.c
+   - 522 / 520: indexinfos = lcons(info, indexinfos). Its comment: "It'd make more sense to use lappend(), but that
+     causes the planner to change behavior in cases where two indexes seem equally attractive."
+   src/backend/optimizer/util/pathnode.c add_path(), 540 to 571 (both)
+   - For fuzzily equal paths with the same rows: "do a fuzzy cost comparison with very small fuzz limit ... If things
+     are still tied, arbitrarily keep only the old path."
+   - Paths are built in the index list's order, so an exact tie goes to the newest index (2d).
+   doc/src/sgml/indices.sgml, 516 to 522 (both)
+   - "A multicolumn GiST index can be used with query conditions that involve any subset of the index's columns.
+     Conditions on additional columns restrict the entries returned by the index, but the condition on the first
+     column is the most important one for determining how much of the index needs to be scanned. A GiST index will
+     be relatively ineffective if its first column has only a few distinct values, even if there are many distinct
+     values in additional columns."
+
+4. THE ARITHMETIC (defaults: random_page_cost 4.0, cpu_index_tuple_cost 0.005, cpu_operator_cost 0.0025)
+   2a and 2b, at N = 100000. room = 2186 is estimated at 20 rows, and there is one qual (qual_op_cost 0.0025).
+                                 GiST (during, room), 892 pages        B-tree (room), 140 pages
+     numIndexTuples              20 (every qual)                       20 (bound quals: room = 2186)
+     numIndexPages               ceil(20 * 892 / 100000) = 1           ceil(20 * (140 - 1) / 100000) = 1
+       x random_page_cost        4.0                                   4.0
+     tuples x (0.005 + 0.0025)   0.15                                  0.15
+     descent comparisons         ceil(ln 100000) = 12   -> 0.03        ceil(log2 100000) = 17   -> 0.0425
+     descent pages x 0.125       (int) log100(892) = 1, 2 -> 0.25      height 1, 2              -> 0.25
+     index cost                  4.43       (EXPLAIN 4.43)             4.4425     (EXPLAIN 4.44)
+     index pages read            892                                   2
+   - The heap side of the two plans depends on the selectivity and the heap only, so it adds the same to both.
+   - The plan totals, 75.39 against 75.41, carry the same 0.0125 = (17 - 12) * 0.0025.
+   - GiST (room, during), 655 pages, follows the same arithmetic as (during, room): 4.43, with 3 pages read (2c).
+   - In the slotted index, 1087 pages, (int) log100(1087) = 1, so both lookups cost 4.43, reading 3 and 1087 pages (2f).
+   - In kinded, 804 pages, the lookup on room costs 4.43 too, and reads 5 pages (2g).
+
+   2e, the range of 10 rooms, estimated 193 rows, two quals (qual_op_cost 0.005):
+     GiST:    ceil(193 * 892 / 100000) = 2 pages -> 8.0 + 193 * 0.01 = 1.93 + 0.03 + 0.25 = 10.21   (EXPLAIN 10.21)
+     B-tree:  ceil(193 * 139 / 100000) = 1 page  -> 4.0 + 1.93 + 0.0425 + 0.25        = 6.2225  (EXPLAIN 6.22)
+   - So the B-tree wins once the GiST index's pro-rata count passes one page, here at about 100000 / 892 = 112 rows.
+   - Below that, any lookup on a later GiST column ties with the B-tree at one page, and the descent terms decide in
+     GiST's favour.
+
+   2i, at N = 1000000 (estimated 21 rows):
+     GiST, 8928 pages:   4.0 + 21 * 0.0075 = 0.1575 + ceil(ln 1e6) = 14 -> 0.035 + ((int) log100(8928) = 1) + 1 -> 0.25
+                         = 4.4425   (EXPLAIN 4.44)
+     B-tree, 1204 pages: 4.0 + 0.1575 + ceil(log2 1e6) = 20 -> 0.05 + (height 2) + 1 = 3 -> 0.375
+                         = 4.5825   (EXPLAIN 4.58)
+   - The gap is 0.14: 0.015 from ln against log2 and 0.125 from the height terms.
+   - The B-tree's height of 2 is the one value the cost 4.58 admits; pageinspect's bt_metap was not run.
+   - So making the comparison count log2, as in the 2024 diff (section 6), would close 2a but not 2i.
+
+   2d, a search by span with 1 row estimated:
+     both GiST indexes:  1 page -> 4.0 + 0.0075 + 0.03 + 0.25 (heights (int) log100(655) = (int) log100(347) = 1)
+                         = 4.2875, plus the heap's 4.0 and 0.01: 8.30 each
+   - The indexes differ in size by nearly half, and the estimates still tie exactly. The page count enters only
+     through the one-page rounding and the truncated log100.
+
+5. HISTORY (git log and git log -L of selfuncs.c on the partial clone, with its blobs fetched for this)
+   - c186c93148, Tom Lane, 2005-06-13, 8.1. The planner lets indexquals use nonconsecutive columns of a multicolumn
+     index, and btcostestimate gets its boundary quals. Its message:
+       "This turns out to require only minimal changes in btree, and so far as I can see none at all in GiST.
+        btcostestimate did need some work, but its original assumption that index selectivity == heap selectivity
+        was quite bogus even before this."
+     gistcostestimate has kept that assumption since.
+   - 9bd7ed828e, Tom Lane, 2005-10-21, 8.1. Wrote the indices.sgml paragraph: "the condition on the first column is
+     the most important one ...".
+   - d2158b0281, Teodor Sigaev, 2006-05-24, 8.2. Reworded its first sentence to "can be used with query conditions
+     that involve any subset of the index's columns".
+   - 1f7ef548ec, Teodor Sigaev, 2006-06-28, 8.2. The multi-column split algorithm, gistsplit.c.
+   - 31f38f28b0, Tom Lane, 2013-01-11, 9.3. "Redesign the planner's handling of index-descent cost estimation." It
+     wrote today's GiST terms: ceil(log(N)) comparisons, and the height as log100(pages):
+       "There's no equivalent number readily available for other index types, but we can use the log of the number
+        of index pages as an approximate substitute."
+   - gistcostestimate since then (git log -L 31f38f28b0~1..REL_19_RC1):
+     - 9af4159fce and 0a78320057, pgindent;
+     - b9896198cf, 2015, the cost of expensive indexed expressions;
+     - 65c5fcd353, 2016, the index AM API;
+     - 5262f7a4fc, 2017, parallel index scans;
+     - e89f14e2bb, 2019, IndexClause;
+     - 9fd45870c1, 2022, struct initialization;
+     - eb5c4e953b, 2023, 16, named the 50.0 DEFAULT_PAGE_CPU_MULTIPLIER;
+     - 733f20df53, Tom Lane, 2026-03-20, 19, gave genericcostestimate numNonLeafPages; GiST passes 0.
+     None of them changes which quals count.
+   - 56fead44dc, 2024-09-10, 18. The amgettreeheight AM callback. Only nbtree implements it, and gist.c sets NULL.
+   - 92fe23d93a, 2025-04-04, 18. nbtree skip scan, with its btcostestimate costing.
+
+6. PRIOR DISCUSSION (searched 2026-11-04)
+   - BUG #15408, pgsql-bugs, 2018-09-27. "Postgresql bad planning with multicolumn gist and search with empty
+     results", 10.5. A GiST index on (n1, n2) was read through n2 alone, 90 ms against under 1 ms.
+       https://www.postgresql.org/message-id/flat/1818.1538057011%40sss.pgh.pa.us
+     - Tom Lane, <1818.1538057011@sss.pgh.pa.us>:
+         "gistcostestimate() has no such modeling and assumes that a constraint on a lower-order column is worth
+          the same as one on the first column. This is partially due to lack of effort put into that function, but
+          I seem to recall being told that GIST was not as sensitive to column ordering as btree, too. Your results
+          indicate otherwise :-("
+     - The reporter, <CABMU1qa8EWBiFX9LG7-mwMjFQH-M=CB66CdYYRaoMcaC3xry2Q@mail.gmail.com>:
+         "The order is relevant because I have queries that use only the first column, and would suffer from the
+          same problem if I switch the order"
+     - Tom Lane, <21040.1538079332@sss.pgh.pa.us>, the thread's last message:
+         "Someone would have to get interested in the problem and design/write/test a better cost model"
+     No later message, commit or commitfest entry takes it up.
+   - David Rowley, pgsql-hackers, 2024-09-17, "Re: Supporting = operator in gin/gist_trgm_ops".
+       <CAApHDvp3W7G8Oo4=wjt0ceTbic35SHJ=qfoD_CnPXSnZVzCkhQ@mail.gmail.com>
+     - A pg_trgm GiST index beat a B-tree on '=' at 0.41..8.43 against 0.42..8.44, and ran 500 times slower.
+     - His gist_cost.diff changes ceil(log(index->tuples)) to ceil(log(index->tuples) / log(2.0)): "the planner's
+       choice comes down to which index has the lower OID".
+     - It is the thread's last message: no reply.
+   - Vaibhav Dalvi, pgsql-hackers, from 2026-09-02, "gist_trgm_ops '=' operator: planner picks it over btree, ~300x
+     slower". Root <CA+vB=AHon6EB=90pbPDik_u8+++Ty8TA6Z4-RXo_X5QCr71kcQ@mail.gmail.com>.
+     - CF #7401, PG20-3, Needs review. A new opclass, gist_trgm_ops_noeq, with no costing change.
+     - Alexander Korotkov: the GiST cost estimator doesn't know opclass internals.
+     - Andrew Dunstan: an AM hook for opclass statistics at ANALYZE, "a large project".
+     - Same symptom (8.30 against 8.44; 1583 buffers against 3); a different cause, a lossy single-column '='.
+   - Alexander Korotkov, 2020-11-14, in the same 2020 thread as Rowley's message.
+       <CAPpHfducQ0U8noyb2L3VChsyBMsc5V2Ej2whmEuxmAgHa2jVXg@mail.gmail.com>
+     "Despite our gist cost estimate is quite dumb, it selects btree_gist index due to its lower size." Size counts
+     only until both estimates round to one page.
+   - Tom Lane, pgsql-hackers, 2025-04-28, "Accounting for metapages in genericcostestimate()".
+       <870521.1745860752@sss.pgh.pa.us>
+     Committed as 733f20df53: "counting upper index pages shouldn't change the estimate much ... This might be an
+     area for further research in future."
+   - "Re: Index AM API cleanup", pgsql-hackers, 2024. gist and spgist cost estimation read tree_height, which nothing
+     fills in for them. https://www.mail-archive.com/pgsql-hackers@lists.postgresql.org/msg178176.html
+   - No hit:
+     - commitfest PG20-3 (/62/) and PG20-4 (/63/): no entry on gistcostestimate or on multicolumn GiST costing;
+     - the wiki TODO's GiST section: no costing item;
+     - web searches: gistcostestimate; "GiST cost estimate"; multicolumn GiST costing; non-leading column
+       selectivity; btree_gist exclusion constraint chosen over a B-tree.
+   - Nobody has called it intentional. The only rationale on record is the recollection above, which its author
+     doubted in the same message, and the documentation says the first column matters.

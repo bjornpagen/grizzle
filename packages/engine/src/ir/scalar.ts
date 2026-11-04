@@ -112,7 +112,7 @@ export interface VectorTypmod {
 /**
  * A nominal contract: a domain over its base with an optional predicate and the facts it proves. Compatibility is by
  * contract identity (name and base), never by predicate equality: sameScalarType ignores the predicate and the facts. The predicate
- * is the domain's one constraint, <contract>__check, an ExprTable in normal form (expr.ts normalizeExprTable), so its
+ * is the domain's one constraint, <contract>__check, an ExprTable in normal form (expr.ts predicateTable), so its
  * canonical text, which fingerprints include, does not depend on allocation order. The base is a value domain of the contract's own carrier, never a serial declaration.
  * The name is a declared name, parsed where the contract is built (scalar/registry.ts contractOver) and where a
  * descriptor is decoded (scalar-shape.ts), so the naming door mints the contract's domain from it directly

@@ -15,8 +15,8 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
 import { type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { schema, relation as table } from "#compiler/public/schema.ts"
-import { queryOver as untypedQuery } from "#compiler/query/build/index.ts"
-import { assert, containsEqual, containsText, succeeded } from "#test/support/assert.ts"
+import { queryOver as untypedQuery } from "#compiler/query/build/query.ts"
+import { assert, containsEqual, containsText, defined, succeeded } from "#test/support/assert.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,
 	HeadTermDesc,
@@ -43,7 +43,7 @@ import {
 	or,
 	param,
 	plainVar,
-	query,
+	queryDesc,
 	ref,
 	relationSource,
 	rule,
@@ -550,7 +550,7 @@ describe("the feedback's shape", () => {
 		readonly negatesBlocked: boolean
 		readonly avoids: boolean
 	}
-	const vertices = query(
+	const vertices = queryDesc(
 		rule({
 			vars: vars("Vertex", "id"),
 			matches: [match(relationSource("Vertex"), { id: ref("Vertex", "id") })],
@@ -593,7 +593,7 @@ describe("the feedback's shape", () => {
 	}
 	const mainArm = (m: Main): RuleDesc => {
 		const nested = imported(
-			query(
+			queryDesc(
 				rule({
 					vars: [plainVar("inner.node")],
 					matches: [match({ kind: "self" }, { node: varRef("inner.node") })],
@@ -976,7 +976,7 @@ describe("unbounded computed state", () => {
 							const k = (n: number) =>
 								carrier === "integer"
 									? typedLit(n, type)
-									: typedLit(succeeded(DecimalText.make(String(n))), type)
+									: typedLit(defined(DecimalText.parse(String(n))), type)
 							const hops = s("hops")
 							const guard: ExprDesc =
 								bound === "current below"
@@ -1114,7 +1114,7 @@ describe("unbounded computed state", () => {
 
 /** Inc.bind({ x, at }) delivers the vertex `at` with y = 1 + x; Echo.bind({ x }) every vertex with y = 0 + x. */
 const vertexRule = (where: ReadonlyArray<ExprDesc>, y: ExprDesc): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Vertex", "id"),
 			matches: [match(relationSource("Vertex"), { id: ref("Vertex", "id") })],

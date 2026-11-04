@@ -9,8 +9,6 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { admittedIdentifier } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId, PremiseObject } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { parseSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -544,23 +542,6 @@ export const branded = <B extends string>(
 		conform: (value, path): value is B => conforms(shape, value, path),
 		conformFields: notInPlace
 	})
-
-/**
- * The name brands an IR value admits at its decode boundary (a Forbid node's law, an evidence premise's object), through
- * the naming door's admitting function (core/identity.ts admittedIdentifier): the spelling decoded is one the compiler
- * itself derived when it built the DAG.
- */
-const decodedLawId = (text: string): LawId => admittedIdentifier(text)
-const decodedConstraintName = (text: string): ConstraintName => admittedIdentifier(text)
-export const lawIdShape: Shape<LawId> = branded(decodedLawId, nonEmptyString)
-/**
- * A premise names a constraint or unique index, or a residual law's function; a decoded name is typed by its
- * ConstraintName member, which every PremiseObject reader treats as the object's name.
- */
-export const premiseObjectShape: Shape<PremiseObject> = branded(
-	decodedConstraintName,
-	nonEmptyString
-)
 
 export const refine = <A>(
 	shape: Shape<A>,

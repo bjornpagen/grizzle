@@ -11,7 +11,6 @@ import {
 	rosterOf,
 	type ScalarType,
 	type SpanInfo,
-	sameScalarType,
 	spanOf,
 	type TextInfo,
 	textOf,
@@ -46,20 +45,6 @@ export type PlainCarrier =
 
 /** A registered result: a plain carrier, or an exact one, whose digit bound the lowering derives (exactType). */
 export type ResultCarrier = PlainCarrier | ExactValueCarrier
-
-const plainCarriers: ReadonlySet<string> = new Set<PlainCarrier>([
-	"int2",
-	"int4",
-	"int8",
-	"numeric",
-	"float4",
-	"float8",
-	"money",
-	"bool"
-])
-
-export const isPlainCarrier = (carrier: Carrier): carrier is PlainCarrier =>
-	plainCarriers.has(carrier)
 
 /** The plain value type of a carrier, unfrozen: no contract and, for numeric, no typmod. */
 const plainOf = (carrier: PlainCarrier): ValueType => {
@@ -214,25 +199,6 @@ export const commonType = (a: ScalarType, b: ScalarType): ScalarType => {
 		return withoutSpanWidth(x)
 	}
 	return x
-}
-
-/**
- * Whether `to` is `from`'s value type with only refinements dropped that PostgreSQL never checks on the way: a contract
- * (its base), a numeric typmod (plain numeric), a text refinement (wildcard text), a span's fixed width. A cast between
- * the two is binary coercible: total and immutable.
- */
-export const widensTo = (from: ScalarType, to: ScalarType): boolean => {
-	const v = valueType(from)
-	if (sameScalarType(to, v) || sameScalarType(to, withoutSpanWidth(v))) {
-		return true
-	}
-	if (v.carrier === "numeric") {
-		return sameScalarType(to, plainType("numeric"))
-	}
-	if (v.carrier === "text") {
-		return sameScalarType(to, wildcardText)
-	}
-	return false
 }
 
 /**

@@ -1,11 +1,4 @@
-import type {
-	Exact,
-	Fact,
-	FactSource,
-	OperandPremise,
-	Precondition,
-	PreconditionProof
-} from "#compiler/ir/proof.ts"
+import type { Exact, Fact, FactSource, OperandPremise } from "#compiler/ir/proof.ts"
 import { doubleParts } from "#compiler/scalar/compute/cast.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxDisplayScale, numericMaxIntegerDigits } from "#compiler/scalar/values/decimal.ts"
@@ -379,30 +372,4 @@ export const factPremise = (
 ): Extract<OperandPremise, { readonly kind: "fact" }> | undefined => {
 	const source = facts[fact]
 	return source === undefined ? undefined : { kind: "fact", operand, fact, source }
-}
-
-/**
- * Whether a proof's premises establish its precondition: the proof kernel. A fact precondition holds by a premise of
- * that fact on its operand; fits, contract, powerDomain and bucketDomain hold by interval premises the caller's
- * `judge` reads, the one place each precondition's arithmetic is written (lower.ts). A proof no premise of the needed
- * kind supports is no proof.
- */
-export const checkProof = (
-	proof: PreconditionProof,
-	judge: (precondition: Precondition, premises: PreconditionProof["premises"]) => boolean
-): boolean => {
-	const p = proof.precondition
-	switch (p.kind) {
-		case "nonzero":
-		case "nonnegative":
-		case "finite":
-			return proof.premises.some(
-				(m) => m.kind === "fact" && m.fact === p.kind && m.operand === p.operand
-			)
-		case "fits":
-		case "contract":
-		case "powerDomain":
-		case "bucketDomain":
-			return judge(p, proof.premises)
-	}
 }

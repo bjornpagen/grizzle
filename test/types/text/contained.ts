@@ -4,6 +4,7 @@ import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
 import { Array as Arr } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import {
 	type Flags,
@@ -114,7 +115,7 @@ export const containedProgram = (seed: number): Contained => {
 				continue
 			}
 			const walksLabel = `text/contained ${family.name} ${pi} walks`
-			const walks = walkGen(result.value.nfa)
+			const walks = walkGen(buildNfa(result.value.ir))
 			const fixed = acceptedOf(source, flags, [
 				...floorStrings,
 				...ownOf(floorDraws(walksLabel, walks, 120))

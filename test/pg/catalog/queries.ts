@@ -91,7 +91,7 @@ export const selfMatch = (
 ): QueryDesc => {
 	const [dDay, dId] = options.dirs
 	const student = options.student
-	return D.query(
+	return D.queryDesc(
 		D.rule({
 			vars: [...sVars, D.plainVar("t.id"), D.plainVar("t.day"), D.plainVar("t.score")],
 			matches: [
@@ -160,7 +160,7 @@ const neighborQuery = (
 ) =>
 	D.take(
 		D.orderBy(
-			D.query(
+			D.queryDesc(
 				D.rule({
 					vars: [D.plainVar("n.id"), D.plainVar("n.day"), D.plainVar("n.score")],
 					matches: [
@@ -205,7 +205,7 @@ export const boundNeighbor = (
 	direction: "next" | "previous",
 	extra: ReadonlyArray<ExprDesc>
 ): QueryDesc =>
-	D.query(
+	D.queryDesc(
 		D.rule({
 			vars: [...sVars, D.plainVar("x.nid"), D.plainVar("x.nscore")],
 			matches: [
@@ -226,7 +226,7 @@ export const boundNeighbor = (
 		})
 	)
 
-const parentSittings = D.query(
+const parentSittings = D.queryDesc(
 	D.rule({
 		vars: sVars,
 		matches: [
@@ -240,7 +240,7 @@ const parentSittings = D.query(
 )
 
 /** The sittings whose score is some point's x: Sitting is the match's second occurrence, after Point. */
-const pointedSittings = D.query(
+const pointedSittings = D.queryDesc(
 	D.rule({
 		vars: [...sVars, D.plainVar("pt.id")],
 		matches: [
@@ -269,7 +269,7 @@ export const attachedNeighbor = (
 ): QueryDesc => {
 	const child = D.take(
 		D.orderBy(
-			D.query(
+			D.queryDesc(
 				D.rule({
 					vars: [D.plainVar("n.id"), D.plainVar("n.day"), D.plainVar("n.score")],
 					matches: [
@@ -318,7 +318,7 @@ const asOfQuery = (
 	const field = v(compared === "day" ? "p.day" : "p.amount")
 	return D.take(
 		D.orderBy(
-			D.query(
+			D.queryDesc(
 				D.rule({
 					vars: [D.plainVar("p.id"), D.plainVar("p.day"), D.plainVar("p.amount")],
 					matches: [
@@ -358,7 +358,7 @@ export const boundAsOf = (
 	extra: ReadonlyArray<ExprDesc>,
 	compared: Compared
 ): QueryDesc =>
-	D.query(
+	D.queryDesc(
 		D.rule({
 			vars: [...sVars, D.plainVar("x.pid"), D.plainVar("x.amount")],
 			matches: [
@@ -382,7 +382,7 @@ export const attachedAsOf = (
 ): QueryDesc => {
 	const child = D.take(
 		D.orderBy(
-			D.query(
+			D.queryDesc(
 				D.rule({
 					vars: [D.plainVar("p.id"), D.plainVar("p.day"), D.plainVar("p.amount")],
 					matches: [
@@ -414,7 +414,7 @@ export const attachedAsOf = (
 	return D.attach(parentSittings, "price", child)
 }
 
-const perStudent = D.query(
+const perStudent = D.queryDesc(
 	D.rule({
 		vars: sVars,
 		matches: [D.match(D.relationSource("Sitting"), { student: s("student"), id: s("id") })],
@@ -425,7 +425,7 @@ const perStudent = D.query(
 	})
 )
 
-const total = D.query(
+const total = D.queryDesc(
 	D.rule({
 		vars: sVars,
 		matches: [D.match(D.relationSource("Sitting"), { id: s("id") })],
@@ -439,7 +439,7 @@ const total = D.query(
 /** The total over another relation, and over a filtered input: neither ranges over the grouped count's bindings. */
 const totals = {
 	Sitting: total,
-	Price: D.query(
+	Price: D.queryDesc(
 		D.rule({
 			vars: D.vars("Price", "id"),
 			matches: [D.match(D.relationSource("Price"), { id: D.ref("Price", "id") })],
@@ -449,7 +449,7 @@ const totals = {
 			attach: []
 		})
 	),
-	filtered: D.query(
+	filtered: D.queryDesc(
 		D.rule({
 			vars: sVars,
 			matches: [D.match(D.relationSource("Sitting"), { id: s("id"), score: s("score") })],
@@ -466,7 +466,7 @@ const totals = {
  * only the groups whose count is the total.
  */
 export const groupedShare = (over: keyof typeof totals, restricted: boolean): QueryDesc =>
-	D.query(
+	D.queryDesc(
 		D.rule({
 			vars: [D.plainVar("g"), D.plainVar("c"), D.plainVar("tot")],
 			matches: [
@@ -485,7 +485,7 @@ export const groupedShare = (over: keyof typeof totals, restricted: boolean): Qu
  * sittings whose id equals their student's count.
  */
 export const keyedShare = (restricted: boolean): QueryDesc =>
-	D.query(
+	D.queryDesc(
 		D.rule({
 			vars: [...sVars, D.plainVar("c")],
 			matches: [
@@ -519,7 +519,7 @@ const runningAboveThree = selfMatchByScore(
 )
 
 function selfMatchByScore(ord: HeadTermDesc): QueryDesc {
-	return D.query(
+	return D.queryDesc(
 		D.rule({
 			vars: [...sVars, D.plainVar("t.id"), D.plainVar("t.score")],
 			matches: [
@@ -573,7 +573,7 @@ export const discretePercentile = (
 	fractions: ReadonlyArray<number>,
 	stage: PercentileStage
 ): QueryDesc =>
-	D.query(
+	D.queryDesc(
 		D.rule({
 			vars: [
 				D.plainVar("g"),
@@ -608,7 +608,7 @@ const hOf = (p: number, n: ExprDesc): ExprDesc =>
 	D.compute("mul", f8(p), D.cast(D.compute("sub", n, D.lit(1n)), double))
 
 /** The ordinal of each price by amount within its student, ties broken by id, and each student's count of prices. */
-const amountOrdinals = D.query(
+const amountOrdinals = D.queryDesc(
 	D.rule({
 		vars: [
 			...D.vars("Price", "id", "student", "amount"),
@@ -647,7 +647,7 @@ const amountOrdinals = D.query(
 	})
 )
 
-const pricesPerStudent = D.query(
+const pricesPerStudent = D.queryDesc(
 	D.rule({
 		vars: D.vars("Price", "id", "student"),
 		matches: [
@@ -679,7 +679,7 @@ export const continuousPercentile = (p: number, over: "score" | "amount"): Query
 		hOf(p, n),
 		D.cast(D.compute("floor", D.cast(hOf(p, n), numeric)), double)
 	)
-	return D.query(
+	return D.queryDesc(
 		D.rule({
 			vars: [
 				D.plainVar("g"),
@@ -726,7 +726,7 @@ export const plainMode: ModeOptions = { k: 1, count: "all" }
 export const modeOfDays = (tiebreak: "asc" | "desc", options: ModeOptions): QueryDesc => {
 	const counts = D.take(
 		D.orderBy(
-			D.query(
+			D.queryDesc(
 				D.rule({
 					vars: sVars,
 					matches: [
@@ -749,7 +749,7 @@ export const modeOfDays = (tiebreak: "asc" | "desc", options: ModeOptions): Quer
 		),
 		options.k
 	)
-	return D.query(
+	return D.queryDesc(
 		D.rule({
 			vars: [D.plainVar("m")],
 			matches: [D.match(D.imported(counts, {}), { day: v("m") })],

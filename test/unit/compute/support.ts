@@ -17,7 +17,6 @@ import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
 	type LowerEnv,
 	type Lowered,
-	type LowerMode,
 	type LowerParams,
 	lowerPredicate,
 	lowerTerm,
@@ -282,7 +281,7 @@ const bindAsBase = ({
 export const baseParams: LowerParams<Spelled> = { kind: "scope", lower: bindAsBase }
 
 const env = (
-	mode: LowerMode,
+	mode: LowerEnv["mode"],
 	vars: Readonly<Record<string, LeafBinding>>,
 	emit: (spec: ExprSpec) => ScalarExpr,
 	params: LowerParams<Spelled>
@@ -344,7 +343,7 @@ export interface LoweredTable {
 
 /** Lowers a term or predicate whose variables are bound to literal values or columns. */
 export const lowerWith = (
-	mode: LowerMode,
+	mode: LowerEnv["mode"],
 	expr: ExprDesc,
 	vars: Readonly<Record<string, LeafBinding>>,
 	predicate: boolean,

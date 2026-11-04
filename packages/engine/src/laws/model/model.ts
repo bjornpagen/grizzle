@@ -68,7 +68,7 @@ import {
 	type UpdateOf,
 	withParticipants
 } from "#compiler/ir/law.ts"
-import type { ConstraintLaws, ConstraintOwner } from "#compiler/ir/products.ts"
+import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { type ContractInfo, contractOf, textOf } from "#compiler/ir/scalar.ts"
 
@@ -221,13 +221,6 @@ export type ConstraintLaw =
 			readonly law: LawId
 			readonly described: Law
 	  }
-
-/** What a constraint lives on, as PostgreSQL reports it: a table constraint's or a unique index's table, or a domain
- * constraint's domain. */
-export const constraintOwner = (c: ConstraintLaw): ConstraintOwner =>
-	c.kind === "domainConstraint"
-		? { kind: "domain", name: c.owner }
-		: { kind: "table", name: c.owner }
 
 /** One kind of owner's constraint names to laws, frozen as the map holds them. */
 const frozenOwners = (

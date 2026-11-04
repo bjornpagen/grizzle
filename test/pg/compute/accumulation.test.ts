@@ -197,7 +197,7 @@ const mean = (arg: ExprDesc): HeadTermDesc => ({ kind: "aggregate", fn: "mean", 
 
 /** A query over every entry, grouped by grp where `grouped`, with the head's aggregates. */
 const over = (grouped: boolean, head: Readonly<Record<string, HeadTermDesc>>): QueryDesc =>
-	D.query(
+	D.queryDesc(
 		D.rule({
 			vars: D.vars("Entry", "id", "grp", "x", "r", "cash"),
 			matches: [

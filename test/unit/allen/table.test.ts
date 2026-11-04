@@ -13,9 +13,6 @@ import {
 	atomIndexable,
 	atomLiterals,
 	conjunctionHolds,
-	everyDisjunctIndexable,
-	formulaAtomCount,
-	formulaHolds,
 	literalAtom,
 	literalNegated
 } from "#compiler/allen/atoms.ts"
@@ -33,6 +30,9 @@ import { allenTableSource, generateAllenTable } from "#scripts/gen/allen/generat
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	canonicalize,
+	everyDisjunctIndexable,
+	formulaAtomCount,
+	formulaHolds,
 	type PairFacts,
 	type RangeType,
 	rangeLimits,

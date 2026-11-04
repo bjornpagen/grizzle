@@ -32,21 +32,19 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { contractDescriptor } from "#compiler/scalar/contract.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import {
-	carrierSql,
-	type Described,
-	describeField,
-	fieldIdentity
-} from "#compiler/scalar/registry.ts"
+import { carrierSql, type Described, describeField } from "#compiler/scalar/registry.ts"
 import { bigserial, serial, smallserial } from "#compiler/scalar/serial.ts"
-import { spanDescriptor } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
 import { assert, defined, lacks, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+import {
+	contractDescriptor,
+	fieldIdentity,
+	spanDescriptor
+} from "#test/support/fixtures/descriptors.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 
 import { regex } from "arkregex"

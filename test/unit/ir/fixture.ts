@@ -19,7 +19,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { castOf } from "#compiler/scalar/compute/registry.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
@@ -727,7 +727,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 			{
 				name: "rate",
 				expr: x.lit(
-					{ kind: "numeric", value: succeeded(DecimalText.make("0.0145")) },
+					{ kind: "numeric", value: defined(DecimalText.parse("0.0145")) },
 					scalarTypes.numeric
 				)
 			},
@@ -743,7 +743,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 			},
 			{
 				name: "price",
-				expr: x.lit({ kind: "money", value: succeeded(MoneyText.of(1999n)) }, scalarTypes.money)
+				expr: x.lit({ kind: "money", value: defined(MoneyText.parse("1999")) }, scalarTypes.money)
 			},
 			{
 				name: "who",

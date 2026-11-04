@@ -60,7 +60,6 @@ import {
 	exprClosure,
 	type LiveArgs,
 	mapArgs,
-	normalizeExprTable,
 	type ScalarExpr,
 	sameArgs
 } from "#compiler/ir/expr.ts"
@@ -93,6 +92,7 @@ import {
 	throwsDefect,
 	unorderedEqual
 } from "#test/support/assert.ts"
+import { normalizeExprTable } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { dagTableShape, validateDag, validateTable } from "#test/support/oracle/dag-validate.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"

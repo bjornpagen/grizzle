@@ -3,7 +3,6 @@ import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { DecimalText, decimalTag } from "#compiler/ir/decimal.ts"
 
 declare const canonicalFloat: unique symbol
 
@@ -18,6 +17,23 @@ const mintCanonical = nominal<number, CanonicalFloat>()
 /** One spelling of zero: -0 as +0, every other number as it is. */
 export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? 0 : x)
 
+/**
+ * Money and Vector values at the Description boundary and in the IR.
+ *
+ * A Money literal travels as "~m:<minor units>" and a Vector literal as "~v:[c1,...,cn]", the
+ * same extension tags the owned Money and scalar/values' Vector.canonical write. A Description holds either as any
+ * object implementing the canonical protocol with that tag; the IR holds it parsed, as decimal.ts does for decimals: a
+ * money amount as its minor units (MoneyValue), so the owned Money travels through unchanged, and a vector as its
+ * components (VectorText), since a Vector is a caller's mutable Float32Array. This module owns only what the boundary
+ * needs: the payload grammars and two minimal carriers, MoneyText and VectorText, that a decode parses a payload into.
+ * Neither does arithmetic; each spells exactly the payload it was parsed from, so a value survives decode and re-encode
+ * exactly.
+ *
+ * - Money: the canonical decimal integer text of a signed 64-bit count of minor units: an optional '-', digits with no
+ *   leading zero, no "-0".
+ * - Vector: "[c1,...,cn]" with 1..16000 components, each the shortest round-trip text of a finite binary32 value read
+ *   as a double (String(x), so never "-0": -0 is stored as +0).
+ */
 export const moneyTag = "m"
 export const vectorTag = "v"
 
@@ -56,12 +72,6 @@ export const isMoneyPayload = (text: string): boolean => moneyUnits(text) !== un
  */
 export type MoneyValue = Canonicalizable & { readonly minorUnits: bigint }
 
-const malformedMoney = (): CompileError =>
-	malformedDescription(
-		SourceLoc("money literal", []),
-		"the canonical decimal integer text of a signed 64-bit count of minor units"
-	)
-
 export class MoneyText implements Canonicalizable {
 	readonly minorUnits: bigint
 
@@ -70,21 +80,10 @@ export class MoneyText implements Canonicalizable {
 		Object.freeze(this)
 	}
 
-	static make(text: string): Result.Result<MoneyText, CompileError> {
-		const parsed = MoneyText.parse(text)
-		return parsed === undefined ? Result.err(malformedMoney()) : Result.ok(parsed)
-	}
-
 	/** The amount `text` spells when it is a money amount's canonical text, else undefined. */
 	static parse(text: string): MoneyText | undefined {
 		const units = moneyUnits(text)
 		return units === undefined ? undefined : new MoneyText(units)
-	}
-
-	static of(minorUnits: bigint): Result.Result<MoneyText, CompileError> {
-		return minorUnits >= int8Min && minorUnits <= int8Max
-			? Result.ok(new MoneyText(minorUnits))
-			: Result.err(malformedMoney())
 	}
 
 	[canonicalTag](): TaggedValue {
@@ -136,11 +135,6 @@ export class VectorText implements Canonicalizable {
 		Object.freeze(this)
 	}
 
-	static make(text: string): Result.Result<VectorText, CompileError> {
-		const parsed = VectorText.parse(text)
-		return parsed === undefined ? Result.err(malformedVector()) : Result.ok(parsed)
-	}
-
 	/** The vector `text` spells when it is a vector's canonical text, else undefined. */
 	static parse(text: string): VectorText | undefined {
 		const components = vectorComponents(text)
@@ -174,31 +168,3 @@ export const moneyMinorUnits = (value: MoneyValue): bigint => value.minorUnits
  * written.
  */
 export const vectorPayload = (value: Canonicalizable): string => value[canonicalTag]().payload
-
-/**
- * Money and Vector values at the Description boundary and in the IR.
- *
- * A Money literal travels as "~m:<minor units>" and a Vector literal as "~v:[c1,...,cn]", the
- * same extension tags the owned Money and scalar/values' Vector.canonical write. A Description holds either as any
- * object implementing the canonical protocol with that tag; the IR holds it parsed, as decimal.ts does for decimals: a
- * money amount as its minor units (MoneyValue), so the owned Money travels through unchanged, and a vector as its
- * components (VectorText), since a Vector is a caller's mutable Float32Array. This module owns only what the boundary
- * needs: the payload grammars and two minimal carriers, MoneyText and VectorText, that a decode parses a payload into
- * when no richer reviver is supplied. Neither does arithmetic; each spells exactly the payload it was parsed from, so a
- * value survives decode and re-encode exactly.
- *
- * - Money: the canonical decimal integer text of a signed 64-bit count of minor units: an optional '-', digits with no
- *   leading zero, no "-0".
- * - Vector: "[c1,...,cn]" with 1..16000 components, each the shortest round-trip text of a finite binary32 value read
- *   as a double (String(x), so never "-0": -0 is stored as +0).
- *
- * defaultRevivers, the revivers every IR and Description decoder uses unless given others, lives here because it
- * names all three kernel carriers.
- *
- * The canonical revivers the IR and Description decoders use by default.
- */
-export const defaultRevivers = {
-	[decimalTag]: (payload: string) => DecimalText.make(payload),
-	[moneyTag]: (payload: string) => MoneyText.make(payload),
-	[vectorTag]: (payload: string) => VectorText.make(payload)
-} as const

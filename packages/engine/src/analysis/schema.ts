@@ -17,13 +17,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import {
-	descText,
-	type FieldDesc,
-	type LiteralDesc,
-	type RoleDesc,
-	type SchemaDesc
-} from "#compiler/ir/desc.ts"
+import { descText, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type ClosedTheoryRelation,
@@ -42,16 +36,14 @@ import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
-import {
-	type Owned,
-	type OwnedEntry,
-	type OwnedKey,
-	type OwnedRelation,
-	type OwnedRole,
-	type OwnedWorldEntry,
-	type OwnedWrite,
-	own,
-	ownRole
+import type {
+	Owned,
+	OwnedEntry,
+	OwnedKey,
+	OwnedRelation,
+	OwnedRole,
+	OwnedWorldEntry,
+	OwnedWrite
 } from "#compiler/schema/own.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
@@ -576,10 +568,6 @@ export const derivedAnalysis = (schema: CheckedSchema): DerivedAnalysis => ({
 export const checkedSchema = (owned: Owned): Result.Result<CheckedSchema, CompileError> =>
 	catchRefusal(() => new CheckedSchema(owned, reality))
 
-/** The checker's reading of a schema description, owned first, with ownership's refusals passed through. */
-export const checkedDesc = (desc: SchemaDesc): Result.Result<CheckedSchema, CompileError> =>
-	Result.flatMap(own(desc), checkedSchema)
-
 /** The checker's reading of an owned role, over its base's reading `base` (checkedSchema of role.base). */
 export const checkedRoleOver = (
 	role: OwnedRole,
@@ -588,11 +576,3 @@ export const checkedRoleOver = (
 	catchRefusal(
 		() => new CheckedSchema(role.base, { kind: "role", role, base, writes: roleWrites(role, base) })
 	)
-
-/** The checker's reading of an owned role, over its base's reading. */
-const checkedRole = (role: OwnedRole): Result.Result<CheckedSchema, CompileError> =>
-	Result.flatMap(checkedSchema(role.base), (base) => checkedRoleOver(role, base))
-
-/** The checker's reading of a role description, owned first, with ownership's refusals passed through. */
-export const checkedRoleDesc = (desc: RoleDesc): Result.Result<CheckedSchema, CompileError> =>
-	Result.flatMap(ownRole(desc), checkedRole)

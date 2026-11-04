@@ -89,13 +89,3 @@ export const pathRequest = (p: AccessPath, vectorSchema: string): AccessIndexReq
 	role: "access",
 	use: p.use
 })
-
-/** A readable label of a path for diagnostics: `task(account, priority desc, id) btree for page seek`. It names
- * relations and fields only, never a value. */
-export const pathLabel = (p: AccessPath): string =>
-	`${p.relation}(${p.keys
-		.map(
-			(k) =>
-				`${k.field}${k.dir === "desc" ? " desc" : ""}${methodOpclass[p.method] === "default" ? "" : ` ${methodOpclass[p.method]}`}`
-		)
-		.join(", ")}) ${p.method} for ${p.use}`

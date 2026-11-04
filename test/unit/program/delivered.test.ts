@@ -25,12 +25,12 @@ import * as Result from "#compiler/core/result.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { queryFromDescription } from "#compiler/program/describe.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { Decoders } from "#compiler/types/query/query.ts"
 import { assert, defined, refusalLoc, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { queryFromDescription } from "#test/support/describe.ts"
 import {
 	answerEquivalence,
 	answersReport,

@@ -38,19 +38,12 @@ import {
 import { canonicalTag, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
-import {
-	defaultRevivers,
-	isMoneyPayload,
-	isVectorPayload,
-	MoneyText,
-	VectorText
-} from "#compiler/ir/carriers.ts"
+import { isMoneyPayload, isVectorPayload, MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import { DecimalText, isDecimalLike, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import {
 	type ExprTable,
 	type TypedLiteral,
 	literalProblem,
-	normalizeExprTable,
 	predicateProblems,
 	type TableExpr
 } from "#compiler/ir/expr.ts"
@@ -61,7 +54,12 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, defined, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
-import { plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
+import {
+	normalizeExprTable,
+	plainType,
+	scalarOf,
+	wildcardText
+} from "#test/support/fixtures/ir/scalar.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { fail, scalarTypes } from "#test/unit/ir/fixture.ts"
 
@@ -322,7 +320,7 @@ describe("ScalarType", () => {
 })
 
 const at = (text: string, type: ScalarType) =>
-	check({ kind: "numeric", value: succeeded(DecimalText.make(text)) }, type)
+	check({ kind: "numeric", value: defined(DecimalText.parse(text)) }, type)
 
 const check = (literal: TypedLiteral, type: ScalarType) => literalProblem(literal, type)
 
@@ -387,7 +385,7 @@ describe("literals", () => {
 		}),
 		map(bigint(-(2n ** 63n), 2n ** 63n - 1n), (v): TypedLiteral => ({
 			kind: "money",
-			value: succeeded(MoneyText.of(v))
+			value: defined(MoneyText.parse(String(v)))
 		})),
 		map(boolean, (value): TypedLiteral => ({ kind: "bool", value })),
 		map(
@@ -905,9 +903,9 @@ describe("money and vector values", () => {
 						Effect.sync(() => {
 							const payload = Money.of(units)[canonicalTag]().payload
 							assert.equal(isMoneyPayload(payload), true)
-							assert.equal(succeeded(defaultRevivers.m(payload))[canonicalTag]().payload, payload)
+							assert.equal(defined(MoneyText.parse(payload))[canonicalTag]().payload, payload)
 							assert.equal(
-								succeeded(encode({ m: succeeded(MoneyText.of(units)) }, everyProperty)),
+								succeeded(encode({ m: defined(MoneyText.parse(String(units))) }, everyProperty)),
 								`{"m":"~m:${payload}"}`
 							)
 						})
@@ -950,7 +948,6 @@ describe("money and vector values", () => {
 					(text) =>
 						Effect.sync(() => {
 							assert.equal(isMoneyPayload(text), Money.fromCanonical(text).ok, text)
-							assert.equal(MoneyText.make(text).ok, isMoneyPayload(text), text)
 						})
 				)
 			)
@@ -980,7 +977,7 @@ describe("money and vector values", () => {
 							const payload = succeeded(Vector.canonical(vector))[canonicalTag]().payload
 							assert.equal(isVectorPayload(payload), true, payload)
 							assert.equal(payload, Vector.componentText(vector))
-							assert.equal(succeeded(defaultRevivers.v(payload))[canonicalTag]().payload, payload)
+							assert.equal(defined(VectorText.parse(payload))[canonicalTag]().payload, payload)
 							assert.equal(succeeded(VectorText.of(vector))[canonicalTag]().payload, payload)
 							assert.equal(
 								succeeded(encode({ v: succeeded(VectorText.of(vector)) }, everyProperty)),
@@ -1042,7 +1039,6 @@ describe("money and vector values", () => {
 					(text) =>
 						Effect.sync(() => {
 							assert.equal(isVectorPayload(text), Vector.fromCanonical(text).ok, text)
-							assert.equal(VectorText.make(text).ok, isVectorPayload(text), text)
 						})
 				)
 			)
@@ -1104,19 +1100,15 @@ describe("decimals", () => {
 					},
 					(text, c) =>
 						Effect.sync(() => {
-							const payload = isDecimalPayload(text)
-							assert.equal(payload, Decimal.fromCanonical(text).ok, text)
-							const made = DecimalText.make(text)
-							assert.equal(made.ok, payload, text)
-							if (!payload) {
+							assert.equal(isDecimalPayload(text), Decimal.fromCanonical(text).ok, text)
+							const d = DecimalText.parse(text)
+							if (d === undefined) {
 								c.note("no payload")
-								assert.equal(fail(made).reason._tag, "MalformedDescription")
 								return
 							}
 							c.note(
 								text === "NaN" || Str.endsWith("Infinity")(text) ? "a special value" : "a payload"
 							)
-							const d = succeeded(made)
 							assert.equal(d[canonicalTag]().payload, text)
 							assert.equal(isDecimalLike(d), true)
 							assert.equal(succeeded(encode({ d }, everyProperty)), `{"d":"~d:${text}"}`)

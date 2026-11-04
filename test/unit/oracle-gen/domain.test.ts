@@ -20,8 +20,9 @@ import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { isRefined, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { btreeEntryBytes, btreeMaxItemSize, datumBound } from "#compiler/schema/representability.ts"
-import { accepts, analyzeText, textInfo } from "#compiler/text/refinement.ts"
+import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	allTypeSpecs,
 	compareParamType,

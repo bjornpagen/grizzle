@@ -1,0 +1,93 @@
+CHECKLIST: PostgreSQL reporting policy, applied to the GiST cost estimate's blindness to column position
+
+Outcome: a discussion item and bug report for pgsql-hackers, with no patch. It is a reply to the 2018 thread of
+BUG #15408, moved from pgsql-bugs. Nothing has been sent.
+
+Sources:
+  B  https://www.postgresql.org/docs/current/bug-reporting.html            (Bug Reporting Guidelines, 5.1 to 5.3)
+  G  https://wiki.postgresql.org/wiki/Guide_to_reporting_problems
+  L  https://wiki.postgresql.org/wiki/Mailing_Lists
+
+A. GATES BEFORE REPORTING
+  [x] Check whether the problem is already known. B 5.1: "check on the TODO list and in the FAQ to see if your bug
+      is already known."
+      - The wiki TODO's GiST section has no costing item, and the FAQ says nothing on it.
+      - The archives hold BUG #15408 (2018-09-27, pgsql-bugs), where Tom Lane confirmed that gistcostestimate() does
+        not model column position, and nothing followed. So email.txt replies to that thread (In-Reply-To
+        <21040.1538079332@sss.pgh.pa.us>) instead of reporting it afresh (EVIDENCE.txt 6).
+  [x] Don't duplicate a live discussion.
+      - David Rowley's 2024 log2 diff, in "Re: Supporting = operator in gin/gist_trgm_ops", covers only the
+        tie-break. The email cites it as [1].
+      - The open "gist_trgm_ops '=' operator: planner picks it over btree" thread, CF #7401, has a different cause,
+        a lossy single-column '=', and is converging on an opclass-level fix. The email cites it as [2] and does not
+        reply into it.
+      - The commitfests PG20-3 and PG20-4 have no entry on gistcostestimate.
+  [x] Read the documentation first. B 5.1: "read and re-read the documentation".
+      - indices.sgml's multicolumn GiST paragraph documents the scan's dependence on the first column.
+      - Nothing documents the estimate's indifference to it, and the email asks whether it is intended.
+  [x] Know that slow is not automatically a bug. B 5.1: "Being slow or resource-hogging is not necessarily a bug."
+      - The report claims no wrong result.
+      - It shows the estimate contradicting the documented scan behaviour, by 892 pages against 2, and asks about
+        the cost model. Hence a discussion on hackers, not a bug filing (C).
+  [x] Check the development branch, and name the commit. B 5.2: "If you are talking about a Git snapshot, mention
+      that, including the commit hash."
+      - Measured on 19rc1 (0b8bff042a) and on master b6178c942e (20devel, cassert), with identical costs and buffers.
+      - The three costing functions, the GiST scan and the planner code cited are identical at origin/master
+        73a28d2733, 2026-11-04 (EVIDENCE.txt 1 and 3).
+  [x] Mind the release cycle. 19 is between RC1 and RC2 (2026-11-12).
+      - A cost-model change is 20 material, and the email says "for 20".
+      - Tom Lane in 2018: "we'd be unlikely to back-patch such a change into existing release branches". The email
+        asks for no backpatch.
+
+B. REPORT CONTENT (B 5.2)
+  [x] "The exact sequence of steps ... self-contained ... a file that can be run through the psql frontend ... (Be
+      sure to not have anything in your ~/.psqlrc start-up file.)"
+      - repro.sql, run with psql -X, carries its CREATE TABLE, INSERT and VACUUM ANALYZE.
+      - It creates and drops its own database, gist_cost_repro, and returns to the starting database.
+      - It runs in 8 to 12 s at its defaults, and scales with -v rows and -v rooms.
+  [x] "The output you got": the EXPLAIN (ANALYZE, BUFFERS) plan in email.txt, and every case in EVIDENCE.txt 2.
+  [x] "The output you expected is very important to state."
+      - Expected: the B-tree plan, or the room-led GiST index, read in 2 or 3 pages, and estimates that tell those
+        plans from a sweep.
+      - email.txt's table sets each estimate beside the pages actually read.
+  [x] "The PostgreSQL version": repro.sql runs SELECT version(), and EVIDENCE.txt 1 gives both builds and their
+      commits.
+  [x] Options "changed from the default": no planner cost GUC is changed.
+      - repro.sql prints random_page_cost, seq_page_cost, the CPU costs, effective_cache_size, shared_buffers and jit.
+      - Every EXPLAIN in the email ran with all of them at their defaults.
+  [x] "Anything you did at all differently from the installation instructions":
+      - the 19rc1 build carries two local patches that the repro does not reach;
+      - the master build has assertions enabled (EVIDENCE.txt 1).
+  [x] "Platform information": the EVIDENCE.txt header.
+  [x] G: "Please do not include screenshots of any kind." Text only.
+
+C. LIST CHOICE
+  [x] pgsql-hackers, not pgsql-bugs.
+      - B 5.3 sends bug reports to pgsql-bugs, and adds: "We might choose to take up a discussion about your bug
+        report on pgsql-hackers, if the problem needs more review."
+      - L describes pgsql-hackers as "for bug reports or issues with unreleased version" and "discussion about
+        database internals".
+      - This report has no wrong result and is present on master, an unreleased version.
+      - The 2018 -bugs thread ended at "design/write/test a better cost model", which is -hackers work.
+      - So the reply moves the thread to -hackers and says so in its first line.
+  [x] One list only. G: "do not post the same question to 2 or more mailing lists at the same time."
+      - pgsql-bugs comes off the reply's recipients (NOTES.txt 2).
+  [x] Not pgsql-performance, which L describes as for "performance tuning, benchmarking or case studies from
+      existing users". The email asks about changing the planner.
+
+D. ETIQUETTE (L)
+  [x] "please do not send HTML-enriched email to the mailing lists": email.txt is plain text, wrapped at 76
+      columns except for header lines and URLs.
+  [x] "our community generally does not 'top post'": the quoted 2018 text comes first, and the reply follows it.
+  [x] "the preferred way to participate in threads is to 'reply all'". Don't copy a message body into a new email to
+      join a thread, because threading depends on the In-Reply-To header.
+      - NOTES.txt 2 has the owner resend the 2018 message to himself from the archive and reply-all to it.
+      - email.txt's header block gives In-Reply-To and References, for checking.
+  [x] No confidentiality footer. The signature is "Bjorn Pagen", and no personal address appears in any file of
+      this folder.
+  [x] The script goes as an attachment, repro.sql, with the essential DDL also inline.
+
+E. NOT APPLICABLE OR LEFT TO THE OWNER
+  [-] Patch submission (https://wiki.postgresql.org/wiki/Submitting_a_Patch): no patch, by design.
+      - A commitfest entry is for patches. If the list agrees on a direction, a patch follows with its own entry.
+  [ ] Sending, from the owner's address, by the steps of NOTES.txt 2.

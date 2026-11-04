@@ -8,7 +8,6 @@ import { checkQuery } from "#compiler/check/index.ts"
 import {
 	guarantees,
 	hasConstraint,
-	queryConstants,
 	refinedConstants,
 	refinement
 } from "#compiler/check/refinement/index.ts"
@@ -27,9 +26,9 @@ import { contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { queryValueDesc } from "#compiler/query/build/index.ts"
+import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { plainType, sameRegex, wildcardText } from "#compiler/scalar/compute/types.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
@@ -419,27 +418,5 @@ describe("refined constants", () => {
 					})
 			)
 		)
-	})
-
-	it("list a query's literals of a refined type, and no plain one", () => {
-		const logical = checked(
-			query(Content).rule((r) => {
-				const { id, slug } = v(Article, "article")
-				return r.match(Article, { id, slug, state: "draft" }).find({
-					id,
-					kind: Compute.literal(Slug, "article"),
-					plain: Compute.literal(pg.bigint, 1n)
-				})
-			})
-		)
-		const listed = queryConstants(logical.dag)
-		unorderedEqual(
-			Arr.map(listed, (x) => x.literal),
-			[
-				{ kind: "text", value: "article" },
-				{ kind: "text", value: "draft" }
-			]
-		)
-		assert.ok(Arr.every(listed, (x) => hasConstraint(x.type)))
 	})
 })

@@ -24,7 +24,7 @@ import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { normalizeDag } from "#compiler/ir/dag.ts"
 import { descText, type QueryDesc, type QueryStageDesc, type RuleDesc } from "#compiler/ir/desc.ts"
-import { fromQueryDescription, toQueryDescription } from "#compiler/ir/describe.ts"
+import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	numericTypmodOf,
@@ -35,9 +35,10 @@ import {
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { queryFromDesc, queryValueDesc } from "#compiler/query/build/index.ts"
+import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refusalLoc } from "#test/support/assert.ts"
+import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { decodeJson } from "#test/support/json.ts"
 import { messageOf } from "#test/support/message.ts"
 import { scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
@@ -70,9 +71,9 @@ const ok = <A>(r: Result.Result<A, CompileError>, what: string): A => {
 }
 
 /**
- * A description from anywhere as production reads it (program/describe.ts queryFromDescription): its shapes
- * (ir/describe.ts fromQueryDescription), then the complete check against the schema, scope included; the Description
- * read when both admit it.
+ * A description from anywhere as test/support/describe.ts queryFromDescription reads it: its shapes
+ * (fromQueryDescription), then the complete check against the schema, scope included; the Description read when both
+ * admit it.
  */
 const describedQuery = (
 	value: unknown,

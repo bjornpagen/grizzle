@@ -8,7 +8,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import type { SchemaDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
-import { compileLaws, constraintOwner, type LawModel } from "#compiler/laws/model/model.ts"
+import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { pg } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
@@ -36,6 +36,7 @@ import * as Q from "#test/support/fixtures/ir/queue.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import {
 	constraintOf,
+	constraintOwner,
 	installationNamesOf,
 	installationOf,
 	lawIdOf,

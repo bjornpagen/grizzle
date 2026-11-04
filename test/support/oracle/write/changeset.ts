@@ -5,7 +5,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { Decimal } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { Fact as RelationFact } from "#compiler/public/schema.ts"
-import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/index.ts"
+import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import type { ParamMap, ParamValue, Source } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -170,7 +170,7 @@ export type Entry = "apply" | "compile"
  * A read-back of a relation with a deferred containment out of it may attach, stated "one", the containment's target
  * fact to each row, which a read inside the write's transaction reads back as an Option: it runs
  * before COMMIT has checked the deferred laws, so a row may name a target the write removed or never added. Its head
- * is known only at run time, so it is built through the query builder's untyped core (query/build/index.ts
+ * is known only at run time, so it is built through the query builder's untyped core (query/build/query.ts
  * queryOver), the entry a JavaScript caller's description goes through.
  *
  * A planted case writes the planted group (schema.ts Planted) instead: a fixed ChangeSet over facts planted beside the

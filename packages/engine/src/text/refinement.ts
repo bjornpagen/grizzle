@@ -16,14 +16,14 @@ import {
 	loopsThroughAnchor,
 	type RegexNode
 } from "#compiler/scalar/regex/ir.ts"
-import { buildNfa, closurePairs, matches, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { buildNfa, closurePairs, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import {
 	type ParseLimits,
 	parsePattern,
 	type RegexDiagnostic,
 	type RegexFlags
 } from "#compiler/scalar/regex/parse.ts"
-import { noRosters, type ScalarEnv, type TextLookup } from "#compiler/scalar/registry.ts"
+import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
 import { binary, cUtf8Collation, lit, types } from "#compiler/sql/build.ts"
 import { toAre } from "#compiler/text/are.ts"
@@ -118,8 +118,6 @@ export interface TextRefinement {
 	readonly key: string
 	/** SHA-256 of the key, the domain identity the snapshot records. */
 	readonly digest: string
-	/** The host matcher over the IR, for the compiler's constants only. */
-	readonly nfa: Nfa
 }
 
 const diagnosticError = (
@@ -210,7 +208,8 @@ type Language =
 	| { readonly kind: "empty" }
 	| { readonly kind: "nonEmpty"; readonly ir: LiveNode; readonly known: Known }
 
-const languageOf = (ir: RegexNode, nfa: Nfa, limits: TextLimits): Language => {
+/** The language of a pattern's IR from its NFA, under `limits`: what analyzeText classifies an admitted pattern by. */
+export const languageOf = (ir: RegexNode, nfa: Nfa, limits: TextLimits): Language => {
 	if (ir.kind === "never") {
 		return { kind: "empty" }
 	}
@@ -222,13 +221,6 @@ const languageOf = (ir: RegexNode, nfa: Nfa, limits: TextLimits): Language => {
 		? { kind: "empty" }
 		: { kind: "nonEmpty", ir, known: { kind: "automaton", dfa } }
 }
-
-/**
- * The language of a parsed pattern (scalar/regex/parse.ts parsePattern under the same limits), classified as
- * analyzeText classifies it: an empty language is the refusal "matches no admitted text value".
- */
-export const analyzeLanguage = (ir: RegexNode, limits: TextLimits): Language =>
-	languageOf(ir, buildNfa(ir), limits)
 
 /**
  * Text refinements: a declared pattern, checked, analyzed and lowered.
@@ -243,8 +235,7 @@ export const analyzeLanguage = (ir: RegexNode, limits: TextLimits): Language =>
  * - anything else is `VALUE ~ '<ARE>'` with the translated pattern (are.ts).
  *
  * It also derives the canonical pattern key that domain sharing uses (core/identity.ts textDomain), and the proved length
- * and byte bounds that the key representability check consumes. Nothing here validates application data:
- * the host matcher `accepts` serves only the compiler's own constants.
+ * and byte bounds that the key representability check consumes. Nothing here validates application data.
  *
  * Checks, analyzes and lowers a declared pattern, whose source and flags the description's boundary admitted
  * (field.ts admitRegex, the description decoder). `loc` is the descriptor's source location; diagnostics point one
@@ -318,9 +309,7 @@ const analyze = (
 	const are = toAre(language.ir)
 	const check = choose(ir, language.known, are, productionLimits)
 	const key = keyOf(ir, language.known)
-	return Result.ok(
-		Object.freeze({ source, flags, ir, are, check, key, digest: keyDigest(key), nfa })
-	)
+	return Result.ok(Object.freeze({ source, flags, ir, are, check, key, digest: keyDigest(key) }))
 }
 
 /**
@@ -328,13 +317,6 @@ const analyze = (
  */
 export const wildcardSource = "^.*$"
 export const wildcardFlags: RegexFlags = "su"
-
-/**
- * Whether an admitted text value matches the refinement. For the compiler's own constants only:
- * PostgreSQL alone validates application data.
- */
-export const accepts = (refinement: TextRefinement, value: string): boolean =>
-	matches(refinement.nfa, value)
 
 /**
  * The analysis of a RegexRef's pattern: its automaton and its membership check. The one site of the fact that the
@@ -384,13 +366,6 @@ export const textInfo = (refinement: TextRefinement): TextInfo => {
 export const textLookup: TextLookup = (source, flags) =>
 	Result.map(analyzeText(source, flags, SourceLoc(`/${source}/${flags}`, [])), textInfo)
 
-/** The builder environment of a field outside any schema: no closed relation, and every pattern read by textLookup. */
-export const builderEnv: ScalarEnv = Object.freeze({
-	kind: "builder",
-	roster: noRosters,
-	text: textLookup
-})
-
 /** A domain CHECK's VALUE. */
 export const domainValue: Expr = Object.freeze({ kind: "domainValue" })
 
@@ -411,10 +386,6 @@ export const membership = (check: NontrivialCheck, value: Expr): Expr => {
 			return binary("~", value, lit.text(check.pattern, types.text))
 	}
 }
-
-/** The membership predicate of a check, or none for a tautology. */
-export const checkPredicate = (check: TextCheck, value: Expr): Expr | undefined =>
-	check.kind === "tautology" ? undefined : membership(check, value)
 
 /**
  * The compiler-owned structural domain of a nontrivial refinement:

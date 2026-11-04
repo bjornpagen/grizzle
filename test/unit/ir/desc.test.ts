@@ -33,14 +33,13 @@ import { indices } from "#compiler/core/array.ts"
 import { type Canonicalizable, canonicalTag, maxNestingDepth } from "#compiler/core/canonical.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { defaultRevivers, MoneyText, VectorText } from "#compiler/ir/carriers.ts"
+import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import {
 	type ComputeFn,
 	computeFns,
 	type DescKind,
 	decodeDesc,
-	descFromJson,
 	descText,
 	descToJson,
 	type FieldDesc,
@@ -60,6 +59,7 @@ import {
 	succeeded
 } from "#test/support/assert.ts"
 
+import { descFromJson } from "#test/support/describe.ts"
 import type {
 	ChangeSetDesc,
 	WorkloadDesc,
@@ -75,7 +75,7 @@ import { decodeJson } from "#test/support/json.ts"
 import { fail } from "#test/unit/ir/fixture.ts"
 
 import { regex } from "arkregex"
-const dec = (text: string) => succeeded(DecimalText.make(text))
+const dec = (text: string) => defined(DecimalText.parse(text))
 
 const budget: FieldDesc = {
 	kind: "contract",
@@ -208,7 +208,7 @@ const rule: RuleDesc = {
 		},
 		price: {
 			kind: "literal",
-			value: succeeded(MoneyText.of(1999n)),
+			value: defined(MoneyText.parse("1999")),
 			type: { kind: "pg", type: "money" }
 		},
 		probe: {
@@ -404,7 +404,7 @@ const relations: ReadonlyArray<RelationDesc> = [
 		name: "Fee",
 		handles: ["Late"],
 		payload: { amount: { kind: "pg", type: "money" } },
-		facts: { Late: { amount: succeeded(MoneyText.of(1999n)) } }
+		facts: { Late: { amount: defined(MoneyText.parse("1999")) } }
 	},
 	{
 		kind: "derived",
@@ -575,7 +575,7 @@ describe("Descriptions", () => {
 			const owned = succeeded(decodeDesc(kind, value))
 			assert.equal(succeeded(descText(owned)), succeeded(descText(value)))
 			assert.deepEqual(succeeded(decodeDesc(kind, owned)), owned)
-			const back = succeeded(descFromJson(kind, throughJson(value), defaultRevivers))
+			const back = succeeded(descFromJson(kind, throughJson(value)))
 			assert.deepEqual(back, owned)
 			assert.equal(succeeded(descText(back)), succeeded(descText(value)))
 		})
@@ -732,7 +732,7 @@ describe("Descriptions", () => {
 		return stage
 	}
 	const roundTrips = (q: QueryDesc): string => {
-		const back = succeeded(descFromJson("query", throughJson(q), defaultRevivers))
+		const back = succeeded(descFromJson("query", throughJson(q)))
 		assert.deepEqual(back, succeeded(decodeDesc("query", q)))
 		assert.equal(succeeded(descText(back)), succeeded(descText(q)))
 		return succeeded(descText(q))
@@ -1343,9 +1343,7 @@ describe("Descriptions", () => {
 							case "a malformed payload":
 								c.note(corrupt.kind)
 								assert.equal(
-									fail(
-										descFromJson("expr", { kind: "literal", value: corrupt.text }, defaultRevivers)
-									).reason._tag,
+									fail(descFromJson("expr", { kind: "literal", value: corrupt.text })).reason._tag,
 									"MalformedDescription"
 								)
 						}
@@ -1471,7 +1469,9 @@ describe("Descriptions", () => {
 				)
 			}
 		),
-		map(bigint(-(2n ** 63n), 2n ** 63n - 1n), (minorUnits) => succeeded(MoneyText.of(minorUnits))),
+		map(bigint(-(2n ** 63n), 2n ** 63n - 1n), (minorUnits) =>
+			defined(MoneyText.parse(String(minorUnits)))
+		),
 		map(array(float(-floatMax, floatMax), { min: 1, max: 4 }), (xs) =>
 			succeeded(VectorText.of(Float32Array.from(xs)))
 		)
@@ -1664,7 +1664,7 @@ describe("Descriptions", () => {
 				},
 				(e) =>
 					Effect.sync(() => {
-						const back = succeeded(descFromJson("expr", throughJson(e), defaultRevivers))
+						const back = succeeded(descFromJson("expr", throughJson(e)))
 						assert.deepEqual(back, succeeded(decodeDesc("expr", e)))
 						assert.equal(succeeded(descText(back)), succeeded(descText(e)))
 					})

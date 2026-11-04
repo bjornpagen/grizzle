@@ -1,11 +1,10 @@
 import { oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
-import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { unsupported } from "#compiler/core/errors.ts"
 import { parseNameCharacters } from "#compiler/core/identity.ts"
 import { childLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	decodeDesc,
 	type FieldDesc,
@@ -40,7 +39,6 @@ import {
 	isObjectRecord,
 	mintSite,
 	noOrigin,
-	noSchema,
 	type SchemaInfo
 } from "#compiler/query/build/scope.ts"
 
@@ -59,8 +57,7 @@ import {
 	registerQuery,
 	registerSource,
 	type SourceInfo,
-	sourceInfo,
-	stageHeading
+	sourceInfo
 } from "#compiler/query/build/state.ts"
 
 import {
@@ -117,7 +114,7 @@ import type { VarOrigins, VSource } from "#compiler/types/query/terms.ts"
  *
  * What a JavaScript caller sees: a value of any query, ordered query or builder, each method taking what such a caller
  * may pass. It is a view of the typed values, never a second builder: every typed value is one, since
- * its methods are declared with method syntax, and queryOver, queryFromDesc and the predicates below deliver the typed
+ * its methods are declared with method syntax, and queryOver and the predicates below deliver the typed
  * values themselves under it. The internal tests and packages that drive the builder over values known only at run
  * time read them through it.
  */
@@ -299,7 +296,7 @@ const defineDesc = <T extends object>(value: T, state: QueryState, label: string
  * combinator's result type is the one its signature names, its heading of carriers the state's (headingOf), and its
  * records the ones it builds. The contexts it reads, Cx, and its arms, Arms, are phantoms.
  */
-const queryOf = <
+export const queryOf = <
 	S,
 	Head,
 	Ev extends Evidence,
@@ -488,7 +485,7 @@ const orderStage = (
 }
 
 /** An ordered value over a state and its records, implementing Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>. */
-const orderedOf = <
+export const orderedOf = <
 	S,
 	Head,
 	Ev extends Evidence,
@@ -867,28 +864,6 @@ export const v: VConstructor = <R extends VSource, const N extends string>(
 	)
 }
 
-/**
- * A query or ordered value rebuilt from its Description: the same combinators, over a heading the
- * Description states, typed where its descriptors say so. queryFromDescription wraps it. A Description spells every
- * name, so it waits on no attachment child.
- */
-export const queryFromDesc = (
-	desc: unknown,
-	schema: unknown
-): Result.Result<QueryValue | OrderedValue, CompileError> =>
-	Result.map(decodeDesc("query", desc), (owned) => {
-		const info = schema === undefined ? noSchema : schemaInfo(schema)
-		/** Its heading carries no column: it is described, and delivers no records. */
-		const state: QueryState = {
-			desc: owned,
-			heading: stageHeading(owned.stage, info.env),
-			carriers: described,
-			schema: info,
-			pending: new Set()
-		}
-		return isOrdered(state) ? orderedOf(state, described) : queryOf(state, described)
-	})
-
 export const isQueryValue = (value: unknown): value is QueryValue => {
 	const state = queryState(value)
 	return state !== undefined && !isOrdered(state)
@@ -913,6 +888,3 @@ export const queryValueDesc = (value: unknown): QueryDesc | undefined =>
 
 /** The schema value a query or ordered value the builder made is over. */
 export const queryValueSchema = (value: unknown): unknown => queryState(value)?.schema.value
-
-/** The heading the builder knows for a query or ordered value. */
-export const queryValueHeading = (value: unknown): Heading | undefined => queryState(value)?.heading

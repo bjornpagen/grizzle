@@ -175,6 +175,7 @@ const loaded = run.trapped.length
  */
 const field = await import("#compiler/text/field.ts")
 const parse = await import("#compiler/scalar/regex/parse.ts")
+const nfa = await import("#compiler/scalar/regex/nfa.ts")
 const refinement = await import("#compiler/text/refinement.ts")
 const loc = await import("#compiler/core/loc.ts")
 const generators = await import("#test/unit/text/generators.ts")
@@ -195,9 +196,16 @@ const admittedChecks: ReadonlyArray<ReadonlyArray<boolean>> = Arr.flatMap(
 			if (!result.ok) {
 				return []
 			}
-			refinement.textInfo(result.value)
-			refinement.checkPredicate(result.value.check, refinement.domainValue)
-			return [Arr.map(probes(family.alphabet), (value) => refinement.accepts(result.value, value))]
+			const { regex } = refinement.textInfo(result.value)
+			const check = result.value.check
+			if (check.kind !== "tautology") {
+				refinement.membership(check, refinement.domainValue)
+			}
+			return [
+				regex === "wildcard"
+					? []
+					: Arr.map(probes(family.alphabet), (value) => nfa.regexMember(regex, value))
+			]
 		})
 )
 /** A flags word the description boundary refuses never reaches the analysis. */

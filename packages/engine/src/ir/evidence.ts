@@ -1,13 +1,12 @@
-import {
-	type ConstraintName,
-	type LawFunctionName,
+import type {
+	ConstraintName,
+	LawFunctionName,
 	NodeId,
 	ParamId,
-	type PremiseObject
+	PremiseObject
 } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
-import * as S from "#compiler/ir/shape.ts"
 
 /** The validity contexts evidence can hold in, from strongest to weakest scope. */
 export const evidenceContexts = [
@@ -30,7 +29,7 @@ export type TemplateContext = (typeof templateContexts)[number]
  * The installed constraint families a premise can name. A "deferred" family holds only at commit; "uniqueIndex" is
  * a derived relation's inherited key, immediate on its materialized view.
  */
-const constraintKinds = [
+export const constraintKinds = [
 	"primaryKey",
 	"unique",
 	"check",
@@ -189,16 +188,3 @@ export const strongest = (contexts: ReadonlyArray<EvidenceContext>): EvidenceCon
 /** Whether a claim resting on context `a` holds wherever one resting on `b` does, and somewhere more. */
 export const lessDemanding = (a: EvidenceContext, b: EvidenceContext): boolean =>
 	contextRank[a] < contextRank[b]
-
-const nodeIdShape = S.branded(NodeId, S.nonEmptyString)
-
-export const premiseShape: S.Shape<Premise> = S.tagged("kind", {
-	constraint: S.struct({
-		constraint: S.premiseObjectShape,
-		constraintKind: S.literalsShape(constraintKinds)
-	}),
-	node: S.struct({ node: nodeIdShape }),
-	param: S.struct({ param: S.branded(ParamId, S.nonEmptyString) })
-})
-
-export const evidenceContextShape: S.Shape<EvidenceContext> = S.literalsShape(evidenceContexts)

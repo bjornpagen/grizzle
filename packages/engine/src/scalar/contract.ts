@@ -1,4 +1,3 @@
-import { brandColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -21,8 +20,6 @@ import {
 import {
 	contractType,
 	type Described,
-	type Descriptor,
-	defineField,
 	describeFieldOrThrow,
 	literalDescOrThrow,
 	noText,
@@ -92,14 +89,6 @@ const scalarTerm = (expr: OpenExpr, t: ScalarType, carrier: TermCarrier): Scalar
 		}
 	})
 	return registerTerm(term, expr, t)
-}
-
-interface ContractDescriptor extends Descriptor {
-	readonly name: string
-	/** The descriptor the caller passed, unchanged: a str.regex field keeps its pattern. */
-	readonly base: object
-	readonly predicate: ExprDesc | undefined
-	(value: unknown): unknown
 }
 
 /**
@@ -187,6 +176,35 @@ interface ContractParts {
 }
 
 /**
+ * contract(name, base, predicate?): a nominal contract over a base descriptor, and the runtime protocol of scalar terms and predicates the predicate is built from.
+ *
+ * A contract is a nominal identity over its base, with an optional total predicate over one value, and it always
+ * lowers to a PostgreSQL DOMAIN over the base type. Its identity is its name and base: two contracts with
+ * identical bases and predicates are different types, and the predicate is not part of type compatibility.
+ * The domain's one constraint is `<contract>__check`, which a migration changing the predicate replaces in place.
+ *
+ * The contract value is callable as an unchecked brand constructor: `Cents(1250n)` returns its argument unchanged and
+ * checks nothing, ever. The public contract (public/fields.ts) is an unchecked brand constructor to Effect's type-level
+ * brand (core/brand.ts nominal), with the contract's members, which this admission core decides, defined onto it.
+ * PostgreSQL evaluates the predicate on writes into the domain and on an explicit domain cast; the library evaluates it
+ * for a literal that adopts the contract, the ContractLiteral check at compilation, and for a parameter its uses type
+ * by the contract, at bind (codec/scalar.ts paramEncoder).
+ *
+ * The predicate callback runs once, at construction, over the domain's VALUE, and records an ExprDesc (callbacks
+ * build descriptions; they never run per row). Its value scalar offers the comparisons of a Scalar:
+ * eq, ne, lt, le, gt, ge, between and in. A literal operand adopts the base's host type and is checked as a literal of
+ * it at construction: over a numeric base a JavaScript number is refused and an exact decimal string is
+ * parsed. Whether each of the predicate's partial operations is proved, each declared fact holds and each literal fits
+ * is the checker's to decide at compilation.
+ *
+ * The term protocol (compute/term.ts). A scalar term is a value with an `expr` member holding its expression; a predicate
+ * also has `predicate: true`. The Compute catalogue (scalar/compute), the query builder and
+ * the row checks build terms and predicates and register them by identity in compute/term.ts's one registry,
+ * and read them with `termExpr` and `predicateExpr`, which consult that registry and never a value's members, so a
+ * Compute expression over a contract's value composes with the value's own comparisons:
+ * `contract("Body", text, (v) => Compute.charLength(v).le(2000))`, and a copy of a term is no term. A parameter
+ * (r.param) is any value with a string `param` member and no `expr`; it adopts the type it meets.
+ *
  * The admission core of contract: a JavaScript caller can pass anything in every position. `rest` is what follows the
  * base: none or an undefined predicate is contract(name, base), one predicate, which buildPredicate checks is a
  * callback, contract(name, base, predicate), the facts it proves after it contract(name, base, predicate, { proves }),
@@ -231,73 +249,4 @@ export const contractParts = (
 		loc,
 		env: baseEnv(described.scalar)
 	}
-}
-
-/**
- * contract(name, base, predicate?): a nominal contract over a base descriptor, and the runtime protocol of scalar terms and predicates the predicate is built from.
- *
- * A contract is a nominal identity over its base, with an optional total predicate over one value, and it always
- * lowers to a PostgreSQL DOMAIN over the base type. Its identity is its name and base: two contracts with
- * identical bases and predicates are different types, and the predicate is not part of type compatibility.
- * The domain's one constraint is `<contract>__check`, which a migration changing the predicate replaces in place.
- *
- * The contract value is callable as an unchecked brand constructor: `Cents(1250n)` returns its argument unchanged and
- * checks nothing, ever. The public contract (types/fields) is an unchecked brand constructor to Effect's type-level
- * brand (core/brand.ts nominal), with the contract's members defined onto it; this module's `contract` is the admission
- * core a JavaScript caller reaches, whose brand is the plain identity. PostgreSQL evaluates the predicate on writes
- * into the domain and on an explicit domain cast; the library evaluates it for a literal that adopts the contract, the
- * ContractLiteral check at compilation, and for a parameter its uses type by the contract, at bind
- * (codec/scalar.ts paramEncoder).
- *
- * The predicate callback runs once, at construction, over the domain's VALUE, and records an ExprDesc (callbacks
- * build descriptions; they never run per row). Its value scalar offers the comparisons of a Scalar:
- * eq, ne, lt, le, gt, ge, between and in. A literal operand adopts the base's host type and is checked as a literal of
- * it at construction: over a numeric base a JavaScript number is refused and an exact decimal string is
- * parsed. Whether each of the predicate's partial operations is proved, each declared fact holds and each literal fits
- * is the checker's to decide at compilation.
- *
- * The term protocol (compute/term.ts). A scalar term is a value with an `expr` member holding its expression; a predicate
- * also has `predicate: true`. The Compute catalogue (scalar/compute), the query builder and
- * the row checks build terms and predicates and register them by identity in compute/term.ts's one registry,
- * and read them with `termExpr` and `predicateExpr`, which consult that registry and never a value's members, so a
- * Compute expression over a contract's value composes with the value's own comparisons:
- * `contract("Body", text, (v) => Compute.charLength(v).le(2000))`, and a copy of a term is no term. A parameter
- * (r.param) is any value with a string `param` member and no `expr`; it adopts the type it meets.
- *
- * The admission core for a JavaScript caller: contract(name, base) or contract(name, base, predicate), the predicate a
- * callback over the value's scalar term.
- */
-export const contractDescriptor = (
-	name: unknown,
-	base: unknown,
-	...rest: ReadonlyArray<unknown>
-): ContractDescriptor => admitContract(name, base, rest)
-
-/**
- * The descriptor of the admission core: the unchecked identity brand, with the contract's members.
- *
- * describeField admitted `base`, so it is an object or a function: the public `base` member is the caller's
- * descriptor itself, and an unowned str.regex field keeps its pattern.
- */
-export const admitContract = (
-	name: unknown,
-	base: unknown,
-	rest: ReadonlyArray<unknown>
-): ContractDescriptor => {
-	const parts = contractParts(name, base, rest)
-	if (base === null || (typeof base !== "object" && typeof base !== "function")) {
-		throw malformedDescription(captureLoc(`contract ${parts.name} base`, []), "a field descriptor")
-	}
-	/** A fresh unchecked brand constructor, one function per contract, which its descriptor is: no runtime predicate
-	 * exists in the library. The column is the base's, branded. */
-	const brand = (value: unknown): unknown => value
-	const column = brandColumn(parts.base.column, brand)
-	return defineField(
-		brand,
-		parts.sql,
-		parts.desc,
-		{ name: parts.name, base, predicate: parts.predicate, column },
-		parts.loc,
-		parts.env
-	)
 }

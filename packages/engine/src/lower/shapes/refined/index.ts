@@ -660,7 +660,7 @@ export const refineDelivered = (cx: LowerContext, query: Select, heading: Headin
 }
 
 /**
- * The validation statements of the refined constants (check/refinement refinedConstants and queryConstants): per
+ * The validation statements of the refined constants (check/refinement refinedConstants): per
  * domain, in order of first appearance, `SELECT "r1"."c1"::<domain> AS "value" FROM (VALUES (<literal>::<base>), ...)
  * AS "r1"("c1")`, each distinct constant once. A constant whose type carries no CHECK is not listed (hasConstraint).
  */

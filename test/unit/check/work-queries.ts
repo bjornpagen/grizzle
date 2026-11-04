@@ -9,7 +9,7 @@ import {
 	orderBy,
 	param,
 	parent,
-	query,
+	queryDesc,
 	ref,
 	relationSource,
 	rule,
@@ -28,7 +28,7 @@ const automaticVars = vars("AutomaticTask", "task", "budget")
  * Each is the query's rule, transcribed onto the Description boundary with the DSL: `v(Task, "task")` mints one
  * variable per field, named `Task.<field>` and carrying its origin, and a match binds the fields the rule uses.
  */
-export const automaticTasksFor: QueryDesc = query(
+export const automaticTasksFor: QueryDesc = queryDesc(
 	rule({
 		vars: [...taskVars, ...automaticVars],
 		matches: [
@@ -49,7 +49,7 @@ export const automaticTasksFor: QueryDesc = query(
 	})
 )
 
-export const taskPayloads: QueryDesc = query(
+export const taskPayloads: QueryDesc = queryDesc(
 	rule({
 		vars: [...taskVars, ...automaticVars],
 		matches: [
@@ -100,7 +100,7 @@ export const taskPayloads: QueryDesc = query(
 
 export const taskCards: QueryDesc = attach(
 	attach(
-		query(
+		queryDesc(
 			rule({
 				vars: taskVars,
 				matches: [
@@ -117,7 +117,7 @@ export const taskCards: QueryDesc = attach(
 			})
 		),
 		"note",
-		query(
+		queryDesc(
 			rule({
 				vars: vars("TaskNote", "note"),
 				matches: [
@@ -131,7 +131,7 @@ export const taskCards: QueryDesc = attach(
 		)
 	),
 	"automatic",
-	query(
+	queryDesc(
 		rule({
 			vars: vars("AutomaticTask", "budget"),
 			matches: [
@@ -150,7 +150,7 @@ export const taskCards: QueryDesc = attach(
 
 export const accountCards: QueryDesc = attach(
 	attach(
-		query(
+		queryDesc(
 			rule({
 				vars: vars("Account", "id", "name"),
 				matches: [
@@ -167,7 +167,7 @@ export const accountCards: QueryDesc = attach(
 		),
 		"tasks",
 		orderBy(
-			query(
+			queryDesc(
 				rule({
 					vars: taskVars,
 					matches: [
@@ -187,7 +187,7 @@ export const accountCards: QueryDesc = attach(
 		)
 	),
 	"automaticTasks",
-	query(
+	queryDesc(
 		rule({
 			vars: taskVars,
 			matches: [

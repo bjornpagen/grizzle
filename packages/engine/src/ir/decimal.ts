@@ -5,9 +5,6 @@ import {
 	type TaggedValue,
 	taggedValueOf
 } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 
 export const decimalTag = "d"
 
@@ -66,8 +63,7 @@ export const isDecimalPayload = (text: string): boolean => DecimalText.parse(tex
  * A numeric literal is a Decimal, a bigint, or an exact decimal string, never a JavaScript number. The IR holds a
  * decimal parsed (DecimalValue), so the owned Decimal of scalar/values travels through it unchanged; in canonical text
  * it is "~d:<the value's one text>". This module owns only what the boundary needs: the payload syntax it admits and a
- * minimal carrier, DecimalText, that a decode parses its payload into when no richer reviver is supplied. DecimalText
- * does no arithmetic and no rounding.
+ * minimal carrier, DecimalText, that a decode parses its payload into. DecimalText does no arithmetic and no rounding.
  *
  * The admitted payload is the value's one text, numeric_out of trim_scale(value): a decimal value has exactly one
  * payload, so equal values fingerprint alike and fingerprints stay byte-stable. "1.50" is no payload; "1.5" is. This
@@ -81,18 +77,6 @@ export class DecimalText implements Canonicalizable {
 		this.parts = parts
 		this.text = text
 		Object.freeze(this)
-	}
-
-	static make(text: string): Result.Result<DecimalText, CompileError> {
-		const parsed = DecimalText.parse(text)
-		return parsed === undefined
-			? Result.err(
-					malformedDescription(
-						SourceLoc("decimal literal", []),
-						"the one text of a decimal, numeric_out of trim_scale(value): digits with an optional fraction that ends in a nonzero digit, NaN, or Infinity"
-					)
-				)
-			: Result.ok(parsed)
 	}
 
 	/**
@@ -152,10 +136,6 @@ export class DecimalText implements Canonicalizable {
 
 	[canonicalTag](): TaggedValue {
 		return { tag: decimalTag, payload: this.text }
-	}
-
-	toString(): string {
-		return this.text
 	}
 }
 

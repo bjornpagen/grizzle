@@ -6,6 +6,8 @@ import { type Budgets, compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery, StatementSpec } from "#compiler/ir/products.ts"
+import type { NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
+import type { Env, LowerContext, NodeLowerer } from "#compiler/lower/conservative/context.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import {
@@ -13,6 +15,7 @@ import {
 	lowerOptimized,
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
+import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 
 import {
@@ -35,6 +38,7 @@ import {
 	type LoginWorkloads,
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
+import type { Select } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import type { CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { checkedLowering, templateLowering } from "#test/support/oracle/verify/index.ts"
@@ -228,3 +232,16 @@ export const paramTexts = (
 /** An installation's script as the driver sends it: each statement's text, in install order. */
 export const installationSql = (installation: Installation): ReadonlyArray<string> =>
 	Arr.map(installation.statements, (statement) => printStatement(statement))
+
+/** The catalog kind table's entry at a node's kind, which the table's mapped type gives that kind's node. */
+const catalogLowerer = <K extends RelKind>(node: NodeOf<K>, cx: LowerContext, env: Env): Select => {
+	const lower: NodeLowerer<K> = catalogLowerers[node.kind]
+	return lower(node, cx, env)
+}
+
+/**
+ * The catalog lowering as one dispatch (lower/shapes/catalog/native.ts catalogLowerers): a node to its kind's plug-in
+ * of the conservative table with the catalog's native targets in place of its refusals of the internal kinds.
+ */
+export const catalogDispatch = (node: RelNode, cx: LowerContext, env: Env): Select =>
+	catalogLowerer(node, cx, env)

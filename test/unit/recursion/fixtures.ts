@@ -9,7 +9,7 @@ import { type ConservativeProgram, conservativeInput } from "#compiler/lower/con
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { queryValueDesc } from "#compiler/query/build/index.ts"
+import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 

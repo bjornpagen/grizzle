@@ -22,9 +22,10 @@ import type { CompareOp, ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { type Lowered, proofHolds } from "#compiler/scalar/compute/lower.ts"
-import { commonType, widening, widensTo } from "#compiler/scalar/compute/types.ts"
+import type { Lowered } from "#compiler/scalar/compute/lower.ts"
+import { commonType, widening } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { widensTo } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	buildTerm,
 	type CompareSketch,
@@ -41,6 +42,7 @@ import {
 	typedLiteralDesc,
 	resolveValue
 } from "#test/support/oracle/gen/domain.ts"
+import { proofHolds } from "#test/support/oracle/proof.ts"
 import {
 	baseParams,
 	testContract,
@@ -277,7 +279,7 @@ type CastCase =
 	  }
 
 /**
- * Every partial cast of a lowered table stands with a proof the kernel re-derives (lower.ts proofHolds); every cast into
+ * Every partial cast of a lowered table stands with a proof the kernel re-derives (oracle/proof.ts proofHolds); every cast into
  * a contract is a domain cast, whose proof holds too, whether or not the contract has a CHECK.
  */
 const checkCasts = (exprs: ReadonlyArray<ScalarExpr>, c: Case<CastFeature>): void => {

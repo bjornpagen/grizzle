@@ -1,28 +1,20 @@
-import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
-import { fromQueryDescription, toQueryDescription } from "#compiler/ir/describe.ts"
+import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LoweredProgram } from "#compiler/ir/products.ts"
 import { compileQuery, queryInput, querySchema } from "#compiler/program/compile.ts"
-import { checkedInput, parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
-import { type OrderedValue, type QueryValue, queryFromDesc } from "#compiler/query/build/query.ts"
+import { schemaArtifacts } from "#compiler/program/schema.ts"
 
 /**
- * describeQuery, queryFromDescription and lowerQuery: the inspection vocabulary over query values, internal to the
- * engine (tests, the golden capture and the compile profiler read it; no package export does).
+ * describeQuery and lowerQuery: the inspection vocabulary over query values, internal to the engine (tests, the golden
+ * capture and the compile profiler read it; no package export does).
  *
  * - describeQuery: a query or ordered value to its QueryDescription, its Description in canonical JSON form
  *   (ir/describe.ts). Like every builder-side convenience it is synchronous and throws the
  *   CompileError for a value it cannot describe: a value the builder did not make,
  *   or a child query that still names an attachment's parent variables.
- * - queryFromDescription: the inverse, a QueryDescription (or any value claiming to be one) back to a query value with
- *   the same combinators (query/build queryFromDesc). A value that does not decode as a query's Description is
- *   MalformedDescription. A Description names relations, not the
- *   schema that declares them, so the rebuilt value is schemaless unless the caller names the schema, in which case
- *   the Description is also checked against it.
  * - lowerQuery: the optimized artifact's statement texts, the LoweredProgram view of a template compiled for
  *   the `snapshot` context (ir/products.ts): exactly what the runtime would send, every result column cast
  *   to text.
@@ -35,26 +27,6 @@ export const describeQuery = (query: unknown): Json => {
 	}
 	return description.value
 }
-
-/** The schema, when named, is parsed once here, at the entry point, and the query checked against it. */
-export const queryFromDescription = (
-	description: unknown,
-	schema: unknown
-): Result.Result<QueryValue | OrderedValue, CompileError> =>
-	Result.flatMap(fromQueryDescription(description), (desc) =>
-		schema === undefined
-			? queryFromDesc(desc, undefined)
-			: Result.flatMap(
-					Result.flatMap(Result.flatMap(parseSchemaInput(schema), checkedInput), (checked) =>
-						checkQuery(checked, desc, {
-							read: "rows",
-							meter: new BudgetMeter(compileBudgets),
-							label: "query"
-						})
-					),
-					() => queryFromDesc(desc, schema)
-				)
-	)
 
 /** The entry point compiles for the snapshot context, before any admission, read as rows. */
 export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, CompileError> => {

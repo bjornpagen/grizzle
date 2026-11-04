@@ -10,10 +10,6 @@ const byLabel = (a: RelNode, b: RelNode): number => compareStrings(a.id, b.id)
 const approximateSources = (node: RelNode): ReadonlyArray<RelNode> =>
 	[...subtree(node)].filter((n) => n.kind === "ApproximateNearest").toSorted(byLabel)
 
-/** Whether a result is approximate: some root's rows are computed from an approximate search. */
-export const isApproximate = (dag: RelDag): boolean =>
-	dag.roots.some((r) => approximateSources(r).length > 0)
-
 type ApproximateUse = "recursion" | "page" | "law" | "derived"
 
 interface ApproximateMisuse {

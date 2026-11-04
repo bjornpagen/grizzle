@@ -1,0 +1,103 @@
+NOTES: gist-costestimate-column-position
+
+Status: ready to file, NOT filed. Nothing has been sent to any list, posted anywhere, or entered in a commitfest. The
+owner files it by hand.
+
+1. What this is.
+   - A pgsql-hackers discussion item and bug report, with no patch. gistcostestimate() costs a GiST scan by the
+     selectivity of every qual, whichever index column the qual constrains.
+     - So for a lookup on a column that a GiST index holds second, the planner prefers that index to a B-tree led by
+       the column.
+     - It then reads the whole GiST index: 892 of 892 pages against the B-tree's 2 at 100000 rows, and 8928 against 3
+       at 1M rows.
+     - The two plans are estimated 0.0125 apart at 100000 rows and 0.14 at 1M. The tie-break is the descent charge: ln
+       against log2 comparisons, and log100(pages) against the B-tree's real height.
+   - Known upstream since BUG #15408 (2018, pgsql-bugs). There Tom Lane confirmed that the estimate has no column
+     modeling, and nobody took it further.
+     - So email.txt is a reply to that thread, moved to -hackers, not a new report.
+     - David Rowley's 2024 one-line log2 diff ([1]) and the open gist_trgm_ops thread, CF #7401 ([2]), are cited and
+       not replied into. The first covers only the tie-break. The second has a different cause, a lossy
+       single-column '=', and is converging on an opclass-level fix.
+   - It targets PostgreSQL 20. It is a cost-model change, and Tom Lane said in 2018 that one would not be
+     back-patched.
+
+2. How the owner files it.
+   - Put the 2018 message in your mailbox.
+     - Open https://www.postgresql.org/message-id/21040.1538079332@sss.pgh.pa.us, Tom Lane's last message in the
+       thread.
+     - Use "Resend email", which needs a community account. It sends that message to the account's address.
+     - Reply-all to it. That sets In-Reply-To and References, by which the archive threads messages. The Mailing_Lists
+       wiki asks not to paste a body into a new mail to join a thread.
+   - Edit the recipients and the subject.
+     - To: pgsql-hackers@lists.postgresql.org.
+     - Remove pgsql-bugs: one list at a time (CHECKLIST.txt C).
+     - Keep Tom Lane and the 2018 reporter in Cc, as reply-all gives them.
+     - Subject: email.txt's, which keeps the old one in "(was: ...)".
+   - Paste email.txt's body, everything after the header block, as plain text. Attach repro.sql as a file.
+   - The sending address is deliberately not written anywhere in this public repository.
+   - The email says "Before anyone writes a patch for 20". If you mean to write it yourself, say so in that sentence;
+     an author in hand raises the odds of a reply.
+   - Mind the cycle. 19 is between RC1 and RC2 (2026-11-12). Hackers can discuss this now. A patch would go to
+     PG20-4 (open until 2026-12-31) or a later commitfest.
+   - Re-measure if master moves before filing.
+     - Run repro.sql against master in a throwaway cluster, as in EVIDENCE.txt 1.
+     - The costs and buffers must match EVIDENCE.txt 2, apart from the ANALYZE-sample variation it records in 2h.
+
+3. Why it matters to grizzle.
+   - The index engine (packages/engine/src/physical/indexes/engine.ts) plans each request onto an index it claims
+     serves it. The serving judge (test/pg/physical/serving.ts, judgeServing) runs every request's probe under
+     EXPLAIN (ANALYZE, BUFFERS) and holds it to a buffer bound.
+   - Some relations have requests that need conflicting key orders: a span predicate on (fixed, span), another on
+     (span), and an equality lookup on (fixed).
+     - Whichever column leads, one single-column probe is exposed.
+     - PostgreSQL sweeps the GiST index that holds the probe's column outside its lead, in place of the index that
+       serves it. repro.sql's sections 2 to 5 are those two orders in stock SQL.
+   - The judge excuses exactly those sweeps.
+     - serving.ts residueOf (line 994) names them "swept through another GiST index, gistcostestimate blind to its key
+       order", when keyOrdersConflict (974) holds.
+     - The request's own index alone must still serve the probe.
+   - serving.ts's header (897 to 903) records the measurement at the suite's 20000 rows.
+     - 6.50 through a GiST index on (span, numeric) of 144 pages, which it sweeps in 145 buffers.
+     - 6.51 through a B-tree on (numeric, float8) of 97 pages, which reads 3.
+     - The 0.01 gap is this report's 0.0125 = (ceil(log2 20000) - ceil(ln 20000)) * 0.0025 = (15 - 10) * 0.0025.
+       Both indexes must then be costed at one page, since a page more would cost 4.0, and both at height 1, the
+       GiST's (int) log100(144) and the 97-page B-tree's.
+   - serving.test.ts keeps a case (line 1716), a join key beside span predicates whose GiST index PostgreSQL sweeps,
+     that a drawn workload reaches.
+   - TODO.md item 10's GiST bullet: "Closing it needs gistcostestimate to see column position, an upstream change."
+     - This folder is that change's first step. Nothing in grizzle waits on it.
+     - residueOf's GiST case goes, by hard cutover, once a release grizzle pins carries a fix. The kept case then
+       becomes a served probe.
+   - This research refines that bullet in two places (main's call whether to edit TODO.md):
+     - A GiST-against-GiST tie needs no equal size.
+       - Any two GiST indexes tie exactly when both pro-rata counts round to one page and both (int) log100(pages)
+         agree.
+       - 347 and 655 pages tie in repro.sql section 5, and the newest index wins (lcons and add_path).
+     - The margin over a B-tree is not only ln against log2.
+       - At 1M rows the 1204-page B-tree's real height is 2 (its cost admits no other), while the GiST height
+         estimate, (int) log100(pages), stays 1 from 100 to 9999 pages. That adds 0.125 (2i).
+       - So Rowley's log2 diff alone would not close the residue at 1M rows.
+
+4. Files.
+   - email.txt      The pgsql-hackers draft: a reply to BUG #15408, moved to -hackers, with its header block.
+   - repro.sql      The psql -X script: 8 sections, 8 to 12 s at its defaults, and -v rows=1000000 -v rooms=50000
+                    for the 1M measurements. It creates and drops the database gist_cost_repro.
+   - EVIDENCE.txt   Builds, settings, the measurements, the source lines at RC1 and master, the cost arithmetic,
+                    the history and the prior discussion.
+   - CHECKLIST.txt  The reporting policy, item by item.
+
+5. What was touched.
+   - The shared dev cluster (localhost:5433): only these scratch databases, each dropped right after it was used:
+     - upstream_gist_costestimate;
+     - upstream_gist_correlated;
+     - upstream_gist_fewlead;
+     - gist_cost_repro, created and dropped by repro.sql on each run.
+     No gz_shared_* or other database was touched.
+   - The master measurements used a throwaway cluster on a Unix socket only.
+     - It came from the installed build of ~/Documents/postgres-upstream-plpgsql-lineno-rescan (build-check).
+     - It was initdb'd in ~/.cache/grizzle/scratch/gist and deleted after each run.
+   - ~/Documents/postgres-upstream-plpgsql-lineno-rescan: no branch, ref, worktree or build change.
+     - git fetch --stdin pulled missing history blobs of selfuncs.c and indices.sgml into its object store (it is a
+       partial clone), so that git log -L and -S could run.
+   - Scratch: ~/.cache/grizzle/scratch/gist holds the extracted sources, the exploratory SQL and the run outputs.
+     It contains no .md files.

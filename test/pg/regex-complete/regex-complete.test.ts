@@ -15,7 +15,7 @@ import {
 	String as Str
 } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
-import { queryConstants, refinedConstants } from "#compiler/check/refinement/index.ts"
+import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { indices } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -926,7 +926,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 	)
 
 	it.effect(
-		"closed payloads and refined query constants are validated by PostgreSQL at installation",
+		"closed payloads are validated by PostgreSQL at installation, and a refined query constant where it is delivered",
 		(ctx) =>
 			searched(
 				ctx,
@@ -976,23 +976,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 						slugDomain(installation).constraint,
 						"23514"
 					)
-					/** A query's refined literal is a constant too: listed from its checked DAG, and valid. */
 					const template = compiled(withConstant, name)
-					const literals = queryConstants(template.programs.checked.dag)
-					assert.deepEqual(
-						Arr.map(literals, (c) => c.literal),
-						[{ kind: "text", value: "article" }]
-					)
-					const constantObjects = ok(
-						constantValidationObjects(installation.names, literals),
-						"query constants"
-					)
-					for (const st of constantObjects[0]?.ddl ?? []) {
-						assert.deepEqual(
-							yield* s.admin.queryValues(ok(emit(st, emptyNameMap, unmetered), "emit").text, []),
-							[["article"]]
-						)
-					}
 					yield* expectSqlstate(
 						s.admin.queryValues(
 							`SELECT 'Not Valid'::text::${quoteIdent(name)}.${quoteIdent(slugDomain(installation).domain)}`,

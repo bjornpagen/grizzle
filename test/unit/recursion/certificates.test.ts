@@ -39,7 +39,6 @@ import { type LogicalQuery, paramColumns } from "#compiler/ir/products.ts"
 import type { Heading, NodeOf, TerminationCert } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
-import { succeeded } from "#test/support/assert.ts"
 import {
 	decodedQuery,
 	type AuthoredExprDesc as ExprDesc,
@@ -915,11 +914,11 @@ const filler = (type: ScalarType, i: number): TypedLiteral => {
 		case "int8":
 			return { kind: "int", value: BigInt(i) }
 		case "money":
-			return { kind: "money", value: succeeded(MoneyText.of(BigInt(i)), `the money text ${i}`) }
+			return { kind: "money", value: defined(MoneyText.parse(String(i)), `the money text ${i}`) }
 		case "numeric":
 			return {
 				kind: "numeric",
-				value: succeeded(DecimalText.make(`${i}`), `the decimal text ${i}`)
+				value: defined(DecimalText.parse(`${i}`), `the decimal text ${i}`)
 			}
 		case "float4":
 		case "float8":

@@ -24,7 +24,7 @@ import {
 	orderBy,
 	parent,
 	plainVar,
-	query,
+	queryDesc,
 	ref,
 	relationSource,
 	rule,
@@ -83,7 +83,7 @@ const arms = (common: "id" | "account", account: ExprDesc): readonly [RuleDesc, 
 /** The union of the automatic and manual arms (arms). */
 const armsUnion = (common: "id" | "account", account: ExprDesc): QueryDesc => {
 	const [automatic, manual] = arms(common, account)
-	return query(automatic, manual)
+	return queryDesc(automatic, manual)
 }
 
 /** Keyed: id is a key of each arm, so (id, kind) keys the union. */
@@ -91,7 +91,7 @@ const keyed = armsUnion("id", ref("Task", "account"))
 /** Keyless: an account has many tasks of one kind, so (account, kind) keys no arm. */
 const keyless = armsUnion("account", ref("Task", "account"))
 
-const accounts = query(
+const accounts = queryDesc(
 	rule({
 		vars: vars("Account", "id"),
 		matches: [match(relationSource("Account"), { id: ref("Account", "id") })],
@@ -139,7 +139,7 @@ const refusals: Arr.NonEmptyReadonlyArray<Refused> = [
 	},
 	{
 		what: "a match of the bounded union binding an arm's field without the discriminant",
-		query: query(
+		query: queryDesc(
 			rule({
 				vars: [plainVar("i"), plainVar("b")],
 				matches: [match(imported(bounded, {}), { id: varRef("i"), budget: varRef("b") })],

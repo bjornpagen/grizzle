@@ -21,7 +21,7 @@ import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	Account,
 	asc,
@@ -146,7 +146,7 @@ interface Typed {
 
 const numericLit = (text: string): Typed => ({
 	type: "numeric",
-	literal: { kind: "numeric", value: succeeded(DecimalText.make(text)) },
+	literal: { kind: "numeric", value: defined(DecimalText.parse(text)) },
 	rank: [Number(text)]
 })
 

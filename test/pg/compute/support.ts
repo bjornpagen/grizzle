@@ -1,9 +1,9 @@
 import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { concreteTypeName } from "#compiler/scalar/compute/registry.ts"
+import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -19,6 +19,14 @@ export const textCell = (row: ReadonlyArray<unknown>, i: number): string => {
 	const v = row[i]
 	assert.ok(typeof v === "string", `column ${i} is text`)
 	return v
+}
+
+/** The concrete PostgreSQL type of a carrier, as a cast or pg_typeof names it. */
+export const concreteTypeName: { readonly [C in Carrier]: string } = {
+	...catalogTypeName,
+	enum: "enum",
+	range4: "int4range",
+	range8: "int8range"
 }
 
 /**

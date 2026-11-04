@@ -1,7 +1,6 @@
 import { element, type Gen, production } from "@grizzle/testing/gen"
 import { Array as Arr } from "effect"
-import { budgetBoundOf } from "#compiler/core/budget.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import type { CompileBound, CompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import {
 	type BudgetKind,
@@ -45,6 +44,14 @@ export const budgetFeatures = (budgets: Budgets): ReadonlyArray<BudgetFeature> =
 	Arr.flatMap(budgetKinds, (kind): ReadonlyArray<BudgetFeature> =>
 		budgets[kind] === compileBudgets[kind] ? [] : [`budgets.${kind}=${budgets[kind]}`]
 	)
+
+/** The budget a meter's refusal crossed (core/budget.ts BudgetMeter.charge); undefined for any other refusal. */
+export const budgetBoundOf = (
+	error: CompileError
+): Extract<CompileBound, { readonly kind: "budget" }> | undefined =>
+	error.reason._tag === "ResourceBound" && error.reason.bound.kind === "budget"
+		? error.reason.bound
+		: undefined
 
 /**
  * The budget a compilation's refusal under `budgets` crossed, or why the refusal is not one a budget may cause: a

@@ -43,7 +43,7 @@ import {
 	param,
 	parent,
 	plainVar,
-	query,
+	queryDesc,
 	ref,
 	relationSource,
 	rule,
@@ -70,7 +70,7 @@ const lowers = (q: LogicalQuery): void => {
 
 /** Lab's items, with `parts` of the rule beside its Item match. */
 const items = (parts: Pick<RuleDesc, "where" | "head">): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Item", "id", "label", "qty", "price", "during", "color"),
 			matches: [
@@ -122,7 +122,7 @@ const admittedWith = (
 const lab = (q: QueryDesc) => () => checkQuery(checking(Lab), q, checkOptions("query"))
 const work = (q: QueryDesc) => () => checkQuery(checking(WorkDesc), q, checkOptions("query"))
 
-const byColor = query(
+const byColor = queryDesc(
 	rule({
 		vars: vars("Item", "id"),
 		matches: [
@@ -139,7 +139,7 @@ const byColor = query(
 )
 
 /** Both arms carry k = "z": the discriminant is (k, tag), and tag alone tells the arms apart. */
-const tagged = query(
+const tagged = queryDesc(
 	rule({
 		vars: vars("Task", "id", "account"),
 		matches: [
@@ -177,7 +177,7 @@ const tagged = query(
 
 /** A match of `tagged` binding `bindings` and finding `head`. */
 const pick = (bindings: Parameters<typeof match>[1], head: RuleDesc["head"]) =>
-	query(
+	queryDesc(
 		rule({
 			vars: [plainVar("i"), plainVar("x")],
 			matches: [match(imported(tagged, {}), bindings)],
@@ -208,7 +208,7 @@ const taskArm = (kind: string, extra: boolean, attached: boolean) =>
 			? [
 					{
 						name: "notes",
-						child: query(
+						child: queryDesc(
 							rule({
 								vars: vars("TaskNote", "note"),
 								matches: [
@@ -243,7 +243,7 @@ const negatedFixed = (source: "Wide" | "Tag", column: "price" | "label") =>
 	})
 
 /** Items not counted under a computed amount: the bigint 1 plus p, which an import binds. */
-const computedNegation = query(
+const computedNegation = queryDesc(
 	rule({
 		vars: vars("Item", "id"),
 		matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
@@ -259,7 +259,7 @@ const computedNegation = query(
 )
 
 /** The noted tasks of an account, and the tasks of a rule not among them, the import bound by `acct`. */
-const notedOf = query(
+const notedOf = queryDesc(
 	rule({
 		vars: vars("Task", "id"),
 		matches: [
@@ -274,7 +274,7 @@ const notedOf = query(
 )
 
 const unnoted = (acct: Parameters<typeof imported>[1]) =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Task", "id", "account"),
 			matches: [
@@ -304,7 +304,7 @@ const entryMember = (q: QueryDesc, op: MemberDesc["op"]): MemberDesc => ({
 	member: { kind: "query", query: q }
 })
 
-const addedEntries = query(
+const addedEntries = queryDesc(
 	rule({
 		vars: vars("Entry", "entry"),
 		matches: [match(delta("added", "Entry"), { entry: ref("Entry", "entry") })],
@@ -328,7 +328,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		 */
 		what: "a parameter bound to regex text keeps its column's language",
 		check: lab(
-			query(
+			queryDesc(
 				rule({
 					vars: vars("Item", "id"),
 					matches: [
@@ -379,7 +379,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "a head parameter of its declared type, in arms that also bind it",
 		check: lab(
-			query(
+			queryDesc(
 				rule({
 					vars: vars("Item", "id"),
 					matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
@@ -408,7 +408,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "two imports binding one parameter name differently, hygienically",
 		check: lab(
-			query(
+			queryDesc(
 				rule({
 					vars: [plainVar("a"), plainVar("b")],
 					matches: [
@@ -429,7 +429,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "a match of a union of different headings binding an arm's field without its discriminant",
 		check: work(
-			query(
+			queryDesc(
 				rule({
 					vars: [plainVar("o")],
 					matches: [match(imported(taskPayloads, {}), { operator: varRef("o") })],
@@ -485,7 +485,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "arms of one heading whose column types are incompatible",
 		check: lab(
-			query(
+			queryDesc(
 				rule({
 					vars: vars("Item", "id"),
 					matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
@@ -508,13 +508,13 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	},
 	{
 		what: "an arm attaching before it joins a union of different headings",
-		check: work(query(taskArm("Automatic", false, true), taskArm("Manual", true, false))),
+		check: work(queryDesc(taskArm("Automatic", false, true), taskArm("Manual", true, false))),
 		expected: admittedWith([])
 	},
 	{
 		/** Two arms of one heading: a fact could come from either, so which attachment it carries is undetermined. */
 		what: "an attachment on one of several arms of one heading",
-		check: work(query(taskArm("Automatic", false, true), taskArm("Manual", false, false))),
+		check: work(queryDesc(taskArm("Automatic", false, true), taskArm("Manual", false, false))),
 		expected: refusedFor("UnsupportedOperation")
 	},
 	{
@@ -531,7 +531,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "a computed negation binding over a parameter an import binds to an outer variable",
 		check: lab(
-			query(
+			queryDesc(
 				rule({
 					vars: [...vars("Entry", "amount"), plainVar("x")],
 					matches: [
@@ -551,7 +551,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		/** Bound to the importer's own parameter, the same computed binding is a constant of the negation. */
 		what: "the computed negation binding over the importer's own parameter",
 		check: lab(
-			query(
+			queryDesc(
 				rule({
 					vars: [plainVar("x")],
 					matches: [
@@ -584,7 +584,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "a negated import bound to a parameter an enclosing import binds to an outer variable",
 		check: work(
-			query(
+			queryDesc(
 				rule({
 					vars: [...vars("Account", "id"), plainVar("t")],
 					matches: [
@@ -605,7 +605,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "one variable bound to columns of different numeric typmods",
 		check: lab(
-			query(
+			queryDesc(
 				rule({
 					vars: [...vars("Item", "id", "price"), ...vars("Wide", "id")],
 					matches: [
@@ -628,13 +628,17 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	},
 	{
 		what: "an insert member of one arm of its relation's heading",
-		check: () => checkMemberOf(checking(Lab), entryMember(query(entryArm(1n)), "insert"), {}),
+		check: () => checkMemberOf(checking(Lab), entryMember(queryDesc(entryArm(1n)), "insert"), {}),
 		expected: admittedWith([])
 	},
 	{
 		what: "an insert member of two arms of its relation's heading",
 		check: () =>
-			checkMemberOf(checking(Lab), entryMember(query(entryArm(1n), entryArm(2n)), "insert"), {}),
+			checkMemberOf(
+				checking(Lab),
+				entryMember(queryDesc(entryArm(1n), entryArm(2n)), "insert"),
+				{}
+			),
 		expected: admittedWith([])
 	},
 	{
@@ -647,7 +651,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 			return checkMemberOf(
 				checking(Lab),
 				entryMember(
-					query(entryArm(1n), { ...second, head: { ...second.head, entry: lit(7n) } }),
+					queryDesc(entryArm(1n), { ...second, head: { ...second.head, entry: lit(7n) } }),
 					"insert"
 				),
 				{}
@@ -661,7 +665,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 			checkMemberOf(
 				checking(Lab),
 				entryMember(
-					query(
+					queryDesc(
 						rule({
 							vars: vars("Item", "id"),
 							matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
@@ -692,7 +696,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 			checkMemberOf(
 				checking(Lab),
 				entryMember(
-					query(
+					queryDesc(
 						rule({
 							vars: vars("Item", "id"),
 							matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
@@ -729,7 +733,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 				checking(Lab),
 				{
 					name: "colors",
-					query: query(
+					query: queryDesc(
 						rule({
 							vars: vars("Color", "id"),
 							matches: [match(delta("removed", "Color"), { id: ref("Color", "id") })],
@@ -826,7 +830,7 @@ describe("the checker's binding, typing and scope rules", () => {
 					},
 					(bound, c) =>
 						Effect.sync(() => {
-							const importer = query(
+							const importer = queryDesc(
 								rule({
 									vars: [plainVar("i")],
 									matches: [match(imported(top, { k: lit(bound) }), { id: varRef("i") })],

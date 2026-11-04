@@ -56,18 +56,13 @@ import {
 	type FixedFn,
 	overloadOf
 } from "#compiler/scalar/compute/registry.ts"
-import {
-	exactType,
-	familyDigits,
-	isPlainCarrier,
-	plainType,
-	wildcardText
-} from "#compiler/scalar/compute/types.ts"
+import { exactType, familyDigits, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import type { OwnedFixture } from "#test/support/evidence.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import { castOpOf } from "#test/support/oracle/gen/ops.ts"
 
 /** A built query: its validated DAG and the node whose result it delivers. */
@@ -126,13 +121,13 @@ const literalOf = (value: LiteralDesc, type: ScalarType): TypedLiteral => {
 			break
 		case "numeric":
 			if (typeof value === "bigint") {
-				return { kind: "numeric", value: ok(DecimalText.make(value.toString())) }
+				return { kind: "numeric", value: defined(DecimalText.parse(value.toString())) }
 			}
 			if (typeof value === "string") {
-				return { kind: "numeric", value: ok(DecimalText.make(value)) }
+				return { kind: "numeric", value: defined(DecimalText.parse(value)) }
 			}
 			if (isDecimalLike(value)) {
-				return { kind: "numeric", value: ok(DecimalText.make(decimalPayload(value))) }
+				return { kind: "numeric", value: defined(DecimalText.parse(decimalPayload(value))) }
 			}
 			break
 		case "bool":

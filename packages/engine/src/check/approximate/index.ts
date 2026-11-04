@@ -12,9 +12,6 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import { dagDigest } from "#compiler/ir/dag.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 
-export { hnswPolicy } from "#compiler/check/approximate/policy.ts"
-export { approximateMisuse, approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
-
 /**
  * approximateNearest: the eligibility check and the sealed node. Approximate retrieval is explicit and still
  * relational.

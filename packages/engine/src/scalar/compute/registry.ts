@@ -279,14 +279,6 @@ export const catalogTypeName = {
 } as const satisfies { readonly [C in Carrier]: string }
 type CatalogTypeName = (typeof catalogTypeName)[Carrier]
 
-/** The concrete PostgreSQL type of a carrier, as a cast or pg_typeof names it. */
-export const concreteTypeName: { readonly [C in Carrier]: string } = {
-	...catalogTypeName,
-	enum: "enum",
-	range4: "int4range",
-	range8: "int8range"
-}
-
 /** Operands of `list`'s carriers, in order, frozen with the list. */
 const positional = <L extends NonEmptyReadonlyArray<Carrier>>(list: L): PositionalOperands<L> => {
 	Object.freeze(list)
@@ -1089,7 +1081,7 @@ const listedOp = (id: OpId, overload: Overload): NativeOp =>
 
 /**
  * The binary coercion a cast node names where it drops only a refinement PostgreSQL never checks on the way (a
- * contract's base, a numeric typmod, a text refinement, a span width: types.ts widensTo): defined everywhere.
+ * contract's base, a numeric typmod, a text refinement, a span width: types.ts wideningOf): defined everywhere.
  */
 export const binaryCoercion: DefinedOp = definedOp(opId("coercion"))
 

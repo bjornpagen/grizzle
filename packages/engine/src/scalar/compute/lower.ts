@@ -50,7 +50,6 @@ import {
 	absBounds,
 	addBounds,
 	type Bounds,
-	checkProof,
 	compareExact,
 	digitsOfExact,
 	exactOf,
@@ -126,12 +125,6 @@ import {
 	numericMaxIntegerDigits
 } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-
-/**
- * What a lowering reads besides its expressions: a query (its filters and outputs), a check (a contract predicate or a
- * row check, which reads only its VALUE or row and becomes a CHECK), or a builder typing the term it constructs.
- */
-export type LowerMode = "query" | "check" | "build"
 
 /**
  * A lowered operand: the node's recorded entry, the type the caller's term has (nominal), the SQL type the node
@@ -214,6 +207,9 @@ interface LowerCommon<R extends Refs> {
 }
 
 /**
+ * A lowering's mode: a query (its filters and outputs), a check (a contract predicate or a row check, which reads only
+ * its VALUE or row and becomes a CHECK), or a builder typing the term it constructs.
+ *
  * What each mode reads besides: a query and a check judge a literal against its regex refinement, by the text
  * package's membership they carry, and only a query lowers the predicates of other packages (a check refuses them); a
  * builder judges no literal and lowers none.
@@ -2185,7 +2181,7 @@ const keptFacts = (arg: Lowered, to: ScalarType): FactSet => {
 }
 
 /** The range a value must lie in to fit `target`, a narrower integer, money or a typmod, once a cast rounds it. */
-const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefined => {
+export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefined => {
 	const t = baseOf(target)
 	switch (t.carrier) {
 		case "int2":
@@ -2221,7 +2217,7 @@ const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefined => {
  * Whether every contract level of `to` that `from` lacks holds of every value of `b`: each level's predicate decided
  * true over the interval (predicateDecided). A level whose predicate the interval cannot decide is not proved.
  */
-const contractHolds = (to: ScalarType, from: ScalarType, b: Bounds): boolean => {
+export const contractHolds = (to: ScalarType, from: ScalarType, b: Bounds): boolean => {
 	const had = new Set(contractLevels(from).map((c) => c.name))
 	return contractLevels(to).every(
 		(c) => had.has(c.name) || c.predicate === undefined || predicateDecided(c.predicate, b) === true
@@ -2327,7 +2323,7 @@ const powerPremises = (
 }
 
 /** Whether power over these intervals stays inside its result carrier, as powerPremises states. */
-const powerInRange = (
+export const powerInRange = (
 	bLow: Exact,
 	bHigh: Exact,
 	eLow: Exact,
@@ -2380,7 +2376,7 @@ const bucketPremises = (
 }
 
 /** Whether width_bucket's bounds' intervals are disjoint and its count lies in 1..2147483646. */
-const bucketInRange = (
+export const bucketInRange = (
 	lowLow: Exact,
 	lowHigh: Exact,
 	highLow: Exact,
@@ -2579,82 +2575,3 @@ export const lowerPredicate = <R extends Refs>(
 	desc: ExprDesc<Located, R>,
 	env: LowerEnv<R>
 ): Result.Result<Lowered, CompileError> => run(env, (l) => l.predicate(desc, env.loc))
-
-/**
- * Whether a node's proof re-derives its precondition from its premises: the proof kernel (bounds.ts checkProof) with
- * each magnitude precondition's arithmetic, the one place it is written, over the node's type and its first operand's.
- * A contract proof's premises are judged again against the node's own contract when its value's interval is all it
- * has.
- */
-export const proofHolds = (
-	proof: PreconditionProof,
-	node: { readonly type: ScalarType; readonly operand: ScalarType | undefined }
-): boolean =>
-	checkProof(proof, (precondition, premises) => {
-		const interval = (operand: number) =>
-			premises.find(
-				(p): p is Extract<OperandPremise, { readonly kind: "interval" }> =>
-					p.kind === "interval" && p.operand === operand
-			)
-		switch (precondition.kind) {
-			case "fits": {
-				const p = interval(0)
-				const range = fitRange(node.type)
-				return (
-					p !== undefined && range !== undefined && insideRange(p.low, p.high, range[0], range[1])
-				)
-			}
-			case "contract": {
-				if (premises.some((p) => p.kind === "checked")) {
-					return true
-				}
-				const p = interval(0)
-				return (
-					p !== undefined &&
-					node.operand !== undefined &&
-					contractHolds(
-						node.type,
-						node.operand,
-						refine(
-							ofDigits(numericMaxIntegerDigits, numericMaxDisplayScale, {
-								infinite: false,
-								nan: false
-							}),
-							{ kind: "within", low: p.low, high: p.high }
-						)
-					)
-				)
-			}
-			case "powerDomain": {
-				const b = interval(0)
-				const e = interval(1)
-				const facts = premises.filter((p) => p.kind === "fact")
-				return (
-					b !== undefined &&
-					e !== undefined &&
-					facts.some((p) => p.fact === "nonnegative" && p.operand === 0) &&
-					facts.some(
-						(p) =>
-							(p.fact === "nonzero" && p.operand === 0) ||
-							(p.fact === "nonnegative" && p.operand === 1)
-					) &&
-					powerInRange(b.low, b.high, e.low, e.high, node.type)
-				)
-			}
-			case "bucketDomain": {
-				const lo = interval(1)
-				const hi = interval(2)
-				const c = interval(3)
-				return (
-					lo !== undefined &&
-					hi !== undefined &&
-					c !== undefined &&
-					bucketInRange(lo.low, lo.high, hi.low, hi.high, c.low, c.high)
-				)
-			}
-			case "nonzero":
-			case "nonnegative":
-			case "finite":
-				return false
-		}
-	})

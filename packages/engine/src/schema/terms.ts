@@ -232,7 +232,7 @@ const helperCompare =
 	}
 
 /** The Compute helpers a row check may use. */
-const rowHelpers = Object.freeze({
+export const rowHelpers = Object.freeze({
 	eq: helperCompare("eq"),
 	ne: helperCompare("ne"),
 	lt: helperCompare("lt"),
@@ -269,8 +269,6 @@ const rowHelpers = Object.freeze({
 		return rowTerm({ kind: "compute", fn: "charLength", args: [arg.expr] }, integerType)
 	}
 })
-
-export type RowHelpers = typeof rowHelpers
 
 /**
  * The scalar terms a row check is built from.

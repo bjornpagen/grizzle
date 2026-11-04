@@ -33,9 +33,9 @@ import {
 import { type ReferenceInput, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	BagReference,
+	owedOf,
 	physical,
 	propsOf,
-	multiplicityRecord,
 	soundness
 } from "#test/unit/analysis/physical/support.ts"
 
@@ -113,7 +113,7 @@ const check = (
 		if (p.maxCard.kind === "atMost") {
 			c.note("a bound claimed")
 		}
-		if (multiplicityRecord(analysis, node).owed.kind === "none") {
+		if (owedOf(analysis, node).kind === "none") {
 			c.note("nothing owed")
 		}
 	}

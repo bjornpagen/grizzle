@@ -18,9 +18,9 @@ import { contained, f, key, on, relation, type SchemaDesc } from "#test/support/
 import {
 	keyColumns,
 	lossReasons,
+	owedOf,
 	physical,
 	propsOf,
-	multiplicityRecord,
 	snapshotOver
 } from "#test/unit/analysis/physical/support.ts"
 
@@ -131,14 +131,14 @@ describe("catalogs", () => {
 							if (proving.length === 0) {
 								c.note("no key proves the scan")
 								assert.equal(unique, undefined)
-								assert.deepEqual(multiplicityRecord(a, scan).owed, {
+								assert.deepEqual(owedOf(a, scan), {
 									kind: "on",
 									heading: Arr.map(scan.heading, (col) => col.name)
 								})
 								return
 							}
 							c.note("a key proves the scan")
-							assert.deepEqual(multiplicityRecord(a, scan).owed, { kind: "none" })
+							assert.deepEqual(owedOf(a, scan), { kind: "none" })
 							const proof = defined(unique, "the strongest key of a scan a key proves").just
 							/** The proof rests on key constraints, one of them a key the scan reads, and holds at every statement. */
 							const premiseOf = (k: (typeof personKeys)[number]): boolean =>

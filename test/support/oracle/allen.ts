@@ -3,11 +3,13 @@ import {
 	type AllenFormula,
 	allenAtomCount,
 	allenAtoms,
+	atomIndexable,
 	atomOperands,
-	evaluateFormula,
-	formulaText
+	conjunctionHolds,
+	literalAtom,
+	literalNegated
 } from "#compiler/allen/atoms.ts"
-import { type AllenRelation, allenRelations } from "#compiler/allen/mask.ts"
+import { AllenMask, type AllenRelation, allenRelations } from "#compiler/allen/mask.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 
 /** A stored span: the canonical half-open [lo, hi) with lo < hi. */
@@ -396,6 +398,50 @@ export const universePairs = (spans: ReadonlyArray<HalfOpen>): ReadonlyArray<Pai
 	}
 	return out
 }
+
+/** The relations a formula holds for, computed from the atoms' sets. The empty formula is false. */
+export const formulaHolds = (formula: AllenFormula): AllenMask =>
+	AllenMask(Arr.reduce(formula, 0, (mask, conjunction) => mask | conjunctionHolds(conjunction)))
+
+/** A formula's truth for one pair, given the truth of each atom for that pair as bit `atom` of `atoms`. */
+const evaluateFormula = (formula: AllenFormula, atoms: number): boolean =>
+	Arr.some(formula, (conjunction) =>
+		Arr.every(
+			conjunction,
+			(literal) => ((atoms & (1 << (literal >> 1))) !== 0) !== literalNegated(literal)
+		)
+	)
+
+/** The number of atom occurrences in a formula: the generator's primary cost. */
+export const formulaAtomCount = (formula: AllenFormula): number =>
+	Arr.reduce(formula, 0, (count, conjunction) => count + conjunction.length)
+
+/** Whether every disjunct carries an unnegated indexable atom. */
+export const everyDisjunctIndexable = (formula: AllenFormula): boolean =>
+	Arr.every(formula, (conjunction) =>
+		Arr.some(
+			conjunction,
+			(literal) => !literalNegated(literal) && atomIndexable(literalAtom(literal))
+		)
+	)
+
+/** The formula as text: `A && B AND NOT A @> B OR ...`. A negated equality is written `A <> B`. */
+export const formulaText = (formula: AllenFormula): string =>
+	Arr.join(
+		Arr.map(formula, (conjunction) =>
+			Arr.join(
+				Arr.map(conjunction, (literal) => {
+					const atom = literalAtom(literal)
+					if (!literalNegated(literal)) {
+						return atom.text
+					}
+					return atom.op === "=" ? Str.replace("=", "<>")(atom.text) : `NOT ${atom.text}`
+				}),
+				" AND "
+			)
+		),
+		" OR "
+	)
 
 interface Mismatch {
 	readonly mask: number

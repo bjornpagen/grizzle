@@ -15,10 +15,14 @@ import { contractOf, numericTypmodOf, sameScalarType } from "#compiler/ir/scalar
 import { span } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { admitContract, contractDescriptor } from "#compiler/scalar/contract.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { describeField, fieldIdentity } from "#compiler/scalar/registry.ts"
+import { describeField } from "#compiler/scalar/registry.ts"
 import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
+import {
+	admitContract,
+	contractDescriptor,
+	fieldIdentity
+} from "#test/support/fixtures/descriptors.ts"
 
 import { regex } from "arkregex"
 import { argumentsOf } from "#test/support/list.ts"

@@ -1,7 +1,5 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import {
-	checkedDesc,
-	checkedRoleDesc,
 	type CheckedSchema,
 	type DerivedAnalysis,
 	derivedAnalysis,
@@ -115,10 +113,6 @@ export type SchemaInput =
 	| { readonly kind: "owned"; readonly owned: Owned; readonly desc: SchemaDesc }
 	| { readonly kind: "desc"; readonly desc: SchemaDesc }
 	| { readonly kind: "role"; readonly value: object; readonly desc: RoleDesc }
-
-/** The checked schema an input's queries are checked against: a role's, over its base, or reality's. */
-export const checkedInput = (input: SchemaInput): Result.Result<CheckedSchema, CompileError> =>
-	input.kind === "role" ? checkedRoleDesc(input.desc) : checkedDesc(input.desc)
 
 /** Every SchemaInput parseSchemaInput produced, so parsing one again is the input itself. */
 const parsedInputs = new WeakSet<object>()

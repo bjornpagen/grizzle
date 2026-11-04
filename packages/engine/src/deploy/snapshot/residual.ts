@@ -26,43 +26,43 @@ import { indexOpclassText, type IndexRows } from "#compiler/ir/products.ts"
 import type { ScalarType, SpanCarrier } from "#compiler/ir/scalar.ts"
 
 /** A pairing of a side's field with the anchor key field it meets, by name. */
-export interface PairRecord {
+interface PairRecord {
 	readonly field: string
 	readonly anchor: string
 }
 
 /** A literal selector, by its field's name. */
-export interface SelectorRecord {
+interface SelectorRecord {
 	readonly field: string
 	readonly value: TypedLiteral
 }
 
 /** A side beside the anchor, by names: its relation and its pairs. */
-export interface SideRecord {
+interface SideRecord {
 	readonly relation: string
 	readonly pairs: ReadonlyArray<PairRecord>
 }
 
 /** An arm of an alternatives law: its handle and its payload side. */
-export interface ArmRecord extends SideRecord {
+interface ArmRecord extends SideRecord {
 	readonly handle: string
 }
 
 /** A roster handle as the parent's units dispatch it. */
-export type RosterRecord = RosterHandleOf<ArmRecord>
+type RosterRecord = RosterHandleOf<ArmRecord>
 
 /** What one participant of an alternatives law re-checks. */
-export type CheckRecord =
+type CheckRecord =
 	| { readonly kind: "roster"; readonly handles: ReadonlyArray<RosterRecord> }
 	| { readonly kind: "arms"; readonly arms: ReadonlyArray<ArmRecord> }
 
 /** A capacity bound: a literal, as stated and typed, or a field of the target row with the carrier it meets in. */
-export type BoundRecord =
+type BoundRecord =
 	| { readonly kind: "literal"; readonly literal: TypedLiteral; readonly stated: bigint }
 	| { readonly kind: "ref"; readonly field: string; readonly carrier: ExactCarrier }
 
 /** How a capacity weighs each source fact, by its field's name. */
-export type WeightRecord =
+type WeightRecord =
 	| { readonly kind: "count" }
 	| { readonly kind: "field" | "duration"; readonly field: string }
 
@@ -102,7 +102,7 @@ export type FamilyRecord =
 
 /** A row image, by names: the participant fields that give the anchor key, each with its family's pairing, and its
  * guard's selections. Its side is its event's. */
-export interface ImageRecord {
+interface ImageRecord {
 	readonly key: ReadonlyArray<{ readonly field: string; readonly pair: PairRecord }>
 	readonly guard:
 		| { readonly kind: "always" }
@@ -113,12 +113,12 @@ export interface ImageRecord {
 }
 
 /** One event unit of a participant, by what it checks: an INSERT's or a DELETE's images, an UPDATE's fields. */
-export type UnitRecord =
+type UnitRecord =
 	| { readonly event: "INSERT" | "DELETE"; readonly images: ReadonlyArray<ImageRecord> }
 	| { readonly event: "UPDATE"; readonly of: ReadonlyArray<string> }
 
 /** A probe's index request, by names. */
-export interface IndexRecord {
+interface IndexRecord {
 	readonly relation: string
 	readonly keys: ReadonlyArray<{
 		readonly expr: string

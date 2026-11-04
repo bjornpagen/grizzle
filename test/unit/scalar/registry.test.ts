@@ -62,8 +62,6 @@ import { str } from "#compiler/public/text.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
-import { isPlainCarrier } from "#compiler/scalar/compute/types.ts"
-import { contractDescriptor } from "#compiler/scalar/contract.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import {
 	bareEnv,
@@ -76,7 +74,6 @@ import {
 	scalarTypeOf,
 	type TextLookup
 } from "#compiler/scalar/registry.ts"
-import { spanDescriptor } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
@@ -95,8 +92,9 @@ import {
 	throwsRefused,
 	unorderedEqual
 } from "#test/support/assert.ts"
-
+import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import {
+	isPlainCarrier,
 	plainType,
 	scalarOf as registryTypeOf,
 	wildcardText

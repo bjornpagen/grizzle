@@ -315,6 +315,13 @@ const single = <A>(items: ReadonlyArray<A>, describe: (count: number) => string)
 const refused = (error: CompileError): Error =>
 	new Error(`the test names a schema src refuses: ${error.message}`)
 
+/** What a constraint lives on, as PostgreSQL reports it: a table constraint's or a unique index's table, or a domain
+ * constraint's domain. */
+export const constraintOwner = (c: ConstraintLaw): ConstraintOwner =>
+	c.kind === "domainConstraint"
+		? { kind: "domain", name: c.owner }
+		: { kind: "table", name: c.owner }
+
 /** A native object that installs a named constraint of one relation over a field set. */
 interface NamedConstraint {
 	readonly ident: ConstraintName

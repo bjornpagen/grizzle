@@ -2,8 +2,9 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { accepts, analyzeText } from "#compiler/text/refinement.ts"
+import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { checked } from "#test/types/batch/groups.ts"
 import {
 	regexSchemaRefusalCount,

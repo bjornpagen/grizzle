@@ -14,13 +14,13 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { arm } from "#compiler/query/build/attach.ts"
 import {
-	arm,
 	type OrderedValue,
 	type QueryValue,
 	queryOver,
 	varsOver
-} from "#compiler/query/build/index.ts"
+} from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"

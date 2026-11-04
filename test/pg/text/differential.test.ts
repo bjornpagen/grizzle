@@ -10,19 +10,19 @@ import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { regexMaxNodes } from "#compiler/core/policy.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
+import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
-	accepts,
-	analyzeLanguage,
 	analyzeText,
 	type TextRefinement,
 	textDomainDdl,
 	textLimits
 } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { jsonText } from "#test/support/json.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -127,7 +127,7 @@ type DifferentialFeature =
 const walksFor = (r: TextRefinement | "empty" | "bound"): Gen<ReadonlyArray<string | undefined>> =>
 	r === "empty" || r === "bound" || r.check.kind === "finite"
 		? constant([])
-		: array(walkGen(r.nfa), { min: 0, max: walksPerPattern })
+		: array(walkGen(buildNfa(r.ir)), { min: 0, max: walksPerPattern })
 
 /**
  * One drawn case of a family: the strings, the walks of each handwritten pattern, and generated patterns with theirs.

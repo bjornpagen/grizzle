@@ -1,0 +1,156 @@
+To: pgsql-hackers@lists.postgresql.org
+Cc: Tom Lane, Alex Pires de Camargo (reply-all to the resent 2018 message fills both; NOTES.txt 2)
+Subject: gistcostestimate ignores which column a qual constrains (was: BUG #15408: Postgresql bad planning with multicolumn gist and search with empty results)
+In-Reply-To: <21040.1538079332@sss.pgh.pa.us>
+References: <15408-18cb801b3a5b21a5@postgresql.org> <1818.1538057011@sss.pgh.pa.us> <CABMU1qa8EWBiFX9LG7-mwMjFQH-M=CB66CdYYRaoMcaC3xry2Q@mail.gmail.com> <21040.1538079332@sss.pgh.pa.us>
+Attachment: repro.sql
+
+Moving this thread from -bugs to -hackers, since it is a cost-model
+question. In September 2018 Tom Lane wrote:
+
+> On the other hand, gistcostestimate() has no such modeling and assumes
+> that a constraint on a lower-order column is worth the same as one on
+> the first column.
+>
+> This is partially due to lack of effort put into that function, but I seem
+> to recall being told that GIST was not as sensitive to column ordering
+> as btree, too.  Your results indicate otherwise :-(
+
+and later:
+
+> Someone would have to get interested in the problem and design/write/test
+> a better cost model;
+
+This is unchanged on 19rc1 and master.  Before anyone writes a patch for
+20, I'd like to ask whether a column-aware gistcostestimate() would be
+welcome, and what shape it should take.
+
+A stock reproduction, attached as repro.sql (run it with psql -X; it
+creates and drops its own database):
+
+    CREATE EXTENSION btree_gist;
+    CREATE TABLE booking (id int, room int, during int4range, note text,
+        CONSTRAINT booking_no_overlap
+            EXCLUDE USING gist (during WITH &&, room WITH =));
+    CREATE INDEX booking_room ON booking (room);
+    -- 100000 rows; room hashed over 5000 values (about 20 rows each);
+    -- spans disjoint and in physical order; VACUUM ANALYZE
+
+    EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM booking WHERE room = 2186;
+
+     Bitmap Heap Scan on booking  (cost=4.44..75.39 rows=20 width=35)
+                                  (actual rows=28.00 loops=1)
+       Buffers: shared hit=920
+       ->  Bitmap Index Scan on booking_no_overlap
+                                  (cost=0.00..4.43 rows=20 width=0)
+             Index Cond: (room = 2186)
+             Buffers: shared hit=892
+     Execution Time: 1.928 ms
+
+Every setting is at its default.  The planner takes the constraint's
+index, where room is the second column, and the scan reads every one of
+its 892 pages.  Warm-cache figures, 19rc1 (master gives the same costs and
+buffers):
+
+                                       index cost   index pages read   time
+    GiST (during, room), the plan        4.43        892 of 892      1.93 ms
+    B-tree (room), constraint dropped    4.44          2 of 140      0.03 ms
+    GiST (room, during), alone           4.43          3 of 655      0.02 ms
+    1M rows, 50000 rooms:
+    GiST (during, room), the plan        4.44       8928 of 8928       25 ms
+    B-tree (room), constraint dropped    4.58          3 of 1204    0.013 ms
+
+The cause, in selfuncs.c (identical on REL_19_RC1 and master):
+
+- btcostestimate() passes genericcostestimate() a numIndexTuples taken
+  from its indexBoundQuals: the leading '=' quals, the next column's
+  inequalities, and since 18 the skip arrays.  gistcostestimate() passes
+  no count, so genericcostestimate() multiplies the selectivity of every
+  indexqual by reltuples, and costs the pages as that share of the index.
+  A qual on GiST's second column therefore costs what it would if it led
+  the index.  c186c93148 took this assumption out of btcostestimate() in
+  8.1 ("its original assumption that index selectivity == heap
+  selectivity was quite bogus even before this").  GiST kept it.
+
+- The scan itself does test every key at every level (gistindex_keytest),
+  so a later column prunes a subtree when that subtree's union for the
+  column excludes the value.  But gistchoose() treats an earlier column's
+  penalty as strictly more important, and gistSplitByKey() splits on the
+  first column, so the subtrees group by during.  The lookup on room
+  pruned nothing.  The documentation has said as much since 8.1: "the
+  condition on the first column is the most important one for
+  determining how much of the index needs to be scanned".
+
+- With both indexes estimated at one leaf page, the descent charges
+  decide, and both favour GiST.  gistcostestimate() charges ceil(ln N)
+  comparisons where btcostestimate() charges ceil(log2 N): 12 against 17
+  at 100000 rows, the 0.0125 between 4.43 and 4.4425.  And it takes the
+  tree height as (int) log100(pages), where the B-tree uses its real
+  height: at 1M rows that is 1 for the GiST index's 8928 pages against 2
+  for the B-tree's 1204, another 0.125.  David Rowley noticed the first
+  of these in 2024 with pg_trgm's '=' [1] and posted a one-line log2
+  change, which had no reply.
+
+Changing the column order doesn't help, which was the reporter's point
+in 2018.  The script also shows two more cases:
+
+- With the constraint led by room instead, and a GiST index on (during)
+  beside it for searches by span alone, the two indexes tie exactly, at
+  8.30, for during && '[500000,500001)'.  The planner takes whichever was
+  created last (plancat.c's lcons(), and add_path() keeps the older of
+  equal paths), and so reads 656 buffers or 4.
+
+- In one index on (during, slot, room), where slot follows the spans'
+  order and room doesn't, slot = 2500 and room = 2186 both cost 4.43.
+  The first reads 3 pages, the second all 1087.
+
+My questions:
+
+1. Is the column-blind estimate intended?  I found nothing that says so
+   beyond the recollection quoted above, and the documentation says the
+   opposite.
+
+2. Would a column-aware gistcostestimate() be acceptable for 20, along
+   the lines of btcostestimate()'s boundary quals?  Three possible
+   directions, none of them written yet:
+
+   a. Count bound quals as btcostestimate() does.  Quals on the first
+      column bound the scan, and a later column's quals narrow it only
+      when every earlier column has one.  With no qual on the first
+      column, numIndexTuples would be the whole index, and
+      indexSelectivity, which drives the heap cost, would not change.
+      This errs high where a later column follows the first (slot
+      above, 3 pages), as btcostestimate() falls back to a full-index
+      cost when it gives up skipping, rather than low by a whole index.
+
+   b. On top of (a), something like btcostestimate()'s skip-scan
+      reasoning.  Page splits place the entries that tie on the first
+      column by the next one (gistsplit.c), so an unconstrained first
+      column of few distinct values splits the tree into that many
+      groups, each of which a later column's qual can narrow.  In the
+      script, room = 2186 on (kind, room, during), with kind of 3
+      values, reads 5 pages at the same 4.43.  Charge a descent per
+      group, and give up when the groups outnumber the index's pages.
+
+   c. Make the descent charges comparable: count comparisons in log2, as
+      btcostestimate() does, and give GiST a tree height
+      (amgettreeheight, since 18) instead of log100(pages).  On its own,
+      this turns today's systematic preference for GiST into a tie
+      decided by creation order, so I see it as part of (a), not a
+      substitute.
+
+An opclass-level statistic, as discussed for pg_trgm's '=' in [2],
+would measure how well each column's internal keys discriminate, and
+could cover both cases.  But it is a much larger project, and the
+column position is known at plan time without it.
+
+We met this while generating indexes for tables whose queries need
+conflicting column orders: a span predicate on (room, during), another
+on during alone, and a lookup on room.  Whichever column leads, one of
+them reads the whole index.
+
+[1] https://postgr.es/m/CAApHDvp3W7G8Oo4=wjt0ceTbic35SHJ=qfoD_CnPXSnZVzCkhQ@mail.gmail.com
+[2] https://postgr.es/m/CA+vB=AHon6EB=90pbPDik_u8+++Ty8TA6Z4-RXo_X5QCr71kcQ@mail.gmail.com
+
+Thanks,
+Bjorn Pagen

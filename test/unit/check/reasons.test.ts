@@ -32,7 +32,7 @@ import {
 	match,
 	param,
 	parent,
-	query,
+	queryDesc,
 	ref,
 	relationSource,
 	rule,
@@ -96,7 +96,7 @@ const matchLoc = (
 }
 
 const tasks = (head: Parameters<typeof rule>[0]["head"]): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Task", "id", "account", "kind"),
 			matches: [
@@ -110,7 +110,7 @@ const tasks = (head: Parameters<typeof rule>[0]["head"]): QueryDesc =>
 	)
 
 /** Item ids whose qty is the parameter q: Qty is a contract over integer (test/unit/check/schemas.ts). */
-const itemsOfQty = query(
+const itemsOfQty = queryDesc(
 	rule({
 		vars: vars("Item", "id"),
 		matches: [match(relationSource("Item"), { id: ref("Item", "id"), qty: param("q", Qty) })],
@@ -123,7 +123,7 @@ const itemsOfQty = query(
 
 /** An import of itemsOfQty, its parameter bound to `q`. */
 const qtyImport = (q: AuthoredExprDesc): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("X", "id"),
 			matches: [match(imported(itemsOfQty, { q }), { id: ref("X", "id") })],
@@ -135,7 +135,7 @@ const qtyImport = (q: AuthoredExprDesc): QueryDesc =>
 	)
 
 const budgetIs = (budget: Parameters<typeof lit>[0]): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("AutomaticTask", "task"),
 			matches: [
@@ -152,7 +152,7 @@ const budgetIs = (budget: Parameters<typeof lit>[0]): QueryDesc =>
 	)
 
 const qtyBound = (qty: Parameters<typeof lit>[0]): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Item", "id"),
 			matches: [match(relationSource("Item"), { id: ref("Item", "id"), qty: lit(qty) })],
@@ -164,7 +164,7 @@ const qtyBound = (qty: Parameters<typeof lit>[0]): QueryDesc =>
 	)
 
 const qtyIs = (qty: Parameters<typeof lit>[0]): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Item", "id", "qty"),
 			matches: [match(relationSource("Item"), { id: ref("Item", "id"), qty: ref("Item", "qty") })],
@@ -176,7 +176,7 @@ const qtyIs = (qty: Parameters<typeof lit>[0]): QueryDesc =>
 	)
 
 const labelIs = (label: Parameters<typeof lit>[0]): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Item", "id", "label"),
 			matches: [
@@ -190,7 +190,7 @@ const labelIs = (label: Parameters<typeof lit>[0]): QueryDesc =>
 	)
 
 const labelBound = (label: Parameters<typeof lit>[0]): QueryDesc =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Item", "id"),
 			matches: [match(relationSource("Item"), { id: ref("Item", "id"), label: lit(label) })],
@@ -378,7 +378,7 @@ const noteMember = (head: Parameters<typeof rule>[0]["head"]): MemberDesc => ({
 	relation: "TaskNote",
 	member: {
 		kind: "query",
-		query: query(
+		query: queryDesc(
 			rule({
 				vars: vars("Task", "id"),
 				matches: [match(relationSource("Task"), { id: ref("Task", "id") })],
@@ -392,7 +392,7 @@ const noteMember = (head: Parameters<typeof rule>[0]["head"]): MemberDesc => ({
 })
 
 /** The manual task's operator, attached to a task. */
-const operatorChild = query(
+const operatorChild = queryDesc(
 	rule({
 		vars: vars("ManualTask", "operator"),
 		matches: [
@@ -410,7 +410,7 @@ const operatorChild = query(
 
 /** Notes of tasks with `attachments` on the arm. */
 const notes = (attachments: ReadonlyArray<{ readonly name: string; readonly child: QueryDesc }>) =>
-	query(
+	queryDesc(
 		rule({
 			vars: vars("Task", "id"),
 			matches: [match(relationSource("Task"), { id: ref("Task", "id") })],
@@ -459,14 +459,14 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 	{
 		what: "MissingDiscriminant: arms of different headings whose literals coincide",
 		check: () =>
-			checkQuery(checking(WorkDesc), query(arm(false), arm(true)), checkOptions("query")),
+			checkQuery(checking(WorkDesc), queryDesc(arm(false), arm(true)), checkOptions("query")),
 		expected: () => refusedFor("MissingDiscriminant")
 	},
 	...(() => {
 		const q = attach(
 			tasks({ id: ref("Task", "id") }),
 			"notes",
-			query(
+			queryDesc(
 				rule({
 					vars: vars("TaskNote", "task", "note"),
 					matches: [
@@ -522,7 +522,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 			relation: "AutomaticTask",
 			member: {
 				kind: "query",
-				query: query(
+				query: queryDesc(
 					rule({
 						vars: vars("AutomaticTask", "task", "budget"),
 						matches: [
@@ -597,7 +597,7 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		 * A variable no rule declares, read by a match binding: the structural pass refuses it before the checker runs,
 		 * at the location the checker reports for its own refusal of the same entry.
 		 */
-		const binding = query(
+		const binding = queryDesc(
 			rule({
 				vars: vars("Item", "id"),
 				matches: [

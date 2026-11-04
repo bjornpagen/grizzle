@@ -7,18 +7,16 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
-import { scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { builderEnv } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { decimalGen, decimalText } from "#test/unit/values/support.ts"
 
 /** Groups of spellings of one Decimal value, and values alone. */
@@ -220,7 +218,7 @@ const constructedGen: Gen<Constructed> = oneOf<Constructed>([
 	})),
 	map(element(fieldDescs), (desc): Constructed => ({
 		by: "scalarTypeOf",
-		value: succeeded(scalarTypeOf(desc, builderEnv, SourceLoc("a frozen value", [])))
+		value: scalarOf(desc, {})
 	})),
 	element<Constructed>([
 		{ by: "a public field descriptor", value: uuid },

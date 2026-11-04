@@ -17,12 +17,10 @@ import {
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { familyUnits } from "#compiler/laws/families/index.ts"
 import type { FamilyAt, FamilyUnit } from "#compiler/laws/families/plugin.ts"
-import type { LawModel } from "#compiler/laws/model/model.ts"
 import { imageField, recordField, selectedBy, witnessShown } from "#compiler/laws/residual/sql.ts"
 
 import type {
 	CreateConstraintTrigger,
-	Ddl,
 	Expr,
 	PlDeclaration,
 	PlFunction,
@@ -78,11 +76,6 @@ interface ResidualEmitOptions {
 	/** The theory roles holding a relation whole, the roles a violation of it reports its keys to (`witnessShown`). */
 	readonly holders: (relation: string) => ReadonlyArray<string>
 }
-
-/** The installation statements of one residual law, in order: each unit's function, its PUBLIC revocation and its
- * trigger. */
-export const residualLawStatements = (objects: ResidualLawObjects): ReadonlyArray<Ddl> =>
-	objects.units.flatMap((u): ReadonlyArray<Ddl> => [u.function, u.revoke, u.trigger])
 
 /** The row a unit's function returns: NEW for an INSERT's and an UPDATE's, OLD for a DELETE's. */
 const returned = (event: TriggerEvent): Expr => {
@@ -347,19 +340,3 @@ export const emitResidualLaw = (
 	options: ResidualEmitOptions
 ): Result.Result<ResidualLawObjects, CompileError> =>
 	catchRefusal(() => new Emitter(law, options).run())
-
-/** Every residual law of a model, in the model's order, or the first refusal. */
-export const emitResidualLaws = (
-	model: LawModel,
-	options: ResidualEmitOptions
-): Result.Result<ReadonlyArray<ResidualLawObjects>, CompileError> => {
-	const out: Array<ResidualLawObjects> = []
-	for (const law of model.residuals) {
-		const objects = emitResidualLaw(law, options)
-		if (!objects.ok) {
-			return Result.err(objects.error)
-		}
-		out.push(objects.value)
-	}
-	return Result.ok(out)
-}

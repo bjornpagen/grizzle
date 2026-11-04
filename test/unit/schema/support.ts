@@ -3,14 +3,13 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import { predicateValue } from "#compiler/scalar/compute/term.ts"
-import { admitContract } from "#compiler/scalar/contract.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
-import { spanDescriptor } from "#compiler/scalar/span.ts"
-import type { RowHelpers, RowTerm } from "#compiler/schema/terms.ts"
+import type { RowTerm, rowHelpers } from "#compiler/schema/terms.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed } from "#compiler/types/schema/relation.ts"
+import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 
 /**
  * Typed Live builders for the schema tests over the real descriptors of packages/engine/src/scalar and str.regex, each taking
@@ -23,7 +22,7 @@ import type { AnyClosed } from "#compiler/types/schema/relation.ts"
  */
 export type Row = {
 	readonly [F in "id" | "account" | "limit" | "maximum" | "label"]: RowTerm
-} & RowHelpers
+} & typeof rowHelpers
 
 /** The FieldDesc of a descriptor, as the registry reads it. */
 export const descOf = (descriptor: FieldBase): FieldDesc => {

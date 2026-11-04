@@ -28,20 +28,22 @@ import { Delivery } from "#compiler/lower/conservative/deliver.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import {
 	CatalogContext,
-	CatalogEditor,
 	type CatalogOptions,
+	type ParentPolicy
+} from "#compiler/lower/shapes/catalog/context.ts"
+import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
+import { NoMatch } from "#compiler/lower/shapes/catalog/exprs.ts"
+import { tryBoundNeighbor } from "#compiler/lower/shapes/catalog/neighbor.ts"
+import {
 	type CatalogResult,
-	catalogDispatch,
 	catalogPass,
-	NoMatch,
-	type ParentPolicy,
-	rewriteCatalog,
-	tryBoundNeighbor
-} from "#compiler/lower/shapes/catalog/index.ts"
+	rewriteCatalog
+} from "#compiler/lower/shapes/catalog/rewrite.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import { checkedQuery, lab, labOptions } from "#test/pg/catalog/support.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { catalogDispatch } from "#test/support/compile.ts"
 import type { AuthoredExprDesc as ExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { schemaDesc } from "#test/support/oracle/gen/schema.ts"

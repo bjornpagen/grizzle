@@ -1,16 +1,8 @@
-import { type CompileBound, type CompileError, resourceBound } from "#compiler/core/errors.ts"
+import { type CompileError, resourceBound } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { BudgetKind, Budgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
-
-/** The budget a meter's refusal crossed (BudgetMeter.charge); undefined for any other refusal. */
-export const budgetBoundOf = (
-	error: CompileError
-): Extract<CompileBound, { readonly kind: "budget" }> | undefined =>
-	error.reason._tag === "ResourceBound" && error.reason.bound.kind === "budget"
-		? error.reason.bound
-		: undefined
 
 /**
  * A one-shot bound that is not cumulative: the steps of the rewrite pass `rewrite` (lower/optimize/demand/frame.ts,
@@ -55,10 +47,6 @@ export class BudgetMeter {
 		return this.#used[kind]
 	}
 
-	remaining(kind: BudgetKind): number {
-		return Math.max(0, this.#limits[kind] - this.#used[kind])
-	}
-
 	/**
 	 * Adds `amount` to `kind`, or refuses with ResourceBound located at `loc` when the total would exceed the limit.
 	 */
@@ -75,17 +63,5 @@ export class BudgetMeter {
 	/** Charges the UTF-8 byte length of an emitted SQL text against sqlBytes. */
 	chargeSql(text: string, loc: SourceLoc): Result.Result<void, CompileError> {
 		return this.charge("sqlBytes", utf8Length(text), loc)
-	}
-
-	/** The usage so far, for diagnostics and measurement records, its keys in budgetKinds order. */
-	usage(): Readonly<Record<BudgetKind, { readonly used: number; readonly limit: number }>> {
-		const entry = (kind: BudgetKind) => ({ used: this.#used[kind], limit: this.#limits[kind] })
-		return {
-			nodes: entry("nodes"),
-			fields: entry("fields"),
-			sqlBytes: entry("sqlBytes"),
-			params: entry("params"),
-			variants: entry("variants")
-		}
 	}
 }

@@ -20,7 +20,7 @@ import {
 } from "#compiler/allen/mask.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { queryValueDesc } from "#compiler/query/build/index.ts"
+import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert } from "#test/support/assert.ts"
 import { Booking, Schedule } from "#test/unit/query/fixtures.ts"
 

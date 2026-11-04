@@ -856,10 +856,6 @@ export const predicateTree = (table: ExprTable): Result.Result<ScalarExpr, Compi
 		return parsed.of(table.root)
 	})
 
-/** The table renamed to its normal form, unreachable entries dropped. A dangling argument is MalformedDescription. */
-export const normalizeExprTable = (table: ExprTable): Result.Result<ExprTable, CompileError> =>
-	Result.map(predicateTree(table), predicateTable)
-
 /** The problems of the entry under `key` in a predicate table over a domain whose VALUE has type `base`. */
 const entryProblems = (
 	table: ExprTable,

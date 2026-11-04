@@ -81,9 +81,9 @@ export type OperandPremise =
 
 /**
  * The kept, checkable proof that a partial operation's precondition holds where it stands: the precondition and the
- * premises it rests on. An expression names a partial operation only with one (ir/expr.ts PartialOp), and the
- * kernel (scalar/compute/bounds.ts checkProof) re-derives the precondition from its premises, so a proof is a value
- * that can be verified, never a claim.
+ * premises it rests on. An expression names a partial operation only with one (ir/expr.ts PartialOp), and the tests'
+ * proof kernel (test/support/oracle/proof.ts checkProof) re-derives the precondition from its premises, so a proof is a
+ * value that can be verified, never a claim.
  */
 export interface PreconditionProof {
 	readonly precondition: Precondition
