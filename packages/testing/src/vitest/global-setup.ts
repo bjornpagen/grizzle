@@ -1,5 +1,5 @@
 import { regex } from "arkregex"
-import { Config, Console, Effect, Option, Random, Schema } from "effect"
+import { Config, ConfigProvider, Console, Effect, Option, Random, Schema } from "effect"
 import type { TestProject } from "vitest/node"
 import { FuzzTime } from "#fuzz.ts"
 import { replayOf } from "#replay.ts"
@@ -7,6 +7,16 @@ import { RUN_KEY, type RunWire } from "#vitest/run.ts"
 
 /** A 32-bit run seed as a person writes it: decimal, or hexadecimal after `0x`. */
 const SeedText = Schema.String.check(Schema.isPattern(regex("^(0x[0-9a-fA-F]{1,8}|[0-9]{1,10})$")))
+
+/**
+ * The environment a run is chosen from: the project's `env` (Vitest's `test.env`, which the tests see as their own),
+ * over the process's, so a run started in process, as the mutation runner starts one, names its seed as a value.
+ */
+const runEnvironmentOf = (project: TestProject) =>
+	ConfigProvider.orElse(
+		ConfigProvider.fromEnvRecord({ ...project.config.env }),
+		ConfigProvider.fromEnv()
+	)
 
 /**
  * Chooses the run every test process shares, before any test starts: `TEST_SEED` replays a run, otherwise the seed
@@ -50,5 +60,5 @@ export const setup = (project: TestProject) =>
 				`TEST_SEED=${seed}${Option.isSome(given) ? "" : " (drawn by this run; set it to reproduce)"}`
 			)
 			project.provide(RUN_KEY, wire)
-		}).pipe(Effect.orDie)
+		}).pipe(Effect.orDie, Effect.provide(ConfigProvider.layer(runEnvironmentOf(project))))
 	)

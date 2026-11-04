@@ -13,7 +13,6 @@
 		"bench/**/*.bench.ts",
 		"bench/**/main.ts",
 		"bench/cold/probe.ts",
-		"scripts/build.ts",
 		"scripts/dev/golden/*.ts",
 		"scripts/dev/mutate/main.ts",
 		"scripts/dev/mutate/vitest.config.ts",
@@ -27,7 +26,18 @@
 		"oxlint.config.ts",
 		"packages/devtools/src/oxlint/fixtures.config.ts",
 		"packages/testing/src/vitest/coverage.ts",
+		"packages/testing/src/vitest/mutated-setup.ts",
 		"packages/testing/src/witness.fixtures.ts"
+	],
+	// scripts/build.ts is repo tooling that packs dist for npm: what it imports (amaro) never ships, so it is a support
+	// root, not a runtime one.
+	"framework": [
+		{
+			"name": "build",
+			"detection": { "type": "fileExists", "pattern": "scripts/build.ts" },
+			"entryPoints": ["scripts/build.ts"],
+			"entryPointRole": "support"
+		}
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/laws/families/coverage/**",
