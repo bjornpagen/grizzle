@@ -89,22 +89,22 @@ const additionAim = (
 }
 
 /**
- * The installation an aimed witness writes under: the documents base's worlds whose roles write Visit through a query
- * entry whose every carried field is serial, one filtering on a serial field and one fixing one (docsVisitsInstall), beside
- * the member's notes, whose number is serial; the drawn one otherwise, whose roles hold those shapes too rarely to rely
- * on.
+ * The installation an aimed witness writes under: the documents base's worlds whose roles write Visit whole (the
+ * admin), through a query entry whose every carried field is serial, one filtering on a serial field and one fixing one
+ * (docsVisitsInstall), beside the member's notes, whose number is serial; the drawn one otherwise, whose roles hold
+ * those shapes too rarely to rely on.
  */
 const aimedInstall = (
 	aim: Option.Option<Arr.NonEmptyReadonlyArray<AdditionFeature>>,
 	drawnInstall: InstallSpec
 ): InstallSpec => (Option.isSome(aim) ? docsVisitsInstall : drawnInstall)
 
-/** Whether a role writes a query entry with a serial field a fact may leave out (model/session/writes.ts serialHead). */
+/**
+ * Whether a role writes a relation, whole or through a query entry, with a serial field a fact may leave out
+ * (model/session/writes.ts serialHead): a role whose writes reach a generated addition of either target.
+ */
 const leavesOutSerials = (install: InstallSpec, role: RoleSpec): boolean =>
-	Arr.some(
-		writtenOf(install.base, role),
-		(w) => w.kind === "query" && serialHead(install.base, w).classed.length > 0
-	)
+	Arr.some(writtenOf(install.base, role), (w) => serialHead(install.base, w).classed.length > 0)
 
 /** What an apply notes where the model admits it past its compile: its additions (features.ts additionsOf). */
 const compiledAdditions = (
