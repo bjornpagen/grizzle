@@ -22,13 +22,11 @@ import type {
 	LawId,
 	RelationIdent
 } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	descText,
-	expandAlternatives,
+	type ExprDesc,
 	type SchemaDesc as SrcSchemaDesc,
-	type SideDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 
@@ -207,9 +205,15 @@ export interface LawNames {
 	) => ConstraintName
 	/**
 	 * The one constraint or domain constraint of `kind` that reports `law`: one law can be reported by several (an
-	 * alternatives arm's foreign key and the generated unique key it references), never by two of one kind.
+	 * alternatives arm's foreign key and the generated unique key it references); a test names it here only where it is
+	 * the one of its kind.
 	 */
 	readonly constraintOf: (law: LawId, kind: NativeKind) => ConstraintName
+	/**
+	 * Every constraint of `kind` that reports `law`, in the law model's order: a family's law is reported by several of
+	 * one kind (its axes' foreign keys, its keys over the drawn index).
+	 */
+	readonly constraintsOf: (law: LawId, kind: NativeKind) => ReadonlyArray<ConstraintName>
 	/** The law a constraint reports, read under the table or domain it lives on, as PostgreSQL reports it. */
 	readonly lawOfConstraint: (owner: ConstraintOwner, constraint: ConstraintName) => LawId
 	/** The laws an alternatives value expands to (a public schema). */
@@ -515,29 +519,44 @@ const theLaw = (target: string, laws: ReadonlyArray<TheoryLaw>, what: string): L
 			)}`
 	).id
 
+/** A literal of a discriminator's selection as its handle: the handle a desc spells, or a typed handle literal. */
+const handleText = (value: unknown): ReadonlyArray<string> =>
+	typeof value === "string"
+		? [value]
+		: typeof value === "object" &&
+				value !== null &&
+				"kind" in value &&
+				value.kind === "handle" &&
+				"handle" in value &&
+				typeof value.handle === "string"
+			? [value.handle]
+			: []
+
 /**
- * The arm an alternatives side selects, as the expansion states it: its selection's predicate is `discriminator =
- * handle`, the parent's discriminator compared with the handle's literal; none for any other side.
+ * The handles a selection fixes its discriminator to, as an alternatives expansion states it (ir/desc.ts
+ * discriminated): `discriminator = handle` fixes one, `discriminator in (handle…)` several; none for any other
+ * selection.
  */
-const armOf = (
-	side: SideDesc
-): { readonly discriminator: string; readonly handle: string } | undefined => {
-	const [p, ...more] = side.selection.conjuncts
-	return more.length === 0 &&
-		p?.kind === "compare" &&
-		p.op === "eq" &&
-		p.left.kind === "field" &&
-		p.right.kind === "literal" &&
-		typeof p.right.value === "string"
-		? { discriminator: p.left.field, handle: p.right.value }
-		: undefined
+const selectedHandles = (
+	conjuncts: ReadonlyArray<{ readonly predicate: ExprDesc }>
+): ReadonlyArray<string> => {
+	const [p, ...more] = conjuncts
+	if (p === undefined || more.length > 0) {
+		return []
+	}
+	const predicate = p.predicate
+	if (predicate.kind === "compare" && predicate.op === "eq" && predicate.right.kind === "literal") {
+		return handleText(predicate.right.value)
+	}
+	return predicate.kind === "in" ? Arr.flatMap(predicate.values, handleText) : []
 }
 
 /**
- * The laws of an alternatives expansion, every statement a containment, in any order (fin.md §7): an arm's,
- * `contained(on(Arm_h, …), on(select(P, tag = h), …))`, its target the parent selected by its handle, which names the
- * law of its arm relation, one for every handle the relation is the arm of; and each armed handle's reverse,
- * `contained(on(select(P, tag = h), …), on(Arm_h, …))`, its source the parent selected by its handle, its own law.
+ * The laws an alternatives statement expands to, every one a containment (fin.md §7): an arm relation's,
+ * `contained(on(Arm, …), on(select(P, tag ∈ handles), …))`, its target the parent selected by the handles the relation
+ * is the arm of, which every one of those handles names; and each armed handle's reverse, `contained(on(select(P, tag =
+ * h), …), on(Arm_h, …))`, its source the parent selected by its handle. The statement is one owned statement, so its
+ * laws are the theory's laws that hold it, each classified by the side its selection is on.
  */
 const alternativesLaws = <L>(
 	holding: Holding,
@@ -545,27 +564,39 @@ const alternativesLaws = <L>(
 ): AlternativesLaws => {
 	const armLaws: Record<string, LawId> = {}
 	const reverseLaws: Record<string, LawId> = {}
-	/** An alternatives statement stands for its containments (ir/desc.ts expandAlternatives). */
-	const containments = Arr.flatMap(expansion, (statement): ReadonlyArray<StatementDesc<L>> =>
-		statement.kind === "alternatives"
-			? expandAlternatives({ ...statement, loc: SourceLoc("alternatives", []) })
-			: [statement]
-	)
-	for (const statement of containments) {
-		if (statement.kind !== "contained") {
+	for (const statement of expansion) {
+		if (statement.kind !== "alternatives") {
 			throw new Error(
-				`the test names the laws of an alternatives expansion holding a ${statement.kind} statement, not a containment`
+				`the test names the laws of an alternatives expansion holding a ${statement.kind} statement, not an alternatives statement`
 			)
 		}
 		const { target, laws } = holding(statement)
-		const reverse = armOf(statement.left)
-		const arm = armOf(statement.right)
-		if (reverse !== undefined) {
-			reverseLaws[reverse.handle] = theLaw(target, laws, "reverse containment's law")
-		} else if (arm !== undefined) {
-			armLaws[arm.handle] = theLaw(target, laws, "arm relation's law")
-		} else {
-			throw new Error(`the test names an alternatives containment ${target} that selects no handle`)
+		const handles = new Set(Arr.map(statement.arms, (a) => a.handle))
+		for (const law of laws) {
+			if (law.detail.kind !== "containment") {
+				throw new Error(`the alternatives statement ${target} holds the ${law.detail.kind} law ${law.id}`)
+			}
+			const reverse = selectedHandles(law.detail.from.selection.conjuncts)
+			const arm = selectedHandles(law.detail.to.selection.conjuncts)
+			if (reverse.length === 1 && arm.length === 0) {
+				reverseLaws[reverse[0] as string] = law.id
+			} else if (arm.length > 0 && reverse.length === 0) {
+				for (const handle of arm) {
+					armLaws[handle] = law.id
+				}
+			} else {
+				throw new Error(`the alternatives statement ${target} holds ${law.id}, which selects no one handle side`)
+			}
+		}
+		for (const handle of handles) {
+			if (armLaws[handle] === undefined || reverseLaws[handle] === undefined) {
+				throw new Error(
+					`the test names the laws of ${target}, which hold no arm law and reverse law for ${handle}: ${Arr.join(
+						Arr.map(laws, (l) => l.id),
+						", "
+					)}`
+				)
+			}
 		}
 	}
 	return { arms: armLaws, reverse: reverseLaws }
@@ -660,6 +691,8 @@ const lawNamesOver = (
 		},
 		fieldConstraint: (relation, kind, fields) =>
 			theConstraint(model, relation.name, kind, fields).ident,
+		constraintsOf: (law, kind) =>
+			Arr.flatMap(reporting, (r) => (r.law === law && r.kind === kind ? [r.name] : [])),
 		constraintOf: (law, kind) => {
 			const ofLaw = Arr.filter(reporting, (r) => r.law === law)
 			return single(

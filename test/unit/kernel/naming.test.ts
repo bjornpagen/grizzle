@@ -3,12 +3,13 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import type { SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import { expandAlternatives } from "#compiler/ir/desc.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
+import type { NativeKind } from "#compiler/ir/law.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { pg } from "#compiler/public/fields.ts"
 import {
@@ -18,7 +19,8 @@ import {
 	on,
 	relation,
 	type Statement,
-	schema
+	schema,
+	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Owned } from "#compiler/schema/own.ts"
@@ -26,11 +28,14 @@ import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
+	Deposit,
 	Employee,
 	Employer,
+	Employment,
 	PayLine,
 	Payroll,
 	Posting,
+	Reissue,
 	Reporting
 } from "#test/support/fixtures/api/payroll.ts"
 import * as P from "#test/support/fixtures/ir/payroll.ts"
@@ -50,18 +55,48 @@ import { argumentsOf } from "#test/support/list.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
 /**
- * Every key statement of the payroll fixture, rebuilt through the public builder, with its constraint named by its
- * relation and fields in `schema`.
+ * Every key statement of the payroll fixture, rebuilt through the public builder, with its constraint in `schema`: a
+ * key over a whole relation named by its relation and fields, a key over a selected side, whose native also reads the
+ * selection's law column, by its law: a unique key, or an exclusion constraint where the key holds a span.
  */
-const declaredKeys = (subject: AnySchema): ReadonlyArray<readonly [Statement, ConstraintName]> => [
-	[key(on(Employer, "ein")), constraintOf(subject, Employer, "key", ["ein"])],
-	[
-		key(on(Employee, "employer", "code")),
-		constraintOf(subject, Employee, "key", ["employer", "code"])
-	],
-	[key(on(PayLine, "run", "employee")), constraintOf(subject, PayLine, "key", ["run", "employee"])],
-	[key(on(Posting, "line", "account")), constraintOf(subject, Posting, "key", ["line", "account"])]
-]
+const declaredKeys = (subject: AnySchema): ReadonlyArray<readonly [Statement, ConstraintName]> => {
+	const selected = (
+		statement: Statement,
+		kind: NativeKind
+	): readonly [Statement, ConstraintName] => {
+		const L = lawNamesOf(subject)
+		return [statement, L.constraintOf(L.lawOf(statement), kind)]
+	}
+	return [
+		[key(on(Employer, "ein")), constraintOf(subject, Employer, "key", ["ein"])],
+		[
+			key(on(Employee, "employer", "code")),
+			constraintOf(subject, Employee, "key", ["employer", "code"])
+		],
+		[key(on(PayLine, "run", "employee")), constraintOf(subject, PayLine, "key", ["run", "employee"])],
+		[key(on(Posting, "line", "account")), constraintOf(subject, Posting, "key", ["line", "account"])],
+		selected(
+			key(
+				on(
+					select(Employment, (r) => r.eq(r.basis, "salaried")),
+					"employee",
+					"during"
+				)
+			),
+			"WithoutOverlaps"
+		),
+		[key(on(Reissue, "replaces")), constraintOf(subject, Reissue, "key", ["replaces"])],
+		selected(
+			key(
+				on(
+					select(Deposit, (r) => r.eq(r.remainder, true)),
+					"line"
+				)
+			),
+			"Unique"
+		)
+	]
+}
 
 /** Every statement of a schema description, at every level. */
 const levelStatements = (desc: SchemaDesc): ReadonlyArray<StatementDesc> => [
@@ -336,7 +371,11 @@ describe("production names from src", () => {
 										theory.has(law),
 										`${ident} reports ${law}, which is no law of the theory`
 									)
-									assert.equal(L.constraintOf(law, native.object.kind), ident)
+									/** A family's law is reported by several natives of one kind, each among the law's. */
+									assert.ok(
+										L.constraintsOf(law, native.object.kind).includes(ident),
+										`${ident} is among the ${native.object.kind} constraints reporting ${law}`
+									)
 								}
 							}
 							for (const statement of alternativesStatements(levelStatements(L.model.owned.desc))) {
@@ -381,9 +420,20 @@ describe("production names from src", () => {
 									continue
 								}
 								c.note("checked contract")
+								/**
+								 * Contracts of one definition share one domain (physical/install/compile.ts contractConstraintLaws),
+								 * whose CHECK reports the law of the first of them by name.
+								 */
+								const [first] = Arr.sort(
+									Arr.filter(Rec.keys(N.model.owned.contracts), (other) => {
+										const o = N.contract(other)
+										return o.kind !== "brand" && o.domain === contract.domain
+									}),
+									Order.String
+								)
 								assert.equal(
 									N.lawOfConstraint({ kind: "domain", name: contract.domain }, contract.constraint),
-									contract.law,
+									N.contract(defined(first, `${contractName}'s domain`)).law,
 									contractName
 								)
 							}
