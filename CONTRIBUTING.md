@@ -107,9 +107,7 @@ the code, by type stripping. `pnpm test` runs as many files at once as the cores
 every test process and every child a file spawns run under the hardened flags, which the test scripts put in
 `NODE_OPTIONS` (`test/support/process.ts` `hardenedNode`, `packages/testing/src/vitest/config.ts` `HARDENED_FLAGS`):
 `--disable-proto=delete`, `--disable-sigusr1`, `--throw-deprecation`, `--pending-deprecation`, `--force-context-aware`,
-`--no-global-search-paths`, `--unhandled-rejections=strict`, `--no-experimental-websocket`,
-`--no-experimental-webstorage`, `--no-experimental-global-navigator`, `--no-experimental-sqlite` and
-`--no-experimental-ffi`. V8's JIT and code generation from strings stay on: never `--jitless`,
+`--no-global-search-paths` and `--unhandled-rejections=strict`. V8's JIT and code generation from strings stay on: never `--jitless`,
 `--disallow-code-generation-from-strings`, `--frozen-intrinsics` or `--no-addons`. A file named
 `<name>.exclusive.test.ts` needs the cluster to itself: it runs after every other file, one at a time, because its long
 SERIALIZABLE transactions would summarize everyone else's. Each pg or schedules file uses its worker's long-lived

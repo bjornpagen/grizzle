@@ -1,7 +1,7 @@
 import { regex } from "arkregex"
 /**
- * A JavaScript tokenizer for the dependency audit. It reads the erased JavaScript that amaro's strip-only
- * transform produces from each src/ module, so it needs no TypeScript syntax: types are blanked to spaces, positions
+ * A JavaScript tokenizer for the dependency audit. It reads the erased JavaScript that Node's type stripping
+ * produces from each src/ module, so it needs no TypeScript syntax: types are blanked to spaces, positions
  * and lines are kept.
  *
  * It skips comments, keeps string and template text out of the code stream, and tells a regular expression literal

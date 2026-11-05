@@ -1,3 +1,4 @@
+import { stripTypeScriptTypes } from "node:module"
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import {
 	Array as Arr,
@@ -14,7 +15,6 @@ import {
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { trustedJson } from "#compiler/core/trusted.ts"
 
-import { transformSync } from "amaro"
 import { regex } from "arkregex"
 /** Why the build stopped, in words. The build prints it and exits with status 1. */
 class BuildFailure extends Data.TaggedError("BuildFailure")<{ readonly detail: string }> {}
@@ -200,7 +200,7 @@ const rewrite = Effect.fnUntraced(function* (
 	return rewritten
 })
 
-/** The JavaScript of every module of a package, through amaro's type stripping, with its own specifiers rewritten. */
+/** The JavaScript of every module of a package, through Node's type stripping, with its own specifiers rewritten. */
 const emitModules = Effect.fnUntraced(function* (pkg: Package) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
@@ -210,7 +210,7 @@ const emitModules = Effect.fnUntraced(function* (pkg: Package) {
 		Effect.fnUntraced(function* (file) {
 			const source = yield* fs.readFileString(path.join(pkg.src, file))
 			const stripped = yield* Effect.try({
-				try: () => transformSync(source, { mode: "strip-only" }).code,
+				try: () => stripTypeScriptTypes(source, { mode: "strip" }),
 				catch: (cause) =>
 					new BuildFailure({
 						detail: `packages/${pkg.directory}/src/${file} is not erasable TypeScript: ${Inspectable.toStringUnknown(cause)}`
@@ -327,8 +327,8 @@ const emitDeclarations = Effect.fnUntraced(function* (
  * package test does. Development never builds: Node runs each package's src/*.ts directly. A consumer cannot, because
  * Node strips no types from files under node_modules.
  *
- * - Each .ts module of a package's src becomes the .js file at the same path in its dist through amaro, the type
- *   stripper Node itself runs (transformSync, mode "strip-only"), which replaces every type annotation with
+ * - Each .ts module of a package's src becomes the .js file at the same path in its dist through Node's own type
+ *   stripping (node:module stripTypeScriptTypes, mode "strip"), which replaces every type annotation with
  *   whitespace. dist keeps src's lines and columns, so the shipped src is its source map, and src is erasable syntax
  *   only (tsconfig erasableSyntaxOnly), exactly what Node runs.
  * - `tsc -b` emits each package's declarations, with declaration maps, into its types/ (the composite projects
