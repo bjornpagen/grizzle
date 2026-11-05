@@ -1280,12 +1280,16 @@ export interface Flight<A, E> {
 	readonly read: (outcomes: ReadonlyArray<BatchOutcome>) => Effect.Effect<A, E>
 }
 
-/** The flights of `parts` as one: their statements in part order, each part reading its own statements' outcomes. */
-export const joinFlights = <A, E>(
-	parts: ReadonlyArray<Flight<A, E>>
-): Flight<ReadonlyArray<A>, E> => {
+/**
+ * The flights of `parts` as one: their statements in part order, each part reading its own statements' outcomes. A
+ * part's UnreadableAnswer names a statement by its index among the part's own, so it is moved to the index of that
+ * statement among the joined flight's.
+ */
+export const joinFlights = <A>(
+	parts: ReadonlyArray<Flight<A, UnreadableAnswer>>
+): Flight<ReadonlyArray<A>, UnreadableAnswer> => {
 	const statements: Array<FlightStatement> = []
-	const spans: Array<{ readonly part: Flight<A, E>; readonly from: number }> = []
+	const spans: Array<{ readonly part: Flight<A, UnreadableAnswer>; readonly from: number }> = []
 	for (const part of parts) {
 		spans.push({ part, from: statements.length })
 		for (const statement of part.statements) {
@@ -1296,7 +1300,11 @@ export const joinFlights = <A, E>(
 		statements,
 		read: (outcomes) =>
 			Effect.forEach(spans, ({ part, from }) =>
-				part.read(outcomes.slice(from, from + part.statements.length))
+				Effect.mapError(
+					part.read(outcomes.slice(from, from + part.statements.length)),
+					(unreadable) =>
+						new UnreadableAnswer({ index: from + unreadable.index, fate: unreadable.fate })
+				)
 			)
 	}
 }

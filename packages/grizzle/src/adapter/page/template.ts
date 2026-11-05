@@ -119,7 +119,7 @@ export interface RunProgram<P extends PageProgram = PageRequestProgram> {
 	readonly records: ReadonlyArray<PageRecord>
 	readonly delivery: PageDelivery
 	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
-	/** The fetch order of two delivered rows' comparison tuples (fetchOrder). */
+	/** The fetch order of two delivered rows' comparison tuples (fetchComparison). */
 	readonly fetch: (a: ComparisonTuple, b: ComparisonTuple) => number
 }
 
@@ -128,7 +128,7 @@ export interface RunProgram<P extends PageProgram = PageRequestProgram> {
  * (scalar/values/identity.ts compareValues) in its direction, all reversed for a backward request. The comparators
  * are the completed order's keys, a key of the result, so the rows a request fetches strictly increase under it.
  */
-const fetchOrder = (
+const fetchComparison = (
 	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>,
 	direction: PageDirection
 ): ((a: ComparisonTuple, b: ComparisonTuple) => number) => {
@@ -332,7 +332,7 @@ const runArtifact = (
 					records,
 					delivery,
 					layouts: deliveredLayouts(delivery),
-					fetch: fetchOrder(Arr.zip(parts.comparators, parts.values), program.direction)
+					fetch: fetchComparison(Arr.zip(parts.comparators, parts.values), program.direction)
 				}
 				return run
 			})

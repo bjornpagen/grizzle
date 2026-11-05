@@ -512,10 +512,7 @@ const noRows: ReadonlyArray<Row> = Object.freeze([])
  * Whether two of `rows` have one identity (RowIdentity): a repeat, which no statement grizzle delivers holds, since
  * every delivered statement, an attachment's and a fused child array's included, is a set by its compiled proof.
  */
-const repeats = (
-	rows: ReadonlyArray<ReadonlyArray<string>>,
-	identity: RowIdentity
-): boolean => {
+const repeats = (rows: ReadonlyArray<ReadonlyArray<string>>, identity: RowIdentity): boolean => {
 	const seen = new Set<string>()
 	for (const texts of rows) {
 		const one = identity(texts)

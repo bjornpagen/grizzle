@@ -19,7 +19,8 @@ import {
 	type InputTooLarge,
 	literalBound,
 	type MissingCapability,
-	StaleStatement
+	StaleStatement,
+	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
 	type Classified,
@@ -470,7 +471,17 @@ export const runWrite = <R>(
 			const before = raws.get(s.index)
 			raws.set(s.index, before === undefined ? outcome.rows : [...before, ...outcome.rows])
 		}
-		const delivered = yield* backs.read(outcomes.slice(written))
+		/**
+		 * The read-backs' Rows, read from the statements after the written ones: a read-back whose answer repeats a row is
+		 * UnreadableAnswer at its index in the write's flight, after the transaction committed.
+		 */
+		const delivered = yield* Effect.mapError(
+			backs.read(outcomes.slice(written)),
+			(unreadable) =>
+				new ExecutionFailure({
+					reason: new UnreadableAnswer({ index: written + unreadable.index, fate: unreadable.fate })
+				})
+		)
 		const changes = interpretRows(program.outcomeContext, artifact, (i) => raws.get(i) ?? noRows)
 		return committedOutcome(changes.outcome, changes.counts, reads.read(readsRow(delivered)))
 	})

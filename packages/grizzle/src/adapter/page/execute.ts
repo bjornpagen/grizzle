@@ -226,13 +226,39 @@ const fetchOrder = (
 	return Result.succeed(out)
 }
 
-/** The delivered edges of a request whose sent statements answered `sent` (see the header, 4). */
+/**
+ * The first candidate whose comparison tuple does not strictly follow the one before it in the fetch order: a repeat
+ * or a step back, which a request's rows, distinct by the completed order's key and fetched in that order, never hold.
+ */
+const outOfOrder = (
+	candidates: ReadonlyArray<Candidate>,
+	fetch: RunProgram["fetch"]
+): Candidate | undefined => {
+	for (const [at, candidate] of candidates.entries()) {
+		const before = candidates[at - 1]
+		if (before !== undefined && fetch(before.tuple, candidate.tuple) >= 0) {
+			return candidate
+		}
+	}
+	return undefined
+}
+
+/**
+ * The delivered edges of a request whose sent statements answered `sent` (see the header, 4). The candidates are a
+ * strictly increasing sequence under the fetch order, so the lookahead counts distinct rows: a candidate that repeats
+ * or precedes the one before it is UnreadableAnswer at its statement, as is a kept statement's answer that repeats a
+ * row (reader/execution.ts rowsOf).
+ */
 export const pageEdges = (
 	program: RunProgram,
 	sent: SentRuns,
 	size: number
 ): Result.Result<PageEdges, UnreadableAnswer> =>
-	Result.map(fetchOrder(program.delivery, sent, size + 1), (candidates) => {
+	Result.flatMap(fetchOrder(program.delivery, sent, size + 1), (candidates) => {
+		const stray = outOfOrder(candidates, program.fetch)
+		if (stray !== undefined) {
+			return Result.fail(contradicted(answerOf(stray.statement.record.arrival)))
+		}
 		const delivery = program.delivery
 		/** The lookahead, dropped. */
 		const lookahead = candidates.length > size
@@ -240,7 +266,8 @@ export const pageEdges = (
 		const statements: ReadonlyArray<RowsStatement> =
 			delivery.kind === "concat" ? delivery.groups : Arr.map(delivery.order.groups, (g) => g.group)
 		/** Each kept candidate as an edge at its fetch position, its rows statement's kept rows read as Rows together. */
-		const placed = statements.flatMap((rows, group) => {
+		const placed: Array<{ readonly at: number; readonly edge: DeliveredEdge }> = []
+		for (const [group, rows] of statements.entries()) {
 			const mine = kept.flatMap((c, at) => (c.statement === rows ? [{ c, at }] : []))
 			const read = rowsOf(
 				rows.record,
@@ -248,15 +275,20 @@ export const pageEdges = (
 				Arr.map(mine, ({ c }) => c.texts),
 				group
 			)
-			return Arr.map(Arr.zip(mine, read), ([{ c, at }, row]) => ({
-				at,
-				edge: { statement: c.statement.record, raw: c.texts, row, tuple: c.tuple }
-			}))
-		})
+			if (Result.isFailure(read)) {
+				return Result.fail(read.failure)
+			}
+			for (const [{ c, at }, row] of Arr.zip(mine, read.success)) {
+				placed.push({
+					at,
+					edge: { statement: c.statement.record, raw: c.texts, row, tuple: c.tuple }
+				})
+			}
+		}
 		const fetched = placed.toSorted((a, b) => a.at - b.at).map((p): DeliveredEdge => p.edge)
 		/** A backward page, reversed to the presentation order. */
 		const edges = program.program.direction === "backward" ? fetched.toReversed() : fetched
-		return { edges, lookahead }
+		return Result.succeed({ edges, lookahead })
 	})
 
 /** The candidates of `rows`, heading group `group`, in a flight whose sent statements answered `sent`. */

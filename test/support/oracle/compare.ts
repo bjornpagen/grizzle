@@ -215,14 +215,33 @@ export type StructuralDifference =
 			readonly right: ScalarType
 	  }
 
+/** Which of two compared runs: the left, the baseline, or the right. */
+export type RunSide = "left" | "right"
+
+/** A row a statement of one run returned more than once as a value, and how many times past the first. */
+export interface StatementRepeat {
+	readonly side: RunSide
+	readonly label: string
+	readonly row: RawRow
+	readonly count: number
+}
+
 export interface Comparison {
+	/** Whether the runs agree: one structure, the same rows in every statement, and neither run repeating a row. */
 	readonly equal: boolean
 	readonly structural: ReadonlyArray<StructuralDifference>
 	readonly diffs: ReadonlyArray<StatementDiff>
-	/** Repeated rows the right run returned, summed over its statements: rows.length minus distinct values. */
-	readonly rightDuplicates: number
-	readonly leftDuplicates: number
+	/** Every row a statement of either run repeated: a statement delivers a set, so any repeat makes the runs unequal. */
+	readonly repeated: ReadonlyArray<StatementRepeat>
 }
+
+/** How many repeated rows one side of a comparison returned, summed over its statements. */
+export const repeatsOn = (c: Comparison, side: RunSide): number =>
+	Arr.reduce(
+		Arr.filter(c.repeated, (r) => r.side === side),
+		0,
+		(n, r) => n + r.count
+	)
 
 /**
  * A row's identity as text: each cell a text cell, `\u0002` and its text, joined by `\u0000`. PostgreSQL text never
@@ -246,9 +265,24 @@ export const rowMultiset = (rows: ReadonlyArray<RawRow>): ReadonlyMap<string, Ro
 	return out
 }
 
-/** The number of rows a statement repeats as values (canonicalRows): a set returns 0. */
-const duplicateCount = (s: StatementRows): number =>
-	s.rows.length - rowMultiset(canonicalRows(s)).size
+/**
+ * The rows a statement repeats as values (canonicalRows), each with how many times past the first, in a deterministic
+ * order: none for a set. Only rows that state every column are compared, since an unstated cell holds no value two
+ * rows could share.
+ */
+const repeatsOf = (side: RunSide, s: StatementRows): ReadonlyArray<StatementRepeat> => {
+	const rows = canonicalRows(s)
+	const stated =
+		s.unstated.kind === "some"
+			? Arr.flatMap(s.unstated.complete, (i) => {
+					const row = rows[i]
+					return row === undefined ? [] : [row]
+				})
+			: rows
+	return Arr.flatMap(Arr.sort(rowMultiset(stated).entries(), byKey), ([, entry]) =>
+		entry.count > 1 ? [{ side, label: s.label, row: entry.row, count: entry.count - 1 }] : []
+	)
+}
 
 const byKey = (a: readonly [string, RowCount], b: readonly [string, RowCount]): -1 | 0 | 1 =>
 	a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0
@@ -310,16 +344,17 @@ const typeDifferences = (
 }
 
 /**
- * Canonical cell multiset comparison for the oracle.
+ * Canonical cell keyed-set comparison for the oracle.
  *
  * The oracle compares two runs of one case statement by statement. Each statement's rows are its output-function
  * texts (install/capture.ts), each cell read as its column type's canonical text (canonicalCell), and two runs agree
- * when every statement's rows are equal as multisets: the same rows, each the same number of times. A multiset, not a
- * set, so a lowering that loses a DISTINCT it needed shows up as a repeated row even when the distinct rows agree, and
- * values, not spellings, so a value a lowering changes (a quotient's digits, a sum's rounding, a lost NaN, a
- * supplementary-plane character) shows up as a different text, while the spelling PostgreSQL picks for one value (1.0
- * or 1.00, -0 or 0), which grizzle delivers as one value, does not. Row order is ignored: ordering is a delivery
- * concern the comparison does not judge.
+ * when every statement of each is a set, holding no row twice, and every statement's rows are the same set. A repeated
+ * row is a difference of its own (`repeated`), so a lowering that loses a DISTINCT it needed fails the comparison even
+ * when the distinct rows agree, and two runs that repeat one row alike do not agree. Rows are values, not spellings, so
+ * a value a lowering changes (a quotient's digits, a sum's rounding, a lost NaN, a supplementary-plane character) shows
+ * up as a different text, while the spelling PostgreSQL picks for one value (1.0 or 1.00, -0 or 0), which grizzle
+ * delivers as one value, does not. Row order is ignored: ordering is a delivery concern the comparison does not
+ * judge.
  *
  * Statements are aligned by a structural label, not by position: the main statement, a heading group by its index,
  * an attachment by the label of the statement it hangs off and its name. Two runs whose statements carry different
@@ -377,13 +412,15 @@ export const compareRuns = (left: Run, right: Run): Comparison => {
 			structural.push({ kind: "missing", side: left.name, label: r.label })
 		}
 	}
-	const dup = (run: Run) => Arr.reduce(run.statements, 0, (n, s) => n + duplicateCount(s))
+	const repeated = [
+		...Arr.flatMap(left.statements, (s) => repeatsOf("left", s)),
+		...Arr.flatMap(right.statements, (s) => repeatsOf("right", s))
+	]
 	return {
-		equal: structural.length === 0 && diffs.length === 0,
+		equal: structural.length === 0 && diffs.length === 0 && repeated.length === 0,
 		structural,
 		diffs,
-		rightDuplicates: dup(right),
-		leftDuplicates: dup(left)
+		repeated
 	}
 }
 
@@ -410,7 +447,7 @@ const printStructural = (d: StructuralDifference, leftName: string, rightName: s
 /** A comparison as text, for a failing property's report. */
 export const printComparison = (c: Comparison, leftName: string, rightName: string): string => {
 	if (c.equal) {
-		return `${leftName} and ${rightName} agree (${rightName} repeats ${c.rightDuplicates} rows)`
+		return `${leftName} and ${rightName} agree`
 	}
 	const lines = [`${leftName} and ${rightName} differ:`]
 	for (const s of c.structural) {
@@ -425,7 +462,11 @@ export const printComparison = (c: Comparison, leftName: string, rightName: stri
 			lines.push(`    only in ${rightName} ×${e.count}: ${printRawRow(e.row)}`)
 		}
 	}
-	lines.push(`  ${rightName} repeats ${c.rightDuplicates} rows, ${leftName} ${c.leftDuplicates}`)
+	for (const r of c.repeated) {
+		lines.push(
+			`  ${r.side === "left" ? leftName : rightName} repeats in ${r.label} ×${r.count}: ${printRawRow(r.row)}`
+		)
+	}
 	return Arr.join(lines, "\n")
 }
 

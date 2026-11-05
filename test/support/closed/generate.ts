@@ -521,32 +521,8 @@ export const patternHistory = (state: RosterState): RosterHistory => {
 	}
 }
 
-/**
- * A code a direct writer stores that the roster's domain refuses, by its named cause:
- * - `below`: −1, under every code;
- * - `past`: the roster's size, one past the greatest code minted;
- * - `hole`: a removed handle's code;
- * - `alias`: 400, the mixed-radix alias of 400 read as 37, out of range for every roster of 400 codes or fewer, which
- *   a bare smallint column accepts.
- */
-type InvalidCode =
-	| { readonly kind: "below"; readonly code: number }
-	| { readonly kind: "past"; readonly code: number }
-	| { readonly kind: "hole"; readonly code: number; readonly was: string }
-	| { readonly kind: "alias"; readonly code: number }
-
 /** The alias the bar names: 400, as a mixed-radix digit read past its radix. */
 export const ALIAS_CODE = 400
-
-/** Every named invalid code `state` has, each kind once and every hole: a removed code per hole. */
-const invalidCodes = (state: RosterState): ReadonlyArray<InvalidCode> => [
-	{ kind: "below", code: -1 },
-	{ kind: "past", code: sizeOf(state) },
-	...Arr.flatMap(state.slots, (slot, code): ReadonlyArray<InvalidCode> =>
-		slot.kind === "hole" ? [{ kind: "hole", code, was: slot.was }] : []
-	),
-	...(sizeOf(state) <= ALIAS_CODE ? [{ kind: "alias", code: ALIAS_CODE } as const] : [])
-]
 
 /**
  * What the roster's domain answers each code from −1 to `size`, then 400: the model "accepted exactly when live", the
@@ -561,24 +537,6 @@ export const everyCode = (
 	}),
 	...(sizeOf(state) <= ALIAS_CODE ? [{ code: ALIAS_CODE, live: undefined }] : [])
 ]
-
-/**
- * A handle the codec refuses for `state`'s roster, by its named cause: `removed`, a name a removed handle held and no
- * live handle holds; `unknown`, a name the roster never held.
- */
-type InvalidHandle =
-	| { readonly kind: "removed"; readonly handle: string }
-	| { readonly kind: "unknown"; readonly handle: string }
-
-/**
- * A reorder of `state`'s declaration: two live handles' positions swapped, and the pair the draft must name. It needs
- * two live handles; undefined for a roster of one.
- */
-interface Reorder {
-	readonly declaration: Declaration
-	readonly earlier: string
-	readonly later: string
-}
 
 /** Some of the roster's live handles, in code order: a bits value, the empty set included. */
 export const liveSubsetGen = (state: RosterState): Gen<ReadonlyArray<string>> => {

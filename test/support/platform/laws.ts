@@ -560,15 +560,11 @@ export const withDrawn = (s: State): ReadonlyMap<RelationName, ReadonlyArray<Row
 			return [
 				relation,
 				Arr.map(rowsIn(s, relation), (row) =>
-					Arr.reduce(
-						tallies,
-						row,
-						(out: Row, { f, counts, sums }): Row => ({
-							...out,
-							[f.count]: counts.get(tupleKey(row, f.key)) ?? 0n,
-							[f.sum.end]: sumAt(sums, f, row)
-						})
-					)
+					Arr.reduce(tallies, row, (out: Row, { f, counts, sums }): Row => ({
+						...out,
+						[f.count]: counts.get(tupleKey(row, f.key)) ?? 0n,
+						[f.sum.end]: sumAt(sums, f, row)
+					}))
 				)
 			]
 		})

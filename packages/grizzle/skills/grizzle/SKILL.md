@@ -77,26 +77,26 @@ export default defineConfig({
    workload of its login: its access paths earn indexes, and DbLayer.make compiles it once, at startup. `grizzle
    generate` compiles it the same way for every role of its login first, so a program the layer would refuse fails
    generate with the same CompileError.
-2. Run `grizzle generate grizzle.config.ts`. It prints one line per written file, then each marker to resolve as
-   `<file>:<line>: <placeholder|rename candidate>: <what to do>`, then each loss to decide as `<file>: data loss:
-   <what it loses>: <what to do>`, then `next: resolve the markers, then run grizzle check`. With no change it writes
-   nothing and prints `no changes`.
+2. Run `grizzle generate grizzle.config.ts`, declaring what became of every name the schema no longer holds: a
+   `--rename <old>=<new>` for each rename and a `--drop <old>` for each drop ([Renames and drops](#renames-and-drops)).
+   It prints one line per written file, then each marker to resolve as `<file>:<line>: placeholder: <what to do>`,
+   then each loss to decide as `<file>: data loss: <what it loses>: <what to do>`, then `next: resolve the markers,
+   then run grizzle check`. With no change it writes nothing and prints `no changes`. A name the previous snapshot
+   holds that the schema no longer does and no declaration names refuses the draft before anything is written:
+   `<name> is dropped but not declared: declare it with --drop <name>, or --rename it`.
 3. Read every drafted SQL file, and resolve each marker:
    - **Placeholder** (`-- grizzle: placeholder` above a `__GRIZZLE_PLACEHOLDER__`): a value for a new NOT NULL column
      on a table with rows, or the conversion for a changed type. Write the value or the UPDATE, then delete the marker
      line.
-   - **Rename candidate** (`-- grizzle: rename candidate`): keep the drop and add, or choose the rename; see
-     [Renames](#renames). Either way, delete the marker. To keep, delete it with its instruction line.
-   - **Confirm** (`-- grizzle: rename candidate:` followed by `-- Keep the ... below and delete this line`): the
-     statements under it are one decision, with no other way drafted. It marks a relation or type set aside, with
-     every index, identity sequence and statistics object a relation owns; an enum rebuilt; and a handle renamed in
-     place. Keep every statement as drafted and delete the two marker lines; `check` refuses a group kept in part.
-   - **Data loss** (`-- grizzle: data loss:` above a commented statement): the statement destroys stored data, a
-     relation with its rows or a field with its values, and grizzle never decides that for you. To lose the data,
-     uncomment the statement. To keep it, choose a candidate rename that carries it (the line names each one) and
-     leave the statement commented. The decision is the SQL itself: `check` and `migrate` refuse the folder while a
-     loss is neither written in nor carried by a chosen rename, naming what it would lose, and refuse a loss decided
-     both ways. The two comment lines may stay.
+   - **Confirm** (`-- grizzle: confirm:` followed by `-- Keep the renames below and delete this line; they are one
+     decision, kept or removed together.`): a holder set aside, a relation or roster whose name a declared rename
+     takes or that moves to another kind, renamed aside with every index, identity sequence and statistics object it
+     owns, so a declared rename takes it from there or the end of the migration drops it, as declared. Keep every
+     statement as drafted and delete the two marker lines; `check` refuses a group kept in part.
+   - **Data loss** (`-- grizzle: data loss:` above a commented `CREATE SCHEMA`): a schema's first migration beside a
+     schema the configuration no longer lists, which a schema renamed in code leaves; see [Renames and
+     drops](#renames-and-drops). The decision is the SQL itself: `check` and `migrate` refuse the folder while it is
+     commented. The two comment lines may stay.
 4. Tune if needed: batch a large backfill, add a data fix, reorder within a file. The catalog must end where the
    snapshot says. Name a PostgreSQL type or function the way the drafts do, by its schema
    (`"pg_catalog"."text"`, `"pg_catalog"."count"(*)`) or its keyword (`integer`, `bigint`, `boolean`): a statement
@@ -112,28 +112,41 @@ export default defineConfig({
 For data-only work: `grizzle generate grizzle.config.ts --custom --name <name>`, write the SQL files, then `check`,
 commit and `migrate`.
 
-Commands: `grizzle generate <config> [--name <name>] [--schema <schema>]`, `grizzle generate <config> --custom --name
-<name> [--schema <schema>]`, `grizzle check <config>`, `grizzle migrate <config>`, `grizzle drift <config>`,
-`grizzle names <config>`. Flags come anywhere after the command, as `--flag value` or `--flag=value`. A name is
+Commands: `grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...`,
+`grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle check <config>`,
+`grizzle migrate <config>`, `grizzle drift <config>`, `grizzle names <config>`. Flags come anywhere after the command, as `--flag value` or `--flag=value`. A name is
 lowercase words joined by `_` or `-`, at most 240 characters, so that the folder `<timestamp>_<name>` fits one file
 name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its change (`init`,
 `add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only when the config
-lists several schemas; there it is required with `--custom`. Exit codes: 0 ok, 1 refused, 2 usage error,
+lists several schemas; there it is required with `--custom`, `--rename` or `--drop`. Exit codes: 0 ok, 1 refused, 2 usage error,
 130 interrupted.
 
 ## Reading a draft
 
 `migrations/<schema>/<UTC timestamp>_<name>/` holds `NN-<phase>.sql` files and `meta.json`. Each file is one
 transaction, so a migration is several small files, in order. A migration is plain ordered SQL: what the schema no
-longer has is dropped in the same migration, and a rename or a type change happens in place. A breaking change may
-briefly break older application instances that are still running.
+longer has is dropped in the same migration, as declared, and a declared rename or a type change happens in place. A
+breaking change may briefly break older application instances that are still running.
 
-- **setup**: the schema, types, enum labels and law functions. A new enum label gets a no-transaction file of its
-  own, because a label can't be used until its transaction commits.
+- **setup**: first the holders a declared rename sets aside, under a confirm marker, and the declared renames
+  themselves (`ALTER TABLE ... RENAME TO`, `RENAME COLUMN`, `RENAME CONSTRAINT`, through an aside name, so a swap or a
+  chain is free of the names it moves into); then the violation check of each rule over closed relations alone that
+  is new or whose closed rows changed, a DO block raising 23000 with the rule's name, so rows that break it refuse the
+  migration before it changes anything; then extensions, each new content-addressed constant, and new domains. A
+  closed relation's constant is packed by a DO block from its rows as codes, each row's handles named in a comment; a
+  roster's names constant is its handles as `name[]` in code order, `""` at a hole; a set's `live` function is
+  derived from it. The domains are a roster's smallint domain over its names constant, a set's `bit(n)` domain over
+  `live`, and the contract and text domains, one per distinct definition.
 - **structure**: tables, columns, constraints (`NOT VALID` on a table that may hold rows), materialized views. Each
   term of a selected side, and each `pred` term, is a STORED generated column, `CASE WHEN φ THEN t END`
-  (`__sel_<field>_…`, `__pred_<field>_…`), and a rule's key over them is `UNIQUE NULLS DISTINCT` and its foreign key
-  `MATCH SIMPLE`; a selected target's constant is a generated column too, `__tag_<field>_<value>_…`. A field
+  (`__<field>_…`, `__pred_<field>_…`), and a rule's key over them is `UNIQUE NULLS DISTINCT` and its foreign key
+  `MATCH SIMPLE`; a selected target's constant is a generated column too, `__tag_<field>_<value>_…`. A family's
+  hidden columns, which grizzle fills on every write, are each their own `ADD COLUMN` (`__index_<count>_…`,
+  `__copy_<count>_…`, `__before_<count>_<plane>_…`, `__after_<count>_<plane>_…`, `__predecessor_<count>_…`), and each
+  CHECK over them its own `ADD CONSTRAINT`. A roster whose names changed has its domain's CHECK dropped and added
+  `NOT VALID` against the new names constant, validated in Validate; a set over a roster that grew is converted to
+  the new size's domain by its cast, the new handles absent. A table CHECK or generated field over a changed closed
+  relation is replaced the same way, or takes its new expression (`SET EXPRESSION`). A field
   whose type changes is converted in place, `ALTER COLUMN ... TYPE ... USING` with a placeholder for the conversion,
   or by its cast, with no placeholder, when the new type holds the old one's values (a pattern changed, a contract
   added, removed or swapped for another over the same base), after the constraints, indexes and statistics over it are
@@ -148,169 +161,74 @@ briefly break older application instances that are still running.
 - **indexes**: `CREATE INDEX CONCURRENTLY` on tables that may hold rows, in a no-transaction file, so writes keep
   flowing. A table this migration creates gets an ordinary build. The extended statistics a workload program earns are
   created here too, on a table or a materialized view, each followed by an `ANALYZE` of a relation that may hold rows.
-- **validate**: `VALIDATE CONSTRAINT`, key swaps, and one file per residual law. A key replaced by another over the same
-  fields (a candidate key that becomes the primary key, or a key a rename you may choose moves onto a new key's fields)
-  is dropped here once the new key is attached, whichever way you decide the renames, and the foreign keys over those
-  fields are added after it, so each depends on the new key. A law's file takes a `LOCK` that excludes every writer,
-  installs its triggers, and runs the law's full violation query, which raises if any row breaks it. The lock means no
-  row can slip in between the check and the triggers; the per-law file means a violation rolls back alone, and a rerun
-  resumes there once your data step fixed the rows.
-- **publish**: the closed facts' payloads cast to their domains, so each is judged by the target's CHECK (one it
-  refuses rolls the whole file back); the worlds: logins and roles, their memberships and settings, each role's
-  schema of views (a security-barrier view for a query entry, a plain one for a whole entry), its grants, row-security
-  policies and filter functions; the triggers and functions of a law whose meaning stays (the roles that see its
-  witness changed, or `mutable` was declared or removed), changed without revalidating it; and last every object the
-  schema no longer has, dropped: indexes, roles, statistics,
-  views, functions, columns, tables, then types. A drop of a stored relation or field is drafted commented, a data loss
-  you decide. A world object holds no data, so a changed world needs no marker; a role the migration creates gets its
-  views, policies and functions here, after the role.
+- **validate**: `VALIDATE CONSTRAINT` and key swaps. A key replaced by another over the same fields (a candidate key
+  that becomes the primary key) is dropped here once the new key is attached, and the foreign keys over those fields
+  are added after it, so each depends on the new key. A roster domain's VALIDATE refuses every row that still holds a
+  removed handle's code, naming the table and column, never the row: change or delete those rows in a data step
+  before it.
+- **publish**: the refined constants' casts to their domains, so each is judged by the target's CHECK (one it refuses
+  rolls the whole file back); the worlds: logins and roles, their memberships and settings, each role's schema of
+  views (a security-barrier view for a query entry, a plain one for a whole entry, each closed id followed by its
+  decoded `<field>_name`), its grants (EXECUTE on each constant its statements call among them), row-security policies
+  and filter functions; and last every object the schema no longer has, dropped: indexes, roles, statistics, views,
+  functions (a constant by `DROP FUNCTION ... RESTRICT`, so PostgreSQL refuses a migration that left a reader of it
+  standing), columns, tables, then types. A declared drop of a stored relation or field is drafted live. A world object
+  holds no data, so a changed world needs no marker; a role the migration creates gets its views, policies and
+  functions here, after the role.
 
 `-- grizzle: no-transaction` as a file's first line runs each statement alone, so each statement must be safe to
 rerun: a rerun after a failure starts the file again from its first statement.
 
-## Renames
+## Renames and drops
 
-grizzle never guesses a rename: a rename guessed wrong loses data. It drafts the drop and the add, and offers the
-rename as a candidate when a removed relation has the heading (field names and types) of an added one, its primary
-key, or its field names, or a removed field the type of an added field of the same relation. Keeping the add leaves the
-new name empty, or holding the placeholder's value; the drop of the old one is a data loss you decide, drafted
-commented at the end of the migration. Choosing the rename keeps the rows, and the drop stays commented.
+grizzle never guesses a rename, and drops nothing you did not declare: a rename guessed wrong loses data. Declare each
+name the schema no longer holds to `grizzle generate`, once per name:
 
-- **Choosing a field rename:** replace the addition below the marker (with its placeholder and the ADD COLUMN) by the
-  commented `ALTER TABLE ... RENAME COLUMN`, and an identity's `ALTER SEQUENCE ... RENAME`. A marked revoke of the old
-  sequence becomes the commented revoke of the new one. Constraints and indexes over the field are drafted under their
-  new names either way.
-- **Choosing a relation rename:** replace the `CREATE TABLE` by the commented `ALTER TABLE ... RENAME TO` and the
-  constraint, index, sequence and column statements under it. Then handle every statement marked as part of the same
-  candidate, in this folder's files: delete it ("delete both") or replace it by its commented form ("replace it with
-  this one"). They are what the new relation would otherwise create again, the old one's drop and what it would drop,
-  and the revokes and trigger drops that name it.
-- **Several candidates for one name** say so: choose at most one rename for each added and each removed name. meta.json
-  records what each candidate renames, so `check` refuses two chosen candidates that rename one name. A field's rename
-  nested in a relation's rename belongs to that rename: rival renames onto one name may each offer the same
-  `RENAME COLUMN`, and the one you choose decides it.
-- **Write each choice as drafted.** `check` reads every marked statement back against meta.json as PostgreSQL's
-  scanner reads it, so whitespace, comments and the case of unquoted words are yours, but a rename written otherwise
-  than drafted (another name, a quoted name left bare, an added `IF EXISTS`) is a candidate decided two ways, and
-  refused.
-- **Decide each candidate the same way everywhere.** meta.json records every drafted statement of every file in its
-  place, each choice with its offers, each rename's alternative and every group a marker confirms, so `check` refuses
-  a candidate chosen at one statement and kept at another, a marked statement deleted or edited when no choice says
-  so, a confirmed group kept in part, and a statement of a branch you did not take written in, wherever you write it,
-  before any file runs. A drafted statement no candidate decides, at the top of a file, is yours to keep or edit.
-  Several chosen candidates may mark one statement (two renamed relations that both drop a foreign key between them):
-  that is fine when they decide it the same way, and `check` refuses only a statement they decide in different ways.
-- **A relation renamed while fields are added or removed** is a candidate whose alternative renames the table and its
-  constraints, adds the new fields, each with a placeholder, and drops the removed ones last, each a data loss. Each
-  added field that may be a removed one renamed is a candidate of its own, nested in that alternative and decided only
-  with its relation's rename; see [A field renamed with its relation](#a-field-renamed-with-its-relation).
-- **A field renamed while its type changes** is offered as a candidate too, against each removed field of another
-  type when no removed field has the new one's type: its alternative renames the column and converts it in place,
-  `ALTER COLUMN ... TYPE ... USING` with a placeholder for the conversion (such as `"<new>"::<type>`), or by its cast
-  when the new type holds the old one's values. Kept, the new column takes its placeholder's value; carry the old one
-  with `UPDATE <table> SET <new> = <old>::<type>` before the `DROP DEFAULT`, since the old column is dropped only at
-  the end of the migration, and only if you uncomment its drop.
-- **A relation renamed while a field's type changes** is a candidate whose alternative converts each such field in
-  place after the rename, `ALTER COLUMN ... TYPE ... USING` with a placeholder for the conversion or by its cast, as a
-  field's rename does. A serial field changes as it does in a relation you keep: the alternative drops its identity,
-  converts the column, and adds the identity the target declares under its new sequence name, advanced past the
-  stored maximum, so the next generated value follows the carried ones. A field declared serial, or serial no longer,
-  gains or loses its identity in place the same way.
-- **A relation renamed while its primary key changes** is a candidate when the two keep their field names: the
-  alternative drops the old key and adds the new one. When another relation's foreign key references a key it drops,
-  the alternative drops that foreign key first, and the drafted statements add it again `NOT VALID` and validate it;
-  its marker says so, and the drafted drop of that foreign key is marked to delete.
-- **A rename plus more changes** gets no candidate: a relation whose primary key changes while fields are added or
-  removed. Its drop is a data loss with no candidate to carry it, and its marker says so: rename it alone first,
-  choose the candidate, then change the rest in a later migration.
-- **Swaps and chains where a name persists** (`A` and `B` exchange names, or `A` renamed to `B` while `B` is renamed
-  to `C`): a relation whose name the target keeps with another heading, while another relation of the target, added
-  or itself changed, has exactly the heading it held, may have moved. generate sets it aside first, as for a name
-  taken by another kind (below), and offers it as a candidate rename of each added relation of its heading, its own
-  name among them. Choose the candidates of the renames you made: the rows move with each relation, and each drop of
-  a relation set aside stays commented. Two relations of one heading swapped are no change at all: nothing in the
-  schema tells them apart, and the rows stay where they are.
-- **A closed relation or a contract renamed** (the same handles in order, or the same base and predicate) is offered as
-  a candidate: `ALTER TYPE ... RENAME TO` or `ALTER DOMAIN ... RENAME TO` (with its constraint dropped and added under
-  the new name), so every column it types keeps its rows in place. Choosing it deletes each field's marked conversion.
-  Kept, the drop and add converts each field in place: a closed id with a placeholder,
-  `"<field>"::"pg_catalog"."text"::"<schema>"."<new enum>"`, and a contract by its cast, which keeps every value.
-- **A name moving to an object of another kind** (a closed relation or a contract taking a removed relation's name, a
-  relation taking a removed type's, a derived relation taking a stored one's, or two of them swapping names) sets the
-  old holder aside first, in Setup, under its aside name, with every index, identity sequence and statistics object a
-  relation owns, under one marker to confirm. A candidate rename then renames it from there; otherwise the end of the
-  migration drops it there, a data loss you decide when it is a stored relation.
-- **Two stored relations swapped or chained** (A renamed to B while B is renamed to A, or to C) sets each kept relation
-  whose name another relation's heading moves to aside first, in Setup, under its aside name, with every index,
-  identity sequence and statistics object it owns, under one marker to confirm. A candidate rename then renames it from
-  there; otherwise the end of the migration drops it there, a data loss you decide.
-- **A closed handle renamed in place** (as many handles before and after) is drafted as `ALTER TYPE ... RENAME VALUE`,
-  so every row holding the old handle holds the new one. Its marker asks you to confirm: keep the rename and delete the
-  marker. If the handle is removed rather than renamed, first change or delete the rows that hold it, before the rename.
-- **Closed handles reordered** are refused before anything is drafted, by `generate` at the stage codes and by
-  `check`: a stored code never changes meaning, so append new handles; a roster's order is its codes' order. A removed
-  handle leaves its code unused; the migration validates the roster's domain again, which refuses every row still
-  holding the removed code, naming its table and column: change or delete those rows in a data step first.
+- `--rename <old>=<new>` renames it, and `--drop <old>` drops it. Each side is a relation or roster (`Task`), a field
+  (`Task.title`), a roster's handle (`Status#done`) or a login (`@web`); both sides of a rename are one kind of name.
+  The old side names what `snapshot.json` declares and the new side what the schema declares, so `--rename R=S` beside
+  `--rename R.f=S.g` renames a field of a renamed relation.
+- Every drop of stored state is declared, or the draft is refused as UndeclaredDrop, naming it: a stored relation with
+  its rows, a field with its values, a roster's handle, whose code stored rows hold, and a login, whose PostgreSQL role
+  holds its password and whatever was granted to it outside grizzle. A generated, drawn or accumulated field, which
+  grizzle draws again, a derived relation, which its definition recomputes, and a role, which grizzle creates and
+  grants whole, need no declaration.
+- `generate` refuses, before reading the configuration, a declaration its text alone shows wrong: a side of no such
+  spelling, a rename between two kinds of name or to itself, a name renamed or dropped twice, two names renamed to one.
+  The draft refuses a declaration that names what the snapshot or the schema does not hold as it says.
+
+What a declaration drafts:
+
+- **A relation or roster renamed** is renamed in place in Setup, first aside and then to its new name, with its
+  constraints, so its rows stay where they are, and a swap (`A=B` and `B=A`) or a chain (`A=B` and `B=C`) is free of the
+  names it moves into. A name a rename takes ends its previous holder, which is dropped as declared.
+- **A field renamed** is renamed in place, through its own aside name, and what is built over it (its indexes, keys,
+  CHECKs and foreign keys) is built again as the schema declares it. A new field of a table with rows takes a
+  placeholder, and a field whose type changed is converted in place, as any field is.
+- **A handle renamed** keeps its code, so every row holding it holds the new name: the migration installs the
+  roster's new names constant and points its domain at it.
+- **A handle dropped** leaves a hole: its code is never reused, and the roster's domain, validated against the new names
+  constant, refuses every row still holding it, naming its table and column. Change or delete those rows in a data
+  step first. Handles reordered are refused before anything is drafted, by `generate` at the stage codes and by
+  `check`: a stored code never changes meaning, so append new handles; a roster's order is its codes' order.
+- **A login renamed** (`--rename @web=@site`) is its PostgreSQL role renamed in place, `ALTER ROLE ... RENAME TO`, so
+  its OID, password, memberships and grants survive. A login dropped (`--drop @web`) drops its role, and a new login
+  needs its password again. A role is never renamed: it holds no data and no password, so its role, schema, views,
+  policies and grants are dropped and created again under the new name.
+- **A relation or field dropped** is dropped with its rows or values, a live statement in Publish: the declaration is
+  the decision.
+- **A name moving to an object of another kind** (a relation taking a removed roster's name, or two of them swapping
+  names) sets the old holder aside first, in Setup, under its aside name, with every index, identity sequence and
+  statistics object it owns, under one confirm marker. A declared rename takes it from there; otherwise the end of the
+  migration drops it there, as declared.
 - **The schema's name names its PostgreSQL schema.** A schema renamed in code is a new, empty schema. When the
   migrations directory holds a schema the config no longer lists, the new schema's first migration drafts its `CREATE
   SCHEMA` commented, as a data loss: the old schema keeps its rows and is never migrated again. Uncomment it to start
   the new schema empty; to keep the rows, keep the old name and delete the folder.
-- A derived relation holds no authored rows: renamed, it is created again and refreshed like a new one.
-- **A login renamed:** each added login is offered every removed login as a candidate, `ALTER ROLE ... RENAME TO`,
-  which keeps its password. Kept, the drop and add creates a new login, which needs its password again. A role is never
-  renamed: it holds no data and no password, so its role, schema, views, policies and grants are dropped and created
-  again under the new name. A name never moves between a login and a role in one migration, as when the two exchange
-  names: its PostgreSQL role would turn from a login into a role, or back, which no statement does, so the draft stops.
-  Give the name up in one migration and take it in the next.
 
-### A field renamed with its relation
-
-When a relation is renamed and some of its fields are renamed too, `grizzle generate` offers the relation rename as a
-candidate, as usual. Inside that candidate's commented alternative, each added field that may be a removed one renamed
-is a candidate of its own. The alternative renames the table and its constraints, then drafts each added field as a
-new column and drops each removed one, a data loss of its own, and each field candidate offers to replace that pair
-with a column rename (a hashed name's digest shown as `…`):
-
-```sql
--- grizzle: rename candidate: "shop"."remark" has the primary key of the removed "shop"."note", which this migration drops, and its fields differ ("text" added and "body" removed): the rename adds and drops them, and offers each added field that may be a dropped one renamed as a candidate of its own inside this one; choosing the rename also decides the statements marked as part of it in this folder's files.
--- Keep the drafted statements and delete this line, or replace the addition below with this rename and delete this line:
--- ALTER TABLE "shop"."note" RENAME TO "remark";
--- ALTER TABLE "shop"."remark" RENAME CONSTRAINT "__note_pk_…" TO "__remark_pk_…";
--- -- grizzle: rename candidate: "shop"."remark"."text" has the type of the removed column "shop"."note"."body", which the rename of "shop"."note" drops.
--- -- Keep the drafted statements and delete this line, or replace the addition below with this rename and delete this line:
--- -- ALTER TABLE "shop"."remark" RENAME COLUMN "body" TO "text";
---
--- -- grizzle: placeholder: every existing row of "shop"."remark" needs a value for the new column "text" ("pg_catalog"."text"); ...
--- ALTER TABLE "shop"."remark" ADD COLUMN "text" "pg_catalog"."text" COLLATE "pg_catalog"."pg_c_utf8" DEFAULT __GRIZZLE_PLACEHOLDER__ NOT NULL;
--- ALTER TABLE "shop"."remark" ALTER COLUMN "text" DROP DEFAULT;
--- -- grizzle: data loss: the statement below drops the field "shop"."note"."body" with its values; the candidate rename of "shop"."note"."body" to "shop"."remark"."text" carries them instead.
--- -- To drop it with its values, uncomment the statement below; to keep them, choose a candidate rename that carries them and leave the statement commented. grizzle never decides a loss for you.
--- -- ALTER TABLE "shop"."remark" DROP COLUMN "body";
-
-CREATE TABLE "shop"."remark" (
-  ...
-);
-```
-
-Review it in two steps:
-
-1. Decide the relation. To keep the new relation, delete the outer marker and its instruction line. To choose the
-   rename, delete the outer marker and its instruction line, remove the `CREATE TABLE` the rename replaces, and
-   uncomment the alternative by removing one `-- ` from each of its lines. The nested markers are then live markers
-   (`-- grizzle: rename candidate`) and data losses, and `grizzle check` refuses the folder until each is decided.
-2. Decide each field the same way as a field rename outside a relation rename. To keep the new column, delete the
-   field's marker and its instruction line, fill in the placeholder and delete its marker line, and decide the drop:
-   uncomment it to lose the removed field's values. To choose the rename, replace the addition (the placeholder line,
-   the `ADD COLUMN` and its `DROP DEFAULT`) with the uncommented `RENAME COLUMN`, and leave the drop of the removed
-   column commented. If the field's type changed too, the candidate renames the column and converts it in place, with
-   a placeholder for the conversion unless its cast converts it.
-
-grizzle never chooses a field rename for you. A kept field candidate leaves the removed field's drop to you, a data loss
-inside the alternative, and the new column holds the placeholder's value, or what an `UPDATE <table> SET <new> =
-<old>` you add before its `DROP DEFAULT` computes. A
-nested candidate counts only inside its relation's rename: if you choose a field rename while keeping its relation's
-drop and add, `grizzle check` refuses the folder at that file, naming the rename that is not chosen and the statement
-written inside it.
+meta.json records the declarations a folder was drafted under, and every drafted statement of every file in its place,
+so `check` refuses a confirmed group kept in part and a loss left undecided, and reads every reviewed statement back
+as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted words are yours.
 
 ## Legal edits
 

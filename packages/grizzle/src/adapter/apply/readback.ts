@@ -1,4 +1,5 @@
 import { Array as Arr, type Effect } from "effect"
+import type { UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { analyzedAttachmentFacts, attachmentHeads } from "#adapter/reader/analysis.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
 import type { InputRefusal } from "#adapter/reader/relations.ts"
@@ -104,10 +105,11 @@ export const readBacks = (program: CompiledWrite, codes: Codebook): ReadBacks =>
 const delivering = (row: Row): Row => row
 
 /**
- * The flight of one read-back, reading its delivered Rows, which the reads decoder reads under the read-back's slot.
+ * The flight of one read-back, reading its delivered Rows, which the reads decoder reads under the read-back's slot. A
+ * read-back statement whose answer repeats a row is UnreadableAnswer (reader/run.ts programFlight).
  */
 export const readBackFlight = (
 	run: ReadBackRun,
 	inputs: ExecutionInputs
-): Effect.Effect<Flight<ReadonlyArray<Row>, never>, InputRefusal> =>
+): Effect.Effect<Flight<ReadonlyArray<Row>, UnreadableAnswer>, InputRefusal> =>
 	programFlight(run.program, inputs, delivering)

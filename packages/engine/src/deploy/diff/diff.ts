@@ -2935,7 +2935,9 @@ const advance = (
  *   committed state lacks a view or policy an existing role relies on; a role's the migration creates are created in
  *   Publish with the role. A
  *   role's schema is created in Publish and dropped at its end, and a table's row security enabled in Publish or
- *   disabled at its end. A login renamed is a login dropped and another created, which has no password until its
+ *   disabled at its end. A login's rename is declared (`--rename @old=@new`) and carried out before the diff runs
+ *   (declared.ts), its role renamed in place with its OID, password and grants, so the diff reads one login that
+ *   stands; a login dropped, as declared, and another created are two roles, and the new one has no password until its
  *   operator sets one.
  * - Removing a law drops its native constraints in Publish.
  * - A rename is declared (`--rename`), and carried out before the diff runs (declared.ts): the previous snapshot is

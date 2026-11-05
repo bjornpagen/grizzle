@@ -103,21 +103,18 @@ type FinishedHead<S, Params, Sole, Facts, Cx, H extends Carriers> = Finished<
 type Reads<Os extends ReadonlyArray<unknown>> = ComputedOrigin<OperandOrigin<Os[number]>>
 
 /**
- * A head with an aggregate folds the facts its rule matches, each read once by a key (the engine's FoldInput): every
+ * An aggregate in a head folds the facts its rule matches, each read once by a key (the engine's FoldInput): every
  * match binds, by a variable, a parent variable or a constant, every field of one key of its source, a context's one
  * fact by the empty key and a relation parameter, an imported query or an interior stage by its whole heading, a set
  * keyed by its heading. A match that binds no key whole would fold a projection of its facts, and is refused; distinct
  * values are folded by matching a query of them as the source.
  */
-type FoldsKeyed<S, Os, H> = [HeadAggregates<H>] extends [never]
-	? unknown
-	: EveryMatchKeyed<S, Os> extends true
-		? unknown
-		: Refusal<"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values">
-
-type HeadAggregates<H> = {
-	[K in keyof H]-?: H[K] extends Aggregate<unknown> ? K : never
-}[keyof H]
+type FoldKeyed<S, Os, X> =
+	X extends Aggregate<unknown>
+		? EveryMatchKeyed<S, Os> extends true
+			? unknown
+			: Refusal<"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values">
+		: unknown
 
 type EveryMatchKeyed<S, Os> = Os extends readonly [infer M, ...infer Rest]
 	? MatchKeyed<S, M> extends true
@@ -327,10 +324,13 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	>
 	/**
 	 * Each entry is checked where it stands (HeadTerm), never through H's constraint: an entry no head holds is refused
-	 * at its key, and the query keeps the head as written, so nothing built on it refuses again.
+	 * at its key, an aggregate over a rule whose matches bind no key of their sources too (FoldKeyed), and the query
+	 * keeps the head as written, so nothing built on it refuses again.
 	 */
 	find<const H extends Readonly<Record<string, unknown>>>(
-		head: H & { readonly [K in keyof H]: HeadTerm } & FoldsKeyed<S, OccurrencesOf<Facts>, H>
+		head: H & {
+			readonly [K in keyof H]: HeadTerm & FoldKeyed<S, OccurrencesOf<Facts>, H[K]>
+		}
 	): FinishedHead<S, Params, Sole, Facts, Cx, HeadTerms<H>>
 	/** A stage over the rule's own schema, so it carries S like the query it is part of. */
 	interior<Head, Ev extends Evidence, P2, IHead, Hc extends Carriers, Cx2>(

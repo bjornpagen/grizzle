@@ -332,8 +332,8 @@ export const bindWrite = (
 	const edits: Array<BoundEdit> = []
 	/** A read no statement carries even alone: the application cannot be sent, which every family step reports. */
 	let unreadable: FamilyRowBound | undefined
-	for (const program of programEdits) {
-		const { edit, target } = program
+	for (const editProgram of programEdits) {
+		const { edit, target } = editProgram
 		const changes: RelationChanges = {
 			inserts: factsAt(edit.inserts),
 			puts: factsAt(edit.puts),
@@ -351,7 +351,7 @@ export const bindWrite = (
 			return found
 		}
 		const familyReads: Array<BoundEdit["reads"][number]> = []
-		for (const read of program.reads) {
+		for (const read of editProgram.reads) {
 			const touched = readKeys(
 				ctx,
 				target,
@@ -385,7 +385,7 @@ export const bindWrite = (
 			}
 			familyReads.push({ family: read.family, shape: read.sql.shape, at })
 		}
-		edits.push({ program, changes, owners, reads: familyReads })
+		edits.push({ program: editProgram, changes, owners, reads: familyReads })
 	}
 	/** Each stratum's plan from the reads' rows, one array of rows per read in order: its nested rows and its edits'
 	 * rows by relation, composed by depth with its edits' counts. */

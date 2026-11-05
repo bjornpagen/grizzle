@@ -588,9 +588,8 @@ layer(Substrate.layer)("union cells", (it) => {
 									}
 									const arms = armsOf(c.groups)
 									const union = yield* records(unionOf(arms))
-									const alone = armsAlone(
-										yield* Effect.forEach(arms, (arm) => records(unionOf([arm])))
-									)
+									const armRecords = yield* Effect.forEach(arms, (arm) => records(unionOf([arm])))
+									const alone = armsAlone(armRecords)
 									assert.deepEqual(
 										set(sameRecord)(union, alone),
 										Option.none(),
