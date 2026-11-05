@@ -145,7 +145,9 @@ type MatchKeyed<S, M> =
 /** Whether one of the keys, each a tuple of fields, has every field among the bound ones. */
 type BindsAKey<Keys, Bound> = 0 extends 1 & Keys
 	? false
-	: true extends (Keys extends ReadonlyArray<infer F> ? ([F] extends [Bound] ? true : false) : false)
+	: true extends (
+				Keys extends ReadonlyArray<infer F> ? ([F] extends [Bound] ? true : false) : false
+		  )
 		? true
 		: false
 

@@ -57,7 +57,19 @@ const Task = relation("Task", { id: uuid, worker: uuid }, ["id"])
 const Crew = relation("Crew", { id: uuid, hands: drawn(natural) }, ["id"])
 export const Hand = relation("Hand", { id: uuid, crew: uuid, label }, ["id"])
 
-const shopRelations = { Item, Stock, Seat, Code, Pair, Counter, Line, Worker, Task, Crew, Hand }
+const shopRelations = {
+	Item,
+	Stock,
+	Seat,
+	Code,
+	Pair,
+	Counter,
+	Line,
+	Worker,
+	Task,
+	Crew,
+	Hand
+} as const
 
 const shopLaws = [
 	mutable(Stock),

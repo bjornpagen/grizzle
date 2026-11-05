@@ -28,7 +28,13 @@ import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { cell, fromText } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
-import { cellWidth, constantOf, type CellLayout, spaceSize, type Tuple } from "#compiler/ir/cells.ts"
+import {
+	cellWidth,
+	constantOf,
+	type CellLayout,
+	spaceSize,
+	type Tuple
+} from "#compiler/ir/cells.ts"
 import { assert, containsText, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"

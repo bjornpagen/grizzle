@@ -24,7 +24,6 @@ export interface Placement {
 	readonly heading: KeySet
 }
 
-
 /**
  * How one node's set boundary is decided:
  * - elided: realized plainly because a physical key proves the plain form unique;

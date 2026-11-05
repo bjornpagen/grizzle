@@ -59,8 +59,8 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { defined } from "#test/support/assert.ts"
-import { parameterNames } from "#test/support/kernel/dict.ts"
 import { foldInputOf, keyedFoldInput } from "#test/support/fixtures/ir/fold.ts"
+import { parameterNames } from "#test/support/kernel/dict.ts"
 import { liveOf, validateDag } from "#test/support/oracle/dag-validate.ts"
 import {
 	buildCompare,
@@ -2184,7 +2184,12 @@ class QueryResolver {
 		)
 		const input: Built = keyed === undefined ? this.distinctValues(drawn, drawnBound) : drawn
 		const bound = keyed === undefined ? input.heading : drawnBound
-		const fold = keyed ?? foldInputOf(input.node, Arr.map(bound, (c) => c.name))
+		const fold =
+			keyed ??
+			foldInputOf(
+				input.node,
+				Arr.map(bound, (c) => c.name)
+			)
 		const keys = Arr.filter(bound, (_, i) => ((s.keyMask >> i) & 1) === 1)
 		const taken = new Set(Arr.map(keys, (k) => k.name))
 		const enabled = this.config.aggregates

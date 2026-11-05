@@ -1,6 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	isNonEmpty,
@@ -337,6 +337,9 @@ export const buildInsert = (
 			at
 		)
 		const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
+		/** A requested fact's value at a field: its input's, or, for a written field its input does not carry, the start
+		 * the insert writes it at. */
+		const requested = (f: LawField): Expr => starts.find((s) => s.field === f)?.value ?? inCol(f)
 		const retCol = returned.of
 		const column = (f: LawField) => w.names.column(relation.name, f.name)
 		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
@@ -515,7 +518,7 @@ export const buildInsert = (
 			]
 			const r4Col = (f: LawField) => col(r4, keys.of(f))
 			const right: SelectCore = core(
-				[...outFields.map((f) => target(inCol(f))), ...markers],
+				[...outFields.map((f) => target(requested(f))), ...markers],
 				[
 					join(
 						cteRef(r1),
@@ -655,7 +658,14 @@ export const buildSpanClassify = (
 ): WriteStatement<SpanClassifyResult> => {
 	const { relation, input } = spec
 	const at = `classify ${relation.name}`
-	const all = keyFirst(relation)
+	/** The fields its input carries, which it compares the requested facts at: a fresh owner's count and ends are no
+	 * input's (statement.ts startOf), and its key is every input's. */
+	const heading = inputHeading(input)
+	const carried = keyFirst(relation).filter((f) => heading.some((c) => c.name === f.name))
+	if (!isNonEmpty(carried)) {
+		throw defect(`a classification of ${relation.name} whose input carries none of its key`)
+	}
+	const all = carried
 	const pk = relation.primaryFields
 	const scalars = pk.filter((f) => f !== span)
 	const guarantees = inputGuarantees(input)

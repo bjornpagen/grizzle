@@ -1,6 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
 	isNonEmpty,
@@ -11,9 +11,10 @@ import { fieldNames, type LawField } from "#compiler/ir/law.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import { completeClass } from "#compiler/ir/write.ts"
-import { witnessFields } from "#compiler/laws/model/uniques.ts"
+import { columnReads, witnessFields } from "#compiler/laws/model/uniques.ts"
 import {
 	type ColumnMap,
+	type Env,
 	emptyEnv,
 	extendEnv,
 	WriteParams
@@ -76,6 +77,7 @@ import {
 	type Returning,
 	resultText,
 	rowType,
+	startOf,
 	type WithSelect,
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
@@ -295,7 +297,39 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 			? undefined
 			: notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(r4)], undefined))
 	const column = (f: LawField) => w.names.column(relation.name, f.name)
-	return { all, written, pk, payload, r1, r2, r3, r4, keys, inputs, inCol, ctes, gate, column }
+	/** A requested fact's value at any field: its input's, for a field it carries; its start (insert/statement.ts
+	 * startOf), for an owner's drawn count or accumulated end; and its generated value over the carried ones. */
+	const requested = (f: LawField): Expr => {
+		if (written.includes(f)) {
+			return inCol(f)
+		}
+		if (f.writing.kind === "generated") {
+			const row: ColumnMap = new Map(written.map((g) => [g.name, inCol(g)] as const))
+			const env: Env = new Map(columnReads(f.writing.expr).map((c) => [c.node, row] as const))
+			return lowerExpr(w.cx, f.writing.expr, env)
+		}
+		return defined(
+			startOf(w.names, f),
+			`the start of ${relation.name}.${f.name}, a field a put's input does not carry`
+		)
+	}
+	return {
+		all,
+		written,
+		pk,
+		payload,
+		r1,
+		r2,
+		r3,
+		r4,
+		keys,
+		inputs,
+		inCol,
+		requested,
+		ctes,
+		gate,
+		column
+	}
 }
 
 const factColumns = (fields: ReadonlyArray<LawField>): Array<ResultColumn> =>
@@ -311,7 +345,7 @@ const sameKeyArm = (
 	groups: ReadonlyArray<FieldColumns<string>>
 ): SelectCore => {
 	const r4Col = (f: LawField) => col(r4, head.keys.of(f))
-	const facts = groups.flatMap((group) => group.pairs.map((p) => target(head.inCol(p.field))))
+	const facts = groups.flatMap((group) => group.pairs.map((p) => target(head.requested(p.field))))
 	return core(
 		[...prefix, ...facts, target(lit.bool(true))],
 		[

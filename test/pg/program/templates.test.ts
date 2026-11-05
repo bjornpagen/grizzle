@@ -14,6 +14,7 @@ import {
 	compileTemplate,
 	installationSql,
 	paramTexts,
+	scalarsOnly,
 	testCompile,
 	type TestCompileOptions
 } from "#test/support/compile.ts"
@@ -109,7 +110,10 @@ const runSpecs = (
 	Effect.gen(function* () {
 		const raws: Array<Raw> = []
 		for (const spec of specs) {
-			const rows = yield* Effect.map(session.values(spec.sql, paramTexts(spec, params)), rawOf)
+			const rows = yield* Effect.map(
+				session.values(spec.sql, paramTexts(spec, params, scalarsOnly)),
+				rawOf
+			)
 			raws.push(rows)
 		}
 		return raws

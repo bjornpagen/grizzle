@@ -1135,9 +1135,14 @@ const familyMembership = (ms: NonEmptyReadonlyArray<Membership>): Membership => 
 	}
 }
 
-/** Whether a role's own policy on an owner, its entry's membership `own`, already holds the rows its family writes
- * touch, `family`: every row, or the same predicate. A narrower own policy would hide owners its members name, and a
- * wider one would widen the entry, so any other pair is refused. */
+/**
+ * Whether a role's own policy on an owner, its entry's membership `own`, already holds the rows its family writes
+ * touch, `family`: every row, or the same predicate. Any other pair is refused, because no policy can state it exactly.
+ * The own policy alone, being narrower, hides owners the role's members name, so its family reads miss them and its
+ * count updates match nothing. A second permissive policy ORed beside it is wider than the entry. PostgreSQL grants
+ * columns per role per table, not per policy, so the role would read and update its owner entry's columns on owner
+ * rows admitted only through the members' translated filter.
+ */
 const covers = (own: Membership, family: Membership): boolean =>
 	own.kind === "every" ||
 	(family.kind === "narrowed" && printExpr(own.filter) === printExpr(family.filter))

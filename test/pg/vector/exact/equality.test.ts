@@ -34,6 +34,7 @@ import {
 	installedCodes,
 	paramTexts,
 	realityWrite,
+	scalarsOnly,
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
@@ -102,7 +103,7 @@ const compiled = (q: unknown, installed: Installed): QueryTemplate => {
 /** The decoded rows of one statement of a template, its placeholders filled by the statement's own encoders. */
 const run = (session: RawSession, spec: StatementSpec, params: Readonly<Record<string, unknown>>) =>
 	Effect.gen(function* () {
-		const rows = yield* session.values(spec.sql, paramTexts(spec, params))
+		const rows = yield* session.values(spec.sql, paramTexts(spec, params, scalarsOnly))
 		return Arr.map(textRows(rows), headingRecord(spec.heading, emptyCodebook))
 	})
 

@@ -10,6 +10,12 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { assert } from "#test/support/assert.ts"
 import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import type {
+	BindingsDesc,
+	HeadTermDesc,
+	MatchDesc,
+	QueryDesc
+} from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
@@ -31,12 +37,6 @@ import {
 	sum,
 	vars
 } from "#test/unit/check/dsl.ts"
-import type {
-	BindingsDesc,
-	HeadTermDesc,
-	MatchDesc,
-	QueryDesc
-} from "#test/support/fixtures/ir/desc.ts"
 
 /**
  * A fold reads each fact its rule matches once, by a key (ir/rel.ts FoldInput, check/checker.ts foldInput), one rule
@@ -214,7 +214,9 @@ const aggregate = (fn: Fn, arg: ReturnType<typeof ref>): HeadTermDesc => {
 const matchOf = (relation: RelationName, bound: ReadonlyArray<Field>): MatchDesc =>
 	match(
 		relationSource(relation),
-		Rec.fromEntries(Arr.map(bound, (field) => [field, v(relation, field)] as const)) satisfies BindingsDesc
+		Rec.fromEntries(
+			Arr.map(bound, (field) => [field, v(relation, field)] as const)
+		) satisfies BindingsDesc
 	)
 
 /**
@@ -348,9 +350,7 @@ const at = (relation: RelationName, fact: Fact, field: Field): number =>
 	fact[fieldsOf[relation].indexOf(field)] ?? Number.NaN
 
 /** The matched fact tuples of a root rule: each fact of its one relation, or each (post, comment) a comment names. */
-const matched = (
-	c: FoldCase
-): ReadonlyArray<(relation: RelationName) => Fact | undefined> => {
+const matched = (c: FoldCase): ReadonlyArray<(relation: RelationName) => Fact | undefined> => {
 	const db = databases[c.database]
 	if (c.shape.kind === "one") {
 		const relation = c.shape.relation
@@ -474,7 +474,9 @@ const required: Arr.NonEmptyReadonlyArray<Feature> = [
 	...Arr.flatMap(fns, (fn): ReadonlyArray<Feature> => [`refused ${fn}`, `admitted ${fn}`])
 ]
 
-const refusalOf = (reason: CompileReason): Extract<CompileReason, { _tag: "FoldOverProjection" }> | undefined =>
+const refusalOf = (
+	reason: CompileReason
+): Extract<CompileReason, { _tag: "FoldOverProjection" }> | undefined =>
 	reason._tag === "FoldOverProjection" ? reason : undefined
 
 describe("a fold reads each fact it matches once, by a key", () => {

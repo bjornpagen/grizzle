@@ -15,7 +15,6 @@ import {
 	Wanted
 } from "#bench/queue/support/queue.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
-import type { StatementSpec } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
@@ -23,7 +22,7 @@ import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { installedCodes, realityWrite, testArtifacts } from "#test/support/compile.ts"
+import { installedCodes, paramTexts, realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -69,29 +68,6 @@ const hostParams: Readonly<Record<string, unknown>> = {
 	key: Digest(Str.repeat(64)("f")),
 	keys: [{ key: Digest(Str.repeat(64)("a")) }, { key: Digest(Str.repeat(64)("b")) }]
 }
-
-/**
- * The placeholder texts of a statement, each through its own encoder, from the fixed parameters: a relation
- * parameter's placeholder its array at its part.
- */
-const texts = (spec: StatementSpec): ReadonlyArray<string> =>
-	Arr.map(spec.paramSlots, (slot) => {
-		switch (slot.kind) {
-			case "scalar":
-				return succeeded(slot.encode(hostParams[slot.param]), `the parameter ${slot.param}`)
-			case "relation": {
-				const arrays = succeeded(slot.encode(hostParams[slot.param]), `the parameter ${slot.param}`)
-				const array = arrays[slot.part]
-				if (array === undefined) {
-					throw new Error(`the parameter ${slot.param} has no array ${slot.part}`)
-				}
-				return array
-			}
-			case "member":
-			case "page":
-				throw new Error(`a ${slot.kind} placeholder`)
-		}
-	})
 
 /** Every node of a plan that reads `relation`'s rows: not the DELETE itself, nor a bitmap index scan, which only yields
  * row locations to its heap scan. */
@@ -212,6 +188,8 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 								throw new Error(`${shape}: ${program.error.message}`)
 							}
 							const statements = program.value.artifacts.optimized.statements
+							/** Each placeholder's text from the fixed parameters, a relation's normalized once. */
+							const declared = { params: program.value.params, codes: names.codes }
 							const found = Arr.findFirst(statements, (st, at) =>
 								st.step.kind === "write" &&
 								st.step.relation === Wanted.name &&
@@ -230,12 +208,12 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 									yield* pinned.query("BEGIN", [])
 									for (const st of statements.slice(0, at)) {
 										if (st.step.kind === "carrier" || st.step.kind === "analyze") {
-											yield* pinned.query(st.spec.sql, texts(st.spec))
+											yield* pinned.query(st.spec.sql, paramTexts(st.spec, hostParams, declared))
 										}
 									}
 									const rows = yield* pinned.queryValues(
 										`EXPLAIN (FORMAT JSON) ${deletion.spec.sql}`,
-										texts(deletion.spec)
+										paramTexts(deletion.spec, hostParams, declared)
 									)
 									yield* pinned.query("ROLLBACK", [])
 									return succeeded(parsePlanTree(rows[0]?.[0]), "one EXPLAIN plan")

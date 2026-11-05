@@ -48,6 +48,7 @@ import { StatementShare } from "#compiler/write/insert/statement.ts"
 import { assert, containsText, lacksText, unorderedEqual } from "#test/support/assert.ts"
 import {
 	compileTemplate,
+	type Declared,
 	installationSql,
 	installedCodes,
 	paramTexts,
@@ -262,6 +263,12 @@ const compiling = (q: unknown, schemaIdent: string) =>
 const compiled = (q: unknown, schemaIdent: string): QueryTemplate =>
 	ok(compiling(q, schemaIdent), "compile")
 
+/** What paramTexts normalizes a template's relation inputs under: its declared parameters and Content's codes. */
+const declared = (template: QueryTemplate): Declared => ({
+	params: template.params,
+	codes: contentCodes
+})
+
 /** The text domain Article's slug field uses, with its constraint and its law, as the installation names them. */
 const slugDomain = (installation: Installation): TextDomainNames =>
 	installationNamesOf(installation).textDomain({ name: "Article" }, "slug")
@@ -401,7 +408,12 @@ const boundAgrees = (
 		}
 		assert.equal(refusal, undefined, what)
 		const spec = defined(template[artifact][0], "statement")
-		const matched = yield* runAs(session, spec.sql, paramTexts(spec, params), run)
+		const matched = yield* runAs(
+			session,
+			spec.sql,
+			paramTexts(spec, params, declared(template)),
+			run
+		)
 		assert.equal(matched.length, bound.count, what)
 	})
 
@@ -762,7 +774,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					assert.equal(bindRefusal(fused, { slug: "Not A Slug!" }), "refinedValue")
 					assert.equal(bindRefusal(union, { slug: "Not A Slug!" }), "refinedValue")
 					const run = (slug: string, plan: Plan) =>
-						runPlanned(session, spec.sql, paramTexts(spec, { slug }), plan)
+						runPlanned(session, spec.sql, paramTexts(spec, { slug }, declared(fused)), plan)
 					/** No comment exists: every array is empty, so no element is delivered and nothing is claimed. */
 					const everyPlan = element(plans)
 					yield* everyCase("fused attachment without comments", everyPlan, plans.length, (plan) =>
@@ -803,7 +815,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 								const out = yield* runPlanned(
 									session,
 									unionSpec.sql,
-									paramTexts(unionSpec, { slug: "absent" }),
+									paramTexts(unionSpec, { slug: "absent" }, declared(union)),
 									plan
 								)
 								assert.deepEqual(
@@ -817,7 +829,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 								const matched = yield* runPlanned(
 									session,
 									unionSpec.sql,
-									paramTexts(unionSpec, { slug: "second" }),
+									paramTexts(unionSpec, { slug: "second" }, declared(union)),
 									plan
 								)
 								assert.deepEqual(
@@ -834,7 +846,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					const conservative = defined(union.conservative[0], "statement")
 					const agreed = yield* session.values(
 						conservative.sql,
-						paramTexts(conservative, { slug: "second" })
+						paramTexts(conservative, { slug: "second" }, declared(union))
 					)
 					assert.deepEqual(
 						Arr.sort(

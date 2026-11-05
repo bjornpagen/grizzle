@@ -29,9 +29,10 @@ const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 }
 
 /**
- * The fields a described member's head must deliver: a delete's, the relation's heading, since a fact is read with
- * every field; an insert's and a put's, the fields a member writes (memberWrites), and for an insert that supplies
- * none of its relation's serial fields (`supplied`), those without them.
+ * The fields a described member's head must deliver: the fields a member writes (memberWrites), the relation's one
+ * fact heading (rule 0), for a delete as for an insert and a put, so a fact deleted and added is one fact; and for an
+ * insert that supplies none of its relation's serial fields (`supplied`), those without them. A generated, drawn or
+ * accumulated field is a function of the written ones or grizzle's, so no delete matches on it.
  */
 const memberHeading = (
 	relation: MemberRelation,
@@ -39,9 +40,6 @@ const memberHeading = (
 	serial: ReadonlyArray<string>,
 	supplied: ReadonlyArray<string>
 ): Heading => {
-	if (op === "delete") {
-		return relation.heading
-	}
 	const written = relation.heading.filter((c) => memberWrites(c.writing.kind))
 	return op === "insert" && serial.length > 0 && supplied.length === 0
 		? written.filter((c) => !serial.includes(c.name))
@@ -57,7 +55,7 @@ const omitted = (
 	serial: ReadonlyArray<string>,
 	expected: Heading
 ): string => {
-	const unwritten = op !== "delete" && relation.heading.some((c) => !memberWrites(c.writing.kind))
+	const unwritten = relation.heading.some((c) => !memberWrites(c.writing.kind))
 	const serialOmitted =
 		op === "insert" && serial.length > 0 && !expected.some((c) => serial.includes(c.name))
 	return `${unwritten ? ", the fields grizzle or PostgreSQL writes omitted" : ""}${serialOmitted ? ", its serial fields omitted" : ""}`

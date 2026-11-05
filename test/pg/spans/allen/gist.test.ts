@@ -20,7 +20,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { compileSpanDesc, installSpans } from "#test/pg/spans/allen/support.ts"
 import { contains, defined, lacks, succeeded } from "#test/support/assert.ts"
-import { compileTestWorkload, paramTexts, testCompile } from "#test/support/compile.ts"
+import { compileTestWorkload, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -306,16 +306,13 @@ FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
 											prefix === "by room"
 												? { room: roomId(sketch.room % sketch.size.rooms), w, t: start }
 												: { w, t: start }
-										const template = compileSpanDesc(
-											roomRule(relation, where, prefix),
-											Rooms,
-											installed.schema
-										)
+										const rule = roomRule(relation, where, prefix)
+										const template = compileSpanDesc(rule, Rooms, installed.schema)
 										for (const artifact of judged) {
 											const spec = defined(template[artifact][0], `the ${artifact} statement`)
 											const rows = yield* reader.values(
 												`EXPLAIN (FORMAT JSON) ${spec.sql}`,
-												paramTexts(spec, params)
+												paramTexts(spec, params, declaredOf(template, rule, Rooms, testCompile))
 											)
 											const explained = defined(rows[0]?.[0], "the EXPLAIN cell")
 											const nodeTypes = planNodeTypes(explained)

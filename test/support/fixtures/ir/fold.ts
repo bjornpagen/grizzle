@@ -120,7 +120,9 @@ export const keyedFoldInput = (
 				const key = keyOf(
 					o.source,
 					new Set([
-						...Arr.flatMap(o.bindings, (b) => (Arr.contains(columns, b.var.name) ? [b.column] : [])),
+						...Arr.flatMap(o.bindings, (b) =>
+							Arr.contains(columns, b.var.name) ? [b.column] : []
+						),
 						...Arr.map(o.constants, (c) => c.column)
 					])
 				)

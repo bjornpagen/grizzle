@@ -28,7 +28,7 @@ import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, contains, defined, lacks } from "#test/support/assert.ts"
-import { compileTemplate, paramTexts, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, paramTexts, scalarsOnly, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
@@ -207,7 +207,7 @@ const runRaw = (
 	params: Readonly<Record<string, unknown>>,
 	prefix: string
 ) => {
-	const texts = paramTexts(spec, params)
+	const texts = paramTexts(spec, params, scalarsOnly)
 	return Effect.map(session.values(`${prefix}${spec.sql}`, texts), (rows) =>
 		Arr.map(rows, (row) =>
 			Arr.map(row, (c) => (typeof c === "string" ? c : jsonText(trusted<Json>(c))))

@@ -1218,7 +1218,7 @@ const combineBuild = {
 		fn,
 		args: [left, right]
 	})
-}
+} as const
 
 /** The start of a carried copy's source: an accumulated field's, or a hidden accumulator's identity; none for any other. */
 interface CopyStart {
@@ -1527,8 +1527,9 @@ class FamilyPlanner {
 		base: NonEmptyReadonlyArray<PlannedColumn>,
 		targetBase: NonEmptyReadonlyArray<PlannedColumn>
 	): ReadonlyArray<CarriedPair> {
-		const keyOf = (c: PlannedColumn): string =>
-			c.kind === "field" ? `f ${c.field.name}` : `l ${lawColumnText(c.column)}`
+		const textOf = (c: PlannedColumn): string =>
+			c.kind === "field" ? c.field.name : lawColumnText(c.column)
+		const keyOf = (c: PlannedColumn): string => `${c.kind === "field" ? "f" : "l"} ${textOf(c)}`
 		const baseKeys = base.map(keyOf)
 		const targetKeys = targetBase.map(keyOf)
 		const out: Array<CarriedPair> = []
@@ -1545,7 +1546,7 @@ class FamilyPlanner {
 				return refuse(
 					"UnsupportedLawFamily",
 					this.#loc,
-					`a family axis whose foreign key references each column once; the ${axis} axis of ${familyText(this.#shape())} carries ${toKey.slice(2)} twice`
+					`a family axis whose foreign key references each column once; the ${axis} axis of ${familyText(this.#shape())} carries ${textOf(to)} twice`
 				)
 			}
 			out.push({ from, to, fromKey, toKey, laws: p.laws })

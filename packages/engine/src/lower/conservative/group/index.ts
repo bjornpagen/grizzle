@@ -178,7 +178,10 @@ const groupRead = (
 		target(lit.bool(true))
 	)
 	const origin = { kind: "node", node: node.id } as const
-	const boundColumns = node.bound.columns.map((name) => ({ name, column: cx.supply.column(origin) }))
+	const boundColumns = node.bound.columns.map((name) => ({
+		name,
+		column: cx.supply.column(origin)
+	}))
 	const presentColumn = cx.supply.column(origin)
 	const alias = cx.relationAlias(origin)
 	return {

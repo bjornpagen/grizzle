@@ -17,7 +17,7 @@ import {
 	vectorParam
 } from "#test/pg/vector/ann/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { paramTexts } from "#test/support/compile.ts"
+import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -69,7 +69,11 @@ const underfill = (db: object, fx: Fixture) =>
 			Effect.flatMap(ctx.pool.lease, (session) =>
 				Effect.all([
 					rowsOn(session, "SHOW hnsw.iterative_scan", []),
-					rowsOn(session, `EXPLAIN (ANALYZE, BUFFERS) ${spec.sql}`, paramTexts(spec, paramsOf(fx)))
+					rowsOn(
+						session,
+						`EXPLAIN (ANALYZE, BUFFERS) ${spec.sql}`,
+						paramTexts(spec, paramsOf(fx), scalarsOnly)
+					)
 				])
 			)
 		)

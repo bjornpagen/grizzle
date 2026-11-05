@@ -31,6 +31,7 @@ import {
 import {
 	buildStatement,
 	type DeleteResult,
+	isCarried,
 	keyFirst,
 	type ModifyingStatement,
 	ownBuild,
@@ -138,6 +139,11 @@ const buildDelete = (
 	const { relation, input } = spec
 	const at = `${mode.kind === "exact" ? "delete" : "put deletion"} ${relation.name}`
 	const all = keyFirst(relation)
+	/** The fields a deletion matches facts at, which its input and every addition it excepts are read at: the ones a fact
+	 * carries (insert/statement.ts isCarried), one heading per relation (rule 0). A generated field is a function of
+	 * them, and an owner's drawn count and accumulated ends are grizzle's, so neither decides a match. */
+	const [first, ...rest] = all
+	const compared: NonEmptyReadonlyArray<LawField> = [first, ...rest.filter(isCarried)]
 	const pk = relation.primaryFields
 	const except = mode.kind === "exact" ? mode.except : []
 	const sharing = inputSharing(
@@ -150,7 +156,7 @@ const buildDelete = (
 		const r1 = supply.relation(internal("input"))
 		const r2 = supply.relation(internal("delete"))
 		const r3 = supply.relation(internal(`target ${relation.name}`))
-		const inputs = fieldColumns(all, () => supply.column(internal("input column")))
+		const inputs = fieldColumns(compared, () => supply.column(internal("input column")))
 		const returned = fieldColumns(all, () => supply.column(internal("returned column")))
 		/** Both D and A read as the relation's facts, cast into its column types (`into`), so the exact
 		 * identity, the displacing key and payload comparisons and EXCEPT compare written facts. The cast
@@ -159,13 +165,15 @@ const buildDelete = (
 		const read = readInput(
 			w,
 			input,
-			{ kind: "input", fields: all, distinct: false, alias: scan, keys: inputs, into },
+			{ kind: "input", fields: compared, distinct: false, alias: scan, keys: inputs, into },
 			at
 		)
 		const body = setOp("EXCEPT", [
 			asOperand(read.select.body),
 			...except.map((addition) =>
-				asOperand(readInput(w, addition, { kind: "except", fields: all, into }, at).select.body)
+				asOperand(
+					readInput(w, addition, { kind: "except", fields: compared, into }, at).select.body
+				)
 			)
 		])
 		const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
@@ -176,7 +184,7 @@ const buildDelete = (
 		const vectorSchema = w.names.vectorSchema
 		const where =
 			mode.kind === "exact"
-				? rowEq({ fields: all, typeOf, left: stored, right: inCol }, vectorSchema)
+				? rowEq({ fields: compared, typeOf, left: stored, right: inCol }, vectorSchema)
 				: and(
 						appendNonEmpty(
 							pk.map((f) => typedEq(typeOf(f), stored(f), inCol(f), vectorSchema)),

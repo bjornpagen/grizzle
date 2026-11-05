@@ -2004,7 +2004,8 @@ const paddingOf = (arg: Var, scale: number): Padding => ({
 /**
  * The aggregate a fold sketch draws over `arg`: its function where the argument's type has it, count otherwise. Sums
  * and means over every carrier that has them, double precision and money among them, are drawn freely: grizzle's exact
- * accumulation makes their answer a function of the multiset, which the reference states exactly.
+ * accumulation makes their answer a function of the contributions, one per keyed row in any order, which the
+ * reference states exactly.
  */
 const foldOf = (fn: AggregateFn, arg: ArgTerm | undefined, name: string): HeadItem => {
 	const count: HeadItem = { kind: "count", name, type: aggregateResult("count", undefined) }
@@ -3733,12 +3734,27 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 			})
 		]
 	)
-	/** The fifth read: the mean of every distinct value of v, and of their paddings, the two facts' v one value. */
+	/**
+	 * The fifth read: the mean of every distinct value of v, and of their paddings, the two facts' v one value. A fold
+	 * reads each fact it matches once, by its key, so the distinct values are a stage of their own, P{v} find {v}, a set
+	 * keyed by its heading, matched whole.
+	 */
 	const meanNames = new Names(kinds)
-	const meant = mint(spelled)
+	const meanValue = mint(spelled)
+	const values: Interior = {
+		kind: "interior",
+		rule: soleRule<never>(
+			relation,
+			[varOf(spelled, meanValue)],
+			[{ kind: "var", name: spelled.name, var: meanValue }]
+		),
+		fields: [{ name: spelled.name, kind: spelled.kind, type: spelled.type }]
+	}
+	const valueField = values.fields[0]
+	const meant = mint(valueField)
 	const meanRule = soleRule<never>(
-		relation,
-		[varOf(spelled, meant)],
+		values,
+		[varOf(valueField, meant)],
 		[
 			{
 				kind: "fold",

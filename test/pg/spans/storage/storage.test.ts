@@ -32,7 +32,7 @@ import {
 	runArtifact
 } from "#test/pg/spans/allen/support.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
-import { paramTexts } from "#test/support/compile.ts"
+import { declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -577,7 +577,14 @@ layer(Substrate.layer)("span storage", (it) => {
 									Order.Array(Order.String)
 								)
 								for (const { artifact, spec } of specs) {
-									assert.deepEqual(paramTexts(spec, { window: d.window }), [spanText(window)])
+									assert.deepEqual(
+										paramTexts(
+											spec,
+											{ window: d.window },
+											declaredOf(template, edgeBounds, undefined, testCompile)
+										),
+										[spanText(window)]
+									)
 									const [rows] = yield* runArtifact(reader, template, artifact, {
 										window: d.window
 									})

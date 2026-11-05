@@ -51,6 +51,7 @@ import {
 	compileTemplate,
 	lowerAligned,
 	paramTexts,
+	scalarsOnly,
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
@@ -77,7 +78,7 @@ const isApproximate = (dag: RelDag): boolean =>
 
 const run = (session: RawSession, c: Compiled, params: Readonly<Record<string, unknown>>) => {
 	const spec = defined(c.specs[0], "statement 0")
-	return Effect.map(session.values(spec.sql, paramTexts(spec, params)), textRows)
+	return Effect.map(session.values(spec.sql, paramTexts(spec, params, scalarsOnly)), textRows)
 }
 
 /**
@@ -89,7 +90,7 @@ const plan = (session: RawSession, c: Compiled, params: Readonly<Record<string, 
 		const spec = defined(c.specs[0], "statement 0")
 		const rows = yield* session.values(
 			`EXPLAIN (FORMAT JSON, COSTS FALSE) ${spec.sql}`,
-			paramTexts(spec, params)
+			paramTexts(spec, params, scalarsOnly)
 		)
 		const [explained] = defined(rows[0], "the EXPLAIN row")
 		return { nodes: planNodeTypes(explained), indexes: planIndexNames(explained) }

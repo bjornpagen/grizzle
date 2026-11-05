@@ -99,11 +99,18 @@ const without = (p: DedupPlan, drop: (c: Certificate) => boolean): PlanUnderVeri
 	certificates: Arr.filter(p.certificates, (c) => !drop(c))
 })
 
-/** A bound tuple short of the base identity: postings bound only on (account, amount), counted per account. */
+/**
+ * A count of distinct values: the postings' (account, amount) values, a region binding no key of Posting, so its rows
+ * may repeat, matched whole by the region the fold reads, and counted per account.
+ */
 const countPerAccount = () => {
 	const m = ir()
-	const r = m.region(
+	const values = m.region(
 		[{ source: m.base("Posting"), bind: { account: "account", amount: "amount" }, constants: {} }],
+		conservativeMeta
+	)
+	const r = m.region(
+		[{ source: values, bind: { account: "account", amount: "amount" }, constants: {} }],
 		conservativeMeta
 	)
 	const g = m.group(
@@ -375,7 +382,7 @@ const shopSubjects = (): ReadonlyArray<PlanSubject> => {
 		)
 	return [
 		{
-			label: "a count over a bound tuple short of the key",
+			label: "a count of distinct values matched whole",
 			dag: countPerAccount().dag,
 			catalog: installed
 		},
@@ -678,18 +685,19 @@ const plantedPlans: Readonly<
 		}
 	>
 > = {
-	/** The fold's contribution DISTINCT removed, and its placement certificate with it. */
+	/** The DISTINCT placed on the fold's input removed, and its placement certificate with it. */
 	"a count over unproved multiplicity": {
 		expect: exactly("unprovedMultiplicity"),
 		broken: () => {
-			const { dag, g } = countPerAccount()
+			const { dag } = countPerAccount()
 			const good = plan(dag, "snapshot")
+			const placed = new Set(Arr.map(good.placements, (p) => p.node))
 			return {
 				dag,
 				good,
 				bad: {
 					...without(good, (c) => c.rule === "R17.placement"),
-					folds: { [g.id]: { input: "plain" } }
+					realization: Rec.map(good.realization, (r, id) => (placed.has(id) ? "plain" : r))
 				}
 			}
 		}

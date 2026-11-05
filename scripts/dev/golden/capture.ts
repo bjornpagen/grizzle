@@ -439,13 +439,17 @@ const captureWrite = (write: Write, path: string, value: unknown): void => {
 /**
  * One version a draft compiles: a schema value or description, installed under its declared name or `renamed` (every
  * level of it declared under that name, as an installation under a chosen name declares it), with the logins its
- * worlds declare and the workloads whose programs plan its access paths, by login ({ login, workloads }), or none.
+ * worlds declare, the workloads whose programs plan its access paths, by login ({ login, workloads }), or none, and the
+ * renames its fixture states.
  */
 interface Version {
 	readonly subject: unknown
 	readonly renamed: string | undefined
 	readonly logins: ReadonlyArray<unknown>
 	readonly workloads: ReadonlyArray<unknown>
+	/** The renames its fixture states for the draft that reaches it (`--rename`), each { from, to } as deploy/diff/plan.ts
+	 * Rename spells it; none where the fixture states none. */
+	readonly renames?: ReadonlyArray<unknown>
 }
 
 const plainVersion = (subject: unknown): Version => ({
@@ -558,8 +562,116 @@ const installationOf = (version: Version, previous: unknown): Settled =>
 			plan === undefined || !isRecord(plan)
 				? noWorkload
 				: { access: plan["access"], accessPaths: plan["requests"] }
-		return { ok: true, value: { installation: installation.value, workload, plan } }
+		return {
+			ok: true,
+			value: { installation: installation.value, workload, plan, codes: codes.value }
+		}
 	})
+
+/** A record's entries, none for anything else. */
+const entriesOf = (value: unknown): ReadonlyArray<readonly [string, unknown]> =>
+	isRecord(value) ? Rec.toEntries(value) : []
+
+/** A field's or a name's string, or none. */
+const textAt = (value: unknown, key: string): string | undefined => {
+	const v = isRecord(value) ? value[key] : undefined
+	return typeof v === "string" ? v : undefined
+}
+
+/**
+ * What a draft from `previous` to `version` declares (`--rename`, `--drop`), as the migrate suite's declarationsOf
+ * (test/pg/migrate-gen/support.ts) states a step's: the renames the version's fixture states, then a drop of every
+ * stored state the previous snapshot holds that the target no longer does under them, by the rule deploy/diff/declared.ts
+ * applyDeclarations refuses an undeclared one by: each stored relation and roster gone or of another kind, each field a
+ * caller or a serial writes gone from a relation both hold, each live handle whose code the target's codes hold as a
+ * hole, and each login gone. Read by shape from the previous snapshot (theory.relations, logins), the target's owned
+ * schema, its codes and its logins' values, so a tree whose snapshot records less declares less; the first draft, from
+ * the empty snapshot, declares nothing.
+ */
+const declarationsOf = (
+	previous: unknown,
+	owned: unknown,
+	codes: unknown,
+	version: Version
+): { readonly renames: ReadonlyArray<unknown>; readonly drops: ReadonlyArray<unknown> } => {
+	const renames = version.renames ?? []
+	if (previous === undefined) {
+		return { renames, drops: [] }
+	}
+	const relationRenames = new Map<string, string>()
+	const fieldRenames = new Map<string, string>()
+	const loginRenames = new Map<string, string>()
+	for (const r of renames) {
+		const from = isRecord(r) ? r["from"] : undefined
+		const to = isRecord(r) ? r["to"] : undefined
+		const kind = textAt(from, "kind")
+		if (kind === "relation" && textAt(to, "kind") === "relation") {
+			relationRenames.set(textAt(from, "relation") ?? "", textAt(to, "relation") ?? "")
+		} else if (kind === "field" && textAt(to, "kind") === "field") {
+			fieldRenames.set(
+				`${textAt(from, "relation") ?? ""}.${textAt(from, "field") ?? ""}`,
+				textAt(to, "field") ?? ""
+			)
+		} else if (kind === "login" && textAt(to, "kind") === "login") {
+			loginRenames.set(textAt(from, "login") ?? "", textAt(to, "login") ?? "")
+		}
+	}
+	const target = new Map(entriesOf(isRecord(owned) ? owned["relations"] : undefined))
+	const rosters = isRecord(codes) ? codes["rosters"] : undefined
+	const targetCodes = (roster: string): ReadonlyArray<unknown> => {
+		const codec: unknown = rosters instanceof Map ? rosters.get(roster) : undefined
+		const slots = isRecord(codec) ? codec["codes"] : undefined
+		return Arr.isArray(slots) ? slots : []
+	}
+	const theory = isRecord(previous) ? previous["theory"] : undefined
+	const drops: Array<unknown> = []
+	for (const [name, was] of entriesOf(isRecord(theory) ? theory["relations"] : undefined)) {
+		const kind = textAt(was, "kind")
+		if (kind !== "relation" && kind !== "closed") {
+			continue
+		}
+		const into = relationRenames.get(name) ?? name
+		const now = target.get(into)
+		if (textAt(now, "kind") !== kind) {
+			drops.push({ kind: "relation", relation: name })
+			continue
+		}
+		if (kind === "relation") {
+			const fields = isRecord(was) && Arr.isArray(was["fields"]) ? was["fields"] : []
+			const held = new Set(Rec.keys(isRecord(now) && isRecord(now["fields"]) ? now["fields"] : {}))
+			for (const f of fields) {
+				const field = textAt(f, "name")
+				const writing = isRecord(f) ? f["writing"] : undefined
+				if (field === undefined || (writing !== "caller" && writing !== "serial")) {
+					continue
+				}
+				if (!held.has(fieldRenames.get(`${name}.${field}`) ?? field)) {
+					drops.push({ kind: "field", relation: name, field })
+				}
+			}
+			continue
+		}
+		const slots = isRecord(was) && Arr.isArray(was["codes"]) ? was["codes"] : []
+		const next = targetCodes(into)
+		for (const [code, slot] of slots.entries()) {
+			const handle = textAt(slot, "handle")
+			if (
+				textAt(slot, "kind") === "live" &&
+				handle !== undefined &&
+				textAt(next[code], "kind") !== "live"
+			) {
+				drops.push({ kind: "handle", roster: name, handle })
+			}
+		}
+	}
+	const logins = new Set(Arr.flatMap(version.logins, (l) => Arr.fromNullishOr(textAt(l, "name"))))
+	for (const [name] of entriesOf(isRecord(previous) ? previous["logins"] : undefined)) {
+		if (!logins.has(loginRenames.get(name) ?? name)) {
+			drops.push({ kind: "login", login: name })
+		}
+	}
+	return { renames, drops }
+}
 
 /** A draft from `previous` (none: the empty snapshot), written under `path`; the new snapshot, or none when refused. */
 const captureDraft = (
@@ -610,7 +722,12 @@ const captureDraft = (
 					previous: from,
 					installation: value,
 					workload: isRecord(holder) ? holder["workload"] : noWorkload,
-					declared: { renames: [], drops: [] },
+					declared: declarationsOf(
+						previous,
+						owned,
+						isRecord(holder) ? holder["codes"] : undefined,
+						version
+					),
 					naming: { kind: "named", name },
 					timestamp,
 					abandoned: []
@@ -967,7 +1084,8 @@ const captured: Effect.Effect<ReadonlyMap<string, string>> = Effect.gen(function
 							subject: isRecord(v) ? v["schema"] : undefined,
 							renamed: undefined,
 							logins: isRecord(v) && Arr.isArray(v["logins"]) ? v["logins"] : [],
-							workloads: []
+							workloads: [],
+							renames: isRecord(v) && Arr.isArray(v["renames"]) ? v["renames"] : []
 						}
 					])
 				)

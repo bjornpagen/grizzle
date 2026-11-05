@@ -1,10 +1,16 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Option } from "effect"
+import {
+	type NormalizedRelation,
+	parameterNormalizer,
+	positionalColumns
+} from "#compiler/codec/recordset.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Identity } from "#compiler/core/identity.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
+import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
-import type { LogicalQuery, StatementSpec } from "#compiler/ir/products.ts"
+import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
 import type { NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import type { Env, LowerContext, NodeLowerer } from "#compiler/lower/conservative/context.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -230,14 +236,92 @@ export const lowerAligned = (
 	)
 
 /**
+ * What a statement's relation placeholders are normalized under (paramTexts): the declared parameters of the template or
+ * write program it belongs to, and the codes that template was compiled under.
+ */
+export interface Declared {
+	readonly params: ReadonlyArray<ParamDecl>
+	readonly codes: Codebook
+}
+
+/**
+ * The declarations of `template`, compiled from `query` over `schema` (undefined: the query's own) under `naming`
+ * (compileTemplate): its declared parameters, and the codebook its schema's artifacts were compiled under.
+ */
+export const declaredOf = (
+	template: QueryTemplate,
+	query: unknown,
+	schema: unknown,
+	naming: TestNaming
+): Declared => {
+	const named = schema === undefined ? Result.ok(undefined) : parseSchemaInput(schema)
+	const codes = Result.flatMap(named, (parsed) =>
+		Result.flatMap(queryInput(query), (input) =>
+			Result.flatMap(querySchema(input, parsed), (source) =>
+				Result.flatMap(parseSchemaInput(source.schema), (input) => codebookFor(input, naming.codes))
+			)
+		)
+	)
+	if (!codes.ok) {
+		throw new Error(`the codes of a compiled template: ${codes.error.message}`)
+	}
+	return { params: template.params, codes: codes.value }
+}
+
+/**
+ * The declarations of a statement whose template declares no relation parameter, only scalar ones: paramTexts then
+ * refuses a relation placeholder loudly, never encoding it under a guessed heading or codebook.
+ */
+export const scalarsOnly: Declared = { params: [], codes: emptyCodebook }
+
+/** Whether a value is iterated by the runtime iteration protocol: an object with an iterator method. */
+const isIterable = (value: unknown): value is Iterable<unknown> =>
+	typeof value === "object" &&
+	value !== null &&
+	Symbol.iterator in value &&
+	typeof value[Symbol.iterator] === "function"
+
+/**
  * The placeholder texts of a query statement's spec, from the caller's parameter values by declared name, each
- * encoded by the spec's own encoder; every placeholder of a query statement is a declared parameter.
+ * encoded by the spec's own encoder; every placeholder of a query statement is a declared parameter. A relation
+ * parameter's input is normalized once, under its declared heading (codec/recordset.ts parameterNormalizer), as an
+ * execution normalizes it, and each of its placeholders writes that one set.
  */
 export const paramTexts = (
 	spec: StatementSpec,
-	params: Readonly<Record<string, unknown>>
-): ReadonlyArray<string> =>
-	Arr.map(spec.paramSlots, (slot): string => {
+	params: Readonly<Record<string, unknown>>,
+	declared: Declared
+): ReadonlyArray<string> => {
+	const normalized = new Map<ParamId, NormalizedRelation>()
+	/** The relation parameter `param`'s input, normalized the first time a placeholder asks for it. */
+	const relationInput = (param: ParamId): NormalizedRelation => {
+		const known = normalized.get(param)
+		if (known !== undefined) {
+			return known
+		}
+		const decl = Option.getOrUndefined(
+			Arr.findFirst(declared.params, (d) => d.id === param && d.kind === "relation")
+		)
+		if (decl?.kind !== "relation") {
+			throw new Error(`encode ${param}: no relation parameter of that name is declared`)
+		}
+		const value = params[decl.name]
+		if (!isIterable(value)) {
+			throw new Error(`encode ${param}: a relation parameter's input is an iterable of facts`)
+		}
+		const normal = parameterNormalizer({
+			relation: decl.name,
+			slot: { kind: "slot", name: decl.name },
+			columns: positionalColumns(decl.heading),
+			codes: declared.codes
+		})(value)
+		if (!normal.ok) {
+			throw new Error(`encode ${param}: ${normal.error.message}`)
+		}
+		normalized.set(param, normal.value)
+		return normal.value
+	}
+	return Arr.map(spec.paramSlots, (slot): string => {
 		switch (slot.kind) {
 			case "scalar": {
 				const encoded = slot.encode(params[slot.param])
@@ -247,7 +331,7 @@ export const paramTexts = (
 				return encoded.value
 			}
 			case "relation": {
-				const encoded = slot.encode(params[slot.param])
+				const encoded = slot.encode(relationInput(slot.param))
 				if (!encoded.ok) {
 					const error = encoded.error
 					throw new Error(
@@ -267,6 +351,7 @@ export const paramTexts = (
 				)
 		}
 	})
+}
 
 /** An installation's script as the driver sends it: each statement's text, in install order. */
 export const installationSql = (installation: Installation): ReadonlyArray<string> =>

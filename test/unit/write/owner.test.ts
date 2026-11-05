@@ -5,10 +5,12 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
 import {
 	counted,
 	fin,
 	fold,
+	key,
 	Monoid,
 	mutable,
 	on,
@@ -20,7 +22,7 @@ import { inForce } from "#compiler/write/family/order.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
@@ -49,6 +51,21 @@ const S1 = schema("S1", { O, M }, [
 	fam,
 	fold(fam, Monoid.sum, on(M, "o", "x"), on(O, "id", "total")),
 	mutable(O)
+])
+
+/** S1 with a candidate key beside its primary key, which every insert's probe judges. */
+const Coded = relation(
+	"Coded",
+	{ id: uuid, code: pg.bigint, n: drawn(natural), t: accumulated(pg.bigint, 0n) },
+	["id"]
+)
+const CodedM = relation("CodedM", { o: uuid, id: uuid, x: pg.bigint }, ["o", "id"])
+const codedFam = counted(on(CodedM, "o"), fin(Coded, "n"))
+const S2 = schema("S2", { Coded, CodedM }, [
+	codedFam,
+	fold(codedFam, Monoid.sum, on(CodedM, "o", "x"), on(Coded, "id", "t")),
+	key(on(Coded, "code")),
+	mutable(Coded)
 ])
 
 const A = relation("A", { id: uuid, bs: drawn(natural) }, ["id"])
@@ -85,6 +102,7 @@ const compiledFor = (schemaValue: unknown, name: string) => {
 }
 
 const s1 = compiledFor(S1, "s1")
+const s2 = compiledFor(S2, "s2")
 const chain = compiledFor(Chain, "chain")
 
 /** Every statement text of a program's optimized artifact. */
@@ -176,6 +194,59 @@ describe("an owner of counted families, rows first", () => {
 				bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
 			)
 			assertVariant(bound, "kind", "bound", "puts of a chain's owners bind")
+		})
+	)
+
+	it.effect(
+		"inserts and puts an owner with a candidate key, its probe naming carried fields only",
+		() =>
+			Effect.gen(function* () {
+				for (const value of [
+					ChangeSet.empty(S2).insert(Coded, [{ id: uuidOf(1), code: 7n }]),
+					ChangeSet.empty(S2).put(Coded, [{ id: uuidOf(1), code: 7n }])
+				]) {
+					const program = s2(value)
+					const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+					const bound = succeeded(
+						bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+					)
+					assertVariant(bound, "kind", "bound", "the owner's facts bind")
+				}
+			})
+	)
+
+	it("puts and deletes owners read from one relation parameter, matching on the fields facts carry", () => {
+		const value = ChangeSet.empty(S1)
+			.put(
+				O,
+				query(S1).rule((r) => {
+					const caps = r.relation("caps", { id: uuid, cap: pg.bigint })
+					const { id, cap } = v(O, "o")
+					return r.match(caps, { id, cap }).find({ id, cap })
+				})
+			)
+			.delete(
+				O,
+				query(S1).rule((r) => {
+					const caps = r.relation("caps", { id: uuid, cap: pg.bigint })
+					const { id, cap } = v(O, "o")
+					return r.match(O, { id, cap }).where(r.not(caps, { id })).find({ id, cap })
+				})
+			)
+		const program = s1(value)
+		assert.ok(texts(program).length > 0, "the put and the delete compile")
+	})
+
+	it.effect("refuses a deleted owner fact that carries a drawn field, never reading it", () =>
+		Effect.gen(function* () {
+			const value = ChangeSet.empty(S1).delete(O, [{ id: uuidOf(1), cap: 2n, n: 0n, total: 0n }])
+			const program = s1(value)
+			const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+			refused(
+				bindWrite(program, { members, params: {}, transport: inForce(bindFrame) }),
+				"factShape",
+				"a deletion's facts carry the written fields only"
+			)
 		})
 	)
 })

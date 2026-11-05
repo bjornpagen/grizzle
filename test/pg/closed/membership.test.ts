@@ -35,6 +35,7 @@ import {
 } from "#test/support/closed/generate.ts"
 import {
 	compileTemplate,
+	type Declared,
 	installationSql,
 	installedCodes,
 	paramTexts,
@@ -286,10 +287,14 @@ const itemsInsert = (names: PhysicalNames, c: MembershipCase, codes: Codebook): 
 }
 
 /** The ids a statement delivers on PostgreSQL, as text, sorted. */
-const deliveredIds = (spec: StatementSpec, params: Readonly<Record<string, unknown>>) =>
+const deliveredIds = (
+	spec: StatementSpec,
+	params: Readonly<Record<string, unknown>>,
+	declared: Declared
+) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const rows = yield* s.admin.queryValues(spec.sql, paramTexts(spec, params))
+		const rows = yield* s.admin.queryValues(spec.sql, paramTexts(spec, params, declared))
 		return Arr.sort(
 			Arr.map(rows, (row) => String(defined(row[0]))),
 			Order.String
@@ -362,8 +367,9 @@ layer(Substrate.layer, { excludeTestServices: true })("R07 over closed constants
 							const [conservative] = template.conservative
 							assert.equal(template.optimized.length, 1, "the query is one statement")
 							const params = paramsOf(c)
-							const rewritten = yield* deliveredIds(defined(optimized), params)
-							const joined = yield* deliveredIds(defined(conservative), params)
+							const declared = { params: template.params, codes }
+							const rewritten = yield* deliveredIds(defined(optimized), params, declared)
+							const joined = yield* deliveredIds(defined(conservative), params, declared)
 							assert.deepEqual(
 								rewritten,
 								joined,

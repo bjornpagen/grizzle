@@ -1,6 +1,7 @@
 import { Array as Arr, Effect, Option, Order, type Scope } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import {
 	compileInstallation,
@@ -105,7 +106,11 @@ export type RawRows = ReadonlyArray<ReadonlyArray<string>>
 export const optimizedRules = (template: QueryTemplate): ReadonlySet<CertificateRule> =>
 	new Set(Arr.map(template.certificates, (c) => c.rule))
 
-/** Runs one artifact's statements on `session` in order and returns each statement's raw text rows. */
+/**
+ * Runs one artifact's statements on `session` in order and returns each statement's raw text rows. A span schema holds
+ * no roster, so the codebook its queries compile under is empty, and a relation parameter's input is normalized under
+ * that one (a roster-typed parameter would be a defect here, never a silently miscoded one).
+ */
 export const runArtifact = (
 	session: RawSession,
 	template: QueryTemplate,
@@ -114,8 +119,9 @@ export const runArtifact = (
 ): Effect.Effect<ReadonlyArray<RawRows>, SqlError> =>
 	Effect.gen(function* () {
 		const out: Array<RawRows> = []
+		const declared = { params: template.params, codes: emptyCodebook }
 		for (const spec of template[artifact]) {
-			const rows = yield* session.values(spec.sql, paramTexts(spec, params))
+			const rows = yield* session.values(spec.sql, paramTexts(spec, params, declared))
 			out.push(Arr.map(rows, (row) => Arr.map(row, (v) => String(v))))
 		}
 		return out

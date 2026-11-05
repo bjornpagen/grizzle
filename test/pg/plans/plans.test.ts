@@ -38,7 +38,14 @@ import {
 	uid
 } from "#test/pg/plans/fixture.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, installationSql, paramTexts, testCompile } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	type Declared,
+	declaredOf,
+	installationSql,
+	paramTexts,
+	testCompile
+} from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
@@ -177,6 +184,10 @@ const compiled = (q: unknown, schema: string): QueryTemplate => {
 	return r.value
 }
 
+/** What paramTexts normalizes the relation inputs of `template`, compiled from `q` as `compiled` compiles it, under. */
+const declared = (q: unknown, template: QueryTemplate): Declared =>
+	declaredOf(template, q, undefined, testCompile)
+
 const only = <A>(xs: ReadonlyArray<A>, what: string): A => {
 	const [x, ...rest] = xs
 	if (x === undefined || rest.length > 0) {
@@ -301,7 +312,10 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 				const { schema, relation } = yield* fixture
 				const template = compiled(firstPostings, schema)
 				const optimized = only(template.optimized, "optimized statement")
-				const plan = yield* estimate(optimized.sql, paramTexts(optimized, {}))
+				const plan = yield* estimate(
+					optimized.sql,
+					paramTexts(optimized, {}, declared(firstPostings, template))
+				)
 				assert.equal(nodeTypes(plan).includes("Unique"), false)
 				assert.equal(nodeTypes(plan).includes("Sort"), false)
 				assert.deepEqual(sequentialScans(plan, relation("Posting")), [])
@@ -311,7 +325,10 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 				const kept = yield* estimate(printStatement(redundant), [])
 				assert.equal(nodeTypes(kept).includes("Unique"), true, "the elided DISTINCT deduplicates")
 				const conservative = only(template.conservative, "conservative statement")
-				const plain = yield* estimate(conservative.sql, paramTexts(conservative, {}))
+				const plain = yield* estimate(
+					conservative.sql,
+					paramTexts(conservative, {}, declared(firstPostings, template))
+				)
 				assert.equal(
 					nodeTypes(plain).includes("Unique"),
 					true,
@@ -350,7 +367,10 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 						(parents) =>
 							Effect.gen(function* () {
 								const accounts = Arr.map(parents, (n) => ({ id: uid(1, n) }))
-								const plan = yield* analyze(spec.sql, paramTexts(spec, { accounts }))
+								const plan = yield* analyze(
+									spec.sql,
+									paramTexts(spec, { accounts }, declared(entriesPerAccount, template))
+								)
 								assert.deepEqual(
 									findNodes(
 										plan,
@@ -379,7 +399,10 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 					return yield* Effect.die(new Error("the attachment statement"))
 				}
 				const statement = found.value
-				const plan = yield* analyze(statement.sql, paramTexts(statement, {}))
+				const plan = yield* analyze(
+					statement.sql,
+					paramTexts(statement, {}, declared(accountsWithFirstEntries, template))
+				)
 				const scans = scansOf(plan, relation("Entry"))
 				assert.equal(scans.length, 1, "one scan of entry")
 				assert.equal(
@@ -435,7 +458,10 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 						(drawnIds) =>
 							Effect.gen(function* () {
 								const ids = Arr.map(drawnIds, (n) => ({ id: uid(6, n) }))
-								const plan = yield* estimate(spec.sql, paramTexts(spec, { ids }))
+								const plan = yield* estimate(
+									spec.sql,
+									paramTexts(spec, { ids }, declared(itemsById, template))
+								)
 								probesOnly(plan, "arrays")
 							})
 					)
@@ -524,10 +550,13 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 						(c, cx) =>
 							Effect.gen(function* () {
 								const chosen = elementAt(queries, c.query, "the drawn query")
-								const spec = only(compiled(chosen.q, schema).optimized, "optimized statement")
-								const texts = paramTexts(spec, {
-									[chosen.param]: uid(chosen.family, c.value % (2 * chosen.size))
-								})
+								const template = compiled(chosen.q, schema)
+								const spec = only(template.optimized, "optimized statement")
+								const texts = paramTexts(
+									spec,
+									{ [chosen.param]: uid(chosen.family, c.value % (2 * chosen.size)) },
+									declared(chosen.q, template)
+								)
 								const session = yield* s.session({
 									...ownerSession(),
 									label: `plans_${chosen.label}`

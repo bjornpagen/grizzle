@@ -14,11 +14,7 @@ import type { Select } from "#compiler/sql/ast.ts"
  * values, which already satisfy their refinements, so a text refinement no stored column carries, such as a contract's
  * base pattern, is typed as text (`ConservativeSubject`).
  */
-const violationQuery = (
-	installation: Installation,
-	law: LawId,
-	violation: RelNode
-): Select => {
+const violationQuery = (installation: Installation, law: LawId, violation: RelNode): Select => {
 	const lowered = lowerConservative(
 		{ dag: installation.laws.theory.dag, root: violation },
 		{ names: installation.names, params: [], subject: { kind: "violationProbe" } }

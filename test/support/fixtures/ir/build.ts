@@ -17,7 +17,6 @@ import {
 	literalNegated,
 	rangeOperatorCodes
 } from "#compiler/allen/atoms.ts"
-import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { AllenMask } from "#compiler/allen/mask.ts"
 import { makeIdSupply, type NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -69,6 +68,7 @@ import { textLookup } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import type { OwnedFixture } from "#test/support/evidence.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import { castOpOf } from "#test/support/oracle/gen/ops.ts"
 

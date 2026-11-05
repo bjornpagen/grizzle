@@ -27,20 +27,7 @@ import {
 } from "#test/support/oracle/mutants/ast.ts"
 import { immediateKeys, KeyAnalysis, neverDrops } from "#test/support/oracle/mutants/keys.ts"
 
-const mutantIds = [
-	"V1",
-	"V2",
-	"V3",
-	"V5",
-	"V6",
-	"I1",
-	"I2",
-	"I3",
-	"I5",
-	"I6",
-	"I7",
-	"I8"
-] as const
+const mutantIds = ["V1", "V2", "V3", "V5", "V6", "I1", "I2", "I3", "I5", "I6", "I7", "I8"] as const
 export type MutantId = (typeof mutantIds)[number]
 
 interface Mutation {

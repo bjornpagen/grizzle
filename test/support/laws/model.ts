@@ -562,7 +562,7 @@ const sameFieldSet = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boole
  * The law a schema states for a relation's primary key: a key over exactly its key's fields that reads every fact, or a
  * span key whose scalars and span are its key's fields; none when the schema states neither.
  */
-export const primaryKeyLawOf = (schema: HostSchema, relation: HostRelation): HostLaw | undefined =>
+const primaryKeyLawOf = (schema: HostSchema, relation: HostRelation): HostLaw | undefined =>
 	Option.getOrUndefined(
 		Arr.findFirst(
 			schema.laws,
@@ -582,7 +582,7 @@ export const primaryKeyLawOf = (schema: HostSchema, relation: HostRelation): Hos
  * at one key, an exact repeat of one fact included, violate it, so a state that holds a fact twice is a violation the
  * host names, never a state its laws pass.
  */
-export const unkeyedRelations = (schema: HostSchema): ReadonlyArray<string> =>
+const unkeyedRelations = (schema: HostSchema): ReadonlyArray<string> =>
 	Arr.flatMap(schema.relations, (r) =>
 		r.key.length > 0 && primaryKeyLawOf(schema, r) === undefined ? [r.name] : []
 	)

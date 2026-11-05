@@ -2155,7 +2155,10 @@ class RuleCheck {
 	readonly names = new Set<string>()
 	#occurrences: ReadonlyArray<PendingOccurrence> = []
 	/** The region's occurrences, each beside the match it was resolved from, in match order, once the region is defined. */
-	#defined: ReadonlyArray<{ readonly pending: PendingOccurrence; readonly occurrence: Occurrence }> = []
+	#defined: ReadonlyArray<{
+		readonly pending: PendingOccurrence
+		readonly occurrence: Occurrence
+	}> = []
 	readonly eqs: Array<PendingEquality> = []
 
 	constructor(cx: Checker, rule: ResolvedRule, scope: Scope, loc: SourceLoc) {

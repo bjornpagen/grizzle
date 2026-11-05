@@ -226,8 +226,8 @@ const extreme = (
 }
 
 /**
- * Aggregates of the reference evaluator: each a function of its arguments' multiset, as grizzle defines and lowers it
- * (scalar/aggregate.ts), over one group's distinct bound tuples.
+ * Aggregates of the reference evaluator: each a function of its contributions, one per distinct bound tuple, in any
+ * order, as grizzle defines and lowers it (scalar/aggregate.ts), over one group's keyed rows.
  *
  * - count(*) is bigint;
  * - sum over smallint and integer is bigint; over bigint and numeric it is numeric, exact; over real and double

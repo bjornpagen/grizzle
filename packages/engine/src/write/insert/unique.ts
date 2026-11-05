@@ -1,4 +1,5 @@
 import { type Identity, identity } from "#compiler/core/identity.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
@@ -42,7 +43,7 @@ import {
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
-import { rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
+import { rowType, startOf, type WriteContext } from "#compiler/write/insert/statement.ts"
 
 /** The unique objects of a relation an insert meets: its arbiter, the primary key; every object
  * besides it, in law order, probed or not, on which a 23505 or 23P01 aborts the apply; the objects an insert of
@@ -484,7 +485,14 @@ export const buildProbe = (
 		refusalCol,
 		refusalValue: (f) => {
 			if (f.writing.kind !== "generated") {
-				return refusalCol(f)
+				/** A field the requested fact does not carry is written at its start (statement.ts startOf): a fresh
+				 * owner's count and ends, which name no key. */
+				return fields.includes(f)
+					? refusalCol(f)
+					: defined(
+							startOf(w.names, f),
+							`the start of ${relation.name}.${f.name}, a field a requested fact does not carry`
+						)
 			}
 			const row: ColumnMap = new Map(fields.map((g) => [g.name, refusalCol(g)] as const))
 			const env: Env = new Map(columnReads(f.writing.expr).map((c) => [c.node, row] as const))

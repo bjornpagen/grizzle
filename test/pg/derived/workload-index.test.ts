@@ -14,6 +14,7 @@ import { assert } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	compileTestWorkload,
+	declaredOf,
 	paramTexts,
 	testCompile
 } from "#test/support/compile.ts"
@@ -116,10 +117,8 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 				assert.deepEqual(after, before)
 				yield* owner.query(`ANALYZE ${view}`, [])
 				yield* owner.query("SET enable_seqscan = off", [])
-				const template = compileTemplate(busyAccounts, undefined, {
-					...testCompile,
-					installation: identity.schema(parsedSchemaName(s))
-				})
+				const options = { ...testCompile, installation: identity.schema(parsedSchemaName(s)) }
+				const template = compileTemplate(busyAccounts, undefined, options)
 				if (!template.ok) {
 					throw new Error(template.error.message)
 				}
@@ -127,7 +126,11 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 				if (statement === undefined) {
 					throw new Error("one statement")
 				}
-				const least = paramTexts(statement, { least: 3n })
+				const least = paramTexts(
+					statement,
+					{ least: 3n },
+					declaredOf(template.value, busyAccounts, undefined, options)
+				)
 				const explained = yield* owner.values(`EXPLAIN (FORMAT JSON) ${statement.sql}`, least)
 				assert.ok(
 					planIndexNames(explained[0]?.[0]).includes(workloadIndex),

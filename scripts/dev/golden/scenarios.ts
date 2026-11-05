@@ -1,7 +1,7 @@
 /**
  * The golden capture's own schema histories: versions built with the public builders only, in the call forms both the
  * baseline and the working tree accept, so capture.ts drafts each one in either tree. They reach what the fixture
- * modules do not: candidate renames (a relation, a field, a login, two relations swapping names), a field's type
+ * modules do not: declared renames (a relation, a field, a login, two relations swapping names), a field's type
  * change, a roster's handles added and removed (the next code, then a hole), a residual law added to a schema, and a
  * residual law kept while only a participant's mutability changes and then only the roles that read its relation
  * whole.
@@ -20,15 +20,40 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
-/** One version of a history: its schema value and the logins its worlds declare. */
+/** A name a rename moves, as deploy/diff/plan.ts Named spells it: a relation, a field of one, or a login. */
+type ScenarioNamed =
+	| { readonly kind: "relation"; readonly relation: string }
+	| { readonly kind: "field"; readonly relation: string; readonly field: string }
+	| { readonly kind: "login"; readonly login: string }
+
+/** A rename the draft reaching a version declares (`--rename`): from as the previous version names it, to as this one. */
+interface ScenarioRename {
+	readonly from: ScenarioNamed
+	readonly to: ScenarioNamed
+}
+
+/** One version of a history: its schema value, the logins its worlds declare, and the renames the draft that reaches it
+ * declares; capture.ts declares every drop besides. */
 export interface ScenarioVersion {
 	readonly schema: unknown
 	readonly logins: ReadonlyArray<unknown>
+	readonly renames?: ReadonlyArray<ScenarioRename>
 }
+
+const relationRename = (from: string, to: string): ScenarioRename => ({
+	from: { kind: "relation", relation: from },
+	to: { kind: "relation", relation: to }
+})
+
+const fieldRename = (relation: string, from: string, to: string): ScenarioRename => ({
+	from: { kind: "field", relation, field: from },
+	to: { kind: "field", relation, field: to }
+})
 
 const name = str.regex("^[a-z]{1,40}$")
 
-/** A shop renamed and retyped step by step, with a login renamed and two relations that swap names. */
+/** A shop renamed and retyped step by step, with a login renamed and two relations that swap names, each rename
+ * declared. */
 const renames = (): ReadonlyArray<ScenarioVersion> => {
 	const v1Customer = relation("Customer", { id: uuid, name, code: pg.integer }, ["id"])
 	const v1Order = relation("Order", { id: uuid, customer: uuid, cents: pg.bigint }, ["id"])
@@ -54,9 +79,22 @@ const renames = (): ReadonlyArray<ScenarioVersion> => {
 	])
 	return [
 		{ schema: v1, logins: [login(v1, "server", [v1Reader])] },
-		{ schema: v2, logins: [login(v2, "backend", [v2Reader])] },
+		{
+			schema: v2,
+			logins: [login(v2, "backend", [v2Reader])],
+			renames: [
+				relationRename("Customer", "Client"),
+				fieldRename("Order", "customer", "client"),
+				fieldRename("Order", "cents", "amount"),
+				{ from: { kind: "login", login: "server" }, to: { kind: "login", login: "backend" } }
+			]
+		},
 		{ schema: v3, logins: [login(v3, "backend", [v3Reader])] },
-		{ schema: v4, logins: [] }
+		{
+			schema: v4,
+			logins: [],
+			renames: [relationRename("Client", "Order"), relationRename("Order", "Client")]
+		}
 	]
 }
 

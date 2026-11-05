@@ -15,6 +15,7 @@ import {
 import {
 	type CompletedOrder,
 	exprsOf,
+	type FrameBound,
 	type Heading,
 	inputsOf,
 	type NodeOf,
@@ -33,6 +34,7 @@ import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
 import {
 	asBigint,
+	asDecimal,
 	asSpan,
 	coerce,
 	compare,
@@ -51,6 +53,10 @@ import {
 	valueAt,
 	valueKey
 } from "#test/support/oracle/reference/values.ts"
+
+/** A value as the double precision an ordered-set aggregate interpolates it as: an integer or a numeric cast to float8. */
+const doubleOf = (v: Value): number =>
+	typeof v === "number" ? v : typeof v === "bigint" ? Number(v) : Number(asDecimal(v).text)
 
 /** The range operators an Allen atom lowers to; range_eq is also the span equality the Compute evaluator compares. */
 const rangeAtoms: ReadonlySet<RangeOpCode> = new Set([
@@ -1039,20 +1045,24 @@ export class Reference {
 			}
 			case "Window":
 				return this.window(node, scope)
+			case "OrderedSetAggregate":
+				return this.orderedSetAggregate(node, scope)
 			case "Context":
 			case "Delta":
 			case "Forbid":
-			case "OrderedSetAggregate":
 			case "Produce":
 				throw referenceUnsupported(`a ${node.kind} node`)
 		}
 	}
 
-	/** Each input tuple and its window function's value over its partition in the window's order. */
+	/**
+	 * Each input tuple and its window function's value over its partition in the window's order, as PostgreSQL computes
+	 * it: an ordinal or a neighbour over the whole partition; an aggregate over the row's frame, the ROWS frame the node
+	 * states, or by default the rows up to the row's last peer where the window orders, the whole partition where it does
+	 * not, and over the frame's rows the filter holds of. An aggregate other than count over a frame with no row is NULL,
+	 * which the reference states no value for, so it declines.
+	 */
 	window(node: NodeOf<"Window">, scope: Bindings): ReadonlyArray<Row> {
-		if (node.frame !== undefined || node.filter !== undefined) {
-			throw referenceUnsupported(`a framed or filtered window ${node.id}`)
-		}
 		const input = this.eval(node.input, scope)
 		const heading = input.heading
 		const partition = Arr.map(node.partition, (c) => columnIndex(heading, c, node.id))
@@ -1111,8 +1121,46 @@ export class Reference {
 					prior === undefined ? 1n : (dense[i - 1] ?? 1n) + (ordered(prior, row) === 0 ? 0n : 1n)
 				)
 			}
+			/** The index of the last peer of the row at `i`: the default frame's end where the window orders. */
+			const lastPeer = (i: number): number => {
+				let last = i
+				for (
+					let j = i + 1;
+					j < rows.length &&
+					ordered(defined(rows[j], `row ${j}`), defined(rows[i], `row ${i}`)) === 0;
+					j++
+				) {
+					last = j
+				}
+				return last
+			}
+			/** A frame bound's row index for the row at `i`, before clamping to the partition. */
+			const boundAt = (bound: FrameBound, i: number): number => {
+				if (bound === "unboundedPreceding") {
+					return 0
+				}
+				if (bound === "currentRow") {
+					return i
+				}
+				return "preceding" in bound ? i - Number(bound.preceding) : i + Number(bound.following)
+			}
+			/** The rows of the frame of the row at `i` that the filter holds of. */
+			const framed = (i: number): ReadonlyArray<Row> => {
+				const [from, to] =
+					node.frame !== undefined
+						? [boundAt(node.frame.start, i), boundAt(node.frame.end, i)]
+						: keys.length > 0
+							? [0, lastPeer(i)]
+							: [0, rows.length - 1]
+				const frame = rows.slice(Math.max(0, from), Math.max(0, Math.min(rows.length - 1, to) + 1))
+				const filter = node.filter
+				return filter === undefined
+					? frame
+					: Arr.filter(frame, (r) =>
+							this.truth(filter, bind(scope, [[node.input.id, tupleOf(input, r)]]))
+						)
+			}
 			for (const [i, row] of rows.entries()) {
-				/** A partition's extreme, as the aggregate computes it. */
 				const value = ((): Value => {
 					switch (node.fn) {
 						case "rowNumber":
@@ -1122,21 +1170,17 @@ export class Reference {
 						case "denseRank":
 							return dense[i] ?? 1n
 						case "count":
-							if (keys.length > 0) {
-								throw referenceUnsupported(`a running count ${node.id}`)
-							}
-							return BigInt(rows.length)
+							return BigInt(framed(i).length)
 						case "min":
-						case "max": {
-							if (keys.length > 0) {
-								throw referenceUnsupported(`a running ${node.fn} ${node.id}`)
-							}
+						case "max":
+						case "sum":
+						case "avg": {
 							const [arg] = node.args
-							return aggregate(
-								node.fn,
-								Arr.map(rows, (r) => at(arg, r)),
-								type(arg)
-							)
+							const values = Arr.map(framed(i), (r) => at(arg, r))
+							if (values.length === 0) {
+								throw referenceUnsupported(`a ${node.fn} over an empty frame of ${node.id}`)
+							}
+							return aggregate(node.fn, values, type(arg))
 						}
 						case "lag":
 						case "lead": {
@@ -1148,13 +1192,116 @@ export class Reference {
 							const neighbour = rows[node.fn === "lag" ? i - Number(k) : i + Number(k)]
 							return neighbour === undefined ? at(fallback, row) : at(arg, neighbour)
 						}
-						case "avg":
-						case "sum":
-							throw referenceUnsupported(`the window function ${node.fn}`)
 					}
 				})()
 				out.push([...row, value])
 			}
+		}
+		return out
+	}
+
+	/**
+	 * An ordered-set aggregate per group of its keys, over the group's rows sorted by the one value WITHIN GROUP orders:
+	 * percentile_disc(f) the value at the ceiling of f times the rows, the first for f = 0; percentile_cont(f) the double
+	 * interpolated between the values at the floor and the ceiling of f times one less than the rows, as float8's lerp
+	 * computes it; mode the most frequent value, the first in the order among equally frequent ones. A fraction outside
+	 * 0 to 1 is PostgreSQL's error, and a group of no row is a NULL, which the reference states no value for: each
+	 * declines.
+	 */
+	orderedSetAggregate(node: NodeOf<"OrderedSetAggregate">, scope: Bindings): ReadonlyArray<Row> {
+		const input = this.eval(node.input, scope)
+		const [by, ...more] = node.order.keys
+		if (by === undefined || more.length > 0) {
+			throw referenceUnsupported(
+				`an ordered-set aggregate ordered by other than one value ${node.id}`
+			)
+		}
+		const at = columnIndex(input.heading, by.column, node.id)
+		const type = columnAt(input.heading, at).type
+		const keyIndexes = Arr.map(node.keys, (k) => columnIndex(input.heading, k, node.id))
+		const groupKeys = decidedKeys(
+			Arr.map(input.rows, (row) => Arr.map(keyIndexes, (i) => valueAt(row, i))),
+			Arr.map(keyIndexes, (i) => columnAt(input.heading, i)),
+			`a group of ${node.id}`
+		)
+		const groups = new Map<string, Array<Row>>()
+		for (const [r, row] of input.rows.entries()) {
+			const key = defined(groupKeys[r], `the group key of row ${r} of ${node.id}`)
+			const rows = groups.get(key)
+			if (rows === undefined) {
+				groups.set(key, [row])
+			} else {
+				rows.push(row)
+			}
+		}
+		if (groups.size === 0 && node.keys.length === 0) {
+			throw referenceUnsupported(`an ordered-set aggregate over no row ${node.id}`)
+		}
+		const fraction = (e: ScalarExpr | undefined): number => {
+			const f = e === undefined ? undefined : this.expr(e, scope)
+			if (typeof f !== "number" || !(f >= 0 && f <= 1)) {
+				throw referenceUnsupported(`a fraction outside 0 to 1 of ${node.id}`)
+			}
+			return f
+		}
+		const out: Array<Row> = []
+		for (const rows of groups.values()) {
+			const values = Arr.map(
+				Arr.sort(rows, (a: Row, b: Row): -1 | 0 | 1 => {
+					const c = compare(valueAt(a, at), valueAt(b, at), type)
+					return by.dir === "desc" ? (c < 0 ? 1 : c > 0 ? -1 : 0) : c
+				}),
+				(row) => valueAt(row, at)
+			)
+			const valueAtIndex = (i: number): Value => defined(values[i], `value ${i} of ${node.id}`)
+			const results = ((): ReadonlyArray<Value> => {
+				switch (node.fn) {
+					case "percentileDisc":
+						return Arr.map(node.fractions, (e) => {
+							const rownum = Math.ceil(fraction(e) * values.length)
+							return valueAtIndex(Math.max(rownum, 1) - 1)
+						})
+					case "percentileCont":
+						return Arr.map(node.fractions, (e) => {
+							const position = fraction(e) * (values.length - 1)
+							const first = Math.floor(position)
+							const second = Math.ceil(position)
+							const lo = doubleOf(valueAtIndex(first))
+							if (first === second) {
+								return lo
+							}
+							const hi = doubleOf(valueAtIndex(second))
+							return lo + (position - first) * (hi - lo)
+						})
+					case "mode": {
+						let mode = valueAtIndex(0)
+						let modeRun = 0
+						let run = 0
+						for (const [i, v] of values.entries()) {
+							run = i > 0 && equal(valueAtIndex(i - 1), v, type) ? run + 1 : 1
+							if (run > modeRun) {
+								mode = v
+								modeRun = run
+							}
+						}
+						return [mode]
+					}
+				}
+			})()
+			const first = defined(rows[0], `a row of a group of ${node.id}`)
+			out.push(
+				Arr.map(node.heading, (c) => {
+					const keyAt = node.keys.indexOf(c.name)
+					if (keyAt >= 0) {
+						return valueAt(first, defined(keyIndexes[keyAt], `key ${keyAt} of ${node.id}`))
+					}
+					const outAt = node.outs.indexOf(c.name)
+					if (outAt < 0) {
+						throw referenceUnsupported(`a key or output named ${c.name}`)
+					}
+					return coerce(defined(results[outAt], `output ${outAt} of ${node.id}`), c.type)
+				})
+			)
 		}
 		return out
 	}

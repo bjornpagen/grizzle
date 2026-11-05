@@ -54,4 +54,3 @@ export interface LoweringCase {
 	readonly name: string
 	readonly query: LogicalQuery
 }
-
