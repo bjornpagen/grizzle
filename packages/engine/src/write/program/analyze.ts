@@ -4,6 +4,7 @@ import {
 	type NonEmptyReadonlyArray,
 	sortNonEmpty
 } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { oneForm } from "#compiler/lower/shapes/index.ts"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -44,9 +45,6 @@ const touches = (access: CarrierAccess, carrier: CarrierName): boolean =>
 const joined = (access: CarrierAccess): ReadonlySet<CarrierName> =>
 	access.stored ? access.reads : new Set()
 
-/** The number of a carrier's name, for a deterministic order. */
-const carrierNumber = (name: CarrierName): number => Number(name.slice("__carrier_".length))
-
 /** Whether `carrier` is next accessed after `here`, among `after`, by a statement that joins it, with no write to it
  * from `here` on: a statement joining a carrier reads it. */
 const nextJoinedWithoutWrite = (
@@ -75,10 +73,7 @@ const pointsOf = (
 			const others = [...stale].filter(
 				(c) => !needed.includes(c) && nextJoinedWithoutWrite(c, a, after)
 			)
-			const batch = sortNonEmpty(
-				extendNonEmpty(needed, others),
-				(x, y) => carrierNumber(x) - carrierNumber(y)
-			)
+			const batch = sortNonEmpty(extendNonEmpty(needed, others), compareStrings)
 			for (const c of batch) {
 				stale.delete(c)
 			}

@@ -33,10 +33,10 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { carrierName } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { unitCarrier } from "#test/support/kernel/naming.ts"
 import {
 	featureCount,
 	type ShapeFeature,
@@ -425,7 +425,7 @@ describe("generated statements", () => {
  * the variant, and no other site is of that kind.
  */
 const rootHoleFirst = (statement: SqlStatement): void => {
-	const variant: SqlStatement = { kind: "analyze", carriers: [carrierName(1)] }
+	const variant: SqlStatement = { kind: "analyze", carriers: [unitCarrier(1)] }
 	const marker = lit.int(424243, types.integer)
 	const rewrites = oneHole(statement, {
 		...noHoles,

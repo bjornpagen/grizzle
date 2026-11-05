@@ -39,8 +39,6 @@ export type Artifact =
  * - `budget`: a compiler budget's charge (core/budget.ts BudgetMeter), its limit and the total the charge needed;
  * - `rewriteSteps`: the steps of the rewrite pass `rewrite`, its limit and the step that crossed it;
  * - `rewriteMeasure`: a rewrite of the pass `rewrite` whose measure did not strictly decrease, `before` to `after`;
- * - `nesting`: a container nested deeper than `limit`;
- * - `carriers`: more than `limit` carriers of one heading's column types in one program;
  * - `regexConstructs`: a pattern of more than `limit` regex constructs;
  * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts above PostgreSQL's regex compile space;
  * - `text`: a text grizzle builds as one string, `needed` UTF-16 code units long, past `limit` (core/policy.ts
@@ -67,8 +65,6 @@ export type CompileBound =
 			readonly before: ReadonlyArray<number>
 			readonly after: ReadonlyArray<number>
 	  }
-	| { readonly kind: "nesting"; readonly limit: number }
-	| { readonly kind: "carriers"; readonly limit: number }
 	| { readonly kind: "regexConstructs"; readonly limit: number }
 	| { readonly kind: "regexCompileSpace"; readonly pattern: string; readonly measure: string }
 	| { readonly kind: "text"; readonly limit: number; readonly needed: number }
@@ -82,10 +78,6 @@ const boundText = (bound: CompileBound): string => {
 			return `${bound.rewrite} rewrite steps <= ${bound.limit} (needed ${bound.needed})`
 		case "rewriteMeasure":
 			return `a strictly decreasing ${bound.rewrite} measure; [${bound.before.join(", ")}] became [${bound.after.join(", ")}]`
-		case "nesting":
-			return `nesting depth at most ${bound.limit}`
-		case "carriers":
-			return `at most ${bound.limit} carriers of one heading's column types in one program`
 		case "regexConstructs":
 			return `the pattern exceeds the fixed budget of ${bound.limit} regex constructs`
 		case "regexCompileSpace":

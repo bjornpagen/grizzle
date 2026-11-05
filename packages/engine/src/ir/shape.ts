@@ -2,82 +2,199 @@ import { nominal } from "#compiler/core/brand.ts"
 import {
 	type Canonicalizable,
 	isCanonicalizable,
-	maxNestingDepth,
 	type Path,
 	Refusal,
 	taggedValueOf
 } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { parseSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
 
 export type { Path }
 
 /**
- * The path of the value a decode is reading, from the root: one stack per decode, onto which each container pushes a
- * child's key while it reads that child, so a refusal names where it happened without a copy of the path per step.
- * The key is popped when the child's read ends, whether it returns or throws.
+ * A place in a value: the key of its last step and the place that step was taken from, back to the root, which is no
+ * place at all (undefined). Taking a step is one cell, so a place is kept as it stands, never copied.
+ */
+interface Place {
+	readonly key: string | number
+	readonly from: Place | undefined
+}
+
+/** The keys of the steps to `place` from the root, in order. */
+const keysTo = (place: Place | undefined): Path => {
+	const keys: Array<string | number> = []
+	for (let at = place; at !== undefined; at = at.from) {
+		keys.push(at.key)
+	}
+	return keys.toReversed()
+}
+
+/**
+ * The path of the value a decode is reading, from the root: one per decode, onto which each container steps to a child
+ * while it reads that child, so a refusal keeps where it happened as one cell (Place) and spells the keys only when it
+ * is reported. The step is taken back when the child's read ends, whether it returns or throws.
  */
 class DecodePath {
-	readonly #keys: Array<string | number> = []
+	#place: Place | undefined = undefined
 
 	/** What the decode decodes: the label of the location `located` gives a node its input leaves unlocated. */
 	readonly subject: string
 
-	/** The containers on the path of the decode, so a value already on it is refused as a cycle. */
+	/**
+	 * The containers on the path of the decode, so a value already on it is refused as a cycle, and one that two others
+	 * share is read once under each.
+	 */
 	readonly onPath = new Set<object>()
 
 	/**
-	 * The containers on the path of the conformance (conformWith), outermost first: container i stands at depth i. It is
-	 * read only when the nesting bound is reached, to tell a cycle from depth.
+	 * The objects the decode answered as they are rather than as copies it built: an interned instance, which a value is
+	 * its own decoded form at only by being (conformWith).
 	 */
-	readonly conformPath: Array<object> = []
+	readonly asIs = new WeakSet<object>()
 
 	constructor(subject: string) {
 		this.subject = subject
 	}
 
-	/** The number of containers above the value: its nesting depth. */
-	get depth(): number {
-		return this.#keys.length
+	/** Where the decode is. */
+	get place(): Place | undefined {
+		return this.#place
 	}
 
-	/** The keys from the root to the value, a copy. */
+	/** The keys from the root to the value. */
 	get keys(): Path {
-		return [...this.#keys]
+		return keysTo(this.#place)
 	}
 
-	/** `read` run on the child at `key`. */
-	at<A>(key: string | number, read: () => A): A {
-		this.#keys.push(key)
+	/** `step` run on the child at `key`. */
+	*at<A>(key: string | number, step: Step<A>): Step<A> {
+		const from = this.#place
+		this.#place = { key, from }
 		try {
-			return read()
+			return yield* step
 		} finally {
-			this.#keys.pop()
+			this.#place = from
 		}
 	}
 }
 
-/** The keys of a path a refusal names. */
-const keysOf = (at: Path | DecodePath): Path => (at instanceof DecodePath ? at.keys : [...at])
+/** Where a refusal happened: a place a decode kept, or a path an audit names. */
+type Where =
+	| { readonly kind: "place"; readonly place: Place | undefined }
+	| { readonly kind: "path"; readonly path: Path }
+
+const whereOf = (at: Path | DecodePath): Where =>
+	at instanceof DecodePath ? { kind: "place", place: at.place } : { kind: "path", path: [...at] }
+
+/** The keys of the place a refusal names. */
+const keysOf = (where: Where): Path => (where.kind === "place" ? keysTo(where.place) : where.path)
+
+/**
+ * A step the driver runs on its own stack rather than inside the step that waits on it (deferred): its generator,
+ * which keeps what the step answers for the waiting step to read once the driver resumes it.
+ */
+interface Task {
+	readonly run: Generator<Task, void, void>
+}
+
+/**
+ * A decode in progress: a generator that returns its answer. A shape reads its parts by delegating to their steps
+ * (yield*), and a recursive shape (lazy) yields its part's step to the driver as a Task instead, so the call stack grows
+ * with the nesting of the shapes' own definitions and never with the value's.
+ */
+type Step<A> = Generator<Task, A, void>
+
+/** A decode in progress, whose answer is the decoded value. */
+type Decoding<A> = Step<A>
+
+/** A step the driver runs to its end on its own stack, keeping its answer. */
+class Deferred<A> implements Task {
+	readonly run: Generator<Task, void, void>
+	#answer: { readonly value: A } | undefined
+
+	constructor(step: Step<A>) {
+		this.run = this.#kept(step)
+	}
+
+	*#kept(step: Step<A>): Generator<Task, void, void> {
+		this.#answer = { value: yield* step }
+	}
+
+	/** What the step answered: the driver ran it to its end before it resumed the step that reads this. */
+	get answer(): A {
+		return defined(this.#answer, "a deferred step ran to its end before its answer is read").value
+	}
+}
+
+/** `step`, run by the driver on its own stack, its answer handed back once it ends: how lazy reads its shape's part. */
+function* deferred<A>(step: Step<A>): Step<A> {
+	const task = new Deferred(step)
+	yield task
+	return task.answer
+}
+
+/** A deferred step the driver has started, and the step that waits on it. */
+interface Frame {
+	readonly run: Generator<Task, void, void>
+	readonly waiting: Frame | undefined
+}
+
+/** What a step threw, for the step that waits on it. */
+interface Thrown {
+	readonly error: unknown
+}
+
+/**
+ * The answer of `step`, run on a stack of frames on the heap: every Task a frame yields is run to its end before that
+ * frame resumes, and what one throws is thrown into the frame waiting on it, so a union still tries its next
+ * alternative and every key and container a step pushed leaves the path, however deep the value.
+ */
+const drive = <A>(step: Step<A>): A => {
+	const root = new Deferred(step)
+	let frame: Frame = { run: root.run, waiting: undefined }
+	let thrown: Thrown | undefined
+	for (;;) {
+		let next: IteratorResult<Task, void>
+		try {
+			next = thrown === undefined ? frame.run.next() : frame.run.throw(thrown.error)
+		} catch (error) {
+			if (frame.waiting === undefined) {
+				throw error
+			}
+			frame = frame.waiting
+			thrown = { error }
+			continue
+		}
+		thrown = undefined
+		if (next.done !== true) {
+			frame = { run: next.value.run, waiting: frame }
+		} else if (frame.waiting === undefined) {
+			return root.answer
+		} else {
+			frame = frame.waiting
+		}
+	}
+}
 
 /**
  * Structural decoders for the Description boundary and the IR.
  *
- * The compiler rejects malformed runtime descriptions even when they appear to have the expected TypeScript type, so every Description and every IR value therefore has a Shape: a decoder from unknown input to an owned, frozen
- * copy, or a MalformedDescription naming the path of the first offending value. A Shape is written beside the
- * interface it decodes and annotated with it, so the type checker keeps the two in step.
+ * The compiler rejects malformed runtime descriptions even when they appear to have the expected TypeScript type, so
+ * every Description and every IR value therefore has a Shape: a decoder from unknown input to an owned, frozen copy, or
+ * a MalformedDescription naming the path of the first offending value. A Shape is written beside the interface it
+ * decodes and annotated with it, so the type checker keeps the two in step.
  *
  * Shapes are strict: an object with a property its shape does not name is refused, so a misspelled optional field is
  * an error rather than a silently ignored one. No shape accepts null, which exists at no layer.
  *
- * An in-memory value can be nested arbitrarily deep or be cyclic, which its text or JSON form cannot. The decoders
- * therefore bound the nesting as the kernel does: a container nested deeper than maxNestingDepth is ResourceBound,
- * and a container that contains itself is refused as cyclic, so the in-memory path fails exactly where
- * the text path does and never overflows the stack.
+ * An in-memory value can be cyclic, which its text or JSON form cannot be, and either can be nested to any depth. A
+ * decode reads every recursive part on a stack on the heap (Step), so no depth of value deepens the call stack, and
+ * refuses a container that holds itself as cyclic, so the in-memory path fails exactly where the text path does.
  *
  * Decoding is idempotent: every container shape returns a fresh frozen copy built only from its fields' decoded values,
  * and every check it makes reads only the decoded value, so decoding that copy again with the same shape accepts it and
@@ -88,34 +205,17 @@ export interface Shape<A> {
 	/** What the shape accepts, for diagnostics. */
 	readonly expected: string
 	/** Decodes `value` found at `path`, throwing a Mismatch on the first mismatch. Only `decodeWith` catches it. */
-	readonly parse: (value: unknown, path: DecodePath) => A
+	readonly parse: (value: unknown, path: DecodePath) => Decoding<A>
 	/**
 	 * What a tagged union's case reads of `value`, the property `skip` (the union's discriminator) passed over: a
 	 * struct's fields read from `value` itself, the same checks in the same order as `parse` makes after its object
 	 * checks (the struct shapes and a located struct); any other shape's parse of a copy without `skip` (plain).
 	 */
-	readonly fields: (value: Readonly<Record<string, unknown>>, path: DecodePath, skip: string) => A
-	/**
-	 * Whether `value`, a value of the decoded type this package's own code built, is its own decoded form (conformWith):
-	 * the checks `parse` makes, in its order, refusing where it refuses, over every container, with no copy. True when
-	 * each container in `value` holds what its decoded copy would hold, key order aside, so `value` is an A; each
-	 * container is then frozen. False, at the first member in parse's order whose decoded form is not itself (a copy
-	 * that differs: a member's own decoded form differs, a stated member is left out, an optional one is stated
-	 * undefined, a symbol key a copy drops), for the caller to decode in full; nothing after that member is checked
-	 * here, so every refusal is the one parse makes first. A shape whose decoded form is never its input (a located
-	 * node, a normalized value) is "decoded": no value is its own decoded form there (conforms).
-	 */
-	readonly conform: ((value: unknown, path: DecodePath) => value is A) | "decoded"
-	/**
-	 * conform of a tagged union's case read from `value` itself, the discriminators `skip` passed over, as `fields` reads
-	 * a struct: a struct's, and a tagged union's, so a union can be the case of another. Any other shape is never shown
-	 * its own decoded form as a case (notInPlace), since parse decodes such a case from a copy without the discriminator.
-	 */
-	readonly conformFields: (
+	readonly fields: (
 		value: Readonly<Record<string, unknown>>,
 		path: DecodePath,
-		skip: ReadonlyArray<string>
-	) => boolean
+		skip: string
+	) => Decoding<A>
 }
 
 /** One shape per property of R: the fields of a struct, the cases of a tagged union, the members of a union. */
@@ -133,25 +233,18 @@ export const malformedAt = (subject: string, path: Path, capability: string): Co
  * trying its next alternative). It never escapes this module's exported functions.
  */
 class Mismatch extends Error {
-	readonly path: Path
+	readonly where: Where
 	readonly capability: string
 
-	constructor(fields: { readonly path: Path; readonly capability: string }) {
+	constructor(fields: { readonly where: Where; readonly capability: string }) {
 		super()
-		this.path = fields.path
+		this.where = fields.where
 		this.capability = fields.capability
 	}
 }
 
-/** conformFields of a shape that is no struct or tagged union. */
-export const notInPlace = (): boolean => false
-
-/** Whether `value` is its own decoded form under `shape` (Shape.conform): never under a "decoded" shape. */
-const conforms = <A>(shape: ShapeParts<A>, value: unknown, path: DecodePath): value is A =>
-	shape.conform !== "decoded" && shape.conform(value, path)
-
 /** A shape but for what a tagged union's case reads of it (fields): the parts plain completes. */
-export type ShapeParts<A> = Omit<Shape<A>, "fields">
+type ShapeParts<A> = Omit<Shape<A>, "fields">
 
 /**
  * A shape that is no struct, whose fields as a tagged union's case are its parse of a copy without the discriminator:
@@ -159,107 +252,80 @@ export type ShapeParts<A> = Omit<Shape<A>, "fields">
  */
 export const plain = <A>(shape: ShapeParts<A>): Shape<A> => ({
 	...shape,
-	fields: (value, path, skip) => {
+	fields: function* (value, path, skip) {
 		const rest: Record<string, unknown> = {}
 		for (const k of Object.keys(value)) {
 			if (k !== skip) {
 				setOwn(rest, k, value[k])
 			}
 		}
-		return shape.parse(rest, path)
+		return yield* shape.parse(rest, path)
 	}
 })
 
 export const refuse = (at: Path | DecodePath, capability: string): never => {
-	throw new Mismatch({ path: keysOf(at), capability })
+	throw new Mismatch({ where: whereOf(at), capability })
+}
+
+/** Refuses the child at `key` of the value at `path`. */
+const refuseAt = (path: DecodePath, key: string | number, capability: string): never => {
+	throw new Mismatch({ where: { kind: "place", place: { key, from: path.place } }, capability })
 }
 
 /**
- * Internal control flow for a refusal no alternative can repair (a resource bound, a cycle): a union does not try its
- * next alternative on it, so it reaches decodeWith unchanged.
+ * Internal control flow for a refusal no alternative can repair (a cycle, a read that throws): a union does not try its
+ * next alternative on it, so it reaches decodeWith unchanged, naming what the value had to be.
  */
 class Abort extends Error {
-	readonly path: Path
-	readonly why: AbortCause
+	readonly where: Where
+	readonly what: string
 
-	constructor(fields: { readonly path: Path; readonly why: AbortCause }) {
+	constructor(fields: { readonly where: Where; readonly what: string }) {
 		super()
-		this.path = fields.path
-		this.why = fields.why
+		this.where = fields.where
+		this.what = fields.what
 	}
 }
 
-/** Why a decode stopped where no alternative repairs it: a container nested too deep, or a value malformed for `what`. */
-type AbortCause =
-	| { readonly kind: "nesting" }
-	| { readonly kind: "malformed"; readonly what: string }
-
-const abort = (at: DecodePath | Path, cause: AbortCause): never => {
-	throw new Abort({ path: keysOf(at), why: cause })
+const abort = (at: DecodePath, what: string): never => {
+	throw new Abort({ where: whereOf(at), what })
 }
-
-const nested: AbortCause = { kind: "nesting" }
-const cyclic: AbortCause = { kind: "malformed", what: "an acyclic value" }
 
 /**
- * Decodes the container `value` at `path` with `f`: refused past maxNestingDepth or when `value` is already on the
- * path. The path holds one segment per container above this one, so its length is the nesting depth.
+ * `step` over the container `value` at `path`, inside its place on the path: refused as a cycle when `value` is already
+ * on it, so a container that holds itself is refused where it meets itself, while one two others share is read once
+ * under each. Every container a shape decodes is read through here.
  */
-const within = <A>(value: object, path: DecodePath, f: () => A): A => {
+function* within<A>(value: object, path: DecodePath, step: Step<A>): Step<A> {
 	if (path.onPath.has(value)) {
-		abort(path, cyclic)
-	}
-	if (path.depth >= maxNestingDepth) {
-		abort(path, nested)
+		abort(path, "an acyclic value")
 	}
 	path.onPath.add(value)
 	try {
-		return f()
+		return yield* step
 	} finally {
 		path.onPath.delete(value)
 	}
 }
 
 /**
- * conform's `within`: the container `value` at `path`, refused past maxNestingDepth. A value built bottom up never
- * contains itself, so the cycle check `within` makes on every container waits for the bound, which a cycle always
- * reaches: there the first container that is already on the path is refused, at the path where `within` refuses it.
+ * Runs `shape` over `value` at the root of `path`, as a Result. The path's subject names what is being decoded in the
+ * error location ("query description at arms[0].head.total").
  */
-const conformWithin = <A>(value: object, path: DecodePath, f: () => A): A => {
-	if (path.depth >= maxNestingDepth) {
-		const containers = [...path.conformPath, value]
-		for (const [i, c] of containers.entries()) {
-			if (containers.indexOf(c) !== i) {
-				abort(path.keys.slice(0, i), cyclic)
-			}
-		}
-		abort(path, nested)
-	}
-	path.conformPath.push(value)
+const decodeOn = <A>(
+	shape: Shape<A>,
+	value: unknown,
+	path: DecodePath
+): Result.Result<A, CompileError> => {
 	try {
-		return f()
-	} finally {
-		path.conformPath.pop()
-	}
-}
-
-/**
- * Runs `work` as a decode at the root, as a Result, on a path of its own: its path set, conformance path and subject.
- * `what` names what is being decoded in the error location ("query description at arms[0].head.total").
- */
-const atRoot = <A>(what: string, work: (path: DecodePath) => A): Result.Result<A, CompileError> => {
-	try {
-		return Result.ok(work(new DecodePath(what)))
+		return Result.ok(drive(shape.parse(value, path)))
 	} catch (caught) {
 		if (caught instanceof Mismatch) {
-			return Result.err(malformedAt(what, caught.path, caught.capability))
+			return Result.err(malformedAt(path.subject, keysOf(caught.where), caught.capability))
 		}
 		if (caught instanceof Abort) {
-			const at = SourceLoc(what, caught.path)
 			return Result.err(
-				caught.why.kind === "nesting"
-					? resourceBound(at, { kind: "nesting", limit: maxNestingDepth })
-					: malformedDescription(at, caught.why.what)
+				malformedDescription(SourceLoc(path.subject, keysOf(caught.where)), caught.what)
 			)
 		}
 		if (caught instanceof Refusal) {
@@ -277,25 +343,83 @@ export const decodeWith = <A>(
 	shape: Shape<A>,
 	value: unknown,
 	what: string
-): Result.Result<A, CompileError> => atRoot(what, (path) => shape.parse(value, path))
+): Result.Result<A, CompileError> => decodeOn(shape, value, new DecodePath(what))
 
 /**
  * The decoded form of `value`, a value of the decoded type that this package's own code built: what decodeWith gives
- * for it, up to key order. Its static type is the proof that no caller's code built it, so no read of it runs a caller's
- * proxy or getter; the shape's checks still run over every container. A value that is its own decoded form (conform)
- * is kept as it is, frozen throughout, with no copy; any other is decoded. A refusal, at the first offending value in
- * parse's order as decodeWith names it, is the builder's defect, never a refusal of anyone's input.
+ * for it, up to key order. A value that is its own decoded form (ownForm) is kept as it is, frozen throughout; any other
+ * is its decoded copy. A refusal, at the first offending value in parse's order as decodeWith names it, is the
+ * builder's defect, never a refusal of anyone's input.
  */
 export const conformWith = <A>(shape: Shape<A>, value: A, what: string): A => {
-	const shown = atRoot(what, (path) => conforms(shape, value, path))
-	if (shown.ok && shown.value) {
-		return value
-	}
-	const decoded = Result.flatMap(shown, () => decodeWith(shape, value, what))
+	const path = new DecodePath(what)
+	const decoded = decodeOn(shape, value, path)
 	if (!decoded.ok) {
 		throw defect(`a value this package built has its shape: ${decoded.error.message}`)
 	}
-	return decoded.value
+	return ownForm(value, decoded.value, path.asIs) ? value : decoded.value
+}
+
+/**
+ * Whether `value` is its own decoded form `decoded`, its copy under one decode, `asIs` the objects that decode answered
+ * as they are; when it is, every array and plain object in it is frozen. It is when every container in it holds what the
+ * copy's container at its place holds, key order aside: an array of Array's own prototype with the same items; a plain
+ * object with no symbol key and the same own keys, each with the same member, so a member stated undefined that the
+ * copy leaves out, or one the copy states and the value leaves out, is not. A primitive, or an object the decode
+ * answered as it is (an interned instance), is the copy's member exactly when it is that very member; an object of
+ * another prototype is a carrier the decode parsed from its canonical payload (canonicalParsed), whose own decoded form
+ * is a value of the same class, since a carrier spells its payload from what the payload parses back to. A value the
+ * decode accepted holds no cycle, so the walk ends; the pairs still to compare wait on a stack on the heap.
+ */
+const ownForm = (value: unknown, decoded: unknown, asIs: WeakSet<object>): boolean => {
+	const pending: Array<readonly [unknown, unknown]> = [[value, decoded]]
+	const containers: Array<object> = []
+	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
+		const [own, copy] = pair
+		if (Object.is(own, copy)) {
+			continue
+		}
+		if (typeof own !== "object" || own === null || typeof copy !== "object" || copy === null) {
+			return false
+		}
+		if (asIs.has(copy)) {
+			return false
+		}
+		if (isList(copy)) {
+			if (
+				!isList(own) ||
+				Object.getPrototypeOf(own) !== Array.prototype ||
+				own.length !== copy.length
+			) {
+				return false
+			}
+			containers.push(own)
+			for (const [i, item] of copy.entries()) {
+				pending.push([own[i], item])
+			}
+		} else if (isPlainObject(copy)) {
+			if (!isPlainObject(own) || Object.getOwnPropertySymbols(own).length > 0) {
+				return false
+			}
+			const keys = Object.keys(copy)
+			if (Object.keys(own).length !== keys.length) {
+				return false
+			}
+			containers.push(own)
+			for (const key of keys) {
+				if (!Object.hasOwn(own, key)) {
+					return false
+				}
+				pending.push([own[key], copy[key]])
+			}
+		} else if (Object.getPrototypeOf(own) !== Object.getPrototypeOf(copy)) {
+			return false
+		}
+	}
+	for (const container of containers) {
+		Object.freeze(container)
+	}
+	return true
 }
 
 /**
@@ -306,7 +430,7 @@ export const conformWith = <A>(shape: Shape<A>, value: A, what: string): A => {
 const unreadable = "a value whose reading throws nothing: no refusing proxy or getter"
 const readAt = <A>(path: DecodePath, read: () => A): A => {
 	const r = hostRead(unreadable, () => Result.ok(read()))
-	return r.ok ? r.value : abort(path, { kind: "malformed", what: r.error })
+	return r.ok ? r.value : abort(path, r.error)
 }
 
 const describe = (value: unknown, path: DecodePath): string =>
@@ -412,43 +536,23 @@ const keptLoc = (loc: SourceLoc): SourceLoc =>
 /** A SourceLoc, kept: excluded from identity, retained for diagnostics. */
 export const sourceLoc: Shape<SourceLoc> = plain({
 	expected: "a source location",
-	parse: (value, path) =>
-		readAt(path, () => {
-			const loc = parseSourceLoc(value)
-			return loc === undefined ? undefined : keptLoc(loc)
-		}) ?? refuse(path, "a source location"),
-	/**
-	 * A location this package built is its own, so it is frozen where it stands, with its path and call site, rather
-	 * than copied: the same content, frozen throughout.
-	 */
-	conform: (value, path): value is SourceLoc => {
-		const loc = parseSourceLoc(value)
-		if (loc === undefined) {
-			return refuse(path, "a source location")
-		}
-		Object.freeze(loc.path)
-		if (loc.site !== undefined) {
-			Object.freeze(loc.site)
-		}
-		Object.freeze(value)
-		return true
-	},
-	conformFields: notInPlace
+	parse: function* (value, path) {
+		return (
+			readAt(path, () => {
+				const loc = parseSourceLoc(value)
+				return loc === undefined ? undefined : keptLoc(loc)
+			}) ?? refuse(path, "a source location")
+		)
+	}
 })
 
-/**
- * A shape of a value that is no container: its decode hands the value itself back, so a value it accepts is its own
- * decoded form.
- */
-const leaf = <A>(expected: string, parse: (value: unknown, path: DecodePath) => A): Shape<A> =>
+/** A shape of a value that is no container, read by `read` at once: its decode hands the value itself back. */
+const leaf = <A>(expected: string, read: (value: unknown, path: DecodePath) => A): Shape<A> =>
 	plain({
 		expected,
-		parse,
-		conform: (value, path): value is A => {
-			parse(value, path)
-			return true
-		},
-		conformFields: notInPlace
+		parse: function* (value, path) {
+			return read(value, path)
+		}
 	})
 
 /** A property no value states: as a stated field it decodes to undefined, and any value there is refused. */
@@ -456,13 +560,14 @@ export const nothing: Shape<never> = leaf("no value", (value, path) =>
 	refuse(path, `no value here, not ${describe(value, path)}`)
 )
 
-export const string: Shape<string> = leaf("a string", (value, path) =>
+const text = (value: unknown, path: DecodePath): string =>
 	typeof value === "string" ? value : refuse(path, `a string, not ${describe(value, path)}`)
-)
+
+export const string: Shape<string> = leaf("a string", text)
 
 export const nonEmptyString: Shape<string> = leaf("a nonempty string", (value, path) => {
-	const text = string.parse(value, path)
-	return text.length > 0 ? text : refuse(path, "a nonempty string")
+	const read = text(value, path)
+	return read.length > 0 ? read : refuse(path, "a nonempty string")
 })
 
 export const boolean: Shape<boolean> = leaf("a boolean", (value, path) =>
@@ -487,22 +592,23 @@ export const canonicalFloat: Shape<CanonicalFloat> = leaf(
 			: refuse(path, `a finite number other than -0, not ${describe(value, path)}`)
 )
 
-export const integer: Shape<number> = leaf("a safe integer", (value, path) =>
+const safeInteger = (value: unknown, path: DecodePath): number =>
 	typeof value === "number" && Number.isSafeInteger(value)
 		? value
 		: refuse(path, `a safe integer, not ${describe(value, path)}`)
-)
+
+export const integer: Shape<number> = leaf("a safe integer", safeInteger)
 
 export const nonNegativeInteger: Shape<number> = leaf(
 	"a nonnegative safe integer",
 	(value, path) => {
-		const n = integer.parse(value, path)
+		const n = safeInteger(value, path)
 		return n >= 0 ? n : refuse(path, "a nonnegative integer")
 	}
 )
 
 export const positiveInteger: Shape<number> = leaf("a positive safe integer", (value, path) => {
-	const n = integer.parse(value, path)
+	const n = safeInteger(value, path)
 	return n > 0 ? n : refuse(path, "a positive integer")
 })
 
@@ -537,10 +643,9 @@ export const branded = <B extends string>(
 ): Shape<B> =>
 	plain({
 		expected: shape.expected,
-		parse: (value, path) => brand(shape.parse(value, path)),
-		/** A brand is the decoded string itself, so a string its own decoded form is one of the brand's. */
-		conform: (value, path): value is B => conforms(shape, value, path),
-		conformFields: notInPlace
+		parse: function* (value, path) {
+			return brand(yield* shape.parse(value, path))
+		}
 	})
 
 export const refine = <A>(
@@ -550,14 +655,10 @@ export const refine = <A>(
 ): Shape<A> =>
 	plain({
 		expected,
-		parse: (value, path) => {
-			const out = shape.parse(value, path)
+		parse: function* (value, path) {
+			const out = yield* shape.parse(value, path)
 			return test(out) ? out : refuse(path, expected)
-		},
-		/** The test reads the value itself, which is its own decoded form once the shape conforms it. */
-		conform: (value, path): value is A =>
-			conforms(shape, value, path) && (test(value) || refuse(path, expected)),
-		conformFields: notInPlace
+		}
 	})
 
 /**
@@ -567,20 +668,11 @@ export const refine = <A>(
 export const audited = <A>(shape: Shape<A>, audit: (value: A, path: Path) => void): Shape<A> =>
 	plain({
 		expected: shape.expected,
-		parse: (value, path) => {
-			const out = shape.parse(value, path)
+		parse: function* (value, path) {
+			const out = yield* shape.parse(value, path)
 			audit(out, path.keys)
 			return out
-		},
-		/** The audit reads the value itself, as refine's test does. */
-		conform: (value, path): value is A => {
-			if (!conforms(shape, value, path)) {
-				return false
-			}
-			audit(value, path.keys)
-			return true
-		},
-		conformFields: notInPlace
+		}
 	})
 
 /**
@@ -590,15 +682,14 @@ export const audited = <A>(shape: Shape<A>, audit: (value: A, path: Path) => voi
 export const normalized = <A, B>(shape: Shape<A>, normalize: (value: A) => B): Shape<B> =>
 	plain({
 		expected: shape.expected,
-		parse: (value, path) => Object.freeze(normalize(shape.parse(value, path))),
-		/** A normalized value is the decode of its input, never shown its own decoded form in place: decode it. */
-		conform: "decoded",
-		conformFields: notInPlace
+		parse: function* (value, path) {
+			return Object.freeze(normalize(yield* shape.parse(value, path)))
+		}
 	})
 
 /**
  * A value of a fixed set of interned instances, decoded to the one instance its parts name, so equal values are one
- * value. A value is its own decoded form exactly when it is that instance.
+ * value. The decode answers the instance as it is, so a value is its own decoded form exactly when it is that instance.
  */
 export const interned = <P, A extends object>(
 	parts: Shape<P>,
@@ -606,63 +697,39 @@ export const interned = <P, A extends object>(
 ): Shape<A> =>
 	plain({
 		expected: parts.expected,
-		parse: (value, path) => instance(parts.parse(value, path)),
-		conform: (value, path): value is A => instance(parts.parse(value, path)) === value,
-		conformFields: notInPlace
+		parse: function* (value, path) {
+			const one = instance(yield* parts.parse(value, path))
+			path.asIs.add(one)
+			return one
+		}
 	})
 
-/** Freezes `value` and answers true: what a container's conform does once every member is its own decoded form. */
-const frozen = (value: object): boolean => {
-	Object.freeze(value)
-	return true
-}
-
-/** The first index below the array's length that holds no element, or undefined when there is none. */
-const firstHole = (items: ReadonlyArray<unknown>): number | undefined => {
-	for (let i = 0; i < items.length; i++) {
-		if (!(i in items)) {
-			return i
-		}
+/** The decoded items of an array, in order, frozen. */
+function* itemsOf<A>(
+	item: Shape<A>,
+	items: ReadonlyArray<unknown>,
+	path: DecodePath
+): Decoding<ReadonlyArray<A>> {
+	const out: Array<A> = []
+	for (const [i, child] of items.entries()) {
+		out.push(yield* path.at(i, item.parse(child, path)))
 	}
-	return undefined
+	return Object.freeze(out)
 }
 
 /** The array decoders below are built from these parts, which plain completes once, at the outside. */
 const arrayOf = <A>(item: Shape<A>): ShapeParts<ReadonlyArray<A>> => ({
 	expected: `an array of ${item.expected}`,
-	parse: (value, path) => {
+	parse: function* (value, path) {
 		const read = readArray(value, path)
 		if (read.kind === "other") {
 			return refuse(path, `an array, not ${describe(value, path)}`)
 		}
 		if (read.kind === "hole") {
-			return path.at(read.at, () => refuse(path, "an array element, not a hole"))
+			return refuseAt(path, read.at, "an array element, not a hole")
 		}
-		return within(read.container, path, () =>
-			Object.freeze(read.items.map((child, i) => path.at(i, () => item.parse(child, path))))
-		)
-	},
-	/** The decoded copy is a plain array, so an array of another prototype is not its own decoded form. */
-	conform: (value, path): value is ReadonlyArray<A> => {
-		if (!Array.isArray(value)) {
-			return refuse(path, `an array, not ${describe(value, path)}`)
-		}
-		const items: ReadonlyArray<unknown> = value
-		const hole = firstHole(items)
-		if (hole !== undefined) {
-			return path.at(hole, () => refuse(path, "an array element, not a hole"))
-		}
-		if (Object.getPrototypeOf(items) !== Array.prototype) {
-			return false
-		}
-		return conformWithin(
-			items,
-			path,
-			() =>
-				items.every((child, i) => path.at(i, () => conforms(item, child, path))) && frozen(items)
-		)
-	},
-	conformFields: notInPlace
+		return yield* within(read.container, path, itemsOf(item, read.items, path))
+	}
 })
 
 /** A length check, which is what the nonempty tuple type records. */
@@ -675,13 +742,10 @@ const nonEmptyOf = <A>(
 	capability: string
 ): ShapeParts<readonly [A, ...Array<A>]> => ({
 	expected,
-	parse: (value, path) => {
-		const out = inner.parse(value, path)
+	parse: function* (value, path) {
+		const out = yield* inner.parse(value, path)
 		return isNonEmpty(out) ? out : refuse(path, capability)
-	},
-	conform: (value, path): value is readonly [A, ...Array<A>] =>
-		conforms(inner, value, path) && (value.length > 0 || refuse(path, capability)),
-	conformFields: notInPlace
+	}
 })
 
 const distinctOf = <A>(
@@ -690,36 +754,21 @@ const distinctOf = <A>(
 	what: string
 ): ShapeParts<ReadonlyArray<A>> => {
 	const inner = arrayOf(item)
-	/** Refuses the first item whose key repeats an earlier one's. */
-	const seenAt = (seen: Set<string>, a: A, path: DecodePath, i: number): void => {
-		const k = key(a)
-		if (seen.has(k)) {
-			path.at(i, () => refuse(path, `distinct ${what}; ${JSON.stringify(k)} repeats`))
-		}
-		seen.add(k)
-	}
 	return {
 		expected: `an array of distinct ${what}`,
-		parse: (value, path) => {
-			const out = inner.parse(value, path)
+		/** Refuses the first item whose key repeats an earlier one's. */
+		parse: function* (value, path) {
+			const out = yield* inner.parse(value, path)
 			const seen = new Set<string>()
 			for (const [i, a] of out.entries()) {
-				seenAt(seen, a, path, i)
+				const k = key(a)
+				if (seen.has(k)) {
+					refuseAt(path, i, `distinct ${what}; ${JSON.stringify(k)} repeats`)
+				}
+				seen.add(k)
 			}
 			return out
-		},
-		/** The keys are read from the items themselves, each its own decoded form once the array conforms. */
-		conform: (value, path): value is ReadonlyArray<A> => {
-			if (!conforms(inner, value, path)) {
-				return false
-			}
-			const seen = new Set<string>()
-			for (const [i, a] of value.entries()) {
-				seenAt(seen, a, path, i)
-			}
-			return true
-		},
-		conformFields: notInPlace
+		}
 	}
 }
 
@@ -741,25 +790,13 @@ const sized = <A, T>(
 	const expected = n === 0 ? "an empty array" : `an array of exactly ${n} ${item.expected}`
 	return plain({
 		expected,
-		parse: (value, path) => {
+		parse: function* (value, path) {
 			const length = readAt(path, () => (Array.isArray(value) ? value.length : n))
 			if (length !== n) {
 				return refuse(path, `${expected}, not ${length}`)
 			}
-			return of(inner.parse(value, path)) ?? refuse(path, expected)
-		},
-		/**
-		 * No item shape accepts undefined, so `of` builds its tuple of any n items the array conforms: a frozen array of
-		 * the same items.
-		 */
-		conform: (value, path): value is T => {
-			const length = Array.isArray(value) ? value.length : n
-			if (length !== n) {
-				return refuse(path, `${expected}, not ${length}`)
-			}
-			return conforms(inner, value, path)
-		},
-		conformFields: notInPlace
+			return of(yield* inner.parse(value, path)) ?? refuse(path, expected)
+		}
 	})
 }
 
@@ -821,6 +858,34 @@ export const nonEmptyUniqueStrings = (what: string): Shape<readonly [string, ...
 		)
 	)
 
+/** A record member's key and value: the key read by `keyShape`, then the value by `item`. */
+function* recordMember<A>(
+	item: Shape<A>,
+	keyShape: Shape<string>,
+	key: string,
+	child: unknown,
+	path: DecodePath
+): Decoding<A> {
+	yield* keyShape.parse(key, path)
+	return child === undefined
+		? refuse(path, "a value, not undefined")
+		: yield* item.parse(child, path)
+}
+
+/** A record's decoded members, in its key order, frozen. */
+function* recordMembers<A>(
+	item: Shape<A>,
+	keyShape: Shape<string>,
+	fields: Readonly<Record<string, unknown>>,
+	path: DecodePath
+): Decoding<Readonly<Record<string, A>>> {
+	const out: Record<string, A> = {}
+	for (const key of Object.keys(fields)) {
+		setOwn(out, key, yield* path.at(key, recordMember(item, keyShape, key, fields[key], path)))
+	}
+	return Object.freeze(out)
+}
+
 /** A plain object used as a map from nonempty names to values. */
 export const recordShape = <A>(
 	item: Shape<A>,
@@ -828,54 +893,13 @@ export const recordShape = <A>(
 ): Shape<Readonly<Record<string, A>>> =>
 	plain({
 		expected: `an object of ${item.expected}`,
-		parse: (value, path) => {
+		parse: function* (value, path) {
 			const read = readObject(value, path)
 			if (read.kind === "other") {
 				return refuse(path, `a plain object, not ${describe(value, path)}`)
 			}
-			const fields = read.copy
-			return within(read.container, path, () => {
-				const out: Record<string, A> = {}
-				for (const key of Object.keys(fields)) {
-					setOwn(
-						out,
-						key,
-						path.at(key, () => {
-							keyShape.parse(key, path)
-							const child = fields[key]
-							return child === undefined
-								? refuse(path, "a value, not undefined")
-								: item.parse(child, path)
-						})
-					)
-				}
-				return Object.freeze(out)
-			})
-		},
-		/** The decoded copy holds the string keys alone, so an object with a symbol key is not its own decoded form. */
-		conform: (value, path): value is Readonly<Record<string, A>> => {
-			if (!isPlainObject(value)) {
-				return refuse(path, `a plain object, not ${describe(value, path)}`)
-			}
-			if (Object.getOwnPropertySymbols(value).length > 0) {
-				return false
-			}
-			return conformWithin(
-				value,
-				path,
-				() =>
-					Object.keys(value).every((key) =>
-						path.at(key, () => {
-							keyShape.parse(key, path)
-							const child = value[key]
-							return child === undefined
-								? refuse(path, "a value, not undefined")
-								: conforms(item, child, path)
-						})
-					) && frozen(value)
-			)
-		},
-		conformFields: notInPlace
+			return yield* within(read.container, path, recordMembers(item, keyShape, read.copy, path))
+		}
 	})
 
 type Simplify<T> = { [K in keyof T]: T[K] }
@@ -909,108 +933,9 @@ const checkStructKeys = (
 ): void => {
 	for (const key of Object.keys(value)) {
 		if (key !== skip && !parts.isField(key)) {
-			unknownKey(parts, path, key)
+			refuseAt(path, key, `no property ${JSON.stringify(key)}; expected ${parts.names.join(", ")}`)
 		}
 	}
-}
-
-const unknownKey = (parts: StructNames, path: DecodePath, key: string): never =>
-	path.at(key, () =>
-		refuse(path, `no property ${JSON.stringify(key)}; expected ${parts.names.join(", ")}`)
-	)
-
-/**
- * checkStructKeys for conform, every discriminator in `skip` passed over: a struct read from a value of nested tagged
- * unions passes over each union's discriminator, as each union's copy of the value leaves it out.
- */
-const conformKeys = (
-	parts: StructNames,
-	value: Readonly<Record<string, unknown>>,
-	path: DecodePath,
-	skip: ReadonlyArray<string>
-): void => {
-	for (const key of Object.keys(value)) {
-		if (!skip.includes(key) && !parts.isField(key)) {
-			unknownKey(parts, path, key)
-		}
-	}
-}
-
-/**
- * What a struct's decoded copy holds for a member the value leaves out (or states undefined): a required member is
- * refused, a stated one is stated undefined, an optional one is left out.
- */
-type Absent = "refused" | "stated" | "optional"
-
-/**
- * Whether the decoded copy of `value` holds what `value` does for the member `key` it leaves out (or states undefined,
- * or names as a discriminator in `skip`): a required member is refused there.
- */
-const absentConforms = (
-	value: Readonly<Record<string, unknown>>,
-	path: DecodePath,
-	key: string,
-	skipped: boolean,
-	absent: Absent
-): boolean => {
-	if (absent === "refused") {
-		return path.at(key, () => refuse(path, `the required property ${JSON.stringify(key)}`))
-	}
-	const own = !skipped && Object.hasOwn(value, key)
-	return absent === "stated" ? own : !own
-}
-
-/**
- * conform of a struct's members of one kind, in the struct's order, read from `value` itself, a discriminator in
- * `skip` counted absent: false at the first member whose decoded form is not itself or that the decoded copy holds
- * otherwise (a stated member left out, an optional one stated undefined).
- */
-const conformMembers = <G>(
-	shapes: ShapesOf<G>,
-	keys: ReadonlyArray<keyof G & string>,
-	value: Readonly<Record<string, unknown>>,
-	path: DecodePath,
-	skip: ReadonlyArray<string>,
-	absent: Absent
-): boolean => {
-	for (const key of keys) {
-		const skipped = skip.includes(key)
-		const child = skipped ? undefined : value[key]
-		const shown =
-			child === undefined
-				? absentConforms(value, path, key, skipped, absent)
-				: path.at(key, () => conforms(shapes[key], child, path))
-		if (!shown) {
-			return false
-		}
-	}
-	return true
-}
-
-const noSkip: ReadonlyArray<string> = Object.freeze([])
-
-/**
- * conform of a struct whose members `members` reads: the object checks parse makes, then the members inside the
- * value's place on the path, and the value frozen.
- */
-const conformStruct = (
-	parts: StructNames,
-	value: unknown,
-	path: DecodePath,
-	members: (
-		value: Readonly<Record<string, unknown>>,
-		path: DecodePath,
-		skip: ReadonlyArray<string>
-	) => boolean
-): boolean => {
-	if (!isPlainObject(value)) {
-		return refuse(path, `a plain object, not ${describe(value, path)}`)
-	}
-	if (Object.getOwnPropertySymbols(value).length > 0) {
-		refuse(path, "an object without symbol keys")
-	}
-	conformKeys(parts, value, path, noSkip)
-	return conformWithin(value, path, () => members(value, path, noSkip) && frozen(value))
 }
 
 /**
@@ -1029,46 +954,37 @@ const filled = <T>(keys: ReadonlyArray<keyof T & string>, out: Partial<T>): T =>
 /**
  * The required fields of `value` decoded in the struct's order; a field named `skip` counts as absent and is refused.
  */
-const readRequired = <R>(
+function* readRequired<R>(
 	shapes: ShapesOf<R>,
 	keys: ReadonlyArray<keyof R & string>,
 	value: Readonly<Record<string, unknown>>,
 	path: DecodePath,
 	skip: string | undefined
-): { readonly [K in keyof R & string]: R[K] } => {
+): Decoding<{ readonly [K in keyof R & string]: R[K] }> {
 	const out: { [K in keyof R & string]?: R[K] } = {}
 	for (const key of keys) {
-		setOwn(
-			out,
-			key,
-			path.at(key, () => {
-				const child = key === skip ? undefined : value[key]
-				return child === undefined
-					? refuse(path, `the required property ${JSON.stringify(key)}`)
-					: shapes[key].parse(child, path)
-			})
-		)
+		const child = key === skip ? undefined : value[key]
+		if (child === undefined) {
+			refuseAt(path, key, `the required property ${JSON.stringify(key)}`)
+		}
+		setOwn(out, key, yield* path.at(key, shapes[key].parse(child, path)))
 	}
 	return filled<{ readonly [K in keyof R & string]: R[K] }>(keys, out)
 }
 
 /** The optional fields of `value` that are present, in the struct's order; a field named `skip` counts as absent. */
-const readOptional = <O>(
+function* readOptional<O>(
 	shapes: ShapesOf<O>,
 	keys: ReadonlyArray<keyof O & string>,
 	value: Readonly<Record<string, unknown>>,
 	path: DecodePath,
 	skip: string | undefined
-): { readonly [K in keyof O & string]?: O[K] } => {
+): Decoding<{ readonly [K in keyof O & string]?: O[K] }> {
 	const out: { [K in keyof O & string]?: O[K] } = {}
 	for (const key of keys) {
 		const child = key === skip ? undefined : value[key]
 		if (child !== undefined) {
-			setOwn(
-				out,
-				key,
-				path.at(key, () => shapes[key].parse(child, path))
-			)
+			setOwn(out, key, yield* path.at(key, shapes[key].parse(child, path)))
 		}
 	}
 	return out
@@ -1078,24 +994,54 @@ const readOptional = <O>(
  * The stated fields of `value`, in the struct's order, each undefined where the value leaves it out or names the
  * struct's `skip`.
  */
-const readStated = <U>(
+function* readStated<U>(
 	shapes: ShapesOf<U>,
 	keys: ReadonlyArray<keyof U & string>,
 	value: Readonly<Record<string, unknown>>,
 	path: DecodePath,
 	skip: string | undefined
-): { readonly [K in keyof U & string]: U[K] | undefined } => {
+): Decoding<{ readonly [K in keyof U & string]: U[K] | undefined }> {
 	const out: { [K in keyof U & string]?: U[K] | undefined } = {}
 	for (const key of keys) {
 		const child = key === skip ? undefined : value[key]
 		setOwn(
 			out,
 			key,
-			child === undefined ? undefined : path.at(key, () => shapes[key].parse(child, path))
+			child === undefined ? undefined : yield* path.at(key, shapes[key].parse(child, path))
 		)
 	}
 	return filled<{ readonly [K in keyof U & string]: U[K] | undefined }>(keys, out)
 }
+
+/**
+ * A strict object's shape from how it reads its fields: the object checks, then its fields inside the value's place
+ * on the path, as parse; and its fields alone, the discriminator passed over, as a tagged union's case.
+ */
+const structShape = <S>(
+	parts: StructNames,
+	read: (
+		value: Readonly<Record<string, unknown>>,
+		path: DecodePath,
+		skip: string | undefined
+	) => Decoding<S>
+): Shape<S> => ({
+	expected: `an object with ${parts.names.length === 0 ? "no fields" : parts.names.join(", ")}`,
+	parse: function* (value, path) {
+		const object = readObject(value, path)
+		if (object.kind === "other") {
+			return refuse(path, `a plain object, not ${describe(value, path)}`)
+		}
+		if (object.symbols) {
+			refuse(path, "an object without symbol keys")
+		}
+		checkStructKeys(parts, object.copy, path, undefined)
+		return Object.freeze(yield* within(object.container, path, read(object.copy, path, undefined)))
+	},
+	fields: function* (value, path, skip) {
+		checkStructKeys(parts, value, path, skip)
+		return yield* read(value, path, skip)
+	}
+})
 
 /** A strict object of required fields only, no other property. */
 export const struct = <R>(
@@ -1112,48 +1058,16 @@ export const structWith = <R, O>(
 ): Shape<NoInfer<StructOf<R, O>>> => {
 	const requiredKeys = stringKeys(required)
 	const optionalKeys = stringKeys(optional)
-	const parts: StructNames = {
-		names: [...requiredKeys, ...optionalKeys],
-		isField: (key) => Object.hasOwn(required, key) || Object.hasOwn(optional, key)
-	}
-	const read = (
-		value: Readonly<Record<string, unknown>>,
-		path: DecodePath,
-		skip: string | undefined
-	) => {
-		const req = readRequired(required, requiredKeys, value, path, skip)
-		return { ...req, ...readOptional(optional, optionalKeys, value, path, skip) }
-	}
-	const members = (
-		value: Readonly<Record<string, unknown>>,
-		path: DecodePath,
-		skip: ReadonlyArray<string>
-	): boolean =>
-		conformMembers(required, requiredKeys, value, path, skip, "refused") &&
-		conformMembers(optional, optionalKeys, value, path, skip, "optional")
-	return {
-		expected: `an object with ${parts.names.length === 0 ? "no fields" : parts.names.join(", ")}`,
-		parse: (value, path) => {
-			const object = readObject(value, path)
-			if (object.kind === "other") {
-				return refuse(path, `a plain object, not ${describe(value, path)}`)
-			}
-			if (object.symbols) {
-				refuse(path, "an object without symbol keys")
-			}
-			checkStructKeys(parts, object.copy, path, undefined)
-			return within(object.container, path, () => Object.freeze(read(object.copy, path, undefined)))
+	return structShape<StructOf<R, O>>(
+		{
+			names: [...requiredKeys, ...optionalKeys],
+			isField: (key) => Object.hasOwn(required, key) || Object.hasOwn(optional, key)
 		},
-		fields: (value, path, skip) => {
-			checkStructKeys(parts, value, path, skip)
-			return read(value, path, skip)
-		},
-		conform: (value, path): value is StructOf<R, O> => conformStruct(parts, value, path, members),
-		conformFields: (value, path, skip) => {
-			conformKeys(parts, value, path, skip)
-			return members(value, path, skip)
+		function* (value, path, skip) {
+			const req = yield* readRequired(required, requiredKeys, value, path, skip)
+			return { ...req, ...(yield* readOptional(optional, optionalKeys, value, path, skip)) }
 		}
-	}
+	)
 }
 
 /**
@@ -1169,52 +1083,18 @@ export const structStated = <R, U, O>(
 	const requiredKeys = stringKeys(required)
 	const statedKeys = stringKeys(stated)
 	const optionalKeys = stringKeys(optional)
-	const parts: StructNames = {
-		names: [...requiredKeys, ...statedKeys, ...optionalKeys],
-		isField: (key) =>
-			Object.hasOwn(required, key) || Object.hasOwn(stated, key) || Object.hasOwn(optional, key)
-	}
-	const read = (
-		value: Readonly<Record<string, unknown>>,
-		path: DecodePath,
-		skip: string | undefined
-	) => ({
-		...readRequired(required, requiredKeys, value, path, skip),
-		...readStated(stated, statedKeys, value, path, skip),
-		...readOptional(optional, optionalKeys, value, path, skip)
-	})
-	const members = (
-		value: Readonly<Record<string, unknown>>,
-		path: DecodePath,
-		skip: ReadonlyArray<string>
-	): boolean =>
-		conformMembers(required, requiredKeys, value, path, skip, "refused") &&
-		conformMembers(stated, statedKeys, value, path, skip, "stated") &&
-		conformMembers(optional, optionalKeys, value, path, skip, "optional")
-	return {
-		expected: `an object with ${parts.names.length === 0 ? "no fields" : parts.names.join(", ")}`,
-		parse: (value, path) => {
-			const object = readObject(value, path)
-			if (object.kind === "other") {
-				return refuse(path, `a plain object, not ${describe(value, path)}`)
-			}
-			if (object.symbols) {
-				refuse(path, "an object without symbol keys")
-			}
-			checkStructKeys(parts, object.copy, path, undefined)
-			return within(object.container, path, () => Object.freeze(read(object.copy, path, undefined)))
+	return structShape<StatedOf<R, U, O>>(
+		{
+			names: [...requiredKeys, ...statedKeys, ...optionalKeys],
+			isField: (key) =>
+				Object.hasOwn(required, key) || Object.hasOwn(stated, key) || Object.hasOwn(optional, key)
 		},
-		fields: (value, path, skip) => {
-			checkStructKeys(parts, value, path, skip)
-			return read(value, path, skip)
-		},
-		conform: (value, path): value is StatedOf<R, U, O> =>
-			conformStruct(parts, value, path, members),
-		conformFields: (value, path, skip) => {
-			conformKeys(parts, value, path, skip)
-			return members(value, path, skip)
+		function* (value, path, skip) {
+			const req = yield* readRequired(required, requiredKeys, value, path, skip)
+			const sta = yield* readStated(stated, statedKeys, value, path, skip)
+			return { ...req, ...sta, ...(yield* readOptional(optional, optionalKeys, value, path, skip)) }
 		}
-	}
+	)
 }
 
 /** One case of a tagged union: the discriminator, then the case's fields. */
@@ -1236,74 +1116,36 @@ export const tagged = <const T extends string, M extends Readonly<Record<string,
 ): Shape<TaggedOf<T, M>> => {
 	const tags = Object.keys(cases)
 	const isTag = (tag: string): tag is keyof M & string => Object.hasOwn(cases, tag)
-	/**
-	 * `value` is the caller's object, which stands on the path; `copy` is what was read of it, which the case decodes.
-	 */
-	const parseCase = <K extends keyof M & string>(
+	/** The case `tag` names, decoded from `copy`, what was read of the caller's object: the discriminator, then its fields. */
+	const caseOf = function* <K extends keyof M & string>(
 		tag: K,
-		value: object,
 		copy: Readonly<Record<string, unknown>>,
 		path: DecodePath
-	): { [P in K]: TaggedCase<T, M, P> }[K] => {
-		const shape = cases[tag]
+	): Decoding<{ [P in K]: TaggedCase<T, M, P> }[K]> {
 		const discriminator = singleton(key, tag)
-		return within(value, path, () =>
-			Object.freeze({ ...discriminator, ...shape.fields(copy, path, key) })
-		)
+		return Object.freeze({ ...discriminator, ...(yield* cases[tag].fields(copy, path, key)) })
 	}
-	const unknownTag = (path: DecodePath): never =>
-		path.at(key, () => refuse(path, `one of ${tags.map((t) => JSON.stringify(t)).join(" | ")}`))
-	/**
-	 * The conformance of the case `value`'s discriminator names, read from `value` itself; an unknown discriminator is
-	 * refused.
-	 */
-	const fieldsOf = (tag: keyof M & string) => cases[tag].conformFields
-	const caseFields = (value: Readonly<Record<string, unknown>>, path: DecodePath) => {
-		const tag = value[key]
-		if (typeof tag !== "string" || !isTag(tag)) {
-			return unknownTag(path)
-		}
-		return fieldsOf(tag)
-	}
-	const ownSkip: ReadonlyArray<string> = Object.freeze([key])
 	return plain({
 		expected: `an object with ${key} one of ${tags.join(", ")}`,
-		parse: (value, path) => {
+		/** The caller's object stands on the path; the case decodes what was read of it. */
+		parse: function* (value, path) {
 			const object = readObject(value, path)
 			if (object.kind === "other") {
 				return refuse(path, `a plain object, not ${describe(value, path)}`)
 			}
 			const tag = object.copy[key]
 			if (typeof tag !== "string" || !isTag(tag)) {
-				return unknownTag(path)
+				return refuseAt(path, key, `one of ${tags.map((t) => JSON.stringify(t)).join(" | ")}`)
 			}
-			return parseCase(tag, object.container, object.copy, path)
-		},
-		/** The decoded copy holds the string keys alone, so an object with a symbol key is not its own decoded form. */
-		conform: (value, path): value is TaggedOf<T, M> => {
-			if (!isPlainObject(value)) {
-				return refuse(path, `a plain object, not ${describe(value, path)}`)
-			}
-			if (Object.getOwnPropertySymbols(value).length > 0) {
-				return false
-			}
-			const fields = caseFields(value, path)
-			return conformWithin(value, path, () => fields(value, path, ownSkip) && frozen(value))
-		},
-		/**
-		 * As the case of another tagged union, read from the same value with that union's discriminator passed over.
-		 */
-		conformFields: (value, path, skip) => {
-			const fields = caseFields(value, path)
-			return fields(value, path, [...skip, key])
+			return yield* within(object.container, path, caseOf(tag, object.copy, path))
 		}
 	})
 }
 
-/** `run`'s result, or the Mismatch it throws, so a union can try its next alternative; any other throw propagates. */
-const attempt = <A>(run: () => A): Result.Result<A, Mismatch> => {
+/** `step`'s answer, or the Mismatch it throws, so a union can try its next alternative; any other throw propagates. */
+function* attempt<A>(step: Step<A>): Step<Result.Result<A, Mismatch>> {
 	try {
-		return Result.ok(run())
+		return Result.ok(yield* step)
 	} catch (caught) {
 		if (caught instanceof Mismatch) {
 			return Result.err(caught)
@@ -1320,29 +1162,15 @@ export const unionShape = <const M extends ReadonlyArray<unknown>>(
 	const expected = members.map((s) => s.expected).join(" or ")
 	return plain({
 		expected,
-		parse: (value, path) => {
+		parse: function* (value, path) {
 			for (const shape of members) {
-				const out = attempt(() => shape.parse(value, path))
+				const out = yield* attempt(shape.parse(value, path))
 				if (out.ok) {
 					return out.value
 				}
 			}
 			return refuse(path, expected)
-		},
-		/**
-		 * The first alternative whose conformance does not refuse decides, as the first whose decode does not refuse is
-		 * the decode.
-		 */
-		conform: (value, path): value is M[number] => {
-			for (const shape of members) {
-				const shown = attempt(() => conforms(shape, value, path))
-				if (shown.ok) {
-					return shown.value
-				}
-			}
-			return refuse(path, expected)
-		},
-		conformFields: notInPlace
+		}
 	})
 }
 
@@ -1363,61 +1191,49 @@ export const located = <A extends object>(
 	})
 	return {
 		expected: shape.expected,
-		parse: (value, path) => Object.freeze(locate(shape.parse(value, path), path)),
-		fields: (value, path, skip) => locate(shape.fields(value, path, skip), path),
-		/** A located node is a Description's, decoded at the boundary and never shown its own decoded form in place. */
-		conform: "decoded",
-		conformFields: notInPlace
+		parse: function* (value, path) {
+			return Object.freeze(locate(yield* shape.parse(value, path), path))
+		},
+		fields: function* (value, path, skip) {
+			return locate(yield* shape.fields(value, path, skip), path)
+		}
 	}
 }
 
-/** Recursion: the shape is looked up when first used. */
+/**
+ * Recursion: the shape is looked up when first used, and each value it reads is decoded on the driver's stack
+ * (deferred), so a value nested through it to any depth never deepens the call stack.
+ */
 export const lazy = <A>(expected: string, thunk: () => Shape<A>): Shape<A> => {
 	let cached: Shape<A> | undefined
 	return plain({
 		expected,
-		parse: (value, path) => {
+		parse: function* (value, path) {
 			cached ??= thunk()
-			return cached.parse(value, path)
-		},
-		conform: (value, path): value is A => {
-			cached ??= thunk()
-			return conforms(cached, value, path)
-		},
-		conformFields: notInPlace
+			return yield* deferred(cached.parse(value, path))
+		}
 	})
 }
 
 /**
  * A value implementing the canonical protocol with the given tag, parsed from its payload into the carrier `parse`
  * makes of a payload its grammar admits: the IR holds its literals parsed, whichever reviver its decode was given. A
- * value is its own decoded form exactly when it is already that carrier, which spells its payload from the fields that
- * payload parses back to (ir/carriers.ts); any other value carrying the payload, such as scalar/values' Money, decodes
- * to the carrier, so conformWith gives what decodeWith gives.
+ * carrier spells its payload from the fields that payload parses back to (ir/carriers.ts), so a value already of the
+ * carrier's class is its own decoded form (conformWith), and any other value carrying the payload, such as
+ * scalar/values' Money, decodes to the carrier.
  */
 export const canonicalParsed = <A>(
 	tag: string,
 	parse: (payload: string) => A | undefined,
 	expected: string
-): Shape<A> => {
-	const parsed = (value: unknown, path: DecodePath): A => {
+): Shape<A> =>
+	leaf(expected, (value, path) => {
 		const encoded = readAt(path, () => taggedValueOf(value))
 		if (encoded === undefined) {
 			return refuse(path, `${expected}, not ${describe(value, path)}`)
 		}
 		return (encoded.tag === tag ? parse(encoded.payload) : undefined) ?? refuse(path, expected)
-	}
-	return plain({
-		expected,
-		parse: parsed,
-		conform: (value, path): value is A => {
-			const carrier: unknown = Object.getPrototypeOf(parsed(value, path))
-			const own: unknown = Object.getPrototypeOf(value)
-			return carrier === own
-		},
-		conformFields: notInPlace
 	})
-}
 
 /** A value implementing the canonical protocol with the given tag, kept as is (it is already an owned value). */
 export const canonicalTagged = (

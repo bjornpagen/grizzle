@@ -147,17 +147,16 @@ const textInfoShape: S.Shape<TextInfo> = S.unionShape(
 	S.structStated({ regex: regexShape }, { lengthBound: unstated, byteBound: unstated }, {})
 )
 
-/** A declared name, parsed where it is decoded: what a roster names its closed relation by and what names a contract. */
+/**
+ * A declared name, parsed where it is decoded: what a roster names its closed relation by and what names a contract. A
+ * declared name is the decoded string itself, so a string that parses is its own decoded form.
+ */
 const declaredNameShape: S.Shape<DeclaredName> = S.plain({
 	expected: "a declared name",
-	parse: (value, path) => {
-		const parsed = parseDeclaredName(S.nonEmptyString.parse(value, path))
+	parse: function* (value, path) {
+		const parsed = parseDeclaredName(yield* S.nonEmptyString.parse(value, path))
 		return parsed.ok ? parsed.value : S.refuse(path, `a declared name: ${parsed.error}`)
-	},
-	/** A declared name is the decoded string itself, so a string that parses is its own decoded form. */
-	conform: (value, path): value is DeclaredName =>
-		typeof value === "string" && (parseDeclaredName(value).ok || S.refuse(path, "a declared name")),
-	conformFields: S.notInPlace
+	}
 })
 
 const rosterShape: S.Shape<Roster> = S.struct({
@@ -184,22 +183,10 @@ const wireShape: S.Shape<WireScalarType> = S.lazy("a scalar type", () =>
 /** The structure, then the carrier's rules, the first broken rule named in the refusal. */
 export const scalarTypeShape: S.Shape<ScalarType> = S.plain({
 	expected: "a consistent scalar type",
-	parse: (value, path) => {
-		const t = narrow(wireShape.parse(value, path))
+	parse: function* (value, path) {
+		const t = narrow(yield* wireShape.parse(value, path))
 		return typeof t === "string" ? S.refuse(path, `a consistent scalar type: ${t}`) : t
-	},
-	/**
-	 * A descriptor is narrowed into a fresh one, so one not yet decoded is its own decoded form when it holds exactly
-	 * what that fresh one holds.
-	 */
-	conform: (value, path): value is ScalarType => {
-		const t = narrow(wireShape.parse(value, path))
-		if (typeof t === "string") {
-			return S.refuse(path, `a consistent scalar type: ${t}`)
-		}
-		return sameMembers(t, value)
-	},
-	conformFields: S.notInPlace
+	}
 })
 
 const contractShape: S.Shape<WireContract> = S.structStated(
@@ -406,29 +393,6 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 				? `${carrier} carries its digit bound`
 				: Object.freeze({ carrier, caps, digits: t.digits })
 	}
-}
-
-/**
- * Whether `a` and `b` hold the same members throughout: the same primitives, and objects and arrays of the same own
- * keys (an undefined member counted), each holding the same members, in any key order.
- */
-const sameMembers = (a: unknown, b: unknown): boolean => {
-	if (a === b) {
-		return true
-	}
-	if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) {
-		return false
-	}
-	if (Array.isArray(a) !== Array.isArray(b)) {
-		return false
-	}
-	const keys = Object.keys(a)
-	if (keys.length !== Object.keys(b).length) {
-		return false
-	}
-	const ra: Readonly<Record<string, unknown>> = { ...a }
-	const rb: Readonly<Record<string, unknown>> = { ...b }
-	return keys.every((key) => Object.hasOwn(b, key) && sameMembers(ra[key], rb[key]))
 }
 
 /** Decodes and checks a descriptor from unknown input (an owned, frozen copy). */

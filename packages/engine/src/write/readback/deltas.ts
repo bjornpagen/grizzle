@@ -98,7 +98,7 @@ export interface DeltaPlan {
  * from its RETURNING CTE, in the same statement, which is the only place the returned rows exist:
  *
  *   WITH ..., "r2" AS (INSERT ... RETURNING ...),
- *   "r5" AS (INSERT INTO "__carrier_1" ("c1", ...) SELECT "r2"."c4", ... FROM "r2")
+ *   "r5" AS (INSERT INTO "__carrier_<d>_1" ("c1", ...) SELECT "r2"."c4", ... FROM "r2")
  *   SELECT ... FROM "r2" ...
  *
  * Every column of a write statement's RETURNING is a stored column, so it has the carrier column's type exactly

@@ -29,12 +29,16 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Select } from "#compiler/sql/ast.ts"
-import { carrierName } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
 import { assert, nonEmpty, refused, succeeded, throwsDefect } from "#test/support/assert.ts"
-import { localVectorSchema, productionNames, standInNames } from "#test/support/kernel/naming.ts"
+import {
+	localVectorSchema,
+	productionNames,
+	standInNames,
+	unitCarrier
+} from "#test/support/kernel/naming.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
@@ -90,7 +94,7 @@ const optionsFor = (
 			? { kind: "query" }
 			: {
 					kind: "readBack",
-					deltas: () => ({ carrier: carrierName(1), columns: ["c1", "c2", "c3", "c4"] }),
+					deltas: () => ({ carrier: unitCarrier(1), columns: ["c1", "c2", "c3", "c4"] }),
 					breach: breachGuard("Ledger")
 				},
 	meter

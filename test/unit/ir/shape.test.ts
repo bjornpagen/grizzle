@@ -29,6 +29,7 @@ import {
 	Record as Rec,
 	Result
 } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { formatLoc, formatPath } from "#compiler/core/loc.ts"
 import * as S from "#compiler/ir/shape.ts"
@@ -777,5 +778,150 @@ describe("shapes", () => {
 				)
 			)
 		}
+	)
+})
+
+/** A chain of links to an end: a recursive tagged union, each link a container of its own. */
+type Chain = { readonly kind: "end" } | { readonly kind: "link"; readonly next: Chain }
+const chainShape: S.Shape<Chain> = S.lazy("a chain", () =>
+	S.tagged("kind", { end: S.struct({}), link: S.struct({ next: chainShape }) })
+)
+
+/** Arrays inside arrays around an integer: a recursive union whose first alternative refuses every array. */
+type Nested = number | ReadonlyArray<Nested>
+const nestedShape: S.Shape<Nested> = S.lazy("a nested array", () =>
+	S.unionShape(S.integer, S.array(nestedShape))
+)
+
+/** The two recursive shapes, read through the shape of any value. */
+type Form = "chain" | "nested array"
+const formShape = (form: Form): S.Shape<unknown> => (form === "chain" ? chainShape : nestedShape)
+
+/** The step each container of a form takes to the next. */
+const stepOf = (form: Form): string | number => (form === "chain" ? "next" : 0)
+
+/** `depth` containers of a form, the innermost around its end. */
+const built = (form: Form, depth: number): unknown => {
+	let v: unknown = form === "chain" ? { kind: "end" } : 1
+	for (let i = 0; i < depth; i++) {
+		v = form === "chain" ? { kind: "link", next: v } : [v]
+	}
+	return v
+}
+
+/** How many containers a decoded value of a form nests, counted down its one path. */
+const depthOf = (form: Form, value: unknown): number => {
+	let depth = 0
+	for (let v = value; ; depth++) {
+		const next: unknown =
+			form === "chain" ? (isObject(v) ? v["next"] : undefined) : Arr.isArray(v) ? v[0] : undefined
+		if (next === undefined) {
+			return depth
+		}
+		v = next
+	}
+}
+
+/** `length` containers of a form, each holding the next and the last holding the one `back` below the root: the root. */
+const cyclic = (form: Form, length: number, back: number): unknown => {
+	if (form === "chain") {
+		const links = Arr.map(indices(length), (): Record<string, unknown> => ({ kind: "link" }))
+		for (const [i, link] of links.entries()) {
+			link["next"] = links[i + 1] ?? links[back]
+		}
+		return links[0]
+	}
+	const arrays = Arr.map(indices(length), (): Array<unknown> => [])
+	for (const [i, items] of arrays.entries()) {
+		items.push(arrays[i + 1] ?? arrays[back])
+	}
+	return arrays[0]
+}
+
+type Reader = "decodeWith" | "conformWith"
+
+describe("a value nested through a recursive shape", () => {
+	it.effect(
+		"decode and conform at any depth, the call stack no deeper for it: a fresh copy decoded, a built value kept",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/ir/shape-depth",
+						literal: Formatter.format,
+						/** No container, one, and a nesting a recursion would overflow the small stack at. */
+						generator: (source) =>
+							[
+								source.draw(element([0, 1, 100_000])),
+								source.draw(element<Form>(["chain", "nested array"])),
+								source.draw(element<Reader>(["decodeWith", "conformWith"]))
+							] as const,
+						limit: 12,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(2)
+					},
+					([depth, form, reader]) =>
+						Effect.sync(() => {
+							const value = built(form, depth)
+							const shape = formShape(form)
+							if (reader === "decodeWith") {
+								const decoded = succeeded(S.decodeWith(shape, value, "v"))
+								assert.equal(depthOf(form, decoded), depth)
+								assert.equal(
+									decoded === value,
+									depth === 0 && form === "nested array",
+									"every container decodes to a fresh copy, and an integer to itself"
+								)
+								return
+							}
+							assert.equal(S.conformWith(shape, value, "v"), value)
+							assert.ok(Object.isFrozen(value), "a value conformWith keeps is frozen")
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"refuse a value that holds itself as a cycle where it meets itself, decoded or conformed, however long the cycle",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/ir/shape-cycle",
+						literal: Formatter.format,
+						/** A cycle through one container, two, and one a recursion would overflow the small stack on, back to its first or last. */
+						generator: (source) => {
+							const length = source.draw(element([1, 2, 100_000]))
+							return [
+								length,
+								source.draw(element([0, length - 1])),
+								source.draw(element<Form>(["chain", "nested array"])),
+								source.draw(element<Reader>(["decodeWith", "conformWith"]))
+							] as const
+						},
+						limit: 24,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(2)
+					},
+					([length, back, form, reader]) =>
+						Effect.sync(() => {
+							const value = cyclic(form, length, back)
+							const shape = formShape(form)
+							const refusal = refused(S.decodeWith(shape, value, "v"), "MalformedDescription")
+							assert.deepEqual(
+								refusalLoc(refusal).path,
+								Arr.map(indices(length), () => stepOf(form))
+							)
+							if (reader === "conformWith") {
+								assert.throws(
+									() => S.conformWith(shape, value, "v"),
+									(e) => Error.isError(e) && e.message === defectOf(refusal)
+								)
+							}
+						})
+				)
+			)
 	)
 })

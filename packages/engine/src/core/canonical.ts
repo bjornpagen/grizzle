@@ -3,7 +3,6 @@ import {
 	isCompileError,
 	malformedArtifact,
 	malformedDescription,
-	resourceBound,
 	within
 } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -20,13 +19,6 @@ export const canonicalFormat = "grizzle-canonical"
 export const compareText = (a: string, b: string): number => compareStrings(a, b)
 
 export const canonicalTag: unique symbol = Symbol.for("grizzle/canonical")
-
-/**
- * The deepest nesting of arrays and objects any kernel traversal accepts: a value may sit inside at most this many
- * containers. It is a fixed property of the format, not a policy threshold, because it decides which texts decode at
- * all; it is far beyond any description grizzle writes and far below what exhausts the stack.
- */
-export const maxNestingDepth = 512
 
 export interface TaggedValue {
 	/** Lowercase ASCII letters and digits, starting with a letter. "n" is reserved for bigint. */
@@ -187,19 +179,6 @@ const refuseText = (path: Path, what: string): never => {
 	throw new Refusal(malformedArtifact("canonical", path, what))
 }
 
-/**
- * A container nested inside `depth` others: past maxNestingDepth the traversal stops with ResourceBound.
- * `what` names the value, so the location reads like the traversal's other refusals.
- */
-const checkNestingDepth = (depth: number, path: Path, what: string): void => {
-	if (depth < maxNestingDepth) {
-		return
-	}
-	throw new Refusal(
-		resourceBound(SourceLoc(what, path), { kind: "nesting", limit: maxNestingDepth })
-	)
-}
-
 const escapeString = (value: string): string => (value.startsWith("~") ? `~${value}` : value)
 
 const wellFormedText = "well-formed Unicode text"
@@ -222,6 +201,57 @@ const checkText = (
 const stop: (path: Path, capability: string) => never = refuseValue
 
 /**
+ * A container's part of a traversal: a generator that yields each of its members' values in order, receives each
+ * member's form back, and returns the container's own form. A traversal that keeps a path has it push a member's
+ * segment before it yields the member and pop it once the member's form comes back, so a refusal below names its
+ * whole path.
+ */
+type Members<V, R> = Generator<V, R, R>
+
+/** What a traversal reads at one value: the form of a value that holds no other, or the members of a container. */
+type Reading<V, R> =
+	| { readonly kind: "form"; readonly form: R }
+	| { readonly kind: "members"; readonly members: Members<V, R> }
+
+const formOf = <V, R>(form: R): Reading<V, R> => ({ kind: "form", form })
+const membersOf = <V, R>(members: Members<V, R>): Reading<V, R> => ({ kind: "members", members })
+
+/** A container being read, and the container whose member it is. */
+interface Opened<V, R> {
+	readonly members: Members<V, R>
+	readonly parent: Opened<V, R> | undefined
+}
+
+/**
+ * The form of `root`, folded bottom up by `read`. Every container read is opened onto a stack on the heap, where its
+ * members wait while one of them is read, so a value nested to any depth never deepens the call stack. A refusal
+ * thrown while reading ends the traversal.
+ */
+const traverse = <V, R>(root: V, read: (value: V) => Reading<V, R>): R => {
+	let reading = read(root)
+	let top: Opened<V, R> | undefined
+	for (;;) {
+		let next: IteratorResult<V, R>
+		if (reading.kind === "members") {
+			top = { members: reading.members, parent: top }
+			next = top.members.next()
+		} else if (top === undefined) {
+			return reading.form
+		} else {
+			next = top.members.next(reading.form)
+		}
+		while (next.done === true) {
+			top = top.parent
+			if (top === undefined) {
+				return next.value
+			}
+			next = top.members.next(next.value)
+		}
+		reading = read(next.value)
+	}
+}
+
+/**
  * What one canonical traversal builds a value's form from, bottom up: a scalar's JSON value (a string already escaped,
  * a finite number with no negative zero, a boolean), an array of its items' forms, and an object of its members' keys
  * and forms in key order. Walk states every check once; a fold only assembles.
@@ -235,8 +265,9 @@ interface Fold<R> {
 /**
  * One canonical traversal: every check, in one order, with one refusal each, and the value's canonical form folded by
  * its fold. Keys are visited in the order Object.keys() sorted gives, the UTF-16 code unit order canonical text sorts
- * by, so no fold sorts again. A traversal is used once: a refusal ends it, so its path and ancestors are never read
- * again after one.
+ * by, so no fold sorts again. The containers on the path from the root are its ancestors, so a container that holds
+ * itself is refused as a cycle, while one that two others share is read once under each. A traversal is used once: a
+ * refusal ends it, so its path and ancestors are never read again after one.
  */
 class Walk<R> {
 	readonly #path: Array<string | number> = []
@@ -249,22 +280,27 @@ class Walk<R> {
 		this.#fold = fold
 	}
 
-	value(value: unknown, depth: number): R {
+	/** The form of `root`. */
+	of(root: unknown): R {
+		return traverse(root, (value: unknown) => this.#read(value))
+	}
+
+	#read(value: unknown): Reading<unknown, R> {
 		switch (typeof value) {
 			case "string":
 				checkText(value, this.#path, refuseValue)
-				return this.#fold.scalar(escapeString(value))
+				return formOf(this.#fold.scalar(escapeString(value)))
 			case "boolean":
-				return this.#fold.scalar(value)
+				return formOf(this.#fold.scalar(value))
 			case "number":
 				if (!Number.isFinite(value)) {
 					stop(this.#path, "a finite number")
 				}
-				return this.#fold.scalar(value === 0 ? 0 : value)
+				return formOf(this.#fold.scalar(value === 0 ? 0 : value))
 			case "bigint":
-				return this.#fold.scalar(`~n:${value.toString()}`)
+				return formOf(this.#fold.scalar(`~n:${value.toString()}`))
 			case "object":
-				return this.#object(value, depth)
+				return this.#object(value)
 			case "undefined":
 			case "function":
 			case "symbol":
@@ -272,7 +308,7 @@ class Walk<R> {
 		}
 	}
 
-	#object(value: object | null, depth: number): R {
+	#object(value: object | null): Reading<unknown, R> {
 		if (!isRecord(value)) {
 			stop(this.#path, "a value, not null")
 		}
@@ -289,19 +325,16 @@ class Walk<R> {
 				stop(this.#path, `a valid canonical tag, not "${tagged.tag}"`)
 			}
 			checkText(tagged.payload, this.#path, refuseValue)
-			return this.#fold.scalar(`~${tagged.tag}:${tagged.payload}`)
+			return formOf(this.#fold.scalar(`~${tagged.tag}:${tagged.payload}`))
 		}
 		if (this.#ancestors.has(value)) {
 			stop(this.#path, "an acyclic value")
 		}
-		checkNestingDepth(depth, this.#path, "canonical value")
 		this.#ancestors.add(value)
-		const form = Array.isArray(value) ? this.#array(value, depth) : this.#record(value, depth)
-		this.#ancestors.delete(value)
-		return form
+		return membersOf(Array.isArray(value) ? this.#array(value) : this.#record(value))
 	}
 
-	#array(value: ReadonlyArray<unknown>, depth: number): R {
+	*#array(value: ReadonlyArray<unknown>): Members<unknown, R> {
 		const items: Array<R> = []
 		for (let i = 0; i < value.length; i++) {
 			const item: unknown = value[i]
@@ -309,13 +342,14 @@ class Walk<R> {
 				stop([...this.#path, i], "an array element, not a hole")
 			}
 			this.#path.push(i)
-			items.push(this.value(item, depth + 1))
+			items.push(yield item)
 			this.#path.pop()
 		}
+		this.#ancestors.delete(value)
 		return this.#fold.array(items)
 	}
 
-	#record(value: Readonly<Record<string, unknown>>, depth: number): R {
+	*#record(value: Readonly<Record<string, unknown>>): Members<unknown, R> {
 		const proto: unknown = Object.getPrototypeOf(value)
 		if (proto !== Object.prototype && proto !== null) {
 			stop(this.#path, "a plain object")
@@ -331,9 +365,10 @@ class Walk<R> {
 			}
 			this.#path.push(key)
 			checkText(key, this.#path, refuseValue)
-			members.push([key, this.value(child, depth + 1)])
+			members.push([key, yield child])
 			this.#path.pop()
 		}
+		this.#ancestors.delete(value)
 		return this.#fold.object(members)
 	}
 }
@@ -393,7 +428,7 @@ export const toJson = (value: unknown, options: EncodeOptions): Result.Result<Js
 	catchRefusal(() =>
 		value === undefined
 			? refuseValue([], "a value, not undefined")
-			: new Walk(options, jsonFold).value(value, 0)
+			: new Walk(options, jsonFold).of(value)
 	)
 
 /**
@@ -402,23 +437,32 @@ export const toJson = (value: unknown, options: EncodeOptions): Result.Result<Js
  */
 const isJsonArray = (value: Json): value is ReadonlyArray<Json> => Array.isArray(value)
 
-const writeJson = (value: Json): string => {
-	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-		return JSON.stringify(value)
+/** A JSON array's items, each written in turn, enclosed. */
+function* jsonItems(value: ReadonlyArray<Json>): Members<Json, string> {
+	const items: Array<string> = []
+	for (const item of value) {
+		items.push(yield item)
 	}
-	if (isJsonArray(value)) {
-		return enclosed(
-			"[",
-			value.map((item) => writeJson(item)),
-			",",
-			"]"
-		)
+	return enclosed("[", items, ",", "]")
+}
+
+/** A JSON object's members in key order, each written in turn, enclosed. */
+function* jsonMembers(value: { readonly [key: string]: Json }): Members<Json, string> {
+	const members: Array<string> = []
+	for (const [key, item] of Object.entries(value).toSorted(([a], [b]) => compareText(a, b))) {
+		members.push(memberText(key, yield item))
 	}
-	const members = Object.entries(value)
-		.toSorted(([a], [b]) => compareText(a, b))
-		.map(([key, item]) => memberText(key, writeJson(item)))
 	return enclosed("{", members, ",", "}")
 }
+
+const readJson = (value: Json): Reading<Json, string> => {
+	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+		return formOf(JSON.stringify(value))
+	}
+	return membersOf(isJsonArray(value) ? jsonItems(value) : jsonMembers(value))
+}
+
+const writeJson = (value: Json): string => traverse(value, readJson)
 
 /** The canonical text of a JSON form value; ResourceBound (text) past JavaScript's longest string. */
 export const writeCanonicalJson = (value: Json): Result.Result<string, CompileError> =>
@@ -429,7 +473,7 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
 	catchRefusal(() =>
 		value === undefined
 			? refuseValue([], "a value, not undefined")
-			: new Walk(options, textFold).value(value, 0)
+			: new Walk(options, textFold).of(value)
 	)
 
 /**
@@ -453,8 +497,8 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
  * strings and object keys that are not well-formed Unicode text (a lone UTF-16 surrogate; RFC 8785 sections 3.1 and
  * 3.2.2.2 require I-JSON input and an error on such strings, and no UTF8 database could store them), non-finite
  * numbers, functions, symbols, cycles, Maps, Sets, Dates, and any other non-plain object that does not implement the
- * protocol. Nesting deeper than maxNestingDepth is refused as ResourceBound, in both directions, so a
- * hostile or runaway value is a Result failure and never a stack overflow.
+ * protocol. A value may nest to any depth, in both directions: every traversal keeps the containers it is inside on a
+ * stack on the heap, so no nesting deepens the call stack, and a container that holds itself is refused as a cycle.
  *
  * The canonical text: one string per value, whatever the key insertion order. It equals writeCanonicalJson over the
  * value's JSON form (toJson), written in one pass.
@@ -489,27 +533,34 @@ const isCanonicalInteger = (text: string): boolean => {
 }
 
 /**
- * One traversal restoring bigints and tagged values from the JSON form, refusing what canonical text never holds. A
- * traversal is used once: a refusal ends it.
+ * One traversal restoring bigints and tagged values from the JSON form, refusing what canonical text never holds: an
+ * in-memory value that is no JSON form, a cyclic one included, as well as text no encoding wrote. A traversal is used
+ * once: a refusal ends it.
  */
 class Revive {
 	readonly #path: Array<string | number> = []
+	readonly #ancestors = new Set<object>()
 	readonly #revivers: Revivers
 
 	constructor(revivers: Revivers) {
 		this.#revivers = revivers
 	}
 
-	value(value: unknown, depth: number): unknown {
+	/** The value `root` restores to. */
+	of(root: unknown): unknown {
+		return traverse(root, (value: unknown) => this.#read(value))
+	}
+
+	#read(value: unknown): Reading<unknown, unknown> {
 		switch (typeof value) {
 			case "boolean":
-				return value
+				return formOf(value)
 			case "number":
-				return Number.isFinite(value) ? value : refuseText(this.#path, "a finite number")
+				return Number.isFinite(value) ? formOf(value) : refuseText(this.#path, "a finite number")
 			case "string":
-				return this.#string(value)
+				return formOf(this.#string(value))
 			case "object":
-				return this.#object(value, depth)
+				return this.#object(value)
 			case "bigint":
 			case "undefined":
 			case "function":
@@ -549,28 +600,39 @@ class Revive {
 		return revived.value
 	}
 
-	#object(value: object | null, depth: number): unknown {
+	#object(value: object | null): Reading<unknown, unknown> {
 		if (value === null) {
 			return refuseText(this.#path, "a value, not null")
 		}
-		checkNestingDepth(depth, this.#path, "canonical value")
-		if (Array.isArray(value)) {
-			return value.map((item: unknown, i) => this.#child(i, item, depth))
+		if (this.#ancestors.has(value)) {
+			return refuseText(this.#path, "an acyclic value")
 		}
-		const members: ReadonlyArray<readonly [string, unknown]> = Object.entries(value)
-		return Object.fromEntries(
-			members.map(([key, child]) => [key, this.#child(key, child, depth)] as const)
-		)
+		this.#ancestors.add(value)
+		return membersOf(Array.isArray(value) ? this.#array(value) : this.#record(value))
 	}
 
-	#child(segment: string | number, child: unknown, depth: number): unknown {
-		this.#path.push(segment)
-		if (typeof segment === "string") {
-			checkText(segment, this.#path, refuseText)
+	*#array(value: ReadonlyArray<unknown>): Members<unknown, unknown> {
+		const items: Array<unknown> = []
+		for (const [i, item] of value.entries()) {
+			this.#path.push(i)
+			items.push(yield item)
+			this.#path.pop()
 		}
-		const out = this.value(child, depth + 1)
-		this.#path.pop()
-		return out
+		this.#ancestors.delete(value)
+		return items
+	}
+
+	*#record(value: object): Members<unknown, unknown> {
+		const entries: ReadonlyArray<readonly [string, unknown]> = Object.entries(value)
+		const members: Array<readonly [string, unknown]> = []
+		for (const [key, child] of entries) {
+			this.#path.push(key)
+			checkText(key, this.#path, refuseText)
+			members.push([key, yield child])
+			this.#path.pop()
+		}
+		this.#ancestors.delete(value)
+		return Object.fromEntries(members)
 	}
 }
 
@@ -578,7 +640,7 @@ class Revive {
 export const fromJson = (
 	value: unknown,
 	revivers: Revivers
-): Result.Result<unknown, CompileError> => catchRefusal(() => new Revive(revivers).value(value, 0))
+): Result.Result<unknown, CompileError> => catchRefusal(() => new Revive(revivers).of(value))
 
 /** Parses canonical (or any JSON) text and restores tagged values. */
 export const decode = (text: string, revivers: Revivers): Result.Result<unknown, CompileError> => {
@@ -592,7 +654,7 @@ export const decode = (text: string, revivers: Revivers): Result.Result<unknown,
 /**
  * The canonical text under `options` of a value the compiler owns, which encodes by construction: a decoded or
  * validated value, or a key built from one. The one site of the fact that such a value encodes: plain data with
- * well-formed text, no cycle and at most maxNestingDepth deep, which no TypeScript type of a value carries, so a
+ * well-formed text and no cycle, which no TypeScript type of a value carries, so a
  * failure is a defect of the compiler, never a property of its input.
  */
 export const ownedText = (value: unknown, options: EncodeOptions): string => {

@@ -11,10 +11,11 @@ import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { CteBody, PlStatement, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
-import { carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
+import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { unitCarrier } from "#test/support/kernel/naming.ts"
 import { type ShapeFeature, shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
 import {
@@ -710,7 +711,7 @@ const programStatement = (step: ProgramStep): SqlStatement =>
 	step.kind === "create"
 		? {
 				kind: "createCarrier",
-				name: carrierName(step.carrier),
+				name: unitCarrier(step.carrier),
 				columns: [
 					{
 						name: "c1",
@@ -720,7 +721,7 @@ const programStatement = (step: ProgramStep): SqlStatement =>
 					}
 				]
 			}
-		: { kind: "analyze", carriers: Arr.map(step.carriers, carrierName) }
+		: { kind: "analyze", carriers: Arr.map(step.carriers, unitCarrier) }
 
 /** One step on two carriers: a carrier created, or an ANALYZE of any nonempty subset of them, as ANALYZE needs one. */
 const programStepGen: Gen<ProgramStep> = oneOf<ProgramStep>([
