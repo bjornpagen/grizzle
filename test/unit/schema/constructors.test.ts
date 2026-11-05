@@ -1957,14 +1957,14 @@ describe("schema and schema.extend", () => {
 	]
 	type SchemaDefect =
 		| "none"
-		| "a conflicting reuse of a relation name"
+		| "a relation under another name"
 		| "a list as a statement"
 		| "a statement no builder made"
 		| "a derived relation"
 		| "statements that are no list"
 	const schemaDefects: Arr.NonEmptyReadonlyArray<SchemaDefect> = [
 		"none",
-		"a conflicting reuse of a relation name",
+		"a relation under another name",
 		"a list as a statement",
 		"a statement no builder made",
 		"a derived relation",
@@ -1972,7 +1972,7 @@ describe("schema and schema.extend", () => {
 	]
 
 	it.effect(
-		"records relations once per name and statements in order, expanding alternatives in place, and refuses a conflicting or malformed declaration",
+		"records each relation under its own name and statements in order, expanding alternatives in place, and refuses a relation under another name or a malformed declaration",
 		(ctx) =>
 			Effect.gen(function* () {
 				const D = derived("TaskIds", idsOf(schema("Edu", { Kind, Task }, [], []), [Task]), [])
@@ -1989,8 +1989,8 @@ describe("schema and schema.extend", () => {
 								defect: source.draw(element(Arr.append(schemaDefects, "none" as const)))
 							})),
 							literal: Formatter.format,
-							coverage: required<SchemaDefect | "one name twice" | "alternatives expanded">(
-								[...schemaDefects, "one name twice", "alternatives expanded"],
+							coverage: required<SchemaDefect | "alternatives expanded">(
+								[...schemaDefects, "alternatives expanded"],
 								{ cases: 200, sense: notesOnly }
 							),
 							kept: [],
@@ -2003,8 +2003,9 @@ describe("schema and schema.extend", () => {
 						(s, c) =>
 							Effect.sync(() => {
 								c.note(s.defect)
+								/** The record is the schema index by name: each entry under its own name, a later entry of a name in place of an earlier one. */
 								const relations: Record<string, AnyRelation | AnyClosed> = Rec.fromEntries(
-									Arr.map(s.entries, (e, i) => [`r${i}`, entryValue(e)])
+									Arr.map(s.entries, (e) => [entryName(e), entryValue(e)])
 								)
 								const statements = Arr.map(s.statements, (i) => defined(statementValues[i]))
 								/**
@@ -2013,12 +2014,11 @@ describe("schema and schema.extend", () => {
 								 */
 								const given: Record<string, unknown> = { ...relations }
 								switch (s.defect) {
-									case "a conflicting reuse of a relation name":
+									case "a relation under another name":
 										given["task"] = Task
-										given["other"] = relation("Task", { id: uuid }, ["id"], [])
 										return void throwsRefused(
 											() => admitSchema("Work", given, statements, []),
-											"DuplicateIdentity"
+											"MalformedDescription"
 										)
 									case "a list as a statement":
 										return void throwsRefused(
@@ -2045,9 +2045,6 @@ describe("schema and schema.extend", () => {
 										break
 								}
 								const names = Arr.map(s.entries, entryName)
-								if (distinct(names).length < names.length) {
-									c.note("one name twice")
-								}
 								const W = schema("Work", relations, statements, [])
 								const desc = defined(schemaDescOf(W))
 								assert.deepEqual(
@@ -2215,7 +2212,7 @@ describe("schema and schema.extend", () => {
 											c.note("level 3")
 										}
 										declared.push({ name, value, derivedLevel })
-										record[`d${k}_${j}`] = value
+										record[name] = value
 										expected.push({
 											name,
 											level: derivedLevel,
@@ -2230,16 +2227,16 @@ describe("schema and schema.extend", () => {
 										const first = defined(declared[0])
 										switch (s.defect) {
 											case "a read of its own level":
-												record["own"] = derived(
+												record["OwnLevel"] = derived(
 													"OwnLevel",
-													idsOf(schema.extend(current, { first: first.value }, [], []), [
+													idsOf(schema.extend(current, { [first.name]: first.value }, [], []), [
 														first.value
 													]),
 													[]
 												)
 												break
 											case "a parameter":
-												record["param"] = derived(
+												record["ByAccount"] = derived(
 													"ByAccount",
 													queryOver(current).rule((r: RuleValue) => {
 														const { id } = varsOver(Task, "task")

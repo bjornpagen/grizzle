@@ -29,6 +29,7 @@ import {
 	type Schema,
 	type Statement,
 	type StatementsWithin,
+	type UnderOwnNames,
 	schema
 } from "#compiler/public/schema.ts"
 import { own, ownLogin } from "#compiler/schema/own.ts"
@@ -135,7 +136,10 @@ export const rebuild = <
 	R extends Record<string, AnyRelation | AnyClosed>,
 	const St extends ReadonlyArray<Statement>
 >(
-	fixture: Schema<N, R, St> & { readonly statements: StatementsWithin<St, R> },
+	fixture: Schema<N, R, St> & {
+		readonly relations: UnderOwnNames<R>
+		readonly statements: StatementsWithin<St, R>
+	},
 	name: string
 ): Schema<string, R, readonly [...St]> =>
 	schema<string, R, St>(name, fixture.relations, fixture.statements)

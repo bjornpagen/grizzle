@@ -121,8 +121,8 @@ export type WritableOf<S> =
 	| Extract<Extract<RelationOf<S>, AnyWorld>, { readonly name: WriteListOf<S> }>
 
 /**
- * The same test for one relation, by name lookup rather than union membership: members name an ordinary relation of S,
- * or a world relation S's write list names.
+ * The same test for one relation, as membership in S's relations (IsRelationOf): members name an ordinary relation of
+ * S, or a world relation S's write list names.
  */
 type WritableCheck<S, R> =
 	IsRelationOf<S, R> extends true

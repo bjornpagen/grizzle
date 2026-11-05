@@ -743,6 +743,7 @@ export const typeRefusals = [
 	"a query entry is a query over the role's base",
 	"a radicand proved nonnegative: guard it with Compute.when(Compute.nonnegative(x), (x) => …, otherwise)",
 	"a relation parameter has at least one field, as a relation does",
+	"a schema holds each relation under its own name",
 	"a schema predicate reads no parameter",
 	"a span term is required",
 	"a statement names a relation no level of the schema declares",

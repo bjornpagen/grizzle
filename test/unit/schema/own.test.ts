@@ -308,7 +308,7 @@ describe("the owned product", () => {
 									}),
 									[]
 								)
-								return schema.extend(root, { Ids }, [], [])
+								return schema.extend(root, { TaskIds: Ids }, [], [])
 							}
 							if (s.extended) {
 								c.note("an extension")
@@ -435,7 +435,7 @@ describe("conflicting declarations", () => {
 										return ownValue(
 											schema.extend(
 												Work,
-												{ Again: s.agree ? Task : relation("Task", { id: uuid }, ["id"], []) },
+												{ Task: s.agree ? Task : relation("Task", { id: uuid }, ["id"], []) },
 												[],
 												[]
 											)

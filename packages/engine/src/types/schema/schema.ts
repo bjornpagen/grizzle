@@ -80,19 +80,17 @@ export type NamedBy<St> =
 								? RelationOfKey<P> | C | RelationOfKey<Exclude<Arms[keyof Arms], undefined>>
 								: never
 
-/** The relations of a record indexed by name, as RelationIndexOf indexes a schema's. */
-type IndexOfRelations<Rs> = { readonly [K in keyof Rs as NameOf<Rs[K]>]: Rs[K] }
 /**
- * The relations a statement names that the index does not hold. A relation whose name the type does not know (a
- * widened arm of alternatives, a side over AnySide, a statement list typed ReadonlyArray<Statement>) is not refused
- * here; the run time checks it.
+ * The relations a statement names that are none of the record's relations. A relation whose name the type does not
+ * know (a widened arm of alternatives, a side over AnySide, a statement list typed ReadonlyArray<Statement>) is not
+ * refused here; the run time checks it.
  */
-type Undeclared<Index, R> = R extends unknown
+type Undeclared<Members, R> = R extends unknown
 	? [NameOf<R>] extends [never]
 		? never
 		: string extends NameOf<R>
 			? never
-			: [R] extends [Lookup<Index, NameOf<R>>]
+			: [R] extends [Members]
 				? never
 				: R
 	: never
@@ -102,10 +100,23 @@ type Undeclared<Index, R> = R extends unknown
  * "names B, which no level of the schema declares", as a type error).
  */
 export type StatementsWithin<Statements extends ReadonlyArray<Statement>, Relations> = [
-	Undeclared<IndexOfRelations<Relations>, NamedBy<Statements[number]>>
+	Undeclared<Relations[keyof Relations], NamedBy<Statements[number]>>
 ] extends [never]
 	? unknown
 	: Refusal<"a statement names a relation no level of the schema declares">
+
+/**
+ * Each relation of a level's record sits under its own name, as a role's whole entries do (EntriesCheck), the type
+ * of the run time's refusal "a relation under its own name". The record's values are then the level's relations, one
+ * per name, so "R is the level's relation of R's name" is "R is one of the record's values": one identity test
+ * against the union of the values, which the checker builds once per record, and no index by name is derived. A
+ * relation whose name the type does not know passes here; the run time checks it.
+ */
+export type UnderOwnNames<Relations> = {
+	readonly [K in keyof Relations]: [K] extends [NameOf<Relations[K]>]
+		? unknown
+		: Refusal<"a schema holds each relation under its own name">
+}
 
 /**
  * S and every schema below it. A query over any of them is a query over S. The recursion
@@ -144,23 +155,17 @@ export type RelationsOf<S> = S extends { readonly relations: infer Rs } ? Rs : n
 export type RelationOf<S> = RelationsOf<S>[keyof RelationsOf<S>]
 
 /**
- * The relations of S indexed by relation name, built once per schema. Membership is then one comparison against the
- * relation of that name, not a pass over the union of every relation for each match or member.
+ * Whether R is a relation, closed relation or derived relation of S; any schema admits every relation. S's record
+ * holds each relation under its own name (UnderOwnNames), so R is S's relation of its name exactly when it is one of
+ * RelationOf<S>, the union the checker builds once per schema.
  */
-type RelationIndexOf<S> = {
-	readonly [K in keyof RelationsOf<S> as NameOf<RelationsOf<S>[K]>]: RelationsOf<S>[K]
-}
-
-/** Whether R is a relation, closed relation or derived relation of S; any schema admits every relation. */
-export type IsRelationOf<S, R> = 0 extends 1 & S
-	? true
-	: [R] extends [Lookup<RelationIndexOf<S>, NameOf<R>>]
-		? true
-		: false
+export type IsRelationOf<S, R> = 0 extends 1 & S ? true : [R] extends [RelationOf<S>] ? true : false
 
 /**
- * One property of an index by a single name. `Index[N & keyof Index]` would intersect N with the union of every
- * name, a pass over the whole schema at each lookup; a membership test on the key is constant work.
+ * One entry of an index by a single name. An index here is keyed by its own domain (KeyIndexOf by the names its key
+ * statements declare), never by a key remapped with `as`, so `keyof Index` is the index's own key set, which the
+ * checker holds once. The keys of a remapped index are recomputed at every `keyof`, one instantiation of the remapping
+ * per key, so a lookup into one costs the size of the whole index.
  */
 type Lookup<Index, N> = N extends keyof Index ? Index[N] : never
 export type StatementsOf<S> = S extends {
@@ -187,15 +192,20 @@ export type KeysOf<S, R> = R extends { readonly kind: "context" }
 							: never)
 			| Lookup<KeyIndexOf<S>, NameOf<R>>
 
+/** The key statements of S. */
+type KeyStatementOf<S> = Extract<StatementOf<S>, Key<unknown, ReadonlyArray<string>>>
+
 /**
- * The candidate keys of every relation of S, indexed by relation name. It is built once per schema, so reading one
- * relation's keys is a property lookup rather than a pass over the statement tuple for every match.
- * Relation names are unique within a schema, so the name identifies the relation.
+ * The candidate keys of every relation of S, keyed by its own domain, the names S's key statements declare. It is
+ * built once per schema and each relation's entry is computed once, on its first read, so reading one relation's keys
+ * is a property read rather than a pass over the statement tuple for every match. Relation names are unique within a
+ * schema, so the name identifies the relation.
  */
 type KeyIndexOf<S> = {
-	readonly [
-		K in Extract<StatementOf<S>, Key<unknown, ReadonlyArray<string>>> as NameOf<K["relation"]>
-	]: K["fields"]
+	readonly [N in NameOf<KeyStatementOf<S>["relation"]>]: Extract<
+		KeyStatementOf<S>,
+		{ readonly relation: { readonly name: N } }
+	>["fields"]
 }
 
 /** The proved keys a query's evidence carries. */

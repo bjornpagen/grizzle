@@ -14,6 +14,7 @@ import {
 	type Schema,
 	type Statement,
 	type StatementsWithin,
+	type UnderOwnNames,
 	schema
 } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -39,8 +40,12 @@ import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import { Substrate, worldPsql } from "#test/support/substrate/substrate.ts"
 import { loginLayerIn, tokenOf } from "#test/support/worlds.ts"
 
-/** A schema value whose statements name only its relations, as schema(...) checked when it was built. */
+/**
+ * A schema value whose relations sit under their own names and whose statements name only its relations, as
+ * schema(...) checked when it was built.
+ */
 type Checked<N extends string, R, St extends ReadonlyArray<Statement>> = Schema<N, R, St> & {
+	readonly relations: UnderOwnNames<R>
 	readonly statements: StatementsWithin<St, R>
 }
 

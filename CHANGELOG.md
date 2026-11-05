@@ -488,6 +488,28 @@ How to upgrade:
     Explicit type arguments of these signatures gain one for the first operand, before the old ones (after the
     predicate's in `Compute.cond`).
 
+#### A schema holds each relation under its own name, and a schema or role of thousands typechecks
+
+- **`schema(name, relations, statements)` and `schema.extend(base, relations, statements)` hold each relation under
+  its own name**, as a role's whole entries already did. `schema("Work", { Tasks: Task }, [])` is a type error,
+  TS2322 `Refusal<"a schema holds each relation under its own name">`, and `MalformedDescription` ("a relation under
+  its own name; Tasks holds the relation Task") from the builder where the types do not see it (a record typed
+  `Record<string, …>`). The record is the level's index by name, so one level cannot declare a name twice: the same
+  relation under two keys is no longer taken as one declaration.
+  - Codemod: an entry `key: R` whose key is not R's name → `Name: R`, shorthand where the binding has that name; a
+    record built at run time is keyed by `r.name`. A generic helper that rebuilds a schema from its record carries the
+    proof, `Schema<N, R, St> & { readonly relations: UnderOwnNames<R> }`; `UnderOwnNames` is exported from the schema
+    barrel.
+- **A schema of thousands of statements and a role of thousands of entries typecheck.** A lookup by relation name went
+  through an index remapped with `as`, whose keys TypeScript recomputes at every `keyof`, one instantiation per key,
+  so `schema(...)` failed with TS2589 once its statements named 699 relations, and `role(...)` at a few hundred
+  entries. Now "R is one of the level's relations" is one membership test in the union of the record's values, which
+  the checker builds once per record, and candidate keys are indexed by their own domain; instantiations grow
+  linearly. The type test `schema/budget` checks one schema of 2,000 relations and about 2,500 statements, a full role
+  and a role through `Pick`. No codemod: delete any workaround, such as statements typed `ReadonlyArray<Statement>`
+  to skip the check, or a role record written out as a literal.
+- **Format and state:** none. snapshot.json and meta.json do not change, and no installed object changes.
+
 #### The unit relation is a relation input: every insert of serial columns alone compiles; a relation parameter has a field (#2)
 
 - **An insert whose every carried column is serial compiles and inserts.** Before, an insert through a writable query

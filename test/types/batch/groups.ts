@@ -8,6 +8,10 @@ import {
 } from "#test/types/query/budget/generate.ts"
 import { programSource } from "#test/types/regex/program.ts"
 import { regexSchemaPatterns, regexSchemaSource } from "#test/types/regex/schema.ts"
+import {
+	generateStatementSource,
+	largestStatementSize
+} from "#test/types/schema/budget/generate.ts"
 import { generateSchemaSource, largestSkeletonSize } from "#test/types/skeleton/budget/generate.ts"
 import { containedProgram } from "#test/types/text/contained.ts"
 
@@ -105,7 +109,25 @@ export const typeGroups: ReadonlyArray<Group> = [
 			])
 		)
 	},
-	{ owner: "test/types/schema/schema.test.ts", units: fixtureUnits("schema", ["support.ts"]) },
+	{
+		owner: "test/types/schema/schema.test.ts",
+		units: {
+			...fixtureUnits("schema", ["support.ts"]),
+			"schema/budget": {
+				kind: "program",
+				dir: "test/types/schema",
+				prefix: ".budget-",
+				disarm: true,
+				heavy: true,
+				source: (entry) => [
+					{
+						file: "index.ts",
+						source: generateStatementSource(largestStatementSize, entriesFrom(entry))
+					}
+				]
+			}
+		}
+	},
 	{
 		owner: "test/types/skeleton/skeleton.test.ts",
 		units: {

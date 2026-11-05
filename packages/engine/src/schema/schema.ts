@@ -1,9 +1,7 @@
-import { CompileError } from "#compiler/core/errors.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
 import {
 	decodeDesc,
-	descText,
 	type RelationDesc,
 	type SchemaDesc,
 	type StatementDesc
@@ -29,24 +27,19 @@ import type { Statement } from "#compiler/types/schema/statements.ts"
 
 export const schemaDescOf = (value: unknown): SchemaDesc | undefined => ownedDesc(value, "schema")
 
-const identity = (desc: unknown): string => orThrow(descText(desc))
-
-/** Adds `desc` to a level's declarations unless an equal declaration of its name is already there; a conflicting one
- * is refused. */
-const addRelation = (descs: Array<RelationDesc>, desc: RelationDesc): void => {
-	const prior = descs.find((r) => r.name === desc.name)
-	if (prior === undefined) {
-		descs.push(desc)
-		return
+/**
+ * A level's record is its index by name: each relation sits under its own name, as a role's whole entries do. The
+ * record's keys are then the level's names, each once, so a lookup by name is one property read, no name index is
+ * derived from the record, and no level declares one name twice.
+ */
+const underOwnName = (label: string, key: string, desc: RelationDesc): RelationDesc => {
+	if (desc.name !== key) {
+		throw malformed(
+			`${label} relation ${key}`,
+			`a relation under its own name; ${key} holds the relation ${desc.name}`
+		)
 	}
-	if (identity(prior) === identity(desc)) {
-		return
-	}
-	throw CompileError.make({
-		_tag: "DuplicateIdentity",
-		at: desc.loc,
-		duplicate: { kind: "relation", name: desc.name, earlier: prior.loc }
-	})
+	return desc
 }
 
 /** The list of statements a caller handed in. */
@@ -112,7 +105,7 @@ export const admitSchema = (
 				"a relation or closed relation: a derived relation is declared in schema.extend"
 			)
 		}
-		addRelation(descs, relationDescOf(value, `${label} relation ${key}`))
+		descs.push(underOwnName(label, key, relationDescOf(value, `${label} relation ${key}`)))
 	}
 	const stmts = statementList(statementValues(statements, label), label)
 	return orThrow(
@@ -187,7 +180,7 @@ const admitExtend = (
 	for (const [key, value] of Object.entries(relations)) {
 		const draft = derivedDraftOf(value)
 		if (draft === undefined) {
-			addRelation(descs, relationDescOf(value, `${label} relation ${key}`))
+			descs.push(underOwnName(label, key, relationDescOf(value, `${label} relation ${key}`)))
 			continue
 		}
 		let level = 1
@@ -203,13 +196,15 @@ const admitExtend = (
 				level = Math.max(level, lower.level + 1)
 			}
 		}
-		addRelation(descs, {
-			kind: "derived",
-			name: draft.name,
-			query: draft.query,
-			level,
-			loc: draft.loc
-		})
+		descs.push(
+			underOwnName(label, key, {
+				kind: "derived",
+				name: draft.name,
+				query: draft.query,
+				level,
+				loc: draft.loc
+			})
+		)
 	}
 	const stmts = statementList(statementValues(statements, label), label)
 	return orThrow(
@@ -263,8 +258,8 @@ const extend = <
 /**
  * schema and schema.extend.
  *
- * `schema(name, relations, statements)` records relations and closed relations, under the property names the caller
- * chose, and the statements, which the type captures as a tuple. `schema.extend(base, relations,
+ * `schema(name, relations, statements)` records relations and closed relations, each under its own name, and the
+ * statements, which the type captures as a tuple. `schema.extend(base, relations,
  * statements)` adds relations, derived relations among them, and statements under the base's name: the extension is
  * one installation in one PostgreSQL schema, and its Description records the base under `extends`.
  *

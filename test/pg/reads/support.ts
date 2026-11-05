@@ -8,6 +8,7 @@ import {
 	type Schema,
 	type Statement,
 	type StatementsWithin,
+	type UnderOwnNames,
 	schema
 } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -147,14 +148,18 @@ export type FixtureInstall = Pick<RealInstallOptions, "label" | "extensions">
 
 /**
  * Installs `fixture` under a fresh schema, loads `facts`, and rebuilds the fixture under the installed name. The
- * fixture is a schema value whose statements name only its relations, as schema(...) checked when it was built.
+ * fixture is a schema value whose relations sit under their own names and whose statements name only its relations,
+ * as schema(...) checked when it was built.
  */
 export const installed = <
 	const N extends string,
 	R extends Record<string, AnyRelation | AnyClosed>,
 	const St extends ReadonlyArray<Statement>
 >(
-	fixture: Schema<N, R, St> & { readonly statements: StatementsWithin<St, R> },
+	fixture: Schema<N, R, St> & {
+		readonly relations: UnderOwnNames<R>
+		readonly statements: StatementsWithin<St, R>
+	},
 	facts: FactSet,
 	options: FixtureInstall
 ): Effect.Effect<

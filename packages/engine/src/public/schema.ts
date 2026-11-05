@@ -93,7 +93,8 @@ export type {
 	RelationsOf,
 	Schema,
 	StatementsOf,
-	StatementsWithin
+	StatementsWithin,
+	UnderOwnNames
 } from "#compiler/types/schema/schema.ts"
 
 /**

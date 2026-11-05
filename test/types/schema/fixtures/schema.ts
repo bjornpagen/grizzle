@@ -346,6 +346,20 @@ export const undeclaredExtension = schema.extend(Edu, {}, [mutable(Ticket)])
 export const declaredExtension = schema.extend(Edu, { Ticket }, [mutable(Ticket), mutable(Account)])
 
 /**
+ * A level's record is its index by name: each relation sits under its own name, in schema(...) and in
+ * schema.extend(...), as a role's whole entries do (the run time refuses it with "a relation under its own name").
+ */
+// @ts-expect-error -- TS2322 refusal: a schema holds each relation under its own name
+export const aliasedRelation = schema("S4", { Accounts: Account }, [])
+// @ts-expect-error -- TS2322 refusal: a schema holds each relation under its own name
+export const aliasedClosed = schema("S5", { Kinds: Kind }, [])
+// @ts-expect-error -- TS2322 refusal: a schema holds each relation under its own name
+export const aliasedDerived = schema.extend(Edu, { Counts: TaskCounts }, [])
+// @ts-expect-error -- TS2322 refusal: a schema holds each relation under its own name
+export const swappedNames = schema("S6", { Account: Task, Task: Account }, [])
+export const ownNames = schema("S7", { Account, Kind, Task }, [])
+
+/**
  * A row check and a contract predicate read no parameter: Predicate is covariant in its parameter map, so the
  * callback's own predicate type is what is refused.
  */

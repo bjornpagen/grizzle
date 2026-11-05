@@ -183,7 +183,7 @@ const parameterized = (): unknown => {
 			return r.match(A.Task, { id }).find({ id })
 		})
 	)
-	const owned = ownedOf(schema.extend(A.Work, { D }, []))
+	const owned = ownedOf(schema.extend(A.Work, { Plain: D }, []))
 	if (!owned.ok) {
 		throw owned.error
 	}

@@ -33,7 +33,8 @@ import type {
 	DerivedAt,
 	LevelsOf,
 	Schema,
-	StatementsWithin
+	StatementsWithin,
+	UnderOwnNames
 } from "#compiler/types/schema/schema.ts"
 
 import type {
@@ -121,8 +122,9 @@ export const closed = <
 ): EnumClosed<Name, readonly [...Handles]> => closedBuilder<Name, Handles>(name, handles, extra)
 
 /**
- * schema(name, relations, statements). The statements are a frozen copy, `readonly [...Statements]`, which is
- * Statements for every tuple a call writes.
+ * schema(name, relations, statements). Each relation sits under its own name, so the record is the schema's index by
+ * name. The statements are a frozen copy, `readonly [...Statements]`, which is Statements for every tuple a call
+ * writes.
  */
 const rootSchema = <
 	const Name extends string,
@@ -130,16 +132,16 @@ const rootSchema = <
 	const Statements extends ReadonlyArray<Statement>
 >(
 	name: Name,
-	relations: Relations,
+	relations: Relations & UnderOwnNames<Relations>,
 	statements: Statements & StatementsWithin<Statements, Relations>,
 	...extra: ReadonlyArray<never>
 ): Schema<Name, Relations, readonly [...Statements]> =>
 	schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
- * Adds relations, including derived relations over the base, and statements, under the same name.
- * A derived definition must be a query over the base or a lower level. Query is invariant in its schema, so a
- * query over this extension, which would read its own level, is no query over any level below it.
+ * Adds relations, including derived relations over the base, and statements, under the same name, each relation
+ * under its own name. A derived definition must be a query over the base or a lower level. Query is invariant in its
+ * schema, so a query over this extension, which would read its own level, is no query over any level below it.
  */
 const extend = <
 	Base extends AnySchema,
@@ -147,7 +149,7 @@ const extend = <
 	const Statements extends ReadonlyArray<Statement>
 >(
 	base: Base,
-	relations: Relations,
+	relations: Relations & UnderOwnNames<Relations>,
 	statements: Statements & StatementsWithin<Statements, Base["relations"] & Relations>,
 	...extra: ReadonlyArray<never>
 ): Schema<

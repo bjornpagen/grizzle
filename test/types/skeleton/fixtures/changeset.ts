@@ -42,7 +42,7 @@ export const ManualTask = relation(
 	{ task: uuid, operator: str.regex("^.*$", "su") },
 	["task"]
 )
-export const Switch = schema("Work", { Mode, ModalTask, AutomaticTask, ManualTask }, [])
+export const Switch = schema("Work", { Kind: Mode, Task: ModalTask, AutomaticTask, ManualTask }, [])
 
 /**
  * The worked example's described arm switch, verbatim but for the relation names: the put's head writes the literal "Manual" into the kind

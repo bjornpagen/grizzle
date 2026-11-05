@@ -92,7 +92,7 @@ const utf8Bytes = (text: string): number => utf8.encode(text).length
 const ownValue = (value: unknown) => ownedInput(value)
 
 const ownOne = (r: AnyRelation | AnyClosed, statements: ReadonlyArray<Statement>) =>
-	ownValue(schema("Keys", { r }, statements, []))
+	ownValue(schema("Keys", { [r.name]: r }, statements, []))
 
 /** The field Descriptions of a relation, read through its accessor. */
 const fieldDescsOf = (r: unknown): Readonly<Record<string, FieldDesc>> => {
@@ -1367,7 +1367,7 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 								: ordered
 							const names = Arr.map(keyed, ([name]) => name)
 							const R = relation("Booking", Rec.fromEntries(keyed), names, [])
-							const owned = ownValue(schema("Keys", { Kind, R }, [], []))
+							const owned = ownValue(schema("Keys", { Kind, Booking: R }, [], []))
 							if (s.second) {
 								c.note("two spans")
 								refused(owned, "UnrepresentableKey")
