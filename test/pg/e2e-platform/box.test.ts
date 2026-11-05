@@ -217,7 +217,7 @@ const recordFacts = (r: P.UsageRecord): PlatformFacts => ({
 
 const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, ApplyError> =>
 	Effect.map(db.apply(insertAll(f), {}), (o) =>
-		o.kind === "invariant-rejected" ? `refused by ${Formatter.format(o.law)}` : o.kind
+		o.kind === "invariant-rejected" ? `refused by ${Formatter.format(o.laws)}` : o.kind
 	)
 
 layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
@@ -227,8 +227,13 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 			Effect.gen(function* () {
 				const s = yield* Substrate
 				const o = yield* openPlatform("platform_box")
+				/**
+				 * A point's usage and grants cleared, with the workspace's monthly limits: a limit owns its month's
+				 * event totals, a counted family whose count and sum it holds, so it is cleared with them and stored
+				 * again beside the point's grants.
+				 */
 				const clear = s.admin.query(
-					`TRUNCATE ${Arr.join(Arr.map(["CreditDebit", "UsageCharge", "EventCharge", "ProviderCost", "UsageEvent", "CreditGrant"], o.table), ", ")}`,
+					`TRUNCATE ${Arr.join(Arr.map(["CreditDebit", "UsageCharge", "EventCharge", "ProviderCost", "UsageEvent", "CreditGrant", "WorkspaceLimit"], o.table), ", ")}`,
 					[]
 				)
 				/** One Db for the static platform and the whole box. */
@@ -286,9 +291,13 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 											cx.note("a grant expiring at an event's end")
 										}
 									}
-									const grantFacts = { ...noFacts, CreditGrant: grants }
+									const grantFacts = {
+										...noFacts,
+										CreditGrant: grants,
+										WorkspaceLimit: staticFacts.WorkspaceLimit
+									}
 									const grantsDecision = yield* decided(db, grantFacts)
-									assert.equal(grantsDecision, "accepted", "the grants are stored")
+									assert.equal(grantsDecision, "accepted", "the grants and limits are stored")
 									for (const record of settled.records) {
 										const f = recordFacts(record)
 										const decision = yield* decided(db, f)

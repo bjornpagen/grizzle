@@ -42,7 +42,7 @@ import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { ApplyError } from "#adapter/public/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
+import { type Addition, ChangeSet } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import { applyFacts, openPlatform, type PlatformDb } from "#test/pg/e2e-platform/support.ts"
@@ -91,7 +91,10 @@ const law = {
 	refundOnlyPaid: billing.lawOf(P.refundOnlyPaid),
 	grantWithinAmount: billing.lawOf(P.grantWithinAmount),
 	allocationCovered: billing.lawOf(P.allocationCovered),
-	paidWithoutPayment: billing.alternativesOf(P.invoiceSettlement).reverse,
+	paidWithoutPayment: defined(
+		billing.alternativesOf(P.invoiceSettlement).reverse["paid"],
+		"invoiceSettlement's reverse law for paid"
+	),
 	pricedByCard: billing.lawOf(P.pricedByCard)
 } as const satisfies Readonly<Record<string, LawId>>
 
@@ -138,13 +141,16 @@ const platformNames = installationNamesOf(installationOf(P.Billing, { kind: "dec
  */
 type Decided =
 	| { readonly kind: "accepted" | "no-change" }
-	| { readonly kind: "invariant-rejected"; readonly law: LawId }
+	| { readonly kind: "invariant-rejected"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
 	| { readonly kind: "outside-world"; readonly relation: string }
 
 const decided = (outcome: ApplyOutcome<unknown>): Decided => {
 	switch (outcome.kind) {
 		case "invariant-rejected":
-			return { kind: outcome.kind, law: platformNames.reported(outcome.law) }
+			return {
+				kind: outcome.kind,
+				laws: Arr.map(outcome.laws, (law) => platformNames.reported(law))
+			}
 		case "outside-world":
 			return { kind: outcome.kind, relation: outcome.relation }
 		case "accepted":
@@ -400,7 +406,7 @@ const debitOf = (
 	p: Platform,
 	margin: bigint,
 	slot: Slot,
-	g: Fact<typeof P.CreditGrant>,
+	g: Addition<typeof P.CreditGrant>,
 	rest: bigint
 ): Option.Option<Planted> => {
 	const expired = g.valid.end <= slot.t
@@ -592,7 +598,7 @@ const plantPaidWithoutPayment = (p: Platform): Option.Option<Planted> =>
 	Option.map(
 		Arr.findFirst(p.facts.Invoice, (i) => i.state === "open"),
 		(open) => {
-			const paid: Fact<typeof P.Invoice> = { ...open, state: "paid" }
+			const paid: Addition<typeof P.Invoice> = { ...open, state: "paid" }
 			const charge = nextEvent()
 			return {
 				faulty: {
@@ -896,7 +902,7 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 										const faulty = yield* planted.faulty.apply(db)
 										assert.deepEqual(
 											faulty,
-											{ kind: "invariant-rejected", law: broken },
+											{ kind: "invariant-rejected", laws: [broken] },
 											`${c.fault} by ${c.margin}`
 										)
 										cx.note(`refused by ${c.fault}`)

@@ -64,10 +64,14 @@ const levels: Arr.NonEmptyReadonlyArray<BelowSerializable> = [
 	"repeatable read"
 ]
 
-/** The platform's one mutable relation (mutable(WorkspaceLimit) in the fixture), and an immutable one drawn per run. */
+/**
+ * The platform's mutable relations (the fixture's mutable statements: a workspace's caps, and the grants and invoices
+ * whose counted families change after they are inserted), the one a run writes, and an immutable one drawn per run.
+ */
+const mutableRelations: ReadonlyArray<RelationName> = ["WorkspaceLimit", "CreditGrant", "Invoice"]
 const mutableRelation: RelationName = "WorkspaceLimit"
 const immutables = nonEmpty(
-	Arr.filter(loadOrder, (r) => r !== mutableRelation),
+	Arr.filter(loadOrder, (r) => !mutableRelations.includes(r)),
 	"the platform's immutable relations"
 )
 

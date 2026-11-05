@@ -473,12 +473,10 @@ const alternativesLaws = (
 const eventCharges = counted("UsageCharge", ["event"], "EventCharge", ["event"])
 const chargeDebits = counted("CreditDebit", ["event", "kind"], "UsageCharge", ["event", "kind"])
 const grantDebits = counted("CreditDebit", ["grant"], "CreditGrant", ["id"])
-const limitCharges = counted(
-	"EventCharge",
-	["workspace", "month"],
-	"WorkspaceLimit",
-	["workspace", "month"]
-)
+const limitCharges = counted("EventCharge", ["workspace", "month"], "WorkspaceLimit", [
+	"workspace",
+	"month"
+])
 const invoiceLines = counted("InvoiceLine", ["invoice"], "Invoice", ["id"])
 const lineAllocations = counted("Allocation", ["line"], "InvoiceLine", ["id"])
 const invoiceRefunds = counted("Refund", ["invoice"], "Invoice", ["id"])

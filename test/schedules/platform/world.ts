@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option } from "effect"
 import type { ApplyError } from "#adapter/public/errors.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
+import { type Addition, ChangeSet } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import {
@@ -80,12 +80,12 @@ export const flatRate = 1_000_000n
 export const instants = (s: SpanV) => ({ start: P.Instant(s.start), end: P.Instant(s.end) })
 
 /** The workspace's cap for a calendar month, and for the race's month. */
-export const limitIn = (of: typeof month, cap: bigint): Fact<typeof P.WorkspaceLimit> => ({
+export const limitIn = (of: typeof month, cap: bigint): Addition<typeof P.WorkspaceLimit> => ({
 	workspace: ids.workspace,
 	month: P.MonthNo(of.month),
 	cap: P.Micros(cap)
 })
-export const limitOf = (cap: bigint): Fact<typeof P.WorkspaceLimit> => limitIn(month, cap)
+export const limitOf = (cap: bigint): Addition<typeof P.WorkspaceLimit> => limitIn(month, cap)
 
 const activeOf = (during: SpanV): Fact<typeof P.ApiKeyActive> => ({
 	key: ids.key,
@@ -319,7 +319,7 @@ export const capWrite = (from: bigint, to: bigint): Write => ({
 	])
 })
 
-const sameKey = (row: Row, cap: Fact<typeof P.WorkspaceLimit>): boolean =>
+const sameKey = (row: Row, cap: Addition<typeof P.WorkspaceLimit>): boolean =>
 	valueKey(row["workspace"]) === valueKey(cap.workspace) &&
 	valueKey(row["month"]) === valueKey(cap.month)
 
@@ -330,8 +330,8 @@ const sameKey = (row: Row, cap: Fact<typeof P.WorkspaceLimit>): boolean =>
  */
 export const capsMergeWrite = (
 	kind: string,
-	read: ReadonlyArray<Fact<typeof P.WorkspaceLimit>>,
-	caps: ReadonlyArray<Fact<typeof P.WorkspaceLimit>>
+	read: ReadonlyArray<Addition<typeof P.WorkspaceLimit>>,
+	caps: ReadonlyArray<Addition<typeof P.WorkspaceLimit>>
 ): Write => ({
 	kind,
 	label: `caps to [${Arr.join(
@@ -358,8 +358,8 @@ export const capsMergeWrite = (
 /** A grant replaced by another payload at its key: a put of the grant; a direct writer replaces it. */
 export const grantWrite = (
 	kind: string,
-	from: Fact<typeof P.CreditGrant>,
-	to: Fact<typeof P.CreditGrant>,
+	from: Addition<typeof P.CreditGrant>,
+	to: Addition<typeof P.CreditGrant>,
 	label: string
 ): Write => ({
 	kind,
@@ -374,7 +374,7 @@ export const grantWrite = (
 
 type InvoiceState = "open" | "paid" | "void" | "disputed"
 
-const invoiceOf = (amount: bigint, state: InvoiceState): Fact<typeof P.Invoice> => ({
+const invoiceOf = (amount: bigint, state: InvoiceState): Addition<typeof P.Invoice> => ({
 	id: ids.invoice,
 	org: ids.org,
 	period: instants(month.during),

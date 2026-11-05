@@ -20,8 +20,8 @@ import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
+import type { Addition } from "#compiler/public/changeset.ts"
 import { Uuid } from "#compiler/public/fields.ts"
-import type { Fact } from "#compiler/public/schema.ts"
 import {
 	amountOf,
 	beforeOf,
@@ -154,13 +154,13 @@ const resolveCredits =
 		const prior = on("prior debit") ? BigInt(k.prior) : 0n
 		/** The first grant ends after every window, or, crossing, at an instant among the windows. */
 		const firstEnd = on("crossing window") ? instantOf(k.ends[0], k.ends[1]) : startOf(n + 2)
-		const first: Fact<typeof P.CreditGrant> = {
+		const first: Addition<typeof P.CreditGrant> = {
 			id: W.grantId(1),
 			org: W.ids.org,
 			amount: P.Micros(prior + BigInt(k.amounts[0])),
 			valid: W.instants(platformSpan(JAN, firstEnd))
 		}
-		const second: ReadonlyArray<Fact<typeof P.CreditGrant>> = on("second grant")
+		const second: ReadonlyArray<Addition<typeof P.CreditGrant>> = on("second grant")
 			? [
 					{
 						id: W.grantId(2),
@@ -188,7 +188,7 @@ const resolveCredits =
 		const expiry = on("expiry")
 		/** The first grant shortened to end at an instant among the windows, never later than it ended. */
 		const cutEnd = instantOf(k.cut[0], k.cut[1])
-		const shortened: Fact<typeof P.CreditGrant> = {
+		const shortened: Addition<typeof P.CreditGrant> = {
 			...first,
 			valid: W.instants(platformSpan(JAN, cutEnd < firstEnd ? cutEnd : firstEnd))
 		}
