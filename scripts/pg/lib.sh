@@ -25,16 +25,22 @@ use_cluster() {
 }
 use_cluster main
 
+# Every cluster use_cluster selects. All of them run from the one build at $GRIZZLE_PG_PREFIX.
+PG_CLUSTERS="main coverage"
+
 pg_bin() { echo "$GRIZZLE_PG_PREFIX/bin/$1"; }
 
-plpgsql_check_stamp() { echo "$GRIZZLE_PG_PREFIX/.grizzle-plpgsql_check-$PLPGSQL_CHECK_PIN_TARBALL_SHA256"; }
+# The stamps of the build at the prefix $1, which build.sh writes last. The core stamp holds the patch set the build
+# was made with, so a changed set rebuilds.
+core_stamp() { echo "$1/.grizzle-build-$PG_PIN_COMMIT"; }
+plpgsql_check_stamp() { echo "$1/.grizzle-plpgsql_check-$PLPGSQL_CHECK_PIN_TARBALL_SHA256"; }
 
 require_build() {
-	if [[ ! -f "$GRIZZLE_PG_PREFIX/.grizzle-build-$PG_PIN_COMMIT" ]]; then
+	if [[ ! -f "$(core_stamp "$GRIZZLE_PG_PREFIX")" ]]; then
 		echo "PostgreSQL $PG_PIN_VERSION is not built; run scripts/pg/build.sh" >&2
 		exit 1
 	fi
-	if [[ "$GRIZZLE_PG_CLUSTER" == coverage && ! -f "$(plpgsql_check_stamp)" ]]; then
+	if [[ "$GRIZZLE_PG_CLUSTER" == coverage && ! -f "$(plpgsql_check_stamp "$GRIZZLE_PG_PREFIX")" ]]; then
 		echo "plpgsql_check $PLPGSQL_CHECK_PIN_VERSION is not built; run scripts/pg/build.sh" >&2
 		exit 1
 	fi

@@ -1,0 +1,1293 @@
+PostgreSQL 19rc1: CHECK constraint and generation expressions are planned once per relcache entry, not per statement.
+
+ExecRelCheck (execMain.c) and ExecInitGenerated (nodeModifyTable.c) re-read every CHECK's ccbin with stringToNode, and
+every generation expression with build_column_default, and run each through ExecPrepareExpr, in every statement that
+needs them. ExecPrepareExpr calls expression_planner, which calls any IMMUTABLE function whose arguments are constants
+and copies its result into the tree. So a CHECK or a stored generated column that reads a constant function pays for
+the call and the copy of the constant on every statement, and a CHECK that holds one as a literal pays for parsing it.
+On one-row INSERTs, against a bare table: +13 µs for a CHECK over a 33 KB constant, +20 µs over 128 KiB, +22 µs for a
+generated column over 128 KiB, +418 µs for a CHECK holding the 33 KB constant as a literal. Domains already plan their
+checks once per backend (load_domaintype_info, typcache.c), and indexes their expressions once per relcache entry
+(RelationGetIndexExpressions, relcache.c).
+
+This does the same for CHECKs and generation expressions. RelationGetPlannedCheckExprs, RelationGetGenerationExpr and
+RelationGetPlannedGenerationExpr (relcache.c) parse, expand and plan them on first use and keep the result in a memory
+context the relcache entry owns, and the two executor sites only run ExecInitExpr on it, which never modifies its input
+(executor/README). Generation expressions are planned one column at a time, as the executor asks for them, so an UPDATE
+still never plans a column it doesn't recompute. Each CHECK or stored generated column then costs 0.4 to 1.2 µs per
+one-row INSERT over a bare table, the same for a 363-bit constant as for 128 KiB; a bare INSERT is unchanged.
+
+Behaviour is unchanged. The planned trees depend on the table's constraints and defaults, and a relcache rebuild that
+changes its tupledesc discards them. They also depend on what plancache.c revalidates a plan against, none of which
+invalidates the relcache: the functions planning called or inlined (CREATE OR REPLACE FUNCTION), any domain whose
+coercion planning removed because the domain had no constraints (ALTER DOMAIN ... ADD CONSTRAINT), the EXECUTE
+privilege that calling a function at plan time checks (GRANT, REVOKE, role membership, SET ROLE, SECURITY DEFINER),
+and, where inlining parsed a SQL function's string body, the search_path and the operators and namespaces it found. So
+the entry records the user and the search_path it planned under, and syscache callbacks on pg_proc, pg_type,
+pg_operator, pg_namespace, pg_authid and pg_auth_members advance a counter that makes every entry's planned
+expressions stale, to be planned again on next use. What remains is the immutability PostgreSQL already requires of
+these expressions, as of index expressions: a function whose result changes while no catalog row it depends on does
+is seen once per entry.
+
+Executor state points into the cached trees, not into copies, so that no constant is copied per statement. When an
+open relation's entry is rebuilt, or its planned expressions go stale, their memory therefore lives on, handed to the
+rebuilt entry or kept as a child of their successor's, until RelationClose finds the relation unreferenced, as rd_pdcxt
+does for partition descriptors. To bound what one statement can keep that way, the expressions are started over at
+most once while the relation stays open; after that they are planned in the caller's memory, as before, until it is
+closed. The new RelationData fields come last, so no existing field moves.
+
+The regression test relcache_exprs covers CHECKs and generated columns over constant functions across ADD and DROP
+CONSTRAINT and SET EXPRESSION, partitions and inheritance, COPY, INSERT ... ON CONFLICT, MERGE and UPDATE, a function
+replaced in place, a domain constraint added later, EXECUTE granted and revoked, a changed search_path, executor state
+outliving an invalidation within its statement, and that the function is called once rather than per statement. Its
+output matches stock 19rc1's except for that last line.
+
+This is not upstream, and no release includes it, so every repin carries it.
+
+--- a/src/backend/executor/execMain.c
++++ b/src/backend/executor/execMain.c
+@@ -1827,24 +1827,24 @@ ExecRelCheck(ResultRelInfo *resultRelInfo,
+ 	/*
+ 	 * If first time through for this result relation, build expression
+ 	 * nodetrees for rel's constraint expressions.  Keep them in the per-query
+-	 * memory context so they'll survive throughout the query.
++	 * memory context so they'll survive throughout the query.  The relcache
++	 * has planned the expressions already, so we need only initialize them.
+ 	 */
+ 	if (resultRelInfo->ri_CheckConstraintExprs == NULL)
+ 	{
++		Node	  **checkexprs;
++
+ 		oldContext = MemoryContextSwitchTo(estate->es_query_cxt);
++		checkexprs = RelationGetPlannedCheckExprs(rel);
+ 		resultRelInfo->ri_CheckConstraintExprs = palloc0_array(ExprState *, ncheck);
+ 		for (int i = 0; i < ncheck; i++)
+ 		{
+-			Expr	   *checkconstr;
+-
+ 			/* Skip not enforced constraint */
+ 			if (!check[i].ccenforced)
+ 				continue;
+ 
+-			checkconstr = stringToNode(check[i].ccbin);
+-			checkconstr = (Expr *) expand_generated_columns_in_expr((Node *) checkconstr, rel, 1);
+ 			resultRelInfo->ri_CheckConstraintExprs[i] =
+-				ExecPrepareExpr(checkconstr, estate);
++				ExecInitExpr((Expr *) checkexprs[i], NULL);
+ 		}
+ 		MemoryContextSwitchTo(oldContext);
+ 	}
+--- a/src/backend/executor/nodeModifyTable.c
++++ b/src/backend/executor/nodeModifyTable.c
+@@ -67,7 +67,6 @@
+ #include "nodes/nodeFuncs.h"
+ #include "optimizer/optimizer.h"
+ #include "pgstat.h"
+-#include "rewrite/rewriteHandler.h"
+ #include "rewrite/rewriteManip.h"
+ #include "storage/lmgr.h"
+ #include "utils/builtins.h"
+@@ -487,7 +486,7 @@ ExecInitGenerated(ResultRelInfo *resultRelInfo,
+ 			Expr	   *expr;
+ 
+ 			/* Fetch the GENERATED AS expression tree */
+-			expr = (Expr *) build_column_default(rel, i + 1);
++			expr = (Expr *) RelationGetGenerationExpr(rel, i + 1);
+ 			if (expr == NULL)
+ 				elog(ERROR, "no generation expression found for column number %d of table \"%s\"",
+ 					 i + 1, RelationGetRelationName(rel));
+@@ -506,10 +505,14 @@ ExecInitGenerated(ResultRelInfo *resultRelInfo,
+ 					continue;	/* need not update this column */
+ 			}
+ 
+-			/* No luck, so prepare the expression for execution */
++			/*
++			 * No luck, so prepare the expression for execution.  The relcache
++			 * plans it, once, so we need only initialize it.
++			 */
+ 			if (attgenerated == ATTRIBUTE_GENERATED_STORED)
+ 			{
+-				ri_GeneratedExprs[i] = ExecPrepareExpr(expr, estate);
++				expr = (Expr *) RelationGetPlannedGenerationExpr(rel, i + 1);
++				ri_GeneratedExprs[i] = ExecInitExpr(expr, NULL);
+ 				ri_NumGeneratedNeeded++;
+ 			}
+ 
+--- a/src/backend/utils/cache/relcache.c
++++ b/src/backend/utils/cache/relcache.c
+@@ -75,6 +75,7 @@
+ #include "optimizer/optimizer.h"
+ #include "pgstat.h"
+ #include "rewrite/rewriteDefine.h"
++#include "rewrite/rewriteHandler.h"
+ #include "rewrite/rowsecurity.h"
+ #include "storage/fd.h"
+ #include "storage/lmgr.h"
+@@ -208,6 +209,21 @@ static int	EOXactTupleDescArrayLen = 0;
+ static int	EOXactTupleDescArrayLen = 0;
+ 
+ /*
++ * The planned CHECK and generation expressions in a relcache entry depend on
++ * more than the relation: on the functions that planning pre-evaluated or
++ * inlined, on the privileges of the user who planned them, on any domain
++ * whose coercion planning removed because the domain had no constraints, and,
++ * where planning parsed an inlined SQL function's body, on the search_path and
++ * the namespaces and operators it found.  Changes to those catalogs don't
++ * invalidate the relcache entry, so instead we count them, as plancache.c
++ * revalidates its plans, and an entry's planned expressions are rebuilt once
++ * the count moves, or the user or search_path differs.  Entries start out with
++ * rd_exprepoch 0, which never matches.
++ */
++static uint64 relexprepoch = 1;
++static bool relexprepoch_callbacks_registered = false;
++
++/*
+  *		macros to manipulate the lookup hashtable
+  */
+ #define RelationCacheInsert(RELATION, replace_allowed)	\
+@@ -287,6 +303,9 @@ static void RememberToFreeTupleDescAtEOX(TupleDesc td)
+ static void RelationReloadNailed(Relation relation);
+ static void RelationFlushRelation(Relation relation);
+ static void RememberToFreeTupleDescAtEOX(TupleDesc td);
++static void RelationExprEpochCallback(Datum arg, SysCacheIdentifier cacheid,
++									  uint32 hashvalue);
++static bool RelationPlannedExprsUsable(Relation relation);
+ #ifdef USE_ASSERT_CHECKING
+ static void AssertPendingSyncConsistency(Relation relation);
+ #endif
+@@ -1219,6 +1238,14 @@ retry:
+ 	relation->rd_partcheckvalid = false;
+ 	relation->rd_partcheckcxt = NULL;
+ 
++	/* planned expressions are not built till asked for */
++	relation->rd_exprcxt = NULL;
++	relation->rd_exprepoch = 0;
++	relation->rd_exprpath = NULL;
++	relation->rd_checkexprs = NULL;
++	relation->rd_genexprs = NULL;
++	relation->rd_genplanned = NULL;
++
+ 	/*
+ 	 * initialize access method information
+ 	 */
+@@ -2224,8 +2251,9 @@ RelationCloseCleanup(Relation relation)
+ {
+ 	/*
+ 	 * If the relation is no longer open in this session, we can clean up any
+-	 * stale partition descriptors it has.  This is unlikely, so check to see
+-	 * if there are child contexts before expending a call to mcxt.c.
++	 * stale partition descriptors or planned expressions it has.  This is
++	 * unlikely, so check to see if there are child contexts before expending
++	 * a call to mcxt.c.
+ 	 */
+ 	if (RelationHasReferenceCountZero(relation))
+ 	{
+@@ -2236,6 +2264,10 @@ RelationCloseCleanup(Relation relation)
+ 		if (relation->rd_pddcxt != NULL &&
+ 			relation->rd_pddcxt->firstchild != NULL)
+ 			MemoryContextDeleteChildren(relation->rd_pddcxt);
++
++		if (relation->rd_exprcxt != NULL &&
++			relation->rd_exprcxt->firstchild != NULL)
++			MemoryContextDeleteChildren(relation->rd_exprcxt);
+ 	}
+ 
+ #ifdef RELCACHE_FORCE_RELEASE
+@@ -2500,6 +2532,8 @@ RelationDestroyRelation(Relation relation, bool rememb
+ 		MemoryContextDelete(relation->rd_pddcxt);
+ 	if (relation->rd_partcheckcxt)
+ 		MemoryContextDelete(relation->rd_partcheckcxt);
++	if (relation->rd_exprcxt)
++		MemoryContextDelete(relation->rd_exprcxt);
+ 	pfree(relation);
+ }
+ 
+@@ -2757,6 +2791,27 @@ RelationRebuildRelation(Relation relation)
+ 		{
+ 			SWAPFIELD(PartitionKey, rd_partkey);
+ 			SWAPFIELD(MemoryContext, rd_partkeycxt);
++		}
++
++		/*
++		 * The planned CHECK and generation expressions were built from the
++		 * tupledesc's constraints and defaults, so they remain good if it
++		 * does.  Otherwise the new entry starts without them, but we can't
++		 * free the old ones yet: executor state built from them points into
++		 * them, rather than at copies, so that no large constant is copied
++		 * per statement.  Hand their context to the new entry, marked stale;
++		 * RelationPlannedExprsUsable reattaches it below its successor, and
++		 * RelationClose frees it once the reference count reaches zero.
++		 */
++		SWAPFIELD(MemoryContext, rd_exprcxt);
++		if (keep_tupdesc)
++		{
++			SWAPFIELD(uint64, rd_exprepoch);
++			SWAPFIELD(Oid, rd_expruser);
++			SWAPFIELD(struct SearchPathMatcher *, rd_exprpath);
++			SWAPFIELD(Node **, rd_checkexprs);
++			SWAPFIELD(Node **, rd_genexprs);
++			SWAPFIELD(Node **, rd_genplanned);
+ 		}
+ 		if (newrel->rd_pdcxt != NULL || newrel->rd_pddcxt != NULL)
+ 		{
+@@ -5272,9 +5327,240 @@ RelationGetIndexPredicate(Relation relation)
+ 	MemoryContextSwitchTo(oldcxt);
+ 
+ 	return result;
++}
++
++/*
++ * RelationExprEpochCallback
++ *		Syscache callback: a function, type, operator, namespace or role
++ *		changed, so every entry's planned expressions are stale (see
++ *		relexprepoch)
++ */
++static void
++RelationExprEpochCallback(Datum arg, SysCacheIdentifier cacheid,
++						  uint32 hashvalue)
++{
++	relexprepoch++;
++}
++
++/*
++ * RelationPlannedExprsUsable -- may we use and add to the relation's planned
++ *		expressions?
++ *
++ * If they are stale, we start them over.  Executor state built from the
++ * stale ones may still point into them, so their context lives on as a child
++ * of the new one, until RelationClose finds the relation no longer open.
++ * (Compare the partition descriptor's rd_pdcxt.)  We do that at most once
++ * while the relation stays open: should they go stale again before it is
++ * closed, which takes a nested statement and a change of catalog, user or
++ * search_path meanwhile, we keep nothing more, and the caller plans in its
++ * own memory, as if there were no cache.  Each copy is kept only until the
++ * close, so this bounds what a single statement can pile up.
++ */
++static bool
++RelationPlannedExprsUsable(Relation relation)
++{
++	MemoryContext exprcxt;
++
++	if (relation->rd_exprepoch == relexprepoch &&
++		relation->rd_expruser == GetUserId() &&
++		SearchPathMatchesCurrentEnvironment(relation->rd_exprpath))
++		return true;
++
++	if (relation->rd_exprcxt != NULL &&
++		relation->rd_exprcxt->firstchild != NULL)
++		return false;
++
++	if (!relexprepoch_callbacks_registered)
++	{
++		CacheRegisterSyscacheCallback(PROCOID, RelationExprEpochCallback,
++									  (Datum) 0);
++		CacheRegisterSyscacheCallback(TYPEOID, RelationExprEpochCallback,
++									  (Datum) 0);
++		CacheRegisterSyscacheCallback(OPEROID, RelationExprEpochCallback,
++									  (Datum) 0);
++		CacheRegisterSyscacheCallback(NAMESPACEOID, RelationExprEpochCallback,
++									  (Datum) 0);
++		CacheRegisterSyscacheCallback(AUTHOID, RelationExprEpochCallback,
++									  (Datum) 0);
++		CacheRegisterSyscacheCallback(AUTHMEMROLEMEM, RelationExprEpochCallback,
++									  (Datum) 0);
++		relexprepoch_callbacks_registered = true;
++	}
++
++	exprcxt = AllocSetContextCreate(CacheMemoryContext,
++									"relation planned expressions",
++									ALLOCSET_SMALL_SIZES);
++	MemoryContextCopyAndSetIdentifier(exprcxt,
++									  RelationGetRelationName(relation));
++	if (relation->rd_exprcxt != NULL)
++		MemoryContextSetParent(relation->rd_exprcxt, exprcxt);
++
++	relation->rd_exprcxt = exprcxt;
++	relation->rd_exprepoch = relexprepoch;
++	relation->rd_expruser = GetUserId();
++	relation->rd_exprpath = GetSearchPathMatcher(exprcxt);
++	relation->rd_checkexprs = NULL;
++	relation->rd_genexprs = NULL;
++	relation->rd_genplanned = NULL;
++
++	return true;
++}
++
++/*
++ * RelationGetPlannedCheckExprs -- get the planned CHECK constraint expressions
++ *
++ * The result has one element per element of rd_att->constr->check: that
++ * constraint's expression with virtual generated columns expanded and run
++ * through expression_planner, or NULL if the constraint is not enforced.
++ * Planning calls any IMMUTABLE function whose arguments are constants, and
++ * copies its result into the tree, so we do it once per relcache entry rather
++ * than once per statement.
++ *
++ * Unlike most relcache data, this is handed out without copying, so that the
++ * executor state built from it shares any large constant.  The caller must
++ * not modify it.  It remains valid while the caller has the relation open,
++ * even across an invalidation of the entry.
++ */
++Node	  **
++RelationGetPlannedCheckExprs(Relation relation)
++{
++	TupleConstr *constr = relation->rd_att->constr;
++	int			ncheck = constr->num_check;
++	bool		usable = RelationPlannedExprsUsable(relation);
++	Node	  **result;
++	Node	  **checkexprs;
++	MemoryContext oldcxt;
++
++	if (usable && relation->rd_checkexprs != NULL)
++		return relation->rd_checkexprs;
++
++	/*
++	 * We plan in the caller's context, and copy the result into the relcache
++	 * entry only after successfully completing the work.  An invalidation
++	 * that arrives meanwhile leaves the copy stale, to be rebuilt on next
++	 * use.
++	 */
++	result = palloc0_array(Node *, ncheck);
++	for (int i = 0; i < ncheck; i++)
++	{
++		Node	   *expr;
++
++		/* Skip not enforced constraint */
++		if (!constr->check[i].ccenforced)
++			continue;
++
++		expr = stringToNode(constr->check[i].ccbin);
++		expr = expand_generated_columns_in_expr(expr, relation, 1);
++		result[i] = (Node *) expression_planner((Expr *) expr);
++	}
++
++	if (!usable)
++		return result;
++
++	oldcxt = MemoryContextSwitchTo(relation->rd_exprcxt);
++	checkexprs = palloc_array(Node *, ncheck);
++	for (int i = 0; i < ncheck; i++)
++		checkexprs[i] = copyObject(result[i]);
++	relation->rd_checkexprs = checkexprs;
++	MemoryContextSwitchTo(oldcxt);
++
++	return checkexprs;
+ }
+ 
+ /*
++ * RelationGetGenerationExpr -- get a generated column's expression
++ *
++ * This is what build_column_default returns for the column, or NULL if the
++ * column is not generated.  We compute it for every generated column at once,
++ * once per relcache entry.  It is not planned; for that, see
++ * RelationGetPlannedGenerationExpr.  As with RelationGetPlannedCheckExprs,
++ * the result is not a copy.
++ */
++Node *
++RelationGetGenerationExpr(Relation relation, AttrNumber attnum)
++{
++	TupleDesc	tupdesc = RelationGetDescr(relation);
++	int			natts = tupdesc->natts;
++	bool		usable = RelationPlannedExprsUsable(relation);
++	Node	  **result;
++	Node	  **genexprs;
++	MemoryContext oldcxt;
++
++	Assert(attnum > 0 && attnum <= natts);
++
++	if (usable && relation->rd_genexprs != NULL)
++		return relation->rd_genexprs[attnum - 1];
++
++	/* As in RelationGetPlannedCheckExprs, build first, then copy */
++	result = palloc0_array(Node *, natts);
++	for (int i = 0; i < natts; i++)
++	{
++		if (TupleDescAttr(tupdesc, i)->attgenerated)
++			result[i] = build_column_default(relation, i + 1);
++	}
++
++	if (!usable)
++		return result[attnum - 1];
++
++	oldcxt = MemoryContextSwitchTo(relation->rd_exprcxt);
++	genexprs = palloc_array(Node *, natts);
++	for (int i = 0; i < natts; i++)
++		genexprs[i] = copyObject(result[i]);
++	relation->rd_genplanned = palloc0_array(Node *, natts);
++	relation->rd_genexprs = genexprs;
++	MemoryContextSwitchTo(oldcxt);
++
++	return genexprs[attnum - 1];
++}
++
++/*
++ * RelationGetPlannedGenerationExpr -- get a generated column's expression,
++ *		planned
++ *
++ * This is RelationGetGenerationExpr's result run through expression_planner.
++ * Each column is planned on its first request, so that a column the executor
++ * doesn't need is never planned, just as before this was cached.  As with
++ * RelationGetPlannedCheckExprs, the result is not a copy.
++ */
++Node *
++RelationGetPlannedGenerationExpr(Relation relation, AttrNumber attnum)
++{
++	bool		usable = RelationPlannedExprsUsable(relation);
++	Node	   *expr;
++	MemoryContext exprcxt;
++	Node	  **genplanned;
++	Node	   *planned;
++	MemoryContext oldcxt;
++
++	if (usable && relation->rd_genplanned != NULL &&
++		relation->rd_genplanned[attnum - 1] != NULL)
++		return relation->rd_genplanned[attnum - 1];
++
++	/* This leaves rd_genplanned set if usable */
++	expr = RelationGetGenerationExpr(relation, attnum);
++	if (expr == NULL)
++		return NULL;
++
++	/*
++	 * Plan a copy in the caller's context, then keep a copy of the result
++	 * where we found the array: that outlives the caller's use of the
++	 * relation, even if the entry is rebuilt while we plan.
++	 */
++	exprcxt = relation->rd_exprcxt;
++	genplanned = relation->rd_genplanned;
++	planned = (Node *) expression_planner((Expr *) copyObject(expr));
++
++	if (!usable)
++		return planned;
++
++	oldcxt = MemoryContextSwitchTo(exprcxt);
++	genplanned[attnum - 1] = copyObject(planned);
++	MemoryContextSwitchTo(oldcxt);
++
++	return genplanned[attnum - 1];
++}
++
++/*
+  * RelationGetIndexAttrBitmap -- get a bitmap of index attribute numbers
+  *
+  * The result has a bit set for each attribute used anywhere in the index
+@@ -6511,6 +6797,12 @@ load_relcache_init_file(bool shared)
+ 		rel->rd_exclprocs = NULL;
+ 		rel->rd_exclstrats = NULL;
+ 		rel->rd_fdwroutine = NULL;
++		rel->rd_exprcxt = NULL;
++		rel->rd_exprepoch = 0;
++		rel->rd_exprpath = NULL;
++		rel->rd_checkexprs = NULL;
++		rel->rd_genexprs = NULL;
++		rel->rd_genplanned = NULL;
+ 
+ 		/*
+ 		 * Reset transient-state fields in the relcache entry
+--- a/src/include/utils/rel.h
++++ b/src/include/utils/rel.h
+@@ -253,6 +253,20 @@ typedef struct RelationData
+ 	bool		pgstat_enabled; /* should relation stats be counted */
+ 	/* use "struct" here to avoid needing to include pgstat.h: */
+ 	struct PgStat_TableStatus *pgstat_info; /* statistics collection area */
++
++	/*
++	 * data managed by RelationGetPlannedCheckExprs, RelationGetGenerationExpr
++	 * and RelationGetPlannedGenerationExpr.  These are kept last so as not to
++	 * move the fields above.
++	 */
++	MemoryContext rd_exprcxt;	/* private memory cxt for these, if any */
++	uint64		rd_exprepoch;	/* expression epoch they were built in, or 0 */
++	Oid			rd_expruser;	/* user they were planned as */
++	/* use "struct" here to avoid needing to include namespace.h: */
++	struct SearchPathMatcher *rd_exprpath;	/* search_path planned in */
++	Node	  **rd_checkexprs;	/* planned CHECK exprs, or NULL if not built */
++	Node	  **rd_genexprs;	/* generation exprs, or NULL if not built */
++	Node	  **rd_genplanned;	/* ... and planned, as needed so far */
+ } RelationData;
+ 
+ 
+--- a/src/include/utils/relcache.h
++++ b/src/include/utils/relcache.h
+@@ -59,6 +59,10 @@ extern List *RelationGetIndexPredicate(Relation relati
+ extern List *RelationGetIndexExpressions(Relation relation);
+ extern List *RelationGetDummyIndexExpressions(Relation relation);
+ extern List *RelationGetIndexPredicate(Relation relation);
++extern Node **RelationGetPlannedCheckExprs(Relation relation);
++extern Node *RelationGetGenerationExpr(Relation relation, AttrNumber attnum);
++extern Node *RelationGetPlannedGenerationExpr(Relation relation,
++											  AttrNumber attnum);
+ extern bytea **RelationGetIndexAttOptions(Relation relation, bool copy);
+ 
+ /*
+--- a/src/test/regress/parallel_schedule
++++ b/src/test/regress/parallel_schedule
+@@ -123,7 +123,7 @@ test: plancache limit plpgsql copy2 temp domain rangef
+ # The stats test resets stats, so nothing else needing stats access can be in
+ # this group.
+ # ----------
+-test: partition_join partition_prune reloptions hash_part indexing partition_aggregate partition_info tuplesort explain memoize stats predicate numa eager_aggregate planner_est
++test: partition_join partition_prune reloptions hash_part indexing partition_aggregate partition_info tuplesort explain memoize stats predicate numa eager_aggregate planner_est relcache_exprs
+ 
+ # ----------
+ # Another group of parallel tests (compression)
+--- /dev/null
++++ b/src/test/regress/expected/relcache_exprs.out
+@@ -0,0 +1,461 @@
++--
++-- CHECK constraint and generation expressions are planned once per relcache
++-- entry, not once per statement.  The results must be as if they were still
++-- planned each time.
++--
++-- Zero-argument IMMUTABLE constants, read one bit at a time
++CREATE FUNCTION relexpr_bits() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'0110';
++CREATE FUNCTION relexpr_bits2() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'1001';
++--
++-- CHECK constraints, before and after ADD and DROP CONSTRAINT
++--
++CREATE TABLE relexpr_check (k int2 NOT NULL,
++  w int GENERATED ALWAYS AS (k * 2) VIRTUAL,
++  CONSTRAINT relexpr_check_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE),
++  CONSTRAINT relexpr_check_w CHECK (w < 6),
++  CONSTRAINT relexpr_check_off CHECK (k > 100) NOT ENFORCED);
++INSERT INTO relexpr_check VALUES (1);
++INSERT INTO relexpr_check VALUES (2);
++INSERT INTO relexpr_check VALUES (0);
++ERROR:  new row for relation "relexpr_check" violates check constraint "relexpr_check_k"
++DETAIL:  Failing row contains (0, virtual).
++INSERT INTO relexpr_check VALUES (3);
++ERROR:  new row for relation "relexpr_check" violates check constraint "relexpr_check_k"
++DETAIL:  Failing row contains (3, virtual).
++INSERT INTO relexpr_check VALUES (4);	-- past the end of the constant
++ERROR:  new row for relation "relexpr_check" violates check constraint "relexpr_check_k"
++DETAIL:  Failing row contains (4, virtual).
++INSERT INTO relexpr_check VALUES (-1);
++ERROR:  new row for relation "relexpr_check" violates check constraint "relexpr_check_k"
++DETAIL:  Failing row contains (-1, virtual).
++ALTER TABLE relexpr_check ADD CONSTRAINT relexpr_check_not2 CHECK (k <> 2) NOT VALID;
++INSERT INTO relexpr_check VALUES (2);
++ERROR:  new row for relation "relexpr_check" violates check constraint "relexpr_check_not2"
++DETAIL:  Failing row contains (2, virtual).
++INSERT INTO relexpr_check VALUES (1);
++ALTER TABLE relexpr_check DROP CONSTRAINT relexpr_check_k;
++INSERT INTO relexpr_check VALUES (0);
++INSERT INTO relexpr_check VALUES (2);
++ERROR:  new row for relation "relexpr_check" violates check constraint "relexpr_check_not2"
++DETAIL:  Failing row contains (2, virtual).
++ALTER TABLE relexpr_check DROP CONSTRAINT relexpr_check_w;
++INSERT INTO relexpr_check VALUES (3);
++-- swap the constant, as a migration does
++ALTER TABLE relexpr_check ADD CONSTRAINT relexpr_check_k
++  CHECK ((substring(relexpr_bits2() FROM k + 1 FOR 1) = B'1') IS TRUE) NOT VALID;
++INSERT INTO relexpr_check VALUES (0);
++INSERT INTO relexpr_check VALUES (1);
++ERROR:  new row for relation "relexpr_check" violates check constraint "relexpr_check_k"
++DETAIL:  Failing row contains (1, virtual).
++INSERT INTO relexpr_check VALUES (3);
++ALTER TABLE relexpr_check VALIDATE CONSTRAINT relexpr_check_k;
++ERROR:  check constraint "relexpr_check_k" of relation "relexpr_check" is violated by some row
++DELETE FROM relexpr_check WHERE k IN (1, 2);
++ALTER TABLE relexpr_check VALIDATE CONSTRAINT relexpr_check_k;
++SELECT k, w FROM relexpr_check ORDER BY k;
++ k | w 
++---+---
++ 0 | 0
++ 0 | 0
++ 3 | 6
++ 3 | 6
++(4 rows)
++
++--
++-- Generated columns, before and after ADD and DROP CONSTRAINT and
++-- SET EXPRESSION
++--
++CREATE TABLE relexpr_gen (k int2 NOT NULL, note text,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') STORED,
++  twice int GENERATED ALWAYS AS (k * 2) STORED);
++INSERT INTO relexpr_gen (k) VALUES (0), (1), (2), (3);
++INSERT INTO relexpr_gen (k) VALUES (1);
++SELECT * FROM relexpr_gen ORDER BY k;
++ k | note | admitted | twice 
++---+------+----------+-------
++ 0 |      | f        |     0
++ 1 |      | t        |     2
++ 1 |      | t        |     2
++ 2 |      | t        |     4
++ 3 |      | f        |     6
++(5 rows)
++
++ALTER TABLE relexpr_gen ADD CONSTRAINT relexpr_gen_admitted CHECK (admitted);
++ERROR:  check constraint "relexpr_gen_admitted" of relation "relexpr_gen" is violated by some row
++DELETE FROM relexpr_gen WHERE NOT admitted;
++ALTER TABLE relexpr_gen ADD CONSTRAINT relexpr_gen_admitted CHECK (admitted);
++INSERT INTO relexpr_gen (k) VALUES (0);
++ERROR:  new row for relation "relexpr_gen" violates check constraint "relexpr_gen_admitted"
++DETAIL:  Failing row contains (0, null, f, 0).
++INSERT INTO relexpr_gen (k) VALUES (2);
++ALTER TABLE relexpr_gen ALTER COLUMN admitted
++  SET EXPRESSION AS (substring(relexpr_bits2() FROM k + 1 FOR 1) = B'1');
++ERROR:  check constraint "relexpr_gen_admitted" of relation "relexpr_gen" is violated by some row
++ALTER TABLE relexpr_gen DROP CONSTRAINT relexpr_gen_admitted;
++ALTER TABLE relexpr_gen ALTER COLUMN admitted
++  SET EXPRESSION AS (substring(relexpr_bits2() FROM k + 1 FOR 1) = B'1');
++INSERT INTO relexpr_gen (k) VALUES (0), (1);
++SELECT * FROM relexpr_gen ORDER BY k, admitted;
++ k | note | admitted | twice 
++---+------+----------+-------
++ 0 |      | t        |     0
++ 1 |      | f        |     2
++ 1 |      | f        |     2
++ 1 |      | f        |     2
++ 2 |      | f        |     4
++ 2 |      | f        |     4
++(6 rows)
++
++ALTER TABLE relexpr_gen ADD CONSTRAINT relexpr_gen_admitted CHECK (admitted) NOT VALID;
++INSERT INTO relexpr_gen (k) VALUES (1);
++ERROR:  new row for relation "relexpr_gen" violates check constraint "relexpr_gen_admitted"
++DETAIL:  Failing row contains (1, null, f, 2).
++INSERT INTO relexpr_gen (k) VALUES (3);
++-- UPDATE recomputes only what the updated columns feed
++UPDATE relexpr_gen SET k = 0 WHERE k = 3;
++UPDATE relexpr_gen SET k = 1 WHERE k = 0;
++ERROR:  new row for relation "relexpr_gen" violates check constraint "relexpr_gen_admitted"
++DETAIL:  Failing row contains (1, null, f, 2).
++UPDATE relexpr_gen SET note = 'n' WHERE admitted;
++SELECT * FROM relexpr_gen ORDER BY k, admitted;
++ k | note | admitted | twice 
++---+------+----------+-------
++ 0 | n    | t        |     0
++ 0 | n    | t        |     0
++ 1 |      | f        |     2
++ 1 |      | f        |     2
++ 1 |      | f        |     2
++ 2 |      | f        |     4
++ 2 |      | f        |     4
++(7 rows)
++
++-- COPY
++COPY relexpr_gen (k, note) FROM stdin;
++COPY relexpr_gen (k, note) FROM stdin;
++ERROR:  new row for relation "relexpr_gen" violates check constraint "relexpr_gen_admitted"
++DETAIL:  Failing row contains (1, refused, f, 2).
++CONTEXT:  COPY relexpr_gen, line 1: "1	refused"
++SELECT * FROM relexpr_gen WHERE note <> 'n' ORDER BY k;
++ k |  note  | admitted | twice 
++---+--------+----------+-------
++ 0 | copied | t        |     0
++ 3 | copied | t        |     6
++(2 rows)
++
++--
++-- INSERT ... ON CONFLICT and MERGE
++--
++CREATE TABLE relexpr_upsert (id int PRIMARY KEY, k int2 NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') STORED,
++  CONSTRAINT relexpr_upsert_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) <> B'') IS TRUE));
++INSERT INTO relexpr_upsert VALUES (1, 1), (2, 0);
++INSERT INTO relexpr_upsert VALUES (1, 0), (3, 2)
++  ON CONFLICT (id) DO UPDATE SET k = excluded.k;
++INSERT INTO relexpr_upsert VALUES (2, 9)
++  ON CONFLICT (id) DO UPDATE SET k = excluded.k;
++ERROR:  new row for relation "relexpr_upsert" violates check constraint "relexpr_upsert_k"
++DETAIL:  Failing row contains (2, 9, f).
++INSERT INTO relexpr_upsert VALUES (2, 9) ON CONFLICT (id) DO NOTHING;
++ERROR:  new row for relation "relexpr_upsert" violates check constraint "relexpr_upsert_k"
++DETAIL:  Failing row contains (2, 9, f).
++INSERT INTO relexpr_upsert VALUES (4, 9) ON CONFLICT (id) DO NOTHING;
++ERROR:  new row for relation "relexpr_upsert" violates check constraint "relexpr_upsert_k"
++DETAIL:  Failing row contains (4, 9, f).
++MERGE INTO relexpr_upsert u USING (VALUES (2, 2), (5, 1)) AS v(id, k) ON u.id = v.id
++  WHEN MATCHED THEN UPDATE SET k = v.k
++  WHEN NOT MATCHED THEN INSERT VALUES (v.id, v.k);
++SELECT * FROM relexpr_upsert ORDER BY id;
++ id | k | admitted 
++----+---+----------
++  1 | 0 | f
++  2 | 2 | t
++  3 | 2 | t
++  5 | 1 | t
++(4 rows)
++
++--
++-- Partitions and inheritance: each relation plans its own expressions, with
++-- its own column numbers
++--
++CREATE TABLE relexpr_part (p int NOT NULL, k int2 NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') STORED,
++  CONSTRAINT relexpr_part_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE)
++) PARTITION BY LIST (p);
++CREATE TABLE relexpr_part_1 PARTITION OF relexpr_part FOR VALUES IN (1);
++CREATE TABLE relexpr_part_2 (k int2 NOT NULL, extra text, p int NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') STORED,
++  CONSTRAINT relexpr_part_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE),
++  CONSTRAINT relexpr_part_2_not2 CHECK (k <> 2));
++ALTER TABLE relexpr_part_2 DROP COLUMN extra;
++ALTER TABLE relexpr_part ATTACH PARTITION relexpr_part_2 FOR VALUES IN (2);
++INSERT INTO relexpr_part (p, k) VALUES (1, 1), (1, 2), (2, 1);
++INSERT INTO relexpr_part (p, k) VALUES (1, 0);
++ERROR:  new row for relation "relexpr_part_1" violates check constraint "relexpr_part_k"
++DETAIL:  Failing row contains (1, 0, f).
++INSERT INTO relexpr_part (p, k) VALUES (2, 2);
++ERROR:  new row for relation "relexpr_part_2" violates check constraint "relexpr_part_2_not2"
++DETAIL:  Failing row contains (2, 2, t).
++INSERT INTO relexpr_part (p, k) VALUES (2, 3);
++ERROR:  new row for relation "relexpr_part_2" violates check constraint "relexpr_part_k"
++DETAIL:  Failing row contains (2, 3, f).
++UPDATE relexpr_part SET p = 2 WHERE p = 1 AND k = 1;
++UPDATE relexpr_part SET p = 2 WHERE k = 2;
++ERROR:  new row for relation "relexpr_part_2" violates check constraint "relexpr_part_2_not2"
++DETAIL:  Failing row contains (2, 2, t).
++COPY relexpr_part (p, k) FROM stdin;
++SELECT tableoid::regclass, * FROM relexpr_part ORDER BY 1, k;
++    tableoid    | p | k | admitted 
++----------------+---+---+----------
++ relexpr_part_1 | 1 | 2 | t
++ relexpr_part_1 | 1 | 2 | t
++ relexpr_part_2 | 2 | 1 | t
++ relexpr_part_2 | 2 | 1 | t
++ relexpr_part_2 | 2 | 1 | t
++(5 rows)
++
++ALTER TABLE relexpr_part DROP CONSTRAINT relexpr_part_k;
++INSERT INTO relexpr_part (p, k) VALUES (1, 0), (2, 3);
++SELECT tableoid::regclass, * FROM relexpr_part WHERE NOT admitted ORDER BY 1, k;
++    tableoid    | p | k | admitted 
++----------------+---+---+----------
++ relexpr_part_1 | 1 | 0 | f
++ relexpr_part_2 | 2 | 3 | f
++(2 rows)
++
++CREATE TABLE relexpr_inh (k int2 NOT NULL,
++  CONSTRAINT relexpr_inh_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE));
++CREATE TABLE relexpr_inh_child (extra text, CONSTRAINT relexpr_inh_child_k CHECK (k < 2))
++  INHERITS (relexpr_inh);
++INSERT INTO relexpr_inh_child VALUES (1, 'a');
++INSERT INTO relexpr_inh_child VALUES (2, 'b');
++ERROR:  new row for relation "relexpr_inh_child" violates check constraint "relexpr_inh_child_k"
++DETAIL:  Failing row contains (2, b).
++INSERT INTO relexpr_inh_child VALUES (0, 'c');
++ERROR:  new row for relation "relexpr_inh_child" violates check constraint "relexpr_inh_k"
++DETAIL:  Failing row contains (0, c).
++UPDATE relexpr_inh SET k = 2;
++ERROR:  new row for relation "relexpr_inh_child" violates check constraint "relexpr_inh_child_k"
++DETAIL:  Failing row contains (2).
++ALTER TABLE relexpr_inh DROP CONSTRAINT relexpr_inh_k;
++INSERT INTO relexpr_inh_child VALUES (0, 'c');
++UPDATE relexpr_inh SET k = 3 WHERE k = 0;
++ERROR:  new row for relation "relexpr_inh_child" violates check constraint "relexpr_inh_child_k"
++DETAIL:  Failing row contains (3).
++ALTER TABLE relexpr_inh ADD CONSTRAINT relexpr_inh_k
++  CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE) NOT VALID;
++INSERT INTO relexpr_inh_child VALUES (0, 'd');
++ERROR:  new row for relation "relexpr_inh_child" violates check constraint "relexpr_inh_k"
++DETAIL:  Failing row contains (0, d).
++SELECT tableoid::regclass, * FROM relexpr_inh ORDER BY k;
++     tableoid      | k 
++-------------------+---
++ relexpr_inh_child | 0
++ relexpr_inh_child | 1
++(2 rows)
++
++--
++-- A function replaced in place, a domain constraint added later, the
++-- privilege to execute a function, and the search_path an inlined function's
++-- body is parsed in are all seen, as when every statement planned its
++-- expressions
++--
++CREATE FUNCTION relexpr_replaced() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE RETURN B'01';
++CREATE TABLE relexpr_replace (k int2 NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_replaced() FROM k + 1 FOR 1) = B'1') STORED,
++  CONSTRAINT relexpr_replace_k CHECK ((substring(relexpr_replaced() FROM k + 1 FOR 1) = B'1') IS TRUE));
++INSERT INTO relexpr_replace (k) VALUES (1);
++INSERT INTO relexpr_replace (k) VALUES (0);
++ERROR:  new row for relation "relexpr_replace" violates check constraint "relexpr_replace_k"
++DETAIL:  Failing row contains (0, f).
++CREATE OR REPLACE FUNCTION relexpr_replaced() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE RETURN B'11';
++INSERT INTO relexpr_replace (k) VALUES (0);
++SELECT * FROM relexpr_replace ORDER BY k;
++ k | admitted 
++---+----------
++ 0 | t
++ 1 | t
++(2 rows)
++
++CREATE DOMAIN relexpr_code AS int2;
++CREATE TABLE relexpr_domain (k int2 NOT NULL,
++  c relexpr_code GENERATED ALWAYS AS (k) STORED,
++  CONSTRAINT relexpr_domain_k CHECK (k::int4::relexpr_code IS NOT NULL));
++INSERT INTO relexpr_domain (k) VALUES (5);
++ALTER DOMAIN relexpr_code ADD CONSTRAINT relexpr_code_small CHECK (VALUE < 5) NOT VALID;
++INSERT INTO relexpr_domain (k) VALUES (7);
++ERROR:  value for domain relexpr_code violates check constraint "relexpr_code_small"
++ALTER DOMAIN relexpr_code DROP CONSTRAINT relexpr_code_small;
++INSERT INTO relexpr_domain (k) VALUES (7);
++ALTER DOMAIN relexpr_code SET NOT NULL;
++ALTER DOMAIN relexpr_code ADD CONSTRAINT relexpr_code_admitted
++  CHECK ((substring(relexpr_bits() FROM VALUE + 1 FOR 1) = B'1') IS TRUE) NOT VALID;
++INSERT INTO relexpr_domain (k) VALUES (1);
++INSERT INTO relexpr_domain (k) VALUES (3);
++ERROR:  value for domain relexpr_code violates check constraint "relexpr_code_admitted"
++SELECT * FROM relexpr_domain ORDER BY k;
++ k | c 
++---+---
++ 1 | 1
++ 5 | 5
++ 7 | 7
++(3 rows)
++
++CREATE ROLE regress_relexpr_user;
++CREATE FUNCTION relexpr_private() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE RETURN B'11';
++REVOKE EXECUTE ON FUNCTION relexpr_private() FROM PUBLIC;
++CREATE TABLE relexpr_priv (k int2 NOT NULL, note text,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_private() FROM k + 1 FOR 1) = B'1') STORED);
++CREATE TABLE relexpr_priv_check (k int2 NOT NULL,
++  CONSTRAINT relexpr_priv_check_k CHECK ((substring(relexpr_private() FROM k + 1 FOR 1) = B'1') IS TRUE));
++GRANT SELECT, INSERT, UPDATE ON relexpr_priv, relexpr_priv_check TO regress_relexpr_user;
++INSERT INTO relexpr_priv (k) VALUES (1);
++INSERT INTO relexpr_priv_check VALUES (1);
++SET ROLE regress_relexpr_user;
++INSERT INTO relexpr_priv (k) VALUES (1);
++ERROR:  permission denied for function relexpr_private
++INSERT INTO relexpr_priv_check VALUES (1);
++ERROR:  permission denied for function relexpr_private
++UPDATE relexpr_priv SET k = 0;
++ERROR:  permission denied for function relexpr_private
++UPDATE relexpr_priv SET note = 'not recomputed, so not planned';
++RESET ROLE;
++GRANT EXECUTE ON FUNCTION relexpr_private() TO regress_relexpr_user;
++SET ROLE regress_relexpr_user;
++INSERT INTO relexpr_priv (k) VALUES (0);
++INSERT INTO relexpr_priv_check VALUES (1);
++RESET ROLE;
++REVOKE EXECUTE ON FUNCTION relexpr_private() FROM regress_relexpr_user;
++SET ROLE regress_relexpr_user;
++INSERT INTO relexpr_priv (k) VALUES (0);
++ERROR:  permission denied for function relexpr_private
++INSERT INTO relexpr_priv_check VALUES (1);
++ERROR:  permission denied for function relexpr_private
++RESET ROLE;
++SELECT * FROM relexpr_priv ORDER BY k;
++ k |              note              | admitted 
++---+--------------------------------+----------
++ 0 |                                | t
++ 1 | not recomputed, so not planned | t
++(2 rows)
++
++SELECT * FROM relexpr_priv_check ORDER BY k;
++ k 
++---
++ 1
++ 1
++(2 rows)
++
++CREATE SCHEMA relexpr_s1;
++CREATE SCHEMA relexpr_s2;
++CREATE FUNCTION relexpr_s1.relexpr_limit() RETURNS int LANGUAGE sql IMMUTABLE RETURN 1;
++CREATE FUNCTION relexpr_s2.relexpr_limit() RETURNS int LANGUAGE sql IMMUTABLE RETURN 2;
++-- a string body, so inlining parses it, under the search_path of the moment
++SET check_function_bodies = off;
++CREATE FUNCTION relexpr_limited(k int) RETURNS bool LANGUAGE sql STABLE
++  AS 'SELECT k <= relexpr_limit()';
++RESET check_function_bodies;
++CREATE TABLE relexpr_path (k int NOT NULL,
++  CONSTRAINT relexpr_path_k CHECK (relexpr_limited(k)));
++SET search_path = relexpr_s1, public;
++INSERT INTO relexpr_path VALUES (1);
++INSERT INTO relexpr_path VALUES (2);
++ERROR:  new row for relation "relexpr_path" violates check constraint "relexpr_path_k"
++DETAIL:  Failing row contains (2).
++SET search_path = relexpr_s2, public;
++INSERT INTO relexpr_path VALUES (2);
++SET search_path = relexpr_s1, public;
++INSERT INTO relexpr_path VALUES (2);
++ERROR:  new row for relation "relexpr_path" violates check constraint "relexpr_path_k"
++DETAIL:  Failing row contains (2).
++RESET search_path;
++SELECT * FROM relexpr_path ORDER BY k;
++ k 
++---
++ 1
++ 2
++(2 rows)
++
++--
++-- Executor state built from planned expressions outlives their invalidation.
++-- Here the statement's inserts keep the expressions planned at its first row,
++-- while its conflicting row, which first needs the UPDATE expressions, plans
++-- them after the function has been replaced.
++--
++CREATE FUNCTION relexpr_swapped() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE RETURN B'01';
++CREATE FUNCTION relexpr_swap(k int2) RETURNS int2 LANGUAGE plpgsql AS $$
++BEGIN
++  CREATE OR REPLACE FUNCTION relexpr_swapped() RETURNS bit varying
++    LANGUAGE sql IMMUTABLE RETURN B'10';
++  RETURN k;
++END $$;
++CREATE TABLE relexpr_live (id int PRIMARY KEY, k int2 NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_swapped() FROM k + 1 FOR 1) = B'1') STORED);
++INSERT INTO relexpr_live (id, k) VALUES (2, 0);
++INSERT INTO relexpr_live (id, k)
++  SELECT g, CASE WHEN g = 2 THEN relexpr_swap(1::int2) ELSE 1::int2 END
++  FROM generate_series(1, 3) AS g
++  ON CONFLICT (id) DO UPDATE SET k = excluded.k;
++SELECT * FROM relexpr_live ORDER BY id;
++ id | k | admitted 
++----+---+----------
++  1 | 1 | t
++  2 | 1 | f
++  3 | 1 | t
++(3 rows)
++
++INSERT INTO relexpr_live (id, k) VALUES (4, 1);
++SELECT * FROM relexpr_live ORDER BY id;
++ id | k | admitted 
++----+---+----------
++  1 | 1 | t
++  2 | 1 | f
++  3 | 1 | t
++  4 | 1 | f
++(4 rows)
++
++--
++-- The point of it all: an IMMUTABLE function in a CHECK runs once, not once
++-- per statement.  The cursor keeps the table open, so that its relcache entry
++-- lasts from one statement to the next even in a build that releases unused
++-- entries at once (RELCACHE_FORCE_RELEASE).
++--
++CREATE FUNCTION relexpr_counted() RETURNS bit varying LANGUAGE plpgsql IMMUTABLE AS $$
++BEGIN
++  PERFORM set_config('regress.relexpr_calls',
++    (current_setting('regress.relexpr_calls')::int + 1)::text, false);
++  RETURN B'11';
++END $$;
++CREATE TABLE relexpr_counted (k int2 NOT NULL,
++  CONSTRAINT relexpr_counted_k CHECK ((substring(relexpr_counted() FROM k + 1 FOR 1) = B'1') IS TRUE));
++SET regress.relexpr_calls = 0;
++BEGIN;
++DECLARE relexpr_open CURSOR FOR SELECT * FROM relexpr_counted;
++DO $$ BEGIN FOR i IN 1..10 LOOP INSERT INTO relexpr_counted VALUES (1); END LOOP; END $$;
++SELECT current_setting('regress.relexpr_calls')::int < 10
++  OR current_setting('debug_discard_caches')::int > 0 AS planned_once;
++ planned_once 
++--------------
++ t
++(1 row)
++
++COMMIT;
++RESET regress.relexpr_calls;
++DROP TABLE relexpr_check, relexpr_gen, relexpr_upsert, relexpr_part, relexpr_inh CASCADE;
++NOTICE:  drop cascades to table relexpr_inh_child
++DROP TABLE relexpr_replace, relexpr_domain, relexpr_priv, relexpr_priv_check, relexpr_path,
++  relexpr_live, relexpr_counted;
++DROP DOMAIN relexpr_code;
++DROP FUNCTION relexpr_bits(), relexpr_bits2(), relexpr_replaced(), relexpr_private(),
++  relexpr_swapped(), relexpr_swap(int2), relexpr_counted();
++DROP FUNCTION relexpr_limited(int);
++DROP SCHEMA relexpr_s1, relexpr_s2 CASCADE;
++NOTICE:  drop cascades to 2 other objects
++DETAIL:  drop cascades to function relexpr_s2.relexpr_limit()
++drop cascades to function relexpr_s1.relexpr_limit()
++DROP ROLE regress_relexpr_user;
+--- /dev/null
++++ b/src/test/regress/sql/relcache_exprs.sql
+@@ -0,0 +1,293 @@
++--
++-- CHECK constraint and generation expressions are planned once per relcache
++-- entry, not once per statement.  The results must be as if they were still
++-- planned each time.
++--
++
++-- Zero-argument IMMUTABLE constants, read one bit at a time
++CREATE FUNCTION relexpr_bits() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'0110';
++CREATE FUNCTION relexpr_bits2() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'1001';
++
++--
++-- CHECK constraints, before and after ADD and DROP CONSTRAINT
++--
++CREATE TABLE relexpr_check (k int2 NOT NULL,
++  w int GENERATED ALWAYS AS (k * 2) VIRTUAL,
++  CONSTRAINT relexpr_check_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE),
++  CONSTRAINT relexpr_check_w CHECK (w < 6),
++  CONSTRAINT relexpr_check_off CHECK (k > 100) NOT ENFORCED);
++INSERT INTO relexpr_check VALUES (1);
++INSERT INTO relexpr_check VALUES (2);
++INSERT INTO relexpr_check VALUES (0);
++INSERT INTO relexpr_check VALUES (3);
++INSERT INTO relexpr_check VALUES (4);	-- past the end of the constant
++INSERT INTO relexpr_check VALUES (-1);
++ALTER TABLE relexpr_check ADD CONSTRAINT relexpr_check_not2 CHECK (k <> 2) NOT VALID;
++INSERT INTO relexpr_check VALUES (2);
++INSERT INTO relexpr_check VALUES (1);
++ALTER TABLE relexpr_check DROP CONSTRAINT relexpr_check_k;
++INSERT INTO relexpr_check VALUES (0);
++INSERT INTO relexpr_check VALUES (2);
++ALTER TABLE relexpr_check DROP CONSTRAINT relexpr_check_w;
++INSERT INTO relexpr_check VALUES (3);
++-- swap the constant, as a migration does
++ALTER TABLE relexpr_check ADD CONSTRAINT relexpr_check_k
++  CHECK ((substring(relexpr_bits2() FROM k + 1 FOR 1) = B'1') IS TRUE) NOT VALID;
++INSERT INTO relexpr_check VALUES (0);
++INSERT INTO relexpr_check VALUES (1);
++INSERT INTO relexpr_check VALUES (3);
++ALTER TABLE relexpr_check VALIDATE CONSTRAINT relexpr_check_k;
++DELETE FROM relexpr_check WHERE k IN (1, 2);
++ALTER TABLE relexpr_check VALIDATE CONSTRAINT relexpr_check_k;
++SELECT k, w FROM relexpr_check ORDER BY k;
++
++--
++-- Generated columns, before and after ADD and DROP CONSTRAINT and
++-- SET EXPRESSION
++--
++CREATE TABLE relexpr_gen (k int2 NOT NULL, note text,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') STORED,
++  twice int GENERATED ALWAYS AS (k * 2) STORED);
++INSERT INTO relexpr_gen (k) VALUES (0), (1), (2), (3);
++INSERT INTO relexpr_gen (k) VALUES (1);
++SELECT * FROM relexpr_gen ORDER BY k;
++ALTER TABLE relexpr_gen ADD CONSTRAINT relexpr_gen_admitted CHECK (admitted);
++DELETE FROM relexpr_gen WHERE NOT admitted;
++ALTER TABLE relexpr_gen ADD CONSTRAINT relexpr_gen_admitted CHECK (admitted);
++INSERT INTO relexpr_gen (k) VALUES (0);
++INSERT INTO relexpr_gen (k) VALUES (2);
++ALTER TABLE relexpr_gen ALTER COLUMN admitted
++  SET EXPRESSION AS (substring(relexpr_bits2() FROM k + 1 FOR 1) = B'1');
++ALTER TABLE relexpr_gen DROP CONSTRAINT relexpr_gen_admitted;
++ALTER TABLE relexpr_gen ALTER COLUMN admitted
++  SET EXPRESSION AS (substring(relexpr_bits2() FROM k + 1 FOR 1) = B'1');
++INSERT INTO relexpr_gen (k) VALUES (0), (1);
++SELECT * FROM relexpr_gen ORDER BY k, admitted;
++ALTER TABLE relexpr_gen ADD CONSTRAINT relexpr_gen_admitted CHECK (admitted) NOT VALID;
++INSERT INTO relexpr_gen (k) VALUES (1);
++INSERT INTO relexpr_gen (k) VALUES (3);
++
++-- UPDATE recomputes only what the updated columns feed
++UPDATE relexpr_gen SET k = 0 WHERE k = 3;
++UPDATE relexpr_gen SET k = 1 WHERE k = 0;
++UPDATE relexpr_gen SET note = 'n' WHERE admitted;
++SELECT * FROM relexpr_gen ORDER BY k, admitted;
++
++-- COPY
++COPY relexpr_gen (k, note) FROM stdin;
++0	copied
++3	copied
++\.
++COPY relexpr_gen (k, note) FROM stdin;
++1	refused
++\.
++SELECT * FROM relexpr_gen WHERE note <> 'n' ORDER BY k;
++
++--
++-- INSERT ... ON CONFLICT and MERGE
++--
++CREATE TABLE relexpr_upsert (id int PRIMARY KEY, k int2 NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') STORED,
++  CONSTRAINT relexpr_upsert_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) <> B'') IS TRUE));
++INSERT INTO relexpr_upsert VALUES (1, 1), (2, 0);
++INSERT INTO relexpr_upsert VALUES (1, 0), (3, 2)
++  ON CONFLICT (id) DO UPDATE SET k = excluded.k;
++INSERT INTO relexpr_upsert VALUES (2, 9)
++  ON CONFLICT (id) DO UPDATE SET k = excluded.k;
++INSERT INTO relexpr_upsert VALUES (2, 9) ON CONFLICT (id) DO NOTHING;
++INSERT INTO relexpr_upsert VALUES (4, 9) ON CONFLICT (id) DO NOTHING;
++MERGE INTO relexpr_upsert u USING (VALUES (2, 2), (5, 1)) AS v(id, k) ON u.id = v.id
++  WHEN MATCHED THEN UPDATE SET k = v.k
++  WHEN NOT MATCHED THEN INSERT VALUES (v.id, v.k);
++SELECT * FROM relexpr_upsert ORDER BY id;
++
++--
++-- Partitions and inheritance: each relation plans its own expressions, with
++-- its own column numbers
++--
++CREATE TABLE relexpr_part (p int NOT NULL, k int2 NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') STORED,
++  CONSTRAINT relexpr_part_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE)
++) PARTITION BY LIST (p);
++CREATE TABLE relexpr_part_1 PARTITION OF relexpr_part FOR VALUES IN (1);
++CREATE TABLE relexpr_part_2 (k int2 NOT NULL, extra text, p int NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') STORED,
++  CONSTRAINT relexpr_part_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE),
++  CONSTRAINT relexpr_part_2_not2 CHECK (k <> 2));
++ALTER TABLE relexpr_part_2 DROP COLUMN extra;
++ALTER TABLE relexpr_part ATTACH PARTITION relexpr_part_2 FOR VALUES IN (2);
++INSERT INTO relexpr_part (p, k) VALUES (1, 1), (1, 2), (2, 1);
++INSERT INTO relexpr_part (p, k) VALUES (1, 0);
++INSERT INTO relexpr_part (p, k) VALUES (2, 2);
++INSERT INTO relexpr_part (p, k) VALUES (2, 3);
++UPDATE relexpr_part SET p = 2 WHERE p = 1 AND k = 1;
++UPDATE relexpr_part SET p = 2 WHERE k = 2;
++COPY relexpr_part (p, k) FROM stdin;
++1	2
++2	1
++\.
++SELECT tableoid::regclass, * FROM relexpr_part ORDER BY 1, k;
++ALTER TABLE relexpr_part DROP CONSTRAINT relexpr_part_k;
++INSERT INTO relexpr_part (p, k) VALUES (1, 0), (2, 3);
++SELECT tableoid::regclass, * FROM relexpr_part WHERE NOT admitted ORDER BY 1, k;
++
++CREATE TABLE relexpr_inh (k int2 NOT NULL,
++  CONSTRAINT relexpr_inh_k CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE));
++CREATE TABLE relexpr_inh_child (extra text, CONSTRAINT relexpr_inh_child_k CHECK (k < 2))
++  INHERITS (relexpr_inh);
++INSERT INTO relexpr_inh_child VALUES (1, 'a');
++INSERT INTO relexpr_inh_child VALUES (2, 'b');
++INSERT INTO relexpr_inh_child VALUES (0, 'c');
++UPDATE relexpr_inh SET k = 2;
++ALTER TABLE relexpr_inh DROP CONSTRAINT relexpr_inh_k;
++INSERT INTO relexpr_inh_child VALUES (0, 'c');
++UPDATE relexpr_inh SET k = 3 WHERE k = 0;
++ALTER TABLE relexpr_inh ADD CONSTRAINT relexpr_inh_k
++  CHECK ((substring(relexpr_bits() FROM k + 1 FOR 1) = B'1') IS TRUE) NOT VALID;
++INSERT INTO relexpr_inh_child VALUES (0, 'd');
++SELECT tableoid::regclass, * FROM relexpr_inh ORDER BY k;
++
++--
++-- A function replaced in place, a domain constraint added later, the
++-- privilege to execute a function, and the search_path an inlined function's
++-- body is parsed in are all seen, as when every statement planned its
++-- expressions
++--
++CREATE FUNCTION relexpr_replaced() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE RETURN B'01';
++CREATE TABLE relexpr_replace (k int2 NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_replaced() FROM k + 1 FOR 1) = B'1') STORED,
++  CONSTRAINT relexpr_replace_k CHECK ((substring(relexpr_replaced() FROM k + 1 FOR 1) = B'1') IS TRUE));
++INSERT INTO relexpr_replace (k) VALUES (1);
++INSERT INTO relexpr_replace (k) VALUES (0);
++CREATE OR REPLACE FUNCTION relexpr_replaced() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE RETURN B'11';
++INSERT INTO relexpr_replace (k) VALUES (0);
++SELECT * FROM relexpr_replace ORDER BY k;
++
++CREATE DOMAIN relexpr_code AS int2;
++CREATE TABLE relexpr_domain (k int2 NOT NULL,
++  c relexpr_code GENERATED ALWAYS AS (k) STORED,
++  CONSTRAINT relexpr_domain_k CHECK (k::int4::relexpr_code IS NOT NULL));
++INSERT INTO relexpr_domain (k) VALUES (5);
++ALTER DOMAIN relexpr_code ADD CONSTRAINT relexpr_code_small CHECK (VALUE < 5) NOT VALID;
++INSERT INTO relexpr_domain (k) VALUES (7);
++ALTER DOMAIN relexpr_code DROP CONSTRAINT relexpr_code_small;
++INSERT INTO relexpr_domain (k) VALUES (7);
++ALTER DOMAIN relexpr_code SET NOT NULL;
++ALTER DOMAIN relexpr_code ADD CONSTRAINT relexpr_code_admitted
++  CHECK ((substring(relexpr_bits() FROM VALUE + 1 FOR 1) = B'1') IS TRUE) NOT VALID;
++INSERT INTO relexpr_domain (k) VALUES (1);
++INSERT INTO relexpr_domain (k) VALUES (3);
++SELECT * FROM relexpr_domain ORDER BY k;
++
++CREATE ROLE regress_relexpr_user;
++CREATE FUNCTION relexpr_private() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE RETURN B'11';
++REVOKE EXECUTE ON FUNCTION relexpr_private() FROM PUBLIC;
++CREATE TABLE relexpr_priv (k int2 NOT NULL, note text,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_private() FROM k + 1 FOR 1) = B'1') STORED);
++CREATE TABLE relexpr_priv_check (k int2 NOT NULL,
++  CONSTRAINT relexpr_priv_check_k CHECK ((substring(relexpr_private() FROM k + 1 FOR 1) = B'1') IS TRUE));
++GRANT SELECT, INSERT, UPDATE ON relexpr_priv, relexpr_priv_check TO regress_relexpr_user;
++INSERT INTO relexpr_priv (k) VALUES (1);
++INSERT INTO relexpr_priv_check VALUES (1);
++SET ROLE regress_relexpr_user;
++INSERT INTO relexpr_priv (k) VALUES (1);
++INSERT INTO relexpr_priv_check VALUES (1);
++UPDATE relexpr_priv SET k = 0;
++UPDATE relexpr_priv SET note = 'not recomputed, so not planned';
++RESET ROLE;
++GRANT EXECUTE ON FUNCTION relexpr_private() TO regress_relexpr_user;
++SET ROLE regress_relexpr_user;
++INSERT INTO relexpr_priv (k) VALUES (0);
++INSERT INTO relexpr_priv_check VALUES (1);
++RESET ROLE;
++REVOKE EXECUTE ON FUNCTION relexpr_private() FROM regress_relexpr_user;
++SET ROLE regress_relexpr_user;
++INSERT INTO relexpr_priv (k) VALUES (0);
++INSERT INTO relexpr_priv_check VALUES (1);
++RESET ROLE;
++SELECT * FROM relexpr_priv ORDER BY k;
++SELECT * FROM relexpr_priv_check ORDER BY k;
++
++CREATE SCHEMA relexpr_s1;
++CREATE SCHEMA relexpr_s2;
++CREATE FUNCTION relexpr_s1.relexpr_limit() RETURNS int LANGUAGE sql IMMUTABLE RETURN 1;
++CREATE FUNCTION relexpr_s2.relexpr_limit() RETURNS int LANGUAGE sql IMMUTABLE RETURN 2;
++-- a string body, so inlining parses it, under the search_path of the moment
++SET check_function_bodies = off;
++CREATE FUNCTION relexpr_limited(k int) RETURNS bool LANGUAGE sql STABLE
++  AS 'SELECT k <= relexpr_limit()';
++RESET check_function_bodies;
++CREATE TABLE relexpr_path (k int NOT NULL,
++  CONSTRAINT relexpr_path_k CHECK (relexpr_limited(k)));
++SET search_path = relexpr_s1, public;
++INSERT INTO relexpr_path VALUES (1);
++INSERT INTO relexpr_path VALUES (2);
++SET search_path = relexpr_s2, public;
++INSERT INTO relexpr_path VALUES (2);
++SET search_path = relexpr_s1, public;
++INSERT INTO relexpr_path VALUES (2);
++RESET search_path;
++SELECT * FROM relexpr_path ORDER BY k;
++
++--
++-- Executor state built from planned expressions outlives their invalidation.
++-- Here the statement's inserts keep the expressions planned at its first row,
++-- while its conflicting row, which first needs the UPDATE expressions, plans
++-- them after the function has been replaced.
++--
++CREATE FUNCTION relexpr_swapped() RETURNS bit varying
++  LANGUAGE sql IMMUTABLE RETURN B'01';
++CREATE FUNCTION relexpr_swap(k int2) RETURNS int2 LANGUAGE plpgsql AS $$
++BEGIN
++  CREATE OR REPLACE FUNCTION relexpr_swapped() RETURNS bit varying
++    LANGUAGE sql IMMUTABLE RETURN B'10';
++  RETURN k;
++END $$;
++CREATE TABLE relexpr_live (id int PRIMARY KEY, k int2 NOT NULL,
++  admitted bool GENERATED ALWAYS AS (substring(relexpr_swapped() FROM k + 1 FOR 1) = B'1') STORED);
++INSERT INTO relexpr_live (id, k) VALUES (2, 0);
++INSERT INTO relexpr_live (id, k)
++  SELECT g, CASE WHEN g = 2 THEN relexpr_swap(1::int2) ELSE 1::int2 END
++  FROM generate_series(1, 3) AS g
++  ON CONFLICT (id) DO UPDATE SET k = excluded.k;
++SELECT * FROM relexpr_live ORDER BY id;
++INSERT INTO relexpr_live (id, k) VALUES (4, 1);
++SELECT * FROM relexpr_live ORDER BY id;
++
++--
++-- The point of it all: an IMMUTABLE function in a CHECK runs once, not once
++-- per statement.  The cursor keeps the table open, so that its relcache entry
++-- lasts from one statement to the next even in a build that releases unused
++-- entries at once (RELCACHE_FORCE_RELEASE).
++--
++CREATE FUNCTION relexpr_counted() RETURNS bit varying LANGUAGE plpgsql IMMUTABLE AS $$
++BEGIN
++  PERFORM set_config('regress.relexpr_calls',
++    (current_setting('regress.relexpr_calls')::int + 1)::text, false);
++  RETURN B'11';
++END $$;
++CREATE TABLE relexpr_counted (k int2 NOT NULL,
++  CONSTRAINT relexpr_counted_k CHECK ((substring(relexpr_counted() FROM k + 1 FOR 1) = B'1') IS TRUE));
++SET regress.relexpr_calls = 0;
++BEGIN;
++DECLARE relexpr_open CURSOR FOR SELECT * FROM relexpr_counted;
++DO $$ BEGIN FOR i IN 1..10 LOOP INSERT INTO relexpr_counted VALUES (1); END LOOP; END $$;
++SELECT current_setting('regress.relexpr_calls')::int < 10
++  OR current_setting('debug_discard_caches')::int > 0 AS planned_once;
++COMMIT;
++RESET regress.relexpr_calls;
++
++DROP TABLE relexpr_check, relexpr_gen, relexpr_upsert, relexpr_part, relexpr_inh CASCADE;
++DROP TABLE relexpr_replace, relexpr_domain, relexpr_priv, relexpr_priv_check, relexpr_path,
++  relexpr_live, relexpr_counted;
++DROP DOMAIN relexpr_code;
++DROP FUNCTION relexpr_bits(), relexpr_bits2(), relexpr_replaced(), relexpr_private(),
++  relexpr_swapped(), relexpr_swap(int2), relexpr_counted();
++DROP FUNCTION relexpr_limited(int);
++DROP SCHEMA relexpr_s1, relexpr_s2 CASCADE;
++DROP ROLE regress_relexpr_user;
