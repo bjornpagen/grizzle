@@ -86,6 +86,7 @@ import {
 } from "#test/support/oracle/write/facts.ts"
 
 import {
+	type Applied,
 	applyWith,
 	type GroupState,
 	type WriteOutcome,
@@ -1238,6 +1239,19 @@ export const runCase = (
 		for (const realization of realizationsOf(program)) {
 			note(realization)
 		}
+		/**
+		 * What a side is judged against: the case's expectation, or, where its last attempt ran after a collision, the
+		 * expectation from the sequences that attempt drew from, whose fresh values can decide the outcome.
+		 */
+		const expectedOf = (applied: Applied): Expected =>
+			applied.start.kind === "first"
+				? expected
+				: expectChangeSet(
+						{ group, laws: t.laws },
+						facts,
+						c,
+						Rec.fromEntries([...applied.start.sequences])
+					)
 		const outcomes: Array<Result.Result<WriteOutcome, unknown>> = []
 		/** Each side's expectation under its own draws (judgedExpectation), where it committed an applied change. */
 		const realized: Array<Expected> = []
@@ -1245,6 +1259,7 @@ export const runCase = (
 			yield* resetGroup(t, group, facts, expected.initial)
 			const applied = yield* applyWith(
 				t,
+				group,
 				entry.success,
 				changes,
 				params,
@@ -1254,22 +1269,24 @@ export const runCase = (
 				c.entry
 			)
 			const state = yield* readGroup(t, group)
+			const sideExpected = expectedOf(applied)
 			outcomes.push(applied.outcome)
 			if (applied.collided > 0) {
 				note("generated after a collision")
 			}
-			if (expected.kind === "applied" && Result.isSuccess(applied.outcome)) {
-				const judged = judgedExpectation(group, expected, state).expected
+			if (sideExpected.kind === "applied" && Result.isSuccess(applied.outcome)) {
+				const judged = judgedExpectation(group, sideExpected, state).expected
 				realized.push(judged)
 				noteIf(
-					judged.kind === "applied" && !sameCounts(judged.outcome.counts, expected.outcome.counts),
+					judged.kind === "applied" &&
+						!sameCounts(judged.outcome.counts, sideExpected.outcome.counts),
 					"counts under the realization's draws"
 				)
 			}
 			if (applied.flights > 0) {
 				note("flight logged")
 			}
-			for (const p of judgeWrite(group, c, expected, applied.outcome, state)) {
+			for (const p of judgeWrite(group, c, sideExpected, applied.outcome, state)) {
 				problems.push(`${artifact}: ${p}`)
 			}
 			if (problems.length > 0) {
@@ -1293,6 +1310,7 @@ export const runCase = (
 		yield* resetGroup(t, group, restored.facts, expected.initial)
 		const again = yield* applyWith(
 			t,
+			group,
 			entry.success,
 			changes,
 			params,
@@ -1304,7 +1322,7 @@ export const runCase = (
 		const againState = yield* readGroup(t, group)
 		const readAgain = `optimized, read again over its facts stored otherwise (${restored.reordered ? "reordered" : "in their order"}, ${restored.respelled ? "one value respelled" : "no value respelled"}), ${printPerturbation(secondPlan)}`
 		const againProblems = [
-			...judgeWrite(group, c, expected, again.outcome, againState),
+			...judgeWrite(group, c, expectedOf(again), again.outcome, againState),
 			...(optimized === undefined
 				? []
 				: agreement(["optimized", optimized], ["optimized read again", again.outcome]))

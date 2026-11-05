@@ -397,14 +397,24 @@ const loggedContext = (ctx: DbContext, log: Array<Flight>): DbContext => ({
 })
 
 /**
- * One application: its outcome, or its operational failure as a value, and how many attempts the model's collisions
- * failed before it, each called again (see applyWith).
+ * The identity sequences an application's last attempt drew from: as the case set them, or as the attempts before it
+ * left them, since every value an aborted attempt drew stays drawn (nextval is never rolled back), in every relation it
+ * drew into before its collision, not only the colliding one.
  */
-interface Applied {
+export type AttemptStart =
+	| { readonly kind: "first" }
+	| { readonly kind: "retried"; readonly sequences: GroupState["sequences"] }
+
+/**
+ * One application: its outcome, or its operational failure as a value, how many attempts the model's collisions
+ * failed before it, each called again (see applyWith), and the sequences its last attempt drew from.
+ */
+export interface Applied {
 	readonly outcome: Result.Result<WriteOutcome, ApplyError>
 	readonly collided: number
 	/** The flights the attempts sent, which the single-flight property judged. */
 	readonly flights: number
+	readonly start: AttemptStart
 }
 
 /**
@@ -417,10 +427,11 @@ interface Applied {
  * where the case's model allows one (expect.ts Collisions): a generated addition that drew a serial value a stored fact
  * holds, at most once per such value. Any other TransientFailure has no concurrent transaction to explain it, a stale
  * statement or a serialization failure of a lone writer among them, and is returned as the case's outcome, which the
- * judge refuses.
+ * judge refuses. Before calling again it reads `group`'s sequences, where the next attempt draws from (AttemptStart).
  */
 export const applyWith = (
 	t: WriteTarget,
+	group: WGroup,
 	entry: CompiledChange,
 	changes: ChangeSetValue,
 	params: ParamMap,
@@ -428,9 +439,10 @@ export const applyWith = (
 	collisions: ReadonlyMap<string, Collisions>,
 	perturbation: Perturbation,
 	entryPoint: Entry
-): Effect.Effect<Applied> => {
+): Effect.Effect<Applied, SqlError, Substrate> => {
 	const perturbed = perturbedContext(t.ctx, perturbation)
 	let flights = 0
+	let start: AttemptStart = { kind: "first" }
 	/** Each attempt logs its own flights and is held to the single-flight property (see the header). */
 	const once = Effect.suspend(() => {
 		const log: Array<Flight> = []
@@ -463,7 +475,8 @@ export const applyWith = (
 		spent: ReadonlyMap<string, number>
 	): Effect.Effect<
 		{ readonly value: ApplyOutcome<unknown>; readonly collided: number },
-		ApplyError
+		ApplyError | SqlError,
+		Substrate
 	> =>
 		Effect.catch(
 			Effect.map(once, (value) => ({
@@ -484,17 +497,28 @@ export const applyWith = (
 				) {
 					return Effect.fail(error)
 				}
-				return attempt(new Map([...spent, [relation, used + 1]]))
+				return Effect.flatMap(readGroup(t, group), (left) => {
+					start = { kind: "retried", sequences: left.sequences }
+					return attempt(new Map([...spent, [relation, used + 1]]))
+				})
 			}
 		)
-	return Effect.map(Effect.result(attempt(new Map())), (result) =>
-		Result.isSuccess(result)
-			? {
+	return Effect.flatMap(
+		Effect.result(attempt(new Map())),
+		(result): Effect.Effect<Applied, SqlError> => {
+			if (Result.isSuccess(result)) {
+				return Effect.succeed({
 					outcome: Result.succeed(outcomeOf(t.ctx.artifacts.described, result.success.value)),
 					collided: result.success.collided,
-					flights
-				}
-			: { outcome: Result.fail(result.failure), collided: 0, flights }
+					flights,
+					start
+				})
+			}
+			const failure = result.failure
+			return failure._tag === "SqlError"
+				? Effect.fail(failure)
+				: Effect.succeed({ outcome: Result.fail(failure), collided: 0, flights, start })
+		}
 	)
 }
 
