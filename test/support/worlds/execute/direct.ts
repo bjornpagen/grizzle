@@ -23,7 +23,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { valueText } from "#test/pg/laws/families/model.ts"
@@ -87,7 +87,7 @@ export interface DirectSql {
 const none: Reads = { kind: "none" }
 
 const emitted = (ast: SqlStatement): Effect.Effect<string> => {
-	const text = emit(ast, emptyNameMap, unmetered)
+	const text = emit(ast, emptyNameMap)
 	return text.ok
 		? Effect.succeed(text.value.text)
 		: Effect.die(new Error(`a direct statement does not emit: ${text.error.message}`))

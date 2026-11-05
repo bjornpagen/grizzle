@@ -1,7 +1,10 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { compareText } from "#compiler/core/canonical.ts"
+import { compareText, Refusal } from "#compiler/core/canonical.ts"
+import { resourceBound } from "#compiler/core/errors.ts"
 import { type DeclaredName, type Identity, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { tableMaxColumns } from "#compiler/core/policy.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
@@ -21,7 +24,8 @@ import {
 } from "#compiler/physical/obligations/graph.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import type { Owned, OwnedLogin } from "#compiler/schema/own.ts"
-import type { ObjectName, TypeRef } from "#compiler/sql/ast.ts"
+import type { ObjectName, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { refusalFunctionDdl } from "#compiler/write/refusal.ts"
 
 export interface InstallSettings {
@@ -78,6 +82,29 @@ export interface BuiltTarget {
  * key, pgvector's vector type. */
 export type Capability = "btree_gist" | "vector"
 
+/**
+ * The relation a statement of the installation creates or adds columns to, and the columns it gives it: a CREATE TABLE's,
+ * a view's or a materialized view's own, an ALTER TABLE's ADD COLUMNs. Every other statement gives no relation a column
+ * (a carrier, which does, is a write program's, write/carriers/carriers.ts).
+ */
+const widenedRelation = (
+	statement: SqlStatement
+): { readonly relation: ObjectName; readonly columns: number } | undefined => {
+	if (statement.kind === "createTable") {
+		return { relation: statement.table, columns: statement.columns.length }
+	}
+	if (statement.kind === "createView" || statement.kind === "createMaterializedView") {
+		return { relation: statement.name, columns: statement.columns.length }
+	}
+	if (statement.kind === "alterTable") {
+		return {
+			relation: statement.table,
+			columns: statement.actions.filter((a) => a.kind === "addColumn").length
+		}
+	}
+	return undefined
+}
+
 /** What every DDL generator of one installation shares: the owned schema, its law model, the installed names, the
  * obligation graph the objects go into, and the identities the installation names its own objects by (`name`).
  *
@@ -111,6 +138,8 @@ export class InstallBuilder {
 	readonly #tables = new Map<string, Node<"structure">>()
 	readonly #views = new Map<string, IndexedView>()
 	readonly #qualified = new Map<QualifiedKind, Map<string, Map<string, Node<DeployPhase>>>>()
+	/** The columns each table, view and materialized view the objects so far create holds, by its qualified name. */
+	readonly #columns = new Map<string, number>()
 
 	constructor(input: {
 		readonly owned: Owned
@@ -188,11 +217,18 @@ export class InstallBuilder {
 		return { kind, schema: this.settings.installation, name }
 	}
 
-	/** Adds an object, created after each of `after`. */
+	/**
+	 * Adds an object, created after each of `after`. A table its statements would give more columns than PostgreSQL's
+	 * tableMaxColumns, the columns its CREATE TABLE and every ADD COLUMN after it give it together, or a view or
+	 * materialized view of more, is refused here as ResourceBound (tableColumns).
+	 */
 	add<P extends DeployPhase>(
 		spec: ObjectSpec<P>,
 		after: ReadonlyArray<Node<Before<NoInfer<P>>>>
 	): Node<P> {
+		for (const statement of spec.ddl) {
+			this.#countColumns(statement)
+		}
 		const node = this.graph.add(spec, after)
 		const ident = spec.ident
 		switch (ident.kind) {
@@ -225,6 +261,27 @@ export class InstallBuilder {
 			case "text":
 				return node
 		}
+	}
+
+	/** The columns `statement` gives the relation it creates or adds to, counted against tableMaxColumns. */
+	#countColumns(statement: SqlStatement): void {
+		const widened = widenedRelation(statement)
+		if (widened === undefined) {
+			return
+		}
+		const table = printObjectName(widened.relation)
+		const needed = (this.#columns.get(table) ?? 0) + widened.columns
+		if (needed > tableMaxColumns) {
+			throw new Refusal(
+				resourceBound(SourceLoc(`installation of schema ${this.owned.name}`, []), {
+					kind: "tableColumns",
+					table,
+					limit: tableMaxColumns,
+					needed
+				})
+			)
+		}
+		this.#columns.set(table, needed)
 	}
 
 	/** Adds an enum or a domain of the installed schema, which a column, a cast or a declaration names by its

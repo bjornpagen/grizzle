@@ -55,6 +55,7 @@ import {
 	quoteIdent,
 	quoteString,
 	sqlText,
+	statementText,
 	terminated,
 	writeDoBlock,
 	writeStatement
@@ -185,8 +186,11 @@ interface Spelled {
 
 const spelledLoc = SourceLoc("drafted statement", [])
 
-/** A spelled statement's text from its first token, without its terminator: what meta.json records. */
-const spelledText = (s: Spelled): string => sqlText(spelledLoc, s.write)
+/**
+ * A spelled statement's text from its first token, without its terminator: what meta.json records, and what the
+ * migration runner sends (sql/print.ts statementText).
+ */
+const spelledText = (s: Spelled): string => statementText(spelledLoc, s.write)
 
 const spelledLines = (out: Lines, s: Spelled): void => {
 	for (const line of s.above) {
@@ -418,7 +422,7 @@ const renderDraft = (out: Lines, draft: Draft | RelationStep): void => {
  * - a loss's marker, saying what it loses and how to decide it, above its statement commented the same way.
  *
  * Statements end with `;` and are separated by a blank line. A no-transaction file's first line is the marker. A file
- * past JavaScript's longest string is refused as ResourceBound (text). */
+ * past V8's longest string is refused as ResourceBound (stringLength). */
 export const renderFile = (file: DraftFile): Result.Result<string, CompileError> =>
 	catchRefusal(() =>
 		sqlText(SourceLoc("drafted file", [file.name]), (out) => {

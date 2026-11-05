@@ -1,6 +1,5 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { concatNonEmpty, isNonEmpty, lastNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type DeliverySpine, deliverySpine } from "#compiler/ir/dag.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
@@ -59,7 +58,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { emit, metered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { type NameOrigin, renameToPublicHeading } from "#compiler/sql/naming.ts"
 
 const sameOrder = (a: CompletedOrder, b: CompletedOrder): boolean =>
@@ -474,11 +473,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 		if (!renamed.ok) {
 			throw new Refusal(renamed.error)
 		}
-		const printed = emit(
-			renamed.value,
-			this.cx.supply.map(),
-			metered(this.cx.options.meter, SourceLoc("sql statement", []))
-		)
+		const printed = emit(renamed.value, this.cx.supply.map())
 		if (!printed.ok) {
 			throw new Refusal(printed.error)
 		}

@@ -38,13 +38,19 @@ export type Artifact =
  * The bound a ResourceBound crossed, with the facts it states:
  * - `budget`: a compiler budget's charge (core/budget.ts BudgetMeter), its limit and the total the charge needed;
  * - `rewriteSteps`: the steps of the rewrite pass `rewrite`, its limit and the step that crossed it;
- * - `rewriteMeasure`: a rewrite of the pass `rewrite` whose measure did not strictly decrease, `before` to `after`;
  * - `nesting`: a container nested deeper than `limit`;
  * - `carriers`: more than `limit` carriers of one heading's column types in one program;
  * - `regexConstructs`: a pattern of more than `limit` regex constructs;
  * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts above PostgreSQL's regex compile space;
- * - `text`: a text grizzle builds as one string, `needed` UTF-16 code units long, past `limit` (core/policy.ts
- *   textMaxLength);
+ * - `stringLength`: a text grizzle builds as one string, `needed` UTF-16 code units long, past V8's longest string,
+ *   `limit` (core/policy.ts maxStringLength);
+ * - `tableColumns`: the table, view or materialized view `table` (a write program's carrier among them), of `needed`
+ *   columns, past PostgreSQL's `limit` (core/policy.ts tableMaxColumns);
+ * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (core/policy.ts selectMaxEntries);
+ * - `statementBytes`: a statement `needed` UTF-8 bytes long, past PostgreSQL's longest protocol message, `limit`
+ *   (core/policy.ts messageMaxBytes);
+ * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (core/policy.ts
+ *   statementMaxParams);
  * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
  *   (131072), where PostgreSQL's numeric arithmetic would raise.
  */
@@ -61,17 +67,20 @@ export type CompileBound =
 			readonly limit: number
 			readonly needed: number
 	  }
-	| {
-			readonly kind: "rewriteMeasure"
-			readonly rewrite: string
-			readonly before: ReadonlyArray<number>
-			readonly after: ReadonlyArray<number>
-	  }
 	| { readonly kind: "nesting"; readonly limit: number }
 	| { readonly kind: "carriers"; readonly limit: number }
 	| { readonly kind: "regexConstructs"; readonly limit: number }
 	| { readonly kind: "regexCompileSpace"; readonly pattern: string; readonly measure: string }
-	| { readonly kind: "text"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "stringLength"; readonly limit: number; readonly needed: number }
+	| {
+			readonly kind: "tableColumns"
+			readonly table: string
+			readonly limit: number
+			readonly needed: number
+	  }
+	| { readonly kind: "selectList"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "statementBytes"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "statementParams"; readonly limit: number; readonly needed: number }
 	| { readonly kind: "numericDigits"; readonly limit: number; readonly needed: number }
 
 const boundText = (bound: CompileBound): string => {
@@ -80,8 +89,6 @@ const boundText = (bound: CompileBound): string => {
 			return `budgets.${bound.budget} <= ${bound.limit} (needed ${bound.needed})`
 		case "rewriteSteps":
 			return `${bound.rewrite} rewrite steps <= ${bound.limit} (needed ${bound.needed})`
-		case "rewriteMeasure":
-			return `a strictly decreasing ${bound.rewrite} measure; [${bound.before.join(", ")}] became [${bound.after.join(", ")}]`
 		case "nesting":
 			return `nesting depth at most ${bound.limit}`
 		case "carriers":
@@ -90,8 +97,16 @@ const boundText = (bound: CompileBound): string => {
 			return `the pattern exceeds the fixed budget of ${bound.limit} regex constructs`
 		case "regexCompileSpace":
 			return `${bound.pattern} ${bound.measure}, above the fixed budget that keeps it inside PostgreSQL's regex compile space`
-		case "text":
-			return `a text of at most ${bound.limit} UTF-16 code units, JavaScript's longest string (needed ${bound.needed})`
+		case "stringLength":
+			return `a text of at most ${bound.limit} UTF-16 code units, V8's longest string (needed ${bound.needed})`
+		case "tableColumns":
+			return `a table of at most ${bound.limit} columns, PostgreSQL's limit; ${bound.table} would have ${bound.needed}`
+		case "selectList":
+			return `a select list of at most ${bound.limit} entries, PostgreSQL's limit (needed ${bound.needed})`
+		case "statementBytes":
+			return `a statement of at most ${bound.limit} UTF-8 bytes, PostgreSQL's longest protocol message (needed ${bound.needed})`
+		case "statementParams":
+			return `a statement of at most ${bound.limit} placeholders, what a PostgreSQL Bind message counts (needed ${bound.needed})`
 		case "numericDigits":
 			return `a numeric value of at most ${bound.limit} integer digits, numeric's limit (this expression's may need ${bound.needed})`
 	}

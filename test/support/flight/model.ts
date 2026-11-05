@@ -37,7 +37,7 @@ import {
 	snapshotGuardName
 } from "#compiler/physical/ddl/ledger.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Delivered, Rows } from "#test/support/flight/scripted.ts"
@@ -88,7 +88,7 @@ const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 export const fenceSql = (schema: string, grantee: string): ReadonlyArray<string> => {
 	const [guard, revoke] = snapshotGuardDdl(schema)
 	const text = (statement: SqlStatement): string => {
-		const e = emit(statement, emptyNameMap, unmetered)
+		const e = emit(statement, emptyNameMap)
 		if (!e.ok) {
 			throw new Error(`the fence's DDL: ${e.error.message}`)
 		}

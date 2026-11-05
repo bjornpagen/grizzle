@@ -8,7 +8,7 @@ import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import { lit, qualifiedCall, simpleSelect, target, types } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { canonicallySpelled, type SpelledValue } from "#test/support/oracle/gen/domain.ts"
 import type { GenFacts, StoredRow } from "#test/support/oracle/gen/facts.ts"
@@ -272,8 +272,7 @@ const plannerSelect = (p: Perturbation): EmittedText => {
 			[],
 			undefined
 		),
-		emptyNameMap,
-		unmetered
+		emptyNameMap
 	)
 	if (!emitted.ok) {
 		throw emitted.error

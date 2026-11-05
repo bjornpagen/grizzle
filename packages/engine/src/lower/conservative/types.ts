@@ -101,7 +101,7 @@ export interface ConservativeOptions {
 	/** The declared parameters: a take or page bound parameter has the type its declaration gives. */
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly subject: ConservativeSubject
-	/** The compilation's meter: every lowered node instance is charged to `nodes`, every emitted text to `sqlBytes`. */
+	/** The compilation's meter: every lowered node instance is charged to `nodes`. */
 	readonly meter: BudgetMeter
 }
 

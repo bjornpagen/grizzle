@@ -14,7 +14,7 @@ import { indices } from "#compiler/core/array.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { Expr, Insert, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, col, eq, lit, simpleSelect } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { type OracleState, oracleState, type SequenceState } from "#test/support/oracle/addwins.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
@@ -774,7 +774,7 @@ const sqlOf = (t: WriteTarget, s: Statement): string => {
 				}
 		}
 	})()
-	const emitted = emit(ast, emptyNameMap, unmetered)
+	const emitted = emit(ast, emptyNameMap)
 	if (!emitted.ok) {
 		throw new Error(`the statement does not emit: ${emitted.error.message}`)
 	}

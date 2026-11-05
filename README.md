@@ -1027,7 +1027,8 @@ A query for a role is written over the role and sees only what the role sees: `M
 filtered view of posts.
 
 A `workload` names the queries and writes your app runs on its hot paths. grizzle compiles them once, when the app
-starts, and `grizzle generate` derives the indexes they need and records them in the migration snapshot.
+starts, and `grizzle generate` compiles them the same way, derives the indexes they need and records them in the
+migration snapshot: a program the app would refuse to start with, generate refuses first.
 
 A `login` is one PostgreSQL user, with its password and its own connection pool, that can act as the roles it lists.
 The login is the trust boundary: whoever holds its password can act as any of its roles, with any claims. So the web
@@ -1802,7 +1803,8 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 ## Deploying
 
 Build each `DbLayer` once per process. Building it parses the snapshot, compiles the login's roles and every workload
-program for every role it runs on, and checks that the workloads' index needs are the ones the snapshot records. It
+program for every role it runs on, the compilation `grizzle generate` ran, and checks that the workloads' index needs
+are the ones the snapshot records. It
 fails with an `OpenError` at stage `schema` for a snapshot that does not parse or was edited by hand, a schema that is
 not the snapshot's, a role or program that does not compile, and a workload program added, renamed, removed or changed
 since `grizzle generate`: the error names the program and says to run `grizzle generate`.
@@ -1998,9 +2000,16 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
 - **No bulk loads.** One ChangeSet input holds at most 100,000 rows.
-- **One generated text is at most 536,870,888 characters**, JavaScript's longest string (2^29 − 24 UTF-16 code
-  units, about 512 MiB of ASCII): each SQL statement, migration file, `snapshot.json` and fingerprint text grizzle
-  builds. `generate` and `check` refuse a schema whose texts would exceed it with `ResourceBound`.
+- **One generated text is at most 536,870,888 characters**, V8's longest string (2^29 − 24 UTF-16 code units, about
+  512 MiB of ASCII): each SQL statement, migration file, `snapshot.json` and fingerprint text grizzle builds.
+  `generate` and `check` refuse a schema whose texts would exceed it with `ResourceBound`.
+- **PostgreSQL's own limits, refused with `ResourceBound` where grizzle emits what they bound.** A table holds at most
+  1,600 columns: a relation's fields with the tag columns its rules add, refused when its schema is compiled, and a
+  view's, a derived table's or a write's temporary table's alike. Columns a table once held and dropped count too, so
+  PostgreSQL itself refuses an added column past them. A select list holds at most 1,664 entries. One statement is at
+  most 1,073,741,822 bytes, PostgreSQL's longest protocol message, and binds at most 65,535 parameters, which a Bind
+  message counts in 16 bits. A row must also fit one 8 KB heap page once its long values are stored out of line,
+  which PostgreSQL checks when it writes the row.
 - **No PgBouncer, and no LISTEN/NOTIFY.**
 - **No browser connections.** A browser cannot connect straight to PostgreSQL; a server runs `verify`.
 - **The login is the trust boundary.** Anyone with its password can act as any of its roles, with any claims.

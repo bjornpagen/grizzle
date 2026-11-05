@@ -9,7 +9,7 @@ import { compileBudgets } from "#compiler/core/policy.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
-import { finitePass } from "#compiler/lower/optimize/finite/index.ts"
+import { finitePassWithin } from "#compiler/lower/optimize/finite/index.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { Q, T, Task, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
 import {
@@ -24,8 +24,9 @@ import {
 /**
  * R07: keep finite schema facts visible to PostgreSQL. A membership-only match of declared facts becomes
  * native constant membership, tuple membership keeps each fact's correlation ("for tuple rosters, independent column
- * IN lists are not equivalent"), a roster-covering enum match is a tautology, and the expansion stays
- * within the meter's bounded specialization variants.
+ * IN lists are not equivalent"), a roster-covering enum match is a tautology, and a membership of more terms than the
+ * pass's bound (core/policy.ts finiteMembershipMaxTerms in production, a drawn one here, through finitePassWithin's own
+ * parameter) keeps its VALUES join.
  */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
@@ -84,8 +85,8 @@ const membership = (facts: ReadonlyArray<ReadonlyArray<TypedLiteral>>, bound: Bo
 	return q.build(q.project(region, [["id", "id"]], conservativeMeta)).dag
 }
 
-/** What the memberships reach: the rewrite on each binding, and the meter's variants holding it back. */
-type FiniteFeature = `rewritten binding ${Bound}` | "held back by budgets.variants"
+/** What the memberships reach: the rewrite on each binding, and the terms bound holding it back. */
+type FiniteFeature = `rewritten binding ${Bound}` | "held back by its terms bound"
 
 describe("finite membership", () => {
 	it.effect(
@@ -108,27 +109,27 @@ describe("finite membership", () => {
 							"rewritten binding kind",
 							"rewritten binding amount",
 							"rewritten binding both",
-							"held back by budgets.variants"
+							"held back by its terms bound"
 						]),
 						caseHang: Duration.minutes(2)
 					},
-					([facts, bound, variants], c) =>
+					([facts, bound, maxTerms], c) =>
 						Effect.sync(() => {
 							const dag = membership(facts, bound)
 							const ran = succeeded(
 								runPasses(
 									queryOf(dag, []),
-									[finitePass],
+									[finitePassWithin(maxTerms)],
 									makePassContext({
-										budgets: new BudgetMeter({ ...compileBudgets, variants }),
+										budgets: new BudgetMeter(compileBudgets),
 										evidenceContext: "snapshot",
 										catalog: ledgerCatalog
 									})
 								)
 							)
 							const terms = facts.length * Rec.keys(bindingOf[bound]).length
-							const rewritten = terms <= variants
-							c.note(rewritten ? `rewritten binding ${bound}` : "held back by budgets.variants")
+							const rewritten = terms <= maxTerms
+							c.note(rewritten ? `rewritten binding ${bound}` : "held back by its terms bound")
 							assert.equal(rulesOf(ran.certificates).includes("R07.finiteMembership"), rewritten)
 							deliversAlikeOn(tasks, [Task], [], queryOf(dag, []), ran.query)
 						})

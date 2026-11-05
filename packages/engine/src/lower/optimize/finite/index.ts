@@ -1,4 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
+import { finiteMembershipMaxTerms } from "#compiler/core/policy.ts"
 import {
 	type DefinedOp,
 	nativeEqualityKey,
@@ -6,6 +7,8 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
+import type { Pass } from "#compiler/ir/pass.ts"
+import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	type Cell,
 	closedRows,
@@ -41,8 +44,13 @@ type Occurrence = OccurrenceOver<Cell, ScalarExpr, VarDecl>
 const terms = (o: Occurrence, rows: number): number =>
 	rows * Math.max(1, o.bindings.length + o.constants.length)
 
-/** The membership-only closed occurrences of the region `cell` holds. */
-const membershipOnly = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray<Occurrence> => {
+/** The membership-only closed occurrences of the region `cell` holds, each of at most `maxTerms` terms. */
+const membershipOnly = (
+	cx: RewriteCx,
+	cell: Cell,
+	region: Region,
+	maxTerms: number
+): ReadonlyArray<Occurrence> => {
 	const ed = cx.editor
 	if (region.occurrences.length < 2 || ed.readsFeedback(cell)) {
 		return []
@@ -53,7 +61,7 @@ const membershipOnly = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArra
 		if (source.kind !== "Closed" || d.lateral(o.source)) {
 			return false
 		}
-		if (terms(o, source.rows.length) > cx.ctx.budgets.limit("variants")) {
+		if (terms(o, source.rows.length) > maxTerms) {
 			return false
 		}
 		/**
@@ -242,7 +250,8 @@ const membership = (
 	}
 }
 
-const membershipRuleImpl: Rule = {
+/** The R07 rule over memberships of at most `maxTerms` terms. */
+const membershipRuleWithin = (maxTerms: number): Rule => ({
 	name: membershipRule,
 	/** membershipOnly admits closed sources only. */
 	at: (cell, cx) => {
@@ -251,7 +260,7 @@ const membershipRuleImpl: Rule = {
 		if (region.kind !== "MatchRegion") {
 			return false
 		}
-		for (const o of membershipOnly(cx, cell, region)) {
+		for (const o of membershipOnly(cx, cell, region, maxTerms)) {
 			const source = o.source.current
 			if (source.kind !== "Closed") {
 				continue
@@ -329,18 +338,20 @@ const membershipRuleImpl: Rule = {
 		}
 		return false
 	}
-}
+})
 
-const membershipMeasure: Measure = (cx) => {
-	let count = 0
-	for (const cell of cx.editor.topoOrder()) {
-		const node = cell.current
-		if (node.kind === "MatchRegion") {
-			count += membershipOnly(cx, cell, node).length
+const membershipMeasureWithin =
+	(maxTerms: number): Measure =>
+	(cx) => {
+		let count = 0
+		for (const cell of cx.editor.topoOrder()) {
+			const node = cell.current
+			if (node.kind === "MatchRegion") {
+				count += membershipOnly(cx, cell, node, maxTerms).length
+			}
 		}
+		return [count]
 	}
-	return [count]
-}
 
 /**
  * The R07 pass.
@@ -368,14 +379,18 @@ const membershipMeasure: Measure = (cx) => {
  * The predicate reads the bound variables as columns of the remaining region; a variable the region does not deliver
  * (a join variable outside its heading) widens it under the filter, and a projection restores its heading.
  *
- * The expansion is bounded by the policy's specialization variants (`budgets.variants`): a membership with more terms
- * keeps the VALUES join rather than growing into many branches (closed-domain
- * variants stay bounded). The facts are descriptor evidence: schema-declared, unconditional, the same in every context.
+ * The expansion is bounded: a membership of more than `maxTerms` terms (its facts times the columns it binds, at least
+ * one; core/policy.ts finiteMembershipMaxTerms in production) keeps the VALUES join rather than growing into many
+ * branches. The facts are descriptor evidence: schema-declared, unconditional, the same in every context.
  *
  * Measure: the number of membership-only closed occurrences, which each rewrite lowers by one.
  */
-export const finitePass = rewritePass({
-	name: "finite",
-	rules: [membershipRuleImpl],
-	measure: membershipMeasure
-})
+export const finitePassWithin = (maxTerms: number): Pass<LogicalQuery, LogicalQuery> =>
+	rewritePass({
+		name: "finite",
+		rules: [membershipRuleWithin(maxTerms)],
+		measure: membershipMeasureWithin(maxTerms)
+	})
+
+/** The R07 pass as production runs it (finitePassWithin, finiteMembershipMaxTerms). */
+export const finitePass = finitePassWithin(finiteMembershipMaxTerms)

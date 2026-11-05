@@ -41,7 +41,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { claimsSettingName } from "#compiler/sql/print.ts"
 
@@ -209,7 +209,7 @@ export const ledgerPrivilegesObject = (
 }
 
 const emitted = (statement: SqlStatement): EmittedSql => {
-	const e = emit(statement, emptyNameMap, unmetered)
+	const e = emit(statement, emptyNameMap)
 	if (!e.ok) {
 		throw new Refusal(e.error)
 	}

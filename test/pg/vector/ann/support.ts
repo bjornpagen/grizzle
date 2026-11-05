@@ -498,7 +498,7 @@ export const compile = (
 	if (!program.ok) {
 		throw failed("lower", program.error)
 	}
-	const specs = specifiedStatements(program.value.roots, { kind: "unmetered" })
+	const specs = specifiedStatements(program.value.roots)
 	if (!specs.ok) {
 		throw failed("specs", specs.error)
 	}

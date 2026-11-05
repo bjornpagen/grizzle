@@ -10,7 +10,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import { enclosedWithin } from "#compiler/core/lines.ts"
 import { isSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { textMaxLength } from "#compiler/core/policy.ts"
+import { maxStringLength } from "#compiler/core/policy.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 
@@ -351,9 +351,9 @@ const jsonFold: Fold<Json> = {
 const canonicalTextLoc = SourceLoc("canonical text", [])
 
 /**
- * `open`, the parts joined by `separator`, and `close`, measured before it is built: past JavaScript's longest string
- * the traversal stops with ResourceBound (text). Every enclosure is a substring of the whole text, so the first one past
- * the limit refuses.
+ * `open`, the parts joined by `separator`, and `close`, measured before it is built: past V8's longest string the
+ * traversal stops with ResourceBound (stringLength). Every enclosure is a substring of the whole text, so the first one
+ * past the limit refuses.
  */
 const enclosed = (
 	open: string,
@@ -361,7 +361,7 @@ const enclosed = (
 	separator: string,
 	close: string
 ): string => {
-	const text = enclosedWithin(textMaxLength, canonicalTextLoc, open, parts, separator, close)
+	const text = enclosedWithin(maxStringLength, canonicalTextLoc, open, parts, separator, close)
 	if (!text.ok) {
 		throw new Refusal(text.error)
 	}
@@ -420,7 +420,7 @@ const writeJson = (value: Json): string => {
 	return enclosed("{", members, ",", "}")
 }
 
-/** The canonical text of a JSON form value; ResourceBound (text) past JavaScript's longest string. */
+/** The canonical text of a JSON form value; ResourceBound (stringLength) past V8's longest string. */
 export const writeCanonicalJson = (value: Json): Result.Result<string, CompileError> =>
 	catchRefusal(() => writeJson(value))
 

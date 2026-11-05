@@ -1,8 +1,15 @@
 import { Refusal } from "#compiler/core/canonical.ts"
+import { resourceBound } from "#compiler/core/errors.ts"
 import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { textMaxLength } from "#compiler/core/policy.ts"
+import {
+	maxStringLength,
+	messageMaxBytes,
+	selectMaxEntries,
+	statementMaxParams
+} from "#compiler/core/policy.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,
@@ -69,8 +76,12 @@ import {
 	type DoStatement,
 	databaseDefaultBlock
 } from "#compiler/sql/catalog.ts"
+import { statementParams } from "#compiler/sql/transform.ts"
 
 const sqlUnit = "  "
+
+/** Where a statement's text is refused: as ResourceBound, for a bound PostgreSQL or V8 sets on it. */
+const statementTextLoc = SourceLoc("SQL statement text", [])
 
 /**
  * The deterministic SQL printer.
@@ -578,7 +589,19 @@ const printTarget = (target: Target): string =>
 		? printExpr(target.expr)
 		: `${printExpr(target.expr)} AS ${quoteIdent(target.alias)}`
 
-const printTargets = (targets: ReadonlyArray<Target>): string => targets.map(printTarget).join(", ")
+/** A select list, a SELECT's or a RETURNING's: refused (ResourceBound, selectList) past PostgreSQL's selectMaxEntries. */
+const printTargets = (targets: ReadonlyArray<Target>): string => {
+	if (targets.length > selectMaxEntries) {
+		throw new Refusal(
+			resourceBound(statementTextLoc, {
+				kind: "selectList",
+				limit: selectMaxEntries,
+				needed: targets.length
+			})
+		)
+	}
+	return targets.map(printTarget).join(", ")
+}
 
 const printIdentList = (names: ReadonlyArray<string>): string => names.map(quoteIdent).join(", ")
 
@@ -1746,9 +1769,12 @@ const catalogTextLoc = SourceLoc("catalog statement text", [])
 /** A catalog expression's text, as a statement of the catalog language prints it. */
 export const printCatalogExpr = (e: CatalogExpr): string => catalogExpr(e).text
 
-/** One catalog statement's text, without a terminator: what a driver sends. */
+/**
+ * One catalog statement's text, without a terminator: what a driver sends (statementText). Its placeholders are the
+ * catalog language's few, each written where its read is (sql/catalog.ts), so none is counted.
+ */
 export const printCatalogStatement = (statement: CatalogStatement): string =>
-	sqlText(catalogTextLoc, (out) => writeCatalogStatement(out, statement))
+	statementText(catalogTextLoc, (out) => writeCatalogStatement(out, statement))
 
 /** A PL/pgSQL block as a DO statement, dollar-quoted as a function body is. */
 export const writeDoBlock = (out: Lines, block: PlBlock): void => dollarQuoted(out, "DO", block)
@@ -1765,17 +1791,44 @@ export const terminated = (out: Lines, write: (out: Lines) => void): void => {
 	}
 }
 
-/** The SQL text `write` writes, refused (ResourceBound, text) past JavaScript's longest string. */
+/** The SQL text `write` writes, refused (ResourceBound, stringLength) past V8's longest string. */
 export const sqlText = (at: SourceLoc, write: (out: Lines) => void): string => {
-	const text = textOf(textMaxLength, sqlUnit, at, write)
+	const text = textOf(maxStringLength, sqlUnit, at, write)
 	if (!text.ok) {
 		throw new Refusal(text.error)
 	}
 	return text.value
 }
 
-const statementTextLoc = SourceLoc("SQL statement text", [])
+/**
+ * The text of one statement a driver sends, `write`'s (sqlText): refused (ResourceBound, statementBytes) when its UTF-8
+ * bytes are more than PostgreSQL's longest message, messageMaxBytes, which no message holding it could fit.
+ */
+export const statementText = (at: SourceLoc, write: (out: Lines) => void): string => {
+	const text = sqlText(at, write)
+	const bytes = utf8Length(text)
+	if (bytes > messageMaxBytes) {
+		throw new Refusal(
+			resourceBound(at, { kind: "statementBytes", limit: messageMaxBytes, needed: bytes })
+		)
+	}
+	return text
+}
 
-/** One statement's text, without a terminator: what a driver sends. */
-export const printStatement = (statement: SqlStatement): string =>
-	sqlText(statementTextLoc, (out) => writeStatement(out, statement))
+/**
+ * One statement's text, without a terminator: what a driver sends (statementText), refused (ResourceBound,
+ * statementParams) when it binds more parameters than a Bind message counts, statementMaxParams.
+ */
+export const printStatement = (statement: SqlStatement): string => {
+	const params = statementParams(statement)
+	if (params > statementMaxParams) {
+		throw new Refusal(
+			resourceBound(statementTextLoc, {
+				kind: "statementParams",
+				limit: statementMaxParams,
+				needed: params
+			})
+		)
+	}
+	return statementText(statementTextLoc, (out) => writeStatement(out, statement))
+}

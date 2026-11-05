@@ -236,7 +236,7 @@ const ownSettings = <L extends AnyLogin>(
 					"DbConfig.snapshot must be the committed snapshot.json, as an import of it yields"
 				)
 			}
-			const roles: ReadonlyArray<unknown> = Arr.map(Rec.values(config.login.roles), (r) => r.role)
+			const roles = loginRoleValues(config.login)
 			return Result.succeed({
 				login,
 				roles,
@@ -261,42 +261,55 @@ const parseDbConfig = <L extends AnyLogin>(
 
 const makeLoc = SourceLoc("DbLayer.make", [])
 
+/** The role values of a login, in its order: what DbLayer.make compiles the login's workloads for. */
+export const loginRoleValues = (login: AnyLogin): ReadonlyArray<unknown> =>
+	Arr.map(Rec.values(login.roles), (r) => r.role)
+
 /**
  * One role of the login, parsed, its artifacts computed and the programs of the login's workloads over it compiled: a
- * role or program that does not compile fails the layer.
+ * role or program that does not compile is its CompileError.
  */
-const layerRole = Effect.fn("layerRole")(
-	function* (
-		value: unknown,
-		workload: ReadonlyArray<AnyWorkload>
-	): Effect.fn.Return<LayerRole, CompileError> {
-		const input = yield* fromEngine(parseSchemaInput(value))
-		if (input.kind !== "role" || typeof value !== "object" || value === null) {
-			return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
-		}
-		const artifacts = yield* fromEngine(
-			schemaArtifacts(input, { installation: undefined, vectorSchema: undefined })
-		)
-		const theory = theoryRole(artifacts)
-		const world = artifacts.world
-		if (theory === undefined || world.kind !== "role") {
-			return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
-		}
-		const owned: OwnedRole = world.role
-		const role: RoleContext = {
-			schema: input,
-			declared: input.desc.base.name,
-			role: input.desc,
-			artifacts,
-			compile: (query, request) => templateFor(query, input, artifacts, request),
-			witness: installationWitness(artifacts)
-		}
-		const contexts = yield* fromEngine(typedContexts(artifacts))
-		const forms = yield* Effect.fromResult(compileRoleWorkload(role, owned, workload))
-		return { ...role, value, theory, contexts, workload: forms }
-	},
-	Effect.mapError((reason) => new OpenError({ reason }))
-)
+const layerRole = Effect.fn("layerRole")(function* (
+	value: unknown,
+	workload: ReadonlyArray<AnyWorkload>
+): Effect.fn.Return<LayerRole, CompileError> {
+	const input = yield* fromEngine(parseSchemaInput(value))
+	if (input.kind !== "role" || typeof value !== "object" || value === null) {
+		return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
+	}
+	const artifacts = yield* fromEngine(
+		schemaArtifacts(input, { installation: undefined, vectorSchema: undefined })
+	)
+	const theory = theoryRole(artifacts)
+	const world = artifacts.world
+	if (theory === undefined || world.kind !== "role") {
+		return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
+	}
+	const owned: OwnedRole = world.role
+	const role: RoleContext = {
+		schema: input,
+		declared: input.desc.base.name,
+		role: input.desc,
+		artifacts,
+		compile: (query, request) => templateFor(query, input, artifacts, request),
+		witness: installationWitness(artifacts)
+	}
+	const contexts = yield* fromEngine(typedContexts(artifacts))
+	const forms = yield* Effect.fromResult(compileRoleWorkload(role, owned, workload))
+	return { ...role, value, theory, contexts, workload: forms }
+})
+
+/**
+ * Every role of a login, `roles` (loginRoleValues), each parsed, its artifacts computed and every program of the login's
+ * workloads over it compiled, as every Db of the login runs it (layerRole): the one compilation of a login's programs.
+ * DbLayer.make runs it at startup, and `grizzle generate` runs it before it drafts (cli/generate.ts draftSchema), so a
+ * program generate admits is one the layer compiles. A role or program that does not compile is its CompileError.
+ */
+export const loginRoles = (
+	roles: ReadonlyArray<unknown>,
+	workload: ReadonlyArray<AnyWorkload>
+): Effect.Effect<ReadonlyArray<LayerRole>, CompileError> =>
+	Effect.forEach(roles, (value) => layerRole(value, workload))
 
 /**
  * The snapshot the config gives, parsed once: one the test installer registered as registered
@@ -360,8 +373,11 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 		(reason) => new OpenError({ reason })
 	)
 	yield* startupCheck(snapshot, owned, config.workload)
-	const roles = yield* Effect.forEach(config.roles, (value) => layerRole(value, config.workload))
-	if (!Arr.isArrayNonEmpty(roles)) {
+	const roles = yield* Effect.mapError(
+		loginRoles(config.roles, config.workload),
+		(reason) => new OpenError({ reason })
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(roles)) {
 		return yield* new OpenError({ reason: malformedDescription(makeLoc, "a login with a role") })
 	}
 	const [first] = roles

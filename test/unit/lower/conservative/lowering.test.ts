@@ -749,9 +749,8 @@ const budgetCases: Arr.NonEmptyReadonlyArray<Cases.LoweringCase> = [
 	Cases.averageAmount()
 ]
 
-/** The budgets the lowering charges: the nodes it lowers and the text it emits. */
-type LoweringBudget = Extract<BudgetKind, "nodes" | "sqlBytes">
-const budgetKinds: Arr.NonEmptyReadonlyArray<LoweringBudget> = ["nodes", "sqlBytes"]
+/** The budgets the lowering charges: the nodes it lowers. */
+const loweringBudgets: Arr.NonEmptyReadonlyArray<BudgetKind> = ["nodes"]
 
 describe("budgets", () => {
 	it.effect("charge the meter given and stop exactly at its bound, for every budget", (ctx) =>
@@ -765,10 +764,10 @@ describe("budgets", () => {
 					generator: (source) =>
 						[
 							source.draw(element(Arr.map(budgetCases, (b) => b.name))),
-							source.draw(element(budgetKinds))
+							source.draw(element(loweringBudgets))
 						] as const,
 					limit: 32,
-					coverage: requiredInSpace<`${LoweringBudget} bound`>(["nodes bound", "sqlBytes bound"]),
+					coverage: requiredInSpace<`${BudgetKind} bound`>(["nodes bound"]),
 					caseHang: Duration.minutes(2)
 				},
 				([name, kind], c) =>
@@ -781,7 +780,7 @@ describe("budgets", () => {
 							lowerConservative(conservativeInput(query), optionsFor(query.params, meter, "query"))
 						const full = new BudgetMeter(compileBudgets)
 						succeeded(lowerWith(full), name)
-						/** Every lowering lowers nodes and emits text, charged to the meter it is given. */
+						/** Every lowering lowers nodes, charged to the meter it is given. */
 						const used = full.used(kind)
 						assert.ok(used > 0, `${name} charges ${kind}`)
 						succeeded(

@@ -51,7 +51,7 @@ import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { decorrelatedTake } from "#compiler/lower/shapes/take/index.ts"
 import { groupRows } from "#compiler/lower/shapes/union/index.ts"
 import type { Select } from "#compiler/sql/ast.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { renameToPublicHeading } from "#compiler/sql/naming.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -272,7 +272,7 @@ const statementOf = (
 	params: Params
 ): { readonly text: string; readonly values: ReadonlyArray<string> } => {
 	const renamed = succeeded(renameToPublicHeading(query, names))
-	const text = succeeded(emit(renamed, cx.supply.map(), unmetered)).text
+	const text = succeeded(emit(renamed, cx.supply.map())).text
 	return { text, values: Arr.map(cx.params.slots, (slot) => slotValue(params, slot)) }
 }
 

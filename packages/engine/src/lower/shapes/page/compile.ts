@@ -376,8 +376,7 @@ const optimizedKit = (input: PageCompileInput, facts: ShapeFacts, meter: BudgetM
 	return {
 		cx,
 		delivery,
-		statement: (lower, rows, placement) => (position) =>
-			delivery.formed(lower, rows, placement, [], position),
+		statement: (lower, rows, placement) => () => delivery.formed(lower, rows, placement, []),
 		/**
 		 * The page's rows are lowered outside any attachment's context, in their own statement and in an attachment's
 		 * computing them again alike.
@@ -646,32 +645,14 @@ const artifactStatements = (
 	return { requests, probes }
 }
 
-/**
- * The statement at position `i` of one program, which the runtime sends whole, a statement of two forms charged to the
- * variants budget.
- */
-const pageForm = (s: PageDelivered, i: number, meter: BudgetMeter, at: string): PageStatement => {
-	if (s.forms.kind === "chosen") {
-		const charged = meter.charge("variants", 1, SourceLoc("page compiler", [at, "variants", i]))
-		if (!charged.ok) {
-			throw new Refusal(charged.error)
-		}
-	}
-	return withArrival(s, sentAt(i))
-}
+/** The statement at position `i` of one program, which the runtime sends whole. */
+const pageForm = (s: PageDelivered, i: number): PageStatement => withArrival(s, sentAt(i))
 
 /** Each statement of one program (pageForm). */
-const pageForms = (
-	roots: StatementRoots<PageDelivered>,
-	meter: BudgetMeter,
-	at: string
-): StatementRoots<PageStatement> => mapTree(roots, (s, i) => pageForm(s, i, meter, at))
+const pageForms = (roots: StatementRoots<PageDelivered>): StatementRoots<PageStatement> =>
+	mapTree(roots, pageForm)
 
-const assemble = (
-	statements: ArtifactStatements,
-	shape: PageShape,
-	meter: BudgetMeter
-): PageArtifact => {
+const assemble = (statements: ArtifactStatements, shape: PageShape): PageArtifact => {
 	const request = <V extends PageVariant>(variant: V): PageRequestProgram<V> => {
 		const flags: PageRequestFlags[V] = requestFlags[variant]
 		const delivery: PageRequestDelivery =
@@ -685,7 +666,7 @@ const assemble = (
 				: { kind: "rows" }
 		const program: PageProgram & { readonly variant: V; readonly delivery: PageRequestDelivery } = {
 			variant,
-			roots: pageForms(statements.requests[variant], meter, `page ${variant}`),
+			roots: pageForms(statements.requests[variant]),
 			delivery
 		}
 		return { ...program, ...flags }
@@ -698,7 +679,7 @@ const assemble = (
 	}
 	const probe = <K extends ProbeKind>(kind: K): PageProbeProgram<K> => ({
 		kind,
-		statement: pageForm(statements.probes[kind], 0, meter, `page probe ${kind}`),
+		statement: pageForm(statements.probes[kind], 0),
 		column: probeBoolean
 	})
 	const probes: PageArtifact["probes"] = {
@@ -903,12 +884,12 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 			order,
 			comparators,
 			heading: conservativeShape.heading,
-			optimized: assemble(
-				optimized,
-				{ ...optimizedShape, heading: conservativeShape.heading, order },
-				optimizedMeter
-			),
-			conservative: assemble(conservative, { ...conservativeShape, order }, conservativeMeter)
+			optimized: assemble(optimized, {
+				...optimizedShape,
+				heading: conservativeShape.heading,
+				order
+			}),
+			conservative: assemble(conservative, { ...conservativeShape, order })
 		}
 	})
 

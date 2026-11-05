@@ -2,7 +2,6 @@ import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.t
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { compileBudgets, cteShareMinRefs } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -285,17 +284,16 @@ const sentOf = (statement: {
 		ast: statement.ast
 	})
 
-/** A read-back statement at artifact position `position` with its forms as placed: when its lowering made
- * per-execution choices, its whole-relation form with the executable text and encoders an execution sends. */
+/** A read-back statement with its forms as placed: when its lowering made per-execution choices, its whole-relation
+ * form with the executable text and encoders an execution sends. */
 const placedRun = (
-	statement: OptimizedStatement<RelationChoice, FusedStatement>,
-	position: number
+	statement: OptimizedStatement<RelationChoice, FusedStatement>
 ): OptimizedStatement<RelationChoice, PlacedLarge> => {
 	const forms = statement.forms
 	if (forms.kind === "one") {
 		return { ...statement, forms }
 	}
-	const spec = unwrap(statementSpec(forms.large, { kind: "unmetered" }, position, declaredSlotOf))
+	const spec = unwrap(statementSpec(forms.large, declaredSlotOf))
 	return {
 		...statement,
 		forms: Object.freeze({
@@ -323,11 +321,11 @@ const placeReadBack = (
 	extraDeps: ReadonlyArray<number>
 ): void => {
 	const offset = b.statements.length
-	const placed = mapTree(readBackSpecs(program.roots, offset), ({ statement, spec }, i) => {
+	const placed = mapTree(readBackSpecs(program.roots, offset), ({ statement, spec }) => {
 		const deps = new Set([...spec.dependsOn, ...extraDeps])
 		return {
 			statement,
-			run: placedRun(statement, offset + i),
+			run: placedRun(statement),
 			spec: Object.freeze({
 				...spec,
 				dependsOn: Object.freeze([...deps].toSorted((x, y) => x - y))
@@ -354,34 +352,9 @@ const placeReadBack = (
 	}
 }
 
-/** The text of `sql` charged to the meter as the statement of the program at `path`, which it sends. */
-const chargeSent = (
-	meter: BudgetMeter,
-	sql: string,
-	path: ReadonlyArray<string | number>
-): void => {
-	const charged = meter.chargeSql(sql, SourceLoc("write program", path))
-	if (!charged.ok) {
-		throw new Refusal(charged.error)
-	}
-}
-
-/** The artifact, its carriers analyzed before the statements that join them against stored relations, and the text of
- * every statement it sends charged to the meter once: each statement's, and its whole-relation form's beside it. */
-const finish = (
-	b: ArtifactBuilder,
-	carriers: ReadonlyArray<Carrier>,
-	meter: BudgetMeter
-): WriteArtifact => {
-	const artifact = withCarrierAnalysis(b.statements, Object.freeze([...carriers]))
-	for (const statement of artifact.statements) {
-		chargeSent(meter, statement.spec.sql, ["statements", statement.index])
-		if (statement.forms.kind === "chosen") {
-			chargeSent(meter, statement.forms.large.sql, ["statements", statement.index, "large"])
-		}
-	}
-	return artifact
-}
+/** The artifact, its carriers analyzed before the statements that join them against stored relations. */
+const finish = (b: ArtifactBuilder, carriers: ReadonlyArray<Carrier>): WriteArtifact =>
+	withCarrierAnalysis(b.statements, Object.freeze([...carriers]))
 
 /** How the optimized artifact's described members lower: its shape state, whose log holds the choices the statement
  * being lowered made in the per-execution mode it is lowered in, the sharing of sub-queries across its statements, and
@@ -395,25 +368,13 @@ interface Lowering {
 /** The optimized artifact: the scheduled statements, each lowered in the small per-execution mode and, when its
  * lowering made a per-execution choice, lowered again in the large mode, its whole-relation form beside its LATERAL form
  * (`StatementForms`), as a query's statements carry their forms: both forms are one placement's, with its step and
- * result. A statement of two forms is charged to the variants budget. */
+ * result. */
 const optimizedArtifact = (
 	frontend: WriteFrontend,
 	plan: WritePlan,
 	lowering: Lowering,
 	options: CompileWriteOptions
-): WriteArtifact => {
-	const meter = lowering.w.meter
-	const builder = optimizedPlacement(frontend, plan, lowering, options)
-	for (const [i, p] of builder.statements.entries()) {
-		if (p.kind === "own" && p.forms.kind === "chosen") {
-			const charged = meter.charge("variants", 1, SourceLoc("write program", ["variants", i]))
-			if (!charged.ok) {
-				throw new Refusal(charged.error)
-			}
-		}
-	}
-	return finish(builder, plan.carriers, meter)
-}
+): WriteArtifact => finish(optimizedPlacement(frontend, plan, lowering, options), plan.carriers)
 
 /** The optimized artifact's statements, each with its forms.
  *
@@ -865,7 +826,7 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
 }
 
 /** The conservative artifact: the conservative realization's steps, every statement after the one before it. */
-const conservativeArtifact = (write: ConservativeWrite, meter: BudgetMeter): WriteArtifact => {
+const conservativeArtifact = (write: ConservativeWrite): WriteArtifact => {
 	const b = newBuilder()
 	for (const step of write.steps) {
 		const previous = b.statements.length === 0 ? [] : [b.statements.length - 1]
@@ -937,7 +898,7 @@ const conservativeArtifact = (write: ConservativeWrite, meter: BudgetMeter): Wri
 			}
 		}
 	}
-	return finish(b, write.carriers, meter)
+	return finish(b, write.carriers)
 }
 
 /** The count rules of an artifact: which statement's rows count under which category for which relation, within one
@@ -1088,8 +1049,7 @@ const compile = (
 				meter,
 				share
 			})
-		),
-		meter
+		)
 	)
 	const ir = frontend.ir
 	const vector =

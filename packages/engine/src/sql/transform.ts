@@ -1278,6 +1278,32 @@ export const transformCreateIndex = (s: CreateIndex, hooks: AstHooks): CreateInd
 export const transformStatement = (s: SqlStatement, hooks: AstHooks): SqlStatement =>
 	new Transform(hooks).statement(s)
 
+/**
+ * The parameters a statement binds: its highest placeholder, a value's `$n` or a recordset's, 0 for none, which is the
+ * count PostgreSQL gives the statement and a Bind message must supply. A function body's placeholders are its
+ * arguments, which a CREATE FUNCTION binds none of and PostgreSQL allows 100 of, so they never raise the count past any
+ * bound. Every hook returns the node it sees, so nothing is rebuilt.
+ */
+export const statementParams = (statement: SqlStatement): number => {
+	let highest = 0
+	new Transform({
+		...identityHooks,
+		expr: (e) => {
+			if (e.kind === "param") {
+				highest = Math.max(highest, e.slot.number)
+			}
+			return e
+		},
+		fromSource: (source) => {
+			if (source.kind === "recordset") {
+				highest = Math.max(highest, source.source.number)
+			}
+			return source
+		}
+	}).statement(statement)
+	return highest
+}
+
 /** A list of statements, rebuilt statement by statement: the same list when no statement changed. */
 export const transformStatements = (
 	list: ReadonlyArray<SqlStatement>,

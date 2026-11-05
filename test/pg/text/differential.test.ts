@@ -13,7 +13,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
@@ -208,7 +208,7 @@ const agreeOn = (
 						name,
 						constraint: identity.domainCheck(named).identifier
 					})
-					const ddl = succeeded(emit(statement, emptyNameMap, unmetered)).text
+					const ddl = succeeded(emit(statement, emptyNameMap)).text
 					yield* db.query(ddl, [])
 					domainType = `${quoteIdent(schema)}.${quoteIdent(name)}`
 					note("domain enforced")

@@ -7,8 +7,9 @@ import {
 } from "#compiler/analysis/physical/analyze.ts"
 import { checkBound } from "#compiler/core/budget.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, resourceBound } from "#compiler/core/errors.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { invariant } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { type Certificate, makeCertificate } from "#compiler/ir/certificate.ts"
@@ -233,8 +234,8 @@ const rewriteCx = (
  *
  * - a decreasing measure: every pass states a well-founded measure of the DAG, a sequence of naturals compared
  *   lexicographically (a multiset of naturals is its sorted descending sequence, which orders it as the multiset
- *   ordering does), and every applied rewrite must strictly decrease it. A step that does not is a defect of the rule
- *   and fails the compilation rather than risking a loop;
+ *   ordering does), and every applied rewrite must strictly decrease it. A step that does not is a defect of the rule,
+ *   grizzle's and never the query's, so it breaks an internal invariant (core/invariant.ts) rather than risking a loop;
  * - a step bound: at most a fixed multiple of the input's size in rewrite steps, beyond which the pass fails with a
  *   source-located ResourceBound.
  *
@@ -269,16 +270,10 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 				const loc = nodeLoc(spec.name, fired.cell.id, fired.node)
 				unwrap(checkBound(spec.name, limit, steps, loc))
 				const after = spec.measure(cx)
-				if (!lexLess(after, before)) {
-					throw new Refusal(
-						resourceBound(SourceLoc(`rewrite ${fired.rule.name} at node ${fired.cell.id}`, []), {
-							kind: "rewriteMeasure",
-							rewrite: spec.name,
-							before,
-							after
-						})
-					)
-				}
+				invariant(
+					lexLess(after, before),
+					`the ${spec.name} rewrite ${fired.rule.name} at node ${fired.cell.id} strictly decreases its pass's measure; [${before.join(", ")}] became [${after.join(", ")}]`
+				)
 				before = after
 				const added = editor.takeAdded()
 				if (added > 0) {

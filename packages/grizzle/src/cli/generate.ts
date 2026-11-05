@@ -10,6 +10,7 @@ import {
 	Result
 } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
+import { loginRoles } from "#adapter/pool/registry.ts"
 import type { GenerateMode } from "#cli/args.ts"
 import { nextTimestamp } from "#cli/clock.ts"
 import { committedSnapshot, continuedChain } from "#cli/committed.ts"
@@ -164,6 +165,8 @@ type Draft = (
 /**
  * The draft of a schema's change from `previous`: its schema compiled with every installer extension a deployment
  * needs and its logins' workloads' access paths, handed to the pure generator with the schemas it abandons (abandonedSchemas).
+ * Beside the access paths, every program of each login's workloads is compiled for every role of the login exactly as
+ * DbLayer.make compiles it (adapter/pool/registry.ts loginRoles), so a program the layer would refuse refuses the draft.
  * Nothing is written.
  *
  * @internal
@@ -195,6 +198,12 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 					),
 					draftRefused(schema.declared, "workload")
 				)
+	for (const login of schema.workloads) {
+		yield* Effect.mapError(
+			loginRoles(login.roles, login.workloads),
+			draftRefused(schema.declared, "workload")
+		)
+	}
 	const installation = yield* Effect.mapError(
 		fromEngine(
 			compileInstallation(

@@ -12,7 +12,7 @@ import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { cast, core, select, target, types } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { renameToPublicHeading } from "#compiler/sql/naming.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
@@ -174,7 +174,7 @@ export const emitWith = (
 	if (!renamed.ok) {
 		throw new Error(renamed.error.message)
 	}
-	const emitted = emit(renamed.value, cx.supply.map(), unmetered)
+	const emitted = emit(renamed.value, cx.supply.map())
 	if (!emitted.ok) {
 		throw new Error(`emit: ${emitted.error.message}`)
 	}

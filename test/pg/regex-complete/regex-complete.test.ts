@@ -40,7 +40,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
@@ -869,7 +869,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					)
 					const [statement] = invalid[0]?.ddl ?? []
 					const sql = ok(
-						emit(defined(statement, "validation statement"), emptyNameMap, unmetered),
+						emit(defined(statement, "validation statement"), emptyNameMap),
 						"emit"
 					).text
 					yield* expectConstraint(
