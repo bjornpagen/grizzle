@@ -1240,18 +1240,11 @@ export const runCase = (
 			note(realization)
 		}
 		/**
-		 * What a side is judged against: the case's expectation, or, where its last attempt ran after a collision, the
-		 * expectation from the sequences that attempt drew from, whose fresh values can decide the outcome.
+		 * What a side is judged against: the expectation at the sequences its last attempt drew from (Applied's start),
+		 * whose fresh values can decide the outcome.
 		 */
 		const expectedOf = (applied: Applied): Expected =>
-			applied.start.kind === "first"
-				? expected
-				: expectChangeSet(
-						{ group, laws: t.laws },
-						facts,
-						c,
-						Rec.fromEntries([...applied.start.sequences])
-					)
+			expectChangeSet({ group, laws: t.laws }, facts, c, Rec.fromEntries([...applied.start]))
 		const outcomes: Array<Result.Result<WriteOutcome, unknown>> = []
 		/** Each side's expectation under its own draws (judgedExpectation), where it committed an applied change. */
 		const realized: Array<Expected> = []
@@ -1260,6 +1253,7 @@ export const runCase = (
 			const applied = yield* applyWith(
 				t,
 				group,
+				expected.initial.sequences,
 				entry.success,
 				changes,
 				params,
@@ -1311,6 +1305,7 @@ export const runCase = (
 		const again = yield* applyWith(
 			t,
 			group,
+			expected.initial.sequences,
 			entry.success,
 			changes,
 			params,

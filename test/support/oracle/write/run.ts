@@ -397,24 +397,17 @@ const loggedContext = (ctx: DbContext, log: Array<Flight>): DbContext => ({
 })
 
 /**
- * The identity sequences an application's last attempt drew from: as the case set them, or as the attempts before it
- * left them, since every value an aborted attempt drew stays drawn (nextval is never rolled back), in every relation it
- * drew into before its collision, not only the colliding one.
- */
-export type AttemptStart =
-	| { readonly kind: "first" }
-	| { readonly kind: "retried"; readonly sequences: GroupState["sequences"] }
-
-/**
  * One application: its outcome, or its operational failure as a value, how many attempts the model's collisions
- * failed before it, each called again (see applyWith), and the sequences its last attempt drew from.
+ * failed before it, each called again (see applyWith), and the identity sequences its last attempt drew from: the
+ * case's own, or as the attempts before it left them, since every value an aborted attempt drew stays drawn (nextval
+ * is never rolled back), in every relation it drew into before its collision, not only the colliding one.
  */
 export interface Applied {
 	readonly outcome: Result.Result<WriteOutcome, ApplyError>
 	readonly collided: number
 	/** The flights the attempts sent, which the single-flight property judged. */
 	readonly flights: number
-	readonly start: AttemptStart
+	readonly start: GroupState["sequences"]
 }
 
 /**
@@ -427,11 +420,13 @@ export interface Applied {
  * where the case's model allows one (expect.ts Collisions): a generated addition that drew a serial value a stored fact
  * holds, at most once per such value. Any other TransientFailure has no concurrent transaction to explain it, a stale
  * statement or a serialization failure of a lone writer among them, and is returned as the case's outcome, which the
- * judge refuses. Before calling again it reads `group`'s sequences, where the next attempt draws from (AttemptStart).
+ * judge refuses. The first attempt draws from `positions`, where the case set the sequences; before calling again it
+ * reads `group`'s sequences, where the next attempt draws from (Applied's start).
  */
 export const applyWith = (
 	t: WriteTarget,
 	group: WGroup,
+	positions: GroupState["sequences"],
 	entry: CompiledChange,
 	changes: ChangeSetValue,
 	params: ParamMap,
@@ -442,7 +437,7 @@ export const applyWith = (
 ): Effect.Effect<Applied, SqlError, Substrate> => {
 	const perturbed = perturbedContext(t.ctx, perturbation)
 	let flights = 0
-	let start: AttemptStart = { kind: "first" }
+	let start = positions
 	/** Each attempt logs its own flights and is held to the single-flight property (see the header). */
 	const once = Effect.suspend(() => {
 		const log: Array<Flight> = []
@@ -498,7 +493,7 @@ export const applyWith = (
 					return Effect.fail(error)
 				}
 				return Effect.flatMap(readGroup(t, group), (left) => {
-					start = { kind: "retried", sequences: left.sequences }
+					start = left.sequences
 					return attempt(new Map([...spent, [relation, used + 1]]))
 				})
 			}
