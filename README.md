@@ -499,6 +499,7 @@ import {
 	fin,
 	fold,
 	Monoid,
+	mutable,
 	natural
 } from "@bjornpagen/grizzle"
 import { Effect } from "effect"
@@ -522,7 +523,8 @@ const grantDebits = counted(on(Debit, "grant"), fin(Grant, "debits"))
 export const Credits = schema("Credits", { Grant, Debit }, [
 	grantDebits,
 	fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
-	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount))
+	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
+	mutable(Grant)
 ])
 
 export const Metering = role(Credits, "metering", Credits.relations, { write: ["Debit"] })
@@ -1292,7 +1294,7 @@ an outcome on the law `{ kind: "contract", contract: "natural" }`, and another c
 Rules are declared beside the tables, in a schema's list. Here is a box office:
 
 ```ts
-import { check, contract, counted, drawn, fin, key, natural, span } from "@bjornpagen/grizzle"
+import { check, contract, counted, drawn, fin, key, mutable, natural, span } from "@bjornpagen/grizzle"
 
 const Cents = contract("Cents", pg.bigint, (c) => c.ge(0n))
 
@@ -1314,7 +1316,8 @@ export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
 	contained(on(Run, "show"), on(Show, "id")),
 	key(on(Ticket, "show", "holder")),
 	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
-	check("NoOversell", Show, (s) => s.le(s.tickets, s.seats))
+	check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
+	mutable(Show)
 ])
 ```
 
@@ -1741,7 +1744,7 @@ export default defineConfig({
 ```
 
 ```text
-grizzle generate <config> [--name <name>] [--schema <schema>]
+grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...
     draft the next migration from the schemas' changes
 grizzle generate <config> --custom --name <name> [--schema <schema>]
     an empty migration for data steps
@@ -1775,10 +1778,15 @@ deploy. A migration's name, `--name` or derived from its change, is at most 240 
   change happens in place. Roles' views, policies and functions hold no data, so one that changes, or that reads
   anything the migration changes, is dropped and created again in one transaction. Edit the SQL as you need: whatever
   it does, the database must end where the snapshot says.
-- **No guessing.** A draft that needs a decision carries a marker: a value for a new column on a table with rows, or a
-  rename. grizzle never guesses a rename; it offers each candidate, a login's included (which keeps its password), for
-  you to choose or decline. A drop of stored data is drafted commented out, and `check` and `migrate` refuse the folder
-  until you decide it.
+- **No guessing.** grizzle never guesses a rename, and drops nothing you didn't declare. Declare each rename to
+  `generate` with `--rename <old>=<new>` and each drop with `--drop <old>`, once per name, each side a relation
+  (`Task`), a field (`Task.title`), a roster's handle (`Status#done`) or a login (`@web`). A renamed relation keeps its
+  rows, a renamed field its values, a renamed handle its code, and a renamed login its PostgreSQL role
+  (`ALTER ROLE ... RENAME TO`), with its password and what was granted to it. A name the schema no longer holds that no
+  declaration names is refused, naming it: a stored relation, a field written by its caller, a handle, or a login,
+  whose password and outside grants no migration can give back. A draft that needs a value carries a marker: a value
+  for a new column on a table with rows. A schema's first migration that abandons schemas the configuration no longer
+  lists is drafted commented out, and `check` and `migrate` refuse the folder until you decide it.
 - **`check` reads no database.** It refuses a schema change you haven't generated, a workload program whose index
   needs differ from the snapshot's (naming it), an unresolved marker, an undecided data loss, and an edited
   `snapshot.json` or `meta.json`.

@@ -29,6 +29,7 @@ import {
 	key,
 	login,
 	Monoid,
+	mutable,
 	natural,
 	on,
 	type PageCursor,
@@ -256,7 +257,8 @@ const grantDebits = counted(on(Debit, "grant"), fin(Grant, "debits"))
 export const Credits = schema("Credits", { Grant, Debit }, [
 	grantDebits,
 	fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
-	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount))
+	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
+	mutable(Grant)
 ])
 
 export const Metering = role(Credits, "metering", Credits.relations, { write: ["Debit"] })
@@ -654,7 +656,8 @@ export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
 	contained(on(Run, "show"), on(Show, "id")),
 	key(on(Ticket, "show", "holder")),
 	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
-	check("NoOversell", Show, (s) => s.le(s.tickets, s.seats))
+	check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
+	mutable(Show)
 ])
 
 /** README: "Rules", a side's selection and its pred term: a show's waitlist. */
