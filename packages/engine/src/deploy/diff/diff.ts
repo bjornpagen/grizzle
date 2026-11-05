@@ -203,11 +203,11 @@ interface FieldOffer<O extends RootRename | NestedRename> {
 	readonly candidate: PlannedField
 }
 
-/** A part of a previous table: a constraint, in the table's namespace of constraints, or a law trigger, in its namespace
- * of triggers, by the table it is on and its name in the previous snapshot. It is the one object it was, whatever names
- * a candidate's alternative has given the table or the part since (partFate). */
+/** A part of a previous table: a constraint, in the table's namespace of constraints, a law trigger, in its namespace
+ * of triggers, or a stored tag's column, in its columns, by the table it is on and its name in the previous snapshot. It
+ * is the one object it was, whatever names a candidate's alternative has given the table or the part since (partFate). */
 interface PreviousPart {
-	readonly kind: "constraint" | "lawTrigger"
+	readonly kind: "constraint" | "lawTrigger" | "column"
 	readonly table: ObjectName
 	readonly name: string
 }
@@ -219,6 +219,8 @@ const partDrop = (kind: PreviousPart["kind"], table: ObjectName, name: string): 
 			return alter(table, [{ kind: "dropConstraint", name }])
 		case "lawTrigger":
 			return { kind: "dropTrigger", name, table, ifExists: false }
+		case "column":
+			return alter(table, [{ kind: "dropColumn", column: name }])
 	}
 }
 
@@ -234,7 +236,7 @@ const dropsPart = (
 
 /** How a marker names a previous part. */
 const partText = (kind: PreviousPart["kind"], table: ObjectName, name: string): string =>
-	`the ${kind === "constraint" ? "constraint" : "law trigger"} ${quoteIdent(name)} of ${printObjectName(table)}`
+	`the ${kind === "constraint" ? "constraint" : kind === "lawTrigger" ? "law trigger" : "column"} ${quoteIdent(name)} of ${printObjectName(table)}`
 
 /** What a candidate's alternative makes of a previous part a later alternative drops (partFate): drops it; renames it,
  * to the part named `name` on `table`; or leaves it as it is. */
@@ -307,10 +309,14 @@ const dropOffers = (x: Planned, p: PreviousPart): ReadonlyArray<PlainOffer> => {
 	}
 }
 
-/** What a candidate's conversion would drop first of a previous object, in the drop order: none for a kind it never
- * drops. */
+/** What a candidate's conversion drops first of a previous object built over the converted column (`column`), or over a
+ * stored tag computed from it (`tag`), in the drop order; none for a kind it never drops. PostgreSQL refuses the
+ * conversion under a foreign key, a CHECK, a law trigger's UPDATE OF and a stored tag computed from the column, and
+ * converts a key with it; the tag's DROP COLUMN takes every key over the tag along, so each is dropped first by name, as
+ * every foreign key referencing one is (2BP01). */
 const clearedOf = (
-	v: Installed
+	v: Installed,
+	over: "column" | "tag"
 ): { readonly part: PreviousPart; readonly rank: number } | undefined => {
 	switch (v.kind) {
 		case "foreignKey":
@@ -319,20 +325,26 @@ const clearedOf = (
 				part: { kind: "constraint", table: v.table, name: v.name },
 				rank: dropOrder[v.kind]
 			}
+		case "primaryKey":
+		case "unique":
+			return over === "tag"
+				? { part: { kind: "constraint", table: v.table, name: v.name }, rank: dropOrder[v.kind] }
+				: undefined
 		case "lawTrigger":
 			return {
 				part: { kind: "lawTrigger", table: v.create.table, name: v.create.name },
 				rank: dropOrder.lawTrigger
 			}
-		case "primaryKey":
-		case "unique":
+		case "storedTag":
+			return over === "column"
+				? { part: { kind: "column", table: v.table, name: v.column }, rank: dropOrder.storedTag }
+				: undefined
 		case "databaseDefault":
 		case "schema":
 		case "extension":
 		case "enum":
 		case "domain":
 		case "table":
-		case "storedTag":
 		case "refusalFunction":
 		case "advanceFunction":
 		case "isolationFunction":
@@ -3278,9 +3290,10 @@ class Differ {
 
 	/** What a field candidate's conversion in place of its removed column `column` drops first, as a conversion in place
 	 * of a column the target keeps does (dropReplaced), in the drop order: what PostgreSQL refuses to convert the column
-	 * under, each foreign key over it or referencing a key over it, each CHECK over it and each law trigger whose UPDATE
-	 * OF names it, of those that stand when the rename runs (standing): a conversion the target makes took the rest away
-	 * before every candidate. A key, an index or a statistics object over it is converted with it. A field's rename
+	 * under, each foreign key over it or referencing a key over it, each CHECK over it, each law trigger whose UPDATE
+	 * OF names it and each stored tag computed from it, with the keys over the tag and the foreign keys referencing them,
+	 * of those that stand when the rename runs (standing): a conversion the target makes took the rest away before every
+	 * candidate. A key, an index or a statistics object over it is converted with it. A field's rename
 	 * nested in a relation's drops none: the relation's alternative brought across or dropped every part over it. */
 	conversionDrops(
 		candidate: FieldCandidate | NestedFieldCandidate,
@@ -3295,24 +3308,34 @@ class Differ {
 	}
 
 	/** What PostgreSQL refuses to convert the column `column` of `table` under, of what stands when the renames run, in
-	 * the drop order (conversionDrops). */
+	 * the drop order (conversionDrops): what is built over the column (objects.ts builtOver) or references a key over it,
+	 * a stored tag computed from it among them, and what is built over such a tag or references a key over it, which the
+	 * tag's drop takes along (clearedOf). */
 	clearedFor(table: ObjectName, column: string): ReadonlyArray<PreviousPart> {
-		const over = (v: Installed): boolean => {
+		const over = (v: Installed, columns: ReadonlyArray<string>): boolean => {
 			const built = builtOver(v, (c) => keyOrCheckDefinition(c, this.prev))
 			return (
 				(built !== undefined &&
 					nameKey(built.table) === nameKey(table) &&
-					built.columns.includes(column)) ||
+					built.columns.some((c) => columns.includes(c))) ||
 				(v.kind === "foreignKey" &&
 					nameKey(v.constraint.references) === nameKey(table) &&
-					v.constraint.referencedColumns.some((k) => k.column === column))
+					v.constraint.referencedColumns.some((k) => columns.includes(k.column)))
 			)
 		}
+		const tags = this.standing.flatMap((o) => {
+			const v = installed(o)
+			return v.kind === "storedTag" && over(v, [column]) ? [v.column] : []
+		})
 		return this.standing
 			.flatMap((o) => {
 				const v = installed(o)
-				const cleared = clearedOf(v)
-				return cleared !== undefined && over(v) ? [cleared] : []
+				const cleared = over(v, [column])
+					? clearedOf(v, "column")
+					: over(v, tags)
+						? clearedOf(v, "tag")
+						: undefined
+				return cleared === undefined ? [] : [cleared]
 			})
 			.toSorted(byDropOrder)
 			.map((c) => c.part)
@@ -4412,7 +4435,8 @@ class Differ {
 					(onFrom &&
 						a.kind === "dropConstraint" &&
 						x.pairs.constraint.some((p) => p.was.name === a.name)) ||
-					(a.kind === "dropConstraint" && dropsPart(x, "constraint", s.table, a.name))
+					(a.kind === "dropConstraint" && dropsPart(x, "constraint", s.table, a.name)) ||
+					(a.kind === "dropColumn" && dropsPart(x, "column", s.table, a.column))
 				)
 			}
 			const rest = s.actions.filter((a) => !taken(a))
@@ -4469,7 +4493,8 @@ class Differ {
 				(own && a.kind === "addConstraintUsingIndex" && built.has(a.name)) ||
 				(own && a.kind === "dropConstraint" && dropped.has(a.name))
 					? ["key"]
-					: a.kind === "dropConstraint" && dropsPart(x, "constraint", s.table, a.name)
+					: (a.kind === "dropConstraint" && dropsPart(x, "constraint", s.table, a.name)) ||
+						  (a.kind === "dropColumn" && dropsPart(x, "column", s.table, a.column))
 						? ["cleared"]
 						: []
 			const takings = s.actions.flatMap(taking)

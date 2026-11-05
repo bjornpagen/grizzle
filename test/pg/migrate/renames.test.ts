@@ -799,7 +799,8 @@ const compositions = [
 	"a relation onto the name another relation left",
 	"a closed relation onto the name a table left in the same step",
 	"a handle renamed with a field retyped",
-	"a closed relation and one of its handles"
+	"a closed relation and one of its handles",
+	"a selector field and its closed relation with one of its handles"
 ] as const
 type Composition = (typeof compositions)[number]
 
@@ -1079,6 +1080,8 @@ const stepsOf = (shape: Shape, move: Move): ReadonlyArray<Step> => {
 		}
 		case "a closed relation and one of its handles":
 			return one(["Kind", "manual"])
+		case "a selector field and its closed relation with one of its handles":
+			return one(["selector", "Kind", "manual"])
 		case "a handle renamed with a field retyped": {
 			const next = renamed(shape, ["high"], move.pick)
 			return [
@@ -1164,6 +1167,28 @@ const planted: ReadonlyArray<Kept<RenameSketch, RenameFeature>> = [
 		draws: "",
 		reaches: [`${composition} composed`, "a name renamed again", ...first.reaches]
 	})),
+	{
+		note: "the selector field renamed with Kind and one of its handles in one step, a new roster no candidate renames: the field's candidate converts the column in place, which the arm tag computed from it is dropped for first, with the keys and foreign keys over the tag (a conversion under it once failed with 0A000)",
+		sketch: {
+			moves: [
+				{
+					kind: "composition",
+					composition: "a selector field and its closed relation with one of its handles",
+					pick: 0,
+					mistake: "none",
+					review: "the renames chosen"
+				}
+			]
+		},
+		draws: "",
+		reaches: [
+			"a selector field and its closed relation with one of its handles composed",
+			"a field renamed",
+			"a closed relation renamed",
+			"a handle renamed",
+			"several renames in one step"
+		]
+	},
 	{
 		note: "the law's parent and both its arms renamed, then the closed relation that tags them: its rename must be offered, though the law function's body names the type",
 		sketch: {
