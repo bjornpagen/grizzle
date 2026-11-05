@@ -131,7 +131,7 @@ const genFactsOf = (t: Theory, facts: HostFacts): GenFacts =>
  * The laws whose violation queries are nonempty over `facts`, each with its witness rows: the reference evaluator's
  * reading of every Forbid node of the theory's DAG.
  */
-export const violatedLaws = (t: Theory, facts: HostFacts): ReadonlyMap<LawId, number> => {
+const violatedLaws = (t: Theory, facts: HostFacts): ReadonlyMap<LawId, number> => {
 	const ref = Reference.of(t.dag, {
 		schema: genSchemaOf(t),
 		facts: genFactsOf(t, facts),

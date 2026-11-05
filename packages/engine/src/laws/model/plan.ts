@@ -35,7 +35,6 @@ import {
 	type NativeColumn,
 	type RelationInfo,
 	type SpanField,
-	type SpanKeyScalars,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { monoids } from "#compiler/ir/monoid.ts"
@@ -316,15 +315,6 @@ export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): P
 		named
 	}
 }
-
-/** A primary key's planned span key as the native object reads it: its scalar columns, each a field. */
-export const primarySpanScalars = (
-	key: Extract<PlannedSpanKey, { readonly kind: "primary" }>,
-	column: (c: PlannedColumn) => NativeColumn
-): Extract<SpanKeyScalars, { readonly kind: "primary" }> => ({
-	kind: "primary",
-	scalars: mapNonEmpty(key.scalars, column)
-})
 
 export interface LawPlan {
 	readonly law: TheoryLaw

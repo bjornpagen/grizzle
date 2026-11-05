@@ -44,7 +44,7 @@ import { type Codebook, rosterCodec, type RosterCodec } from "#compiler/ir/codes
 import type { Roster } from "#compiler/ir/scalar.ts"
 
 /** How a handle is spelled: a plain word, or a spelling an array literal, an identifier or a byte bound must keep. */
-export const SPELLINGS = ["plain", "awkward"] as const
+const SPELLINGS = ["plain", "awkward"] as const
 
 export type Spelling = (typeof SPELLINGS)[number]
 
@@ -120,9 +120,9 @@ export interface RosterState {
 export type Declaration = NonEmptyReadonlyArray<string>
 
 /** The migrations a valid history draws: each one a roster declaration the model accepts. */
-export const MIGRATIONS = ["grow", "remove", "readd"] as const
+const MIGRATIONS = ["grow", "remove", "readd"] as const
 
-export type Migration = (typeof MIGRATIONS)[number]
+type Migration = (typeof MIGRATIONS)[number]
 
 /** A roster's history: its installation's declaration, then each migration with the declaration it leads to. */
 export interface RosterHistory {
@@ -186,7 +186,7 @@ const heldNames = (slots: ReadonlyArray<ModelSlot>): ReadonlySet<string> =>
 	new Set(Arr.map(slots, (slot) => (slot.kind === "live" ? slot.handle : slot.was)))
 
 /** The names a removed handle held that no live handle holds now: what a re-addition may declare again. */
-export const removedOf = (state: RosterState): ReadonlyArray<string> => {
+const removedOf = (state: RosterState): ReadonlyArray<string> => {
 	const live = new Set(liveOf(state))
 	return Arr.dedupe(
 		Arr.flatMap(state.slots, (slot) =>
@@ -258,7 +258,7 @@ export interface RosterParameters {
 }
 
 /** The one refusal a roster declaration meets: handles out of their codes' order. */
-export const ROSTER_REFUSALS = ["reordered"] as const
+const ROSTER_REFUSALS = ["reordered"] as const
 
 export type RosterRefusal = (typeof ROSTER_REFUSALS)[number]
 
@@ -398,7 +398,7 @@ export const installedGen =
  * The state each step of `steps` leads to, from `installed`: the model's own replay, a refused step leaving the state as
  * it was.
  */
-export const replay = (
+const replay = (
 	installed: RosterState,
 	steps: Program<RosterParameters>
 ): NonEmptyReadonlyArray<RosterState> => {
@@ -529,7 +529,7 @@ export const patternHistory = (state: RosterState): RosterHistory => {
  * - `alias`: 400, the mixed-radix alias of 400 read as 37, out of range for every roster of 400 codes or fewer, which
  *   a bare smallint column accepts.
  */
-export type InvalidCode =
+type InvalidCode =
 	| { readonly kind: "below"; readonly code: number }
 	| { readonly kind: "past"; readonly code: number }
 	| { readonly kind: "hole"; readonly code: number; readonly was: string }
@@ -539,7 +539,7 @@ export type InvalidCode =
 export const ALIAS_CODE = 400
 
 /** Every named invalid code `state` has, each kind once and every hole: a removed code per hole. */
-export const invalidCodes = (state: RosterState): ReadonlyArray<InvalidCode> => [
+const invalidCodes = (state: RosterState): ReadonlyArray<InvalidCode> => [
 	{ kind: "below", code: -1 },
 	{ kind: "past", code: sizeOf(state) },
 	...Arr.flatMap(state.slots, (slot, code): ReadonlyArray<InvalidCode> =>
@@ -547,15 +547,6 @@ export const invalidCodes = (state: RosterState): ReadonlyArray<InvalidCode> => 
 	),
 	...(sizeOf(state) <= ALIAS_CODE ? [{ kind: "alias", code: ALIAS_CODE } as const] : [])
 ]
-
-/** One named invalid code of `state`, every one as likely, shrinking toward −1. */
-export const invalidCodeGen = (state: RosterState): Gen<InvalidCode> => {
-	const codes = invalidCodes(state)
-	if (!Arr.isReadonlyArrayNonEmpty(codes)) {
-		throw new Error("every roster has a code below its first")
-	}
-	return element(codes)
-}
 
 /**
  * What the roster's domain answers each code from −1 to `size`, then 400: the model "accepted exactly when live", the
@@ -575,46 +566,18 @@ export const everyCode = (
  * A handle the codec refuses for `state`'s roster, by its named cause: `removed`, a name a removed handle held and no
  * live handle holds; `unknown`, a name the roster never held.
  */
-export type InvalidHandle =
+type InvalidHandle =
 	| { readonly kind: "removed"; readonly handle: string }
 	| { readonly kind: "unknown"; readonly handle: string }
-
-/** Every named invalid handle `state` has: each removed name, and one name the roster never held when one is left. */
-export const invalidHandles = (state: RosterState): ReadonlyArray<InvalidHandle> => {
-	const unknown = [...unheldOf(state.slots, "plain"), ...unheldOf(state.slots, "awkward")]
-	return [
-		...Arr.map(removedOf(state), (handle): InvalidHandle => ({ kind: "removed", handle })),
-		...(Arr.isReadonlyArrayNonEmpty(unknown)
-			? [{ kind: "unknown", handle: Arr.headNonEmpty(unknown) } as const]
-			: [])
-	]
-}
 
 /**
  * A reorder of `state`'s declaration: two live handles' positions swapped, and the pair the draft must name. It needs
  * two live handles; undefined for a roster of one.
  */
-export interface Reorder {
+interface Reorder {
 	readonly declaration: Declaration
 	readonly earlier: string
 	readonly later: string
-}
-
-/** A reorder of `state`, drawn as a pair of positions, or undefined when the roster holds one live handle. */
-export const reorderGen = (state: RosterState): Gen<Reorder> | undefined => {
-	const live = liveOf(state)
-	if (live.length < 2) {
-		return undefined
-	}
-	return (source) => {
-		const pair = source.draw(positionPair(live.length))
-		const declaration = declarationOf(state, { command: "reorder", parameters: pair })
-		const named = reorderedPair(state, declaration)
-		if (named === undefined) {
-			throw new Error("a swap of two live handles puts their codes out of order")
-		}
-		return { declaration, ...named }
-	}
 }
 
 /** Some of the roster's live handles, in code order: a bits value, the empty set included. */
@@ -625,10 +588,6 @@ export const liveSubsetGen = (state: RosterState): Gen<ReadonlyArray<string>> =>
 
 /** A live handle of the roster: a handle literal. */
 export const liveHandleGen = (state: RosterState): Gen<string> => element(liveOf(state))
-
-/** Live handles of the roster, repeating as they may: the values of a closed-id column's rows. */
-export const liveColumnGen = (state: RosterState, rows: Size): Gen<ReadonlyArray<string>> =>
-	array(liveHandleGen(state), rows)
 
 /** The features of the roster rows a suite notes: how many holes, and whether a literal's code is its position. */
 export type RosterFeature =

@@ -185,6 +185,8 @@ class Collector {
 			case "pointIn":
 			case "value":
 			case "var":
+			case "closedAt":
+			case "closedRow":
 				this.expr(h)
 		}
 	}
@@ -248,6 +250,13 @@ class Collector {
 				this.source(e.source)
 				for (const b of Object.values(e.bindings)) {
 					this.expr(b)
+				}
+				return
+			case "closedAt":
+			case "closedRow":
+				this.relations.add(e.relation)
+				for (const a of e.args) {
+					this.expr(a)
 				}
 				return
 		}

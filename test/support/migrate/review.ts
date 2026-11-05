@@ -155,7 +155,7 @@ export const plainPlan = (g: GenerateResult): ReadonlyArray<ReviewedFile> =>
 	reviewPlan(g, "written")
 
 /** The placeholders of a reviewed file, in order. */
-export const placeholdersOf = (file: ReviewedFile): ReadonlyArray<Placeholder> =>
+const placeholdersOf = (file: ReviewedFile): ReadonlyArray<Placeholder> =>
 	Arr.filter(file.actions, isPlaceholder)
 
 /**
@@ -194,7 +194,7 @@ const resolvePlaceholders = (
 }
 
 /** A reviewed file of the plan printed as the drafter prints a file, its placeholders resolved by `value`. */
-export const renderReviewed = (
+const renderReviewed = (
 	file: ReviewedFile,
 	value: (placeholder: Placeholder) => string
 ): string => {
@@ -337,38 +337,6 @@ export const review = (g: GenerateResult, decisions: Decisions): Reviewed => {
 	return { files, plan }
 }
 
-/**
- * What a reviewer leaves who writes no value at the placeholders of the SQL, each token kept in place: the review's
- * files, and each line that then holds a placeholder, those where the text differs from `filled`, the review deciding
- * alike that writes a one-line value at each.
- */
-export const leftUnfilled = (
-	g: GenerateResult,
-	filled: Reviewed
-): {
-	readonly files: Reviewed["files"]
-	readonly lines: ReadonlyArray<{ readonly file: string; readonly line: number }>
-} => {
-	const left = review(g, { losses: "written", value: () => placeholderToken })
-	const lines = Arr.flatMap(left.files, (f, n) => {
-		const other = filled.files[n]
-		if (other === undefined || other.name !== f.name) {
-			throw new DraftTextDefect({ defect: `${f.name}: not a file of the filled review` })
-		}
-		const written = Str.split(other.text, "\n")
-		const leaving = Str.split(f.text, "\n")
-		if (leaving.length !== written.length) {
-			throw new DraftTextDefect({
-				defect: `${f.name}: a value the filled review writes spans lines`
-			})
-		}
-		return Arr.flatMap(leaving, (text, i) =>
-			text === written[i] ? [] : [{ file: f.name, line: i + 1 }]
-		)
-	})
-	return { files: left.files, lines }
-}
-
 /** How a review fails to read back as the decision made: its meta.json unread, or a loss left undecided. */
 export type ReadBackFault =
 	| { readonly kind: "unread"; readonly reason: string }
@@ -415,61 +383,8 @@ const draftedAsRecorded = (steps: ReadonlyArray<MetaStep>): ReadonlyArray<string
 		}
 	})
 
-/**
- * The completeness oracle (CONTRIBUTING, the record is complete and proved): a generated folder's meta.json decodes
- * with the shell's boundary decoder, reads as a decision record (decisionRecord's proof), and writes back byte for
- * byte; it records the folder's files in order, and every statement each file holds uncommented appears in the record
- * exactly once, in order. Every fault found, none when the record is complete.
- */
-export const recordFaults = (g: GenerateResult): ReadonlyArray<string> => {
-	const decoded = decodeMeta(g.folder.metaText)
-	if (Result.isFailure(decoded)) {
-		return [`meta.json does not decode: ${decoded.failure.message}`]
-	}
-	const read = readMeta(g.folder.metaText)
-	if (Result.isFailure(read)) {
-		return [`meta.json does not read as a decision record: ${read.failure.message}`]
-	}
-	const written = writeMeta(decoded.success)
-	const meta = decoded.success
-	if (meta.kind !== "drafted") {
-		return ["a generated folder's meta.json is a custom migration's"]
-	}
-	return [
-		...(written.ok && written.value === g.folder.metaText
-			? []
-			: ["meta.json does not write back byte for byte"]),
-		...(meta.files.length === g.folder.files.length &&
-		Arr.every(meta.files, (m, i) => m.name === g.folder.files[i]?.name)
-			? []
-			: ["meta.json records other files than the folder holds"]),
-		...Arr.flatMap(g.folder.files, (f): ReadonlyArray<string> => {
-			const recorded = Arr.findFirst(meta.files, (m) => m.name === f.name)
-			if (Option.isNone(recorded)) {
-				return [`meta.json records no file ${f.name}`]
-			}
-			const held = Arr.map(splitStatements(f.text), (x) => fromFirstToken(x))
-			const expected = draftedAsRecorded(recorded.value.steps)
-			return held.length === expected.length && Arr.every(held, (x, i) => x === expected[i])
-				? []
-				: [`${f.name}: the statements it holds are not the record's, in order`]
-		})
-	]
-}
-
 /** A recorded statement of a file, which a reviewer may delete or edit: the reviewer's own. */
-export interface FreeSite {
+interface FreeSite {
 	readonly file: string
 	readonly statement: string
 }
-
-/**
- * The free statements of a generated folder, walked through its record: every recorded statement of a file, each by
- * its file and its text from its first token. A loss's statement and a confirmed group's are decisions, never free.
- */
-export const reviewSites = (g: GenerateResult): ReadonlyArray<FreeSite> =>
-	Arr.flatMap(g.folder.meta.files, (f) =>
-		Arr.flatMap(f.steps, (s): ReadonlyArray<FreeSite> =>
-			s.kind === "statement" ? [{ file: f.name, statement: s.statement }] : []
-		)
-	)

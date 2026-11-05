@@ -7,6 +7,7 @@ import {
 	sameValue,
 	sendableFact
 } from "#test/support/laws/model.ts"
+import { factKey } from "#test/support/worlds/model/host.ts"
 import { factsIn, relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,
@@ -223,9 +224,11 @@ export const factMeets: Meet<HostFact, HostFact> = (expected, observed, binding,
 }
 
 /**
- * The binding extending `binding` under which each item meets a candidate, items in order and candidates tried in
- * order, that `rest` then accepts; none when no choice of candidates does. An item that met a candidate binding
- * nothing new meets every candidate it meets alike, so once `rest` refuses that, no other is tried.
+ * The binding extending `binding` under which each item meets a candidate of its own, items in order and candidates
+ * tried in order, that `rest` then accepts; none when no choice of candidates does. A candidate an item meets is
+ * consumed, so no two items meet one candidate: the items meet as many candidates as they are, never fewer. An item
+ * that met a candidate binding nothing new meets only candidates equal to that one, so once `rest` refuses that, no
+ * other is tried.
  */
 export const everyMeets = <A, B>(
 	items: ReadonlyArray<A>,
@@ -238,11 +241,11 @@ export const everyMeets = <A, B>(
 	if (item === undefined) {
 		return rest(binding)
 	}
-	for (const candidate of candidates) {
+	for (const [at, candidate] of candidates.entries()) {
 		const reached = { unchanged: false }
 		const done = meet(item, candidate, binding, (met) => {
 			reached.unchanged = met === binding
-			return everyMeets(more, candidates, meet, met, rest)
+			return everyMeets(more, candidates.toSpliced(at, 1), meet, met, rest)
 		})
 		if (done !== undefined || reached.unchanged) {
 			return done
@@ -251,9 +254,14 @@ export const everyMeets = <A, B>(
 	return undefined
 }
 
+/** Whether a list of facts the real system showed holds no fact twice, each fact by every field and its value. */
+export const distinctFacts = (facts: ReadonlyArray<HostFact>): boolean =>
+	new Set(Arr.map(facts, factKey)).size === facts.length
+
 /**
- * The binding extending `binding` under which two lists of facts hold the same facts as sets, which `rest` accepts:
- * every model fact is a fact the real system showed, and every fact it showed is a model fact.
+ * The binding extending `binding` under which two lists of facts hold the same facts as keyed sets, which `rest`
+ * accepts: the real system showed each fact once, and each model fact meets a fact it showed of its own, as many as
+ * it showed. A delivery that repeats a fact is no set, so it agrees with no model, whatever the model holds.
  */
 export const bindFacts = (
 	expected: ReadonlyArray<HostFact>,
@@ -261,11 +269,9 @@ export const bindFacts = (
 	binding: Binding,
 	rest: Rest
 ): Binding | undefined =>
-	everyMeets(expected, observed, factMeets, binding, (met) =>
-		Arr.every(observed, (o) => Arr.some(expected, (e) => bindFact(e, o, met) !== undefined))
-			? rest(met)
-			: undefined
-	)
+	expected.length === observed.length && distinctFacts(observed)
+		? everyMeets(expected, observed, factMeets, binding, rest)
+		: undefined
 
 /**
  * Whether every draw the binding gives is a value its column holds nowhere else, as an identity's draw never repeats a

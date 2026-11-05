@@ -68,8 +68,10 @@ import {
 	type CompletedOrder,
 	type Correlation,
 	conservativeMeta,
+	type FoldInput,
 	type Heading,
 	type HeadingColumn,
+	type KeySet,
 	type Occurrence,
 	type ProducerCallOver,
 	type ProducerKind,
@@ -2098,6 +2100,29 @@ export class Checker {
 	}
 }
 
+/** How a refusal names the source a match reads: its relation, parameter, context, delta, or the kind of source it is. */
+const sourceLabel = (src: ResolvedSource): string => {
+	switch (src.kind) {
+		case "relation":
+			return src.name
+		case "query":
+			return "the matched query"
+		case "param":
+		case "paramOf":
+			return `relation parameter ${src.cell.name}`
+		case "interior":
+			return "the interior stage"
+		case "self":
+			return "the recursion's own rows"
+		case "delta":
+			return `delta.${src.side}(${src.relation})`
+		case "context":
+			return `context ${src.context.name}`
+		case "row":
+			return "the asked row"
+	}
+}
+
 /** One rule: its region, filters, negations and head. */
 class RuleCheck {
 	readonly cx: Checker
@@ -2124,6 +2149,8 @@ class RuleCheck {
 	readonly #needed = new Set<VarId>()
 	readonly names = new Set<string>()
 	#occurrences: ReadonlyArray<PendingOccurrence> = []
+	/** The region's occurrences, each beside the match it was resolved from, in match order, once the region is defined. */
+	#defined: ReadonlyArray<{ readonly pending: PendingOccurrence; readonly occurrence: Occurrence }> = []
 	readonly eqs: Array<PendingEquality> = []
 
 	constructor(cx: Checker, rule: ResolvedRule, scope: Scope, loc: SourceLoc) {
@@ -2829,12 +2856,16 @@ class RuleCheck {
 			}
 		}
 		const vars = slots.map(declOf)
-		const occurrences: Array<Occurrence> = this.#occurrences.map((o) => ({
-			id: this.cx.b.ids.occurrence(),
-			source: o.source,
-			bindings: o.bindings.map((b) => ({ column: b.column, var: declOf(b.var) })),
-			constants: o.constants
+		this.#defined = this.#occurrences.map((o) => ({
+			pending: o,
+			occurrence: {
+				id: this.cx.b.ids.occurrence(),
+				source: o.source,
+				bindings: o.bindings.map((b) => ({ column: b.column, var: declOf(b.var) })),
+				constants: o.constants
+			}
 		}))
+		const occurrences: Array<Occurrence> = this.#defined.map((d) => d.occurrence)
 		return this.cx.define(
 			this.region,
 			{
@@ -3445,7 +3476,9 @@ class RuleCheck {
 			{
 				kind: "Group",
 				input: groupInput,
-				bound: groupHeading.filter((c) => !hiddenNames.has(c.name)).map((c) => c.name),
+				bound: this.#foldInput(
+					groupHeading.filter((c) => !hiddenNames.has(c.name)).map((c) => c.name)
+				),
 				keys: keyColumns.map((c) => c.name),
 				aggs: aggs.map((a) => a.spec),
 				heading: [...keyColumns, ...aggs.map((a) => a.column)]
@@ -3453,6 +3486,81 @@ class RuleCheck {
 			loc
 		)
 		return { node, results: aggs.map(({ name, column }) => ({ name, column })) }
+	}
+
+	/**
+	 * The proof that the bound tuple `columns` holds a key of every fact the rule matches (ir/rel.ts FoldInput): each
+	 * match binds, by a variable, a parent variable or a constant, every field of one key of its source, so a fold over
+	 * the rule's bindings reads each matched fact once. A variable a match binds is a column of the bound tuple, or a
+	 * hidden one the filter equates with a variable or a value, so a bound field is a field the bound tuple fixes. A match
+	 * that binds no key whole is refused (FoldOverProjection), naming its source and the key to bind: its fold would read
+	 * a projection of the facts, whose repeats a set no longer holds. Distinct values are folded by matching a query of
+	 * them, a set keyed by its heading.
+	 */
+	#foldInput(columns: KeySet): FoldInput {
+		const keyed = this.#defined.map(({ pending, occurrence }) => {
+			const bound = new Set([
+				...occurrence.bindings.map((b) => b.column),
+				...occurrence.constants.map((c) => c.column)
+			])
+			const keys = this.#sourceKeys(occurrence.source)
+			const key = keys.find((k) => k.every((f) => bound.has(f)))
+			if (key === undefined) {
+				return failWith({
+					_tag: "FoldOverProjection",
+					at: pending.loc,
+					source: sourceLabel(pending.match.source),
+					key: keys[0]
+				})
+			}
+			return { occurrence: occurrence.id, key }
+		})
+		return { columns, keyed }
+	}
+
+	/**
+	 * The keys of a matched source, narrowest first as its declaration states them: a relation's primary key and every
+	 * further key, a view's proved keys then its whole heading, a closed relation's key, a delta's relation's keys, the
+	 * empty key of a context's one fact, and the whole heading of any other source (a relation parameter, a matched
+	 * query or stage, a recursion's feedback), which is a set keyed by its heading.
+	 */
+	#sourceKeys(source: RelNode): NonEmptyReadonlyArray<KeySet> {
+		const heading = source.heading.map((c) => c.name)
+		switch (source.kind) {
+			case "Base":
+				return source.relationKind === "relation"
+					? [source.primaryKey, ...source.keys]
+					: [...source.view.map((k) => k.fields), heading]
+			case "Closed": {
+				const closed = this.cx.schema.closed.get(source.closed)
+				return closed === undefined ? [heading] : [closed.relation.primaryKey]
+			}
+			case "Context":
+				return [[]]
+			case "Delta":
+				return isNonEmpty(source.keys) ? source.keys : [heading]
+			case "InputSet":
+			case "MatchRegion":
+			case "Filter":
+			case "ProjectSet":
+			case "SemiJoin":
+			case "AntiJoin":
+			case "Union":
+			case "Intersect":
+			case "Difference":
+			case "Take":
+			case "Group":
+			case "Produce":
+			case "Recursive":
+			case "SelfRef":
+			case "ApproximateNearest":
+			case "OrderedResult":
+			case "Attach":
+			case "Forbid":
+			case "Window":
+			case "OrderedSetAggregate":
+				return [heading]
+		}
 	}
 
 	/** An aggregate applied over `groupInput`: its native overload and its call, count over no argument. */

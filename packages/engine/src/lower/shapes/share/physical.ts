@@ -36,12 +36,6 @@ export interface ShapeFacts {
 	readonly keyedBy: (node: RelNode, columns: KeySet) => boolean
 	/** The node's maximum cardinality, where the analysis knows one. */
 	readonly maxCard: (node: RelNode) => Cardinality
-	/**
-	 * Whether a fold takes its input as it is, with no DISTINCT of its own before it: the placement's fold form, plain
-	 * where the input as realized has exactly one row per value of its complete bound tuple and every column of that
-	 * tuple the fold reads nowhere else is total (dedup/place.ts); never for a Group without aggregates.
-	 */
-	readonly contributionExact: (group: NodeOf<"Group">) => boolean
 	/** Whether an attachment's child rows are unique per parent binding. */
 	readonly childUniquePerParent: (attach: NodeOf<"Attach">) => boolean
 	/** Compiling a derived-relation definition, which always wants every group (R20). */
@@ -98,8 +92,6 @@ export const shapeFactsFromPlan = (
 		unique: (node) => isUnique(propsOf(node)),
 		keyedBy: (node, columns) => keyedBy(propsOf(node), columns) !== undefined,
 		maxCard: (node) => propsOf(node).maxCard,
-		/** A Group without aggregates, which a rewrite left with none to compute, is no fold: it keeps its DISTINCT on B. */
-		contributionExact: (group) => plan.folds[group.id]?.input === "plain",
 		/**
 		 * A child edge that observes and is discharged proves the child unique per parent; a child edge that does not
 		 * observe (the child is realized distinct, absorbing repeats) proves it too.

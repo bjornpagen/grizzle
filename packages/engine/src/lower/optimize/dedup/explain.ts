@@ -9,15 +9,8 @@ import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
 import { plainLosses, type Realization } from "#compiler/analysis/physical/props.ts"
 import type { Diagnostic } from "#compiler/core/diag.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
-import type { FoldForm } from "#compiler/lower/optimize/dedup/certify.ts"
-import type {
-	FoldInput,
-	NodeDecision,
-	NodeStatus,
-	Placement
-} from "#compiler/lower/optimize/dedup/plan.ts"
-import { edgeFold } from "#compiler/lower/optimize/dedup/policy.ts"
+import type { RelNode } from "#compiler/ir/rel.ts"
+import type { NodeDecision, NodeStatus, Placement } from "#compiler/lower/optimize/dedup/plan.ts"
 
 const unique = <A>(items: ReadonlyArray<A>): ReadonlyArray<A> => [...new Set(items)]
 
@@ -61,12 +54,10 @@ const statusOf = (
 		: { status: "ignored" }
 }
 
-/** An observing step that is a fold deduplicating its contributions on B. */
 const nodeReasons = (
 	a: PhysicalAnalysis,
 	node: RelNode,
-	decided: Decided,
-	form: FoldForm
+	decided: Decided
 ): ReadonlyArray<MultiplicityReason> => {
 	switch (decided.status) {
 		case "elided":
@@ -81,20 +72,8 @@ const nodeReasons = (
 					: ["exactDeduplication"]
 		case "ignored": {
 			const reasons = observationEnds(node, a.edges).flatMap(
-				(last): ReadonlyArray<MultiplicityReason> => {
-					if (last.sensitivity === "preserves") {
-						return []
-					}
-					if (last.sensitivity === "ignores") {
-						return [ignoringReason(last.why)]
-					}
-					const consumer = last.consumer.kind === "node" ? last.consumer.node : undefined
-					return consumer?.kind === "Group" &&
-						consumer.aggs.length > 0 &&
-						form(consumer) === "distinct"
-						? ["exactDeduplication"]
-						: []
-				}
+				(last): ReadonlyArray<MultiplicityReason> =>
+					last.sensitivity === "ignores" ? [ignoringReason(last.why)] : []
 			)
 			return reasons.length > 0 ? unique(reasons) : ["unknownEvidence"]
 		}
@@ -110,33 +89,13 @@ interface PlanExplanation {
 }
 
 /**
- * Why a fold with aggregates takes its input as `input` does: one deduplicating an outstanding obligation, because its
- * input may repeat (place.ts foldOf); one folding plainly, because its contribution identity is removable or its
- * obligation is discharged.
- */
-export const foldReasons = (
-	a: PhysicalAnalysis,
-	group: NodeOf<"Group">,
-	input: FoldInput
-): ReadonlyArray<MultiplicityReason> => {
-	const identity = a.of(group).contribution?.identity
-	const owed = a.obligations.find((o) => edgeFold(o.edge) === group)
-	const discharged = owed?.discharged === true ? owed : undefined
-	return input === "distinct"
-		? lossReasons(a, group.input)
-		: identity?.kind === "removable"
-			? evidence(identity.removal.reasons)
-			: evidence(discharged === undefined ? [] : discharged.proof.reasons)
-}
-
-/**
  * The decisions and reasons of a plan, from the analysis of its realization.
  *
  * Why each duplicate elimination is present or absent.
  *
  * "Diagnostics explain why deduplication is present or absent ... These are explanations, not tuning controls." Every
- * node gets one decision and every fold one more, each rendered as a Multiplicity diagnostic in the reason vocabulary
- * of certificates/reasons.ts:
+ * node gets one decision, rendered as a Multiplicity diagnostic in the reason vocabulary of certificates/reasons.ts; a
+ * fold has none of its own, since it reads its input as placement realizes it, one row per bound tuple:
  *
  * - elided: the reasons the plain form's key rests on (a retained primary key, combined join keys, a grouped output
  *   key, a fixed key component, ...);
@@ -149,7 +108,6 @@ export const foldReasons = (
  */
 export const explainPlan = (
 	a: PhysicalAnalysis,
-	form: FoldForm,
 	placements: ReadonlyArray<Placement>
 ): PlanExplanation => {
 	const placed = new Set<NodeId>(placements.map((p) => p.node))
@@ -158,7 +116,7 @@ export const explainPlan = (
 	for (const node of a.order) {
 		const r = a.of(node).realization
 		const decided = statusOf(a, node, r, placed)
-		const reasons = nodeReasons(a, node, decided, form)
+		const reasons = nodeReasons(a, node, decided)
 		const status = decided.status
 		decisions.push({ node: node.id, realization: r, status, reasons })
 		diagnostics.push(
@@ -168,20 +126,6 @@ export const explainPlan = (
 				status: explanationStatus(status),
 				reasons,
 				heading: node.heading.map((c) => c.name),
-				loc: node.loc
-			})
-		)
-		if (node.kind !== "Group" || node.aggs.length === 0) {
-			continue
-		}
-		const input = form(node)
-		diagnostics.push(
-			explanation({
-				node: node.id,
-				kind: "contribution",
-				status: input === "distinct" ? "required" : "elided",
-				reasons: foldReasons(a, node, input),
-				heading: node.bound,
 				loc: node.loc
 			})
 		)

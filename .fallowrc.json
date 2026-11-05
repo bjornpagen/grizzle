@@ -296,7 +296,17 @@
 			},
 			{
 				"from": "cli",
-				"allow": ["adapter", "core", "deploy", "physical", "program", "schema", "sql", "types"]
+				"allow": [
+					"adapter",
+					"core",
+					"deploy",
+					"ir",
+					"physical",
+					"program",
+					"schema",
+					"sql",
+					"types"
+				]
 			},
 			{
 				"from": "engine-index",

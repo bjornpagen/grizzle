@@ -427,7 +427,7 @@ export const addClosedRelations = (b: InstallBuilder, plan: ClosedPlan): void =>
  * The text of an array literal of `elements`, each double-quoted with its backslashes and quotes escaped, so an empty
  * element, a hole's name, and one holding a comma, a brace or a space read back as themselves.
  */
-export const arrayText = (elements: ReadonlyArray<string>): string =>
+const arrayText = (elements: ReadonlyArray<string>): string =>
 	`{${elements.map((e) => `"${e.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`).join(",")}}`
 
 /** What one roster installs: its names constant and its domain, and, when a set is typed over it, its live-codes

@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -71,7 +71,7 @@ import { taskPayloads } from "#test/unit/check/work-queries.ts"
  */
 const labNames = installationOf(Lab, { kind: "declared" }).names
 const workNames = installationOf(WorkDesc, { kind: "declared" }).names
-const labContracts = new Set<string>(Object.keys(owning(Lab).contracts))
+const labContracts = new Set<string>(Rec.keys(owning(Lab).contracts))
 const checkedNames: PhysicalNames = {
 	...productionNames("lab", { kind: "declared" }, localVectorSchema, {
 		rosters: new Map([...labNames.codes.rosters, ...workNames.codes.rosters])

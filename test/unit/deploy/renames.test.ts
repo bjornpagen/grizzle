@@ -27,33 +27,40 @@ import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { draftCodebook, type RosterRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
+import { uuid } from "#compiler/public/fields.ts"
+import { login, relation as relationValue, role, schema } from "#compiler/public/schema.ts"
+import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
+import { loginDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { closed, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 
 /**
- * Declared renames and drops, drafted with no database: every pair of operations (a rename, a drop, an addition) over
- * at most three names, on relations, on the fields of one relation and on a roster's handles, each operation declared
- * or, a named invalid variant, its declaration left out, exhausted.
+ * Declared renames and drops, drafted with no database: every one or two operations (a rename, a drop, an addition)
+ * over at most three names, on relations, on the fields of one relation, on a roster's handles and on logins, and every
+ * operation on relations beside one or two on logins, each operation declared or, a named invalid variant, its
+ * declaration left out, exhausted.
  *
  * The oracle is a model of declared identities: it applies the operations to the previous names, predicts the target's
- * names, and predicts the verdict, accepted exactly when every name the previous schema holds and the target lacks is
- * declared renamed or dropped, refused otherwise with UndeclaredDrop naming the first such name in the previous
- * snapshot's order. An accepted draft is checked against the model: its snapshot holds exactly the target's names; a
- * declared rename of a relation is a chain of renames in its Setup taking the old table to the target's; a declared
- * drop is drafted, a relation's as its drop; and a renamed handle keeps its code, the codes read back from the
- * snapshot.
+ * names, and predicts the verdict, accepted exactly when every name the previous schema holds and the target does not
+ * keep is declared renamed or dropped, refused otherwise with UndeclaredDrop naming the first such name, a relation's
+ * before a login's, in the previous snapshot's order. A name a declared rename takes from a name the previous schema
+ * holds and does not rename, as a drop and then a rename onto the dropped name does, ends that name, so its drop is
+ * declared though the target holds the name. An accepted draft is checked against the model: its snapshot holds exactly
+ * the target's names; a declared rename of a relation is a chain of renames taking the old table to the target's, and
+ * of a login a chain of ALTER ROLE ... RENAME taking the old login's role to the target's, which the draft neither
+ * creates nor drops; a kept login's role is neither renamed, created nor dropped; a dropped login's role is dropped,
+ * and a new login's created; and a renamed handle keeps its code, the codes read back from the snapshot.
  */
 
 /** The names a dimension's operations range over: the box's bound of three. */
 const names = ["a", "b", "c"] as const
 type Name = (typeof names)[number]
 
-type Dimension = "relation" | "field" | "handle"
+type Dimension = "relation" | "field" | "handle" | "login"
 
 /** One operation on the previous names, and whether the draft declares it (a rename's or a drop's; an addition needs
  * none). */
@@ -62,12 +69,29 @@ type Operation =
 	| { readonly kind: "drop"; readonly name: Name; readonly declared: boolean }
 	| { readonly kind: "add"; readonly name: Name }
 
-interface Box {
+/** One dimension's operations, in order. */
+interface Track {
 	readonly dimension: Dimension
 	readonly operations: ReadonlyArray<Operation>
 }
 
-type Feature = `${Dimension} ${Operation["kind"] | Verdict["kind"]}`
+/** A box: one dimension's track, or a relation track beside a login track, the relation's checked first. */
+interface Box {
+	readonly tracks: readonly [Track] | readonly [Track, Track]
+}
+
+/** What the model predicts of a box: the draft accepted; refused as UndeclaredDrop naming `name` of `dimension`;
+ * refused as UnsupportedOperation, a declaration naming what the previous snapshot and the target do not hold as it
+ * says; or, for handles, refused as declared out of their codes' order. */
+type Verdict =
+	| { readonly kind: "accepted" }
+	| { readonly kind: "undeclared"; readonly dimension: Dimension; readonly name: Name }
+	| { readonly kind: "unsupported" }
+	| { readonly kind: "reordered" }
+
+type Feature =
+	| `${Dimension} ${Operation["kind"] | Verdict["kind"] | "taken"}`
+	| `login and relation ${Verdict["kind"]}`
 
 const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"relation rename",
@@ -76,19 +100,31 @@ const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"relation accepted",
 	"relation undeclared",
 	"relation unsupported",
+	"relation taken",
 	"field rename",
 	"field drop",
 	"field add",
 	"field accepted",
 	"field undeclared",
 	"field unsupported",
+	"field taken",
 	"handle rename",
 	"handle drop",
 	"handle add",
 	"handle accepted",
 	"handle undeclared",
 	"handle unsupported",
-	"handle reordered"
+	"handle reordered",
+	"login rename",
+	"login drop",
+	"login add",
+	"login accepted",
+	"login undeclared",
+	"login unsupported",
+	"login taken",
+	"login and relation accepted",
+	"login and relation undeclared",
+	"login and relation unsupported"
 ]
 
 /** The names each dimension starts from. */
@@ -105,6 +141,9 @@ const after = (held: ReadonlyArray<Name>, op: Operation): ReadonlyArray<Name> =>
 			return [...held, op.name]
 	}
 }
+
+/** A track's names once its operations ran. */
+const targetOf = (t: Track): ReadonlyArray<Name> => Arr.reduce(t.operations, start, after)
 
 /** Every operation valid on `held`, by construction: a rename or drop of a held name, a rename or addition to a free
  * one, each declared or not. A roster keeps a handle, so a dimension of handles drops only one of two. */
@@ -131,60 +170,79 @@ const operationsOn = (
 	return out
 }
 
-/** A box: a dimension and one or two operations, each drawn valid on the names the earlier left. */
-const boxGen: Gen<Box> = (source) => {
-	const dimension = source.draw(element(["relation", "field", "handle"] as const))
-	const first = source.draw(source.draw(element(operationsOn(dimension, start))))
-	const more = source.draw(boolean)
-	if (!more) {
-		return { dimension, operations: [first] }
+/** A track of one operation, or of one or two, each drawn valid on the names the earlier left. */
+const trackGen =
+	(dimension: Dimension, most: 1 | 2): Gen<Track> =>
+	(source) => {
+		const first = source.draw(source.draw(element(operationsOn(dimension, start))))
+		if (most === 1 || !source.draw(boolean)) {
+			return { dimension, operations: [first] }
+		}
+		const second = source.draw(source.draw(element(operationsOn(dimension, after(start, first)))))
+		return { dimension, operations: [first, second] }
 	}
-	const second = source.draw(source.draw(element(operationsOn(dimension, after(start, first)))))
-	return { dimension, operations: [first, second] }
+
+/** A box: one dimension's track of one or two operations, or one operation on relations beside one or two on logins. */
+const boxGen: Gen<Box> = (source) => {
+	const shape = source.draw(
+		element(["relation", "field", "handle", "login", "login and relation"] as const)
+	)
+	return shape === "login and relation"
+		? { tracks: [source.draw(trackGen("relation", 1)), source.draw(trackGen("login", 2))] }
+		: { tracks: [source.draw(trackGen(shape, 2))] }
 }
 
-/** What the model predicts of a box: the draft accepted; refused as UndeclaredDrop naming `name`; refused as
- * UnsupportedOperation, a declaration naming what the previous snapshot and the target do not hold as it says; or,
- * for handles, refused as declared out of their codes' order. */
-type Verdict =
-	| { readonly kind: "accepted" }
-	| { readonly kind: "undeclared"; readonly name: Name }
-	| { readonly kind: "unsupported" }
-	| { readonly kind: "reordered" }
-
 /** The declared renames, from the previous name to the target's. */
-const declaredRenames = (box: Box): ReadonlyMap<Name, Name> =>
+const declaredRenames = (t: Track): ReadonlyMap<Name, Name> =>
 	new Map(
-		Arr.flatMap(box.operations, (op): ReadonlyArray<readonly [Name, Name]> =>
+		Arr.flatMap(t.operations, (op): ReadonlyArray<readonly [Name, Name]> =>
 			op.kind === "rename" && op.declared ? [[op.from, op.to]] : []
 		)
 	)
 
-const declaredDrops = (box: Box): ReadonlySet<Name> =>
-	new Set(Arr.flatMap(box.operations, (op) => (op.kind === "drop" && op.declared ? [op.name] : [])))
+const declaredDrops = (t: Track): ReadonlySet<Name> =>
+	new Set(Arr.flatMap(t.operations, (op) => (op.kind === "drop" && op.declared ? [op.name] : [])))
+
+/** The previous names a declared rename takes that no declared rename moves away: each ends where it is taken. */
+const takenNames = (t: Track): ReadonlySet<Name> => {
+	const renames = declaredRenames(t)
+	return new Set(
+		Arr.filter([...renames.values()], (to) => Arr.contains(start, to) && !renames.has(to))
+	)
+}
+
+/** What a track contributes to the verdict, in the order the draft checks it: a declared rename the previous snapshot
+ * or the target does not hold as it says; for handles, codes out of declared order; the first previous name the target
+ * does not keep that no declaration drops; and a declared drop of a name the target keeps or the previous snapshot
+ * lacks. */
+interface Faults {
+	readonly dimension: Dimension
+	readonly rename: boolean
+	readonly reordered: boolean
+	readonly lost: Name | undefined
+	readonly drop: boolean
+}
 
 /**
- * The model's verdict. A previous name is kept when the target holds the name its declared rename gives it, or its
- * own; one the target does not keep must be declared dropped. A declaration is checked first: a rename from a name the
- * previous schema does not hold or to one the target does not, or two of one name, and then a drop of a name the
- * previous schema does not hold or the target keeps, is unsupported. A handle keeps its code across a
- * declared rename, and a handle the target declares under a name the previous roster held live keeps that one's code,
- * any other taking the next code in declared order: codes out of declared order are a reorder.
+ * The model's faults of one track. A previous name is kept when its declared rename's name is the target's, or when
+ * the target holds its own name and no declared rename takes it; one the target does not keep must be declared
+ * dropped. A declaration is checked first: a rename from a name the previous schema does not hold or to one the target
+ * does not, or two of one name, and then a drop of a name the previous schema does not hold or the target keeps, is
+ * unsupported. A handle keeps its code across a declared rename, and a handle the target declares under a name the
+ * previous roster held live keeps that one's code, any other taking the next code in declared order: codes out of
+ * declared order are a reorder.
  */
-const verdictOf = (box: Box): Verdict => {
-	const target = Arr.reduce(box.operations, start, after)
-	const renames = declaredRenames(box)
-	const drops = declaredDrops(box)
-	const renameOps = Arr.flatMap(box.operations, (op) =>
+const faultsOf = (t: Track): Faults => {
+	const target = targetOf(t)
+	const renames = declaredRenames(t)
+	const drops = declaredDrops(t)
+	const renameOps = Arr.flatMap(t.operations, (op) =>
 		op.kind === "rename" && op.declared ? [op] : []
 	)
-	if (
+	const rename =
 		Arr.some(renameOps, (op) => !Arr.contains(start, op.from) || !Arr.contains(target, op.to)) ||
 		new Set(Arr.map(renameOps, (op) => op.from)).size < renameOps.length
-	) {
-		return { kind: "unsupported" }
-	}
-	if (box.dimension === "handle") {
+	if (t.dimension === "handle") {
 		const was = new Map(Arr.map(start, (h, code) => [h, code] as const))
 		const renamedFrom = new Map(Arr.map([...renames], ([from, to]) => [to, from] as const))
 		let next = start.length
@@ -197,39 +255,97 @@ const verdictOf = (box: Box): Verdict => {
 			next += 1
 			return next - 1
 		})
-		if (Arr.some(codes, (code, i) => i > 0 && code < (codes[i - 1] ?? code))) {
-			return { kind: "reordered" }
-		}
 		const live = new Set(codes)
-		const holed = Option.getOrUndefined(
-			Arr.findFirst(start, (h) => !live.has(was.get(h) ?? -1) && !drops.has(h))
-		)
-		if (holed !== undefined) {
-			return { kind: "undeclared", name: holed }
+		return {
+			dimension: t.dimension,
+			rename,
+			reordered: Arr.some(codes, (code, i) => i > 0 && code < (codes[i - 1] ?? code)),
+			lost: Option.getOrUndefined(
+				Arr.findFirst(start, (h) => !live.has(was.get(h) ?? -1) && !drops.has(h))
+			),
+			drop: Arr.some([...drops], (d) => !Arr.contains(start, d) || live.has(was.get(d) ?? -1))
 		}
-		return Arr.some([...drops], (d) => !Arr.contains(start, d) || live.has(was.get(d) ?? -1))
-			? { kind: "unsupported" }
-			: { kind: "accepted" }
 	}
-	const keptAs = (n: Name): Name => renames.get(n) ?? n
-	const lost = Option.getOrUndefined(
-		Arr.findFirst(start, (n) => !Arr.contains(target, keptAs(n)) && !drops.has(n))
-	)
-	if (lost !== undefined) {
-		return { kind: "undeclared", name: lost }
+	const taken = takenNames(t)
+	const kept = (n: Name): boolean => renames.has(n) || (Arr.contains(target, n) && !taken.has(n))
+	return {
+		dimension: t.dimension,
+		rename,
+		reordered: false,
+		lost: Option.getOrUndefined(Arr.findFirst(start, (n) => !kept(n) && !drops.has(n))),
+		drop: Arr.some([...drops], (d) => !Arr.contains(start, d) || kept(d))
 	}
-	return Arr.some(
-		[...drops],
-		(d) => !Arr.contains(start, d) || renames.has(d) || Arr.contains(target, d)
-	)
-		? { kind: "unsupported" }
-		: { kind: "accepted" }
+}
+
+/** A box's tracks, as a list. */
+const tracksOf = (box: Box): ReadonlyArray<Track> => box.tracks
+
+/** The model's verdict over a box's tracks, each check across every track before the next. */
+const verdictOf = (box: Box): Verdict => {
+	const faults = Arr.map(tracksOf(box), faultsOf)
+	if (Arr.some(faults, (x) => x.rename)) {
+		return { kind: "unsupported" }
+	}
+	if (Arr.some(faults, (x) => x.reordered)) {
+		return { kind: "reordered" }
+	}
+	for (const x of faults) {
+		if (x.lost !== undefined) {
+			return { kind: "undeclared", dimension: x.dimension, name: x.lost }
+		}
+	}
+	return Arr.some(faults, (x) => x.drop) ? { kind: "unsupported" } : { kind: "accepted" }
 }
 
 const upper = (n: Name): string => Str.toUpperCase(n)
 
-/** The schema of a dimension's names: relations named by them, fields of one relation, or a roster's handles. */
-const descOf = (dimension: Dimension, held: ReadonlyArray<Name>): SchemaDesc => {
+/** The names of a box's track of `dimension` at the start or the target, none for a box without one. */
+const heldOf = (box: Box, dimension: Dimension, at: "start" | "target"): ReadonlyArray<Name> =>
+	Option.match(
+		Arr.findFirst(tracksOf(box), (t) => t.dimension === dimension),
+		{ onNone: () => [], onSome: (t) => (at === "start" ? start : targetOf(t)) }
+	)
+
+/** What a box drafts at one state: its schema and its logins. */
+interface Subject {
+	readonly desc: unknown
+	readonly logins: ReadonlyArray<OwnedLogin>
+}
+
+/** A box's schema at one state: relations named by its names, fields of one relation, or a roster's handles; or, with
+ * a login track, the relation Doc beside the relation track's relations, and each login holding a role of its own over
+ * Doc. */
+const subjectOf = (box: Box, at: "start" | "target"): Subject => {
+	const [only, second] = box.tracks
+	if (second === undefined && only.dimension !== "login") {
+		const held = heldOf(box, only.dimension, at)
+		return { desc: descOf(only.dimension, held), logins: [] }
+	}
+	const Doc = relationValue("Doc", { id: uuid }, ["id"])
+	const stored = Rec.fromEntries(
+		Arr.map(
+			heldOf(box, "relation", at),
+			(n) => [upper(n), relationValue(upper(n), { id: uuid }, ["id"])] as const
+		)
+	)
+	const base = schema("Renames", { ...stored, Doc }, [])
+	return {
+		desc: base,
+		logins: Arr.map(heldOf(box, "login", at), (n) =>
+			succeeded(
+				ownLogin(
+					defined(
+						loginDescOf(login(base, n, [role(base, `r_${n}`, { Doc })])),
+						"a login built by login(...)"
+					)
+				)
+			)
+		)
+	}
+}
+
+/** The schema of one dimension's names: relations named by them, fields of one relation, or a roster's handles. */
+const descOf = (dimension: Exclude<Dimension, "login">, held: ReadonlyArray<Name>): SchemaDesc => {
 	switch (dimension) {
 		case "relation":
 			return {
@@ -270,44 +386,45 @@ const namedOf = (dimension: Dimension, n: Name): Named => {
 			return { kind: "field", relation: parsedName("P"), field: parsedName(n) }
 		case "handle":
 			return { kind: "handle", roster: parsedName("R"), handle: n }
+		case "login":
+			return { kind: "login", login: parsedName(n) }
 	}
 }
 
-/** The draft's declarations: each declared rename and drop. */
+/** The draft's declarations: each declared rename and drop of every track. */
 const declarationsOf = (box: Box): Declarations => ({
-	renames: Arr.flatMap(box.operations, (op) =>
-		op.kind === "rename" && op.declared
-			? [{ from: namedOf(box.dimension, op.from), to: namedOf(box.dimension, op.to) }]
-			: []
+	renames: Arr.flatMap(tracksOf(box), (t) =>
+		Arr.flatMap(t.operations, (op) =>
+			op.kind === "rename" && op.declared
+				? [{ from: namedOf(t.dimension, op.from), to: namedOf(t.dimension, op.to) }]
+				: []
+		)
 	),
-	drops: Arr.flatMap(box.operations, (op) =>
-		op.kind === "drop" && op.declared ? [namedOf(box.dimension, op.name)] : []
+	drops: Arr.flatMap(tracksOf(box), (t) =>
+		Arr.flatMap(t.operations, (op) =>
+			op.kind === "drop" && op.declared ? [namedOf(t.dimension, op.name)] : []
+		)
 	)
 })
 
 /** The handle renames the codes are drafted under, as the shell maps them (RosterRenames). */
 const rosterRenamesOf = (box: Box): RosterRenames =>
-	box.dimension !== "handle"
-		? new Map()
-		: new Map([
-				[
-					parsedName("R"),
-					new Map(
-						Arr.flatMap(box.operations, (op): ReadonlyArray<readonly [string, string]> =>
-							op.kind === "rename" && op.declared ? [[op.from, op.to]] : []
-						)
-					)
-				]
-			])
+	Option.match(
+		Arr.findFirst(tracksOf(box), (t) => t.dimension === "handle"),
+		{
+			onNone: () => new Map(),
+			onSome: (t) => new Map([[parsedName("R"), declaredRenames(t)]])
+		}
+	)
 
-/** A schema's draft from `previous`, as `grizzle generate` makes it under `declared`. */
+/** A subject's draft from `previous`, as `grizzle generate` makes it under `declared`. */
 const draft = (
 	previous: DeploySnapshot,
-	desc: SchemaDesc,
+	subject: Subject,
 	declared: Declarations,
 	renames: RosterRenames
 ) => {
-	const owned = owning(desc)
+	const owned = owning(subject.desc)
 	const codes = draftCodebook(codebookUnder(previous, declared), renames, rostersOf(owned))
 	if (!codes.ok) {
 		return Result.fail(reorderRefusal(codes.error))
@@ -315,7 +432,7 @@ const draft = (
 	const installation = succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, [], [], codes.value)
+			completeInstallOptions(owned, owned.installation, subject.logins, [], codes.value)
 		)
 	)
 	const drafted = draftMigration({
@@ -328,11 +445,11 @@ const draft = (
 	return drafted.ok ? Result.succeed(drafted.value) : Result.fail(drafted.error)
 }
 
-/** The previous installation of a dimension: its starting names drafted from the empty snapshot. */
-const previousOf = (dimension: Dimension): DeploySnapshot => {
+/** The previous installation of a box: its starting names drafted from the empty snapshot. */
+const previousOf = (box: Box): DeploySnapshot => {
 	const first = draft(
 		emptySnapshot({ schemaName: "Renames", schema: "renames" }),
-		descOf(dimension, start),
+		subjectOf(box, "start"),
 		{ renames: [], drops: [] },
 		new Map()
 	)
@@ -358,65 +475,52 @@ const renamedThrough = (statements: ReadonlyArray<SqlStatement>, from: string): 
 		s.kind === "rename" && s.object === "TABLE" && s.name.name === at ? s.to : at
 	)
 
+/** Where the chain of role renames a plan runs takes the role named `from`. */
+const roleThrough = (statements: ReadonlyArray<SqlStatement>, from: string): string =>
+	Arr.reduce(statements, from, (at, s) =>
+		s.kind === "rename" && s.object === "ROLE" && s.name === at ? s.to : at
+	)
+
+/** Whether a plan creates the role `name`. */
+const createsRole = (statements: ReadonlyArray<SqlStatement>, name: string): boolean =>
+	Arr.some(statements, (s) => s.kind === "createRole" && s.name === name)
+
+/** Whether a plan drops the role `name`. */
+const dropsRole = (statements: ReadonlyArray<SqlStatement>, name: string): boolean =>
+	Arr.some(statements, (s) => s.kind === "drop" && s.object === "ROLE" && s.name === name)
+
 /** The table of a relation name, through the naming door. */
 const tableOf = (n: Name): string => identifierOf(identity.table(parsedName(upper(n))))
 
-const judge = (box: Box, note: (feature: Feature) => void): void => {
-	for (const op of box.operations) {
-		note(`${box.dimension} ${op.kind}`)
-	}
-	const previous = previousOf(box.dimension)
-	const target = Arr.reduce(box.operations, start, after)
-	const drafted = draft(
-		previous,
-		descOf(box.dimension, target),
-		declarationsOf(box),
-		rosterRenamesOf(box)
-	)
-	const verdict = verdictOf(box)
-	note(`${box.dimension} ${verdict.kind}`)
+/** The role of a login name, through the naming door. */
+const roleOf = (n: Name): string =>
+	identifierOf(identity.login(identity.schema(parsedSchemaName("Renames")), parsedName(n)))
+
+/** A track's accepted draft against the model. */
+const judgeTrack = (
+	box: Box,
+	t: Track,
+	previous: DeploySnapshot,
+	snapshot: DeploySnapshot,
+	statements: ReadonlyArray<SqlStatement>
+): void => {
 	const at = Formatter.format(box)
-	if (verdict.kind !== "accepted") {
-		if (Result.isSuccess(drafted)) {
-			return assert.fail(`${at}: the model refuses it, ${verdict.kind}, and the draft drafts`)
-		}
-		const reason = drafted.failure.reason
-		switch (verdict.kind) {
-			case "undeclared":
-				assert.equal(reason._tag, "UndeclaredDrop", `${at}: refused as an undeclared drop`)
-				if (reason._tag === "UndeclaredDrop") {
-					assert.deepEqual(
-						reason.dropped,
-						namedOf(box.dimension, verdict.name),
-						`${at}: naming the first`
-					)
-				}
-				return
-			case "unsupported":
-			case "reordered":
-				assert.equal(reason._tag, "UnsupportedOperation", `${at}: refused as unsupported`)
-				return
-		}
-	}
-	if (Result.isFailure(drafted)) {
-		return assert.fail(`${at}: a fully declared draft drafts: ${drafted.failure.message}`)
-	}
-	const { snapshot, plan } = drafted.success
-	const statements = statementsOf(plan.steps)
-	switch (box.dimension) {
+	const target = targetOf(t)
+	switch (t.dimension) {
 		case "relation": {
 			const relations = Arr.sort(Rec.keys(snapshot.theory.relations), Order.String)
+			const doc = Arr.some(tracksOf(box), (x) => x.dimension === "login") ? ["Doc"] : []
 			assert.deepEqual(
 				relations,
-				Arr.sort(Arr.map(target, upper), Order.String),
-				"the snapshot holds the target's relations"
+				Arr.sort([...Arr.map(target, upper), ...doc], Order.String),
+				`${at}: the snapshot holds the target's relations`
 			)
-			for (const op of box.operations) {
+			for (const op of t.operations) {
 				if (op.kind === "rename" && op.declared) {
 					assert.equal(
 						renamedThrough(statements, tableOf(op.from)),
 						tableOf(op.to),
-						`${Formatter.format(box)}: the renames take ${op.from}'s table to ${op.to}'s`
+						`${at}: the renames take ${op.from}'s table to ${op.to}'s`
 					)
 				}
 			}
@@ -432,14 +536,14 @@ const judge = (box: Box, note: (feature: Feature) => void): void => {
 						)
 					: [],
 				Arr.sort(["id", ...target], Order.String),
-				"the snapshot holds the target's fields"
+				`${at}: the snapshot holds the target's fields`
 			)
 			return
 		}
 		case "handle": {
 			const was = codebookOf(previous).rosters.get(parsedName("R"))?.codes ?? []
 			const now = codebookOf(snapshot).rosters.get(parsedName("R"))?.codes ?? []
-			for (const op of box.operations) {
+			for (const op of t.operations) {
 				if (op.kind !== "rename" || !op.declared) {
 					continue
 				}
@@ -450,11 +554,106 @@ const judge = (box: Box, note: (feature: Feature) => void): void => {
 				assert.deepEqual(
 					Option.flatMap(code, (i) => Option.fromUndefinedOr(now[i])),
 					Option.some<CodeSlot>({ kind: "live", handle: op.to }),
-					"a renamed handle keeps its code"
+					`${at}: a renamed handle keeps its code`
 				)
 			}
 			return
 		}
+		case "login": {
+			assert.deepEqual(
+				Arr.sort(Rec.keys(snapshot.logins), Order.String),
+				Arr.sort(target, Order.String),
+				`${at}: the snapshot holds the target's logins`
+			)
+			const renames = declaredRenames(t)
+			const taken = takenNames(t)
+			/** The target's logins a previous one stands as, renamed or kept. */
+			const standing = new Set<Name>()
+			for (const n of start) {
+				const to = renames.get(n)
+				const kept = to === undefined && Arr.contains(target, n) && !taken.has(n)
+				if (to !== undefined || kept) {
+					const into = to ?? n
+					standing.add(into)
+					assert.equal(
+						roleThrough(statements, roleOf(n)),
+						roleOf(into),
+						`${at}: ${n}'s role stands as ${into}'s`
+					)
+					assert.ok(
+						!createsRole(statements, roleOf(into)) && !dropsRole(statements, roleOf(into)),
+						`${at}: ${into}'s role is neither created nor dropped`
+					)
+				} else {
+					assert.ok(
+						dropsRole(statements, roleThrough(statements, roleOf(n))),
+						`${at}: the dropped ${n}'s role is dropped`
+					)
+				}
+			}
+			for (const m of target) {
+				if (!standing.has(m)) {
+					assert.ok(createsRole(statements, roleOf(m)), `${at}: the new ${m}'s role is created`)
+				}
+			}
+			return
+		}
+	}
+}
+
+const judge = (box: Box, note: (feature: Feature) => void): void => {
+	for (const t of box.tracks) {
+		for (const op of t.operations) {
+			note(`${t.dimension} ${op.kind}`)
+		}
+		if (t.dimension !== "handle" && takenNames(t).size > 0) {
+			note(`${t.dimension} taken`)
+		}
+	}
+	const previous = previousOf(box)
+	const drafted = draft(
+		previous,
+		subjectOf(box, "target"),
+		declarationsOf(box),
+		rosterRenamesOf(box)
+	)
+	const verdict = verdictOf(box)
+	const [only, second] = box.tracks
+	note(
+		second === undefined
+			? `${only.dimension} ${verdict.kind}`
+			: `login and relation ${verdict.kind}`
+	)
+	const at = Formatter.format(box)
+	if (verdict.kind !== "accepted") {
+		if (Result.isSuccess(drafted)) {
+			return assert.fail(`${at}: the model refuses it, ${verdict.kind}, and the draft drafts`)
+		}
+		const reason = drafted.failure.reason
+		switch (verdict.kind) {
+			case "undeclared":
+				assert.equal(reason._tag, "UndeclaredDrop", `${at}: refused as an undeclared drop`)
+				if (reason._tag === "UndeclaredDrop") {
+					assert.deepEqual(
+						reason.dropped,
+						namedOf(verdict.dimension, verdict.name),
+						`${at}: naming the first`
+					)
+				}
+				return
+			case "unsupported":
+			case "reordered":
+				assert.equal(reason._tag, "UnsupportedOperation", `${at}: refused as unsupported`)
+				return
+		}
+	}
+	if (Result.isFailure(drafted)) {
+		return assert.fail(`${at}: a fully declared draft drafts: ${drafted.failure.message}`)
+	}
+	const { snapshot, plan } = drafted.success
+	const statements = statementsOf(plan.steps)
+	for (const t of box.tracks) {
+		judgeTrack(box, t, previous, snapshot, statements)
 	}
 }
 
@@ -470,7 +669,7 @@ describe("declared renames and drops", () => {
 						generator: boxGen,
 						literal: Formatter.format,
 						limit: 4_000,
-						box: "every one or two operations (a rename, a drop, an addition, each rename and drop declared or not) over the names a, b, c, from a and b, on relations, on one relation's fields and on a roster's handles",
+						box: "every one or two operations (a rename, a drop, an addition, each rename and drop declared or not) over the names a, b, c, from a and b, on relations, on one relation's fields, on a roster's handles and on logins, and every one operation on relations beside one or two on logins",
 						oracle: {
 							kind: "second-implementation",
 							name: "a model of declared identities predicting the target's names and every verdict"

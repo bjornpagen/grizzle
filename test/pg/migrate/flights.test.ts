@@ -13,13 +13,14 @@ import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { draftChain, fromEmpty, ownedBy } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty, noDeclarations, ownedBy } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { queryTexts, type Tapped, tappedSession } from "#test/support/wire-tap.ts"
-import { shopV1, shopV2, shopV3 } from "#test/unit/deploy/schemas.ts"
+import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 /** Every step of `grizzle migrate` is one flight, counted on the protocol through the tap.
  *
@@ -34,7 +35,11 @@ import { shopV1, shopV2, shopV3 } from "#test/unit/deploy/schemas.ts"
  * (none at all: the empty snapshot, with no ledger yet), then whole, then again with nothing pending: each apply's
  * round trips are exactly the steps its report says it ran, and each drift check run alone after it is one round trip
  * framed by its BEGIN and ROLLBACK. */
-const versions = [shopV1, shopV2, shopV3] as const
+const versions = [
+	[shopV1, noDeclarations],
+	[shopV2, noDeclarations],
+	[shopV3, shopV3Declared]
+] as const
 
 /** A history of `versions` folders, applied first up to folder `split` (0: none, the empty snapshot), then whole. */
 interface History {
@@ -160,9 +165,18 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 								password: substrate.owner.password
 							})
 							const m = migrationSession(tapped.session)
-							const over = { schema: atName(allocated), owner: ownedBy(owner), extensions: [] }
+							const over = {
+								schema: atName(allocated),
+								owner: ownedBy(owner),
+								extensions: [],
+								codes: firstCodes
+							}
 							const folders: ReadonlyArray<GenerateResult> = draftChain(
-								Arr.map(versions.slice(0, history.versions), (desc) => ({ desc, options: over })),
+								Arr.map(versions.slice(0, history.versions), ([desc, declared]) => ({
+									desc,
+									options: over,
+									declared
+								})),
 								fromEmpty
 							)
 							const sources = Arr.map(folders, (g) => reviewedSource(g, kept))

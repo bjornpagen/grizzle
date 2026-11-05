@@ -5,7 +5,7 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
@@ -154,9 +154,9 @@ const requestGen: Gen<RequestSketch> = (source) => {
 const theoryRelations = lawNamesOf(Indexed).model.theory.relations
 const fieldColumn = (relation: string, field: string): NativeColumn => ({
 	kind: "field",
-	field: defined(
-		defined(theoryRelations[relation], relation).fields.find((f) => f.name === field),
-		`${relation}.${field}`
+	field: Option.getOrThrowWith(
+		Arr.findFirst(defined(theoryRelations[relation], relation).fields, (f) => f.name === field),
+		() => new Error(`${relation}.${field} is no field of Indexed's theory`)
 	)
 })
 

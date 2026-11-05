@@ -27,6 +27,7 @@ import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import { nodesByLabel, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
@@ -58,7 +59,7 @@ import { assert, refusalLoc } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
-import { strictRead } from "#test/support/kernel/strict.ts"
+import { strictReader } from "#test/support/kernel/strict.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 import { messageOf } from "#test/support/message.ts"
 import { canonicalCell } from "#test/support/oracle/compare.ts"
@@ -373,12 +374,13 @@ const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
  */
 const callerInput = (
 	type: ScalarType,
-	literal: TypedLiteral
+	literal: TypedLiteral,
+	codes: Codebook
 ): { readonly value: unknown; readonly text: string } => {
-	const codec = scalarCodec(type)
+	const codec = scalarCodec(type, codes)
 	const of = (value: unknown) => ({ value, text: codec.text(value) })
-	const text = inputText(literal)
-	const value = strictRead(type, text)
+	const text = inputText(literal, type, codes)
+	const value = strictReader(type, codes)(text)
 	if (Result.isSuccess(value)) {
 		return of(value.success)
 	}
@@ -398,11 +400,11 @@ const isFloatZero = (literal: TypedLiteral): boolean =>
  * The case's parameters as a caller passes them: scalars as host values, relation parameters as arrays of facts, each
  * float zero among their rows as -0 where the case passes it so.
  */
-const hostParams = (o: OrderedCase): Readonly<Record<string, unknown>> =>
+const hostParams = (o: OrderedCase, codes: Codebook): Readonly<Record<string, unknown>> =>
 	Rec.fromEntries(
 		Arr.map(Rec.toEntries(o.c.query.params), ([name, p]) => {
 			if (p.kind === "scalar") {
-				return [name, callerInput(p.type, p.value).value]
+				return [name, callerInput(p.type, p.value, codes).value]
 			}
 			return [
 				name,
@@ -412,7 +414,9 @@ const hostParams = (o: OrderedCase): Readonly<Record<string, unknown>> =>
 							const literal = defined(row[i], "parameter column")
 							return [
 								h.name,
-								o.negativeZero && isFloatZero(literal) ? -0 : callerInput(h.type, literal).value
+								o.negativeZero && isFloatZero(literal)
+									? -0
+									: callerInput(h.type, literal, codes).value
 							]
 						})
 					)
@@ -422,10 +426,14 @@ const hostParams = (o: OrderedCase): Readonly<Record<string, unknown>> =>
 	)
 
 /** A placeholder's text from the caller's parameter values, for D's conservative statements. */
-const slotText = (c: QueryCase, slot: ConservativeStatement["params"][number]): string => {
+const slotText = (
+	c: QueryCase,
+	slot: ConservativeStatement["params"][number],
+	codes: Codebook
+): string => {
 	const p = c.query.params[slot.param]
 	if (slot.kind === "scalar" && p?.kind === "scalar") {
-		return callerInput(p.type, p.value).text
+		return callerInput(p.type, p.value, codes).text
 	}
 	if (slot.kind === "relation" && p?.kind === "relation") {
 		const index = Arr.map(slot.columns, (col) =>
@@ -437,7 +445,7 @@ const slotText = (c: QueryCase, slot: ConservativeStatement["params"][number]): 
 		const texts = Arr.map(p.rows, (row) =>
 			Arr.map(index, (at) => {
 				const type = defined(p.heading[at], "parameter column").type
-				return callerInput(type, defined(row[at], "column")).text
+				return callerInput(type, defined(row[at], "column"), codes).text
 			})
 		)
 		const arrays = arrayTexts(
@@ -466,8 +474,12 @@ const run =
  * Rows on `heading` as values: each cell its column type's canonical text (oracle/compare.ts canonicalCell), so two
  * spellings of one value, which two statements' deduplications may keep differently, read alike.
  */
-const valueRows = (heading: Heading, rows: ReadonlyArray<Row>): ReadonlyArray<Row> => {
-	const cells = Arr.map(heading, (c) => canonicalCell(c.type))
+const valueRows = (
+	heading: Heading,
+	rows: ReadonlyArray<Row>,
+	codes: Codebook
+): ReadonlyArray<Row> => {
+	const cells = Arr.map(heading, (c) => canonicalCell(c.type, codes))
 	return Arr.map(rows, (row) =>
 		Arr.map(cells, (cell, i) => cell(defined(row[i], `column ${i} of a delivered row`)))
 	)
@@ -492,11 +504,12 @@ const fullResult = (
 	o: OrderedCase,
 	query: LogicalQuery,
 	template: PageTemplate,
-	statements: ReadonlyArray<OptimizedStatement>
+	statements: ReadonlyArray<OptimizedStatement>,
+	codes: Codebook
 ): Effect.Effect<Full, SqlError> =>
 	Effect.gen(function* () {
 		const specs = Arr.map(statements, (s) => {
-			const spec = statementSpec(s, declaredSlotOf)
+			const spec = statementSpec(s, declaredSlotOf(codes))
 			if (!spec.ok) {
 				throw new Error(spec.error.message)
 			}
@@ -504,7 +517,7 @@ const fullResult = (
 		})
 		const raws: Array<ReadonlyArray<Row>> = []
 		for (const [i, statement] of statements.entries()) {
-			const values = Arr.map(statement.params, (slot) => slotText(o.c, slot))
+			const values = Arr.map(statement.params, (slot) => slotText(o.c, slot, codes))
 			const raw = yield* run(session)(defined(specs[i], "statement").sql, values)
 			raws.push(raw)
 		}
@@ -531,7 +544,7 @@ const fullResult = (
 		for (const c of heading) {
 			types[c.name] = c.type
 		}
-		const compare = mergeComparator({ order: template.order, types })
+		const compare = mergeComparator({ order: template.order, types, codes })
 		if (!compare.ok) {
 			throw new Error(compare.error.message)
 		}
@@ -540,7 +553,7 @@ const fullResult = (
 			throw new Error("an ordered result")
 		}
 		const rootOrder = rootNode.order
-		const compareRoot = mergeComparator({ order: rootOrder, types })
+		const compareRoot = mergeComparator({ order: rootOrder, types, codes })
 		if (!compareRoot.ok) {
 			throw new Error(compareRoot.error.message)
 		}
@@ -555,7 +568,7 @@ const fullResult = (
 			Arr.sort(
 				Arr.map(g.rows, (row): Decoded => ({
 					row: project(g.spec, row),
-					value: headingRecord(g.spec.heading)(row)
+					value: headingRecord(g.spec.heading, codes)(row)
 				})),
 				pageOrder
 			)
@@ -582,7 +595,8 @@ const fullResult = (
 		return {
 			rows: valueRows(
 				heading,
-				Arr.map(merged, (m) => m.row.row)
+				Arr.map(merged, (m) => m.row.row),
+				codes
 			),
 			attachments
 		}
@@ -680,14 +694,15 @@ const pager =
 		runtime: PageRuntime,
 		artifact: PageArtifactName,
 		send: <A>(flight: Flight<A, UnreadableAnswer>) => Effect.Effect<A, ReadError>,
-		params: Readonly<Record<string, unknown>>
+		params: Readonly<Record<string, unknown>>,
+		codes: Codebook
 	) =>
 	(request: PageRequest): Effect.Effect<Paged, ReadError | CursorError> =>
 		Effect.gen(function* () {
 			const variant = request.variant
 			const inputs = yield* Effect.fromResult(
 				Result.mapError(
-					executionInputs(paramCodecs(runtime.params), params),
+					executionInputs(paramCodecs(runtime.params, codes), params),
 					(reason) => new ReadFailure({ reason })
 				)
 			)
@@ -708,7 +723,7 @@ const pager =
 			)
 			/** The page's nodes, which this suite compares by their texts, read as their Rows. */
 			const page = yield* Effect.fromResult(pageOf(runtime, rows, (row) => row))
-			assertWithinBound(runtime, rows, page)
+			assertWithinBound(runtime, rows, page, codes)
 			const records = runtime.artifacts[artifact].requests[variant].records
 			const delivered = valueRows(
 				runtime.page.heading,
@@ -725,7 +740,8 @@ const pager =
 							c.name
 						)
 					)
-				})
+				}),
+				codes
 			)
 			const attached: Array<Attached> = []
 			let expected = Option.isSome(rows.probe) ? 1 : 0
@@ -784,7 +800,8 @@ const pager =
 const assertWithinBound = (
 	runtime: PageRuntime,
 	rows: PageRows,
-	page: Page<unknown, unknown>
+	page: Page<unknown, unknown>,
+	codes: Codebook
 ): void => {
 	const edges = page.edges
 	if (!Arr.isReadonlyArrayNonEmpty(edges)) {
@@ -801,7 +818,8 @@ const assertWithinBound = (
 				comparators: runtime.page.comparators,
 				generation: runtime.identity.generation
 			},
-			maxLength
+			maxLength,
+			codes
 		)
 	const tight = under(longest)
 	if (!tight.ok) {
@@ -828,7 +846,7 @@ const assertWithinBound = (
  * to a parent delivered on that page, never to the dropped lookahead row or a row of another page, and each delivered
  * parent's children are exactly D's children of that parent key, with no duplicate and no omission. The attachment
  * statement keeps each (parent key, child) once (shapes/attach pipelinedAttachment), so a parent key's children are
- * the same multiset on a page as in D's attachment statement.
+ * the same set on a page as in D's attachment statement.
  */
 const checkAttachments = (label: string, p: Paged, full: Full): void => {
 	for (const [a, attached] of p.attached.entries()) {
@@ -1153,6 +1171,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				return yield* Effect.die(new Error(facts.error.message))
 			}
 			const names = plan.installation.names
+			const codes = names.codes
 			const conservative = lowerConservative(conservativeInput(query), {
 				names,
 				params: query.params,
@@ -1211,6 +1230,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 			const runtime = pageRuntimeOf({
 				page: template,
 				params: query.params,
+				codes,
 				query: `generated ${Formatter.format(ordered.stated)} ${o.c.query.dag.roots[0].id}`,
 				generation: { schema: schema, extensions: {} },
 				/**
@@ -1234,7 +1254,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 					report: `page runtime template: ${runtime.failure.message}\n${printCase(o)}`
 				})
 			}
-			const params = hostParams(o)
+			const params = hostParams(o, codes)
 			yield* Effect.scoped(
 				Effect.gen(function* () {
 					const session = yield* s.admin.pin
@@ -1259,7 +1279,8 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						o,
 						query,
 						template,
-						flight(deliveredAsOptimized(conservative.value).roots)
+						flight(deliveredAsOptimized(conservative.value).roots),
+						codes
 					).pipe(
 						Effect.catchDefect((defect) =>
 							defect instanceof Skip ? Effect.void : Effect.die(defect)
@@ -1286,7 +1307,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 					}
 					yield* checkRuntime(
 						artifact,
-						pager(runtime.success, artifact, flightOn(session), params),
+						pager(runtime.success, artifact, flightOn(session), params, codes),
 						full,
 						c.note,
 						sizes

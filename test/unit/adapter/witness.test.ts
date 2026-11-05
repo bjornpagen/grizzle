@@ -157,11 +157,15 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 			assert.ok(asRefusal?.kind === "rejected" && asRefusal.witness.kind === "key")
 			assert.ok(Object.isFrozen(asRefusal.witness), "the witness is frozen")
 			assert.ok(Object.isFrozen(asRefusal.witness.values), "its key's values are frozen")
-			/** No DETAIL, or one under no tag of grizzle's (a foreign trigger's), is no law outcome. */
-			assert.equal(workWitness.classify(serverError(raised), []), undefined)
+			assert.equal(
+				workWitness.classify(serverError(raised), []),
+				undefined,
+				"no DETAIL is no law outcome"
+			)
 			assert.equal(
 				workWitness.classify(serverError({ ...raised, detail: `["Task","${t7}"]` }), []),
-				undefined
+				undefined,
+				"a DETAIL under no tag of grizzle's, a foreign trigger's, is no law outcome"
 			)
 		})
 

@@ -27,10 +27,10 @@ import type {
 	SqlStatement,
 	TableConstraint,
 	Target,
+	TypeRef,
 	Update,
 	WindowSpec
 } from "#compiler/sql/ast.ts"
-import { builtinFunctionNames } from "#compiler/sql/ast.ts"
 import {
 	and,
 	asc,
@@ -72,9 +72,9 @@ import { type auditStatementViolations, isUnitRead } from "#test/support/oracle/
  * dollar markers inside strings) are drawn by the statement generator itself.
  *
  * Some rules no statement break reaches, because the types make the case unrepresentable and the persisted statement
- * schema (adapter/boundary/sql.ts) admits nothing the types do not: the statement audit's "function", "coalesce" and "nullif"
- * rules (FunctionRef names only the catalogue) and a COLLATE other than pg_catalog.pg_c_utf8 (Collation is that one
- * constant). The text audit's "coalesce", "nullif" and "collation" breaks below reach their printed forms.
+ * schema (adapter/boundary/sql.ts) admits nothing the types do not: the statement audit's "function" rule (FunctionRef
+ * names only the catalogue) and a COLLATE other than pg_catalog.pg_c_utf8 (Collation is that one constant). The text
+ * audit's "collation" break below reaches its printed form.
  *
  * A rule of either audit, as a violation names it.
  */
@@ -90,8 +90,6 @@ export const auditRuleReason: {
 	function: "UnsupportedOperation",
 	collation: "UnsupportedOperation",
 	null: "UnsupportedOperation",
-	nullif: "UnsupportedOperation",
-	coalesce: "UnsupportedOperation",
 	outerJoin: "UnsupportedOperation",
 	selectStar: "UnsupportedOperation",
 	skipLocked: "UnsupportedOperation",
@@ -597,9 +595,14 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 		case "not":
 		case "isTrue":
 		case "inQuery":
+		case "complement":
 			return holdsNullOnEmpty(e.expr)
 		case "binary":
 			return any([e.left, e.right])
+		case "nullif":
+			return any([e.expr, e.absent])
+		case "subscript":
+			return any([e.array, e.index])
 		case "and":
 		case "or":
 		case "greatest":
@@ -635,6 +638,10 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 			return false
 	}
 }
+
+/** A type's array, where the AST states one: bit(n) has none. */
+const arrayTypes = (type: TypeRef): ReadonlyArray<TypeRef> =>
+	type.kind === "builtin" && type.name === "bit" ? [] : [{ ...type, array: true }]
 
 const aliasNearMisses = ["v1", "r01", "R1", "r1a", "r-1", "c1", "r"] as const
 
@@ -892,24 +899,13 @@ const requiredBreakTable = breakTable([
 		}
 	},
 	{
-		name: "an enum label declared twice",
-		rule: "columnList",
-		holes: {
-			...noHoles,
-			statement: (s) =>
-				s.kind === "createEnum" && s.labels.length > 0
-					? [{ ...s, labels: [...s.labels, ...s.labels.slice(0, 1)] }]
-					: []
-		}
-	},
-	{
 		name: "a scalar literal typed as an array",
 		rule: "literal",
 		holes: {
 			...noHoles,
 			expr: (e) =>
 				e.kind === "literal" && e.value.kind !== "text" && !printsQuoted(e.value) && !e.type.array
-					? [{ ...e, type: { ...e.type, array: true } }]
+					? Arr.map(arrayTypes(e.type), (type) => ({ ...e, type }))
 					: []
 		}
 	},
@@ -920,7 +916,7 @@ const requiredBreakTable = breakTable([
 			...noHoles,
 			expr: (e) =>
 				e.kind === "literal" && e.value.kind !== "text" && printsQuoted(e.value) && !e.type.array
-					? [{ ...e, type: { ...e.type, array: true } }]
+					? Arr.map(arrayTypes(e.type), (type) => ({ ...e, type }))
 					: []
 		}
 	},
@@ -1471,11 +1467,6 @@ const requiredBreakTable = breakTable([
 		}
 	},
 	{
-		name: "an enum without labels",
-		rule: "arity",
-		holes: { ...noHoles, statement: (s) => (s.kind === "createEnum" ? [{ ...s, labels: [] }] : []) }
-	},
-	{
 		name: "LEAD or LAG without its default",
 		rule: "null",
 		holes: {
@@ -1976,7 +1967,6 @@ const tokensOf = (text: string): ReadonlyArray<Token> => lex(text).tokens
 const word = (t: Token | undefined): string | undefined =>
 	t?.kind === "word" ? t.upper : undefined
 const isPunct = (t: Token | undefined, p: string): boolean => t?.kind === "punct" && t.text === p
-const isStar = (t: Token | undefined): boolean => t?.kind === "operator" && t.text === "*"
 
 /**
  * What a statement is, by its first words, as the discipline's exceptions name it: table DDL, whose column
@@ -2049,33 +2039,11 @@ const appended =
 	(text: string): ReadonlyArray<string> =>
 		applies(tokensOf(text)) ? [`${text}\n${suffix}`] : []
 
-const functionNames: ReadonlySet<string> = new Set(builtinFunctionNames)
-
 /** Where a part of a text lies: from its first character up to, not including, `end`. */
 interface Span {
 	readonly start: number
 	readonly end: number
 }
-
-/**
- * A builtin function's name as the printer spells it, `"pg_catalog"."<name>"`, before its argument list, other than
- * count(*): the span from its schema to its "(".
- */
-const callNames = (tokens: ReadonlyArray<Token>): ReadonlyArray<Span> =>
-	Arr.flatMap(tokens, (t, i) => {
-		const name = tokens[i + 2]
-		const open = tokens[i + 3]
-		return t.kind === "quotedIdent" &&
-			t.text === "pg_catalog" &&
-			isPunct(tokens[i + 1], ".") &&
-			name?.kind === "quotedIdent" &&
-			functionNames.has(name.text) &&
-			open !== undefined &&
-			isPunct(open, "(") &&
-			!isStar(tokens[i + 4])
-			? [{ start: t.start, end: open.start }]
-			: []
-	})
 
 /** Whether the token at `at` is pg_catalog's `name`, as the printer qualifies it: `"pg_catalog"."<name>"`. */
 const isCatalogName = (tokens: ReadonlyArray<Token>, at: number, name: string): boolean => {
@@ -2181,25 +2149,6 @@ export const textBreaks: Arr.NonEmptyReadonlyArray<TextBreak> = [
 						: []
 				)
 			})
-		}
-	},
-	{
-		name: "an enum label after IF NOT and a word other than EXISTS",
-		rule: "untypedLiteral",
-		variants: (text) => {
-			const tokens = tokensOf(text)
-			if (word(tokens[0]) !== "ALTER" || word(tokens[1]) !== "TYPE") {
-				return []
-			}
-			return Arr.flatMap(tokens, (t, i) =>
-				t.kind === "word" &&
-				t.upper === "EXISTS" &&
-				word(tokens[i - 1]) === "NOT" &&
-				word(tokens[i - 2]) === "IF" &&
-				tokens[i + 1]?.kind === "string"
-					? [replaceWord(text, t, "FOUND")]
-					: []
-			)
 		}
 	},
 	{
@@ -2416,22 +2365,6 @@ export const textBreaks: Arr.NonEmptyReadonlyArray<TextBreak> = [
 					: []
 			})
 		}
-	},
-	{
-		name: "a builtin call renamed COALESCE",
-		rule: "coalesce",
-		variants: (text) =>
-			Arr.flatMap(callNames(tokensOf(text)), (span) =>
-				Arr.map(["COALESCE", "coalesce", "Coalesce"], (by) => replaceSpan(text, span, by))
-			)
-	},
-	{
-		name: "a builtin call renamed NULLIF",
-		rule: "nullif",
-		variants: (text) =>
-			Arr.flatMap(callNames(tokensOf(text)), (span) =>
-				Arr.map(["NULLIF", "nullif"], (by) => replaceSpan(text, span, by))
-			)
 	},
 	{
 		name: "a NULL test spelled in any of its forms",

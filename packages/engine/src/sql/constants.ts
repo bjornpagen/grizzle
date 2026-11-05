@@ -1,15 +1,6 @@
 import { defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type {
-	AlterDomain,
-	CreateConstant,
-	DomainConstraint,
-	DropFunction,
-	Expr,
-	ObjectName,
-	PackConstant,
-	PackRow
-} from "#compiler/sql/ast.ts"
+import type { Expr, ObjectName, PackConstant, PackRow } from "#compiler/sql/ast.ts"
 import { binary, call, cast, eq, gt, lit, qualifiedCall, types } from "#compiler/sql/build.ts"
 
 /**
@@ -106,21 +97,6 @@ export const payloadDigit = (
 		: binary("%", shifted, int(defined(radices[position], "a payload coordinate's radix")))
 }
 
-/**
- * An open-typed payload, read through the dictionary D of its values in code order: (D())[cell]. Arrays count from 1, so
- * cell 1 + c is D's value for code c, and cell 0, absent, is NULL.
- */
-export const payloadAt = (
-	dictionary: ObjectName,
-	constant: ObjectName,
-	index: Expr,
-	width: number
-): Expr => ({
-	kind: "subscript",
-	array: constantValue(dictionary),
-	index: cellCode(constant, index, width)
-})
-
 /** A code's name, read from its roster's names constant: (names())[code + 1]::text, a hole the empty name. */
 export const nameOf = (names: ObjectName, code: Expr): Expr =>
 	cast({ kind: "subscript", array: constantValue(names), index: plus(code, int(1)) }, types.text)
@@ -137,28 +113,3 @@ export const pack = (
 	width: number,
 	rows: ReadonlyArray<PackRow>
 ): PackConstant => ({ kind: "packConstant", function: fn, radices, width, rows })
-
-/** The drop of a created constant, by the signature it was created with. */
-export const dropOf = (created: CreateConstant): DropFunction => ({
-	kind: "dropFunction",
-	name: { ...created.name, args: created.params.map((p) => p.type) },
-	ifExists: false
-})
-
-/**
- * A domain re-pointed at a new constant, its check keeping its name: the old check dropped, the new one added NOT VALID,
- * then validated. VALIDATE reads every column of the domain's type, which PostgreSQL finds itself, and names the table
- * and column of a value the new constant refuses.
- */
-export const repoint = (
-	domain: ObjectName,
-	check: DomainConstraint
-): readonly [AlterDomain, AlterDomain, AlterDomain] => [
-	{ kind: "alterDomain", name: domain, action: { kind: "dropConstraint", name: check.name } },
-	{
-		kind: "alterDomain",
-		name: domain,
-		action: { kind: "addConstraint", constraint: check, notValid: true }
-	},
-	{ kind: "alterDomain", name: domain, action: { kind: "validateConstraint", name: check.name } }
-]

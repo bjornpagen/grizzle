@@ -20,7 +20,7 @@ export type InstalledFunction =
 	| { readonly kind: "closedConstant" }
 
 /** What a trigger of the installation is: the isolation guard every table carries, the one trigger grizzle installs. */
-export const installedTriggers = ["isolation"] as const
+const installedTriggers = ["isolation"] as const
 
 export type InstalledTrigger = (typeof installedTriggers)[number]
 

@@ -29,9 +29,11 @@ type VectorBuffer<N extends number = number> = Float32Array & { readonly [phanto
  * The Vector carrier of pg.vector(n).
  *
  * A Vector<N> is a Float32Array: an Effect brand (by nominal, unchecked) plus the dimension tag N, with no wrapper
- * class and no copy. `Vector.make(buffer, n)` checks the buffer's length against the dimension count and returns the
- * same buffer, branded; mutating the buffer afterwards is the caller's business, and every boundary that reads a
- * vector reads its components as they are at that moment. A Float32Array's components are binary32 values by
+ * class. `Vector.make(buffer, n)` checks the buffer's length against the dimension count and returns the same
+ * buffer, branded; mutating the buffer afterwards is the caller's business. Every boundary that admits a vector, the
+ * codec's and a literal's, copies its components once into a plain Float32Array grizzle alone holds, through the typed
+ * array's internal slots, so a subclass's methods and a later write to the caller's buffer reach no admitted value:
+ * the identity, the checks and every row text read that copy. A Float32Array's components are binary32 values by
  * construction, so there is no rounding here: a JavaScript number becomes a component through the typed array's own
  * conversion, which the caller performs. The tag N is an equality-only phantom: a Vector<1536> is not a Vector<768>,
  * and the runtime checks the length. There is no number[] anywhere in the vector API.
@@ -89,14 +91,15 @@ const nonFinite = (buffer: Float32Array): ValueFault | undefined => {
 const componentTextOf = (x: number): string => (x === 0 ? "0" : String(x))
 
 /**
- * The shape check: `buffer` is a Float32Array of exactly `dimensions` components, 1..vectorMaxDimensions. The buffer
- * is returned branded, never copied. A JavaScript caller can pass anything, so both arguments are checked. Reading the
- * buffer can run the caller's code (instanceof runs a proxy's getPrototypeOf trap), so it is read once through
- * hostRead, and a value whose reading throws is refused as no vector.
+ * The shape check over a buffer as `read` takes it: `buffer` is a Float32Array of exactly `dimensions` components,
+ * 1..vectorMaxDimensions. A JavaScript caller can pass anything, so both arguments are checked. Reading the buffer can
+ * run the caller's code (instanceof runs a proxy's getPrototypeOf trap), so it is read once through hostRead, and a
+ * value whose reading throws is refused as no vector.
  */
-const admit = <const N extends number>(
+const shaped = <const N extends number>(
 	buffer: unknown,
-	dimensions: N
+	dimensions: N,
+	read: (buffer: Float32Array) => Float32Array
 ): Result.Result<Vector<N>, ValueFault> =>
 	hostRead("vectorType", (): Result.Result<Vector<N>, ValueFault> => {
 		if (!isDimensions(dimensions)) {
@@ -105,21 +108,42 @@ const admit = <const N extends number>(
 		if (!(buffer instanceof Float32Array)) {
 			return Result.err("vectorType")
 		}
-		if (buffer.length !== dimensions) {
+		const held = read(buffer)
+		if (held.length !== dimensions) {
 			return Result.err("vectorDimensions")
 		}
-		return Result.ok(brand(buffer))
+		return Result.ok(brand(held))
 	})
 
 /**
+ * A fresh plain Float32Array of `buffer`'s components. The typed array constructor reads a typed array argument through
+ * its internal slots, never through its methods or its iterator, so what a subclass overrides is never called and the
+ * copy holds the components the buffer holds now.
+ */
+const copied = (buffer: Float32Array): Float32Array => new Float32Array(buffer)
+
+/** The buffer itself. */
+const same = (buffer: Float32Array): Float32Array => buffer
+
+/**
+ * The admission of a buffer: the shape check, then a copy grizzle alone holds (copied), so the admitted vector is what
+ * the buffer held at admission and nothing the caller does later, or a subclass does at any time, reaches it.
+ */
+const admit = <const N extends number>(
+	buffer: unknown,
+	dimensions: N
+): Result.Result<Vector<N>, ValueFault> => shaped(buffer, dimensions, copied)
+
+/**
  * The strict constructor, the builders' throwing convenience: `Vector.make(buffer, 1536)` is a
- * Vector<1536>. It checks the length, never the components or the cosine domain, and makes no defensive copy.
+ * Vector<1536>. It checks the length, never the components or the cosine domain, and returns the same buffer: every
+ * boundary that admits it copies it then (admit).
  */
 const make = <const N extends number>(
 	buffer: VectorBuffer<NoInfer<N>>,
 	dimensions: N
 ): Vector<N> => {
-	const made = admit(buffer, dimensions)
+	const made = shaped(buffer, dimensions, same)
 	if (!made.ok) {
 		throw faultError(made.error, SourceLoc("Vector literal", []))
 	}
@@ -147,8 +171,9 @@ const checkEncodable = (vector: Float32Array): ValueFault | undefined =>
 
 /**
  * The encode-time boundary, read from the buffer as it is now: a Float32Array of `dimensions` finite components whose
- * native norm lies in the cosine domain [cosineNormMin, cosineNormMax]. The buffer is returned branded, never copied
- * or normalized. The codec's admission (identity.ts) and `Vector.from` both run it.
+ * native norm lies in the cosine domain [cosineNormMin, cosineNormMax], copied at admission (admit) and checked on the
+ * copy, which is returned branded and never normalized. The codec's admission (identity.ts) and `Vector.from` both run
+ * it.
  */
 export const admitEncodable = <const N extends number>(
 	buffer: unknown,

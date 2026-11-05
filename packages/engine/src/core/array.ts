@@ -1,4 +1,3 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
 /**
  * Native list lookups whose absence is `undefined`, never the -1 sentinel Array.prototype.findIndex answers.
@@ -46,15 +45,4 @@ export const maxOf = (values: Iterable<number>, floor: number): number => {
 		}
 	}
 	return max
-}
-
-/** The smallest of `values`, at least one: Math.min over a list of any length. */
-export const minOf = (values: NonEmptyReadonlyArray<number>): number => {
-	let min = values[0]
-	for (const v of values) {
-		if (v < min) {
-			min = v
-		}
-	}
-	return min
 }

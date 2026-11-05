@@ -526,11 +526,32 @@ export interface Take<R extends RefKinds> extends NodeCommon<R> {
 	readonly correlation: ReadonlyArray<CorrelationOver<R["expr"]>>
 }
 
+/**
+ * What a fold reads: its complete bound tuple B and the proof that B holds a key of every fact its input matches, so
+ * the input holds exactly one row per value of B and each contribution is one keyed row, never one of a projection's
+ * repeats. The checker states it only when every match of the rule binds, by a variable, a parent variable or a
+ * constant, every field of one key of its source, and refuses the fold (FoldOverProjection) otherwise.
+ */
+export interface FoldInput {
+	/** B: every column of the input but the hidden equality variables, the bindings omitted from the head included. */
+	readonly columns: KeySet
+	/** Each matched fact the input reads, by its occurrence, with the key of its source whose every field B holds. */
+	readonly keyed: ReadonlyArray<KeyedOccurrence>
+}
+
+/**
+ * A matched fact a fold reads once: its occurrence and the key of its source the match binds whole, the empty key for
+ * a context's one fact and the whole heading for a source keyed by nothing narrower.
+ */
+export interface KeyedOccurrence {
+	readonly occurrence: OccurrenceId
+	readonly key: KeySet
+}
+
 export interface Group<R extends RefKinds> extends NodeCommon<R> {
 	readonly kind: "Group"
 	readonly input: R["node"]
-	/** The complete bound tuple B whose distinct values are the aggregate's contributions. */
-	readonly bound: KeySet
+	readonly bound: FoldInput
 	readonly keys: KeySet
 	readonly aggs: ReadonlyArray<AggregateSpecOver<R["expr"]>>
 }
@@ -685,8 +706,11 @@ export interface Identified {
 /**
  * The closed relational node family.
  *
- * One scoped DAG, not a SQL tree. Every node denotes a set of its complete heading under native
- * equality; no node is a bag. The family is closed: the 22 public kinds (Window and
+ * One scoped DAG, not a SQL tree. Every node denotes a set of tuples of its complete heading under native equality,
+ * keyed by that heading at least; every fragment its lowering emits delivers that set, without a duplicate elimination
+ * only where a proof says its rows are distinct or where it is the operand of the operator that makes it a set
+ * (sql/ast.ts SetCore). A fold reads each fact its input matches once, by a key (FoldInput). The family is closed: the
+ * 22 public kinds (Window and
  * OrderedSetAggregate are internal lowering nodes produced by R26-R31 and R41, never constructible from the public
  * surface), plus Delta, a ChangeSet's netted delta source for read-backs, and SelfRef, the single
  * feedback reference of a Recursive node, read only inside its step.

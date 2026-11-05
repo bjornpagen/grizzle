@@ -13,14 +13,9 @@ import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
-import {
-	type Action,
-	type Draft,
-	headOf,
-	type Offer,
-	type RelationStep
-} from "#compiler/deploy/diff/plan.ts"
+import type { Action, Declarations, Draft } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -31,7 +26,7 @@ import { executableQuery } from "#compiler/lower/template.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput, schemaArtifacts, schemaCatalog } from "#compiler/program/schema.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
+import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
 import { ledger } from "#test/pg/laws/alternatives/schemas.ts"
@@ -49,11 +44,19 @@ import * as queue from "#test/support/fixtures/ir/queue.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noHoles, oneHole, selectGen, statementGen } from "#test/support/kernel/sqlgen.ts"
-import { fromEmpty, fromSnapshot, generate, type Previous } from "#test/support/migrate/kit.ts"
+import {
+	type DeploySubject,
+	draftCodes,
+	fromEmpty,
+	fromSnapshot,
+	generate,
+	noDeclarations,
+	type Previous
+} from "#test/support/migrate/kit.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { oracleLogin } from "#test/support/oracle/install/real.ts"
 import {
 	closureRoot,
@@ -73,10 +76,12 @@ import { owning } from "#test/support/policy.ts"
 import {
 	books1,
 	books2,
+	books2Declared,
 	plainPlans,
 	shopV1,
 	shopV2,
 	shopV3,
+	shopV3Declared,
 	shopV4
 } from "#test/unit/deploy/schemas.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
@@ -216,11 +221,11 @@ const failure = (what: string, e: CompileError): Error =>
 	new Error(`${what} refused a generated case: ${e.message}`)
 
 /**
- * A schema's complete installation, as `grizzle generate` drafts it: natives, residual laws and derived relations, with
- * the one full role a generated schema runs as in its login (oracleLogin), so its roles, views, policies and grants are
- * audited too.
+ * A schema's complete installation under `codes`, as `grizzle generate` drafts it: natives, closed laws and derived
+ * relations, with the one full role a generated schema runs as in its login (oracleLogin), so its roles, views,
+ * policies and grants are audited too.
  */
-const installationOf = (desc: unknown): Installation => {
+const installationOf = (desc: unknown, codes: Codebook): Installation => {
 	const owned = owning(desc)
 	const login = ownLogin(oracleLogin(owned.desc))
 	if (!login.ok) {
@@ -228,13 +233,16 @@ const installationOf = (desc: unknown): Installation => {
 	}
 	const installed = compileInstallation(
 		owned,
-		completeInstallOptions(owned, owned.installation, [login.value], [])
+		completeInstallOptions(owned, owned.installation, [login.value], [], codes)
 	)
 	if (!installed.ok) {
 		throw failure("the installer", installed.error)
 	}
 	return installed.value
 }
+
+/** A fresh installation's codes for a fixture schema: each roster's handles numbered by position. */
+const freshCodes = (desc: unknown): Codebook => firstCodebook(rostersOf(owning(desc)))
 
 const logicalQuery = (c: QueryCase): LogicalQuery => ({
 	dag: c.query.dag,
@@ -254,7 +262,8 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	const artifacts = Result.flatMap(parseSchemaInput(schemaDesc(c.schema)), (schema) =>
 		schemaArtifacts(schema, {
 			installation: identity.schema(parsedSchemaName("audit")),
-			vectorSchema: undefined
+			vectorSchema: undefined,
+			codes: schemaCodes(c.schema)
 		})
 	)
 	if (!artifacts.ok) {
@@ -321,8 +330,14 @@ const loweredLive = ({ c, twin, context }: Extract<LiveSketch, { kind: "lowered"
 	return {
 		label: `lowered for the ${context} context`,
 		statements: twinned(
-			[...Arr.map(first, (s) => s.ast), ...installationOf(schemaDesc(c.schema)).statements],
-			[...Arr.map(second, (s) => s.ast), ...installationOf(schemaDesc(twin.schema)).statements]
+			[
+				...Arr.map(first, (s) => s.ast),
+				...installationOf(schemaDesc(c.schema), schemaCodes(c.schema)).statements
+			],
+			[
+				...Arr.map(second, (s) => s.ast),
+				...installationOf(schemaDesc(twin.schema), schemaCodes(twin.schema)).statements
+			]
 		),
 		features: ["source lowered", `context ${context}`],
 		emitted: Arr.filter(first, (s) => s.text !== ""),
@@ -354,10 +369,27 @@ const fixtureSchemas: Arr.NonEmptyReadonlyArray<readonly [string, unknown]> = [
 	["batches", batches()]
 ]
 
+/** One step of a chain: the schema drafted, and the renames and drops it declares against the step before it. */
+type ChainStep = readonly [DeploySubject, Declarations]
+
 /** The migration chains whose drafted statements the dictionary holds. */
-const chains: ReadonlyArray<readonly [string, ReadonlyArray<unknown>]> = [
-	["shop", [shopV1, shopV2, shopV3, shopV4]],
-	["books", [books1, books2]]
+const chains: ReadonlyArray<readonly [string, ReadonlyArray<ChainStep>]> = [
+	[
+		"shop",
+		[
+			[shopV1, noDeclarations],
+			[shopV2, noDeclarations],
+			[shopV3, shopV3Declared],
+			[shopV4, noDeclarations]
+		]
+	],
+	[
+		"books",
+		[
+			[books1, noDeclarations],
+			[books2, books2Declared]
+		]
+	]
 ]
 
 /**
@@ -371,7 +403,6 @@ const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 			return [a.statement]
 		case "placeholderColumn":
 		case "placeholderRetype":
-		case "placeholderHandles":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -380,40 +411,11 @@ const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 }
 
 /**
- * The statements choosing an offer's candidate runs: a rename's alternative actions, or the statements a rewrite
- * runs under the new names, or a conversion's; a deleted statement runs none.
+ * The statements a drafted step holds: its action's, the statements a reviewer confirms, or the statement of a loss a
+ * reviewer writes in.
  */
-const offerStatements = (o: Offer): ReadonlyArray<SqlStatement> => {
-	switch (o.kind) {
-		case "rename":
-		case "relation rename":
-		case "nested rename":
-			return [
-				headOf(o.candidate),
-				...Arr.flatMap(o.alternative, (a) =>
-					a.kind === "choice" || a.kind === "loss" ? draftStatements(a) : actionStatements(a)
-				)
-			]
-		case "rewrite":
-			return o.statements
-		case "convert":
-			return actionStatements(o.conversion)
-		case "delete":
-			return []
-	}
-}
-
-/**
- * The statements a drafted step holds: its action's, a choice's kept action and every offer's, the statements a
- * reviewer confirms, or the statement of a loss a reviewer writes in.
- */
-const draftStatements = (d: Draft | RelationStep): ReadonlyArray<SqlStatement> => {
+const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 	switch (d.kind) {
-		case "choice":
-			return [
-				...actionStatements(d.keep),
-				...Arr.flatMap(d.offers, (o: Offer) => offerStatements(o))
-			]
 		case "confirm":
 			return d.keep
 		case "loss":
@@ -421,7 +423,6 @@ const draftStatements = (d: Draft | RelationStep): ReadonlyArray<SqlStatement> =
 		case "statement":
 		case "placeholderColumn":
 		case "placeholderRetype":
-		case "placeholderHandles":
 		case "violation":
 		case "analyze":
 		case "dropStatistics":
@@ -431,16 +432,21 @@ const draftStatements = (d: Draft | RelationStep): ReadonlyArray<SqlStatement> =
 
 /** The statements of each migration drafted along a chain, read from its draft's typed plan: one list per migration. */
 const draftedMigrations = (
-	steps: ReadonlyArray<unknown>
+	steps: ReadonlyArray<ChainStep>
 ): ReadonlyArray<ReadonlyArray<SqlStatement>> => {
 	const out: Array<ReadonlyArray<SqlStatement>> = []
 	let previous: Previous = fromEmpty
-	for (const [i, desc] of steps.entries()) {
+	for (const [i, [desc, declared]] of steps.entries()) {
+		const codes = succeeded(
+			draftCodes(desc, previous, declared),
+			"the drafter drafts the step's codes"
+		)
 		const drafted = succeeded(
 			generate({
 				previous,
-				installation: installationOf(desc),
+				installation: installationOf(desc, codes),
 				workload: noWorkload,
+				declared,
 				name: `step_${i + 1}`,
 				timestamp: `2026101200000${i}`
 			}),
@@ -460,7 +466,10 @@ interface Dictionary {
 
 const installedEntry = ([name, desc]: readonly [string, unknown]): Live => ({
 	label: `the installation of ${name}`,
-	statements: twinned(installationOf(desc).statements, installationOf(desc).statements),
+	statements: twinned(
+		installationOf(desc, freshCodes(desc)).statements,
+		installationOf(desc, freshCodes(desc)).statements
+	),
 	features: ["source installed"],
 	emitted: [],
 	again: nothingAgain
@@ -473,7 +482,7 @@ const installedEntry = ([name, desc]: readonly [string, unknown]): Live => ({
  */
 const draftedEntries = ([name, steps]: readonly [
 	string,
-	ReadonlyArray<unknown>
+	ReadonlyArray<ChainStep>
 ]): ReadonlyArray<Live> => {
 	const migrations = draftedMigrations(steps)
 	const twins = draftedMigrations(steps)
@@ -677,47 +686,6 @@ export const writtenSketchGen: Gen<LiveSketch> = map(writeSketchGen, (sketch): L
 }))
 
 /**
- * The labels a generated ALTER TYPE adds or places a label before: words SQL reserves among them, which a quoted label
- * holds as text.
- */
-const enumLabels = ["active", "exists", "not", "if", "before", "value"] as const
-
-/** The enums a generated ALTER TYPE names, one a word SQL reserves, which only quoting keeps a name. */
-const enumNames = ["status", "order"] as const
-
-/**
- * An ALTER TYPE ... ADD VALUE IF NOT EXISTS, as the drafter adds a label to an enum (deploy/diff/diff.ts): a drawn label
- * after the last one, or before another the enum has.
- */
-const addValueGen: Gen<SqlStatement> = (source) => {
-	const name = source.draw(element(enumNames))
-	const at = source.draw(int(0, enumLabels.length - 1))
-	const before = source.draw(boolean)
-	return {
-		kind: "alterEnumAddValue",
-		name: { schema: "audit", name },
-		label: elementAt(enumLabels, at, "the labels"),
-		ifNotExists: true,
-		position: before
-			? {
-					kind: "BEFORE",
-					label: elementAt(
-						enumLabels,
-						(at + source.draw(int(1, enumLabels.length - 1))) % enumLabels.length,
-						"the labels"
-					)
-				}
-			: undefined
-	}
-}
-
-/** A generated ALTER TYPE ... ADD VALUE IF NOT EXISTS and its twin. */
-const addValueSketchGen: Gen<LiveSketch> = map(
-	twins(addValueGen),
-	([statement, twin]): LiveSketch => ({ kind: "generated", statement, twin })
-)
-
-/**
  * A Live draw for the break suites: real output carries the DDL, PL/pgSQL and drafted forms a generated statement
  * never holds, so its installations and drafted migrations are drawn as often as the generated and lowered sources
  * together.
@@ -727,16 +695,6 @@ export const breakSketchGen: Gen<LiveSketch> = weighted([
 	[1, loweredSketchGen],
 	[2, installedSketchGen],
 	[1, draftedSketchGen]
-])
-
-/**
- * A Live draw for the text breaks: a break suite's, or a generated ALTER TYPE ... ADD VALUE IF NOT EXISTS, the form a
- * migration that adds a label drafts, which real output holds only in the few migrations that add one, beside the
- * other kinds each holds, and whose label a text break reaches.
- */
-export const textBreakSketchGen: Gen<LiveSketch> = weighted([
-	[6, breakSketchGen],
-	[1, addValueSketchGen]
 ])
 
 /** The Live statements of a draw. */

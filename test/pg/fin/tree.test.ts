@@ -52,7 +52,8 @@ import {
 } from "#test/pg/fin/installed.ts"
 import {
 	nodeInsertSql,
-	nativeOf,
+	nativesOf,
+	unpinnedCheckSql,
 	RELATIONS,
 	nodeReadSql,
 	nodeRowsOfRead,
@@ -128,7 +129,7 @@ interface TreeSeat {
 
 /** The installed constraint of a role on a seat, or the defect naming what it installed instead. */
 const constraintOf = (seat: Seat, native: TreeNative): Catalogued =>
-	theConstraint(seat, `the ${native}`, (c) => Option.contains(nativeOf(c), native))
+	theConstraint(seat, `the ${native}`, (c) => nativesOf(c).includes(native))
 
 /** Installs grizzle's lowering, or a mutant of it, in a schema of its own, with its owner session. */
 const treeSeat = (
@@ -156,8 +157,12 @@ const treeSeat = (
 						constraintOf(installed, "last axis"),
 						(s) => s === "end"
 					)
-				case "root unpinned":
-					return [droppedSql(installed, constraintOf(installed, "root pin"))]
+				case "root unpinned": {
+					const pin = constraintOf(installed, "root pin")
+					return nativesOf(pin).length === 1
+						? [droppedSql(installed, pin)]
+						: [droppedSql(installed, pin), unpinnedCheckSql(installed, pin.name)]
+				}
 			}
 		}
 		const seat =
@@ -206,6 +211,8 @@ const sqlText = (
 /** What PostgreSQL did with a transaction the model agreed with. */
 interface Judged {
 	readonly verdict: Verdict
+	/** Every native the named constraint stands for that the model breaks there: one, or the merged CHECK's several. */
+	readonly verdicts: ReadonlyArray<Verdict>
 	readonly committed: boolean
 	readonly moment: Option.Option<Moment>
 }
@@ -237,22 +244,35 @@ const judged = (
 					message: `${t.label}: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, for\n${sqlText(seat, statements)}`
 				})
 			)
+		/** A commit's rows, read and then cleared whatever the verdict, so no case, kept or shrunk, meets another's rows. */
+		const values =
+			real.kind === "committed"
+				? yield* Effect.tap(seat.session.values(nodeReadSql(seat), []), () =>
+						cleared(seat, ["Node"])
+					)
+				: []
+		const read = nodeRowsOfRead(values)
 		if (model.kind === "committed" && real.kind === "committed") {
-			const values = yield* seat.session.values(nodeReadSql(seat), [])
-			const read = nodeRowsOfRead(values)
-			yield* cleared(seat, ["Node"])
 			if (!deepEquals(canonical(read), canonical(model.after))) {
 				return yield* disagree(`the committed state reads back as ${Formatter.format(read)}`)
 			}
-			return { verdict: "committed", committed: true, moment: Option.none() }
+			return {
+				verdict: "committed",
+				verdicts: ["committed"],
+				committed: true,
+				moment: Option.none()
+			}
 		}
 		if (model.kind === "refused" && real.kind === "refused") {
 			if (!sameMoment(model.moment, real.moment)) {
 				return yield* disagree("the moments differ")
 			}
 			const named = seat.refusedBy(real.fields)
-			const native = Option.flatMap(named, nativeOf)
-			if (Option.isNone(named) || Option.isNone(native)) {
+			const stands = Option.match(named, {
+				onNone: (): ReadonlyArray<TreeNative> => [],
+				onSome: nativesOf
+			})
+			if (Option.isNone(named) || !Arr.isReadonlyArrayNonEmpty(stands)) {
 				return yield* disagree(
 					`PostgreSQL names ${Option.match(named, {
 						onNone: () => "no constraint the installation holds",
@@ -260,21 +280,23 @@ const judged = (
 					})}`
 				)
 			}
+			const meant = Arr.filter(stands, (n) => Arr.some(model.violations, (v) => v.native === n))
 			if (
-				!Arr.some(model.violations, (v) => v.native === native.value) ||
-				real.fields.code !== treeSqlstate(native.value)
+				!Arr.isReadonlyArrayNonEmpty(meant) ||
+				!Arr.every(meant, (n) => real.fields.code === treeSqlstate(n))
 			) {
 				return yield* disagree(
-					`PostgreSQL names the ${native.value}, which the model does not allow there`
+					`PostgreSQL names the ${Arr.join(stands, " and ")}, which the model does not allow there`
 				)
 			}
-			if (native.value !== "identity" && !Option.contains(named.value.law, t.law)) {
+			if (!meant.includes("identity") && !Option.contains(named.value.law, t.law)) {
 				return yield* disagree(
-					`the ${native.value} reports ${Formatter.format(named.value.law)}, not the tree's law ${t.law}`
+					`the ${Arr.join(meant, " and ")} reports ${Formatter.format(named.value.law)}, not the tree's law ${t.law}`
 				)
 			}
 			return {
-				verdict: `refused ${native.value}`,
+				verdict: `refused ${Arr.headNonEmpty(meant)}`,
+				verdicts: Arr.map(meant, (n): Verdict => `refused ${n}`),
 				committed: false,
 				moment: Option.some(real.moment)
 			}
@@ -334,7 +356,9 @@ const judgeCase = (
 		(t) =>
 			Effect.gen(function* () {
 				const j = yield* judged(t, statements)
-				note(`${t.label} ${j.verdict}`)
+				for (const v of j.verdicts) {
+					note(`${t.label} ${v}`)
+				}
 				if (t.label !== "grizzle") {
 					if (wrong(j.committed)) {
 						note(`${t.label} killed`)

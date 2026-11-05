@@ -71,7 +71,7 @@ export interface PhysicalNode {
 	readonly realization: Realization
 	/** Whether the node's repeats reach an observing consumer through preserving ones. */
 	readonly observed: boolean
-	/** A fold's contribution (a Group with aggregates, an OrderedSetAggregate, a Window); no other node has one. */
+	/** A catalog fold's contribution (an OrderedSetAggregate, a Window); no other node has one. */
 	readonly contribution: Contribution | undefined
 }
 
@@ -123,18 +123,11 @@ export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis
 		realization,
 		roots: env.roots
 	})
-	/**
-	 * Recursive feedback under UNION ALL is never discharged: only the recursive UNION
-	 * removes states repeated across iterations.
-	 */
 	const obligations: Array<Obligation> = edges.flatMap((edge): ReadonlyArray<Obligation> => {
 		if (edge.sensitivity !== "observes") {
 			return []
 		}
 		const heading = edge.requires
-		if (consumerIn(edge.consumer, "feedback") !== undefined) {
-			return [{ edge, heading, discharged: false }]
-		}
 		const found = keyedBy(props.of(edge.input), heading)
 		if (found === undefined) {
 			return [{ edge, heading, discharged: false }]
@@ -148,9 +141,7 @@ export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis
 	})
 	const observed = observedNodes(order, edges)
 	const contributionAt = (n: RelNode): Contribution | undefined =>
-		(n.kind === "Group" && n.aggs.length > 0) ||
-		n.kind === "OrderedSetAggregate" ||
-		n.kind === "Window"
+		n.kind === "OrderedSetAggregate" || n.kind === "Window"
 			? contributionOf(n, props.of(n.input))
 			: undefined
 	return {

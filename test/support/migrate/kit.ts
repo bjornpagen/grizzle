@@ -76,7 +76,7 @@ export const compile = (desc: DeploySubject, over: CompileOver): Installation =>
 }
 
 /** The codes the snapshot `previous` records: none for an empty migrations directory. */
-export const previousCodes = (previous: Previous): Codebook =>
+const previousCodes = (previous: Previous): Codebook =>
 	previous.kind === "snapshot" ? codebookOf(previous.snapshot) : emptyCodebook
 
 /** No rename and no drop declared: a draft that only adds, or whose drops a test means to see refused. */

@@ -251,7 +251,7 @@ const keyCoordinates = (
  * the arguments name, read as a code of its roster, cast to smallint, or, for an open-typed field, through its
  * dictionary. An absent key reads NULL, never a value, which a CHECK's IS TRUE and a generated column's NOT NULL refuse.
  */
-export const closedAt = (
+const closedAt = (
 	names: PhysicalNames,
 	expr: Extract<ScalarExpr, { readonly kind: "closedAt" }>,
 	args: NonEmptyReadonlyArray<Expr>,
@@ -288,7 +288,7 @@ export const closedAt = (
  * last key coordinate's code space of bits at the prefix's index, cast to the set's type. A relation of one key field
  * reads its whole key set.
  */
-export const closedRow = (
+const closedRow = (
 	names: PhysicalNames,
 	expr: Extract<ScalarExpr, { readonly kind: "closedRow" }>,
 	args: ReadonlyArray<Expr>,
@@ -312,7 +312,7 @@ export const closedRow = (
  * A closed relation's membership test at a key, its bit of the relation's installed key set at the mixed-radix index of
  * the arguments' codes, one per key field: `substring(K(), i + 1, 1) = '1'::bit(1)`.
  */
-export const closedHas = (
+const closedHas = (
 	names: PhysicalNames,
 	expr: Extract<ScalarExpr, { readonly kind: "closedHas" }>,
 	args: NonEmptyReadonlyArray<Expr>,

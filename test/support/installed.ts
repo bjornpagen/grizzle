@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, type Layer, Option, Result, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, type Layer, Option, type Scope, String as Str } from "effect"
 import { registerSnapshot } from "#adapter/admission/snapshots.ts"
 import type { CompiledOps } from "#adapter/db/db.ts"
 import { openDb as openRuntime } from "#adapter/db/open.ts"

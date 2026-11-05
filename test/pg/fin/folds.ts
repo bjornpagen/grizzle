@@ -938,7 +938,12 @@ export const judgedFold = (
 				`the ${native.value} reports ${Formatter.format(named.value.law)}, no law of the family or the fold`
 			)
 		}
-		const verdict: FoldVerdict = `refused ${native.value}`
+		/** The merged CHECK's refusal is the first slot's where the model breaks only the pin there, and the combine's otherwise. */
+		const pinOnly =
+			pins &&
+			!Arr.some(violated, (v) => v.native === "combine") &&
+			Arr.some(violated, (v) => v.native === "first slot")
+		const verdict: FoldVerdict = `refused ${pinOnly ? "first slot" : native.value}`
 		return verdict
 	})
 

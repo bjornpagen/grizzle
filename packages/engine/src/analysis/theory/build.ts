@@ -4,6 +4,7 @@ import { type LawId, makeIdSupply } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { CatalogOpId, ExprSpec, TypedLiteral, ScalarExpr } from "#compiler/ir/expr.ts"
@@ -12,6 +13,7 @@ import { headingColumns, type LawField, type TheoryRelation } from "#compiler/ir
 import {
 	type AggregateCallOver,
 	conservativeMeta,
+	type FoldInput,
 	type HeadingColumn,
 	type NodeSpec,
 	type Occurrence,
@@ -44,7 +46,7 @@ import {
 import { numericValue } from "#compiler/scalar/registry.ts"
 
 /** A refusal deep inside a construction is the kernel's Refusal, caught at the theory boundary (catchRefusal). */
-export const refusal = (tag: ProseTag, loc: SourceLoc, capability: string): Refusal =>
+const refusal = (tag: ProseTag, loc: SourceLoc, capability: string): Refusal =>
 	new Refusal(CompileError.make(prose(tag, loc, capability)))
 
 /** Throws the refusal: a function declaration, so control flow knows a call never returns. */
@@ -119,6 +121,29 @@ interface GroupAggregate {
 	readonly column: HeadingColumn
 	readonly call: AggregateCallOver<ScalarExpr>
 	readonly op: CatalogOpId
+}
+
+/**
+ * The fold input of a scan of a relation's facts, every field bound (ViolationBuilder.scan), under any filters: each
+ * scanned fact read once by its source's primary key, which the scan binds. Any other input is a defect of the
+ * builder.
+ */
+const scannedFacts = (input: RelNode, columns: ReadonlyArray<string>): FoldInput => {
+	const region = input.kind === "Filter" ? input.input : input
+	if (region.kind !== "MatchRegion") {
+		throw defect(`a violation fold over a scan of facts, not over ${region.kind}`)
+	}
+	return {
+		columns,
+		keyed: region.occurrences.map((o) => {
+			const key =
+				o.source.kind === "Base" ? o.source.primaryKey : o.source.heading.map((c) => c.name)
+			if (!key.every((f) => o.bindings.some((b) => b.column === f))) {
+				throw defect(`a violation fold whose scan binds its facts' key (${key.join(", ")})`)
+			}
+			return { occurrence: o.id, key }
+		})
+	}
 }
 
 /**
@@ -531,7 +556,9 @@ export class ViolationBuilder {
 
 	/**
 	 * The aggregate of the complete bound tuple `bound`, grouped by `keys`, each a column of the input. The heading is the
-	 * group keys then the aggregates, each its own column.
+	 * group keys then the aggregates, each its own column. The input is the facts of one relation (sideFacts): a scan
+	 * binding every field, filtered or not, so the bound tuple holds each fact's primary key and the fold reads each fact
+	 * once (FoldInput).
 	 */
 	group(
 		input: RelNode,
@@ -542,7 +569,10 @@ export class ViolationBuilder {
 		return this.node({
 			kind: "Group",
 			input,
-			bound: bound.map((c) => c.name),
+			bound: scannedFacts(
+				input,
+				bound.map((c) => c.name)
+			),
 			keys: keys.map((c) => c.name),
 			aggs: aggs.map((a) => ({ name: a.column.name, op: a.op, filter: undefined, ...a.call })),
 			heading: [

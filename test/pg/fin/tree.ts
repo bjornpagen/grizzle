@@ -6,6 +6,7 @@
 import { Array as Arr, Option } from "effect"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, on, relation, schema, tree } from "#compiler/public/schema.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import { type Catalogued, type Seat, sameRoles } from "#test/pg/fin/installed.ts"
 import type { TreeRow } from "#test/pg/substrate/tree.ts"
 import type { TreeNative } from "#test/support/families/tree.ts"
@@ -31,43 +32,72 @@ export const Trees = schema("fin_tree", { Node }, [
 
 export const RELATIONS = ["Node"] as const
 
-/** The role of an installed constraint among §2.2's natives, read off the roles of its columns; none for any other. */
-export const nativeOf = (c: Catalogued): Option.Option<TreeNative> => {
+/** The row CHECKs of §2.2, each its own constraint or all one: the tree law's CHECK on T. */
+const TREE_CHECKS: ReadonlyArray<TreeNative> = [
+	"bound",
+	"root",
+	"root pin",
+	"first child",
+	"interval"
+]
+
+/** The roles each row CHECK reads, by which a CHECK of its own is told apart. */
+const CHECK_ROLES: ReadonlyArray<readonly [TreeNative, ReadonlyArray<string>]> = [
+	["bound", ["start", "at", "‹n›"]],
+	["root", ["parent", "id", "start"]],
+	["root pin", ["start", "at"]],
+	["first child", ["start", "at", "‹ps›"]],
+	["interval", ["end", "start", "children"]]
+]
+
+/**
+ * The natives of §2.2 an installed constraint stands for, read off the roles of its columns; none for any other. A CHECK
+ * reading every role of every row check is the tree law's one CHECK, the conjunction of all five, which stands for each.
+ */
+export const nativesOf = (c: Catalogued): ReadonlyArray<TreeNative> => {
 	const is = (roles: ReadonlyArray<string>) => sameRoles(c.columns, roles)
 	switch (c.kind) {
 		case "primary":
-			return is(["id"]) ? Option.some("identity") : Option.none()
+			return is(["id"]) ? ["identity"] : []
 		case "unique":
 			return is(["‹gen parent›", "at"])
-				? Option.some("family key")
+				? ["family key"]
 				: is(["doc", "start"])
-					? Option.some("document order")
+					? ["document order"]
 					: is(["id", "children", "start", "doc"]) || is(["id", "children", "start"])
-						? Option.some("owner superkey")
+						? ["owner superkey"]
 						: is(["‹gen parent›", "at", "end"])
-							? Option.some("member superkey")
-							: Option.none()
-		case "check":
-			return is(["start", "at", "‹n›"])
-				? Option.some("bound")
-				: is(["parent", "id", "start"])
-					? Option.some("root")
-					: is(["start", "at"])
-						? Option.some("root pin")
-						: is(["start", "at", "‹ps›"])
-							? Option.some("first child")
-							: is(["end", "start", "children"])
-								? Option.some("interval")
-								: Option.none()
+							? ["member superkey"]
+							: []
+		case "check": {
+			const own = Arr.filter(CHECK_ROLES, ([, roles]) => is(roles))
+			if (Arr.isReadonlyArrayNonEmpty(own)) {
+				return Arr.map(own, ([n]) => n)
+			}
+			return Arr.every(CHECK_ROLES, ([, roles]) =>
+				Arr.every(roles, (r) => c.columns.includes(r))
+			) && Arr.every(c.columns, (r) => Arr.some(CHECK_ROLES, ([, roles]) => roles.includes(r)))
+				? TREE_CHECKS
+				: []
+		}
 		case "foreign":
 			return Option.exists(c.target, (t) => t.columns.includes("children"))
-				? Option.some("owner axis")
+				? ["owner axis"]
 				: c.columns.includes("‹gen children›")
-					? Option.some("last axis")
+					? ["last axis"]
 					: c.columns.includes("‹gen at›")
-						? Option.some("predecessor axis")
-						: Option.none()
+						? ["predecessor axis"]
+						: []
 	}
+}
+
+/**
+ * The tree law's row CHECKs without the root pin, `start > 0 OR at = 0`, as one CHECK over the seat's columns: the
+ * mutant "root unpinned" of the merged CHECK, its other four conjuncts as LM prints them.
+ */
+export const unpinnedCheckSql = (seat: Seat, name: string): string => {
+	const c = (role: string) => seat.column("Node", role)
+	return `ALTER TABLE ${seat.table("Node")} ADD CONSTRAINT ${quoteIdent(name)} CHECK (((${c("start")} = 0 OR ${c("at")} < ${c("‹n›")}) AND ((${c("parent")} = ${c("id")} AND ${c("start")} = 0) OR (${c("parent")} <> ${c("id")} AND ${c("start")} > 0)) AND (${c("start")} = 0 OR ${c("at")} > 0 OR ${c("start")} = ${c("‹ps›")} + 1) AND (${c("end")} > ${c("start")} AND (${c("children")} > 0 OR ${c("end")} = ${c("start")} + 1))) IS TRUE)`
 }
 
 /** The roles every row is written and read by, in order: a TreeRow's fields, `doc` for its root, and its two copies. */

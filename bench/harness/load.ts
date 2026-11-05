@@ -235,20 +235,6 @@ export interface LoadMeasure {
 	readonly lockWaits: Observed<LockWaitSamples>
 }
 
-/**
- * Whether every attempt of a load committed or was refused as a serialization failure or a deadlock, the last attempt
- * of an operation whose retries ran out included: what the hot-group gates check of each grizzle attempt.
- */
-export const committedOrConflicted = (load: LoadMeasure): boolean =>
-	Arr.every(
-		Rec.keys<string, number>(load.outcomes),
-		(k) => k === "committed" || k === "serialization" || k === "deadlock"
-	) &&
-	Arr.every(
-		Rec.keys<string, number>(load.retries.byReason),
-		(r) => r === "SerializationFailure" || r === "Deadlock"
-	)
-
 const sampleOnce = (sampler: LockWaitSampler): Effect.Effect<number, SqlError> =>
 	Effect.map(
 		sampler.observer.values(

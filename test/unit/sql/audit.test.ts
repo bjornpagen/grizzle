@@ -34,7 +34,6 @@ import {
 	type LiveSketch,
 	liveSketchGen,
 	resolveLive,
-	textBreakSketchGen,
 	type Twinned,
 	writtenSketchGen
 } from "#test/unit/sql/audit/live.ts"
@@ -86,21 +85,22 @@ const clip = (text: string): string =>
 
 /**
  * The type every use of each placeholder index is cast to, by its printed form: an expression's placeholder is cast to
- * its type, an input array's, `unnest($n::<type>[])`, to its column's type made an array, and an input count's to
- * bigint.
+ * its type, an input array's, `unnest($n::<type>[])`, to its column's type made an array (bit(n)'s included, which no
+ * TypeRef states), and an input count's to bigint.
  */
 const placeholderTypes = (s: SqlStatement): ReadonlyMap<number, ReadonlySet<string>> => {
 	const types = new Map<number, Set<string>>()
-	const use = (index: number, type: TypeRef): void => {
+	const use = (index: number, printed: string): void => {
 		const seen = types.get(index) ?? new Set<string>()
-		seen.add(printType(type))
+		seen.add(printed)
 		types.set(index, seen)
 	}
+	const arrayOf = (type: TypeRef): string => (type.array ? printType(type) : `${printType(type)}[]`)
 	transformStatement(s, {
 		...identityHooks,
 		expr: (e) => {
 			if (e.kind === "param") {
-				use(e.slot.number, e.type)
+				use(e.slot.number, printType(e.type))
 			}
 			return e
 		},
@@ -108,10 +108,10 @@ const placeholderTypes = (s: SqlStatement): ReadonlyMap<number, ReadonlySet<stri
 			if (item.kind === "arrays") {
 				const source = item.source
 				if (source.kind === "count") {
-					use(source.count.number, builtinType("bigint"))
+					use(source.count.number, printType(builtinType("bigint")))
 				} else {
 					for (const c of source.columns) {
-						use(c.array.number, { ...c.definition.type, array: true })
+						use(c.array.number, arrayOf(c.definition.type))
 					}
 				}
 			}
@@ -271,7 +271,6 @@ type AuditLiveFeature =
 	| "float literal negative zero"
 	| "overriding system value"
 	| "probe and refusal in a CASE WHEN"
-	| "constraint trigger WHEN"
 
 /** The PL/pgSQL shapes a block's statements hold: a probe and its refusal inside an exhaustive CASE's WHEN, as a roster's
  * dispatch holds one. */
@@ -303,15 +302,11 @@ const plShapes = (
 		}
 	})
 
-/** The law shapes one statement holds: a function's PL/pgSQL shapes, a constraint trigger's row filter. */
-const lawShapes = (statement: SqlStatement): ReadonlyArray<AuditLiveFeature> => {
-	if (statement.kind === "createFunction" && statement.language === "plpgsql") {
-		return plShapes(statement.body.body, false)
-	}
-	return statement.kind === "createConstraintTrigger" && statement.when !== undefined
-		? ["constraint trigger WHEN"]
+/** The law shapes one statement holds: a function's PL/pgSQL shapes. */
+const lawShapes = (statement: SqlStatement): ReadonlyArray<AuditLiveFeature> =>
+	statement.kind === "createFunction" && statement.language === "plpgsql"
+		? plShapes(statement.body.body, false)
 		: []
-}
 
 /** What the audit-live suite notes of a draw: its own features, and each statement's kind, shape and float literals. */
 const auditLiveFeatures = (live: Live): ReadonlyArray<AuditLiveFeature> => [
@@ -419,11 +414,8 @@ describe("every Live statement", () => {
 				"statement createTable",
 				"statement createIndex",
 				"statement createDomain",
-				"statement createEnum",
 				"statement createFunction",
-				"statement createConstraintTrigger",
 				"probe and refusal in a CASE WHEN",
-				"constraint trigger WHEN",
 				"statement grant",
 				"from arrays",
 				"lateral",
@@ -672,7 +664,7 @@ describe("a printed statement broken at one token", () => {
 			explore(
 				{
 					suite: "unit/sql/audit-text-breaks",
-					draw: drawn(breakCaseGen(textBreakSketchGen, textBreaks.length)),
+					draw: drawn(breakCaseGen(breakSketchGen, textBreaks.length)),
 					literal: Formatter.format,
 					coverage: required<TextBreakFeature>(situations, { cases: 400, sense: notesOnly }),
 					kept: [],

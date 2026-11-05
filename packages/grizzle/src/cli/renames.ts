@@ -1,19 +1,20 @@
 /**
  * The renames and drops `grizzle generate` declares (D9): `--rename <old>=<new>` and `--drop <old>`, each given as
- * often as there are names to declare, each side a relation `Relation`, a field `Relation.field` or a roster's handle
- * `Roster#handle`. A draft guesses no rename: a name the previous snapshot holds and the schema does not is renamed
- * only where a rename declares it and dropped only where a drop does, and the draft refuses one neither declares,
- * naming it (deploy/render/generate.ts DraftInput.declared). A handle keeps its code across a rename.
+ * often as there are names to declare, each side a relation `Relation`, a field `Relation.field`, a roster's handle
+ * `Roster#handle` or a login `@login`. A draft guesses no rename: a name the previous snapshot holds and the schema
+ * does not is renamed only where a rename declares it and dropped only where a drop does, and the draft refuses one
+ * neither declares, naming it (deploy/render/generate.ts DraftInput.declared). A handle keeps its code across a rename,
+ * and a login its PostgreSQL role, which is renamed in place with its password and grants.
  *
- * Relation, field and roster names are declared names, ASCII letters, digits and underscores
- * (core/identity.ts parseDeclaredName), which never hold `.`, `#` or `=`; a handle is text its roster's names constant
- * holds in a PostgreSQL name: not empty, which is a hole's name, at most handleMaxBytes UTF-8 bytes, with no NUL, which
- * ends a name, and no lone surrogate, which no UTF-8 encodes. So a side with `#` is a handle, its roster before the
- * first `#`, and a side with `.` a field. A handle may hold `=`: a handle rename is split where both sides spell a
- * handle, and one with two such places reads two ways and is refused.
+ * Relation, field, roster and login names are declared names, ASCII letters, digits and underscores
+ * (core/identity.ts parseDeclaredName), which never hold `.`, `#`, `=` or `@`; a handle is text its roster's names
+ * constant holds in a PostgreSQL name: not empty, which is a hole's name, at most handleMaxBytes UTF-8 bytes, with no
+ * NUL, which ends a name, and no lone surrogate, which no UTF-8 encodes. So a side with `#` is a handle, its roster
+ * before the first `#`; a side that starts with `@` is a login; and a side with `.` a field. A handle may hold `=`: a
+ * handle rename is split where both sides spell a handle, and one with two such places reads two ways and is refused.
  *
  * The reader refuses what a declaration's text alone shows wrong, before the configuration is read: a side of none
- * of the three spellings; a rename between two kinds of name; a rename to the name itself; a name renamed or dropped
+ * of the four spellings; a rename between two kinds of name; a rename to the name itself; a name renamed or dropped
  * twice; two names renamed to one. The `from` side names what the previous snapshot declares, its field's relation or
  * its handle's roster included, and the `to` side what the schema declares, so `--rename R.f=S.g` beside
  * `--rename R=S` renames a field of a renamed relation. Whether each name is one the snapshot or the schema holds, and
@@ -33,6 +34,9 @@ import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import type { HandleRenames, RosterRenames } from "#compiler/ir/codes.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
 
+/** The sign a login's name follows, which no declared name holds. */
+const loginSign = "@"
+
 /** No rename and no drop declared. */
 export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: [] })
 
@@ -45,6 +49,8 @@ export const namedText = (n: Named): string => {
 			return `${n.relation}.${n.field}`
 		case "handle":
 			return `${n.roster}#${n.handle}`
+		case "login":
+			return `${loginSign}${n.login}`
 	}
 }
 
@@ -72,9 +78,9 @@ export class DeclarationRefused extends Data.TaggedError("DeclarationRefused")<{
 		const fault = this.fault
 		switch (fault.kind) {
 			case "spelling":
-				return `--${fault.flag} ${fault.given} is not ${fault.flag === "rename" ? "<old>=<new>, each side" : "<old>,"} Relation, Relation.field or Roster#handle: ${fault.problem}`
+				return `--${fault.flag} ${fault.given} is not ${fault.flag === "rename" ? "<old>=<new>, each side" : "<old>,"} Relation, Relation.field, Roster#handle or @login: ${fault.problem}`
 			case "kinds":
-				return `--rename ${fault.given} renames one kind of name to another; both sides are relations, fields or handles`
+				return `--rename ${fault.given} renames one kind of name to another; both sides are relations, fields, handles or logins`
 			case "unchanged":
 				return `--rename ${fault.given} renames a name to itself`
 			case "ambiguous":
@@ -129,7 +135,8 @@ const handleProblem = (handle: string): string | undefined => {
 		: undefined
 }
 
-/** One side's text as a name: a handle where it holds `#`, a field where it holds `.`, else a relation. */
+/** One side's text as a name: a handle where it holds `#`, a login where it starts with `@`, a field where it holds
+ * `.`, else a relation. */
 const namedOf = (
 	text: string,
 	flag: "rename" | "drop",
@@ -146,6 +153,12 @@ const namedOf = (
 			kind: "handle",
 			roster,
 			handle
+		}))
+	}
+	if (Str.startsWith(loginSign)(text)) {
+		return Result.map(declared(Str.slice(loginSign.length)(text), flag, given), (login): Named => ({
+			kind: "login",
+			login
 		}))
 	}
 	const [relation, field, ...more] = Str.split(text, ".")
@@ -224,6 +237,8 @@ const sameNamed = (a: Named, b: Named): boolean => {
 			)
 		case "handle":
 			return b.kind === "handle" && declaredAlike(a.roster, b.roster) && a.handle === b.handle
+		case "login":
+			return b.kind === "login" && declaredAlike(a.login, b.login)
 	}
 }
 
@@ -236,6 +251,8 @@ const keyOf = (n: Named): string => {
 			return `field ${conversionOf(n.relation)}.${conversionOf(n.field)}`
 		case "handle":
 			return `handle ${conversionOf(n.roster)}#${n.handle}`
+		case "login":
+			return `login ${conversionOf(n.login)}`
 	}
 }
 

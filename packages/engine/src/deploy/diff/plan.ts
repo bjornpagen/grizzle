@@ -6,12 +6,13 @@ import type { ColumnDef, ObjectName, Select, SqlStatement } from "#compiler/sql/
 
 /**
  * A name a draft's declarations speak of, as `--rename` and `--drop` spell it: a relation (`Relation`), a field of one
- * (`Relation.field`), or a roster's handle (`Roster#handle`).
+ * (`Relation.field`), a roster's handle (`Roster#handle`), or a login (`@login`).
  */
 export type Named =
 	| { readonly kind: "relation"; readonly relation: DeclaredName }
 	| { readonly kind: "field"; readonly relation: DeclaredName; readonly field: DeclaredName }
 	| { readonly kind: "handle"; readonly roster: DeclaredName; readonly handle: string }
+	| { readonly kind: "login"; readonly login: DeclaredName }
 
 /** A declared rename, `--rename <from>=<to>`: its two sides of one kind, `from` named as the previous snapshot names
  * it and `to` as the target does. */
@@ -22,8 +23,23 @@ export interface Rename {
 
 /**
  * What a draft is told beside the schema: each rename and each drop its migration makes, in declaration order. Every
- * drop of stored data is declared, by one or the other, so nothing guesses whether a drop and an addition are one
- * rename: a handle renamed keeps its code, and an undeclared drop is refused, naming it.
+ * drop of stored state is declared, by one or the other, so nothing guesses whether a drop and an addition are one
+ * rename: a handle renamed keeps its code, a relation and a login renamed keep their identities, and an undeclared drop
+ * is refused, naming it.
+ *
+ * What is stored state, and so declared when it goes:
+ * - a stored relation's rows, a field's values and a roster's live handle, whose code its stored values hold;
+ * - a login: its PostgreSQL role holds what its operator gave it and no migration can give again, its password and
+ *   whatever was granted to it outside grizzle. A login renamed is that role renamed in place (`ALTER ROLE ... RENAME
+ *   TO`), so its OID, password, memberships and grants survive; a login that goes undeclared while another comes is
+ *   refused, never read as one renamed.
+ *
+ * A name a declared rename takes from a name the previous snapshot holds is that name's end: the previous holder is
+ * dropped, as declared, even where the target declares something of the same name. The rest holds no state of its
+ * own: a derived relation, which its definition recomputes, a generated, drawn or accumulated field, which grizzle
+ * draws again, and a role, whose PostgreSQL role, schema, views, policies and grants grizzle creates and grants whole.
+ * A role is named by its own declared name, never by its login's, so a login's rename leaves its roles as they stand,
+ * and their memberships in the login, which PostgreSQL holds by OID, follow the rename.
  */
 export interface Declarations {
 	readonly renames: ReadonlyArray<Rename>
@@ -35,12 +51,14 @@ export interface Declarations {
  *
  * - setup.drop, setup: the holders set aside (`asidesOf`), then the checks of the laws over closed relations alone,
  *   then extensions, new constants and new domains;
- * - structure.drop, structure, structure.worlds: the roles' views, world functions and policies the migration changes
- *   or removes, then recreated materialized views dropped top-down and what is built over a column converted in place
- *   dropped before its conversion, then new tables, new columns, conversions, constraints NOT VALID, and new or
- *   recreated materialized views WITH NO DATA with their unique indexes, and last the roles' changed views, world
- *   functions and policies created again with their grants, each whose role stands before the migration: in the one
- *   transaction that dropped them, so no committed state lacks one an existing role relies on;
+ * - structure.drop, structure, structure.backfill, structure.constraints, structure.worlds: the roles' views, world
+ *   functions and policies the migration changes or removes, then recreated materialized views dropped top-down and
+ *   what is built over a column converted in place dropped before its conversion, then new tables, new columns,
+ *   conversions, and new or recreated materialized views WITH NO DATA with their unique indexes; then the backfill of
+ *   the families new to stored rows (backfill.ts) and the DROP DEFAULT of each column it drew; then the constraints
+ *   added to tables that may hold rows, NOT VALID, after every value they read is drawn; and last the roles' changed
+ *   views, world functions and policies created again with their grants, each whose role stands before the migration:
+ *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
  * - indexes: ordinary CREATE INDEX on relations this migration creates, which are empty, and CREATE STATISTICS
  *   followed by ANALYZE of a table that existed;
  * - indexes.concurrent: CREATE INDEX CONCURRENTLY on relations that may hold rows, each after dropping an invalid
@@ -59,6 +77,8 @@ export const slots = [
 	"setup",
 	"structure.drop",
 	"structure",
+	"structure.backfill",
+	"structure.constraints",
 	"structure.worlds",
 	"indexes",
 	"indexes.concurrent",
@@ -100,6 +120,8 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	setup: setupFile,
 	"structure.drop": structureFile,
 	structure: structureFile,
+	"structure.backfill": structureFile,
+	"structure.constraints": structureFile,
 	"structure.worlds": structureFile,
 	indexes: indexesFile,
 	"indexes.concurrent": concurrentIndexesFile,

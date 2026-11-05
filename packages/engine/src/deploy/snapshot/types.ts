@@ -79,10 +79,18 @@ export interface SnapshotTheory {
 	readonly laws: Readonly<Record<string, SnapshotLaw>>
 }
 
+/** A login of an installation as the snapshot records it, under its declared name: its PostgreSQL role, whose name
+ * the naming door derives from the installation's and the login's (core/identity.ts identity.login). A declared rename
+ * of the login (deploy/diff/plan.ts Declarations) renames this role in place, so the record names one role across it. */
+export interface SnapshotLogin {
+	readonly role: string
+}
+
 /** The canonical schema snapshot: the canonical serialization of what an installation is. It holds a summary of the
  * CheckedTheory (its relations, their fields and mutability, its rosters' codes, and its laws), the installation manifest
  * with every object's DDL and justification (a law identity, the workload's access, or the enforcement of a
- * declaration), the constraint-to-law map, each login's workload programs' access (ProgramAccess: the paths and
+ * declaration), the constraint-to-law map, each login by its declared name with its PostgreSQL role, each login's
+ * workload programs' access (ProgramAccess: the paths and
  * statistics each program reads through, by login and program name) and the access requests they make. The application
  * commits it beside its code as `migrations/<schema>/snapshot.json`, one per declared schema; the next migration is
  * drafted from it, the current schema and the current workloads, never from the live catalog, and DbLayer.make and
@@ -102,6 +110,8 @@ export interface DeploySnapshot extends Snapshot<SqlStatement> {
 	readonly theory: SnapshotTheory
 	readonly manifest: InstallationManifest<SqlStatement>
 	readonly constraintToLaw: ConstraintLaws
+	/** Each login the installation creates, by its declared name. */
+	readonly logins: Readonly<Record<string, SnapshotLogin>>
 	readonly workload: WorkloadAccess
 }
 

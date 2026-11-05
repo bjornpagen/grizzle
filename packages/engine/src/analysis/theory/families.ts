@@ -9,7 +9,6 @@ import {
 	type ExprDesc,
 	type MonoidName,
 	type SideDesc,
-	type SlotsDesc,
 	type StatementDesc,
 	type TermDesc,
 	termText
@@ -334,7 +333,7 @@ const isZero = (e: ExprDesc): boolean => e.kind === "literal" && (e.value === 0n
  * Whether a selection's conjuncts select exactly a family's members: none for a family of every fact; for a tree, one
  * conjunct that is start above zero, spelled `start > 0`, `0 < start` or, since start is natural, `start <> 0`.
  */
-export const selectsMembers = (f: FamilyShape, conjuncts: ReadonlyArray<ExprDesc>): boolean => {
+const selectsMembers = (f: FamilyShape, conjuncts: ReadonlyArray<ExprDesc>): boolean => {
 	if (f.members.kind === "every") {
 		return conjuncts.length === 0
 	}
@@ -846,6 +845,3 @@ export const familyText = (f: FamilyShape): string =>
 	f.members.kind === "tree"
 		? `the tree of ${f.member.name}`
 		: `the ${f.index.kind === "field" ? "ordered" : "counted"} family ${slotsText(f.id)}`
-
-/** The slots a fold names, as its description reads them. */
-export const slotsOf = (id: FamilyId): SlotsDesc => ({ owner: id.owner, count: id.count })

@@ -1150,7 +1150,8 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 												}
 											}
 											case "another generation": {
-												const runtime = pageTemplate(db, q).runtime
+												const template = pageTemplate(db, q)
+												const runtime = template.runtime
 												const old = cursorCodec(
 													{
 														query: runtime.identity.query,
@@ -1160,7 +1161,8 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 															extensions: {}
 														}
 													},
-													cursorTokenMaxLength
+													cursorTokenMaxLength,
+													template.codes
 												)
 												const decoded = succeeded(runtime.codec.decode(token))
 												const reissued = succeeded(succeeded(old).encode(decoded.values))

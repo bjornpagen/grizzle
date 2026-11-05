@@ -27,14 +27,15 @@ import {
 	type ProgramSpace,
 	programGen,
 	realOf,
-	run,
-	type Statement
+	type MutationStatement,
+	run
 } from "#test/support/families/mutate.ts"
 import {
 	type Breach,
 	breachesOf,
 	type Constraint,
 	type Families,
+	familyViolations,
 	type FamilyRow,
 	type Part,
 	partOf,
@@ -42,8 +43,7 @@ import {
 	type Shape,
 	type Stored,
 	storedOf,
-	theorem,
-	violations
+	theorem
 } from "#test/support/families/theorem.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -141,7 +141,7 @@ describe("the family lowering", () => {
 				(box, c) =>
 					Effect.sync(() => {
 						const stored = storedOfBox(box)
-						const found = violations(stored)
+						const found = familyViolations(stored)
 						const breaches = breachesOf(stored)
 						const broken = (part: Part) => Arr.some(breaches, (b) => partOf[b.kind] === part)
 						const breaks = (constraints: ReadonlyArray<Constraint>) =>
@@ -217,18 +217,18 @@ const programs: Gen<Program> = (source) =>
 /** Every state the statements leave, from the families' own, none checked. */
 const statesOf = (
 	before: Families,
-	statements: ReadonlyArray<Statement>
+	statements: ReadonlyArray<MutationStatement>
 ): Arr.NonEmptyReadonlyArray<Stored> => Arr.scan(statements, storedOf(before), applied)
 
 /** Whether the statements are in the order every change sends them. */
-const inPlace = (statements: ReadonlyArray<Statement>): boolean =>
+const inPlace = (statements: ReadonlyArray<MutationStatement>): boolean =>
 	Arr.every(
 		statements,
 		(s, i) => i === 0 || placeOf[Arr.getUnsafe(statements, i - 1).kind] <= placeOf[s.kind]
 	)
 
 /** Whether an insert lists a row before the row one slot below it in its group. */
-const successorFirst = (statements: ReadonlyArray<Statement>): boolean =>
+const successorFirst = (statements: ReadonlyArray<MutationStatement>): boolean =>
 	Arr.some(
 		statements,
 		(s) =>
@@ -245,7 +245,7 @@ const judgeBefore = (before: Families): void => {
 		before,
 		"the theorem reads a committed state back as its families"
 	)
-	assert.deepEqual(violations(storedOf(before)), [], "a committed state breaks no constraint")
+	assert.deepEqual(familyViolations(storedOf(before)), [], "a committed state breaks no constraint")
 }
 
 /**
@@ -253,7 +253,7 @@ const judgeBefore = (before: Families): void => {
  * copies are its owners' counts breaks no constraint but, possibly, the member key, which the theorem does not read.
  */
 const judgeState = (state: Stored): void => {
-	const found = violations(state)
+	const found = familyViolations(state)
 	const read = theorem(state)
 	if (found.length === 0) {
 		succeeded(read, "a state that breaks no constraint satisfies the theorem")

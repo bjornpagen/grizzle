@@ -68,7 +68,7 @@ export const rosterHandles: readonly [string, ...Array<string>] = ["H0", "H1", "
  * The roster's codes in every write installation: a fresh installation's (firstCodebook), each handle's code its
  * position, which the installers the write suites run (oracle/install/real.ts installRealSchema) give it.
  */
-export const rosterCodes: RosterCodec = (() => {
+const rosterCodes: RosterCodec = (() => {
 	const name = parseDeclaredName(rosterName)
 	if (!name.ok) {
 		throw new Error(`the write roster's name ${rosterName}: ${name.error}`)

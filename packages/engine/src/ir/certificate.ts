@@ -49,7 +49,6 @@ export type ElisionRule = `R17.elide.${ElisionReason}`
  */
 export type MultiplicityRule =
 	| "R02.existence"
-	| "R17.contribution"
 	| "R17.unionAll"
 	| "R17.recursiveTerms"
 	| "R17.placement"

@@ -8,8 +8,8 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import type { SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import { expandAlternatives } from "#compiler/ir/desc.ts"
-import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import type { NativeKind } from "#compiler/ir/law.ts"
+import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { pg } from "#compiler/public/fields.ts"
 import {
@@ -73,8 +73,14 @@ const declaredKeys = (subject: AnySchema): ReadonlyArray<readonly [Statement, Co
 			key(on(Employee, "employer", "code")),
 			constraintOf(subject, Employee, "key", ["employer", "code"])
 		],
-		[key(on(PayLine, "run", "employee")), constraintOf(subject, PayLine, "key", ["run", "employee"])],
-		[key(on(Posting, "line", "account")), constraintOf(subject, Posting, "key", ["line", "account"])],
+		[
+			key(on(PayLine, "run", "employee")),
+			constraintOf(subject, PayLine, "key", ["run", "employee"])
+		],
+		[
+			key(on(Posting, "line", "account")),
+			constraintOf(subject, Posting, "key", ["line", "account"])
+		],
 		selected(
 			key(
 				on(
@@ -371,10 +377,9 @@ describe("production names from src", () => {
 										theory.has(law),
 										`${ident} reports ${law}, which is no law of the theory`
 									)
-									/** A family's law is reported by several natives of one kind, each among the law's. */
 									assert.ok(
 										L.constraintsOf(law, native.object.kind).includes(ident),
-										`${ident} is among the ${native.object.kind} constraints reporting ${law}`
+										`${ident} is among the ${native.object.kind} constraints reporting ${law}: a family's law is reported by several natives of one kind, each among the law's`
 									)
 								}
 							}
@@ -384,10 +389,6 @@ describe("production names from src", () => {
 								const expansion = expandAlternatives(statement)
 								const all = [...new Set(Rec.values(laws.arms)), ...Rec.values(laws.reverse)]
 								assert.equal(new Set(all).size, all.length, "arm and reverse laws are distinct")
-								/**
-								 * Each arm contained in its handles' parents, through the arm's tagged foreign key into its parent; each
-								 * armed handle's parents contained in its arm, a native foreign key of its own (fin.md §7).
-								 */
 								for (const forward of Arr.filter(
 									expansion,
 									(s) => s.right.selection.conjuncts.length > 0
@@ -395,7 +396,11 @@ describe("production names from src", () => {
 									const parent = forward.right.relation
 									const handle = handleOf(forward.right)
 									const fk = taggedForeignKey(L.model, forward.left.relation, parent)
-									assert.equal(laws.arms[handle], L.lawOfConstraint(fk.owner, fk.ident), handle)
+									assert.equal(
+										laws.arms[handle],
+										L.lawOfConstraint(fk.owner, fk.ident),
+										`${handle}'s arm is contained in its parents through its tagged foreign key`
+									)
 								}
 								for (const reverse of Arr.filter(
 									expansion,

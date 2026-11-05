@@ -27,7 +27,7 @@ interface CodeColumn<out A> {
 }
 
 /**
- * A set's column: the cell is its bit(n) text, position i code i, read into a frozen Set of the handles the
+ * A set's column: the cell is its bit(n) text, position i code i, read into a fresh Set of the handles the
  * installation's names give its 1 bits, under the record assembly's one claim. A is the set's host type, a phantom of
  * the descriptor's roster.
  */
@@ -381,29 +381,52 @@ export const rowText = (texts: ReadonlyArray<string>, position: number): string 
 /** The cell at a position of its layout, which bound the reader. */
 export const cellAt = (row: Row, position: number): string => rowText(row.texts, position)
 
-/** The Option of at most one child: Some of the first, None of none. */
-const optionOf = <A>(children: ReadonlyArray<A>, options: OptionVocabulary): Option.Option<A> =>
-	isNonEmpty(children) ? options.some(children[0]) : options.none
+/**
+ * The children of one row under an attachment the analysis proves delivers at most one, held to that proof: a second
+ * child is a state the proof excludes, so it is a defect naming the attachment `key`, never a first of several taken
+ * silently. A row count is the database's state, which no type carries, so this is the one site of the fact that a row
+ * holds at most the one child its law allows.
+ */
+const atMostOne = <A>(key: string, children: ReadonlyArray<A>): ReadonlyArray<A> => {
+	if (children.length > 1) {
+		throw defect(
+			`a row holds at most one child under the attachment ${key}, which the analysis proves delivers at most one`
+		)
+	}
+	return children
+}
 
-/** Each delivery's reading of the children of one row. */
+/** The Option of at most one child (atMostOne): None of none, Some of the one. */
+const optionOf = <A>(
+	key: string,
+	children: ReadonlyArray<A>,
+	options: OptionVocabulary
+): Option.Option<A> => {
+	const held = atMostOne(key, children)
+	return isNonEmpty(held) ? options.some(held[0]) : options.none
+}
+
+/** Each delivery's reading of the children of one row under the attachment `key`. */
 const deliveries = <A>(
+	key: string,
 	options: OptionVocabulary
 ): { readonly [D in Delivery]: (children: ReadonlyArray<A>) => Delivered<A>[D] } => ({
 	array: (children) => children,
-	option: (children) => optionOf(children, options),
-	one: (children) => provenChild(children)
+	option: (children) => optionOf(key, children, options),
+	one: (children) => provenChild(key, children)
 })
 
 /**
- * The child a row holds under an attachment a law proves it holds: one the analysis proves delivers exactly one (a
- * containment into the child's key, enforced at commit), or an alternatives arm's on a row whose handle selects the arm
- * (the alternatives family law). The one site of the fact that the database holds the laws its proofs rest on, so the
- * row has its child: a row count is the database's state, which no type carries.
+ * The child a row holds under the attachment `key`, which a law proves it holds exactly once: one the analysis proves
+ * delivers exactly one (a containment into the child's key, enforced at commit), or an alternatives arm's on a row whose
+ * handle selects the arm (the alternatives family law). The one site of the fact that the database holds the laws its
+ * proofs rest on, so the row has its child and no other (atMostOne): no child, or a second, is a defect naming the
+ * attachment.
  */
-const provenChild = <A>(children: ReadonlyArray<A>): A => {
-	const [child] = children
+const provenChild = <A>(key: string, children: ReadonlyArray<A>): A => {
+	const [child] = atMostOne(key, children)
 	if (child === undefined) {
-		throw defect("a row holds the child a law proves it holds")
+		throw defect(`a row holds the child the attachment ${key} proves it holds`)
 	}
 	return child
 }
@@ -431,9 +454,10 @@ export const attachment = <A, D extends Delivery>(
 			throw new Refusal(bound.error)
 		}
 		const read = bound.value
-		const deliver: (children: ReadonlyArray<A>) => Delivered<A>[D] = deliveries<A>(context.options)[
-			delivery
-		]
+		const deliver: (children: ReadonlyArray<A>) => Delivered<A>[D] = deliveries<A>(
+			key,
+			context.options
+		)[delivery]
 		const { slot } = at
 		return {
 			read: (row) => deliver(Object.freeze(childrenAt(row, slot, read)))
@@ -528,20 +552,29 @@ export const someChild = <A>(child: RowDecoder<A>): RecordField<Option.Some<A>> 
 	bind: (layout, key, context) => {
 		const children = optionChildren(child, layout, key, context)
 		return {
-			read: (row) => context.options.some(provenChild(children(row)))
+			read: (row) => context.options.some(provenChild(key, children(row)))
 		}
 	}
 })
 
 /**
  * An alternatives arm's attachment on a row whose handle selects another arm: None. The layout must deliver the arm's
- * attachment, as for a selected arm; the row's children under it are never read, since the alternatives family law
- * holds them empty.
+ * attachment, as for a selected arm. The alternatives family law holds the row's children under it empty, so a child
+ * there is a state the law excludes: a defect naming the attachment, never a child dropped silently.
  */
 export const noChild = <A>(child: RowDecoder<A>): RecordField<Option.None<A>> => ({
 	bind: (layout, key, context) => {
-		optionChildren(child, layout, key, context)
-		return { read: () => context.options.none }
+		const children = optionChildren(child, layout, key, context)
+		return {
+			read: (row) => {
+				if (isNonEmpty(children(row))) {
+					throw defect(
+						`a row holds no child under the attachment ${key} of an alternatives arm its handle does not select`
+					)
+				}
+				return context.options.none
+			}
+		}
 	}
 })
 

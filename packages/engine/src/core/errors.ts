@@ -238,6 +238,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnsupportedLawFamily`: a law of a family the compiler does not lower, `capability`.
  * - `LawOnDerived`: a law that names the derived relation `relation`.
  * - `UnrepresentableKey`: a key or index, `subject`, over `key`, with no representable index entry, for `fault`.
+ * - `FoldOverProjection`: a fold whose rule matches `source` without binding every field of one of its keys, so the
+ *   fold would read a projection of its facts; `key` is the key to bind.
  * - `MissingDiscriminant`, `AttachedParentUnbound`, `AttachedPage`, `DescribedHeadingMismatch`, `ContractLiteral`:
  *   the rule `capability` names, a sentence nothing reads the parts of.
  * - `DuplicateIdentity`: a name declared twice differently (Duplicate), with the earlier declaration's location.
@@ -279,6 +281,12 @@ export type CompileReason =
 			readonly subject: string
 			readonly key: ReadonlyArray<string>
 			readonly fault: KeyFault
+	  }
+	| {
+			readonly _tag: "FoldOverProjection"
+			readonly at: SourceLoc
+			readonly source: string
+			readonly key: ReadonlyArray<string>
 	  }
 	| { readonly _tag: "MissingDiscriminant"; readonly at: SourceLoc; readonly capability: string }
 	| { readonly _tag: "AttachedParentUnbound"; readonly at: SourceLoc; readonly capability: string }
@@ -363,13 +371,14 @@ export type ProseTag =
 	| "MalformedDescription"
 
 /**
- * What a migration may drop, as `--drop` spells it: a relation (`R`), a field of one (`R.f`), or a roster's handle
- * (`R#h`).
+ * What a migration may drop, as `--drop` spells it: a relation (`R`), a field of one (`R.f`), a roster's handle
+ * (`R#h`), or a login (`@L`).
  */
 export type Dropped =
 	| { readonly kind: "relation"; readonly relation: DeclaredName }
 	| { readonly kind: "field"; readonly relation: DeclaredName; readonly field: DeclaredName }
 	| { readonly kind: "handle"; readonly roster: DeclaredName; readonly handle: string }
+	| { readonly kind: "login"; readonly login: DeclaredName }
 
 /** A dropped name as `--drop` spells it. */
 const droppedText = (d: Dropped): string => {
@@ -380,8 +389,17 @@ const droppedText = (d: Dropped): string => {
 			return `${d.relation}.${d.field}`
 		case "handle":
 			return `${d.roster}#${d.handle}`
+		case "login":
+			return `@${d.login}`
 	}
 }
+
+/**
+ * A fold reads each fact its rule matches once, by a key, so a match that binds no key of its source would fold a
+ * projection of its facts: name the key to bind, and the form that folds distinct values.
+ */
+export const foldOverProjectionText = (source: string, key: ReadonlyArray<string>): string =>
+	`a fold reads each fact it matches once, by its key, and this match of ${source} binds none of its keys: bind (${key.join(", ")}) in the match, or, to fold distinct values, match a query of them as the source`
 
 /** A reason whose one fact is the sentence `text`, at `at`. */
 export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason =>
@@ -407,6 +425,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `a law names derived relation ${reason.relation}; no law names a derived relation in either direction`
 		case "UnrepresentableKey":
 			return keyFaultText(reason.subject, reason.key, reason.fault)
+		case "FoldOverProjection":
+			return foldOverProjectionText(reason.source, reason.key)
 		case "DuplicateIdentity":
 			return duplicateText(reason.duplicate)
 		case "OutsideRole":

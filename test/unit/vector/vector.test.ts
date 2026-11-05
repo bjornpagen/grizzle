@@ -9,6 +9,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { EncodingFailure, isCompileError } from "#compiler/core/errors.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { templateFor } from "#compiler/program/template.ts"
@@ -145,7 +146,7 @@ describe("the cosine domain", () => {
 		"admits exactly the buffers of the field's dimensions, finite, of a norm in [cosineNormMin, cosineNormMax], at Vector.from and at every encode",
 		(ctx) =>
 			Effect.gen(function* () {
-				const codec = codecOf(scalarOf({ kind: "vector", dimensions: dims }, {}))
+				const codec = codecOf(scalarOf({ kind: "vector", dimensions: dims }, {}), emptyCodebook)
 				yield* searched(
 					ctx,
 					explore(

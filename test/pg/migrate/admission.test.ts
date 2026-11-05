@@ -30,7 +30,15 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { draftCodes, draftedAt, fromEmpty, fromSnapshot, generate, noDeclarations, type Previous } from "#test/support/migrate/kit.ts"
+import {
+	draftCodes,
+	draftedAt,
+	fromEmpty,
+	fromSnapshot,
+	generate,
+	noDeclarations,
+	type Previous
+} from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { draftActions, draftFiles, planStatements } from "#test/support/migrate/review.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"

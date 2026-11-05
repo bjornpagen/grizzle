@@ -663,7 +663,10 @@ export type Witness =
 	| { readonly kind: "shown"; readonly keys: ReadonlyArray<HostFact> }
 	| { readonly kind: "withheld" }
 
-/** What one action did, as the model predicts it and the executor observes it. Rows and keys compare as sets. */
+/**
+ * What one action did, as the model predicts it and the executor observes it. Rows and keys compare as keyed sets, and
+ * an observation that repeats one agrees with no prediction.
+ */
 export type ActionOutcome =
 	| { readonly kind: "opened"; readonly session: number; readonly verifyCalls: 0 | 1 }
 	| { readonly kind: "open-refused"; readonly stage: ModelOpenStage; readonly verifyCalls: 0 | 1 }
@@ -969,7 +972,7 @@ export type AdditionFeature =
  * losing one (a hole its VALIDATE judges), a roster declared out of its codes' order (D1), a law added, or the
  * installation otherwise.
  */
-export const MIGRATION_KINDS = [
+const MIGRATION_KINDS = [
 	"roster-growth",
 	"roster-removal",
 	"roster-reorder",

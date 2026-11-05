@@ -34,7 +34,7 @@ import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { classifyServerError, type FailureOrigin } from "#adapter/outcomes/index.ts"
 import { installationWitness } from "#adapter/witness/index.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { type LawId, ParamId } from "#compiler/core/ids.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { draftCodebook, firstCodebook, noRenames } from "#compiler/ir/codes.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { bits, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
@@ -259,8 +259,7 @@ const statementAt = (
 const familyDelete: WriteStep = {
 	kind: "family",
 	stratum: 0,
-	slot: ParamId("nodes"),
-	family: { owner: "Tag", count: "n" },
+	target: { kind: "rows", relation: "Node" },
 	statement: "delete",
 	relation: "Node",
 	result: {

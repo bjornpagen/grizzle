@@ -1,25 +1,23 @@
-import { type ConsumerEdge, consumerIn } from "#compiler/analysis/physical/consumers.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
-import { deliveredInput, type NodeOf, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
+import { deliveredInput, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
 
 /** The kinds whose realization the policy fixes to their exact set form. */
 const pinnedDistinctKinds: ReadonlyArray<RelKind> = ["Recursive", "Intersect", "Difference"]
 
 /**
- * The fixed placement policy: which set forms are kept whatever the evidence,
- * where a union starts, which edges a fold discharges itself, and where a node's duplicate elimination can sit.
+ * The fixed placement policy: which set forms are kept whatever the evidence, where a union starts, and where a node's
+ * duplicate elimination can sit.
  *
  * - Recursive closure keeps its recursive UNION: it removes repeated complete states within and across iterations, and
  *   no evidence about seed, step, edges, acyclicity or depth replaces it. The compiler
  *   applies no UNION ALL elision to recursive feedback.
- * - INTERSECT and EXCEPT keep their set forms; an ALL form needs an explicit
- *   multiplicity proof and performance evidence.
+ * - INTERSECT and EXCEPT keep their set forms: the SQL grizzle prints has no ALL form of either.
  * - A union starts as set UNION, which absorbs its arms' repeats, so redundant per-arm DISTINCT is omitted.
  *   It becomes UNION ALL only when each arm is unique and the final coerced headings are pairwise
  *   disjoint by a retained literal discriminant (R17.unionAll); distinct source identities projected away
  *   never qualify.
- * - A Group with aggregates owes its contributions on the complete bound tuple B, so its observing edge is discharged
- *   by its own contribution DISTINCT on B, never by a DISTINCT on a narrower or a wider tuple.
+ * - A Group with aggregates observes its input like any other observing consumer: its bound tuple is a key of the
+ *   input (ir/rel.ts FoldInput), so the input made distinct over its heading holds one row per bound tuple.
  * - An attachment delivers its parent's rows, a law's Forbid its violation query's and an ordered result its input's,
  *   ordered (the conservative lowering lowers each as that input): none is a fragment of its own that a
  *   DISTINCT could close, so a duplicate elimination owed on one sits on the node whose rows it delivers, and none is
@@ -37,8 +35,8 @@ export const initialRealization = (node: RelNode): Realization =>
 /**
  * The kinds whose conservative lowering closes their fragment with an exact duplicate elimination: a
  * plain realization of one of them proved unique is a DISTINCT elision and carries an R17.elide certificate. A Group
- * is unique by its grouping key and gets no DISTINCT after the fold; its contribution DISTINCT is the fold's own
- * (R17.contribution). Attach and Forbid deliver another node's rows, and an ordered result orders its input's.
+ * is unique by its grouping key and gets no DISTINCT after the fold. Attach and Forbid deliver another node's rows,
+ * and an ordered result orders its input's.
  */
 export const elisionKinds: ReadonlyArray<RelKind> = [
 	"Base",
@@ -58,12 +56,6 @@ export const elisionKinds: ReadonlyArray<RelKind> = [
 	"Window",
 	"OrderedSetAggregate"
 ]
-
-/** The Group with aggregates that consumes this edge as its input, if one does: the fold discharges it on B itself. */
-export const edgeFold = (edge: ConsumerEdge): NodeOf<"Group"> | undefined => {
-	const consumer = consumerIn(edge.consumer, "input")
-	return consumer?.kind === "Group" && consumer.aggs.length > 0 ? consumer : undefined
-}
 
 /**
  * The node that carries a duplicate elimination owed on `node`: `node` itself, or, through every node that delivers

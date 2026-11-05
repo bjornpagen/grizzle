@@ -372,7 +372,10 @@ export const cleared = (
 ): Effect.Effect<void, SqlError | TransactionRolledBack> =>
 	Effect.gen(function* () {
 		yield* seat.session.begin
-		yield* seat.session.query(`TRUNCATE ${Arr.join(Arr.map(relations, seat.table), ", ")}`, [])
+		yield* Effect.onError(
+			seat.session.query(`TRUNCATE ${Arr.join(Arr.map(relations, seat.table), ", ")}`, []),
+			() => Effect.ignore(seat.session.rollback)
+		)
 		yield* seat.session.commit
 		yield* seat.session.resetStatements
 	})

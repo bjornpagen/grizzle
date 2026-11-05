@@ -646,10 +646,6 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 		)
 	})
 
-	/**
-	 * Every drop is declared, so the one loss of stored data a draft holds undecided is a schema's first migration
-	 * starting it empty beside the schemas its directory still holds: their rows.
-	 */
 	it("refuses an undecided loss of stored data, and plans it once its statement is written in", () => {
 		const abandoning = succeeded(
 			generateMigration({
@@ -672,7 +668,7 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 				Arr.flatMap(abandoning.folder.meta.files, (f) =>
 					Arr.flatMap(f.steps, (s) => (s.kind === "loss" ? [f.name] : []))
 				),
-				"starting a schema beside an abandoned one drafts a loss"
+				"starting a schema beside an abandoned one drafts a loss: every drop is declared, so a schema's first migration starting it empty beside the schemas its directory still holds is the one loss a draft leaves undecided"
 			),
 			(file) => ({ folder: abandoning.folder.name, file })
 		)

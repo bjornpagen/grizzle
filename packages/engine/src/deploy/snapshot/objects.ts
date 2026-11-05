@@ -4,7 +4,6 @@ import { isList, isRecord } from "#compiler/core/record.ts"
 import type { PhysicalObject } from "#compiler/ir/products.ts"
 import { parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
 import {
-	type AlterTableAction,
 	type ColumnDef,
 	type CreateConstant,
 	type CreateDomain,
@@ -30,12 +29,10 @@ import {
 	type TableConstraint,
 	tableConstraints
 } from "#compiler/sql/ast.ts"
-import { sameTypeRef } from "#compiler/sql/build.ts"
 
 import {
 	type AstHooks,
 	identityHooks,
-	transformStatement,
 	transformStatements
 } from "#compiler/sql/transform.ts"
 
@@ -59,21 +56,6 @@ export function refuseLaw(law: string, what: string): never {
 }
 
 export const same = (a: unknown, b: unknown): boolean => canonicalTextOf(a) === canonicalTextOf(b)
-
-/** Whether two columns of one name agree: one type, collation and generation kind. The one collation is a constant. */
-const sameColumn = (a: ColumnDef, b: ColumnDef): boolean =>
-	sameTypeRef(a.type, b.type) &&
-	(a.collation === undefined) === (b.collation === undefined) &&
-	a.generated?.kind === b.generated?.kind
-
-/** Whether two relations have one heading: the same fields, matched by their names, which are unique in a heading, each
- * of one type, collation and generation, in any order. */
-export const sameHeading = (a: CreateTable, b: CreateTable): boolean =>
-	a.columns.length === b.columns.length &&
-	a.columns.every((c) => {
-		const other = b.columns.find((d) => d.name === c.name)
-		return other !== undefined && sameColumn(c, other)
-	})
 
 /** An installed object read once with the statement that defines it, by its kind: the diff reads each object through
  * this view, so every object's form is checked here, once, and no rule probes a statement list again. An object whose
@@ -463,7 +445,7 @@ export const constraintColumns = (c: TableConstraint): ReadonlyArray<string> => 
 }
 
 /** Every column an index reads: its keys, its INCLUDE columns and its predicate's. */
-export const indexColumns = (s: CreateIndex): ReadonlyArray<string> =>
+const indexColumns = (s: CreateIndex): ReadonlyArray<string> =>
 	columnsOf(s.keys).concat(s.include, columnsOf(s.where ?? []))
 
 /** A key or CHECK object, read through its view. */
@@ -553,7 +535,7 @@ export const builtOver = (
  * namespace; an index's and a sequence's in its
  * schema's relations and a statistics object's in its schema's statistics objects, but each is built over one table and
  * stands or goes with it. */
-export const partKinds = ["constraint", "index", "statistics", "column", "sequence"] as const
+const partKinds = ["constraint", "index", "statistics", "column", "sequence"] as const
 export type PartKind = (typeof partKinds)[number]
 
 /** A part of a relation: its kind, the table it belongs to, its name, and its definition. A constraint declared inside
@@ -600,7 +582,7 @@ export type PartOf<K extends PartKind> = Extract<Part, { readonly kind: K }>
  * inside its table's CREATE TABLE; an index; a statistics object; a law column; and a table's identity
  * sequences, one per serial field, in its field order. Nothing else is a part: the table itself is the relation, and
  * every other kind stands outside any table. */
-export const objectParts = (
+const objectParts = (
 	v: Installed,
 	constraint: (c: KeyOrCheckView) => KeyOrCheck
 ): ReadonlyArray<Part> => {
@@ -728,34 +710,6 @@ export const relationParts = (
 	return parts
 }
 
-/** The part of its table an ALTER TABLE action adds: a column, or a constraint, which ADD CONSTRAINT ... USING INDEX
- * adds under its name too. Every other action adds none. */
-export const addedPart = (
-	a: AlterTableAction
-): { readonly kind: "constraint" | "column"; readonly name: string } | undefined => {
-	switch (a.kind) {
-		case "addColumn":
-		case "addColumnPlaceholder":
-		case "addColumnDefault":
-			return { kind: "column", name: a.column.name }
-		case "addConstraint":
-			return { kind: "constraint", name: a.constraint.name }
-		case "addConstraintUsingIndex":
-			return { kind: "constraint", name: a.name }
-		case "dropColumn":
-		case "dropDefault":
-		case "alterColumnType":
-		case "addIdentity":
-		case "dropIdentity":
-		case "validateConstraint":
-		case "dropConstraint":
-		case "enableRowSecurity":
-		case "disableRowSecurity":
-		case "setExpression":
-			return undefined
-	}
-}
-
 /** The key of a name in a set or map: `<schema>.<name>`. */
 export const nameKey = (name: ObjectName): string => `${name.schema}.${name.name}`
 
@@ -841,12 +795,3 @@ export const renameQualified = (
 	renames.names.size === 0
 		? statements
 		: transformStatements(statements, renameHooks(schema, renames))
-
-/** One statement with every schema-qualified name in `schema` that `renames` maps renamed: the same statement value
- * when none is, so a caller tells a renamed statement by identity. */
-export const renameStatement = (
-	statement: SqlStatement,
-	schema: string,
-	renames: QualifiedRenames
-): SqlStatement =>
-	renames.names.size === 0 ? statement : transformStatement(statement, renameHooks(schema, renames))

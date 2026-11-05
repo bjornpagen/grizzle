@@ -52,7 +52,10 @@ const convertCode =
 	(text: string): string =>
 		handleAt(roster, Number(text))
 
-/** bit(n)'s output text, position i code i: the frozen set of the handles of its 1 bits. */
+/**
+ * bit(n)'s output text, position i code i: a fresh Set of the handles of its 1 bits, one per converted value, which the
+ * reader owns. It is not frozen: Object.freeze leaves a Set's members writable, so freezing would promise nothing.
+ */
 const convertBits =
 	(roster: RosterCodec) =>
 	(text: string): ReadonlySet<string> => {
@@ -60,7 +63,7 @@ const convertBits =
 		for (let code = text.indexOf("1"); code >= 0; code = text.indexOf("1", code + 1)) {
 			handles.add(handleAt(roster, code))
 		}
-		return Object.freeze(handles)
+		return handles
 	}
 
 /**
@@ -85,7 +88,7 @@ const convertBits =
  * | bool | `true`/`false` (bool::text), `t`/`f` (boolout) | the first letter is t |
  * | uuid, text | uuid_out, the string | the text itself |
  * | code | int2out of the code | the live handle the code names |
- * | bits | bit_out, n characters of 0 and 1 | a frozen Set of the handles of its 1 bits, position i code i |
+ * | bits | bit_out, n characters of 0 and 1 | a fresh Set of the handles of its 1 bits, position i code i |
  * | range4, range8 | range_out of a bounded half-open range, [start,end) | a frozen { start, end } |
  * | vector | vector_out, [c1,...,cn] | a Float32Array of the column's dimensions, components exactly binary32 |
  * | exactInteger | int8out or numeric_out of an integer | BigInt, the exact integer |

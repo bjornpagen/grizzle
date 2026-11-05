@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, Record as Rec, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { pageTemplate, rowOf, sortedResult, traverse, untyped } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -139,16 +140,19 @@ const storedFact = (f: FactSketch): StoredFact => ({
 	label: storedOf("label", f.label)
 })
 
-/** A stored value's text as its column's input function reads it: its canonical text, or its twin spelling. */
-const storedText = (v: SpelledValue): string =>
-	v.spelling.kind === "twin" ? v.spelling.text : inputText(v.literal)
+/**
+ * A stored value's text as its column's input function reads it: its canonical text, or its twin spelling. No field is
+ * a closed id or a set, so no codes spell any.
+ */
+const storedText = (field: Field, v: SpelledValue): string =>
+	v.spelling.kind === "twin" ? v.spelling.text : inputText(v.literal, fields[field], emptyCodebook)
 
 /** A fact's stored texts, as its column's input function reads them. */
 const factTexts = (f: StoredFact): Readonly<Record<Field, string>> => ({
-	x: storedText(f.x),
-	amount: storedText(f.amount),
-	big: storedText(f.big),
-	label: storedText(f.label)
+	x: storedText("x", f.x),
+	amount: storedText("amount", f.amount),
+	big: storedText("big", f.big),
+	label: storedText("label", f.label)
 })
 
 type ValuesFeature =
@@ -175,7 +179,7 @@ type ValuesFeature =
 const reached = (stored: ReadonlyArray<StoredFact>): ReadonlyArray<ValuesFeature> => {
 	const out = new Set<ValuesFeature>()
 	for (const v of stored) {
-		const f = { ...factTexts(v), amount: inputText(v.amount.literal) }
+		const f = { ...factTexts(v), amount: inputText(v.amount.literal, fields.amount, emptyCodebook) }
 		if (f.x === "-0") {
 			out.add("float -0")
 		}

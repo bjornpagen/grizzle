@@ -1,5 +1,4 @@
 import {
-	contributionCertificate,
 	elisionCertificate,
 	existenceCertificate,
 	recursiveTermsCertificate,
@@ -11,26 +10,18 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate, MultiplicityRule } from "#compiler/ir/certificate.ts"
-import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
-import type { FoldInput } from "#compiler/lower/optimize/dedup/plan.ts"
+import type { RelNode } from "#compiler/ir/rel.ts"
 import { elisionKinds } from "#compiler/lower/optimize/dedup/policy.ts"
 
 /**
- * The certificate a node's kind performs beside an elision, if any: a plain fold's contribution, an unobserved
- * existence test's, a recursion's unobserved terms'.
+ * The certificate a node's kind performs beside an elision, if any: an unobserved existence test's, a recursion's
+ * unobserved terms'.
  */
 const kindCertificates = (
 	a: PhysicalAnalysis,
-	node: RelNode,
-	form: FoldForm
+	node: RelNode
 ): ReadonlyArray<Result.Result<Certificate<MultiplicityRule>, CompileError>> => {
 	switch (node.kind) {
-		case "Group":
-			return node.aggs.length > 0 &&
-				form(node) === "plain" &&
-				a.of(node).contribution?.identity.kind === "removable"
-				? [contributionCertificate(a, node)]
-				: []
 		case "SemiJoin":
 		case "AntiJoin":
 			return !a.of(node.right).observed ? [existenceCertificate(a, node)] : []
@@ -50,6 +41,7 @@ const kindCertificates = (
 		case "Intersect":
 		case "Difference":
 		case "Take":
+		case "Group":
 		case "Produce":
 		case "SelfRef":
 		case "ApproximateNearest":
@@ -65,8 +57,7 @@ const kindCertificates = (
 /** The certificate a node's own realization, the one the analysis was made under, performs, if any. */
 const nodeCertificates = (
 	a: PhysicalAnalysis,
-	node: RelNode,
-	form: FoldForm
+	node: RelNode
 ): ReadonlyArray<Result.Result<Certificate<MultiplicityRule>, CompileError>> => {
 	const { props, realization } = a.of(node)
 	const elided =
@@ -77,11 +68,8 @@ const nodeCertificates = (
 						: elisionCertificate(a, node)
 				]
 			: []
-	return [...elided, ...kindCertificates(a, node, form)]
+	return [...elided, ...kindCertificates(a, node)]
 }
-
-/** How each fold with aggregates takes its input, decided once by the placement (place.ts foldOf). */
-export type FoldForm = (group: NodeOf<"Group">) => FoldInput
 
 /**
  * The certificates of a placement's multiplicity rewrites.
@@ -94,8 +82,6 @@ export type FoldForm = (group: NodeOf<"Group">) => FoldInput
  *   proves the plain form unique (a retained primary key, or combined join keys);
  * - R17.unionAll: UNION ALL for a union of several arms, each unique and pairwise disjoint on the final coerced
  *   headings;
- * - R17.contribution: a fold without its contribution DISTINCT, because B determines a physical key of the input proved
- *   without the input's own DISTINCT;
  * - R02.existence: an EXISTS whose right side carries no DISTINCT, because no other consumer observes its repeats;
  * - R17.recursiveTerms: plain seed and step SELECTs feeding the recursive UNION directly;
  * - R17.placement: a duplicate elimination placed before the consumer that observes repeats, made during the worklist
@@ -106,11 +92,10 @@ export type FoldForm = (group: NodeOf<"Group">) => FoldInput
  */
 export const certifyPlan = (
 	a: PhysicalAnalysis,
-	form: FoldForm,
 	placements: ReadonlyArray<Certificate<MultiplicityRule>>
 ): Result.Result<ReadonlyArray<Certificate<MultiplicityRule>>, CompileError> => {
 	const all: Array<Certificate<MultiplicityRule>> = [...placements]
-	for (const r of a.order.flatMap((node) => nodeCertificates(a, node, form))) {
+	for (const r of a.order.flatMap((node) => nodeCertificates(a, node))) {
 		if (!r.ok) {
 			return Result.err(r.error)
 		}

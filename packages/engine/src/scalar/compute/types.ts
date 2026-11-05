@@ -161,12 +161,6 @@ export const wildcardText: ScalarType = Object.freeze({
 	text: Object.freeze({ regex: "wildcard", lengthBound: undefined, byteBound: undefined })
 })
 
-/**
- * A type as itself. No type is a serial declaration, since how a field is written is its writing, never its type, so
- * a caller that dropped a serial declaration drops nothing; each caller deletes its call.
- */
-export const withoutSerial = (t: ScalarType): ScalarType => t
-
 /** The base of a type: what an expression over a field computes with. */
 export const valueType = (t: ScalarType): ScalarType => baseOf(t)
 

@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { array, type Gen, int, parents } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Stream, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -25,9 +25,9 @@ import { inForce } from "#compiler/write/family/order.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -207,6 +207,13 @@ describe("a nested write through the program", () => {
 							if (bound.kind !== "bound") {
 								return
 							}
+							assertVariant(
+								bound.flights,
+								"kind",
+								"write",
+								"a nested write reads nothing first: every group it writes is its own new owner's"
+							)
+							const { chunks } = bound.flights
 							const statements = program.artifacts.optimized.statements
 							const family = Arr.filter(statements, (s) => s.step.kind === "family")
 							const owner = defined(
@@ -252,7 +259,7 @@ describe("a nested write through the program", () => {
 								),
 								"the family's insert step"
 							)
-							const lineChunks = succeeded(bound.chunks(lineStep))
+							const lineChunks = succeeded(chunks(lineStep))
 							if (lineChunks.length > 1) {
 								c.note("a chunked family")
 							}
@@ -265,9 +272,9 @@ describe("a nested write through the program", () => {
 								),
 								"the tree's insert step"
 							)
-							const nodeChunks = succeeded(bound.chunks(nodeStep))
+							const nodeChunks = succeeded(chunks(nodeStep))
 							const nodeIds = Arr.flatMap(nodeChunks, (chunk) =>
-								arrayItems(defined(chunk[7], "the ids' array"))
+								arrayItems(defined(chunk[0], "the ids' array, the key's"))
 							)
 							const expectedIds = Arr.flatMap(box.trees, (parentOf, t) =>
 								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => r.id)
@@ -303,3 +310,160 @@ const arrayItems = (literal: string): ReadonlyArray<string> =>
 		: Arr.map(Str.split(Str.slice(1, -1)(literal), ","), (item) =>
 				Str.startsWith('"')(item) && Str.endsWith('"')(item) ? Str.slice(1, -1)(item) : item
 			)
+
+interface StatedFact {
+	readonly doc: number
+	readonly lines: ReadonlyArray<number>
+}
+
+interface SetCase {
+	readonly facts: ReadonlyArray<StatedFact>
+	/** How many of the facts, from the first, the array member states; the Stream member states the rest. */
+	readonly inArray: number
+}
+
+const setCaseGen: Gen<SetCase> = (source) => {
+	const facts = source.draw(
+		array(
+			(s: typeof source): StatedFact => ({
+				doc: s.draw(int(0, 1)),
+				lines: s.draw(array(int(0, 1), { min: 0, max: 2 }))
+			}),
+			{ min: 1, max: 3 }
+		)
+	)
+	return { facts, inArray: source.draw(int(0, facts.length)) }
+}
+
+const docFact = (f: StatedFact) => ({
+	id: uuidOf(100 + f.doc),
+	lines: Arr.map(f.lines, (l) => ({ id: uuidOf(200 + l), qty: 1n }))
+})
+
+/** A fact's identity in the specification's model: its doc and its lines, in order. */
+const statedIdentity = (f: StatedFact): string =>
+	`${f.doc}:${Arr.join(Arr.map(f.lines, String), ",")}`
+
+/** The program of the set box's one ChangeSet shape, an array member and a Stream member of one insert of Doc. */
+let setShaped: CompiledWrite | undefined
+
+type SetFeature =
+	| "an identical repeat in one member"
+	| "an identical repeat across members"
+	| "a conflict at the owner's key"
+	| "a member under two owners"
+	| "a member twice under one owner"
+	| "accepted with members"
+
+describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () => {
+	it.effect(
+		"writes a fact stated twice once, and refuses two facts at one key by that key's law before any SQL",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/write/nested/set",
+						generator: setCaseGen,
+						literal: Formatter.format,
+						limit: 20_000,
+						coverage: requiredInSpace<SetFeature>([
+							"an identical repeat in one member",
+							"an identical repeat across members",
+							"a conflict at the owner's key",
+							"a member under two owners",
+							"a member twice under one owner",
+							"accepted with members"
+						]),
+						caseHang,
+						box: "one to three Doc facts of two ids, each nesting up to two Lines of two ids, split between an array and a Stream member",
+						oracle: {
+							kind: "specification",
+							name: "a ChangeSet's facts are a set by identity, two at one key refused by its key law"
+						}
+					},
+					(box, c) =>
+						Effect.gen(function* () {
+							const stated = Arr.map(box.facts, docFact)
+							const value = ChangeSet.empty(Nested)
+								.insert(Doc, Arr.take(stated, box.inArray))
+								.insert(Doc, Stream.fromIterable(Arr.drop(stated, box.inArray)))
+							setShaped ??= compiled(value)
+							const members = yield* collectInputs(setShaped.frontend, parsedOf(value).inputs)
+							const bound = succeeded(
+								bindWrite(setShaped, { members, params: {}, transport: inForce(bindFrame) })
+							)
+							/** The specification: the stated facts as a set by identity, then the keys it holds twice. */
+							const distinct = Arr.dedupeWith(
+								box.facts,
+								(a, b) => statedIdentity(a) === statedIdentity(b)
+							)
+							const repeated = distinct.length < box.facts.length
+							const docs = Arr.map(distinct, (f) => f.doc)
+							const lineIds = Arr.flatMap(distinct, (f) => f.lines)
+							const docConflict = Arr.dedupe(docs).length < docs.length
+							const lineConflict = Arr.dedupe(lineIds).length < lineIds.length
+							const names = lawNamesOf(Nested)
+							if (repeated) {
+								const ids = Arr.map(box.facts, statedIdentity)
+								const front = Arr.take(ids, box.inArray)
+								const back = Arr.drop(ids, box.inArray)
+								c.note(
+									Arr.some(front, (id) => Arr.contains(back, id))
+										? "an identical repeat across members"
+										: "an identical repeat in one member"
+								)
+							}
+							if (docConflict) {
+								c.note("a conflict at the owner's key")
+								assertVariant(bound, "kind", "invariant-rejected", "two Docs at one key")
+								assert.equal(bound.law, names.primaryKeyLaw(Doc), "refused by Doc's key law")
+								return
+							}
+							if (lineConflict) {
+								c.note(
+									Arr.some(distinct, (f) => Arr.dedupe(f.lines).length < f.lines.length)
+										? "a member twice under one owner"
+										: "a member under two owners"
+								)
+								assertVariant(bound, "kind", "invariant-rejected", "two Lines at one key")
+								assert.equal(bound.law, names.primaryKeyLaw(Line), "refused by Line's key law")
+								return
+							}
+							assertVariant(bound, "kind", "bound", "a set with one fact at each key binds")
+							assertVariant(
+								bound.flights,
+								"kind",
+								"write",
+								"a nested write reads nothing first: every group it writes is its own new owner's"
+							)
+							const { chunks } = bound.flights
+							const lineStep = Option.getOrUndefined(
+								Arr.findFirst(
+									setShaped.artifacts.optimized.statements,
+									(s) =>
+										s.step.kind === "family" &&
+										s.step.relation === "Line" &&
+										s.step.statement === "insert"
+								)
+							)
+							const written = Arr.flatMap(
+								succeeded(chunks(defined(lineStep, "the Line insert step"))),
+								(chunk) => arrayItems(defined(chunk[0], "the ids' array, the key's"))
+							)
+							assert.deepEqual(
+								Arr.sort(written, Str.Order),
+								Arr.sort(
+									Arr.map(lineIds, (l) => uuidOf(200 + l)),
+									Str.Order
+								),
+								"each Line of the set is written once"
+							)
+							if (lineIds.length > 0) {
+								c.note("accepted with members")
+							}
+						})
+				)
+			)
+	)
+})

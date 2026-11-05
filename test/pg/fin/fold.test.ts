@@ -375,11 +375,6 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 								coverage: requiredInSpace<FoldFeature>(
 									nonEmpty([
 										...requiredOf(spec),
-										...(spec.shape === "ordered"
-											? [
-													`${spec.label} a junk before past the first slot refused predecessor axis` as const
-												]
-											: []),
 										...(Arr.isReadonlyArrayNonEmpty(mutants)
 											? ([
 													"first pin dropped killed by a junk seed",

@@ -236,7 +236,7 @@ const situations: Arr.NonEmptyReadonlyArray<SpanFeature> = [
 
 /** The case's ChangeSet over the installed schema, applied on `db`. */
 const applyCase = (
-	db: Db<FullWorld["app"], unknown>,
+	db: Db<FullWorld<SpansInstalled>["app"], unknown>,
 	s: SpansInstalled,
 	c: SpanCase,
 	requested: ReadonlyArray<Fact>
@@ -364,7 +364,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											if (outcome.kind !== "invariant-rejected") {
 												return assert.fail(`a refusal by the span key, not ${outcome.kind}`)
 											}
-											assert.deepEqual(outcome.law, names.described(names.primaryKeyLaw(R)))
+											assert.deepEqual(outcome.laws, [names.described(names.primaryKeyLaw(R))])
 											const witness = outcome.witness
 											if (witness.kind !== "key") {
 												return assert.fail(`a witness key, not ${witness.kind}`)

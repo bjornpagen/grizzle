@@ -31,17 +31,17 @@ import {
 } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 
 /** What a version holds, each a knob a case turns.
  *
  * Worlds across migrations on PostgreSQL 19: each case migrates one version of a schema with worlds to a next that
  * changes one thing a world rests on, through its generated, reviewed folders (`migrated`: every candidate rename kept, each folder applied by the real runner, which drift-checks the catalog it reaches).
  *
- * The schema: documents of organizations on a tier (a closed relation, an enum), each with a word count and a cap (a
- * contract), their shares and their notes (a serial field), and a derived relation over the documents' word counts.
+ * The schema: documents of organizations on a tier (a roster, whose closed ids are smallint codes), each with a word
+ * count and a cap (a contract), their shares and their notes (a serial field), and a derived relation over the documents' word counts.
  * Two contexts are read: the session's subject, and a quota whose cap is the contract. `editor` holds the documents and
  * the derived relation whole, refreshes it, reads Capped (the documents at the quota's cap) and writes Mine, its notes
  * under row security; `viewer` holds the organizations, the tier and the derived relation whole. Both are of one login.
@@ -51,8 +51,9 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
  * - a written entry's policy filter, which reads no relation besides the one it writes (its filter function goes);
  * - a filter function's relation (documents owned, then documents shared);
  * - a context's contract, the cap's least value;
- * - the login's name;
- * - the tier's handles reordered, an enum rebuilt under the viewer's view of the organizations;
+ * - the login's name, declared renamed (`--rename @desk=@counter`);
+ * - the tier's roster grown by a handle, a new names constant and roster domain under the viewer's view of the
+ *   organizations, which decodes each organization's tier through the names constant;
  * - the word count retyped from integer to bigint, a column under the derived relation, whose materialized view goes and
  *   comes back, and under the editor's view of the documents.
  *
@@ -64,7 +65,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
  * - no migration recreates a login or a role: each keeps its OID across the versions, so a password and what other
  *   roles were granted survive, a renamed login included. */
 interface Knobs {
-	readonly tiers: readonly ["Free", "Pro"] | readonly ["Pro", "Free"]
+	readonly tiers: readonly ["Free", "Pro"] | readonly ["Free", "Pro", "Team"]
 	readonly words: "integer" | "bigint"
 	readonly capLeast: 0 | 1
 	/** Mine's filter: the notes of documents the session's subject owns, of documents shared with it, or its own. */
@@ -176,7 +177,10 @@ const cases = [
 	{ name: "a filter function reads another relation", to: { ...start, mine: "shared" } },
 	{ name: "a context's contract changes", to: { ...start, capLeast: 1 } },
 	{ name: "the login is renamed", to: { ...start, login: "counter" } },
-	{ name: "an enum under a world view is rebuilt", to: { ...start, tiers: ["Pro", "Free"] } },
+	{
+		name: "a roster under a world view grows",
+		to: { ...start, tiers: ["Free", "Pro", "Team"] }
+	},
 	{
 		name: "a column under a derived relation and a world view is retyped",
 		to: { ...start, words: "bigint" }
@@ -238,7 +242,19 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 										`${quoteIdent(identifierOf(identity.column(parsedName("words"))))}::bigint`
 								},
 								register: true,
-								declared: () => noDeclarations,
+								/** The login's rename, the one name a version takes from another, declared; nothing is dropped. */
+								declared: (i) =>
+									i > 0 && c.to.login !== start.login
+										? {
+												renames: [
+													{
+														from: { kind: "login", login: parsedName(start.login) },
+														to: { kind: "login", login: parsedName(c.to.login) }
+													}
+												],
+												drops: []
+											}
+										: noDeclarations,
 								observe: Option.some((i: number, owner: RawSession) =>
 									Effect.gen(function* () {
 										const b = defined(built[i], `version ${i}`)

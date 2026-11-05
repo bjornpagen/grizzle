@@ -103,6 +103,9 @@ export type FiniteDecimal = Decimal & { readonly parts: FiniteParts }
 const finiteParts = (negative: boolean, coefficient: bigint, minScale: number): FiniteParts =>
 	Object.freeze({ kind: "finite", negative: negative && coefficient !== 0n, coefficient, minScale })
 
+/** The key the one mint takes, which no other module holds. */
+const minting: unique symbol = Symbol("Decimal")
+
 /**
  * The owned exact Decimal carrier of pg.numeric and pg.decimal: a numeric value and nothing else. 1, 1.0 and 1.00
  * are one Decimal, written "1".
@@ -131,11 +134,29 @@ export class Decimal implements Canonicalizable {
 	readonly parts: DecimalParts
 	/** numeric_out of trim_scale(value): the value's one text, written at construction. */
 	readonly text: string
+	/** The brand `instanceof Decimal` reads: installed only by the constructor, which only this module can call. */
+	readonly #minted = true
 
-	private constructor(parts: DecimalParts, text: string) {
+	/**
+	 * The one mint. It refuses a call without the module's key, so a JavaScript caller that reaches past the private
+	 * constructor, a subclass's `super` included, makes no Decimal: every Decimal is one of the checked constructors'
+	 * below, its text derived from its parts.
+	 */
+	private constructor(key: typeof minting, parts: DecimalParts, text: string) {
+		if (key !== minting) {
+			throw faultError("decimalType", SourceLoc("Decimal constructor", []))
+		}
 		this.parts = parts
 		this.text = text
 		Object.freeze(this)
+	}
+
+	/**
+	 * A Decimal is exactly what this module minted: `instanceof` reads the private brand, which no object built on
+	 * Decimal.prototype and no proxy holds, so a forged Decimal is never mistaken for one and runs no code of its own.
+	 */
+	static [Symbol.hasInstance](value: unknown): value is Decimal {
+		return typeof value === "object" && value !== null && #minted in value
 	}
 
 	/**
@@ -154,7 +175,7 @@ export class Decimal implements Canonicalizable {
 			}
 			const text = digits + "0".repeat(exponent)
 			const parts = finiteParts(negative, BigInt(digits) * pow10(exponent), 0)
-			return Result.ok(new Decimal(parts, negative ? `-${text}` : text))
+			return Result.ok(new Decimal(minting, parts, negative ? `-${text}` : text))
 		}
 		const minScale = -exponent
 		if (
@@ -164,13 +185,17 @@ export class Decimal implements Canonicalizable {
 			return Result.err("decimalRange")
 		}
 		const parts = finiteParts(negative, BigInt(digits), minScale)
-		return Result.ok(new Decimal(parts, finiteDigitsText(negative, digits, minScale)))
+		return Result.ok(new Decimal(minting, parts, finiteDigitsText(negative, digits, minScale)))
 	}
 
-	static readonly nan: Decimal = new Decimal(nanParts, "NaN")
-	static readonly infinity: Decimal = new Decimal(infinityParts, "Infinity")
-	static readonly negativeInfinity: Decimal = new Decimal(negativeInfinityParts, "-Infinity")
-	static readonly zero: Decimal = new Decimal(finiteParts(false, 0n, 0), "0")
+	static readonly nan: Decimal = new Decimal(minting, nanParts, "NaN")
+	static readonly infinity: Decimal = new Decimal(minting, infinityParts, "Infinity")
+	static readonly negativeInfinity: Decimal = new Decimal(
+		minting,
+		negativeInfinityParts,
+		"-Infinity"
+	)
+	static readonly zero: Decimal = new Decimal(minting, finiteParts(false, 0n, 0), "0")
 
 	/**
 	 * Any (negative, coefficient, scale) in, the one form out: trailing zeros of the coefficient are divided away. Refused
@@ -181,7 +206,7 @@ export class Decimal implements Canonicalizable {
 		coefficient: bigint,
 		scale: number
 	): Result.Result<Decimal, ValueFault> {
-		if (typeof coefficient !== "bigint" || coefficient < 0n) {
+		if (typeof negative !== "boolean" || typeof coefficient !== "bigint" || coefficient < 0n) {
 			return Result.err("decimalType")
 		}
 		if (!Number.isInteger(scale) || scale < 0) {
@@ -200,9 +225,23 @@ export class Decimal implements Canonicalizable {
 		)
 	}
 
-	/** The Decimal of an IR decimal value (ir/decimal.ts DecimalValue), whose parts are the one form already. */
+	/**
+	 * The Decimal of an IR decimal value (ir/decimal.ts DecimalValue): a Decimal as it is, and any other value revived from
+	 * its canonical payload, which must be exactly a value's one text (fromCanonical). Its parts and its payload are the
+	 * caller's, so neither is believed: the Decimal is minted from the checked text alone, and a payload that is no one
+	 * text is refused with CompileError MalformedDescription.
+	 */
 	static fromValue(value: DecimalValue): Decimal {
-		return value instanceof Decimal ? value : new Decimal(value.parts, decimalPayload(value))
+		if (value instanceof Decimal) {
+			return value
+		}
+		const revived = hostRead(faultError("decimalType", SourceLoc("Decimal value", [])), () =>
+			Decimal.fromCanonical(decimalPayload(value))
+		)
+		if (!revived.ok) {
+			throw revived.error
+		}
+		return revived.value
 	}
 
 	/**
@@ -219,7 +258,11 @@ export class Decimal implements Canonicalizable {
 			minScale--
 		}
 		const parts = finiteParts(negative, coefficient, minScale)
-		return new Decimal(parts, finiteDigitsText(parts.negative, coefficient.toString(), minScale))
+		return new Decimal(
+			minting,
+			parts,
+			finiteDigitsText(parts.negative, coefficient.toString(), minScale)
+		)
 	}
 
 	/** An integer Decimal. */
@@ -303,16 +346,20 @@ export class Decimal implements Canonicalizable {
 		const start = negative ? 1 : 0
 		const point = text.indexOf(".", start)
 		if (point < 0) {
-			return new Decimal(finiteParts(negative, BigInt(text.slice(start)), 0), text)
+			return new Decimal(minting, finiteParts(negative, BigInt(text.slice(start)), 0), text)
 		}
 		const end = zerosDropped(text, point + 1, text.length)
 		if (end === point + 1) {
 			const integer = text.slice(0, point)
-			return new Decimal(finiteParts(negative, BigInt(text.slice(start, point)), 0), integer)
+			return new Decimal(
+				minting,
+				finiteParts(negative, BigInt(text.slice(start, point)), 0),
+				integer
+			)
 		}
 		const coefficient = BigInt(text.slice(start, point) + text.slice(point + 1, end))
 		const parts = finiteParts(negative, coefficient, end - point - 1)
-		return new Decimal(parts, end === text.length ? text : text.slice(0, end))
+		return new Decimal(minting, parts, end === text.length ? text : text.slice(0, end))
 	}
 
 	/**

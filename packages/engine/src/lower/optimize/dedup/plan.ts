@@ -8,9 +8,6 @@ import type { Certificate, MultiplicityRule } from "#compiler/ir/certificate.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 
-/** Whether a fold deduplicates its complete bound tuple before folding. */
-export type FoldInput = "plain" | "distinct"
-
 /** A node realized `distinct` to discharge an observing consumer's need. */
 export interface Placement {
 	/** The node realized `distinct`. */
@@ -27,32 +24,6 @@ export interface Placement {
 	readonly heading: KeySet
 }
 
-/**
- * One fold's decision: its complete bound tuple B, why, and how it takes its input: plainly, the input already holding
- * one row per B, or deduplicated on B by its own contribution DISTINCT over `deduplicates`, the input of the observing
- * edge it discharges.
- *
- * The product of duplicate-elimination placement.
- *
- * A plan says, for every node of the rewritten DAG, how its semantic set boundary is realized, and, for every fold,
- * whether its contributions are deduplicated before folding:
- *
- * - `realization`: `plain` (an ordinary SELECT, UNION ALL for a union) or `distinct` (an exact duplicate-eliminating
- *   operator over the node's complete heading: SELECT DISTINCT, set UNION, INTERSECT, EXCEPT, recursive UNION). Every
- *   node of the DAG is named; the emission reads it, and the test kernel's verification re-derives what it claims.
- * - `folds`: for every Group with aggregates, its whole decision in one record: `distinct` when the fold deduplicates its
- *   complete bound tuple B before folding (the conservative lowering's SELECT DISTINCT <B>), with the node whose rows it
- *   deduplicates, and `plain` when the input already has one row per B, each with B and its reasons.
- *
- * It also keeps what explains and certifies the decision: each node placement, with the consumer whose observation it
- * discharges; each node's decision with its reasons (certificates/reasons.ts); the certificates of the multiplicity
- * rewrites it performs; and the physical analysis of the final realization, which the test kernel's verification
- * (test/support/oracle/verify/multiplicity.ts) recomputes rather than trusts.
- */
-export type FoldPlan = {
-	readonly bound: KeySet
-	readonly reasons: ReadonlyArray<MultiplicityReason>
-} & ({ readonly input: "plain" } | { readonly input: "distinct"; readonly deduplicates: NodeId })
 
 /**
  * How one node's set boundary is decided:
@@ -71,12 +42,25 @@ export interface NodeDecision {
 	readonly reasons: ReadonlyArray<MultiplicityReason>
 }
 
+/**
+ * The product of duplicate-elimination placement.
+ *
+ * A plan says, for every node of the rewritten DAG, how its semantic set boundary is realized: `plain` (an ordinary
+ * SELECT, UNION ALL for a union) or `distinct` (an exact duplicate-eliminating operator over the node's complete
+ * heading: SELECT DISTINCT, set UNION, INTERSECT, EXCEPT, recursive UNION). Every node of the DAG is named; the emission
+ * reads it, and the test kernel's verification re-derives what it claims. A fold has no decision of its own: it reads
+ * its input as realized, whose bound tuple is a key of it (ir/rel.ts FoldInput), and an observing consumer's need for
+ * its input distinct is discharged like any other.
+ *
+ * It also keeps what explains and certifies the decision: each node placement, with the consumer whose observation it
+ * discharges; each node's decision with its reasons (certificates/reasons.ts); the certificates of the multiplicity
+ * rewrites it performs; and the physical analysis of the final realization, which the test kernel's verification
+ * (test/support/oracle/verify/multiplicity.ts) recomputes rather than trusts.
+ */
 export interface DedupPlan {
 	/** The execution context the plan's evidence holds in; a plan is never reused in another. */
 	readonly context: TemplateContext
 	readonly realization: Readonly<Record<NodeId, Realization>>
-	/** One per Group with aggregates. */
-	readonly folds: Readonly<Record<NodeId, FoldPlan>>
 	/** In the order they were placed: topological within each worklist round. */
 	readonly placements: ReadonlyArray<Placement>
 	/** One per node, in topological order. */

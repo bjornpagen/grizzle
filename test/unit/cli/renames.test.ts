@@ -2,9 +2,9 @@
  * The rename declaration reader (packages/grizzle/src/cli/renames.ts) against D9's grammar, stated as a checker that
  * shares no code with it:
  *
- * - a side is NAME (a relation), NAME.NAME (a field) or NAME#HANDLE (a roster's handle), where NAME is an ASCII
- *   letter, then ASCII letters, digits and underscores, and HANDLE is text a PostgreSQL name holds: not empty, at most
- *   63 UTF-8 bytes, with no NUL and no lone surrogate;
+ * - a side is NAME (a relation), NAME.NAME (a field), NAME#HANDLE (a roster's handle) or @NAME (a login), where NAME
+ *   is an ASCII letter, then ASCII letters, digits and underscores, and HANDLE is text a PostgreSQL name holds: not
+ *   empty, at most 63 UTF-8 bytes, with no NUL and no lone surrogate;
  * - a rename's readings are the splits of its text at one `=` into two sides of one kind; it parses exactly when it
  *   has one reading and its two sides differ, and then to that reading;
  * - a drop parses exactly when its text is a side;
@@ -14,10 +14,11 @@
  *   refused.
  *
  * The boxes, exhausted: every rename of two sides and every single side, each side of every form over seven name
- * tokens and ten handle tokens (the valid ones beside the empty text, a leading underscore, a hyphen, a non-ASCII
+ * tokens and eleven handle tokens (the valid ones beside the empty text, a leading underscore, a hyphen, a non-ASCII
  * letter, a NUL and a lone surrogate from the library's wild values, and handles of 63 bytes and one byte more), the
- * handle tokens holding `=`, `#` and `=Kind#` so a handle rename splits two ways; every list of up to three renames
- * and two drops over a pool holding a swap, a chain, a repeat and a merge; and every roster a handle rename can name.
+ * handle tokens holding `=`, `#`, `@` and `=Kind#` so a handle rename splits two ways and a handle holds a login's
+ * sign; every list of up to three renames and two drops over a pool holding a swap, a chain, a repeat, a merge and a
+ * login's rename and drop; and every roster a handle rename can name.
  * The names of the pools are pairwise not alike, so the checker compares them as text.
  */
 import { describe, it } from "@effect/vitest"
@@ -59,8 +60,8 @@ const nul = wildText(
 /** Name tokens: three declared names, pairwise not alike, then four that are none. */
 const names = ["Node", "Tag", "a", "", "_x", "a-b", "é"] as const
 /**
- * Handle tokens: six handles, two holding `=` and one `=Kind#`, one of the 63 bytes a name holds, then four that are
- * none.
+ * Handle tokens: seven handles, two holding `=` and one `=Kind#`, one `@`, one of the 63 bytes a name holds, then four
+ * that are none.
  */
 const handles = [
 	"a",
@@ -68,6 +69,7 @@ const handles = [
 	"=",
 	"x=Kind#y",
 	"#",
+	"@Tag",
 	Str.repeat(63)("h"),
 	"",
 	nul,
@@ -101,13 +103,20 @@ const around = (text: string, sign: string): readonly [string, string] | undefin
 		: [Arr.join(Arr.take(units, at), ""), Arr.join(Arr.drop(units, at + 1), "")]
 }
 
-/** A side's text read as D9 reads it, or none: a `#` makes a handle, a `.` a field. */
+/** A side's text read as D9 reads it, or none: a `#` makes a handle, a leading `@` a login, a `.` a field. */
 const sideOf = (text: string): Named | undefined => {
 	const handle = around(text, "#")
 	if (handle !== undefined) {
 		const [roster, h] = handle
 		return isName(roster) && isHandle(h)
 			? { kind: "handle", roster: parsedName(roster), handle: h }
+			: undefined
+	}
+	const login = around(text, "@")
+	if (login !== undefined) {
+		const [before, name] = login
+		return Str.isEmpty(before) && isName(name)
+			? { kind: "login", login: parsedName(name) }
 			: undefined
 	}
 	const field = around(text, ".")
@@ -147,16 +156,18 @@ const renameRuling = (text: string): Rename | undefined => {
 const sides: Readonly<{ 0: string }> & ReadonlyArray<string> = [
 	...names,
 	...Arr.flatMap(names, (relation) => Arr.map(names, (field) => `${relation}.${field}`)),
-	...Arr.flatMap(names, (roster) => Arr.map(handles, (handle) => `${roster}#${handle}`))
+	...Arr.flatMap(names, (roster) => Arr.map(handles, (handle) => `${roster}#${handle}`)),
+	...Arr.map(names, (login) => `@${login}`)
 ] as const
 
 type Spelled =
 	| "a parsed rename"
+	| "a parsed login rename"
 	| "a refused rename"
 	| "an ambiguous rename"
 	| "an unchanged rename"
 
-type Dropped = "a parsed drop" | "a refused drop"
+type Dropped = "a parsed drop" | "a parsed login drop" | "a refused drop"
 
 /** The verdict a refusal or a parse is, as the features count it. */
 const verdictOf = (result: Result.Result<unknown, DeclarationRefused>): string =>
@@ -176,12 +187,13 @@ describe("the rename declaration reader", () => {
 						limit: sides.length * sides.length,
 						coverage: requiredInSpace<Spelled>([
 							"a parsed rename",
+							"a parsed login rename",
 							"a refused rename",
 							"an ambiguous rename",
 							"an unchanged rename"
 						]),
 						caseHang,
-						box: "every pair of sides of every form over seven name tokens and ten handle tokens",
+						box: "every pair of sides of every form over seven name tokens and eleven handle tokens",
 						oracle: { kind: "specification", name: "D9's grammar, read as every split at an =" }
 					},
 					([from, to], c) =>
@@ -204,6 +216,9 @@ describe("the rename declaration reader", () => {
 							}
 							assert.deepEqual(succeeded(read), ruling, `D9 reads ${Formatter.format(text)}`)
 							c.note("a parsed rename")
+							if (ruling.from.kind === "login") {
+								c.note("a parsed login rename")
+							}
 						})
 				)
 			)
@@ -218,9 +233,13 @@ describe("the rename declaration reader", () => {
 					generator: element(sides),
 					literal: Formatter.format,
 					limit: sides.length,
-					coverage: requiredInSpace<Dropped>(["a parsed drop", "a refused drop"]),
+					coverage: requiredInSpace<Dropped>([
+						"a parsed drop",
+						"a parsed login drop",
+						"a refused drop"
+					]),
 					caseHang,
-					box: "every side of every form over seven name tokens and ten handle tokens",
+					box: "every side of every form over seven name tokens and eleven handle tokens",
 					oracle: { kind: "specification", name: "D9's grammar of a side" }
 				},
 				(text, c) =>
@@ -233,6 +252,9 @@ describe("the rename declaration reader", () => {
 						} else {
 							assert.deepEqual(succeeded(read), side)
 							c.note("a parsed drop")
+							if (side.kind === "login") {
+								c.note("a parsed login drop")
+							}
 						}
 						assert.equal(
 							Result.isSuccess(parseRename(text)),
@@ -244,9 +266,17 @@ describe("the rename declaration reader", () => {
 		)
 	)
 
-	/** The pools of whole command lines: a swap, a chain, a repeated old name, a merge, and drops of each. */
-	const renamePool = ["Node=Tag", "Tag=Node", "Tag=a", "Node=a", "Kind#a=Kind#b"] as const
-	const dropPool = ["Node", "Kind#a"] as const
+	/** The pools of whole command lines: a swap, a chain, a repeated old name, a merge, a login's rename, and drops of
+	 * each. */
+	const renamePool = [
+		"Node=Tag",
+		"Tag=Node",
+		"Tag=a",
+		"Node=a",
+		"Kind#a=Kind#b",
+		"@Node=@Tag"
+	] as const
+	const dropPool = ["Node", "Kind#a", "@Node"] as const
 
 	type Listed = "parsed" | "twice" | "merged"
 
@@ -279,10 +309,10 @@ describe("the rename declaration reader", () => {
 						suite: "unit/cli/renames-lists",
 						generator: lists,
 						literal: Formatter.format,
-						limit: (1 + 5 + 25 + 125) * (1 + 2 + 4),
+						limit: (1 + 6 + 36 + 216) * (1 + 3 + 9),
 						coverage: requiredInSpace<Listed>(["parsed", "twice", "merged"]),
 						caseHang,
-						box: "every list of up to three renames and two drops over a pool of five renames and two drops",
+						box: "every list of up to three renames and two drops over a pool of six renames and three drops",
 						oracle: {
 							kind: "specification",
 							name: "D9: one declaration per old name and per new name"

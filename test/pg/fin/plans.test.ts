@@ -34,7 +34,7 @@ import {
 } from "#bench/harness/explain.ts"
 import { constraintOf as familyConstraintOf, familySeat } from "#test/pg/fin/family.ts"
 import { type Catalogued, seatOf } from "#test/pg/fin/installed.ts"
-import { nodeBatchSql, nodeBatchParams, nativeOf, RELATIONS, Trees } from "#test/pg/fin/tree.ts"
+import { nativesOf, nodeBatchParams, nodeBatchSql, RELATIONS, Trees } from "#test/pg/fin/tree.ts"
 import { loadTree, type TreeRow } from "#test/pg/substrate/tree.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { ancestorsOf, descendantsOf } from "#test/support/families/tree.ts"
@@ -136,7 +136,7 @@ layer(Substrate.layer)(
 						)
 						const t1 = Option.getOrThrow(
 							Arr.findFirst(trees.constraints, (c: Catalogued) =>
-								Option.contains(nativeOf(c), "document order")
+								nativesOf(c).includes("document order")
 							)
 						).name
 						const key = Option.getOrThrow(

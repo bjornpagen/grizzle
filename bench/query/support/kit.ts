@@ -178,7 +178,7 @@ export const installFixture = Effect.fn("installFixture")(function* <
 	Substrate | Scope.Scope
 > {
 	const plan = workloadPlan(schema, programs)
-	const world = fullWorld(schema)
+	const world: FullWorld = fullWorld<Parameters<typeof fullWorld>[0]>(schema)
 	const installed = yield* install(schema, {
 		ambient: ordinarySession,
 		label,

@@ -1,5 +1,6 @@
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
+import { hostRead } from "#compiler/core/host.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -26,6 +27,9 @@ const isCanonicalInteger = (text: string): boolean => {
 	return text.charCodeAt(start) !== 0x30 || text.length === 1
 }
 
+/** The key the one mint takes, which no other module holds. */
+const minting: unique symbol = Symbol("Money")
+
 /**
  * The owned Money carrier of pg.money.
  *
@@ -41,15 +45,33 @@ const isCanonicalInteger = (text: string): boolean => {
  */
 export class Money implements Canonicalizable {
 	readonly minorUnits: bigint
+	/** The brand `instanceof Money` reads: installed only by the constructor, which only this module can call. */
+	readonly #minted = true
 
-	private constructor(minorUnits: bigint) {
+	/**
+	 * The one mint. It refuses a call without the module's key, so a JavaScript caller that reaches past the private
+	 * constructor, a subclass's `super` included, makes no Money: every Money is one of the checked constructors' below,
+	 * its count a bigint and its text written from that count alone.
+	 */
+	private constructor(key: typeof minting, minorUnits: bigint) {
+		if (key !== minting) {
+			throw faultError("moneyType", SourceLoc("Money constructor", []))
+		}
 		this.minorUnits = minorUnits
 		Object.freeze(this)
 	}
 
-	static readonly zero: Money = new Money(0n)
-	static readonly min: Money = new Money(int8Min.value)
-	static readonly max: Money = new Money(int8Max.value)
+	/**
+	 * A Money is exactly what this module minted: `instanceof` reads the private brand, which no object built on
+	 * Money.prototype and no proxy holds, so a forged Money is never mistaken for one and runs no code of its own.
+	 */
+	static [Symbol.hasInstance](value: unknown): value is Money {
+		return typeof value === "object" && value !== null && #minted in value
+	}
+
+	static readonly zero: Money = new Money(minting, 0n)
+	static readonly min: Money = new Money(minting, int8Min.value)
+	static readonly max: Money = new Money(minting, int8Max.value)
 
 	/** A Money value from its count of minor units: a bigint within the signed 64-bit range. */
 	static make(minorUnits: unknown): Result.Result<Money, ValueFault> {
@@ -59,7 +81,7 @@ export class Money implements Canonicalizable {
 		if (minorUnits < int8Min.value || minorUnits > int8Max.value) {
 			return Result.err("moneyRange")
 		}
-		return Result.ok(new Money(minorUnits))
+		return Result.ok(new Money(minting, minorUnits))
 	}
 
 	/** The builders' throwing convenience. */
@@ -77,12 +99,26 @@ export class Money implements Canonicalizable {
 	 * where it is proved to fit.
 	 */
 	static exact(minorUnits: bigint): Money {
-		return new Money(minorUnits)
+		if (typeof minorUnits !== "bigint") {
+			throw faultError("moneyType", SourceLoc("Money literal", []))
+		}
+		return new Money(minting, minorUnits)
 	}
 
-	/** The Money of an IR money value (ir/carriers.ts MoneyValue), whose count is an int64 already. */
+	/**
+	 * The Money of an IR money value (ir/carriers.ts MoneyValue): a Money as it is, and any other value's count admitted
+	 * as a money field's is (make), since its count is the caller's; a count that is no int64 bigint is refused with
+	 * CompileError MalformedDescription.
+	 */
 	static fromValue(value: MoneyValue): Money {
-		return new Money(value.minorUnits)
+		if (value instanceof Money) {
+			return value
+		}
+		const made = hostRead("moneyType", () => Money.make(value.minorUnits))
+		if (!made.ok) {
+			throw faultError(made.error, SourceLoc("Money value", []))
+		}
+		return made.value
 	}
 
 	/**
@@ -121,7 +157,7 @@ export class Money implements Canonicalizable {
 				? text.slice(start) + "0".repeat(moneyFractionDigits.value)
 				: text.slice(start, point) + text.slice(point + 1).padEnd(moneyFractionDigits.value, "0")
 		const units = BigInt(digits)
-		return new Money(negative ? -units : units)
+		return new Money(minting, negative ? -units : units)
 	}
 
 	/** The reviver for the canonical tag "m": the minor-unit count in canonical decimal integer form. */

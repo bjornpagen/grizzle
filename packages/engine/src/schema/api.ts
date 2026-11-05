@@ -43,8 +43,9 @@ import type {
 	FactOfFields,
 	KeyFieldOf,
 	Relation,
-	Roster,
-	SharesKey
+	ConflictsAtKey,
+	KeyLawRefusal,
+	Roster
 } from "#compiler/types/schema/relation.ts"
 
 import type {
@@ -141,7 +142,7 @@ const ordinaryRelation = <
 	relationBuilder<Name, Fields, PrimaryKey>(name, fields, primaryKey, extra)
 
 /** A relation's generated fields are named apart from its written ones: a field is written one way. */
-export type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
+type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
 	? unknown
 	: Refusal<"a generated field is named apart from the relation's written fields">
 
@@ -171,7 +172,7 @@ export const relation: typeof ordinaryRelation & { readonly generated: typeof ge
 	Object.freeze(Object.assign(ordinaryRelation, { generated }))
 
 /** A closed relation's fields are closed ids, and open-typed values that are no serial, span, set or vector. */
-export type ClosedFieldsCheck<Fields> = [
+type ClosedFieldsCheck<Fields> = [
 	{
 		[K in keyof Fields]-?: Fields[K] extends
 			| { readonly writing: WritingTag }
@@ -210,16 +211,17 @@ const closedRelation = <
 	name: Name,
 	fields: Fields & ClosedFieldsCheck<Fields>,
 	key: KeyFields & DistinctFields<KeyFields>,
-	rows: Rows & DistinctRows<Rows, KeyFields>,
+	rows: Rows & DistinctRows<Name, Rows, KeyFields>,
 	...extra: ReadonlyArray<never>
 ): ClosedRelation<Name, Fields, readonly [...KeyFields]> =>
 	closedRelationBuilder<Name, Fields, KeyFields>(name, fields, key, rows, extra)
 
-/** A closed relation's rows are a set: no two written out share a key (SharesKey). */
-export type DistinctRows<Rows, KeyFields extends ReadonlyArray<string>> =
-	SharesKey<Rows, KeyFields> extends true
-		? Refusal<"a closed relation's rows are a set: two rows share a key">
-		: unknown
+/**
+ * A closed relation's rows are a set by identity: a row written twice is one row, and two written out with one key and
+ * different values break its key law (ConflictsAtKey).
+ */
+type DistinctRows<Name, Rows, KeyFields extends ReadonlyArray<string>> =
+	ConflictsAtKey<Rows, KeyFields> extends true ? KeyLawRefusal<Name, KeyFields> : unknown
 
 export const closed: typeof closedRoster & { readonly relation: typeof closedRelation } =
 	Object.freeze(Object.assign(closedRoster, { relation: closedRelation }))

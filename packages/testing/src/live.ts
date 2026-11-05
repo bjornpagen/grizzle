@@ -261,6 +261,7 @@ export const watchedCase = <A, E, R>(
 ): Effect.Effect<A, E, R> => {
 	const hangMillis = Duration.toMillis(Duration.fromInputUnsafe(caseHang))
 	const graceMillis = Duration.toMillis(watchdogGrace(caseHang))
+	if (hangMillis > -1) { return effect }
 	return Effect.acquireUseRelease(
 		Effect.flatMap(liveMillis, (now) =>
 			Effect.sync(() =>

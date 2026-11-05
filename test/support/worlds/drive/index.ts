@@ -13,6 +13,7 @@ import { sameValues, valueText } from "#test/support/laws/model.ts"
 import type { RealWorld } from "#test/support/worlds/execute/index.ts"
 import { featuresOf } from "#test/support/worlds/features.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
+import { factKey } from "#test/support/worlds/model/host.ts"
 import { invariantsOf } from "#test/support/worlds/model/invariants.ts"
 import { driftOf } from "#test/support/worlds/model/session/catalog.ts"
 import { loginGone, sessionAt } from "#test/support/worlds/model/session/state.ts"
@@ -42,11 +43,15 @@ import type {
 	WorldFeature
 } from "#test/support/worlds/model/types.ts"
 
-/** A relation whose stored facts differ from the model's: the model's facts it lacks, and the facts it holds besides. */
+/**
+ * A relation whose stored facts differ from the model's: the model's facts it lacks, the facts it holds besides, and
+ * each fact it holds more than once, which no stored relation, a set of facts, does.
+ */
 interface StoredDivergence {
 	readonly relation: string
 	readonly missing: ReadonlyArray<string>
 	readonly extra: ReadonlyArray<string>
+	readonly repeated: ReadonlyArray<string>
 }
 
 /** Where a program and the model parted: the state a program starts from, or the action at an index of the program. */
@@ -99,7 +104,7 @@ const divergenceText = (d: Divergence): string => {
 		case "leak":
 			return `the ${d.field} carries ${d.token}, a value hidden from the acting session`
 		case "artifacts":
-			return "the optimized and the conservative artifact of one read answered differently"
+			return "the optimized and the conservative artifact of one read answered differently, or delivered a row twice"
 		case "probe":
 			return `session ${d.session} probes ${Formatter.format(d.observed)}, but the model claims ${Formatter.format(d.expected)}`
 		case "invariant":
@@ -112,7 +117,7 @@ const divergenceText = (d: Divergence): string => {
 				Arr.map(
 					d.relations,
 					(r) =>
-						`${r.relation} as stored lacks ${listed(r.missing)} and holds besides ${listed(r.extra)}`
+						`${r.relation} as stored lacks ${listed(r.missing)}, holds besides ${listed(r.extra)} and holds more than once ${listed(r.repeated)}`
 				),
 				"; "
 			)
@@ -370,7 +375,21 @@ const lacking = (
 ): ReadonlyArray<HostFact> =>
 	Arr.filter(of, (fact) => !Arr.some(among, (other) => sameValues(fact, other)))
 
-/** Every relation whose stored facts differ from the model's, as sets, with what each side lacks. */
+/** The facts that repeat a fact before them, each fact by every field and its value. */
+const repeats = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => {
+	const seen = new Set<string>()
+	return Arr.filter(facts, (fact) => {
+		const key = factKey(fact)
+		const again = seen.has(key)
+		seen.add(key)
+		return again
+	})
+}
+
+/**
+ * Every relation whose stored facts differ from the model's as keyed sets, with what each side lacks and what the store
+ * repeats: a relation that holds a fact twice differs from every model, whatever facts the two hold.
+ */
 const storedDivergences = (
 	relations: ReadonlyArray<string>,
 	modelled: (relation: string) => ReadonlyArray<HostFact>,
@@ -381,12 +400,16 @@ const storedDivergences = (
 		const real = stored(relation)
 		const missing = lacking(model, real)
 		const extra = lacking(real, model)
-		return Arr.isReadonlyArrayNonEmpty(missing) || Arr.isReadonlyArrayNonEmpty(extra)
+		const repeated = repeats(real)
+		return Arr.isReadonlyArrayNonEmpty(missing) ||
+			Arr.isReadonlyArrayNonEmpty(extra) ||
+			Arr.isReadonlyArrayNonEmpty(repeated)
 			? [
 					{
 						relation,
 						missing: Arr.map(missing, (f) => Formatter.format(f)),
-						extra: Arr.map(extra, (f) => Formatter.format(f))
+						extra: Arr.map(extra, (f) => Formatter.format(f)),
+						repeated: Arr.map(repeated, (f) => Formatter.format(f))
 					}
 				]
 			: []

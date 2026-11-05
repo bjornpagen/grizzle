@@ -925,14 +925,32 @@ const answerOf = (
 		return { refused: [], answer: { kind: "failed", what: r.failure._tag } }
 	}
 	const value = r.success.answered
-	return {
-		refused: r.success.refused,
-		answer:
-			value.kind === "invariant-rejected"
-				? { kind: "invariant-rejected", law: reportedLawId(described, value.law) }
-				: value.kind === "outside-world"
-					? { kind: "failed", what: value.kind }
-					: { kind: value.kind }
+	return { refused: r.success.refused, answer: grizzleAnswer(described, value) }
+}
+
+/** A write's answer as the model judges it: a refusal names its one law, so a refusal naming several is a failure. */
+const grizzleAnswer = (
+	described: ReadonlyMap<LawId, Law>,
+	value: ApplyOutcome<unknown>
+): GrizzleAnswer => {
+	switch (value.kind) {
+		case "invariant-rejected": {
+			const [law, ...more] = value.laws
+			return more.length === 0
+				? { kind: "invariant-rejected", law: reportedLawId(described, law) }
+				: {
+						kind: "failed",
+						what: `a refusal naming ${Arr.length(value.laws)} laws: ${Arr.join(
+							Arr.map(value.laws, (l) => reportedLawId(described, l)),
+							", "
+						)}`
+					}
+		}
+		case "outside-world":
+			return { kind: "failed", what: value.kind }
+		case "accepted":
+		case "no-change":
+			return { kind: value.kind }
 	}
 }
 

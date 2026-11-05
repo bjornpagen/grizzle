@@ -270,6 +270,12 @@ class Structure {
 					this.expr(b, vars, interiors, cx, childLoc(childLoc(loc, "bindings"), column))
 				}
 				return
+			case "closedAt":
+			case "closedRow":
+				for (const [i, a] of e.args.entries()) {
+					sub(a, i)
+				}
+				return
 		}
 	}
 }

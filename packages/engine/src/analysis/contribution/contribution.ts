@@ -3,26 +3,21 @@ import { keyedBy, type PhysicalProps, plainKeyedBy } from "#compiler/analysis/ph
 import type { KeySet, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 
 /**
- * Complete contributions to a fold.
+ * Complete contributions to a catalog fold: an ordered-set aggregate or a window, whose bound tuple B is its input's
+ * whole heading. A Group has none of its own: its bound tuple is proved a key of its input (ir/rel.ts FoldInput), so its
+ * input, distinct over its heading as placement realizes it, holds one row per B.
  *
- * "Before folding, record the complete bound tuple B. An optimization may use a narrower physical identity K only if K
- * determines B under current evidence and the surviving input has exactly one contribution for each B. It must not
- * remove a deliberately bound tag ID, nor automatically bind an omitted row ID." For every fold this module records:
+ * "An optimization may use a narrower physical identity K only if K determines B under current evidence and the
+ * surviving input has exactly one contribution for each B." For every catalog fold this module records:
  *
- * - B, exactly as the node states it: a Group's bound tuple (the checker's complete binding, hidden equality
- *   variables aside), or the whole input heading of an ordered-set aggregate or a window;
+ * - B, the whole input heading;
  * - whether the input, as realized, has exactly one row per B: B determines a physical key of the input under the
  *   input's own dependencies (fixed columns, equalities, key-implied dependencies), and on what; otherwise elimination
- *   is owed on B, never on a narrower or a wider tuple;
- * - whether an input DISTINCT is removable: B determines a key proved without the input's own
- *   duplicate elimination. An input realized `distinct` has one row per B because of that DISTINCT, which proves
- *   nothing about removing it: binding only (account, amount) keeps the inner DISTINCT;
+ *   is still owed on the input, which placement discharges before the fold reads it;
+ * - whether an input DISTINCT is removable: B determines a key proved without the input's own duplicate elimination.
+ *   An input realized `distinct` has one row per B because of that DISTINCT, which proves nothing about removing it;
  * - the narrowest identity a deduplication may compare on instead: a minimal K within B that determines B under the
  *   input's dependencies. Distinct K values are then exactly distinct B values, because K lies within B.
- *
- * Posting(id, account, amount) keyed by id with B = (account, amount) owes a DISTINCT on (account, amount); with
- * B = (id, account, amount) the base key proves one row per B and the DISTINCT is elided, so two postings with equal
- * amounts both contribute.
  */
 export interface Contribution {
 	readonly node: FoldNode
@@ -51,16 +46,11 @@ type ContributionIdentity =
 	| { readonly kind: "exact"; readonly key: KeySet; readonly proof: Justification }
 	| { readonly kind: "owed" }
 
-export type FoldNode = NodeOf<"Group"> | NodeOf<"OrderedSetAggregate"> | NodeOf<"Window">
-
-/** The complete bound tuple of a fold. */
-const boundTuple = (node: FoldNode, input: PhysicalProps): KeySet =>
-	node.kind === "Group" ? node.bound : input.columns
+export type FoldNode = NodeOf<"OrderedSetAggregate"> | NodeOf<"Window">
 
 export const contributionOf = (node: FoldNode, input: PhysicalProps): Contribution => {
-	const bound = boundTuple(node, input)
-	const keys =
-		node.kind === "Group" ? node.keys : node.kind === "Window" ? node.partition : node.keys
+	const bound = input.columns
+	const keys = node.kind === "Window" ? node.partition : node.keys
 	/** Greedy minimization from the end of B: drop a column while the rest still determines all of B. */
 	let narrowest = [...bound]
 	for (let i = narrowest.length - 1; i >= 0; i--) {

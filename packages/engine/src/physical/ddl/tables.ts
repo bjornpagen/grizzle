@@ -179,7 +179,7 @@ const nativeColumn = (b: InstallBuilder, relation: string, c: NativeColumn): str
 	c.kind === "field" ? b.names.column(relation, c.field.name) : c.column
 
 /** Whether two native columns are one column: one field, or one law column. */
-export const sameNativeColumn = (a: NativeColumn, b: NativeColumn): boolean =>
+const sameNativeColumn = (a: NativeColumn, b: NativeColumn): boolean =>
 	a.kind === "field"
 		? b.kind === "field" && a.field.name === b.field.name
 		: b.kind === "law" && a.column === b.column

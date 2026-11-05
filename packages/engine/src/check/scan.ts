@@ -109,6 +109,12 @@ const exprLeaves = <P extends object, T>(
 			bindingLeaves(e.bindings, into)
 			sourceLeaves(e.source, into)
 			return
+		case "closedAt":
+		case "closedRow":
+			for (const a of e.args) {
+				exprLeaves(a, into)
+			}
+			return
 	}
 }
 

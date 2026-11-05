@@ -67,7 +67,7 @@ type QueueRelations = typeof relations
  *
  * A work item's standing and its four arms: both queue schemas declare it, and a gate reads its laws from this value.
  */
-export const workStanding = alternatives(QueueWork, "standing", Standing, {
+const workStanding = alternatives(QueueWork, "standing", Standing, {
 	wanted: Wanted,
 	leased: Leased,
 	done: Done,
@@ -483,6 +483,7 @@ export const claimLabel = (f: AttemptFailure): string => {
 		case "readBack":
 		case "check":
 		case "single":
+		case "family":
 			return `at ${labelText(label)} ${f.sqlstate}`
 	}
 }

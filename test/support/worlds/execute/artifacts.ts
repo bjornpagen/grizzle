@@ -10,14 +10,15 @@ import {
 } from "#adapter/wire/batch.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { sameValues } from "#test/support/laws/model.ts"
+import { factKey } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
 
 /**
  * The differential of one read's two artifacts. Every template a Db reads through is compiled for the `snapshot`
  * context and holds two lowerings of the same query: the optimized artifact, which the Db runs, and the conservative
  * one, which rests on no evidence the context admits (program/context.ts). Both must deliver the same rows from the
- * same snapshot; rows that differ are `artifacts-disagree`, a defect no model branch allows.
+ * same snapshot, each a keyed set; rows that differ, or that either artifact repeats, are `artifacts-disagree`, a defect
+ * no model branch allows.
  *
  * The check reads through two readers over the Db's own context (adapter/reader/reader.ts makeReader), as the Db's own
  * reader is built. One keeps the Db's compilation, so it runs the very template the Db's read ran. The other's
@@ -170,19 +171,20 @@ const executorAt = (ctx: DbContext, meeting: Ref.Ref<Meeting>, side: Side): Read
 		)
 })
 
-/** Whether two deliveries hold the same facts, each as often: every fact of one matched to its own fact of the other. */
-const sameFacts = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>): boolean =>
-	left.length === right.length &&
-	Option.isSome(
-		Arr.reduce(left, Option.some(right), (rest: Option.Option<ReadonlyArray<HostFact>>, fact) =>
-			Option.flatMap(rest, (unmatched) =>
-				Option.map(
-					Arr.findFirstIndex(unmatched, (candidate) => sameValues(fact, candidate)),
-					(i) => Arr.remove(unmatched, i)
-				)
-			)
-		)
+/**
+ * Whether two deliveries are one keyed set: neither holds a fact twice, and each fact of one is a fact of the other,
+ * each fact by every field and its value. Two artifacts that repeat one row alike deliver no set, so they do not agree.
+ */
+const sameFacts = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>): boolean => {
+	const l = new Set(Arr.map(left, factKey))
+	const r = new Set(Arr.map(right, factKey))
+	return (
+		l.size === left.length &&
+		r.size === right.length &&
+		l.size === r.size &&
+		Arr.every([...l], (key) => r.has(key))
 	)
+}
 
 /**
  * Whether the Db's two artifacts of the read `read` makes deliver the same facts (see the header). `read` reads

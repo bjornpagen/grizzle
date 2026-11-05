@@ -22,6 +22,12 @@ import { isList, isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
 import {
+	type BackfilledTable,
+	backfillOf,
+	type DrawnColumns,
+	drawnColumns
+} from "#compiler/deploy/diff/backfill.ts"
+import {
 	type AbandonedSchema,
 	type Action,
 	type ColumnConversion,
@@ -436,10 +442,17 @@ class Differ {
 	readonly targets: ReadonlyArray<Target>
 	/** What each object of the target that follows a previous one or replaces a taken one is, by identity (arrivalOf). */
 	readonly arrivals: ReadonlyMap<string, Arrival>
+	/** The columns the target's families draw, each with the placeholder default it is added under to a table that may
+	 * hold rows (backfill.ts drawnColumns). */
+	readonly drawn: DrawnColumns
+	/** The drawn columns this migration adds to tables that may hold rows under their placeholders, by table key, which
+	 * the backfill draws and then drops the default of. */
+	readonly backfilled = new Map<string, BackfilledTable>()
 
 	constructor(input: DiffInput) {
 		this.input = input
 		this.schema = input.target.schema
+		this.drawn = drawnColumns(input.installation)
 		const previousObjects = input.previous.manifest.objects
 		const targetObjects = input.target.manifest.objects
 		this.prev = new Map(previousObjects.map((o) => [o.ident, o]))
@@ -751,6 +764,7 @@ class Differ {
 		for (const t of this.targets) {
 			this.visit(t)
 		}
+		this.backfill()
 		this.validations()
 		for (const p of this.previous.toReversed()) {
 			if (p.fate.kind === "removed") {
@@ -1360,7 +1374,7 @@ class Differ {
 		}
 		for (const f of fields) {
 			if (f.kind === "added") {
-				this.push("structure", addedField(t, f.column))
+				this.push("structure", this.addedField(t, f.column))
 				continue
 			}
 			this.changeField(t, f.was, f.column, changeOf(kept.changes, f.column.name), sequences)
@@ -1403,13 +1417,59 @@ class Differ {
 	 * the column goes with its drop and is built again as the target declares it (ColumnFate redefined). */
 	rewriteField(t: ObjectName, b: ColumnDef, c: ColumnDef): void {
 		this.sql("structure.drop", [alter(t, [{ kind: "dropColumn", column: b.name }])])
-		this.push("structure", addedField(t, c))
+		this.push("structure", this.addedField(t, c))
+	}
+
+	/** The addition of a field to a table that may hold rows: a column its family draws under its placeholder default,
+	 * which the backfill overwrites (drawnColumn); a generated field by its expression, which computes every row; any
+	 * other by the reviewer's value for every row, at its placeholder. */
+	addedField(t: ObjectName, c: ColumnDef): Action {
+		const drawn = this.drawnColumn(t, c)
+		if (drawn !== undefined) {
+			return drawn
+		}
+		return c.generated === undefined
+			? { kind: "placeholderColumn", table: t, column: c }
+			: statement(alter(t, [{ kind: "addColumn", column: c }]))
+	}
+
+	/** The ADD COLUMN of a column of `t` its family draws, when `t` may hold rows: under the placeholder default the value
+	 * an empty family holds, recorded for the backfill (backfill.ts), which draws it over the stored rows and then drops
+	 * the default. A column no family draws, or one added to a table that holds no row, takes none. */
+	drawnColumn(t: ObjectName, c: ColumnDef): Action | undefined {
+		const key = nameKey(t)
+		const value = this.drawn.get(key)?.get(c.name)
+		if (value === undefined || c.generated !== undefined || !this.mayHoldRows(t)) {
+			return undefined
+		}
+		const had = this.backfilled.get(key)
+		this.backfilled.set(key, { table: t, columns: [...(had?.columns ?? []), c.name] })
+		return statement(alter(t, [{ kind: "addColumnDefault", column: c, default: value }]))
+	}
+
+	/** The backfill of the families new to stored rows (backfill.ts), once every column it draws is added: its UPDATEs,
+	 * then each drawn column's DROP DEFAULT, before any constraint that reads them (structure.constraints). */
+	backfill(): void {
+		const { updates, dropDefaults } = backfillOf({
+			installation: this.input.installation,
+			previous: this.input.previous.theory,
+			mayHoldRows: (t) => this.mayHoldRows(t),
+			added: this.backfilled
+		})
+		this.sql("structure.backfill", [...updates, ...dropDefaults])
 	}
 
 	/** The steps of a field's change in place from `b` to `c` (inPlace), its conversion by its cast or its placeholder
 	 * (conversion). */
 	changeInPlace(t: ObjectName, b: ColumnDef, c: ColumnDef, change: FieldChange): void {
-		for (const step of inPlace(t, b, c, change, (column) => [this.conversion(t, b, column)])) {
+		for (const step of inPlace(
+			t,
+			b,
+			c,
+			change,
+			(column) => [this.conversion(t, b, column)],
+			(column) => this.addedField(t, column)
+		)) {
 			this.push("structure", step)
 		}
 	}
@@ -1495,15 +1555,21 @@ class Differ {
 			}
 			this.sql("structure", [alter(t, [{ kind: "dropColumn", column }])])
 		}
-		this.sql("structure", o.ddl)
+		const drawn = this.drawnColumn(t, v.definition)
+		if (drawn === undefined) {
+			this.sql("structure", o.ddl)
+		} else {
+			this.push("structure", drawn)
+		}
 	}
 
 	/** A primary key, candidate key or CHECK of a table, by what it is to this migration (Arrival).
 	 *
 	 * A key over a column converted in place, which dropReplaced dropped before the conversion, is added again in the
-	 * same Structure transaction right after it, under the conversion's lock, so the key holds at every commit: built
+	 * same Structure transaction after it, under the conversion's lock, so the key holds at every commit: built
 	 * concurrently, it would hold no row written between Structure and Validate, a law that held before and after
-	 * broken in between. A CHECK added NOT VALID holds every new row already.
+	 * broken in between. A CHECK added NOT VALID holds every new row already. Both go in structure.constraints, after
+	 * the backfill has drawn every value they read (backfill.ts).
 	 *
 	 * A table holds one primary key: one the target names anew on a table it keeps (an aliased relation's) follows the
 	 * removed one (Fate swapped), which it replaces in the same ALTER TABLE, the old dropped before the new is added. */
@@ -1520,7 +1586,9 @@ class Differ {
 			return
 		}
 		if (arrival.kind === "replaced" && arrival.how === "converted" && c.kind !== "check") {
-			this.sql("structure", [alter(t, [{ kind: "addConstraint", constraint: c, notValid: false }])])
+			this.sql("structure.constraints", [
+				alter(t, [{ kind: "addConstraint", constraint: c, notValid: false }])
+			])
 			return
 		}
 		const was = arrival.kind === "follows" ? arrival.before : undefined
@@ -1532,7 +1600,7 @@ class Differ {
 		const replacingOld = (add: AlterTableAction): NonEmptyReadonlyArray<AlterTableAction> =>
 			old === undefined ? [add] : [{ kind: "dropConstraint", name: old.name }, add]
 		if (c.kind === "check") {
-			this.sql("structure", [
+			this.sql("structure.constraints", [
 				alter(
 					t,
 					replacing(replace, c.name, {
@@ -1739,10 +1807,12 @@ class Differ {
 		}
 		const afterKey = this.attached.has(referencedAfter(c)) || this.replaces(referencedAfter(c))
 		if (!this.mayHoldRows(t) && !afterKey) {
-			this.sql("structure", [alter(t, [{ kind: "addConstraint", constraint: c, notValid: false }])])
+			this.sql("structure.constraints", [
+				alter(t, [{ kind: "addConstraint", constraint: c, notValid: false }])
+			])
 			return
 		}
-		const slot: Slot = afterKey ? "validate" : "structure"
+		const slot: Slot = afterKey ? "validate" : "structure.constraints"
 		this.sql(slot, [alter(t, [{ kind: "addConstraint", constraint: c, notValid: true }])])
 		this.sql("validate", [alter(t, [{ kind: "validateConstraint", name: c.name }])])
 	}
@@ -2416,15 +2486,15 @@ const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): Fi
  * column to its new type: a serial column gives its identity up before its conversion, and a column serial after takes
  * the target's identity once converted, advanced past the stored maximum; a field declared serial takes its identity,
  * advanced the same way, and one serial no longer gives it up; a generated field re-expressed takes its new expression;
- * a field rewritten is dropped and added again, a generated one by its expression and one its caller writes by the
- * reviewer's placeholder; a field kept as it is takes none. The one reading for a field of a table both install but a
- * rewritten one, which changeField drops before the conversions. */
+ * a field rewritten is dropped and added again by `add`; a field kept as it is takes none. The one reading for a field
+ * of a table both install but a rewritten one, which changeField drops before the conversions. */
 const inPlace = (
 	t: ObjectName,
 	b: ColumnDef,
 	c: ColumnDef,
 	change: FieldChange,
-	convert: (column: ColumnDef) => ReadonlyArray<ColumnConversion>
+	convert: (column: ColumnDef) => ReadonlyArray<ColumnConversion>,
+	add: (column: ColumnDef) => Action
 ): ReadonlyArray<Action> => {
 	const take = (sequence: ObjectName): ReadonlyArray<Action> => [
 		statement(alter(t, [{ kind: "addIdentity", column: c.name, sequence }])),
@@ -2443,20 +2513,13 @@ const inPlace = (
 		case "reexpressed":
 			return [statement(alter(t, [{ kind: "setExpression", column: c.name, expr: change.expr }]))]
 		case "rewritten":
-			return [statement(alter(t, [{ kind: "dropColumn", column: b.name }])), addedField(t, c)]
+			return [statement(alter(t, [{ kind: "dropColumn", column: b.name }])), add(c)]
 		case "serialDeclared":
 			return take(change.sequence)
 		case "serialRemoved":
 			return [giveUp]
 	}
 }
-
-/** The addition of a field to a table that may hold rows: a generated field by its expression, which computes every
- * row; any other by the reviewer's value for every row, at its placeholder. */
-const addedField = (t: ObjectName, c: ColumnDef): Action =>
-	c.generated === undefined
-		? { kind: "placeholderColumn", table: t, column: c }
-		: statement(alter(t, [{ kind: "addColumn", column: c }]))
 
 /** The identity sequences of the tables both install that a migration drops, by name key, each with its fate, read off
  * each field's change before any object is visited: a serial field converted in place drops its sequence, created again

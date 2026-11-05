@@ -342,6 +342,11 @@ describe("literals", () => {
 			return form === 0 ? dashed : form === 1 ? Str.toUpperCase(dashed) : hex
 		}
 	)
+	/** A set's handles, from none to a handle twice, out of order or of no roster. */
+	const handlesGen = map(
+		array(element(["Automatic", "Manual", "Gold"]), { min: 0, max: 3 }),
+		(handles): TypedLiteral => ({ kind: "handles", handles })
+	)
 	const literalGen = oneOf<TypedLiteral>([
 		map(
 			oneOf([element([0n, ...powers]), bigint(-(2n ** 64n), 2n ** 64n)]),
@@ -378,11 +383,7 @@ describe("literals", () => {
 			kind: "handle",
 			handle
 		})),
-		/** A set's handles, from none to a handle twice, out of order or of no roster. */
-		map(
-			array(element(["Automatic", "Manual", "Gold"]), { min: 0, max: 3 }),
-			(handles): TypedLiteral => ({ kind: "handles", handles })
-		),
+		handlesGen,
 		(source): TypedLiteral => {
 			const start = source.draw(oneOf([element(nonEmpty(powers, "the powers")), bigint(-9n, 9n)]))
 			return { kind: "span", start, end: start + source.draw(bigint(-9n, 9n)) }

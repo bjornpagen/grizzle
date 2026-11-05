@@ -53,7 +53,7 @@ export const theoryResult = (
 	Result.flatMap(Result.flatMap(ownedInput(desc), checkedSchema), (c) => buildTheory(c, options))
 
 /** The schema as the reference evaluator reads it. */
-export const genSchemaOf = (t: Theory): GenSchema => ({
+const genSchemaOf = (t: Theory): GenSchema => ({
 	name: t.name,
 	relations: Arr.map(
 		Arr.filter(Rec.values(t.relations), (r) => r.kind === "relation"),
@@ -75,7 +75,7 @@ export type HostFacts = Readonly<Record<string, ReadonlyArray<Readonly<Record<st
  * Host facts as typed rows in heading order, every stored relation present. Each host value is admitted as the
  * Description literal it is (ir/desc.ts literalDescShape), then typed at its column.
  */
-export const genFactsOf = (t: Theory, facts: HostFacts): GenFacts => {
+const genFactsOf = (t: Theory, facts: HostFacts): GenFacts => {
 	const out: Record<string, ReadonlyArray<StoredRow>> = {}
 	for (const r of Rec.values(t.relations)) {
 		if (r.kind !== "relation") {

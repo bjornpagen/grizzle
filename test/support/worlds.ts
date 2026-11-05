@@ -35,13 +35,16 @@ type Reality = AnySchema & {
 export const heldRelations = <B extends Reality>(base: B): HeldOf<B> =>
 	trusted<HeldOf<B>>(Rec.filter(base.relations, (r) => r.kind !== "closedRelation"))
 
-/** The relations of B a role can hold, by their own names and values: B's relation map but its closed relations. */
+/**
+ * The relations of B a role can hold, by their own names and values: B's relation map but its closed relations, so a
+ * map of any relations holds any relation, roster or derived relation but a closed one.
+ */
 export type HeldOf<B extends Reality> = {
 	readonly [
 		K in keyof B["relations"] as B["relations"][K] extends { readonly kind: "closedRelation" }
 			? never
 			: K
-	]: B["relations"][K]
+	]: Exclude<B["relations"][K], { readonly kind: "closedRelation" }>
 }
 
 /**

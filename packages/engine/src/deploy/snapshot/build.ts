@@ -103,6 +103,7 @@ export const emptySnapshot = (input: {
 	theory: { schema: emptyFingerprint(input.schema), relations: {}, laws: {} },
 	manifest: { objects: [], edges: [], roleDefaults: [], publicRevokes: [], comments: [] },
 	constraintToLaw: { tables: {}, domains: {} },
+	logins: {},
 	workload: {},
 	accessPaths: []
 })
@@ -429,6 +430,9 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 				tables: sortedOwners(installation.constraintToLaw.tables),
 				domains: sortedOwners(installation.constraintToLaw.domains)
 			},
+			logins: sortedRecord(
+				Object.fromEntries(installation.worlds.map((l) => [l.name, { role: l.role }] as const))
+			),
 			workload: input.workload.access,
 			accessPaths: input.workload.accessPaths.map((r) => storedRequest(r))
 		}
@@ -612,6 +616,7 @@ const contentForm = <S>(c: SnapshotContent, statement: Statement<S>): RecordOf<S
 	theory: theoryForm(c.theory),
 	manifest: manifestForm(c.manifest, statement),
 	constraintToLaw: c.constraintToLaw,
+	logins: valuesForm(c.logins, (l): SnapshotForm => ({ role: l.role })),
 	workload: valuesForm(c.workload, (programs) => valuesForm(programs, accessForm)),
 	accessPaths: c.accessPaths.map(requestForm)
 })

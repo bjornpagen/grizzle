@@ -108,7 +108,7 @@ interface ClassifyContext {
  * no unique object, at a read-back, and at COMMIT, where every unique constraint is immediate and has already been
  * checked.
  */
-export const uniqueAbortsAt = (origin: FailureOrigin): ReadonlyArray<UniqueAbort> => {
+const uniqueAbortsAt = (origin: FailureOrigin): ReadonlyArray<UniqueAbort> => {
 	if (origin.kind !== "statement") {
 		return []
 	}
@@ -121,7 +121,7 @@ export const uniqueAbortsAt = (origin: FailureOrigin): ReadonlyArray<UniqueAbort
  * statement's, a single statement's parts'; none for any other step, which writes no stored relation, or for a
  * read-back or the COMMIT.
  */
-export const writtenAt = (origin: FailureOrigin): ReadonlyArray<string> => {
+const writtenAt = (origin: FailureOrigin): ReadonlyArray<string> => {
 	if (origin.kind !== "statement") {
 		return []
 	}
@@ -167,7 +167,7 @@ const stepText = (step: WriteStep): string => {
 }
 
 /** Where `origin` is in its flight, as a defect names it. */
-export const originText = (origin: FailureOrigin): string => {
+const originText = (origin: FailureOrigin): string => {
 	switch (origin.kind) {
 		case "read":
 			return `the write's statement ${origin.index}, the stored-suffix read of family ${origin.family.owner}.${origin.family.count}`

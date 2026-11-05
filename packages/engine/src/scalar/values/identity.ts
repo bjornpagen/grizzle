@@ -2,6 +2,7 @@ import { firstIndex } from "#compiler/core/array.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints, validateText } from "#compiler/core/text.ts"
 import { codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
@@ -129,9 +130,11 @@ const admitDecimal = (
 		: Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
 
 /**
- * The encode-time boundary of a vector, read from the caller's buffer as it is now: a Float32Array of the dimensions,
- * every component finite, its norm in the cosine domain. Every vector is in the cosine domain at every boundary,
- * parameters included; the database CHECK is the authority for stored values (values/vector.ts).
+ * The encode-time boundary of a vector, read once from the caller's buffer as it is now into a copy grizzle alone holds:
+ * a Float32Array of the dimensions, every component finite, its norm in the cosine domain. The admitted value is that
+ * copy, so the fact's identity and every row text written from the fact later read the same components, whatever the
+ * caller does to its buffer after admission. Every vector is in the cosine domain at every boundary, parameters
+ * included; the database CHECK is the authority for stored values (values/vector.ts).
  */
 const admitVector = (value: unknown, dimensions: number): Result.Result<Vector, ValueFault> =>
 	admitEncodable(value, dimensions)
@@ -143,8 +146,9 @@ const admitHandle = (value: unknown, roster: RosterCodec): Result.Result<string,
 		: Result.err("codeHandle")
 
 /**
- * A set of a roster's handles, read once into a fresh frozen Set, so a later change to the caller's Set changes no
- * admitted value: a Set whose members are strings, each a handle the roster holds live.
+ * A set of a roster's handles, read once into a fresh Set grizzle alone holds, so a later change to the caller's Set
+ * changes no admitted value: a Set whose members are strings, each a handle the roster holds live. A Set cannot be
+ * frozen (Object.freeze leaves its members writable), so the copy is what keeps the admitted value fixed.
  */
 const admitHandles = (
 	value: unknown,
@@ -163,7 +167,20 @@ const admitHandles = (
 		}
 		handles.add(member)
 	}
-	return Result.ok(Object.freeze(handles))
+	return Result.ok(handles)
+}
+
+/**
+ * A money field's value: a Money (one this module's mint made, which `instanceof` checks) whose count is within int64,
+ * the range of PostgreSQL's money. An exact amount outside it, money arithmetic's, is no money value.
+ */
+const admitMoney = (value: unknown): Result.Result<Money, ValueFault> => {
+	if (!(value instanceof Money)) {
+		return Result.err("moneyType")
+	}
+	return value.minorUnits >= int8Min.value && value.minorUnits <= int8Max.value
+		? Result.ok(value)
+		: Result.err("moneyRange")
 }
 
 const admitters: Admitters = {
@@ -173,7 +190,7 @@ const admitters: Admitters = {
 	numeric: (value, spec) => admitDecimal(value, spec.typmod),
 	float4: (value) => toReal(value),
 	float8: (value) => toDouble(value),
-	money: (value) => (value instanceof Money ? Result.ok(value) : Result.err("moneyType")),
+	money: (value) => admitMoney(value),
 	bool: (value) => (typeof value === "boolean" ? Result.ok(value) : Result.err("boolType")),
 	uuid: (value) => toUuid(value),
 	text: (value) => validateText(value),

@@ -1,7 +1,9 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { type Dropped, undeclaredDrop, unsupported } from "#compiler/core/errors.ts"
 import {
+	conversionOf,
 	type DeclaredName,
+	declaredAlike,
 	parseDeclaredName,
 	type TemporaryCensus
 } from "#compiler/core/identity.ts"
@@ -28,15 +30,18 @@ import {
 import type {
 	DeploySnapshot,
 	SnapshotContent,
-	SnapshotRelation
+	SnapshotLogin,
+	SnapshotRelation,
+	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
+import { namedIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
+import type { Grantee, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 
 /**
  * A draft's declarations (`--rename`, `--drop`) applied to the previous snapshot: the statements that carry out its
  * renames, which run first, and the previous snapshot as it stands after them, which the diff compares with the target.
- * A renamed relation or field is then one identity under its target name, so the diff changes it in place and never
- * reads a drop and an addition as one.
+ * A renamed relation, field or login is then one identity under its target name, so the diff changes it in place and
+ * never reads a drop and an addition as one.
  */
 export interface Applied {
 	readonly statements: ReadonlyArray<SqlStatement>
@@ -52,10 +57,17 @@ const spelled = (n: Named): string => {
 			return `${n.relation}.${n.field}`
 		case "handle":
 			return `${n.roster}#${n.handle}`
+		case "login":
+			return `@${n.login}`
 	}
 }
 
-const sameNamed = (a: Named, b: Named): boolean => spelled(a) === spelled(b) && a.kind === b.kind
+/** The key a name is told apart by: its kind and its spelling, a login's name by its conversion, which names its role
+ * (core/identity.ts declaredAlike). */
+const keyOf = (n: Named): string =>
+	n.kind === "login" ? `login ${conversionOf(n.login)}` : `${n.kind} ${spelled(n)}`
+
+const sameNamed = (a: Named, b: Named): boolean => keyOf(a) === keyOf(b)
 
 /** A snapshot's record name as a declared name: grizzle wrote it, so one the rule refuses is a defect. */
 const declared = (name: string): DeclaredName => {
@@ -77,12 +89,43 @@ const heldIn = (
 	return r === undefined || r.kind === "derived" ? undefined : r
 }
 
+/** Whether grizzle draws a field's values again, so its drop loses nothing its caller wrote: a generated, drawn or
+ * accumulated field. A caller's field holds the caller's values, and a serial one the identities its rows were given. */
+const drawnAgain = (writing: SnapshotWriting): boolean =>
+	writing !== "caller" && writing !== "serial"
+
+/** A login a snapshot records, under its record's name. */
+interface HeldLogin {
+	readonly name: string
+	readonly login: SnapshotLogin
+}
+
+/** The login of `logins` whose name is alike `name` (core/identity.ts declaredAlike): the naming door derives a login's
+ * role from its name's conversion, so two alike names are one login. */
+const loginIn = (
+	logins: Readonly<Record<string, SnapshotLogin>>,
+	name: DeclaredName
+): HeldLogin | undefined => {
+	for (const [held, login] of Object.entries(logins)) {
+		if (declaredAlike(declared(held), name)) {
+			return { name: held, login }
+		}
+	}
+	return undefined
+}
+
 /**
  * The previous snapshot under the draft's declarations, and the statements that carry them out; or the refusal of a
- * declaration that names what the previous snapshot or the target does not hold as it says, and of every drop no
- * declaration names (UndeclaredDrop): each stored relation and roster the previous snapshot holds and the target no
- * longer declares, each field of a relation both hold that the target's lacks, and each roster handle whose code the
- * target's codes hold as a hole. Data a migration loses is lost only where it says so.
+ * declaration that names what the previous snapshot or the target does not hold as it says, of two renames of one name
+ * or to one name, and of every drop no declaration names (UndeclaredDrop), each stored state the previous snapshot holds
+ * and the target, under the declared renames, no longer does (plan.ts Declarations): each stored relation and roster;
+ * each field of a relation both hold, but a field grizzle draws again (a generated, drawn or accumulated one); each
+ * roster handle whose code the target's codes hold as a hole; and each login. Data a migration loses is lost only where
+ * it says so.
+ *
+ * A name a rename takes ends its previous holder: a relation whose table name a renamed relation takes, a field whose
+ * column a renamed field takes, and a login whose role a renamed login takes, each not renamed itself, is dropped, and
+ * its drop is declared, even where the target declares a name of its own alike; the target's holds the renamed one.
  *
  * A renamed relation or roster is first renamed aside with every name it owns (aside.ts relationAside), as is each
  * relation dropped whose name a rename takes, so any order of renames is free of the names it moves into, a swap or a
@@ -91,6 +134,7 @@ const heldIn = (
  * under their aside names for the diff to drop. A renamed field is renamed in place, through its own aside name, on its
  * relation under the target's name; what is built over it is built again as the target declares it. A renamed handle
  * keeps its code: the codes were drafted under the rename (ir/codes.ts draftCodebook), so nothing more is drafted for it.
+ * A renamed login's role is renamed in place the same way, through its aside name (loginRenamed).
  */
 export const applyDeclarations = (
 	previous: DeploySnapshot,
@@ -122,8 +166,20 @@ export const applyDeclarations = (
 	}
 	/** The target name of a previous relation: its declared rename's, or its own. */
 	const targetName = (relation: string): string => renamed.get(relation) ?? relation
+	/** The names the relation renames take, as the tables and domains they are installed under. */
+	const takenIdents = new Set(
+		[...renamed.values()].flatMap((to) => {
+			const now = heldIn(after, to)
+			return now === undefined ? [] : [now.ident]
+		})
+	)
+	/** Whether a previous relation's name is taken by a rename of another. */
+	const taken = (name: string, r: SnapshotRelation): boolean =>
+		!renamed.has(name) && takenIdents.has(r.ident)
 	/** The field renames, by the previous relation's name, previous field to target field. */
 	const fields = new Map<string, Map<string, string>>()
+	/** The columns the field renames take, by the previous relation's name. */
+	const takenColumns = new Map<string, Set<string>>()
 	for (const r of declarations.renames) {
 		const from = r.from
 		const to = r.to
@@ -132,12 +188,12 @@ export const applyDeclarations = (
 		}
 		const was = heldIn(before, from.relation)
 		const now = heldIn(after, to.relation)
+		const into = now?.kind === "relation" ? now.fields.find((f) => f.name === to.field) : undefined
 		if (
 			was?.kind !== "relation" ||
-			now?.kind !== "relation" ||
+			into === undefined ||
 			targetName(from.relation) !== to.relation ||
-			!was.fields.some((f) => f.name === from.field) ||
-			!now.fields.some((f) => f.name === to.field)
+			!was.fields.some((f) => f.name === from.field)
 		) {
 			return refuse(
 				from,
@@ -147,7 +203,17 @@ export const applyDeclarations = (
 		const of = fields.get(from.relation) ?? new Map<string, string>()
 		of.set(from.field, to.field)
 		fields.set(from.relation, of)
+		const columns = takenColumns.get(from.relation) ?? new Set<string>()
+		columns.add(into.column)
+		takenColumns.set(from.relation, columns)
 	}
+	/** Whether a previous field's column is taken by a rename of another field of its relation. */
+	const fieldTaken = (
+		relation: string,
+		field: { readonly name: string; readonly column: string }
+	) =>
+		fields.get(relation)?.has(field.name) !== true &&
+		takenColumns.get(relation)?.has(field.column) === true
 	for (const r of declarations.renames) {
 		const from = r.from
 		const to = r.to
@@ -169,13 +235,48 @@ export const applyDeclarations = (
 			)
 		}
 	}
-	const named = declarations.renames.map((r) => spelled(r.from))
-	if (new Set(named).size < named.length) {
-		const twice = named.find((n, i) => named.indexOf(n) !== i)
-		const r = declarations.renames.find((x) => spelled(x.from) === twice)
-		if (r !== undefined) {
-			return refuse(r.from, `two renames of ${spelled(r.from)}`)
+	/** The login renames, by the previous login's record name, to the target's login. */
+	const logins = new Map<string, HeldLogin>()
+	for (const r of declarations.renames) {
+		const from = r.from
+		const to = r.to
+		if (from.kind !== "login" || to.kind !== "login") {
+			continue
 		}
+		const was = loginIn(previous.logins, from.login)
+		const now = loginIn(target.logins, to.login)
+		if (was === undefined || now === undefined) {
+			return refuse(
+				from,
+				`a rename of ${spelled(from)} to ${spelled(to)}, a login the previous snapshot holds renamed to one the target declares`
+			)
+		}
+		logins.set(was.name, now)
+	}
+	/** The roles the login renames take. */
+	const takenRoles = new Set([...logins.values()].map((l) => l.login.role))
+	/** Whether a previous login's role is taken by a rename of another. */
+	const loginTaken = (held: HeldLogin): boolean =>
+		!logins.has(held.name) && takenRoles.has(held.login.role)
+	/** The first side of a rename that names what an earlier one's side of that kind names. */
+	const repeated = (side: "from" | "to"): Named | undefined => {
+		const seen = new Set<string>()
+		for (const r of declarations.renames) {
+			const key = keyOf(r[side])
+			if (seen.has(key)) {
+				return r[side]
+			}
+			seen.add(key)
+		}
+		return undefined
+	}
+	const twice = repeated("from")
+	if (twice !== undefined) {
+		return refuse(twice, `two renames of ${spelled(twice)}`)
+	}
+	const merged = repeated("to")
+	if (merged !== undefined) {
+		return refuse(merged, `two renames to ${spelled(merged)}`)
 	}
 	const dropped = (n: Named): boolean => declarations.drops.some((d) => sameNamed(d, n))
 	const undeclared = (d: Dropped): never => {
@@ -187,7 +288,7 @@ export const applyDeclarations = (
 		}
 		const relation = declared(name)
 		const now = heldIn(after, targetName(name))
-		if (now?.kind !== was.kind) {
+		if (now?.kind !== was.kind || taken(name, was)) {
 			if (!dropped({ kind: "relation", relation })) {
 				undeclared({ kind: "relation", relation })
 			}
@@ -198,7 +299,8 @@ export const applyDeclarations = (
 				const field = declared(f.name)
 				const to = fields.get(name)?.get(f.name) ?? f.name
 				if (
-					!now.fields.some((x) => x.name === to) &&
+					!drawnAgain(f.writing) &&
+					(!now.fields.some((x) => x.name === to) || fieldTaken(name, f)) &&
 					!dropped({ kind: "field", relation, field })
 				) {
 					undeclared({ kind: "field", relation, field })
@@ -217,8 +319,17 @@ export const applyDeclarations = (
 			}
 		}
 	}
+	for (const [name, login] of Object.entries(previous.logins)) {
+		const held: HeldLogin = { name, login }
+		const named: Named = { kind: "login", login: declared(name) }
+		const kept =
+			logins.has(name) || (loginIn(target.logins, named.login) !== undefined && !loginTaken(held))
+		if (!kept && !dropped(named)) {
+			undeclared(named)
+		}
+	}
 	/** Whether a declared drop drops what it names: something the previous snapshot holds that the target, under the
-	 * declared renames, no longer does. */
+	 * declared renames, no longer does, or whose name a rename of another takes. */
 	const drops = (d: Named): boolean => {
 		switch (d.kind) {
 			case "relation": {
@@ -226,17 +337,18 @@ export const applyDeclarations = (
 				return (
 					was !== undefined &&
 					!renamed.has(d.relation) &&
-					heldIn(after, d.relation)?.kind !== was.kind
+					(heldIn(after, d.relation)?.kind !== was.kind || taken(d.relation, was))
 				)
 			}
 			case "field": {
 				const was = heldIn(before, d.relation)
 				const now = heldIn(after, targetName(d.relation))
+				const f = was?.kind === "relation" ? was.fields.find((x) => x.name === d.field) : undefined
 				return (
-					was?.kind === "relation" &&
-					was.fields.some((f) => f.name === d.field) &&
+					f !== undefined &&
 					fields.get(d.relation)?.has(d.field) !== true &&
-					!(now?.kind === "relation" && now.fields.some((f) => f.name === d.field))
+					(!(now?.kind === "relation" && now.fields.some((x) => x.name === d.field)) ||
+						fieldTaken(d.relation, f))
 				)
 			}
 			case "handle": {
@@ -248,6 +360,14 @@ export const applyDeclarations = (
 						: -1
 				return code >= 0 && (now?.kind !== "closed" || now.codes[code]?.kind !== "live")
 			}
+			case "login": {
+				const was = loginIn(previous.logins, d.login)
+				return (
+					was !== undefined &&
+					!logins.has(was.name) &&
+					(loginIn(target.logins, d.login) === undefined || loginTaken(was))
+				)
+			}
 		}
 	}
 	for (const d of declarations.drops) {
@@ -258,7 +378,12 @@ export const applyDeclarations = (
 			)
 		}
 	}
-	return renamedSnapshot(previous, target, renamed, fields, temporaries)
+	const relations = renamedSnapshot(previous, target, renamed, fields, temporaries)
+	const roles = loginRenamed(relations.previous, target, logins, temporaries)
+	return {
+		statements: [...relations.statements, ...roles.statements],
+		previous: roles.previous
+	}
 }
 
 /** The object of a relation record in a manifest: its table's or its roster domain's. */
@@ -335,21 +460,27 @@ const renamedSnapshot = (
 	})
 	const moved = setAside(aside, secondAsides)
 	const columns = columnRenames(moved, after, renamed, fields, temporaries)
+	/** Each relation's record under its target name: a renamed one's under the target's, with its identifier; one whose
+	 * name a rename takes none, since it ends here; any other's under its own. */
+	const recordOf = (name: string, r: SnapshotRelation): SnapshotRelation =>
+		columns.previous.theory.relations[name] ?? r
 	const theory = {
 		...columns.previous.theory,
-		relations: Object.fromEntries(
-			Object.entries(before).flatMap(
+		relations: Object.fromEntries([
+			...Object.entries(before).flatMap(
+				([name, r]): ReadonlyArray<readonly [string, SnapshotRelation]> =>
+					renamed.has(name) || takenNames.has(r.ident) ? [] : [[name, recordOf(name, r)]]
+			),
+			...Object.entries(before).flatMap(
 				([name, r]): ReadonlyArray<readonly [string, SnapshotRelation]> => {
 					const to = renamed.get(name)
 					const now = to === undefined ? undefined : heldIn(after, to)
-					if (to === undefined || now === undefined) {
-						return [[name, columns.previous.theory.relations[name] ?? r]]
-					}
-					const record = columns.previous.theory.relations[name] ?? r
-					return [[to, { ...record, ident: now.ident }]]
+					return to === undefined || now === undefined
+						? []
+						: [[to, { ...recordOf(name, r), ident: now.ident }]]
 				}
 			)
-		)
+		])
 	}
 	return {
 		statements: [
@@ -455,13 +586,14 @@ const columnRenames = (
 			return { from, to, column, aside: asideName(temporaries, column), into: columnOf(now, to) }
 		})
 		/** A field the migration drops whose column name a renamed field takes, set aside first, then dropped under its
-		 * aside name. */
+		 * aside name; its record ends here. */
 		const taken = new Set<string>(moves.map((m) => m.into))
 		const holders = was.fields.flatMap((f) =>
 			renames.has(f.name) || !taken.has(f.column)
 				? []
-				: [{ column: f.column, aside: asideName(temporaries, f.column) }]
+				: [{ field: f.name, column: f.column, aside: asideName(temporaries, f.column) }]
 		)
+		const ending = new Set(holders.map((h) => h.field))
 		for (const h of holders) {
 			statements.push({ kind: "renameColumn", table, from: h.column, to: h.aside })
 		}
@@ -479,9 +611,12 @@ const columnRenames = (
 		tableColumns.set(nameKey(table), into)
 		records.set(relation, {
 			...was,
-			fields: was.fields.map((f) => {
+			fields: was.fields.flatMap((f) => {
+				if (ending.has(f.name)) {
+					return []
+				}
 				const m = fieldInto.get(f.name)
-				return m === undefined ? f : { ...f, name: m.to, column: m.into }
+				return [m === undefined ? f : { ...f, name: m.to, column: m.into }]
 			})
 		})
 	}
@@ -520,4 +655,200 @@ const columnRenames = (
 		}
 	}
 	return { statements, previous: snapshot }
+}
+
+/** `s` with every role name it holds that `roles` maps renamed: a role's own statements, the grants to it and of it,
+ * a policy's role, a schema's owner and a comment on a role. A statement of any other kind names no role. */
+const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStatement => {
+	const role = (name: string): string => roles.get(name) ?? name
+	const grantee = (g: Grantee): Grantee =>
+		g.kind === "role" ? { kind: "role", name: role(g.name) } : g
+	switch (s.kind) {
+		case "createRole":
+		case "alterRole":
+			return { ...s, name: role(s.name) }
+		case "grantRole":
+			return { ...s, role: role(s.role), to: role(s.to) }
+		case "revokeRole":
+			return { ...s, role: role(s.role), from: role(s.from) }
+		case "grant":
+			return { ...s, to: mapNonEmpty(s.to, grantee) }
+		case "revoke":
+			return { ...s, from: mapNonEmpty(s.from, grantee) }
+		case "grantColumns":
+			return { ...s, to: role(s.to) }
+		case "alterDefaultPrivileges":
+			return {
+				...s,
+				forRole: s.forRole === undefined ? undefined : role(s.forRole),
+				from: mapNonEmpty(s.from, grantee)
+			}
+		case "createPolicy":
+			return { ...s, role: role(s.role) }
+		case "createSchema":
+			return {
+				...s,
+				authorization: s.authorization === undefined ? undefined : role(s.authorization)
+			}
+		case "rename":
+			return s.object === "ROLE" ? { ...s, name: role(s.name), to: role(s.to) } : s
+		case "drop":
+			return s.object === "ROLE" ? { ...s, name: role(s.name) } : s
+		case "comment":
+			return s.on.kind === "ROLE" ? { ...s, on: { kind: "ROLE", name: role(s.on.name) } } : s
+		case "select":
+		case "insert":
+		case "update":
+		case "delete":
+		case "merge":
+		case "createTable":
+		case "alterTable":
+		case "renameColumn":
+		case "renameConstraint":
+		case "createDomain":
+		case "alterDomain":
+		case "createIndex":
+		case "dropIndex":
+		case "createMaterializedView":
+		case "createView":
+		case "dropPolicy":
+		case "dropFunction":
+		case "dropTrigger":
+		case "createFunction":
+		case "packConstant":
+		case "createConstant":
+		case "createGuardTrigger":
+		case "alterDatabaseDefault":
+		case "createExtension":
+		case "createStatistics":
+		case "lockTable":
+		case "createCarrier":
+		case "begin":
+		case "commit":
+		case "rollback":
+		case "refresh":
+		case "analyze":
+			return s
+	}
+}
+
+/**
+ * The declared login renames carried out, and the previous snapshot under them.
+ *
+ * Each renamed login's role, and each role of the previous snapshot whose name a renamed login's role takes (a login
+ * dropped, as declared, or a role the target no longer holds), is first renamed aside (identity.aside), so any order of
+ * renames, a swap or a chain included, is free of the names it moves into; then each renamed login's role is renamed
+ * from its aside name to the target's. ALTER ROLE ... RENAME TO keeps the role's OID, and PostgreSQL holds a role's
+ * password, its memberships, the privileges granted to it and its comment by OID, so all of them stay with it. The
+ * cluster's password encryption is SCRAM, whose verifier does not depend on the role's name, as MD5's did.
+ *
+ * The previous snapshot then names each renamed login's role under the target's name, and each set-aside role under its
+ * aside name: in every object's identity and statements, every edge, the role defaults, the PUBLIC revokes and the
+ * comments. Its logins and its workload record each renamed login under the target's name, and no longer record a
+ * login whose role a rename takes. So the diff reads a renamed login as one that stands, and a set-aside role as one
+ * the target no longer holds, which it drops at the end of the migration under its aside name.
+ */
+const loginRenamed = (
+	previous: DeploySnapshot,
+	target: SnapshotContent,
+	logins: ReadonlyMap<string, HeldLogin>,
+	temporaries: TemporaryCensus
+): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
+	if (logins.size === 0) {
+		return { statements: [], previous }
+	}
+	const moves = [...logins].map(([name, to]) => {
+		const was = previous.logins[name]
+		if (was === undefined || target.logins[to.name] === undefined) {
+			throw defect(`the renamed login ${name} is recorded by both snapshots`)
+		}
+		return { from: name, to: to.name, role: was.role, into: to.login.role }
+	})
+	const renamedRoles = new Set(moves.map((m) => m.role))
+	const takenRoles = new Set(moves.map((m) => m.into))
+	const holders = previous.manifest.objects.flatMap((o) => {
+		if (o.kind !== "role") {
+			return []
+		}
+		const v = installed(o)
+		return v.kind === "role" && takenRoles.has(v.create.name) && !renamedRoles.has(v.create.name)
+			? [v.create.name]
+			: []
+	})
+	const asides = new Map(
+		[...moves.map((m) => m.role), ...holders].map(
+			(role) => [role, asideName(temporaries, role)] as const
+		)
+	)
+	const asideOf = (role: string): string => {
+		const to = asides.get(role)
+		if (to === undefined) {
+			throw defect(`the role ${role} is set aside`)
+		}
+		return to
+	}
+	const statements: ReadonlyArray<SqlStatement> = [
+		...[...asides].map(([role, to]): SqlStatement => ({
+			kind: "rename",
+			object: "ROLE",
+			name: role,
+			to
+		})),
+		...moves.map((m): SqlStatement => ({
+			kind: "rename",
+			object: "ROLE",
+			name: asideOf(m.role),
+			to: m.into
+		}))
+	]
+	const roles = new Map<string, string>([
+		...holders.map((h) => [h, asideOf(h)] as const),
+		...moves.map((m) => [m.role, m.into] as const)
+	])
+	const ident = (id: string): string => {
+		const parsed = parseIdent(id)
+		if (parsed.kind !== "role" && parsed.kind !== "privileges" && parsed.kind !== "membership") {
+			return id
+		}
+		const to = roles.get(parsed.name)
+		return to === undefined ? id : namedIdent(parsed.kind, to)
+	}
+	const renamedIn = (list: ReadonlyArray<SqlStatement>): ReadonlyArray<SqlStatement> =>
+		list.map((s) => withRoles(s, roles))
+	const loginTo = new Map(moves.map((m) => [m.from, m] as const))
+	/** A record by login name, each renamed login's under the target's name, one whose role a rename takes left out. */
+	const byLogin = <V>(
+		record: Readonly<Record<string, V>>,
+		moved: (v: V, into: string) => V
+	): Readonly<Record<string, V>> =>
+		Object.fromEntries(
+			Object.entries(record).flatMap(([name, v]): ReadonlyArray<readonly [string, V]> => {
+				const m = loginTo.get(name)
+				if (m !== undefined) {
+					return [[m.to, moved(v, m.into)]]
+				}
+				const held = previous.logins[name]
+				return held !== undefined && takenRoles.has(held.role) ? [] : [[name, v]]
+			})
+		)
+	return {
+		statements,
+		previous: {
+			...previous,
+			manifest: {
+				...previous.manifest,
+				objects: previous.manifest.objects.map((o): ManifestObject => ({
+					...o,
+					ident: ident(o.ident),
+					ddl: renamedIn(o.ddl)
+				})),
+				edges: previous.manifest.edges.map((e) => ({ from: ident(e.from), to: ident(e.to) })),
+				roleDefaults: renamedIn(previous.manifest.roleDefaults),
+				publicRevokes: renamedIn(previous.manifest.publicRevokes),
+				comments: renamedIn(previous.manifest.comments)
+			},
+			logins: byLogin(previous.logins, (_, role) => ({ role })),
+			workload: byLogin(previous.workload, (programs) => programs)
+		}
+	}
 }

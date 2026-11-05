@@ -43,7 +43,7 @@ import {
 	tApproved,
 	tNow,
 	tSettled,
-	w2
+	w1
 } from "#test/support/fixtures/golden/payroll.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -133,12 +133,9 @@ const oneRemainder = L.lawOf(
 	)
 )
 
-/** acme's one approver, which an employer onboarded beside it names: every Approver's approver is an Employee. */
-const adaApproves = [{ approver: ada }] as const
-
 /**
- * A draft run and its one line for ada, inserted fresh with the line's deposits nested at its count field: a pay
- * line's deposits are a counted family, fixed when the line is created (fin.md §4.5).
+ * A draft run and its one line for ada, inserted fresh with the line's deposits as rows naming the line: a pay line's
+ * deposits are a counted family, a set of Deposit rows keyed by (line, account), whose count and sum grizzle draws.
  */
 const freshLine =
 	(
@@ -161,10 +158,13 @@ const freshLine =
 					employee: ada,
 					gross: cents(line.gross),
 					net: cents(line.net),
-					offCycle: line.offCycle,
-					deposits: Arr.map(deposits, (d) => ({ ...d, amount: cents(d.amount) }))
+					offCycle: line.offCycle
 				}
 			])
+			.insert(
+				P.Deposit,
+				Arr.map(deposits, (d) => ({ ...d, line: fresh(n + 1), amount: cents(d.amount) }))
+			)
 
 /** A native violation's witness: PostgreSQL states its key only in its message. */
 const unreported: Witness = { kind: "unreported" }
@@ -213,14 +213,12 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.hr,
-				p.cs().insert(P.Employer, [
-					{
-						id: fresh(1),
-						ein: P.Ein("12-3456789"),
-						name: name("Other Tools LLC"),
-						approvers: adaApproves
-					}
-				])
+				p
+					.cs()
+					.insert(P.Employer, [
+						{ id: fresh(1), ein: P.Ein("12-3456789"), name: name("Other Tools LLC") }
+					])
+					.insert(P.Approver, [{ employer: fresh(1), approver: ada }])
 			),
 		law: L.lawOf(key(on(P.Employer, "ein"))),
 		witnesses: [{ kind: "key", relation: "Employer", values: { ein: P.Ein("12-3456789") } }]
@@ -372,12 +370,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				p
 					.cs()
 					.insert(P.Employer, [
-						{
-							id: fresh(6),
-							ein: P.Ein("98-7654321"),
-							name: name("Second Shop LLC"),
-							approvers: []
-						}
+						{ id: fresh(6), ein: P.Ein("98-7654321"), name: name("Second Shop LLC") }
 					])
 					.insert(P.Employee, [
 						{ id: fresh(7), employer: fresh(6), code: "E000001", name: name("Finn") }
@@ -485,9 +478,11 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 							employee: ada,
 							gross: cents(100n),
 							net: cents(100n),
-							offCycle: true,
-							deposits: [{ account: "000123456789", amount: cents(100n), remainder: true }]
+							offCycle: true
 						}
+					])
+					.insert(P.Deposit, [
+						{ line: fresh(15), account: "000123456789", amount: cents(100n), remainder: true }
 					])
 			),
 		law: offCycleHasReason,
@@ -582,17 +577,17 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		witnesses: [unreported]
 	},
 	{
-		change: "insert bo's w2 Timesheet with a short approved Shift beyond t9",
+		change: "insert a short approved Shift for bo labeled w1 beyond t9",
 		role: "clerk",
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.clerk,
-				p.cs().insert(P.Timesheet, [
+				p.cs().insert(P.Shift, [
 					{
 						employee: bo,
-						week: P.Week(w2),
-						ceiling: P.Micros(40n * hour),
-						shifts: [{ during: span(t9 - hour, t9 + hour), status: "approved" }]
+						during: span(t9 - hour, t9 + hour),
+						week: P.Week(w1),
+						status: "approved"
 					}
 				])
 			),
@@ -611,26 +606,29 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 	},
 	{
 		change:
-			"insert bo's w2 Timesheet whose approved shifts' twenty-six hours pass its twenty-hour ceiling",
+			"insert two approved Shifts for bo labeled w1 whose forty-one hours pass its forty-hour ceiling",
 		role: "clerk",
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.clerk,
-				p.cs().insert(P.Timesheet, [
+				p.cs().insert(P.Shift, [
 					{
 						employee: bo,
-						week: P.Week(w2),
-						ceiling: P.Micros(20n * hour),
-						shifts: [
-							{ during: span(s4 + hour, s4 + 2n * hour), status: "approved" },
-							{ during: span(s4 + 3n * hour, s4 + 28n * hour), status: "approved" }
-						]
+						during: span(s4 + hour, s4 + 2n * hour),
+						week: P.Week(w1),
+						status: "approved"
+					},
+					{
+						employee: bo,
+						during: span(s4 + 3n * hour, s4 + 43n * hour),
+						week: P.Week(w1),
+						status: "approved"
 					}
 				])
 			),
 		/**
-		 * The sum fold of the approved shifts' generated hours, its end on the fresh timesheet's own insert row, held to
-		 * the ceiling by a row check (fin.md §6, "duration" then "weighted").
+		 * The sum fold of the approved shifts' generated hours, each shift counted once by its key, its end on bo's w1
+		 * timesheet, held to the ceiling by a row check (fin.md §6, "duration" then "weighted").
 		 */
 		law: approvedHoursWithinCeiling,
 		witnesses: [unreported]
@@ -791,7 +789,7 @@ const accepted = (attempt: Attempt) =>
  * unique object besides the arbiter gives the requested fact at that object's fields, and a native violation whose key
  * PostgreSQL reports only in its message is `unreported`; a domain constraint's violation names the domain's law.
  * Every law is native: the laws capacity stated are keys over a side and row checks on a counted family's owner, its
- * count or its sum fold's end (fin.md §6), and a family is written nested under a fresh owner (§4.5). A refusal rolls
+ * count or its sum fold's end (fin.md §6), and a counted family's members are rows naming their owner. A refusal rolls
  * everything back, so the rows that start from one state run one after another on one installation, and the state is
  * unchanged at the end.
  *

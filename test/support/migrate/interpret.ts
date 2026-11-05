@@ -4,13 +4,18 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type ColumnDef,
 	type Expr,
+	type FrameBound,
+	type FromItem,
 	type FromSource,
+	type FunctionCall,
 	type ObjectName,
 	type PackConstant,
 	type Select,
+	type SelectCore,
 	type SqlStatement,
 	type TableConstraint,
 	type TypeRef,
+	type Update,
 	tableConstraints
 } from "#compiler/sql/ast.ts"
 import { namedType } from "#compiler/sql/build.ts"
@@ -69,6 +74,16 @@ import { testTypeSchema } from "#test/support/sql.ts"
  *   outside the fragment the model evaluates (a contract's predicate) is taken to hold, a limit of the model.
  *   Each cell remembers where its value came from: a loaded fact, a value a reviewer wrote at a placeholder, or a
  *   value the column generates.
+ * - Data steps. A column added with a DEFAULT takes the default's value on every row; a family's backfill (deploy/diff
+ *   backfill.ts) is an UPDATE … FROM a query, which the model runs exactly as PostgreSQL does (#update): every target
+ *   row joined to the FROM rows its WHERE keeps, all rows assigned at once, each value stored as its column's type
+ *   stores it (NOT NULL, 23502; a domain's CHECKs, 23514; an integer's range, 22003; a bit string's length, 22026) and
+ *   every CHECK of the table, NOT VALID ones too, judging each new row. Its queries' windows (row_number, lag, lead,
+ *   count, sum, max, min, bit_or over PARTITION BY, ORDER BY and a ROWS or the default RANGE frame), GROUP BY
+ *   aggregates, joins, UNION and WITH RECURSIVE are the SQL standard's; where PostgreSQL's own choice decides the
+ *   result (a window function whose value hangs on the order of peers, a target row joined to two FROM rows) the
+ *   model throws, a defect of the statement, never a guess. Keys and foreign keys are judged by their build and their
+ *   VALIDATE, which the model does not run over rows.
  * - One rule of the draft, not of PostgreSQL: a migration converts each column at most once, by its one fate (a field's
  *   own conversion or a chosen rename's, never both), so a second conversion of a column in one run, under any name it
  *   has by then, is refused.
@@ -79,8 +94,8 @@ import { testTypeSchema } from "#test/support/sql.ts"
  * from nothing (installState). Column order is no fact, as admission keys columns by name.
  *
  * Every statement kind is decided in the switch: a kind with no effect on the catalog or the rows is named as such,
- * and a kind whose effect the model does not know (DML, transaction control) is a defect of the case, thrown, never
- * skipped. It is a second implementation of what the migration does, small enough to read, against which every drafted
+ * and a kind whose effect the model does not know (DML but a data step's UPDATE, transaction control) is a defect of
+ * the case, thrown, never skipped. It is a second implementation of what the migration does, small enough to read, against which every drafted
  * and reviewed migration of a small space is checked. */
 export type Cell =
 	| { readonly kind: "value"; readonly value: TypedLiteral }
@@ -556,11 +571,117 @@ const packedBits = (s: PackConstant): string => {
 const toLength = (bits: string, length: number): string =>
 	bits.length >= length ? Str.slice(0, length)(bits) : bits + Str.repeat(length - bits.length)("0")
 
-/** What the evaluator reads besides an expression: VALUE, the columns a FROM item binds, and the schema's constants. */
+/**
+ * What the evaluator reads besides an expression: VALUE, the columns a FROM item binds (`<alias>.<column>`, and
+ * `.<column>` for a column one FROM item alone has), and the schema's constants; and, where a statement of a migration's
+ * data step runs, the schema's domains a cast or a literal reads through (`types`) and the window functions of the
+ * query row it evaluates (`window`), or the aggregates of the group a grouped query's row stands for (`aggregate`).
+ * Without them, a domain's cast or literal, a window function and an aggregate are Unevaluable.
+ */
 interface Scope {
 	readonly value: SqlValue
 	readonly columns: ReadonlyMap<string, SqlValue>
 	readonly constant: (name: string) => SqlValue
+	readonly types?: TypeReader
+	readonly window?: (call: FunctionCall) => SqlValue
+	/** A grouped query's aggregates over the rows of the group its row stands for. */
+	readonly aggregate?: (call: FunctionCall) => SqlValue
+}
+
+/** The schema's domains as a cast or a literal of a data step reads them: a type's base, and a value of the type
+ * refused unless every CHECK of each domain it is admits it (23514). */
+interface TypeReader {
+	readonly base: (type: TypeRef) => TypeRef
+	readonly admit: (type: TypeRef, value: SqlValue) => void
+}
+
+/** The values each builtin integer type holds: a cast or an assignment outside them is refused (22003). */
+const integerRanges: ReadonlyMap<string, readonly [bigint, bigint]> = new Map([
+	["smallint", [-32_768n, 32_767n] as const],
+	["integer", [-2_147_483_648n, 2_147_483_647n] as const],
+	["bigint", [-9_223_372_036_854_775_808n, 9_223_372_036_854_775_807n] as const]
+])
+
+/** An integer as a value of the builtin integer type `name`, or the refusal PostgreSQL raises when it is out of range. */
+const inRange = (name: string, value: bigint): SqlValue => {
+	const range = integerRanges.get(name)
+	if (range !== undefined && (value < range[0] || value > range[1])) {
+		refuse(`${name} out of range (22003)`)
+	}
+	return { kind: "int", value }
+}
+
+/** The order of two non-NULL values of one kind, as PostgreSQL's btree compares them: integers numerically, texts by
+ * code point (every stored text is collated pg_c_utf8), booleans false first, and bit strings bit by bit, a prefix
+ * first. */
+const compareValues = (a: NonNullable<SqlValue>, b: NonNullable<SqlValue>): number => {
+	if (a.kind === "int" && b.kind === "int") {
+		return a.value < b.value ? -1 : a.value > b.value ? 1 : 0
+	}
+	if ((a.kind === "text" && b.kind === "text") || (a.kind === "bits" && b.kind === "bits")) {
+		return a.value < b.value ? -1 : a.value > b.value ? 1 : 0
+	}
+	if (a.kind === "bool" && b.kind === "bool") {
+		return Number(a.value) - Number(b.value)
+	}
+	return unevaluable(`an order of ${a.kind} and ${b.kind}`)
+}
+
+/** A comparison's truth over two values, NULL with either NULL. */
+const compared = (a: SqlValue, b: SqlValue, holds: (order: number) => boolean): SqlValue =>
+	a === undefined || b === undefined
+		? undefined
+		: { kind: "bool", value: holds(compareValues(a, b)) }
+
+/** The truth of a Boolean value: true, false, or NULL; Unevaluable for a value of another kind. */
+const truthOf = (v: SqlValue): boolean | undefined => {
+	if (v === undefined) {
+		return undefined
+	}
+	return v.kind === "bool" ? v.value : unevaluable(`a truth of ${v.kind}`)
+}
+
+const boolValue = (b: boolean | undefined): SqlValue =>
+	b === undefined ? undefined : { kind: "bool", value: b }
+
+/** A value cast to `t`: a domain's through its base, then judged by its CHECKs (TypeReader), and a builtin's as
+ * PostgreSQL casts it: an integer to an integer type within its range or to numeric, which keeps it; a bit string to
+ * bit(n), padded or cut, or to bit varying; a text to text or name. */
+const castTo = (v: SqlValue, t: TypeRef, scope: Scope): SqlValue => {
+	if (v === undefined) {
+		return undefined
+	}
+	if (t.kind === "named") {
+		const types = scope.types
+		const base = types?.base(t)
+		if (types === undefined || base === undefined || base.kind === "named") {
+			return unevaluable(`a cast of ${v.kind} to ${printType(t)}`)
+		}
+		const out = castTo(v, base, scope)
+		types.admit(t, out)
+		return out
+	}
+	if (!t.array) {
+		if (t.name === "bit" && v.kind === "bits") {
+			return { kind: "bits", value: toLength(v.value, t.length) }
+		}
+		if (t.name === "bit varying" && (v.kind === "bits" || v.kind === "text")) {
+			return { kind: "bits", value: v.value }
+		}
+		if ((t.name === "text" || t.name === "name") && v.kind === "text") {
+			return v
+		}
+		if (
+			(t.name === "smallint" || t.name === "integer" || t.name === "bigint") &&
+			v.kind === "int"
+		) {
+			return inRange(t.name, v.value)
+		}
+		if (t.name === "numeric" && v.kind === "int") {
+			return v
+		}
+	}
+	return unevaluable(`a cast of ${v.kind} to ${printType(t)}`)
 }
 
 /** Whether two values are equal, as PostgreSQL's = compares two of one type; NULL with either is NULL. */
@@ -614,50 +735,40 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 					return { kind: "int", value: e.value.value }
 				case "bool":
 					return { kind: "bool", value: e.value.value }
-				case "text":
-					return valueOf(e.value.value, e.type)
+				case "text": {
+					const base = e.type.kind === "named" ? scope.types?.base(e.type) : undefined
+					return base === undefined
+						? valueOf(e.value.value, e.type)
+						: castTo(valueOf(e.value.value, base), e.type, scope)
+				}
 				case "decimal":
 				case "float":
 				case "floatSpecial":
 					return unevaluable(`a ${e.value.kind} literal`)
 			}
-		case "cast": {
-			const v = evaluate(e.expr, scope)
-			if (v === undefined) {
-				return undefined
-			}
-			const t = e.type
-			if (t.kind === "builtin" && !t.array) {
-				if (t.name === "bit" && v.kind === "bits") {
-					return { kind: "bits", value: toLength(v.value, t.length) }
-				}
-				if (t.name === "bit varying" && (v.kind === "bits" || v.kind === "text")) {
-					return { kind: "bits", value: v.value }
-				}
-				if ((t.name === "text" || t.name === "name") && v.kind === "text") {
-					return v
-				}
-				if (
-					(t.name === "smallint" || t.name === "integer" || t.name === "bigint") &&
-					v.kind === "int"
-				) {
-					return v
-				}
-			}
-			return unevaluable(`a cast of ${v.kind} to ${printType(t)}`)
-		}
+		case "cast":
+			return castTo(evaluate(e.expr, scope), e.type, scope)
 		case "binary": {
 			const left = evaluate(e.left, scope)
 			const right = evaluate(e.right, scope)
 			switch (e.op) {
 				case "+":
-				case "-": {
+				case "-":
+				case "*": {
 					const a = intOf(left, e.op)
 					const b = intOf(right, e.op)
 					return a === undefined || b === undefined
 						? undefined
-						: { kind: "int", value: e.op === "+" ? a + b : a - b }
+						: { kind: "int", value: e.op === "+" ? a + b : e.op === "-" ? a - b : a * b }
 				}
+				case "<":
+					return compared(left, right, (o) => o < 0)
+				case "<=":
+					return compared(left, right, (o) => o <= 0)
+				case ">":
+					return compared(left, right, (o) => o > 0)
+				case ">=":
+					return compared(left, right, (o) => o >= 0)
 				case "=":
 					return equal(left, right)
 				case "<>": {
@@ -676,16 +787,11 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				case "&&":
 				case "&<":
 				case "&>":
-				case "*":
 				case "-|-":
 				case "/":
-				case "<":
 				case "<<":
-				case "<=":
 				case "<=>":
 				case "<@":
-				case ">":
-				case ">=":
 				case ">>":
 				case "@>":
 				case "||":
@@ -722,6 +828,12 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				? scope.columns.get(`${e.table ?? ""}.${e.column}`)
 				: unevaluable(`the column ${e.column}`)
 		case "call": {
+			if (e.over !== undefined) {
+				return scope.window === undefined ? unevaluable("a window function") : scope.window(e)
+			}
+			if (isAggregate(e)) {
+				return scope.aggregate === undefined ? unevaluable("an aggregate") : scope.aggregate(e)
+			}
 			if (e.star) {
 				return unevaluable("count(*)")
 			}
@@ -749,7 +861,36 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		}
 		case "subquery":
 			return derivedFromNames(e.query, scope)
-		case "and":
+		case "and": {
+			const truths = Arr.map(e.args, (a) => truthOf(evaluate(a, scope)))
+			return boolValue(
+				Arr.some(truths, (t) => t === false)
+					? false
+					: Arr.some(truths, (t) => t === undefined)
+						? undefined
+						: true
+			)
+		}
+		case "or": {
+			const truths = Arr.map(e.args, (a) => truthOf(evaluate(a, scope)))
+			return boolValue(
+				Arr.some(truths, (t) => t === true)
+					? true
+					: Arr.some(truths, (t) => t === undefined)
+						? undefined
+						: false
+			)
+		}
+		case "not": {
+			const t = truthOf(evaluate(e.expr, scope))
+			return boolValue(t === undefined ? undefined : !t)
+		}
+		case "isTrue":
+			return boolValue(truthOf(evaluate(e.expr, scope)) === true)
+		case "negate": {
+			const v = intOf(evaluate(e.expr, scope), "a negation")
+			return v === undefined ? undefined : { kind: "int", value: -v }
+		}
 		case "array":
 		case "between":
 		case "collate":
@@ -760,13 +901,9 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "greatest":
 		case "inList":
 		case "inQuery":
-		case "isTrue":
 		case "least":
 		case "mergeAction":
-		case "negate":
-		case "not":
 		case "nullif":
-		case "or":
 		case "param":
 		case "plSpecial":
 		case "plVar":
@@ -837,6 +974,399 @@ const derivedFromNames = (query: Select, scope: Scope): SqlValue => {
 		},
 		scope
 	)
+}
+
+/** The aggregates a data step calls, each over a group's or a frame's non-NULL values. */
+const aggregateNames: ReadonlySet<string> = new Set(["count", "sum", "max", "min", "bit_or"])
+
+/** Whether a call outside any window is an aggregate: count(*), or a builtin aggregate. */
+const isAggregate = (call: FunctionCall): boolean =>
+	call.star || (call.fn.kind === "builtin" && aggregateNames.has(call.fn.name))
+
+/** Whether an expression calls an aggregate outside any window and any subquery, as a grouped query's target does. */
+const callsAggregate = (e: Expr): boolean => {
+	switch (e.kind) {
+		case "call":
+			return e.over === undefined && isAggregate(e)
+				? true
+				: !e.star && Arr.some(e.args, callsAggregate)
+		case "binary":
+			return callsAggregate(e.left) || callsAggregate(e.right)
+		case "cast":
+		case "collate":
+		case "complement":
+		case "isTrue":
+		case "negate":
+		case "not":
+			return callsAggregate(e.expr)
+		case "and":
+		case "or":
+		case "greatest":
+		case "least":
+			return Arr.some(e.args, callsAggregate)
+		case "case":
+			return (
+				(e.operand !== undefined && callsAggregate(e.operand)) ||
+				Arr.some(e.whens, (w) => callsAggregate(w.when) || callsAggregate(w.result)) ||
+				callsAggregate(e.else)
+			)
+		case "between":
+			return callsAggregate(e.expr) || callsAggregate(e.low) || callsAggregate(e.high)
+		case "inList":
+			return callsAggregate(e.expr) || Arr.some(e.list, callsAggregate)
+		case "row":
+			return Arr.some(e.items, callsAggregate)
+		case "nullif":
+			return callsAggregate(e.expr) || callsAggregate(e.absent)
+		case "subscript":
+			return callsAggregate(e.array) || callsAggregate(e.index)
+		case "inQuery":
+			return callsAggregate(e.expr)
+		case "array":
+		case "column":
+		case "domainValue":
+		case "excluded":
+		case "exists":
+		case "field":
+		case "literal":
+		case "mergeAction":
+		case "param":
+		case "plSpecial":
+		case "plVar":
+		case "regclass":
+		case "returning":
+		case "subquery":
+		case "user":
+			return false
+	}
+}
+
+/** An aggregate over a group's rows, each evaluated in its own scope: count(*) of the rows its FILTER keeps, count of
+ * the non-NULL values, and sum, max, min or bit_or of them (aggregated). */
+const aggregateOver = (
+	call: FunctionCall,
+	rows: ReadonlyArray<number>,
+	scopeOf: (row: number) => Scope
+): SqlValue => {
+	if (call.star) {
+		const filter = call.filter
+		return {
+			kind: "int",
+			value: BigInt(
+				Arr.filter(
+					rows,
+					(r) => filter === undefined || truthOf(evaluate(filter, scopeOf(r))) === true
+				).length
+			)
+		}
+	}
+	if (call.distinct || call.orderBy.length > 0 || call.withinGroup.length > 0) {
+		return unevaluable("an aggregate's DISTINCT, ORDER BY or WITHIN GROUP")
+	}
+	const [arg, ...more] = call.args
+	if (arg === undefined || more.length > 0 || call.fn.kind !== "builtin") {
+		return unevaluable(`the aggregate ${call.fn.name} of ${call.args.length} arguments`)
+	}
+	const values = Arr.map(rows, (r) => evaluate(arg, scopeOf(r)))
+	return call.fn.name === "count"
+		? { kind: "int", value: BigInt(Arr.filter(values, (v) => v !== undefined).length) }
+		: aggregated(call.fn.name, values)
+}
+
+/** A relation's rows under `names`, position by position: a set operation's arms, and a recursive CTE's steps, are
+ * read by position. */
+const positional = (r: Relation, names: ReadonlyArray<string>): ReadonlyArray<Tuple> =>
+	Arr.map(
+		r.rows,
+		(row) => new Map(Arr.map(names, (n, i) => [n, row.get(r.names[i] ?? n)] as const))
+	)
+
+/** Each row once, in its first place: a UNION's rows, and DISTINCT's. */
+const distinctRows = (
+	names: ReadonlyArray<string>,
+	rows: ReadonlyArray<Tuple>
+): ReadonlyArray<Tuple> => {
+	const seen = new Set<string>()
+	return Arr.filter(rows, (row) => {
+		const key = groupText(Arr.map(names, (n) => row.get(n)))
+		const fresh = !seen.has(key)
+		seen.add(key)
+		return fresh
+	})
+}
+
+/**
+ * The rounds a recursive CTE may run on the model: a recursion over the stored rows of a test's box ends long before.
+ *
+ * @formatConstant rounds
+ */
+const recursionBound = 10_000
+
+/** Whether a query reads the CTE `name`. */
+const readsCte = (q: Select, name: string): boolean => {
+	let reads = false
+	transformSelect(q, {
+		...identityHooks,
+		fromSource: (source: FromSource) => {
+			if (source.kind === "cte" && source.name === name) {
+				reads = true
+			}
+			return source
+		}
+	})
+	return reads
+}
+
+/** A row of a relation the evaluator reads or a query yields: each column's value by name, a cell the model does not
+ * hold (a generated one, a value of a kind it does not evaluate) absent, so reading it is Unevaluable. */
+type Tuple = ReadonlyMap<string, SqlValue>
+
+/** A relation the evaluator reads or yields: its column names in order, and its rows. */
+interface Relation {
+	readonly names: ReadonlyArray<string>
+	readonly rows: ReadonlyArray<Tuple>
+}
+
+/** The CTEs a query sees, by name. */
+type Ctes = ReadonlyMap<string, Relation>
+
+/** A tuple bound under its FROM item's alias: each column as `<alias>.<column>` and as `.<column>`. */
+const bound = (alias: string, tuple: Tuple): Map<string, SqlValue> => {
+	const out = new Map<string, SqlValue>()
+	for (const [name, value] of tuple) {
+		out.set(`${alias}.${name}`, value)
+		out.set(`.${name}`, value)
+	}
+	return out
+}
+
+/** Two FROM items' bindings of one row joined: an unqualified column both bind is ambiguous, so neither binds it, and
+ * its `!` mark keeps a third from binding it again; reading it is Unevaluable, as PostgreSQL refuses it (42702). */
+const joined = (
+	a: ReadonlyMap<string, SqlValue>,
+	b: ReadonlyMap<string, SqlValue>
+): Map<string, SqlValue> => {
+	const out = new Map(a)
+	for (const [key, value] of b) {
+		const marked = Str.startsWith("!")(key)
+		const unqualified = marked ? Str.slice(1)(key) : key
+		if (marked || (Str.startsWith(".")(key) && (out.has(key) || out.has(`!${key}`)))) {
+			out.delete(unqualified)
+			out.set(`!${unqualified}`, undefined)
+		} else {
+			out.set(key, value)
+		}
+	}
+	return out
+}
+
+/** A relation's row under a column alias list: the list names its first columns, in order; an empty one renames none. */
+const renamed = (r: Relation, columns: ReadonlyArray<string>, row: Tuple): Tuple =>
+	columns.length === 0
+		? row
+		: new Map(Arr.map(r.names, (name, i) => [columns[i] ?? name, row.get(name)] as const))
+
+/** A relation under a column alias list (renamed). */
+const renamedRelation = (r: Relation, columns: ReadonlyArray<string>): Relation => ({
+	names: Arr.map(r.names, (name, i) => columns[i] ?? name),
+	rows: Arr.map(r.rows, (row) => renamed(r, columns, row))
+})
+
+/** The text a list of values is partitioned or deduplicated by: equal lists, NULLs among them, share one text. */
+const groupText = (values: ReadonlyArray<SqlValue>): string =>
+	Arr.join(
+		Arr.map(values, (v) =>
+			v === undefined
+				? "null"
+				: `${v.kind}:${v.kind === "names" ? Arr.join(v.value, "\u0000") : String(v.value)}`
+		),
+		"\u0001"
+	)
+
+/** Two values in an ORDER BY's direction: ascending NULLS LAST, descending NULLS FIRST, PostgreSQL's defaults. */
+const orderedBy = (a: SqlValue, b: SqlValue, direction: "ASC" | "DESC"): number => {
+	if (a === undefined || b === undefined) {
+		if (a === undefined && b === undefined) {
+			return 0
+		}
+		const nullLast = direction === "ASC" ? 1 : -1
+		return a === undefined ? nullLast : -nullLast
+	}
+	const c = compareValues(a, b)
+	return direction === "ASC" ? c : -c
+}
+
+/** The positions of a sorted partition a window function's frame holds for the row at `at`: with no explicit frame, the
+ * whole partition when it is unordered, else RANGE from its first row to the current row's last peer; an explicit ROWS
+ * frame from its start bound to its end bound, clamped to the partition. */
+const frameOf = (
+	spec: NonNullable<FunctionCall["over"]>,
+	length: number,
+	at: number,
+	lastPeer: number
+): readonly [number, number] => {
+	if (spec.frame === undefined) {
+		return spec.orderBy.length === 0 ? [0, length - 1] : [0, lastPeer]
+	}
+	const bound = (b: FrameBound): number => {
+		switch (b.kind) {
+			case "unboundedPreceding":
+				return 0
+			case "currentRow":
+				return at
+			case "unboundedFollowing":
+				return length - 1
+			case "offset":
+				return b.direction === "PRECEDING" ? at - Number(b.offset) : at + Number(b.offset)
+		}
+	}
+	return [Math.max(0, bound(spec.frame.start)), Math.min(length - 1, bound(spec.frame.end))]
+}
+
+/** The aggregate of a frame's non-NULL values, NULL over none: sum, max, min or bit_or. */
+const aggregated = (name: string, values: ReadonlyArray<SqlValue>): SqlValue => {
+	const present = Arr.filter(values, (v): v is NonNullable<SqlValue> => v !== undefined)
+	const [first, ...rest] = present
+	if (first === undefined) {
+		return undefined
+	}
+	switch (name) {
+		case "sum":
+			return {
+				kind: "int",
+				value: Arr.reduce(present, 0n, (total, v) => total + (intOf(v, "sum") ?? 0n))
+			}
+		case "max":
+			return Arr.reduce(rest, first, (m, v) => (compareValues(v, m) > 0 ? v : m))
+		case "min":
+			return Arr.reduce(rest, first, (m, v) => (compareValues(v, m) < 0 ? v : m))
+		case "bit_or":
+			return Arr.reduce(rest, first, (m, v) =>
+				m.kind === "bits" && v.kind === "bits"
+					? { kind: "bits", value: bitwise("|", m.value, v.value) }
+					: unevaluable(`bit_or of ${v.kind}`)
+			)
+		default:
+			return unevaluable(`the aggregate ${name}`)
+	}
+}
+
+/**
+ * The values of a window function over a query's rows, one per row, as the SQL standard defines them: the rows
+ * partitioned by its PARTITION BY, each partition sorted by its ORDER BY; row_number() a row's position from 1, lag
+ * and lead the value `offset` rows before or after it in that order or the default, and count, sum, max, min and
+ * bit_or the aggregate of the frame (frameOf). PostgreSQL orders peers, rows equal under the ORDER BY, as it chooses,
+ * so a function whose value depends on their order (row_number, lag, lead, or any aggregate over a ROWS frame) over a
+ * partition with peers has no one value: the model throws, a defect of the statement, never a guess.
+ */
+const windowColumn = (
+	call: FunctionCall,
+	count: number,
+	scopeOf: (row: number) => Scope
+): ReadonlyArray<SqlValue> => {
+	const spec = call.over
+	if (spec === undefined) {
+		throw new Error("a window function has its window")
+	}
+	if (!call.star && (call.distinct || call.orderBy.length > 0 || call.withinGroup.length > 0)) {
+		return unevaluable("a window function's DISTINCT, ORDER BY or WITHIN GROUP")
+	}
+	const name =
+		call.fn.kind === "builtin" ? call.fn.name : unevaluable(`the window function ${call.fn.name}`)
+	const at = (e: Expr, row: number): SqlValue => evaluate(e, scopeOf(row))
+	const partitions = new Map<string, Array<number>>()
+	for (const row of Arr.makeBy(count, (i) => i)) {
+		const key = groupText(Arr.map(spec.partitionBy, (e) => at(e, row)))
+		const members = partitions.get(key) ?? []
+		members.push(row)
+		partitions.set(key, members)
+	}
+	const out = new Map<number, SqlValue>()
+	for (const members of partitions.values()) {
+		const keys = new Map(
+			Arr.map(members, (row) => [row, Arr.map(spec.orderBy, (o) => at(o.expr, row))] as const)
+		)
+		const order = (x: number, y: number): -1 | 0 | 1 => {
+			for (const [k, o] of spec.orderBy.entries()) {
+				const c = orderedBy(keys.get(x)?.[k], keys.get(y)?.[k], o.direction)
+				if (c !== 0) {
+					return c < 0 ? -1 : 1
+				}
+			}
+			return 0
+		}
+		const sorted = Arr.sort(members, Order.make(order))
+		const length = sorted.length
+		const peered = (p: number): boolean =>
+			p + 1 < length && order(Arr.getUnsafe(sorted, p), Arr.getUnsafe(sorted, p + 1)) === 0
+		const tied = spec.orderBy.length > 0 && Arr.some(sorted, (_, p) => peered(p))
+		const lastPeer = (p: number): number => (peered(p) ? lastPeer(p + 1) : p)
+		const ordered = (what: string): void => {
+			if (tied) {
+				throw new Error(
+					`${what} over peers of its window's ORDER BY, which PostgreSQL orders as it chooses`
+				)
+			}
+		}
+		for (const [p, row] of sorted.entries()) {
+			const args = call.star ? [] : call.args
+			if (name === "row_number") {
+				ordered("row_number()")
+				out.set(row, { kind: "int", value: BigInt(p + 1) })
+				continue
+			}
+			if (name === "lag" || name === "lead") {
+				ordered(`${name}()`)
+				const [value, offsetArg, fallback] = args
+				if (value === undefined) {
+					return unevaluable(`${name}() of no value`)
+				}
+				const offset = offsetArg === undefined ? 1n : intOf(at(offsetArg, row), "an offset")
+				if (offset === undefined) {
+					out.set(row, undefined)
+					continue
+				}
+				const target = name === "lag" ? p - Number(offset) : p + Number(offset)
+				const from = sorted[target]
+				out.set(
+					row,
+					from !== undefined
+						? at(value, from)
+						: fallback === undefined
+							? undefined
+							: at(fallback, row)
+				)
+				continue
+			}
+			if (spec.frame !== undefined) {
+				ordered("an aggregate over a ROWS frame")
+			}
+			const [start, end] = frameOf(spec, length, p, lastPeer(p))
+			const frame = sorted.slice(start, end + 1)
+			if (call.star) {
+				const filter = call.filter
+				out.set(row, {
+					kind: "int",
+					value: BigInt(
+						Arr.filter(frame, (r) => filter === undefined || truthOf(at(filter, r)) === true).length
+					)
+				})
+				continue
+			}
+			const [arg] = args
+			if (arg === undefined || args.length !== 1) {
+				return unevaluable(`the window aggregate ${name} of ${args.length} arguments`)
+			}
+			const values = Arr.map(frame, (r) => at(arg, r))
+			out.set(
+				row,
+				name === "count"
+					? { kind: "int", value: BigInt(Arr.filter(values, (v) => v !== undefined).length) }
+					: aggregated(name, values)
+			)
+		}
+	}
+	return Arr.makeBy(count, (row) => out.get(row))
 }
 
 class Model {
@@ -1641,6 +2171,8 @@ class Model {
 					? { kind: "bits", value: v.value }
 					: { kind: "text", value: v.value }
 			}
+			case "uuid":
+				return { kind: "text", value: v.value }
 			case "float":
 			case "floatSpecial":
 			case "handle":
@@ -1648,7 +2180,6 @@ class Model {
 			case "money":
 			case "numeric":
 			case "span":
-			case "uuid":
 			case "vector":
 				return unevaluable(`a ${v.kind} cell`)
 		}
@@ -1734,6 +2265,428 @@ class Model {
 			d.base.schema === this.#schema &&
 			(d.base.name === domain || this.#domainOver(d.base.name, domain))
 		)
+	}
+
+	/** The schema's domains as a data step's casts and literals read them (TypeReader): a value of a domain must meet
+	 * every CHECK of each domain it is, one the model cannot evaluate taken to hold. */
+	#types(): TypeReader {
+		return {
+			base: (type) => this.#base(type),
+			admit: (type, value) => {
+				for (const [name, check] of this.#checksOfType(type)) {
+					if (this.#admits(check.predicate, value, new Map()) === false) {
+						refuse(
+							`value for domain ${printType(type)} violates check constraint "${name}" (23514)`
+						)
+					}
+				}
+			}
+		}
+	}
+
+	/** The scope a data step evaluates a query row in: its columns, and the schema's constants and domains. */
+	#scope(columns: ReadonlyMap<string, SqlValue>): Scope {
+		return {
+			value: undefined,
+			columns,
+			constant: (n: string) => this.#constant(n, new Set()),
+			types: this.#types()
+		}
+	}
+
+	/** The scope of a query row whose query has window functions: the row's, and its value of each. */
+	#windowScope(
+		columns: ReadonlyMap<string, SqlValue>,
+		window: (call: FunctionCall) => SqlValue
+	): Scope {
+		return { ...this.#scope(columns), window }
+	}
+
+	/** A stored row as a query reads it: each cell the model evaluates, by column. */
+	#tuple(columns: ReadonlyArray<Column>, row: ReadonlyMap<string, Cell>): Tuple {
+		const out = new Map<string, SqlValue>()
+		for (const c of columns) {
+			try {
+				out.set(c.name, this.#cellValue(row.get(c.name), c.type))
+			} catch (error) {
+				if (!(error instanceof Unevaluable)) {
+					throw error
+				}
+			}
+		}
+		return out
+	}
+
+	/** The rows a FROM source binds, each under its alias: a table of the schema's, a derived table's query, or a CTE's. */
+	#sourceRows(source: FromSource, ctes: Ctes): ReadonlyArray<Map<string, SqlValue>> {
+		switch (source.kind) {
+			case "table": {
+				if (typeof source.table === "string" || !this.#ours(source.table)) {
+					return unevaluable("a table outside the schema")
+				}
+				const t = this.#table(source.table)
+				return Arr.map(t.rows, (row) => bound(source.alias, this.#tuple(t.columns, row)))
+			}
+			case "derived": {
+				const r = this.#select(source.query, ctes)
+				return Arr.map(r.rows, (row) => bound(source.alias, renamed(r, source.columns, row)))
+			}
+			case "cte": {
+				const r = ctes.get(source.name)
+				if (r === undefined) {
+					return refuse(`relation "${source.name}" does not exist (42P01)`)
+				}
+				return Arr.map(r.rows, (row) => bound(source.alias ?? source.name, row))
+			}
+			case "enclosing":
+			case "function":
+			case "arrays":
+			case "values":
+			case "context":
+				return unevaluable(`a FROM source of kind ${source.kind}`)
+		}
+	}
+
+	/** The rows a FROM item binds: a source's, or a join chain's, each step's source joined to the rows before it. */
+	#itemRows(item: FromItem, ctes: Ctes): ReadonlyArray<Map<string, SqlValue>> {
+		if (item.kind !== "joins") {
+			return this.#sourceRows(item, ctes)
+		}
+		let rows = this.#sourceRows(item.first, ctes)
+		for (const step of item.steps) {
+			const right = this.#sourceRows(step.source, ctes)
+			rows = Arr.flatMap(rows, (left) =>
+				Arr.flatMap(right, (r) => {
+					const both = joined(left, r)
+					return step.kind === "cross" || truthOf(evaluate(step.on, this.#scope(both))) === true
+						? [both]
+						: []
+				})
+			)
+		}
+		return rows
+	}
+
+	/** The rows a FROM list binds: every item's rows crossed, one row of no column for an empty list. */
+	#fromRows(from: ReadonlyArray<FromItem>, ctes: Ctes): ReadonlyArray<Map<string, SqlValue>> {
+		return Arr.reduce(from, [new Map<string, SqlValue>()], (rows, item) => {
+			const right = this.#itemRows(item, ctes)
+			return Arr.flatMap(rows, (left) => Arr.map(right, (r) => joined(left, r)))
+		})
+	}
+
+	/** The relation a query yields: its WITH's CTEs bound, then its body. An ordered or limited query is Unevaluable: a
+	 * data step reads relations, which are sets. */
+	#select(q: Select, ctes: Ctes): Relation {
+		if (q.orderBy.length > 0 || q.limit !== undefined || q.offset !== undefined) {
+			return unevaluable("an ordered or limited query")
+		}
+		const inner = q.with === undefined ? ctes : this.#with(q.with, ctes)
+		const body = q.body
+		switch (body.kind) {
+			case "core":
+				return this.#core(body, inner)
+			case "select":
+				return this.#select(body, inner)
+			case "setOp": {
+				if (body.op !== "UNION" && body.op !== "UNION ALL") {
+					return unevaluable(`the set operation ${body.op}`)
+				}
+				const [first, ...rest] = Arr.map(body.arms, (a) => this.#operand(a, inner))
+				const names = first.names
+				const rows = Arr.flatMap([first, ...rest], (r) => positional(r, names))
+				return { names, rows: body.op === "UNION" ? distinctRows(names, rows) : rows }
+			}
+		}
+	}
+
+	/** A set operation's arm as a relation. */
+	#operand(a: SelectCore | Select, ctes: Ctes): Relation {
+		return a.kind === "core" ? this.#core(a, ctes) : this.#select(a, ctes)
+	}
+
+	/** The CTEs of a WITH, each bound in turn over those before it; under WITH RECURSIVE, one that reads itself by its
+	 * recursion (recursive). */
+	#with(w: NonNullable<Select["with"]>, ctes: Ctes): Ctes {
+		const out = new Map(ctes)
+		for (const c of w.ctes) {
+			if (c.query.kind !== "select") {
+				return unevaluable("a data-modifying CTE")
+			}
+			const r =
+				w.recursive && readsCte(c.query, c.name)
+					? this.#recursive(c.name, c.columns, c.query, out)
+					: this.#select(c.query, out)
+			out.set(c.name, c.columns.length === 0 ? r : renamedRelation(r, c.columns))
+		}
+		return out
+	}
+
+	/**
+	 * A recursive CTE as the SQL standard evaluates it: its first arm's rows, then its second arm over the rows the
+	 * previous round added, the working table, until a round adds none; under UNION a row already held is no new row,
+	 * so a recursion over a finite set of rows ends. A recursion that runs past a bound the model sets is its defect.
+	 */
+	#recursive(name: string, columns: ReadonlyArray<string>, q: Select, ctes: Ctes): Relation {
+		const body = q.body
+		if (
+			body.kind !== "setOp" ||
+			(body.op !== "UNION" && body.op !== "UNION ALL") ||
+			body.arms.length !== 2 ||
+			q.orderBy.length > 0 ||
+			q.limit !== undefined ||
+			q.offset !== undefined
+		) {
+			return unevaluable("a recursive CTE of another shape")
+		}
+		const [anchorArm, stepArm] = body.arms
+		const anchor = this.#operand(anchorArm, ctes)
+		const names = columns.length === 0 ? anchor.names : columns
+		const seen = new Set<string>()
+		const rows: Array<Tuple> = []
+		const added = (r: Relation): ReadonlyArray<Tuple> =>
+			Arr.filter(positional(r, names), (row) => {
+				const key = groupText(Arr.map(names, (n) => row.get(n)))
+				if (body.op === "UNION" && seen.has(key)) {
+					return false
+				}
+				seen.add(key)
+				rows.push(row)
+				return true
+			})
+		let working = added(anchor)
+		let round = 0
+		while (working.length > 0) {
+			round += 1
+			if (round > recursionBound) {
+				throw new Error(`the recursive CTE ${name} runs past ${recursionBound} rounds`)
+			}
+			const inner = new Map(ctes)
+			inner.set(name, { names, rows: working })
+			working = added(this.#operand(stepArm, inner))
+		}
+		return { names, rows }
+	}
+
+	/** The relation a SELECT core yields over its FROM's rows its WHERE keeps: each target evaluated per row, a window
+	 * function over every row the WHERE keeps (windowColumn), computed once per call; DISTINCT keeps each row once. A
+	 * grouped core is Unevaluable. */
+	#core(c: SelectCore, ctes: Ctes): Relation {
+		if (c.having !== undefined) {
+			return unevaluable("a HAVING")
+		}
+		const where = c.where
+		const rows = Arr.filter(
+			this.#fromRows(c.from, ctes),
+			(row) => where === undefined || truthOf(evaluate(where, this.#scope(row))) === true
+		)
+		if (c.groupBy.length > 0 || Arr.some(c.targets, (t) => callsAggregate(t.expr))) {
+			return this.#grouped(c, rows)
+		}
+		const windows = new Map<FunctionCall, ReadonlyArray<SqlValue>>()
+		const windowAt =
+			(i: number) =>
+			(call: FunctionCall): SqlValue => {
+				const known = windows.get(call)
+				const values =
+					known ?? windowColumn(call, rows.length, (j) => this.#scope(Arr.getUnsafe(rows, j)))
+				windows.set(call, values)
+				return values[i]
+			}
+		const names = Arr.map(
+			c.targets,
+			(t) => t.alias ?? (t.expr.kind === "column" ? t.expr.column : "?column?")
+		)
+		const out = Arr.map(
+			rows,
+			(row, i): Tuple =>
+				new Map(
+					Arr.map(c.targets, (t, k) => [
+						Arr.getUnsafe(names, k),
+						evaluate(t.expr, this.#windowScope(row, windowAt(i)))
+					])
+				)
+		)
+		if (c.distinct === false) {
+			return { names, rows: out }
+		}
+		if (c.distinct !== true) {
+			return unevaluable("DISTINCT ON")
+		}
+		const seen = new Set<string>()
+		return {
+			names,
+			rows: Arr.filter(out, (t) => {
+				const key = groupText(Arr.map(names, (n) => t.get(n)))
+				const fresh = !seen.has(key)
+				seen.add(key)
+				return fresh
+			})
+		}
+	}
+
+	/**
+	 * A grouped core's relation: its rows grouped by its GROUP BY's values, every row one group when it has none (and
+	 * then one row even over no row), each target evaluated over the group's first row, its aggregates over every row
+	 * of the group (aggregateOver). A target that reads a column no group fixes reads the first row's, which PostgreSQL
+	 * refuses (42803): the model trusts the statement there.
+	 */
+	#grouped(c: SelectCore, rows: ReadonlyArray<Map<string, SqlValue>>): Relation {
+		if (c.distinct !== false) {
+			return unevaluable("DISTINCT over a grouped query")
+		}
+		const groups = new Map<string, Array<number>>()
+		if (c.groupBy.length === 0) {
+			groups.set(
+				"",
+				Arr.makeBy(rows.length, (i) => i)
+			)
+		}
+		for (const [i, row] of c.groupBy.length === 0 ? [] : rows.entries()) {
+			const key = groupText(Arr.map(c.groupBy, (e) => evaluate(e, this.#scope(row))))
+			const members = groups.get(key) ?? []
+			members.push(i)
+			groups.set(key, members)
+		}
+		const scopeOf = (i: number): Scope => this.#scope(Arr.getUnsafe(rows, i))
+		const names = Arr.map(
+			c.targets,
+			(t) => t.alias ?? (t.expr.kind === "column" ? t.expr.column : "?column?")
+		)
+		return {
+			names,
+			rows: Arr.map([...groups.values()], (members): Tuple => {
+				const [first] = members
+				const scope: Scope = {
+					...this.#scope(first === undefined ? new Map() : Arr.getUnsafe(rows, first)),
+					aggregate: (call) => aggregateOver(call, members, scopeOf)
+				}
+				return new Map(
+					Arr.map(c.targets, (t, k) => [Arr.getUnsafe(names, k), evaluate(t.expr, scope)] as const)
+				)
+			})
+		}
+	}
+
+	/** A value assigned to `column` of `table`, as PostgreSQL stores it: never NULL (23502), every column being NOT NULL;
+	 * a bit string of the length its bit(n) base has (22026); cast to its type, a domain's CHECKs judging it (23514) and
+	 * an integer type's range bounding it (22003); and held as the model holds a cell, a set as its bit string's text. */
+	#stored(v: SqlValue, column: Column, table: ObjectName): Cell {
+		if (v === undefined) {
+			return refuse(
+				`null value in column "${column.name}" of relation "${table.name}" violates not-null constraint (23502)`
+			)
+		}
+		const base = this.#base(column.type)
+		if (
+			base.kind === "builtin" &&
+			base.name === "bit" &&
+			v.kind === "bits" &&
+			v.value.length !== base.length
+		) {
+			refuse(`bit string length ${v.value.length} does not match type bit(${base.length}) (22026)`)
+		}
+		const value = castTo(v, column.type, this.#scope(new Map()))
+		switch (value?.kind) {
+			case "int":
+				return { kind: "value", value: { kind: "int", value: value.value } }
+			case "bool":
+				return { kind: "value", value: { kind: "bool", value: value.value } }
+			case "bits":
+			case "text":
+				return { kind: "value", value: { kind: "text", value: value.value } }
+			case "names":
+			case undefined:
+				return unevaluable(`a value of ${printType(column.type)}`)
+		}
+	}
+
+	/** A row's columns as a CHECK reads them, or undefined when the model does not hold one of its cells. */
+	#checkColumns(t: Live, row: ReadonlyMap<string, Cell>): Map<string, SqlValue> | undefined {
+		try {
+			return new Map(
+				Arr.map(t.columns, (c) => [`.${c.name}`, this.#cellValue(row.get(c.name), c.type)] as const)
+			)
+		} catch (error) {
+			if (error instanceof Unevaluable) {
+				return undefined
+			}
+			throw error
+		}
+	}
+
+	/**
+	 * UPDATE … FROM … WHERE, as PostgreSQL runs it: each row of the table joined to the rows of its FROM the WHERE keeps;
+	 * a row joined to none keeps its values, and one joined to one takes each SET's value, evaluated over its old values
+	 * and the joined row, all rows at once; a row joined to several PostgreSQL updates from one it chooses, which no data
+	 * step may leave to it, so the model throws. Each assigned value is stored as its column's type stores it (stored),
+	 * a generated column refused (428C9), and every CHECK of the table, valid or NOT VALID, then judges each new row
+	 * (23514). The model holds no row's key or foreign key: those VALIDATE and the key's build judge.
+	 */
+	#update(s: Update): void {
+		if (s.returning.length > 0) {
+			return unevaluable("an UPDATE that returns rows")
+		}
+		const ctes = s.with === undefined ? new Map<string, Relation>() : this.#with(s.with, new Map())
+		const t = this.#table(s.table)
+		const columns = new Map(Arr.map(t.columns, (c) => [c.name, c] as const))
+		for (const a of s.set) {
+			const c = columns.get(a.column)
+			if (c === undefined) {
+				refuse(`column "${a.column}" of relation "${s.table.name}" does not exist (42703)`)
+			}
+			if (c.generation.kind !== "none") {
+				refuse(`column "${a.column}" can only be updated to DEFAULT (428C9)`)
+			}
+		}
+		const from = this.#fromRows(s.from, ctes)
+		const where = s.where
+		const updated: Array<readonly [Map<string, Cell>, ReadonlyArray<readonly [string, Cell]>]> = []
+		for (const row of t.rows) {
+			const target = bound(s.alias, this.#tuple(t.columns, row))
+			const matches = Arr.filter(from, (r) => {
+				const both = joined(target, r)
+				return where === undefined || truthOf(evaluate(where, this.#scope(both))) === true
+			})
+			const [match, ...more] = matches
+			if (match === undefined) {
+				continue
+			}
+			if (more.length > 0) {
+				throw new Error(
+					`the UPDATE of ${printObjectName(s.table)} joins one row to ${matches.length} rows of its FROM, and PostgreSQL updates it from the one it chooses`
+				)
+			}
+			const scope = this.#scope(joined(target, match))
+			updated.push([
+				row,
+				Arr.map(s.set, (a) => {
+					const c = columns.get(a.column)
+					if (c === undefined) {
+						throw new Error(`the column ${a.column} was checked`)
+					}
+					return [a.column, this.#stored(evaluate(a.value, scope), c, s.table)] as const
+				})
+			])
+		}
+		for (const [row, cells] of updated) {
+			for (const [name, cell] of cells) {
+				row.set(name, cell)
+			}
+		}
+		for (const [name, c] of this.#constraintsOf(s.table.name)) {
+			if (c.kind !== "check") {
+				continue
+			}
+			for (const [row] of updated) {
+				const bound = this.#checkColumns(t, row)
+				if (bound !== undefined && this.#admits(c.predicate, undefined, bound) === false) {
+					refuse(
+						`new row for relation "${s.table.name}" violates check constraint "${name}" (23514)`
+					)
+				}
+			}
+		}
 	}
 
 	/** Every stored row of `table` meets its CHECK `name`, or it fails as PostgreSQL's validateCheckConstraint does (23514). */
@@ -1844,6 +2797,19 @@ class Model {
 					throw new Error(
 						`the placeholder of ${a.column.name} is the reviewer's: the model reads it as its drafted action`
 					)
+				case "addColumnDefault": {
+					this.#typeExists(a.column.type)
+					if (a.column.generated !== undefined) {
+						refuse(
+							`both default and generation expression specified for column "${a.column.name}" of table "${s.table.name}" (42601)`
+						)
+					}
+					const column = columnOf(a.column, this.#schema)
+					this.#addColumn(s.table, column, () =>
+						this.#stored(evaluate(a.default, this.#scope(new Map())), column, s.table)
+					)
+					break
+				}
 				case "addColumn": {
 					const generated = a.column.generated
 					this.#typeExists(a.column.type)
@@ -2584,8 +3550,12 @@ class Model {
 			case "analyze":
 			case "comment":
 				return
-			case "insert":
 			case "update":
+				if (this.#ours(s.table)) {
+					this.#update(s)
+				}
+				return
+			case "insert":
 			case "delete":
 			case "merge":
 			case "createCarrier":

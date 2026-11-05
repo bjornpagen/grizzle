@@ -53,7 +53,7 @@ export const lawColumnsOf = (
 	new Map(Arr.map(onRelation(model, "LawColumn", relation), (c) => [c.column, c] as const))
 
 /** What a drawn column draws, as text: its kind, and a fold's position and plane. */
-export const drawnText = (d: Drawn): string =>
+const drawnText = (d: Drawn): string =>
 	d.kind === "before" || d.kind === "after" ? `${d.kind} ${d.fold}.${d.plane}` : d.kind
 
 /**
@@ -84,7 +84,7 @@ export interface ForeignKeyShape {
 }
 
 /** Each pair of a foreign key's columns, `from → to`, in sorted order: its order is no part of its contract. */
-export const pairsOf = (model: LawModel, fk: NativeOf<"ForeignKey">): ReadonlyArray<string> =>
+const pairsOf = (model: LawModel, fk: NativeOf<"ForeignKey">): ReadonlyArray<string> =>
 	Arr.sort(
 		Arr.map(
 			Arr.zip(fk.columns, fk.targetColumns),
@@ -93,7 +93,7 @@ export const pairsOf = (model: LawModel, fk: NativeOf<"ForeignKey">): ReadonlyAr
 		Order.String
 	)
 
-export const foreignKeyShape = (model: LawModel, fk: NativeOf<"ForeignKey">): ForeignKeyShape => ({
+const foreignKeyShape = (model: LawModel, fk: NativeOf<"ForeignKey">): ForeignKeyShape => ({
 	from: fk.relation.name,
 	to: fk.target.name,
 	pairs: pairsOf(model, fk),
@@ -118,7 +118,7 @@ export const foreignKeyShapes = (model: LawModel): ReadonlyArray<ForeignKeyShape
 	)
 
 /** A key's columns as a sorted set. */
-export const columnSet = (
+const columnSet = (
 	model: LawModel,
 	relation: LawRelation,
 	columns: ReadonlyArray<NativeColumn>
@@ -214,7 +214,7 @@ const sameValue = (a: CarrierValue, b: CarrierValue): boolean =>
  * evaluator's; a node over a set's algebra is this second implementation's, a set of handles each: union and
  * intersection as sets, equality as set equality, and the connectives over three values.
  */
-export const valueOn = (expr: ScalarExpr, row: Row): CarrierValue | undefined => {
+const valueOn = (expr: ScalarExpr, row: Row): CarrierValue | undefined => {
 	if (!declines(expr)) {
 		return referenceValue(expr, row)
 	}

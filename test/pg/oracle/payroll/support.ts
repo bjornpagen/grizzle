@@ -1,6 +1,8 @@
 import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
+import * as Result from "#compiler/core/result.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import {
@@ -10,10 +12,12 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
+import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { delivered, executeStatements, orderProblems } from "#test/pg/oracle/optimized/support.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { codebookFor, compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -69,6 +73,8 @@ export type PayrollProgramName = (typeof payrollProgramNames)[number]
 export interface PayrollProgram {
 	readonly name: PayrollProgramName
 	readonly template: QueryTemplate
+	/** The codes the program is compiled under, which its delivered rows decode closed ids by. */
+	readonly codes: Codebook
 }
 
 /** The program name of an export, or a defect: payrollProgramNames names every program the fixture exports. */
@@ -89,6 +95,9 @@ const programNameOf = (name: string): PayrollProgramName => {
  */
 export const payrollPrograms = (installed: Installed): ReadonlyArray<PayrollProgram> => {
 	const programs: Array<PayrollProgram> = []
+	const codes = succeeded(
+		Result.flatMap(parseSchemaInput(P.Reporting), (input) => codebookFor(input, testCompile.codes))
+	)
 	for (const [name, value] of Rec.toEntries(P)) {
 		if (!isQueryValue(value) && !isOrderedValue(value)) {
 			continue
@@ -100,7 +109,7 @@ export const payrollPrograms = (installed: Installed): ReadonlyArray<PayrollProg
 		if (!compiled.ok) {
 			throw new Error(`the payroll program ${name} does not compile: ${compiled.error.message}`)
 		}
-		programs.push({ name: programNameOf(name), template: compiled.value })
+		programs.push({ name: programNameOf(name), template: compiled.value, codes })
 	}
 	const built = Arr.map(programs, (p) => p.name)
 	if (Arr.join(built, ",") !== Arr.join(payrollProgramNames, ",")) {
@@ -180,7 +189,8 @@ const runProgram = (
 			checked.dag,
 			conservativeRun,
 			"conservative",
-			ordered(checked.dag.roots[0])
+			ordered(checked.dag.roots[0]),
+			program.codes
 		)
 		const forms: Array<{
 			readonly form: string
@@ -196,7 +206,8 @@ const runProgram = (
 				optimized.query.dag,
 				run,
 				f.form,
-				ordered(optimized.query.dag.roots[0])
+				ordered(optimized.query.dag.roots[0]),
+				program.codes
 			)
 			runs.push({
 				form: f.form,

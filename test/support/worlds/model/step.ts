@@ -4,6 +4,7 @@ import {
 	type Binding,
 	bindFacts,
 	bound,
+	distinctFacts,
 	everyMeets,
 	factMeets,
 	fresh,
@@ -134,9 +135,9 @@ const taggedMeets: Meet<Tagged, Tagged> = (e, o, binding, rest) =>
 /**
  * The state with the values the identity defaults drew, read from the stored relations: the model predicts every value
  * but a draw (draws.ts), which the stored facts show. The base and derived relations holding a draw bind their draws
- * together, one binding under which each holds its stored facts as a set and every value is fresh, and the state holds
- * the values bound. When no binding does, the state is left as it is, and the caller's comparison finds the relations
- * differing.
+ * together, one binding under which each model fact meets a stored fact of its own relation and its own, every stored
+ * fact is met, and every value is fresh, and the state holds the values bound. When no binding does, a stored relation
+ * repeating a fact among them, the state is left as it is, and the caller's comparison finds the relations differing.
  */
 export const adoptStored = (
 	state: ModelState,
@@ -165,13 +166,12 @@ export const adoptStored = (
 		Arr.flatMap(drawing, (r) => Arr.map(r[side], (fact) => ({ relation: r.relation, fact })))
 	const model = tagged("model")
 	const real = tagged("stored")
-	const binding = everyMeets(model, real, taggedMeets, unbound, (met) =>
-		Arr.every(real, (o) =>
-			Arr.some(model, (e) => taggedMeets(e, o, met, () => met) !== undefined)
-		) && fresh(state, met)
-			? met
+	const binding =
+		model.length === real.length && Arr.every(drawing, (r) => distinctFacts(r.stored))
+			? everyMeets(model, real, taggedMeets, unbound, (met) =>
+					fresh(state, met) ? met : undefined
+				)
 			: undefined
-	)
 	return binding === undefined ? state : bound(state, binding)
 }
 
@@ -538,7 +538,7 @@ const within = (expected: Witness, observed: Witness, rest: Rest): Binding | und
 		: undefined
 }
 
-/** An expected read-back meeting an observed one: one relation, its rows and delta as sets. */
+/** An expected read-back meeting an observed one: one relation, its rows and delta as keyed sets (draws.ts bindFacts). */
 const readBackMeets: Meet<ReadBack, ReadBack> = (e, o, binding, rest) =>
 	o.relation === e.relation
 		? bindFacts(e.rows, o.rows, binding, (rows) =>
@@ -551,11 +551,12 @@ const readBackMeets: Meet<ReadBack, ReadBack> = (e, o, binding, rest) =>
 /**
  * The binding, which `rest` accepts, under which an observed outcome is the expected one, none when it is not; a draw
  * the expected outcome holds is any value of its type, one value wherever the outcome shows it (draws.ts), and the
- * binding says which. Rows compare as sets. A witness agrees when every key it shows is one the expected witness
- * allows: the model predicts the most README "Errors and outcomes" lets a refusal show, and a refusal may name fewer of the
- * violating facts, never another; a withheld witness shows none. Read-backs agree relation by relation, rows and delta
- * as sets. The drift check's mismatches are catalog facts as PostgreSQL deparses them, which the model does not spell:
- * drift agrees when both find something or both find nothing.
+ * binding says which. Rows compare as keyed sets: a delivery that repeats a row agrees with nothing. A witness agrees
+ * when every key it shows is one the expected witness allows, each a key of its own: the model predicts the most README
+ * "Errors and outcomes" lets a refusal show, and a refusal may name fewer of the violating facts, never another; a
+ * withheld witness shows none. Read-backs agree relation by relation, rows and delta as keyed sets. The drift check's
+ * mismatches are catalog facts as PostgreSQL deparses them, which the model does not spell: drift agrees when both find
+ * something or both find nothing.
  */
 const matched = (
 	expected: ActionOutcome,

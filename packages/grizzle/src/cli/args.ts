@@ -99,9 +99,11 @@ Options of generate, as --flag value or --flag=value, anywhere after the command
                     there with --custom, --rename or --drop
   --rename <old>=<new>
                     a rename the draft makes, once per name: Relation=Relation,
-                    Relation.field=Relation.field or Roster#handle=Roster#handle; a handle keeps its code
-  --drop <old>      a drop the draft makes, once per name: Relation, Relation.field or Roster#handle;
-                    every drop of a name the schema no longer holds is declared, by --rename or --drop
+                    Relation.field=Relation.field, Roster#handle=Roster#handle or @login=@login;
+                    a handle keeps its code, and a login its role, with its password and grants
+  --drop <old>      a drop the draft makes, once per name: Relation, Relation.field, Roster#handle or
+                    @login; every drop of a name the schema no longer holds is declared, by --rename
+                    or --drop
 `
 
 const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"

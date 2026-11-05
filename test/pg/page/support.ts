@@ -7,6 +7,7 @@ import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { assert } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
@@ -115,8 +116,16 @@ export const canon = (value: unknown): unknown => {
 	return value
 }
 
-/** The page template a reader of `db` compiles for `query` (packages/grizzle/src/adapter/page/page.ts). */
-export const pageTemplate = (db: object, query: unknown): CompiledPage => {
+/** A page template with the installation's codes, which its rows' closed ids and sets order and decode by. */
+export interface TestPage extends CompiledPage {
+	readonly codes: Codebook
+}
+
+/**
+ * The page template a reader of `db` compiles for `query` (packages/grizzle/src/adapter/page/page.ts), with the codes
+ * of the installation the Db is admitted at.
+ */
+export const pageTemplate = (db: object, query: unknown): TestPage => {
 	const ctx = dbContext(db)
 	if (ctx === undefined) {
 		throw new Error("not a Db")
@@ -125,7 +134,7 @@ export const pageTemplate = (db: object, query: unknown): CompiledPage => {
 	if (Result.isFailure(compiled)) {
 		throw new Error(`${compiled.failure.stage}: ${compiled.failure.message}`)
 	}
-	return compiled.success
+	return { ...compiled.success, codes: ctx.artifacts.names.codes }
 }
 
 /**
@@ -133,14 +142,18 @@ export const pageTemplate = (db: object, query: unknown): CompiledPage => {
  * in canonical form.
  */
 export const sortedResult = (
-	compiled: CompiledPage,
+	compiled: TestPage,
 	rows: ReadonlyArray<unknown>
 ): ReadonlyArray<unknown> => {
 	const types: Record<string, ScalarType> = {}
 	for (const c of compiled.runtime.page.heading) {
 		types[c.name] = c.type
 	}
-	const compare = mergeComparator({ order: compiled.runtime.page.order, types })
+	const compare = mergeComparator({
+		order: compiled.runtime.page.order,
+		types,
+		codes: compiled.codes
+	})
 	if (!compare.ok) {
 		throw new Error(compare.error.message)
 	}
@@ -161,12 +174,16 @@ export const sortedResult = (
 }
 
 /** The page's completed order over delivered rows: negative when the first row comes first. */
-export const pageOrder = (compiled: CompiledPage): ((a: unknown, b: unknown) => number) => {
+export const pageOrder = (compiled: TestPage): ((a: unknown, b: unknown) => number) => {
 	const types: Record<string, ScalarType> = {}
 	for (const c of compiled.runtime.page.heading) {
 		types[c.name] = c.type
 	}
-	const compare = mergeComparator({ order: compiled.runtime.page.order, types })
+	const compare = mergeComparator({
+		order: compiled.runtime.page.order,
+		types,
+		codes: compiled.codes
+	})
 	if (!compare.ok) {
 		throw new Error(compare.error.message)
 	}
@@ -178,7 +195,7 @@ export const pageOrder = (compiled: CompiledPage): ((a: unknown, b: unknown) => 
  * page after the anchor's cursor reads from `rows`, whether or not the anchor is still among them.
  */
 export const strictlyAfter = (
-	compiled: CompiledPage,
+	compiled: TestPage,
 	rows: ReadonlyArray<unknown>,
 	anchor: unknown
 ): ReadonlyArray<unknown> => {
@@ -194,7 +211,7 @@ export const strictlyAfter = (
  * anchor's cursor reads from `rows`, whether or not the anchor is still among them.
  */
 export const strictlyBefore = (
-	compiled: CompiledPage,
+	compiled: TestPage,
 	rows: ReadonlyArray<unknown>,
 	anchor: unknown
 ): ReadonlyArray<unknown> => {

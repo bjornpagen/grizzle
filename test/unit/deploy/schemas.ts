@@ -146,6 +146,21 @@ export const books2: SchemaDesc = {
 	extends: undefined
 }
 
+/** What books2 declares against books1, its two renames: Note to Remark, and Entry's memo to remark. */
+export const books2Declared: Declarations = {
+	renames: [
+		{
+			from: { kind: "relation", relation: parsedName("Note") },
+			to: { kind: "relation", relation: parsedName("Remark") }
+		},
+		{
+			from: { kind: "field", relation: parsedName("Entry"), field: parsedName("memo") },
+			to: { kind: "field", relation: parsedName("Entry"), field: parsedName("remark") }
+		}
+	],
+	drops: []
+}
+
 /** Version 4 of the shop: a third Kind handle, appended, and its arm, which adds that arm's containment and its
  * handle's reverse containment. */
 const Kind3 = closed("Kind", ["Automatic", "Manual", "Scheduled"])

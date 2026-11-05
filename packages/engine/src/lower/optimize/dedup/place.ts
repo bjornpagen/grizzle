@@ -2,11 +2,9 @@ import { placementCertificate } from "#compiler/analysis/certificates/builder.ts
 
 import {
 	analyzePhysical,
-	type Outstanding,
 	type PhysicalAnalysis,
 	type RootObservation
 } from "#compiler/analysis/physical/analyze.ts"
-import { consumerIn } from "#compiler/analysis/physical/consumers.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -15,12 +13,11 @@ import * as Result from "#compiler/core/result.ts"
 import type { Certificate, MultiplicityRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
-import { inputsOf, type NodeOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
-import { certifyPlan, type FoldForm } from "#compiler/lower/optimize/dedup/certify.ts"
-import { explainPlan, foldReasons } from "#compiler/lower/optimize/dedup/explain.ts"
-import type { DedupPlan, FoldPlan, Placement } from "#compiler/lower/optimize/dedup/plan.ts"
+import { inputsOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
+import { certifyPlan } from "#compiler/lower/optimize/dedup/certify.ts"
+import { explainPlan } from "#compiler/lower/optimize/dedup/explain.ts"
+import type { DedupPlan, Placement } from "#compiler/lower/optimize/dedup/plan.ts"
 import {
-	edgeFold,
 	initialRealization,
 	isPinnedDistinct,
 	placementTarget
@@ -94,10 +91,9 @@ const belowTargets = (
  * already `distinct` is a defect. So at most V + U + 1 rounds run, for V nodes of which U are unions, each linear in the
  * DAG.
  *
- * A Group's observing edge is not placed on a node: once nothing else is outstanding, each fold whose input still lacks
- * one row per B deduplicates its contributions on B itself (FoldInput `distinct`), and a fold whose input has one row
- * per B folds it plainly. This is the one decision (foldOf) the emission, the explanation and the test kernel's
- * verification read.
+ * A Group with aggregates observes its input on the input's whole heading, as every observing consumer does, and its
+ * obligation is placed on a node like any other: its bound tuple is a key of its input (ir/rel.ts FoldInput), so the
+ * input distinct over its heading holds one row per bound tuple, and the fold has nothing of its own to deduplicate.
  *
  * Every obligation the placements discharge is recorded, with its own consumer.
  *
@@ -137,9 +133,7 @@ export const placeDeduplication = (
 			continue
 		}
 		/** 2. The outstanding obligations a node placement discharges. */
-		const outstanding = a.obligations.flatMap((o) =>
-			o.discharged || edgeFold(o.edge) !== undefined ? [] : [o]
-		)
+		const outstanding = a.obligations.flatMap((o) => (o.discharged ? [] : [o]))
 		if (outstanding.length === 0) {
 			return finishPlan(env, a, realization, placements, placementCerts, rounds)
 		}
@@ -192,19 +186,6 @@ export const placeDeduplication = (
 	}
 }
 
-/** How a fold takes its input under an analysis: deduplicated on B where an obligation on its input is outstanding, and plainly otherwise. */
-type Fold = { readonly kind: "owed"; readonly owed: Outstanding } | { readonly kind: "plain" }
-
-export const foldOf = (a: PhysicalAnalysis, node: NodeOf<"Group">): Fold => {
-	const [owed] = a.obligations.flatMap((o) =>
-		o.discharged || consumerIn(o.edge.consumer, "input")?.id !== node.id ? [] : [o]
-	)
-	if (owed !== undefined) {
-		return { kind: "owed", owed }
-	}
-	return { kind: "plain" }
-}
-
 const finishPlan = (
 	env: PlacementEnv,
 	a: PhysicalAnalysis,
@@ -213,53 +194,11 @@ const finishPlan = (
 	placementCerts: ReadonlyArray<Certificate<MultiplicityRule>>,
 	rounds: number
 ): Result.Result<DedupPlan, CompileError> => {
-	/** Each fold's form, decided once (foldOf), with the node its DISTINCT deduplicates and that placement's certificate. */
-	const decided = new Map<NodeOf<"Group">, Fold>()
-	const decide = (group: NodeOf<"Group">): Fold => {
-		const known = decided.get(group)
-		if (known !== undefined) {
-			return known
-		}
-		const fold = foldOf(a, group)
-		decided.set(group, fold)
-		return fold
-	}
-	const form: FoldForm = (group) => (decide(group).kind === "plain" ? "plain" : "distinct")
-	const groups = a.order.flatMap((node) =>
-		node.kind === "Group" && node.aggs.length > 0 ? [node] : []
-	)
-	const foldCerts: Array<Certificate<MultiplicityRule>> = []
-	for (const node of groups) {
-		const fold = decide(node)
-		if (fold.kind === "plain") {
-			continue
-		}
-		const cert = placementCertificate(fold.owed)
-		if (!cert.ok) {
-			return Result.err(cert.error)
-		}
-		foldCerts.push(cert.value)
-	}
-	const certified = certifyPlan(a, form, [...placementCerts, ...foldCerts])
+	const certified = certifyPlan(a, placementCerts)
 	if (!certified.ok) {
 		return Result.err(certified.error)
 	}
-	const explained = explainPlan(a, form, placements)
-	const folds: Record<NodeId, FoldPlan> = {}
-	for (const node of groups) {
-		const fold = decide(node)
-		const reasons = foldReasons(a, node, form(node))
-		folds[node.id] =
-			fold.kind === "plain"
-				? { input: "plain", bound: node.bound, reasons }
-				: {
-						input: "distinct",
-						bound: node.bound,
-						reasons,
-						/** The node the fold's DISTINCT deduplicates: the obligation's input. */
-						deduplicates: fold.owed.edge.input.id
-					}
-	}
+	const explained = explainPlan(a, placements)
 	const realized: Record<NodeId, Realization> = {}
 	for (const [id, r] of realization) {
 		realized[id] = r
@@ -267,7 +206,6 @@ const finishPlan = (
 	return Result.ok({
 		context: env.context,
 		realization: Object.freeze(realized),
-		folds: Object.freeze(folds),
 		placements: Object.freeze([...placements]),
 		decisions: explained.decisions,
 		certificates: certified.value,

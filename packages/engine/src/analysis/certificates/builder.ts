@@ -34,15 +34,12 @@ import type { KeySet, RelNode } from "#compiler/ir/rel.ts"
  *   retained base key, or a key of every joined occurrence;
  * - R02.existence: an EXISTS target list without DISTINCT, the right side being an emptiness test no other consumer
  *   observes;
- * - R17.contribution: an aggregate input whose complete bound tuple determines a physical key proved without the
- *   input's own DISTINCT, so that DISTINCT is removable;
  * - R17.unionAll: UNION ALL for a union whose arms are unique and pairwise told apart by a literal discriminant;
  * - R17.recursiveTerms: plain seed and step SELECTs feeding a recursive UNION directly;
  * - R17.placement: duplicate elimination placed before the first consumer that observes repeats.
  */
 export const multiplicityRules = {
 	existence: "R02.existence",
-	contribution: "R17.contribution",
 	unionAll: "R17.unionAll",
 	recursiveTerms: "R17.recursiveTerms",
 	placement: "R17.placement"
@@ -134,34 +131,6 @@ export const existenceCertificate = (
 			outer: []
 		},
 		heading: node.heading.map((c) => c.name)
-	})
-}
-
-/**
- * No input DISTINCT before a fold whose complete bound tuple determines a physical key of its input proved without
- * that DISTINCT.
- */
-export const contributionCertificate = (
-	analysis: PhysicalAnalysis,
-	node: RelNode
-): Result.Result<Certificate<MultiplicityRule>, CompileError> => {
-	const c = analysis.of(node).contribution
-	if (c === undefined) {
-		return refuse(node, "a fold")
-	}
-	const identity = c.identity
-	if (identity.kind !== "removable") {
-		return refuse(
-			node,
-			"a complete bound tuple that determines a physical key of the input without its own DISTINCT"
-		)
-	}
-	return certify({
-		rule: multiplicityRules.contribution,
-		inputs: [c.input.id],
-		outputs: [node.id],
-		just: identity.removal,
-		heading: c.bound
 	})
 }
 

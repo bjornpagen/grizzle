@@ -524,11 +524,11 @@ const handleText = (value: unknown): ReadonlyArray<string> =>
 	typeof value === "string"
 		? [value]
 		: typeof value === "object" &&
-				value !== null &&
-				"kind" in value &&
-				value.kind === "handle" &&
-				"handle" in value &&
-				typeof value.handle === "string"
+			  value !== null &&
+			  "kind" in value &&
+			  value.kind === "handle" &&
+			  "handle" in value &&
+			  typeof value.handle === "string"
 			? [value.handle]
 			: []
 
@@ -574,18 +574,23 @@ const alternativesLaws = <L>(
 		const handles = new Set(Arr.map(statement.arms, (a) => a.handle))
 		for (const law of laws) {
 			if (law.detail.kind !== "containment") {
-				throw new Error(`the alternatives statement ${target} holds the ${law.detail.kind} law ${law.id}`)
+				throw new Error(
+					`the alternatives statement ${target} holds the ${law.detail.kind} law ${law.id}`
+				)
 			}
 			const reverse = selectedHandles(law.detail.from.selection.conjuncts)
 			const arm = selectedHandles(law.detail.to.selection.conjuncts)
-			if (reverse.length === 1 && arm.length === 0) {
-				reverseLaws[reverse[0] as string] = law.id
+			const [handle, ...others] = reverse
+			if (handle !== undefined && others.length === 0 && arm.length === 0) {
+				reverseLaws[handle] = law.id
 			} else if (arm.length > 0 && reverse.length === 0) {
 				for (const handle of arm) {
 					armLaws[handle] = law.id
 				}
 			} else {
-				throw new Error(`the alternatives statement ${target} holds ${law.id}, which selects no one handle side`)
+				throw new Error(
+					`the alternatives statement ${target} holds ${law.id}, which selects no one handle side`
+				)
 			}
 		}
 		for (const handle of handles) {
@@ -1067,20 +1072,6 @@ export const soleWorldOf = (
 	}
 	return { login: login.role, role: role.role }
 }
-
-/**
- * A contract's domain CHECK in the installation of `subject` under the schema `at` names, as the naming door names it:
- * the CHECK of the domain its definition's digest names (physical/ddl/names.ts contractNamed), which contracts of one
- * definition share.
- */
-export const contractCheckAt = (
-	subject: NamingSubject,
-	at: InstalledAt,
-	contract: string
-): ConstraintName =>
-	identifierOf(
-		identity.domainCheck(installationOf(subject, at).names.contractNamed(parsedName(contract)))
-	)
 
 /**
  * Whether a catalog object of a schema is the migrations ledger's (deploy/ledger), the deployment's own table no schema

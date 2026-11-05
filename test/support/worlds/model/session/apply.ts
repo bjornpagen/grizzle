@@ -11,7 +11,7 @@ import {
 	valueText
 } from "#test/support/laws/model.ts"
 import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
-import { entryRows, isMember } from "#test/support/worlds/model/host.ts"
+import { entryRows, factKey, isMember } from "#test/support/worlds/model/host.ts"
 import {
 	type Cell,
 	checkLaw,
@@ -484,6 +484,22 @@ const inTerms = (fact: HostFact, terms: Readonly<Record<string, string>>): HostF
 		})
 	)
 
+/**
+ * Facts of a target in a role relation's terms, as the set they are there: a projection is a set keyed by its heading,
+ * so two facts that agree in those terms are one row of it.
+ */
+const allInTerms = (
+	facts: ReadonlyArray<HostFact>,
+	terms: Readonly<Record<string, string>>
+): ReadonlyArray<HostFact> => [
+	...new Map(
+		Arr.map(facts, (f) => {
+			const row = inTerms(f, terms)
+			return [factKey(row), row] as const
+		})
+	).values()
+]
+
 /** The base relations a role relation's definition reads: a whole entry's relation, every relation a query matches. */
 const definitionReads = (role: RoleSpec, relation: string): ReadonlySet<string> => {
 	const entry = roleEntryOf(role, relation)
@@ -615,8 +631,8 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  *   its stratum's statement casts the value: before anything else the statement meets;
  * - each fact through a query entry fills its fixed fields; an inserted or put fact the entry cannot hold is
  *   `outside-world`, a deleted one a no-op; an inserted or put fact whose key a fact outside the entry holds, or that
- *   collides with one at an at-most-one capacity's unique index, is `invariant-rejected` on that key's or capacity's
- *   law. Which of these refusals, and a law another op of the stratum breaks meanwhile, on the same target or another,
+ *   collides with one at another key's unique index (an at-most-one over a side), is `invariant-rejected` on that
+ *   key's law. Which of these refusals, and a law another op of the stratum breaks meanwhile, on the same target or another,
  *   comes first is the order of the stratum's statements, which the model leaves open, as README "Writing through a
  *   role" leaves which refusal a ChangeSet meets first: an op's own refusal stops its statement before it writes;
  * - each stratum's S' = (S \ D) ∪ A meets the laws PostgreSQL checks at a statement, and the final state the laws it
@@ -750,8 +766,8 @@ export const applyCall = (
 				relation,
 				rows,
 				delta: {
-					inserted: Arr.map(without(after, before), (f) => inTerms(f, delta.terms)),
-					deleted: Arr.map(without(before, after), (f) => inTerms(f, delta.terms))
+					inserted: allInTerms(without(after, before), delta.terms),
+					deleted: allInTerms(without(before, after), delta.terms)
 				}
 			}
 		})
