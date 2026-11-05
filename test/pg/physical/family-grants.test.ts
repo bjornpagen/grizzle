@@ -20,7 +20,7 @@
  *   family's.
  */
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option, Result } from "effect"
+import { Array as Arr, Effect, Option, Order, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
@@ -123,7 +123,10 @@ const asRole = (session: RawSession, role: string, sql: string) =>
 			onSuccess: (
 				rows
 			): { readonly rows: ReadonlyArray<string> } | { readonly refused: string } => ({
-				rows: Arr.map(rows, (row) => String(row[0])).toSorted()
+				rows: Arr.sort(
+					Arr.map(rows, (row) => String(row[0])),
+					Order.String
+				)
 			}),
 			onFailure: (error) => ({
 				refused:
@@ -266,7 +269,7 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 							`SELECT ${sc("id")}::text, ${sc("items")}::text, ${sc("stock")}::text FROM ${store} ORDER BY 1`,
 							[]
 						),
-						(rows) => Arr.map(rows, (row) => Arr.map(row, String).join(" "))
+						(rows) => Arr.map(rows, (row) => Arr.join(Arr.map(row, String), " "))
 					)
 					yield* Effect.scoped(
 						Effect.gen(function* () {
@@ -279,8 +282,9 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 								]),
 								{}
 							)
+							const appended = yield* counts
 							assert.deepEqual(
-								yield* counts,
+								appended,
 								[`${S1} 2 5`, `${S2} 1 5`, `${S3} 0 0`],
 								"each store's count and stock after the appends, a south store's included"
 							)
@@ -290,8 +294,9 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 								]),
 								{}
 							)
+							const put = yield* counts
 							assert.deepEqual(
-								yield* counts,
+								put,
 								[`${S1} 2 10`, `${S2} 1 5`, `${S3} 0 0`],
 								"the first store's stock after a put of a quantity"
 							)
@@ -301,8 +306,9 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 								]),
 								{}
 							)
+							const deleted = yield* counts
 							assert.deepEqual(
-								yield* counts,
+								deleted,
 								[`${S1} 1 3`, `${S2} 1 5`, `${S3} 0 0`],
 								"the first store's count and stock after a delete"
 							)

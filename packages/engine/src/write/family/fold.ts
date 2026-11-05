@@ -8,7 +8,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
  *
  * - a member's group, its owner's key, and a tree node's root field, its parent's;
  * - the drawn columns: an ordered family's index, a counted one's ‹i›, each family's count and ‹n›, and a tree's
- *   `children`, `start`, `end` and ‹ps› (write/family/tree.ts walk draws the same);
+ *   `children`, `start`, `end` and ‹ps›, drawn in one iterative pre-order pass;
  * - the accumulated columns, each the copy the one axis pair that carries it gives it (ir/family.ts AxisPair): along the
  *   owner axis from its owner, along the predecessor axis from its predecessor, along the last axis from its owner's
  *   last member, and at the axis's base (a family's first slot, an empty family, a tree's root) its writing's `start`;

@@ -31,7 +31,7 @@ import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -426,7 +426,7 @@ const columnsOf = (i: Installation, relation: string): ReadonlyArray<string> => 
 	})
 }
 
-const sorted = (xs: Iterable<string>): ReadonlyArray<string> => [...xs].toSorted()
+const sorted = (xs: Iterable<string>): ReadonlyArray<string> => Arr.sort(xs, Order.String)
 
 /** The policies on each table, by role, and the tables with row security. */
 const security = (
@@ -475,7 +475,7 @@ const literalOf = (e: Expr): string | undefined => {
 		case "decimal":
 			return `num:${e.value.value}`
 		case "text":
-			return `text:${e.value.value.toLowerCase()}`
+			return `text:${Str.toLowerCase(e.value.value)}`
 		case "float":
 		case "floatSpecial":
 			return undefined
@@ -678,8 +678,8 @@ describe("a member writer's hold on its family's owner", () => {
 									Arr.some(
 										refusals,
 										(x) =>
-											result.error.message.includes(`role ${x.role} `) &&
-											result.error.message.includes(x.family)
+											Str.includes(`role ${x.role} `)(result.error.message) &&
+											Str.includes(x.family)(result.error.message)
 									),
 									`refused as the rule refuses ${Formatter.format(refusals)}: ${result.error.message}`
 								)
