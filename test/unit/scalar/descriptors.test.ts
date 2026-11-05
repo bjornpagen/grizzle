@@ -748,33 +748,58 @@ describe("closedId", () => {
 		{
 			rule: "not closed",
 			from: "wild",
+			weight: 1,
 			sites: (live) => at({ ...live, kind: "relation" }, "kind")
 		},
-		{ rule: "empty name", from: "wild", sites: (live) => at({ ...live, name: "" }, "name") },
-		{ rule: "no handle", from: "wild", sites: (live) => at({ ...live, handles: [] }, "handles") },
+		{
+			rule: "empty name",
+			from: "wild",
+			weight: 1,
+			sites: (live) => at({ ...live, name: "" }, "name")
+		},
+		{
+			rule: "no handle",
+			from: "wild",
+			weight: 1,
+			sites: (live) => at({ ...live, handles: [] }, "handles")
+		},
 		{
 			rule: "repeated handle",
 			from: "wild",
+			weight: 1,
 			sites: (live) => at({ ...live, handles: [...live.handles, ...live.handles] }, "handles")
 		},
 		{
 			rule: "empty handle",
 			from: "wild",
+			weight: 1,
 			sites: (live) => at({ ...live, handles: [...live.handles, ""] }, "handles")
 		},
 		{
 			rule: "NUL in a handle",
 			from: "wild",
+			weight: 1,
 			sites: (live) =>
 				at({ ...live, handles: Arr.map(live.handles, (h) => `${h}\u0000`) }, "handles")
 		},
 		{
 			rule: "a non-string handle",
 			from: "wild",
+			weight: 1,
 			sites: (live) => at({ ...live, handles: [...live.handles, 1] }, "handles")
 		},
-		{ rule: "a bare string", from: "wild", sites: (live) => at(live.name, "the closed relation") },
-		{ rule: "undefined", from: "wild", sites: () => at(undefined, "the closed relation") }
+		{
+			rule: "a bare string",
+			from: "wild",
+			weight: 1,
+			sites: (live) => at(live.name, "the closed relation")
+		},
+		{
+			rule: "undefined",
+			from: "wild",
+			weight: 1,
+			sites: () => at(undefined, "the closed relation")
+		}
 	]
 
 	it.effect("refuses anything that is not a closed relation", (ctx) =>

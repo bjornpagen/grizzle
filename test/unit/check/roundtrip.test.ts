@@ -476,6 +476,7 @@ const atSites = (
 ): Corruption<Live, Refusal, RuleName> => ({
 	rule,
 	from,
+	weight: 1,
 	sites: (live) =>
 		Arr.map(
 			rewrittenAt(live.description, live.stored, { sites, edit: breaks }),
@@ -774,6 +775,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 	{
 		rule: "foreignVar",
 		from: "stale",
+		weight: 1,
 		sites: (live) => {
 			const all = rules(live.description)
 			return Arr.flatMap(all, (rule, i): ReadonlyArray<Broken<Refusal>> => {
@@ -954,6 +956,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 	{
 		rule: "twoSpanProducers",
 		from: "wild",
+		weight: 1,
 		sites: (live) =>
 			Arr.flatMap(singlePlainArms(live.description), (arm, i): ReadonlyArray<Broken<Refusal>> => {
 				const v = spanVar(arm.record, live.stored)
@@ -1043,6 +1046,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 	{
 		rule: "memberHeading",
 		from: "stale",
+		weight: 1,
 		/**
 		 * A plain set's description written into a relation whose fields are not its heading: names or types differ.
 		 * The member's rules are checked first, typed against the relation (check/index.ts checkMember runs them before

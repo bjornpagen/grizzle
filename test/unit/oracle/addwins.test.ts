@@ -534,7 +534,7 @@ describe("generated additions", () => {
 				],
 				primaryKey: { law: wild.lawId("entry_pk"), fields: ["code"] },
 				keys: [],
-				partialKeys: [],
+				projectedKeys: [],
 				serial: ["n"]
 			}
 		]

@@ -128,8 +128,9 @@ const floatPlaces = () => {
 
 /**
  * Whole numbers within a range, when it holds any, as one arm of a floating-point draw: a quarter of draws are whole,
- * and a failure shrinks to a whole number whenever a whole number still fails, where shrinking by place alone would
- * end on the smallest subnormal.
+ * and a failure drawn whole shrinks toward the least whole number that still fails, where shrinking by place alone
+ * would end on the smallest subnormal. A failure drawn by its place shrinks by place: shrinking lowers decisions and
+ * never moves a case to the whole arm with a value it did not draw, so it may end at the range's end.
  */
 const wholeOr = (min: number, max: number, limit: number, anywhere: Gen<number>): Gen<number> => {
 	const low = Math.max(Math.ceil(min), -limit)
@@ -145,8 +146,8 @@ const wholeOr = (min: number, max: number, limit: number, anywhere: Gen<number>)
 /**
  * A finite double between `min` and `max`, inclusive. Every double in the range is drawn by its place in order, so each
  * scale is as likely as the next, -0 and the subnormals included, and a random search reaches the range's ends and the
- * doubles nearest zero. A quarter of draws are whole numbers, and a failure shrinks toward a whole number, then toward
- * zero. NaN and the infinities are never drawn: a test that needs them names them in a `weighted` choice, and a
+ * doubles nearest zero. A quarter of draws are whole numbers, and a failure drawn whole shrinks toward zero by whole
+ * numbers (wholeOr). NaN and the infinities are never drawn: a test that needs them names them in a `weighted` choice, and a
  * boundary handed them where its types refuse them draws them as wild values.
  */
 export const double = (min: number, max: number): Gen<number> => {

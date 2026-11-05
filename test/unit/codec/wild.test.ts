@@ -34,8 +34,8 @@ import { Array as Arr, Effect, Formatter, Option, pipe, Record, String as Str } 
 import { isCodecFault } from "#compiler/codec/fault.ts"
 import { tupleConverter } from "#compiler/codec/row.ts"
 import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar.ts"
+import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { type Carrier, capabilitySet, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -163,7 +163,11 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 		{ label: "serial int8", type: { carrier: "int8", serial: "always", caps }, live: int64 }
 	],
 	numeric: [
-		{ label: "numeric", type: { carrier: "numeric", caps }, live: decimals(30) },
+		{
+			label: "numeric(36,6)",
+			type: { carrier: "numeric", typmod: { precision: 36, scale: 6 }, caps },
+			live: decimals(30)
+		},
 		{
 			label: "numeric(7,2)",
 			type: { carrier: "numeric", typmod: { precision: 7, scale: 2 }, caps },

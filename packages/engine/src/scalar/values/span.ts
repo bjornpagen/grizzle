@@ -1,6 +1,6 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
+import { int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import { int4Max, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 
 /**
  * The Span carrier of span(endpoint).

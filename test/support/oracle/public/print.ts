@@ -237,10 +237,10 @@ const read = (r: ProgramRead, i: number): string => {
 	if (r.kind === "key") {
 		return `read ${i}: db.get(${
 			r.candidate
-				? `key(${r.relation.name}, [${Arr.join(
+				? `key(on(${r.relation.name}, ${Arr.join(
 						Arr.map(r.key, (f) => f.name),
 						", "
-					)}])`
+					)}))`
 				: r.relation.name
 		}, { ${Arr.join(
 			Arr.map(r.key, (f, k) => `${f.name}: ${printValue(r.values[k])}`),

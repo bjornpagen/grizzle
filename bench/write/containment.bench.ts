@@ -15,11 +15,10 @@ import {
 import { settle } from "#bench/query/support/kit.ts"
 import {
 	installWrites,
-	lawObjects,
 	loadedByOwner,
 	owner,
 	plainStatement,
-	probeLaws,
+	probeScans,
 	tableScans,
 	transactionOf,
 	warmedOnce,
@@ -36,16 +35,18 @@ import { namesOf } from "#test/support/kernel/naming.ts"
  * R11: keep general containment probes key-local.
  *
  * R11 states no gate paragraph, so its gate is the performance contract's "measurement that can disprove the
- * performance assumption": the law's function needs, "for the affected X from the row event, existence in A
+ * performance assumption": a containment's check needs, "for the affected X from the row event, existence in A
  * and absence in B, not a full join of every witness pair. Use two indexed EXISTS tests over the complete captured X
  * tuple. Source insertion and target deletion can threaten the law; source deletion and target insertion repair it".
- * The admitted case is a selected source contained in a keyed target: `contained(on(select(Shift,
- * { status: "approved" }), "employee", "week"), on(Timesheet, "employee", "week"))`, whose function locks the
- * Timesheet row, the anchor, then probes.
+ * The admitted case is a selected source contained in a keyed target: `contained(on(select(Shift, (r) =>
+ * r.eq(r.status, "approved")), "employee", "week"), on(Timesheet, "employee", "week"))`. It is a native foreign key,
+ * MATCH SIMPLE, from Shift's law columns, each its field where the shift is approved and null elsewhere, into
+ * Timesheet's key; its referencing columns are indexed. PostgreSQL's own RI checks are the two indexed tests: a source
+ * insertion probes Timesheet's key, and a target deletion probes Shift through the referencing columns' index.
  *
- * Measured: which events call the law (with its triggers IMMEDIATE), the scans its probes make, and the commit-time
- * work of a batch of source insertions at two relation sizes ten times apart. Key-locality is a scaling class: the
- * probes' index scans per law call are the same at both sizes, and neither size scans Shift or Timesheet sequentially.
+ * Measured: the scans each event's checks make (every constraint IMMEDIATE), and the commit-time work of a batch of
+ * source insertions at two relation sizes ten times apart. Key-locality is a scaling class: the checks' index scans per
+ * inserted row are the same at both sizes, and neither size scans Shift or Timesheet sequentially.
  */
 const ShiftStatus = closed("ShiftStatus", ["draft", "approved"])
 const Timesheet = relation("Timesheet", { employee: pg.integer, week: pg.integer }, [
@@ -61,7 +62,11 @@ const Shift = relation(
 
 /** Every approved shift has its timesheet: the law the gate measures. */
 const covered = contained(
-	on(select(Shift, { status: "approved" }), "employee", "week"),
+	on(
+		select(Shift, (r) => r.eq(r.status, "approved")),
+		"employee",
+		"week"
+	),
 	on(Timesheet, "employee", "week")
 )
 const build = (name: string) => schema(name, { ShiftStatus, Timesheet, Shift }, [covered])
@@ -83,10 +88,10 @@ export default defineGate({
 	name: "write-containment",
 	gates: ["R11"],
 	title:
-		"Selected-source containment: key-local probes, the threatening events, sizes ten times apart",
+		"A selected source's foreign key: key-local checks, the threatening events, sizes ten times apart",
 	scope:
-		"A selected source contained in a keyed target: the law's calls per event, its probes' scans, and the " +
-		"commit-time work of a batch of source insertions at two relation sizes ten times apart.",
+		"A selected source contained in a keyed target, a native foreign key: the scans its checks make per event, " +
+		"and the commit-time work of a batch of source insertions at two relation sizes ten times apart.",
 	phases: writePhases,
 	options: {
 		full: { employees: 20000, weeks: 10, shifts: 2, batch: 200, samples: 9 },
@@ -98,8 +103,9 @@ export default defineGate({
 				programs: {},
 				logins: []
 			})
-			const law = namesOf(fx.installed).lawOf(covered)
-			const objects = yield* lawObjects(fx)
+			const names = namesOf(fx.installed)
+			const law = names.lawOf(covered)
+			const foreignKey = names.constraintOf(law, "ForeignKey")
 			const T = fx.table("Timesheet")
 			const S = fx.table("Shift")
 			const shiftTable = fx.relationName("Shift")
@@ -148,8 +154,8 @@ export default defineGate({
 					)
 					generated.push(generatedRun)
 				}
-				const probe = yield* probeLaws(writer, fx, law, [batchSql(900000000 + nextShift)], [])
-				return { label, generated: summarizeTransactions(generated), probe }
+				const scans = yield* probeScans(writer, fx, [batchSql(900000000 + nextShift)])
+				return { label, generated: summarizeTransactions(generated), scans }
 			})
 			yield* grow(options.employees)
 			const small = yield* measureAt("small")
@@ -160,46 +166,24 @@ export default defineGate({
 			const sheetOf = `(${c("Timesheet", "employee")}, ${c("Timesheet", "week")})`
 			const lonely = loadedEmployees + 1
 			const events = {
-				approvedInsert: yield* probeLaws(
-					writer,
-					fx,
-					law,
-					[`INSERT INTO ${S} ${shiftCols} VALUES (-1, 1, ${weekOf}, 'approved'::${status})`],
-					[]
-				),
-				draftInsert: yield* probeLaws(
-					writer,
-					fx,
-					law,
-					[`INSERT INTO ${S} ${shiftCols} VALUES (-2, 1, ${weekOf}, 'draft'::${status})`],
-					[]
-				),
-				sourceDelete: yield* probeLaws(
-					writer,
-					fx,
-					law,
-					[`DELETE FROM ${S} WHERE ${c("Shift", "id")} = 1`],
-					[]
-				),
-				targetInsert: yield* probeLaws(
-					writer,
-					fx,
-					law,
-					[`INSERT INTO ${T} ${sheetOf} VALUES (${lonely}, 1)`],
-					[]
-				),
-				targetDelete: yield* probeLaws(
-					writer,
-					fx,
-					law,
-					[
-						`INSERT INTO ${T} ${sheetOf} VALUES (${lonely}, 2)`,
-						`DELETE FROM ${T} WHERE ${sheetOf} = (${lonely}, 2)`
-					],
-					[]
-				)
+				approvedInsert: yield* probeScans(writer, fx, [
+					`INSERT INTO ${S} ${shiftCols} VALUES (-1, 1, ${weekOf}, 'approved'::${status})`
+				]),
+				draftInsert: yield* probeScans(writer, fx, [
+					`INSERT INTO ${S} ${shiftCols} VALUES (-2, 1, ${weekOf}, 'draft'::${status})`
+				]),
+				sourceDelete: yield* probeScans(writer, fx, [
+					`DELETE FROM ${S} WHERE ${c("Shift", "id")} = 1`
+				]),
+				targetInsert: yield* probeScans(writer, fx, [
+					`INSERT INTO ${T} ${sheetOf} VALUES (${lonely}, 1)`
+				]),
+				targetDelete: yield* probeScans(writer, fx, [
+					`INSERT INTO ${T} ${sheetOf} VALUES (${lonely}, 2)`,
+					`DELETE FROM ${T} WHERE ${sheetOf} = (${lonely}, 2)`
+				])
 			}
-			/** Behaviour at COMMIT, as a direct writer sees it. */
+			/** Behaviour at its statement or at COMMIT, as a direct writer sees it. */
 			const atCommit = (label: string, sql: string) =>
 				measureTransaction(writer, transactionOf([plainStatement(label, sql, [])], "plain"))
 			const orphan = yield* atCommit(
@@ -214,18 +198,20 @@ export default defineGate({
 				"sheet",
 				`DELETE FROM ${T} WHERE ${sheetOf} = (1, ${weekOf})`
 			)
-			/** The law's refusal at COMMIT: its SQLSTATE with the law's identity as the constraint name. */
-			const lawFailure = (o: TransactionMeasure["outcome"]) =>
+			/**
+			 * The foreign key's refusal: 23503 under its own name, at the statement where it is immediate or at COMMIT
+			 * where the compiler defers it.
+			 */
+			const foreignKeyFailure = (o: TransactionMeasure["outcome"]) =>
 				o.kind === "failed" &&
-				o.at === "commit" &&
-				o.sqlstate === sqlstates.integrityConstraintViolation &&
+				o.sqlstate === sqlstates.foreignKeyViolation &&
 				o.constraint.kind === "named" &&
-				o.constraint.name === law
-			const seqScans = (p: (typeof events)["approvedInsert"]) =>
-				tableScans(p.scans, shiftTable).seq + tableScans(p.scans, timesheetTable).seq
-			/** The index scans of Timesheet per law call, the probes' cost per event. */
-			const timesheetScansPerCall = (p: (typeof events)["approvedInsert"]) =>
-				tableScans(p.scans, timesheetTable).idx / p.total
+				o.constraint.name === foreignKey
+			type Scans = (typeof events)["approvedInsert"]
+			const seqScans = (s: Scans) =>
+				tableScans(s, shiftTable).seq + tableScans(s, timesheetTable).seq
+			/** The index scans of Timesheet per inserted row of a batch, the checks' cost per source insertion. */
+			const timesheetScansPerRow = (s: Scans) => tableScans(s, timesheetTable).idx / options.batch
 			const at = (m: typeof small, employees: number): CaseRecord<"R11"> => ({
 				name: `a batch of ${options.batch} approved shifts, ${employees} employees`,
 				gates: ["R11"],
@@ -243,11 +229,10 @@ export default defineGate({
 				transactions: { generated: m.generated },
 				loads: {},
 				measures: {
-					lawCalls: m.probe.total,
-					shiftSeqScans: tableScans(m.probe.scans, shiftTable).seq,
-					timesheetSeqScans: tableScans(m.probe.scans, timesheetTable).seq,
-					shiftIndexScans: tableScans(m.probe.scans, shiftTable).idx,
-					timesheetIndexScans: tableScans(m.probe.scans, timesheetTable).idx
+					shiftSeqScans: tableScans(m.scans, shiftTable).seq,
+					timesheetSeqScans: tableScans(m.scans, timesheetTable).seq,
+					shiftIndexScans: tableScans(m.scans, shiftTable).idx,
+					timesheetIndexScans: tableScans(m.scans, timesheetTable).idx
 				}
 			})
 			/** The commit-time work's growth from the small size to the large, recorded only when both sizes timed it. */
@@ -260,7 +245,7 @@ export default defineGate({
 					name: "the threatening events",
 					gates: ["R11"],
 					conditions: writeConditions({
-						workload: "each event alone with the law's triggers IMMEDIATE, rolled back",
+						workload: "each event alone with every constraint IMMEDIATE, rolled back",
 						schemaState: loadedByOwner,
 						data: `${loadedEmployees} employees`,
 						parameters: {},
@@ -273,11 +258,11 @@ export default defineGate({
 					transactions: {},
 					loads: {},
 					measures: {
-						approvedInsertCalls: events.approvedInsert.total,
-						draftInsertCalls: events.draftInsert.total,
-						sourceDeleteCalls: events.sourceDelete.total,
-						targetInsertCalls: events.targetInsert.total,
-						targetDeleteCalls: events.targetDelete.total,
+						approvedInsertTimesheetScans: tableScans(events.approvedInsert, timesheetTable).idx,
+						draftInsertTimesheetScans: tableScans(events.draftInsert, timesheetTable).idx,
+						sourceDeleteTimesheetScans: tableScans(events.sourceDelete, timesheetTable).idx,
+						targetInsertShiftScans: tableScans(events.targetInsert, shiftTable).idx,
+						targetDeleteShiftScans: tableScans(events.targetDelete, shiftTable).idx,
 						...(smallP50 === undefined || largeP50 === undefined || smallP50 <= 0 || largeP50 <= 0
 							? {}
 							: { deferredChecksGrowthGenerated: largeP50 / smallP50 })
@@ -287,47 +272,45 @@ export default defineGate({
 			const r11: VerdictInput = {
 				checks: [
 					mechanism(
-						"one residual law, whose unit functions are installed",
-						fx.installed.installation.laws.residuals.length === 1 &&
-							Arr.every(namesOf(fx.installed).residual(law).units, (u) =>
-								objects.functions.includes(u.function)
-							),
+						"no residual law: the selected containment is a native foreign key",
+						fx.installed.installation.laws.residuals.length === 0,
 						`${Arr.join(
 							Arr.map(fx.installed.installation.laws.residuals, (r) => r.lawId),
 							", "
-						)} | ${Arr.join(objects.functions, ", ")}`
+						)} | ${foreignKey}`
 					),
 					mechanism(
-						"a source insertion and a target deletion call the law; a source deletion and a target insertion do not",
-						events.approvedInsert.total === 1 &&
-							events.targetDelete.total === 1 &&
-							events.sourceDelete.total === 0 &&
-							events.targetInsert.total === 0,
-						Formatter.format({
-							approvedInsert: events.approvedInsert.calls,
-							targetDelete: events.targetDelete.calls,
-							sourceDelete: events.sourceDelete.calls,
-							targetInsert: events.targetInsert.calls
-						})
+						"an approved insertion probes Timesheet and a target deletion probes Shift; a draft insertion, a source deletion and a target insertion probe nothing",
+						tableScans(events.approvedInsert, timesheetTable).idx === 1 &&
+							tableScans(events.targetDelete, shiftTable).idx === 1 &&
+							tableScans(events.draftInsert, timesheetTable).idx === 0 &&
+							tableScans(events.sourceDelete, timesheetTable).idx === 0 &&
+							tableScans(events.targetInsert, shiftTable).idx === 0 &&
+							Arr.every(
+								[
+									events.approvedInsert,
+									events.draftInsert,
+									events.sourceDelete,
+									events.targetInsert,
+									events.targetDelete
+								],
+								(e) => seqScans(e) === 0
+							),
+						Formatter.format(events)
 					),
 					mechanism(
-						"a batch's law calls are one per inserted source row, at both sizes",
-						small.probe.total === options.batch && large.probe.total === options.batch,
-						`${small.probe.total}, ${large.probe.total}`
+						"the checks are indexed: no sequential scan of Shift or Timesheet at either size",
+						seqScans(small.scans) === 0 && seqScans(large.scans) === 0,
+						`${Formatter.format(small.scans)} | ${Formatter.format(large.scans)}`
 					),
 					mechanism(
-						"the probes are indexed: no sequential scan of Shift or Timesheet at either size",
-						seqScans(small.probe) === 0 && seqScans(large.probe) === 0,
-						`${Formatter.format(small.probe.scans)} | ${Formatter.format(large.probe.scans)}`
-					),
-					mechanism(
-						"the probes' index scans per law call are equal at both sizes",
-						timesheetScansPerCall(small.probe) === timesheetScansPerCall(large.probe),
-						`${timesheetScansPerCall(small.probe)} at ${options.employees} employees, ${timesheetScansPerCall(large.probe)} at ${options.employees * 10}`
+						"the checks' index scans per inserted row are equal at both sizes",
+						timesheetScansPerRow(small.scans) === timesheetScansPerRow(large.scans),
+						`${timesheetScansPerRow(small.scans)} at ${options.employees} employees, ${timesheetScansPerRow(large.scans)} at ${options.employees * 10}`
 					),
 					equivalence(
-						"an approved shift without its timesheet is refused at COMMIT with the law's identity",
-						lawFailure(orphan.outcome),
+						"an approved shift without its timesheet is refused by the foreign key",
+						foreignKeyFailure(orphan.outcome),
 						Formatter.format(orphan.outcome)
 					),
 					equivalence(
@@ -336,8 +319,8 @@ export default defineGate({
 						Formatter.format(draft.outcome)
 					),
 					equivalence(
-						"removing a timesheet an approved shift needs is refused at COMMIT with the law's identity",
-						lawFailure(removeSheet.outcome),
+						"removing a timesheet an approved shift needs is refused by the foreign key",
+						foreignKeyFailure(removeSheet.outcome),
 						Formatter.format(removeSheet.outcome)
 					),
 					equivalence(

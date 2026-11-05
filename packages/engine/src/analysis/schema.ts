@@ -45,7 +45,7 @@ import type {
 	OwnedWorldEntry,
 	OwnedWrite
 } from "#compiler/schema/own.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
+import { textLookupOnce } from "#compiler/text/refinement.ts"
 
 /** The refusal of a declared key whose index entry is unrepresentable, for `fault`, as ownership words it. */
 const unrepresentableKey = (
@@ -469,10 +469,13 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		)
 	}
 
+	/** Each text pattern's analysis, read once for every field and contract of the pattern. */
+	readonly #texts = textLookupOnce()
+
 	readonly #env: ScalarEnv = {
 		kind: "schema",
 		roster: (name) => this.#rosters.get(name),
-		text: textLookup,
+		text: this.#texts,
 		contractPredicate: (predicate, base, contract, facts): Result.Result<ExprTable, CompileError> =>
 			contractPredicateTable(predicate, base, contract, facts, {
 				loc: SourceLoc(`contract ${contract}`, []),

@@ -1,22 +1,23 @@
 /**
  * A migration's Validate phase against existing and concurrent rows.
  *
- * A migration that installs or tightens a law validates the complete relevant state before it publishes the law: a
- * native constraint through its own validation, a residual law through its full violation query in the Validate
- * transaction that also creates its triggers, under a lock excluding every writer to the participating tables. So:
+ * A migration that installs or tightens a law validates the complete relevant state before it publishes the law, each
+ * law a native constraint validated by PostgreSQL itself, a selected side's containment the foreign key from its STORED
+ * generated column. So:
  *
  * - over violating rows, every kind of law refuses with its identity and leaves the rows exactly as they were, never an
  *   automatic deletion; the files before the failing one stay applied, and once the reviewer fixes the rows the apply
- *   resumes at it. The kinds: a candidate key, a row check, a native containment and a residual one; a contract's
+ *   resumes at it. The kinds: a candidate key, a row check, a containment and a selected side's one; a contract's
  *   predicate tightened, its domain changed in place, whose VALIDATE refuses with 23514 naming the column it found
  *   violating (PostgreSQL's VALIDATE of a domain constraint names the table and column, never the constraint); a text
  *   pattern narrowed, which types the field by the narrowed pattern's domain, the column converted to it by its cast
  *   with no placeholder, refused with 23514 by that domain's CHECK as the cast judges each stored value; and a closed
  *   payload outside the narrowed pattern, written into Publish's validation of the closed facts by the reviewer,
  *   refused there with 23514 by the same CHECK, the folder as drafted then completing;
- * - a writer racing Validate cannot slip a violation past it: a violating row a writer commits while the migration
- *   waits for it is seen by the full violation query, and a writer that arrives while the Validate transaction holds
- *   its lock waits until the law's triggers are installed, then meets the law at its commit.
+ * - a writer racing the migration cannot slip a violation past a selected side's foreign key: a violating row a writer
+ *   commits while the migration waits for it is seen by the foreign key's validation, 23503, and a writer that arrives
+ *   while the migration holds its lock waits until the foreign key is installed, then meets it at its commit, 23503,
+ *   the key deferred.
  *
  * The migrations are drafted by generateMigration from the installed snapshot and applied by applyOnSession, exactly as
  * `grizzle migrate` applies them, as the database owner; each folder is applied with the same files every time,
@@ -34,8 +35,9 @@ import type { FolderSource, MigrationTarget } from "#adapter/migrate/input.ts"
 import { reportedOwner } from "#adapter/witness/keylaw.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
+import { type ConstraintLaws, constraintLaw } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
@@ -81,10 +83,11 @@ import {
 	sql
 } from "#test/support/schedules/build.ts"
 import { exploreEnv } from "#test/support/schedules/interleave.ts"
-import { law, meets, misses, ok, rows } from "#test/support/schedules/match.ts"
+import { describeOutcome, meets, misses, ok, rows } from "#test/support/schedules/match.ts"
 import { planted } from "#test/support/schedules/planted.ts"
 import { runSchedule } from "#test/support/schedules/runner.ts"
-import { type Expectation } from "#test/support/schedules/types.ts"
+import type { Expectation, ScheduleOutcome } from "#test/support/schedules/types.ts"
+import { reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
@@ -121,23 +124,41 @@ const { Worker, Assignment, Desk, Badge, Floor } = relations
  * the login `server`, which the migration keeps and the racing writers act in.
  */
 const v1 = (name: string) => schema(name, relations, [])
-/** Every kind of law at once: a candidate key, a row check, a native containment and a residual one. */
-const workerName = key(Worker, ["name"])
+/** Every kind of law at once: a candidate key, a row check, a containment and a selected side's one. */
+const workerName = key(on(Worker, "name"))
 const nonNegative = check("NonNegativeHours", Assignment, (x) => x.ge(x.hours, 0))
 const assignmentWorker = contained(on(Assignment, "worker"), on(Worker, "id"))
-const issuedDesk = contained(on(select(Badge, { issued: true }), "desk"), on(Desk, "id"))
+const issuedDesk = contained(
+	on(
+		select(Badge, (b) => b.eq(b.issued, true)),
+		"desk"
+	),
+	on(Desk, "id")
+)
 const tightenedRelations = domains(true)
 const tightened = (name: string) => {
 	const r = tightenedRelations
 	return schema(name, r, [
-		key(r.Worker, ["name"]),
+		key(on(r.Worker, "name")),
 		check("NonNegativeHours", r.Assignment, (x) => x.ge(x.hours, 0)),
 		contained(on(r.Assignment, "worker"), on(r.Worker, "id")),
-		contained(on(select(r.Badge, { issued: true }), "desk"), on(r.Desk, "id"))
+		contained(
+			on(
+				select(r.Badge, (b) => b.eq(b.issued, true)),
+				"desk"
+			),
+			on(r.Desk, "id")
+		)
 	])
 }
-/** A residual law alone. */
-const staffing = contained(on(select(Assignment, { active: true }), "worker"), on(Worker, "id"))
+/** A selected side's containment alone. */
+const staffing = contained(
+	on(
+		select(Assignment, (a) => a.eq(a.active, true)),
+		"worker"
+	),
+	on(Worker, "id")
+)
 const staffed = (name: string) => schema(name, relations, [staffing])
 
 /**
@@ -164,26 +185,54 @@ const withWorld = (value: Parameters<typeof fullWorld>[0], schemaIdent: string, 
 const backendOf = (rows: ReadonlyArray<ReadonlyArray<string>>): number =>
 	Number(defined(rows[0]?.[0], "pg_backend_pid's row"))
 
-/** The migrate apply's result as a step's expectation: it succeeded, or it was refused by `refusing` at Validate. */
+/** The migrate apply's result as a step's expectation: it succeeded, or a foreign key's validation refused it. */
 type Migrated = Result.Result<unknown, MigrateError>
 const migrated: Expectation<Migrated> = (actual) => {
 	const shown = Formatter.format(actual)
 	return Result.isSuccess(actual) ? meets(shown) : misses(shown, "expected the apply to succeed")
 }
 
+/** A foreign key installed under `schema` whose law is `refusing`, as the installation's laws map its constraint. */
+interface ForeignKeyLaw {
+	readonly laws: ConstraintLaws
+	readonly schema: string
+	readonly refusing: LawId
+}
+
+/** The apply refused by the foreign key of `fk.refusing`, 23503, which PostgreSQL's validation raised. */
 const refusedBy =
-	(refusing: LawId): Expectation<Migrated> =>
+	(fk: ForeignKeyLaw): Expectation<Migrated> =>
 	(actual) => {
 		const shown = Formatter.format(actual)
 		if (Result.isSuccess(actual)) {
-			return misses(shown, `expected the apply refused by ${refusing}`)
+			return misses(shown, `expected the apply refused by ${fk.refusing}`)
 		}
 		const server = actual.failure.server
-		return server.by === "server" &&
-			server.error.constraint === refusing &&
-			server.error.sqlstate === "23000"
+		if (server.by !== "server" || server.error.constraint === undefined) {
+			return misses(shown, `expected the apply refused by ${fk.refusing}, by the server`)
+		}
+		const owner = reportedOwner(server.error, fk.schema)
+		return server.error.sqlstate === sqlstates.foreignKeyViolation &&
+			owner !== undefined &&
+			constraintLaw(fk.laws, owner, server.error.constraint) === fk.refusing
 			? meets(shown)
-			: misses(shown, `expected the apply refused by ${refusing} with SQLSTATE 23000`)
+			: misses(shown, `expected the apply refused by ${fk.refusing} with SQLSTATE 23503`)
+	}
+
+/** A COMMIT refused by the foreign key of `fk.refusing`, 23503, deferred to it. */
+const committedPast =
+	(fk: ForeignKeyLaw): Expectation<ScheduleOutcome> =>
+	(outcome) => {
+		const shown = describeOutcome(outcome)
+		if (outcome._tag !== "PgError" || outcome.fields.constraint === undefined) {
+			return misses(shown, `expected SQLSTATE 23503 on ${fk.refusing}`)
+		}
+		const owner = reportedOwnerOf(outcome.fields)
+		return outcome.fields.code === sqlstates.foreignKeyViolation &&
+			owner !== undefined &&
+			constraintLaw(fk.laws, owner, outcome.fields.constraint) === fk.refusing
+			? meets(shown)
+			: misses(shown, `expected SQLSTATE 23503 on ${fk.refusing}`)
 	}
 
 /** Installs v1, seeds it as the owner, and drafts the migration to `next` from the installed snapshot. */
@@ -365,10 +414,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 				/** The laws of the tightened version, which is not installed yet. */
 				const next = tightened(x.done.schema)
 				/**
-				 * A table's law by what PostgreSQL names: a native one by its constraint or its key's index under the
-				 * table PostgreSQL reports, which the tightened version's laws map to it (a candidate key's unique index
-				 * fails its build in Indexes with 23505), a residual one by its identity, which its violation check
-				 * raises as the constraint.
+				 * A table's law by what PostgreSQL names: its constraint or its key's index under the table PostgreSQL
+				 * reports, which the tightened version's laws map to it (a candidate key's unique index fails its build in
+				 * Indexes with 23505).
 				 */
 				const tightenedLaws = lawNamesOf(next).model.constraintToLaw
 				const reportsLaw =
@@ -379,9 +427,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						}
 						const owner = reportedOwner(server.error, names.schema)
 						return (
-							server.error.constraint === id ||
-							(owner !== undefined &&
-								constraintLaw(tightenedLaws, owner, server.error.constraint) === id)
+							owner !== undefined &&
+							constraintLaw(tightenedLaws, owner, server.error.constraint) === id
 						)
 					}
 				/** The narrowed pattern's domain, which types the desk's code and Floor's payload in the next version. */
@@ -522,13 +569,13 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 	})
 
 	it.effect(
-		"a writer racing Validate cannot slip a violation past the law's full check and triggers",
+		"a writer racing the migration cannot slip a violation past a selected side's foreign key",
 		planted(
 			"validate/racing writer",
 			raceGen,
 			[
-				"a violation committed while the migration waits is refused by its Validate",
-				"a writer arriving during Validate waits for the law and meets it"
+				"a violation committed while the migration waits is refused by its validation",
+				"a writer arriving during the migration waits for the law and meets it"
 			],
 			(v) =>
 				Effect.gen(function* () {
@@ -539,7 +586,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${stored}, '${storedName}')`
 					])
 					const { names } = x
-					const staffingLaw = lawIdOf(staffed(x.done.schema), staffing)
+					const staffingLaw: ForeignKeyLaw = {
+						laws: lawNamesOf(staffed(x.done.schema)).model.constraintToLaw,
+						schema: names.schema,
+						refusing: lawIdOf(staffed(x.done.schema), staffing)
+					}
 					const env = yield* exploreEnv(x.s)
 					const direct = yield* openActors(x.s, {
 						w1: { kind: "psql", as: x.writer },
@@ -562,15 +613,18 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 					 */
 					const committed = yield* runSchedule(
 						env,
-						schedule("a violation committed while the migration waits is refused by its Validate", [
-							begin("w1"),
-							sql("w1", insertAssignment(firstAssignment, fixed), ok(), complete),
-							op("m", "migrate apply", apply, refusedBy(staffingLaw), blocksOn("w1")),
-							commit("w1", ok(), complete),
-							awaits("m", complete),
-							checkRows(`SELECT count(*)::text FROM ${assignment}`, rows(["1"])),
-							sql("w2", insertAssignment(secondAssignment, second), ok(), complete)
-						]),
+						schedule(
+							"a violation committed while the migration waits is refused by its validation",
+							[
+								begin("w1"),
+								sql("w1", insertAssignment(firstAssignment, fixed), ok(), complete),
+								op("m", "migrate apply", apply, refusedBy(staffingLaw), blocksOn("w1")),
+								commit("w1", ok(), complete),
+								awaits("m", complete),
+								checkRows(`SELECT count(*)::text FROM ${assignment}`, rows(["1"])),
+								sql("w2", insertAssignment(secondAssignment, second), ok(), complete)
+							]
+						),
 						actors
 					)
 
@@ -582,7 +636,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 					)
 					const arrived = yield* runSchedule(
 						env,
-						schedule("a writer arriving during Validate waits for the law and meets it", [
+						schedule("a writer arriving during the migration waits for the law and meets it", [
 							begin("w1"),
 							sql(
 								"w1",
@@ -596,7 +650,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 							commit("w1", ok(), complete),
 							awaits("m", complete),
 							awaits("w2", complete),
-							commit("w2", law(staffingLaw, "23000"), complete),
+							commit("w2", committedPast(staffingLaw), complete),
 							checkRows(
 								`SELECT count(*)::text FROM ${assignment} WHERE ${names.column(Assignment, "worker")} = ${never}`,
 								rows(["0"])

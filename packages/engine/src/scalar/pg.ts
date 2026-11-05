@@ -1,6 +1,6 @@
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
-import { derived, type Limit } from "#compiler/core/limits.ts"
+import { derived, type Limit, postgresSource } from "#compiler/core/limits.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { binary32Precision, binary64Precision } from "#compiler/ir/carriers.ts"
 import type { PgScalarName } from "#compiler/ir/desc.ts"
@@ -41,8 +41,7 @@ const boolean = plain("boolean", convertColumn(convertByCarrier.bool({ carrier: 
 const isInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isInteger(value)
 
-const floatP =
-	"https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/datatype.sgml#L905-L910"
+const floatP = `${postgresSource}/doc/src/sgml/datatype.sgml#L905-L910`
 
 /** The greatest binary precision float(p) maps to real: real's own, binary32's. */
 const floatRealPrecision: Limit = derived({

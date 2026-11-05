@@ -25,13 +25,10 @@ export type CapacityCheck =
  * - Bounds. `within(n)` is exactly n, `within(low, high)` the inclusive range and `within(low, "*")` has no upper
  *   bound . The law carries the bounds a group can break, low before high, as the recognizer
  *   left them: a count or a duration weight is never negative, so a literal lower bound of zero or
- *   less holds for every group and is not checked; a field weight may be negative, so its every bound is. When the
- *   recognizer installed the at-most-one UNIQUE for this law, the index enforces the upper bound of one and the
- *   function checks the lower bound alone.
- * - The 1..1 existence variant. A count whose remaining bounds are exactly "at least one" is an existence law: the
- *   group is nonempty. That is the residual half of an upper bound of one with a lower bound of one, "the UNIQUE above
- *   plus a residual existence law for the lower bound", and equally `within(1n, "*")` ("fewer than one approver in the
- *   group"). Its probe is one indexed existence test, never a count of the group.
+ *   less holds for every group and is not checked; a field weight may be negative, so its every bound is.
+ * - The existence variant. A count whose remaining bounds are exactly "at least one" is an existence law: the
+ *   group is nonempty, `within(1n, "*")` ("fewer than one approver in the group"). Its probe is one indexed existence
+ *   test, never a count of the group.
  * - The aggregate. A count is `count(*)`, bigint. A field weight is `sum(field)` with SUM's result type
  *   (`aggregateOverload`): smallint and integer sum to bigint, bigint and numeric to numeric,
  *   a contract contributing its base. The capacity's normalization types it (`capacityAggregate`), refusing a weight of real, double precision or money, whose sum rounds or overflows. A duration weight is the width

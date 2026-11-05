@@ -33,9 +33,12 @@ import {
 	closed,
 	closedWith,
 	contained,
+	eq,
 	f,
+	field,
+	literal,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	within
@@ -182,7 +185,12 @@ const checkSchema = (k: CheckCase): CheckSchema => {
 						tier(c, at),
 						relation("Sub", { account: f.integer, budget: c, paid: f.boolean }, ["account"])
 					],
-					[contained(onSelected("Sub", ["budget"], { paid: true }), on("Tier", ["budget"]))],
+					[
+						contained(
+							onWhere("Sub", ["budget"], eq(field("paid"), literal(true))),
+							on("Tier", ["budget"])
+						)
+					],
 					"Laws"
 				),
 				table: "Sub",
@@ -200,7 +208,12 @@ const checkSchema = (k: CheckCase): CheckSchema => {
 						tier(f.bigint, BigInt),
 						relation("Sub", { account: f.integer, budget: f.bigint, level: c }, ["account"])
 					],
-					[contained(onSelected("Sub", ["budget"], { level: at(1) }), on("Tier", ["budget"]))],
+					[
+						contained(
+							onWhere("Sub", ["budget"], eq(field("level"), literal(at(1)))),
+							on("Tier", ["budget"])
+						)
+					],
 					"Laws"
 				),
 				table: "Sub",

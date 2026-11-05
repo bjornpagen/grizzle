@@ -2,7 +2,7 @@ import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { pg, span } from "#compiler/public/fields.ts"
-import { key, relation, schema } from "#compiler/public/schema.ts"
+import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
@@ -21,8 +21,8 @@ const Booking = relation(
 	{ id: pg.integer, room: pg.integer, during: span(pg.integer), ref: pg.integer },
 	["id"]
 )
-const bookingSpan = key(Booking, ["room", "during"])
-const U = schema("U", { Booking }, [bookingSpan, key(Booking, ["ref"])])
+const bookingSpan = key(on(Booking, "room", "during"))
+const U = schema("U", { Booking }, [bookingSpan, key(on(Booking, "ref"))])
 const names = writeNamesOf(U, "u")
 
 const artifacts = succeeded(testArtifacts(U, testCompile))

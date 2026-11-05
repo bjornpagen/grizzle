@@ -135,8 +135,6 @@ const installLiterals = (install: InstallSpec): ReadonlyArray<HostValue> => {
 			case "contained":
 			case "covered":
 				return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
-			case "mirrors":
-				return [...Rec.values(law.left.where), ...Rec.values(law.right.where)]
 			case "capacity":
 				return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
 			case "key":
@@ -641,7 +639,6 @@ const factAims = [
 	"fact:law-broken",
 	"fact:outside-world",
 	"fact:hidden-key-collision",
-	"fact:hidden-capacity-collision",
 	"fact:hidden-reference",
 	"fact:deleted-reference",
 	"fact:partial-serial",
@@ -1455,8 +1452,6 @@ const baseLiterals = (base: BaseSpec): ReadonlySet<string> =>
 						case "covered":
 						case "capacity":
 							return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
-						case "mirrors":
-							return [...Rec.values(law.left.where), ...Rec.values(law.right.where)]
 						case "key":
 						case "spanKey":
 						case "check":

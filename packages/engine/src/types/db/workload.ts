@@ -2,13 +2,16 @@ import type { ChangeSetAt } from "#compiler/types/changeset/changeset.ts"
 import type { OrderedAt, QueryAt } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
-import type { Key } from "#compiler/types/schema/statements.ts"
+import type { CandidateKey } from "#compiler/types/schema/statements.ts"
 
 /** A stored or closed relation of L, which a key reads through. */
 type KeyedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyRelation | AnyClosed> : never
 
-/** A key of a relation over L: the relation itself, for its primary key, or a Key from key() over it. */
-type KeyAt<L> = KeyedAt<L> | Key<KeyedAt<L>, ReadonlyArray<string>>
+/**
+ * A key of a relation over L: the relation itself, for its primary key, or a candidate key of an ordinary relation of
+ * L, a Key from key() over a side of its whole relation's fields.
+ */
+type KeyAt<L> = KeyedAt<L> | CandidateKey<Extract<KeyedAt<L>, AnyRelation>>
 
 /** A program over S or a level below it: a query, an ordered query, a ChangeSet or a relation's key. */
 type ProgramAt<L> = QueryAt<L> | OrderedAt<L> | ChangeSetAt<L> | KeyAt<L>

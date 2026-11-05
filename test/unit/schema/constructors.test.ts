@@ -23,8 +23,18 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, Record as Rec, String as Str } from "effect"
 import { appendAll, maxOf } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import type { BoundValueDesc, ExprDesc, LiteralDesc, StatementDesc } from "#compiler/ir/desc.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import {
+	type BoundValueDesc,
+	conjunctsOf,
+	type ExprDesc,
+	everyFact,
+	type LiteralDesc,
+	type SelectionDesc,
+	type SideDesc,
+	type StatementDesc,
+	type TermDesc
+} from "#compiler/ir/desc.ts"
+import { natural, uuid } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { untypedTerm } from "#compiler/query/build/terms.ts"
@@ -45,35 +55,37 @@ import {
 import { admitSchema, schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
 	admitCapacity,
-	alternatives,
-	alternativesDescOf,
+	alternativesBuilder,
 	alternativesId,
-	capacity,
-	check,
-	contained,
-	duration,
-	key,
-	mirrors,
-	mutable,
-	on,
-	ref,
-	select,
+	capacityBuilder,
+	checkBuilder,
+	containedBuilder,
+	expansionDescOf,
+	keyBuilder,
+	mirrorsBuilder,
+	mutableBuilder,
+	onBuilder,
+	predBuilder,
+	runtimeDuration,
+	runtimeRef,
+	runtimeWeigh,
+	runtimeWithin,
+	selectBuilder,
 	sideDescOf,
-	statementDescOf,
-	weigh,
-	within
+	statementDescOf
 } from "#compiler/schema/statements.ts"
 import type { RowTerm } from "#compiler/schema/terms.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import type { Statement } from "#compiler/types/schema/statements.ts"
+import type { AnyTerm, Statement } from "#compiler/types/schema/statements.ts"
 import {
 	assert,
 	defined,
 	faulted,
 	matchesObject,
+	nonEmpty,
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
@@ -1002,15 +1014,28 @@ describe("literals take their field's value", () => {
 										}
 										return defined(desc.facts["H"]?.["value"])
 									}
-									case "selection":
-										return defined(
-											defined(sideDescOf(on(select(Rated, { value: host }), ["id"]))).selection[
-												"value"
-											]
+									case "selection": {
+										const side = sideDescOf(
+											onBuilder(
+												selectBuilder(Rated, (r: { readonly value: RowTerm }) => r.value.eq(host)),
+												["id"]
+											)
 										)
+										const [predicate, ...more] = defined(side).selection.conjuncts
+										if (
+											more.length > 0 ||
+											predicate?.kind !== "compare" ||
+											predicate.right.kind !== "literal"
+										) {
+											return assert.fail("a selection comparing the field with a literal")
+										}
+										return predicate.right.value
+									}
 									case "check operand": {
 										const desc = statementDescOf(
-											check("Bounded", Rated, (r: { readonly value: RowTerm }) => r.value.le(host))
+											checkBuilder("Bounded", Rated, (r: { readonly value: RowTerm }) =>
+												r.value.le(host)
+											)
 										)
 										if (
 											desc?.kind !== "check" ||
@@ -1034,13 +1059,62 @@ describe("literals take their field's value", () => {
 	)
 })
 
+/** A side's terms when each is a field, as on(...) records them. */
+const fieldTerms = (fields: ReadonlyArray<string>): ReadonlyArray<TermDesc> =>
+	Arr.map(fields, (field): TermDesc => ({ kind: "field", field }))
+
 describe("statements", () => {
-	type FieldListDefect = "none" | "an empty list" | "an undeclared field" | "a repeated field"
-	type FieldListSite = "key" | "on" | "on a selection" | "a selection's binding"
+	/**
+	 * Where a side's terms or a selection is written, and the defects a JavaScript caller can plant there: on's terms,
+	 * over a relation or a selection, are a nonempty list of distinct terms, each a field of the heading or pred of a
+	 * natural one; key takes a side built by on and nothing else; select takes a callback over the row that returns a
+	 * predicate of its own fields, and nothing else.
+	 */
+	type TermsDefect =
+		| "none"
+		| "an empty list"
+		| "an undeclared field"
+		| "a repeated term"
+		| "pred of a field that is not natural"
+	type KeyDefect = "none" | "no side"
+	type SelectDefect = "no callback" | "an undeclared field" | "no predicate"
+	type FieldListCase =
+		| { readonly site: "key"; readonly defect: KeyDefect }
+		| { readonly site: "on" | "on a selection"; readonly defect: TermsDefect }
+		| { readonly site: "pred"; readonly defect: "none" }
+		| { readonly site: "select"; readonly defect: SelectDefect }
+	const termsDefects: Arr.NonEmptyReadonlyArray<TermsDefect> = [
+		"none",
+		"an empty list",
+		"an undeclared field",
+		"a repeated term",
+		"pred of a field that is not natural"
+	]
+	const fieldListCases: Arr.NonEmptyReadonlyArray<FieldListCase> = [
+		{ site: "key", defect: "none" },
+		{ site: "key", defect: "no side" },
+		...Arr.map(termsDefects, (defect): FieldListCase => ({ site: "on", defect })),
+		...Arr.map(termsDefects, (defect): FieldListCase => ({ site: "on a selection", defect })),
+		{ site: "pred", defect: "none" },
+		{ site: "select", defect: "no callback" },
+		{ site: "select", defect: "an undeclared field" },
+		{ site: "select", defect: "no predicate" }
+	]
+	type FieldListFeature = `${FieldListCase["site"]}: ${FieldListCase["defect"]}`
+	const featureOf = (k: FieldListCase): FieldListFeature => `${k.site}: ${k.defect}`
 	const taskFields: Arr.NonEmptyReadonlyArray<string> = ["id", "account", "kind"]
+	/** A relation with a count, the one type a pred term reads. */
+	const Counted = relation("Counted", { id: uuid, n: natural }, ["id"], [])
+	/** Task's facts of one kind, as a JavaScript caller writes the callback. */
+	const ofKind = (handle: string) => (r: Row & { readonly kind: Row["id"] }) => r.kind.eq(handle)
+	/** The predicate a check records for `callback` over Task: what a selection over the same callback records. */
+	const predicateOf = (callback: unknown) => {
+		const desc = statementDescOf(checkBuilder("Selected", Task, callback))
+		return desc?.kind === "check" ? desc.predicate : assert.fail("a check statement")
+	}
 
 	it.effect(
-		"key, on and select name a nonempty list of distinct fields of the heading, recorded in the order written",
+		"on names a nonempty list of distinct terms of the heading in the order written, key a side, and select a predicate",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1053,43 +1127,22 @@ describe("statements", () => {
 								fields: source.draw(
 									shuffled([...taskFields], { min: 1, max: [...taskFields].length })
 								),
-								site: source.draw(
-									element<FieldListSite>(["key", "on", "on a selection", "a selection's binding"])
-								),
-								defect: source.draw(
-									element<FieldListDefect>([
-										"none",
-										"none",
-										"an empty list",
-										"an undeclared field",
-										"a repeated field"
-									])
-								),
+								planted: source.draw(element(fieldListCases)),
 								handle: source.draw(element(["Automatic", "Manual"]))
 							}),
 							(c) => c
 						),
 						literal: Formatter.format,
-						coverage: required<`${FieldListSite}: ${FieldListDefect}`>(
-							Arr.flatMap(["key", "on", "on a selection"] as const, (site) =>
-								Arr.map(
-									["none", "an empty list", "an undeclared field", "a repeated field"] as const,
-									(defect) => `${site}: ${defect}` as const
-								)
-							),
-							{ cases: 200, sense: notesOnly }
-						),
-						kept: Arr.flatMap(["key", "on", "on a selection"] as const, (site) =>
-							Arr.map(
-								["none", "an empty list", "an undeclared field", "a repeated field"] as const,
-								(defect) => ({
-									note: `${site}: ${defect}`,
-									sketch: { fields: ["id", "account"], site, defect, handle: "Automatic" as const },
-									draws: "",
-									reaches: [`${site}: ${defect}` as const] as const
-								})
-							)
-						),
+						coverage: required<FieldListFeature>(Arr.map(fieldListCases, featureOf), {
+							cases: 200,
+							sense: notesOnly
+						}),
+						kept: Arr.map(fieldListCases, (planted) => ({
+							note: featureOf(planted),
+							sketch: { fields: ["id", "account"], planted, handle: "Automatic" as const },
+							draws: "",
+							reaches: [featureOf(planted)] as const
+						})),
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -1098,81 +1151,83 @@ describe("statements", () => {
 					},
 					(s, c) =>
 						Effect.sync(() => {
-							/** A selection's binding takes no field list: its one defect is an undeclared field. */
-							const defect =
-								s.site === "a selection's binding" && s.defect !== "none"
-									? "an undeclared field"
-									: s.defect
-							c.note(`${s.site}: ${defect}`)
-							const list =
-								defect === "an empty list"
-									? []
-									: defect === "an undeclared field"
-										? [...s.fields, "nope"]
-										: defect === "a repeated field"
-											? [...s.fields, defined(s.fields[0])]
-											: s.fields
-							const selection = { kind: s.handle }
-							switch (s.site) {
+							const planted = s.planted
+							c.note(featureOf(planted))
+							const selection = selectBuilder(Task, ofKind(s.handle))
+							const selected: SelectionDesc = {
+								conjuncts: conjunctsOf(predicateOf(ofKind(s.handle)))
+							}
+							switch (planted.site) {
 								case "key": {
-									if (defect !== "none") {
-										return void throwsRefused(() => key(Task, list), "MalformedDescription")
+									if (planted.defect === "no side") {
+										return void throwsRefused(() => keyBuilder(Task), "MalformedDescription")
 									}
-									const k = key(Task, list)
-									matchesObject(k, { kind: "key", relation: Task, fields: list })
+									const side = onBuilder(Task, s.fields)
+									const k = keyBuilder(side)
+									matchesObject(k, { kind: "key", side })
 									const desc = statementDescOf(k)
 									if (desc?.kind !== "key") {
 										return assert.fail("a key statement")
 									}
-									return assert.deepEqual<{
-										readonly relation: string
-										readonly fields: ReadonlyArray<string>
-									}>(
-										{ relation: desc.relation, fields: desc.fields },
-										{ relation: "Task", fields: list }
-									)
+									return assert.deepEqual<SideDesc>(desc.side, {
+										relation: "Task",
+										terms: nonEmpty(fieldTerms(s.fields)),
+										selection: everyFact
+									})
 								}
 								case "on":
-									if (defect !== "none") {
-										return void throwsRefused(() => on(Task, list), "MalformedDescription")
-									}
-									return assert.deepEqual<{
-										readonly relation: string
-										readonly fields: ReadonlyArray<string>
-										readonly selection: Readonly<Record<string, unknown>>
-									}>(defined(sideDescOf(on(Task, list))), {
-										relation: "Task",
-										fields: list,
-										selection: {}
-									})
-								case "on a selection":
-									if (defect !== "none") {
+								case "on a selection": {
+									const source = planted.site === "on" ? Task : selection
+									const terms: ReadonlyArray<AnyTerm> =
+										planted.defect === "an empty list"
+											? []
+											: planted.defect === "an undeclared field"
+												? [...s.fields, "nope"]
+												: planted.defect === "a repeated term"
+													? [...s.fields, defined(s.fields[0])]
+													: planted.defect === "pred of a field that is not natural"
+														? [...s.fields, predBuilder("account")]
+														: s.fields
+									if (planted.defect !== "none") {
 										return void throwsRefused(
-											() => on(select(Task, selection), list),
+											() => onBuilder(source, terms),
 											"MalformedDescription"
 										)
 									}
-									return assert.deepEqual<{
-										readonly relation: string
-										readonly fields: ReadonlyArray<string>
-										readonly selection: Readonly<Record<string, unknown>>
-									}>(defined(sideDescOf(on(select(Task, selection), list))), {
-										relation: "Task",
-										fields: list,
-										selection
-									})
-								case "a selection's binding":
-									if (defect !== "none") {
-										return void throwsRefused(
-											() => select(Task, { ...selection, nope: s.handle }),
-											"MalformedDescription"
-										)
-									}
-									return assert.deepEqual(sideDescOf(on(select(Task, selection), ["id"])), {
-										relation: "Task",
-										fields: ["id"],
-										selection
-									})
+									return assert.deepEqual<SideDesc | undefined>(
+										sideDescOf(onBuilder(source, terms)),
+										{
+											relation: "Task",
+											terms: nonEmpty(fieldTerms(s.fields)),
+											selection: planted.site === "on" ? everyFact : selected
+										}
+									)
+								}
+								case "pred":
+									return assert.deepEqual<SideDesc | undefined>(
+										sideDescOf(onBuilder(Counted, [predBuilder("n"), "id"])),
+										{
+											relation: "Counted",
+											terms: [
+												{ kind: "pred", field: "n" },
+												{ kind: "field", field: "id" }
+											],
+											selection: everyFact
+										}
+									)
+								case "select":
+									return void throwsRefused(
+										() =>
+											selectBuilder(
+												Task,
+												planted.defect === "no callback"
+													? { kind: s.handle }
+													: planted.defect === "an undeclared field"
+														? (r: Row & { readonly nope: Row["id"] }) => r.eq(r.nope, s.handle)
+														: () => true
+											),
+										"MalformedDescription"
+									)
 							}
 						})
 				)
@@ -1215,16 +1270,16 @@ describe("statements", () => {
 				},
 				(s, c) =>
 					Effect.sync(() => {
-						const left = on(Task, taskFields.slice(0, s.left))
-						const right = on(Triple, tripleFields.slice(0, s.right))
+						const left = onBuilder(Task, taskFields.slice(0, s.left))
+						const right = onBuilder(Triple, tripleFields.slice(0, s.right))
 						const l = s.bare === "left" ? Task : left
 						const r = s.bare === "right" ? Triple : right
 						const build = () =>
 							s.statement === "contained"
-								? contained(l, r)
+								? containedBuilder(l, r)
 								: s.statement === "mirrors"
-									? mirrors(l, r)
-									: capacity(l, { from: r, within: within(0n, "*") })
+									? mirrorsBuilder(l, r)
+									: capacityBuilder(l, { from: r, within: runtimeWithin(0n, "*") })
 						const related = s.bare === "none" && s.left === s.right
 						c.note(
 							`${s.statement}: ${related ? "related" : s.bare === "none" ? "widths differ" : "a bare relation"}`
@@ -1232,18 +1287,25 @@ describe("statements", () => {
 						if (!related) {
 							return void throwsRefused(build, "MalformedDescription")
 						}
-						const desc = statementDescOf(build())
+						const built = build()
 						const [l0, r0] = [defined(sideDescOf(left)), defined(sideDescOf(right))]
-						if (desc?.kind === "capacity" && s.statement === "capacity") {
-							assert.deepEqual([desc.target, desc.from], [l0, r0])
-						} else if (
-							(desc?.kind === "contained" || desc?.kind === "mirrors") &&
-							desc.kind === s.statement
-						) {
-							assert.deepEqual([desc.left, desc.right], [l0, r0])
-						} else {
-							assert.fail(`a ${s.statement} statement`)
+						/** mirrors is sugar: no statement of its own, the expansion of its two containments. */
+						const stated = (st: StatementDesc | undefined) =>
+							st?.kind === "contained"
+								? [st.left, st.right]
+								: st?.kind === "capacity"
+									? [st.target, st.from]
+									: assert.fail(`a ${s.statement} statement`)
+						if (s.statement === "mirrors") {
+							assert.equal(statementDescOf(built), undefined, "mirrors states no statement itself")
+							return assert.deepEqual(Arr.map(defined(expansionDescOf(built)).statements, stated), [
+								[l0, r0],
+								[r0, l0]
+							])
 						}
+						const desc = statementDescOf(built)
+						assert.equal(desc?.kind, s.statement)
+						assert.deepEqual(stated(desc), [l0, r0])
 					})
 			)
 		)
@@ -1276,7 +1338,7 @@ describe("statements", () => {
 		b.kind === "bigint"
 			? b.value
 			: b.kind === "ref"
-				? ref("budget")
+				? runtimeRef("budget")
 				: b.kind === "unbounded"
 					? "*"
 					: 1
@@ -1354,7 +1416,7 @@ describe("statements", () => {
 								? [boundValue(s.low), boundValue(s.high.kind === "omitted" ? s.low : s.high), 3n]
 								: [boundValue(s.low), ...(s.high.kind === "omitted" ? [] : [boundValue(s.high)])]
 							const [lowArg, ...rest] = args
-							const call = () => within(lowArg, ...argumentsOf(rest))
+							const call = () => runtimeWithin(lowArg, ...argumentsOf(rest))
 							const lowArgument = lowDesc(s.low)
 							const highArgument = highDesc(s.high, lowArgument)
 							if (s.third || lowArgument.kind === "refused" || highArgument.kind === "refused") {
@@ -1383,8 +1445,8 @@ describe("statements", () => {
 										: { limit: 3n }
 								return void throwsRefused(
 									() =>
-										admitCapacity(on(Pool, ["id"]), {
-											from: on(Claim, ["pool"]),
+										admitCapacity(onBuilder(Pool, ["id"]), {
+											from: onBuilder(Claim, ["pool"]),
 											within: bound,
 											...malformedRule
 										}),
@@ -1393,19 +1455,31 @@ describe("statements", () => {
 							}
 							const weight =
 								s.weight === "a field"
-									? { weight: weigh("units") }
+									? { weight: runtimeWeigh("units") }
 									: s.weight === "a duration"
-										? { weight: weigh(duration("during")) }
+										? { weight: runtimeWeigh(runtimeDuration("during")) }
 										: {}
 							c.note(s.weight)
 							const desc = statementDescOf(
-								capacity(on(Pool, ["id"]), { from: on(Claim, ["pool"]), within: bound, ...weight })
+								capacityBuilder(onBuilder(Pool, ["id"]), {
+									from: onBuilder(Claim, ["pool"]),
+									within: bound,
+									...weight
+								})
 							)
 							if (desc?.kind !== "capacity") {
 								return assert.fail("a capacity statement")
 							}
-							assert.deepEqual(desc.target, { relation: "Pool", fields: ["id"], selection: {} })
-							assert.deepEqual(desc.from, { relation: "Claim", fields: ["pool"], selection: {} })
+							assert.deepEqual<SideDesc>(desc.target, {
+								relation: "Pool",
+								terms: [{ kind: "field", field: "id" }],
+								selection: everyFact
+							})
+							assert.deepEqual<SideDesc>(desc.from, {
+								relation: "Claim",
+								terms: [{ kind: "field", field: "pool" }],
+								selection: everyFact
+							})
 							assert.deepEqual(
 								desc.weight,
 								s.weight === "a field"
@@ -1723,7 +1797,7 @@ describe("statements", () => {
 							Effect.sync(() => {
 								c.note(defect)
 								const build = () =>
-									check(
+									checkBuilder(
 										defect === "a derived relation" ? "OnDerived" : "Bounded",
 										defect === "a derived relation" ? D : Election,
 										(e: Row) =>
@@ -1792,7 +1866,7 @@ describe("alternatives", () => {
 	const Alien = closed("Alien", ["X"], [])
 
 	it.effect(
-		"is one statement expanding to a containment and one mirrors per armed handle, in roster order, each marked",
+		"is one statement expanding to the two containments of each armed handle, in roster order, each marked",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1845,7 +1919,7 @@ describe("alternatives", () => {
 							)
 							/** The parent's key: Job's primary key, a one-field Key, or a two-field Key. */
 							const parentFields = s.wide ? ["id", "other"] : s.parentKey ? ["other"] : ["id"]
-							const parent = s.wide || s.parentKey ? key(Job, parentFields) : Job
+							const parent = s.wide || s.parentKey ? keyBuilder(onBuilder(Job, parentFields)) : Job
 							if (s.wide) {
 								c.note("a two-field key")
 							} else if (s.parentKey) {
@@ -1873,7 +1947,7 @@ describe("alternatives", () => {
 								if (viaKey && !two) {
 									c.note("a Key as an arm")
 								}
-								arms[h] = viaKey ? key(Arm, fields) : Arm
+								arms[h] = viaKey ? keyBuilder(onBuilder(Arm, fields)) : Arm
 								armKeys[h] = { relation: `Arm${i}`, fields }
 							}
 							if (s.defect === "an arm off the roster") {
@@ -1889,7 +1963,7 @@ describe("alternatives", () => {
 										? "alien"
 										: "mode"
 							const armMap = s.defect === "no arms" ? {} : arms
-							const build = () => alternatives(parent, discriminator, Mode, armMap)
+							const build = () => alternativesBuilder(parent, discriminator, Mode, armMap)
 							if (s.defect !== "none") {
 								return void throwsRefused(build, "MalformedDescription")
 							}
@@ -1903,27 +1977,40 @@ describe("alternatives", () => {
 							})
 							assert.deepEqual(law.arms, arms)
 							const origin = { alternatives: alternativesId("Job", "mode") }
-							matchesObject(defined(alternativesDescOf(law)).statements, [
-								{
-									kind: "contained",
-									left: { relation: "Job", fields: ["mode"], selection: {} },
-									right: { relation: "Mode", fields: ["id"], selection: {} },
-									origin
-								},
-								...Arr.flatMap(s.handles, (h) => {
-									const arm = armKeys[h]
-									return arm === undefined
-										? []
-										: [
-												{
-													kind: "mirrors" as const,
-													left: { relation: "Job", fields: parentFields, selection: { mode: h } },
-													right: { relation: arm.relation, fields: arm.fields, selection: {} },
-													origin
-												}
-											]
-								})
-							])
+							/**
+							 * No head containment: the roster's domain types the discriminator. Each armed handle's parents, selected by
+							 * their discriminator, are contained in its arm, and the arm in them.
+							 */
+							const expansion = Arr.flatMap(s.handles, (h) => {
+								const arm = armKeys[h]
+								if (arm === undefined) {
+									return []
+								}
+								const selected = {
+									relation: "Job",
+									terms: fieldTerms(parentFields),
+									selection: {
+										conjuncts: [
+											{
+												kind: "compare" as const,
+												op: "eq" as const,
+												left: { kind: "field" as const, field: "mode" },
+												right: { kind: "literal" as const, value: h }
+											}
+										]
+									}
+								}
+								const armSide = {
+									relation: arm.relation,
+									terms: fieldTerms(arm.fields),
+									selection: everyFact
+								}
+								return [
+									{ kind: "contained" as const, left: selected, right: armSide, origin },
+									{ kind: "contained" as const, left: armSide, right: selected, origin }
+								]
+							})
+							matchesObject(defined(expansionDescOf(law)).statements, expansion)
 						})
 				)
 			)
@@ -1944,9 +2031,9 @@ describe("schema and schema.extend", () => {
 		e === "Kind" ? Kind : e === "Task" ? Task : e === "Account" ? Account : TaskRebuilt
 	const entryName = (e: Entry): string => (e === "Task rebuilt" ? "Task" : e)
 	const statementValues: Arr.NonEmptyReadonlyArray<Statement> = [
-		mutable(Task),
-		key(Account, ["name"]),
-		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask })
+		mutableBuilder(Task),
+		keyBuilder(onBuilder(Account, ["name"])),
+		alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask })
 	]
 	type SchemaDefect =
 		| "none"
@@ -2045,7 +2132,7 @@ describe("schema and schema.extend", () => {
 									distinct(names)
 								)
 								const expanded = Arr.flatMap(statements, (st): ReadonlyArray<StatementDesc> => {
-									const expansion = alternativesDescOf(st)
+									const expansion = expansionDescOf(st)
 									return expansion === undefined
 										? [defined(statementDescOf(st))]
 										: expansion.statements

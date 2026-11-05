@@ -16,6 +16,85 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A side is a partial projection: `select` takes a predicate, `key` takes a side, `pred` reads a `natural` count, and `mirrors` is two containments
+
+- **`select(R, (r) => φ)` is the one spelling of a selection.** φ is a row check's condition over R's own fields, any
+  condition `check` takes, where a selection held only equalities of fields to literals. The record form is gone, and
+  so is `Selection`'s second parameter: `Selection<R>` holds no bindings, and an `alternatives` arm's attachment is
+  typed Some or None from the `alternatives` law it reads. Both sides of a containment may be selected.
+  - Codemod: `select(R, { f: v })` → `select(R, (r) => r.eq(r.f, v))`; `select(R, { f: v, g: w })` →
+    `select(R, (r) => r.and(r.eq(r.f, v), r.eq(r.g, w)))`, a closed id compared with its handle's name
+    (`r.eq(r.kind, "Manual")`); `Selection<R, B>` → `Selection<R>`.
+- **`key(side)` states a key over a side.** Over a table's own fields it is a candidate key, as `key(R, fields)` was.
+  Over a selected side or a `pred` term it holds apart only the rows its side reads: it is no key of the table, so
+  `KeysOf` leaves it out, and an outcome names it as the new law kind `{ kind: "projectedKey", side }`. `Key<R, F>` is `Key<S>`, whose `side` replaces `relation` and `fields`, and a key
+  in key position is `KeyRef<R> = R | Key<Side<R, ReadonlyArray<string>>>`.
+  - Codemod: `key(R, ["a", "b"])` → `key(on(R, "a", "b"))`, a template-built call included; `Key<R, F>` →
+    `Key<Side<R, F>>`; `k.relation` → `k.side.source` and `k.fields` → `k.side.terms`; a program that switches over
+    `Law["kind"]` exhaustively gains `"projectedKey"`.
+- **`natural` is a count.** A field type: the builtin contract `natural` over `pg.bigint`, `CHECK (VALUE >= 0)`, whose
+  host type is `bigint`, unbranded. Its domain refuses a negative value as the law
+  `{ kind: "contract", contract: "natural" }`, and another contract under its name is DuplicateIdentity.
+  - Codemod: a count declared `pg.bigint` under a row check `(r) => r.n.ge(0n)` → `natural`, deleting the check; a
+    count declared as a contract `contract("Count", pg.bigint, (c) => c.ge(0n))` → `natural`, writing its values as
+    plain `bigint`s (`Count(3n)` → `3n`) and matching the outcome on `contract: "natural"` where it matched
+    `"Count"`.
+- **`pred(n)` is ℕ's predecessor, a side's term.** Over a `natural` field n it reads n − 1 and is defined only where
+  n > 0, so a row whose n is 0 has no tuple on the side: `contained(on(Place, "show", pred("at")), on(Place, "show",
+  "at"))` gives every place after the first the place before it. `pred` of any other field is a type error, and
+  MalformedDescription for a caller the types don't reach. A side's terms are `Side`'s `terms`, each a field's name
+  or a `Pred`, where its `fields` held names alone.
+  - Codemod: `side.fields` → `side.terms`; `Side<R, F>` keeps its parameters, F now a tuple of terms.
+- **`mirrors(a, b)` is sugar for `contained(a, b)` and `contained(b, a)`.** The schema states the two containments in
+  its place, so `LawsOf` and `ContainmentsOf` read two containments and each lowers as any containment does; one stated
+  beside it is the same law stated twice. The law kind `mirrors` is gone: an outcome names the broken half as
+  `contained`, and `coverage` loses its `statement`.
+  - Codemod: a match on `law.kind === "mirrors"` → `law.kind === "contained"`, by its `from` and `to`; drop
+    `statement` from a match on `coverage`; a program that switches over `Law["kind"]` exhaustively drops `"mirrors"`.
+- **A law side's `selection` is `{ kind: "all" }` or `{ kind: "where", predicate }`**, the predicate as its canonical
+  text, equal for equal predicates; `fields` names a `pred` term as `pred(<field>)`.
+  - Codemod: `selection: []` → `selection: { kind: "all" }` in a match; a match on `selection[i].field` and
+    `selection[i].value` → a match on `selection.predicate`.
+- **Every side lowers to PostgreSQL's own constraints.** Each term of a selected side, and each `pred` term, is a
+  STORED generated column, `CASE WHEN φ THEN t END`, where `pred(x)` is x − 1 under x > 0. A key is
+  `UNIQUE NULLS DISTINCT` over its side's columns, and a containment `FOREIGN KEY … MATCH SIMPLE` from its source's
+  columns, which are indexed, into a UNIQUE over exactly its target's: a row whose side reads no tuple holds nulls
+  there, which both pass. A containment's target holds a key, a candidate key among its fields or a key over the same
+  selection among its terms; any other target is UnsupportedLawFamily. Every generated statement spells `STORED`,
+  `NULLS DISTINCT` and `MATCH SIMPLE` out. A foreign key is deferred when it is an `alternatives` arm's or over spans,
+  or when its target has a field that is not one of the columns it references, or it lies on a cycle of foreign keys.
+  No codemod; constraint, column and index names change.
+- **The selected-source containment and conditional mirrors residual families are deleted**, with their law functions
+  and constraint triggers. Such a containment, a mirrors with a selected side among them, is a foreign key: PostgreSQL
+  refuses its violation as 23503, at the statement or, deferred, at COMMIT, where its trigger raised 23000 at COMMIT.
+  Three residual laws remain: a capacity, a coverage from a selected source, and an `alternatives` law's reverse
+  obligation. A capacity's or a coverage's selection is a conjunction of `field = literal`; any other predicate there
+  is UnsupportedLawFamily. No codemod.
+- **An at-most-one capacity is no longer a unique index.** A capacity counting at most one source row per target,
+  `within(0n, 1n)`, lowered to a unique index over its source, partial where the source was selected. That lowering is
+  deleted: such a capacity is a residual law, checked at COMMIT by its triggers. A key states the rule natively.
+  - Codemod: `capacity(on(T, k…), { from: on(S, f…), within: within(0n, 1n) })` → `key(on(S, f…))`, and over a
+    selected source `on(select(S, φ), f…)` → `key(on(select(S, φ), f…))`. The two agree where
+    `contained(on(S, f…), on(T, k…))` holds; without it, the key also holds apart the source rows no target names.
+- **Format and state:** snapshot.json changes: a stored tag's object is a `lawColumn`, the law column of a constant, a
+  selected term or a `pred` term; the deleted families' functions and triggers and the at-most-one unique indexes are
+  gone; and every UNIQUE and FOREIGN KEY text changes. A previous snapshot.json is refused, never read: re-create
+  every database (step 3 above).
+
+#### A table no role writes through a query entry that leaves rows out has no row-level security and no policy
+
+- **Row security stands on exactly the tables some role writes through a query entry that leaves rows out.** Each
+  role that writes such a table holds a policy on it, `FOR ALL TO <role> USING (m) WITH CHECK (m)`: the entry's
+  filter, or `true` for a role that writes the table whole or through a query entry that holds every row. Any other
+  table has no policy and no `ENABLE ROW LEVEL SECURITY`: each of its policies would be `true`, which admits exactly
+  what the role's grants admit, so the grants alone decide its writes. Before, every writable entry installed a policy,
+  `USING (true) WITH CHECK (true)` for a whole entry, also on a table whose row security was never enabled. `Db.open`
+  requires row security enabled and not forced on each table a role writes through a query entry that leaves rows
+  out, and the drift check compares the policies that remain. A direct writer meets the same rows and the same
+  refusals. No codemod.
+- **Format and state:** snapshot.json holds no policy for a table every writer writes whole, so its fingerprint
+  changes. Re-create every database (step 3 above).
+
 #### A connection is pure mechanism: the driver, transport, connect timeout and pool are yours
 
 - **`DbConnection` is `{ driver, transport, database, password, connectTimeoutMs }`, and `DbConfig` adds `pool`.**

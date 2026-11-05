@@ -134,7 +134,7 @@ export interface ExpectContext {
 	readonly laws: WriteLawNames
 }
 
-/** The relation and fields of a key law or a capacity's law. */
+/** The relation and fields of a key law or a projected key's law. */
 const keyFields = (
 	group: WGroup,
 	relation: string,
@@ -149,14 +149,14 @@ const keyFields = (
 	if (Option.isSome(k)) {
 		return { fields: k.value, primary: false }
 	}
-	const c = Option.getOrThrowWith(
+	const projected = Option.getOrThrowWith(
 		Arr.findFirst(
-			group.capacities,
-			(x) => x.source.relation === relation && laws.capacity(relation, x.source.fields).law === law
+			group.projectedKeys,
+			(x) => x.relation === relation && laws.projectedKey(relation, x.fields).law === law
 		),
-		() => new Error(`${law} is no key or capacity of ${relation}`)
+		() => new Error(`${law} is no key or projected key of ${relation}`)
 	)
-	return { fields: c.source.fields, primary: false }
+	return { fields: projected.fields, primary: false }
 }
 
 /** Same-key pairs among the enumerated additions of each stratum, which host normalization refuses. */
@@ -412,7 +412,7 @@ const collisionsOf = (
  *
  * 1. The add-wins calculator (test/support/oracle/addwins.ts) applies the strata in order, each the transition
  *    S' = (S \ D) ∪ A with put as the described deletion of its keys' occupants plus an insertion, and checks every
- *    declared key after each stratum, a capacity's partial key among them: keys are immediate, so a stratum whose
+ *    declared key after each stratum, a projected key among them: keys are immediate, so a stratum whose
  *    transition breaks one is refused there, before any later stratum and before COMMIT.
  * 2. An immediate foreign key (a containment into a pure set, schema.ts isImmediate) is checked at every statement, and
  *    a stratum orders its statements so that a lawful transition never breaks one between them (write/frontend

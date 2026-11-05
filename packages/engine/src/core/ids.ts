@@ -40,8 +40,7 @@ export type IdentityKind =
 	| "enum"
 	| "view"
 	| "column"
-	| "tag"
-	| "armTag"
+	| "lawColumn"
 	| "contractDomain"
 	| "textDomain"
 	| "sequence"
@@ -54,7 +53,6 @@ export type IdentityKind =
 	| "normCheck"
 	| "domainCheck"
 	| "foreignKey"
-	| "partialUnique"
 	| "accessIndex"
 	| "statistics"
 	| "derivedKey"
@@ -98,10 +96,10 @@ type RaisedLawKind = "law" | "patternLaw"
 export type LawId = Identifier<RaisedLawKind>
 /** The table, enum type or materialized view of a relation, or a role relation's view, which a role reads it through. */
 export type RelationIdent = Identifier<"table" | "enum" | "view" | "roleView">
-/** The column of a field, a derived view's head name, a stored tag, or an alternatives parent's arm tag. */
-export type ColumnIdent = Identifier<"column" | "tag" | "armTag">
+/** The column of a field, a derived view's head name, or a law column. */
+export type ColumnIdent = Identifier<"column" | "lawColumn">
 /**
- * What a violation reports as its constraint: a table constraint, a unique index (a key's or a partial one), a domain
+ * What a violation reports as its constraint: a table constraint, a derived relation's unique index, a domain
  * constraint, or the law identity a law function or a write statement's refusal raises (LawId).
  */
 export type ConstraintName = Identifier<
@@ -113,7 +111,6 @@ export type ConstraintName = Identifier<
 	| "normCheck"
 	| "domainCheck"
 	| "foreignKey"
-	| "partialUnique"
 	| "derivedKey"
 	| RaisedLawKind
 >

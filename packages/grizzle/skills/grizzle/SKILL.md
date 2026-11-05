@@ -130,7 +130,10 @@ briefly break older application instances that are still running.
 
 - **setup**: the schema, types, enum labels and law functions. A new enum label gets a no-transaction file of its
   own, because a label can't be used until its transaction commits.
-- **structure**: tables, columns, constraints (`NOT VALID` on a table that may hold rows), materialized views. A field
+- **structure**: tables, columns, constraints (`NOT VALID` on a table that may hold rows), materialized views. Each
+  term of a selected side, and each `pred` term, is a STORED generated column, `CASE WHEN φ THEN t END`
+  (`__sel_<field>_…`, `__pred_<field>_…`), and a rule's key over them is `UNIQUE NULLS DISTINCT` and its foreign key
+  `MATCH SIMPLE`; a selected target's constant is a generated column too, `__tag_<field>_<value>_…`. A field
   whose type changes is converted in place, `ALTER COLUMN ... TYPE ... USING` with a placeholder for the conversion,
   or by its cast, with no placeholder, when the new type holds the old one's values (a pattern changed, a contract
   added, removed or swapped for another over the same base), after the constraints, indexes and statistics over it are
@@ -250,11 +253,11 @@ commented at the end of the migration. Choosing the rename keeps the rows, and t
   each removed handle to one of the new roster, such as `CASE "<field>"::"pg_catalog"."text" WHEN
   '<removed>'::"pg_catalog"."text" THEN '<kept>'::"pg_catalog"."text" ELSE "<field>"::"pg_catalog"."text"
   END::"<schema>"."<rebuilt enum>"`. Each table holding the type is rewritten under an ACCESS
-  EXCLUSIVE lock. CHECKs, foreign keys, partial indexes and stored tags over the type are dropped first and created
-  again after. A domain or a materialized view over the type, or a materialized view reading a table of it, stops the
-  draft: remove it first, change the handles, then declare it again. So does a field whose type moves from one closed
-  relation to another while the handles of both are removed or reordered: change the field's type in one migration and
-  the handles in another.
+  EXCLUSIVE lock. CHECKs, foreign keys, partial indexes and the generated columns rules add over the type or its
+  columns are dropped first and created again after. A domain or a materialized view over the type, or a materialized
+  view reading a table of it, stops the draft: remove it first, change the handles, then declare it again. So does a
+  field whose type moves from one closed relation to another while the handles of both are removed or reordered:
+  change the field's type in one migration and the handles in another.
 - **The schema's name names its PostgreSQL schema.** A schema renamed in code is a new, empty schema. When the
   migrations directory holds a schema the config no longer lists, the new schema's first migration drafts its `CREATE
   SCHEMA` commented, as a data loss: the old schema keeps its rows and is never migrated again. Uncomment it to start
@@ -475,13 +478,14 @@ The command line's own refusals, by stage:
   privileges to be exactly the snapshot's, the login LOGIN NOINHERIT and the role NOLOGIN with no SUPERUSER, CREATEDB,
   CREATEROLE, REPLICATION or BYPASSRLS, a role's members to be its login and the migration identity PostgreSQL makes
   a member of each role it creates (any other membership of the login confers nothing), and row security enabled and
-  not forced on every table the role writes through a query entry (stages `settings` and `privileges`); a membership
-  fault refuses every role of the login. `token` is required exactly when the role's relations read a context; the
-  layer's `verify` refuses one at the stage `token`. It compares no view definition or policy predicate: `grizzle
-  migrate` does, after every apply and when nothing is pending, and refuses drift. `grizzle drift` runs that same check
-  alone and applies nothing (a folder not yet applied is a mismatch of its own), so it can watch a production database
-  from CI or a schedule; it connects as the migration identity, since the check replays the snapshot into a scratch
-  schema in a transaction it rolls back.
+  not forced on every table the role writes through a query entry that leaves rows out (stages `settings` and
+  `privileges`); a membership fault refuses every role of the login. A table no role writes that way has no row
+  security and no policy: each policy would be true, and the grants alone decide its writes. `token` is required
+  exactly when the role's relations read a context; the layer's `verify` refuses one at the stage `token`. It compares
+  no view definition or policy predicate: `grizzle migrate` does, after every apply and when nothing is pending, and
+  refuses drift. `grizzle drift` runs that same check alone and applies nothing (a folder not yet applied is a mismatch
+  of its own), so it can watch a production database from CI or a schedule; it connects as the migration identity,
+  since the check replays the snapshot into a scratch schema in a transaction it rolls back.
 - Open a `Db` per request or handler: admission is one round trip of a few catalog reads, so this stays cheap.
 - `db.page` takes any safe integer of at least 1 as its size: there is no default and no cap.
 - Every transaction of a `Db` checks the ledger first, in the same round trip, and runs nothing unless the database

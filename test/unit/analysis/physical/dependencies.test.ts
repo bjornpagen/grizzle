@@ -21,7 +21,7 @@ import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
-import { f, key, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { physical, propsOf, snapshotOver } from "#test/unit/analysis/physical/support.ts"
 
@@ -400,7 +400,7 @@ const Person = relation(
 const crm = ownedFixture({
 	name: "Crm",
 	relations: [Person],
-	statements: [key("Person", ["email"])],
+	statements: [key(on("Person", ["email"]))],
 	extends: undefined
 } satisfies SchemaDesc)
 

@@ -34,10 +34,12 @@ import {
 import {
 	type HostBound,
 	everyFact,
+	fieldsEqual,
 	type HostFact,
 	type HostLaw,
 	type HostRelation,
 	type HostSchema,
+	type HostSelection,
 	hostSpan,
 	type HostOp,
 	type HostValue
@@ -113,8 +115,8 @@ type Selection =
 	| { readonly kind: "every" }
 	| { readonly kind: "selected"; readonly field: string; readonly value: HostValue }
 const every: Selection = { kind: "every" }
-const where = (s: Selection): Readonly<Record<string, HostValue>> =>
-	s.kind === "every" ? everyFact : { [s.field]: s.value }
+const selectionOf = (s: Selection): HostSelection =>
+	s.kind === "every" ? everyFact : fieldsEqual({ [s.field]: s.value })
 
 /** The field whose conversion fills the 63 bytes a declared name may take, which selects the tagged containment's
  * target: every name derived from it is hashed, its stem cut to fit. */
@@ -242,27 +244,56 @@ const keyLaw = (
 	kind: "key",
 	law: laws.primaryKeyLaw(r),
 	relation: r.name,
-	fields
+	fields,
+	selection: everyFact
 })
 
-/** Selected-source containment points. */
-const containmentI2 = contained(on(select(ChildI2, { flag: true }), "parent"), on(ParentI2, "id"))
+/** Selected-source containment points: each a native foreign key from the selected side's generated columns. */
+const containmentI2 = contained(
+	on(
+		select(ChildI2, (c) => c.eq(c.flag, true)),
+		"parent"
+	),
+	on(ParentI2, "id")
+)
 const containmentI8 = contained(
-	on(select(ChildI8, { stage: "paid" }), "parent"),
+	on(
+		select(ChildI8, (c) => c.eq(c.stage, "paid")),
+		"parent"
+	),
 	on(ParentI8, "id")
 )
 
 const containmentSerial = contained(
-	on(select(ChildSerial, { flag: false }), "parent"),
+	on(
+		select(ChildSerial, (c) => c.eq(c.flag, false)),
+		"parent"
+	),
 	on(ParentSerial, "id")
 )
-const containmentI4 = contained(on(select(ChildI4, { lang: "en" }), "parent"), on(ParentI4, "id"))
-const childParentKey = key(ChildI4, ["parent"])
+const containmentI4 = contained(
+	on(
+		select(ChildI4, (c) => c.eq(c.lang, "en")),
+		"parent"
+	),
+	on(ParentI4, "id")
+)
+const childParentKey = key(on(ChildI4, "parent"))
 const taggedLong = contained(
 	on(ChildLong, "parent"),
-	on(select(ParentLong, { [longSelector]: true }), "id")
+	on(
+		select(ParentLong, (r) => r.eq(r[longSelector], true)),
+		"id"
+	)
 )
-const mirrorsI2 = mirrors(on(select(ParentI2, { level: 2 }), "id"), on(ChildI2, "parent"))
+/** The mirrors' parents of level 2, and their children, keyed by parent: the containment into them needs a key. */
+const levelTwoParents = on(
+	select(ParentI2, (r) => r.eq(r.level, 2)),
+	"id"
+)
+const childParent = on(ChildI2, "parent")
+const childParentI2Key = key(childParent)
+const mirrorsI2 = mirrors(levelTwoParents, childParent)
 const runStages = alternatives(Run, "stage", Stage, { paid: Paid })
 
 const selectedContainment =
@@ -271,9 +302,8 @@ const selectedContainment =
 		{
 			kind: "contained",
 			law: law(laws),
-			source: { relation: "Child", fields: ["parent"], where: where(selector) },
-			target: { relation: "Parent", fields: ["id"], where: everyFact },
-			residual: true
+			source: { relation: "Child", fields: ["parent"], selection: selectionOf(selector) },
+			target: { relation: "Parent", fields: ["id"], selection: everyFact }
 		}
 	]
 
@@ -335,7 +365,13 @@ const containmentPoints: Arr.NonEmptyReadonlyArray<Point> = [
 		laws: (laws) => [
 			keyLaw(laws, ParentI4, ["id"]),
 			keyLaw(laws, ChildI4, ["id"]),
-			{ kind: "key", law: laws.lawOf(childParentKey), relation: "Child", fields: ["parent"] },
+			{
+				kind: "key",
+				law: laws.lawOf(childParentKey),
+				relation: "Child",
+				fields: ["parent"],
+				selection: everyFact
+			},
 			...selectedContainment((l) => l.lawOf(containmentI4), {
 				kind: "selected",
 				field: "lang",
@@ -366,38 +402,44 @@ const containmentPoints: Arr.NonEmptyReadonlyArray<Point> = [
 			{
 				kind: "contained",
 				law: laws.lawOf(taggedLong),
-				source: { relation: "Child", fields: ["parent"], where: everyFact },
-				target: { relation: "Parent", fields: ["id"], where: { [longSelector]: true } },
-				residual: false
+				source: { relation: "Child", fields: ["parent"], selection: everyFact },
+				target: {
+					relation: "Parent",
+					fields: ["id"],
+					selection: fieldsEqual({ [longSelector]: true })
+				}
 			}
 		]
 	},
 	{
-		name: "conditional mirrors over an int2 key, an int2 selector",
+		name: "mirrors over an int2 key, an int2 selector",
 		traits: ["family mirrors", "key int2", "selector int2"],
-		statements: [mirrorsI2],
+		statements: [childParentI2Key, mirrorsI2],
 		values: { Parent: ParentI2, Child: ChildI2 },
 		relations: [parentHost("plain"), childHost("plain")],
-		laws: (laws) => {
-			const halves = laws.mirrorsOf(mirrorsI2)
-			return [
-				keyLaw(laws, ParentI2, ["id"]),
-				keyLaw(laws, ChildI2, ["id"]),
-				{
-					kind: "contained",
-					law: halves.rightToLeft,
-					source: { relation: "Child", fields: ["parent"], where: everyFact },
-					target: { relation: "Parent", fields: ["id"], where: { level: 2 } },
-					residual: false
-				},
-				{
-					kind: "obliged",
-					law: halves.leftToRight,
-					anchor: { relation: "Parent", fields: ["id"], where: { level: 2 } },
-					dependent: { relation: "Child", fields: ["parent"], where: everyFact }
-				}
-			]
-		}
+		laws: (laws) => [
+			keyLaw(laws, ParentI2, ["id"]),
+			keyLaw(laws, ChildI2, ["id"]),
+			{
+				kind: "key",
+				law: laws.lawOf(childParentI2Key),
+				relation: "Child",
+				fields: ["parent"],
+				selection: everyFact
+			},
+			{
+				kind: "contained",
+				law: laws.lawOf(contained(childParent, levelTwoParents)),
+				source: { relation: "Child", fields: ["parent"], selection: everyFact },
+				target: { relation: "Parent", fields: ["id"], selection: fieldsEqual({ level: 2 }) }
+			},
+			{
+				kind: "contained",
+				law: laws.lawOf(contained(levelTwoParents, childParent)),
+				source: { relation: "Parent", fields: ["id"], selection: fieldsEqual({ level: 2 }) },
+				target: { relation: "Child", fields: ["parent"], selection: everyFact }
+			}
+		]
 	},
 	{
 		name: "alternatives over an int8 key, one handle of three armed",
@@ -435,15 +477,14 @@ const containmentPoints: Arr.NonEmptyReadonlyArray<Point> = [
 				{
 					kind: "contained",
 					law: paid,
-					source: { relation: "Child", fields: ["parent"], where: everyFact },
-					target: { relation: "Parent", fields: ["id"], where: { stage: "paid" } },
-					residual: false
+					source: { relation: "Child", fields: ["parent"], selection: everyFact },
+					target: { relation: "Parent", fields: ["id"], selection: fieldsEqual({ stage: "paid" }) }
 				},
 				{
 					kind: "obliged",
 					law: stage.reverse,
-					anchor: { relation: "Parent", fields: ["id"], where: { stage: "paid" } },
-					dependent: { relation: "Child", fields: ["parent"], where: everyFact }
+					anchor: { relation: "Parent", fields: ["id"], selection: fieldsEqual({ stage: "paid" }) },
+					dependent: { relation: "Child", fields: ["parent"], selection: everyFact }
 				}
 			]
 		}
@@ -483,10 +524,20 @@ interface CapacityPoint {
 const boundOf = (b: bigint | "cap") => (b === "cap" ? ref("cap") : b)
 const hostBound = (b: bigint | "cap"): HostBound => (b === "cap" ? { ref: "cap" } : b)
 const teamSide = (c: CapacityPoint) =>
-	c.openTeams ? on(select(c.team, { open: true }), c.by) : on(c.team, c.by)
+	c.openTeams
+		? on(
+				select(c.team, (t) => t.eq(t.open, true)),
+				c.by
+			)
+		: on(c.team, c.by)
 
 const memberSide = (c: CapacityPoint) =>
-	c.activeMembers ? on(select(c.member, { active: true }), "team") : on(c.member, "team")
+	c.activeMembers
+		? on(
+				select(c.member, (m) => m.eq(m.active, true)),
+				"team"
+			)
+		: on(c.member, "team")
 
 const capacityPoint = (c: CapacityPoint): Point => {
 	const law = capacity(teamSide(c), {
@@ -495,7 +546,7 @@ const capacityPoint = (c: CapacityPoint): Point => {
 		within: within(boundOf(c.low), c.high === "*" ? "*" : boundOf(c.high))
 	})
 	const containment = contained(on(c.member, "team"), on(c.team, c.by))
-	const codeKey = key(c.team, ["code"])
+	const codeKey = key(on(c.team, "code"))
 	return {
 		name: Arr.join(c.traits, ", "),
 		traits: c.traits,
@@ -514,7 +565,8 @@ const capacityPoint = (c: CapacityPoint): Point => {
 							kind: "key",
 							law: laws.lawOf(codeKey),
 							relation: "Team",
-							fields: ["code"]
+							fields: ["code"],
+							selection: everyFact
 						} satisfies HostLaw
 					]
 				: []),
@@ -523,9 +575,8 @@ const capacityPoint = (c: CapacityPoint): Point => {
 						{
 							kind: "contained",
 							law: laws.lawOf(containment),
-							source: { relation: "Member", fields: ["team"], where: everyFact },
-							target: { relation: "Team", fields: [c.by], where: everyFact },
-							residual: false
+							source: { relation: "Member", fields: ["team"], selection: everyFact },
+							target: { relation: "Team", fields: [c.by], selection: everyFact }
 						} satisfies HostLaw
 					]
 				: []),
@@ -535,12 +586,12 @@ const capacityPoint = (c: CapacityPoint): Point => {
 				target: {
 					relation: "Team",
 					fields: [c.by],
-					where: c.openTeams ? { open: true } : everyFact
+					selection: c.openTeams ? fieldsEqual({ open: true }) : everyFact
 				},
 				source: {
 					relation: "Member",
 					fields: ["team"],
-					where: c.activeMembers ? { active: true } : everyFact
+					selection: c.activeMembers ? fieldsEqual({ active: true }) : everyFact
 				},
 				weight: c.weight.kind === "field" ? { kind: "field", field: "weight" } : { kind: "count" },
 				low: hostBound(c.low),
@@ -652,13 +703,21 @@ const capacityPoints: Arr.NonEmptyReadonlyArray<Point> = [
 
 /** Span coverage points. */
 const coverageI2 = contained(
-	on(select(VisitI2, { billable: true }), "site", "during"),
+	on(
+		select(VisitI2, (v) => v.eq(v.billable, true)),
+		"site",
+		"during"
+	),
 	on(RotaI2, "site", "during")
 )
 
 const coverageI8 = contained(
 	on(VisitI8, "site", "during"),
-	on(select(RotaI8, { open: true }), "site", "during")
+	on(
+		select(RotaI8, (r) => r.eq(r.open, true)),
+		"site",
+		"during"
+	)
 )
 
 const coveragePoint = (
@@ -687,8 +746,8 @@ const coveragePoint = (
 		{
 			kind: "covered",
 			law: laws.lawOf(law),
-			source: { relation: "Visit", fields: ["site"], where: where(visits) },
-			target: { relation: "Rota", fields: ["site"], where: where(rotas) },
+			source: { relation: "Visit", fields: ["site"], selection: selectionOf(visits) },
+			target: { relation: "Rota", fields: ["site"], selection: selectionOf(rotas) },
 			span: { source: "during", target: "during" },
 			residual: visits.kind === "selected"
 		}
@@ -945,14 +1004,15 @@ const boxOf = (
  *
  * The coordinates (family, side, selector, carrier, bound) and the dictionary they are drawn from:
  *
- * - selected-source containment `contained(on(select(Child, sel), "parent"), on(Parent, "id"))`, a residual law, over
- *   a key of int2, int8 or text, a selector of boolean, int2, text or a closed handle; one point whose anchor's every
- *   column is serial (`Parent(id: serial)`), which installs and enforces its law; one whose paired field is a
- *   candidate key of the source, so the witness names the source by that key, not by its primary key;
- * - a containment into a selected target, a tagged native foreign key, selected by a field whose converted name fills
- *   the 63 bytes a declared name may take, so the tag column and the foreign key derived from it are hashed with their
- *   stems cut to fit, and its law's identity must name its constraint;
- * - conditional mirrors over an int2 key and an int2 selector: the tagged foreign key and the residual obligation;
+ * - selected-source containment `contained(on(select(Child, φ), "parent"), on(Parent, "id"))`, a native foreign key
+ *   from the selected side's STORED generated column, over a key of int2, int8 or text, φ the equality of a boolean,
+ *   int2, text or a closed handle; one point whose anchor's every column is serial (`Parent(id: serial)`), which
+ *   installs and enforces its law; one whose paired field is a candidate key of the source;
+ * - a containment into a selected target, a native foreign key, selected by a field whose converted name fills the 63
+ *   bytes a declared name may take, so the law column and the foreign key derived from it are hashed with their stems
+ *   cut to fit, and its law's identity must name its constraint;
+ * - mirrors over an int2 key and an int2 selector, the child's `parent` a candidate key: its two containments, each a
+ *   native foreign key;
  * - alternatives over an int8 key with one handle armed of three;
  * - scalar-group capacity `capacity(on([select(]Team[)], "id" | "code"), { from: on([select(]Member[)], ...), weight?,
  *   within })`: a count or a weight of int2, int4, int8 or numeric; literal bounds or a `ref` bound of int2, int8,

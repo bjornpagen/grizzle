@@ -101,7 +101,7 @@ export const Queue = schema(
 			done: Done,
 			refused: Refused
 		}),
-		candidateKey(Leased, ["resource", "seat"]),
+		candidateKey(on(Leased, "resource", "seat")),
 		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
 	]
 )

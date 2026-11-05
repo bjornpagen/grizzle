@@ -51,10 +51,10 @@ const AutomaticTask = relation("AutomaticTask", { task: f.uuid, budget: CentsDes
 const ManualTask = relation("ManualTask", { task: f.uuid, operator: Name }, ["task"])
 const TaskNote = relation("TaskNote", { task: f.uuid, note: Name }, ["task"])
 
-/** The Work alternatives expansion: its contained statement and one mirrors statement per arm. */
+/** The Work alternatives expansion: its contained statement and both containments of each arm's mirrors. */
 const taskKinds = alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
 
-/** The laws, with the alternatives helper expanded into its contained statement and one mirrors statement per arm. */
+/** The laws, with the alternatives helper expanded into its contained statement and both containments per arm. */
 export const WorkDesc: SchemaDesc = decodedSchema({
 	name: "Work",
 	relations: [Kind, Account, Task, AutomaticTask, ManualTask, TaskNote],

@@ -4,12 +4,10 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import {
-	Assignment,
 	alternativesFamily,
 	Crew,
 	type CrewsParams,
 	capacityFamily,
-	conditionalMirrors,
 	crews,
 	Deposit,
 	type DepositsParams,
@@ -21,15 +19,11 @@ import {
 	type Family,
 	installFamily,
 	Leased,
-	type LedgerParams,
-	Line,
-	ledger,
 	Member,
 	PayLine,
 	type QueueParams,
 	queue,
 	queueFamily,
-	Reason,
 	Roster,
 	Rota,
 	type RunsParams,
@@ -38,11 +32,8 @@ import {
 	runsRelations,
 	Seat,
 	Shift,
-	type StaffingParams,
-	selectedSource,
 	sharedTablesFamily,
 	spanCoverage,
-	staffing,
 	Team,
 	type TeamsParams,
 	type TimekeepingParams,
@@ -54,8 +45,7 @@ import {
 	type VisitsParams,
 	visits,
 	Wanted,
-	Work,
-	Worker
+	Work
 } from "#test/pg/laws/families/families.ts"
 import { type HostSchema, isResidual } from "#test/pg/laws/families/model.ts"
 import { type Domains, familyWriters, openWriter } from "#test/pg/laws/families/support.ts"
@@ -214,24 +204,6 @@ const historyEnv = <P>(
 			names: i.names
 		}
 	})
-
-export const selectedSourceHistory: HistoryFamily<StaffingParams> = {
-	family: selectedSource,
-	install: (p) => historyInstall(selectedSource, p),
-	connect: (i) => {
-		const schema = staffing(i.params)(i.installed.declared)
-		return historyEnv(i, schema, { Worker, Assignment })
-	}
-}
-
-export const conditionalMirrorsHistory: HistoryFamily<LedgerParams> = {
-	family: conditionalMirrors,
-	install: (p) => historyInstall(conditionalMirrors, p),
-	connect: (i) => {
-		const schema = ledger(i.params)(i.installed.declared)
-		return historyEnv(i, schema, { Line, Reason })
-	}
-}
 
 export const alternativesHistory: HistoryFamily<RunsParams> = {
 	family: alternativesFamily,

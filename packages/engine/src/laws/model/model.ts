@@ -11,15 +11,17 @@ import {
 } from "#compiler/analysis/theory/theory.ts"
 import { sameMembers, sameOrder } from "#compiler/core/array.ts"
 import { catchRefusal, encode, everyProperty, Refusal } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
 	type Identity,
 	identifierOf,
 	identity,
+	type KeyColumnName,
 	type KeySide,
 	type LawEvent
 } from "#compiler/core/identity.ts"
 import {
+	type ColumnIdent,
 	type ConstraintName,
 	type DomainName,
 	type Identifier,
@@ -29,21 +31,16 @@ import {
 	type NodeId,
 	type RelationIdent
 } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
-import type { ExprDesc, Located } from "#compiler/ir/desc.ts"
-import {
-	type ExprSpec,
-	identityValueOf,
-	type ScalarExpr,
-	type TypedLiteral
-} from "#compiler/ir/expr.ts"
+import { descText, type ExprDesc, type Located } from "#compiler/ir/desc.ts"
+import { type ExprSpec, identityValueOf, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type AlternativesParticipant,
-	type ArmTagMove,
 	type DomainCheck,
 	type DomainCheckTerm,
 	type DomainNative,
@@ -54,12 +51,15 @@ import {
 	headingColumns,
 	type Images,
 	type KeyImage,
+	type LawColumnValue,
 	type LawField,
 	type LawLowering,
 	type LawRelation,
 	mapEvents,
+	type NativeColumn,
 	type NativeObject,
 	type NativeOf,
+	plainFields,
 	type Participant,
 	type RelationInfo,
 	type ResidualLaw,
@@ -78,15 +78,23 @@ import {
 	type CheckRefs,
 	type CheckTerm,
 	type ImagePlan,
+	type LawColumnPlan,
 	type LawPlan,
 	type NativePlan,
 	type ParticipantPlan,
+	type PlannedColumn,
 	type PrimaryKeyPlan,
 	primaryKeyPlan,
 	Recognizer
 } from "#compiler/laws/model/plan.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
-import { lowerPredicate, noParams } from "#compiler/scalar/compute/lower.ts"
+import {
+	type LeafDesc,
+	lowerPredicate,
+	lowerTerm,
+	noParams
+} from "#compiler/scalar/compute/lower.ts"
+import { guardedTerm } from "#compiler/scalar/natural.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -99,16 +107,12 @@ export type ConstraintNativeKind =
 	| "TableCheck"
 	| "FiniteCheck"
 	| "ForeignKey"
-	| "TaggedForeignKey"
 	| "PeriodForeignKey"
-	| "TaggedPeriodForeignKey"
-	| "ArmUnique"
-	| "ArmForeignKey"
 
 /** A native object with the identity its installed name was minted from, its namespace, and its owner: the table
- * identifier, or a contract domain's identifier. Each namespace holds exactly its kinds of object: a table constraint, a capacity's partial
- * unique index, a stored tag or arm tag column, a contract's domain, or an object the law model names nothing for. A table
- * constraint and a unique index carry the description of the law their violation reports. */
+ * identifier, or a contract domain's identifier. Each namespace holds exactly its kinds of object: a table constraint, a
+ * law column, a contract's domain, or an object the law model names nothing for. A table constraint carries the
+ * description of the law its violation reports. */
 export type NamedNative =
 	| {
 			readonly object: NativeOf<ConstraintNativeKind>
@@ -118,16 +122,9 @@ export type NamedNative =
 			readonly described: Law
 	  }
 	| {
-			readonly object: NativeOf<"PartialUnique">
-			readonly namespace: "index"
-			readonly named: Identity<"partialUnique">
-			readonly owner: RelationIdent
-			readonly described: Law
-	  }
-	| {
-			readonly object: NativeOf<"StoredTag" | "ArmTag">
+			readonly object: NativeOf<"LawColumn">
 			readonly namespace: "column"
-			readonly named: Identity<"tag" | "armTag">
+			readonly named: Identity<"lawColumn">
 			readonly owner: RelationIdent
 	  }
 	| {
@@ -206,11 +203,11 @@ export type NamedDomainCheck =
 			readonly terms: NonEmptyReadonlyArray<DomainCheckTerm>
 	  }
 
-/** One entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint, a unique index or
- * a domain constraint), the table or domain that owns it, the law it reports and that law's description. */
+/** One entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint or a domain
+ * constraint), the table or domain that owns it, the law it reports and that law's description. */
 export type ConstraintLaw =
 	| {
-			readonly kind: "constraint" | "index"
+			readonly kind: "constraint"
 			readonly name: ConstraintName
 			readonly owner: RelationIdent
 			readonly law: LawId
@@ -296,9 +293,22 @@ const nativeIdentity = (object: NativeObject): unknown => {
 	const { lawIds: _ignored, ...rest } = object
 	switch (rest.kind) {
 		case "PrimaryKey":
+			return { ...rest, relation: rest.relation.name, columns: fieldNames(rest.columns) }
 		case "Unique":
 		case "ReverseIndex":
-			return { ...rest, relation: rest.relation.name, columns: fieldNames(rest.columns) }
+			return { ...rest, relation: rest.relation.name, columns: columnNames(rest.columns) }
+		case "LawColumn":
+			return { kind: rest.kind, relation: rest.relation.name, column: rest.column }
+		case "PeriodForeignKey":
+			return {
+				...rest,
+				relation: rest.relation.name,
+				columns: columnNames(rest.columns),
+				span: rest.span.name,
+				target: rest.target.name,
+				targetColumns: columnNames(rest.targetColumns),
+				targetSpan: rest.targetSpan.name
+			}
 		case "WithoutOverlaps":
 			return {
 				...rest,
@@ -315,13 +325,6 @@ const nativeIdentity = (object: NativeObject): unknown => {
 			}
 		case "TableCheck":
 			return { ...rest, relation: rest.relation.name }
-		case "PartialUnique":
-			return {
-				...rest,
-				relation: rest.relation.name,
-				columns: fieldNames(rest.columns),
-				where: rest.where.map((w) => ({ column: w.field.name, value: w.value }))
-			}
 		case "FiniteCheck":
 			return {
 				...rest,
@@ -329,53 +332,22 @@ const nativeIdentity = (object: NativeObject): unknown => {
 				facts: rest.facts.map((fact) => fact.map((v) => ({ field: v.field.name, value: v.value })))
 			}
 		case "ForeignKey":
-		case "TaggedForeignKey":
 			return {
 				...rest,
 				relation: rest.relation.name,
-				columns: fieldNames(rest.columns),
+				columns: columnNames(rest.columns),
 				target: rest.target.name,
-				targetColumns: fieldNames(rest.targetColumns)
-			}
-		case "PeriodForeignKey":
-		case "TaggedPeriodForeignKey":
-			return {
-				...rest,
-				relation: rest.relation.name,
-				columns: fieldNames(rest.columns),
-				span: rest.span.name,
-				target: rest.target.name,
-				targetColumns: fieldNames(rest.targetColumns),
-				targetSpan: rest.targetSpan.name
-			}
-		case "StoredTag":
-			return {
-				...rest,
-				relation: rest.relation.name,
-				selector: { relation: rest.selector.relation.name, field: rest.selector.field.name }
-			}
-		case "ArmTag":
-			return { ...rest, relation: rest.relation.name, discriminator: rest.discriminator.name }
-		case "ArmUnique":
-			return {
-				...rest,
-				relation: rest.relation.name,
-				columns: fieldNames(rest.columns),
-				discriminator: rest.discriminator.name
-			}
-		case "ArmForeignKey":
-			return {
-				...rest,
-				relation: rest.relation.name,
-				columns: fieldNames(rest.columns),
-				target: rest.target.name,
-				targetColumns: fieldNames(rest.targetColumns)
+				targetColumns: columnNames(rest.targetColumns)
 			}
 		case "Domain":
 		case "Enum":
 			return rest
 	}
 }
+
+/** The names of a native's columns: a field's name, a law column's identifier. */
+const columnNames = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>
+	columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
 
 const structuralKey = (object: unknown): string => {
 	const text = encode(object, everyProperty)
@@ -481,35 +453,186 @@ const cycleEdges = (
 	return (from, to) => component.get(from) === component.get(to)
 }
 
-/** A plain foreign key as the deferral asks about it: its relation, its target and the target's columns it names. */
+/** A plain foreign key as the deferral asks about it: its relation, its target and the target's fields it references
+ * as plain columns. */
 interface DeferralQuery {
 	readonly relation: TheoryRelation
 	readonly target: TheoryRelation
-	readonly targetColumns: ReadonlyArray<LawField>
+	readonly targetFields: ReadonlyArray<LawField>
 }
 
 /** A plan's native object as the specializer materializes it: a generated CHECK with its predicate lowered into the
- * extension DAG (`#lowerCheck`), every other as its plan states it. */
+ * extension DAG (`#lowerCheck`), a law column with its value lowered there (`#lowerColumn`), every other as its plan
+ * states it. */
 type PlacedNative =
-	| Exclude<NativePlan, { readonly kind: "GeneratedCheck" }>
+	| Exclude<NativePlan, { readonly kind: "GeneratedCheck" | "LawColumn" }>
 	| {
 			readonly kind: "LoweredCheck"
 			readonly relation: TheoryRelation
 			readonly predicate: ScalarExpr
 	  }
+	| {
+			readonly kind: "LoweredColumn"
+			readonly column: LawColumnPlan
+			readonly value: LawColumnValue
+	  }
+
+/** One relation's row as the law columns on it read it: one scan, its leaf reader, and what is lowered over it. */
+interface ColumnRow {
+	readonly region: RelNode
+	readonly leaf: (desc: LeafDesc, at: SourceLoc) => Result.Result<ExprSpec, CompileError>
+	/** Each guard conjunct lowered, by its canonical text. */
+	readonly guards: Map<string, ScalarExpr>
+	/** Each law column's value, by its identity's canonical text. */
+	readonly values: Map<string, LawColumnValue>
+}
+
+/**
+ * The law columns' values lowered into the extension DAG in "check" mode, where no operation raises, over one scan of
+ * each relation's row: each guard conjunct once per relation, by its canonical text, so two columns of one guard read
+ * one expression and a UNIQUE over them states it once (uniques.ts); each column's value once per relation and
+ * identity, reached from a root of its own. A term's column is guarded by its side's selection's conjuncts, then by
+ * its term's own guard (scalar/natural.ts guardedTerm: pred(x) above zero); a constant is its literal under no guard.
+ */
+class ColumnLowering {
+	readonly #ext: ViolationBuilder
+	readonly #typing: ReturnType<typeof typingEnv>
+	readonly #roots: Array<RelNode>
+	readonly #rows = new Map<string, ColumnRow>()
+
+	constructor(ext: ViolationBuilder, typing: ReturnType<typeof typingEnv>, roots: Array<RelNode>) {
+		this.#ext = ext
+		this.#typing = typing
+		this.#roots = roots
+	}
+
+	value(plan: LawColumnPlan, named: Identity<"lawColumn">, loc: SourceLoc): LawColumnValue {
+		const row = this.#row(plan.relation)
+		const known = row.values.get(named.canonical)
+		if (known !== undefined) {
+			return known
+		}
+		const value = this.#lower(row, plan, loc)
+		row.values.set(named.canonical, value)
+		this.#roots.push(
+			this.#ext.project(row.region, [
+				...value.guard.map((g, i) => [`guard${i}`, g] as const),
+				["term", value.term]
+			])
+		)
+		return value
+	}
+
+	#lower(row: ColumnRow, plan: LawColumnPlan, loc: SourceLoc): LawColumnValue {
+		switch (plan.kind) {
+			case "constant":
+				return { guard: [], term: this.#ext.typed(plan.value, plan.field.type) }
+			case "term": {
+				const own = guardedTerm(plan.term)
+				return {
+					guard: [
+						...plan.selection.conjuncts.map((c) => this.#guard(row, c.predicate, c.text, loc)),
+						...own.guard.map((g) => this.#guard(row, g, unwrap(descText(g)), loc))
+					],
+					term: unwrap(lowerTerm(own.term, this.#env(row, loc))).expr
+				}
+			}
+		}
+	}
+
+	#guard(row: ColumnRow, predicate: ExprDesc, text: string, loc: SourceLoc): ScalarExpr {
+		const known = row.guards.get(text)
+		if (known !== undefined) {
+			return known
+		}
+		const lowered = unwrap(lowerPredicate(predicate, this.#env(row, loc))).expr
+		row.guards.set(text, lowered)
+		return lowered
+	}
+
+	#env(row: ColumnRow, loc: SourceLoc) {
+		return {
+			...this.#typing,
+			mode: "check" as const,
+			loc,
+			emit: (spec: ExprSpec) => this.#ext.expr(spec),
+			params: noParams,
+			leaf: row.leaf
+		}
+	}
+
+	#row(r: TheoryRelation): ColumnRow {
+		const known = this.#rows.get(r.name)
+		if (known !== undefined) {
+			return known
+		}
+		const region = this.#ext.scan(r, r.fields, [])
+		const row: ColumnRow = {
+			region,
+			leaf: (desc, at) => {
+				const field =
+					desc.kind === "field" ? r.fields.find((f) => f.name === desc.field) : undefined
+				return field === undefined
+					? Result.err(
+							malformedDescription(at, `a field of ${r.name}, not a ${desc.kind} reference`)
+						)
+					: Result.ok(columnLeaf(region.id, field))
+			},
+			guards: new Map(),
+			values: new Map()
+		}
+		this.#rows.set(r.name, row)
+		return row
+	}
+}
 
 class Specializer {
 	readonly theory: Theory
 	readonly checked: CheckedSchema
 	readonly owned: Owned
 	readonly recognizer: Recognizer
+	/** The typing environment every lowering of the model reads, each text pattern analyzed once in it. */
+	readonly #typing: ReturnType<typeof typingEnv>
 	readonly #minted: Array<Identity<IdentityKind>> = []
+	/** Each law column's identity, which names its native once it is merged, by its relation and identifier. */
+	readonly #lawColumns = new Map<string, Map<ColumnIdent, Identity<"lawColumn">>>()
 
 	constructor(theory: Theory, checked: CheckedSchema) {
 		this.theory = theory
 		this.checked = checked
 		this.owned = checked.owned
-		this.recognizer = new Recognizer()
+		this.recognizer = new Recognizer(theory.laws)
+		this.#typing = typingEnv(checked.owned)
+	}
+
+	/** The identifier of a law column, its identity kept to name its native. */
+	#lawColumn(plan: LawColumnPlan): ColumnIdent {
+		const named = this.#named(lawColumnIdentity(plan))
+		const column = identifierOf(named)
+		const own =
+			this.#lawColumns.get(plan.relation.name) ?? new Map<ColumnIdent, Identity<"lawColumn">>()
+		own.set(column, named)
+		this.#lawColumns.set(plan.relation.name, own)
+		return column
+	}
+
+	/** The identity of the law column `column` of `relation`, which every law column the model names was minted with. */
+	#lawColumnNamed(relation: LawRelation, column: ColumnIdent): Identity<"lawColumn"> {
+		const named = this.#lawColumns.get(relation.name)?.get(column)
+		if (named === undefined) {
+			throw defect(`the law column ${column} of ${relation.name}, minted as it is planned`)
+		}
+		return named
+	}
+
+	/** A planned column as its native reads it: a field, or a law column by its identifier. */
+	#column(c: PlannedColumn): NativeColumn {
+		switch (c.kind) {
+			case "field":
+				return c
+			case "law":
+				return { kind: "law", column: this.#lawColumn(c.column) }
+		}
 	}
 
 	/** The identifier of an identity the law model mints, kept for the installation's census and comments. */
@@ -530,16 +653,25 @@ class Specializer {
 		/** The extension DAG: generated CHECK predicates and the residual laws' affected-key extraction. */
 		const ext = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
 		const roots: Array<RelNode> = []
-		/** Each plan with its native objects, a generated CHECK's predicate lowered into the extension DAG. */
+		const columns = new ColumnLowering(ext, this.#typing, roots)
+		/** Each plan with its native objects, a generated CHECK's predicate and a law column's value lowered into the
+		 * extension DAG. */
 		const placed = plans.map((plan) => ({
 			plan,
 			natives: plan.natives.map((n): PlacedNative => {
-				if (n.kind !== "GeneratedCheck") {
-					return n
+				if (n.kind === "GeneratedCheck") {
+					const { filter, predicate } = this.#lowerCheck(ext, n.relation, n.predicate, plan.law.loc)
+					roots.push(filter)
+					return { kind: "LoweredCheck", relation: n.relation, predicate }
 				}
-				const { filter, predicate } = this.#lowerCheck(ext, n.relation, n.predicate, plan.law.loc)
-				roots.push(filter)
-				return { kind: "LoweredCheck", relation: n.relation, predicate }
+				if (n.kind === "LawColumn") {
+					return {
+						kind: "LoweredColumn",
+						column: n.column,
+						value: columns.value(n.column, lawColumnIdentity(n.column), plan.law.loc)
+					}
+				}
+				return n
 			})
 		}))
 		/** Each row image's anchor key, read from a Delta of the participant, of its added facts for an INSERT's image on
@@ -618,7 +750,12 @@ class Specializer {
 			this.#seed(byKey, pk)
 		}
 		const immediate = new Set<LawId>()
-		const nativeObjects = placed.map(({ plan, natives: placedNatives }) => {
+		/** Key laws first, so an object a key law and another law both plan reports the key's law. */
+		const keysFirst = [
+			...placed.filter((p) => isKeyLaw(p.plan.law)),
+			...placed.filter((p) => !isKeyLaw(p.plan.law))
+		]
+		const nativeObjects = keysFirst.map(({ plan, natives: placedNatives }) => {
 			const objects: Array<NativeObject> = []
 			for (const n of placedNatives) {
 				const object = this.#materialize(n, plan, deferred, (e) => merged.expr(e))
@@ -656,7 +793,7 @@ class Specializer {
 			const described = lawDescription(entry.law)
 			const named = this.#nameMerged(entry, described, keyed)
 			natives.push(named)
-			if (named.namespace === "constraint" || named.namespace === "index") {
+			if (named.namespace === "constraint") {
 				constraints.push({
 					kind: named.namespace,
 					name: identifierOf(named.named),
@@ -775,11 +912,7 @@ class Specializer {
 	#deferral(plans: ReadonlyArray<LawPlan>): (fk: DeferralQuery) => boolean {
 		const edges = plans.flatMap((plan) =>
 			plan.natives.flatMap((n): ReadonlyArray<readonly [string, string]> =>
-				n.kind === "ForeignKey" ||
-				n.kind === "TaggedForeignKey" ||
-				n.kind === "ArmForeignKey" ||
-				n.kind === "PeriodForeignKey" ||
-				n.kind === "TaggedPeriodForeignKey"
+				n.kind === "ForeignKey" || n.kind === "PeriodForeignKey"
 					? [[n.relation.name, n.target.name]]
 					: []
 			)
@@ -787,7 +920,7 @@ class Specializer {
 		const onCycle = cycleEdges(edges)
 		return (fk) =>
 			onCycle(fk.relation.name, fk.target.name) ||
-			fk.target.fields.some((c) => !fk.targetColumns.includes(c))
+			fk.target.fields.some((c) => !fk.targetFields.includes(c))
 	}
 
 	/** A generated CHECK predicate lowered in "check" mode over a scan of its table. Each field is
@@ -800,7 +933,7 @@ class Specializer {
 		predicate: CheckPredicate,
 		loc: SourceLoc
 	): { readonly filter: RelNode; readonly predicate: ScalarExpr } {
-		const env = typingEnv(this.owned)
+		const env = this.#typing
 		const attempt = (
 			desc: ExprDesc<Located, CheckRefs>,
 			emit: (spec: ExprSpec) => ScalarExpr,
@@ -833,21 +966,35 @@ class Specializer {
 		switch (n.kind) {
 			case "PrimaryKey":
 			case "WithoutOverlaps":
-			case "PartialUnique":
 			case "Enum":
 			case "FiniteCheck":
 			case "TemporalUnique":
-			case "ReverseIndex":
 				return { ...n, lawIds }
+			case "ReverseIndex":
+				return {
+					kind: "ReverseIndex",
+					relation: n.relation,
+					columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
+					lawIds
+				}
 			case "Unique": {
 				/** A generated unique over the column set of a declared scalar key is that key; a span key is WITHOUT
 				 * OVERLAPS, not a B-tree uniqueness, so its exact-repeat arbiter stays its own object. */
 				const target = n.relation
-				const declared = target.keyNames.find(
-					(k) => k.span === undefined && sameMembers<LawField>(k.fields, n.columns)
-				)
+				const fields = plainFields(n.columns)
+				const declared =
+					fields === undefined
+						? undefined
+						: target.keyNames.find(
+								(k) => k.span === undefined && sameMembers<LawField>(k.fields, fields)
+							)
 				if (declared === undefined) {
-					return { kind: "Unique", relation: target, columns: n.columns, lawIds }
+					return {
+						kind: "Unique",
+						relation: target,
+						columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
+						lawIds
+					}
 				}
 				const columns = declared.fields
 				return declared.primary
@@ -858,10 +1005,15 @@ class Specializer {
 							named: declared.named,
 							lawIds
 						}
-					: { kind: "Unique", relation: target, columns, lawIds }
+					: {
+							kind: "Unique",
+							relation: target,
+							columns: mapNonEmpty(columns, (field): NativeColumn => ({ kind: "field", field })),
+							lawIds
+						}
 			}
 			case "Domain": {
-				const info = unwrap(typingEnv(this.owned).contractInfo(n.contract.desc, n.contract.loc))
+				const info = unwrap(this.#typing.contractInfo(n.contract.desc, n.contract.loc))
 				return {
 					kind: "Domain",
 					name: n.contract.name,
@@ -888,84 +1040,39 @@ class Specializer {
 					predicate: renamed(n.predicate),
 					lawIds
 				}
+			case "LoweredColumn": {
+				const c = n.column
+				return {
+					kind: "LawColumn",
+					relation: c.relation,
+					column: this.#lawColumn(c),
+					field: c.kind === "constant" ? c.field : c.term.column,
+					value: { guard: n.value.guard.map(renamed), term: renamed(n.value.term) },
+					lawIds
+				}
+			}
 			case "ForeignKey":
 				return {
-					...n,
+					kind: "ForeignKey",
+					relation: n.relation,
+					columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
+					target: n.target,
+					targetColumns: mapNonEmpty(n.targetColumns, (c) => this.#column(c)),
 					deferrable: deferred({
 						relation: n.relation,
 						target: n.target,
-						targetColumns: n.targetColumns
+						targetFields: n.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
 					}),
-					lawIds
-				}
-			case "TaggedForeignKey":
-				return {
-					kind: "TaggedForeignKey",
-					relation: n.relation,
-					columns: n.columns,
-					tag: this.#mint(tagOf(n.tag)),
-					target: n.target,
-					targetColumns: n.targetColumns,
-					lawIds
-				}
-			case "StoredTag":
-				return {
-					kind: "StoredTag",
-					relation: n.tag.relation,
-					column: this.#mint(tagOf(n.tag)),
-					value: n.tag.value,
-					selector: { relation: n.tag.target, field: n.tag.field },
-					lawIds
-				}
-			case "ArmTag":
-				return {
-					kind: "ArmTag",
-					relation: n.tag.relation,
-					column: this.#mint(armTagOf(n.tag)),
-					discriminator: n.tag.discriminator,
-					moved: n.tag.moved,
-					lawIds
-				}
-			case "ArmUnique":
-				return {
-					kind: "ArmUnique",
-					relation: n.relation,
-					columns: n.columns,
-					tag: this.#mint(armTagOf(n.tag)),
-					discriminator: n.tag.discriminator,
-					lawIds
-				}
-			case "ArmForeignKey":
-				return {
-					kind: "ArmForeignKey",
-					relation: n.relation,
-					columns: n.columns,
-					tag: this.#mint(tagOf(n.tag)),
-					target: n.target,
-					targetColumns: n.targetColumns,
-					targetTag: this.#mint(armTagOf(n.targetTag)),
 					lawIds
 				}
 			case "PeriodForeignKey":
 				return {
 					kind: "PeriodForeignKey",
 					relation: n.relation,
-					columns: n.columns,
+					columns: n.columns.map((c) => this.#column(c)),
 					span: n.span,
 					target: n.target,
-					targetColumns: n.targetColumns,
-					targetSpan: n.targetSpan,
-					lawIds
-				}
-			case "TaggedPeriodForeignKey":
-				return {
-					kind: "TaggedPeriodForeignKey",
-					relation: n.relation,
-					columns: n.columns,
-					tag: this.#mint(tagOf(n.tag)),
-					span: n.span,
-					target: n.target,
-					targetColumns: n.targetColumns,
+					targetColumns: n.targetColumns.map((c) => this.#column(c)),
 					targetSpan: n.targetSpan,
 					lawIds
 				}
@@ -987,19 +1094,17 @@ class Specializer {
 			owner: on.relation.ident,
 			described
 		})
-		const side = (relation: LawRelation, fields: ReadonlyArray<string>): KeySide => ({
+		/** A native's columns as its name reads them: a field by its name, a law column by its identity. */
+		const named = (relation: LawRelation, columns: ReadonlyArray<NativeColumn>) =>
+			columns.map((c): KeyColumnName =>
+				c.kind === "field" ? c.field.name : this.#lawColumnNamed(relation, c.column)
+			)
+		const side = (relation: LawRelation, fields: ReadonlyArray<KeyColumnName>): KeySide => ({
 			relation: relation.name,
-			fields,
-			selection: []
+			fields
 		})
 		const foreignKey = (
-			on: NativeOf<
-				| "ForeignKey"
-				| "TaggedForeignKey"
-				| "ArmForeignKey"
-				| "PeriodForeignKey"
-				| "TaggedPeriodForeignKey"
-			>,
+			on: NativeOf<"ForeignKey" | "PeriodForeignKey">,
 			from: KeySide,
 			to: KeySide,
 			period: boolean
@@ -1008,11 +1113,14 @@ class Specializer {
 			case "PrimaryKey":
 				return constraint(object, object.named)
 			case "Unique": {
-				const k = ownedKey(object.relation, object.columns)
+				const fields = plainFields(object.columns)
+				const k = fields === undefined ? undefined : ownedKey(object.relation, fields)
 				return constraint(
 					object,
 					k === undefined
-						? this.#named(identity.key(object.relation.name, fieldNames(object.columns)))
+						? this.#named(
+								identity.key(object.relation.name, named(object.relation, object.columns))
+							)
 						: k.named
 				)
 			}
@@ -1025,20 +1133,6 @@ class Specializer {
 						identity.key(object.relation.name, [...fieldNames(object.columns), object.span.name])
 					)
 				)
-			case "PartialUnique":
-				return {
-					object,
-					named: this.#named(
-						identity.partialUnique(
-							object.relation.name,
-							fieldNames(object.columns),
-							object.where.map((w) => ({ field: w.field.name, value: identityValueOf(w.value) }))
-						)
-					),
-					namespace: "index",
-					owner: object.relation.ident,
-					described
-				}
 			case "TableCheck":
 				return constraint(
 					object,
@@ -1054,64 +1148,24 @@ class Specializer {
 			case "ForeignKey":
 				return foreignKey(
 					object,
-					side(object.relation, fieldNames(object.columns)),
-					side(object.target, fieldNames(object.targetColumns)),
+					side(object.relation, named(object.relation, object.columns)),
+					side(object.target, named(object.target, object.targetColumns)),
 					false
-				)
-			case "TaggedForeignKey":
-				return foreignKey(
-					object,
-					side(object.relation, [...fieldNames(object.columns), object.tag]),
-					side(object.target, fieldNames(object.targetColumns)),
-					false
-				)
-			case "ArmForeignKey":
-				return foreignKey(
-					object,
-					side(object.relation, [...fieldNames(object.columns), object.tag]),
-					side(object.target, [...fieldNames(object.targetColumns), object.targetTag]),
-					false
-				)
-			case "ArmUnique":
-				return constraint(
-					object,
-					this.#named(
-						identity.key(object.relation.name, [...fieldNames(object.columns), object.tag])
-					)
 				)
 			case "PeriodForeignKey":
 				return foreignKey(
 					object,
-					side(object.relation, [...fieldNames(object.columns), object.span.name]),
-					side(object.target, [...fieldNames(object.targetColumns), object.targetSpan.name]),
+					side(object.relation, [...named(object.relation, object.columns), object.span.name]),
+					side(object.target, [
+						...named(object.target, object.targetColumns),
+						object.targetSpan.name
+					]),
 					true
 				)
-			case "TaggedPeriodForeignKey":
-				return foreignKey(
-					object,
-					side(object.relation, [...fieldNames(object.columns), object.tag, object.span.name]),
-					side(object.target, [...fieldNames(object.targetColumns), object.targetSpan.name]),
-					true
-				)
-			case "StoredTag":
+			case "LawColumn":
 				return {
 					object,
-					named: tagOf({
-						target: object.selector.relation,
-						field: object.selector.field,
-						value: object.value
-					}),
-					namespace: "column",
-					owner: object.relation.ident
-				}
-			case "ArmTag":
-				return {
-					object,
-					named: armTagOf({
-						relation: object.relation,
-						discriminator: object.discriminator,
-						moved: object.moved
-					}),
+					named: this.#lawColumnNamed(object.relation, object.column),
 					namespace: "column",
 					owner: object.relation.ident
 				}
@@ -1138,20 +1192,29 @@ class Specializer {
 	}
 }
 
-/** The STORED constant tag column a selected target's selection needs on its source: one per target, selector field
- * and value. */
-const tagOf = (tag: {
-	readonly target: { readonly name: string }
-	readonly field: { readonly name: string }
-	readonly value: TypedLiteral
-}): Identity<"tag"> => identity.tag(tag.target.name, tag.field.name, identityValueOf(tag.value))
+/** Whether a law is a key, a declared one or one over a projected side, whose violation an object it plans reports. */
+const isKeyLaw = (law: TheoryLaw): boolean =>
+	law.detail.kind === "key" || law.detail.kind === "projectedKey"
 
-/** The STORED arm tag column of an alternatives parent: one per parent, discriminator and arm tag map. */
-const armTagOf = (tag: {
-	readonly relation: { readonly name: string }
-	readonly discriminator: { readonly name: string }
-	readonly moved: NonEmptyReadonlyArray<ArmTagMove>
-}): Identity<"armTag"> => identity.armTag(tag.relation.name, tag.discriminator.name, tag.moved)
+/** A law column's identity at the naming door, by what it is (core/identity.ts LawColumnStatement): a constant by
+ * its target, field and value; a term by its kind, its field and its selection's conjuncts' canonical texts. */
+const lawColumnIdentity = (plan: LawColumnPlan): Identity<"lawColumn"> => {
+	switch (plan.kind) {
+		case "constant":
+			return identity.lawColumn({
+				kind: "constant",
+				target: plan.target.name,
+				field: plan.field.name,
+				value: identityValueOf(plan.value)
+			})
+		case "term":
+			return identity.lawColumn({
+				kind: "term",
+				term: { kind: plan.term.kind, field: plan.term.field },
+				selection: plan.selection.conjuncts.map((c) => c.text)
+			})
+	}
+}
 
 const columnLeaf = (node: NodeId, field: LawField): ExprSpec => ({
 	kind: "column",
@@ -1196,24 +1259,26 @@ const specialize = (
 /** Law specialization: an owned schema's CheckedTheory with every law's LawLowering. It runs theory normalization with
  * the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized law (`Recognizer`), and settles what depends on the whole schema at once:
  *
- * - Tag columns: a selected target's selection becomes a STORED constant column of its source, one per target,
- *   selector field and value (identity.tag). The generated composite UNIQUE a tagged reference needs is a key of the
- *   target's projection then the selector field, and the generated temporal unique the scalars, then the selector,
- *   then the span. A generated unique whose column set is a declared key of the target is that key.
- * - Foreign key deferral: a tagged or PERIOD foreign key is always DEFERRABLE INITIALLY DEFERRED. A plain foreign key
+ * - Law columns: each term of a selected side and each pred term is a STORED generated column of its relation, and a
+ *   constant selection of a target a STORED constant column of its source, each named once by what it is
+ *   (identity.lawColumn) and lowered once over its table's row. The generated UNIQUE a reference needs is over exactly
+ *   the target's columns, a constant selection's the target's fields then its selector fields, and the generated
+ *   temporal unique the scalars, then the selector, then the span. A generated unique whose column set is a declared
+ *   key of the target is that key.
+ * - Foreign key deferral: an arm or PERIOD foreign key is always DEFERRABLE INITIALLY DEFERRED. Any other foreign key
  *   is deferred exactly when a lawful final-state ChangeSet could break it in passing: when its target can be replaced
- *   at the referenced key, because the target has a field outside the referenced columns, so a put or a deletion and an
- *   addition at that key deletes the referenced row before inserting its replacement; or when it lies on a cycle of
- *   foreign keys, where neither side can be inserted first. Any role over the schema may write any ordinary relation,
- *   and roles are defined beside the schema, never in it, so the schema's own laws are the same whoever writes.
- *   Otherwise it is immediate, and so is the evidence it gives, which the theory is rebuilt with.
+ *   at the referenced key, because the target has a field it does not reference as a plain column, so a put or a
+ *   deletion and an addition at that key deletes the referenced row before inserting its replacement; or when it lies
+ *   on a cycle of foreign keys, where neither side can be inserted first. Any role over the schema may write any
+ *   ordinary relation, and roles are defined beside the schema, never in it, so the schema's own laws are the same
+ *   whoever writes. Otherwise it is immediate, and so is the evidence it gives, which the theory is rebuilt with.
  * - Naming and the constraint-to-LawId map: every native object's installed identifier, minted at the naming door
- *   from its identity, and for each constraint, unique index and domain constraint the law a violation of it reports;
- *   a tag column reports no violation, and an unnamed native has no identifier to report. A primary key native is the
+ *   from its identity, and for each constraint and domain constraint the law a violation of it reports; a law column
+ *   reports no violation, and an unnamed native has no identifier to report. A primary key native is the
  *   relation's declared primary key, which ownership named. A generated CHECK, finite membership or a capacity's row
  *   check, is named for its table and the law it specializes (identity.generatedCheck). A native object that
- *   discharges several laws is one object listing them all; its violation reports the first, which is the declared key
- *   when there is one.
+ *   discharges several laws is one object listing them all; its violation reports the first, a key law's when one
+ *   plans it, since key laws are merged first.
  * - The DAG: the theory's violation queries plus each residual law's affected-key extraction and each generated
  *   CHECK's predicate.
  *

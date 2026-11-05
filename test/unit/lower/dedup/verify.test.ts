@@ -27,7 +27,7 @@ import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import { assert, contains, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { genCatalog, ownedFixture } from "#test/support/evidence.ts"
 import { asc, Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
-import { f, key, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { localVectorSchema, productionNames, standInNames } from "#test/support/kernel/naming.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
@@ -71,7 +71,7 @@ const Edge = relation("Edge", { src: f.bigint, dst: f.bigint }, ["src", "dst"])
 const Schema: SchemaDesc = {
 	name: "Shop",
 	relations: [Person, Purchase, Posting, Edge],
-	statements: [key("Person", ["email"])],
+	statements: [key(on("Person", ["email"]))],
 	extends: undefined
 }
 

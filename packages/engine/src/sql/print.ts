@@ -20,6 +20,7 @@ import {
 	catalogSpelling,
 	closedSearchPath,
 	type ColumnDef,
+	type ColumnGeneration,
 	type CommentTarget,
 	type ContextColumn,
 	type ContextSource,
@@ -969,6 +970,19 @@ const listed = (out: Lines, items: ReadonlyArray<string>): void => {
 	}
 }
 
+/** A column's generation. STORED is always written: PostgreSQL's default is VIRTUAL, which no key or reference can
+ * name. */
+const printGeneration = (g: ColumnGeneration): string => {
+	switch (g.kind) {
+		case "identity":
+			return `GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME ${printObjectName(g.sequence)})`
+		case "stored":
+			return `GENERATED ALWAYS AS (${printExpr(g.expr)}) STORED`
+		case "partial":
+			return `GENERATED ALWAYS AS (CASE WHEN ${printExpr(g.when)} THEN ${printExpr(g.expr)} END) STORED`
+	}
+}
+
 /** A column up to its NOT NULL: its name, type, collation and generation. */
 const columnHead = (column: ColumnDef): string => {
 	const parts = [quoteIdent(column.name), printType(column.type)]
@@ -976,11 +990,7 @@ const columnHead = (column: ColumnDef): string => {
 		parts.push(`COLLATE ${printObjectName(column.collation)}`)
 	}
 	if (column.generated !== undefined) {
-		parts.push(
-			column.generated.kind === "identity"
-				? `GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME ${printObjectName(column.generated.sequence)})`
-				: `GENERATED ALWAYS AS (${printExpr(column.generated.expr)}) STORED`
-		)
+		parts.push(printGeneration(column.generated))
 	}
 	return parts.join(" ")
 }
@@ -991,7 +1001,9 @@ const columnHead = (column: ColumnDef): string => {
  */
 export const placeholderToken = "__GRIZZLE_PLACEHOLDER__"
 
-const printColumnDef = (column: ColumnDef): string => `${columnHead(column)} NOT NULL`
+/** A column with its nullity: NOT NULL, but a partial projection, which is NULL outside its selection. */
+const printColumnDef = (column: ColumnDef): string =>
+	column.generated?.kind === "partial" ? columnHead(column) : `${columnHead(column)} NOT NULL`
 
 /** An ALTER COLUMN ... TYPE's USING: its conversion, or the placeholder a reviewer replaces. */
 const printUsing = (using: Using): string => {
@@ -1020,11 +1032,11 @@ const printConstraint = (constraint: TableConstraint): string => {
 		case "primaryKey":
 			return `${head} PRIMARY KEY (${printKeyColumns(constraint.columns)})`
 		case "unique":
-			return `${head} UNIQUE (${printKeyColumns(constraint.columns)})`
+			return `${head} UNIQUE NULLS DISTINCT (${printKeyColumns(constraint.columns)})`
 		case "foreignKey": {
 			const deferrable =
 				constraint.deferrable === undefined ? "" : ` DEFERRABLE ${constraint.deferrable}`
-			return `${head} FOREIGN KEY (${printForeignKeyColumns(constraint.columns)}) REFERENCES ${printObjectName(constraint.references)} (${printForeignKeyColumns(constraint.referencedColumns)})${deferrable}`
+			return `${head} FOREIGN KEY (${printForeignKeyColumns(constraint.columns)}) REFERENCES ${printObjectName(constraint.references)} (${printForeignKeyColumns(constraint.referencedColumns)}) MATCH SIMPLE${deferrable}`
 		}
 		case "check":
 			return `${head} ${printCheck(constraint.predicate)}`

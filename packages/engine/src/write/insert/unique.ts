@@ -9,6 +9,7 @@ import {
 import * as Order from "#compiler/core/order.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import {
+	columnReads,
 	keyWitness,
 	type PrimaryKeyObject,
 	readFields,
@@ -17,7 +18,8 @@ import {
 	type UniqueObjects,
 	witnessFields
 } from "#compiler/laws/model/uniques.ts"
-import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
+import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import type { Cte, Expr, OrderItem, Select, SelectCore } from "#compiler/sql/ast.ts"
 import {
@@ -61,8 +63,8 @@ export interface RelationUniques {
 /**
  * A probe of a query entry over a relation T: true where a fact of T outside the entry, which the role cannot see,
  * conflicts with given values at one of T's unique objects. A declared key's, through the role's key probe of it,
- * named by the key's fields; or an object's no declared key subsumes, such as an at-most-one capacity's unique index,
- * through its unique probe, named by the object's installed name. The role's installation (physical/ddl/roles.ts)
+ * named by the key's fields; or an object's no declared key subsumes, such as a key over a selected side, through its
+ * unique probe, named by the object's installed name. The role's installation (physical/ddl/roles.ts)
  * creates exactly the probes of `RelationUniques.probes`, and an entry's precheck (write/entry/precheck.ts) calls
  * those its addition meets, each by its one identity (`probeIdentity`) at its one parameter list (`probeParams`).
  */
@@ -97,8 +99,26 @@ export interface Probed {
 	readonly pairs: "host" | "statement"
 }
 
-/** Whether a unique index's predicate selects the rows it holds apart. */
-const predicated = (u: UniqueObject): boolean => u.kind === "index" && u.where.length > 0
+/** Whether a unique object's guards select the rows it holds apart. */
+const predicated = (u: UniqueObject): boolean => u.kind === "guarded"
+
+/**
+ * The guards a row, its fields read through `of`, meets to be held by a unique object: each of a `guarded` object's
+ * guards, a conjunct of its law columns' guards, lowered over the row; none for an object over fields alone, which
+ * holds every row.
+ */
+export const withinRow = (
+	cx: LowerContext,
+	u: UniqueObject,
+	of: (f: LawField) => Expr
+): ReadonlyArray<Expr> =>
+	u.kind === "guarded"
+		? u.within.map((g) => {
+				const columns: ColumnMap = new Map(g.reads.map((f) => [f.name, of(f)] as const))
+				const env: Env = new Map(columnReads(g.predicate).map((c) => [c.node, columns] as const))
+				return lowerExpr(cx, g.predicate, env)
+			})
+		: []
 
 /** The fields an object compares, its span counted. */
 const width = (u: UniqueObject): number => witnessFields(u).length
@@ -140,7 +160,7 @@ export const readsDrawn = (u: UniqueObject, drawn: ReadonlyArray<string>): boole
 	readFields(u).some((f) => drawn.includes(f.name))
 
 /** The unique objects of `relation` no declared key subsumes, as a statement probes them (`probeOrder`): those whose
- * conflicts are no key's, an at-most-one capacity's unique index among them.
+ * conflicts are no key's, a key over a selected side among them.
  *
  * A query entry's precheck (write/entry/precheck.ts) probes each of these beside its target's keys for a fact outside
  * the entry (`OutsideProbe`): a conflict at any other unique object is one at a key or at an object kept here, so a
@@ -289,13 +309,12 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * reads a serial field, which a drawn value meets only as a stored value the sequence has not passed.
  *
  * The objects are a relation's unique objects other than its arbiter: a declared
- * candidate key (Unique), the partial unique index of an at-most-one capacity (PartialUnique, with its predicate, or
- * none when the capacity selects nothing), the generated uniques of foreign keys and tagged foreign keys (Unique over a
- * superkey), a span candidate key (WithoutOverlaps, an exclusion that raises 23P01) and the temporal unique of a PERIOD
+ * candidate key (Unique), a key over a selected side (Unique over its law columns, with its selection), the generated
+ * uniques of foreign keys, a constant selection's among them (Unique over a superkey), a span candidate key (WithoutOverlaps, an exclusion that raises 23P01) and the temporal unique of a PERIOD
  * reference's selected target. An object whose every conflict is also a conflict of the arbiter or of another probed
  * object without a predicate needs no probe of its own: its visible occupants are found there, and its unseen ones
- * abort the apply. A tagged foreign key's composite unique (the referenced fields and the selector) always contains a
- * key, so it is never probed itself. */
+ * abort the apply. A constant selection's composite unique (the referenced fields and the selector fields) always
+ * contains a key, so it is never probed itself. */
 export const buildProbe = (
 	w: WriteContext,
 	supply: NameSupply,
@@ -317,9 +336,7 @@ export const buildProbe = (
 	const inCol = (alias: string, f: LawField): Expr => col(alias, inputs.of(f))
 	const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, vectorSchema)
 	const predicate = (check: UniqueObject, of: (f: LawField) => Expr): ReadonlyArray<Expr> =>
-		(check.kind === "index" ? check.where : []).map((p) =>
-			binary("=", of(p.field), lowerLiteral(w.names, p.value, rowType(p.field)))
-		)
+		withinRow(w.cx, check, of)
 	/** `a` and `b` conflict at the object: equal compared fields, overlapping spans. */
 	const conflict = (
 		check: UniqueObject,

@@ -745,6 +745,7 @@ export const typeRefusals = [
 	"a relation parameter has at least one field, as a relation does",
 	"a schema holds each relation under its own name",
 	"a schema predicate reads no parameter",
+	"a side lists each term once",
 	"a span term is required",
 	"a statement names a relation no level of the schema declares",
 	"a term first: a literal takes its place opposite a term, never first",

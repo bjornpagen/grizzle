@@ -1,5 +1,6 @@
 import {
 	type JoinColumn,
+	type Met,
 	meetType,
 	metColumn,
 	refusal,
@@ -9,10 +10,12 @@ import {
 	type ViolationBuilder
 } from "#compiler/analysis/theory/build.ts"
 import { sameOrder } from "#compiler/core/array.ts"
+import { compareText, ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
-import type { Identifier } from "#compiler/core/ids.ts"
+import { fieldIdSpellingParts, type Identifier } from "#compiler/core/ids.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
+	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray,
@@ -21,17 +24,18 @@ import {
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { integerDigits } from "#compiler/ir/carriers.ts"
-import type {
-	BoundDesc,
-	BoundValueDesc,
-	ExprDesc,
-	LiteralDesc,
-	WeightDesc
+import {
+	type BoundDesc,
+	type BoundValueDesc,
+	type ExprDesc,
+	type LiteralDesc,
+	type SelectionDesc,
+	type TermDesc,
+	termText,
+	type WeightDesc
 } from "#compiler/ir/desc.ts"
 import { type ExprSpec, OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
-	type ArmTag,
-	type ArmTagMove,
 	type CapacityAggregate,
 	type CapacityBound,
 	type CapacityBounds,
@@ -55,6 +59,7 @@ import {
 	baseOf,
 	type ContractInfo,
 	contractOf,
+	rosterOf,
 	type ScalarType,
 	type SpanInfo,
 	spanCarriers,
@@ -70,6 +75,7 @@ import {
 	noExtension,
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
+import { guardedTerm } from "#compiler/scalar/natural.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 import type {
 	OwnedContract,
@@ -120,11 +126,15 @@ type LawDetail =
 			readonly uses: ReadonlyArray<ContractUse>
 	  }
 	| {
+			/** A key over a side beyond a relation key's: a selected side's, or one with a pred term. */
+			readonly kind: "projectedKey"
+			readonly side: ResolvedSide
+	  }
+	| {
 			readonly kind: "containment"
 			readonly from: ResolvedSide
 			readonly to: ResolvedSide
 			readonly pairs: NonEmptyReadonlyArray<ResolvedPair>
-			readonly stated: ContainmentStatement
 			readonly pairing: ContainmentPairing
 	  }
 	| {
@@ -157,15 +167,19 @@ type LawDetail =
 			readonly armRel: TheoryRelation
 			/** The arm's key, each field paired with the parent key field it meets, in parent key order. */
 			readonly key: NonEmptyReadonlyArray<ResolvedArmPair>
-			/** The handles it is the arm of, in roster order: the first is the tag its rows carry. */
+			/** The handles it is the arm of, in roster order. */
 			readonly handles: NonEmptyReadonlyArray<string>
-			/** The tag its family's parent facts are met at (`ArmTag`). */
-			readonly armTag: ArmTag
+			/** The arm relation over its key, every fact. */
+			readonly from: ResolvedSide
+			/** The parent over its key, the facts of the handles it is the arm of: its discriminator equal to its one handle,
+			 * or in its handles. Each fact of `from` is contained in it, the arm's forward law as a partial projection. */
+			readonly to: ResolvedSide
 	  }
 	| {
 			readonly kind: "capacity"
-			readonly target: ResolvedSide
-			readonly from: ResolvedSide
+			/** Each side selected by field = literal conjunctions, the selections a capacity reads. */
+			readonly target: ResolvedSide<FixedSelection>
+			readonly from: ResolvedSide<FixedSelection>
 			readonly pairs: NonEmptyReadonlyArray<ResolvedCapacityPair>
 			/** A statement that weighs nothing counts its source facts. */
 			readonly weight: WeightDesc
@@ -178,16 +192,19 @@ type LawDetail =
 			readonly bounds: CapacityBounds
 	  }
 
-/** A containment's source field with the target field it meets. */
+/** A containment's source term with the target term it meets. */
 export interface ContainmentPair {
-	readonly from: string
-	readonly to: string
+	readonly from: TermDesc
+	readonly to: TermDesc
 }
 
-/** A containment pair with the handles of its two fields. */
-export interface ResolvedPair extends ContainmentPair {
-	readonly fromColumn: LawField
-	readonly toColumn: LawField
+/** A term of a declared side, the handle of its field resolved: the field's own value, or its pred. */
+export type ResolvedTerm = TermDesc & { readonly column: LawField }
+
+/** A containment pair with its two terms resolved. */
+interface ResolvedPair {
+	readonly from: ResolvedTerm
+	readonly to: ResolvedTerm
 }
 
 /** A capacity's target field with the source field that groups the target's sources by it. */
@@ -220,20 +237,78 @@ export interface ResolvedSelector extends Selector {
 }
 
 /**
- * A side a statement declares, with the relation it names and the column of each field and selector resolved where the
- * statement is normalized. The names stay what a law's identity reads; the resolved members are what its consumers
- * read.
+ * One conjunct of a declared side's selection, resolved: its predicate and canonical text, which a law's identity
+ * reads, and the fields of its relation it reads, in declared field order. It is `fixed` when it fixes a field to a
+ * literal, `field = literal` with the literal typed at its field and no other conjunct fixing that field, the form a
+ * constant selection, evidence and the residual families read; any other is `general`.
  */
-export interface ResolvedSide extends DeclaredSide {
-	readonly rel: TheoryRelation
-	/** The handle of each field, in field order. */
-	readonly columns: NonEmptyReadonlyArray<LawField>
-	readonly selection: ReadonlyArray<ResolvedSelector>
+export type ResolvedConjunct =
+	| (ConjunctOf<"fixed"> & { readonly selector: ResolvedSelector })
+	| ConjunctOf<"general">
+
+/** What every resolved conjunct holds, of its form `K`. */
+interface ConjunctOf<K extends "fixed" | "general"> {
+	readonly kind: K
+	readonly predicate: ExprDesc
+	readonly text: string
+	readonly reads: ReadonlyArray<LawField>
 }
+
+/** A fixed conjunct (`ResolvedConjunct`). */
+type FixedConjunct = Extract<ResolvedConjunct, { readonly kind: "fixed" }>
+
+/** A declared side's selection resolved: its conjuncts, in canonical order. None reads every fact. */
+export interface ResolvedSelection {
+	readonly conjuncts: ReadonlyArray<ResolvedConjunct>
+}
+
+/** A selection every conjunct of which is fixed: what the three residual families read, and closed facts. */
+export interface FixedSelection extends ResolvedSelection {
+	readonly conjuncts: ReadonlyArray<FixedConjunct>
+}
+
+/** The selection as one of fixed conjuncts, or undefined when a conjunct is general. */
+export const fixedSelection = (selection: ResolvedSelection): FixedSelection | undefined => {
+	const fixed = selection.conjuncts.filter((c): c is FixedConjunct => c.kind === "fixed")
+	return fixed.length === selection.conjuncts.length ? { conjuncts: fixed } : undefined
+}
+
+/** A fixed selection's selectors, in field name order: none for every fact. */
+export const selectorsOf = (selection: FixedSelection): ReadonlyArray<ResolvedSelector> =>
+	selection.conjuncts.map((c) => c.selector).toSorted((a, b) => compareText(a.column, b.column))
+
+/**
+ * A side a statement declares, with the relation it names and the field of each term resolved where the statement is
+ * normalized, and its selection resolved, of the kind `S` proves. The terms and the conjuncts' predicates stay what a
+ * law's identity reads; the resolved members are what its consumers read.
+ */
+export interface ResolvedSide<
+	S extends ResolvedSelection = ResolvedSelection
+> extends DeclaredSide {
+	readonly rel: TheoryRelation
+	readonly terms: NonEmptyReadonlyArray<ResolvedTerm>
+	readonly selection: S
+}
+
+/** A side as the residual families read it: selected by fixed conjuncts alone, or undefined. */
+const fixedSide = (side: ResolvedSide): ResolvedSide<FixedSelection> | undefined => {
+	const selection = fixedSelection(side.selection)
+	return selection === undefined ? undefined : { ...side, selection }
+}
+
+/** A capacity side selected by fixed conjuncts; any other conjunct is refused, since the residual capacity reads
+ * fixed selections alone until capacity is deleted. */
+const capacitySide = (side: ResolvedSide, loc: SourceLoc): ResolvedSide<FixedSelection> =>
+	fixedSide(side) ??
+	refuse(
+		"UnsupportedLawFamily",
+		loc,
+		`a capacity whose sides select by conjunctions of field = literal; select(${side.relation}, ...) selects by another predicate`
+	)
 
 /**
  * One arm of an alternatives family: the payload relation of a handle, its key, each field paired with the parent key
- * field it meets, in parent key order, and the mirrors statement that declares it.
+ * field it meets, in parent key order, and the forward containment that declares it.
  */
 export interface TheoryArm {
 	readonly handle: string
@@ -244,33 +319,18 @@ export interface TheoryArm {
 }
 
 /**
- * The statement a containment law states: a `contained` (an alternatives head included), or one of the two
- * containments of a mirrors (an alternatives arm included), from its left side to its right or back.
- */
-export type ContainmentStatement =
-	| { readonly kind: "contained" }
-	| { readonly kind: "mirrors"; readonly half: "leftToRight" | "rightToLeft" }
-
-/**
- * How a containment law's sides pair: field by field, or with one span field each, a coverage law that pairs the
+ * How a containment law's sides pair: term by term, or with one span field each, a coverage law that pairs the
  * source's span `from` with the target's span `to`.
  */
-export type ContainmentPairing =
-	| { readonly kind: "scalar" }
-	| ({ readonly kind: "span" } & SpanPair)
+type ContainmentPairing = { readonly kind: "scalar" } | ({ readonly kind: "span" } & SpanPair)
 
-/** The shape a containment law is: a coverage law whatever states it; a scalar one by its statement. */
-const containmentShape = (stated: ContainmentStatement, pairing: ContainmentPairing): LawShape => {
+/** The shape a containment law is: a coverage law when its sides pair a span, else a containment. */
+const containmentShape = (pairing: ContainmentPairing): LawShape => {
 	switch (pairing.kind) {
 		case "span":
 			return "coverage"
 		case "scalar":
-			switch (stated.kind) {
-				case "contained":
-					return "contained"
-				case "mirrors":
-					return "mirrorsHalf"
-			}
+			return "contained"
 	}
 }
 
@@ -288,18 +348,20 @@ export interface ContractUse {
  * Law normalization: statements to normalized laws with their violation queries.
  *
  * Every law is a query that must be empty. Each statement of the owned schema is normalized into one or
- * more recognized shapes, each with its source identity, its sides, and the violation query the shape denotes:
+ * more recognized shapes, each with its source identity, its sides, and the violation query the shape denotes. A side
+ * is a partial projection: each row its selection holds on gives the tuple of its terms where every term is defined,
+ * a pred term where its field is above zero.
  *
- * - a relation's primary key and each `key` statement: two facts agreeing on the key and differing elsewhere; a key
+ * - a relation's primary key and each candidate key: two facts agreeing on the key and differing elsewhere; a key
  *   with a span field is a pointwise nonoverlap rule, so two different facts agreeing on its scalar fields whose spans
  *   share a point;
+ * - a key over a projected side: two rows of the side agreeing on its terms and differing elsewhere;
  * - a contract: a stored value whose contract predicate is false, at every column of the contract and at both
  *   endpoints of every span over it;
  * - a row check: a row whose predicate is false;
- * - a containment: a source projection with no matching target fact, selections included; one whose sides pair a span
- *   field is a coverage law: a source fact a point of whose span no target fact of its scalar group covers, evaluated
+ * - a containment: a source tuple with no matching target tuple, a pred term compared in numeric; one whose sides pair
+ *   a span field is a coverage law: a source fact a point of whose span no target fact of its scalar group covers, evaluated
  *   against the maximal covered segments;
- * - a mirrors: the two containments it is, each keeping the mirrors as its diagnostic identity;
  * - an alternatives expansion, recognized as one family from the origin marker its statements carry:
  *   its head containment; each arm relation's law, a row of it whose key no parent of a handle it is the arm of holds;
  *   and one family law for every arm's reverse obligation, a parent selecting a handle with no row in that handle's
@@ -308,7 +370,8 @@ export interface ContractUse {
  *   when zero lies outside them.
  *
  * Pointwise capacity over spans has no violation query in the admitted fragment, so it is UnsupportedLawFamily here;
- * so is a containment pairing more than one span field. Coverage into a target without a
+ * so are a containment pairing more than one span field, and a capacity over a pred term or a selection beyond literal
+ * equalities. Coverage into a target without a
  * span key has an exact violation query and is normalized; its lowering, not its meaning, is what the first compiler
  * rejects, which law specialization decides.
  */
@@ -327,15 +390,13 @@ export type LawIdentity = Omit<TheoryLaw, "id" | "named" | "violation" | "loc" |
 }
 
 /**
- * The laws of an alternatives family, at L: its head containment, discriminator into the roster's handles; its family
- * law, every arm's reverse obligation, whose detail is the recognized family; and each arm relation's law, each of its
- * rows a payload of a parent of one of its handles, in roster order of the relations' first handles. A theory's
- * families name laws by id (L = LawId); the drafts, by index.
+ * The laws of an alternatives family, at L: its family law, every arm's reverse obligation, whose detail is the
+ * recognized family; and each arm relation's law, each of its rows a payload of a parent of one of its handles, in
+ * roster order of the relations' first handles. A theory's families name laws by id (L = LawId); the drafts, by index.
  */
 export interface AlternativesFamily<L> {
 	/** The origin marker, FieldId(parent, discriminator). */
 	readonly id: string
-	readonly containment: L
 	readonly reverse: L
 	readonly arms: NonEmptyReadonlyArray<{
 		readonly relation: string
@@ -404,7 +465,7 @@ const keyDraft = (
 		identity: {
 			shape,
 			source,
-			sides: [{ relation, fields: fieldNames(key.fields), selection: [] }],
+			sides: [{ relation, terms: termsOfFields(fieldNames(key.fields)) }],
 			detail: { kind: "key", relation, rel: r, key }
 		},
 		sources,
@@ -465,7 +526,7 @@ export class KeptLaw {
 }
 
 /** The span pair of a coverage law: the pair, and the handles of its source and target spans. */
-export interface SpanPair {
+interface SpanPair {
 	readonly pair: ResolvedPair
 	readonly from: SpanField
 	readonly to: SpanField
@@ -490,14 +551,15 @@ const leftToRight = (
 ): NonEmptyReadonlyArray<ContainmentPair> =>
 	mapNonEmpty(pairs, (p) => ({ from: p.left, to: p.right }))
 
-/** A statement's pairs as a containment from its right side into its left. */
-const rightToLeft = (
-	pairs: NonEmptyReadonlyArray<SidePair>
-): NonEmptyReadonlyArray<ContainmentPair> =>
-	mapNonEmpty(pairs, (p) => ({ from: p.right, to: p.left }))
+/** Each field as a field term. */
+const termsOfFields = (fields: ReadonlyArray<string>): ReadonlyArray<TermDesc> =>
+	fields.map((field) => ({ kind: "field", field }))
 
 /** A capacity statement as ownership admitted it. */
 type CapacityStatement = Extract<OwnedStatement, { readonly kind: "capacity" }>
+
+/** A key statement as ownership admitted it. */
+type KeyStatement = Extract<OwnedStatement, { readonly kind: "key" }>
 
 /** Each contract a type is, from the outside in (a contract may be declared over another, scalar/compute/types.ts). */
 const contractChain = (t: ScalarType): ReadonlyArray<ContractInfo> => {
@@ -546,18 +608,72 @@ export class Normalizer {
 		)
 	}
 
-	/** The law side of `scope` over `fields`, its relation and columns resolved and its selection typed at its columns. */
-	side(scope: SideScope, fields: NonEmptyReadonlyArray<string>, loc: SourceLoc): ResolvedSide {
+	/** The law side of `scope` over `terms`, its relation and each term's field resolved, and its selection resolved. */
+	side(scope: SideScope, terms: NonEmptyReadonlyArray<TermDesc>, loc: SourceLoc): ResolvedSide {
 		const r = this.#relation(scope.relation, loc)
-		const selection = Object.entries(scope.selection)
-			.map(([column, value]) => this.#selector(r, column, value, loc))
-			.toSorted((a, b) => (a.column < b.column ? -1 : a.column > b.column ? 1 : 0))
+		return this.#sideOver(
+			scope,
+			r,
+			mapNonEmpty(terms, (t) => this.#term(r, t, loc)),
+			loc
+		)
+	}
+
+	/** The term `t` of a side of `r`, its field resolved. */
+	#term(r: TheoryRelation, t: TermDesc, loc: SourceLoc): ResolvedTerm {
+		return { ...t, column: this.#column(r, t.field, loc) }
+	}
+
+	/** A capacity's side of `scope` over `r` with its terms resolved, selected by literal equalities (`capacitySide`). */
+	#capacitySide(
+		scope: SideScope,
+		r: TheoryRelation,
+		terms: NonEmptyReadonlyArray<ResolvedTerm>,
+		loc: SourceLoc
+	): ResolvedSide<FixedSelection> {
+		return capacitySide(this.#sideOver(scope, r, terms, loc), loc)
+	}
+
+	/** The side of `scope` over `r` with its terms resolved, its selection resolved. */
+	#sideOver(
+		scope: SideScope,
+		r: TheoryRelation,
+		terms: NonEmptyReadonlyArray<ResolvedTerm>,
+		loc: SourceLoc
+	): ResolvedSide {
 		return {
 			relation: scope.relation,
 			rel: r,
-			fields,
-			columns: mapNonEmpty(fields, (f) => this.#column(r, f, loc)),
-			selection
+			terms,
+			selection: this.#selection(r, scope.selection, loc)
+		}
+	}
+
+	/**
+	 * A side's selection resolved over `r` (`ResolvedSelection`): each conjunct with its canonical text and the fields it
+	 * reads, fixed where it fixes a field no other conjunct fixes, its literal typed at that field.
+	 */
+	#selection(r: TheoryRelation, selection: SelectionDesc, loc: SourceLoc): ResolvedSelection {
+		const read = selection.conjuncts.map((predicate) => {
+			const equality = fieldEquality(predicate)
+			return {
+				predicate,
+				text: ownedText(predicate, withoutSourceLocs),
+				reads: r.fields.filter((f) => mentions(predicate, f.name)),
+				selector:
+					equality === undefined
+						? undefined
+						: this.#selector(r, equality.field, equality.value, loc)
+			}
+		})
+		const fixings = (field: string): number =>
+			read.filter((c) => c.selector?.column === field).length
+		return {
+			conjuncts: read.map(({ selector, ...c }): ResolvedConjunct =>
+				selector === undefined || fixings(selector.column) > 1
+					? { kind: "general", ...c }
+					: { kind: "fixed", ...c, selector }
+			)
 		}
 	}
 
@@ -581,7 +697,7 @@ export class Normalizer {
 
 	/**
 	 * Keeps a draft, tracked at `tracked`: a new law, or the statements of an equivalent draft (one law identity, such
-	 * as mirrors(a, b) and mirrors(b, a) state) merged into the law kept first.
+	 * as one statement repeated at two levels states) merged into the law kept first.
 	 */
 	#push(draft: StatedDraft, tracked: SourceLoc): KeptLaw {
 		return this.#keep(lawDraft(draft), tracked, (kept) => this.#laws.push(kept))
@@ -639,10 +755,9 @@ export class Normalizer {
 					source: { statement: index, kind: "contract" },
 					sides: [...new Set(uses.map((u) => u.relation))].map((relation) => ({
 						relation,
-						fields: [
+						terms: termsOfFields([
 							...new Set(uses.filter((u) => u.relation === relation).map((u) => u.field.name))
-						],
-						selection: []
+						])
 					})),
 					detail: { kind: "contract", contract: name, owned, uses }
 				},
@@ -657,14 +772,9 @@ export class Normalizer {
 		const loc = s.loc
 		const sources = [{ index, loc }]
 		switch (s.kind) {
-			case "key": {
-				const r = this.#relation(s.relation, loc)
-				this.#push(
-					keyDraft(r, this.#statedKey(r, s.key, loc), { statement: index, kind: "key" }, sources),
-					loc
-				)
+			case "key":
+				this.#key(s, index, sources)
 				return
-			}
 			case "check": {
 				const r = this.#relation(s.relation, loc)
 				const fields = r.fields.map((f) => f.name).filter((f) => mentions(s.predicate, f))
@@ -681,7 +791,7 @@ export class Normalizer {
 						identity: {
 							shape: "check",
 							source: { statement: index, kind: "check" },
-							sides: [{ relation: s.relation, fields, selection: [] }],
+							sides: [{ relation: s.relation, terms: termsOfFields(fields) }],
 							detail: stated
 						},
 						sources,
@@ -706,38 +816,7 @@ export class Normalizer {
 					index,
 					s.origin?.alternatives,
 					loc,
-					loc,
-					{
-						kind: "contained"
-					}
-				)
-				return
-			case "mirrors":
-				this.containment(
-					s.left,
-					s.right,
-					leftToRight(s.pairs),
-					index,
-					s.origin?.alternatives,
-					loc,
-					loc,
-					{
-						kind: "mirrors",
-						half: "leftToRight"
-					}
-				)
-				this.containment(
-					s.right,
-					s.left,
-					rightToLeft(s.pairs),
-					index,
-					s.origin?.alternatives,
-					loc,
-					loc,
-					{
-						kind: "mirrors",
-						half: "rightToLeft"
-					}
+					loc
 				)
 				return
 			case "capacity":
@@ -748,10 +827,46 @@ export class Normalizer {
 		}
 	}
 
+	/** A key statement: a candidate key as the checked schema minted it, or a key over a projected side. */
+	#key(s: KeyStatement, index: number, sources: ReadonlyArray<StatementSource>): void {
+		const loc = s.loc
+		switch (s.key.kind) {
+			case "candidate": {
+				const r = this.#relation(s.side.relation, loc)
+				this.#push(
+					keyDraft(
+						r,
+						this.#statedKey(r, s.key.key, loc),
+						{ statement: index, kind: "key" },
+						sources
+					),
+					loc
+				)
+				return
+			}
+			case "projected": {
+				const side = this.side(s.side, s.side.terms, loc)
+				this.#push(
+					{
+						identity: {
+							shape: "key",
+							source: { statement: index, kind: "key" },
+							sides: [side],
+							detail: { kind: "projectedKey", side }
+						},
+						sources,
+						violation: (b) => projectedKeyViolation(b, this.env, side, loc)
+					},
+					loc
+				)
+				return
+			}
+		}
+	}
+
 	/**
-	 * The containment `statement` states from `from` into `to`, each source field paired with the target field it meets,
-	 * as `stated` says, from the alternatives expansion `alternatives` or declared as itself (undefined), tracked at
-	 * `tracked`.
+	 * The containment `statement` states from `from` into `to`, each source term paired with the target term it meets,
+	 * from the alternatives expansion `alternatives` or declared as itself (undefined), tracked at `tracked`.
 	 */
 	containment(
 		from: SideScope,
@@ -760,31 +875,31 @@ export class Normalizer {
 		statement: number,
 		alternatives: string | undefined,
 		loc: SourceLoc,
-		tracked: SourceLoc,
-		stated: ContainmentStatement
+		tracked: SourceLoc
 	): KeptLaw {
-		const fromSide = this.side(
-			from,
-			mapNonEmpty(pairs, (p) => p.from),
-			loc
-		)
-		const toSide = this.side(
-			to,
-			mapNonEmpty(pairs, (p) => p.to),
-			loc
-		)
-		const fromRel = fromSide.rel
-		const toRel = toSide.rel
+		const fromRel = this.#relation(from.relation, loc)
+		const toRel = this.#relation(to.relation, loc)
 		const resolved = mapNonEmpty(pairs, (p): ResolvedPair => ({
-			...p,
-			fromColumn: this.#column(fromRel, p.from, loc),
-			toColumn: this.#column(toRel, p.to, loc)
+			from: this.#term(fromRel, p.from, loc),
+			to: this.#term(toRel, p.to, loc)
 		}))
+		const fromSide = this.#sideOver(
+			from,
+			fromRel,
+			mapNonEmpty(resolved, (p) => p.from),
+			loc
+		)
+		const toSide = this.#sideOver(
+			to,
+			toRel,
+			mapNonEmpty(resolved, (p) => p.to),
+			loc
+		)
 		/**
-		 * The pairing is decided here, once: sides with no span field pair field by field, and sides with one are a
+		 * The pairing is decided here, once: sides with no span field pair term by term, and sides with one are a
 		 * coverage law.
 		 */
-		const [first, ...more] = resolved.filter((p) => isSpanField(p.fromColumn))
+		const [first, ...more] = resolved.filter((p) => isSpanField(p.from.column))
 		if (more.length > 0) {
 			return refuse(
 				"UnsupportedLawFamily",
@@ -794,8 +909,11 @@ export class Normalizer {
 		}
 		/** A source span paired with a target field of another identity is no coverage: the field classes refuse it. */
 		const span =
-			first !== undefined && isSpanField(first.fromColumn) && isSpanField(first.toColumn)
-				? { pair: first, from: first.fromColumn, to: first.toColumn }
+			first?.from.kind === "field" &&
+			first.to.kind === "field" &&
+			isSpanField(first.from.column) &&
+			isSpanField(first.to.column)
+				? { pair: first, from: first.from.column, to: first.to.column }
 				: undefined
 		const paired: {
 			readonly pairing: ContainmentPairing
@@ -804,24 +922,23 @@ export class Normalizer {
 			span === undefined
 				? {
 						pairing: { kind: "scalar" },
-						violation: (b) => containmentViolation(b, fromSide, toSide, resolved)
+						violation: (b) => containmentViolation(b, this.env, fromSide, toSide, resolved, loc)
 					}
 				: {
 						pairing: { kind: "span", ...span },
-						violation: (b) => coverageViolation(b, fromSide, toSide, resolved, span)
+						violation: (b) => coverageViolation(b, this.env, fromSide, toSide, resolved, span, loc)
 					}
 		return this.#push(
 			{
 				identity: {
-					shape: containmentShape(stated, paired.pairing),
-					source: { statement, kind: stated.kind, alternatives },
+					shape: containmentShape(paired.pairing),
+					source: { statement, kind: "contained", alternatives },
 					sides: [fromSide, toSide],
 					detail: {
 						kind: "containment",
 						from: fromSide,
 						to: toSide,
 						pairs: resolved,
-						stated,
 						pairing: paired.pairing
 					}
 				},
@@ -863,12 +980,25 @@ export class Normalizer {
 	capacity(s: CapacityStatement, index: number, loc: SourceLoc): void {
 		const target = this.#relation(s.target.relation, loc)
 		const from = this.#relation(s.from.relation, loc)
-		const pairs = mapNonEmpty(s.pairs, (p): ResolvedCapacityPair => ({
-			target: p.left,
-			from: p.right,
-			targetColumn: this.#column(target, p.left, loc),
-			fromColumn: this.#column(from, p.right, loc)
-		}))
+		/** A capacity groups by fields: a pred term is no field. */
+		const groupField = (t: TermDesc): string =>
+			t.kind === "field"
+				? t.field
+				: refuse(
+						"UnsupportedLawFamily",
+						loc,
+						`a capacity grouped by fields; ${termText(t)} is a pred term`
+					)
+		const pairs = mapNonEmpty(s.pairs, (p): ResolvedCapacityPair => {
+			const targetField = groupField(p.left)
+			const fromField = groupField(p.right)
+			return {
+				target: targetField,
+				from: fromField,
+				targetColumn: this.#column(target, targetField, loc),
+				fromColumn: this.#column(from, fromField, loc)
+			}
+		})
 		const pointwise = [
 			...pairs.map((p) => p.targetColumn.type),
 			...pairs.map((p) => p.fromColumn.type)
@@ -909,14 +1039,24 @@ export class Normalizer {
 			low: parse(s.within.low),
 			high: s.within.high === "*" ? undefined : parse(s.within.high)
 		}
-		const targetSide = this.side(
+		const targetSide = this.#capacitySide(
 			s.target,
-			mapNonEmpty(pairs, (p) => p.target),
+			target,
+			mapNonEmpty(pairs, (p): ResolvedTerm => ({
+				kind: "field",
+				field: p.target,
+				column: p.targetColumn
+			})),
 			loc
 		)
-		const fromSide = this.side(
+		const fromSide = this.#capacitySide(
 			s.from,
-			mapNonEmpty(pairs, (p) => p.from),
+			from,
+			mapNonEmpty(pairs, (p): ResolvedTerm => ({
+				kind: "field",
+				field: p.from,
+				column: p.fromColumn
+			})),
 			loc
 		)
 		this.#push(
@@ -956,87 +1096,116 @@ export class Normalizer {
 	}
 
 	/**
-	 * An alternatives expansion: its head containment and one mirrors per arm, each carrying the origin marker.
-	 * The statements are normalized here instead of one by one.
+	 * An alternatives expansion: per arm, the two containments between its arm relation and the parent selected by the
+	 * arm's handle, each carrying the origin marker FieldId(parent, discriminator). The statements are normalized here
+	 * instead of one by one. The roster is the discriminator's: a closedId field's type holds it to its handles.
 	 */
 	alternatives(id: string, members: NonEmptyReadonlyArray<FamilyMember>): void {
 		const loc = members[0].s.loc
-		const heads = members.flatMap((m) =>
+		const contained = members.flatMap((m) =>
 			m.s.kind === "contained" ? [{ s: m.s, index: m.index }] : []
 		)
-		const arms = members.flatMap((m) =>
-			m.s.kind === "mirrors" ? [{ s: m.s, index: m.index }] : []
-		)
-		const head = heads[0]
-		if (
-			head === undefined ||
-			heads.length !== 1 ||
-			!isNonEmpty(arms) ||
-			heads.length + arms.length !== members.length
-		) {
+		const arms = contained
+		if (!isNonEmpty(arms) || contained.length !== members.length) {
 			throw refusal(
 				"MalformedDescription",
 				loc,
-				`an alternatives expansion ${id}: one head containment and at least one mirrors per arm`
+				`an alternatives expansion ${id}: the two containments of each arm`
 			)
 		}
-		const headStatement = head.s
-		const [headPair, ...headMore] = headStatement.pairs
-		const parent = this.#relation(headStatement.left.relation, loc)
-		const discriminator = headPair.left
-		const roster = this.#relation(headStatement.right.relation, loc)
-		if (
-			headMore.length > 0 ||
-			roster.kind !== "closed" ||
-			headPair.right !== "id" ||
-			Object.keys(headStatement.left.selection).length > 0 ||
-			Object.keys(headStatement.right.selection).length > 0
-		) {
+		const named = fieldIdSpellingParts(id)
+		const parent = this.#relation(named.relation, loc)
+		const discriminator = named.field
+		const discriminatorField = this.#column(parent, discriminator, loc)
+		const rosterType = rosterOf(baseOf(discriminatorField.type))
+		const roster = rosterType === undefined ? undefined : this.env.relations.get(rosterType.closed)
+		if (roster?.kind !== "closed") {
 			throw refusal(
 				"MalformedDescription",
 				loc,
-				`an alternatives expansion ${id} whose head contains the parent's discriminator in its roster's handles`
+				`an alternatives expansion ${id} whose discriminator is a closedId field of its roster`
 			)
 		}
 		const handles = roster.handles
-		const resolved = mapNonEmpty(arms, (m) => {
+		/** The handle a side selects the parent by, when it selects the parent by its discriminator alone. */
+		const selected = (side: SideScope): string | undefined => {
+			const [only, ...more] = side.relation === parent.name ? side.selection.conjuncts : []
+			const equality = only === undefined || more.length > 0 ? undefined : fieldEquality(only)
+			return equality?.field === discriminator && typeof equality.value === "string"
+				? equality.value
+				: undefined
+		}
+		/** A field term's field; an arm pairs fields alone. */
+		const fieldOf = (t: TermDesc, at: SourceLoc): string =>
+			t.kind === "field"
+				? t.field
+				: refuse("MalformedDescription", at, `an alternatives arm of ${id} pairing fields`)
+		/** Each arm containment, with its direction: from the selected parent into its arm, or back. */
+		const directed = mapNonEmpty(arms, (m) => {
 			const st = m.s
-			/** The handle a side selects the parent by, when it selects the parent by its discriminator alone. */
-			const selected = (side: SideScope): string | undefined => {
-				if (side.relation !== parent.name) {
-					return undefined
-				}
-				if (Object.keys(side.selection).length !== 1) {
-					return undefined
-				}
-				const handle = side.selection[discriminator]
-				return typeof handle === "string" ? handle : undefined
-			}
 			const leftHandle = selected(st.left)
 			const rightHandle = leftHandle === undefined ? selected(st.right) : undefined
-			/** The arm's key paired with the parent's. */
-			const arm =
-				leftHandle !== undefined
-					? {
-							parentSide: st.left,
-							armSide: st.right,
-							handle: leftHandle,
-							key: mapNonEmpty(st.pairs, (p) => ({ arm: p.right, parent: p.left }))
-						}
-					: rightHandle !== undefined
-						? {
-								parentSide: st.right,
-								armSide: st.left,
-								handle: rightHandle,
-								key: mapNonEmpty(st.pairs, (p) => ({ arm: p.left, parent: p.right }))
-							}
-						: refuse(
-								"MalformedDescription",
-								m.s.loc,
-								`an alternatives arm of ${id} selecting ${parent.name} by its discriminator ${discriminator}`
-							)
-			return { m, ...arm }
+			if (leftHandle !== undefined) {
+				return {
+					m,
+					direction: "reverse" as const,
+					armSide: st.right,
+					handle: leftHandle,
+					key: mapNonEmpty(st.pairs, (p) => ({
+						arm: fieldOf(p.right, st.loc),
+						parent: fieldOf(p.left, st.loc)
+					}))
+				}
+			}
+			if (rightHandle !== undefined) {
+				return {
+					m,
+					direction: "forward" as const,
+					armSide: st.left,
+					handle: rightHandle,
+					key: mapNonEmpty(st.pairs, (p) => ({
+						arm: fieldOf(p.left, st.loc),
+						parent: fieldOf(p.right, st.loc)
+					}))
+				}
+			}
+			return refuse(
+				"MalformedDescription",
+				st.loc,
+				`an alternatives arm of ${id} selecting ${parent.name} by its discriminator ${discriminator}`
+			)
 		})
+		type Directed = (typeof directed)[number]
+		const pairText = (d: Directed): string =>
+			d.key.map((p) => `${p.arm}\u0000${p.parent}`).join("\u0001")
+		/** Each arm by its forward containment, with the reverse containment it pairs with. */
+		const forwardArms = directed.filter((d) => d.direction === "forward")
+		const reverseArms = directed.filter((d) => d.direction === "reverse")
+		const paired = forwardArms.map((f) => {
+			const twins = reverseArms.filter(
+				(r) =>
+					r.handle === f.handle &&
+					r.armSide.relation === f.armSide.relation &&
+					pairText(r) === pairText(f)
+			)
+			const [reverse, ...extra] = twins
+			if (reverse === undefined || extra.length > 0) {
+				return refuse(
+					"MalformedDescription",
+					f.m.s.loc,
+					`an alternatives arm of ${id} at ${JSON.stringify(f.handle)} stated as one containment each way`
+				)
+			}
+			return { ...f, reverse }
+		})
+		if (!isNonEmpty(paired) || paired.length !== reverseArms.length) {
+			throw refusal(
+				"MalformedDescription",
+				loc,
+				`an alternatives expansion ${id}: the two containments of each arm`
+			)
+		}
+		const resolved = paired
 		const parentKey = mapNonEmpty(resolved[0].key, (p) => p.parent)
 		const parentKeyText = parentKey.join("\u0000")
 		const position = new Map(handles.map((h, i) => [h, i] as const))
@@ -1072,21 +1241,18 @@ export class Normalizer {
 			placed,
 			mapInput(compareNumbers, (a: Placed) => a.at)
 		)
-		const containment = this.containment(
-			headStatement.left,
-			headStatement.right,
-			leftToRight(headStatement.pairs),
-			head.index,
-			id,
-			head.s.loc,
-			loc,
-			{ kind: "contained" }
-		)
 		const first = ordered[0]
-		const parentSide = this.side({ relation: parent.name, selection: {} }, parentKey, loc)
-		const discriminatorField = this.#column(parent, discriminator, loc)
+		/** The parent over its key, the facts `conjuncts` select. */
+		const parentOver = (conjuncts: ReadonlyArray<ExprDesc>): ResolvedSide =>
+			this.side(
+				{ relation: parent.name, selection: { conjuncts } },
+				mapNonEmpty(parentKey, (field): TermDesc => ({ kind: "field", field })),
+				loc
+			)
+		const parentSide = parentOver([])
+		const parentFields = mapNonEmpty(parentSide.terms, (t) => t.column)
 		const armed = mapNonEmpty(ordered, (a) => {
-			if (Object.keys(a.armSide.selection).length > 0) {
+			if (a.armSide.selection.conjuncts.length > 0) {
 				throw refusal(
 					"MalformedDescription",
 					a.m.s.loc,
@@ -1095,7 +1261,7 @@ export class Normalizer {
 			}
 			const side = this.side(
 				a.armSide,
-				mapNonEmpty(a.key, (p) => p.arm),
+				mapNonEmpty(a.key, (p): TermDesc => ({ kind: "field", field: p.arm })),
 				a.m.s.loc
 			)
 			const arm: TheoryArm = {
@@ -1109,7 +1275,7 @@ export class Normalizer {
 				})),
 				statement: a.m.index
 			}
-			return { side, arm, loc: a.m.s.loc }
+			return { side, arm, loc: a.m.s.loc, reverse: a.reverse.m }
 		})
 		type Armed = (typeof armed)[number]
 		const [lead, ...later] = armed
@@ -1141,21 +1307,22 @@ export class Normalizer {
 			}
 			return { lead: l, handles: mapNonEmpty(sharing, (m) => m.arm.handle), members: sharing }
 		})
-		const tagOfRelation = new Map<string, string>()
-		const moved: Array<ArmTagMove> = []
-		for (const a of armed) {
-			const tag = tagOfRelation.get(a.arm.relation)
-			if (tag === undefined) {
-				tagOfRelation.set(a.arm.relation, a.arm.handle)
-			} else {
-				moved.push({ handle: a.arm.handle, tag })
-			}
+		/** The discriminator among an arm relation's handles: equal to its one handle, or in them. */
+		const ofHandles = (armHandles: NonEmptyReadonlyArray<string>): ExprDesc => {
+			const field: ExprDesc = { kind: "field", field: discriminator }
+			const [only, ...more] = armHandles
+			return more.length === 0
+				? {
+						kind: "compare",
+						op: "eq",
+						left: field,
+						right: { kind: "literal", value: only, type: undefined }
+					}
+				: { kind: "in", arg: field, values: armHandles }
 		}
-		const armTag: ArmTag = isNonEmpty(moved)
-			? { kind: "generated", moved }
-			: { kind: "discriminator" }
 		const forwards = mapNonEmpty(groups, (g) => {
 			const arm = g.lead.arm
+			const to = parentOver([ofHandles(g.handles)])
 			return {
 				relation: arm.relation,
 				handles: g.handles,
@@ -1163,8 +1330,8 @@ export class Normalizer {
 					{
 						identity: {
 							shape: "alternativesArm",
-							source: { statement: arm.statement, kind: "mirrors", alternatives: id },
-							sides: [g.lead.side, parentSide],
+							source: { statement: arm.statement, kind: "contained", alternatives: id },
+							sides: [g.lead.side, to],
 							detail: {
 								kind: "alternativesArm",
 								family: id,
@@ -1177,7 +1344,8 @@ export class Normalizer {
 								armRel: arm.rel,
 								key: arm.key,
 								handles: g.handles,
-								armTag
+								from: g.lead.side,
+								to
 							}
 						},
 						sources: g.members.map((m) => ({ index: m.arm.statement, loc: m.loc })),
@@ -1198,7 +1366,7 @@ export class Normalizer {
 			{
 				identity: {
 					shape: "alternatives",
-					source: { statement: first.m.index, kind: "mirrors", alternatives: id },
+					source: { statement: first.reverse.m.index, kind: "contained", alternatives: id },
 					sides: [parentSide, ...armed.map((a) => a.side)],
 					detail: {
 						kind: "alternatives",
@@ -1206,20 +1374,36 @@ export class Normalizer {
 						parent: parent.name,
 						parentRel: parent,
 						parentKey,
-						parentFields: parentSide.columns,
+						parentFields,
 						discriminator,
 						discriminatorField,
 						roster: roster.name,
 						handles: rosterHandles
 					}
 				},
-				sources: ordered.map((a) => ({ index: a.m.index, loc: a.m.s.loc })),
+				sources: ordered.map((a) => ({ index: a.reverse.m.index, loc: a.reverse.m.s.loc })),
 				violation: (b) => alternativesViolation(b, parent, discriminatorField, familyArms)
 			},
 			loc
 		)
-		this.families.push({ id, containment, reverse, arms: forwards })
+		this.families.push({ id, reverse, arms: forwards })
 	}
+}
+
+/** The field a predicate fixes and the literal it fixes it to: a field compared equal with a literal on either side. */
+const fieldEquality = (
+	e: ExprDesc
+): { readonly field: string; readonly value: LiteralDesc } | undefined => {
+	if (e.kind !== "compare" || e.op !== "eq") {
+		return undefined
+	}
+	if (e.left.kind === "field" && e.right.kind === "literal") {
+		return { field: e.left.field, value: e.right.value }
+	}
+	if (e.left.kind === "literal" && e.right.kind === "field") {
+		return { field: e.right.field, value: e.left.value }
+	}
+	return undefined
 }
 
 /** Whether a row check's predicate reads `field`. */
@@ -1413,13 +1597,13 @@ const contractViolation = (
 	})
 }
 
-/** A column of a side's projection: the side's field it reads, and its column there, of the type it casts it to. */
+/** A column of a relation's projection: the field it reads, and its column there, of the type it casts it to. */
 interface ProjectedColumn {
 	readonly field: LawField
 	readonly column: HeadingColumn
 }
 
-/** The projection of a side of `r`, its selection applied, onto `columns`. */
+/** The projection of the rows of `r` its literal selectors pick onto `columns`. */
 const sideProjection = (
 	b: ViolationBuilder,
 	r: TheoryRelation,
@@ -1437,34 +1621,142 @@ const sideProjection = (
 	)
 }
 
-/** A containment pair's met column, `right` naming its target column, at the type its two fields meet as. */
-const pairMet = (p: ResolvedPair, right: string) =>
-	metColumn(meetType(p.fromColumn.type, p.toColumn.type), p.from, right)
+/** The leaf reader of a row expression of `r` over the row `node` binds: each field of `r` its column there. */
+const rowLeaf =
+	(r: TheoryRelation, node: RelNode): LowerEnv["leaf"] =>
+	(desc, at) => {
+		const field = desc.kind === "field" ? r.fields.find((f) => f.name === desc.field) : undefined
+		if (field === undefined) {
+			return refuse(
+				"MalformedDescription",
+				at,
+				`a field of ${r.name}, not a ${desc.kind} reference`
+			)
+		}
+		return Result.ok(columnLeaf(node, field))
+	}
+
+/** A term of a row expression lowered, total, into the builder's DAG: a law side's term, a field or pred's difference. */
+const lowerTermTotal = (
+	b: ViolationBuilder,
+	env: NormalizeEnv,
+	term: ExprDesc,
+	loc: SourceLoc,
+	leaf: LowerEnv["leaf"]
+): ScalarExpr =>
+	unwrapOr(
+		Result.map(
+			lowerTerm(term, {
+				...env.lowerEnv,
+				mode: "check",
+				loc,
+				emit: (spec) => b.expr(spec),
+				leaf,
+				params: noParams
+			}),
+			(l) => l.expr
+		)
+	)
+
+/**
+ * The rows of a law side's partial projection, with each of `terms`' values over them: the rows its selection holds on,
+ * a fixed conjunct fixing its field in the scan and any other filtering it, where every term is defined (each term's
+ * guard, scalar/natural.ts guardedTerm: pred(x) above zero).
+ */
+const sideRows = (
+	b: ViolationBuilder,
+	env: NormalizeEnv,
+	side: ResolvedSide,
+	terms: NonEmptyReadonlyArray<ResolvedTerm>,
+	loc: SourceLoc
+): { readonly rows: RelNode; readonly values: NonEmptyReadonlyArray<ScalarExpr> } => {
+	const r = side.rel
+	const conjuncts = side.selection.conjuncts
+	const general = conjuncts.flatMap((c) => (c.kind === "general" ? [c] : []))
+	const region = b.scan(
+		r,
+		[...terms.map((t) => t.column), ...general.flatMap((c) => c.reads)],
+		conjuncts.flatMap((c) => (c.kind === "fixed" ? [c.selector] : []))
+	)
+	const guarded = mapNonEmpty(terms, guardedTerm)
+	const leaf = rowLeaf(r, region)
+	const guards = [
+		...general.map((c) => lowerTotal(b, env, c.predicate, loc, leaf)),
+		...guarded.flatMap((t) => t.guard.map((g) => lowerTotal(b, env, g, loc, leaf)))
+	]
+	const rows = isNonEmpty(guards) ? b.filter(region, b.connective("and", guards)) : region
+	return {
+		rows,
+		values: mapNonEmpty(guarded, (t) => lowerTermTotal(b, env, t.term, loc, rowLeaf(r, rows)))
+	}
+}
+
+/**
+ * Each pair's met column, its source term naming its left column and `right` its target's, at the type its two terms'
+ * values meet as: a field's own, pred's difference the Compute lowering's.
+ */
+const pairsMet = (
+	pairs: NonEmptyReadonlyArray<ResolvedPair>,
+	from: NonEmptyReadonlyArray<ScalarExpr>,
+	to: NonEmptyReadonlyArray<ScalarExpr>,
+	right: (pair: ResolvedPair) => string
+): NonEmptyReadonlyArray<Met> =>
+	mapNonEmpty(pairs, (pair, i) => {
+		const left = from[i] ?? headNonEmpty(from)
+		const target = to[i] ?? headNonEmpty(to)
+		return metColumn(meetType(left.type, target.type), termText(pair.from), right(pair))
+	})
+
+/** Rows projected onto columns, each value read at its column's type. */
+const projected = (
+	b: ViolationBuilder,
+	rows: RelNode,
+	values: NonEmptyReadonlyArray<ScalarExpr>,
+	columns: NonEmptyReadonlyArray<HeadingColumn>
+): RelNode =>
+	b.project(
+		rows,
+		columns.map((c, i) => [c.name, b.as(values[i] ?? headNonEmpty(values), c.type)] as const)
+	)
 
 /** A source projection with no matching target fact; the witness is the source projection. */
 const containmentViolation = (
 	b: ViolationBuilder,
+	env: NormalizeEnv,
 	from: ResolvedSide,
 	to: ResolvedSide,
-	pairs: NonEmptyReadonlyArray<ResolvedPair>
+	pairs: NonEmptyReadonlyArray<ResolvedPair>,
+	loc: SourceLoc
 ): RelNode => {
-	const met = mapNonEmpty(pairs, (pair) => ({ pair, met: pairMet(pair, `target#${pair.to}`) }))
-	const l = sideProjection(
+	const source = sideRows(
 		b,
-		from.rel,
-		from.selection,
-		met.map((m) => ({ field: m.pair.fromColumn, column: m.met.left }))
+		env,
+		from,
+		mapNonEmpty(pairs, (p) => p.from),
+		loc
 	)
-	const r = sideProjection(
+	const target = sideRows(
 		b,
-		to.rel,
-		to.selection,
-		met.map((m) => ({ field: m.pair.toColumn, column: m.met.right }))
+		env,
+		to,
+		mapNonEmpty(pairs, (p) => p.to),
+		loc
 	)
+	const met = pairsMet(pairs, source.values, target.values, (p) => `target#${termText(p.to)}`)
 	return b.anti(
-		l,
-		r,
-		met.map((m) => m.met)
+		projected(
+			b,
+			source.rows,
+			source.values,
+			mapNonEmpty(met, (m) => m.left)
+		),
+		projected(
+			b,
+			target.rows,
+			target.values,
+			mapNonEmpty(met, (m) => m.right)
+		),
+		met
 	)
 }
 
@@ -1472,39 +1764,56 @@ const containmentViolation = (
  * A source fact a point of whose span no target fact of its scalar group covers. The target spans of
  * each scalar group are packed into maximal covered segments, so a source span is covered exactly when one segment
  * contains it; the violation is every source projection minus the covered ones. Both projections name each column by
- * its source field.
+ * its source term.
  */
 const coverageViolation = (
 	b: ViolationBuilder,
+	env: NormalizeEnv,
 	from: ResolvedSide,
 	to: ResolvedSide,
 	pairs: NonEmptyReadonlyArray<ResolvedPair>,
-	spanPair: SpanPair
+	spanPair: SpanPair,
+	loc: SourceLoc
 ): RelNode => {
-	const span = pairMet(spanPair.pair, spanPair.pair.from)
-	const met = mapNonEmpty(pairs, (pair) => ({ pair, met: pairMet(pair, pair.from) }))
-	const sources = sideProjection(
+	const source = sideRows(
 		b,
-		from.rel,
-		from.selection,
-		met.map((m) => ({ field: m.pair.fromColumn, column: m.met.left }))
+		env,
+		from,
+		mapNonEmpty(pairs, (p) => p.from),
+		loc
 	)
-	const targets = sideProjection(
+	const target = sideRows(
 		b,
-		to.rel,
-		to.selection,
-		met.map((m) => ({ field: m.pair.toColumn, column: m.met.right }))
+		env,
+		to,
+		mapNonEmpty(pairs, (p) => p.to),
+		loc
 	)
-	const scalar = met.filter((m) => m.pair !== spanPair.pair)
+	const met = pairsMet(pairs, source.values, target.values, (p) => termText(p.from))
+	const paired = mapNonEmpty(pairs, (pair, i) => ({ pair, met: met[i] ?? headNonEmpty(met) }))
+	const span = (paired.find((m) => m.pair === spanPair.pair) ?? headNonEmpty(paired)).met
+	const sources = projected(
+		b,
+		source.rows,
+		source.values,
+		mapNonEmpty(met, (m) => m.left)
+	)
+	const targets = projected(
+		b,
+		target.rows,
+		target.values,
+		mapNonEmpty(met, (m) => m.right)
+	)
+	const scalar = paired.filter((m) => m.pair !== spanPair.pair)
 	const packed = b.pack(
 		targets,
 		span.right,
 		scalar.map((m) => m.met.right),
-		`${spanPair.pair.from}#cover`
+		`${termText(spanPair.pair.from)}#cover`
 	)
 	const region = b.join(
 		sources,
-		met.map((m): JoinColumn =>
+		paired.map((m): JoinColumn =>
 			m.pair === spanPair.pair ? { kind: "own", column: m.met.left } : { kind: "met", met: m.met }
 		),
 		packed.node,
@@ -1521,9 +1830,63 @@ const coverageViolation = (
 	)
 	const coveredSources = b.project(
 		covered,
-		met.map((m) => [m.met.left.name, b.col(covered, m.met.left)] as const)
+		paired.map((m) => [m.met.left.name, b.col(covered, m.met.left)] as const)
 	)
 	return b.difference(sources, coveredSources)
+}
+
+/**
+ * Two rows of a projected key's side that agree on its terms and differ elsewhere: both selected, each term defined.
+ * pred is injective where defined, so a pred term agrees exactly where its field does. The witness is the terms'
+ * values, in term order.
+ */
+const projectedKeyViolation = (
+	b: ViolationBuilder,
+	env: NormalizeEnv,
+	side: ResolvedSide,
+	loc: SourceLoc
+): RelNode => {
+	const r = side.rel
+	const shared = new Set<LawField>(side.terms.map((t) => t.column))
+	const join = b.selfJoin(r, shared)
+	const differs = r.fields
+		.filter((f) => !shared.has(f))
+		.map((f) => {
+			const pair = join.pair(f)
+			return b.op("ne", [b.col(join.node, pair.left), b.col(join.node, pair.right)])
+		})
+	/** A row expression over one of the two rows, each field read as that row's column of it. */
+	const over =
+		(row: "left" | "right"): LowerEnv["leaf"] =>
+		(desc, at) => {
+			const field = desc.kind === "field" ? r.fields.find((f) => f.name === desc.field) : undefined
+			if (field === undefined) {
+				return refuse(
+					"MalformedDescription",
+					at,
+					`a field of ${r.name}, not a ${desc.kind} reference`
+				)
+			}
+			return Result.ok(columnLeaf(join.node, join.pair(field)[row]))
+		}
+	const guarded = mapNonEmpty(side.terms, guardedTerm)
+	const holds = (row: "left" | "right"): ReadonlyArray<ScalarExpr> => [
+		...side.selection.conjuncts.map((c) => lowerTotal(b, env, c.predicate, loc, over(row))),
+		...guarded.flatMap((t) => t.guard.map((g) => lowerTotal(b, env, g, loc, over(row))))
+	]
+	const pred = b.connective("and", [
+		...holds("left"),
+		...holds("right"),
+		b.connective("or", differs)
+	])
+	const filtered = b.filter(join.node, pred)
+	return b.project(
+		filtered,
+		mapNonEmpty(side.terms, (t, i) => {
+			const term = (guarded[i] ?? headNonEmpty(guarded)).term
+			return [termText(t), lowerTermTotal(b, env, term, loc, rowLeaf(r, filtered))] as const
+		})
+	)
 }
 
 /**
@@ -1719,8 +2082,8 @@ const exactTotal = (type: ScalarType): CapacityAggregate | undefined => {
 const capacityViolation = (
 	b: ViolationBuilder,
 	env: NormalizeEnv,
-	target: ResolvedSide,
-	from: ResolvedSide,
+	target: ResolvedSide<FixedSelection>,
+	from: ResolvedSide<FixedSelection>,
 	weighed: Weighed,
 	within: BoundDesc,
 	bounds: CapacityBounds,
@@ -1750,7 +2113,7 @@ const capacityViolation = (
 		type: field.type
 	})
 	/** The source facts, each a complete binding of its fields. */
-	const sources = b.scan(from.rel, from.rel.fields, from.selection)
+	const sources = b.scan(from.rel, from.rel.fields, selectorsOf(from.selection))
 	/** The weight's expression over a source fact; a count weighs none. */
 	const weight = ((): ScalarExpr | undefined => {
 		switch (weighed.kind) {
@@ -1811,7 +2174,7 @@ const capacityViolation = (
 	const targetRegion = b.scan(
 		target.rel,
 		[...groupsBy.map((g) => g.targetColumn), ...refs],
-		target.selection
+		selectorsOf(target.selection)
 	)
 	const targets = b.project(targetRegion, [
 		...groupsBy.map(

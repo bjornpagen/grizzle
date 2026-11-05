@@ -90,8 +90,6 @@ import {
 import {
 	claimFixedFields,
 	keysOf,
-	uniqueReads,
-	uniquesOf,
 	updatableFields,
 	writtenOf
 } from "#test/support/worlds/model/session/writes.ts"
@@ -636,8 +634,8 @@ const statementStrata = (state: ModelState, session: number): Strata<DirectState
  * outside it and hidden from it as the claims it sets decide: a read of one of its views; claims a real user holds
  * (claimsArms' live); and for each relation it writes whose stored facts the transaction sees, a read of its table, a
  * delete, MERGE delete and update at a stored fact's key, an insert of a stored fact under a fresh key, an insert of a
- * stored fact itself that ON CONFLICT resolves, and a call of each key probe, unique probe and filter function of its
- * entry with a stored fact's values.
+ * stored fact itself that ON CONFLICT resolves, and a call of each key probe and filter function of its entry with a
+ * stored fact's values.
  */
 const worldStatements = (
 	state: ModelState,
@@ -695,24 +693,17 @@ const worldStatements = (
 		const functions = Arr.filter(
 			worldFunctionsOf(state),
 			(fn) =>
-				(fn.kind === "key-probe" || fn.kind === "unique-probe" || fn.kind === "filter") &&
+				(fn.kind === "key-probe" || fn.kind === "filter") &&
 				fn.role === role.name &&
 				fn.entry === w.entry
 		)
 		const membership = w.kind === "query" ? membershipOf(base, w.rules, target) : undefined
-		/**
-		 * A call's arguments from a stored fact: a key probe's key fields, a unique probe's fields its index reads, a filter
-		 * function's membership fields.
-		 */
+		/** A call's arguments from a stored fact: a key probe's key fields, a filter function's membership fields. */
 		const argsOf = (fn: WorldFunction, fact: HostFact): ReadonlyArray<HostValue> => {
 			const fieldsOf = (): ReadonlyArray<string> => {
 				switch (fn.kind) {
 					case "key-probe":
 						return keysOf(base, relation)[fn.key] ?? []
-					case "unique-probe": {
-						const u = uniquesOf(base, relation)[fn.unique]
-						return u === undefined ? [] : uniqueReads(base, relation, u)
-					}
 					case "filter":
 					case "advance":
 					case "law":

@@ -23,10 +23,13 @@ import {
 	capacity,
 	closed,
 	contained,
+	eq,
 	f,
+	field,
+	literal,
 	mutable,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	within
@@ -155,7 +158,7 @@ const roster = (
 const uuidDomain: FieldDomain = { kind: "uuid" }
 const integerDomain: FieldDomain = { kind: "integer", bits: 32 }
 const variable = (name: string): Term => ({ kind: "var", name })
-const literal = (value: number): Term => ({ kind: "literal", value })
+const literalTerm = (value: number): Term => ({ kind: "literal", value })
 const whole = (relation: string): EntrySpec => ({ kind: "whole", relation })
 
 /** The worlds dimensions' item: an id, and an integer owner a view selects or a claim fixes. */
@@ -241,7 +244,10 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 					[relation("Target", { id: f.integer }, ["id"]), ...sources],
 					[
 						...Arr.map(sources, (s) =>
-							contained(onSelected(s.name, ["target"], { active: true }), on("Target", ["id"]))
+							contained(
+								onWhere(s.name, ["target"], eq(field("active"), literal(true))),
+								on("Target", ["id"])
+							)
 						),
 						...Arr.map(["Target", ...Arr.map(sources, (s) => s.name)], mutable)
 					]
@@ -267,11 +273,10 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 					],
 					[
 						contained(
-							onSelected(
-								"Assignment",
-								["worker"],
-								Rec.fromEntries(Arr.map(selectors, (s) => [s, true] as const))
-							),
+							onWhere("Assignment", ["worker"], {
+								kind: "and",
+								args: Arr.map(selectors, (s) => eq(field(s), literal(true)))
+							}),
 							on("Worker", ["id"])
 						),
 						mutable("Assignment"),
@@ -330,7 +335,7 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 				{
 					name: "reader",
 					entries: Rec.fromEntries(
-						Arr.makeBy(n, (i) => [`View${i}`, ownedItems(literal(i), [])] as const)
+						Arr.makeBy(n, (i) => [`View${i}`, ownedItems(literalTerm(i), [])] as const)
 					),
 					write: [],
 					refresh: []

@@ -34,8 +34,15 @@ import { parseSchemaInput, schemaArtifacts, schemaCatalog } from "#compiler/prog
 import { ownLogin } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
-import { batches, ledger, signals } from "#test/pg/laws/alternatives/schemas.ts"
-import { rota, staffing, tree } from "#test/pg/laws/selected-source/schemas.ts"
+import { ledger } from "#test/pg/laws/alternatives/schemas.ts"
+import {
+	batches,
+	reasons,
+	rota,
+	signals,
+	staffing,
+	tree
+} from "#test/pg/laws/projections/schemas.ts"
 import { succeeded } from "#test/support/assert.ts"
 import * as payroll from "#test/support/fixtures/ir/payroll.ts"
 import * as queue from "#test/support/fixtures/ir/queue.ts"
@@ -341,6 +348,7 @@ const fixtureSchemas: Arr.NonEmptyReadonlyArray<readonly [string, unknown]> = [
 		[`rota, mutable ${mutable}`, rota({ mutable })],
 		[`tree, mutable ${mutable}`, tree({ mutable })],
 		[`ledger, mutable ${mutable}`, ledger({ mutable })],
+		[`reasons, mutable ${mutable}`, reasons({ mutable })],
 		[`signals, mutable ${mutable}`, signals({ mutable })]
 	]),
 	["batches", batches()]

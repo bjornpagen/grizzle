@@ -42,11 +42,17 @@ export const Note = relation("Note", { id: uuid, ticket: uuid, open: pg.boolean 
  */
 export const Plans = schema("Plans", { Kind, Account, Posting, Entry, Item, Task, Ticket, Note }, [
 	capacity(on(Account, "id"), {
-		from: on(select(Task, { kind: "Automatic" }), "account"),
+		from: on(
+			select(Task, (x) => x.eq(x.kind, "Automatic")),
+			"account"
+		),
 		within: within(0n, 1n)
 	}),
 	capacity(on(Ticket, "id"), {
-		from: on(select(Note, { open: true }), "ticket"),
+		from: on(
+			select(Note, (x) => x.eq(x.open, true)),
+			"ticket"
+		),
 		within: within(0n, 1n)
 	})
 ])

@@ -79,7 +79,7 @@ export const queueSchema = (name: string) =>
 	schema(name, relations, [
 		mutable(QueueWork),
 		workStanding,
-		keyOn(Leased, ["resource", "seat"]),
+		keyOn(on(Leased, "resource", "seat")),
 		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
 	])
 
@@ -87,7 +87,7 @@ export const queueSchema = (name: string) =>
 export const immutableQueueSchema = (name: string) =>
 	schema(name, relations, [
 		workStanding,
-		keyOn(Leased, ["resource", "seat"]),
+		keyOn(on(Leased, "resource", "seat")),
 		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
 	])
 

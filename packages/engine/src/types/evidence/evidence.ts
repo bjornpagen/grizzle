@@ -19,12 +19,13 @@ import type {
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation, NameOf } from "#compiler/types/schema/relation.ts"
-import type { ContainmentsOf, KeysOf, LawsOf } from "#compiler/types/schema/schema.ts"
+import type { ContainmentsOf, KeysOf, StatementsOf } from "#compiler/types/schema/schema.ts"
 import type {
+	Alternatives,
+	AlternativesBase,
 	Containment,
-	Mirrors,
-	MirrorsBase,
-	Selection,
+	KeyFieldsOf,
+	RelationOfKey,
 	Side
 } from "#compiler/types/schema/statements.ts"
 import type { AnyContext, AnyWorld } from "#compiler/types/schema/world.ts"
@@ -99,9 +100,9 @@ export type Evidence = {
 }
 
 /**
- * The arm of handle Handle of a mirrors from the facts of Parent whose Discriminator is Handle: a fact of
- * the arm exists exactly for the parent facts of that handle, the fact of the parent's scope Scope whose key the arm's
- * key is bound to.
+ * The arm of handle Handle of an alternatives law over Parent discriminated by Discriminator: a fact of the arm exists
+ * exactly for the parent facts of that handle, the fact of the parent's scope Scope whose key the arm's key is bound
+ * to.
  */
 interface ArmProof<
 	Parent extends string = string,
@@ -885,7 +886,10 @@ export type ContainmentProof<S, Sole, H> =
 		: never
 
 type ContainmentsInto<C, RN, B> =
-	C extends Containment<Side<infer PRel, infer LF>, Side<infer RRel, infer RF>>
+	C extends Containment<
+		Side<infer PRel, infer LF extends ReadonlyArray<string>>,
+		Side<infer RRel, infer RF extends ReadonlyArray<string>>
+	>
 		? PRel extends AnyRelation | AnyClosed
 			? RRel extends AnyRelation | AnyClosed
 				? NameOf<RRel> extends RN
@@ -920,52 +924,55 @@ type HeadingFieldOf<R, G> = R extends { readonly heading: infer C }
 
 /**
  * The alternatives row of the attach table: the child's only clause is a match of an arm relation keyed by the parent
- * (KeyedByParent), and S declares mirrors(on(select(Parent, { [D]: handle }), ...parentKey), on(Arm, ...armKey)), in
- * either order, with the arm key exactly the parent-bound fields, each bound to the parent variable of origin
- * Parent.parentKey at the same position, every one of one scope, whose fact's discriminator the arm's handle is read
- * against (ArmClaim). The arm exists exactly for the parent facts of that handle. An alternatives statement declares
- * its arms' mirrors, which LawsOf reads from the Alternatives value's type.
+ * (KeyedByParent), and S declares alternatives(parentKey, D, roster, arms) whose arm at a handle is that relation,
+ * with the arm key exactly the parent-bound fields, each bound to the parent variable of origin Parent.parentKey at
+ * the same position, every one of one scope, whose fact's discriminator the arm's handle is read against (ArmClaim).
+ * The arm exists exactly for the parent facts of that handle: the law's expansion mirrors the parent's facts selected
+ * by that handle with the arm. The handle is read from the alternatives value's arm map, since a selection's
+ * predicate is its Description's, which no type reads.
  */
 export type ArmProofOf<S, Sole, H> =
 	Sole extends SoleMatch<infer R, infer B>
 		? KeyedByParent<S, R, B, H> extends true
-			? ArmsOf<Extract<LawsOf<S>, MirrorsBase>, NameOf<R>, B>
+			? ArmsOf<Extract<StatementsOf<S>[number], AlternativesBase>, NameOf<R>, B>
 			: never
 		: never
 
-type ArmsOf<M, RN, B> =
-	M extends Mirrors<infer L, infer R> ? ArmOfSides<L, R, RN, B> | ArmOfSides<R, L, RN, B> : never
+type ArmsOf<A, RN, B> =
+	A extends Alternatives<infer PK, infer D, unknown, infer Arms>
+		? {
+				[Hd in keyof Arms & string]-?: ArmAt<
+					RelationOfKey<PK>,
+					KeyFieldsOf<PK>,
+					D,
+					Hd,
+					Exclude<Arms[Hd], undefined>,
+					RN,
+					B
+				>
+			}[keyof Arms & string]
+		: never
 
-type ArmOfSides<Sel, Arm, RN, B> =
-	Sel extends Side<Selection<infer P, infer Bs>, infer PKF>
-		? Arm extends Side<infer A, infer AKF>
-			? A extends AnyRelation
-				? NameOf<A> extends RN
-					? SameSet<
-							AKF extends ReadonlyArray<infer F> ? F : never,
-							ParentFields<B, RN>
-						> extends true
-						? ParentsAt<B, AKF, NameOf<P>, PKF, SharedScope<B, AKF>> extends true
-							? HandleOfSelection<NameOf<P>, Bs, SharedScope<B, AKF>>
+/**
+ * The arm at handle Hd of an alternatives law over parent P keyed by PKF, discriminated by D, when it is the matched
+ * relation RN keyed by the parent: a handle and a discriminator that are no single literal tell no arm apart.
+ */
+type ArmAt<P, PKF, D extends string, Hd extends string, A, RN, B> =
+	RelationOfKey<A> extends infer Arm extends AnyRelation
+		? NameOf<Arm> extends RN
+			? KeyFieldsOf<A> extends infer AKF extends ReadonlyArray<string>
+				? SameSet<AKF[number], ParentFields<B, RN>> extends true
+					? ParentsAt<B, AKF, NameOf<P>, PKF, SharedScope<B, AKF>> extends true
+						? IsSingle<D> extends true
+							? string extends Hd
+								? never
+								: ArmProof<NameOf<P> & string, D, Hd, SharedScope<B, AKF> & string>
 							: never
 						: never
 					: never
 				: never
 			: never
 		: never
-
-/** A selection of exactly one field by a literal handle, over the parent's fact of scope N. */
-type HandleOfSelection<PN, Bs, N> = keyof Bs extends infer D extends string
-	? IsSingle<D> extends true
-		? Bs[D & keyof Bs] extends infer Hd extends string
-			? IsSingle<Hd> extends true
-				? string extends Hd
-					? never
-					: ArmProof<PN & string, D, Hd, N & string>
-				: never
-			: never
-		: never
-	: never
 
 /**
  * The reflexive row of the attach table, as logical/attach.ts reflexiveOne reads it: the

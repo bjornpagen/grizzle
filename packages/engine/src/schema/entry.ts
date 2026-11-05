@@ -1,19 +1,20 @@
 import { compareText } from "#compiler/core/canonical.ts"
 import type { WritabilityReason } from "#compiler/core/causes.ts"
 import * as Result from "#compiler/core/result.ts"
-import type {
-	BindingsDesc,
-	ContextDesc,
-	ExprDesc,
-	FieldDesc,
-	LiteralDesc,
-	MatchDesc,
-	QueryDesc,
-	QueryStageDesc,
-	RelationDesc,
-	RuleDesc,
-	SchemaDesc,
-	SourceDesc
+import {
+	type BindingsDesc,
+	type ContextDesc,
+	candidateKeyFields,
+	type ExprDesc,
+	type FieldDesc,
+	type LiteralDesc,
+	type MatchDesc,
+	type QueryDesc,
+	type QueryStageDesc,
+	type RelationDesc,
+	type RuleDesc,
+	type SchemaDesc,
+	type SourceDesc
 } from "#compiler/ir/desc.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 
@@ -153,12 +154,17 @@ const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
 	return out
 }
 
-/** The fields of a relation's keys: its primary key and every candidate key a statement of any level declares on it. */
+/**
+ * The fields of a relation's keys: its primary key and every candidate key a statement of any level declares on it, a
+ * key over its whole relation's fields (ir/desc.ts candidateKeyFields).
+ */
 const keyFieldsOf = (schema: SchemaDesc, relation: OrdinaryDesc): ReadonlySet<string> => {
 	const out = new Set<string>(relation.primaryKey)
 	for (let level: SchemaDesc | undefined = schema; level !== undefined; level = level.extends) {
 		const declared = level.statements.flatMap((s) =>
-			s.kind === "key" && s.relation === relation.name ? s.fields : []
+			s.kind === "key" && s.side.relation === relation.name
+				? (candidateKeyFields(s.side) ?? [])
+				: []
 		)
 		for (const field of declared) {
 			out.add(field)

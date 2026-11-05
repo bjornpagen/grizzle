@@ -1,7 +1,7 @@
 import type { WildKind } from "@grizzle/testing/lsw"
 import type { Array as Arr } from "effect"
 import type { Identity } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import type {
 	HostBound,
 	HostFact,
@@ -64,7 +64,10 @@ export interface RelationSpec {
 	readonly mutability: "immutable" | "mutable"
 }
 
-/** A side of a law: a relation, its paired fields in pair order, and the field values its selector fixes. */
+/**
+ * A side of a law: a relation, its paired fields in pair order, and the field values its selector fixes, the
+ * selection `select(R, (r) => r.and(r.eq(r.f, v), ...))` states.
+ */
 export interface SideSpec {
 	readonly relation: string
 	readonly fields: Arr.NonEmptyReadonlyArray<string>
@@ -105,7 +108,6 @@ export type LawSpec =
 			readonly predicate: RowPredicate
 	  }
 	| { readonly kind: "contained"; readonly source: SideSpec; readonly target: SideSpec }
-	| { readonly kind: "mirrors"; readonly left: SideSpec; readonly right: SideSpec }
 	| {
 			readonly kind: "covered"
 			readonly source: SideSpec
@@ -224,16 +226,14 @@ export interface InstallSpec {
 	readonly logins: Arr.NonEmptyReadonlyArray<LoginSpec>
 }
 
-/** The law identities the compiler gave one declared law: one for most laws, a pair for mirrors, one per arm for alternatives. */
+/** The law identities the compiler gave one declared law: one for most laws, one per arm for alternatives. */
 export type LawIds =
 	| {
 			readonly kind: "key" | "spanKey" | "check" | "contained" | "covered" | "capacity"
 			readonly law: LawId
 	  }
-	| { readonly kind: "mirrors"; readonly leftToRight: LawId; readonly rightToLeft: LawId }
 	| {
 			readonly kind: "alternatives"
-			readonly head: LawId
 			/** Each armed handle's law, keyed by the handle. */
 			readonly arms: Readonly<Record<string, LawId>>
 			readonly reverse: LawId
@@ -251,11 +251,6 @@ export interface InstalledNames {
 	readonly primaryKeys: Readonly<Record<string, LawId>>
 	/** The law identities of each `BaseSpec.laws` entry, aligned by index and of the same kind. */
 	readonly laws: ReadonlyArray<LawIds>
-	/**
-	 * The installed name of each at-most-one count capacity's unique index (host.ts atMostOne), by the capacity's law: a
-	 * query entry's unique probe is named by its role, its entry and that index (core/identity.ts uniqueProbe).
-	 */
-	readonly uniqueIndexes: Readonly<Record<string, ConstraintName>>
 	/**
 	 * The CHECK law of each contract and refined-text DOMAIN, by its domain's name: a written value outside a contract's
 	 * range or a text's pattern passes grizzle's encoder (it checks the base type) and is refused by the domain's CHECK
@@ -372,12 +367,6 @@ export type WorldFunction =
 			readonly role: string
 			readonly entry: string
 			readonly key: number
-	  }
-	| {
-			readonly kind: "unique-probe"
-			readonly role: string
-			readonly entry: string
-			readonly unique: number
 	  }
 	| { readonly kind: "advance"; readonly relation: string; readonly field: string }
 	| { readonly kind: "law"; readonly law: LawId }
@@ -901,7 +890,6 @@ export type InvalidKind =
 	| "fact:law-broken"
 	| "fact:outside-world"
 	| "fact:hidden-key-collision"
-	| "fact:hidden-capacity-collision"
 	| "fact:hidden-reference"
 	| "fact:deleted-reference"
 	| "fact:duplicate-in-input"
@@ -942,7 +930,6 @@ export type ObjectKind =
 	| "policy"
 	| "filter-function"
 	| "key-probe"
-	| "unique-probe"
 	| "law-function"
 	| "advance-function"
 	| "grant"

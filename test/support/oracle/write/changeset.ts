@@ -266,8 +266,8 @@ interface ReadSketch {
  *   reads the removed child facts attaching their parents, each gone;
  * - "parent violated": the change adds a child fact naming no parent fact, which breaks the deferred containment at
  *   COMMIT, and reads the added child facts attaching their parents;
- * - "capacity overfilled": the stored facts hold a selected capped fact, which fills its capacity's bound of one, and
- *   the change adds a second at the same b, refused by the capacity;
+ * - "projected key taken": the stored facts hold a flagged fact selected at b, and the change adds a second selected
+ *   at the same b, refused by the projected key;
  * - "scoped merge": a put of a relation parameter beside the deletion of every fact of the mutable relation in a scope
  *   whose key is not in that parameter, which the compiler realizes as one MERGE; the stored facts hold a fact the put
  *   changes and one the deletion removes;
@@ -331,7 +331,7 @@ export const plantedArms = [
 	"parent present",
 	"parent absent",
 	"parent violated",
-	"capacity overfilled",
+	"projected key taken",
 	"scoped merge",
 	"toast repeat",
 	"toast change",
@@ -524,8 +524,8 @@ const plantedFactsOf = (
 				[p.parent, [{ a: armKey, b: 0 }]],
 				[p.child, [{ a: armKey, b: armKey }]]
 			]
-		case "capacity overfilled":
-			return [[p.capped, [{ a: armKey, b: armKey, c: true }]]]
+		case "projected key taken":
+			return [[p.flagged, [{ a: armKey, b: armKey, c: true }]]]
 		case "scoped merge":
 			return [
 				[
@@ -785,9 +785,9 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 				attached("added"),
 				{}
 			)
-		case "capacity overfilled":
+		case "projected key taken":
 			return changeSet(
-				[enumerated("insert", p.capped, [{ a: otherKey, b: armKey, c: true }])],
+				[enumerated("insert", p.flagged, [{ a: otherKey, b: armKey, c: true }])],
 				[],
 				{}
 			)

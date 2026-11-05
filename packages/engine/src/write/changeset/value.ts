@@ -15,9 +15,11 @@ import {
 	type MemberDesc,
 	type QueryDesc,
 	queryParamNames,
+	type ReadBackDesc,
 	renameQueryParams
 } from "#compiler/ir/desc.ts"
-import { slotSpelling } from "#compiler/ir/slots.ts"
+import * as S from "#compiler/ir/shape.ts"
+import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
 import { isOrderedValue, isQueryValue, labelledQueryDesc } from "#compiler/query/build/query.ts"
 import { buildLoc, isCallback } from "#compiler/query/build/scope.ts"
@@ -43,21 +45,29 @@ import { type DeltaValue, delta, memberRelation } from "#compiler/write/delta/so
 
 export type MemberOp = MemberDesc["op"]
 
-/** One member as the value holds it. */
+/**
+ * One member as the value holds it, with its Description, `desc`, which the ChangeSet's Description holds as it is:
+ * built from parts already decoded when the member is made, and again only when a rename changes its query or its
+ * stratum or Stream position changes its slot.
+ */
 type MemberState =
 	| {
 			readonly kind: "array"
 			readonly op: MemberOp
 			readonly relation: string
 			readonly facts: ReadonlyArray<unknown>
-			readonly loc: SourceLoc
+			/** The input its facts travel as (`arraySlot`). */
+			readonly slot: string
+			readonly desc: MemberDesc
 	  }
 	| {
 			readonly kind: "stream"
 			readonly op: MemberOp
 			readonly relation: string
 			readonly stream: Stream.Stream<unknown>
-			readonly loc: SourceLoc
+			/** The input it travels as (`streamSlot`). */
+			readonly slot: string
+			readonly desc: MemberDesc
 	  }
 	| {
 			readonly kind: "query"
@@ -66,15 +76,24 @@ type MemberState =
 			readonly query: QueryDesc
 			/** The canonical identity text of the query, which orders and deduplicates query members. */
 			readonly text: string
+			/**
+			 * Its text with every private parameter read as the name it was bound under, which orders the members that
+			 * name the private parameters (canonicalBindings). It is the text the member was made with: a member is made
+			 * with free parameters only, a bound parameter's origin is the free name it closed, and every later rename
+			 * moves a private name alone.
+			 */
+			readonly origin: string
 			readonly params: ReadonlySet<string>
-			readonly loc: SourceLoc
+			readonly desc: MemberDesc
 	  }
 
+/** A read-back as the value holds it, with its Description, which the ChangeSet's Description holds as it is. */
 interface ReadBackState {
 	readonly name: string
 	readonly query: QueryDesc
 	readonly params: ReadonlySet<string>
 	readonly loc: SourceLoc
+	readonly desc: ReadBackDesc
 }
 
 /** A parameter bind closed: the name it had when bound, and its value. */
@@ -226,25 +245,30 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 	const arrays = new Map<string, Extract<MemberState, { kind: "array" }>>()
 	/** Equal query members are one: the first of each operation, relation and text. */
 	const queries: Array<Extract<MemberState, { kind: "query" }>> = []
-	for (const m of members) {
-		if (
-			m.kind === "query" &&
-			!queries.some((q) => q.op === m.op && q.relation === m.relation && q.text === m.text)
-		) {
-			queries.push(m)
-		}
-	}
+	const texts = new Map<string, Set<string>>()
 	const streams: Array<MemberState> = []
 	for (const m of members) {
 		const group = groupKey(m)
-		if (m.kind === "array") {
-			const seen = arrays.get(group)
-			arrays.set(
-				group,
-				seen === undefined ? m : { ...seen, facts: Object.freeze([...seen.facts, ...m.facts]) }
-			)
-		} else if (m.kind === "stream") {
-			streams.push(m)
+		switch (m.kind) {
+			case "array": {
+				const seen = arrays.get(group)
+				arrays.set(
+					group,
+					seen === undefined ? m : { ...seen, facts: Object.freeze([...seen.facts, ...m.facts]) }
+				)
+				break
+			}
+			case "stream":
+				streams.push(m)
+				break
+			case "query": {
+				const seen = texts.get(group) ?? new Set<string>()
+				texts.set(group, seen)
+				if (!seen.has(m.text)) {
+					seen.add(m.text)
+					queries.push(m)
+				}
+			}
 		}
 	}
 	const out = [...arrays.values(), ...streams, ...queries].toSorted(
@@ -272,7 +296,67 @@ export const streamSlot = (
 	stream: number
 ): string => slotSpelling("member", stratum, op, `stream${stream}`, relation)
 
-/** The Description and the inputs of a state's strata and read-backs. */
+/** A source location as a Description keeps it (shape.ts sourceLoc): frozen, so a Description holding it is. */
+const keptLoc = (loc: SourceLoc): SourceLoc =>
+	orThrow(S.decodeWith(S.sourceLoc, loc, "ChangeSet member location"))
+
+/** The Description of an array or Stream member at `slot`, its location kept. */
+const enumeratedDesc = (
+	kind: "array" | "stream",
+	op: MemberOp,
+	relation: string,
+	slot: string,
+	loc: SourceLoc
+): MemberDesc => Object.freeze({ op, relation, member: Object.freeze({ kind, slot }), loc })
+
+/** The Description of a query member, its query a decoded Description and its location kept. */
+const queryMemberDesc = (
+	op: MemberOp,
+	relation: string,
+	query: QueryDesc,
+	loc: SourceLoc
+): MemberDesc =>
+	Object.freeze({ op, relation, member: Object.freeze({ kind: "query", query }), loc })
+
+/** An array or Stream member at `slot`: itself when it is there already. */
+const atSlot = <M extends Extract<MemberState, { readonly kind: "array" | "stream" }>>(
+	m: M,
+	slot: string
+): M =>
+	m.slot === slot
+		? m
+		: { ...m, slot, desc: enumeratedDesc(m.kind, m.op, m.relation, slot, m.desc.loc) }
+
+/**
+ * The members of the `s`-th canonical stratum, each at the slot its place names: an array member at its op's and
+ * relation's, the k-th Stream of an op and relation at its k.
+ */
+const placed = (members: ReadonlyArray<MemberState>, s: number): ReadonlyArray<MemberState> => {
+	const streamCount = new Map<string, number>()
+	return Object.freeze(
+		members.map((m): MemberState => {
+			if (m.kind === "array") {
+				return atSlot(m, arraySlot(s, m.op, m.relation))
+			}
+			if (m.kind === "query") {
+				return m
+			}
+			const group = groupKey(m)
+			const k = streamCount.get(group) ?? 0
+			streamCount.set(group, k + 1)
+			return atSlot(m, streamSlot(s, m.op, m.relation, k))
+		})
+	)
+}
+
+/**
+ * The Description and the inputs of a state's placed strata and read-backs: its members' and read-backs' own
+ * Descriptions, which are decoded parts and parts this module minted (an op, a relation the ChangeSet's schema
+ * declares, a slot, a kept location), so the Description is what its decoder would give and none of it is read again.
+ * The one rule over its parameters the builder does not keep by construction is that none is spelled like a member
+ * slot a compiled write reserves; a parameter spelled in that space has the whole Description decoded, whose decoder
+ * refuses it with the location of the first member whose slot it takes (changeSetDescShape).
+ */
 const describe = (
 	over: BuiltOver,
 	strata: ReadonlyArray<ReadonlyArray<MemberState>>,
@@ -280,47 +364,28 @@ const describe = (
 	bound: ReadonlyMap<string, BoundParam>
 ): { readonly desc: ChangeSetDesc; readonly inputs: ReadonlyMap<string, ChangeSetInput> } => {
 	const inputs = new Map<string, ChangeSetInput>()
-	const descStrata = strata.map((members, s) => {
-		const streamCount = new Map<string, number>()
-		const memberDesc = (m: MemberState): MemberDesc => {
-			switch (m.kind) {
-				case "array": {
-					const slot = arraySlot(s, m.op, m.relation)
-					inputs.set(slot, Object.freeze({ kind: "array", facts: m.facts }))
-					return { op: m.op, relation: m.relation, member: { kind: "array", slot }, loc: m.loc }
-				}
-				case "stream": {
-					const group = groupKey(m)
-					const k = streamCount.get(group) ?? 0
-					streamCount.set(group, k + 1)
-					const slot = streamSlot(s, m.op, m.relation, k)
-					inputs.set(slot, Object.freeze({ kind: "stream", stream: m.stream }))
-					return { op: m.op, relation: m.relation, member: { kind: "stream", slot }, loc: m.loc }
-				}
-				case "query":
-					return {
-						op: m.op,
-						relation: m.relation,
-						member: { kind: "query", query: m.query },
-						loc: m.loc
-					}
-			}
+	for (const m of strata.flat()) {
+		if (m.kind === "array") {
+			inputs.set(m.slot, Object.freeze({ kind: "array", facts: m.facts }))
+		} else if (m.kind === "stream") {
+			inputs.set(m.slot, Object.freeze({ kind: "stream", stream: m.stream }))
 		}
-		return { members: members.map(memberDesc) }
-	})
-	const desc = orThrow(
-		decodeDesc("changeSet", {
-			schema: overName(over),
-			strata: descStrata,
-			reads: [...reads]
+	}
+	const desc: ChangeSetDesc = Object.freeze({
+		schema: overName(over),
+		strata: Object.freeze(
+			strata.map((members) => Object.freeze({ members: Object.freeze(members.map((m) => m.desc)) }))
+		),
+		reads: Object.freeze(
+			reads
 				.toSorted(Order.mapInput(Order.compareStrings, (r: ReadBackState) => r.name))
-				.map((r) => ({
-					name: r.name,
-					query: r.query
-				})),
-			bindings: [...bound.keys()].toSorted(Order.compareStrings)
-		})
-	)
+				.map((r) => r.desc)
+		),
+		bindings: Object.freeze([...bound.keys()].toSorted(Order.compareStrings))
+	})
+	if ([...usedParams({ strata, reads })].some(inReservedSpace)) {
+		orThrow(decodeDesc("changeSet", desc))
+	}
 	return { desc, inputs }
 }
 
@@ -367,20 +432,35 @@ const freshName = (origin: string, taken: ReadonlySet<string>): string => {
 	}
 }
 
+/** A query with the parameters `rename` maps renamed, decoded as a Description holds it. */
+const renamedQuery = (query: QueryDesc, rename: ReadonlyMap<string, string>): QueryDesc =>
+	orThrow(decodeDesc("query", renameQueryParams(query, rename)))
+
 const renameMember = (m: MemberState, rename: ReadonlyMap<string, string>): MemberState => {
 	if (m.kind !== "query" || ![...m.params].some((p) => rename.has(p))) {
 		return m
 	}
-	const query = renameQueryParams(m.query, rename)
-	return { ...m, query, text: identityText(query), params: queryParamNames(query) }
+	const query = renamedQuery(m.query, rename)
+	return {
+		...m,
+		query,
+		text: identityText(query),
+		params: queryParamNames(query),
+		desc: queryMemberDesc(m.op, m.relation, query, m.desc.loc)
+	}
 }
 
 const renameRead = (r: ReadBackState, rename: ReadonlyMap<string, string>): ReadBackState => {
 	if (![...r.params].some((p) => rename.has(p))) {
 		return r
 	}
-	const query = renameQueryParams(r.query, rename)
-	return { ...r, query, params: queryParamNames(query) }
+	const query = renamedQuery(r.query, rename)
+	return {
+		...r,
+		query,
+		params: queryParamNames(query),
+		desc: Object.freeze({ name: r.name, query })
+	}
 }
 
 /** The scope with its uses of the names `rename` maps renamed, and its private parameters with them. The images are
@@ -451,24 +531,32 @@ const canonicalBindings = (scope: Scope): Scope => {
 		merges
 	)
 	const mergedBound = merged.bound
-	const masked = new Map([...mergedBound].map(([name, param]) => [name, param.origin]))
-	const maskedText = (m: Extract<MemberState, { kind: "query" }>): string =>
-		identityText(renameQueryParams(m.query, masked))
 	const order: Array<ReadonlySet<string>> = []
 	for (const stratum of merged.strata) {
-		const queries = stratum
+		const ordered = stratum
 			.filter((m): m is Extract<MemberState, { kind: "query" }> => m.kind === "query")
-			.map((m) => ({ m, masked: maskedText(m) }))
-		const ordered = queries.toSorted(
-			Order.combineAll([
-				Order.mapInput(Order.compareStrings, (q: (typeof queries)[number]) => q.m.relation),
-				Order.mapInput(Order.compareStrings, (q: (typeof queries)[number]) => q.m.op),
-				Order.mapInput(Order.compareStrings, (q: (typeof queries)[number]) => q.masked),
-				Order.mapInput(Order.compareStrings, (q: (typeof queries)[number]) => q.m.text)
-			])
-		)
+			.toSorted(
+				Order.combineAll([
+					Order.mapInput(
+						Order.compareStrings,
+						(q: Extract<MemberState, { kind: "query" }>) => q.relation
+					),
+					Order.mapInput(
+						Order.compareStrings,
+						(q: Extract<MemberState, { kind: "query" }>) => q.op
+					),
+					Order.mapInput(
+						Order.compareStrings,
+						(q: Extract<MemberState, { kind: "query" }>) => q.origin
+					),
+					Order.mapInput(
+						Order.compareStrings,
+						(q: Extract<MemberState, { kind: "query" }>) => q.text
+					)
+				])
+			)
 		for (const q of ordered) {
-			order.push(q.m.params)
+			order.push(q.params)
 		}
 	}
 	for (const r of [...merged.reads].toSorted(
@@ -496,7 +584,10 @@ const canonicalBindings = (scope: Scope): Scope => {
 	for (const name of [...mergedBound.keys()].toSorted(Order.compareStrings)) {
 		assign(name)
 	}
-	return renameScope({ ...merged, bound: mergedBound }, canonical)
+	return renameScope(
+		{ ...merged, bound: mergedBound },
+		new Map([...canonical].filter(([name, image]) => name !== image))
+	)
 }
 
 const distinctReads = (
@@ -528,7 +619,7 @@ const make = <S, P, W extends string, Rd>(
 	decoder: RowDecoder<Rd>
 ): ChangeSetOf<S, P, W, Rd> & SchemaMember => {
 	const scope = canonicalBindings({ strata, reads, bound: boundParams })
-	const canonical = Object.freeze(scope.strata.map(canonicalStratum))
+	const canonical = Object.freeze(scope.strata.map((s, i) => placed(canonicalStratum(s), i)))
 	const bound: ReadonlyMap<string, BoundParam> = scope.bound
 	const { desc, inputs } = describe(over, canonical, scope.reads, bound)
 	const state: ChangeSetState = Object.freeze({
@@ -590,8 +681,9 @@ const identityText = (desc: QueryDesc): string => {
 	return text.value
 }
 
-/** The member state of `facts` as a member of `op` into `name`: an array of facts, a Stream of facts, or a query of
- * the ChangeSet's level; anything else is refused. */
+/** The member state of `facts` as a member of `op` into `name` in the last stratum: an array of facts, a Stream of
+ * facts, or a query of the ChangeSet's level; anything else is refused. An array or Stream member is made at the slot
+ * its stratum alone names, its Stream position among the stratum's (`placed`) set when the ChangeSet is made. */
 const memberState = (
 	state: ChangeSetState,
 	op: MemberOp,
@@ -600,11 +692,28 @@ const memberState = (
 	facts: MemberInput,
 	label: string
 ): MemberState => {
+	const last = state.strata.length - 1
 	if (isFactArray(facts)) {
-		return { kind: "array", op, relation: name, facts: Object.freeze(facts.map(frozenFact)), loc }
+		const slot = arraySlot(last, op, name)
+		return {
+			kind: "array",
+			op,
+			relation: name,
+			facts: Object.freeze(facts.map(frozenFact)),
+			slot,
+			desc: enumeratedDesc("array", op, name, slot, keptLoc(loc))
+		}
 	}
 	if (isStreamInput(facts)) {
-		return { kind: "stream", op, relation: name, stream: facts, loc }
+		const slot = streamSlot(last, op, name, 0)
+		return {
+			kind: "stream",
+			op,
+			relation: name,
+			stream: facts,
+			slot,
+			desc: enumeratedDesc("stream", op, name, slot, keptLoc(loc))
+		}
 	}
 	if (isQueryValue(facts)) {
 		requireLevel(facts, state.over, label)
@@ -612,14 +721,16 @@ const memberState = (
 		if (query === undefined) {
 			throw malformed(label, "a query built by query(S)")
 		}
+		const text = identityText(query)
 		return {
 			kind: "query",
 			op,
 			relation: name,
 			query,
-			text: identityText(query),
+			text,
+			origin: text,
 			params: queryParamNames(query),
-			loc
+			desc: queryMemberDesc(op, name, query, keptLoc(loc))
 		}
 	}
 	if (isOrderedValue(facts)) {
@@ -686,7 +797,7 @@ const addRead = <S, P, W extends string, Rd, const Name extends string, IHead>(
 		state.schema,
 		state.over,
 		scope.strata,
-		[...scope.reads, { name, query, params, loc }],
+		[...scope.reads, { name, query, params, loc, desc: Object.freeze({ name, query }) }],
 		scope.bound,
 		merge(
 			decoder,

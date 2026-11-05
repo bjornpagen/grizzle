@@ -2,11 +2,15 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
+	everyFact,
+	fieldsEqual,
 	type HostLaw,
 	type HostRelation,
+	type HostSelection,
 	isSpan,
 	type HostSide,
 	isDrawn,
+	isResidual,
 	selected
 } from "#test/pg/laws/families/model.ts"
 import { textDomain } from "#test/support/worlds/model/text.ts"
@@ -1190,15 +1194,11 @@ const keyed = (base: BaseSpec, side: SideSpec): boolean =>
 const isSelected = (side: SideSpec): boolean => Rec.keys(side.where).length > 0
 
 /**
- * Whether a declared law is a capacity the law model specializes to a unique index on its source (laws/model/plan.ts):
- * a count bounded above by one over an unselected target, bounded below by a literal.
+ * A spec side's selection as the host law model reads it: every fact, or the facts whose fields hold its selector's
+ * values.
  */
-export const atMostOne = (law: LawSpec): boolean =>
-	law.kind === "capacity" &&
-	law.weight.kind === "count" &&
-	law.high === 1n &&
-	!isSelected(law.target) &&
-	typeof law.low === "bigint"
+export const selectionOf = (side: SideSpec): HostSelection =>
+	isSelected(side) ? fieldsEqual(side.where) : everyFact
 
 const hostRelation = (names: InstalledNames, relation: RelationSpec): HostRelation => {
 	const columns = required(own(names.columns, relation.name), `the columns of ${relation.name}`)
@@ -1231,7 +1231,7 @@ const primaryKeyLawAs = (law: LawId, relation: RelationSpec): HostLaw => {
 		throw new Error(`the primary key of ${relation.name} holds two spans, which no law states`)
 	}
 	return span === undefined
-		? { kind: "key", law, relation: relation.name, fields: relation.key }
+		? { kind: "key", law, relation: relation.name, fields: relation.key, selection: everyFact }
 		: {
 				kind: "spanKey",
 				law,
@@ -1264,24 +1264,8 @@ const predicateHolds = (predicate: RowPredicate, fact: HostFact): boolean => {
 const sideOf = (spec: SideSpec): HostSide => ({
 	relation: spec.relation,
 	fields: spec.fields,
-	where: spec.where
+	selection: selectionOf(spec)
 })
-
-/**
- * One half of a mirrors law, its source into its target: a foreign key where the target's fields hold a declared key
- * (residual when the source is selected, a selected-source containment), an obligation of the source on the target
- * otherwise.
- */
-const mirrorsHalf = (base: BaseSpec, law: LawId, source: SideSpec, target: SideSpec): HostLaw =>
-	keyed(base, target)
-		? {
-				kind: "contained",
-				law,
-				source: sideOf(source),
-				target: sideOf(target),
-				residual: isSelected(source)
-			}
-		: { kind: "obliged", law, anchor: sideOf(source), dependent: sideOf(target) }
 
 /** A containment into a closed roster: a row check that each selected source fact's value is a member. */
 const rosterCheck = (
@@ -1303,13 +1287,17 @@ const rosterCheck = (
 		holds: (fact) => {
 			const value = factOf(fact, field)
 			return (
-				!selected(fact, source.where) ||
+				!selected(fact, selectionOf(source)) ||
 				(typeof value === "string" && Arr.contains(closed.members, value))
 			)
 		}
 	}
 }
 
+/**
+ * A containment: a foreign key, MATCH SIMPLE over a selected source's law columns, which are null outside its
+ * selection; or a row check into a closed roster.
+ */
 const containedLaws = (base: BaseSpec, law: LawId, source: SideSpec, target: SideSpec): HostLaw => {
 	const closed = named(base.closed, target.relation)
 	return closed === undefined
@@ -1317,8 +1305,7 @@ const containedLaws = (base: BaseSpec, law: LawId, source: SideSpec, target: Sid
 				kind: "contained",
 				law,
 				source: sideOf(source),
-				target: sideOf(target),
-				residual: isSelected(source)
+				target: sideOf(target)
 			}
 		: rosterCheck(law, closed, source, target)
 }
@@ -1326,8 +1313,8 @@ const containedLaws = (base: BaseSpec, law: LawId, source: SideSpec, target: Sid
 /**
  * An alternatives law over the parent relation: for each armed handle, the arm's foreign key from its primary key into
  * the parent's facts standing at the handle, under the handle's law, and the parent's obligation there to have its arm
- * fact, every obligation under the one reverse law. The head, the tag's containment in the roster, is the
- * tag's enum: no handle-valued fact breaks it, so the host states no law for it.
+ * fact, every obligation under the one reverse law. The tag's containment in the roster is its closedId field's type,
+ * no law.
  */
 const alternativesLaws = (
 	base: BaseSpec,
@@ -1340,9 +1327,9 @@ const alternativesLaws = (
 		const standing: HostSide = {
 			relation: parent.name,
 			fields: parent.key,
-			where: { [law.tag]: handle }
+			selection: fieldsEqual({ [law.tag]: handle })
 		}
-		const armSide: HostSide = { relation: arm.name, fields: arm.key, where: {} }
+		const armSide: HostSide = { relation: arm.name, fields: arm.key, selection: everyFact }
 		return [
 			{
 				kind: "contained",
@@ -1351,8 +1338,7 @@ const alternativesLaws = (
 					`the ${handle} arm's law of the alternatives over ${law.relation}`
 				),
 				source: armSide,
-				target: standing,
-				residual: false
+				target: standing
 			},
 			{ kind: "obliged", law: ids.reverse, anchor: standing, dependent: armSide }
 		]
@@ -1360,13 +1346,9 @@ const alternativesLaws = (
 }
 
 /**
- * A capacity law as PostgreSQL enforces it. A count of at most one over an unselected target, its lower bound a literal
- * no count falls below, is a unique index on its source's fields, partial with the source's selector (laws/model/plan.ts):
- * an immediate unique law, met at the statement as 23505, which holds apart two source facts of one group whether or
- * not a target fact names it. Every other capacity the worlds bases declare is residual, judged by the host law model.
- * The law model specializes two more shapes, a capacity of a relation over itself on one of its keys (a row check) and
- * a count of at most one with a lower bound some group can break (the index beside a residual law of that bound), which
- * no worlds base declares and no generator draws: a base declaring one is a defect of the base.
+ * A capacity law as PostgreSQL enforces it: residual, judged by the host law model, an at-most-one count among them.
+ * The law model specializes one shape, a capacity of a relation over itself on one of its keys (a row check), which no
+ * worlds base declares and no generator draws: a base declaring one is a defect of the base.
  */
 const capacityLaw = (
 	base: BaseSpec,
@@ -1382,20 +1364,6 @@ const capacityLaw = (
 			`the capacity over ${spec.target.relation} is a row check, which no worlds base declares`
 		)
 	}
-	if (atMostOne(spec)) {
-		if (typeof spec.low !== "bigint" || spec.low > 0n) {
-			throw new Error(
-				`the capacity over ${spec.target.relation} bounds a group below, which no worlds base declares`
-			)
-		}
-		return {
-			kind: "unique",
-			law,
-			relation: spec.source.relation,
-			fields: spec.source.fields,
-			where: spec.source.where
-		}
-	}
 	return {
 		kind: "capacity",
 		law,
@@ -1409,21 +1377,12 @@ const capacityLaw = (
 
 /** A law of one identity: its identity, when the installation gave the law of `kind` one. */
 const singleLaw = (ids: LawIds, kind: LawSpec["kind"]): LawId => {
-	if (ids.kind === "mirrors" || ids.kind === "alternatives" || ids.kind !== kind) {
+	if (ids.kind === "alternatives" || ids.kind !== kind) {
 		throw new Error(
 			`the installation names a ${ids.kind} law where the base declares a ${kind} law`
 		)
 	}
 	return ids.law
-}
-
-const mirrorsIds = (ids: LawIds): Extract<LawIds, { readonly kind: "mirrors" }> => {
-	if (ids.kind !== "mirrors") {
-		throw new Error(
-			`the installation names a ${ids.kind} law where the base declares a mirrors law`
-		)
-	}
-	return ids
 }
 
 const alternativesIds = (ids: LawIds): Extract<LawIds, { readonly kind: "alternatives" }> => {
@@ -1440,7 +1399,13 @@ const hostLaws = (base: BaseSpec, law: LawSpec, ids: LawIds): ReadonlyArray<Host
 	switch (law.kind) {
 		case "key":
 			return [
-				{ kind: "key", law: singleLaw(ids, law.kind), relation: law.relation, fields: law.fields }
+				{
+					kind: "key",
+					law: singleLaw(ids, law.kind),
+					relation: law.relation,
+					fields: law.fields,
+					selection: everyFact
+				}
 			]
 		case "spanKey":
 			return [
@@ -1463,13 +1428,6 @@ const hostLaws = (base: BaseSpec, law: LawSpec, ids: LawIds): ReadonlyArray<Host
 			]
 		case "contained":
 			return [containedLaws(base, singleLaw(ids, law.kind), law.source, law.target)]
-		case "mirrors": {
-			const halves = mirrorsIds(ids)
-			return [
-				mirrorsHalf(base, halves.leftToRight, law.left, law.right),
-				mirrorsHalf(base, halves.rightToLeft, law.right, law.left)
-			]
-		}
 		case "covered":
 			return [
 				{
@@ -1491,11 +1449,10 @@ const hostLaws = (base: BaseSpec, law: LawSpec, ids: LawIds): ReadonlyArray<Host
 /**
  * A base as the host law model reads it, under an installation's names: its ordinary relations with their tables,
  * columns and primary keys; each primary key's law; and each declared law as the law model lowers it, under the law
- * identities of InstalledNames.laws, each of its law's kind. A containment or a coverage is residual exactly when its
- * source is selected; a
- * containment into a closed roster is a row check; a mirrors law is its two halves (mirrorsHalf); an alternatives law
- * its arms' foreign keys and obligations (alternativesLaws); an at-most-one capacity is a unique index on its source,
- * and every other capacity residual (capacityLaw).
+ * identities of InstalledNames.laws, each of its law's kind. A containment is a foreign key, a selected source's over
+ * its law columns, and one into a closed roster a row check (containedLaws); a coverage is residual exactly when its
+ * source is selected; an alternatives law is its arms' foreign keys and obligations (alternativesLaws); and a capacity is
+ * residual (capacityLaw).
  */
 export const hostSchemaOf = (base: BaseSpec, names: InstalledNames): HostSchema => ({
 	relations: Arr.map(base.relations, (r) => hostRelation(names, r)),
@@ -1520,19 +1477,12 @@ const judgedLabel = (place: string): LawId =>
 		})
 	)
 
-/** A declared law's identities as judgedSchemaOf labels them: one, a mirrors law's two, an alternatives law's per arm. */
+/** A declared law's identities as judgedSchemaOf labels them: one, or an alternatives law's per arm. */
 const judgedIds = (law: LawSpec, i: number): LawIds => {
 	switch (law.kind) {
-		case "mirrors":
-			return {
-				kind: "mirrors",
-				leftToRight: judgedLabel(`${i} left to right`),
-				rightToLeft: judgedLabel(`${i} right to left`)
-			}
 		case "alternatives":
 			return {
 				kind: "alternatives",
-				head: judgedLabel(`${i} head`),
 				arms: Rec.fromEntries(
 					Arr.map(
 						Rec.keys(law.arms),
@@ -1550,6 +1500,13 @@ const judgedIds = (law: LawSpec, i: number): LawIds => {
 			return { kind: law.kind, law: judgedLabel(String(i)) }
 	}
 }
+
+/**
+ * Whether PostgreSQL enforces a declared law with native objects alone: no host law it lowers to (hostLaws) is residual.
+ * The one classifier of a law's enforcement, which a migration's folder reads as well (session/migrate.ts folderFiles).
+ */
+export const nativeLaw = (base: BaseSpec, law: LawSpec): boolean =>
+	!Arr.some(hostLaws(base, law, judgedIds(law, 0)), isResidual)
 
 /**
  * A base as the host law model reads it before an installation names it: each table and column under its declared
@@ -1582,10 +1539,10 @@ export interface ForeignKeyOf {
 }
 
 /**
- * The foreign keys of one declared law as hostSchemaOf lowers it, with no identity: a containment's, a mirrors half's
- * into a keyed side, and each alternatives arm's into its parent standing at its handle, from an unselected source into
- * a relation that is no closed roster (a plain foreign key, or a tagged one into a selected target); and a coverage's
- * from an unselected source (a PERIOD foreign key).
+ * The foreign keys of one declared law as hostSchemaOf lowers it, with no identity: a containment's, and each
+ * alternatives arm's into its parent standing at its handle, into a relation that is no closed roster (a plain foreign
+ * key, from a selected source's law columns, or beside a selected target's constant column); and a coverage's from an
+ * unselected source (a PERIOD foreign key).
  */
 const lawForeignKeys = (
 	base: BaseSpec,
@@ -1596,17 +1553,12 @@ const lawForeignKeys = (
 	readonly target: SideSpec
 }> => {
 	const into = (source: SideSpec, target: SideSpec) =>
-		isSelected(source) || named(base.closed, target.relation) !== undefined
+		named(base.closed, target.relation) !== undefined
 			? []
 			: [{ kind: "containment" as const, source, target }]
 	switch (law.kind) {
 		case "contained":
 			return into(law.source, law.target)
-		case "mirrors":
-			return [
-				...(keyed(base, law.right) ? into(law.left, law.right) : []),
-				...(keyed(base, law.left) ? into(law.right, law.left) : [])
-			]
 		case "covered":
 			return isSelected(law.source)
 				? []

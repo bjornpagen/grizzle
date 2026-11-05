@@ -1785,11 +1785,23 @@ class StatementAuditor {
 			this.type(column.type)
 		})
 		this.collatable(column.type, column.collation, "column")
-		if (column.generated?.kind === "identity") {
-			this.objectName(column.generated.sequence, "sequence", "generated")
+		const generated = column.generated
+		if (generated === undefined) {
+			return
 		}
-		if (column.generated?.kind === "stored") {
-			this.ddlExpr(column.generated.expr, tableColumns, "generated")
+		switch (generated.kind) {
+			case "identity":
+				this.objectName(generated.sequence, "sequence", "generated")
+				return
+			case "stored":
+				this.ddlExpr(generated.expr, tableColumns, "generated")
+				return
+			case "partial":
+				this.at("generated", () => {
+					this.ddlExpr(generated.when, tableColumns, "when")
+					this.ddlExpr(generated.expr, tableColumns, "expr")
+				})
+				return
 		}
 	}
 
@@ -3100,11 +3112,16 @@ const parenDepths = (tokens: ReadonlyArray<Token>): ReadonlyArray<number> => {
 	return depths
 }
 
-/** An open CASE: a PL/pgSQL CASE statement or a CASE expression, whether its ELSE was met, and where it starts. */
+/**
+ * An open CASE: a PL/pgSQL CASE statement or a CASE expression, whether its ELSE was met, where it starts, whether it
+ * opens a column's generation `GENERATED ALWAYS AS (CASE`, and how many WHENs it has met.
+ */
 interface CaseFrame {
 	readonly statement: boolean
 	readonly elseSeen: boolean
 	readonly start: number
+	readonly generation: boolean
+	readonly whens: number
 }
 
 /** The CASEs open at a token, innermost last; each statement starts with none. */
@@ -3286,7 +3303,9 @@ class TextAuditor {
 	 *
 	 * The CASE of END CASE closes a statement; it opens nothing.
 	 *
-	 * A CASE expression without ELSE yields NULL when no branch matches.
+	 * A CASE expression without ELSE yields NULL when no branch matches. The one CASE without ELSE is a law column's
+	 * guarded term, `GENERATED ALWAYS AS (CASE WHEN φ THEN t END) STORED`, whose NULL outside φ is the column's
+	 * design: a key over it holds apart only the rows φ selects, and a reference out of it binds only those.
 	 */
 	word(
 		tokens: ReadonlyArray<Token>,
@@ -3380,8 +3399,25 @@ class TextAuditor {
 					(prev === undefined ||
 						isPunct(prev, ";") ||
 						(prev.kind === "word" && statementStarters.has(prev.upper)))
-				return Arr.append(cases, { statement, elseSeen: false, start: t.start })
+				const generation =
+					isPunct(prev, "(") &&
+					isWord(tokens[i - 2], "AS") &&
+					isWord(tokens[i - 3], "ALWAYS") &&
+					isWord(tokens[i - 4], "GENERATED")
+				return Arr.append(cases, {
+					statement,
+					elseSeen: false,
+					start: t.start,
+					generation,
+					whens: 0
+				})
 			}
+			case "WHEN":
+				return Arr.matchRight(cases, {
+					onEmpty: () => cases,
+					onNonEmpty: (outer, top) =>
+						top.statement ? cases : Arr.append(outer, { ...top, whens: top.whens + 1 })
+				})
 			case "ELSE":
 				return Arr.matchRight(cases, {
 					onEmpty: () => cases,
@@ -3395,7 +3431,12 @@ class TextAuditor {
 						if (top.statement) {
 							return isWord(next, "CASE") ? outer : cases
 						}
-						if (!top.elseSeen) {
+						const guardedTerm =
+							top.generation &&
+							top.whens === 1 &&
+							isPunct(next, ")") &&
+							isWord(tokens[i + 2], "STORED")
+						if (!top.elseSeen && !guardedTerm) {
 							this.report("caseWithoutElse", top.start, "a CASE expression without ELSE")
 						}
 						return outer

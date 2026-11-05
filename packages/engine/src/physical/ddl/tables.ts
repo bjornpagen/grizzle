@@ -5,29 +5,29 @@ import type { ConstraintName, IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
-	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type FieldValue,
 	fieldNames,
 	type LawField,
+	type LawRelation,
+	type NativeColumn,
 	type NativeObject,
 	type NativeOf,
-	type Selector,
 	type SpanField
 } from "#compiler/ir/law.ts"
-import { allRows, type IndexRows } from "#compiler/ir/products.ts"
+import type { IndexRows } from "#compiler/ir/products.ts"
 import { type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, persistentLiteral } from "#compiler/physical/ddl/expr.ts"
 import { addIsolationTrigger } from "#compiler/physical/ddl/isolation.ts"
-import { columnType } from "#compiler/physical/ddl/names.ts"
+import { type ColumnType, columnType, lawColumnType } from "#compiler/physical/ddl/names.ts"
 import {
 	enforcement,
 	lawReasons,
@@ -37,7 +37,7 @@ import {
 import { addVectorNorms, isVectorType, vectorNorms } from "#compiler/physical/vector/storage.ts"
 import type {
 	ColumnDef,
-	CreateIndex,
+	ColumnGeneration,
 	Expr,
 	ObjectName,
 	ForeignKey,
@@ -47,7 +47,7 @@ import type {
 	PrimaryKey,
 	TableConstraint
 } from "#compiler/sql/ast.ts"
-import { and, columnKey, eq, or, tableCol } from "#compiler/sql/build.ts"
+import { and, eq, or, tableCol } from "#compiler/sql/build.ts"
 
 type Native<K extends NativeObject["kind"]> = Extract<NativeObject, { readonly kind: K }>
 
@@ -111,8 +111,12 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 
 /** The enum or domain of the installed schema a column of type `t` is typed by, which the column's object is created
  * after; none for any other type. */
-const typeNodes = (b: InstallBuilder, t: ScalarType): ReadonlyArray<Node<"setup">> => {
-	const node = b.typeNode(columnType(b.names, t).type)
+const typeNodes = (b: InstallBuilder, t: ScalarType): ReadonlyArray<Node<"setup">> =>
+	typeNodeOf(b, columnType(b.names, t))
+
+/** The enum or domain of the installed schema a column type names; none for any other type. */
+const typeNodeOf = (b: InstallBuilder, t: ColumnType): ReadonlyArray<Node<"setup">> => {
+	const node = b.typeNode(t.type)
 	return node === undefined ? [] : [node]
 }
 
@@ -144,37 +148,45 @@ const periodKeyColumns = (
 		{ column: b.names.column(relation, span), withoutOverlaps: true }
 	)
 
-const fkColumns = (
+/** The installed column a native object reads on `relation`'s table: a field's column, or a law column's own
+ * identifier. */
+const nativeColumn = (b: InstallBuilder, relation: string, c: NativeColumn): string =>
+	c.kind === "field" ? b.names.column(relation, c.field.name) : c.column
+
+/**
+ * The name a key index and an index request give a native object's column: a field's name, or a law column's
+ * identifier. Like every name grizzle derives, a law column's identifier starts with `__`, which no declared name does,
+ * so the two never meet in one relation.
+ */
+export const indexedName = (c: NativeColumn): string =>
+	c.kind === "field" ? c.field.name : c.column
+
+/** The names a key index and an index request give native columns, in their order (`indexedName`). */
+const indexedNames = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>
+	columns.map(indexedName)
+
+/** The law columns among native columns, by identifier: the columns a key or reference over them is created after. */
+const lawColumnsAmong = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>
+	columns.flatMap((c) => (c.kind === "law" ? [c.column] : []))
+
+/** A foreign key's columns on `relation`, each a field's or a law column's (`nativeColumn`). */
+const nativeFkColumns = (
 	b: InstallBuilder,
 	relation: string,
-	columns: NonEmptyReadonlyArray<string>,
-	/** The columns after the fields: a selector's tag. */
-	extra: ReadonlyArray<ForeignKeyColumn>
+	columns: NonEmptyReadonlyArray<NativeColumn>
 ): NonEmptyReadonlyArray<ForeignKeyColumn> =>
-	extendNonEmpty(
-		mapNonEmpty(columns, (f): ForeignKeyColumn => ({
-			column: b.names.column(relation, f),
-			period: false
-		})),
-		extra
-	)
+	mapNonEmpty(columns, (c) => ({ column: nativeColumn(b, relation, c), period: false }))
 
-/** A period foreign key's columns: its scalar fields, then the columns after them (a selector's tag), its span last. */
+/** A period foreign key's columns: its scalar columns, each a field's or a law column's (`nativeColumn`), its span
+ * last. */
 const periodFkColumns = (
 	b: InstallBuilder,
 	relation: string,
-	fields: ReadonlyArray<LawField>,
-	extra: ReadonlyArray<ForeignKeyColumn>,
+	columns: ReadonlyArray<NativeColumn>,
 	span: SpanField
 ): NonEmptyReadonlyArray<ForeignKeyColumn> =>
 	appendNonEmpty(
-		[
-			...fields.map((f): ForeignKeyColumn => ({
-				column: b.names.column(relation, f.name),
-				period: false
-			})),
-			...extra
-		],
+		columns.map((c): ForeignKeyColumn => ({ column: nativeColumn(b, relation, c), period: false })),
 		{ column: b.names.column(relation, span.name), period: true }
 	)
 
@@ -186,9 +198,8 @@ interface TypedSelector {
 }
 
 /** A literal selection as a partial index's WHERE: a persistent predicate over the row's own columns, base-typed, each
- * selector an equality in the selection's order. A capacity's partial unique index and a selected-source probe's
- * partial index spell one selection alike, so PostgreSQL finds the predicate of either implied by the probe of the
- * other's law. */
+ * selector an equality in the selection's order, as the selected probe of the law it serves spells it, so PostgreSQL
+ * finds the index's predicate implied by the probe. */
 const selectionPredicate = (
 	b: InstallBuilder,
 	relation: string,
@@ -219,10 +230,6 @@ export const rowsPredicate = (
 					value: w.value
 				}))
 			)
-
-/** The rows a partial unique index's selection chooses: every row for none. */
-const rowsOfWhere = (where: ReadonlyArray<Selector>): IndexRows =>
-	isNonEmpty(where) ? { kind: "selected", selection: where } : allRows
 
 /** The predicate of a finite closed-facts containment: membership of the row's projection in the facts, `c IN (...)`
  * for one column and a disjunction of conjunctions for several, never independent per-column lists. */
@@ -265,8 +272,9 @@ const declareInline = (inline: Inline, relation: string, constraint: InlineConst
 }
 
 /** A key or CHECK native before its table stands: the constraint its table's CREATE TABLE declares inline, whose own
- * object carries no statement, only its reasons and its place in the order; or a capacity's partial unique index, its
- * own object in Indexes. A key's index joins the key indexes once its object is added. A span key's exclusion
+ * object carries no statement, only its reasons and its place in the order; or a key over a column a law adds (a law
+ * column, an alternatives parent's arm tag), its own ALTER TABLE ... ADD CONSTRAINT after the columns, which an inline
+ * key could not name (42703). A key's index joins the key indexes once its object is added. A span key's exclusion
  * constraint is a unique key's object, and one with a scalar component needs btree_gist. */
 type NativePlan =
 	| {
@@ -280,23 +288,14 @@ type NativePlan =
 			readonly gist: boolean
 	  }
 	| {
-			readonly kind: "partialUnique"
-			readonly relation: string
-			readonly named: Identity<IdentityKind>
-			readonly index: CreateIndex
-			readonly laws: ReadonlyArray<LawId>
-			readonly key: KeyShape
-	  }
-	| {
-			readonly kind: "armUnique"
+			readonly kind: "ownUnique"
 			readonly relation: string
 			readonly named: Identity<IdentityKind>
 			readonly constraint: Extract<TableConstraint, { readonly kind: "unique" }>
 			readonly laws: ReadonlyArray<LawId>
-			/** The key the arms' foreign keys reference, which serves no index request: its arm tag is no field. */
 			readonly key: KeyShape
-			/** The arm tag column it holds, which its table adds after its CREATE TABLE. */
-			readonly tag: string
+			/** The columns a law adds that it holds, which its table adds after its CREATE TABLE. */
+			readonly lawColumns: NonEmptyReadonlyArray<string>
 	  }
 
 /** A key index before its object is added. */
@@ -351,46 +350,45 @@ interface PlacedNatives {
 	readonly sequences: ReadonlyArray<ObjectName>
 }
 
+/** A key's index, which holds every row: one whose column is null holds it too, under NULLS DISTINCT. */
 export interface KeyIndex {
-	readonly object: Node<"structure" | "indexes">
+	readonly object: Node<"structure">
 	readonly name: ConstraintName
 	readonly relation: string
 	readonly method: "btree" | "gist"
-	/** Field names, in index column order. */
+	/** Its columns' names (`indexedName`), in index column order. */
 	readonly columns: ReadonlyArray<string>
-	/** The rows it holds: a partial index's, the ones its selection chooses. */
-	readonly rows: IndexRows
 	readonly unique: true
 }
 
-/** Every stored relation's table, then every native object of the law model on it: tags, keys, checks, references
- * and partial unique indexes.
+/** Every stored relation's table, then every native object of the law model on it: law columns, keys, checks and
+ * references.
  *
  * - A stored relation is `CREATE TABLE <schema>.<table> (...)` with its fields in declared order, every column NOT
  *   NULL. A wildcard text column names pg_catalog.pg_c_utf8; a refined column is typed by its domain,
  *   which carries that collation. A serial field is `GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME
  *   <schema>.<table>_<col>_seq)`, its sequence owned by the column.
- * - A selected target's constant tag, added before every reference because a reference names it, is a private STORED generated column, `__<selector>` of the selector's type, its
- *   value the selected literal: `GENERATED ALWAYS AS ('Automatic'::work.kind) STORED NOT NULL`, the keyword STORED
- *   always emitted, since PostgreSQL defaults to VIRTUAL, which cannot carry an FK. It is
- *   its own object, `ALTER TABLE ... ADD COLUMN`, with the reasons of the law that needs it.
+ * - A law column, added before every key and reference because they name it, is a private STORED generated column of
+ *   its type's base (`lawColumnType`), the keyword STORED always emitted, since PostgreSQL defaults to VIRTUAL, which
+ *   no key or reference can name. A constant, which a constant selection of a target places on its source, is
+ *   `GENERATED ALWAYS AS (<literal>) STORED NOT NULL`. A partial term, a selected side's term or a pred term, is
+ *   `GENERATED ALWAYS AS (CASE WHEN <φ> THEN <t> END) STORED`, null outside φ, so a key over it holds only the
+ *   selected rows and a reference out of it binds only them. Each is its own object, `ALTER TABLE ... ADD COLUMN`, with
+ *   the reasons of the laws that need it.
  * - An alternatives parent with an arm relation of several handles has an arm tag, such a column of its
- *   discriminator's type computed from the discriminator (`tagGeneration`), and its UNIQUE over the parent's key and the
- *   arm tag is its own object after it, `ALTER TABLE ... ADD CONSTRAINT`, which the arms' foreign keys reference: the
- *   column is added after the table, which an inline key could not name (42703).
- * - Every native constraint is its own object with its own law reasons. The row-local ones are declared
- *   inline by the table's CREATE TABLE, as a hand-written table declares them, so their objects carry
+ *   discriminator's type computed from the discriminator (`lawColumnGeneration`).
+ * - Every native constraint is its own object with its own law reasons. The row-local ones over fields alone are
+ *   declared inline by the table's CREATE TABLE, as a hand-written table declares them, so their objects carry
  *   no statement of their own: the primary key `<table>__pk`, each candidate key and generated unique
- *   `<table>__key__<cols>`, a span key with its span last WITHOUT OVERLAPS or, when the span is its
- *   only field, `EXCLUDE USING gist (<span> WITH &&)` under the key's name (PostgreSQL requires a column before the span
- *   of WITHOUT OVERLAPS, 42601; the exclusion constraint raises the same 23P01, needs no btree_gist, and its GiST index
- *   serves the span key's lookups), each row CHECK and each
- *   specialized CHECK (finite membership, conditional closed facts, a capacity's own-row bound), wrapped in IS TRUE by
- *   the printer. The references follow every table as `ALTER TABLE ... ADD CONSTRAINT`: a plain foreign key, immediate
- *   or DEFERRABLE INITIALLY DEFERRED as the law model decides, a tagged foreign key over the tag and a generated
- *   composite unique, and a PERIOD foreign key, so cyclic foreign keys need no order between tables.
- * - A capacity's at-most-one partial unique index is an enforcement object, created in the
- *   index phase beside the other indexes.
+ *   `<table>__key__<cols>`, always `UNIQUE NULLS DISTINCT`, a span key with its span last WITHOUT OVERLAPS or, when the
+ *   span is its only field, `EXCLUDE USING gist (<span> WITH &&)` under the key's name (PostgreSQL requires a column
+ *   before the span of WITHOUT OVERLAPS, 42601; the exclusion constraint raises the same 23P01, needs no btree_gist, and
+ *   its GiST index serves the span key's lookups), each row CHECK and each specialized CHECK (finite membership,
+ *   conditional closed facts, a capacity's own-row bound), wrapped in IS TRUE by the printer. A key over a column a law
+ *   adds is its own `ALTER TABLE ... ADD CONSTRAINT` after those columns, which an inline key could not name (42703).
+ *   The references follow every table as `ALTER TABLE ... ADD CONSTRAINT`: a foreign key `MATCH SIMPLE` into a
+ *   non-deferrable key over exactly its referenced columns, immediate or DEFERRABLE INITIALLY DEFERRED as the law model
+ *   decides, and a PERIOD foreign key, so cyclic foreign keys need no order between tables.
  *
  * The deferral rule is the law model's; the names are the law model's and ownership's; this module only spells them.
  * Each vector column also carries its cosine-domain CHECK (`vectorNorms`). Every table is added before the objects on
@@ -469,55 +467,70 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 		plans.push({ kind: "inline", relation, named, object: "primaryKey", laws, key, gist })
 	}
 	for (const n of b.natives) {
-		if (n.namespace !== "constraint" && n.namespace !== "index") {
+		if (n.namespace !== "constraint") {
 			continue
 		}
 		const o = n.object
 		const named = n.named
 		const name = identifierOf(n.named)
-		const keyShape = (
-			method: "btree" | "gist",
-			columns: ReadonlyArray<string>,
-			rows: IndexRows
-		): KeyShape => ({ name, relation: o.relation.name, method, columns, rows, unique: true })
+		const keyShape = (method: "btree" | "gist", columns: ReadonlyArray<string>): KeyShape => ({
+			name,
+			relation: o.relation.name,
+			method,
+			columns,
+			unique: true
+		})
+		/** A key over the columns `columns`, some of which a law adds (`lawColumns`), created after those. */
+		const ownUnique = (
+			columns: NonEmptyReadonlyArray<string>,
+			names: ReadonlyArray<string>,
+			lawColumns: NonEmptyReadonlyArray<string>
+		): void => {
+			plans.push({
+				kind: "ownUnique",
+				relation: o.relation.name,
+				named,
+				constraint: {
+					kind: "unique",
+					name,
+					columns: mapNonEmpty(columns, (column) => ({ column, withoutOverlaps: false }))
+				},
+				laws: o.lawIds,
+				key: keyShape("btree", names),
+				lawColumns
+			})
+		}
 		switch (o.kind) {
 			case "PrimaryKey":
 				declarePrimary(
 					o.relation.name,
 					named,
 					o.lawIds,
-					keyShape("btree", fieldNames(o.columns), allRows),
+					keyShape("btree", fieldNames(o.columns)),
 					false
 				)
 				continue
-			case "Unique":
+			case "Unique": {
+				const columns = mapNonEmpty(o.columns, (c) => nativeColumn(b, o.relation.name, c))
+				const lawColumns = lawColumnsAmong(o.columns)
+				if (isNonEmpty(lawColumns)) {
+					ownUnique(columns, indexedNames(o.columns), lawColumns)
+					continue
+				}
 				declare(
 					o.relation.name,
 					named,
-					{ kind: "unique", name, columns: keyColumns(b, o.relation.name, keyNames(o.columns)) },
+					{
+						kind: "unique",
+						name,
+						columns: mapNonEmpty(columns, (column) => ({ column, withoutOverlaps: false }))
+					},
 					o.lawIds,
-					keyShape("btree", fieldNames(o.columns), allRows),
+					keyShape("btree", indexedNames(o.columns)),
 					false
 				)
 				continue
-			case "ArmUnique":
-				plans.push({
-					kind: "armUnique",
-					relation: o.relation.name,
-					named,
-					constraint: {
-						kind: "unique",
-						name,
-						columns: appendNonEmpty(keyColumns(b, o.relation.name, keyNames(o.columns)), {
-							column: o.tag,
-							withoutOverlaps: false
-						})
-					},
-					laws: o.lawIds,
-					key: keyShape("btree", [...fieldNames(o.columns), o.tag], allRows),
-					tag: o.tag
-				})
-				continue
+			}
 			case "WithoutOverlaps":
 			case "TemporalUnique": {
 				/** A span key's scalar fields; a temporal unique's columns, beside its span. */
@@ -533,12 +546,12 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 							elements: [{ column: b.names.column(o.relation.name, o.span.name), operator: "&&" }]
 						},
 						o.lawIds,
-						keyShape("gist", [o.span.name], allRows),
+						keyShape("gist", [o.span.name]),
 						false
 					)
 					continue
 				}
-				const key = keyShape("gist", [...scalars, o.span.name], allRows)
+				const key = keyShape("gist", [...scalars, o.span.name])
 				const gist = o.relation.fields.some(
 					(f) => scalars.includes(f.name) && spanOf(f.type) === undefined
 				)
@@ -560,24 +573,20 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 				)
 				continue
 			}
-			case "TableCheck": {
-				const predicate = lowerPersistent(b.names, o.predicate, {
-					reads: {
-						kind: "row",
-						column: (ref) => o.relation.fields.find((f) => f.name === ref.name)?.column
-					},
-					loc: SourceLoc(`check ${name}`, [])
-				})
+			case "TableCheck":
 				declare(
 					o.relation.name,
 					named,
-					{ kind: "check", name, predicate },
+					{
+						kind: "check",
+						name,
+						predicate: lowerRow(b, o.relation, o.predicate, `check ${name}`)
+					},
 					o.lawIds,
 					undefined,
 					false
 				)
 				continue
-			}
 			case "FiniteCheck":
 				declare(
 					o.relation.name,
@@ -588,100 +597,71 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 					false
 				)
 				continue
-			case "PartialUnique": {
-				const rows = rowsOfWhere(o.where.map((w) => ({ column: w.field.name, value: w.value })))
-				const where = isNonEmpty(o.where)
-					? selectionPredicate(
-							b,
-							o.relation.name,
-							mapNonEmpty(o.where, (w) => ({
-								column: w.field.name,
-								type: w.field.type,
-								value: w.value
-							}))
-						)
-					: undefined
-				plans.push({
-					kind: "partialUnique",
-					relation: o.relation.name,
-					named,
-					index: {
-						kind: "createIndex",
-						name,
-						table: b.names.relation(o.relation.name),
-						unique: true,
-						concurrently: false,
-						method: "btree",
-						keys: mapNonEmpty(o.columns, (f) => columnKey(b.names.column(o.relation.name, f.name))),
-						include: [],
-						where
-					},
-					laws: o.lawIds,
-					key: keyShape("btree", fieldNames(o.columns), rows)
-				})
-				continue
-			}
 			case "ForeignKey":
-			case "TaggedForeignKey":
-			case "ArmForeignKey":
 			case "PeriodForeignKey":
-			case "TaggedPeriodForeignKey":
 				continue
 		}
 	}
 	return plans
 }
 
-/** The type and STORED generation of a tag column: a stored tag's constant, of its selector's type; or an alternatives
- * parent's arm tag, of its discriminator's type, `CASE <discriminator> WHEN <handle> THEN <tag> ... ELSE <discriminator>
- * END` over each handle another handle tags, every other handle its own tag. */
-const tagGeneration = (
+/** A row expression of `relation`'s own fields, a CHECK's predicate or a law column's selection or term, lowered as
+ * persistent SQL over the table's columns: a reference to anything else is refused as MalformedDescription. */
+const lowerRow = (
 	b: InstallBuilder,
-	o: NativeOf<"StoredTag" | "ArmTag">
-): { readonly type: ScalarType; readonly expr: Expr } => {
-	switch (o.kind) {
-		case "StoredTag":
-			return {
-				type: o.selector.field.type,
-				expr: persistentLiteral(b.names, o.value, o.selector.field.type)
-			}
-		case "ArmTag": {
-			const t = o.discriminator.type
-			const kind = tableCol(b.names.column(o.relation.name, o.discriminator.name))
-			const handle = (h: string): Expr => persistentLiteral(b.names, { kind: "enum", handle: h }, t)
-			return {
-				type: t,
-				expr: {
-					kind: "case",
-					operand: kind,
-					whens: mapNonEmpty(o.moved, (m) => ({ when: handle(m.handle), result: handle(m.tag) })),
-					else: kind
-				}
-			}
-		}
+	relation: LawRelation,
+	expr: ScalarExpr,
+	label: string
+): Expr =>
+	lowerPersistent(b.names, expr, {
+		reads: {
+			kind: "row",
+			column: (ref) => relation.fields.find((f) => f.name === ref.name)?.column
+		},
+		loc: SourceLoc(label, [])
+	})
+
+/** The column a law adds, before its table holds it: its column type, its field's type's base (`lawColumnType`), and
+ * its STORED generation: its term alone when its guard is empty, a total column, NOT NULL, and otherwise
+ * `CASE WHEN <every guard conjunct> THEN <term> END`, null where the guard fails, every expression lowered over the
+ * row's own fields. */
+const lawColumnGeneration = (
+	b: InstallBuilder,
+	o: NativeOf<"LawColumn">,
+	label: string
+): { readonly type: ColumnType; readonly generated: ColumnGeneration } => {
+	const expr = lowerRow(b, o.relation, o.value.term, label)
+	const guard = o.value.guard.map((g) => lowerRow(b, o.relation, g, label))
+	return {
+		type: lawColumnType(b.names, o.field.type),
+		generated: isNonEmpty(guard)
+			? { kind: "partial", when: guard.length === 1 ? guard[0] : and(guard), expr }
+			: { kind: "stored", expr }
 	}
 }
 
-/** The objects of the natives once every table stands: each stored tag and arm tag after its table and the type it
- * names; each key and CHECK after its table (a span key with a scalar component after btree_gist too); each partial
- * unique index after its table; each arm unique after its table's arm tag; then each reference, after its table, its
- * target's table and key index, and the tags it names. */
+/** The objects of the natives once every table stands: each law column after its table and the type it names; each key and CHECK after its table (a span key with a scalar component after btree_gist too); each key over a
+ * column a law adds after those columns; then each reference, after its table, its target's table and key, and the law
+ * columns it names. */
 const addNatives = (
 	b: InstallBuilder,
 	plans: ReadonlyArray<NativePlan>
 ): ReadonlyArray<KeyIndex> => {
-	const tags = new Map<string, Map<string, Node<"structure">>>()
+	const lawColumns = new Map<string, Map<string, Node<"structure">>>()
 	for (const n of b.natives) {
 		if (n.namespace !== "column") {
 			continue
 		}
 		const o = n.object
-		const { type: t, expr } = tagGeneration(b, o)
-		const { type, collation } = columnType(b.names, t)
-		const column = identifierOf(n.named)
-		const tag = b.add(
+		const column = o.column
+		const { type: columnOf, generated } = lawColumnGeneration(
+			b,
+			o,
+			`column ${column} of ${o.relation.name}`
+		)
+		const added = b.add(
 			{
-				kind: "storedTag",
+				kind: "lawColumn",
 				ident: {
 					kind: "column",
 					schema: b.settings.installation,
@@ -697,9 +677,9 @@ const addNatives = (
 								kind: "addColumn",
 								column: {
 									name: column,
-									type,
-									collation,
-									generated: { kind: "stored", expr }
+									type: columnOf.type,
+									collation: columnOf.collation,
+									generated
 								}
 							}
 						]
@@ -708,17 +688,21 @@ const addNatives = (
 				reasons: lawReasons(o.lawIds),
 				phase: "structure"
 			},
-			[b.table(o.relation.name), ...typeNodes(b, t)]
+			[b.table(o.relation.name), ...typeNodeOf(b, columnOf)]
 		)
-		tags.set(o.relation.name, new Map([...(tags.get(o.relation.name) ?? []), [column, tag]]))
+		lawColumns.set(
+			o.relation.name,
+			new Map([...(lawColumns.get(o.relation.name) ?? []), [column, added]])
+		)
 	}
-	const tagsOf = (
+	/** The objects of the law columns of `relation` among `columns`. */
+	const lawColumnsOf = (
 		relation: string,
 		columns: ReadonlyArray<string>
 	): ReadonlyArray<Node<"structure">> =>
 		columns.flatMap((c) => {
-			const tag = tags.get(relation)?.get(c)
-			return tag === undefined ? [] : [tag]
+			const added = lawColumns.get(relation)?.get(c)
+			return added === undefined ? [] : [added]
 		})
 	const keyIndexes: Array<KeyIndex> = []
 	/** The key constraints a reference can name, each with its object. */
@@ -742,21 +726,7 @@ const addNatives = (
 				}
 				continue
 			}
-			case "partialUnique": {
-				const object = b.add(
-					{
-						kind: "uniqueIndex",
-						ident: b.qualified("index", p.named),
-						ddl: [p.index],
-						reasons: lawReasons(p.laws),
-						phase: "indexes"
-					},
-					[b.table(p.relation)]
-				)
-				keyIndexes.push({ ...p.key, object })
-				continue
-			}
-			case "armUnique": {
+			case "ownUnique": {
 				const object = b.add(
 					{
 						kind: "unique",
@@ -771,14 +741,15 @@ const addNatives = (
 						reasons: lawReasons(p.laws),
 						phase: "structure"
 					},
-					[b.table(p.relation), ...tagsOf(p.relation, [p.tag])]
+					[b.table(p.relation), ...lawColumnsOf(p.relation, p.lawColumns)]
 				)
+				keyIndexes.push({ ...p.key, object })
 				keys.push({ shape: p.key, object })
 				continue
 			}
 		}
 	}
-	/** The references, after every table, key and tag: a reference's target key is a key constraint of its target. */
+	/** The key a reference into `columns` of `relation` names: one over exactly those columns, in any order. */
 	const keyObjectOf = (
 		relation: string,
 		columns: ReadonlyArray<string>,
@@ -789,7 +760,6 @@ const addNatives = (
 				({ shape: k }) =>
 					k.relation === relation &&
 					k.method === method &&
-					k.rows.kind === "all" &&
 					k.columns.length === columns.length &&
 					k.columns.every((c) => columns.includes(c))
 			)
@@ -810,71 +780,21 @@ const addNatives = (
 					{
 						kind: "foreignKey",
 						name,
-						columns: fkColumns(b, o.relation.name, keyNames(o.columns), []),
+						columns: nativeFkColumns(b, o.relation.name, o.columns),
 						references: b.names.relation(o.target.name),
-						referencedColumns: fkColumns(b, o.target.name, keyNames(o.targetColumns), []),
+						referencedColumns: nativeFkColumns(b, o.target.name, o.targetColumns),
 						deferrable: o.deferrable ? "INITIALLY DEFERRED" : undefined
 					},
 					o.lawIds,
 					[
 						b.table(o.target.name),
-						...keyObjectOf(o.target.name, fieldNames(o.targetColumns), "btree")
-					]
-				)
-				continue
-			case "TaggedForeignKey":
-				addReference(
-					b,
-					o.relation.name,
-					n.named,
-					{
-						kind: "foreignKey",
-						name,
-						columns: fkColumns(b, o.relation.name, keyNames(o.columns), [
-							{ column: o.tag, period: false }
-						]),
-						references: b.names.relation(o.target.name),
-						referencedColumns: fkColumns(b, o.target.name, keyNames(o.targetColumns), []),
-						deferrable: "INITIALLY DEFERRED"
-					},
-					o.lawIds,
-					[
-						b.table(o.target.name),
-						...keyObjectOf(o.target.name, fieldNames(o.targetColumns), "btree"),
-						...tagsOf(o.relation.name, [o.tag])
-					]
-				)
-				continue
-			case "ArmForeignKey":
-				addReference(
-					b,
-					o.relation.name,
-					n.named,
-					{
-						kind: "foreignKey",
-						name,
-						columns: fkColumns(b, o.relation.name, keyNames(o.columns), [
-							{ column: o.tag, period: false }
-						]),
-						references: b.names.relation(o.target.name),
-						referencedColumns: fkColumns(b, o.target.name, keyNames(o.targetColumns), [
-							{ column: o.targetTag, period: false }
-						]),
-						deferrable: "INITIALLY DEFERRED"
-					},
-					o.lawIds,
-					[
-						b.table(o.target.name),
-						...keyObjectOf(o.target.name, [...fieldNames(o.targetColumns), o.targetTag], "btree"),
-						...tagsOf(o.relation.name, [o.tag]),
-						...tagsOf(o.target.name, [o.targetTag])
+						...keyObjectOf(o.target.name, indexedNames(o.targetColumns), "btree"),
+						...lawColumnsOf(o.relation.name, lawColumnsAmong(o.columns)),
+						...lawColumnsOf(o.target.name, lawColumnsAmong(o.targetColumns))
 					]
 				)
 				continue
 			case "PeriodForeignKey":
-			case "TaggedPeriodForeignKey": {
-				/** A tagged reference's STORED tag column follows its scalar columns. */
-				const tagColumns = o.kind === "TaggedPeriodForeignKey" ? [o.tag] : []
 				addReference(
 					b,
 					o.relation.name,
@@ -882,15 +802,9 @@ const addNatives = (
 					{
 						kind: "foreignKey",
 						name,
-						columns: periodFkColumns(
-							b,
-							o.relation.name,
-							o.columns,
-							tagColumns.map((column) => ({ column, period: false })),
-							o.span
-						),
+						columns: periodFkColumns(b, o.relation.name, o.columns, o.span),
 						references: b.names.relation(o.target.name),
-						referencedColumns: periodFkColumns(b, o.target.name, o.targetColumns, [], o.targetSpan),
+						referencedColumns: periodFkColumns(b, o.target.name, o.targetColumns, o.targetSpan),
 						deferrable: "INITIALLY DEFERRED"
 					},
 					o.lawIds,
@@ -898,17 +812,16 @@ const addNatives = (
 						b.table(o.target.name),
 						...keyObjectOf(
 							o.target.name,
-							[...fieldNames(o.targetColumns), o.targetSpan.name],
+							[...indexedNames(o.targetColumns), o.targetSpan.name],
 							"gist"
 						),
-						...tagsOf(o.relation.name, tagColumns)
+						...lawColumnsOf(o.relation.name, lawColumnsAmong(o.columns)),
+						...lawColumnsOf(o.target.name, lawColumnsAmong(o.targetColumns))
 					]
 				)
 				continue
-			}
 			case "PrimaryKey":
 			case "Unique":
-			case "ArmUnique":
 			case "WithoutOverlaps":
 			case "TemporalUnique":
 			case "TableCheck":

@@ -174,7 +174,7 @@ type Statement =
 
 /**
  * What a failure names beside its SQLSTATE: one of the constraints a violation of the violated laws is raised under (a
- * key's, a foreign key's or a capacity's partial UNIQUE index, as the installation names them), the table the guard
+ * key's, a foreign key's or a projected key's UNIQUE, as the installation names them), the table the guard
  * refused a write to, or nothing the model judges.
  */
 type Named =
@@ -435,8 +435,8 @@ const identityOf = (relation: WRelation, fact: Fact): string =>
 	)
 
 /**
- * The constraints `fact` would violate entering `relation`'s facts `others`: its keys' and its capacities' partial
- * UNIQUE indexes.
+ * The constraints `fact` would violate entering `relation`'s facts `others`: its keys', and its projected keys'
+ * UNIQUEs over their selected sides' law columns.
  */
 const uniqueLaws = (
 	t: WriteTarget,
@@ -456,16 +456,16 @@ const uniqueLaws = (
 			laws.push(t.laws.keyConstraint(relation.name, k))
 		}
 	}
-	for (const c of group.capacities) {
+	for (const k of group.projectedKeys) {
 		if (
-			c.source.relation === relation.name &&
-			fact[c.source.selector] === true &&
+			k.relation === relation.name &&
+			fact[k.selector] === true &&
 			occupied(
-				c.source.fields,
-				Arr.filter(others, (o) => o[c.source.selector] === true)
+				k.fields,
+				Arr.filter(others, (o) => o[k.selector] === true)
 			)
 		) {
-			laws.push(t.laws.capacity(relation.name, c.source.fields).index)
+			laws.push(t.laws.projectedKey(relation.name, k.fields).constraint)
 		}
 	}
 	return laws
@@ -876,8 +876,8 @@ const firstChanged = (
  * The direct-writer model: a direct SQL writer needs nothing extra, as a model over generated schemas.
  *
  * A psql child logs in over verify-full TLS as the login of a generated write schema, takes on its role `writer`
- * (test/support/oracle/write/schema.ts: keys, candidate keys, deferred and immediate foreign keys, at-most-one
- * capacities, identity columns, refined text, typmod numerics, mutable and immutable relations) and runs one
+ * (test/support/oracle/write/schema.ts: keys, candidate keys, deferred and immediate foreign keys, projected keys,
+ * identity columns, refined text, typmod numerics, mutable and immutable relations) and runs one
  * transaction of one to three statements, each built as a typed SQL AST (packages/engine/src/sql/ast.ts) over typed literals
  * and emitted: an INSERT of a complete fact (with OVERRIDING SYSTEM VALUE on an identity column, or without it), a
  * generated INSERT that leaves the identity columns to their sequences, an INSERT that leaves out a field, an exact
@@ -901,9 +901,8 @@ const firstChanged = (
  * - a field left out of an INSERT, an identity column apart, is NULL, at the statement: a refined text's domain refuses
  *   it by its CHECK, `(<membership>) IS TRUE`, 23514, as the row is built, and every other column by its NOT NULL,
  *   23502: no field is nullable. An INSERT that leaves out a relation's one field is DEFAULT VALUES;
- * - a fact at an occupied primary key, candidate key or capacity's partial unique index is 23505 at the statement, an
- *   exact repeat included, under the constraint of one of the violated laws: a key's constraint and a capacity's
- *   partial UNIQUE index as the installation names them;
+ * - a fact at an occupied primary key, candidate key or projected key is 23505 at the statement, an exact repeat
+ *   included, under the constraint of one of the violated laws, as the installation names them;
  * - an immediate foreign key (into a pure set) is 23503 at its statement, a deferred one at COMMIT, or at the SET
  *   CONSTRAINTS that makes it immediate, judged on the transaction's state there;
  * - a generated INSERT draws the next value of each identity sequence, so a sequence behind a stored value collides

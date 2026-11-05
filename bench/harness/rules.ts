@@ -1,7 +1,8 @@
 import { regex } from "arkregex"
 /**
  * The catalog of performance gates: R01 to R42, the compiler's performance rules, then the work-queue claim at a reference
- * load, the refresh lifetime and a residual law's first call per backend. Each gate is stated here, as data, with the rule it measures, its owner and its gate
+ * load, the refresh lifetime, a residual law's first call per backend and what a law over a closed relation's constant
+ * costs a write. Each gate is stated here, as data, with the rule it measures, its owner and its gate
  * text: what a bench file must show for it. A rule with no gate text of its own is gated by the performance contract, a
  * measurement that can disprove the performance assumption. Each gate's bench file belongs to its owner: the query
  * owner's under bench/query, the write owner's (the write, law, queue and refresh gates; R40 is a refresh measurement,
@@ -51,7 +52,7 @@ const ruleIds = [
 
 export type RuleId = (typeof ruleIds)[number]
 
-const extraGateIds = ["queue", "refresh-lifetime", "law-first-call"] as const
+const extraGateIds = ["queue", "refresh-lifetime", "law-first-call", "law-cost"] as const
 
 export type ExtraGateId = (typeof extraGateIds)[number]
 
@@ -305,10 +306,17 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		gate: stated(
 			"over an alternatives law of growing rosters, every handle armed or one unarmed, each in a fresh backend: a parent's first COMMIT with one unarmed handle within 1.5 times every handle armed, at each size; a transaction rewriting a payload in every payload table growing at most 2.5 times from the second-largest roster to the largest; and the parent's first COMMIT growing at most 6 times there."
 		)
+	},
+	"law-cost": {
+		title: "A law over a closed relation's constant, by where it sits and the constant's size",
+		owner: "write",
+		gate: stated(
+			"for a foreign key into a seeded table, a CHECK calling the constant, a cell written into a column of the relation's domain, a cell generated into that domain and a derived column, at constants of a few hundred bits to a megabit, measure each one's cost per one-row INSERT beyond its base table, with every constant statement as the engine prints it; hold each case to a ceiling measured by a full run of the gate on the build it runs on, and record a case no such run has measured. Every constant PostgreSQL packs is the host encoder's string of its members; every law refuses the row one past its constant's end with its SQLSTATE; every derived column reads its payload code on every stored row and NULL past the end; SET EXPRESSION re-derives every row; and VALIDATE against a constant that drops a stored member refuses, naming the table."
+		)
 	}
 }
 
-/** Every gate, in order: R01 to R42, then the queue, refresh-lifetime and law-first-call gates. */
+/** Every gate, in order: R01 to R42, then the queue, refresh-lifetime, law-first-call and law-cost gates. */
 export const gateCatalog: ReadonlyArray<GateEntry> = Arr.map(gateIds, (id) => ({
 	id,
 	...statedGates[id]

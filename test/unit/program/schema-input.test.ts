@@ -624,6 +624,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, string, Deco
 	{
 		rule: "an unnamed relation",
 		from: "wild",
+		weight: 1,
 		sites: (live) =>
 			Arr.map(live.relations, (r, i) => ({
 				value: withRelation(live, i, { ...r, name: "" }),
@@ -634,6 +635,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, string, Deco
 	{
 		rule: "a field of no kind",
 		from: "wild",
+		weight: 1,
 		sites: (live) =>
 			Arr.flatMap(live.relations, (r, i) =>
 				r.kind === "relation"
@@ -651,6 +653,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, string, Deco
 	{
 		rule: "a statement of no kind",
 		from: "wild",
+		weight: 1,
 		sites: (live) =>
 			Arr.map(live.statements, (s, i) => ({
 				value: {

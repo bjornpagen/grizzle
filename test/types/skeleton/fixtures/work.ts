@@ -43,7 +43,7 @@ export const Tier = closed("Tier", ["Free", "Pro"]).with(
 	{ Free: { budget: Cents(100n) }, Pro: { budget: Cents(1000n) } }
 )
 
-export const byName = key(Account, ["name"])
+export const byName = key(on(Account, "name"))
 export const noteOwner = contained(on(TaskNote, "task"), on(Task, "id"))
 
 export const Work = schema("Work", { Kind, Tier, Account, Task, AccountLabel, TaskNote, Ticket }, [

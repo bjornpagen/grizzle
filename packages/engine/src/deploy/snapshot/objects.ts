@@ -89,11 +89,12 @@ const lawOf = (reasons: ReadonlyArray<PhysicalReason>): LawId | undefined => {
  * A domain carries at most one CHECK. A `worldFunction` is a writable entry's filter function. A `role` is a login's
  * or a theory role's CREATE ROLE, and a `membership` a theory role's membership in its login. A `roleSchema` is a
  * role's schema, a `view` a role relation's view in it, a `policy` a role's policy on a table it writes, and a
- * `rowSecurity` a table's row security. A `storedTag` is a stored tag's column: the table, the column's name, and the
- * column as the object's one ALTER TABLE ... ADD COLUMN declares it. A key, check or foreign key is a constraint of a
- * table, by its name: a key or check the table owns, where its definition stands, or a reference out of it with the
- * definition its one ALTER TABLE ... ADD CONSTRAINT adds (a foreign key is never inline). The `ledger` is the
- * migrations ledger, by the CREATE TABLE of its table. */
+ * `rowSecurity` a table's row security. A `lawColumn` is a column a law adds beside the declared fields (a constant, a
+ * partial term, an arm tag): the table, the column's name, and the column as the object's one ALTER TABLE ... ADD
+ * COLUMN declares it. A key, check or foreign key is a constraint of a table, by its name: a key or check the table
+ * owns, where its definition stands, or a reference out of it with the definition its one ALTER TABLE ... ADD
+ * CONSTRAINT adds (a foreign key is never inline). The `ledger` is the migrations ledger, by the CREATE TABLE of its
+ * table. */
 export type Installed =
 	| { readonly kind: "table"; readonly object: ManifestObject; readonly create: CreateTable }
 	| { readonly kind: "enum"; readonly object: ManifestObject; readonly create: CreateEnum }
@@ -151,7 +152,7 @@ export type Installed =
 	| { readonly kind: "policy"; readonly object: ManifestObject; readonly create: CreatePolicy }
 	| { readonly kind: "rowSecurity"; readonly object: ManifestObject; readonly table: ObjectName }
 	| {
-			readonly kind: "storedTag"
+			readonly kind: "lawColumn"
 			readonly object: ManifestObject
 			readonly table: ObjectName
 			readonly column: string
@@ -309,7 +310,7 @@ export const installed = (o: ManifestObject): Installed => {
 				? { kind: o.kind, object: o, grantee: grantee.name }
 				: malformed("a grant to a role")
 		}
-		case "storedTag": {
+		case "lawColumn": {
 			const ident = parseIdent(o.ident)
 			const [action, ...more] = s?.kind === "alterTable" && o.ddl.length === 1 ? s.actions : []
 			return ident.kind === "column" &&
@@ -379,7 +380,7 @@ export const installed = (o: ManifestObject): Installed => {
 }
 
 /** The table or materialized view an object belongs to, read off its view: a relation's own, the table an index, a
- * statistics object, a law or isolation trigger, a constraint or a stored tag is on, and the ledger's. Every other kind
+ * statistics object, a law or isolation trigger, a constraint or a law column is on, and the ledger's. Every other kind
  * stands outside any table. */
 export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 	const v = installed(o)
@@ -399,7 +400,7 @@ export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 		case "unique":
 		case "check":
 		case "foreignKey":
-		case "storedTag":
+		case "lawColumn":
 		case "rowSecurity":
 			return v.table
 		case "policy":
@@ -519,9 +520,10 @@ export interface BuiltOver {
  * a column reaches (a column converted in place by a type change, dropped and added again, or renamed by a chosen
  * candidate) asks it here: an index reads its keys, INCLUDE columns and predicate; a statistics object its columns; a
  * constraint its own, `constraint` giving the definition of one declared inside its table's CREATE TABLE; a law trigger
- * the columns its UPDATE OF names and its WHEN reads; a stored tag the columns its generation reads, an alternatives
- * parent's arm tag its discriminator and a constant tag none. Nothing else is built over a table's columns: a table
- * holds them, a table's isolation trigger reads none, and every other kind stands outside any table. */
+ * the columns its UPDATE OF names and its WHEN reads; a law column the columns its generation reads, a partial term
+ * those of its selection and its term, an alternatives parent's arm tag its discriminator and a constant none. Nothing
+ * else is built over a table's columns: a table holds them, a table's isolation trigger reads none, and every other kind
+ * stands outside any table. */
 export const builtOver = (
 	v: Installed,
 	constraint: (c: KeyOrCheckView) => KeyOrCheck
@@ -540,7 +542,7 @@ export const builtOver = (
 			return { table: v.table, columns: constraintColumns(v.constraint) }
 		case "lawTrigger":
 			return { table: v.create.table, columns: triggerColumns(v.create) }
-		case "storedTag":
+		case "lawColumn":
 			return { table: v.table, columns: columnsOf(v.definition.generated) }
 		case "table":
 		case "enum":
@@ -571,7 +573,7 @@ export const builtOver = (
 
 /** The kinds of part a relation owns under a name of its own, in the order a relation's rename takes them
  * (`renameCandidateTable`): its constraints, its indexes, its extended statistics objects, the columns it holds beside
- * its declared fields (a stored tag's), the identity sequences of its serial fields, and the law triggers on it. A
+ * its declared fields (a law column's), the identity sequences of its serial fields, and the law triggers on it. A
  * constraint's, a column's and a trigger's name lies in its table's namespace; an index's and a sequence's in its
  * schema's relations and a statistics object's in its schema's statistics objects, but each is built over one table and
  * stands or goes with it. */
@@ -632,7 +634,7 @@ export type PartOf<K extends PartKind> = Extract<Part, { readonly kind: K }>
 /** The parts of a relation an object is, read for every installed kind in this one place, so every rule that carries a
  * relation's parts across a rename, or takes away what one leaves behind, reads one list and no kind of part can be
  * left out of one of them: a key, check or foreign key, by its name, `constraint` giving the definition of one declared
- * inside its table's CREATE TABLE; an index; a statistics object; a stored tag; a law trigger; and a table's identity
+ * inside its table's CREATE TABLE; an index; a statistics object; a law column; a law trigger; and a table's identity
  * sequences, one per serial field, in its field order. Nothing else is a part: the table itself is the relation, and
  * every other kind stands outside any table. */
 export const objectParts = (
@@ -676,7 +678,7 @@ export const objectParts = (
 					create: v.create
 				}
 			]
-		case "storedTag":
+		case "lawColumn":
 			return [{ kind: "column", table: v.table, name: v.column, definition: v.definition }]
 		case "lawTrigger":
 			return [{ kind: "lawTrigger", table: v.create.table, name: v.create.name, create: v.create }]

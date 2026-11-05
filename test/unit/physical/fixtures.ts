@@ -4,7 +4,7 @@ import type { IndexRequest } from "#compiler/ir/products.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { eq, key, on, onWhere, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import * as payroll from "#test/support/fixtures/ir/payroll.ts"
 import * as queue from "#test/support/fixtures/ir/queue.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
@@ -89,8 +89,8 @@ const Accounts: SchemaDesc = {
 	statements: [
 		{
 			kind: "contained",
-			left: { relation: "Task", fields: ["account"], selection: {} },
-			right: { relation: "Account", fields: ["id"], selection: {} },
+			left: on("Task", ["account"]),
+			right: on("Account", ["id"]),
 			origin: undefined
 		}
 	],
@@ -133,9 +133,9 @@ const Code: FieldDesc = { kind: "text", source: "^[A-Z]{3}$", flags: "u" }
 
 /** Every native object kind the fresh-install compiler installs outside spans: an enum with a text and contract payload,
  * structural and contract domains, serial identities, a candidate key, a mutable relation, a row CHECK, a capacity at
- * most one with a selector (a partial unique index), a containment into closed facts (a finite CHECK), a selected
- * target (a STORED tag, a generated composite unique and a deferred tagged FK), money, floats, numeric(p, s), booleans
- * and a vector. */
+ * most one over a selected source, a containment into closed facts (a finite CHECK), a selected target (a constant law
+ * column, a generated composite unique and a deferred foreign key ending in that column), money, floats, numeric(p, s),
+ * booleans and a vector. */
 export const Ledger: SchemaDesc = {
 	name: "Ledger",
 	relations: [
@@ -192,7 +192,7 @@ export const Ledger: SchemaDesc = {
 		}
 	],
 	statements: [
-		{ kind: "key", relation: "Account", fields: ["code"] },
+		key(on("Account", ["code"])),
 		{ kind: "mutable", relation: "Entry" },
 		{
 			kind: "check",
@@ -207,26 +207,26 @@ export const Ledger: SchemaDesc = {
 		},
 		{
 			kind: "contained",
-			left: { relation: "Entry", fields: ["account"], selection: {} },
-			right: { relation: "Account", fields: ["id"], selection: {} },
+			left: on("Entry", ["account"]),
+			right: on("Account", ["id"]),
 			origin: undefined
 		},
 		{
 			kind: "contained",
-			left: { relation: "Rounding", fields: ["currency", "minor"], selection: {} },
-			right: { relation: "Currency", fields: ["id", "minor"], selection: {} },
+			left: on("Rounding", ["currency", "minor"]),
+			right: on("Currency", ["id", "minor"]),
 			origin: undefined
 		},
 		{
 			kind: "contained",
-			left: { relation: "Payout", fields: ["entry"], selection: {} },
-			right: { relation: "Entry", fields: ["id"], selection: { purpose: "Payroll" } },
+			left: on("Payout", ["entry"]),
+			right: onWhere("Entry", ["id"], eq(field("purpose"), lit("Payroll"))),
 			origin: undefined
 		},
 		{
 			kind: "capacity",
-			target: { relation: "Account", fields: ["id"], selection: {} },
-			from: { relation: "Entry", fields: ["account"], selection: { remainder: true } },
+			target: on("Account", ["id"]),
+			from: onWhere("Entry", ["account"], eq(field("remainder"), lit(true))),
 			within: { low: 0n, high: 1n },
 			weight: { kind: "count" }
 		}
@@ -236,8 +236,8 @@ export const Ledger: SchemaDesc = {
 
 /** Money constants in persistent expressions: a contract over money whose domain CHECK compares VALUE with
  * money literals, a row CHECK comparing a money column with a literal, and an at-most-one capacity selected on a money
- * field, whose partial unique index predicate holds a money literal. Each literal is folded at DDL time, so none
- * depends on the writing session's lc_monetary. */
+ * field, whose selection holds a money literal. Each literal is folded at DDL time, so none depends on the writing
+ * session's lc_monetary. */
 const Fee: FieldDesc = {
 	kind: "contract",
 	name: "Fee",
@@ -271,8 +271,8 @@ export const Charges: SchemaDesc = {
 		},
 		{
 			kind: "capacity",
-			target: { relation: "Account", fields: ["id"], selection: {} },
-			from: { relation: "Charge", fields: ["account"], selection: { fee: Money.of(125n) } },
+			target: on("Account", ["id"]),
+			from: onWhere("Charge", ["account"], eq(field("fee"), lit(Money.of(125n)))),
 			within: { low: 0n, high: 1n },
 			weight: { kind: "count" }
 		}

@@ -44,7 +44,7 @@ const Task = relation("Task", { id: uuid, kind: closedId(Kind), title: Text }, [
 const Memo = relation("Memo", { id: uuid, task: uuid, text: Text }, ["id"])
 const Unions = schema("Unions", { Kind, Task, Memo }, [
 	contained(on(Memo, "task"), on(Task, "id")),
-	key(Memo, ["task"])
+	key(on(Memo, "task"))
 ])
 
 const activity = query(Unions)

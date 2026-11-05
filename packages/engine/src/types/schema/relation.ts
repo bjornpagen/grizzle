@@ -14,18 +14,27 @@ import type {
 } from "#compiler/types/core/phantom.ts"
 import type { FieldBase, HandleOf, SerialField } from "#compiler/types/fields/field.ts"
 
-/** Whether a list of field names repeats one. A widened string element proves nothing, so it never refuses. */
+/**
+ * Whether a list of names repeats one. A widened string element proves nothing, and neither does a list whose length
+ * is not known, such as the rest of a constraint TypeScript checks a failed argument against, so neither refuses.
+ */
 type Repeats<K> = K extends readonly [infer H, ...infer Rest]
 	? string extends H
 		? false
-		: H extends Rest[number]
-			? true
-			: Repeats<Rest>
+		: number extends Rest["length"]
+			? false
+			: H extends Rest[number]
+				? true
+				: Repeats<Rest>
 	: false
 
-/** A key lists each of its fields once (ir/desc.ts nonEmptyUniqueStrings). */
+/** A primary key lists each of its fields once (ir/desc.ts nonEmptyUniqueStrings). */
 export type DistinctFields<K> =
 	Repeats<K> extends true ? Refusal<"a key lists each field once"> : unknown
+
+/** A side lists each of its terms once (ir/desc.ts SideDesc): a field and pred of it are two terms. */
+export type DistinctTerms<T> =
+	Repeats<T> extends true ? Refusal<"a side lists each term once"> : unknown
 
 /**
  * Any ordinary relation: the members every one has. A relation's fields record is its own type, so the base reads it

@@ -14,7 +14,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, key, relation, schema } from "#compiler/public/schema.ts"
+import { derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { derived as runtimeDerived } from "#compiler/schema/relation.ts"
 import { schema as runtimeSchema } from "#compiler/schema/schema.ts"
@@ -52,10 +52,10 @@ const causeOf = (r: Result.Result<unknown, CompileError>): DerivedRefusal => {
 const Org = relation("Org", { id: uuid, code: uuid, owner: uuid, note: str.regex("^.*$", "su") }, [
 	"id"
 ])
-const Base = schema("Base", { Org }, [key(Org, ["code"])])
+const Base = schema("Base", { Org }, [key(on(Org, "code"))])
 /** A composite primary key beside a one-column candidate key. */
 const Pair = relation("Pair", { a: uuid, b: uuid, c: uuid }, ["a", "b"])
-const PairBase = schema("PairBase", { Pair }, [key(Pair, ["c"])])
+const PairBase = schema("PairBase", { Pair }, [key(on(Pair, "c"))])
 /** Through the builders themselves, which take any definition query: some definitions below are ones derived's public
  * signature refuses (`DefinitionCheck`), which a JavaScript caller can still pass. */
 const analyzedOver = (q: DefinitionQuery) =>

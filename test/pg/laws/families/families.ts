@@ -2,8 +2,7 @@ import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import type { LawId } from "#compiler/core/ids.ts"
-import { closedId, pg, span, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, span } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
@@ -14,7 +13,6 @@ import {
 	duration,
 	key,
 	type Mutable,
-	mirrors,
 	mutable,
 	on,
 	ref,
@@ -28,13 +26,14 @@ import { str } from "#compiler/public/text.ts"
 import {
 	type HostBound,
 	everyFact,
+	fieldsEqual,
+	fieldsIn,
 	type HostFact,
 	type HostLaw,
 	type HostRelation,
 	type HostSchema,
-	hostSpan,
-	type HostSide,
-	type HostValue
+	type HostSelection,
+	hostSpan
 } from "#test/pg/laws/families/model.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
@@ -68,38 +67,36 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  * exactly these. A step's ChangeSet is built at run time over the relation values by name, as a
  * JavaScript caller passes members (support.ts changeSetOf).
  *
- * - selected-source containment: `contained(on(select(Assignment, { active: sel }), "worker"), on(Worker, "id"))`,
- *   a residual law anchored on the target row;
- * - conditional mirrors: `mirrors(on(select(Line, { flagged: sel }), "id"), on(Reason, "line"))`, a tagged native
- *   foreign key for the child half and a residual obligation on the parent;
- * - alternatives: `alternatives(Run, "stage", Stage, { s0: key(Pay0, ["run"]), ... })` over the boundary rosters of
+ * - alternatives: `alternatives(Run, "stage", Stage, { s0: key(on(Pay0, "run")), ... })` over the boundary rosters of
  *   two to five handles: every handle armed, one unarmed, a payload relation two handles share, one armed of five: the
  *   arms' tagged foreign keys and the reverse obligation, which the parent's units check over the whole roster and
  *   each payload relation's over its own arms; each roster with every relation immutable and with every one mutable,
  *   and two with a mutable arm beside an immutable parent and an immutable arm beside a mutable one;
- * - scalar-group capacity: `capacity(on([select(]Team[, { open })], "id"), { from: on([select(]Member[, { active })],
- *   "team"), [weight: weigh("weight"),] within: within(low, high) })`, drawing a count or a sum of the member's weight,
- *   literal bounds or `ref("cap")`, the team's own field, a selector on either side or both, and the declared
- *   containment of members into teams or none (a member of no team is then lawful); the shapes are drawn so the law is
- *   residual, which includes an upper bound of one over a selected target (an upper bound of one over an unselected
- *   one is a partial UNIQUE, checked row by row);
- * - two laws sharing tables, over composite tenant keys: Crew(tenant, id) and Duty(tenant, id), with a selected-source
- *   containment `contained(on(select(Duty, { active: sel }), "tenant", "crew"), on(Crew, "tenant", "id"))` and a
- *   capacity over the same selected source into the same target, a count against `ref("cap")` or a sum of hours
- *   against a literal; both laws' triggers fire on both tables, and every anchor is a (tenant, id) tuple;
- * - span coverage: Rota(site, during) keyed by a span key, and `contained(on([select(]Visit[, { billable })], "site",
- *   "during"), on([select(]Rota[, { open })], "site", "during"))`, at most one side selected: a PERIOD foreign key for
- *   every visit into every rota fact, a tagged PERIOD foreign key into the rota facts a selector picks (Visit's STORED
- *   tag against a generated temporal unique over the selector), a residual coverage law for a selected visit, each met
- *   by fragments of adjacent rota spans, and Visit's candidate span key `key(Visit, ["site", "during"])` beside its id;
- *   and the same coverage into Roster(shift, crew, place)
- *   keyed by (place, shift), `on(Roster, "place", "shift")`, whose fields are named apart from the source's and
- *   declared in another heading order, so the law pairs the sides' fields by their positions in the two lists alone;
+ * - scalar-group capacity: `capacity(on([select(]Team[, (t) => t.eq(t.open, v))], "id"), { from:
+ *   on([select(]Member[, (m) => m.eq(m.active, v))], "team"), [weight: weigh("weight"),] within: within(low, high) })`,
+ *   drawing a count or a sum of the member's weight, literal bounds or `ref("cap")`, the team's own field, a selector
+ *   on either side or both, and the declared containment of members into teams or none (a member of no team is then
+ *   lawful); the shapes are drawn so the law is residual, which includes an upper bound of one over a selected target
+ *   (an upper bound of one over an unselected one is a UNIQUE over its source's projection, checked row by row);
+ * - two laws sharing tables, over composite tenant keys: Crew(tenant, id) and Duty(tenant, id), with a selected
+ *   source's containment `contained(on(select(Duty, (d) => d.eq(d.active, sel)), "tenant", "crew"), on(Crew, "tenant",
+ *   "id"))`, a native foreign key from the selected side's generated columns, and a capacity over the same selected
+ *   source into the same target, a count against `ref("cap")` or a sum of hours against a literal, whose triggers fire
+ *   on both tables, and every anchor is a (tenant, id) tuple;
+ * - span coverage: Rota(site, during) keyed by a span key, and `contained(on([select(]Visit[, (v) => v.eq(v.billable,
+ *   b))], "site", "during"), on([select(]Rota[, (r) => r.eq(r.open, o))], "site", "during"))`, at most one side
+ *   selected: a PERIOD foreign key for every visit into every rota fact, a tagged PERIOD foreign key into the rota
+ *   facts a selector picks (Visit's STORED tag against a generated temporal unique over the selector), a residual
+ *   coverage law for a selected visit, each met by fragments of adjacent rota spans, and Visit's candidate span key
+ *   `key(on(Visit, "site", "during"))` beside its id; and the same coverage into Roster(shift, crew, place) keyed by
+ *   (place, shift), `on(Roster, "place", "shift")`, whose fields are named apart from the source's and declared in
+ *   another heading order, so the law pairs the sides' fields by their positions in the two lists alone;
  * - a work queue: `alternatives(Work, "standing", Standing, { wanted: Wanted, leased: Leased, done: Done })`, every
  *   handle armed, a candidate key on a lease's (resource, seat), and the lease's foreign key into Seat;
  * - timekeeping, the payroll example's time side: Employment and Shift keyed by span keys, and over the shifts a
- *   selector picks, a containment into Timesheet(employee, week), a coverage by Employment, and a capacity summing the
- *   shifts' span widths per timesheet up to its own `ceiling`;
+ *   selector picks, a containment into Timesheet(employee, week), a native foreign key from the selected side's
+ *   generated columns, a coverage by Employment, and a capacity summing the shifts' span widths per timesheet up to its
+ *   own `ceiling`;
  * - deposits, the payroll example's money side: a pay line's deposits summing exactly to its `net`, at most a drawn
  *   number of deposits per line, and a line's own `net` within [0, gross], a capacity of a relation over itself,
  *   which installs as a row check;
@@ -195,10 +192,10 @@ export const populationsOf = <P>(family: Family<P>): Arr.NonEmptyReadonlyArray<P
 
 const label = str.regex("^[a-z]{0,8}$")
 /** The traits of a family of a few fixed schemas. */
-const noTraits = (): ReadonlyArray<string> => []
+export const noTraits = (): ReadonlyArray<string> => []
 
 /** A relation as the host sees it: its table and columns named by the naming door (core/identity.ts). */
-const hostRelation = (
+export const hostRelation = (
 	name: string,
 	fields: ReadonlyArray<string>,
 	keyFields: ReadonlyArray<string>,
@@ -214,7 +211,7 @@ const hostRelation = (
 	mutable
 })
 
-const booleans: Arr.NonEmptyReadonlyArray<boolean> = [false, true]
+export const booleans: Arr.NonEmptyReadonlyArray<boolean> = [false, true]
 
 /**
  * Which relations of a schema are declared `mutable`, by name: the mutability of each relation a family draws, which
@@ -247,135 +244,6 @@ export const describeMutability = (m: Readonly<Record<string, boolean>>): string
 					Arr.map(declared, ([name]) => name),
 					" and "
 				)} mutable`
-}
-
-export const Worker = relation("Worker", { id: pg.integer, name: label }, ["id"])
-export const Assignment = relation(
-	"Assignment",
-	{ id: pg.integer, worker: pg.integer, active: pg.boolean },
-	["id"]
-)
-
-const staffingRelations = Object.freeze({ Worker, Assignment })
-
-export interface StaffingParams {
-	readonly mutable: Mutability<keyof typeof staffingRelations>
-	readonly selector: boolean
-}
-
-const staffed = (p: StaffingParams) =>
-	contained(on(select(Assignment, { active: p.selector }), "worker"), on(Worker, "id"))
-
-export const staffing = (p: StaffingParams) => (name: string) =>
-	schema(name, staffingRelations, [staffed(p), ...mutables(p.mutable, staffingRelations)])
-
-export const selectedSource: Family<StaffingParams> = {
-	label: "selected-source containment",
-	variants: Arr.flatMap(uniformly(staffingRelations), (mutable) =>
-		Arr.map(booleans, (selector): StaffingParams => ({ mutable, selector }))
-	),
-	describe: (p) =>
-		`${describeMutability(p.mutable)}, Assignment selected by active = ${p.selector}`,
-	traits: noTraits,
-	domains: {
-		Worker: { id: [1, 2, 3], name: ["a", "b"] },
-		Assignment: { id: [1, 2, 3, 4], worker: [1, 2, 3, 4], active: [true, false] }
-	},
-	host: (p) => {
-		const laws = lawNamesOf(staffing(p)("families"))
-		return {
-			relations: [
-				hostRelation("Worker", ["id", "name"], ["id"], p.mutable.Worker),
-				hostRelation("Assignment", ["id", "worker", "active"], ["id"], p.mutable.Assignment)
-			],
-			laws: [
-				{ kind: "key", law: laws.primaryKeyLaw(Worker), relation: "Worker", fields: ["id"] },
-				{
-					kind: "key",
-					law: laws.primaryKeyLaw(Assignment),
-					relation: "Assignment",
-					fields: ["id"]
-				},
-				{
-					kind: "contained",
-					law: laws.lawOf(staffed(p)),
-					source: { relation: "Assignment", fields: ["worker"], where: { active: p.selector } },
-					target: { relation: "Worker", fields: ["id"], where: everyFact },
-					residual: true
-				}
-			]
-		}
-	},
-	schema: staffing,
-	connect: (p, installed) =>
-		Effect.flatMap(openWriter({ installed, schema: staffing(p)(installed.declared) }), (o) =>
-			runtimeSession(selectedSource.host(p), o, staffingRelations)
-		)
-}
-
-export const Line = relation("Line", { id: pg.integer, flagged: pg.boolean, note: label }, ["id"])
-export const Reason = relation("Reason", { id: pg.integer, line: pg.integer, text: label }, ["id"])
-
-const ledgerRelations = Object.freeze({ Line, Reason })
-
-export interface LedgerParams {
-	readonly mutable: Mutability<keyof typeof ledgerRelations>
-	readonly selector: boolean
-}
-
-const flaggedReasons = (p: LedgerParams) =>
-	mirrors(on(select(Line, { flagged: p.selector }), "id"), on(Reason, "line"))
-
-export const ledger = (p: LedgerParams) => (name: string) =>
-	schema(name, ledgerRelations, [flaggedReasons(p), ...mutables(p.mutable, ledgerRelations)])
-
-export const conditionalMirrors: Family<LedgerParams> = {
-	label: "conditional mirrors",
-	variants: Arr.flatMap(uniformly(ledgerRelations), (mutable) =>
-		Arr.map(booleans, (selector): LedgerParams => ({ mutable, selector }))
-	),
-	describe: (p) => `${describeMutability(p.mutable)}, Line selected by flagged = ${p.selector}`,
-	traits: noTraits,
-	domains: {
-		Line: { id: [1, 2, 3], flagged: [true, false], note: ["a", "b"] },
-		Reason: { id: [1, 2, 3, 4], line: [1, 2, 3], text: ["x", "y"] }
-	},
-	host: (p) => {
-		const laws = lawNamesOf(ledger(p)("families"))
-		/**
-		 * The mirrors' two halves: a reason's line is a flagged line (its left side contains its right), and a flagged
-		 * line has a reason (its right side contains its left).
-		 */
-		const halves = laws.mirrorsOf(flaggedReasons(p))
-		return {
-			relations: [
-				hostRelation("Line", ["id", "flagged", "note"], ["id"], p.mutable.Line),
-				hostRelation("Reason", ["id", "line", "text"], ["id"], p.mutable.Reason)
-			],
-			laws: [
-				{ kind: "key", law: laws.primaryKeyLaw(Line), relation: "Line", fields: ["id"] },
-				{ kind: "key", law: laws.primaryKeyLaw(Reason), relation: "Reason", fields: ["id"] },
-				{
-					kind: "contained",
-					law: halves.rightToLeft,
-					source: { relation: "Reason", fields: ["line"], where: everyFact },
-					target: { relation: "Line", fields: ["id"], where: { flagged: p.selector } },
-					residual: false
-				},
-				{
-					kind: "obliged",
-					law: halves.leftToRight,
-					anchor: { relation: "Line", fields: ["id"], where: { flagged: p.selector } },
-					dependent: { relation: "Reason", fields: ["line"], where: everyFact }
-				}
-			]
-		}
-	},
-	schema: ledger,
-	connect: (p, installed) =>
-		Effect.flatMap(openWriter({ installed, schema: ledger(p)(installed.declared) }), (o) =>
-			runtimeSession(conditionalMirrors.host(p), o, ledgerRelations)
-		)
 }
 
 const stages = ["draft", "approved", "paid", "voided"] as const
@@ -413,9 +281,9 @@ const drawnRuns = (p: RunsParams) => {
 		const value = relation(`Pay${j}`, { id: pg.integer, run: pg.integer, amount: pg.integer }, [
 			"id"
 		])
-		return { handles: arm.handles, mutable: arm.mutable, value, runKey: key(value, ["run"]) }
+		return { handles: arm.handles, mutable: arm.mutable, value, runKey: key(on(value, "run")) }
 	})
-	const byHandle: Record<string, ReturnType<typeof key>> = {}
+	const byHandle: Record<string, (typeof pays)[number]["runKey"]> = {}
 	for (const pay of pays) {
 		for (const h of pay.handles) {
 			byHandle[stageName(h)] = pay.runKey
@@ -557,31 +425,47 @@ export const alternativesFamily: Family<RunsParams> = {
 				)
 			],
 			laws: [
-				{ kind: "key", law: laws.primaryKeyLaw(d.Run), relation: "Run", fields: ["id"] },
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(d.Run),
+					relation: "Run",
+					fields: ["id"],
+					selection: everyFact
+				},
 				...Arr.flatMap(d.pays, (pay): HostSchema["laws"] => [
 					{
 						kind: "key",
 						law: laws.primaryKeyLaw(pay.value),
 						relation: pay.value.name,
-						fields: ["id"]
+						fields: ["id"],
+						selection: everyFact
 					},
-					{ kind: "key", law: laws.lawOf(pay.runKey), relation: pay.value.name, fields: ["run"] },
+					{
+						kind: "key",
+						law: laws.lawOf(pay.runKey),
+						relation: pay.value.name,
+						fields: ["run"],
+						selection: everyFact
+					},
 					{
 						kind: "contained",
 						law: defined(stage.arms[stageName(pay.handles[0])], `${pay.value.name}'s arm law`),
-						source: { relation: pay.value.name, fields: ["run"], where: everyFact },
+						source: { relation: pay.value.name, fields: ["run"], selection: everyFact },
 						target: {
 							relation: "Run",
 							fields: ["id"],
-							where: { stage: { among: Arr.map(pay.handles, stageName) } }
-						},
-						residual: false
+							selection: fieldsIn({ stage: Arr.map(pay.handles, stageName) })
+						}
 					},
 					...Arr.map(pay.handles, (h): HostLaw => ({
 						kind: "obliged",
 						law: stage.reverse,
-						anchor: { relation: "Run", fields: ["id"], where: { stage: stageName(h) } },
-						dependent: { relation: pay.value.name, fields: ["run"], where: everyFact }
+						anchor: {
+							relation: "Run",
+							fields: ["id"],
+							selection: fieldsEqual({ stage: stageName(h) })
+						},
+						dependent: { relation: pay.value.name, fields: ["run"], selection: everyFact }
 					}))
 				])
 			]
@@ -638,18 +522,17 @@ export interface TeamsParams {
 const boundOf = (b: DrawnBound) => (b === "cap" ? ref("cap") : b)
 const hostBound = (b: DrawnBound): HostBound => (b === "cap" ? { ref: "cap" } : b)
 
+/** The teams whose `open` holds a value, and the members whose `active` does. */
+const openTeams = (open: boolean) => select(Team, (t) => t.eq(t.open, open))
+const activeMembers = (active: boolean) => select(Member, (m) => m.eq(m.active, active))
+
 const teamCapacity = (p: TeamsParams) =>
-	capacity(
-		p.team.kind === "every" ? on(Team, "id") : on(select(Team, { open: p.team.value }), "id"),
-		{
-			from:
-				p.member.kind === "every"
-					? on(Member, "team")
-					: on(select(Member, { active: p.member.value }), "team"),
-			...(p.weighted ? { weight: weigh("weight") } : {}),
-			within: within(boundOf(p.low), p.high === "*" ? "*" : boundOf(p.high))
-		}
-	)
+	capacity(p.team.kind === "every" ? on(Team, "id") : on(openTeams(p.team.value), "id"), {
+		from:
+			p.member.kind === "every" ? on(Member, "team") : on(activeMembers(p.member.value), "team"),
+		...(p.weighted ? { weight: weigh("weight") } : {}),
+		within: within(boundOf(p.low), p.high === "*" ? "*" : boundOf(p.high))
+	})
 const memberTeam = contained(on(Member, "team"), on(Team, "id"))
 
 export const teams = (p: TeamsParams) => (name: string) =>
@@ -660,8 +543,8 @@ export const teams = (p: TeamsParams) => (name: string) =>
 	])
 
 /** A selector's facts: every one, or those whose `field` holds its value. */
-const where = (field: string, s: Selector): Readonly<Record<string, HostValue>> =>
-	s.kind === "every" ? everyFact : { [field]: s.value }
+const selectionOf = (field: string, s: Selector): HostSelection =>
+	s.kind === "every" ? everyFact : fieldsEqual({ [field]: s.value })
 
 /**
  * Every schema of one uniform mutability, shape by shape, which together hold every value of each dimension: count and
@@ -783,24 +666,39 @@ export const capacityFamily: Family<TeamsParams> = {
 				hostRelation("Member", ["id", "team", "active", "weight"], ["id"], p.mutable.Member)
 			],
 			laws: [
-				{ kind: "key", law: laws.primaryKeyLaw(Team), relation: "Team", fields: ["id"] },
-				{ kind: "key", law: laws.primaryKeyLaw(Member), relation: "Member", fields: ["id"] },
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(Team),
+					relation: "Team",
+					fields: ["id"],
+					selection: everyFact
+				},
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(Member),
+					relation: "Member",
+					fields: ["id"],
+					selection: everyFact
+				},
 				...(p.governed
 					? [
 							{
 								kind: "contained",
 								law: laws.lawOf(memberTeam),
-								source: { relation: "Member", fields: ["team"], where: everyFact },
-								target: { relation: "Team", fields: ["id"], where: everyFact },
-								residual: false
+								source: { relation: "Member", fields: ["team"], selection: everyFact },
+								target: { relation: "Team", fields: ["id"], selection: everyFact }
 							} satisfies HostLaw
 						]
 					: []),
 				{
 					kind: "capacity",
 					law: laws.lawOf(teamCapacity(p)),
-					target: { relation: "Team", fields: ["id"], where: where("open", p.team) },
-					source: { relation: "Member", fields: ["team"], where: where("active", p.member) },
+					target: { relation: "Team", fields: ["id"], selection: selectionOf("open", p.team) },
+					source: {
+						relation: "Member",
+						fields: ["team"],
+						selection: selectionOf("active", p.member)
+					},
 					weight: p.weighted ? { kind: "field", field: "weight" } : { kind: "count" },
 					low: hostBound(p.low),
 					high: p.high === "*" ? "*" : hostBound(p.high)
@@ -838,12 +736,19 @@ export interface CrewsParams {
 	readonly high: DrawnBound
 }
 
-const crewDuties = (p: CrewsParams) =>
-	contained(on(select(Duty, { active: p.selector }), "tenant", "crew"), on(Crew, "tenant", "id"))
+/** The duties the selector picks, by tenant and crew: the side both laws read. */
+const activeDuties = (p: CrewsParams) =>
+	on(
+		select(Duty, (d) => d.eq(d.active, p.selector)),
+		"tenant",
+		"crew"
+	)
+
+const crewDuties = (p: CrewsParams) => contained(activeDuties(p), on(Crew, "tenant", "id"))
 
 const crewCapacity = (p: CrewsParams) =>
 	capacity(on(Crew, "tenant", "id"), {
-		from: on(select(Duty, { active: p.selector }), "tenant", "crew"),
+		from: activeDuties(p),
 		...(p.weighted ? { weight: weigh("hours") } : {}),
 		within: within(p.low, boundOf(p.high))
 	})
@@ -907,20 +812,39 @@ export const sharedTablesFamily: Family<CrewsParams> = {
 				)
 			],
 			laws: [
-				{ kind: "key", law: laws.primaryKeyLaw(Crew), relation: "Crew", fields: ["tenant", "id"] },
-				{ kind: "key", law: laws.primaryKeyLaw(Duty), relation: "Duty", fields: ["tenant", "id"] },
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(Crew),
+					relation: "Crew",
+					fields: ["tenant", "id"],
+					selection: everyFact
+				},
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(Duty),
+					relation: "Duty",
+					fields: ["tenant", "id"],
+					selection: everyFact
+				},
 				{
 					kind: "contained",
 					law: laws.lawOf(crewDuties(p)),
-					source: { relation: "Duty", fields: ["tenant", "crew"], where: { active: p.selector } },
-					target: { relation: "Crew", fields: ["tenant", "id"], where: everyFact },
-					residual: true
+					source: {
+						relation: "Duty",
+						fields: ["tenant", "crew"],
+						selection: fieldsEqual({ active: p.selector })
+					},
+					target: { relation: "Crew", fields: ["tenant", "id"], selection: everyFact }
 				},
 				{
 					kind: "capacity",
 					law: laws.lawOf(crewCapacity(p)),
-					target: { relation: "Crew", fields: ["tenant", "id"], where: everyFact },
-					source: { relation: "Duty", fields: ["tenant", "crew"], where: { active: p.selector } },
+					target: { relation: "Crew", fields: ["tenant", "id"], selection: everyFact },
+					source: {
+						relation: "Duty",
+						fields: ["tenant", "crew"],
+						selection: fieldsEqual({ active: p.selector })
+					},
 					weight: p.weighted ? { kind: "field", field: "hours" } : { kind: "count" },
 					low: p.low,
 					high: hostBound(p.high)
@@ -968,18 +892,23 @@ export interface VisitsParams {
 	readonly cover: Selector
 }
 
+/** The visits a `billable` value selects, and the rota and roster facts an `open` value selects. */
+const billableVisits = (billable: boolean) => select(Visit, (v) => v.eq(v.billable, billable))
+const openRota = (open: boolean) => select(Rota, (r) => r.eq(r.open, open))
+const openRoster = (open: boolean) => select(Roster, (r) => r.eq(r.open, open))
+
 /** The source side of the coverage: every visit, or the visits a selector picks. */
 const visitSide = (p: VisitsParams) =>
 	p.visits.kind === "every"
 		? on(Visit, "site", "during")
-		: on(select(Visit, { billable: p.visits.value }), "site", "during")
+		: on(billableVisits(p.visits.value), "site", "during")
 
 const rotaCoverage = (p: VisitsParams) =>
 	contained(
 		visitSide(p),
 		p.cover.kind === "every"
 			? on(Rota, "site", "during")
-			: on(select(Rota, { open: p.cover.value }), "site", "during")
+			: on(openRota(p.cover.value), "site", "during")
 	)
 
 const rosterCoverage = (p: VisitsParams) =>
@@ -987,13 +916,13 @@ const rosterCoverage = (p: VisitsParams) =>
 		visitSide(p),
 		p.cover.kind === "every"
 			? on(Roster, "place", "shift")
-			: on(select(Roster, { open: p.cover.value }), "place", "shift")
+			: on(openRoster(p.cover.value), "place", "shift")
 	)
 
 /**
  * Visit's candidate span key: no two visits of one site overlap, the UNIQUE ... WITHOUT OVERLAPS form beside its id.
  */
-const visitSpanKey = key(Visit, ["site", "during"])
+const visitSpanKey = key(on(Visit, "site", "during"))
 
 export const visits = (p: VisitsParams) => (name: string) =>
 	schema(name, { Rota, Visit }, [
@@ -1015,7 +944,8 @@ const visitKey = (laws: LawNames): HostLaw => ({
 	kind: "key",
 	law: laws.primaryKeyLaw(Visit),
 	relation: "Visit",
-	fields: ["id"]
+	fields: ["id"],
+	selection: everyFact
 })
 
 const visitSpanKeyLaw = (laws: LawNames): HostLaw => ({
@@ -1027,7 +957,11 @@ const visitSpanKeyLaw = (laws: LawNames): HostLaw => ({
 })
 
 const coverageHost = (p: VisitsParams): HostSchema => {
-	const source = { relation: "Visit", fields: ["site"], where: where("billable", p.visits) }
+	const source = {
+		relation: "Visit",
+		fields: ["site"],
+		selection: selectionOf("billable", p.visits)
+	}
 	const residual = p.visits.kind === "selected"
 	switch (p.target) {
 		case "rota": {
@@ -1056,7 +990,7 @@ const coverageHost = (p: VisitsParams): HostSchema => {
 						kind: "covered",
 						law: laws.lawOf(rotaCoverage(p)),
 						source,
-						target: { relation: "Rota", fields: ["site"], where: where("open", p.cover) },
+						target: { relation: "Rota", fields: ["site"], selection: selectionOf("open", p.cover) },
 						span: { source: "during", target: "during" },
 						residual
 					}
@@ -1089,7 +1023,11 @@ const coverageHost = (p: VisitsParams): HostSchema => {
 						kind: "covered",
 						law: laws.lawOf(rosterCoverage(p)),
 						source,
-						target: { relation: "Roster", fields: ["place"], where: where("open", p.cover) },
+						target: {
+							relation: "Roster",
+							fields: ["place"],
+							selection: selectionOf("open", p.cover)
+						},
 						span: { source: "during", target: "shift" },
 						residual
 					}
@@ -1203,7 +1141,7 @@ const workStanding = alternatives(Work, "standing", Standing, {
 	leased: Leased,
 	done: Done
 })
-const leaseSeatKey = key(Leased, ["resource", "seat"])
+const leaseSeatKey = key(on(Leased, "resource", "seat"))
 const leaseSeat = contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
 
 export const queue = (p: QueueParams) => (name: string) =>
@@ -1223,15 +1161,14 @@ const armLaws = (
 	{
 		kind: "contained",
 		law: defined(standing.arms[h], `the ${h} arm's law`),
-		source: { relation: arm, fields: ["item"], where: everyFact },
-		target: { relation: "Work", fields: ["item"], where: { standing: h } },
-		residual: false
+		source: { relation: arm, fields: ["item"], selection: everyFact },
+		target: { relation: "Work", fields: ["item"], selection: fieldsEqual({ standing: h }) }
 	},
 	{
 		kind: "obliged",
 		law: standing.reverse,
-		anchor: { relation: "Work", fields: ["item"], where: { standing: h } },
-		dependent: { relation: arm, fields: ["item"], where: everyFact }
+		anchor: { relation: "Work", fields: ["item"], selection: fieldsEqual({ standing: h }) },
+		dependent: { relation: arm, fields: ["item"], selection: everyFact }
 	}
 ]
 
@@ -1265,20 +1202,21 @@ export const queueFamily: Family<QueueParams> = {
 					kind: "key",
 					law: laws.primaryKeyLaw(r),
 					relation: r.name,
-					fields: r === Seat ? ["resource", "seat"] : ["item"]
+					fields: r === Seat ? ["resource", "seat"] : ["item"],
+					selection: everyFact
 				})),
 				{
 					kind: "key",
 					law: laws.lawOf(leaseSeatKey),
 					relation: "Leased",
-					fields: ["resource", "seat"]
+					fields: ["resource", "seat"],
+					selection: everyFact
 				},
 				{
 					kind: "contained",
 					law: laws.lawOf(leaseSeat),
-					source: { relation: "Leased", fields: ["resource", "seat"], where: everyFact },
-					target: { relation: "Seat", fields: ["resource", "seat"], where: everyFact },
-					residual: false
+					source: { relation: "Leased", fields: ["resource", "seat"], selection: everyFact },
+					target: { relation: "Seat", fields: ["resource", "seat"], selection: everyFact }
 				},
 				...armLaws(standing, "Wanted", "wanted"),
 				...armLaws(standing, "Leased", "leased"),
@@ -1319,21 +1257,18 @@ export interface TimekeepingParams {
 	readonly selector: boolean
 }
 
+/** The shifts the selector picks, which all three laws read. */
+const approvedShifts = (p: TimekeepingParams) => select(Shift, (s) => s.eq(s.approved, p.selector))
+
 const shiftTimesheet = (p: TimekeepingParams) =>
-	contained(
-		on(select(Shift, { approved: p.selector }), "employee", "week"),
-		on(Timesheet, "employee", "week")
-	)
+	contained(on(approvedShifts(p), "employee", "week"), on(Timesheet, "employee", "week"))
 
 const shiftEmployment = (p: TimekeepingParams) =>
-	contained(
-		on(select(Shift, { approved: p.selector }), "employee", "during"),
-		on(Employment, "employee", "during")
-	)
+	contained(on(approvedShifts(p), "employee", "during"), on(Employment, "employee", "during"))
 
 const timesheetHours = (p: TimekeepingParams) =>
 	capacity(on(Timesheet, "employee", "week"), {
-		from: on(select(Shift, { approved: p.selector }), "employee", "week"),
+		from: on(approvedShifts(p), "employee", "week"),
 		weight: weigh(duration("during")),
 		within: within(0n, ref("ceiling"))
 	})
@@ -1371,7 +1306,7 @@ export const timekeepingFamily: Family<TimekeepingParams> = {
 	},
 	host: (p) => {
 		const laws = lawNamesOf(timekeeping(p)("families"))
-		const approved = { approved: p.selector }
+		const approved = fieldsEqual({ approved: p.selector })
 		return {
 			relations: [
 				hostRelation(
@@ -1405,7 +1340,8 @@ export const timekeepingFamily: Family<TimekeepingParams> = {
 					kind: "key",
 					law: laws.primaryKeyLaw(Timesheet),
 					relation: "Timesheet",
-					fields: ["employee", "week"]
+					fields: ["employee", "week"],
+					selection: everyFact
 				},
 				{
 					kind: "spanKey",
@@ -1417,23 +1353,22 @@ export const timekeepingFamily: Family<TimekeepingParams> = {
 				{
 					kind: "contained",
 					law: laws.lawOf(shiftTimesheet(p)),
-					source: { relation: "Shift", fields: ["employee", "week"], where: approved },
-					target: { relation: "Timesheet", fields: ["employee", "week"], where: everyFact },
-					residual: true
+					source: { relation: "Shift", fields: ["employee", "week"], selection: approved },
+					target: { relation: "Timesheet", fields: ["employee", "week"], selection: everyFact }
 				},
 				{
 					kind: "covered",
 					law: laws.lawOf(shiftEmployment(p)),
-					source: { relation: "Shift", fields: ["employee"], where: approved },
-					target: { relation: "Employment", fields: ["employee"], where: everyFact },
+					source: { relation: "Shift", fields: ["employee"], selection: approved },
+					target: { relation: "Employment", fields: ["employee"], selection: everyFact },
 					span: { source: "during", target: "during" },
 					residual: true
 				},
 				{
 					kind: "capacity",
 					law: laws.lawOf(timesheetHours(p)),
-					target: { relation: "Timesheet", fields: ["employee", "week"], where: everyFact },
-					source: { relation: "Shift", fields: ["employee", "week"], where: approved },
+					target: { relation: "Timesheet", fields: ["employee", "week"], selection: everyFact },
+					source: { relation: "Shift", fields: ["employee", "week"], selection: approved },
 					weight: { kind: "duration", field: "during" },
 					low: 0n,
 					high: { ref: "ceiling" }
@@ -1527,26 +1462,32 @@ export const depositsFamily: Family<DepositsParams> = {
 				)
 			],
 			laws: [
-				{ kind: "key", law: laws.primaryKeyLaw(PayLine), relation: "PayLine", fields: ["id"] },
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(PayLine),
+					relation: "PayLine",
+					fields: ["id"],
+					selection: everyFact
+				},
 				{
 					kind: "key",
 					law: laws.primaryKeyLaw(Deposit),
 					relation: "Deposit",
-					fields: ["line", "account"]
+					fields: ["line", "account"],
+					selection: everyFact
 				},
 				{ kind: "check", law: laws.lawOf(netWithin), relation: "PayLine", holds: netWithinGross },
 				{
 					kind: "contained",
 					law: laws.lawOf(depositLine),
-					source: { relation: "Deposit", fields: ["line"], where: everyFact },
-					target: { relation: "PayLine", fields: ["id"], where: everyFact },
-					residual: false
+					source: { relation: "Deposit", fields: ["line"], selection: everyFact },
+					target: { relation: "PayLine", fields: ["id"], selection: everyFact }
 				},
 				{
 					kind: "capacity",
 					law: laws.lawOf(depositAmount),
-					target: { relation: "PayLine", fields: ["id"], where: everyFact },
-					source: { relation: "Deposit", fields: ["line"], where: everyFact },
+					target: { relation: "PayLine", fields: ["id"], selection: everyFact },
+					source: { relation: "Deposit", fields: ["line"], selection: everyFact },
 					weight: { kind: "field", field: "amount" },
 					low: { ref: "net" },
 					high: { ref: "net" }
@@ -1554,8 +1495,8 @@ export const depositsFamily: Family<DepositsParams> = {
 				{
 					kind: "capacity",
 					law: laws.lawOf(depositCount(p)),
-					target: { relation: "PayLine", fields: ["id"], where: everyFact },
-					source: { relation: "Deposit", fields: ["line"], where: everyFact },
+					target: { relation: "PayLine", fields: ["id"], selection: everyFact },
+					source: { relation: "Deposit", fields: ["line"], selection: everyFact },
 					weight: { kind: "count" },
 					low: 0n,
 					high: p.most
@@ -1580,7 +1521,7 @@ export interface BadgesParams {
 	readonly mutable: Mutability<keyof typeof badgesRelations>
 }
 
-const badgeCode = key(Badge, ["code"])
+const badgeCode = key(on(Badge, "code"))
 const pinBadge = contained(on(Pin, "badge"), on(Badge, "id"))
 const tagBadge = contained(on(Tag, "code"), on(Badge, "code"))
 const pinsPerBadge = capacity(on(Badge, "id"), { from: on(Pin, "badge"), within: within(0n, 2n) })
@@ -1617,29 +1558,51 @@ export const badgesFamily: Family<BadgesParams> = {
 				hostRelation("Tag", ["id", "code"], ["id"], p.mutable.Tag)
 			],
 			laws: [
-				{ kind: "key", law: laws.primaryKeyLaw(Badge), relation: "Badge", fields: ["id"] },
-				{ kind: "key", law: laws.lawOf(badgeCode), relation: "Badge", fields: ["code"] },
-				{ kind: "key", law: laws.primaryKeyLaw(Pin), relation: "Pin", fields: ["id"] },
-				{ kind: "key", law: laws.primaryKeyLaw(Tag), relation: "Tag", fields: ["id"] },
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(Badge),
+					relation: "Badge",
+					fields: ["id"],
+					selection: everyFact
+				},
+				{
+					kind: "key",
+					law: laws.lawOf(badgeCode),
+					relation: "Badge",
+					fields: ["code"],
+					selection: everyFact
+				},
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(Pin),
+					relation: "Pin",
+					fields: ["id"],
+					selection: everyFact
+				},
+				{
+					kind: "key",
+					law: laws.primaryKeyLaw(Tag),
+					relation: "Tag",
+					fields: ["id"],
+					selection: everyFact
+				},
 				{
 					kind: "contained",
 					law: laws.lawOf(pinBadge),
-					source: { relation: "Pin", fields: ["badge"], where: everyFact },
-					target: { relation: "Badge", fields: ["id"], where: everyFact },
-					residual: false
+					source: { relation: "Pin", fields: ["badge"], selection: everyFact },
+					target: { relation: "Badge", fields: ["id"], selection: everyFact }
 				},
 				{
 					kind: "contained",
 					law: laws.lawOf(tagBadge),
-					source: { relation: "Tag", fields: ["code"], where: everyFact },
-					target: { relation: "Badge", fields: ["code"], where: everyFact },
-					residual: false
+					source: { relation: "Tag", fields: ["code"], selection: everyFact },
+					target: { relation: "Badge", fields: ["code"], selection: everyFact }
 				},
 				{
 					kind: "capacity",
 					law: laws.lawOf(pinsPerBadge),
-					target: { relation: "Badge", fields: ["id"], where: everyFact },
-					source: { relation: "Pin", fields: ["badge"], where: everyFact },
+					target: { relation: "Badge", fields: ["id"], selection: everyFact },
+					source: { relation: "Pin", fields: ["badge"], selection: everyFact },
 					weight: { kind: "count" },
 					low: 0n,
 					high: 2n
@@ -1647,8 +1610,8 @@ export const badgesFamily: Family<BadgesParams> = {
 				{
 					kind: "capacity",
 					law: laws.lawOf(tagsPerBadge),
-					target: { relation: "Badge", fields: ["code"], where: everyFact },
-					source: { relation: "Tag", fields: ["code"], where: everyFact },
+					target: { relation: "Badge", fields: ["code"], selection: everyFact },
+					source: { relation: "Tag", fields: ["code"], selection: everyFact },
 					weight: { kind: "count" },
 					low: 0n,
 					high: 2n
@@ -1711,15 +1674,22 @@ const tenantArmLaws = (
 	{
 		kind: "contained",
 		law: defined(stage.arms[h], `the ${h} arm's law`),
-		source: { relation: arm, fields: ["tenant", "run"], where: everyFact },
-		target: { relation: "TenantRun", fields: ["tenant", "id"], where: { stage: h } },
-		residual: false
+		source: { relation: arm, fields: ["tenant", "run"], selection: everyFact },
+		target: {
+			relation: "TenantRun",
+			fields: ["tenant", "id"],
+			selection: fieldsEqual({ stage: h })
+		}
 	},
 	{
 		kind: "obliged",
 		law: stage.reverse,
-		anchor: { relation: "TenantRun", fields: ["tenant", "id"], where: { stage: h } },
-		dependent: { relation: arm, fields: ["tenant", "run"], where: everyFact }
+		anchor: {
+			relation: "TenantRun",
+			fields: ["tenant", "id"],
+			selection: fieldsEqual({ stage: h })
+		},
+		dependent: { relation: arm, fields: ["tenant", "run"], selection: everyFact }
 	}
 ]
 
@@ -1772,19 +1742,22 @@ export const compositeAlternatives: Family<TenantRunsParams> = {
 					kind: "key",
 					law: laws.primaryKeyLaw(TenantRun),
 					relation: "TenantRun",
-					fields: ["tenant", "id"]
+					fields: ["tenant", "id"],
+					selection: everyFact
 				},
 				{
 					kind: "key",
 					law: laws.primaryKeyLaw(TenantPayment),
 					relation: "TenantPayment",
-					fields: ["tenant", "run"]
+					fields: ["tenant", "run"],
+					selection: everyFact
 				},
 				{
 					kind: "key",
 					law: laws.primaryKeyLaw(TenantVoiding),
 					relation: "TenantVoiding",
-					fields: ["tenant", "run"]
+					fields: ["tenant", "run"],
+					selection: everyFact
 				},
 				...tenantArmLaws(stage, "TenantPayment", "paid"),
 				...tenantArmLaws(stage, "TenantVoiding", "voided")
@@ -1796,380 +1769,4 @@ export const compositeAlternatives: Family<TenantRunsParams> = {
 		Effect.flatMap(openWriter({ installed, schema: tenantRuns(p)(installed.declared) }), (o) =>
 			runtimeSession(compositeAlternatives.host(p), o, tenantRunsRelations)
 		)
-}
-
-/**
- * A composite projection out of the parent's key order: Batch is keyed (tenant, id), the mirrors' parent side is
- * (id, tenant), and Note pairs (batch, account) with it, so only the projection's order pairs Note.batch with Batch.id.
- */
-const Batch = relation("Batch", { tenant: pg.integer, id: pg.integer, urgent: pg.boolean }, [
-	"tenant",
-	"id"
-])
-
-const Note = relation(
-	"Note",
-	{ id: pg.integer, account: pg.integer, batch: pg.integer, text: label },
-	["id"]
-)
-
-/** A ticket selected by an integer, a refined text or a closed handle; its follow-up keyed by the ticket. */
-const priorities = ["low", "high"] as const
-const Priority = closed("Priority", priorities)
-const Ticket = relation(
-	"Ticket",
-	{
-		id: pg.integer,
-		level: pg.integer,
-		lang: str.regex("^[a-z]{2}$"),
-		priority: closedId(Priority)
-	},
-	["id"]
-)
-const Escalation = relation("Escalation", { ticket: pg.integer, note: label }, ["ticket"])
-
-/** Which field selects a ticket, at the value `ticketSelection` fixes, and which side of the statement it stands on. */
-export type TicketSelector = "level" | "lang" | "priority"
-export type MirrorShape =
-	| { readonly kind: "projection"; readonly selector: boolean }
-	| { readonly kind: "selector"; readonly field: TicketSelector; readonly side: "left" | "right" }
-
-export interface MirrorShapesParams {
-	/** The mutability of the mirrors' sides: the selected parent, Batch or Ticket, and its child, Note or Escalation. */
-	readonly mutable: Mutability<"parent" | "child">
-	readonly shape: MirrorShape
-}
-
-const ticketSelection = (field: TicketSelector): Readonly<Record<string, HostValue>> => {
-	switch (field) {
-		case "level":
-			return { level: 3 }
-		case "lang":
-			return { lang: "en" }
-		case "priority":
-			return { priority: "high" }
-	}
-}
-
-/** The ticket's mirrors over its selected side, written on the left or on the right of the statement. */
-const ticketMirrors = (field: TicketSelector, side: "left" | "right") => {
-	const follow = on(Escalation, "ticket")
-	switch (field) {
-		case "level": {
-			const ticket = on(select(Ticket, { level: 3 }), "id")
-			return side === "left" ? mirrors(ticket, follow) : mirrors(follow, ticket)
-		}
-		case "lang": {
-			const ticket = on(select(Ticket, { lang: "en" }), "id")
-			return side === "left" ? mirrors(ticket, follow) : mirrors(follow, ticket)
-		}
-		case "priority": {
-			const ticket = on(select(Ticket, { priority: "high" }), "id")
-			return side === "left" ? mirrors(ticket, follow) : mirrors(follow, ticket)
-		}
-	}
-}
-
-const batchNotes = (selector: boolean) =>
-	mirrors(on(select(Batch, { urgent: selector }), "id", "tenant"), on(Note, "batch", "account"))
-
-const batches = (m: MirrorShapesParams["mutable"], selector: boolean) => (name: string) =>
-	schema(name, { Batch, Note }, [
-		batchNotes(selector),
-		...mutables(m, { parent: Batch, child: Note })
-	])
-
-const tickets =
-	(m: MirrorShapesParams["mutable"], field: TicketSelector, side: "left" | "right") =>
-	(name: string) =>
-		schema(name, { Priority, Ticket, Escalation }, [
-			ticketMirrors(field, side),
-			...mutables(m, { parent: Ticket, child: Escalation })
-		])
-
-const ticketSelectors: Arr.NonEmptyReadonlyArray<TicketSelector> = ["level", "lang", "priority"]
-const sides = ["left", "right"] as const
-
-const describeMirrorShape = (shape: MirrorShape): string =>
-	shape.kind === "projection"
-		? `Batch selected by urgent = ${shape.selector}, projected (id, tenant) onto Note (batch, account)`
-		: `Ticket selected by ${shape.field}, its selected side on the ${shape.side}`
-
-/**
- * A mirrors' two halves over a parent selected by `where` and a child: the child's tagged foreign key into the selected
- * parents (native), and each selected parent's obligation to have a child (residual).
- */
-const mirrorHalves = (
-	halves: { readonly leftToRight: LawId; readonly rightToLeft: LawId },
-	parentOnLeft: boolean,
-	parent: HostSide,
-	child: HostSide
-): HostSchema["laws"] => [
-	{
-		kind: "contained",
-		law: parentOnLeft ? halves.rightToLeft : halves.leftToRight,
-		source: child,
-		target: parent,
-		residual: false
-	},
-	{
-		kind: "obliged",
-		law: parentOnLeft ? halves.leftToRight : halves.rightToLeft,
-		anchor: parent,
-		dependent: child
-	}
-]
-
-const mirrorShapesHost = (p: MirrorShapesParams): HostSchema => {
-	const shape = p.shape
-	if (shape.kind === "projection") {
-		const laws = lawNamesOf(batches(p.mutable, shape.selector)("families"))
-		return {
-			relations: [
-				hostRelation("Batch", ["tenant", "id", "urgent"], ["tenant", "id"], p.mutable.parent),
-				hostRelation("Note", ["id", "account", "batch", "text"], ["id"], p.mutable.child)
-			],
-			laws: [
-				{
-					kind: "key",
-					law: laws.primaryKeyLaw(Batch),
-					relation: "Batch",
-					fields: ["tenant", "id"]
-				},
-				{ kind: "key", law: laws.primaryKeyLaw(Note), relation: "Note", fields: ["id"] },
-				...mirrorHalves(
-					laws.mirrorsOf(batchNotes(shape.selector)),
-					true,
-					{ relation: "Batch", fields: ["id", "tenant"], where: { urgent: shape.selector } },
-					{ relation: "Note", fields: ["batch", "account"], where: everyFact }
-				)
-			]
-		}
-	}
-	const laws = lawNamesOf(tickets(p.mutable, shape.field, shape.side)("families"))
-	return {
-		relations: [
-			hostRelation("Ticket", ["id", "level", "lang", "priority"], ["id"], p.mutable.parent),
-			hostRelation("Escalation", ["ticket", "note"], ["ticket"], p.mutable.child)
-		],
-		laws: [
-			{ kind: "key", law: laws.primaryKeyLaw(Ticket), relation: "Ticket", fields: ["id"] },
-			{
-				kind: "key",
-				law: laws.primaryKeyLaw(Escalation),
-				relation: "Escalation",
-				fields: ["ticket"]
-			},
-			...mirrorHalves(
-				laws.mirrorsOf(ticketMirrors(shape.field, shape.side)),
-				shape.side === "left",
-				{ relation: "Ticket", fields: ["id"], where: ticketSelection(shape.field) },
-				{ relation: "Escalation", fields: ["ticket"], where: everyFact }
-			)
-		]
-	}
-}
-
-export const mirrorShapes: Family<MirrorShapesParams> = {
-	label: "conditional mirrors over a composite projection and non-boolean selectors",
-	variants: Arr.flatMap(uniformly({ parent: Batch, child: Note }), (mutable) =>
-		Arr.appendAll(
-			Arr.map(booleans, (selector): MirrorShapesParams => ({
-				mutable,
-				shape: { kind: "projection", selector }
-			})),
-			Arr.flatMap(ticketSelectors, (field) =>
-				Arr.map(sides, (side): MirrorShapesParams => ({
-					mutable,
-					shape: { kind: "selector", field, side }
-				}))
-			)
-		)
-	),
-	describe: (p) => `${describeMutability(p.mutable)}, ${describeMirrorShape(p.shape)}`,
-	traits: noTraits,
-	/**
-	 * Batch ids and tenants range over the same values, so a projection paired in the wrong order meets another batch.
-	 */
-	domains: {
-		Batch: { tenant: [1, 2], id: [1, 2], urgent: [true, false] },
-		Note: { id: [1, 2, 3, 4], account: [1, 2], batch: [1, 2], text: ["x", "y"] },
-		Ticket: { id: [1, 2, 3], level: [1, 3], lang: ["en", "de"], priority: priorities },
-		Escalation: { ticket: [1, 2, 3], note: ["a", "b"] }
-	},
-	host: mirrorShapesHost,
-	schema: (p) =>
-		p.shape.kind === "projection"
-			? batches(p.mutable, p.shape.selector)
-			: tickets(p.mutable, p.shape.field, p.shape.side),
-	connect: (p, installed) => {
-		const host = mirrorShapesHost(p)
-		const shape = p.shape
-		return shape.kind === "projection"
-			? Effect.flatMap(
-					openWriter({ installed, schema: batches(p.mutable, shape.selector)(installed.declared) }),
-					(o) => runtimeSession(host, o, { Batch, Note })
-				)
-			: Effect.flatMap(
-					openWriter({
-						installed,
-						schema: tickets(p.mutable, shape.field, shape.side)(installed.declared)
-					}),
-					(o) => runtimeSession(host, o, { Ticket, Escalation })
-				)
-	}
-}
-
-/**
- * A sheet keyed by an employee's uuid and a week's printable text, quotes, a backslash and brackets among them, which a
- * DETAIL carries intact; an entry of a sheet's time selected by its closed status. The containment's fields are no key
- * of Stint, so its witness names the entry by its uuid.
- */
-const statuses = ["pending", "approved"] as const
-const Status = closed("Status", statuses)
-const week = str.regex("^[ -~]{1,40}$", "u")
-const Sheet = relation("Sheet", { employee: uuid, week, ceiling: pg.integer }, ["employee", "week"])
-const Stint = relation("Stint", { id: uuid, employee: uuid, week, status: closedId(Status) }, [
-	"id"
-])
-
-/** A node selected by `live`, whose parent is a node. */
-const Node = relation("Node", { id: pg.integer, parent: pg.integer, live: pg.boolean }, ["id"])
-
-const sheetsRelations = Object.freeze({ Sheet, Stint })
-
-/** A source shape, with the mutability of the relations it declares. */
-export type SourceShape =
-	| {
-			readonly kind: "composite"
-			readonly status: (typeof statuses)[number]
-			readonly mutable: Mutability<keyof typeof sheetsRelations>
-	  }
-	| { readonly kind: "self"; readonly live: boolean; readonly mutable: Mutability<"Node"> }
-
-type CompositeShape = Extract<SourceShape, { readonly kind: "composite" }>
-type SelfShape = Extract<SourceShape, { readonly kind: "self" }>
-
-export interface SourceShapesParams {
-	readonly shape: SourceShape
-}
-
-const stintSheet = (status: (typeof statuses)[number]) =>
-	contained(on(select(Stint, { status }), "employee", "week"), on(Sheet, "employee", "week"))
-
-const nodeParent = (live: boolean) =>
-	contained(on(select(Node, { live }), "parent"), on(Node, "id"))
-
-const sheets = (shape: CompositeShape) => (name: string) =>
-	schema(name, { Status, ...sheetsRelations }, [
-		stintSheet(shape.status),
-		...mutables(shape.mutable, sheetsRelations)
-	])
-
-const nodes = (shape: SelfShape) => (name: string) =>
-	schema(name, { Node }, [nodeParent(shape.live), ...mutables(shape.mutable, { Node })])
-
-const sourceShapesHost = (p: SourceShapesParams): HostSchema => {
-	const shape = p.shape
-	if (shape.kind === "composite") {
-		const laws = lawNamesOf(sheets(shape)("families"))
-		return {
-			relations: [
-				hostRelation(
-					"Sheet",
-					["employee", "week", "ceiling"],
-					["employee", "week"],
-					shape.mutable.Sheet
-				),
-				hostRelation("Stint", ["id", "employee", "week", "status"], ["id"], shape.mutable.Stint)
-			],
-			laws: [
-				{
-					kind: "key",
-					law: laws.primaryKeyLaw(Sheet),
-					relation: "Sheet",
-					fields: ["employee", "week"]
-				},
-				{ kind: "key", law: laws.primaryKeyLaw(Stint), relation: "Stint", fields: ["id"] },
-				{
-					kind: "contained",
-					law: laws.lawOf(stintSheet(shape.status)),
-					source: {
-						relation: "Stint",
-						fields: ["employee", "week"],
-						where: { status: shape.status }
-					},
-					target: { relation: "Sheet", fields: ["employee", "week"], where: everyFact },
-					residual: true
-				}
-			]
-		}
-	}
-	const laws = lawNamesOf(nodes(shape)("families"))
-	return {
-		relations: [hostRelation("Node", ["id", "parent", "live"], ["id"], shape.mutable.Node)],
-		laws: [
-			{ kind: "key", law: laws.primaryKeyLaw(Node), relation: "Node", fields: ["id"] },
-			{
-				kind: "contained",
-				law: laws.lawOf(nodeParent(shape.live)),
-				source: { relation: "Node", fields: ["parent"], where: { live: shape.live } },
-				target: { relation: "Node", fields: ["id"], where: everyFact },
-				residual: true
-			}
-		]
-	}
-}
-
-/** Two employees, three weeks and four entries: an entry's sheet is present as often as not. */
-const employees = [
-	"00000000-0000-4000-8000-000000000001",
-	"00000000-0000-4000-8000-0000000000a2"
-] as const
-const weeks = ['W\'1 "q"', "\\ [x],", "W2"] as const
-
-export const sourceShapes: Family<SourceShapesParams> = {
-	label:
-		"selected-source containment over a composite text and uuid anchor and into its own relation",
-	variants: Arr.flatMap(booleans, (declared) =>
-		Arr.appendAll(
-			Arr.map(statuses, (status): SourceShapesParams => ({
-				shape: { kind: "composite", status, mutable: { Sheet: declared, Stint: declared } }
-			})),
-			Arr.map(booleans, (live): SourceShapesParams => ({
-				shape: { kind: "self", live, mutable: { Node: declared } }
-			}))
-		)
-	),
-	describe: (p) =>
-		`${describeMutability(p.shape.mutable)}, ${p.shape.kind === "composite" ? `Stint selected by status = ${p.shape.status} into Sheet (employee, week)` : `Node selected by live = ${p.shape.live} into its own id`}`,
-	traits: noTraits,
-	domains: {
-		Sheet: { employee: employees, week: weeks, ceiling: [1, 2] },
-		Stint: {
-			id: [
-				"00000000-0000-4000-8000-00000000000b",
-				"00000000-0000-4000-8000-00000000000c",
-				"00000000-0000-4000-8000-0000000000d0",
-				"00000000-0000-4000-8000-0000000000e0"
-			],
-			employee: employees,
-			week: weeks,
-			status: statuses
-		},
-		Node: { id: [1, 2, 3], parent: [1, 2, 3], live: [true, false] }
-	},
-	host: sourceShapesHost,
-	schema: (p) => (p.shape.kind === "composite" ? sheets(p.shape) : nodes(p.shape)),
-	connect: (p, installed) => {
-		const host = sourceShapesHost(p)
-		const shape = p.shape
-		return shape.kind === "composite"
-			? Effect.flatMap(openWriter({ installed, schema: sheets(shape)(installed.declared) }), (o) =>
-					runtimeSession(host, o, sheetsRelations)
-				)
-			: Effect.flatMap(openWriter({ installed, schema: nodes(shape)(installed.declared) }), (o) =>
-					runtimeSession(host, o, { Node })
-				)
-	}
 }

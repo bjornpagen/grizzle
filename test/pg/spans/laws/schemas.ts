@@ -1,14 +1,17 @@
 import { Array as Arr } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
+	type AuthoredStatementDesc as StatementDesc,
 	contained,
+	eq,
 	f,
+	field,
+	literal,
 	mutable,
 	on,
-	onSelected,
+	onWhere,
 	relation,
-	type SchemaDesc,
-	type AuthoredStatementDesc as StatementDesc
+	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
 
@@ -16,7 +19,7 @@ const mutables = (on: boolean, relations: ReadonlyArray<string>): ReadonlyArray<
 	on ? Arr.map(relations, mutable) : []
 
 const visitsCoverage = contained(
-	onSelected("Visit", ["site", "during"], { billable: true }),
+	onWhere("Visit", ["site", "during"], eq(field("billable"), literal(true))),
 	on("Shift", ["site", "during"])
 )
 
@@ -40,8 +43,8 @@ export const visits = (options: { readonly mutable: boolean }): SchemaDesc => ({
 /**
  * The span-law schemas of the span law tests, as Descriptions.
  *
- * - Visits: a selected source, `on(select(Visit, { billable: true }), "site", "during")` into Shift's span key
- *   `(site, during)`: the residual range_agg coverage law anchored on the target rows of the source's scalar group.
+ * - Visits: a selected source, `on(select(Visit, (v) => v.eq(v.billable, true)), "site", "during")` into Shift's span
+ *   key `(site, during)`: the residual range_agg coverage law anchored on the target rows of the source's scalar group.
  *   Visit is keyed by id, so its DETAIL carries the visit's id.
  * - Rounds: the Visits law with a composite group whose source fields differ from the target's in name and in order.
  *

@@ -190,7 +190,7 @@ const detailFeatures = (key: ClubKey): ReadonlyArray<DetailFeature> => [
 
 /**
  * A statement-time native violation as a case draws it, each kind over values of its own: a member at a stored email
- * (the candidate key), a second captain of the stored club (the capacity's partial UNIQUE index), and a club whose
+ * (the candidate key), a second captain of the stored club (the capacity's UNIQUE over its selected side), and a club whose
  * seats are below one (the table CHECK) or above the contract's bound (the contract domain), or whose code is past the
  * refinement's twenty characters (the text refinement domain).
  */
@@ -200,7 +200,7 @@ type NativeCase =
 			readonly id: Uuid
 			readonly email: "ann@example.org" | "ben@example.org"
 	  }
-	| { readonly kind: "a partial UNIQUE index"; readonly id: Uuid; readonly email: string }
+	| { readonly kind: "a selected side's UNIQUE"; readonly id: Uuid; readonly email: string }
 	| { readonly kind: "a table CHECK"; readonly club: ClubKey; readonly seats: number }
 	| { readonly kind: "a contract domain"; readonly club: ClubKey; readonly seats: number }
 	| { readonly kind: "a text refinement domain"; readonly club: ClubKey }
@@ -233,7 +233,7 @@ const nativeCaseGen: Gen<NativeCase> = oneOf<NativeCase>([
 		email: source.draw(element(["ann@example.org", "ben@example.org"] as const))
 	}),
 	(source) => ({
-		kind: "a partial UNIQUE index",
+		kind: "a selected side's UNIQUE",
 		id: source.draw(freshIdGen),
 		email: source.draw(freshEmailGen)
 	}),
@@ -277,7 +277,7 @@ const club = (k: ClubKey, seatsValue: number): ReadonlyArray<string> => [
  *   the host's statement of the law's witness (the club's whole key), to exactly the drawn key: both enum labels,
  *   bigints at and between their limits, and codes of quotes, backslashes, commas, brackets, line breaks, non-ASCII
  *   and astral characters; db.apply's witness carries that key;
- * - a native violation at its statement (a candidate key, a partial UNIQUE index, a table CHECK, a contract domain, a
+ * - a native violation at its statement (a candidate key, a selected side's UNIQUE, a table CHECK, a contract domain, a
  *   text refinement domain), each drawn over values of its own, is raised under the constraint the naming door names
  *   for its law, and db.apply reports the law with no key, although PostgreSQL's DETAIL carries the key or the whole
  *   row in prose; except where the insert protocol refuses the change in its own rows, probing a unique object besides
@@ -398,14 +398,14 @@ export const witnessSuite = (): void => {
 							const provoked = (k: NativeCase) => {
 								switch (k.kind) {
 									case "a candidate key":
-									case "a partial UNIQUE index": {
+									case "a selected side's UNIQUE": {
 										const fact = {
 											id: k.id,
 											region: "North" as const,
 											number: 1n,
 											code: "alpha",
 											email: k.email,
-											captain: k.kind === "a partial UNIQUE index"
+											captain: k.kind === "a selected side's UNIQUE"
 										}
 										const law = k.kind === "a candidate key" ? memberKey : clubs.lawOf(captainCount)
 										return {
@@ -420,7 +420,7 @@ export const witnessSuite = (): void => {
 											],
 											sqlstate: sqlstates.uniqueViolation,
 											/**
-											 * The candidate key's constraint, read through the naming door; the partial UNIQUE index
+											 * The candidate key's constraint, read through the naming door; the selected side's UNIQUE
 											 * is named apart from its capacity's law.
 											 */
 											constraint:
@@ -490,7 +490,7 @@ export const witnessSuite = (): void => {
 									coverage: required<NativeFeature>(
 										[
 											"refused by a candidate key",
-											"refused by a partial UNIQUE index",
+											"refused by a selected side's UNIQUE",
 											"refused by a table CHECK",
 											"refused by a contract domain",
 											"refused by a text refinement domain"

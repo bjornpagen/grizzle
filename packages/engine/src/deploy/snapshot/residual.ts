@@ -70,15 +70,6 @@ type WeightRecord =
  * what each of its participants re-checks, by relation. */
 export type FamilyRecord =
 	| {
-			readonly family: "selectedSourceContainment"
-			readonly source: SideRecord & { readonly selection: ReadonlyArray<SelectorRecord> }
-	  }
-	| {
-			readonly family: "conditionalMirrors"
-			readonly selection: ReadonlyArray<SelectorRecord>
-			readonly child: SideRecord
-	  }
-	| {
 			readonly family: "alternativesReverse"
 			readonly discriminator: string
 			readonly checks: ReadonlyArray<{ readonly relation: string; readonly check: CheckRecord }>
@@ -200,21 +191,6 @@ const weight = (w: LawWeight): WeightRecord => {
 
 const familyRecord = (r: ResidualLaw): FamilyRecord => {
 	switch (r.family) {
-		case "selectedSourceContainment":
-			return {
-				family: r.family,
-				source: {
-					relation: r.source.relation.name,
-					pairs: r.source.pairs.map(pair),
-					selection: selectors(r.source.selection)
-				}
-			}
-		case "conditionalMirrors":
-			return {
-				family: r.family,
-				selection: selectors(r.selection),
-				child: { relation: r.child.relation.name, pairs: r.child.pairs.map(pair) }
-			}
 		case "alternativesReverse":
 			return {
 				family: r.family,

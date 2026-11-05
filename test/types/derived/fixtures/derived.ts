@@ -260,8 +260,8 @@ export const Kinds = derived("Kinds", kinds)
 
 /** 6. No law names a derived relation, on either side. */
 export const laws = () => [
-	// @ts-expect-error -- TS2739: key takes ordinary relations only
-	key(AccountBudget, ["account"]),
+	// @ts-expect-error -- TS2345: a key's side is never over a derived relation
+	key(on(AccountBudget, "account")),
 	// @ts-expect-error -- TS2739: mutable takes ordinary relations only
 	mutable(AccountBudget),
 	// @ts-expect-error -- TS2739: check takes ordinary relations only
@@ -273,7 +273,7 @@ export const laws = () => [
 	// @ts-expect-error -- TS2345 refusal: the sides' field types differ
 	mirrors(on(AccountBudget, "account"), on(Account, "id")),
 	// @ts-expect-error -- TS2345: a selection is never over a derived relation
-	select(AccountBudget, {}),
+	select(AccountBudget, (b) => b.and()),
 	// @ts-expect-error -- TS2345: alternatives takes no derived parent
 	alternatives(AccountBudget, "account", Kind, {}),
 	capacity(

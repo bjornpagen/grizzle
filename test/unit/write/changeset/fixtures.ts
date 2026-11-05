@@ -107,7 +107,7 @@ const Counter = relation("Counter", { name: label, value: pg.bigint, seq: pg.ser
 const Status = relation("Status", { id: uuid, state: label }, ["id"])
 const Tag = relation("Tag", { owner: uuid, tag: label }, ["owner", "tag"])
 export const Ledger = schema("Ledger", { Book, Entry, Ticket, Counter, Status, Tag }, [
-	key(Entry, ["code"]),
+	key(on(Entry, "code")),
 	contained(on(Entry, "book"), on(Book, "id")),
 	mutable(Status),
 	mutable(Counter),

@@ -1,12 +1,11 @@
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
-import { hasProperties } from "#compiler/core/record.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import { type NamedRelation, namedRelation } from "#compiler/schema/relation.ts"
-import { statementDescOf } from "#compiler/schema/statements.ts"
+import { candidateKeyOf, statementDescOf } from "#compiler/schema/statements.ts"
 
 /** A relation or closed relation a builder made, as namedRelation reads it, with its fact decoder. */
 interface BuiltRelation {
@@ -48,16 +47,16 @@ const builtRelation = (value: unknown): BuiltRelation | undefined => {
 
 /**
  * The relation and key fields a key position names, or undefined for a value that names none: a built relation's
- * primary key, a built closed relation's ["id"], or a Key value's candidate key of a built relation.
+ * primary key, a built closed relation's ["id"], or a Key value's candidate key of a built relation, a key over its
+ * whole relation's fields. A Key over a selection or a pred term names no key of its relation, so it is no position.
  */
 const keyTarget = (value: unknown): KeyPosition | undefined => {
-	const desc = statementDescOf(value)
-	if (desc !== undefined) {
-		if (desc.kind !== "key" || !hasProperties(value)) {
-			return undefined
-		}
-		const relation = builtRelation(value["relation"])
-		return relation === undefined ? undefined : { position: value, relation, fields: desc.fields }
+	if (statementDescOf(value) !== undefined) {
+		const keyed = candidateKeyOf(value)
+		const relation = keyed === undefined ? undefined : builtRelation(keyed.relation)
+		return keyed === undefined || relation === undefined
+			? undefined
+			: { position: keyed.key, relation, fields: keyed.fields }
 	}
 	const relation = builtRelation(value)
 	return relation === undefined

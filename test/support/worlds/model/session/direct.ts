@@ -2,11 +2,10 @@ import { Array as Arr, Option, Record, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
 	type HostLaw,
-	type HostSelector,
 	isResidual,
 	isSpan,
 	sameValue,
-	selectorValues,
+	selected,
 	valueText
 } from "#test/pg/laws/families/model.ts"
 import { nextDraw, withSerial } from "#test/support/worlds/model/draws.ts"
@@ -58,8 +57,6 @@ import {
 	filterReadsStored,
 	keysOf,
 	probeOf,
-	uniqueProbeOf,
-	uniqueReads,
 	updatableFields,
 	type Written,
 	writtenAt,
@@ -829,15 +826,13 @@ export const directBranches = (
 	 * judges a row, in the membership's order (claimsOrder, planned wherever a filter function exists, since it joins a
 	 * stored relation); a key probe judges the membership of each row of its target at the key in the transaction's view
 	 * (physical/ddl/roles.ts: equal at each field, overlapping at a span field), so it reads no claim where no row is at
-	 * the key, and a unique probe of each row its index holds equal at the index's fields, where the arguments lie in
-	 * the index's predicate too. A plan that reads none answers. An advance function reads no claims, and no role
-	 * executes a law's.
+	 * the key. A plan that reads none answers. An advance function reads no claims, and no role executes a law's.
 	 */
 	const executed = (
 		fn: WorldFunction,
 		args: ReadonlyArray<HostValue>
 	): Arr.NonEmptyReadonlyArray<Branch> => {
-		if (fn.kind !== "filter" && fn.kind !== "key-probe" && fn.kind !== "unique-probe") {
+		if (fn.kind !== "filter" && fn.kind !== "key-probe") {
 			return [go(session)]
 		}
 		const owner = roleOf(state.install, fn.role)
@@ -849,29 +844,6 @@ export const directBranches = (
 		)
 		if (fn.kind === "filter") {
 			return underClaims(order, true, () => [go(session)])
-		}
-		if (fn.kind === "unique-probe") {
-			const probed = owner === undefined ? undefined : uniqueProbeOf(base, owner, fn)
-			const reads = probed === undefined ? [] : uniqueReads(base, probed.target, probed.unique)
-			/** The arguments as a fact of the index's fields, in parameter order. */
-			const given: HostFact = Record.fromEntries(
-				Arr.flatMap(reads, (f, i): ReadonlyArray<readonly [string, HostValue]> => {
-					const arg = args[i]
-					return arg === undefined ? [] : [[f, arg]]
-				})
-			)
-			const within = (fact: HostFact): boolean =>
-				probed !== undefined &&
-				Arr.every(Record.toEntries(probed.unique.where), ([f, v]) => sameValue(fact[f], v))
-			const atIndex =
-				probed !== undefined &&
-				within(given) &&
-				Arr.some(
-					factsIn(session.view, probed.target),
-					(fact) =>
-						within(fact) && Arr.every(probed.unique.fields, (f) => sameValue(fact[f], given[f]))
-				)
-			return atIndex ? underClaims(order, true, () => [go(session)]) : [go(session)]
 		}
 		const probe = owner === undefined ? undefined : probeOf(base, owner, fn)
 		const fields = probe === undefined ? undefined : relationSpecOf(base, probe.target)?.fields
@@ -1326,10 +1298,10 @@ const callAnswer = (
 	return executes(state, role, fn) ? called() : [refused("42501")]
 }
 
-/** The parameters of an entry's filter function, key probe or unique probe, by their domains (parametersOf). */
+/** The parameters of an entry's filter function or key probe, by their domains (parametersOf). */
 const entryFunctionParameters = (
 	state: ModelState,
-	fn: Extract<WorldFunction, { readonly kind: "filter" | "key-probe" | "unique-probe" }>
+	fn: Extract<WorldFunction, { readonly kind: "filter" | "key-probe" }>
 ): ReadonlyArray<FieldDomain> | undefined => {
 	const base = state.install.base
 	const owner = roleOf(state.install, fn.role)
@@ -1352,20 +1324,14 @@ const entryFunctionParameters = (
 			const key = probeOf(base, owner, fn)?.key
 			return key === undefined ? undefined : typed(key)
 		}
-		case "unique-probe": {
-			const probed = uniqueProbeOf(base, owner, fn)
-			return probed === undefined
-				? undefined
-				: typed(uniqueReads(base, probed.target, probed.unique))
-		}
 	}
 }
 
 /**
  * The parameters of a function the installation defines, by their domains: a filter function's, its entry's membership
  * fields (defined only where the entry's rule reads a stored relation besides its target's row); a key probe's, its
- * key's fields; a unique probe's, the fields its index reads (uniqueReads); an advance function's, one bigint; a
- * residual law's trigger function's, none. Undefined for one the installation does not define.
+ * key's fields; an advance function's, one bigint; a residual law's trigger function's, none. Undefined for one the
+ * installation does not define.
  */
 export const parametersOf = (
 	state: ModelState,
@@ -1375,7 +1341,6 @@ export const parametersOf = (
 	switch (fn.kind) {
 		case "filter":
 		case "key-probe":
-		case "unique-probe":
 			return entryFunctionParameters(state, fn)
 		case "advance": {
 			const field = Option.getOrUndefined(
@@ -1391,15 +1356,14 @@ export const parametersOf = (
 }
 
 /**
- * Whether a role holds EXECUTE on a function the installation defines: its own filter functions, key probes and unique
- * probes, and the advance function of each serial field of a relation it writes; no role a law function's, which its
- * trigger alone runs; nothing while the writer is still its login.
+ * Whether a role holds EXECUTE on a function the installation defines: its own filter functions and key probes, and
+ * the advance function of each serial field of a relation it writes; no role a law function's, which its trigger alone
+ * runs; nothing while the writer is still its login.
  */
 const executes = (state: ModelState, role: RoleSpec | undefined, fn: WorldFunction): boolean => {
 	switch (fn.kind) {
 		case "filter":
 		case "key-probe":
-		case "unique-probe":
 			return role?.name === fn.role
 		case "advance":
 			return role !== undefined && writtenAt(state.install.base, role, fn.relation) !== undefined
@@ -1453,13 +1417,6 @@ const projected = (
 	return entries.length === from.length ? Record.fromEntries(entries) : undefined
 }
 
-/** Whether a fact holds a side's selector values: at each field, the value or one of the values it admits. */
-const selected = (fact: HostFact, where: Readonly<Record<string, HostSelector>>): boolean =>
-	Arr.every(
-		Record.toEntries(where),
-		([f, s]) => Record.has(fact, f) && Arr.some(selectorValues(s), (v) => sameValue(fact[f], v))
-	)
-
 /** Whether two span values overlap, as half-open ranges; an empty one overlaps none. */
 const overlaps = (a: HostValue | undefined, b: HostValue | undefined): boolean =>
 	a !== undefined &&
@@ -1479,19 +1436,15 @@ interface KeyOf {
 
 /**
  * The keys PostgreSQL's DETAIL may name for a native constraint a view breaks, each with the relation whose rows it
- * names: a key's, a unique index's (over the facts its predicate admits) or a span key's fields of every fact sharing
+ * names: a key's (over the facts its selection reads) or a span key's fields of every fact sharing
  * them with another (`Key (...)=(...) already exists`, `conflicts with`); a containment's source fields of a source fact
  * no target fact holds (`is not present in table`), and the same values under the target's fields (`is still referenced
  * from table`, when a target fact went). A check names no key (`Failing row contains`).
  */
 const nativeKeys = (law: HostLaw, view: HostState): ReadonlyArray<KeyOf> => {
 	switch (law.kind) {
-		case "key":
-		case "unique": {
-			const facts = Arr.filter(
-				factsIn(view, law.relation),
-				(f) => law.kind === "key" || selected(f, law.where)
-			)
+		case "key": {
+			const facts = Arr.filter(factsIn(view, law.relation), (f) => selected(f, law.selection))
 			return Arr.flatMap(facts, (f, i): ReadonlyArray<KeyOf> => {
 				const key = projected(f, law.fields, law.fields)
 				return key !== undefined &&
@@ -1519,10 +1472,10 @@ const nativeKeys = (law: HostLaw, view: HostState): ReadonlyArray<KeyOf> => {
 		}
 		case "contained": {
 			const targets = Arr.filter(factsIn(view, law.target.relation), (t) =>
-				selected(t, law.target.where)
+				selected(t, law.target.selection)
 			)
 			const sources = Arr.filter(factsIn(view, law.source.relation), (f) =>
-				selected(f, law.source.where)
+				selected(f, law.source.selection)
 			)
 			return Arr.flatMap(sources, (f: HostFact): ReadonlyArray<KeyOf> => {
 				const source = projected(f, law.source.fields, law.source.fields)

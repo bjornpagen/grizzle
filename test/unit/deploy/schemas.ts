@@ -63,7 +63,7 @@ export const shopV2: SchemaDesc = {
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
 		...alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
-		key("Account", ["name"]),
+		key(on("Account", ["name"])),
 		check("WeightNonNegative", "Task", ge(field("weight"), literal(0))),
 		mutable("Task")
 	],
@@ -84,7 +84,7 @@ export const shopV3: SchemaDesc = {
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
 		...alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
-		key("Account", ["name"])
+		key(on("Account", ["name"]))
 	],
 	extends: undefined
 }
@@ -140,7 +140,7 @@ export const books2: SchemaDesc = {
 		]),
 		relation("Remark", { id: f.uuid, body: f.wildcard }, ["id"])
 	],
-	statements: [key("Entry", ["book"])],
+	statements: [key(on("Entry", ["book"]))],
 	extends: undefined
 }
 
@@ -166,7 +166,7 @@ export const shopV4: SchemaDesc = {
 			Manual: ManualTask,
 			Scheduled: ScheduledTask
 		}),
-		key("Account", ["name"])
+		key(on("Account", ["name"]))
 	]
 }
 

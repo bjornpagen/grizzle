@@ -25,29 +25,20 @@ import {
 	installOptions
 } from "#compiler/physical/install/compile.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
-import {
-	capacity,
-	contained,
-	f,
-	on,
-	onSelected,
-	relation,
-	type SchemaDesc,
-	within
-} from "#test/support/fixtures/ir/desc.ts"
+import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import { owner, requesting } from "#test/unit/physical/fixtures.ts"
 
 /** Event: a plain table under its primary key, with a vector column an HNSW request keys. Booking: a span key, so a GiST
- * index whose leading room column btree_gist serves by equality. Deposit: a partial unique index on line (at most one
- * remainder deposit per line) beside the reverse lookup of its reference to Line on the same column, which its primary
- * key (account, line) cannot serve. Each has a boolean field a law's selection reads.
+ * index whose leading room column btree_gist serves by equality. Deposit: the reverse lookup of its reference to Line on
+ * line, which its primary key (account, line) cannot serve. Each has a boolean field a law's selection reads. No law
+ * installs a partial index: a selected side's key is a UNIQUE over its generated column.
  *
  * The index request engine's own contract, judged from its plan alone. Over drawn requests
- * on a schema with a plain table, a span key's GiST index and a partial unique index beside a reverse lookup on its
- * column, in a drawn order, each law request reading every row or only the rows of a drawn selection:
+ * on a schema with a plain table, a span key's GiST index and a reverse lookup, in a drawn order, each law request
+ * reading every row or only the rows of a drawn selection:
  *
  * - every request lands on exactly one planned index;
  * - a created index is never unique, and holds every row or exactly the rows one of its requests reads;
@@ -88,17 +79,7 @@ const Indexed: SchemaDesc = {
 			"line"
 		])
 	],
-	statements: [
-		contained(on("Deposit", ["line"]), on("Line", ["id"])),
-		capacity(
-			on("Line", ["id"]),
-			onSelected("Deposit", ["line"], { remainder: true }),
-			within(0n, 1n),
-			{
-				kind: "count"
-			}
-		)
-	],
+	statements: [contained(on("Deposit", ["line"]), on("Line", ["id"]))],
 	extends: undefined
 }
 
@@ -111,7 +92,7 @@ const columns: Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> = {
 }
 const relations = ["Event", "Booking", "Deposit"] as const
 const bool = (value: boolean): TypedLiteral => ({ kind: "bool", value })
-/** The selections a drawn law request may read, per relation: Deposit's first is the partial unique index's own. */
+/** The selections a drawn law request may read, per relation. */
 const selections: Readonly<Record<string, ReadonlyArray<Selector>>> = {
 	Event: [
 		{ column: "live", value: bool(true) },
@@ -315,7 +296,6 @@ type IndexFeature =
 	| "a GiST key serving a B-tree probe"
 	| "a selected probe on a created index of its selection"
 	| "a selected probe on a created index of every row"
-	| "a selected probe on the partial unique index of its selection"
 	| "a selected probe on an installed index of every row"
 	| "an ordered request"
 	| "a range request"
@@ -394,7 +374,6 @@ const eventAccessRequest = (
 /** Planted, each a few times a run in the drawn requests or fewer:
  * - a law request of every row on (tenant, account), a selected one on (tenant, created) and a selected one on
  *   (tenant), so a selected probe meets a created index of every row and one of its selection;
- * - a law probe of Deposit's remainder rows on line is served by the partial unique index of that selection;
  * - a program's lookup on tenant creates an index of every row, which then serves a selected law probe on tenant;
  * - two take seeks on (tenant, created), one with created descending, which no one index reads both ways. */
 const engineKept: ReadonlyArray<Kept<EngineSketch, IndexFeature>> = [
@@ -407,16 +386,6 @@ const engineKept: ReadonlyArray<Kept<EngineSketch, IndexFeature>> = [
 		},
 		draws: "",
 		reaches: ["a selected probe on a created index of its selection"]
-	},
-	{
-		note: "a law probe of the remainder deposits on line, the partial unique index's own selection",
-		sketch: {
-			requests: [lawRequest("Deposit", [0], 1)],
-			arrival: [0, 1, 2, 3, 4, 5],
-			planted: "none"
-		},
-		draws: "",
-		reaches: ["a selected probe on the partial unique index of its selection"]
 	},
 	{
 		note: "a selected probe on tenant beside a program's lookup on tenant",
@@ -474,7 +443,6 @@ describe("the index request engine", () => {
 								"a GiST key serving a B-tree probe",
 								"a selected probe on a created index of its selection",
 								"a selected probe on a created index of every row",
-								"a selected probe on the partial unique index of its selection",
 								"a selected probe on an installed index of every row",
 								"an ordered request",
 								"a range request",
@@ -574,11 +542,8 @@ describe("the index request engine", () => {
 								if (rowsOf(r).kind === "selected") {
 									const own = index.index.kind === "created"
 									if (index.rows.kind === "selected") {
-										c.note(
-											own
-												? "a selected probe on a created index of its selection"
-												: "a selected probe on the partial unique index of its selection"
-										)
+										assert.ok(own, `${index.index.name}: no law installs a partial index`)
+										c.note("a selected probe on a created index of its selection")
 									} else {
 										c.note(
 											own

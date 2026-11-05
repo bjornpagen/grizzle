@@ -31,7 +31,7 @@ export interface ErasureExpectation {
 	readonly functions: ReadonlyMap<string, InstalledFunction>
 	/** Every trigger the installation includes but PostgreSQL's internal ones, by its name, as what it is. */
 	readonly triggers: ReadonlyMap<string, InstalledTrigger>
-	/** The tables a world writes through a query entry: the only ones with row security. */
+	/** The tables some world's entry narrows: the only ones with row security, and the only ones with policies. */
 	readonly rowSecure: ReadonlySet<string>
 	/** Each login's PostgreSQL role, and its worlds' roles, each also its world's schema. */
 	readonly logins: ReadonlyMap<string, ReadonlySet<string>>
@@ -142,7 +142,7 @@ export type ErasureProblem =
 			readonly triggers: ReadonlyArray<string>
 	  }
 	| { readonly kind: "isolationDefault" }
-	| { readonly kind: "inertPolicyPredicate"; readonly policy: string; readonly table: string }
+	| { readonly kind: "inertPolicy"; readonly policy: string; readonly table: string }
 	| { readonly kind: "policyCommand"; readonly policy: string; readonly table: string }
 	| {
 			readonly kind: "policyRoles"
@@ -627,12 +627,12 @@ const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> 
 }
 
 /**
- * Every policy is a permissive FOR ALL policy of the one world role it is named after, whose USING and WITH CHECK are
- * one predicate, `true` on a table without row security.
+ * Every policy is on a table with row security, where it is not inert, and is a permissive FOR ALL policy of the one
+ * world role it is named after, whose USING and WITH CHECK are one predicate.
  */
 const policyProblems = (j: Judging, p: Policy): ReadonlyArray<ErasureProblem> => [
-	...unless(j.expect.rowSecure.has(p.table) || Option.exists(p.using, (u) => u === "true"), {
-		kind: "inertPolicyPredicate",
+	...unless(j.expect.rowSecure.has(p.table), {
+		kind: "inertPolicy",
 		policy: p.name,
 		table: p.table
 	}),
@@ -875,10 +875,10 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   materialized view SELECT and MAINTAIN, the latter to exactly the roles that refresh it, a column SELECT, INSERT and
  *   UPDATE, the schema, an enum and a domain USAGE, and an identity sequence nothing: a write moves it through the
  *   advance function;
- * - row security is enabled exactly on the tables a world writes through a query entry, never forced, and every policy
- *   is a permissive FOR ALL policy of one world role, named after that role, whose USING and WITH CHECK are one
- *   predicate; on a table without row security, where it is inert, that predicate is `true`, a whole entry's
- *   membership, since only a query entry's membership is anything else;
+ * - row security is enabled exactly on the tables some world's entry narrows, never forced, and only those tables carry
+ *   policies: one per world role that writes the table, a permissive FOR ALL policy named after that role, whose USING
+ *   and WITH CHECK are one predicate, `true` for a role whose entry holds every row; a table every world writes whole
+ *   has neither, its grants alone deciding its writes;
  * - every world `<schema>__<role>` is a schema owned by the owner that holds only views, each owned by the owner, a
  *   query entry's a security_barrier view and a whole entry's a plain one (it hides nothing), and grants USAGE on
  *   itself and SELECT on its views to its own role alone;

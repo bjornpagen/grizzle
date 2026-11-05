@@ -136,16 +136,16 @@ const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
  *   needs every fact a put displaced, and neither form returns the old version of a row it updates. UPDATE ... FROM
  *   returns it (RETURNING old) and stays admissible;
  * - its relation carries a non-deferrable UNIQUE constraint or index with a field outside the primary key, and the put
- *   would be updated in place: a declared candidate key, the CREATE UNIQUE INDEX an at-most-one capacity law
- *   specializes to, or a WITHOUT OVERLAPS or temporal uniqueness. Such an object is checked at
+ *   would be updated in place: a declared candidate key, a key over a selected side, or a WITHOUT OVERLAPS or temporal
+ *   uniqueness. Such an object is checked at
  *   each row of an UPDATE, so one statement that moves a unique value from one fact to another, such as two puts
  *   swapping two codes or two workers, raises 23505 although the final state is lawful, where the pair deletes every
  *   displaced occupant before inserting any replacement. The law model, not the declared keys alone, says which objects
  *   are installed. An object whose columns all lie in the primary key never conflicts on a swap of its values: two
- *   facts it could collide on share their primary key. A partial index whose predicate reads a field outside the key
- *   still reaches outside it, even when every field it compares lies in the key: at most one active Duty per worker, a
- *   partial unique index on Duty(worker) WHERE active over the primary key (worker, task), meets the update that makes
- *   (w, 1) active while (w, 2), made inactive by the same statement, is still active;
+ *   facts it could collide on share their primary key. A key over a selected side whose selection reads a field outside
+ *   the primary key still reaches outside it, even when every field it compares lies in the key: at most one active
+ *   Duty per worker, key(on(select(Duty, active), worker)) over the primary key (worker, task), meets the update that
+ *   makes (w, 1) active while (w, 2), made inactive by the same statement, is still active;
  * - it is described and nothing below proves a better target;
  * - its relation's primary key contains a span field and the put would be an ON CONFLICT DO UPDATE or a MERGE: the key
  *   is an exclusion constraint, which no ON CONFLICT DO UPDATE accepts as its arbiter (42P10 for the inferred form,

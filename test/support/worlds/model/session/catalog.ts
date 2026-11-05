@@ -1,5 +1,4 @@
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
-import { valueText } from "#test/pg/laws/families/model.ts"
 import { foreignKeysOf, writableSupplier } from "#test/support/worlds/model/host.ts"
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
 import {
@@ -15,11 +14,8 @@ import {
 	filterReadsStored,
 	keysOf,
 	probeOf,
-	type UniqueIndex,
-	uniqueProbeOf,
-	uniqueReads,
-	uniquesOf,
 	updatableFields,
+	type Written,
 	writtenAt,
 	writtenNamed,
 	writtenOf
@@ -45,7 +41,7 @@ export type Admission = "admitted" | "settings" | "privileges"
 /**
  * What one perturbation does: whether `grizzle drift` finds it, and what `Db.open` of each role answers. README
  * "Deploying": Db.open checks the login's settings, the role's privileges, the login's and the role's
- * attributes and memberships, and row security on every table the role writes through a query entry; it does not compare
+ * attributes and memberships, and row security on every table the role's entry narrows (`narrows`); it does not compare
  * view definitions, policy predicates or the rest of the catalog, which `grizzle migrate` and `grizzle drift` do. A
  * change that confers nothing (a membership with SET FALSE that passes on no privilege, a database setting of the
  * owner's) is admitted by both checks; a change that leaves the catalog as it was (a grant already held, a revoke of one
@@ -64,8 +60,7 @@ type PerturbationEffect =
 
 /**
  * The Dbs a perturbation's refusal reaches: every one, those of a login, of a role, of the login or the role a grant
- * names (a name is either), of a login or a role of a membership, or of the roles that write a relation through a query
- * entry.
+ * names (a name is either), of a login or a role of a membership, or of the roles whose entries narrow a relation.
  */
 type Whom =
 	| { readonly kind: "everyone" }
@@ -73,7 +68,7 @@ type Whom =
 	| { readonly kind: "role"; readonly role: string }
 	| { readonly kind: "grantee"; readonly name: string }
 	| { readonly kind: "membership"; readonly login: string; readonly role: string }
-	| { readonly kind: "query-writers"; readonly relation: string }
+	| { readonly kind: "narrowers"; readonly relation: string }
 
 const noChange: PerturbationEffect = { kind: "no-change" }
 const catalogOnly: PerturbationEffect = { kind: "catalog-only" }
@@ -96,8 +91,8 @@ const reaches = (install: InstallSpec, whom: Whom, role: RoleSpec, login: string
 			return role.name === whom.name || login === whom.name
 		case "membership":
 			return login === whom.login || role.name === whom.role
-		case "query-writers":
-			return writesThroughQuery(install, role, whom.relation)
+		case "narrowers":
+			return narrowsAt(install, role, whom.relation)
 	}
 }
 
@@ -112,9 +107,35 @@ const openUnder = (
 		? effect.stage
 		: "admitted"
 
-/** Whether a role writes a relation through a query entry, the tables whose row security admission checks. */
-const writesThroughQuery = (install: InstallSpec, role: RoleSpec, relation: string): boolean =>
-	writtenAt(install.base, role, relation)?.kind === "query"
+/**
+ * Whether a written entry narrows its target (packages/engine/src/schema/entry.ts EntryFilter): a query entry whose rule
+ * reads a field of its target (membershipOf), or holds a match, a negation or a comparison beside its target's
+ * occurrence. A whole entry, and a query entry that filters nothing, holds every row of its target, which its grants
+ * alone decide.
+ */
+const narrows = (base: BaseSpec, w: Written): boolean => {
+	if (w.kind === "whole") {
+		return false
+	}
+	const target = relationSpecOf(base, w.target)
+	const supplied = writableSupplier(base, w.rules)
+	if (target === undefined || supplied === undefined) {
+		return false
+	}
+	const { rule } = supplied
+	return (
+		(membershipOf(base, w.rules, target) ?? []).length > 0 ||
+		rule.matches.length > 1 ||
+		rule.negations.length > 0 ||
+		rule.comparisons.length > 0
+	)
+}
+
+/** Whether a role's entry narrows a relation, the tables whose row security admission checks for the role. */
+const narrowsAt = (install: InstallSpec, role: RoleSpec, relation: string): boolean => {
+	const w = writtenAt(install.base, role, relation)
+	return w !== undefined && narrows(install.base, w)
+}
 
 /**
  * The table-level privileges a role holds on a base relation: through a whole entry SELECT, INSERT and DELETE, and
@@ -261,7 +282,6 @@ const readOf = (base: BaseSpec, name: string): unknown => {
 				case "alternatives":
 					return law.relation === name
 				case "contained":
-				case "mirrors":
 				case "covered":
 				case "capacity":
 					return false
@@ -309,21 +329,13 @@ const definedBy = (
 	return { entry, reads: Arr.map(reads, (name) => [name, readOf(base, name)]) }
 }
 
-/** A unique probe's world object identity up to its parameter types: its entry, and its index's fields and selector. */
-const uniquePrefix = (entry: string, u: UniqueIndex): string =>
-	`unique ${entry} ${Arr.join(u.fields, ",")} where ${Arr.join(
-		Arr.map(Rec.toEntries(u.where), ([f, v]) => `${f}=${valueText(v)}`),
-		","
-	)} (`
-
 /**
  * The world objects of a role (packages/engine/src/physical/ddl/roles.ts, names.ts), each by an identity that differs exactly
  * when the object or its grant does, with the definition its statement is drafted from (definedBy): its view of each
  * role relation, named by a whole entry's table and a query entry's name (a closed roster held whole has none), defined
- * by the entry; its policy on each table it writes, named as the role, defined by the entry it writes through; the key
- * probe of a written query entry for each key of its target, named by the entry and the key's fields and typed by their
- * base types; its unique probe for each unique index of its target no key subsumes (uniquesOf), named by the entry and
- * the index's fields and selector and typed by the fields it reads; and the filter function of a written query entry
+ * by the entry; its policy on each table it writes that has row security (rowSecured), named as the role, defined by the
+ * entry it writes through; the key probe of a written query entry for each key of its target, named by the entry and
+ * the key's fields and typed by their base types; and the filter function of a written query entry
  * whose membership reads a stored relation besides its target's row, typed by the target fields the membership reads;
  * each function defined by its entry. A role the installation lacks has none. A migration's Structure file drops the ones it changes or removes and creates the changed ones again
  * with their grants, for each role the installation already holds, and creates every new world function (a new role's
@@ -345,10 +357,13 @@ const worldObjects = (install: InstallSpec, role: string): ReadonlyMap<string, W
 					: [[`view ${entry.relation}`, { kind: "view", definition: definedBy(base, entry, []) }]]
 	)
 	const written = writtenOf(base, spec)
-	const policies = Arr.map(written, (w): readonly [string, WorldObject] => [
-		`policy ${w.target}`,
-		{ kind: "policy", definition: [w.entry, definedBy(base, spec.entries[w.entry], [w.target])] }
-	])
+	const policies = Arr.map(
+		Arr.filter(written, (w) => rowSecured(install, w.target)),
+		(w): readonly [string, WorldObject] => [
+			`policy ${w.target}`,
+			{ kind: "policy", definition: [w.entry, definedBy(base, spec.entries[w.entry], [w.target])] }
+		]
+	)
 	const functions = Arr.flatMap(written, (w): ReadonlyArray<readonly [string, WorldObject]> => {
 		const target = relationSpecOf(base, w.target)
 		if (w.kind !== "query" || target === undefined) {
@@ -370,14 +385,9 @@ const worldObjects = (install: InstallSpec, role: string): ReadonlyMap<string, W
 			`probe ${w.entry} ${Arr.join(key, ",")} (${typed(key)})`,
 			fn
 		])
-		const uniques = Arr.map(uniquesOf(base, w.target), (u): readonly [string, WorldObject] => [
-			`${uniquePrefix(w.entry, u)}${typed(uniqueReads(base, w.target, u))})`,
-			fn
-		])
 		const membership = membershipOf(base, w.rules, target)
 		return [
 			...probes,
-			...uniques,
 			...(membership !== undefined && filterReadsStored(w.rules)
 				? [[`filter ${w.entry} (${typed(membership)})`, fn] as const]
 				: [])
@@ -421,8 +431,8 @@ const rewritten = (from: InstallSpec, to: InstallSpec, role: string, identity: s
 }
 
 /**
- * The world object of a function a perturbation changed: a role's filter, key probe or unique probe; an advance or law
- * function is none.
+ * The world object of a function a perturbation changed: a role's filter or key probe; an advance or law function is
+ * none.
  */
 const functionObject = (
 	install: InstallSpec,
@@ -431,8 +441,7 @@ const functionObject = (
 	const base = install.base
 	switch (fn.kind) {
 		case "filter":
-		case "key-probe":
-		case "unique-probe": {
+		case "key-probe": {
 			const spec = roleOf(install, fn.role)
 			const prefixOf = (role: RoleSpec): string | undefined => {
 				switch (fn.kind) {
@@ -441,10 +450,6 @@ const functionObject = (
 					case "key-probe": {
 						const key = probeOf(base, role, fn)?.key
 						return key === undefined ? undefined : `probe ${fn.entry} ${Arr.join(key, ",")} (`
-					}
-					case "unique-probe": {
-						const probed = uniqueProbeOf(base, role, fn)
-						return probed === undefined ? undefined : uniquePrefix(fn.entry, probed.unique)
 					}
 				}
 			}
@@ -476,7 +481,9 @@ const perturbedObject = (
 		case "policy-edited": {
 			const spec = roleOf(install, p.role)
 			const w = spec === undefined ? undefined : writtenNamed(base, spec, p.entry)
-			return w === undefined ? undefined : { role: p.role, identity: `policy ${w.target}` }
+			return w === undefined || !rowSecured(install, w.target)
+				? undefined
+				: { role: p.role, identity: `policy ${w.target}` }
 		}
 		case "view-redefined": {
 			const entry = roleOf(install, p.role)?.entries[p.entry]
@@ -602,15 +609,18 @@ const publicRevoked = (install: InstallSpec): unknown => {
 	}
 }
 
-/** Whether some role of an installation writes a relation through a query entry: its table has row security enabled. */
+/**
+ * Whether some role of an installation narrows a relation: its table has row security enabled, and a policy for each
+ * role that writes it, TRUE for one whose entry holds every row. A table no entry narrows has neither.
+ */
 export const rowSecured = (install: InstallSpec, relation: string): boolean =>
-	Arr.some(install.roles, (r) => writesThroughQuery(install, r, relation))
+	Arr.some(install.roles, (r) => narrowsAt(install, r, relation))
 
 /**
  * Whether a migration from one installation to another rewrites what a perturbation changed, so the catalog holds the
  * new contract there again (packages/engine/src/deploy/diff/diff.ts): its folder drops a role's world object the perturbation
  * changed, or creates it again under a new definition (a policy, a view, a filter function or key probe); enables row
- * security on a table the new installation is the first to write through a query entry, which a disabled or enabled
+ * security on a table the new installation is the first to narrow, which a disabled or enabled
  * state then no longer departs from (ENABLE leaves FORCE as it was); replaces the role's grants (grantsReplaced),
  * which revokes an extra grant its previous grants covered (revokedWith) and grants a revoked one again; moves a role
  * to another login, which revokes it from its old login, options and all; or changes what PUBLIC is revoked from
@@ -684,21 +694,21 @@ const settingEffect = (
 	}
 }
 
-/** A table's row security changed: admission requires it enabled, not forced, where a role writes through a query entry. */
+/** A table's row security changed: admission requires it enabled, not forced, where a role's entry narrows it. */
 const rowSecurityEffect = (
 	install: InstallSpec,
 	p: Extract<CatalogPerturbation, { readonly kind: "row-security" }>
 ): PerturbationEffect => {
-	const queryWriters = Arr.filter(install.roles, (r) => writesThroughQuery(install, r, p.relation))
+	const secured = rowSecured(install, p.relation)
 	switch (p.state) {
 		case "enabled":
-			return queryWriters.length > 0 ? noChange : catalogOnly
+			return secured ? noChange : catalogOnly
 		case "disabled":
-			return queryWriters.length > 0
-				? refusing("privileges", { kind: "query-writers", relation: p.relation })
+			return secured
+				? refusing("privileges", { kind: "narrowers", relation: p.relation })
 				: noChange
 		case "forced":
-			return refusing("privileges", { kind: "query-writers", relation: p.relation })
+			return refusing("privileges", { kind: "narrowers", relation: p.relation })
 	}
 }
 
@@ -774,7 +784,8 @@ const effectOf = (install: InstallSpec, p: CatalogPerturbation): PerturbationEff
 			return refusing("privileges", { kind: "everyone" })
 		case "policy-dropped": {
 			const spec = roleOf(install, p.role)
-			return spec !== undefined && writtenNamed(install.base, spec, p.entry) !== undefined
+			const w = spec === undefined ? undefined : writtenNamed(install.base, spec, p.entry)
+			return w !== undefined && rowSecured(install, w.target)
 				? refusing("privileges", { kind: "role", role: p.role })
 				: noChange
 		}

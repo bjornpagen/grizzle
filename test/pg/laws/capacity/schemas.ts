@@ -1,15 +1,18 @@
 import { Array as Arr } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
+	type AuthoredStatementDesc as StatementDesc,
 	capacity,
 	contained,
+	eq,
 	f,
+	field,
+	literal,
 	mutable,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	type SchemaDesc,
-	type AuthoredStatementDesc as StatementDesc,
 	within
 } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
@@ -20,17 +23,17 @@ const mutables = (
 ): ReadonlyArray<StatementDesc> => (onSide ? Arr.map(relations, mutable) : [])
 
 const budgetSpend = capacity(
-	onSelected("Budget", ["id"], { open: true }),
-	onSelected("Spend", ["budget"], { posted: true }),
+	onWhere("Budget", ["id"], eq(field("open"), literal(true))),
+	onWhere("Spend", ["budget"], eq(field("posted"), literal(true))),
 	within(0n, "cap"),
 	{ kind: "field", field: "amount" }
 )
 
 /**
- * Budgets: a field-weighted sum against a `ref` bound with selectors on both sides,
- * `capacity(on(select(Budget, { open: true }), "id"), { from: on(select(Spend, { posted: true }), "budget"),
- * weight: weigh("amount"), within: within(0n, ref("cap")) })`. An integer weight sums to bigint and may be negative,
- * so the literal lower bound of zero is checked too.
+ * Budgets: a field-weighted sum against a `ref` bound with selectors on both sides, `capacity(on(select(Budget, (b) =>
+ * b.eq(b.open, true)), "id"), { from: on(select(Spend, (s) => s.eq(s.posted, true)), "budget"), weight:
+ * weigh("amount"), within: within(0n, ref("cap")) })`. An integer weight sums to bigint and may be negative, so the
+ * literal lower bound of zero is checked too.
  *
  * Every capacity here also declares the containment of its sources into its target: a plain foreign key from the source
  * projection, so no source stands in a group without a target, and one written beside an uncommitted target fails that
@@ -162,7 +165,7 @@ export const employersLaw: LawId = lawNamesOf(orders()).lawOfDesc(employerApprov
 
 const firmSigners = capacity(
 	on("Firm", ["id"]),
-	onSelected("Signer", ["firm"], { active: true }),
+	onWhere("Signer", ["firm"], eq(field("active"), literal(true))),
 	within(1n, "*"),
 	{
 		kind: "count"

@@ -14,13 +14,12 @@ import type { HostFact, RoleSpec, SqlState, Witness } from "#test/support/worlds
 /**
  * How PostgreSQL meets a broken law, for every writer: at the statement that breaks it or at COMMIT, and with which
  * SQLSTATE. A key is a PRIMARY KEY or UNIQUE constraint (23505), a span key one WITHOUT OVERLAPS (23P01), a row check a
- * CHECK (23514), all at the statement. A plain containment is a foreign key (23503), deferred exactly when a lawful
- * ChangeSet could break it in passing: its target has a field outside the referenced ones, or it lies on a cycle of
- * foreign keys; a containment into a selected target or a closed roster's facts is deferred too, or a row CHECK into the
- * roster. A coverage the target can state natively is a PERIOD foreign key, always deferred. A count capacity of at most
- * one over an unselected target is a unique index on its source (the host schema's unique law, 23505 at the statement),
- * and a capacity whose source is its own target on one key is a row CHECK. Every other law is residual: its law function
- * raises 23000 at COMMIT.
+ * CHECK (23514), all at the statement. A containment is a foreign key (23503), a selected source's over its law
+ * columns, deferred exactly when a lawful ChangeSet could break it in passing: its target has a field outside the
+ * referenced ones, or it lies on a cycle of foreign keys; a containment into a selected target is deferred too, and one
+ * into a closed roster is a row CHECK. A coverage the target can state natively is a PERIOD foreign key, always
+ * deferred. A capacity whose source is its own target on one key is a row CHECK. Every other law is residual: its law
+ * function raises 23000 at COMMIT.
  */
 export interface LawMeeting {
 	readonly sqlstate: SqlState
@@ -36,9 +35,7 @@ const onCycle = (
 	law: Extract<HostLaw, { readonly kind: "contained" }>
 ): boolean => {
 	const edges = Arr.flatMap(host.laws, (l) =>
-		l.kind === "contained" && !l.residual
-			? [{ from: l.source.relation, to: l.target.relation }]
-			: []
+		l.kind === "contained" ? [{ from: l.source.relation, to: l.target.relation }] : []
 	)
 	const seen = new Set<string>([law.target.relation])
 	const frontier = [law.target.relation]
@@ -59,19 +56,15 @@ const onCycle = (
 export const meetingOf = (host: HostSchema, law: HostLaw): LawMeeting => {
 	switch (law.kind) {
 		case "key":
-		case "unique":
 			return { sqlstate: "23505", at: "statement" }
 		case "spanKey":
 			return { sqlstate: "23P01", at: "statement" }
 		case "check":
 			return { sqlstate: "23514", at: "statement" }
 		case "contained": {
-			if (law.residual) {
-				return { sqlstate: "23000", at: "commit" }
-			}
 			const target = relationOf(host, law.target.relation)
 			const deferred =
-				Rec.keys(law.target.where).length > 0 ||
+				law.target.selection.kind === "where" ||
 				Arr.some(target.fields, (f) => !law.target.fields.includes(f.name)) ||
 				onCycle(host, law)
 			return { sqlstate: "23503", at: deferred ? "commit" : "statement" }

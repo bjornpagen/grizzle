@@ -85,11 +85,15 @@ type Conversion =
 	| { readonly kind: "given"; readonly value: () => Cell | undefined }
 const unknownExpression: Conversion = { kind: "given", value: () => undefined }
 
-/** What generates a column's values: nothing, its identity sequence, or its stored expression. */
+/**
+ * What generates a column's values: nothing, its identity sequence, its stored expression, or a partial projection's
+ * stored CASE, which is NULL outside its selection.
+ */
 export type Generation =
 	| { readonly kind: "none" }
 	| { readonly kind: "identity"; readonly sequence: string }
 	| { readonly kind: "stored" }
+	| { readonly kind: "partial" }
 
 export interface Column {
 	readonly name: string
@@ -349,15 +353,24 @@ const readsOf = (
 	)
 }
 
+const generationOf = (c: ColumnDef): Generation => {
+	if (c.generated === undefined) {
+		return { kind: "none" }
+	}
+	switch (c.generated.kind) {
+		case "identity":
+			return { kind: "identity", sequence: c.generated.sequence.name }
+		case "stored":
+			return { kind: "stored" }
+		case "partial":
+			return { kind: "partial" }
+	}
+}
+
 const columnOf = (c: ColumnDef): Column => ({
 	name: c.name,
 	type: c.type,
-	generation:
-		c.generated === undefined
-			? { kind: "none" }
-			: c.generated.kind === "identity"
-				? { kind: "identity", sequence: c.generated.sequence.name }
-				: { kind: "stored" }
+	generation: generationOf(c)
 })
 
 class Model {
@@ -2132,6 +2145,8 @@ const generationText = (g: Generation): string => {
 			return ` identity ${g.sequence}`
 		case "stored":
 			return " stored"
+		case "partial":
+			return " partial"
 	}
 }
 

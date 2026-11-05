@@ -4,6 +4,7 @@ import { brandColumn, type Columned, handleColumn } from "#compiler/core/decoder
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { closedIdParts } from "#compiler/scalar/closed-id.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
+import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
 import { spanColumn, spanParts } from "#compiler/scalar/span.ts"
@@ -35,6 +36,7 @@ import type {
 	HandleOf,
 	Infer,
 	IntegerLike,
+	NaturalField,
 	SpanField
 } from "#compiler/types/fields/field.ts"
 import type { AnyClosed } from "#compiler/types/schema/relation.ts"
@@ -56,6 +58,7 @@ export type {
 	Infer,
 	IntegerLike,
 	LiteralOf,
+	NaturalField,
 	NumericTypmodField,
 	SerialField,
 	SpanField,
@@ -65,7 +68,7 @@ export type {
 export type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
- * Public barrel: Scalar field descriptors: uuid, pg, contract, span and closedId, the runtime values of
+ * Public barrel: Scalar field descriptors: uuid, natural, pg, contract, span and closedId, the runtime values of
  * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Decimal and Money,
  * the uuid host value Uuid and pgvector's carrier Vector. str.regex is the text barrel's.
  *
@@ -77,6 +80,9 @@ export type { VectorField } from "#compiler/types/vector/vector.ts"
  * admission cores refuse.
  */
 export const uuid: Field<Uuid, "uuid"> = uuidDescriptor
+
+/** natural: a bigint never below zero, the builtin contract over pg.bigint that pred reads (scalar/natural.ts). */
+export const natural: NaturalField = naturalDescriptor
 
 export const pg: Pg = pgDescriptors
 

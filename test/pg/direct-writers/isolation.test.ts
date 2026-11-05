@@ -66,7 +66,10 @@ const Tag = relation("Tag", { id: pg.integer, body: pg.integer }, ["id"])
 
 const Guarded = schema("Guarded", { Team, Member, Note, Tag }, [
 	capacity(on(Team, "id"), {
-		from: on(select(Member, { active: true }), "team"),
+		from: on(
+			select(Member, (x) => x.eq(x.active, true)),
+			"team"
+		),
 		within: within(0n, ref("cap"))
 	}),
 	contained(on(Member, "team"), on(Team, "id")),

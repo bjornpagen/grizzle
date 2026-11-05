@@ -15,10 +15,13 @@ import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading, KeySet } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
-import type {
-	AuthoredRelationDesc as RelationDesc,
-	SchemaDesc,
-	AuthoredStatementDesc as StatementDesc
+import {
+	contained,
+	key as keyOf,
+	on,
+	type AuthoredRelationDesc as RelationDesc,
+	type SchemaDesc,
+	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import {
 	allTypeSpecs,
@@ -200,31 +203,14 @@ export const schemaDesc = (schema: GenSchema): SchemaDesc => {
 	const statements: Array<StatementDesc> = []
 	for (const r of schema.relations) {
 		for (const key of r.keys) {
-			statements.push({
-				kind: "key",
-				relation: r.name,
-				fields: nonEmptyList(key, "a candidate key")
-			})
+			statements.push(keyOf(on(r.name, key)))
 		}
 		if (r.mutable) {
 			statements.push({ kind: "mutable", relation: r.name })
 		}
 	}
 	for (const c of schema.containments) {
-		statements.push({
-			kind: "contained",
-			left: {
-				relation: c.from.relation,
-				fields: nonEmptyList(c.from.fields, "a containment's fields"),
-				selection: {}
-			},
-			right: {
-				relation: c.to.relation,
-				fields: nonEmptyList(c.to.fields, "a containment's fields"),
-				selection: {}
-			},
-			origin: undefined
-		})
+		statements.push(contained(on(c.from.relation, c.from.fields), on(c.to.relation, c.to.fields)))
 	}
 	return { name: schema.name, relations: [...closed, ...relations], statements, extends: undefined }
 }

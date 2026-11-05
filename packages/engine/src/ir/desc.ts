@@ -540,11 +540,97 @@ export interface QueryDesc<L = Located, R extends Refs = Spelled> {
  */
 export const isOrderedQuery = <L>(q: QueryDesc<L>): boolean => q.stage.kind === "order"
 
+/**
+ * A term of a law side, read off one fact of its relation: a field's value, or pred of a natural field, its value less
+ * one, defined only where the value is above zero. pred is one level deep: no term is pred of a pred.
+ */
+export type TermDesc =
+	| { readonly kind: "field"; readonly field: string }
+	| { readonly kind: "pred"; readonly field: string }
+
+/** A term as a label, a display and a refusal spell it: a field by its name, pred of one as `pred(field)`. */
+export const termText = (term: TermDesc): string =>
+	term.kind === "field" ? term.field : `pred(${term.field})`
+
+/** A term's identity: a field and pred of it are two terms. */
+const termKey = (term: TermDesc): string => `${term.kind} ${term.field}`
+
+/**
+ * The field terms of a side, when every term is a field: the one reading of "a side over fields", which a candidate
+ * key, a containment between closed relations and a coverage law each are. Undefined when a term is a pred term.
+ */
+export const fieldTermsOf = <T extends TermDesc>(
+	terms: NonEmptyReadonlyArray<T>
+): NonEmptyReadonlyArray<Extract<T, { readonly kind: "field" }>> | undefined => {
+	const fields = terms.filter(
+		(t): t is Extract<T, { readonly kind: "field" }> => t.kind === "field"
+	)
+	return isNonEmpty(fields) && fields.length === terms.length ? fields : undefined
+}
+
+/**
+ * Which facts of its relation a law side reads: those every conjunct holds of, each a row predicate over the fact's
+ * own fields in the row-check language a check is written in. Ownership holds them in canonical order, each once and
+ * none a conjunction or the constant true (own.ts canonicalSelection), so a side that selects nothing, however it was
+ * spelled, has no conjunct and reads every fact.
+ */
+export interface SelectionDesc {
+	readonly conjuncts: ReadonlyArray<ExprDesc>
+}
+
+/** The selection of every fact: no conjunct. */
+export const everyFact: SelectionDesc = Object.freeze({ conjuncts: Object.freeze([]) })
+
+/**
+ * The conjuncts a selection's predicate states: a conjunction's operands, through every nested conjunction, the
+ * constant true, a conjunction's unit, stating none; any other predicate is one conjunct.
+ */
+export const conjunctsOf = (predicate: ExprDesc): ReadonlyArray<ExprDesc> => {
+	switch (predicate.kind) {
+		case "and":
+			return predicate.args.flatMap(conjunctsOf)
+		case "literal":
+			return predicate.value === true ? [] : [predicate]
+		case "var":
+		case "field":
+		case "value":
+		case "parent":
+		case "param":
+		case "compute":
+		case "cast":
+		case "base":
+		case "cond":
+		case "when":
+		case "compare":
+		case "between":
+		case "in":
+		case "or":
+		case "not":
+		case "allen":
+		case "pointIn":
+		case "absent":
+			return [predicate]
+	}
+}
+
+/**
+ * A law side, a partial projection: for each fact of `relation` its selection admits, the tuple of its terms, read
+ * where every term is defined. `on(select(R, φ), t…)` is { (t…)(r) | r ∈ R, φ(r), and every tᵢ(r) is defined }.
+ */
 export interface SideDesc {
 	readonly relation: string
-	readonly fields: NonEmptyReadonlyArray<string>
-	/** The side's selected fields and their literals: empty for a side that selects nothing. */
-	readonly selection: Readonly<Record<string, LiteralDesc>>
+	readonly terms: NonEmptyReadonlyArray<TermDesc>
+	readonly selection: SelectionDesc
+}
+
+/**
+ * The field names a side's terms are when a key over it is a candidate key of its relation: the side reads every fact,
+ * and every term is a field. Undefined for a side that selects or reads a pred term, over which a key constrains only
+ * the facts it reads, so it is no key of the relation.
+ */
+export const candidateKeyFields = (side: SideDesc): NonEmptyReadonlyArray<string> | undefined => {
+	const fields = side.selection.conjuncts.length === 0 ? fieldTermsOf(side.terms) : undefined
+	return fields === undefined ? undefined : mapNonEmpty(fields, (t) => t.field)
 }
 
 /** What a capacity weighs each source fact by: one each, a field's value, or the width of a span field. */
@@ -561,18 +647,18 @@ export interface BoundDesc {
 }
 
 /**
- * The alternatives expansion a contained or mirrors statement came from, or undefined for one declared directly; only
- * an alternatives expansion's members carry one.
+ * The alternatives expansion a contained statement came from, or undefined for one declared directly; only an
+ * alternatives expansion's members carry one.
  */
 type StatementOrigin = { readonly alternatives: string } | undefined
 
+/**
+ * A schema's laws. A key is UNIQUE over one side's terms. A containment states that its left side's tuples are among
+ * its right side's; mirrors is no statement of its own, but the two containments it is sugar for.
+ */
 export type StatementDesc<L = Located> = L &
 	(
-		| {
-				readonly kind: "key"
-				readonly relation: string
-				readonly fields: NonEmptyReadonlyArray<string>
-		  }
+		| { readonly kind: "key"; readonly side: SideDesc }
 		| { readonly kind: "mutable"; readonly relation: string }
 		| {
 				readonly kind: "check"
@@ -582,12 +668,6 @@ export type StatementDesc<L = Located> = L &
 		  }
 		| {
 				readonly kind: "contained"
-				readonly left: SideDesc
-				readonly right: SideDesc
-				readonly origin: StatementOrigin
-		  }
-		| {
-				readonly kind: "mirrors"
 				readonly left: SideDesc
 				readonly right: SideDesc
 				readonly origin: StatementOrigin
@@ -1227,21 +1307,23 @@ const attachDescShape: S.Shape<AttachDesc> = S.located(
 )
 
 const ruleDescShape: S.Shape<RuleDesc> = S.lazy("a rule", () =>
-	S.located(
-		S.structWith(
-			{
-				vars: S.uniqueArray(varDescShape, (v) => v.id, "variable ids"),
-				matches: S.array(matchDescShape),
-				where: S.array(exprDescShape),
-				head: S.recordShape(headTermDescShape, S.nonEmptyString),
-				interiors: S.uniqueArray(
-					S.struct({ id: name, arms: S.nonEmptyArray(ruleDescShape) }),
-					(i) => i.id,
-					"interior ids"
-				),
-				attach: S.uniqueArray(attachDescShape, (a) => a.name, "attachment names")
-			},
-			loc
+	S.recognized(
+		S.located(
+			S.structWith(
+				{
+					vars: S.uniqueArray(varDescShape, (v) => v.id, "variable ids"),
+					matches: S.array(matchDescShape),
+					where: S.array(exprDescShape),
+					head: S.recordShape(headTermDescShape, S.nonEmptyString),
+					interiors: S.uniqueArray(
+						S.struct({ id: name, arms: S.nonEmptyArray(ruleDescShape) }),
+						(i) => i.id,
+						"interior ids"
+					),
+					attach: S.uniqueArray(attachDescShape, (a) => a.name, "attachment names")
+				},
+				loc
+			)
 		)
 	)
 )
@@ -1281,46 +1363,48 @@ const stageInput = S.lazy("a query stage", () => queryStageShape)
 const arms = S.nonEmptyArray(ruleDescShape)
 
 const queryStageShape: S.Shape<QueryStageDesc> = S.lazy("a query stage", () =>
-	S.tagged("kind", {
-		rules: S.located(S.structWith({ arms }, loc)),
-		recursive: S.located(S.structWith({ recursive: recursiveDescShape }, loc)),
-		union: S.refine(
-			notOrdered(S.located(S.structWith({ input: stageInput, arms }, loc)), "rule"),
-			(u) => u.input.kind !== "rules",
-			"a union over a query other than the builder's rules; consecutive rule calls are one rules stage"
-		),
-		attach: notOrdered(S.struct({ input: stageInput, attach: attachDescShape }), "attach"),
-		named: notOrdered(S.located(S.structWith({ input: stageInput, name }, loc)), "named"),
-		order: notOrdered(
-			S.located(
-				S.structWith(
-					{
-						input: stageInput,
-						order: S.refine(
-							S.uniqueArray(orderDescShape, (o) => o.column, "order columns"),
-							(o) => o.length > 0,
-							"a nonempty order"
-						)
-					},
-					loc
-				)
+	S.recognized(
+		S.tagged("kind", {
+			rules: S.located(S.structWith({ arms }, loc)),
+			recursive: S.located(S.structWith({ recursive: recursiveDescShape }, loc)),
+			union: S.refine(
+				notOrdered(S.located(S.structWith({ input: stageInput, arms }, loc)), "rule"),
+				(u) => u.input.kind !== "rules",
+				"a union over a query other than the builder's rules; consecutive rule calls are one rules stage"
 			),
-			"orderBy"
-		),
-		take: S.refine(
-			S.located(S.structWith({ input: stageInput, take: takeDescShape }, loc)),
-			(t) => t.input.kind === "order",
-			"take applied to an Ordered, the result of orderBy"
-		),
-		approx: notOrdered(
-			S.located(S.structWith({ input: stageInput, by: name, take: S.positiveInteger }, loc)),
-			"approximateNearest"
-		)
-	})
+			attach: notOrdered(S.struct({ input: stageInput, attach: attachDescShape }), "attach"),
+			named: notOrdered(S.located(S.structWith({ input: stageInput, name }, loc)), "named"),
+			order: notOrdered(
+				S.located(
+					S.structWith(
+						{
+							input: stageInput,
+							order: S.refine(
+								S.uniqueArray(orderDescShape, (o) => o.column, "order columns"),
+								(o) => o.length > 0,
+								"a nonempty order"
+							)
+						},
+						loc
+					)
+				),
+				"orderBy"
+			),
+			take: S.refine(
+				S.located(S.structWith({ input: stageInput, take: takeDescShape }, loc)),
+				(t) => t.input.kind === "order",
+				"take applied to an Ordered, the result of orderBy"
+			),
+			approx: notOrdered(
+				S.located(S.structWith({ input: stageInput, by: name, take: S.positiveInteger }, loc)),
+				"approximateNearest"
+			)
+		})
+	)
 )
 
 const queryDescShape: S.Shape<QueryDesc> = S.lazy("a query description", () =>
-	S.struct({ stage: queryStageShape })
+	S.recognized(S.struct({ stage: queryStageShape }))
 )
 
 /** A query that is a Query, not an Ordered: a match source, a ChangeSet member, a derived definition. */
@@ -1330,14 +1414,19 @@ const unorderedQueryShape: S.Shape<QueryDesc> = S.refine(
 	"a Query, not an Ordered: only take makes an ordered query a set again"
 )
 
-/** A side that selects nothing has the empty selection, however it was spelled. */
-const sideDescShape: S.Shape<SideDesc> = S.normalized(
-	S.structWith(
-		{ relation: name, fields: S.nonEmptyUniqueStrings("side fields") },
-		{ selection: S.recordShape(literalDescShape, S.nonEmptyString) }
-	),
-	(side) => ({ relation: side.relation, fields: side.fields, selection: side.selection ?? {} })
-)
+const termDescShape: S.Shape<TermDesc> = S.tagged("kind", {
+	field: S.struct({ field: name }),
+	pred: S.struct({ field: name })
+})
+
+const selectionDescShape: S.Shape<SelectionDesc> = S.struct({ conjuncts: S.array(exprDescShape) })
+
+/** A side's terms are distinct: a field and pred of it are two terms, each at most once. */
+const sideDescShape: S.Shape<SideDesc> = S.struct({
+	relation: name,
+	terms: S.nonEmptyUniqueArray(termDescShape, termKey, "side terms"),
+	selection: selectionDescShape
+})
 
 const boundValueShape: S.Shape<BoundValueDesc> = S.unionShape(
 	S.refine(S.bigint, (n) => n >= 0n, "a nonnegative bound"),
@@ -1346,19 +1435,16 @@ const boundValueShape: S.Shape<BoundValueDesc> = S.unionShape(
 
 const statementOrigin = { origin: S.struct({ alternatives: name }) } as const
 
-/** A contained or mirrors statement's fields: two sides and the alternatives expansion it came from, if any. */
+/** A contained statement's fields: two sides and the alternatives expansion it came from, if any. */
 const sideLinkShape = S.located(
 	S.structStated({ left: sideDescShape, right: sideDescShape }, statementOrigin, loc)
 )
 
 const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
-	key: S.located(
-		S.structWith({ relation: name, fields: S.nonEmptyUniqueStrings("key fields") }, loc)
-	),
+	key: S.located(S.structWith({ side: sideDescShape }, loc)),
 	mutable: S.located(S.structWith({ relation: name }, loc)),
 	check: S.located(S.structWith({ name, relation: name, predicate: exprDescShape }, loc)),
 	contained: sideLinkShape,
-	mirrors: sideLinkShape,
 	capacity: S.located(
 		S.structWith(
 			{
@@ -1608,11 +1694,9 @@ export const decodeContainedStatement = (
 ): Result.Result<Extract<StatementDesc, { readonly kind: "contained" }>, CompileError> =>
 	S.decodeWith(S.tagged("kind", { contained: sideLinkShape }), value, subjects.statement)
 
-/** A mirrors statement's Description, decoded as the statement decoder decodes one. */
-export const decodeMirrorsStatement = (
-	value: unknown
-): Result.Result<Extract<StatementDesc, { readonly kind: "mirrors" }>, CompileError> =>
-	S.decodeWith(S.tagged("kind", { mirrors: sideLinkShape }), value, subjects.statement)
+/** A side's Description, decoded as a statement's side is. */
+export const decodeSide = (value: unknown): Result.Result<SideDesc, CompileError> =>
+	S.decodeWith(sideDescShape, value, "side description")
 
 /**
  * The Description boundary.

@@ -11,13 +11,36 @@ import type {
 import type { HandleOf } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, Fact, NameOf } from "#compiler/types/schema/relation.ts"
 
-/** In key position a relation stands for its primary key; a Key value names a candidate key. */
-export type KeyRef<R extends AnyRelation | AnyClosed> = R | Key<R, ReadonlyArray<string>>
+/**
+ * pred(field), a law side's term over a natural field: the field's value less one, defined only where the value is
+ * above zero, so a fact whose field is zero has no tuple on the side. It is one level deep: no term is pred of a pred.
+ */
+export interface Pred<F extends string> {
+	readonly kind: "pred"
+	readonly field: F
+}
 
-export interface Key<R, K extends ReadonlyArray<string>> {
+/** Any term of a law side: a field's name, or pred of one. */
+export type AnyTerm = string | Pred<string>
+
+/**
+ * A candidate key of the ordinary relation R: a Key over a side of the whole relation whose terms are fields. A key
+ * over a selection or a pred term constrains only the facts its side reads, so it is no key of the relation, and a
+ * closed relation is keyed by its handle alone.
+ */
+export type CandidateKey<R extends AnyRelation> = Key<Side<R, ReadonlyArray<string>>>
+
+/** In key position a relation stands for its primary key, and a candidate key for itself. */
+export type KeyRef<R extends AnyRelation> = R | CandidateKey<R>
+
+/**
+ * key(side): no two of the side's facts share its tuple of terms, UNIQUE NULLS DISTINCT over them. Over a whole
+ * relation and its fields it is a candidate key of the relation; over a selection or a pred term it constrains only
+ * the facts the side reads.
+ */
+export interface Key<S> {
 	readonly kind: "key"
-	readonly relation: R
-	readonly fields: K
+	readonly side: S
 }
 
 export interface Mutable<R> {
@@ -32,21 +55,22 @@ export interface Check<Name extends string, R> {
 }
 
 /**
- * A law side: a relation, closed relation or selection projected onto fields, in order. Side is covariant, so AnySide
- * is every side.
+ * A law side: a relation, closed relation or selection projected onto terms, in order, a partial projection: a fact
+ * whose pred term is undefined has no tuple on it. Side is covariant, so AnySide is every side.
  */
-export interface Side<R, F extends ReadonlyArray<string> = ReadonlyArray<string>> {
+export interface Side<R, T extends ReadonlyArray<AnyTerm> = ReadonlyArray<AnyTerm>> {
 	readonly source: R
-	readonly fields: F
+	readonly terms: T
 }
 export type AnySide = Side<unknown>
+
 /**
- * A selection keeps its bindings' types: an alternatives arm's selection names its handle, which is how an arm
- * attached to its parent is typed Some or None by the parent's handle (types/evidence ArmProofOf).
+ * select(R, predicate): the facts of R a row predicate over their own fields holds of. The predicate is the
+ * selection's Description's, which no type reads: an alternatives arm's handle is read from the alternatives law
+ * (types/evidence ArmProofOf).
  */
-export interface Selection<R, B = Partial<Fact<R>>> {
+export interface Selection<R> {
 	readonly relation: R
-	readonly bindings: B
 }
 
 /**
@@ -65,6 +89,7 @@ export interface Containment<L = Side<unknown>, R = Side<unknown>> {
 	readonly right: R
 }
 
+/** mirrors(a, b): sugar for both containments, contained(a, b) and contained(b, a); a schema states those two. */
 export interface Mirrors<L = Side<unknown>, R = Side<unknown>> {
 	readonly kind: "mirrors"
 	readonly left: L
@@ -111,7 +136,7 @@ export type MirrorsBase = Mirrors<unknown, unknown>
 
 /** Every statement is covariant in what it names, so `unknown` there admits every statement of its kind. */
 export type Statement =
-	| Key<unknown, ReadonlyArray<string>>
+	| Key<unknown>
 	| Mutable<unknown>
 	| Check<string, unknown>
 	| Containment<unknown, unknown>
@@ -137,6 +162,15 @@ export type RowScalars<R> = {
 export type SideRelation<R> = R extends Selection<infer Rel> ? Rel : R
 export type SideHeading<R> = Fact<SideRelation<R>>
 
+/** The fields of R that are natural (types/fields NaturalField), the fields pred reads: read off R's heading. */
+export type NaturalFieldOf<R> =
+	R extends Headed<infer C>
+		? { [K in keyof C]-?: C[K] extends { readonly natural: true } ? K : never }[keyof C] & string
+		: never
+
+/** A term a side over R may read: a field of the relation it reads, or pred of one of its natural fields. */
+export type TermOf<R> = (keyof SideHeading<R> & string) | Pred<NaturalFieldOf<SideRelation<R>>>
+
 /**
  * What a field joins as: its domain and its PostgreSQL type, read off the carrier of its heading. Text and uuid are
  * different carriers; two text fields with different patterns share both, because a pattern restricts values without
@@ -150,14 +184,17 @@ type FieldTypeOf<R, K> =
 			: never
 		: never
 
-/** The join types of a side's fields, in order. */
+/** What a term joins as: a field's own type, and pred of a field its field's, a count less one being a count. */
+type TermTypeOf<R, T> = T extends Pred<infer F> ? FieldTypeOf<R, F> : FieldTypeOf<R, T>
+
+/** The join types of a side's terms, in order. */
 type SideHosts<S> =
-	S extends Side<infer Src, infer F>
-		? { readonly [I in keyof F]: FieldTypeOf<SideRelation<Src>, F[I]> }
+	S extends Side<infer Src, infer T>
+		? { readonly [I in keyof T]: TermTypeOf<SideRelation<Src>, T[I]> }
 		: never
 
 /**
- * Two sides are compatible when their field host types agree position by position: contract and closed-roster
+ * Two sides are compatible when their terms' host types agree position by position: contract and closed-roster
  * identity included, with no added cast (the mirrors and contained reader).
  */
 export type SidesCompatible<L, R> = [SideHosts<L>] extends [SideHosts<R>]
@@ -166,10 +203,10 @@ export type SidesCompatible<L, R> = [SideHosts<L>] extends [SideHosts<R>]
 		: Refusal<"the sides' field types differ">
 	: Refusal<"the sides' field types differ">
 
-/** The relation and key fields a KeyRef names. */
-export type RelationOfKey<K> = K extends Key<infer R, ReadonlyArray<string>> ? R : K
+/** The relation and key fields a KeyRef names: a Key's side's relation and field terms, a relation's primary key. */
+export type RelationOfKey<K> = K extends Key<Side<infer R, ReadonlyArray<string>>> ? R : K
 export type KeyFieldsOf<K> =
-	K extends Key<unknown, infer F extends ReadonlyArray<string>>
+	K extends Key<Side<unknown, infer F extends ReadonlyArray<string>>>
 		? F
 		: K extends { readonly primaryKey: infer P extends ReadonlyArray<string> }
 			? P
@@ -240,20 +277,20 @@ export type ArmsApartFromParent<PK, Arms> = {
 }
 
 /**
- * One arm's statement: the parent's facts whose discriminator D is the arm's handle H, projected onto the parent key,
- * mirror the arm's key.
+ * One arm's statement: the parent's facts whose discriminator is the arm's handle, projected onto the parent key,
+ * mirror the arm's key. The selection's handle is its Description's; ArmProofOf reads it from the alternatives law.
  */
-type ArmMirrors<P, PK, A, D extends string = string, H = unknown> = Mirrors<
-	Side<Selection<P, { readonly [K in D]: H }>, KeyFieldsOf<PK>>,
+type ArmMirrors<P, PK, A> = Mirrors<
+	Side<Selection<P>, KeyFieldsOf<PK>>,
 	Side<RelationOfKey<A>, KeyFieldsOf<A>>
 >
 
 /**
- * An alternatives law: one statement of a schema, which the schema expands into a containment and one
- * mirrors per arm. P is the parent in key position (a relation, standing for its primary key, or a Key), D the
- * discriminator, C the closed roster, and Arms the arm map from handles to arms in key position. The value keeps its
- * four inputs, so a reader of the schema (ContainmentsOf, the alternatives row of types/evidence) reads the expansion
- * from its type (ExpansionOf).
+ * An alternatives law: one statement of a schema, which the schema expands into a containment and one mirrors per
+ * arm, each the two containments it is sugar for. P is the parent in key position (a relation, standing for its
+ * primary key, or a Key), D the discriminator, C the closed roster, and Arms the arm map from handles to arms in key
+ * position. The value keeps its four inputs, so a reader of the schema (ContainmentsOf, the alternatives row of
+ * types/evidence) reads the expansion from its type (ExpansionOf).
  */
 export interface Alternatives<P, D extends string, C, Arms> {
 	readonly kind: "alternatives"
@@ -277,7 +314,7 @@ export type ExpansionOf<A> =
 				| {
 						[H in keyof Arms]-?: [Exclude<Arms[H], undefined>] extends [never]
 							? never
-							: ArmMirrors<RelationOfKey<P>, P, Exclude<Arms[H], undefined>, D, H>
+							: ArmMirrors<RelationOfKey<P>, P, Exclude<Arms[H], undefined>>
 				  }[keyof Arms]
 		: never
 

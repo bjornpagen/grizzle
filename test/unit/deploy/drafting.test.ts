@@ -1320,12 +1320,12 @@ const replacedVersions = (
 			side === "b"
 				? shift === "demoted"
 					? { primaryKey: s, keys: [] }
-					: { primaryKey: ["id"], keys: [key("R0", s)] }
+					: { primaryKey: ["id"], keys: [key(on("R0", s))] }
 				: shift === "promoted" || shift === "renamedOntoPrimary"
 					? { primaryKey: s, keys: [] }
 					: shift === "demoted"
-						? { primaryKey: ["id"], keys: [key("R0", s)] }
-						: { primaryKey: ["id"], keys: [key("R0", Arr.reverse(s))] }
+						? { primaryKey: ["id"], keys: [key(on("R0", s))] }
+						: { primaryKey: ["id"], keys: [key(on("R0", Arr.reverse(s)))] }
 		const referrerName = side === "c" && reference === "renamedRelation" ? "P1" : "R1"
 		const references =
 			reference === "none" ||

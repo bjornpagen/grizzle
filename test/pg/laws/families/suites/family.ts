@@ -55,12 +55,14 @@ export const installVariant = <P>(
  * law the schema declares; and, where the shape is in how a law reaches the facts it names, for a law whose witness
  * names a referring fact (a containment's or coverage's source, an obligation's anchor), one naming a stored fact whose
  * counterpart went and one naming a new fact without one. Nothing more, when the schemas vary a law's parameters over
- * one shape.
+ * one shape. A family whose laws over its sides are native (the partial projections, test/pg/laws/projections)
+ * requires of each schema a refusal by every kind of law it declares but a key, whose violation names no fact.
  */
 export type Reach =
 	| "the family"
 	| "every schema's refusals"
 	| "every schema's refusals of stored and new facts"
+	| "every schema's refusals by every law but a key"
 
 /** The pairs a schema's cases must reach under `reach`. */
 export const schemaPairs = <P, F extends string>(
@@ -95,18 +97,34 @@ const ofKind = (kind: HostLaw["kind"]): Refusal => ({
 const pairsSeveral = (l: HostLaw): boolean =>
 	isResidual(l) && Arr.some(needs(l), ({ from }) => from.fields.length > 1)
 
-const residualKinds = (host: HostSchema): ReadonlyArray<HostLaw["kind"]> => [
-	...new Set(Arr.map(Arr.filter(host.laws, isResidual), (l) => l.kind))
+/** The kinds of the laws a schema declares that `which` holds of, each once. */
+const kindsOf = (
+	host: HostSchema,
+	which: (law: HostLaw) => boolean
+): ReadonlyArray<HostLaw["kind"]> => [
+	...new Set(Arr.map(Arr.filter(host.laws, which), (l) => l.kind))
 ]
+
+const residualKinds = (host: HostSchema): ReadonlyArray<HostLaw["kind"]> =>
+	kindsOf(host, isResidual)
 
 /**
  * The refusals a family's schema must reach under `reach`: by every kind of residual law it declares, and of stored
- * and new facts for those whose witness names a referring fact.
+ * and new facts for those whose witness names a referring fact; or, for a family of native laws, by every kind of law
+ * it declares but a key.
  */
-const schemaRefusals = (host: HostSchema, reach: Reach): ReadonlyArray<Refusal> =>
-	reach === "the family"
-		? []
-		: Arr.flatMap(residualKinds(host), (kind): ReadonlyArray<Refusal> => {
+const schemaRefusals = (host: HostSchema, reach: Reach): ReadonlyArray<Refusal> => {
+	switch (reach) {
+		case "the family":
+			return []
+		case "every schema's refusals by every law but a key":
+			return Arr.map(
+				kindsOf(host, (l) => l.kind !== "key"),
+				ofKind
+			)
+		case "every schema's refusals":
+		case "every schema's refusals of stored and new facts":
+			return Arr.flatMap(residualKinds(host), (kind): ReadonlyArray<Refusal> => {
 				const by = ofKind(kind).by
 				return kind === "capacity" || reach === "every schema's refusals"
 					? [ofKind(kind)]
@@ -115,6 +133,8 @@ const schemaRefusals = (host: HostSchema, reach: Reach): ReadonlyArray<Refusal> 
 							{ feature: `refused by a ${kind} of a new fact`, by }
 						]
 			})
+	}
+}
 
 /**
  * Every refusal a suite requires of a family's schemas under `reach`, the most particular first: for each schema, its

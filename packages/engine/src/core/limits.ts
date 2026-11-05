@@ -177,7 +177,8 @@ export const finiteMembershipMaxTerms = measured({
 		"a PostgreSQL repin or a planner setting change; a change to either form's SQL (lower/optimize/finite); a different machine; a run at an equality count between 16 and 32; a membership over more columns or another distribution"
 })
 
-const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_RC1"
+/** The PostgreSQL release every published PostgreSQL limit is read from, REL_19_RC1's tree. */
+export const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_RC1"
 
 /**
  * PostgreSQL's explicit repetition limit: a pattern whose `{m}`, `{m,}` or `{m,n}` states a bound above it is refused
@@ -446,4 +447,325 @@ export const statementMaxParams = published({
 	source: `${postgresSource}/doc/src/sgml/limits.sgml#L115-L116`,
 	quote: "<entry>query parameters</entry> <entry>65,535</entry>",
 	verified: "2026-11-05"
+})
+
+const datatypeSgml = `${postgresSource}/doc/src/sgml/datatype.sgml`
+
+/** The least smallint. */
+export const int2Min = published({
+	value: -32768,
+	owner: "PostgreSQL 19rc1",
+	unit: "a smallint value",
+	scope: "every smallint value: a column, a parameter, a literal, an endpoint",
+	constraint: "compile-time constant",
+	source: `${datatypeSgml}#L374`,
+	quote: "<entry>-32768 to +32767</entry>",
+	verified: "2026-11-05"
+})
+
+/** The greatest smallint. */
+export const int2Max = published({
+	value: 32767,
+	owner: "PostgreSQL 19rc1",
+	unit: "a smallint value",
+	scope: "every smallint value: a column, a parameter, a literal, an endpoint",
+	constraint: "compile-time constant",
+	source: `${datatypeSgml}#L374`,
+	quote: "<entry>-32768 to +32767</entry>",
+	verified: "2026-11-05"
+})
+
+/** The least integer. */
+export const int4Min = published({
+	value: -2147483648,
+	owner: "PostgreSQL 19rc1",
+	unit: "an integer value",
+	scope: "every integer value: a column, a parameter, a literal, an endpoint, a span width",
+	constraint: "compile-time constant",
+	source: `${datatypeSgml}#L380`,
+	quote: "<entry>-2147483648 to +2147483647</entry>",
+	verified: "2026-11-05"
+})
+
+/**
+ * The greatest integer, which is also INT_MAX, a C int's greatest value: PostgreSQL's integer is its int32, and a C
+ * int is 32 bits on every platform it builds on.
+ */
+export const int4Max = published({
+	value: 2147483647,
+	owner: "PostgreSQL 19rc1",
+	unit: "an integer value",
+	scope: "every integer value: a column, a parameter, a literal, an endpoint, a span width",
+	constraint: "compile-time constant",
+	source: `${datatypeSgml}#L380`,
+	quote: "<entry>-2147483648 to +2147483647</entry>",
+	verified: "2026-11-05"
+})
+
+/** The least bigint, and money's least count of minor units. */
+export const int8Min = published({
+	value: -9223372036854775808n,
+	owner: "PostgreSQL 19rc1",
+	unit: "a bigint value",
+	scope: "every bigint value and every money count of minor units, a row count included",
+	constraint: "compile-time constant",
+	source: `${datatypeSgml}#L386`,
+	quote: "<entry>-9223372036854775808 to +9223372036854775807</entry>",
+	verified: "2026-11-05"
+})
+
+/** The greatest bigint, and money's greatest count of minor units. */
+export const int8Max = published({
+	value: 9223372036854775807n,
+	owner: "PostgreSQL 19rc1",
+	unit: "a bigint value",
+	scope: "every bigint value and every money count of minor units, a row count included",
+	constraint: "compile-time constant",
+	source: `${datatypeSgml}#L386`,
+	quote: "<entry>-9223372036854775808 to +9223372036854775807</entry>",
+	verified: "2026-11-05"
+})
+
+/** BITS_PER_BYTE, the bits PostgreSQL counts in one byte of a datum. */
+export const bitsPerByte = published({
+	value: 8,
+	owner: "PostgreSQL 19rc1",
+	unit: "bits",
+	scope: "one byte of a datum, as a bit string's length and a type's width count it",
+	constraint: "compile-time constant",
+	source: `${postgresSource}/src/include/pg_config_manual.h#L111`,
+	quote: "#define BITS_PER_BYTE\t\t8",
+	verified: "2026-11-05"
+})
+
+/**
+ * The most codes one roster numbers, its holes included. A closed-id field stores its handle's code as a smallint, and
+ * a roster numbers its handles from 0 in the order they were declared, a removed handle leaving its code a hole, so a
+ * code is one of smallint's non-negative values. A code is never negative because it indexes its roster's constant
+ * and is a digit of a law's cell (cellDigitBits), where a negative one, widened to a bigint, would set every digit
+ * above it.
+ */
+export const rosterMaxCodes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "codes",
+	scope:
+		"the codes of one roster, its live handles' and its holes, each the smallint a closed-id column stores",
+	from: [int2Max],
+	derivation: "smallint's non-negative values, 0 to its greatest: one code each",
+	compute: ([max]) => max.value + 1
+})
+
+const pgTypeDat = `${postgresSource}/src/include/catalog/pg_type.dat`
+
+/** A fixed-size type's typlen, as pg_type.dat's entry for it at `line` states it: the bytes one datum occupies. */
+const typlen = (type: string, value: number, line: number, quote: string): Limit =>
+	published({
+		value,
+		owner: "PostgreSQL 19rc1",
+		unit: "bytes",
+		scope: `one ${type} datum, in a heap tuple and in an index entry`,
+		constraint: "compile-time constant",
+		source: `${pgTypeDat}#L${line}`,
+		quote,
+		verified: "2026-11-05"
+	})
+
+/**
+ * The typlen of each fixed-size type a field, a range's endpoint, a varlena's part or a law's cell is: a smallint's is
+ * the bytes one code takes, in its closed-id column and as a digit of a law's cell, and a bigint's the bytes of one
+ * law's cell.
+ */
+export const typlens = {
+	int2: typlen("smallint", 2, 62, "typname => 'int2', typlen => '2', typbyval => 't'"),
+	int4: typlen("integer", 4, 74, "typname => 'int4', typlen => '4', typbyval => 't'"),
+	int8: typlen("bigint", 8, 57, "typname => 'int8', typlen => '8', typbyval => 't'"),
+	float4: typlen("real", 4, 220, "typname => 'float4', typlen => '4', typbyval => 't'"),
+	float8: typlen("double precision", 8, 225, "typname => 'float8', typlen => '8', typbyval => 't'"),
+	money: typlen("money", 8, 239, "typname => 'money', typlen => '8', typbyval => 't'"),
+	bool: typlen("boolean", 1, 36, "typname => 'bool', typlen => '1', typbyval => 't'"),
+	oid: typlen("oid", 4, 89, "typname => 'oid', typlen => '4', typbyval => 't'"),
+	uuid: typlen("uuid", 16, 409, "typname => 'uuid', typlen => '16', typbyval => 'f'")
+} as const
+
+/**
+ * The bits from one code of a law's cell to the next. A law over several fields of a row reads their codes from one
+ * bigint, a stored generated column its domain checks, which packs each code a smallint's width from the next,
+ * `(c1 << 48) | (c2 << 32) | (c3 << 16) | c4`, and the domain reads each back as `(VALUE >> s) & 65535` to index its
+ * constant. A code is a non-negative smallint (rosterMaxCodes), so it fits its digit with the digit's top bit clear,
+ * the cell is never negative, and a roster that grows changes the constant and the domain's check, never a stored cell.
+ */
+export const cellDigitBits = derived({
+	owner: "grizzle's law cells",
+	unit: "bits",
+	scope: "one code's digit in one law's cell",
+	from: [typlens.int2, bitsPerByte],
+	derivation:
+		"a smallint's typlen in bits: every smallint fits its digit, so a code is packed as its column stores it",
+	compute: ([smallint, bits]) => smallint.value * bits.value
+})
+
+/**
+ * The most codes one law's cell holds, its key's and its payload's together: the cell is one bigint and each code
+ * takes cellDigitBits of it, so a law that reads more codes has no cell.
+ */
+export const cellMaxCodes = derived({
+	owner: "grizzle's law cells",
+	unit: "codes",
+	scope: "the codes one law's cell packs, its key's and its payload's together",
+	from: [typlens.int8, bitsPerByte, cellDigitBits],
+	derivation: "a bigint's typlen in bits over a code's digit: the whole digits one bigint holds",
+	compute: ([bigint, bits, digit]) => Math.floor((bigint.value * bits.value) / digit.value)
+})
+
+/**
+ * The longest bit string PostgreSQL holds, VARBITMAXLEN, and so the most bits of one constant: the bit varying a
+ * closed side compiles to, which its IMMUTABLE function returns. A longer string is refused as it is built, "bit string
+ * length exceeds the maximum allowed (%d)" (src/backend/utils/adt/varbit.c). The int32 length every bit string
+ * carries (VarBit's bit_len) holds INT_MAX at most, and the length stops BITS_PER_BYTE - 1 bits short of it so that
+ * rounding it up to whole bytes, the largest addition PostgreSQL makes to a length (VARBITTOTALLEN), cannot overflow.
+ */
+export const constantMaxBits = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bits",
+	scope: "one bit varying value: a closed side's constant, as its function returns it",
+	from: [int4Max, bitsPerByte],
+	derivation: `varbit.h's VARBITMAXLEN, "#define VARBITMAXLEN\t\t(INT_MAX - BITS_PER_BYTE + 1)" (${postgresSource}/src/include/utils/varbit.h#L83, verified 2026-11-05), INT_MAX being the greatest integer`,
+	compute: ([intMax, bits]) => intMax.value - bits.value + 1
+})
+
+/**
+ * MaxAttrSize, the longest declared size of a data field of char(n) and similar types: for bit(n) and bit varying(n),
+ * the bytes their declared length comes to at most.
+ */
+const maxAttrSize = published({
+	value: 10 * 1024 * 1024,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope:
+		"the declared size of one data field of char(n) and similar types, bit(n) and bit varying(n) among them",
+	constraint: "compile-time constant",
+	source: `${postgresSource}/src/include/access/htup_details.h#L626`,
+	quote: "#define MaxAttrSize\t\t(10 * 1024 * 1024)",
+	verified: "2026-11-05"
+})
+
+/**
+ * The longest length a bit(n) or bit varying(n) type may declare, and so the most bits of one set column, which holds a
+ * bit for each code of its roster: PostgreSQL refuses a longer type modifier, "length for type %s cannot exceed %d". A
+ * constant is a bit varying with no declared length, so constantMaxBits bounds it instead.
+ */
+export const bitColumnMaxBits = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bits",
+	scope:
+		"the declared length n of one bit(n) or bit varying(n) type: a set column's, a cell's cast",
+	from: [maxAttrSize, bitsPerByte],
+	derivation: `MaxAttrSize in bits, the longest length the type modifier of bit and bit varying admits: "if (*tl > (MaxAttrSize * BITS_PER_BYTE))" (${postgresSource}/src/backend/utils/adt/varbit.c#L112, verified 2026-11-05)`,
+	compute: ([attr, bits]) => attr.value * bits.value
+})
+
+/**
+ * The size of PostgreSQL's name type, NAMEDATALEN, its terminating zero byte included: what an identifier, an enum
+ * label and a decoded handle are held in.
+ */
+export const namedatalen = published({
+	value: 64,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "a name value, its terminating zero included: an identifier, an enum label",
+	constraint: "compile-time constant",
+	source: `${postgresSource}/src/include/pg_config_manual.h#L39`,
+	quote: "#define NAMEDATALEN 64",
+	verified: "2026-11-05"
+})
+
+/**
+ * The most UTF-8 bytes of one roster handle. A roster's decode function holds its handles as one name[] constant, and
+ * a name keeps at most NAMEDATALEN - 1 bytes of its text, clipping a longer one at a character boundary: a longer
+ * handle would decode clipped, and two that share their first NAMEDATALEN - 1 bytes would decode alike.
+ */
+export const handleMaxBytes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "one roster handle in UTF-8, as its roster's decode function holds it in a name",
+	from: [namedatalen],
+	derivation: `NAMEDATALEN less its terminating zero, as namein clips a name: "len = pg_mbcliplen(s, len, NAMEDATALEN - 1);" (${postgresSource}/src/backend/utils/adt/name.c, verified 2026-11-05)`,
+	compute: ([n]) => n.value - 1
+})
+
+/** The pinned build's block size, BLCKSZ: the page a heap tuple must fit, and every index entry a share of. */
+export const blockSize = published({
+	value: 8192,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope:
+		"one page of a table or of a B-tree or GiST index of the pinned build, which scripts/pg/build.sh configures by default",
+	constraint: "configurable default",
+	source: `${postgresSource}/meson_options.txt#L5-L8`,
+	quote:
+		"option('blocksize', type: 'combo', choices: ['1', '2', '4', '8', '16', '32'], value: '8', description: 'Relation block size, in kilobytes')",
+	verified: "2026-11-05"
+})
+
+/**
+ * The greatest alignment PostgreSQL rounds a tuple and its parts to, MAXIMUM_ALIGNOF: 8 on every platform it builds
+ * on, the alignment of int64 and double. An entry measured at the greatest alignment is at least its size at any.
+ */
+export const maxAlign = published({
+	value: 8,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope:
+		"the alignment of a heap or index tuple, its header, its attributes and its line pointer's share of a page",
+	constraint: "compile-time constant",
+	source: `${postgresSource}/meson.build#L1877-L1878`,
+	quote:
+		"we intentionally do not consider any types wider than 64 bits, as allowing MAXIMUM_ALIGNOF to exceed 8 would be too much of a penalty for disk and memory space",
+	verified: "2026-11-05"
+})
+
+const storageSgml = `${postgresSource}/doc/src/sgml/storage.sgml`
+
+/** A page's header, PageHeaderData: the bytes every page of a table or an index begins with. */
+export const pageHeaderBytes = published({
+	value: 24,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "the header of every page",
+	constraint: "compile-time constant",
+	source: `${storageSgml}#L763`,
+	quote: "24 bytes long. Contains general information about the page",
+	verified: "2026-11-05"
+})
+
+/** One line pointer, ItemIdData: the bytes every item a page holds, a heap tuple or an index entry, takes beside it. */
+export const itemIdBytes = published({
+	value: 4,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "the line pointer of every item on a page",
+	constraint: "compile-time constant",
+	source: `${storageSgml}#L769-L770`,
+	quote:
+		"Array of item identifiers pointing to the actual items. Each entry is an (offset,length) pair. 4 bytes per item.",
+	verified: "2026-11-05"
+})
+
+/** `n` rounded up to a multiple of the alignment `a`, as PostgreSQL's TYPEALIGN rounds a size. */
+export const alignUp = (n: number, a: number): number => Math.ceil(n / a) * a
+
+/**
+ * The largest heap tuple, MaxHeapTupleSize, its header and alignment padding included: a row of a stored relation's
+ * table must fit one otherwise empty page beside its line pointer, and a fixed-width column is never moved out of line,
+ * so a row whose fixed-width columns, its generated cells and selected terms among them, can pass it cannot be stored.
+ */
+export const heapTupleMaxBytes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope:
+		"one heap tuple, its header and alignment padding included: one row of a stored relation's table",
+	from: [blockSize, maxAlign, pageHeaderBytes, itemIdBytes],
+	derivation: `htup_details.h's MaxHeapTupleSize, "#define MaxHeapTupleSize  (BLCKSZ - MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)))" (${postgresSource}/src/include/access/htup_details.h#L601, verified 2026-11-05): a page less its header and the one line pointer that points at the tuple, rounded up to the greatest alignment, since a heap page has no special space`,
+	compute: ([block, align, header, itemId]) =>
+		block.value - alignUp(header.value + itemId.value, align.value)
 })

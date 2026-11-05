@@ -1,14 +1,22 @@
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
-import { type Machine, program, type Real, runProgram } from "@grizzle/testing/commands"
+import {
+	accepting,
+	type Machine,
+	program,
+	type Real,
+	runProgram,
+	took
+} from "@grizzle/testing/commands"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { constant, int } from "@grizzle/testing/gen"
 import { passed, WILD_KINDS, type Wild, wild } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
+import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope } from "effect"
+import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope, Struct } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import {
@@ -221,33 +229,71 @@ const unchanged = (model: Model): Model => model
  * The reader's state machine: every call applies in every state, a compiled handle's execute once one is compiled, and
  * dispose once.
  */
-const boundaryMachine: Machine<Model, BoundaryParameters> = {
+const boundaryMachine: Machine<Model, BoundaryParameters, never> = {
 	initial: { disposed: false, compiled: 0 },
 	commands: {
-		"execute(live)": { applies: always, parameters: none, next: unchanged },
-		"get(live)": { applies: always, parameters: none, next: unchanged },
-		"page(live)": { applies: always, parameters: none, next: unchanged },
-		"execute(stale query)": { applies: always, parameters: none, next: unchanged },
-		"page(stale cursor)": { applies: always, parameters: none, next: unchanged },
-		"execute params(wild)": { applies: always, parameters: anyWild, next: unchanged },
-		"execute query(wild)": { applies: always, parameters: anyWild, next: unchanged },
-		"get values(wild)": { applies: always, parameters: anyWild, next: unchanged },
-		"get target(wild)": { applies: always, parameters: anyWild, next: unchanged },
-		"page request(wild)": { applies: always, parameters: anyWild, next: unchanged },
+		"execute(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
+		"get(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
+		"page(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
+		"execute(stale query)": {
+			applies: always,
+			parameters: none,
+			weight: 1,
+			judge: accepting(unchanged)
+		},
+		"page(stale cursor)": {
+			applies: always,
+			parameters: none,
+			weight: 1,
+			judge: accepting(unchanged)
+		},
+		"execute params(wild)": {
+			applies: always,
+			parameters: anyWild,
+			weight: 1,
+			judge: accepting(unchanged)
+		},
+		"execute query(wild)": {
+			applies: always,
+			parameters: anyWild,
+			weight: 1,
+			judge: accepting(unchanged)
+		},
+		"get values(wild)": {
+			applies: always,
+			parameters: anyWild,
+			weight: 1,
+			judge: accepting(unchanged)
+		},
+		"get target(wild)": {
+			applies: always,
+			parameters: anyWild,
+			weight: 1,
+			judge: accepting(unchanged)
+		},
+		"page request(wild)": {
+			applies: always,
+			parameters: anyWild,
+			weight: 1,
+			judge: accepting(unchanged)
+		},
 		compile: {
 			applies: always,
 			parameters: none,
-			next: (model) => ({ ...model, compiled: model.compiled + 1 })
+			weight: 1,
+			judge: accepting((model) => ({ ...model, compiled: model.compiled + 1 }))
 		},
 		"execute compiled": {
 			applies: (model) => model.compiled > 0,
 			parameters: () => int(0, 7),
-			next: unchanged
+			weight: 1,
+			judge: accepting(unchanged)
 		},
 		dispose: {
 			applies: (model) => !model.disposed,
 			parameters: none,
-			next: (model) => ({ ...model, disposed: true })
+			weight: 1,
+			judge: accepting((model) => ({ ...model, disposed: true }))
 		}
 	}
 }
@@ -341,79 +387,117 @@ const wildQuery = (real: Subject, wildValue: Wild): Effect.Effect<void> =>
 	})
 
 /** Each command run on the case's reader and held to the model's state before it, or after it for dispose. */
-const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never> => ({
+const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never, never> => ({
 	"execute(live)": (_parameters, model) =>
-		live(real, "execute", real.reader.execute(real.reads.live, { account: a1 }), model),
-	"get(live)": (_parameters, model) =>
-		live(real, "get", real.reader.get(W.Task, { id: t1 }), model),
-	"page(live)": (_parameters, model) =>
-		live(real, "page", real.reader.page(real.reads.ordered, { account: a1 }, { first: 2 }), model),
-	"execute(stale query)": () =>
-		Effect.gen(function* () {
-			const error = yield* called(
-				real,
-				"a stale execute",
-				real.reader.execute(real.reads.stale, { account: a1 })
-			)
-			assert.equal(refusalOf(error), "compile", Formatter.format(error))
-			real.note("execute stale")
-		}),
-	"page(stale cursor)": () =>
-		Effect.gen(function* () {
-			const request = { first: 2, after: real.reads.staleCursor }
-			const error = yield* called(
-				real,
-				"a page",
-				real.reader.page(real.reads.ordered, { account: a1 }, request)
-			)
-			assertInstanceOf(error, CursorError, "a stale cursor's page")
-			real.note("page stale cursor")
-		}),
-	"execute params(wild)": (w) =>
-		wildParam(real, "execute params", "account", w, (value) =>
-			real.reader.execute(real.reads.live, { account: value })
+		Effect.as(
+			live(real, "execute", real.reader.execute(real.reads.live, { account: a1 }), model),
+			took
 		),
-	"execute query(wild)": (w) => wildQuery(real, w),
+	"get(live)": (_parameters, model) =>
+		Effect.as(live(real, "get", real.reader.get(W.Task, { id: t1 }), model), took),
+	"page(live)": (_parameters, model) =>
+		Effect.as(
+			live(
+				real,
+				"page",
+				real.reader.page(real.reads.ordered, { account: a1 }, { first: 2 }),
+				model
+			),
+			took
+		),
+	"execute(stale query)": () =>
+		Effect.as(
+			Effect.gen(function* () {
+				const error = yield* called(
+					real,
+					"a stale execute",
+					real.reader.execute(real.reads.stale, { account: a1 })
+				)
+				assert.equal(refusalOf(error), "compile", Formatter.format(error))
+				real.note("execute stale")
+			}),
+			took
+		),
+	"page(stale cursor)": () =>
+		Effect.as(
+			Effect.gen(function* () {
+				const request = { first: 2, after: real.reads.staleCursor }
+				const error = yield* called(
+					real,
+					"a page",
+					real.reader.page(real.reads.ordered, { account: a1 }, request)
+				)
+				assertInstanceOf(error, CursorError, "a stale cursor's page")
+				real.note("page stale cursor")
+			}),
+			took
+		),
+	"execute params(wild)": (w) =>
+		Effect.as(
+			wildParam(real, "execute params", "account", w, (value) =>
+				real.reader.execute(real.reads.live, { account: value })
+			),
+			took
+		),
+	"execute query(wild)": (w) => Effect.as(wildQuery(real, w), took),
 	"get values(wild)": (w) =>
-		wildParam(real, "get values", "id", w, (value) => real.reader.get(W.Task, { id: value })),
+		Effect.as(
+			wildParam(real, "get values", "id", w, (value) => real.reader.get(W.Task, { id: value })),
+			took
+		),
 	"get target(wild)": (w) =>
-		Effect.asVoid(
-			wildCall(real, "get target", w, ["compile"], (value) => real.reader.get(value, { id: t1 }))
+		Effect.as(
+			Effect.asVoid(
+				wildCall(real, "get target", w, ["compile"], (value) => real.reader.get(value, { id: t1 }))
+			),
+			took
 		),
 	"page request(wild)": (w) =>
-		Effect.asVoid(
-			wildCall(real, "page request", w, ["request", "CursorError"], (value) =>
-				real.reader.page(real.reads.ordered, { account: a1 }, value)
-			)
+		Effect.as(
+			Effect.asVoid(
+				wildCall(real, "page request", w, ["request", "CursorError"], (value) =>
+					real.reader.page(real.reads.ordered, { account: a1 }, value)
+				)
+			),
+			took
 		),
 	compile: (_parameters, _before, after) =>
-		Effect.gen(function* () {
-			const exit = yield* Effect.exit(
-				real.reader.compile(real.reads.live).pipe(Scope.provide(real.handleScope))
-			)
-			if (Exit.isFailure(exit)) {
-				return assert.fail(`compile of a live query fails: ${Cause.pretty(exit.cause)}`)
-			}
-			real.handles.push(exit.value)
-			real.note("compile")
-			yield* executeCompiled(after, real, exit.value)
-		}),
+		Effect.as(
+			Effect.gen(function* () {
+				const exit = yield* Effect.exit(
+					real.reader.compile(real.reads.live).pipe(Scope.provide(real.handleScope))
+				)
+				if (Exit.isFailure(exit)) {
+					return assert.fail(`compile of a live query fails: ${Cause.pretty(exit.cause)}`)
+				}
+				real.handles.push(exit.value)
+				real.note("compile")
+				yield* executeCompiled(after, real, exit.value)
+			}),
+			took
+		),
 	"execute compiled": (pick, model) =>
-		Effect.suspend(() =>
-			executeCompiled(
-				model,
-				real,
-				defined(real.handles[pick % real.handles.length], "a compiled handle")
-			)
+		Effect.as(
+			Effect.suspend(() =>
+				executeCompiled(
+					model,
+					real,
+					defined(real.handles[pick % real.handles.length], "a compiled handle")
+				)
+			),
+			took
 		),
 	dispose: (_parameters, _before, after) =>
-		Effect.gen(function* () {
-			yield* real.dispose
-			real.note("disposed")
-			for (const handle of real.handles) {
-				yield* executeCompiled(after, real, handle)
-			}
-		})
+		Effect.as(
+			Effect.gen(function* () {
+				yield* real.dispose
+				real.note("disposed")
+				for (const handle of real.handles) {
+					yield* executeCompiled(after, real, handle)
+				}
+			}),
+			took
+		)
 })
 
 /**
@@ -474,7 +558,13 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 						{
 							suite: "pg/reads/boundary",
 							/** Up to twelve commands, so a case can compile, dispose and execute a stale handle among its other calls. */
-							draw: drawn(program(boundaryMachine, { min: 0, max: 12 })),
+							draw: drawn(
+								program(
+									boundaryMachine,
+									{ min: 0, max: 12 },
+									fullSwarm(Struct.keys(boundaryMachine.commands))
+								)
+							),
 							literal: Formatter.format,
 							coverage: required<BoundaryFeature>(
 								[

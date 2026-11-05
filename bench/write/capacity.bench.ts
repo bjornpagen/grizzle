@@ -48,7 +48,6 @@ import {
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { fieldNames } from "#compiler/ir/law.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import {
@@ -72,11 +71,12 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * trigger equivalents; lock-wait time and throughput of one hot group, with grizzle and direct SQL writers, against its
  * seat-fact form; and that of two writers at the bound of one group, one commits and the other's COMMIT raises with the
  * law's identity. Verify that the partial-unique specialization removes
- * the law function and its triggers entirely for filtered at-most-one laws".
+ * the law function and its triggers entirely for filtered at-most-one laws". No specialization applies: the filtered
+ * at-most-one is a residual law beside the group's, with a law function and triggers of its own.
  *
  * The fixture: Grp(id, bound) and Member(id, grp) under `capacity(on(Grp, "id"), { from: on(Member, "grp"), within:
  * within(0n, ref("bound")) })` with Member contained in Grp, a residual law; Ticket and Note under a filtered
- * at-most-one capacity, which the compiler specializes to a partial UNIQUE; and the seat-fact form of a hot bound,
+ * at-most-one capacity, a residual law too; and the seat-fact form of a hot bound,
  * Lane, LaneSeat and Holder with a key on (lane, seat) and a containment into LaneSeat, which is native. The
  * hand-written equivalent is the same two tables in a schema of their own with what a PostgreSQL expert writes for an
  * upper bound: an index on member(grp) and one deferred constraint trigger on member insertion that locks the group
@@ -112,12 +112,15 @@ const build = (name: string) =>
 		groupCapacity,
 		contained(on(Member, "grp"), on(Grp, "id")),
 		capacity(on(Ticket, "id"), {
-			from: on(select(Note, { open: true }), "ticket"),
+			from: on(
+				select(Note, (r) => r.eq(r.open, true)),
+				"ticket"
+			),
 			within: within(0n, 1n)
 		}),
 		contained(on(Note, "ticket"), on(Ticket, "id")),
 		contained(on(LaneSeat, "lane"), on(Lane, "id")),
-		key(Holder, ["lane", "seat"]),
+		key(on(Holder, "lane", "seat")),
 		contained(on(Holder, "lane", "seat"), on(LaneSeat, "lane", "seat"))
 	])
 
@@ -167,7 +170,7 @@ export default defineGate({
 	name: "write-capacity",
 	gates: ["R19"],
 	title:
-		"Residual capacity: batches on one group, wide groups, one hot group, the bound race, the partial UNIQUE",
+		"Residual capacity: batches on one group, wide groups, one hot group, the bound race, the filtered at-most-one",
 	scope:
 		"A count capacity against a ref bound over Grp and Member, against a hand-written deferred trigger and the " +
 		"seat-fact form; commit-time law work split from COMMIT; lock waits sampled from pg_stat_activity.",
@@ -554,14 +557,15 @@ END $f$`,
 			const boundMembers = Number(boundText)
 			const boundMembersGrizzle = Number(boundGrizzleText)
 
-			/** 5. The partial-unique specialization, read from the installation record beside the catalog it installed. */
+			/** 5. The residual laws, read from the installation record beside the catalog it installed. */
 			const objects = yield* lawObjects(fx)
 			const laws = fx.installed.installation.laws
 			const residual = residualLaw(fx, law)
 			const participantRelations = new Set(Arr.map(residual.participants, (p) => p.relation.name))
-			const specialized: ReadonlyArray<string> = [Ticket.name, Note.name]
-			const notePartialUnique = Arr.flatMap(laws.natives, (n) =>
-				n.object.kind === "PartialUnique" && n.object.relation.name === Note.name ? [n.object] : []
+			/** The filtered at-most-one's participants: every residual law's but the group capacity's. */
+			const atMostOne = Arr.filter(laws.residuals, (r) => r.lawId !== law)
+			const atMostOneRelations = new Set(
+				Arr.flatMap(atMostOne, (r) => Arr.map(r.participants, (p) => p.relation.name))
 			)
 
 			const w = summarizeTransactions(wideGenerated)
@@ -664,13 +668,6 @@ END $f$`,
 					measures: {
 						functions: Arr.join(objects.functions, ", "),
 						triggers: Arr.join(objects.triggers, ", "),
-						partialUnique: Arr.join(
-							Arr.map(
-								notePartialUnique,
-								(n) => `${n.relation.name} (${Arr.join(fieldNames(n.columns), ", ")})`
-							),
-							"; "
-						),
 						lawFunction: Arr.join(Rec.values(objects.definitions), "\n")
 					}
 				}
@@ -678,27 +675,18 @@ END $f$`,
 			const r19: VerdictInput = {
 				checks: [
 					mechanism(
-						"one residual law: the capacity over Grp, whose participants are Grp and Member; no law for the filtered at-most-one or the seats",
-						laws.residuals.length === 1 &&
+						"two residual laws: the capacity over Grp, whose participants are Grp and Member, and the filtered at-most-one over Ticket and Note; no law for the seats",
+						laws.residuals.length === 2 &&
 							participantRelations.size === 2 &&
 							participantRelations.has(Grp.name) &&
-							participantRelations.has(Member.name),
+							participantRelations.has(Member.name) &&
+							atMostOneRelations.size === 2 &&
+							atMostOneRelations.has(Ticket.name) &&
+							atMostOneRelations.has(Note.name),
 						`${Arr.join(
 							Arr.map(laws.residuals, (r) => r.lawId),
 							", "
-						)} | ${Arr.join([...participantRelations], ", ")}`
-					),
-					mechanism(
-						"the partial-unique specialization leaves no residual participant on Ticket or Note, and installs a partial UNIQUE on Note",
-						!Arr.some(laws.residuals, (r) =>
-							Arr.some(r.participants, (p) => specialized.includes(p.relation.name))
-						) && notePartialUnique.length === 1,
-						`${Arr.join(
-							Arr.flatMap(laws.residuals, (r) =>
-								Arr.map([...r.participants.keys()], (p) => `${r.lawId}: ${p}`)
-							),
-							", "
-						)} | ${notePartialUnique.length} partial UNIQUE on Note`
+						)} | ${Arr.join([...participantRelations], ", ")} | ${Arr.join([...atMostOneRelations], ", ")}`
 					),
 					mechanism(
 						"a batch's insertion fires the law once per inserted row (no key deduplication)",

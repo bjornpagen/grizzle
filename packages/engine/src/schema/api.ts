@@ -2,19 +2,20 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { closed as closedBuilder, relation as relationBuilder } from "#compiler/schema/relation.ts"
 import { schema as schemaBuilder } from "#compiler/schema/schema.ts"
 import {
-	alternatives as alternativesBuilder,
-	capacity as capacityBuilder,
-	check as checkBuilder,
-	contained as containedBuilder,
-	key as keyBuilder,
-	mirrors as mirrorsBuilder,
-	mutable as mutableBuilder,
-	on as onBuilder,
-	duration as runtimeDuration,
-	ref as runtimeRef,
-	weigh as runtimeWeigh,
-	within as runtimeWithin,
-	select as selectBuilder
+	alternativesBuilder,
+	capacityBuilder,
+	checkBuilder,
+	containedBuilder,
+	keyBuilder,
+	mirrorsBuilder,
+	mutableBuilder,
+	onBuilder,
+	predBuilder,
+	runtimeDuration,
+	runtimeRef,
+	runtimeWeigh,
+	runtimeWithin,
+	selectBuilder
 } from "#compiler/schema/statements.ts"
 import { context as contextBuilder, role as roleBuilder } from "#compiler/schema/world.ts"
 import type { Parameterless, Predicate } from "#compiler/types/core/phantom.ts"
@@ -23,8 +24,8 @@ import type {
 	AnyClosed,
 	AnyRelation,
 	DistinctFields,
+	DistinctTerms,
 	EnumClosed,
-	Fact,
 	Relation
 } from "#compiler/types/schema/relation.ts"
 
@@ -54,14 +55,15 @@ import type {
 	KeyRef,
 	Mirrors,
 	Mutable,
+	Pred,
 	Ref,
 	RelationOfKey,
 	RowScalars,
 	Selection,
 	Side,
-	SideHeading,
 	SidesCompatible,
 	Statement,
+	TermOf,
 	Weight,
 	WithinConstructor
 } from "#compiler/types/schema/statements.ts"
@@ -82,14 +84,15 @@ import type {
 
 /**
  * The typed schema facade: relation, closed, schema, schema.extend, the statement constructors, context and role under
- * their precise public signatures (login, which admits its workloads, is program/workload/login.ts) (types/schema), each a view over the one builder of its value in this package
- * (relation.ts, schema.ts, statements.ts, world.ts). A builder checks a JavaScript caller's arguments through its admission core, records the
- * Description, and owns the literal of its arguments, frozen copies (protocol.ts ownValue), so the value has its public
- * type by construction; its type parameters are as wide as that value allows, and a view here narrows them to what the
- * public signature states and calls the builder with them. A list a builder copies is typed `readonly [...T]`, which is
- * T itself for every list a call writes. A JavaScript caller's extra argument is refused; the types admit none. The
- * public barrel public/schema.ts exports these; test/unit/schema pins the runtime behavior and test/types/schema the
- * signatures.
+ * their precise public signatures (types/schema; login, which admits its workloads, is program/workload/login.ts),
+ * each a view over the one builder of its value in this package (relation.ts, schema.ts, statements.ts, world.ts),
+ * and the one module that exports the public names. A builder checks a JavaScript caller's arguments through its
+ * admission core, records the Description, and owns the literal of its arguments, frozen copies (protocol.ts
+ * ownValue), so the value has its public type by construction; its type parameters are as wide as that value allows,
+ * and a view here narrows them to what the public signature states and calls the builder with them. A list a builder
+ * copies is typed `readonly [...T]`, which is T itself for every list a call writes. A JavaScript caller's extra
+ * argument is refused; the types admit none. The public barrel public/schema.ts exports these; test/unit/schema pins
+ * the runtime behavior and test/types/schema the signatures.
  *
  * The third argument is the primary key: a required, nonempty list of the relation's own field names, each once, in
  * the order written. The value holds a frozen copy of it, `readonly [...PrimaryKey]`, which is PrimaryKey itself for
@@ -163,14 +166,13 @@ export const schema: typeof rootSchema & { readonly extend: typeof extend } = Ob
 	Object.assign(rootSchema, { extend })
 )
 
-/** An additional candidate key; lowers to UNIQUE. */
-export const key = <
-	R extends AnyRelation,
-	const K extends readonly [keyof Fact<R> & string, ...(keyof Fact<R> & string)[]]
->(
-	target: R,
-	fields: K & DistinctFields<K>
-): Key<R, readonly [...K]> => keyBuilder<R, K>(target, fields)
+/**
+ * key(side): no two of the side's facts share its terms, UNIQUE NULLS DISTINCT. Over a whole relation and its fields
+ * it is a candidate key; over a selection or a pred term it constrains only the facts the side reads. A closed relation
+ * is keyed by its handle alone, so no side of one is keyed.
+ */
+export const key = <S extends Side<AnyRelation | Selection<AnyRelation>>>(side: S): Key<S> =>
+	keyBuilder<S>(side)
 
 /**
  * Opt in to in-place change. Without it a relation is immutable: facts are added and deleted, never changed. The
@@ -184,35 +186,46 @@ export const check = <const Name extends string, R extends AnyRelation, Pr exten
 	predicate: (row: RowScalars<R>) => Pr & Parameterless<Pr>
 ): Check<Name, R> => checkBuilder<Name, R>(name, target, predicate)
 
-/** A side names at least one field of its source, each once (ir/desc.ts SideDesc). */
+/**
+ * A side reads at least one term of its source, each once (ir/desc.ts SideDesc): a field, or pred of a natural field,
+ * whose fact has no tuple on the side where the field is zero.
+ */
 export const on = <
-	R extends AnyRelation | AnyClosed | Selection<unknown, unknown>,
-	const F extends readonly [keyof SideHeading<R> & string, ...(keyof SideHeading<R> & string)[]]
+	R extends AnyRelation | AnyClosed | Selection<AnyRelation | AnyClosed>,
+	const T extends readonly [TermOf<R>, ...TermOf<R>[]]
 >(
-	side: R,
-	...fields: F & DistinctFields<F>
-): Side<R, readonly [...F]> => {
-	const list: F = fields
-	return onBuilder<R, F>(side, list)
+	source: R,
+	...terms: T & DistinctTerms<T>
+): Side<R, readonly [...T]> => {
+	const list: T = terms
+	return onBuilder<R, T>(source, list)
 }
 
-export const select = <R extends AnyRelation | AnyClosed, const B extends Partial<Fact<R>>>(
+/** pred(field): a natural field's value less one, defined only above zero; on(...) takes it as a term. */
+export const pred = <const F extends string>(field: F): Pred<F> => predBuilder<F>(field)
+
+/**
+ * select(R, (row) => predicate): the facts of R a row predicate over their own fields holds of, in the row-check
+ * language, the one spelling of a selection.
+ */
+export const select = <R extends AnyRelation | AnyClosed, Pr extends Predicate>(
 	target: R,
-	bindings: B
-): Selection<R, B> => selectBuilder<R, B>(target, bindings)
+	predicate: (row: RowScalars<R>) => Pr & Parameterless<Pr>
+): Selection<R> => selectBuilder<R>(target, predicate)
 
 export const contained = <L extends AnySide, R extends AnySide>(
 	left: L,
 	right: R & SidesCompatible<L, R>
 ): Containment<L, R> => containedBuilder<L, R>(left, right)
 
+/** mirrors(a, b): sugar for contained(a, b) and contained(b, a), which the schema states in its place. */
 export const mirrors = <L extends AnySide, R extends AnySide>(
 	left: L,
 	right: R & SidesCompatible<L, R>
 ): Mirrors<L, R> => mirrorsBuilder<L, R>(left, right)
 
 export const alternatives = <
-	PK extends AnyRelation | Key<AnyRelation, ReadonlyArray<string>>,
+	PK extends AnyRelation | Key<Side<AnyRelation, ReadonlyArray<string>>>,
 	C extends AnyClosed,
 	const D extends DiscriminatorsOf<RelationOfKey<PK>, C>,
 	const Arms extends Partial<{ readonly [H in HandleOf<C>]: KeyRef<AnyRelation> }>

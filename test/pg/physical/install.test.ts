@@ -275,7 +275,7 @@ layer(Substrate.layer)("fresh install", (it) => {
 				const feeCapacity = statementOf(Charges, (st) => st.kind === "capacity")
 				yield* expectConstraint(
 					charge(4, 125n, 0n),
-					constraintOfDesc(names, feeCapacity, "PartialUnique"),
+					constraintOfDesc(names, feeCapacity, "Unique"),
 					"23505"
 				)
 				yield* charge(5, 126n, 0n)
@@ -304,8 +304,8 @@ layer(Substrate.layer)("fresh install", (it) => {
 			 *
 			 * UPDATE of an immutable relation is refused by privilege; of a mutable one permitted.
 			 *
-			 * The row CHECK, the finite CHECK and the partial unique capacity are native: finite laws become ordinary
-			 * constraints.
+			 * The row CHECK, the finite CHECK and the at-most-one capacity, a UNIQUE over its source, are native:
+			 * finite laws become ordinary constraints.
 			 */
 			const worlds = fixtureWorlds(Ledger)
 			const { installation } = yield* installed(Ledger, "physical", [worlds.login])
@@ -426,7 +426,7 @@ layer(Substrate.layer)("fresh install", (it) => {
 				constraintOfDesc(
 					names,
 					statementOf(Ledger, (st) => st.kind === "capacity"),
-					"PartialUnique"
+					"Unique"
 				),
 				"23505"
 			)
@@ -440,7 +440,7 @@ layer(Substrate.layer)("fresh install", (it) => {
 			yield* expectSqlstate(r.query(`DELETE FROM ${view}`, []), "42501")
 			yield* expectSqlstate(r.query(`DELETE FROM ${entryTable}`, []), "42501")
 			yield* expectSqlstate(r.query(`SELECT count(*) FROM ${entryTable}`, []), "42501")
-			/** The tagged foreign key is deferred: a payout of a Refund entry fails at COMMIT. */
+			/** The foreign key into the selected Refund entries is deferred: a payout of a Refund entry fails at COMMIT. */
 			const [[entry]] = yield* Effect.map(
 				w.values(`SELECT ${at.columns("Entry", ["id"])}::text FROM ${entryTable}`, []),
 				oneText

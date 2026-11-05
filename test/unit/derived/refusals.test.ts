@@ -24,7 +24,6 @@ import {
 	ge,
 	key,
 	literal,
-	mirrors,
 	mutable,
 	on,
 	type SchemaDesc,
@@ -78,20 +77,16 @@ type LawShape =
 	| "check"
 	| "contained from it"
 	| "contained into it"
-	| "mirrors on the left"
-	| "mirrors on the right"
 	| "capacity target"
 	| "capacity source"
 	| "alternatives expansion"
 
 const lawShapes: Readonly<Record<LawShape, StatementDesc>> = {
-	key: key("AccountBudget", ["account"]),
+	key: key(on("AccountBudget", ["account"])),
 	mutable: mutable("AccountBudget"),
 	check: checkDesc("Positive", "AccountBudget", ge(field("tasks"), literal(0n))),
 	"contained from it": contained(on("AccountBudget", ["account"]), on("Account", ["id"])),
 	"contained into it": contained(on("Task", ["account"]), on("AccountBudget", ["account"])),
-	"mirrors on the left": mirrors(on("AccountBudget", ["account"]), on("Account", ["id"])),
-	"mirrors on the right": mirrors(on("Account", ["id"]), on("AccountBudget", ["account"])),
 	"capacity target": capacity(
 		on("AccountBudget", ["account"]),
 		on("Task", ["account"]),
@@ -224,22 +219,18 @@ describe("derived relation refusals", () => {
 								"check",
 								"contained from it",
 								"contained into it",
-								"mirrors on the left",
-								"mirrors on the right",
 								"capacity target",
 								"capacity source",
 								"alternatives expansion"
 							]),
 							literal: Formatter.format,
-							limit: 10,
+							limit: 8,
 							coverage: requiredInSpace<LawShape>([
 								"key",
 								"mutable",
 								"check",
 								"contained from it",
 								"contained into it",
-								"mirrors on the left",
-								"mirrors on the right",
 								"capacity target",
 								"capacity source",
 								"alternatives expansion"

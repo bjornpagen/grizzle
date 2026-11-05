@@ -1,4 +1,4 @@
-import { type Limit, published } from "#compiler/core/limits.ts"
+import { type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	numericMaxDisplayScale,
@@ -35,8 +35,7 @@ export const decDigits: Limit = published({
 	unit: "decimal digits",
 	scope: "one NBASE digit of a numeric value, the unit of its weight",
 	constraint: "compile-time constant",
-	source:
-		"https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c#L99",
+	source: `${postgresSource}/src/backend/utils/adt/numeric.c#L99`,
 	quote: "#define DEC_DIGITS\t4\t\t\t/* decimal digits per NBASE digit */",
 	verified: "2026-11-05"
 })

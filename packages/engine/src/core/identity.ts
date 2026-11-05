@@ -1,9 +1,8 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
-import { derived, type Limit, published } from "#compiler/core/limits.ts"
+import { derived, type Limit, namedatalen } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
@@ -30,7 +29,7 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  * - Hashed: `__`, a readable stem cut to `stemBudget` bytes at a segment boundary, `_` and a digest of the identity's
  *   canonical encoding, the first `5 * digestChars` bits of its SHA-256 as `digestChars` characters of lowercase RFC
  *   4648 base32: keys, foreign keys, span, norm and law checks, indexes and statistics, sequences, text-pattern domains,
- *   tag and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes and advance
+ *   law and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes and advance
  *   functions, and a migration's temporaries. Every name grizzle derives starts with `__`, so no declared name meets
  *   one; two distinct hashed identities meet only where their stems and their digests do, which the installation's
  *   census refuses as DigestCollision (`censusOf`), and a migration's census (`TemporaryCensus`) where a temporary
@@ -46,21 +45,6 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  * Identities are ordered by their kinds and parts (`compareIdentities`), never by their identifiers: a digest is no
  * order, and an installation-scoped identifier's digest differs from one installation to the next.
  */
-
-/**
- * The size of PostgreSQL's name type, NAMEDATALEN, its terminating zero byte included: what an identifier and an enum
- * label are held in.
- */
-export const namedatalen: Limit = published({
-	value: 64,
-	owner: "PostgreSQL 19rc1",
-	unit: "bytes",
-	scope: "a name value, its terminating zero included: an identifier, an enum label",
-	constraint: "compile-time constant",
-	source: "https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/pg_config_manual.h#L39",
-	quote: "#define NAMEDATALEN 64",
-	verified: "2026-11-05"
-})
 
 /**
  * The longest identifier PostgreSQL keeps, in bytes: a longer one is truncated, so two names that differ past it are
@@ -582,11 +566,16 @@ export interface Selector {
 	readonly value: IdentityValue
 }
 
-/** A side of a foreign key: its relation, its fields in order, and the selection it holds to. */
+/**
+ * A column a key or a foreign key names: a field by its name, or a law column by its identity, whose stem and display
+ * the naming key's read, never its digest.
+ */
+export type KeyColumnName = string | Identity<"lawColumn">
+
+/** A side of a foreign key: its relation and its columns in order. */
 export interface KeySide {
 	readonly relation: string
-	readonly fields: ReadonlyArray<string>
-	readonly selection: ReadonlyArray<Selector>
+	readonly fields: ReadonlyArray<KeyColumnName>
 }
 
 /** One key of an access index: its field, direction and operator class. */
@@ -620,11 +609,35 @@ const selectionDisplay = (selection: ReadonlyArray<Selector>): string =>
 		? ""
 		: ` where ${selection.map((s) => `${s.field} = ${s.value.display}`).join(", ")}`
 
-const sideDisplay = (side: KeySide): string =>
-	`${side.relation}(${side.fields.join(", ")})${selectionDisplay(side.selection)}`
+/** A key column's stem: a field's name, or a law column's own stem. */
+const columnStem = (c: KeyColumnName): string => (typeof c === "string" ? c : c.stem)
 
-const fieldsOf = (relation: string, fields: ReadonlyArray<string>): string =>
-	`${relation}(${fields.join(", ")})`
+/** A key column's display: a field's name, or a law column's own display. */
+const columnDisplay = (c: KeyColumnName): string => (typeof c === "string" ? c : c.display)
+
+const sideDisplay = (side: KeySide): string => fieldsOf(side.relation, side.fields)
+
+const fieldsOf = (relation: string, fields: ReadonlyArray<KeyColumnName>): string =>
+	`${relation}(${fields.map(columnDisplay).join(", ")})`
+
+/**
+ * What a law column is, as the law model states it: a constant a selected target fixes on its source, by the target
+ * relation, the field the constant meets and its value; or a side's term, a field or pred of one, under the side's
+ * selection, its conjuncts by their canonical texts, none for every row. Its relation is the table the column is added
+ * to, whose namespace holds it.
+ */
+export type LawColumnStatement =
+	| {
+			readonly kind: "constant"
+			readonly target: string
+			readonly field: string
+			readonly value: IdentityValue
+	  }
+	| {
+			readonly kind: "term"
+			readonly term: { readonly kind: "field" | "pred"; readonly field: string }
+			readonly selection: ReadonlyArray<string>
+	  }
 
 /** A row event a residual law's unit fires on: each unit has one trigger for one event. */
 export type LawEvent = "INSERT" | "DELETE" | "UPDATE"
@@ -658,31 +671,30 @@ export const identity = Object.freeze({
 	/** A field's column, in whatever table or view holds it: its name alone, so renaming a relation renames no column. */
 	column: (field: DeclaredName): Identity<"column"> =>
 		mint("column", [field], [field], `field ${field}`, readable(conversionOf(field))),
-	/** The stored tag of a selected target: its target relation, selector field and value. */
-	tag: (target: string, field: string, value: IdentityValue): Identity<"tag"> =>
-		mint(
-			"tag",
-			[target, field, value.part],
-			["tag", field, value.stem],
-			`tag ${target}.${field} = ${value.display}`,
-			hashed
-		),
-	/**
-	 * An alternatives parent's arm tag: its relation, its discriminator field, and every handle its kind maps to another
-	 * handle's tag, the first handle of the handle's arm relation, in roster order. Every other handle is its own tag.
-	 */
-	armTag: (
-		parent: string,
-		field: string,
-		moved: NonEmptyReadonlyArray<{ readonly handle: string; readonly tag: string }>
-	): Identity<"armTag"> =>
-		mint(
-			"armTag",
-			[parent, field, moved.map((m) => [m.handle, m.tag])],
-			[parent, field, "arm"],
-			`arm tag of ${parent}.${field}, ${moved.map((m) => `${m.handle} as ${m.tag}`).join(", ")}`,
-			hashed
-		),
+	/** A law column (`LawColumnStatement`). */
+	lawColumn: (column: LawColumnStatement): Identity<"lawColumn"> => {
+		switch (column.kind) {
+			case "constant":
+				return mint(
+					"lawColumn",
+					["constant", column.target, column.field, column.value.part],
+					["tag", column.field, column.value.stem],
+					`tag ${column.target}.${column.field} = ${column.value.display}`,
+					hashed
+				)
+			case "term": {
+				const { term, selection } = column
+				const spelled = term.kind === "pred" ? `pred(${term.field})` : term.field
+				return mint(
+					"lawColumn",
+					["term", [term.kind, term.field], selection],
+					term.kind === "pred" ? ["pred", term.field] : [term.field],
+					`${spelled}${selection.length === 0 ? "" : ` where ${selection.join(" and ")}`}`,
+					hashed
+				)
+			}
+		}
+	},
 	contractDomain: (contract: DeclaredName): Identity<"contractDomain"> =>
 		mint(
 			"contractDomain",
@@ -717,11 +729,11 @@ export const identity = Object.freeze({
 	primaryKey: (relation: string): Identity<"primaryKey"> =>
 		mint("primaryKey", [relation], [relation, "pk"], `primary key of ${relation}`, hashed),
 	/** A candidate key, a generated unique or a temporal unique, its span field among its fields. */
-	key: (relation: string, fields: ReadonlyArray<string>): Identity<"key"> =>
+	key: (relation: string, fields: ReadonlyArray<KeyColumnName>): Identity<"key"> =>
 		mint(
 			"key",
 			[relation, fields],
-			[relation, "key", ...fields],
+			[relation, "key", ...fields.map(columnStem)],
 			`key ${fieldsOf(relation, fields)}`,
 			hashed
 		),
@@ -775,29 +787,9 @@ export const identity = Object.freeze({
 	foreignKey: (from: KeySide, to: KeySide, period: boolean): Identity<"foreignKey"> =>
 		mint(
 			"foreignKey",
-			[
-				from.relation,
-				from.fields,
-				selectionPart(from.selection),
-				to.relation,
-				to.fields,
-				selectionPart(to.selection),
-				period ? "period" : "scalar"
-			],
-			[from.relation, "fk", ...from.fields, ...selectionStem(from.selection)],
+			[from.relation, from.fields, to.relation, to.fields, period ? "period" : "scalar"],
+			[from.relation, "fk", ...from.fields.map(columnStem)],
 			`${period ? "PERIOD " : ""}foreign key ${sideDisplay(from)} to ${sideDisplay(to)}`,
-			hashed
-		),
-	partialUnique: (
-		relation: string,
-		fields: ReadonlyArray<string>,
-		where: ReadonlyArray<Selector>
-	): Identity<"partialUnique"> =>
-		mint(
-			"partialUnique",
-			[relation, fields, selectionPart(where)],
-			[relation, "key", ...fields, ...selectionStem(where)],
-			`unique index ${fieldsOf(relation, fields)}${selectionDisplay(where)}`,
 			hashed
 		),
 	accessIndex: (

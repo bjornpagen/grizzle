@@ -1,17 +1,20 @@
 import { layer } from "@effect/vitest"
 import {
+	accepting,
 	type Machine,
 	type Program,
 	program,
 	type Real,
-	runProgram
+	runProgram,
+	took
 } from "@grizzle/testing/commands"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { constant, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
+import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str, Struct } from "effect"
 import { type SchemaApplyReport, applyLockKey } from "#adapter/migrate/apply.ts"
 import type {
 	AppliedEdit,
@@ -465,21 +468,24 @@ const unchanged = (model: Model): Model => model
  * where it acts at all: a failure needs a point after the recorded files, COMMIT in a file a transactional file not
  * yet recorded.
  */
-const machineOf = (shape: ChainShape): Machine<Model, LedgerParameters> => ({
+const machineOf = (shape: ChainShape): Machine<Model, LedgerParameters, never> => ({
 	initial,
 	commands: {
 		"apply up to": {
 			applies: () => true,
 			parameters: () => int(1, 3),
-			next: (model, k) =>
+			weight: 1,
+			judge: accepting((model, k) =>
 				missingOf(model, k).length > 0
 					? model
 					: { recorded: Math.max(model.recorded, k), partial: Option.none() }
+			)
 		},
 		"apply with a gap": {
 			applies: (model) => Option.isNone(model.partial) && model.recorded + 1 < 3,
 			parameters: (model) => element(model.recorded + 1 < 2 ? [2, 3] : [3]),
-			next: unchanged
+			weight: 1,
+			judge: accepting(unchanged)
 		},
 		"apply short": {
 			applies: (model) => missingOf(model, 1).length === 0 || missingOf(model, 2).length === 0,
@@ -490,22 +496,25 @@ const machineOf = (shape: ChainShape): Machine<Model, LedgerParameters> => ({
 						"the snapshots a short directory may end before"
 					)
 				),
-			next: unchanged
+			weight: 1,
+			judge: accepting(unchanged)
 		},
 		"early folder": {
 			applies: (model) => model.recorded > 0 && model.recorded < 3 && Option.isNone(model.partial),
 			parameters: none,
-			next: unchanged
+			weight: 1,
+			judge: accepting(unchanged)
 		},
 		"apply unreviewed": {
 			applies: (model) => model.recorded < 3 && Option.isNone(model.partial),
 			parameters: none,
-			next: (model) => {
+			weight: 1,
+			judge: accepting((model) => {
 				const folder = folderOf(shape, model.recorded)
 				return folder.markers || folder.losses
 					? model
 					: { recorded: model.recorded + 1, partial: Option.none() }
-			}
+			})
 		},
 		"fail at": {
 			applies: (model) => model.recorded < 3 && pointsAfter(shape, model).length > 0,
@@ -523,7 +532,8 @@ const machineOf = (shape: ChainShape): Machine<Model, LedgerParameters> => ({
 					)
 				)
 			},
-			next: (model, point) => {
+			weight: 1,
+			judge: accepting((model, point) => {
 				const unfinished =
 					Option.isSome(model.partial) ||
 					point.ordinal > 1 ||
@@ -532,7 +542,7 @@ const machineOf = (shape: ChainShape): Machine<Model, LedgerParameters> => ({
 					recorded: model.recorded,
 					partial: unfinished ? Option.some(point.ordinal - 1) : Option.none()
 				}
-			}
+			})
 		},
 		"edit applied": {
 			applies: (model) => model.recorded > 0,
@@ -544,25 +554,34 @@ const machineOf = (shape: ChainShape): Machine<Model, LedgerParameters> => ({
 					kind: source.draw(element(editKinds))
 				}
 			},
-			next: unchanged
+			weight: 1,
+			judge: accepting(unchanged)
 		},
-		busy: { applies: () => true, parameters: none, next: unchanged },
-		"non-owner": { applies: (model) => model.recorded > 0, parameters: none, next: unchanged },
+		busy: { applies: () => true, parameters: none, weight: 1, judge: accepting(unchanged) },
+		"non-owner": {
+			applies: (model) => model.recorded > 0,
+			parameters: none,
+			weight: 1,
+			judge: accepting(unchanged)
+		},
 		"transaction control": {
 			applies: (model) => model.recorded < 3 && transactionalAfter(shape, model),
 			parameters: none,
-			next: unchanged
+			weight: 1,
+			judge: accepting(unchanged)
 		},
-		crossed: { applies: () => true, parameters: none, next: unchanged },
+		crossed: { applies: () => true, parameters: none, weight: 1, judge: accepting(unchanged) },
 		"commit refused": {
 			applies: (model) => model.recorded >= 2 && Option.isNone(model.partial),
 			parameters: none,
-			next: unchanged
+			weight: 1,
+			judge: accepting(unchanged)
 		},
 		"record before the ledger": {
 			applies: (model) => model.recorded === 0 && Option.isNone(model.partial),
 			parameters: none,
-			next: unchanged
+			weight: 1,
+			judge: accepting(unchanged)
 		}
 	}
 })
@@ -603,391 +622,430 @@ const insertOf = (
 const realOf = (
 	r: System,
 	c: Case<Feature>
-): Real<Model, LedgerParameters, MigrateError | SqlError, Substrate> => ({
+): Real<Model, LedgerParameters, never, MigrateError | SqlError, Substrate> => ({
 	"apply up to": (k, model, after) =>
-		Effect.gen(function* () {
-			const missing = missingOf(model, k)
-			if (missing.length > 0) {
-				c.note("apply missing an applied folder")
+		Effect.as(
+			Effect.gen(function* () {
+				const missing = missingOf(model, k)
+				if (missing.length > 0) {
+					c.note("apply missing an applied folder")
+					const e = yield* refusedBeforeRunning(
+						r,
+						model,
+						"edited",
+						apply(r.m, directory(r, k, asReviewed), noFurther)
+					)
+					const reason = e.reason
+					assert.ok(reason._tag === "AppliedEdited", e.message)
+					const edits: ReadonlyArray<AppliedEdit> = reason.edits
+					assert.deepEqual(
+						edits,
+						Arr.map(missing, (i) => ({
+							folder: defined(r.gs[i]).folder.name,
+							file: metaFileName,
+							kind: "missing"
+						})) satisfies ReadonlyArray<AppliedEdit>,
+						"the applied folders named missing"
+					)
+					return
+				}
+				const expected = Arr.map(r.gs.slice(model.recorded, k), (g, j) => {
+					const resumed = j === 0 && Option.isSome(model.partial)
+					return {
+						folder: g.folder.name,
+						files: Arr.map(g.folder.files.slice(resumed ? partialFiles(model) : 0), (f) => f.name),
+						resumed
+					}
+				})
+				c.note(
+					expected.length === 0
+						? "apply up to date"
+						: Option.isSome(model.partial)
+							? "resume a partial folder"
+							: "apply in order"
+				)
+				const report = yield* apply(r.m, directory(r, k, asReviewed), noFurther)
+				assert.deepEqual(report.applied, expected, "the folders the apply runs")
+				const observed = yield* observe(r)
+				expectLedger(r, after, observed.ledger)
+			}),
+			took
+		),
+	"apply with a gap": (k, model) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("apply with a gap")
+				const gap = model.recorded
+				yield* refusedBeforeRunning(
+					r,
+					model,
+					"order",
+					apply(
+						r.m,
+						directory(r, k, (f, i) => (i === gap ? undefined : f)),
+						noFurther
+					)
+				)
+			}),
+			took
+		),
+	"apply short": (k, model) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("apply short of the snapshot")
+				yield* refusedBeforeRunning(
+					r,
+					model,
+					"order",
+					apply(
+						r.m,
+						{ snapshot: defined(r.gs[k - 1]).snapshot, folders: r.reviewed.slice(0, k - 1) },
+						noFurther
+					)
+				)
+			}),
+			took
+		),
+	"early folder": (_none, model) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("a pending folder sorted before an applied one")
+				const next = model.recorded
+				const early = (f: FolderSource): FolderSource => ({
+					...f,
+					name: succeeded(folderName("20000101000000", parsedMigrationName("early")))
+				})
+				yield* refusedBeforeRunning(
+					r,
+					model,
+					"order",
+					apply(
+						r.m,
+						directory(r, next + 1, (f, i) => (i === next ? early(f) : f)),
+						noFurther
+					)
+				)
+			}),
+			took
+		),
+	"apply unreviewed": (_none, model, after) =>
+		Effect.as(
+			Effect.gen(function* () {
+				const g = defined(r.gs[model.recorded])
+				const { markers, losses } = unreviewedOf(g)
+				const unreviewed = directory(r, model.recorded + 1, (f, i) =>
+					i === model.recorded ? folderSource(g.folder) : f
+				)
+				if (markers.length === 0 && losses.length === 0) {
+					c.note("apply unreviewed without markers")
+					yield* apply(r.m, unreviewed, noFurther)
+					const observed = yield* observe(r)
+					expectLedger(r, after, observed.ledger)
+					return
+				}
+				if (markers.length === 0) {
+					c.note("apply unreviewed with a loss undecided")
+					const e = yield* refusedBeforeRunning(
+						r,
+						model,
+						"decision",
+						apply(r.m, unreviewed, noFurther)
+					)
+					const reason = e.reason
+					assert.ok(reason._tag === "LossesUndecided", e.message)
+					const named: ReadonlyArray<UnresolvedLoss> = reason.losses
+					assert.deepEqual(
+						Arr.map(named, (l) => ({ folder: l.folder, file: l.file })),
+						losses,
+						"the losses named"
+					)
+					return
+				}
+				c.note("apply unreviewed")
+				const e = yield* refusedBeforeRunning(r, model, "marker", apply(r.m, unreviewed, noFurther))
+				const reason = e.reason
+				assert.ok(reason._tag === "MarkersUnresolved", e.message)
+				const named: ReadonlyArray<UnresolvedMarker> = reason.markers
+				assert.deepEqual(named, markers, "the markers named")
+			}),
+			took
+		),
+	"fail at": (point, model, after) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note(
+					point.at === "before"
+						? "fail before a file"
+						: point.at === "after"
+							? "fail after a no-transaction file"
+							: "fail inside a no-transaction file"
+				)
+				const next = defined(r.reviewed[model.recorded])
+				const file = defined(next.files[point.ordinal - 1])
+				const failing = directory(r, model.recorded + 1, (f, i) =>
+					i === model.recorded
+						? {
+								...f,
+								files: Arr.map(f.files, (x) =>
+									x.name === file.name ? { ...x, text: inject(x.text, point) } : x
+								)
+							}
+						: f
+				)
+				const e = yield* refusal(apply(r.m, failing, noFurther))
+				assert.ok(e.stage === "statement", e.message)
+				const place = e.place
+				assert.ok(
+					(place.kind === "file" || place.kind === "statement") && place.file === file.name,
+					"the failing file"
+				)
+				assert.ok(
+					e.server.by === "server" && e.server.error.sqlstate === "22012",
+					"the failing statement's SQLSTATE"
+				)
+				const observed = yield* observe(r)
+				expectLedger(r, after, observed.ledger)
+			}),
+			took
+		),
+	"edit applied": ({ folder, file, kind }, model) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("edit an applied file")
+				const applied = defined(r.reviewed[folder])
+				const target = defined(applied.files[file])
+				const renamed = `${Str.slice(0, 3)(target.name)}renamed.sql`
+				const name = applied.name
+				const edit = (f: FolderSource): FolderSource | undefined => {
+					switch (kind) {
+						case "edited":
+							return {
+								...f,
+								files: Arr.map(f.files, (x) =>
+									x === target ? { ...x, text: `-- tuned\n${x.text}` } : x
+								)
+							}
+						case "missing":
+							return { ...f, files: Arr.filter(f.files, (x) => x !== target) }
+						case "renamed":
+							return {
+								...f,
+								files: Arr.map(f.files, (x) => (x === target ? { ...x, name: renamed } : x))
+							}
+						case "added":
+							return { ...f, files: [...f.files, { name: "99-later.sql", text: "SELECT 1;\n" }] }
+						case "meta edited":
+							return { ...f, metaText: `${f.metaText}\n` }
+						case "folder missing":
+							return undefined
+					}
+				}
+				const expected = (
+					{
+						edited: [{ folder: name, file: target.name, kind: "edited" }],
+						missing: [{ folder: name, file: target.name, kind: "missing" }],
+						renamed: [
+							{ folder: name, file: target.name, kind: "missing" },
+							{ folder: name, file: renamed, kind: "added" }
+						],
+						added: [{ folder: name, file: "99-later.sql", kind: "added" }],
+						"meta edited": [{ folder: name, file: metaFileName, kind: "edited" }],
+						"folder missing": [{ folder: name, file: metaFileName, kind: "missing" }]
+					} satisfies Readonly<Record<EditKind, ReadonlyArray<AppliedEdit>>>
+				)[kind]
+				const k = Option.isNone(model.partial) ? model.recorded : model.recorded + 1
 				const e = yield* refusedBeforeRunning(
 					r,
 					model,
 					"edited",
-					apply(r.m, directory(r, k, asReviewed), noFurther)
+					apply(
+						r.m,
+						directory(r, k, (f, j) => (j === folder ? edit(f) : f)),
+						noFurther
+					)
 				)
 				const reason = e.reason
 				assert.ok(reason._tag === "AppliedEdited", e.message)
 				const edits: ReadonlyArray<AppliedEdit> = reason.edits
-				assert.deepEqual(
-					edits,
-					Arr.map(missing, (i) => ({
-						folder: defined(r.gs[i]).folder.name,
-						file: metaFileName,
-						kind: "missing"
-					})) satisfies ReadonlyArray<AppliedEdit>,
-					"the applied folders named missing"
+				unorderedEqual(edits, expected, "the edits named")
+			}),
+			took
+		),
+	busy: (_none, model) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("busy")
+				yield* r.holder.values(
+					`SELECT pg_catalog.pg_advisory_lock(${printCatalogExpr(applyLockKey(r.schema))})`,
+					[]
 				)
-				return
-			}
-			const expected = Arr.map(r.gs.slice(model.recorded, k), (g, j) => {
-				const resumed = j === 0 && Option.isSome(model.partial)
-				return {
-					folder: g.folder.name,
-					files: Arr.map(g.folder.files.slice(resumed ? partialFiles(model) : 0), (f) => f.name),
-					resumed
-				}
-			})
-			c.note(
-				expected.length === 0
-					? "apply up to date"
-					: Option.isSome(model.partial)
-						? "resume a partial folder"
-						: "apply in order"
-			)
-			const report = yield* apply(r.m, directory(r, k, asReviewed), noFurther)
-			assert.deepEqual(report.applied, expected, "the folders the apply runs")
-			const observed = yield* observe(r)
-			expectLedger(r, after, observed.ledger)
-		}),
-	"apply with a gap": (k, model) =>
-		Effect.gen(function* () {
-			c.note("apply with a gap")
-			const gap = model.recorded
-			yield* refusedBeforeRunning(
-				r,
-				model,
-				"order",
-				apply(
-					r.m,
-					directory(r, k, (f, i) => (i === gap ? undefined : f)),
-					noFurther
+				yield* Effect.ensuring(
+					refusedBeforeRunning(
+						r,
+						model,
+						"busy",
+						apply(r.m, directory(r, Math.min(3, model.recorded + 1), asReviewed), noFurther)
+					),
+					Effect.ignore(
+						r.holder.values(
+							`SELECT pg_catalog.pg_advisory_unlock(${printCatalogExpr(applyLockKey(r.schema))})`,
+							[]
+						)
+					)
 				)
-			)
-		}),
-	"apply short": (k, model) =>
-		Effect.gen(function* () {
-			c.note("apply short of the snapshot")
-			yield* refusedBeforeRunning(
-				r,
-				model,
-				"order",
-				apply(
-					r.m,
-					{ snapshot: defined(r.gs[k - 1]).snapshot, folders: r.reviewed.slice(0, k - 1) },
-					noFurther
+			}),
+			took
+		),
+	"non-owner": (_none, model) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("owner")
+				yield* refusedBeforeRunning(
+					r,
+					model,
+					"owner",
+					apply(r.intruder, directory(r, Math.min(3, model.recorded + 1), asReviewed), noFurther)
 				)
-			)
-		}),
-	"early folder": (_none, model) =>
-		Effect.gen(function* () {
-			c.note("a pending folder sorted before an applied one")
-			const next = model.recorded
-			const early = (f: FolderSource): FolderSource => ({
-				...f,
-				name: succeeded(folderName("20000101000000", parsedMigrationName("early")))
-			})
-			yield* refusedBeforeRunning(
-				r,
-				model,
-				"order",
-				apply(
-					r.m,
-					directory(r, next + 1, (f, i) => (i === next ? early(f) : f)),
-					noFurther
+			}),
+			took
+		),
+	"transaction control": (_none, model) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("transaction control")
+				const next = defined(r.reviewed[model.recorded])
+				const file = defined(
+					Option.getOrUndefined(
+						Arr.findFirst(
+							next.files,
+							(f, i) => i + 1 > partialFiles(model) && !isNoTransaction(f.text)
+						)
+					),
+					"a transactional file not yet recorded"
 				)
-			)
-		}),
-	"apply unreviewed": (_none, model, after) =>
-		Effect.gen(function* () {
-			const g = defined(r.gs[model.recorded])
-			const { markers, losses } = unreviewedOf(g)
-			const unreviewed = directory(r, model.recorded + 1, (f, i) =>
-				i === model.recorded ? folderSource(g.folder) : f
-			)
-			if (markers.length === 0 && losses.length === 0) {
-				c.note("apply unreviewed without markers")
-				yield* apply(r.m, unreviewed, noFurther)
-				const observed = yield* observe(r)
-				expectLedger(r, after, observed.ledger)
-				return
-			}
-			if (markers.length === 0) {
-				c.note("apply unreviewed with a loss undecided")
 				const e = yield* refusedBeforeRunning(
 					r,
 					model,
-					"decision",
-					apply(r.m, unreviewed, noFurther)
+					"input",
+					apply(
+						r.m,
+						directory(r, model.recorded + 1, (f, i) =>
+							i === model.recorded
+								? {
+										...f,
+										files: Arr.map(f.files, (x) =>
+											x === file ? { ...x, text: `${x.text}\nCOMMIT;\n` } : x
+										)
+									}
+								: f
+						),
+						noFurther
+					)
 				)
-				const reason = e.reason
-				assert.ok(reason._tag === "LossesUndecided", e.message)
-				const named: ReadonlyArray<UnresolvedLoss> = reason.losses
-				assert.deepEqual(
-					Arr.map(named, (l) => ({ folder: l.folder, file: l.file })),
-					losses,
-					"the losses named"
+				assert.ok(e.stage === "input", e.message)
+				const place = e.place
+				assert.ok(
+					place.kind === "statement" && place.file === file.name,
+					"the file that controls its transaction"
 				)
-				return
-			}
-			c.note("apply unreviewed")
-			const e = yield* refusedBeforeRunning(r, model, "marker", apply(r.m, unreviewed, noFurther))
-			const reason = e.reason
-			assert.ok(reason._tag === "MarkersUnresolved", e.message)
-			const named: ReadonlyArray<UnresolvedMarker> = reason.markers
-			assert.deepEqual(named, markers, "the markers named")
-		}),
-	"fail at": (point, model, after) =>
-		Effect.gen(function* () {
-			c.note(
-				point.at === "before"
-					? "fail before a file"
-					: point.at === "after"
-						? "fail after a no-transaction file"
-						: "fail inside a no-transaction file"
-			)
-			const next = defined(r.reviewed[model.recorded])
-			const file = defined(next.files[point.ordinal - 1])
-			const failing = directory(r, model.recorded + 1, (f, i) =>
-				i === model.recorded
-					? {
-							...f,
-							files: Arr.map(f.files, (x) =>
-								x.name === file.name ? { ...x, text: inject(x.text, point) } : x
-							)
-						}
-					: f
-			)
-			const e = yield* refusal(apply(r.m, failing, noFurther))
-			assert.ok(e.stage === "statement", e.message)
-			const place = e.place
-			assert.ok(
-				(place.kind === "file" || place.kind === "statement") && place.file === file.name,
-				"the failing file"
-			)
-			assert.ok(
-				e.server.by === "server" && e.server.error.sqlstate === "22012",
-				"the failing statement's SQLSTATE"
-			)
-			const observed = yield* observe(r)
-			expectLedger(r, after, observed.ledger)
-		}),
-	"edit applied": ({ folder, file, kind }, model) =>
-		Effect.gen(function* () {
-			c.note("edit an applied file")
-			const applied = defined(r.reviewed[folder])
-			const target = defined(applied.files[file])
-			const renamed = `${Str.slice(0, 3)(target.name)}renamed.sql`
-			const name = applied.name
-			const edit = (f: FolderSource): FolderSource | undefined => {
-				switch (kind) {
-					case "edited":
-						return {
-							...f,
-							files: Arr.map(f.files, (x) =>
-								x === target ? { ...x, text: `-- tuned\n${x.text}` } : x
-							)
-						}
-					case "missing":
-						return { ...f, files: Arr.filter(f.files, (x) => x !== target) }
-					case "renamed":
-						return {
-							...f,
-							files: Arr.map(f.files, (x) => (x === target ? { ...x, name: renamed } : x))
-						}
-					case "added":
-						return { ...f, files: [...f.files, { name: "99-later.sql", text: "SELECT 1;\n" }] }
-					case "meta edited":
-						return { ...f, metaText: `${f.metaText}\n` }
-					case "folder missing":
-						return undefined
-				}
-			}
-			const expected = (
-				{
-					edited: [{ folder: name, file: target.name, kind: "edited" }],
-					missing: [{ folder: name, file: target.name, kind: "missing" }],
-					renamed: [
-						{ folder: name, file: target.name, kind: "missing" },
-						{ folder: name, file: renamed, kind: "added" }
-					],
-					added: [{ folder: name, file: "99-later.sql", kind: "added" }],
-					"meta edited": [{ folder: name, file: metaFileName, kind: "edited" }],
-					"folder missing": [{ folder: name, file: metaFileName, kind: "missing" }]
-				} satisfies Readonly<Record<EditKind, ReadonlyArray<AppliedEdit>>>
-			)[kind]
-			const k = Option.isNone(model.partial) ? model.recorded : model.recorded + 1
-			const e = yield* refusedBeforeRunning(
-				r,
-				model,
-				"edited",
-				apply(
-					r.m,
-					directory(r, k, (f, j) => (j === folder ? edit(f) : f)),
-					noFurther
-				)
-			)
-			const reason = e.reason
-			assert.ok(reason._tag === "AppliedEdited", e.message)
-			const edits: ReadonlyArray<AppliedEdit> = reason.edits
-			unorderedEqual(edits, expected, "the edits named")
-		}),
-	busy: (_none, model) =>
-		Effect.gen(function* () {
-			c.note("busy")
-			yield* r.holder.values(
-				`SELECT pg_catalog.pg_advisory_lock(${printCatalogExpr(applyLockKey(r.schema))})`,
-				[]
-			)
-			yield* Effect.ensuring(
-				refusedBeforeRunning(
+			}),
+			took
+		),
+	crossed: (_none, model) =>
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("another schema's folders")
+				yield* refusedBeforeRunning(
 					r,
 					model,
-					"busy",
-					apply(r.m, directory(r, Math.min(3, model.recorded + 1), asReviewed), noFurther)
-				),
-				Effect.ignore(
-					r.holder.values(
-						`SELECT pg_catalog.pg_advisory_unlock(${printCatalogExpr(applyLockKey(r.schema))})`,
-						[]
-					)
+					"input",
+					apply(r.m, { snapshot: r.foreign.snapshot, folders: r.reviewed.slice(0, 1) }, noFurther)
 				)
-			)
-		}),
-	"non-owner": (_none, model) =>
-		Effect.gen(function* () {
-			c.note("owner")
-			yield* refusedBeforeRunning(
-				r,
-				model,
-				"owner",
-				apply(r.intruder, directory(r, Math.min(3, model.recorded + 1), asReviewed), noFurther)
-			)
-		}),
-	"transaction control": (_none, model) =>
-		Effect.gen(function* () {
-			c.note("transaction control")
-			const next = defined(r.reviewed[model.recorded])
-			const file = defined(
-				Option.getOrUndefined(
-					Arr.findFirst(
-						next.files,
-						(f, i) => i + 1 > partialFiles(model) && !isNoTransaction(f.text)
-					)
-				),
-				"a transactional file not yet recorded"
-			)
-			const e = yield* refusedBeforeRunning(
-				r,
-				model,
-				"input",
-				apply(
-					r.m,
-					directory(r, model.recorded + 1, (f, i) =>
-						i === model.recorded
-							? {
-									...f,
-									files: Arr.map(f.files, (x) =>
-										x === file ? { ...x, text: `${x.text}\nCOMMIT;\n` } : x
-									)
-								}
-							: f
-					),
-					noFurther
-				)
-			)
-			assert.ok(e.stage === "input", e.message)
-			const place = e.place
-			assert.ok(
-				place.kind === "statement" && place.file === file.name,
-				"the file that controls its transaction"
-			)
-		}),
-	crossed: (_none, model) =>
-		Effect.gen(function* () {
-			c.note("another schema's folders")
-			yield* refusedBeforeRunning(
-				r,
-				model,
-				"input",
-				apply(r.m, { snapshot: r.foreign.snapshot, folders: r.reviewed.slice(0, 1) }, noFurther)
-			)
-		}),
+			}),
+			took
+		),
 	"commit refused": (_none, model) =>
-		Effect.gen(function* () {
-			c.note("commit refused")
-			const snapshot = defined(r.gs[model.recorded - 1]).snapshot
-			const account = `'${id(1)}'`
-			const step = {
-				...succeeded(
-					customMigration({
-						snapshot,
-						name: parsedMigrationName("data_step"),
-						timestamp: draftedAt(model.recorded + 1)
-					})
-				),
-				files: [
-					{
-						name: "01-data.sql",
-						text:
-							insertOf(snapshot, r.schema, "Account", { id: account, name: "'alpha'" }) +
-							insertOf(snapshot, r.schema, "Task", {
-								id: `'${id(11)}'`,
-								account,
-								kind: "'Automatic'",
-								weight: "1"
-							})
-					}
-				]
-			}
-			const before = yield* observe(r)
-			const e = yield* refusal(
-				apply(
-					r.m,
-					{ snapshot, folders: [...r.reviewed.slice(0, model.recorded), folderSource(step)] },
-					noFurther
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("commit refused")
+				const snapshot = defined(r.gs[model.recorded - 1]).snapshot
+				const account = `'${id(1)}'`
+				const step = {
+					...succeeded(
+						customMigration({
+							snapshot,
+							name: parsedMigrationName("data_step"),
+							timestamp: draftedAt(model.recorded + 1)
+						})
+					),
+					files: [
+						{
+							name: "01-data.sql",
+							text:
+								insertOf(snapshot, r.schema, "Account", { id: account, name: "'alpha'" }) +
+								insertOf(snapshot, r.schema, "Task", {
+									id: `'${id(11)}'`,
+									account,
+									kind: "'Automatic'",
+									weight: "1"
+								})
+						}
+					]
+				}
+				const before = yield* observe(r)
+				const e = yield* refusal(
+					apply(
+						r.m,
+						{ snapshot, folders: [...r.reviewed.slice(0, model.recorded), folderSource(step)] },
+						noFurther
+					)
 				)
-			)
-			assert.ok(e.stage === "commit", e.message)
-			const server = e.server
-			if (server.by !== "server") {
-				return assert.fail("the server refused the COMMIT")
-			}
-			const { sqlstate, constraint } = server.error
-			assert.ok(sqlstate === "23000", "the COMMIT's SQLSTATE")
-			assert.ok(
-				constraint !== undefined && snapshot.theory.laws[constraint]?.kind === "residual",
-				"a residual law refuses at COMMIT"
-			)
-			const afterward = yield* observe(r)
-			assert.deepEqual(afterward.ledger, before.ledger, "the refused file is unrecorded")
-			assert.deepEqual(afterward.catalog, before.catalog, "the refused file left nothing")
-		}),
+				assert.ok(e.stage === "commit", e.message)
+				const server = e.server
+				if (server.by !== "server") {
+					return assert.fail("the server refused the COMMIT")
+				}
+				const { sqlstate, constraint } = server.error
+				assert.ok(sqlstate === "23000", "the COMMIT's SQLSTATE")
+				assert.ok(
+					constraint !== undefined && snapshot.theory.laws[constraint]?.kind === "residual",
+					"a residual law refuses at COMMIT"
+				)
+				const afterward = yield* observe(r)
+				assert.deepEqual(afterward.ledger, before.ledger, "the refused file is unrecorded")
+				assert.deepEqual(afterward.catalog, before.catalog, "the refused file left nothing")
+			}),
+			took
+		),
 	"record before the ledger": (_none, model) =>
-		Effect.gen(function* () {
-			c.note("record before the ledger")
-			const first = defined(r.gs[0])
-			/** Sorted before every drafted folder: its timestamp precedes the clock's. */
-			const early = succeeded(
-				customMigration({
-					snapshot: { ...first.snapshot, fingerprint: emptyFingerprint(r.schema) },
-					name: parsedMigrationName("too_early"),
-					timestamp: "20000101000000"
-				})
-			)
-			const substrate = yield* Substrate
-			const e = yield* refusal(
-				apply(
-					r.m,
-					{ snapshot: first.snapshot, folders: [folderSource(early), defined(r.reviewed[0])] },
-					noFurther
+		Effect.as(
+			Effect.gen(function* () {
+				c.note("record before the ledger")
+				const first = defined(r.gs[0])
+				/** Sorted before every drafted folder: its timestamp precedes the clock's. */
+				const early = succeeded(
+					customMigration({
+						snapshot: { ...first.snapshot, fingerprint: emptyFingerprint(r.schema) },
+						name: parsedMigrationName("too_early"),
+						timestamp: "20000101000000"
+					})
 				)
-			)
-			assert.equal(e.stage, "record", e.message)
-			const catalog = yield* readCatalog(substrate.admin, r.schema)
-			assert.equal(catalog.kind, "absent", "the schema the first file created rolled back")
-			const observed = yield* observe(r)
-			expectLedger(r, model, observed.ledger)
-		})
+				const substrate = yield* Substrate
+				const e = yield* refusal(
+					apply(
+						r.m,
+						{ snapshot: first.snapshot, folders: [folderSource(early), defined(r.reviewed[0])] },
+						noFurther
+					)
+				)
+				assert.equal(e.stage, "record", e.message)
+				const catalog = yield* readCatalog(substrate.admin, r.schema)
+				assert.equal(catalog.kind, "absent", "the schema the first file created rolled back")
+				const observed = yield* observe(r)
+				expectLedger(r, model, observed.ledger)
+			}),
+			took
+		)
 })
 
 /** The chain Shop v1 to v3 drafted from the empty snapshot under an allocated schema name and its owner. */
@@ -1066,7 +1124,13 @@ const ledgerSearch = Effect.gen(function* () {
 	return yield* explore(
 		{
 			suite: "migrate/ledger",
-			draw: drawn(program(machineOf(shape), { min: 0, max: 12 })),
+			draw: drawn(
+				program(
+					machineOf(shape),
+					{ min: 0, max: 12 },
+					fullSwarm(Struct.keys(machineOf(shape).commands))
+				)
+			),
 			literal: Formatter.format,
 			coverage: required<Feature>(commandKinds, { cases: steeredCases, sense: notesOnly }),
 			kept: [],

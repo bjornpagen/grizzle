@@ -87,7 +87,6 @@ export const keyLaws = (input: KeyLawInput): KeyLaws => {
 	for (const c of input.constraintLaws) {
 		switch (c.kind) {
 			case "constraint":
-			case "index":
 				ownedBy(tables, c.owner).set(c.name, c)
 				break
 			case "domainConstraint":

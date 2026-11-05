@@ -19,7 +19,7 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { derivedDraftOf, relationDescOf } from "#compiler/schema/relation.ts"
-import { alternativesDescOf, statementDescOf } from "#compiler/schema/statements.ts"
+import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, Schema } from "#compiler/types/schema/schema.ts"
@@ -51,8 +51,9 @@ const statementValues = (statements: unknown, label: string): ReadonlyArray<unkn
 }
 
 /**
- * An alternatives(...) value is one statement of the list, which the schema expands into its containment and mirrors,
- * in roster order.
+ * A mirrors(...) or alternatives(...) value is one statement of the list, which the schema expands into the statements
+ * it is sugar for: a mirrors' two containments, an alternatives law's containment and its arms' mirrors, in roster
+ * order.
  */
 const statementList = (
 	statements: ReadonlyArray<unknown>,
@@ -65,7 +66,7 @@ const statementList = (
 				"a statement; alternatives(...) is one statement, not a list"
 			)
 		}
-		const expansion = alternativesDescOf(s)
+		const expansion = expansionDescOf(s)
 		if (expansion !== undefined) {
 			return expansion.statements
 		}

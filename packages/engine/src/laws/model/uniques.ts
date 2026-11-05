@@ -1,13 +1,22 @@
 import { sameOrder } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type {
-	FieldSelector,
-	LawField,
-	LawRelation,
-	RelationInfo,
-	SpanField
+import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
+import {
+	appendNonEmpty,
+	dedupeNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import {
+	type LawField,
+	type LawRelation,
+	type NativeColumn,
+	type NativeOf,
+	plainFields,
+	type RelationInfo,
+	type SpanField
 } from "#compiler/ir/law.ts"
 import type { KeyedRelation, NamedNative, NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
@@ -20,16 +29,25 @@ interface Named {
 	readonly described: Law
 }
 
-/** A unique object: the handles of the fields two facts must share to conflict, in the object's order, and for a unique
- * index the selectors of the rows it holds, for a span object the span two facts' values must overlap at, its compared
- * fields of key types as btree_gist compares them. */
+/**
+ * A condition a row meets to be held by a UNIQUE over law columns: one conjunct of a law column's guard (ir/law.ts
+ * LawColumnValue), a row predicate over its relation's own fields, with the fields it reads.
+ */
+export interface RowGuard {
+	readonly predicate: ScalarExpr
+	readonly reads: ReadonlyArray<LawField>
+}
+
+/** A unique object: the handles of the fields two facts must share to conflict, in the object's order, and for a
+ * UNIQUE over law columns (`guarded`) the guards both facts must meet, its columns' guards' conjuncts, for a span object
+ * the span two facts' values must overlap at, its compared fields of key types as btree_gist compares them. */
 export type UniqueObject = Named &
 	(
 		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<LawField> }
 		| {
-				readonly kind: "index"
+				readonly kind: "guarded"
 				readonly equal: NonEmptyReadonlyArray<LawField>
-				readonly where: ReadonlyArray<FieldSelector>
+				readonly within: NonEmptyReadonlyArray<RowGuard>
 		  }
 		| { readonly kind: "span"; readonly equal: ReadonlyArray<LawField>; readonly span: SpanField }
 	)
@@ -59,14 +77,14 @@ export const witnessFields = (u: UniqueObject): ReadonlyArray<LawField> =>
 export const keyWitness = (k: PrimaryKeyObject): NonEmptyReadonlyArray<LawField> =>
 	k.kind === "span" ? appendNonEmpty(k.equal, k.span) : k.equal
 
-/** Every field a unique object reads: those it compares and, for a unique index, those its predicate reads, since a
- * row's value there moves it into or out of the index. None of these objects is ever deferrable (`NativeObject`). */
+/** Every field a unique object reads: those it compares and, for a guarded one, those its guards read, since a row's
+ * value there moves it into or out of the object. None of these objects is ever deferrable (`NativeObject`). */
 export const readFields = (u: UniqueObject): ReadonlyArray<LawField> => {
 	switch (u.kind) {
 		case "key":
 			return u.equal
-		case "index":
-			return [...u.equal, ...u.where.map((w) => w.field)]
+		case "guarded":
+			return [...u.equal, ...u.within.flatMap((g) => g.reads)]
 		case "span":
 			return [...u.equal, u.span]
 	}
@@ -78,8 +96,73 @@ type Placed =
 	| { readonly relation: LawRelation; readonly role: "key"; readonly object: PrimaryKeyObject }
 	| { readonly relation: LawRelation; readonly role: "other"; readonly object: UniqueObject }
 
-const uniqueOf = (n: NamedNative): ReadonlyArray<Placed> => {
-	if (n.namespace !== "constraint" && n.namespace !== "index") {
+/** Each law column of the law model's natives by its relation's name and identifier. */
+type LawColumns = ReadonlyMap<string, ReadonlyMap<ColumnIdent, NativeOf<"LawColumn">>>
+
+/**
+ * The unique object a UNIQUE over law columns is (law/model/plan.ts sideColumns): two rows conflict at it where both
+ * meet every column's guard, so that no column is null, and agree at each column's term. A column's term reads one
+ * field, its own or the pred's, injective where defined, so two rows agree at it where they agree at that field: its
+ * compared fields are its columns' fields, and its guards their guards' distinct conjuncts, one expression each
+ * (laws/model/model.ts ColumnLowering). A UNIQUE whose columns are total holds every row, a key over its fields.
+ */
+const projected = (
+	relation: LawRelation,
+	columns: NonEmptyReadonlyArray<NativeColumn>,
+	lawColumns: LawColumns,
+	named: Named
+): UniqueObject => {
+	const guards = new Map<ScalarExpr, RowGuard>()
+	const equal = mapNonEmpty(columns, (c): LawField => {
+		if (c.kind === "field") {
+			return c.field
+		}
+		const native =
+			lawColumns.get(relation.name)?.get(c.column) ??
+			missing(relation, `the native of the law column ${c.column}`)
+		for (const g of native.value.guard) {
+			if (!guards.has(g)) {
+				guards.set(g, { predicate: g, reads: readsOf(relation, g) })
+			}
+		}
+		return native.field
+	})
+	const [first, ...rest] = guards.values()
+	return first === undefined
+		? { ...named, kind: "key", equal: dedupeNonEmpty(equal) }
+		: { ...named, kind: "guarded", equal: dedupeNonEmpty(equal), within: [first, ...rest] }
+}
+
+/** The fields of `relation` a row predicate reads, in declared field order. */
+const readsOf = (relation: LawRelation, predicate: ScalarExpr): ReadonlyArray<LawField> => {
+	const names = new Set(columnReads(predicate).map((c) => c.name))
+	return relation.fields.filter((f) => names.has(f.name))
+}
+
+/** Every column a row expression reads, each a node and a column name, in the order the expression reads them. */
+export const columnReads = (
+	e: ScalarExpr
+): ReadonlyArray<{ readonly node: NodeId; readonly name: string }> => {
+	const out: Array<{ readonly node: NodeId; readonly name: string }> = []
+	const visit = (x: ScalarExpr): void => {
+		if (x.kind === "column") {
+			out.push(x.column)
+		}
+		for (const a of x.args) {
+			visit(a)
+		}
+	}
+	visit(e)
+	return out
+}
+
+/** A law column the law model planned on its relation is always known to it. */
+const missing = (relation: LawRelation, what: string): never => {
+	throw defect(`${what} of ${relation.name}, which the law model planned`)
+}
+
+const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed> => {
+	if (n.namespace !== "constraint") {
 		return []
 	}
 	const o = n.object
@@ -88,16 +171,26 @@ const uniqueOf = (n: NamedNative): ReadonlyArray<Placed> => {
 		case "PrimaryKey":
 			return []
 		case "Unique": {
+			const fields = plainFields(o.columns)
+			if (fields === undefined) {
+				return [
+					{
+						relation: o.relation,
+						role: "other",
+						object: projected(o.relation, o.columns, lawColumns, named)
+					}
+				]
+			}
 			/** A UNIQUE over a declared candidate key's fields in its order is that key's; any other is generated. */
 			const declared = o.relation.keyNames.find(
-				(k) => !k.primary && sameOrder<LawField>(k.fields, o.columns)
+				(k) => !k.primary && sameOrder<LawField>(k.fields, fields)
 			)
 			return declared === undefined
 				? [
 						{
 							relation: o.relation,
 							role: "other",
-							object: { ...named, kind: "key", equal: o.columns }
+							object: { ...named, kind: "key", equal: fields }
 						}
 					]
 				: [
@@ -107,20 +200,6 @@ const uniqueOf = (n: NamedNative): ReadonlyArray<Placed> => {
 							object: { ...named, kind: "key", equal: declared.fields }
 						}
 					]
-		}
-		case "PartialUnique":
-			return [
-				{
-					relation: o.relation,
-					role: "other",
-					object: { ...named, kind: "index", equal: o.columns, where: o.where }
-				}
-			]
-		case "ArmUnique": {
-			/** The key and the discriminator its arm tag is computed from: two facts equal at them are equal at the tag, and
-			 * two it holds apart share the key, which holds them apart too. */
-			const equal = appendNonEmpty(o.columns, o.discriminator)
-			return [{ relation: o.relation, role: "other", object: { ...named, kind: "key", equal } }]
 		}
 		case "WithoutOverlaps":
 			return o.key.kind === "primary"
@@ -143,10 +222,7 @@ const uniqueOf = (n: NamedNative): ReadonlyArray<Placed> => {
 		case "TableCheck":
 		case "FiniteCheck":
 		case "ForeignKey":
-		case "TaggedForeignKey":
-		case "ArmForeignKey":
 		case "PeriodForeignKey":
-		case "TaggedPeriodForeignKey":
 			return []
 	}
 }
@@ -156,8 +232,8 @@ const uniqueOf = (n: NamedNative): ReadonlyArray<Placed> => {
  * a row enters its index, holding apart two facts it cannot both hold.
  *
  * - key: a PRIMARY KEY or UNIQUE constraint, two facts equal at its fields;
- * - index: a unique index, two facts equal at its fields and both within its predicate (the partial unique index of an
- *   at-most-one capacity, with no predicate when the capacity selects nothing);
+ * - guarded: a UNIQUE NULLS DISTINCT over law columns, two facts equal at its fields and both meeting its guards (a
+ *   key over a selected side or a pred term, or the UNIQUE a reference into one needs);
  * - span: a constraint WITHOUT OVERLAPS, two facts equal at its scalar fields whose spans overlap (a span key, the
  *   primary key's among them, and the temporal unique of a PERIOD reference's selected target).
  *
@@ -188,7 +264,17 @@ export const relationLaws = (
 	keyed: ReadonlyArray<KeyedRelation>,
 	natives: ReadonlyArray<NamedNative>
 ): ReadonlyMap<string, RelationLaws> => {
-	const placed = natives.flatMap(uniqueOf)
+	const lawColumns = new Map<string, Map<ColumnIdent, NativeOf<"LawColumn">>>()
+	for (const n of natives) {
+		if (n.namespace !== "column") {
+			continue
+		}
+		const own =
+			lawColumns.get(n.object.relation.name) ?? new Map<ColumnIdent, NativeOf<"LawColumn">>()
+		own.set(n.object.column, n.object)
+		lawColumns.set(n.object.relation.name, own)
+	}
+	const placed = natives.flatMap((n) => uniqueOf(n, lawColumns))
 	return new Map(
 		keyed.map(({ relation, primaryKey }) => {
 			const own = placed.filter((p) => p.relation === relation)

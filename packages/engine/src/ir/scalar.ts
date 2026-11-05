@@ -1,7 +1,7 @@
 import { sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
-import { derived, type Limit, published } from "#compiler/core/limits.ts"
+import { derived, type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
@@ -96,7 +96,7 @@ export type CapabilitySet = ReadonlyArray<Capability>
 export const capabilitySet = (caps: ReadonlyArray<Capability>): CapabilitySet =>
 	Object.freeze([...new Set(caps)].toSorted(compareStrings))
 
-const numericH = "https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/utils/numeric.h"
+const numericH = `${postgresSource}/src/include/utils/numeric.h`
 
 /** The greatest precision a numeric typmod declares. */
 export const numericMaxPrecision: Limit = published({
@@ -135,8 +135,7 @@ export const numericMaxScale: Limit = published({
 	verified: "2026-11-05"
 })
 
-const datatypeSgml =
-	"https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/datatype.sgml"
+const datatypeSgml = `${postgresSource}/doc/src/sgml/datatype.sgml`
 
 /**
  * The most integer digits a numeric value has, |x| < 10^numericMaxIntegerDigits: past it PostgreSQL's arithmetic raises

@@ -1,11 +1,13 @@
-import type {
-	ContainmentPairing,
-	ResolvedPair,
-	ResolvedSelector,
-	ResolvedSide,
-	TheoryArm,
-	TheoryLaw,
-	Weighed
+import {
+	fixedSelection,
+	type ResolvedSelection,
+	type ResolvedSelector,
+	type ResolvedSide,
+	type ResolvedTerm,
+	selectorsOf,
+	type TheoryArm,
+	type TheoryLaw,
+	type Weighed
 } from "#compiler/analysis/theory/laws.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
@@ -15,6 +17,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
 	dedupeNonEmpty,
+	extendNonEmpty,
 	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -22,14 +25,13 @@ import {
 	sortNonEmpty
 } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
-import type { LiteralDesc, Refs } from "#compiler/ir/desc.ts"
+import { fieldTermsOf, type LiteralDesc, type Refs, termText } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type AlternativesArm,
 	type AlternativesCheck,
 	type Anchor,
 	type AnchorPair,
-	type ArmTagMove,
 	type CapacityBound,
 	type CheckedBound,
 	type ClosedTheoryRelation,
@@ -45,8 +47,8 @@ import {
 	type LawField,
 	type LawWeight,
 	participantEvents,
+	plainFields,
 	type RosterHandle,
-	type SelectedSide,
 	type Selector,
 	type SpanField,
 	type SpanKeyScalars,
@@ -84,40 +86,52 @@ const unrepresentable = (
  * column left with the theory, so what the law's digest reads is the names alone. */
 const plainSelector = (s: Selector): Selector => ({ column: s.column, value: s.value })
 
-/** A side's selectors as the residual law records them (`plainSelector`). */
-const plainSelection = (selection: ReadonlyArray<Selector>): ReadonlyArray<Selector> =>
-	selection.map(plainSelector)
+/** Literal selectors in their relation's declared field order. */
+const orderedSelectors = (
+	selection: ReadonlyArray<ResolvedSelector>
+): ReadonlyArray<ResolvedSelector> => selection.toSorted((a, b) => a.col.position - b.col.position)
 
-/** A side's selectors in its relation's declared field order. */
-const orderedSelectors = (side: ResolvedSide): ReadonlyArray<ResolvedSelector> =>
-	side.selection.toSorted((a, b) => a.col.position - b.col.position)
-
-/** A side's selection as an index's rows record it, by name, in the relation's declared field order. */
-const orderedSelection = (side: ResolvedSide): ReadonlyArray<Selector> =>
-	plainSelection(orderedSelectors(side))
+/** A selection as an index's rows record it, by name, in the relation's declared field order. */
+const orderedSelection = (selection: ReadonlyArray<ResolvedSelector>): ReadonlyArray<Selector> =>
+	orderedSelectors(selection).map(plainSelector)
 
 /** A selector as a native object, a residual law and its guards read it: the handle of its field, and its literal. */
 const fieldSelector = (s: ResolvedSelector): FieldSelector => ({ field: s.col, value: s.value })
 
-/** A tag a selected target needs on its source: a STORED constant column of the source `relation`, `field` the selector
- * field of the `target` relation and `value` its literal. */
-export interface TagRef {
-	readonly relation: TheoryRelation
-	readonly target: TheoryRelation
-	readonly field: LawField
-	readonly value: TypedLiteral
-}
+/**
+ * A column a law adds to its relation, as planned (ir/law.ts LawColumn), its name and expressions still to settle: a
+ * constant a selected target fixes on its source `relation`, the value of the target's `field`; or a term of a side of
+ * `relation` under the side's selection, a pred term or any term of a selected side. A field term over every fact is
+ * the field itself, never a law column (`sideColumns`).
+ */
+export type LawColumnPlan =
+	| {
+			readonly kind: "constant"
+			readonly relation: TheoryRelation
+			readonly target: TheoryRelation
+			readonly field: LawField
+			readonly value: TypedLiteral
+	  }
+	| {
+			readonly kind: "term"
+			readonly relation: TheoryRelation
+			readonly term: ResolvedTerm
+			readonly selection: ResolvedSelection
+	  }
 
-/** An alternatives parent's generated arm tag as planned: its parent, its discriminator, and every handle another
- * handle tags (ir/law.ts ArmTagMove). */
-export interface ArmTagRef {
-	readonly relation: TheoryRelation
-	readonly discriminator: LawField
-	readonly moved: NonEmptyReadonlyArray<ArmTagMove>
-}
+/** A constant law column, which a constant selection places on its source. */
+type ConstantColumn = Extract<LawColumnPlan, { readonly kind: "constant" }>
 
-/** A native object as planned: the frozen NativeObject kinds, with a tag still symbolic, a foreign key's deferral still
- * to decide, and a generated CHECK still to lower. */
+/** A column a planned native reads: a field, or a law column. */
+export type PlannedColumn =
+	| { readonly kind: "field"; readonly field: LawField }
+	| { readonly kind: "law"; readonly column: LawColumnPlan }
+
+/** A field as a planned native reads it. */
+const fieldColumn = (field: LawField): PlannedColumn => ({ kind: "field", field })
+
+/** A native object as planned: the frozen NativeObject kinds, with a law column still symbolic, a foreign key's deferral
+ * still to decide, and a generated CHECK still to lower. */
 export type NativePlan =
 	| {
 			readonly kind: "PrimaryKey"
@@ -128,13 +142,7 @@ export type NativePlan =
 	| {
 			readonly kind: "Unique"
 			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-	  }
-	| {
-			readonly kind: "PartialUnique"
-			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			readonly where: ReadonlyArray<FieldSelector>
+			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 	  }
 	| { readonly kind: "Domain"; readonly contract: OwnedContract }
 	| {
@@ -160,35 +168,11 @@ export type NativePlan =
 	| {
 			readonly kind: "ForeignKey"
 			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 			readonly target: TheoryRelation
-			readonly targetColumns: NonEmptyReadonlyArray<LawField>
+			readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
 	  }
-	| {
-			readonly kind: "TaggedForeignKey"
-			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			readonly tag: TagRef
-			readonly target: TheoryRelation
-			readonly targetColumns: NonEmptyReadonlyArray<LawField>
-	  }
-	| { readonly kind: "StoredTag"; readonly tag: TagRef }
-	| { readonly kind: "ArmTag"; readonly tag: ArmTagRef }
-	| {
-			readonly kind: "ArmUnique"
-			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			readonly tag: ArmTagRef
-	  }
-	| {
-			readonly kind: "ArmForeignKey"
-			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			readonly tag: TagRef
-			readonly target: TheoryRelation
-			readonly targetColumns: NonEmptyReadonlyArray<LawField>
-			readonly targetTag: ArmTagRef
-	  }
+	| { readonly kind: "LawColumn"; readonly column: LawColumnPlan }
 	| {
 			readonly kind: "WithoutOverlaps"
 			readonly relation: TheoryRelation
@@ -199,20 +183,10 @@ export type NativePlan =
 	| {
 			readonly kind: "PeriodForeignKey"
 			readonly relation: TheoryRelation
-			readonly columns: ReadonlyArray<LawField>
+			readonly columns: ReadonlyArray<PlannedColumn>
 			readonly span: SpanField
 			readonly target: TheoryRelation
-			readonly targetColumns: ReadonlyArray<LawField>
-			readonly targetSpan: SpanField
-	  }
-	| {
-			readonly kind: "TaggedPeriodForeignKey"
-			readonly relation: TheoryRelation
-			readonly columns: ReadonlyArray<LawField>
-			readonly tag: TagRef
-			readonly span: SpanField
-			readonly target: TheoryRelation
-			readonly targetColumns: NonEmptyReadonlyArray<LawField>
+			readonly targetColumns: ReadonlyArray<PlannedColumn>
 			readonly targetSpan: SpanField
 	  }
 	| {
@@ -224,8 +198,30 @@ export type NativePlan =
 	| {
 			readonly kind: "ReverseIndex"
 			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 	  }
+
+/** The law column natives a list of planned columns reads, each once. */
+const lawColumns = (columns: ReadonlyArray<PlannedColumn>): ReadonlyArray<NativePlan> =>
+	columns.flatMap((c): ReadonlyArray<NativePlan> =>
+		c.kind === "law" ? [{ kind: "LawColumn", column: c.column }] : []
+	)
+
+/**
+ * The columns a side lowers to, one per term (§ partial projections): a field term of an unselected side is its field;
+ * every term of a selected side, and every pred term, is a law column generated `CASE WHEN φ THEN t END`, null
+ * wherever the side reads no tuple, so a key over it holds apart only the rows it reads and a reference from it
+ * references only from them.
+ */
+const sideColumns = (side: ResolvedSide): NonEmptyReadonlyArray<PlannedColumn> =>
+	mapNonEmpty(side.terms, (term): PlannedColumn =>
+		term.kind === "field" && side.selection.conjuncts.length === 0
+			? fieldColumn(term.column)
+			: {
+					kind: "law",
+					column: { kind: "term", relation: side.rel, term, selection: side.selection }
+				}
+	)
 
 /** A primary key's native object as planned: a PRIMARY KEY, or a primary key WITHOUT OVERLAPS. */
 export type PrimaryKeyPlan =
@@ -530,10 +526,10 @@ const orP = (ps: ReadonlyArray<Pred>): Pred => {
 
 const notP = (p: Pred): Pred => (typeof p === "boolean" ? !p : { kind: "not", arg: p })
 
-/** A side's selection over a row of its relation, each selector compared at its column's type. */
-const selectionPred = (side: ResolvedSide): Pred =>
+/** A literal selection over a row of its relation, each selector compared at its column's type. */
+const selectionPred = (selection: ReadonlyArray<ResolvedSelector>): Pred =>
 	andP(
-		side.selection.map((s): Pred => ({
+		selection.map((s): Pred => ({
 			kind: "compare",
 			op: "eq",
 			left: field(s.col),
@@ -548,45 +544,86 @@ type ClosedTuple<C> = NonEmptyReadonlyArray<{ readonly column: C; readonly value
 const tupleKey = <C>(tuple: ClosedTuple<C>): string =>
 	tuple.map((c) => literalKey(c.value)).join("\u0000")
 
+/** A side's selectors, or the refusal of `what` over a side with a conjunct that fixes no field, which `what` reads as
+ * a conjunction of field = literal alone. */
+const literalsOf = (
+	side: ResolvedSide,
+	loc: SourceLoc,
+	what: string
+): ReadonlyArray<ResolvedSelector> => {
+	const fixed = fixedSelection(side.selection)
+	return fixed === undefined
+		? refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`${what} whose sides select by conjunctions of field = literal; select(${side.relation}, ...) selects by another predicate`
+			)
+		: selectorsOf(fixed)
+}
+
+/** A side's fields, or the refusal of `what` over a side with a pred term, which `what` reads as fields alone. */
+const fieldsOf = (
+	side: ResolvedSide,
+	loc: SourceLoc,
+	what: string
+): NonEmptyReadonlyArray<LawField> => {
+	const fields = fieldTermsOf(side.terms)
+	return fields === undefined
+		? refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`${what} over fields; ${side.relation}(${side.terms.map(termText).join(", ")}) has a pred term`
+			)
+		: mapNonEmpty(fields, (t) => t.column)
+}
+
+/** Whether a key over `key` keys `target`: every conjunct of the key's selection is one of the target's, which so
+ * reads only facts the key holds apart, and the target's terms hold every term of the key, each of one kind over one
+ * field. */
+const keyedBy = (key: ResolvedSide, target: ResolvedSide): boolean =>
+	key.selection.conjuncts.every((k) => target.selection.conjuncts.some((c) => c.text === k.text)) &&
+	key.terms.every((k) => target.terms.some((t) => t.kind === k.kind && t.column === k.column))
+
 /** The recognition table: each normalized law to its plan of native objects and at most one residual law. Laws are
  * database obligations.
  *
  * A shape the recognizer does not know is rejected, never interpreted. Each case below states the row it
  * implements; everything else is refused with UnsupportedLawFamily, naming what the compiler admits. A plan is
- * pure data: tag column names, foreign key deferral and the generated CHECK predicates are settled afterwards, over
+ * pure data: law column names, foreign key deferral and the generated CHECK predicates are settled afterwards, over
  * every plan at once (`compileLaws`), because they depend on the whole schema.
  *
- * The rules it implements:
+ * The rules it implements, the partial projections first:
  *
- * - A containment target is keyed when its projection contains a declared key of the target (a superkey). When the
- *   projection is exactly a declared key the foreign key references that key; otherwise the recognizer generates the
- *   composite UNIQUE the reference needs, which is exact because a superkey of a key is unique (the same holds for a
- *   selected target). A containment into a projection that contains no key is not admitted.
- * - A selected target or a selected coverage target has exactly one selector field, because a tagged reference carries
- *   one STORED tag (`TaggedForeignKey`, `PeriodForeignKey`); a containment whose both sides are selected has no
- *   admitted lowering (each side alone is admitted). Both are UnsupportedLawFamily.
- * - Capacity's at-most-one specialization is taken for a count with upper bound one over an unselected
- *   target, as a unique index on the source projection, partial with the source selector, so
- *   it is named as an index; over a selected target it would also bound the groups of unselected targets, so that law
- *   keeps the residual count law. Over an unselected target the index also bounds source groups that no target fact
- *   names, which is accepted.
+ * - A side lowers to one column per term (`sideColumns`): an unselected side's field term is its field, and every term
+ *   of a selected side and every pred term is a law column generated `CASE WHEN φ₁ AND … THEN t END` STORED over its
+ *   selection's conjuncts, pred(x) being `CASE WHEN x > 0 THEN x - 1 END` (scalar/natural.ts guardedTerm). A row whose
+ *   side reads no tuple holds a null there.
+ * - A key over a side is UNIQUE NULLS DISTINCT over its columns, which holds apart only the rows the side reads.
+ * - A containment is FOREIGN KEY MATCH SIMPLE from the source's columns, which references nothing from a row whose side
+ *   reads no tuple, into a UNIQUE over exactly the target's columns, and its referencing columns are indexed. The
+ *   target must contain a key: a declared key of its relation among its field terms, or a projected key of the
+ *   relation whose conjuncts are among the target's and whose terms are among its terms. Its UNIQUE is that key's when
+ *   the columns are exactly a declared key's, and otherwise a generated superkey, exact because a superkey of a key is
+ *   unique.
+ * - A constant selection of a target: its fixed conjuncts over fields that are none of its terms, which, with its field
+ *   terms, contain a declared key of the target, are a constant law column each on the source instead, matched against
+ *   the target's terms under its other conjuncts and then its fixed fields, so every constant shares one target
+ *   UNIQUE. An alternatives arm of one handle is one: its parent selected by the handle.
  * - A selected source into closed facts is a row CHECK conditional on its selector: `NOT <selector> OR <tuple in the
  *   facts>`. A capacity whose source is its target on one key is a row CHECK too: each selected target fact's own
- *   weight, or zero when the source selection rejects it, lies within its bounds.
+ *   weight, or zero when the source selection rejects it, lies within its bounds. Both read selections every conjunct
+ *   of which is fixed, over fields.
  * - A capacity whose weight is a count or a span width can only grow by an insertion and shrink by a deletion, so its
  *   event table drops a source insertion when it has no upper bound and a source deletion when its lower bound is a
- *   literal of zero or less; a field weight may be negative, so both stay. A count or width capacity
- *   whose bounds are vacuous, a lower bound of at most zero and no upper bound, holds in every state and installs
- *   nothing.
+ *   literal of zero or less; a field weight may be negative, so both stay. A count or width capacity whose bounds are
+ *   vacuous, a lower bound of at most zero and no upper bound, holds in every state and installs nothing.
  * - A residual capacity is admitted only when its target projection contains a declared key of the target; otherwise
- *   it is UnsupportedLawFamily (`#capacityAnchor`). Its native specializations need none. The at-most-one bound is a
- *   unique index on the source projection, partial when the source is selected; a lower bound of one keeps a residual
- *   existence law for that bound alone.
+ *   it is UnsupportedLawFamily (`#capacityAnchor`). The three residual families (alternatives reverse, capacity and
+ *   selected-source coverage) read selections every conjunct of which is fixed, over fields alone.
  * - Each probe of a residual law asks for an index on the keys it fixes by equality and states the rows it reads
- *   (`IndexRows`): a probe of a selected source (a selected-source containment's probe, a capacity's
- *   group aggregate, a coverage's uncovered-span probe) reads only the rows of the source's selection, listed in
- *   declared field order, which the index engine serves by a partial index of that selection; an anchor read reads
- *   every row.
+ *   (`IndexRows`): a probe of a selected source (a capacity's group aggregate, a coverage's uncovered-span probe) reads
+ *   only the rows of the source's selection, listed in declared field order, which the index engine serves by a
+ *   partial index of that selection; an anchor read reads every row.
  * - A key containing a span field is a pointwise nonoverlap rule: facts may share its scalar fields provided their
  *   spans share no point. Its native lowering places the span last WITHOUT OVERLAPS, as the primary key or as
  *   `UNIQUE (..., span WITHOUT OVERLAPS)` for a candidate key, both under the key's own constraint name; every scalar component needs a btree_gist operator class, which Setup creates if absent
@@ -594,7 +631,7 @@ const tupleKey = <C>(tuple: ClosedTuple<C>): string =>
  *   name, and since an exclusion constraint is no primary key, every span-only key is a candidate key. A key with two
  *   span fields, and a primary key whose only field is a span, have no native lowering and are UnrepresentableKey at
  *   recognition: an exclusion constraint is no PRIMARY KEY, and PostgreSQL's PRIMARY KEY needs a column before WITHOUT
- *   OVERLAPS (42601), while the same rule as a candidate key, key(R, [span]), has its lowering.
+ *   OVERLAPS (42601), while the same rule as a candidate key, key(on(R, span)), has its lowering.
  * - Every writer meets a span key's overlap as SQLSTATE 23P01 under the key's constraint name, which the
  *   constraint-to-LawId map turns into the span key law: a grizzle writer reports it as invariant-rejected with that
  *   law, and its witness carries the law id alone, because PostgreSQL reports the conflicting key only in its message
@@ -605,6 +642,20 @@ const tupleKey = <C>(tuple: ClosedTuple<C>): string =>
  *   concurrent exact repeat as an overlap. The write compiler's insert into a span key names it as a DO NOTHING arbiter
  *   and classifies each fact it did not insert in a later statement. */
 export class Recognizer {
+	/** Each relation's keys over projected sides, by relation name, which a containment's target may contain. */
+	readonly #projectedKeys: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>
+
+	constructor(laws: ReadonlyArray<TheoryLaw>) {
+		const keys = new Map<string, Array<ResolvedSide>>()
+		for (const law of laws) {
+			if (law.detail.kind === "projectedKey") {
+				const side = law.detail.side
+				keys.set(side.relation, [...(keys.get(side.relation) ?? []), side])
+			}
+		}
+		this.#projectedKeys = keys
+	}
+
 	plan(law: TheoryLaw): LawPlan {
 		const loc = law.loc
 		const d = law.detail
@@ -619,6 +670,8 @@ export class Recognizer {
 		switch (d.kind) {
 			case "key":
 				return done(this.#key(d, loc), undefined)
+			case "projectedKey":
+				return done(this.#projectedKey(d.side, loc), undefined)
 			case "check":
 				return done(
 					[
@@ -637,7 +690,7 @@ export class Recognizer {
 			case "alternatives":
 				return done([], this.#alternatives(law, d))
 			case "alternativesArm":
-				return done(this.#alternativesArm(d), undefined)
+				return done(this.#alternativesArm(d, loc), undefined)
 			case "containment":
 				return this.#containment(law, d, loc, done)
 			case "capacity":
@@ -656,7 +709,7 @@ export class Recognizer {
 			return [primaryKeyPlan(d.rel, d.key, loc)]
 		}
 		if (span === undefined) {
-			return [{ kind: "Unique", relation: d.rel, columns: fields }]
+			return [{ kind: "Unique", relation: d.rel, columns: mapNonEmpty(fields, fieldColumn) }]
 		}
 		return [
 			{
@@ -669,67 +722,32 @@ export class Recognizer {
 		]
 	}
 
-	/** An alternatives arm relation's native half: its rows' constant STORED tag, the first handle it is the arm of, and
-	 * its deferred foreign key from its key and that tag into the parent's key and arm tag, with the UNIQUE over them it
-	 * references, which refuses a row whose parent is of no handle the relation is the arm of. The arm tag (`ArmTag`) is
-	 * the discriminator itself when every arm relation is the arm of one handle, a tagged foreign key into UNIQUE (key,
-	 * discriminator); when some arm relation is the arm of several, it is the parent's STORED column mapping each of
-	 * them to the relation's first handle, so the relation meets each of their parents at its one tag. */
-	#alternativesArm(
-		d: Extract<TheoryLaw["detail"], { readonly kind: "alternativesArm" }>
-	): ReadonlyArray<NativePlan> {
-		const tag: TagRef = {
-			relation: d.armRel,
-			target: d.parentRel,
-			field: d.discriminatorField,
-			value: { kind: "enum", handle: d.handles[0] }
+	/** A key over a projected side: UNIQUE NULLS DISTINCT over its columns, a stored relation's. */
+	#projectedKey(side: ResolvedSide, loc: SourceLoc): ReadonlyArray<NativePlan> {
+		if (side.rel.kind === "closed") {
+			return refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`a key over a side of a stored relation; ${side.relation} is closed, and its facts are declared`
+			)
 		}
-		const columns = mapNonEmpty(d.key, (p) => p.armColumn)
-		const targetColumns = mapNonEmpty(d.key, (p) => p.parentColumn)
-		const reverse: NativePlan = { kind: "ReverseIndex", relation: d.armRel, columns }
-		switch (d.armTag.kind) {
-			case "discriminator": {
-				const tagged = appendNonEmpty(targetColumns, d.discriminatorField)
-				return [
-					{ kind: "StoredTag", tag },
-					{ kind: "Unique", relation: d.parentRel, columns: tagged },
-					{
-						kind: "TaggedForeignKey",
-						relation: d.armRel,
-						columns,
-						tag,
-						target: d.parentRel,
-						targetColumns: tagged
-					},
-					reverse
-				]
-			}
-			case "generated": {
-				const armTag: ArmTagRef = {
-					relation: d.parentRel,
-					discriminator: d.discriminatorField,
-					moved: d.armTag.moved
-				}
-				return [
-					{ kind: "StoredTag", tag },
-					{ kind: "ArmTag", tag: armTag },
-					{ kind: "ArmUnique", relation: d.parentRel, columns: targetColumns, tag: armTag },
-					{
-						kind: "ArmForeignKey",
-						relation: d.armRel,
-						columns,
-						tag,
-						target: d.parentRel,
-						targetColumns,
-						targetTag: armTag
-					},
-					reverse
-				]
-			}
-		}
+		const columns = sideColumns(side)
+		return [...lawColumns(columns), { kind: "Unique", relation: side.rel, columns }]
 	}
 
-	/** The alternatives family's reverse obligation, anchored on the parent row; the native half is the arms' tagged
+	/** An alternatives arm relation's native half: its forward law, each of its facts contained in the parent over the
+	 * parent key, selected by the handles it is the arm of (analysis/theory/laws.ts), lowered as every containment is.
+	 * An arm of one handle selects the parent by a constant, so it references the parent's UNIQUE (key, discriminator)
+	 * through a constant law column of its own; an arm of several references law columns of the parent, its key where
+	 * its discriminator is among them. */
+	#alternativesArm(
+		d: Extract<TheoryLaw["detail"], { readonly kind: "alternativesArm" }>,
+		loc: SourceLoc
+	): ReadonlyArray<NativePlan> {
+		return this.#scalarContainment(d.from, d.to, loc)
+	}
+
+	/** The alternatives family's reverse obligation, anchored on the parent row; the native half is the arms'
 	 * references (their own laws). The violation is a union of one term per armed handle, each reading the parent and
 	 * that handle's arm relation alone, so a write to an arm relation can break only its own arms' terms: the parent
 	 * re-checks the whole roster, each arm relation its own arms. A parent deletion and an arm insertion break no term.
@@ -828,11 +846,11 @@ export class Recognizer {
 		}
 	}
 
-	/** The rows a probe of a side reads: the rows its selection chooses, in the relation's declared field order, or every
+	/** The rows a probe reads: the rows its literal selection chooses, in the relation's declared field order, or every
 	 * row of an unselected side. */
-	#rowsOf(side: ResolvedSide): IndexRows {
-		const selection = orderedSelection(side)
-		return isNonEmpty(selection) ? { kind: "selected", selection } : allRows
+	#rowsOf(selection: ReadonlyArray<ResolvedSelector>): IndexRows {
+		const ordered = orderedSelection(selection)
+		return isNonEmpty(ordered) ? { kind: "selected", selection: ordered } : allRows
 	}
 
 	#containment(
@@ -855,21 +873,14 @@ export class Recognizer {
 						`a coverage law into a span-keyed stored relation; ${d.to.relation} is closed`
 					)
 				case "scalar":
-					return done(this.#intoClosed(d, fromRel, toRel), undefined)
+					return done(this.#intoClosed(d, fromRel, toRel, loc), undefined)
 			}
-		}
-		if (d.from.selection.length > 0 && d.to.selection.length > 0) {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`a containment with at most one selected side; ${d.from.relation} and ${d.to.relation} are both selected, and the first compiler admits a selected target or a selected source`
-			)
 		}
 		switch (d.pairing.kind) {
 			case "span":
-				return this.#coverage(law, d, d.pairing, fromRel, toRel, loc, done)
+				return this.#coverage(law, d, fromRel, toRel, loc, done)
 			case "scalar":
-				return this.#scalarContainment(law, d, fromRel, toRel, loc, done)
+				return done(this.#scalarContainment(d.from, d.to, loc), undefined)
 		}
 	}
 
@@ -889,10 +900,13 @@ export class Recognizer {
 				`a containment whose source is a stored relation or whose target is closed; ${d.from.relation}'s closed facts into the stored ${d.to.relation} would require its rows to exist`
 			)
 		}
+		const what = "a containment between closed relations"
+		const fromFields = fieldsOf(d.from, loc, what)
+		const toFields = fieldsOf(d.to, loc, what)
 		const targets = new Set(
-			this.#closedTuples(toRel, d.to, d.pairs, (p) => p.toColumn).map(tupleKey)
+			this.#closedTuples(toRel, literalsOf(d.to, loc, what), toFields).map(tupleKey)
 		)
-		for (const t of this.#closedTuples(fromRel, d.from, d.pairs, (p) => p.fromColumn)) {
+		for (const t of this.#closedTuples(fromRel, literalsOf(d.from, loc, what), fromFields)) {
 			if (!targets.has(tupleKey(t))) {
 				return refuse(
 					"MalformedDescription",
@@ -904,28 +918,25 @@ export class Recognizer {
 		return []
 	}
 
-	/** The distinct facts of a closed relation that a side selects, each projected onto `columns`, a column's cell the
-	 * fact's value of the field `fieldOf` gives. */
-	#closedTuples<C>(
+	/** The distinct facts of a closed relation that a literal selection selects, each projected onto `columns`, a
+	 * column's cell the fact's value of its field. */
+	#closedTuples(
 		r: ClosedTheoryRelation,
-		side: ResolvedSide,
-		columns: NonEmptyReadonlyArray<C>,
-		fieldOf: (column: C) => LawField
-	): ReadonlyArray<ClosedTuple<C>> {
+		selection: ReadonlyArray<ResolvedSelector>,
+		columns: NonEmptyReadonlyArray<LawField>
+	): ReadonlyArray<ClosedTuple<number>> {
 		const cell = (row: ReadonlyArray<TypedLiteral>, f: LawField): TypedLiteral =>
 			closedCell(row, f.position)
 		const seen = new Set<string>()
-		const out: Array<ClosedTuple<C>> = []
+		const out: Array<ClosedTuple<number>> = []
 		for (const row of r.rows) {
-			const selected = side.selection.every(
-				(s) => literalKey(cell(row, s.col)) === literalKey(s.value)
-			)
+			const selected = selection.every((s) => literalKey(cell(row, s.col)) === literalKey(s.value))
 			if (!selected) {
 				continue
 			}
-			const tuple = mapNonEmpty(columns, (column) => ({
-				column,
-				value: cell(row, fieldOf(column))
+			const tuple = mapNonEmpty(columns, (column, i) => ({
+				column: i,
+				value: cell(row, column)
 			}))
 			const key = tupleKey(tuple)
 			if (seen.has(key)) {
@@ -943,16 +954,23 @@ export class Recognizer {
 	#intoClosed(
 		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
 		fromRel: TheoryRelation,
-		toRel: ClosedTheoryRelation
+		toRel: ClosedTheoryRelation,
+		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
-		const tuples = this.#closedTuples(toRel, d.to, d.pairs, (p) => p.toColumn)
-		if (d.from.selection.length === 0) {
+		const what = "a containment into a closed relation"
+		const fromFields = fieldsOf(d.from, loc, what)
+		const toFields = fieldsOf(d.to, loc, what)
+		const fromSelection = literalsOf(d.from, loc, what)
+		const toSelection = literalsOf(d.to, loc, what)
+		const tuples = this.#closedTuples(toRel, toSelection, toFields)
+		const sourceOf = (i: number): LawField => fromFields[i] ?? headNonEmpty(fromFields)
+		if (fromSelection.length === 0) {
 			const [only, ...more] = d.pairs
-			const roster = rosterOf(baseOf(only.fromColumn.type))
+			const roster = rosterOf(baseOf(only.from.column.type))
 			if (
 				more.length === 0 &&
-				only.to === "id" &&
-				d.to.selection.length === 0 &&
+				only.to.column.name === "id" &&
+				toSelection.length === 0 &&
 				roster?.closed === toRel.name
 			) {
 				return [{ kind: "Enum", name: toRel.name, handles: roster.handles }]
@@ -962,7 +980,7 @@ export class Recognizer {
 					kind: "FiniteCheck",
 					relation: fromRel,
 					facts: tuples.map((t) =>
-						mapNonEmpty(t, (c): FieldValue => ({ field: c.column.fromColumn, value: c.value }))
+						mapNonEmpty(t, (c): FieldValue => ({ field: sourceOf(c.column), value: c.value }))
 					)
 				}
 			]
@@ -973,13 +991,16 @@ export class Recognizer {
 					t.map(({ column, value }): Pred => ({
 						kind: "compare",
 						op: "eq",
-						left: field(column.fromColumn),
-						right: literalAt(baseOf(column.fromColumn.type).carrier, value)
+						left: field(sourceOf(column)),
+						right: literalAt(baseOf(sourceOf(column).type).carrier, value)
 					}))
 				)
 			)
 		)
-		const check = this.#generatedCheck(fromRel, orP([notP(selectionPred(d.from)), membership]))
+		const check = this.#generatedCheck(
+			fromRel,
+			orP([notP(selectionPred(fromSelection)), membership])
+		)
 		return check === undefined ? [] : [check]
 	}
 
@@ -1000,240 +1021,160 @@ export class Recognizer {
 		return { kind: "GeneratedCheck", relation, predicate }
 	}
 
-	/** The keys of `r` that a projection contains, or a refusal naming the missing key. */
-	#keyedBy(
-		r: TheoryRelation,
-		fields: NonEmptyReadonlyArray<LawField>,
-		loc: SourceLoc,
-		what: string
-	): NonEmptyReadonlyArray<LawField> {
-		const exact = scalarKeys(r).find((k) => sameSet<LawField>(k, fields))
-		if (exact !== undefined) {
-			return exact
-		}
-		if (scalarKeys(r).some((k) => contains<LawField>(fields, k))) {
-			return fields
-		}
-		return refuse(
-			"UnsupportedLawFamily",
-			loc,
-			`${what} into a projection that contains a key of ${r.name}; (${fieldNames(fields).join(", ")}) contains none, and a containment into an unkeyed projection is not admitted`
-		)
+	/** Whether `fields` contain a declared scalar key of `r`. */
+	#containsKey(r: TheoryRelation, fields: ReadonlyArray<LawField>): boolean {
+		return scalarKeys(r).some((k) => contains<LawField>(fields, k))
 	}
 
+	/**
+	 * A containment from one side into another: a foreign key MATCH SIMPLE from the source's columns into the target's,
+	 * the UNIQUE over the target's columns it references, the law columns either side reads, and the index over the
+	 * referencing columns. A target fixed by a constant selection references through constant law columns on the
+	 * source, which the index leaves out: a constant narrows no lookup.
+	 */
 	#scalarContainment(
-		law: TheoryLaw,
-		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
-		fromRel: TheoryRelation,
-		toRel: TheoryRelation,
-		loc: SourceLoc,
-		done: (natives: ReadonlyArray<NativePlan>, residual: ResidualPlan | undefined) => LawPlan
-	): LawPlan {
-		const from = d.from
-		const to = d.to
-		if (to.selection.length > 0) {
-			/** The tagged foreign key alone. */
-			const selector = this.#oneSelector(to, loc)
-			this.#keyedBy(toRel, to.columns, loc, "a containment into a selected target")
-			if (to.columns.includes(selector.col)) {
-				return refuse(
-					"UnsupportedLawFamily",
-					loc,
-					`a selected target whose selector ${selector.column} is not a referenced field`
-				)
-			}
-			const tag: TagRef = {
-				relation: fromRel,
-				target: toRel,
-				field: selector.col,
-				value: selector.value
-			}
-			const targetColumns = appendNonEmpty(to.columns, selector.col)
-			return done(
-				[
-					{ kind: "StoredTag", tag },
-					{ kind: "Unique", relation: toRel, columns: targetColumns },
-					{
-						kind: "TaggedForeignKey",
-						relation: fromRel,
-						columns: from.columns,
-						tag,
-						target: toRel,
-						targetColumns
-					},
-					{ kind: "ReverseIndex", relation: fromRel, columns: from.columns }
-				],
-				undefined
-			)
-		}
-		if (!isNonEmpty(from.selection)) {
-			/** A foreign key, generating the unique target a superkey needs, and its reverse index. */
-			const key = this.#keyedBy(toRel, to.columns, loc, "a containment")
-			const natives: Array<NativePlan> = []
-			if (!scalarKeys(toRel).some((k) => sameSet<LawField>(k, to.columns))) {
-				natives.push({ kind: "Unique", relation: toRel, columns: key })
-			}
-			natives.push(
-				{
-					kind: "ForeignKey",
-					relation: fromRel,
-					columns: from.columns,
-					target: toRel,
-					targetColumns: to.columns
-				},
-				{ kind: "ReverseIndex", relation: fromRel, columns: from.columns }
-			)
-			return done(natives, undefined)
-		}
-		/** A selected source. A mirrors half from a selected side is the residual half of a conditional mirrors, anchored
-		 * on that side's row; a `contained` is selected-source containment, anchored on the target row. */
-		const selection = mapNonEmpty(from.selection, fieldSelector)
-		switch (d.stated.kind) {
-			case "mirrors":
-				this.#keyedBy(fromRel, from.columns, loc, "a conditional mirrors' selected side")
-				return done([], this.#conditionalMirrors(law, from, selection, fromRel, toRel, d.pairs))
-			case "contained":
-				this.#keyedBy(toRel, to.columns, loc, "a containment from a selected source")
-				return done(
-					[],
-					this.#selectedSourceContainment(law, from, selection, fromRel, toRel, d.pairs)
-				)
-		}
-	}
-
-	/** Every selected source fact's projection is the key of a target row, the anchor, of the relation `target`, each
-	 * source field paired with the target field it meets. Source insertion and target deletion threaten, so a mutable
-	 * source's UPDATE checks its new anchor and a mutable target's its old key. */
-	#selectedSourceContainment(
-		law: TheoryLaw,
 		from: ResolvedSide,
-		selection: NonEmptyReadonlyArray<FieldSelector>,
-		fromRel: TheoryRelation,
-		toRel: TheoryRelation,
-		pairs: NonEmptyReadonlyArray<ResolvedPair>
-	): ResidualPlan {
-		const key = mapNonEmpty(pairs, (p) => p.toColumn)
-		const sourcePairs = anchorPairs(
-			pairs,
-			(p) => p.fromColumn,
-			(p) => p.toColumn
-		)
-		const sourceKey = pairedColumns(sourcePairs)
-		const sourceUpdate = inHeadingOrder([...from.columns, ...from.selection.map((s) => s.col)])
-		const source: SelectedSide = { relation: fromRel, pairs: sourcePairs, selection }
-		return {
-			checks: {
-				family: "selectedSourceContainment",
-				source,
-				participants: mergeParticipants(
-					[
-						inserting(fromRel, { key: sourceKey, guard: guardBy(from.selection) }, sourceUpdate),
-						deleting(toRel, { key: anchorColumns(sourcePairs), guard: always }, inHeadingOrder(key))
-					],
-					mergeTwo
-				)
-			},
-			anchor: { relation: toRel, key },
-			violation: law.violation,
-			indexes: [
-				this.#indexRequest(
-					fromRel.name,
-					from.fields,
-					"btree",
-					"selected-source probe",
-					this.#rowsOf(from)
-				)
-			],
-			detail: detailOf(fromRel, from.columns)
-		}
-	}
-
-	#oneSelector(side: ResolvedSide, loc: SourceLoc): ResolvedSelector {
-		const only = side.selection[0]
-		if (side.selection.length !== 1 || only === undefined) {
+		to: ResolvedSide,
+		loc: SourceLoc
+	): ReadonlyArray<NativePlan> {
+		const fromRel = from.rel
+		const toRel = to.rel
+		const sourceColumns = sideColumns(from)
+		const constant = this.#constantTarget(to, fromRel)
+		const columns: NonEmptyReadonlyArray<PlannedColumn> =
+			constant === undefined
+				? sourceColumns
+				: extendNonEmpty(
+						sourceColumns,
+						constant.tags.map((column): PlannedColumn => ({ kind: "law", column }))
+					)
+		const targetColumns = constant === undefined ? sideColumns(to) : constant.columns
+		if (constant === undefined && !this.#targetKeyed(to)) {
 			return refuse(
 				"UnsupportedLawFamily",
 				loc,
-				`a selected target with one selector field, which becomes its source's STORED tag; select(${side.relation}, ...) has ${side.selection.length}`
+				`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no declared key among its fields and no key over its own selection, and a containment into an unkeyed side is not admitted`
 			)
 		}
-		return only
+		/** A generated unique over the target's columns, but where they are exactly a declared scalar key's fields. */
+		const fields = plainFields(targetColumns)
+		const declared =
+			fields !== undefined && scalarKeys(toRel).some((k) => sameSet<LawField>(k, fields))
+		return [
+			...lawColumns(columns),
+			...lawColumns(targetColumns),
+			...(declared ? [] : [{ kind: "Unique" as const, relation: toRel, columns: targetColumns }]),
+			{ kind: "ForeignKey", relation: fromRel, columns, target: toRel, targetColumns },
+			{ kind: "ReverseIndex", relation: fromRel, columns: sourceColumns }
+		]
 	}
 
-	/** The parent, the anchor, requires its selected child of the relation `child`, each parent field paired with the
-	 * child field it meets. Parent insertion and child deletion threaten, so a mutable parent's key or selector update
-	 * checks the parent's new key, and a mutable child's move its old parent. */
-	#conditionalMirrors(
-		law: TheoryLaw,
-		parent: ResolvedSide,
-		selection: NonEmptyReadonlyArray<FieldSelector>,
-		parentRel: TheoryRelation,
-		childRel: TheoryRelation,
-		pairs: NonEmptyReadonlyArray<ResolvedPair>
-	): ResidualPlan {
-		const key = mapNonEmpty(pairs, (p) => p.fromColumn)
-		const childPairs = anchorPairs(
-			pairs,
-			(p) => p.toColumn,
-			(p) => p.fromColumn
-		)
-		const parentKey = anchorColumns(childPairs)
-		const childFields = mapNonEmpty(pairs, (p) => p.toColumn)
-		const childKey = pairedColumns(childPairs)
-		return {
-			checks: {
-				family: "conditionalMirrors",
-				selection,
-				child: { relation: childRel, pairs: childPairs },
-				participants: mergeParticipants(
-					[
-						inserting(
-							parentRel,
-							{ key: parentKey, guard: guardBy(parent.selection) },
-							inHeadingOrder([...parent.columns, ...parent.selection.map((s) => s.col)])
-						),
-						deleting(childRel, { key: childKey, guard: always }, inHeadingOrder(childFields))
-					],
-					mergeTwo
-				)
-			},
-			anchor: { relation: parentRel, key },
-			violation: law.violation,
-			indexes: [this.#indexRequest(parentRel.name, parent.fields, "btree", "anchor read", allRows)],
-			detail: detailOf(parentRel, parent.columns)
+	/**
+	 * A target side fixed by a constant selection (see the recognition table): the target's terms are fields, and its
+	 * fixed conjuncts over fields that are none of them, with its field terms, contain a declared key of the target. Its
+	 * fixed conjuncts' constants are law columns of the source, and the target's columns are its terms under its other
+	 * conjuncts (`sideColumns`), then its fixed fields: a fact the other conjuncts reject holds a null among its terms,
+	 * which references nothing, and the declared key holds the rest apart, so one UNIQUE over them serves every
+	 * constant. Undefined for any other target.
+	 */
+	#constantTarget(
+		to: ResolvedSide,
+		fromRel: TheoryRelation
+	):
+		| {
+				readonly tags: NonEmptyReadonlyArray<ConstantColumn>
+				readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+		  }
+		| undefined {
+		const fields = fieldTermsOf(to.terms)
+		if (fields === undefined) {
+			return undefined
 		}
+		const terms = fields.map((t) => t.column)
+		const fixes = (c: ResolvedSelection["conjuncts"][number]): boolean =>
+			c.kind === "fixed" && !terms.includes(c.selector.col)
+		const selected = orderedSelectors(
+			to.selection.conjuncts.flatMap((c) => (c.kind === "fixed" && fixes(c) ? [c.selector] : []))
+		)
+		if (
+			!isNonEmpty(selected) ||
+			!this.#containsKey(to.rel, [...terms, ...selected.map((s) => s.col)])
+		) {
+			return undefined
+		}
+		const rest: ResolvedSide = {
+			...to,
+			selection: { conjuncts: to.selection.conjuncts.filter((c) => !fixes(c)) }
+		}
+		return {
+			tags: mapNonEmpty(selected, (s): ConstantColumn => ({
+				kind: "constant",
+				relation: fromRel,
+				target: to.rel,
+				field: s.col,
+				value: s.value
+			})),
+			columns: extendNonEmpty(
+				sideColumns(rest),
+				selected.map((s) => fieldColumn(s.col))
+			)
+		}
+	}
+
+	/** Whether a target side contains a key: a declared scalar key of its relation among its field terms, or a projected
+	 * key of the relation over its own selection among its terms. */
+	#targetKeyed(to: ResolvedSide): boolean {
+		const fields = to.terms.flatMap((t) => (t.kind === "field" ? [t.column] : []))
+		return (
+			this.#containsKey(to.rel, fields) ||
+			(this.#projectedKeys.get(to.relation) ?? []).some((k) => keyedBy(k, to))
+		)
 	}
 
 	/** Coverage into a target whose span key it matches is a PERIOD foreign key, a
-	 * selected target adds a tag and a generated temporal unique constraint, and a selected source is the residual
-	 * range_agg coverage law anchored on the target rows of the source's scalar group. */
+	 * selected target adds a constant law column and a generated temporal unique constraint, and a selected source is
+	 * the residual range_agg coverage law anchored on the target rows of the source's scalar group. Its sides pair fields
+	 * and select by literal equalities. */
 	#coverage(
 		law: TheoryLaw,
 		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
-		span: Extract<ContainmentPairing, { readonly kind: "span" }>,
 		fromRel: TheoryRelation,
 		toRel: TheoryRelation,
 		loc: SourceLoc,
 		done: (natives: ReadonlyArray<NativePlan>, residual: ResidualPlan | undefined) => LawPlan
 	): LawPlan {
+		const span = d.pairing
+		if (span.kind !== "span") {
+			return refuse("UnsupportedLawFamily", loc, "a coverage law pairing a span")
+		}
+		const what = "a coverage law"
 		const from = d.from
 		const to = d.to
+		const fromFields = fieldsOf(from, loc, what)
+		const toFields = fieldsOf(to, loc, what)
+		const fromSelection = literalsOf(from, loc, what)
+		const toSelection = literalsOf(to, loc, what)
+		if (isNonEmpty(fromSelection) && isNonEmpty(toSelection)) {
+			return refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`a coverage law with at most one selected side; ${from.relation} and ${to.relation} are both selected`
+			)
+		}
 		const pair = span.pair
 		const hasSpanKey = declaredFields(toRel).some(
 			(k) =>
-				sameSet<LawField>(k, to.columns) &&
-				k.filter(isSpanField).length === 1 &&
-				k.includes(span.to)
+				sameSet<LawField>(k, toFields) && k.filter(isSpanField).length === 1 && k.includes(span.to)
 		)
 		if (!hasSpanKey) {
 			return refuse(
 				"UnsupportedLawFamily",
 				loc,
-				`coverage into a target whose span key it matches; ${to.relation} has no span key over (${to.fields.join(", ")}), and coverage into a target without a span key needs an exact lowering the first compiler does not have`
+				`coverage into a target whose span key it matches; ${to.relation} has no span key over (${fieldNames(toFields).join(", ")}), and coverage into a target without a span key needs an exact lowering the first compiler does not have`
 			)
 		}
 		/** The scalar pairs: every pair but the spans'. */
-		const scalars = d.pairs.filter((p) => p.from !== pair.from)
+		const scalars = d.pairs.filter((p) => p !== pair)
 		if (!isNonEmpty(scalars)) {
 			return refuse(
 				"UnsupportedLawFamily",
@@ -1241,19 +1182,17 @@ export class Recognizer {
 				`coverage grouped by at least one scalar field; ${from.relation} into ${to.relation} pairs only spans, an ungrouped span law`
 			)
 		}
-		const fromScalars = mapNonEmpty(scalars, (p) => p.from)
-		const toScalars = mapNonEmpty(scalars, (p) => p.to)
-		const toScalarFields = mapNonEmpty(scalars, (p) => p.toColumn)
-		const fromScalarFields = mapNonEmpty(scalars, (p) => p.fromColumn)
-		if (isNonEmpty(from.selection)) {
-			const selection = mapNonEmpty(from.selection, fieldSelector)
+		const toScalarFields = mapNonEmpty(scalars, (p) => p.to.column)
+		const fromScalarFields = mapNonEmpty(scalars, (p) => p.from.column)
+		if (isNonEmpty(fromSelection)) {
+			const selection = mapNonEmpty(fromSelection, fieldSelector)
 			const sourcePairs = anchorPairs(
 				scalars,
-				(p) => p.fromColumn,
-				(p) => p.toColumn
+				(p) => p.from.column,
+				(p) => p.to.column
 			)
 			const sourceKey = pairedColumns(sourcePairs)
-			const sourceUpdate = inHeadingOrder([...from.columns, ...from.selection.map((s) => s.col)])
+			const sourceUpdate = inHeadingOrder([...fromFields, ...fromSelection.map((s) => s.col)])
 			return done([], {
 				checks: {
 					family: "selectedSourceCoverage",
@@ -1261,8 +1200,8 @@ export class Recognizer {
 						relation: toRel,
 						pairs: anchorPairs(
 							scalars,
-							(p) => p.toColumn,
-							(p) => p.toColumn
+							(p) => p.to.column,
+							(p) => p.to.column
 						),
 						span: span.to,
 						/** The residual accumulates the target spans into a multirange of the target span's carrier. */
@@ -1271,11 +1210,11 @@ export class Recognizer {
 					source: { relation: fromRel, pairs: sourcePairs, span: span.from, selection },
 					participants: mergeParticipants(
 						[
-							inserting(fromRel, { key: sourceKey, guard: guardBy(from.selection) }, sourceUpdate),
+							inserting(fromRel, { key: sourceKey, guard: guardBy(fromSelection) }, sourceUpdate),
 							deleting(
 								toRel,
 								{ key: anchorColumns(sourcePairs), guard: always },
-								inHeadingOrder(to.columns)
+								inHeadingOrder(toFields)
 							)
 						],
 						mergeTwo
@@ -1284,33 +1223,40 @@ export class Recognizer {
 				anchor: { relation: toRel, key: toScalarFields },
 				violation: law.violation,
 				indexes: [
-					this.#indexRequest(toRel.name, [...toScalars, pair.to], "gist", "group listing", allRows),
+					this.#indexRequest(
+						toRel.name,
+						[...fieldNames(toScalarFields), pair.to.column.name],
+						"gist",
+						"group listing",
+						allRows
+					),
 					this.#indexRequest(
 						fromRel.name,
-						fromScalars,
+						fieldNames(fromScalarFields),
 						"btree",
 						"coverage probe",
-						this.#rowsOf(from)
+						this.#rowsOf(fromSelection)
 					)
 				],
-				detail: detailOf(fromRel, from.columns)
+				detail: detailOf(fromRel, fromFields)
 			})
 		}
 		const reverse: NativePlan = {
 			kind: "ReverseIndex",
 			relation: fromRel,
-			columns: appendNonEmpty(fromScalarFields, span.from)
+			columns: mapNonEmpty(appendNonEmpty(fromScalarFields, span.from), fieldColumn)
 		}
-		if (to.selection.length === 0) {
+		const [selector, ...moreSelectors] = toSelection
+		if (selector === undefined) {
 			return done(
 				[
 					{
 						kind: "PeriodForeignKey",
 						relation: fromRel,
-						columns: fromScalarFields,
+						columns: fromScalarFields.map(fieldColumn),
 						span: span.from,
 						target: toRel,
-						targetColumns: toScalarFields,
+						targetColumns: toScalarFields.map(fieldColumn),
 						targetSpan: span.to
 					},
 					reverse
@@ -1318,15 +1264,22 @@ export class Recognizer {
 				undefined
 			)
 		}
-		const selector = this.#oneSelector(to, loc)
-		if (to.columns.includes(selector.col)) {
+		if (moreSelectors.length > 0) {
+			return refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`a selected coverage target with one selector field, which becomes its source's constant law column; select(${to.relation}, ...) has ${toSelection.length}`
+			)
+		}
+		if (toFields.includes(selector.col)) {
 			return refuse(
 				"UnsupportedLawFamily",
 				loc,
 				`a selected target whose selector ${selector.column} is not a referenced field`
 			)
 		}
-		const tag: TagRef = {
+		const tag: ConstantColumn = {
+			kind: "constant",
 			relation: fromRel,
 			target: toRel,
 			field: selector.col,
@@ -1346,16 +1299,15 @@ export class Recognizer {
 		)
 		return done(
 			[
-				{ kind: "StoredTag", tag },
+				{ kind: "LawColumn", column: tag },
 				{ kind: "TemporalUnique", relation: toRel, columns: temporal, span: span.to },
 				{
-					kind: "TaggedPeriodForeignKey",
+					kind: "PeriodForeignKey",
 					relation: fromRel,
-					columns: fromScalarFields,
-					tag,
+					columns: [...fromScalarFields.map(fieldColumn), { kind: "law", column: tag }],
 					span: span.from,
 					target: toRel,
-					targetColumns,
+					targetColumns: targetColumns.map(fieldColumn),
 					targetSpan: span.to
 				},
 				reverse
@@ -1380,56 +1332,42 @@ export class Recognizer {
 				`a capacity over stored relations; ${target.kind === "closed" ? d.target.relation : d.from.relation} is closed, and its facts fire no law`
 			)
 		}
-		const { low, high } = d.within
+		const targetFields = mapNonEmpty(d.pairs, (p) => p.targetColumn)
+		const fromFields = mapNonEmpty(d.pairs, (p) => p.fromColumn)
+		const { low } = d.within
 		const nonnegative = d.weight.kind !== "field"
 		if (
 			d.target.relation === d.from.relation &&
 			d.pairs.every((p) => p.target === p.from) &&
-			declaredKeys(target).some((k) => contains(d.target.fields, k))
+			declaredKeys(target).some((k) => contains(fieldNames(targetFields), k))
 		) {
 			const check = this.#selfCapacity(d, target)
 			return done(check === undefined ? [] : [check], undefined)
 		}
-		/** A count of at most one is the source's partial unique index's, never the function's. */
-		const unique =
-			d.weight.kind === "count" &&
-			high === 1n &&
-			d.target.selection.length === 0 &&
-			typeof low === "bigint"
-		const natives: ReadonlyArray<NativePlan> = unique
-			? [
-					{
-						kind: "PartialUnique",
-						relation: source,
-						columns: d.from.columns,
-						where: orderedSelectors(d.from).map(fieldSelector)
-					}
-				]
-			: []
 		/** The bounds a group can break, low before high: a count or a width is never negative, so a literal lower bound
-		 * of zero or less holds for every group, and an upper bound the unique index enforces is not the function's.
-		 * With none left the law holds in every state the natives allow, and needs no function. */
+		 * of zero or less holds for every group. With none left the law holds in every state, and needs no function. */
 		const removes = nonnegative ? typeof low !== "bigint" || low > 0n : true
-		const checkedHigh = unique ? undefined : d.bounds.high
+		const checkedHigh = d.bounds.high
 		const lowBounds: ReadonlyArray<CheckedBound> = removes
 			? [{ side: "low", value: d.bounds.low }]
 			: []
 		const bounds: ReadonlyArray<CheckedBound> =
 			checkedHigh === undefined ? lowBounds : [...lowBounds, { side: "high", value: checkedHigh }]
 		if (!isNonEmpty(bounds)) {
-			return done(natives, undefined)
+			return done([], undefined)
 		}
 		this.#capacityAnchor(d, target, loc)
 		const adds = nonnegative ? checkedHigh !== undefined : true
 		const refs = [d.bounds.low, d.bounds.high].flatMap((b) => (b?.kind === "ref" ? [b.field] : []))
-		const sourceGuard = guardBy(d.from.selection)
+		const fromSelection = selectorsOf(d.from.selection)
+		const targetSelection = selectorsOf(d.target.selection)
+		const sourceGuard = guardBy(fromSelection)
 		const sourcePairs = anchorPairs(
 			d.pairs,
 			(p) => p.fromColumn,
 			(p) => p.targetColumn
 		)
 		const sourceKey = pairedColumns(sourcePairs)
-		const key = mapNonEmpty(d.pairs, (p) => p.targetColumn)
 		/** A source's insertion threatens a bound above and its deletion one below; a source neither threatens is no
 		 * participant. */
 		const sourceImage: ImagePlan = { key: sourceKey, guard: sourceGuard }
@@ -1439,25 +1377,25 @@ export class Recognizer {
 			updateOf(
 				source,
 				inHeadingOrder([
-					...d.from.columns,
+					...fromFields,
 					...weightFields(d.weighed),
-					...d.from.selection.map((s) => s.col)
+					...fromSelection.map((s) => s.col)
 				])
 			)
 		)
 		const targetPlan = inserting(
 			target,
-			{ key: anchorColumns(sourcePairs), guard: guardBy(d.target.selection) },
-			inHeadingOrder([...key, ...refs, ...d.target.selection.map((s) => s.col)])
+			{ key: anchorColumns(sourcePairs), guard: guardBy(targetSelection) },
+			inHeadingOrder([...targetFields, ...refs, ...targetSelection.map((s) => s.col)])
 		)
-		return done(natives, {
+		return done([], {
 			checks: {
 				family: "scalarCapacity",
-				selection: d.target.selection.map(fieldSelector),
+				selection: targetSelection.map(fieldSelector),
 				source: {
 					relation: source,
 					pairs: sourcePairs,
-					selection: d.from.selection.map(fieldSelector)
+					selection: fromSelection.map(fieldSelector)
 				},
 				weight: lawWeight(d.weighed),
 				aggregate: d.aggregate,
@@ -1469,18 +1407,18 @@ export class Recognizer {
 					mergeTwo
 				)
 			},
-			anchor: { relation: target, key },
+			anchor: { relation: target, key: targetFields },
 			violation: law.violation,
 			indexes: [
 				this.#indexRequest(
 					source.name,
-					d.from.fields,
+					fieldNames(fromFields),
 					"btree",
 					"group aggregate",
-					this.#rowsOf(d.from)
+					this.#rowsOf(fromSelection)
 				)
 			],
-			detail: detailOf(target, d.target.columns)
+			detail: detailOf(target, targetFields)
 		})
 	}
 
@@ -1492,11 +1430,12 @@ export class Recognizer {
 		target: TheoryRelation,
 		loc: SourceLoc
 	): void {
-		if (!declaredKeys(target).some((k) => contains(d.target.fields, k))) {
+		const fields = d.pairs.map((p) => p.target)
+		if (!declaredKeys(target).some((k) => contains(fields, k))) {
 			refuse(
 				"UnsupportedLawFamily",
 				loc,
-				`a residual capacity whose target projection (${d.target.fields.join(", ")}) contains a declared key of ${d.target.relation}, so that its anchor is one target row`
+				`a residual capacity whose target projection (${fields.join(", ")}) contains a declared key of ${d.target.relation}, so that its anchor is one target row`
 			)
 		}
 	}
@@ -1513,9 +1452,12 @@ export class Recognizer {
 		const high = d.bounds.high
 		const within = (v: MetTerm | 0n | 1n): Pred =>
 			andP([boundPred(v, d.bounds.low, "ge"), high === undefined ? true : boundPred(v, high, "le")])
-		const selected = selectionPred(d.from)
+		const selected = selectionPred(selectorsOf(d.from.selection))
 		const body = orP([andP([selected, within(value)]), andP([notP(selected), within(0n)])])
-		return this.#generatedCheck(target, orP([notP(selectionPred(d.target)), body]))
+		return this.#generatedCheck(
+			target,
+			orP([notP(selectionPred(selectorsOf(d.target.selection))), body])
+		)
 	}
 }
 

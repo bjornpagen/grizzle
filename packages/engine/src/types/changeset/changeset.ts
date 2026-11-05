@@ -2,6 +2,10 @@ import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Built, Phantom } from "#compiler/core/phantom.ts"
+import type { SideDesc } from "#compiler/ir/desc.ts"
+
+/** One side of a law as an outcome names it: its statement's side, as its Description states it (ir/desc.ts). */
+export type { SideDesc as LawSide } from "#compiler/ir/desc.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -318,28 +322,6 @@ export type Witness =
 	| { readonly kind: "withheld" }
 	| { readonly kind: "unreported" }
 
-/** A value a law states, a selection's literal, as the host holds it: a closed relation's handle is its string. */
-export type LawValue =
-	| string
-	| number
-	| bigint
-	| boolean
-	| Decimal
-	| Money
-	| Span<number>
-	| Span<bigint>
-	| Vector
-
-/**
- * One side of a law as its statement declares it: a relation's fields, in the order the statement pairs them, over
- * the facts whose selected fields hold the selected values, in field name order.
- */
-export interface LawSide {
-	readonly relation: string
-	readonly fields: NonEmptyReadonlyArray<string>
-	readonly selection: ReadonlyArray<{ readonly field: string; readonly value: LawValue }>
-}
-
 /** How a capacity weighs each source fact: one each, or by a field's value or its span's width. */
 export type LawWeight =
 	| { readonly kind: "count" }
@@ -355,14 +337,17 @@ export interface LawBounds {
 /**
  * A law as the schema states it, which an `invariant-rejected` outcome names: an application matches on it directly.
  *
- * - `primaryKey` and `key`: a relation's primary key or a declared key, by its fields (a span field makes it a
- *   nonoverlap key);
+ * - `primaryKey`: a relation's primary key, by its fields (a span field makes it a nonoverlap key);
+ * - `key`: a key statement, key(side), by its side: a candidate key of the relation when the side reads every fact
+ *   and its terms are fields (a span field makes it a nonoverlap key), and otherwise a key over the facts the side
+ *   reads. A side (ir/desc.ts SideDesc, the public LawSide) is its relation, its terms in the order the statement pairs
+ *   them, each a field or pred of a natural field, and its selection's conjuncts, each a row predicate as its
+ *   Description states it, in canonical order: none reads every fact;
  * - `check`: a relation's row check, by its name;
- * - `contained`: a containment, a foreign key included, from its source side into its target side;
- * - `mirrors`: one half of a mirrors, from one side into the other;
- * - `coverage`: a containment or mirrors half whose sides pair a span field, the source's span covered by the target's;
+ * - `contained`: a containment, a foreign key included, from its source side into its target side (a mirrors is two);
+ * - `coverage`: a containment whose sides pair a span field, the source's span covered by the target's;
  * - `alternatives`: an alternatives family's reverse obligation, by its parent relation and discriminator: a parent
- *   fact selecting a handle has its arm's fact (its head containment is `contained`);
+ *   fact selecting a handle has its arm's fact;
  * - `alternativesArm`: an alternatives family's arm relation `arm`, by the parent relation and discriminator and the
  *   handles it is the arm of, in roster order: each of its facts is the payload of a parent fact selecting one of them;
  * - `capacity`: a capacity, by its target and source sides, its weight and its bounds;
@@ -371,18 +356,14 @@ export interface LawBounds {
  */
 export type Law =
 	| {
-			readonly kind: "primaryKey" | "key"
+			readonly kind: "primaryKey"
 			readonly relation: string
 			readonly fields: ReadonlyArray<string>
 	  }
+	| { readonly kind: "key"; readonly side: SideDesc }
 	| { readonly kind: "check"; readonly relation: string; readonly name: string }
-	| { readonly kind: "contained" | "mirrors"; readonly from: LawSide; readonly to: LawSide }
-	| {
-			readonly kind: "coverage"
-			readonly statement: "contained" | "mirrors"
-			readonly from: LawSide
-			readonly to: LawSide
-	  }
+	| { readonly kind: "contained"; readonly from: SideDesc; readonly to: SideDesc }
+	| { readonly kind: "coverage"; readonly from: SideDesc; readonly to: SideDesc }
 	| { readonly kind: "alternatives"; readonly relation: string; readonly field: string }
 	| {
 			readonly kind: "alternativesArm"
@@ -393,8 +374,8 @@ export type Law =
 	  }
 	| {
 			readonly kind: "capacity"
-			readonly target: LawSide
-			readonly from: LawSide
+			readonly target: SideDesc
+			readonly from: SideDesc
 			readonly weight: LawWeight
 			readonly within: LawBounds
 	  }

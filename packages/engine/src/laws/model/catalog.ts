@@ -15,23 +15,16 @@ const existenceKind = (native: NamedNative["object"]): ExistenceKind | undefined
 	switch (native.kind) {
 		case "ForeignKey":
 			return native.deferrable ? "deferredForeignKey" : "foreignKey"
-		case "TaggedForeignKey":
-		case "ArmForeignKey":
-			return "deferredForeignKey"
 		case "PeriodForeignKey":
-		case "TaggedPeriodForeignKey":
 			return "periodForeignKey"
 		case "Enum":
 		case "FiniteCheck":
 			return "enum"
 		case "PrimaryKey":
 		case "Unique":
-		case "PartialUnique":
 		case "Domain":
 		case "TableCheck":
-		case "StoredTag":
-		case "ArmTag":
-		case "ArmUnique":
+		case "LawColumn":
 		case "WithoutOverlaps":
 		case "TemporalUnique":
 		case "ReverseIndex":
@@ -65,7 +58,6 @@ const nativeEnforcement = (n: NamedNative, law: LawId): Enforced | undefined => 
 			return n.object.kind === "Enum"
 				? { enforcement: { kind: "type", enum: n.object.name }, kind: "enum" }
 				: undefined
-		case "index":
 		case "column":
 		case "domain":
 			return undefined
@@ -124,7 +116,7 @@ export interface CatalogSchema {
  * Every key a rewrite may rely on resolves to the constraint ownership derived for it, a derived relation's inherited
  * key to the unique index its view is installed with (derivedKeyConstraints), and every containment to the native
  * object or residual law the law model specialized it into. The kind follows the object: an immediate foreign key, a
- * deferred one (tagged, arm and PERIOD foreign keys are always deferred), a residual law, or a finite closed
+ * deferred one (arm and PERIOD foreign keys are always deferred), a residual law, or a finite closed
  * domain (an enum or a finite CHECK). A coverage law proves coverage of a span, not the existence of one matching fact,
  * and a containment with a selected side holds only for the facts its selector picks, which the catalog cannot say: neither
  * gives evidence here. The evidence context is the one the law model gave the

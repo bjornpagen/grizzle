@@ -761,13 +761,21 @@ export interface Merge {
 	readonly returning: ReadonlyArray<Target>
 }
 
+/**
+ * How a column is generated: an identity from its sequence; a STORED expression of the row; or a partial projection,
+ * `GENERATED ALWAYS AS (CASE WHEN <when> THEN <expr> END) STORED`, which holds `expr` where `when` is true and NULL
+ * everywhere else. A partial projection is the one form that yields NULL, so it never reaches an expression.
+ */
 export type ColumnGeneration =
 	| { readonly kind: "identity"; readonly sequence: ObjectName }
 	| { readonly kind: "stored"; readonly expr: Expr }
+	| { readonly kind: "partial"; readonly when: Expr; readonly expr: Expr }
 
 /**
- * A column. NOT NULL is not optional: every column is NOT NULL. An undefined collation or generation is none, and a
- * column has no default: a drafted ADD COLUMN's placeholder is its own action (AlterTableAction addColumnPlaceholder).
+ * A column. Every column is NOT NULL but a partial projection's, which is NULL outside its selection, so a key over it is
+ * a key of the selected rows alone (UNIQUE NULLS DISTINCT) and a reference out of it binds only those (MATCH SIMPLE). An
+ * undefined collation or generation is none, and a column has no default: a drafted ADD COLUMN's placeholder is its own
+ * action (AlterTableAction addColumnPlaceholder).
  */
 export interface ColumnDef {
 	readonly name: string
@@ -801,11 +809,13 @@ export type TableConstraint =
 			readonly columns: NonEmptyReadonlyArray<KeyColumn>
 	  }
 	| {
+			/** Printed `UNIQUE NULLS DISTINCT`: a row NULL in a column is never a duplicate. */
 			readonly kind: "unique"
 			readonly name: string
 			readonly columns: NonEmptyReadonlyArray<KeyColumn>
 	  }
 	| {
+			/** Printed `MATCH SIMPLE`: a row NULL in a referencing column references nothing. */
 			readonly kind: "foreignKey"
 			readonly name: string
 			readonly columns: NonEmptyReadonlyArray<ForeignKeyColumn>

@@ -1,59 +1,61 @@
 ---
 name: indefensible-numbers
-description: Use when adding or reviewing a literal that bounds concurrency, retries, timeouts, batch size or budget; when a limit lacks `@limitKind` JSDoc; when the user says magic number, throttling, empirical cap or indefensible number.
+description: Use when adding or reviewing a literal that bounds concurrency, retries, timeouts, batch size or budget; when a limit lacks its evidence or a check refuses a bare number; when the user says magic number, throttling, empirical cap or indefensible number. A repository may carry a reference beside this skill for its own limit mechanism.
 ---
 
 # Indefensible numbers
 
-A name and a rationale alone do not defend a limit. Its immediately preceding JSDoc identifies the evidence category,
+A name and a rationale alone do not defend a limit. The repository's limit mechanism records its evidence category,
 units, scope and owner. Published limits and measured operating limits are both legitimate; they are not the same
 claim. Derived arithmetic is legitimate only when its inputs are defensible.
 
-## Required JSDoc
+If this skill's folder carries a reference for this repository (for example `grizzle.md`), read it for the mechanism.
 
-Every limit uses `@limitKind published`, `@limitKind measured` or `@limitKind derived`, plus `@owner`, `@unit` and
-`@scope`. Prose that explains the limit's purpose stays above the tags.
+## Bound, choice or fact
+
+Ask what a number is before defending it:
+
+1. **No bound.** A data length, a graph cardinality, an identity, index arithmetic against a data length, a code
+   point, a unit conversion or a format's defining width bounds nothing a caller could tune. It needs no evidence.
+2. **A choice.** A number that is its owner's to choose (a pool's size, a timeout, a page size, a concurrency) is an
+   input of whoever owns that choice, never a constant the code picks on its behalf.
+3. **Published.** A number another system states.
+4. **Measured.** An operating value a measurement supports.
+5. **Derived.** Arithmetic over defensible limits.
+6. **None of these.** The number is indefensible: remove the behaviour that needs it, take it as an input, or measure
+   it.
+
+## Required evidence
+
+Every limit is minted through the repository's limit mechanism as published, measured or derived, and states its
+owner, unit and scope. Prose that explains the limit's purpose stays beside it.
 
 ### Published
 
-Include `@source` with the exact HTTPS document stating the exact number, a short quote, and `@constraint` naming what
+Include the source, the exact HTTPS document stating the exact number, a short quote, and the constraint naming what
 it really is: hard quota, advisory threshold, protocol constant or configurable default. Open the source and verify
 the value. A vendor default is not a maximum, and an example or an advisory in a vendor's guide is an advisory
-threshold, not a quota. Record the retrieval date with `@verified`.
-
-```ts
-/**
- * @limitKind published
- * @owner RFC 8628 device authorization grant
- * @unit seconds
- * @scope the wait between token polls when a device authorization names no `interval`
- * @constraint the client must wait this long between polls if no interval is provided
- * @source https://datatracker.ietf.org/doc/html/rfc8628#section-3.2 "If no value is provided,
- * clients MUST use 5 as the default."
- * @verified 2026-10-13
- */
-const DEFAULT_POLL_SECONDS = 5
-```
+threshold, not a quota. Record the retrieval date as the day it was verified.
 
 ### Measured
 
 Include all of these:
 
-- `@evidence`: a resolvable measurement record, not a comment asserting success: authorized provider telemetry (by
+- `evidence`: a resolvable measurement record, not a comment asserting success: authorized provider telemetry (by
   query), or a run's files in the owning package's uncommitted run output. No credentials, personal data or raw
   sensitive errors in code.
-- `@observed`: the actual observation interval, including timezone.
-- `@environment`: provider, region, plan or account scope, deployment or revision, and the relevant SDK and
+- `observed`: the actual observation interval, including timezone.
+- `environment`: provider, region, plan or account scope, deployment or revision, and the relevant SDK and
   configuration versions.
-- `@workload`: operation family, input size and population, batching and aggregate concurrency. A per-instance pool
+- `workload`: operation family, input size and population, batching and aggregate concurrency. A per-instance pool
   or semaphore is not an account-wide cap: every serverless instance and every worker holds its own.
-- `@result`: admitted sample size or duration, measured throughput, latency, throttles and errors, and resource
+- `result`: admitted sample size or duration, measured throughput, latency, throttles and errors, and resource
   pressure where available. State missing metrics. Distinguish unique operations from duplicated log lines and
   retries.
-- `@decision`: how the selected operating value follows from the observations. State any headroom explicitly. A
+- `decision`: how the selected operating value follows from the observations. State any headroom explicitly. A
   successful sample demonstrates that sample, not a universal maximum; locating the actual throttling boundary is not
   required.
-- `@revalidate`: concrete invalidation triggers such as an SDK, region, plan, instance class, workload or concurrency
+- `revalidate`: concrete invalidation triggers such as an SDK, region, plan, instance class, workload or concurrency
   change, and newly observed throttling.
 
 A guess, an experiment's starting width and "seemed fast" are not measured operating limits. An observed failure
@@ -62,22 +64,14 @@ Run output is not committed: when the evidence disappears with its run, the meas
 verifiable, so remeasure it or replace it with a defensible published or derived authority. Never preserve raw run
 evidence in a second repository home.
 
+The committed limit carries the decisive result in its `result` and `decision`, and re-running the measurement its
+`evidence` names reproduces it.
+
 ### Derived
 
-Use `@derivation` to name the data, graph or defensible constants and show the arithmetic in code, with why that
+State the derivation: name the data, graph or defensible constants and show the arithmetic in code, with why that
 arithmetic bounds the relevant resource. A derived limit reads its inputs from the constants that defend them, never a
-second spelling of their numbers:
-
-```ts
-/**
- * @limitKind derived
- * @owner the connection pool
- * @unit seconds
- * @scope the lifetime of one pooled physical connection
- * @derivation RDS_IAM_TOKEN_MINUTES, the published lifetime of the token that signs a connection in, in seconds
- */
-const POSTGRES_MAX_LIFETIME_SECONDS = RDS_IAM_TOKEN_MINUTES * 60
-```
+second spelling of their numbers.
 
 Label reused published defaults as defaults, not empirical throughput or safety. Do not hide an invented factor or
 reserve inside an otherwise sourced formula. Data lengths, graph cardinalities and `0`/`1` identities need no made-up
@@ -88,6 +82,9 @@ citation. Code points and unit conversions are not tuning caps.
 Use Effect's scoped concurrency, `Semaphore`, `Pool` or rate-limiting primitives at the resource owner. A concurrency
 bound controls in-flight work, not requests per second. A rate quota needs rate-aware admission or a finite event
 budget that provably fits the quota, including retries and lifecycle events.
+
+Work a bound cannot admit is refused with a typed error that names the bound, before the work is sent; it is never
+clipped or skipped.
 
 Queue overflow for later processing; never truncate the population. Batching amortizes orchestration overhead but
 must preserve every admitted item. Error classification and the provider's retry semantics stay explicit: retry only

@@ -81,9 +81,9 @@ type Feature =
 /**
  * An installation of the documents base's worlds, drawn, or its README-shaped one (whose roles hold whole entries beside
  * claim-filled writable ones, a serial field's writer, residual and deferred laws a writer meets at COMMIT) over the base
- * or its one-share variant (whose capacity is a unique index behind a unique probe), that variant with an editor beside
- * (whose every fact outside an entry it writes it sees through a relation it holds whole, or not at all), or the
- * education fixture's.
+ * or its one-share variant (whose capacity of one share per document is a residual law, met at COMMIT), that variant
+ * with an editor beside (whose every fact outside an entry it writes it sees through a relation it holds whole, or not
+ * at all), or the education fixture's.
  */
 const installs: Gen<InstallSpec> = oneOf([
 	generatedDocsInstalls,
@@ -536,8 +536,6 @@ const directFeature = (f: WorldFeature): boolean =>
 		"object:filter-function:",
 		"object:key-probe:attempt-refused",
 		"object:key-probe:accepted-inside",
-		"object:unique-probe:attempt-refused",
-		"object:unique-probe:accepted-inside",
 		"object:law-function:attempt-refused",
 		"object:view:attempt-refused",
 		"object:barrier-view:attempt-refused",

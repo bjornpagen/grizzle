@@ -12,11 +12,16 @@ import {
 import { headingOf } from "#test/support/worlds/generate/entries.ts"
 import type { Strata, Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
-import { classifyEntry, entryRows, factKey, isMember } from "#test/support/worlds/model/host.ts"
+import {
+	classifyEntry,
+	entryRows,
+	factKey,
+	isMember,
+	selectionOf
+} from "#test/support/worlds/model/host.ts"
 import {
 	keysOf,
 	serialHead,
-	uniquesOf,
 	type Written,
 	writtenOf
 } from "#test/support/worlds/model/session/writes.ts"
@@ -116,17 +121,10 @@ interface Reference {
 	readonly to: SideSpec
 }
 
-/** The references a law makes from a fact of its source side to its target side: containments and both halves of mirrors. */
+/** The references a law makes from a fact of its source side to its target side: its containments'. */
 const referencesOf = (state: ModelState): ReadonlyArray<Reference> =>
 	Arr.flatMap(state.install.base.laws, (law) =>
-		law.kind === "contained"
-			? [{ from: law.source, to: law.target }]
-			: law.kind === "mirrors"
-				? [
-						{ from: law.left, to: law.right },
-						{ from: law.right, to: law.left }
-					]
-				: []
+		law.kind === "contained" ? [{ from: law.source, to: law.target }] : []
 	)
 
 /** The invalid kinds the references of facts written to `relation` carry: a target deleted (none holds it), or hidden. */
@@ -141,12 +139,15 @@ const referenceKinds = (
 		Arr.filter(referencesOf(state), (r) => r.from.relation === relation),
 		(r: Reference) =>
 			Arr.flatMap(facts, (f): ReadonlyArray<InvalidKind> => {
-				if (!selected(f, r.from.where) || Arr.some(r.from.fields, (x) => f[x] === undefined)) {
+				if (
+					!selected(f, selectionOf(r.from)) ||
+					Arr.some(r.from.fields, (x) => f[x] === undefined)
+				) {
 					return []
 				}
 				const wanted = projection(f, r.from.fields)
 				const meets = (g: HostFact): boolean =>
-					selected(g, r.to.where) &&
+					selected(g, selectionOf(r.to)) &&
 					Arr.every(r.to.fields, (x) => g[x] !== undefined) &&
 					projection(g, r.to.fields) === wanted
 				const targets = Arr.filter(state.reality.get(r.to.relation) ?? [], meets)
@@ -186,8 +187,7 @@ const judge = (state: ModelState, writer: FactWriter, op: EntryOp, written: Writ
 
 /**
  * The invalid kinds of one insert or put through a written relation: a value its integer field's domain refuses, a fact
- * outside the entry, a key a fact outside a query entry holds or a collision with one at an at-most-one capacity's
- * unique index, a reference deleted or hidden. A delete carries none.
+ * outside the entry, a key a fact outside a query entry holds, a reference deleted or hidden. A delete carries none.
  */
 const writeKinds = (
 	state: ModelState,
@@ -212,9 +212,6 @@ const writeKinds = (
 		...(w.kind === "query" && hiddenCollision(state, writer, w, inside)
 			? (["fact:hidden-key-collision"] as const)
 			: []),
-		...(w.kind === "query" && hiddenCapacityCollision(state, writer, w, inside)
-			? (["fact:hidden-capacity-collision"] as const)
-			: []),
 		...referenceKinds(state, writer, w.target, inside, inserted)
 	]
 }
@@ -229,31 +226,6 @@ const outsideOf = (
 		state.reality.get(w.target) ?? [],
 		(g) => !isMember(state, writer.role.name, w.entry, writer.facts, g)
 	)
-
-/**
- * Whether a fact through a query entry collides with a fact of its target outside the entry at the unique index of an
- * at-most-one capacity no key subsumes (uniquesOf), both admitted by its selector: the precheck's unique probe refuses it.
- */
-const hiddenCapacityCollision = (
-	state: ModelState,
-	writer: FactWriter,
-	w: QueryWritten,
-	inside: ReadonlyArray<HostFact>
-): boolean => {
-	const occupants = outsideOf(state, writer, w)
-	return Arr.some(uniquesOf(state.install.base, w.target), (u) =>
-		Arr.some(inside, (f) =>
-			Arr.some(
-				occupants,
-				(g) =>
-					selected(f, u.where) &&
-					selected(g, u.where) &&
-					Arr.every(u.fields, (x) => f[x] !== undefined) &&
-					projection(f, u.fields) === projection(g, u.fields)
-			)
-		)
-	)
-}
 
 /** Whether a fact through a query entry holds a key a fact of its target outside the entry holds. */
 const hiddenCollision = (
@@ -452,7 +424,6 @@ const distinctFacts = (facts: ReadonlyArray<HostFact>): number =>
 /** The fact kinds an op is searched for, each with its class: from another state or world (stale), or anything (wild). */
 const searchedKinds: ReadonlyArray<readonly [InvalidKind, "stale" | "wild"]> = [
 	["fact:hidden-key-collision", "stale"],
-	["fact:hidden-capacity-collision", "stale"],
 	["fact:hidden-reference", "stale"],
 	["fact:deleted-reference", "stale"],
 	["fact:law-broken", "wild"],
@@ -542,7 +513,7 @@ const pointingsOf = (
 								const v = g[x]
 								return v === undefined ? [] : [v]
 							})
-							return selected(g, r.to.where) &&
+							return selected(g, selectionOf(r.to)) &&
 								values.length === r.to.fields.length &&
 								visible(state, writer, r.to.relation, g)
 								? [values]

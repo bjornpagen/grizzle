@@ -51,7 +51,7 @@ class FieldNode {
 /**
  * Field-compatibility classes.
  *
- * Union-find over the admitted containment pairings: the i-th field of a contained, mirrors or capacity side is paired
+ * Union-find over the admitted containment pairings: the i-th field of a contained or capacity side is paired
  * with the i-th field of the other side, and an alternatives expansion pairs its discriminator with its roster's handle
  * (its head containment) and each arm's key with the parent's key. The structure is near-linear, O((F + L) α(F)),
  * with union by size and path halving.

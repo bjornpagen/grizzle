@@ -85,7 +85,7 @@ const groupLaws = (group: WGroup, laws: WriteLawNames): ReadonlyArray<LawId> => 
 		...Arr.map(r.keys, (k) => laws.key(r.name, k))
 	]),
 	...Arr.map(group.containments, (c) => laws.foreignKey(c.from.relation, c.from.fields)),
-	...Arr.map(group.capacities, (c) => laws.capacity(c.source.relation, c.source.fields).law)
+	...Arr.map(group.projectedKeys, (k) => laws.projectedKey(k.relation, k.fields).law)
 ]
 
 /** A native violation's witness: PostgreSQL states its key only in its message. */

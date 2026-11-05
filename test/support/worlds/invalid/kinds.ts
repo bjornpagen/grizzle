@@ -51,7 +51,6 @@ const boundaryOf: { readonly [K in InvalidKind]: Boundary } = {
 	"fact:law-broken": "fact",
 	"fact:outside-world": "fact",
 	"fact:hidden-key-collision": "fact",
-	"fact:hidden-capacity-collision": "fact",
 	"fact:hidden-reference": "fact",
 	"fact:deleted-reference": "fact",
 	"fact:duplicate-in-input": "fact",

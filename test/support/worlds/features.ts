@@ -1,6 +1,6 @@
 import type { Situations } from "@grizzle/testing/features"
 import { Array as Arr, Option, Record } from "effect"
-import { isResidual, isSpan, selected } from "#test/pg/laws/families/model.ts"
+import { isResidual, isSpan } from "#test/pg/laws/families/model.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
 import { invalidKinds } from "#test/support/worlds/invalid/kinds.ts"
 import {
@@ -25,7 +25,6 @@ import {
 	filterReadsStored,
 	keysOf,
 	serialHead,
-	uniquesOf,
 	writtenAt,
 	writtenNamed
 } from "#test/support/worlds/model/session/writes.ts"
@@ -257,32 +256,26 @@ const meets = (a: HostValue, b: HostValue): boolean =>
 	isSpan(a) && isSpan(b) ? a.start < b.end && b.start < a.end : equalValues(a, b)
 
 /**
- * Whether a fact of a relation names a key at which a stored fact sits, or collides with it at a unique index no key
- * subsumes (uniquesOf), both in its selector: every field of the key or index present in both, and each meeting. The
- * relation's keys and indexes are read once, for every pair the predicate is asked about.
+ * Whether a fact of a relation names a key at which a stored fact sits: every field of the key present in both, and
+ * each meeting. The relation's keys are read once, for every pair the predicate is asked about.
  */
 const collision = (
 	base: BaseSpec,
 	relation: string
 ): ((fact: HostFact, stored: HostFact) => boolean) => {
 	const keys = keysOf(base, relation)
-	const uniques = uniquesOf(base, relation)
-	return (fact, stored) => {
-		const at = (fields: ReadonlyArray<string>): boolean =>
+	return (fact, stored) =>
+		Arr.some(keys, (fields) =>
 			Arr.every(fields, (field) =>
 				Option.match(Option.all([Record.get(fact, field), Record.get(stored, field)]), {
 					onNone: () => false,
 					onSome: ([a, b]) => meets(a, b)
 				})
 			)
-		return (
-			Arr.some(keys, at) ||
-			Arr.some(uniques, (u) => selected(fact, u.where) && selected(stored, u.where) && at(u.fields))
 		)
-	}
 }
 
-/** The stored facts of a relation the submitted facts meet at one of its keys or unique indexes, each fact's in turn. */
+/** The stored facts of a relation the submitted facts meet at one of its keys, each fact's in turn. */
 const metByEach = (
 	state: ModelState,
 	relation: string,
@@ -293,7 +286,7 @@ const metByEach = (
 	return Arr.flatMap(facts, (fact) => Arr.filter(stored, (s) => collides(fact, s.fact)))
 }
 
-/** The stored facts of a relation a submitted fact meets at one of its keys or unique indexes. */
+/** The stored facts of a relation a submitted fact meets at one of its keys. */
 const metBy = (state: ModelState, relation: string, fact: HostFact): ReadonlyArray<Stored> =>
 	metByEach(state, relation, [fact])
 
@@ -828,8 +821,6 @@ const functionKind = (
 			return "filter-function"
 		case "key-probe":
 			return "key-probe"
-		case "unique-probe":
-			return "unique-probe"
 		case "advance":
 			return "advance-function"
 		case "law":
@@ -965,25 +956,16 @@ const residualLaw = (state: ModelState, law: string): boolean =>
 	Arr.some(state.host.laws, (l) => l.law === law && isResidual(l))
 
 /**
- * The probe a write's precheck meets a law of a relation through: a key's or a span key's, the entry's key probe; a
- * unique index's, its unique probe; none for any other law.
+ * The probe a write's precheck meets a law of a relation through: a key's or a span key's, the entry's key probe; none
+ * for any other law.
  */
-const probeKindOf = (
-	state: ModelState,
-	law: string,
-	relation: string
-): "key-probe" | "unique-probe" | undefined => {
-	const [probe] = Arr.flatMap(state.host.laws, (l): ReadonlyArray<"key-probe" | "unique-probe"> => {
-		if (l.law !== law) {
-			return []
-		}
-		if ((l.kind === "key" || l.kind === "spanKey") && l.relation === relation) {
-			return ["key-probe"]
-		}
-		return l.kind === "unique" && l.relation === relation ? ["unique-probe"] : []
-	})
-	return probe
-}
+const probeKindOf = (state: ModelState, law: string, relation: string): "key-probe" | undefined =>
+	Arr.some(
+		state.host.laws,
+		(l) => l.law === law && (l.kind === "key" || l.kind === "spanKey") && l.relation === relation
+	)
+		? "key-probe"
+		: undefined
 
 /** What an apply shows of the world's objects: policies accepting and refusing, key probes and law functions refusing. */
 const applyObjects = (
@@ -1608,7 +1590,7 @@ const connectionsOf = (
  *   meets no fact is inside.
  * - `object:`: what the observation demonstrates of a world object: a barrier view hiding a row or suppressing a raise
  *   on one, a policy (and its filter function) accepting an inside fact, refusing an outside one or hiding a row from a
- *   write, a key or unique probe refusing a hidden key and showing the submitted witness, a law function showing or
+ *   write, a key probe refusing a hidden key and showing the submitted witness, a law function showing or
  *   withholding its witness, a function, view, grant, revoke or membership refusing an attempt, or accepting its holder.
  * - `invalid:`: every invalid input the action draws (generate's invalidKindsOf).
  * - `invariant:`: every invariant the action makes non-vacuous (invariantsOf).
@@ -1817,7 +1799,7 @@ const blockFeatures = (b: OpBlock): ReadonlyArray<WorldFeature> =>
 
 /**
  * Every object outcome a world object can show. Left out: a whole entry's plain view hides no row and so suppresses no
- * raise; no view, policy or function but a law function's carries a witness, and a key or unique probe's is always the
+ * raise; no view, policy or function but a law function's carries a witness, and a key probe's is always the
  * key the caller submitted (shown); a policy is met by a write, never attempted on its own; a law function is a trigger
  * function, which no direct call runs; and a revoke is never accepted, since PUBLIC holds nothing.
  */
@@ -1840,10 +1822,6 @@ const objectOutcomes: ReadonlyArray<WorldFeature> = [
 	objectFeature("key-probe", "refused-outside"),
 	objectFeature("key-probe", "witness-shown"),
 	objectFeature("key-probe", "attempt-refused"),
-	objectFeature("unique-probe", "accepted-inside"),
-	objectFeature("unique-probe", "refused-outside"),
-	objectFeature("unique-probe", "witness-shown"),
-	objectFeature("unique-probe", "attempt-refused"),
 	objectFeature("law-function", "witness-shown"),
 	objectFeature("law-function", "witness-withheld"),
 	objectFeature("law-function", "attempt-refused"),

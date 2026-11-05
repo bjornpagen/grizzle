@@ -6,7 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import type { SchemaDesc, StatementDesc } from "#compiler/ir/desc.ts"
+import type { SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -14,6 +14,7 @@ import {
 	type AnySchema,
 	check,
 	key,
+	on,
 	relation,
 	type Statement,
 	schema
@@ -52,13 +53,13 @@ import { ownedInput } from "#test/support/policy.ts"
  * relation and fields in `schema`.
  */
 const declaredKeys = (subject: AnySchema): ReadonlyArray<readonly [Statement, ConstraintName]> => [
-	[key(Employer, ["ein"]), constraintOf(subject, Employer, "key", ["ein"])],
+	[key(on(Employer, "ein")), constraintOf(subject, Employer, "key", ["ein"])],
 	[
-		key(Employee, ["employer", "code"]),
+		key(on(Employee, "employer", "code")),
 		constraintOf(subject, Employee, "key", ["employer", "code"])
 	],
-	[key(PayLine, ["run", "employee"]), constraintOf(subject, PayLine, "key", ["run", "employee"])],
-	[key(Posting, ["line", "account"]), constraintOf(subject, Posting, "key", ["line", "account"])]
+	[key(on(PayLine, "run", "employee")), constraintOf(subject, PayLine, "key", ["run", "employee"])],
+	[key(on(Posting, "line", "account")), constraintOf(subject, Posting, "key", ["line", "account"])]
 ]
 
 /** Every statement of a schema description, at every level. */
@@ -67,36 +68,44 @@ const levelStatements = (desc: SchemaDesc): ReadonlyArray<StatementDesc> => [
 	...(desc.extends === undefined ? [] : levelStatements(desc.extends))
 ]
 
-/**
- * The alternatives expansions among a schema's statements, each as the desc helper spells one: the contained head its
- * origin marks, then the mirrors arms it marks.
- */
+type Contained = Extract<StatementDesc, { readonly kind: "contained" }>
+
+/** The containments among a schema's statements that alternatives expansions mark, grouped by their origin marker. */
 const alternativesExpansions = (
 	statements: ReadonlyArray<StatementDesc>
-): ReadonlyArray<ReadonlyArray<StatementDesc>> => {
-	const origins = new Set(
-		Arr.flatMap(statements, (s) =>
-			(s.kind === "contained" || s.kind === "mirrors") && s.origin !== undefined
-				? [s.origin.alternatives]
-				: []
-		)
+): ReadonlyArray<Arr.NonEmptyReadonlyArray<Contained>> => {
+	const marked = Arr.flatMap(statements, (s) =>
+		s.kind === "contained" && s.origin !== undefined ? [s] : []
 	)
-	return Arr.map([...origins], (origin) => {
-		const marked = Arr.filter(
-			statements,
-			(s) => (s.kind === "contained" || s.kind === "mirrors") && s.origin?.alternatives === origin
-		)
-		return [
-			...Arr.filter(marked, (s) => s.kind === "contained"),
-			...Arr.filter(marked, (s) => s.kind === "mirrors")
-		]
-	})
+	const origins = new Set(
+		Arr.flatMap(marked, (s) => (s.origin === undefined ? [] : [s.origin.alternatives]))
+	)
+	return Arr.map([...origins], (origin) =>
+		nonEmpty(Arr.filter(marked, (s) => s.origin?.alternatives === origin))
+	)
+}
+
+/** The handle an expansion's selected parent side fixes its discriminator to: select(P, (p) => p.eq(p[D], handle)). */
+const handleOf = (side: SideDesc): string => {
+	const [predicate, ...more] = side.selection.conjuncts
+	if (
+		more.length > 0 ||
+		predicate?.kind !== "compare" ||
+		predicate.op !== "eq" ||
+		predicate.left.kind !== "field" ||
+		predicate.right.kind !== "literal" ||
+		typeof predicate.right.value !== "string"
+	) {
+		return assert.fail(`${side.relation}'s side selects no handle of its discriminator`)
+	}
+	return predicate.right.value
 }
 
 /**
  * The constraint of the one tagged foreign key from an alternatives arm into its parent, among the law model's natives:
  * the arm's own foreign key, which a field set alone does not tell from another foreign key of the arm's key fields; into
- * the parent's key and discriminator, or its arm tag when an arm relation is the arm of several handles.
+ * the parent's key and discriminator through the arm's constant law column, or into its arm tag when an arm relation is
+ * the arm of several handles.
  */
 const taggedForeignKey = (
 	model: LawModel,
@@ -105,7 +114,8 @@ const taggedForeignKey = (
 ): { readonly owner: ConstraintOwner; readonly ident: ConstraintName } => {
 	const keys = Arr.flatMap(model.natives, (n) =>
 		n.namespace === "constraint" &&
-		(n.object.kind === "TaggedForeignKey" || n.object.kind === "ArmForeignKey") &&
+		n.object.kind === "ForeignKey" &&
+		Arr.lastNonEmpty(n.object.columns).kind === "law" &&
 		n.object.relation.name === arm &&
 		n.object.target.name === parent
 			? [{ owner: { kind: "table", name: n.owner } as const, ident: identifierOf(n.named) }]
@@ -322,7 +332,7 @@ describe("production names from src", () => {
 							const theory = new Set<LawId>(Arr.map(L.model.theory.laws, (l) => l.id))
 							for (const native of L.model.natives) {
 								const idents: ReadonlyArray<readonly [ConstraintOwner, ConstraintName]> =
-									native.namespace === "constraint" || native.namespace === "index"
+									native.namespace === "constraint"
 										? [[{ kind: "table", name: native.owner }, identifierOf(native.named)]]
 										: native.namespace === "domain" && native.check.kind === "checked"
 											? [[{ kind: "domain", name: native.owner }, native.check.ident]]
@@ -340,34 +350,34 @@ describe("production names from src", () => {
 							for (const expansion of alternativesExpansions(levelStatements(L.model.owned.desc))) {
 								c.note("alternatives expansion")
 								const laws = L.alternativesOfDesc(expansion)
-								const all = [laws.head, laws.reverse, ...new Set(Rec.values(laws.arms))]
-								assert.equal(
-									new Set(all).size,
-									all.length,
-									"head, arm and reverse laws are distinct"
-								)
-								const [head, ...arms] = expansion
-								assert.ok(head?.kind === "contained", "an expansion's head")
-								const discriminator = head.left.fields[0]
+								const all = [laws.reverse, ...new Set(Rec.values(laws.arms))]
+								assert.equal(new Set(all).size, all.length, "arm and reverse laws are distinct")
 								const triggered = new Set(
 									Arr.map(L.residual(laws.reverse).units, (u) => u.relation)
 								)
-								assert.ok(
-									triggered.has(head.left.relation),
-									`the reverse law triggers on ${head.left.relation}`
+								/** Each armed handle's arm contained in its selected parents; the reverse stands beside it. */
+								const armsInParents = Arr.filter(
+									expansion,
+									(s) => s.right.selection.conjuncts.length > 0
 								)
-								for (const arm of arms) {
-									assert.ok(arm.kind === "mirrors", "an expansion's arm")
-									const handle = arm.left.selection[discriminator]
-									assert.ok(
-										typeof handle === "string",
-										`the handle of the arm ${arm.right.relation}`
-									)
-									const fk = taggedForeignKey(L.model, arm.right.relation, head.left.relation)
+								for (const forward of armsInParents) {
+									const parent = forward.right.relation
+									const handle = handleOf(forward.right)
+									const fk = taggedForeignKey(L.model, forward.left.relation, parent)
 									assert.equal(laws.arms[handle], L.lawOfConstraint(fk.owner, fk.ident), handle)
+									for (const relation of [parent, forward.left.relation]) {
+										assert.ok(triggered.has(relation), `the reverse law triggers on ${relation}`)
+									}
 									assert.ok(
-										triggered.has(arm.right.relation),
-										`the reverse law triggers on ${arm.right.relation}`
+										Arr.some(
+											expansion,
+											(s) =>
+												s.left.selection.conjuncts.length > 0 &&
+												s.left.relation === parent &&
+												s.right.relation === forward.left.relation &&
+												handleOf(s.left) === handle
+										),
+										`${handle}'s reverse containment beside its arm's`
 									)
 								}
 							}

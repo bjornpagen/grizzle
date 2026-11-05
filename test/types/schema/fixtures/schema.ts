@@ -128,37 +128,34 @@ export const pausedHandle = () =>
 	// @ts-expect-error -- TS2345: a handle is a member of the roster
 	Kind.handle("Paused")
 
-/** The primary key is required, nonempty, over the relation's fields, each once. */
-// @ts-expect-error -- TS2345 refusal: a key lists each field once
+/** The primary key is required, nonempty, over the relation's fields, each once; a side names its terms once each. */
+// @ts-expect-error -- TS2345: a primary key names at least one field
 export const NoKey = relation("NoKey", { id: uuid }, [])
 // @ts-expect-error -- TS2322: the primary key names declared fields
 export const BadKey = relation("BadKey", { id: uuid }, ["nope"])
 // @ts-expect-error -- TS2345 refusal: a key lists each field once
 export const TwiceKey = relation("TwiceKey", { id: uuid, b: uuid }, ["id", "id"])
-// @ts-expect-error -- TS2345 refusal: a key lists each field once
-export const twiceName = key(Account, ["name", "name"])
-// @ts-expect-error -- TS2345 refusal: a key lists each field once
+// @ts-expect-error -- TS2345 refusal: a side lists each term once
+export const twiceName = key(on(Account, "name", "name"))
+// @ts-expect-error -- TS2345 refusal: a side lists each term once
 export const twiceSide = on(Task, "id", "id")
-// @ts-expect-error -- TS2345 refusal: a key lists each field once
+// @ts-expect-error -- TS2555: a side names at least one term
 export const emptySide = on(Task)
 
-/**
- * LiteralOf rejects a JavaScript number for numeric: in a row check's comparison, and in a
- * selection's binding.
- */
+/** LiteralOf rejects a JavaScript number for numeric: in a row check's comparison, and in a selection's predicate. */
 export const rateBound = check("RateBound", Ticket, (t) => t.rate.le(1n))
 export const rateText = check("RateText", Ticket, (t) => t.rate.le("0.5"))
 // @ts-expect-error -- TS2345: a JavaScript number is never a numeric literal
 export const rateNumber = check("RateNumber", Ticket, (t) => t.rate.le(1))
-// @ts-expect-error -- TS2322: a selection over a numeric field takes no JavaScript number
-export const rateSelect = select(Ticket, { rate: 1 })
+// @ts-expect-error -- TS2345: a selection's predicate compares a numeric field with no JavaScript number
+export const rateSelect = select(Ticket, (t) => t.rate.le(1))
 /** A literal against a contract field adopts the contract: a bare bigint. */
 export const centsBound = check("CentsBound", Ticket, (t) =>
 	t.and(t.amount.ge(0n), t.ge(t.amount, 1n))
 )
 
 /** Statements and the schema's captured tuple. */
-export const byName = key(Account, ["name"])
+export const byName = key(on(Account, "name"))
 export const taskAccount = contained(on(Task, "account"), on(Account, "id"))
 export const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"])
 export const ManualTask = relation("ManualTask", { task: uuid, assignee: uuid }, ["task"])
@@ -189,12 +186,12 @@ type TaskHead = Containment<
 >
 
 type AutomaticArm = Mirrors<
-	Side<Selection<typeof Task, { readonly kind: "Automatic" }>, readonly ["id"]>,
+	Side<Selection<typeof Task>, readonly ["id"]>,
 	Side<typeof AutomaticTask, readonly ["task"]>
 >
 
 type ManualArmLaw = Mirrors<
-	Side<Selection<typeof Task, { readonly kind: "Manual" }>, readonly ["id"]>,
+	Side<Selection<typeof Task>, readonly ["id"]>,
 	Side<typeof ManualTask, readonly ["task"]>
 >
 
@@ -233,12 +230,24 @@ export type WorkKeys = Expect<
 	Equals<KeysOf<typeof Work, typeof Account>, readonly ["id"] | readonly ["name"]>
 >
 export type WorkStatements = Expect<Equals<StatementsOf<typeof Work>[0], typeof byName>>
-/** The schema's laws read the alternatives statement as its expansion: its head is one of the schema's containments. */
+/**
+ * The schema's laws read the alternatives statement as its expansion, and each arm's mirrors as the two containments
+ * it is sugar for: its head and both directions of every arm are the schema's containments, and no mirrors is left.
+ */
 export type WorkArms = Expect<Equals<StatementsOf<typeof Work>[2], typeof taskArms>>
+type ArmSelection = Side<Selection<typeof Task>, readonly ["id"]>
+type AutomaticKey = Side<typeof AutomaticTask, readonly ["task"]>
+type ManualKey = Side<typeof ManualTask, readonly ["task"]>
+type ArmContainments =
+	| Containment<ArmSelection, AutomaticKey>
+	| Containment<AutomaticKey, ArmSelection>
+	| Containment<ArmSelection, ManualKey>
+	| Containment<ManualKey, ArmSelection>
 export type WorkContainments = Expect<
-	Equals<ContainmentsOf<typeof Work>, typeof taskAccount | TaskHead>
+	Equals<ContainmentsOf<typeof Work>, typeof taskAccount | TaskHead | ArmContainments>
 >
-export type WorkLaws = Expect<IsAssignable<AutomaticArm | ManualArmLaw, LawsOf<typeof Work>>>
+export type WorkLaws = Expect<IsAssignable<ArmContainments, LawsOf<typeof Work>>>
+export type WorkSugar = Expect<Not<IsAssignable<AutomaticArm | ManualArmLaw, LawsOf<typeof Work>>>>
 export type WorkRoot = Expect<Equals<LevelsOf<typeof Work>, typeof Work>>
 // @ts-expect-error -- TS2345 refusal: the sides' field types differ
 export const centsRaw = contained(on(Ticket, "amount"), on(Ticket, "id"))
@@ -300,8 +309,8 @@ export const SameLevel = schema.extend(Edu, { OverReports }, [])
 export const RootDerived = schema("Root", { TaskCounts }, [])
 
 /** A law over a derived relation does not typecheck: LawOnDerived at the type level. */
-// @ts-expect-error -- TS2739: key takes ordinary relations only
-export const derivedKey = key(TaskCounts, ["account"])
+// @ts-expect-error -- TS2345: a key's side is never over a derived relation
+export const derivedKey = key(on(TaskCounts, "account"))
 // @ts-expect-error -- TS2739: mutable takes ordinary relations only
 export const derivedMutable = mutable(TaskCounts)
 // @ts-expect-error -- TS2739: check takes ordinary relations only
@@ -309,7 +318,7 @@ export const derivedCheck = check("Positive", TaskCounts, (w) => w.and())
 // @ts-expect-error -- TS2345: a law side is never a derived relation
 export const derivedSide = on(TaskCounts, "account")
 // @ts-expect-error -- TS2345: a selection is never over a derived relation
-export const derivedSelect = select(TaskCounts, {})
+export const derivedSelect = select(TaskCounts, (c) => c.and())
 // @ts-expect-error -- TS2345: alternatives takes no derived parent
 export const derivedArms = alternatives(TaskCounts, "account", Kind, {})
 // @ts-expect-error -- TS2322 refusal: the arm's key does not match the parent key
@@ -360,12 +369,14 @@ export const swappedNames = schema("S6", { Account: Task, Task: Account }, [])
 export const ownNames = schema("S7", { Account, Kind, Task }, [])
 
 /**
- * A row check and a contract predicate read no parameter: Predicate is covariant in its parameter map, so the
- * callback's own predicate type is what is refused.
+ * A row check, a selection and a contract predicate read no parameter: Predicate is covariant in its parameter map,
+ * so the callback's own predicate type is what is refused.
  */
 declare const needsAccount: Predicate<{ readonly account: string }>
 // @ts-expect-error -- TS2322 refusal: a schema predicate reads no parameter
 export const parameterizedCheck = check("NeedsAccount", Task, () => needsAccount)
+// @ts-expect-error -- TS2322 refusal: a schema predicate reads no parameter
+export const parameterizedSelect = select(Task, () => needsAccount)
 // @ts-expect-error -- TS2345 refusal: a schema predicate reads no parameter
 export const parameterizedContract = contract("NeedsAccount", pg.bigint, () => needsAccount)
 export const parameterlessCheck = check("Positive", Task, (row) => row.id.eq(row.id))

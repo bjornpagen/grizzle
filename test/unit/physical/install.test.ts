@@ -140,7 +140,7 @@ const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	enum: inSchema,
 	domain: inSchema,
 	table: { after: ["schema", "enum", "domain"], justified: "any reason" },
-	storedTag: onTable("a law or a program"),
+	lawColumn: onTable("a law or a program"),
 	primaryKey: onTable("a law or a program"),
 	unique: onTable("a law or a program"),
 	check: onTable("a law, a program or its column's type"),

@@ -74,9 +74,12 @@ const Seat = relation(
 	},
 	["id"]
 )
-const codeKey = key(Seat, ["code"])
+const codeKey = key(on(Seat, "code"))
 const oneLead = capacity(on(Group, "id"), {
-	from: on(select(Seat, { lead: true }), "grp"),
+	from: on(
+		select(Seat, (x) => x.eq(x.lead, true)),
+		"grp"
+	),
 	within: within(0n, 1n)
 })
 const oneSeat = capacity(on(Team, "id"), { from: on(Seat, "team"), within: within(0n, 1n) })

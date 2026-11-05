@@ -7,7 +7,14 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
-import { derived, type Limit, maxAllocSize } from "#compiler/core/limits.ts"
+import {
+	derived,
+	int4Max,
+	int8Max,
+	int8Min,
+	type Limit,
+	maxAllocSize
+} from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -18,9 +25,6 @@ import {
 	binary64FractionDigits,
 	binary64MaxExponent,
 	int4Digits,
-	int4Max,
-	int8Max,
-	int8Min,
 	integerDigits,
 	integerRanges,
 	moneyDigits,

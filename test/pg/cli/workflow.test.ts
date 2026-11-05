@@ -1,17 +1,20 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import {
+	accepting,
 	type Command,
 	type Machine,
 	type Program,
 	program,
 	type Real,
-	runProgram
+	runProgram,
+	took
 } from "@grizzle/testing/commands"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { boolean, constant, element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
+import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -26,7 +29,8 @@ import {
 	Redacted,
 	Result,
 	Scope,
-	String as Str
+	String as Str,
+	Struct
 } from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
@@ -975,7 +979,6 @@ type WorkflowParameters = {
 	readonly "a table created by hand or dropped": undefined
 	readonly "scenario: a workload program removed, its index dropped": undefined
 	readonly "scenario: version 2 generated over version 1, its placeholder reviewed": undefined
-	readonly "scenario: version 2 generated over version 1, its placeholder reviewed, drawn twice as often": undefined
 	readonly "scenario: a failing data step stops migrate, is fixed, and migrate resumes": undefined
 	readonly "scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with": undefined
 	readonly "scenario: a new workload configured over an applied workspace: migrate refuses until it is generated, then Db.open refuses and a wrong password is refused until migrate": undefined
@@ -983,32 +986,35 @@ type WorkflowParameters = {
 }
 
 /** A command of one plain step, which draws nothing. */
-const plainCommand = (step: Plain): Command<Model, undefined> => ({
+const plainCommand = (step: Plain): Command<Model, undefined, never> => ({
 	applies: (model) => appliesTo(model, step),
 	parameters: () => constant(undefined),
-	next: (model) => advance(model, step)
+	weight: 1,
+	judge: accepting((model) => advance(model, step))
 })
 
 /** A command of a scenario, which draws nothing. */
-const scenarioCommand = (name: ScenarioName): Command<Model, undefined> => ({
+const scenarioCommand = (name: ScenarioName): Command<Model, undefined, never> => ({
 	applies: scenarios[name].applies,
 	parameters: () => constant(undefined),
-	next: (model) => Arr.reduce(planned(model, scenarios[name].plan), model, advance)
+	weight: 1,
+	judge: accepting((model) => Arr.reduce(planned(model, scenarios[name].plan), model, advance))
 })
 
 /** The tampering each command of one kind makes. */
-const tamperCommand = (tamper: TamperKind): Command<Model, undefined> =>
+const tamperCommand = (tamper: TamperKind): Command<Model, undefined, never> =>
 	plainCommand({ kind: "tamper", tamper })
 
 const initialConfig: Configured = { version: 1, workload: "full" }
 
 /**
- * The workflow as a state machine, its commands in the order a step's pick names them, each as likely as the others:
- * configure draws a version at least the configured one and a workload; a custom data step draws whether it fails; a
- * stray table is planted when none stands and dropped when one does. The review scenario is listed twice: review
- * applies only until version 2 is generated, so it reaches its step less often per draw.
+ * The workflow as a state machine, its commands in the order a step's pick names them, each as likely as the others
+ * but the review scenario: configure draws a version at least the configured one and a workload; a custom data step
+ * draws whether it fails; a stray table is planted when none stands and dropped when one does. The review scenario
+ * weighs twice the others: review applies only until version 2 is generated, so it reaches its step less often per
+ * draw.
  */
-const workflow: Machine<Model, WorkflowParameters> = {
+const workflow: Machine<Model, WorkflowParameters, never> = {
 	initial: {
 		config: initialConfig,
 		generated: undefined,
@@ -1028,7 +1034,8 @@ const workflow: Machine<Model, WorkflowParameters> = {
 				version: source.draw(element<1 | 2>(model.config.version === 1 ? [1, 2] : [2])),
 				workload: source.draw(element<Workload>(["full", "withoutByName"]))
 			}),
-			next: (model, config) => advance(model, { kind: "configure", config })
+			weight: 1,
+			judge: accepting((model, config) => advance(model, { kind: "configure", config }))
 		},
 		"grizzle generate": plainCommand({ kind: "generate" }),
 		"review the placeholders": plainCommand({ kind: "review" }),
@@ -1037,7 +1044,8 @@ const workflow: Machine<Model, WorkflowParameters> = {
 		"grizzle generate --custom": {
 			applies: (model) => appliesTo(model, { kind: "custom", failing: false }),
 			parameters: () => boolean,
-			next: (model, failing) => advance(model, { kind: "custom", failing })
+			weight: 1,
+			judge: accepting((model, failing) => advance(model, { kind: "custom", failing }))
 		},
 		"fix the failing data step": plainCommand({ kind: "fix" }),
 		"tamper with snapshot.json": tamperCommand("snapshot.json"),
@@ -1049,16 +1057,16 @@ const workflow: Machine<Model, WorkflowParameters> = {
 		"a table created by hand or dropped": {
 			applies: (model) => model.applied > 0,
 			parameters: () => constant(undefined),
-			next: (model) => advance(model, { kind: "stray", plant: !model.stray })
+			weight: 1,
+			judge: accepting((model) => advance(model, { kind: "stray", plant: !model.stray }))
 		},
 		"scenario: a workload program removed, its index dropped": scenarioCommand(
 			"scenario: a workload program removed, its index dropped"
 		),
-		"scenario: version 2 generated over version 1, its placeholder reviewed": scenarioCommand(
-			"scenario: version 2 generated over version 1, its placeholder reviewed"
-		),
-		"scenario: version 2 generated over version 1, its placeholder reviewed, drawn twice as often":
-			scenarioCommand("scenario: version 2 generated over version 1, its placeholder reviewed"),
+		"scenario: version 2 generated over version 1, its placeholder reviewed": {
+			...scenarioCommand("scenario: version 2 generated over version 1, its placeholder reviewed"),
+			weight: 2
+		},
 		"scenario: a failing data step stops migrate, is fixed, and migrate resumes": scenarioCommand(
 			"scenario: a failing data step stops migrate, is fixed, and migrate resumes"
 		),
@@ -1078,19 +1086,20 @@ const workflow: Machine<Model, WorkflowParameters> = {
 }
 
 /** How each command runs on the workspace. */
-const realOf = (r: Workspace): Real<Model, WorkflowParameters, StepError, Services> => {
+const realOf = (r: Workspace): Real<Model, WorkflowParameters, never, StepError, Services> => {
 	const plain = (step: Plain) => (_parameters: undefined, before: Model, after: Model) =>
-		runStep(r, step, before, after)
+		Effect.as(runStep(r, step, before, after), took)
 	const scenario = (name: ScenarioName) => (_parameters: undefined, before: Model) =>
-		runScenario(r, name, before)
+		Effect.as(runScenario(r, name, before), took)
 	return {
-		configure: (config, before, after) => runStep(r, { kind: "configure", config }, before, after),
+		configure: (config, before, after) =>
+			Effect.as(runStep(r, { kind: "configure", config }, before, after), took),
 		"grizzle generate": plain({ kind: "generate" }),
 		"review the placeholders": plain({ kind: "review" }),
 		"grizzle check": plain({ kind: "check" }),
 		"grizzle migrate": plain({ kind: "migrate" }),
 		"grizzle generate --custom": (failing, before, after) =>
-			runStep(r, { kind: "custom", failing }, before, after),
+			Effect.as(runStep(r, { kind: "custom", failing }, before, after), took),
 		"fix the failing data step": plain({ kind: "fix" }),
 		"tamper with snapshot.json": plain({ kind: "tamper", tamper: "snapshot.json" }),
 		"tamper with meta.json": plain({ kind: "tamper", tamper: "meta.json" }),
@@ -1099,15 +1108,13 @@ const realOf = (r: Workspace): Real<Model, WorkflowParameters, StepError, Servic
 		"grizzle migrate with a wrong password": plain({ kind: "wrong password" }),
 		"grizzle drift": plain({ kind: "drift" }),
 		"a table created by hand or dropped": (_parameters, before, after) =>
-			runStep(r, { kind: "stray", plant: !before.stray }, before, after),
+			Effect.as(runStep(r, { kind: "stray", plant: !before.stray }, before, after), took),
 		"scenario: a workload program removed, its index dropped": scenario(
 			"scenario: a workload program removed, its index dropped"
 		),
 		"scenario: version 2 generated over version 1, its placeholder reviewed": scenario(
 			"scenario: version 2 generated over version 1, its placeholder reviewed"
 		),
-		"scenario: version 2 generated over version 1, its placeholder reviewed, drawn twice as often":
-			scenario("scenario: version 2 generated over version 1, its placeholder reviewed"),
 		"scenario: a failing data step stops migrate, is fixed, and migrate resumes": scenario(
 			"scenario: a failing data step stops migrate, is fixed, and migrate resumes"
 		),
@@ -1178,7 +1185,9 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					explore(
 						{
 							suite: "cli/workflow",
-							draw: drawn(program(workflow, { min: 0, max: 14 })),
+							draw: drawn(
+								program(workflow, { min: 0, max: 14 }, fullSwarm(Struct.keys(workflow.commands)))
+							),
 							literal: Formatter.format,
 							coverage: required<CommandKind>(commandKinds, { cases: 10 * runs, sense: notesOnly }),
 							kept: [],

@@ -27,6 +27,7 @@ import {
 } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
+import { typlens } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
@@ -43,7 +44,7 @@ import {
 	textByteBound
 } from "#compiler/schema/representability.ts"
 import { schema } from "#compiler/schema/schema.ts"
-import { key } from "#compiler/schema/statements.ts"
+import { keyBuilder, onBuilder } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
@@ -1060,10 +1061,10 @@ type KeySizeFeature =
 
 /**
  * The GiST key representation of a scalar datum (contrib/btree_gist): a fixed type stores its lower and upper bound
- * side by side (gbtreekey4, 8, 16, 32; a bool two bytes), numeric and text both bounds as varlenas inside one varlena
- * (btree_utils_var.c), and a range is its own key under range_ops.
+ * side by side, twice its typlen (int16KEY {lower, upper} and the rest), numeric and text both bounds as varlenas inside
+ * one varlena (btree_utils_var.c), and a range is its own key under range_ops.
  */
-type GistFamily =
+type FixedGistFamily =
 	| "int2"
 	| "int4"
 	| "int8"
@@ -1073,27 +1074,53 @@ type GistFamily =
 	| "bool"
 	| "uuid"
 	| "enum"
-	| "numeric"
-	| "text"
-	| "range"
-	| "vector"
+type GistFamily = FixedGistFamily | "numeric" | "text" | "range" | "vector"
+
+/** Each fixed family's typlen, its datum's bytes: an enum is an oid. */
+const fixedTyplens: { readonly [F in FixedGistFamily]: number } = {
+	int2: typlens.int2.value,
+	int4: typlens.int4.value,
+	int8: typlens.int8.value,
+	float4: typlens.float4.value,
+	float8: typlens.float8.value,
+	money: typlens.money.value,
+	bool: typlens.bool.value,
+	uuid: typlens.uuid.value,
+	enum: typlens.oid.value
+}
+
+const isFixedGistFamily = (family: GistFamily): family is FixedGistFamily => {
+	switch (family) {
+		case "int2":
+		case "int4":
+		case "int8":
+		case "float4":
+		case "float8":
+		case "money":
+		case "bool":
+		case "uuid":
+		case "enum":
+			return true
+		case "numeric":
+		case "text":
+		case "range":
+		case "vector":
+			return false
+	}
+}
 
 const gistKeyBytes = (family: Exclude<GistFamily, "vector">, bytes: number): number => {
 	switch (family) {
 		case "int2":
-			return 4
 		case "int4":
 		case "float4":
 		case "enum":
-			return 8
 		case "int8":
 		case "float8":
 		case "money":
-			return 16
 		case "bool":
-			return 2
 		case "uuid":
-			return 32
+			return 2 * bytes
 		case "numeric":
 		case "text":
 			return 4 + Math.ceil(bytes / 4) * 4 + bytes
@@ -1114,10 +1141,8 @@ type SpanScalar =
 	| { readonly kind: "fixed"; readonly type: FixedType }
 	| { readonly kind: "text"; readonly length: number }
 
-const spanScalarFamily = (s: SpanScalar): Exclude<GistFamily, "vector" | "range"> => {
-	if (s.kind === "text") {
-		return "text"
-	}
+/** A span key's fixed scalar's family. */
+const spanScalarFamily = (s: Extract<SpanScalar, { readonly kind: "fixed" }>): FixedGistFamily => {
 	switch (s.type) {
 		case "smallint":
 			return "int2"
@@ -1199,7 +1224,7 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 								? relation("R", keyFields, names, [])
 								: relation("R", { id: uuid, ...keyFields }, ["id"], [])
 							const owned = ownValue(
-								schema("Keys", { Kind, R }, s.primary ? [] : [key(R, names)], [])
+								schema("Keys", { Kind, R }, s.primary ? [] : [keyBuilder(onBuilder(R, names))], [])
 							)
 							const bounded = boundedDatums(fields)
 							if (bounded.length < fields.length) {
@@ -1269,7 +1294,10 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 								kind === "candidate"
 									? relation("Wide", fields, ["f00"], [])
 									: relation("Keyed", fields, names, [])
-							const result = ownOne(R, kind === "candidate" ? [key(R, names)] : [])
+							const result = ownOne(
+								R,
+								kind === "candidate" ? [keyBuilder(onBuilder(R, names))] : []
+							)
 							if (admitted) {
 								succeeded(result)
 							} else {
@@ -1389,7 +1417,9 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 							 */
 							const rangeBytes = s.endpoint === "integer" ? 17 : 25
 							const scalarKeys = Arr.map(s.scalars, (f) =>
-								gistKeyBytes(spanScalarFamily(f), f.kind === "text" ? 4 + f.length : 0)
+								f.kind === "text"
+									? gistKeyBytes("text", 4 + f.length)
+									: gistKeyBytes(spanScalarFamily(f), fixedTyplens[spanScalarFamily(f)])
 							)
 							assert.deepEqual(layout.value.gist, {
 								span: "during",
@@ -1418,6 +1448,15 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 		"vector"
 	]
 
+	/** A drawn datum: a fixed family's bytes are its typlen, and numeric, text and range draw theirs. */
+	const gistDatumGen: Gen<{ readonly family: GistFamily; readonly bytes: number }> = (source) => {
+		const family = source.draw(element(gistFamilies))
+		return {
+			family,
+			bytes: isFixedGistFamily(family) ? fixedTyplens[family] : source.draw(int(5, 3000))
+		}
+	}
+
 	it.effect(
 		"bounds a GiST entry by btree_gist's two-bound key representation, refusing a vector",
 		(ctx) =>
@@ -1429,16 +1468,7 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 						/**
 						 * Planted: two text datums of 3,000 bytes, past a GiST page, which the drawn datums reach a few times a run.
 						 */
-						draw: sketched(
-							array(
-								(source) => ({
-									family: source.draw(element(gistFamilies)),
-									bytes: source.draw(int(5, 3000))
-								}),
-								{ min: 0, max: 5 }
-							),
-							(datums) => datums
-						),
+						draw: sketched(array(gistDatumGen, { min: 0, max: 5 }), (datums) => datums),
 						literal: Formatter.format,
 						coverage: required<GistFeature>(
 							["vector refused", "within a GiST page", "above a GiST page"],
@@ -1515,7 +1545,7 @@ describe("a vector field is a key field like any other: every vector has one for
 		readonly dimensions: number
 		/** The vector under bareContract("Embedding", pg.vector(d)). */
 		readonly contract: boolean
-		/** In the primary key, or in a candidate key(R, ...). */
+		/** In the primary key, or in a candidate key(on(R, ...)). */
 		readonly primary: boolean
 	}
 
@@ -1607,7 +1637,12 @@ describe("a vector field is a key field like any other: every vector has one for
 							const vectorKey = Arr.map(keyFields, ([name]) => name)
 							const keyed = relation("R", fields, s.primary ? vectorKey : scalarKey, [])
 							const owned = ownValue(
-								schema("Keys", { R: keyed }, s.primary ? [] : [key(keyed, vectorKey)], [])
+								schema(
+									"Keys",
+									{ R: keyed },
+									s.primary ? [] : [keyBuilder(onBuilder(keyed, vectorKey))],
+									[]
+								)
 							)
 							const layout = keyLayout(
 								Arr.map(keyFields, ([field, descriptor]) => ({ field, desc: descOf(descriptor) }))

@@ -5,6 +5,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
+import type * as Result from "#compiler/core/result.ts"
 import {
 	type ContextDesc,
 	contextFieldAdmits,
@@ -38,7 +39,7 @@ import {
 import { record, roleRelations } from "#compiler/schema/record.ts"
 import { derivedDraftOf, relationDescOf } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { alternativesDescOf, statementDescOf } from "#compiler/schema/statements.ts"
+import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import type { AnyDerived, DefinitionQuery } from "#compiler/types/derived/derived.ts"
@@ -65,6 +66,25 @@ import type {
 export const contextDescOf = (value: unknown): ContextDesc | undefined =>
 	ownedDesc(value, "context")
 export const roleDescOf = (value: unknown): RoleDesc | undefined => ownedDesc(value, "role")
+
+/**
+ * A role as a level (write/changeset/levels.ts): its Description; its identity, the canonical text of that Description
+ * with source locations left out, so two roles are one level exactly when their identities are equal; and whether it is
+ * full, holding every relation of every level of its base whole under its own name. Each is read once, when role(...)
+ * builds the role.
+ */
+export interface RoleLevel {
+	readonly desc: RoleDesc
+	readonly identity: Result.Result<string, CompileError>
+	readonly full: boolean
+}
+
+/** The level of each role role(...) built. A WeakMap holds nothing alive and is never enumerated. */
+const roleLevels = new WeakMap<object, RoleLevel>()
+
+/** The level of a role value role(...) built, none for any other value. */
+export const roleLevelOf = (value: unknown): RoleLevel | undefined =>
+	hasProperties(value) ? roleLevels.get(value) : undefined
 export const loginDescOf = (value: unknown): LoginDesc | undefined => ownedDesc(value, "login")
 
 /** What a world relation value records: its name and definition, as its role's query entry. */
@@ -159,20 +179,20 @@ interface AdmittedRole {
 const statementNames = (desc: StatementDesc): ReadonlyArray<string> => {
 	switch (desc.kind) {
 		case "key":
+			return [desc.side.relation]
 		case "mutable":
 		case "check":
 			return [desc.relation]
 		case "contained":
-		case "mirrors":
 			return [desc.left.relation, desc.right.relation]
 		case "capacity":
 			return [desc.target.relation, desc.from.relation]
 	}
 }
 
-/** The relation names a statement value names: an alternatives law's whole expansion, or a statement's own. */
+/** The relation names a statement value names: a mirrors' or an alternatives law's whole expansion, or its own. */
 const namesOf = (value: unknown): ReadonlyArray<string> => {
-	const expansion = alternativesDescOf(value)
+	const expansion = expansionDescOf(value)
 	if (expansion !== undefined) {
 		return expansion.statements.flatMap(statementNames)
 	}
@@ -446,7 +466,7 @@ export const role = <
 	})
 	const kept = (s: Base["statements"][number]): s is KeptStatements<Base, RoleRelations<Rs>> =>
 		namesOf(s).every((n) => admitted.whole.has(n))
-	return ownValue(
+	const value = ownValue(
 		{
 			...builtMark,
 			kind: "role",
@@ -460,6 +480,15 @@ export const role = <
 		"role",
 		admitted.desc
 	)
+	roleLevels.set(
+		value,
+		Object.freeze({
+			desc: admitted.desc,
+			identity: descText(admitted.desc),
+			full: [...levelRelations(admitted.desc.base).keys()].every((n) => admitted.whole.has(n))
+		})
+	)
+	return value
 }
 
 /**

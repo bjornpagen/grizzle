@@ -7,6 +7,7 @@ import {
 	closed,
 	key,
 	login,
+	on,
 	type Relation,
 	relation,
 	role,
@@ -25,7 +26,7 @@ import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
-import { argumentsOf } from "#test/support/list.ts"
+import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { numeric, vectorDimensions, wideNumericTypmod } from "#test/support/oracle/gen/domain.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import {
@@ -233,7 +234,7 @@ export const buildSchema = (s: ProgramSchema): BuiltSchema => {
 		const value = relation(r.name, fields, fieldNames(r.primaryKey))
 		relations.set(r.name, value)
 		for (const c of r.candidates) {
-			const statement = key(value, fieldNames(c))
+			const statement = key(on(value, ...nonEmptyArgumentsOf(fieldNames(c))))
 			candidates.set(`${r.name}\u0000${Arr.join(fieldNames(c), "\u0000")}`, statement)
 			statements.push(statement)
 		}
@@ -274,7 +275,7 @@ export const buildSchema = (s: ProgramSchema): BuiltSchema => {
 		candidate: (r, fields) => {
 			const statement = candidates.get(`${r.name}\u0000${Arr.join(fields, "\u0000")}`)
 			if (statement === undefined) {
-				throw new Error(`no key(${r.name}, ${Arr.join(fields, ", ")})`)
+				throw new Error(`no key(on(${r.name}, ${Arr.join(fields, ", ")}))`)
 			}
 			return statement
 		}

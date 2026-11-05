@@ -1,7 +1,7 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { type Limit, published } from "#compiler/core/limits.ts"
+import { type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
@@ -14,8 +14,7 @@ export const statisticsMaxColumns: Limit = published({
 	unit: "columns",
 	scope: "one extended statistics object: a request's and an access path's",
 	constraint: "compile-time constant",
-	source:
-		"https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/statistics/statistics.h#L19",
+	source: `${postgresSource}/src/include/statistics/statistics.h#L19`,
 	quote: "#define STATS_MAX_DIMENSIONS\t8\t/* max number of attributes */",
 	verified: "2026-11-05"
 })

@@ -75,6 +75,18 @@ export interface NumericTypmodField extends Field<Decimal, "numeric"> {
 export type FloatField = Field<number, "real"> | Field<number, "double precision">
 
 /**
+ * natural: a bigint never below zero, which its values are proved to be, and the one field type a law side may read
+ * pred of. Its host type is bigint, unbranded; `natural` is the member that tells it from every other bigint field.
+ */
+export interface NaturalField extends Field<
+	bigint,
+	"bigint",
+	bigint,
+	{ readonly nonnegative: true }
+> {
+	readonly natural: true
+}
+/**
  * Lowers to GENERATED ALWAYS AS IDENTITY, with the sequence owned by the column. It is a column
  * generation declaration over an integer type, not a value domain, so it is not a span endpoint.
  */

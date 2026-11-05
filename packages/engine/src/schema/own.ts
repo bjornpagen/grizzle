@@ -33,6 +33,8 @@ import { hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
+	candidateKeyFields,
+	conjunctsOf,
 	type ContextDesc,
 	decodeDesc,
 	descText,
@@ -45,11 +47,15 @@ import {
 	type RoleDesc,
 	type RoleEntryDesc,
 	type SchemaDesc,
+	type SelectionDesc,
 	type SideDesc,
-	type StatementDesc
+	type StatementDesc,
+	type TermDesc,
+	termText
 } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
+import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
 import { maxEnumLabelBytes } from "#compiler/schema/protocol.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
@@ -144,13 +150,15 @@ export interface OwnedContract {
  *   what the definition reads, a definition that reads its own level or above, and a definition that reads a parameter
  *   or a context;
  * - a relation, closed relation or contract name reused with a conflicting descriptor (DuplicateIdentity), and the
- *   alternatives helper together with its manual expansion, an arm's mirrors written with its sides in either order or
- *   as its two containments;
+ *   alternatives helper together with any statement of its manual expansion, an arm's mirrors, in either order, being
+ *   its two containments;
  * - a closed handle longer than a PostgreSQL enum label's 63 bytes, and a closed payload fact of a closedId field, at
  *   any contract depth, or a selection or row check literal compared with one, that is not a handle of its roster
  *   (MalformedDescription);
- * - a key, mutable, check, contained, mirrors, alternatives or capacity statement that names a derived relation on
- *   either side (LawOnDerived);
+ * - a side term pred of a field that is not natural, a selection or row check that reads anything but its own row,
+ *   and a key over a closed relation (MalformedDescription);
+ * - a key, mutable, check, contained, alternatives or capacity statement that names a derived relation on either
+ *   side (LawOnDerived);
  * - a primary or candidate key whose index entry can exceed PostgreSQL's limit (UnrepresentableKey, representability.ts);
  * - a declared name the naming door's rule refuses (MalformedDescription, core/identity.ts parseDeclaredName, and
  *   parseSchemaName for the schema's), and two names of one namespace that convert to one identifier
@@ -159,10 +167,10 @@ export interface OwnedContract {
  * Semantic identity excludes allocation order, callback identity, aliases and source locations.
  * Equivalent declarations agree: a relation, closed relation or statement declared twice identically is one
  * declaration, and the canonical description sorts each level's relations by name and its statements by canonical
- * text. A statement is canonicalized first: a check's conjunctions and disjunctions have their operands in canonical
- * order, so that reordered but equal declarations share one text. Roster order is kept, because it is comparison order. The fingerprint hashes
- * that canonical description (core/fingerprint.ts schemaFingerprint). PostgreSQL identifiers are part of the
- * installation artifact, not of the fingerprint.
+ * text. A statement is canonicalized first: a check's and a selection's conjunctions and disjunctions have their
+ * operands in canonical order, so that reordered but equal declarations share one text. Roster order is kept, because
+ * it is comparison order. The fingerprint hashes that canonical description (core/fingerprint.ts schemaFingerprint).
+ * PostgreSQL identifiers are part of the installation artifact, not of the fingerprint.
  *
  * The owned schema: the frozen schema product (desc and fingerprint, ir/products.ts) with what ownership resolved
  * beside it.
@@ -181,28 +189,38 @@ export interface Owned extends OwnedSchema {
 	readonly fieldIds: ReadonlyArray<FieldId>
 }
 
-/** A statement's side beside the fields it pairs: its relation and its literal selection. */
-export type SideScope = Omit<SideDesc, "fields">
+/** A statement's side beside the terms it pairs: its relation and its selection. */
+export type SideScope = Omit<SideDesc, "terms">
 
 /**
- * A field of a statement's left side with the field of its right side at its position: a contained's or a mirrors'
- * left and right, a capacity's target and source.
+ * A term of a statement's left side with the term of its right side at its position: a contained's left and right, a
+ * capacity's target and source.
  */
 export interface SidePair {
-	readonly left: string
-	readonly right: string
+	readonly left: TermDesc
+	readonly right: TermDesc
 }
 
 /**
- * A statement as ownership admitted it. A statement over two sides holds their scopes and their fields paired by
+ * What ownership made of a key statement. A key over a whole relation whose terms are all fields is a candidate key of
+ * the relation, its identity minted, which the relation's keys hold beside its primary key. A key over a selection or
+ * with a pred term constrains only the facts its side reads, so it is no key of the relation: it is a law over the
+ * side, which the law model lowers from the statement's side.
+ */
+export type OwnedKeyLaw =
+	| { readonly kind: "candidate"; readonly key: OwnedKey }
+	| { readonly kind: "projected" }
+
+/**
+ * A statement as ownership admitted it. A statement over two sides holds their scopes and their terms paired by
  * position, which ownership parsed once from two sides of one width (pairSides), so no later pass pairs two sides by
  * position; a capacity's target is its left side and its source its right.
  */
 export type OwnedStatement =
 	| Extract<StatementDesc, { readonly kind: "mutable" }>
-	| (Extract<StatementDesc, { readonly kind: "key" }> & { readonly key: OwnedKey })
+	| (Extract<StatementDesc, { readonly kind: "key" }> & { readonly key: OwnedKeyLaw })
 	| (Extract<StatementDesc, { readonly kind: "check" }> & { readonly check: OwnedCheck })
-	| (Omit<Extract<StatementDesc, { readonly kind: "contained" | "mirrors" }>, "left" | "right"> & {
+	| (Omit<Extract<StatementDesc, { readonly kind: "contained" }>, "left" | "right"> & {
 			readonly left: SideScope
 			readonly right: SideScope
 			readonly pairs: NonEmptyReadonlyArray<SidePair>
@@ -267,7 +285,7 @@ const scopeOf = (side: SideDesc): SideScope => ({
 	selection: side.selection
 })
 
-/** The fields of a statement's two sides paired by position (OwnedStatement): sides of one width. */
+/** The terms of a statement's two sides paired by position (OwnedStatement): sides of one width. */
 const pairSides = (
 	left: SideDesc,
 	right: SideDesc,
@@ -277,13 +295,13 @@ const pairSides = (
 		fail(
 			"MalformedDescription",
 			s.desc.loc,
-			`${statementLabel(s.desc)} between sides of one width: ${left.fields.length} field(s) against ${right.fields.length}`
+			`${statementLabel(s.desc)} between sides of one width: ${left.terms.length} term(s) against ${right.terms.length}`
 		)
-	if (right.fields.length > left.fields.length) {
+	if (right.terms.length > left.terms.length) {
 		unequal()
 	}
-	return mapNonEmpty(left.fields, (l, i) => {
-		const r = right.fields[i]
+	return mapNonEmpty(left.terms, (l, i) => {
+		const r = right.terms[i]
 		return r === undefined ? unequal() : { left: l, right: r }
 	})
 }
@@ -344,14 +362,8 @@ const isHandle = (
 	value: LiteralDesc
 ): boolean => typeof value === "string" && roster.handles.includes(value)
 
-/**
- * The identity of a containment or mirrors law over two sides' canonical texts: a containment is directed, a mirrors
- * is an unordered pair, since mirrors(a, b) and mirrors(b, a) state one equality.
- */
-const lawKey = (kind: "contained" | "mirrors", left: string, right: string): string =>
-	kind === "contained"
-		? `contained\u0000${left}\u0000${right}`
-		: `mirrors\u0000${[left, right].toSorted(compareStrings).join("\u0000")}`
+/** The identity of a containment over its two sides' canonical texts: a containment is directed. */
+const containmentKey = (left: string, right: string): string => `${left}\u0000${right}`
 
 /**
  * A predicate with every conjunction's and disjunction's operands in canonical order, recursively. No operation of a
@@ -393,18 +405,43 @@ const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 }
 
 /**
- * A statement in canonical form: a check's predicate with its operands ordered. Equivalent declarations then have one
- * canonical text, one fingerprint, and are one declaration.
+ * A selection in canonical form: its conjuncts' own conjuncts (ir/desc.ts conjunctsOf), each with its operands ordered,
+ * each once, in the order of their canonical texts. A conjunction is the set of its conjuncts, so two selections of one
+ * set of conjuncts are one selection, and one of none reads every fact.
+ */
+const canonicalSelection = (selection: SelectionDesc): SelectionDesc => {
+	const byText = new Map(
+		selection.conjuncts
+			.flatMap(conjunctsOf)
+			.map(canonicalPredicate)
+			.map((c) => [textOf(c), c] as const)
+	)
+	return {
+		conjuncts: [...byText].toSorted(([a], [b]) => compareText(a, b)).map(([, conjunct]) => conjunct)
+	}
+}
+
+/** A side in canonical form: its selection's (`canonicalSelection`). */
+const canonicalSide = (side: SideDesc): SideDesc => ({
+	...side,
+	selection: canonicalSelection(side.selection)
+})
+
+/**
+ * A statement in canonical form: a check's predicate and each side's selection with their operands ordered.
+ * Equivalent declarations then have one canonical text, one fingerprint, and are one declaration.
  */
 const canonicalStatement = (s: StatementDesc): StatementDesc => {
 	switch (s.kind) {
 		case "check":
 			return { ...s, predicate: canonicalPredicate(s.predicate) }
 		case "key":
-		case "mutable":
+			return { ...s, side: canonicalSide(s.side) }
 		case "contained":
-		case "mirrors":
+			return { ...s, left: canonicalSide(s.left), right: canonicalSide(s.right) }
 		case "capacity":
+			return { ...s, target: canonicalSide(s.target), from: canonicalSide(s.from) }
+		case "mutable":
 			return s
 	}
 }
@@ -468,15 +505,13 @@ const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
 const statementLabel = (s: StatementDesc): string => {
 	switch (s.kind) {
 		case "key":
-			return `key (${s.fields.join(", ")}) of ${s.relation}`
+			return `key (${s.side.terms.map(termText).join(", ")}) of ${s.side.selection.conjuncts.length === 0 ? "" : "selected "}${s.side.relation}`
 		case "mutable":
 			return `mutable ${s.relation}`
 		case "check":
 			return `check ${s.name}`
 		case "contained":
 			return `contained ${s.left.relation} in ${s.right.relation}`
-		case "mirrors":
-			return `mirrors ${s.left.relation} and ${s.right.relation}`
 		case "capacity":
 			return `capacity of ${s.target.relation} from ${s.from.relation}`
 	}
@@ -816,31 +851,41 @@ class Owner {
 		}
 	}
 
+	/**
+	 * A law side as ownership admits it: over a stored relation of the statement's level or below, each term a field of
+	 * its heading and each pred term's field natural, and its selection a predicate over its own row, every field it
+	 * reads the relation's and every handle it compares with a closedId field one of its roster's.
+	 */
 	#checkSide(side: SideDesc, s: StatementEntry): LawRelationEntry {
 		const entry = this.#lawRelation(side.relation, s)
-		this.#requireFields(entry, side.fields, s)
-		for (const [field, value] of Object.entries(side.selection)) {
-			this.#requireFields(entry, [field], s)
-			this.#checkHandle(entry.heading[field], value, s, `${side.relation}.${field}`)
+		this.#requireFields(
+			entry,
+			side.terms.map((t) => t.field),
+			s
+		)
+		for (const t of side.terms) {
+			const desc = entry.heading[t.field]
+			if (t.kind === "pred" && (desc === undefined || !isNaturalDesc(desc))) {
+				fail(
+					"MalformedDescription",
+					s.desc.loc,
+					`${statementLabel(s.desc)} reads pred(${side.relation}.${t.field}); pred reads a natural field, and ${t.field} is not one`
+				)
+			}
+		}
+		for (const conjunct of side.selection.conjuncts) {
+			const foreign = foreignInput(conjunct)
+			if (foreign !== undefined) {
+				fail(
+					"MalformedDescription",
+					s.desc.loc,
+					`${statementLabel(s.desc)} selects ${side.relation} by its row only, not ${foreign}`
+				)
+			}
+			this.#requireFields(entry, [...fieldRefs(conjunct, new Set())], s)
+			this.#checkPredicateHandles(conjunct, entry.heading, s)
 		}
 		return entry
-	}
-
-	/** A literal of a closedId field is a handle of its roster. */
-	#checkHandle(
-		desc: FieldDesc | undefined,
-		value: LiteralDesc,
-		s: StatementEntry,
-		where: string
-	): void {
-		const roster = this.#rosterOf(desc)
-		if (roster !== undefined && !isHandle(roster, value)) {
-			fail(
-				"MalformedDescription",
-				s.desc.loc,
-				`${statementLabel(s.desc)} selects ${where} by a handle of ${roster.name}; ${JSON.stringify(value)} is not one`
-			)
-		}
 	}
 
 	/** The closed relation a closedId descriptor references, through any depth of contracts. */
@@ -925,16 +970,25 @@ class Owner {
 		const d = s.desc
 		switch (d.kind) {
 			case "key": {
-				const entry = this.#lawRelation(d.relation, s)
+				const entry = this.#checkSide(d.side, s)
 				if (entry.desc.kind === "closed") {
 					fail(
 						"MalformedDescription",
 						s.desc.loc,
-						`a candidate key over an ordinary relation; closed relation ${d.relation} is keyed by its handle`
+						`a key over an ordinary relation; closed relation ${d.side.relation} is keyed by its handle`
 					)
 				}
-				this.#requireFields(entry, d.fields, s)
-				return { ...d, key: ownKey(d.relation, entry.desc, d.fields, false, d.loc) }
+				const fields = candidateKeyFields(d.side)
+				return {
+					...d,
+					key:
+						fields === undefined
+							? { kind: "projected" }
+							: {
+									kind: "candidate",
+									key: ownKey(d.side.relation, entry.desc, fields, false, d.loc)
+								}
+				}
 			}
 			case "mutable":
 				this.#ordinary(d.relation, s, "is a closed relation, immutable by nature")
@@ -963,8 +1017,7 @@ class Owner {
 				const named = identity.check(d.relation, declareName(checks, d.name, "check", d.loc))
 				return { ...d, check: { named, constraint: identifierOf(named) } }
 			}
-			case "contained":
-			case "mirrors": {
+			case "contained": {
 				this.#checkSide(d.left, s)
 				this.#checkSide(d.right, s)
 				return {
@@ -1012,45 +1065,24 @@ class Owner {
 	}
 
 	/**
-	 * Using both the alternatives helper and its manual expansion in one schema is a compile error. A
-	 * manual statement repeats the helper's when it states the same law: the head containment as written, and an arm's
-	 * mirrors with its sides in either order, mirrors being symmetric, or as the two opposite containments it is.
+	 * Using both the alternatives helper and any statement of its manual expansion in one schema is a compile error. A
+	 * manual containment repeats the helper's when it states the same law, its sides as the expansion's: the head
+	 * containment, or either containment of an arm's mirrors, whose sides in either order are those two.
 	 */
 	#checkAlternatives(): void {
 		const manual = new Map<string, StatementEntry>()
-		const containments = new Map<string, StatementEntry>()
 		for (const s of this.#statements) {
 			const d = s.desc
-			if (d.kind !== "contained" && d.kind !== "mirrors") {
-				continue
-			}
-			if (d.origin !== undefined) {
-				continue
-			}
-			if (d.kind === "mirrors") {
-				manual.set(lawKey("mirrors", textOf(d.left), textOf(d.right)), s)
-				continue
-			}
-			const left = textOf(d.left)
-			const right = textOf(d.right)
-			manual.set(lawKey("contained", left, right), s)
-			containments.set(`${left}\u0000${right}`, s)
-			if (
-				containments.has(`${right}\u0000${left}`) &&
-				!manual.has(lawKey("mirrors", left, right))
-			) {
-				manual.set(lawKey("mirrors", left, right), s)
+			if (d.kind === "contained" && d.origin === undefined) {
+				manual.set(containmentKey(textOf(d.left), textOf(d.right)), s)
 			}
 		}
 		for (const s of this.#statements) {
 			const d = s.desc
-			if (d.kind !== "contained" && d.kind !== "mirrors") {
+			if (d.kind !== "contained" || d.origin === undefined) {
 				continue
 			}
-			if (d.origin === undefined) {
-				continue
-			}
-			const twin = manual.get(lawKey(d.kind, textOf(d.left), textOf(d.right)))
+			const twin = manual.get(containmentKey(textOf(d.left), textOf(d.right)))
 			if (twin !== undefined) {
 				failWith({
 					_tag: "DuplicateIdentity",
@@ -1154,7 +1186,9 @@ class Owner {
 			true,
 			labeledChildLoc(entry.desc.loc, "primaryKey", `primary key of ${name}`)
 		)
-		const keys = statements.flatMap((s) => (s.kind === "key" && s.relation === name ? [s.key] : []))
+		const keys = statements.flatMap((s) =>
+			s.kind === "key" && s.key.kind === "candidate" && s.side.relation === name ? [s.key.key] : []
+		)
 		const checks = statements.flatMap((s) =>
 			s.kind === "check" && s.relation === name ? [s.check] : []
 		)

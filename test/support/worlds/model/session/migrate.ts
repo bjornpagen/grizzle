@@ -1,10 +1,10 @@
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Option } from "effect"
 import { violations } from "#test/pg/laws/families/model.ts"
 import {
-	atMostOne,
 	evaluateRules,
 	hostSchemaOf,
-	judgedSchemaOf
+	judgedSchemaOf,
+	nativeLaw
 } from "#test/support/worlds/model/host.ts"
 import {
 	changesWorlds,
@@ -23,7 +23,7 @@ import {
 	roleOf,
 	samePlain
 } from "#test/support/worlds/model/session/state.ts"
-import { keysOf, refusedAtBuild } from "#test/support/worlds/model/session/writes.ts"
+import { refusedAtBuild } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	BaseSpec,
 	FieldSpec,
@@ -175,57 +175,30 @@ export type FolderFile =
 	| "publish"
 
 /**
- * Whether a law is one PostgreSQL enforces itself, built by a statement of its own that fails over data breaking it: a
- * key's unique index, an at-most-one capacity's (host.ts atMostOne), a check, a containment into a key with no selector,
- * a foreign key. Every other law is residual: its function, triggers and violation query in a file of its own, whose
- * function and triggers would commit with the files before its violation query and keep judging writes.
+ * The relation the native objects of a law are built on, each by a statement of its own that fails over data breaking
+ * it: a key's or a span key's, a check's, a containment's or a coverage's source; none for a containment into a closed
+ * roster, which its field's type enforces, and none for a law that is not native (host.ts nativeLaw).
  */
-export const nativeLaw = (base: BaseSpec, law: LawSpec): boolean => {
+const builtOn = (base: BaseSpec, law: LawSpec): string | undefined => {
 	switch (law.kind) {
 		case "key":
-		case "check":
-			return true
-		case "capacity":
-			return atMostOne(law)
-		case "contained":
-			return (
-				Rec.isEmptyRecord(law.source.where) &&
-				Rec.isEmptyRecord(law.target.where) &&
-				Arr.some(
-					keysOf(base, law.target.relation),
-					(k) =>
-						k.length === law.target.fields.length &&
-						Arr.every(k, (f) => law.target.fields.includes(f))
-				)
-			)
 		case "spanKey":
-		case "mirrors":
-		case "covered":
-		case "alternatives":
-			return false
-	}
-}
-
-/** The relation a native law is built on: a key's or a check's, a containment's source, an at-most-one capacity's source. */
-const builtOn = (law: LawSpec): string | undefined => {
-	switch (law.kind) {
-		case "key":
 		case "check":
 			return law.relation
 		case "contained":
-			return law.source.relation
-		case "capacity":
-			return atMostOne(law) ? law.source.relation : undefined
-		case "spanKey":
-		case "mirrors":
+			return Arr.some(base.closed, (c) => c.name === law.target.relation)
+				? undefined
+				: law.source.relation
 		case "covered":
+			return law.source.relation
 		case "alternatives":
+		case "capacity":
 			return undefined
 	}
 }
 
-/** Whether a native law is a unique index: a key's, or an at-most-one capacity's. */
-const uniqueIndexed = (law: LawSpec): boolean => law.kind === "key" || law.kind === "capacity"
+/** Whether a native law is built as a unique index: a key's or a span key's. */
+const uniqueIndexed = (law: LawSpec): boolean => law.kind === "key" || law.kind === "spanKey"
 
 /** Whether a relation both bases hold gains a serial field, whose identity sequence the folder creates. */
 const gainsSerial = (was: BaseSpec, now: BaseSpec): boolean =>
@@ -246,7 +219,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	const native = Arr.filter(added, (law) => nativeLaw(now, law))
 	const residual = Arr.filter(added, (law) => !nativeLaw(now, law))
 	const onHeld = (law: LawSpec): boolean => {
-		const relation = builtOn(law)
+		const relation = builtOn(now, law)
 		return relation !== undefined && held(relation)
 	}
 	const notValid = Arr.filter(native, (law) => !uniqueIndexed(law) && onHeld(law))
@@ -351,9 +324,8 @@ const killedStanding = (from: InstallSpec, to: InstallSpec): LedgerStanding => {
 /**
  * Where the ledger stands on a folder a run stopped in at a law its data breaks: unfinished. A run stops only at a law a
  * folder adds, and the generators add only laws PostgreSQL enforces itself (nativeLaw), each over a relation that may
- * hold rows: a key's or an at-most-one capacity's unique index, built concurrently outside a transaction, or a
- * constraint validated in Validate, after
- * Structure or the concurrent indexes committed; one over a new, empty relation never breaks. A folder adding a residual
+ * hold rows: a key's unique index, built concurrently outside a transaction, or a constraint validated in Validate,
+ * after Structure or the concurrent indexes committed; one over a new, empty relation never breaks. A folder adding a residual
  * law, whose own file may be its first, is no folder the model places a stop in.
  */
 const stoppedStanding = (from: InstallSpec, to: InstallSpec): LedgerStanding => {

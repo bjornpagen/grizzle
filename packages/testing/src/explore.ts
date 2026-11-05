@@ -53,7 +53,13 @@ import {
 import { type Drawn, type Replay, ReplayCase, replayTokenOf } from "#replay.ts"
 import { seedsOf } from "#seeds.ts"
 import { notesOnly, type Sense } from "#sense.ts"
-import { type Attempt, type ShrinkBudget, shrinkAttempt, type Shrunk } from "#shrink.ts"
+import {
+	type Attempt,
+	boundedShrink,
+	type ShrinkBudget,
+	shrinkAttempt,
+	type Shrunk
+} from "#shrink.ts"
 import {
 	type Chooser,
 	forcedChooser,
@@ -206,6 +212,17 @@ export type Kept<S, F extends string> = Readonly<{
 }>
 
 /**
+ * What a search's property is checked against, which its report prints beside what it measured: a second
+ * implementation (a naive model, a reference evaluator), the specification turned into a checker, a universal oracle (a
+ * round trip, an idempotence, a law any correct answer obeys), or PostgreSQL as the judge of a law; `name` says which
+ * one, as "a Set<number> against the bitset algebra" or "decode ∘ encode = id".
+ */
+export type Oracle = Readonly<{
+	kind: "second-implementation" | "specification" | "universal" | "postgresql"
+	name: string
+}>
+
+/**
  * A property search over one draw. Every field is stated by the suite, so its budget is on the page:
  * - `literal` prints a sketch as source the suite can paste into its kept cases, and must read back as the same sketch;
  * - `coverage` is what the search must reach, and the steered phase that reaches what the floor stream misses: the
@@ -217,7 +234,8 @@ export type Kept<S, F extends string> = Readonly<{
  *   time;
  * - `steerEvery` is how many cases pass between the snapshots `Case.steering` reads, a constant of the suite, so the
  *   same seed draws the same cases however many run at once;
- * - `caseHang` is how long one case may run before it is stopped and reported.
+ * - `caseHang` is how long one case may run before it is stopped and reported;
+ * - `oracle` is what the property is checked against, which the report prints.
  */
 export type Exploration<S, T, F extends string> = Readonly<{
 	suite: string
@@ -230,6 +248,7 @@ export type Exploration<S, T, F extends string> = Readonly<{
 	concurrency: number
 	steerEvery: number
 	caseHang: Duration.Input
+	oracle?: Oracle
 }>
 
 /** Where a falsified case was drawn: a phase of its search, a kept case, or the one case a replay token names. */
@@ -263,8 +282,8 @@ export const isWitness = (phase: CasePhase): boolean => {
 	}
 }
 
-/** How far a falsified case was shrunk, as its shrink ended (ShrinkEnd), or `unshrunk`: a kept case, a replayed case
- * and an exhaustion's first failure are reported as they ran. */
+/** How far a falsified case was shrunk, as its shrink ended (ShrinkEnd), or `unshrunk`: a kept case and a replayed case
+ * are reported as they ran. */
 const Shrinking = Schema.Literals(["minimal", "budget", "deadline", "unshrunk"])
 
 /**
@@ -915,8 +934,8 @@ const replayOne = <S, T, F extends string, E, R, A>(
 
 /**
  * What a passing exploration found: its cases, its discards, how many cases its steered phase ran, the residual
- * estimate of its independent cases, and how many of them reached each feature its coverage rates (features.ts
- * rating). A replay's has its one case: it runs no stream.
+ * estimate of its independent cases, how many of them reached each feature its coverage rates (features.ts rating),
+ * and the oracle it states. A replay's has its one case: it runs no stream.
  */
 export type Explored = Readonly<{
 	kind: "explored"
@@ -926,6 +945,7 @@ export type Explored = Readonly<{
 	steered: number
 	residual: Residual
 	rates: ReadonlyArray<Rate>
+	oracle: Option.Option<Oracle>
 }>
 
 /** A line on the process's own console, whatever console the case runs under: a fuzz run reports to the person
@@ -1069,7 +1089,8 @@ export const explore = <S, T, F extends string, E, R>(
 					discards: 0,
 					steered: 0,
 					residual: residualOf(tallyOf("independent").tally()),
-					rates: ratesOf(spec.coverage, tallyOf("independent").tally())
+					rates: ratesOf(spec.coverage, tallyOf("independent").tally()),
+					oracle: Option.fromUndefinedOr(spec.oracle)
 				})
 			)
 		}
@@ -1129,7 +1150,8 @@ export const explore = <S, T, F extends string, E, R>(
 			discards,
 			steered: steeredTally.tally().cases,
 			residual: residualOf(independentTally.tally()),
-			rates: ratesOf(spec.coverage, independentTally.tally())
+			rates: ratesOf(spec.coverage, independentTally.tally()),
+			oracle: Option.fromUndefinedOr(spec.oracle)
 		})
 
 		for (const kept of spec.kept) {
@@ -1514,8 +1536,10 @@ export const explore = <S, T, F extends string, E, R>(
 	})
 
 /**
- * An exhaustive check: every case of a bounded generator, smallest first, under a hard limit. `literal` prints a case
- * as source, as an exploration's does; `coverage` is what the space must reach, judged on every case of it.
+ * An exhaustive check: every case of a bounded generator, under a hard limit. `literal` prints a case as source, as an
+ * exploration's does; `coverage` is what the space must reach, judged on every case of it; `box` names the space in
+ * words, the bound a pass proves the property within ("every family of size ≤ 4 under every single mutation"); and
+ * `oracle` is what the property is checked against. The report prints both.
  */
 export type Exhaustion<A, F extends string> = Readonly<{
 	suite: string
@@ -1524,19 +1548,34 @@ export type Exhaustion<A, F extends string> = Readonly<{
 	limit: number
 	coverage: SpaceCoverage<F>
 	caseHang: Duration.Input
+	box?: string
+	oracle?: Oracle
 }>
 
-/** What a passing exhaustion checked: every case of its space. A replay's has its one case. */
-export type Exhausted = Readonly<{ kind: "exhausted"; suite: string; cases: number }>
+/**
+ * What a passing exhaustion checked: every case of its space, the limit it was counted under, the box it names and the
+ * oracle it states. A replay's has its one case.
+ */
+export type Exhausted = Readonly<{
+	kind: "exhausted"
+	suite: string
+	cases: number
+	limit: number
+	box: Option.Option<string>
+	oracle: Option.Option<Oracle>
+}>
 
 /**
- * Checks a property on every case of a bounded generator, smallest first, so a failure needs no shrinking: the first
- * failing case is the smallest, and its replay token runs it alone. The space is counted before any property runs and
- * refused beyond its limit; draws the property makes are enumerated too, so each case's successor depends on it and
- * cases run one at a time, and a run that would pass the limit stops before it. Each case steers by the requirements
- * no earlier case reached. Every case of the space is a witness, fixed by the generator alone, so every requirement
- * must be reached by one of them, and the verdict is the same on every run seed. Passing is a proof inside the box the
- * generator draws.
+ * Checks a property on every case of a bounded generator, in enumeration order, and shrinks the first case that fails
+ * by editing its tape, property draws included, under the steering it was drawn under, for at most as many candidates
+ * as the space's limit: enumeration is lexicographic over decisions and shrinking descends shortlex order, so a later
+ * case with fewer decisions may be less than the first failure, and the shrink moves toward it, while a space of one
+ * shape needs no candidate. Its replay token runs the shrunk case alone. The space is counted before any property runs
+ * and refused beyond its limit; draws the property makes are enumerated too, so each case's successor depends on it
+ * and cases run one at a time, and a run that would pass the limit stops before it. Each case steers by the
+ * requirements no earlier case reached. Every case of the space is a witness, fixed by the generator alone, so every
+ * requirement must be reached by one of them, and the verdict is the same on every run seed. Passing is a proof inside
+ * the box the generator draws.
  */
 export const exhaust = <A, F extends string, E, R>(
 	spec: Exhaustion<A, F>,
@@ -1545,6 +1584,14 @@ export const exhaust = <A, F extends string, E, R>(
 	Effect.gen(function* () {
 		const run = yield* Run
 		const situations = situationsOf(spec.coverage)
+		const exhaustedOf = (cases: number): Exhausted => ({
+			kind: "exhausted",
+			suite: spec.suite,
+			cases,
+			limit: spec.limit,
+			box: Option.fromUndefinedOr(spec.box),
+			oracle: Option.fromUndefinedOr(spec.oracle)
+		})
 		const replay = Option.filter(run.replay, (requested) => requested.suite === spec.suite)
 		if (Option.isSome(replay)) {
 			return yield* replayOne(
@@ -1559,7 +1606,7 @@ export const exhaust = <A, F extends string, E, R>(
 				run,
 				property,
 				replay.value.replayed,
-				(): Exhausted => ({ kind: "exhausted", suite: spec.suite, cases: 1 })
+				(): Exhausted => exhaustedOf(1)
 			)
 		}
 		const refused = SpaceBeyondLimit.make({
@@ -1573,15 +1620,12 @@ export const exhaust = <A, F extends string, E, R>(
 		const exhaustive = tallyOf("exhaustive")
 		const pool: Array<Recorder> = []
 		const hang = hangOf(spec.caseHang)
-		let branch: Option.Option<Branch> = Option.some(firstBranch)
-		let cases = 0
-		while (Option.isSome(branch)) {
-			const under = steeredBy(situations, [exhaustive.tally()])
-			const caseRun = yield* runCase(
+		const caseAt = (at: Branch, under: Under<F>) =>
+			runCase(
 				spec.generator,
 				(value: A) => value,
 				property,
-				prefixChooser(branch.value.values, branch.value.length, simplestChooser),
+				prefixChooser(at.values, at.length, simplestChooser),
 				pool,
 				under,
 				spec.caseHang,
@@ -1589,8 +1633,28 @@ export const exhaust = <A, F extends string, E, R>(
 				keepTape,
 				notesOnly
 			)
+
+		const candidateOf = (values: Float64Array, under: Under<F>) =>
+			runCase(
+				spec.generator,
+				(value: A) => value,
+				property,
+				forcedChooser(values, values.length),
+				pool,
+				under,
+				spec.caseHang,
+				run.deadline,
+				keepTape,
+				notesOnly
+			)
+
+		let branch: Option.Option<Branch> = Option.some(firstBranch)
+		let cases = 0
+		while (Option.isSome(branch)) {
+			const under = steeredBy(situations, [exhaustive.tally()])
+			const caseRun = yield* caseAt(branch.value, under)
 			const where = `case ${cases} of the exhaustive space`
-			yield* judge<Effect.Effect<void, SearchFailure>>(caseRun, {
+			yield* judge<Effect.Effect<void, SearchFailure, Exclude<R, Scope.Scope>>>(caseRun, {
 				passed: () =>
 					cases >= spec.limit
 						? Effect.fail(refused)
@@ -1618,31 +1682,48 @@ export const exhaust = <A, F extends string, E, R>(
 						spec.literal(caseRun.sketch),
 						Option.some(replayCaseOf(under.drawn, cut.tape))
 					),
-				failed: (failed) => {
-					const replayed = Option.some(replayCaseOf(under.drawn, failed.tape))
-					return Effect.fail(
-						PropertyFalsified.make({
-							suite: spec.suite,
-							phase: "exhaustive",
-							shrink: "unshrunk",
-							replay: replayed,
-							message: falsifiedReport(
-								run,
-								spec.suite,
-								where,
-								reportedOf(spec.literal, caseRun, failed.cause, drawsOf(caseRun, failed.tape)),
-								"the smallest failing case: enumeration runs smallest first",
-								replayed
+				failed: (failed) =>
+					Effect.flatMap(
+						shrinkAttempt(
+							{ tape: failed.tape, failure: { run: caseRun, cause: failed.cause } },
+							(values) =>
+								Effect.map(candidateOf(values, under), (candidate) =>
+									judge(candidate, candidateJudgment(candidate))
+								),
+							boundedShrink(spec.limit)
+						),
+						(shrunk) => {
+							const best = shrunk.best.failure.run
+							const replayed = Option.some(replayCaseOf(under.drawn, shrunk.best.tape))
+							return Effect.fail(
+								PropertyFalsified.make({
+									suite: spec.suite,
+									phase: "exhaustive",
+									shrink: shrunk.ended,
+									replay: replayed,
+									message: falsifiedReport(
+										run,
+										spec.suite,
+										where,
+										reportedOf(
+											spec.literal,
+											best,
+											shrunk.best.failure.cause,
+											drawsOf(best, shrunk.best.tape)
+										),
+										shrinkingOf(shrunk),
+										replayed
+									)
+								})
 							)
-						})
+						}
 					)
-				}
 			})
 			branch = nextBranch(caseRun.kept)
 		}
 		switch (spec.coverage.kind) {
 			case "none":
-				return { kind: "exhausted", suite: spec.suite, cases }
+				return exhaustedOf(cases)
 			case "required": {
 				const missing = unreachedOf(spec.coverage.situations, [exhaustive.tally()])
 				if (Arr.isReadonlyArrayNonEmpty(missing)) {
@@ -1653,7 +1734,7 @@ export const exhaust = <A, F extends string, E, R>(
 						message: `${spec.suite}: no case of the space's ${cases} cases reached ${Arr.join(missing, ", ")}`
 					})
 				}
-				return { kind: "exhausted", suite: spec.suite, cases }
+				return exhaustedOf(cases)
 			}
 		}
 	})

@@ -33,6 +33,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import {
+	everyFact,
 	type HostFact,
 	type HostRelation,
 	type HostSchema,
@@ -62,7 +63,7 @@ const worker: HostRelation = {
 
 const host: HostSchema = {
 	relations: [worker],
-	laws: [{ kind: "key", law, relation: "Worker", fields: ["id"] }]
+	laws: [{ kind: "key", law, relation: "Worker", fields: ["id"], selection: everyFact }]
 }
 
 const a: HostFact = { id: 1, name: "a" }

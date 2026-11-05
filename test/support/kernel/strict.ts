@@ -2,16 +2,9 @@ import { Array as Arr, Option, Result, String as Str } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
+import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import { validateText } from "#compiler/core/text.ts"
-import {
-	int2Max,
-	int2Min,
-	int4Max,
-	int4Min,
-	int8Max,
-	int8Min,
-	moneyFractionDigits
-} from "#compiler/ir/carriers.ts"
+import { moneyFractionDigits } from "#compiler/ir/carriers.ts"
 import {
 	type Carrier,
 	type NumericBound,

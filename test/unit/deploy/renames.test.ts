@@ -53,10 +53,14 @@ import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import {
 	capacity,
 	closed,
+	contained,
+	eq,
 	f,
+	field,
 	ge,
 	literal,
 	on,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	value,
@@ -1290,7 +1294,8 @@ const rosters = (pool: number): Gen<ReadonlyArray<string>> =>
 
 /**
  * A closed relation Level of the given handles, and a relation Item a field of which it types; with a `selected`
- * handle, a relation Child contained in the Item rows that hold it, which Child carries as a stored tag, and a row check
+ * handle, a relation Child contained in the Item rows that hold it, which Child carries as a constant law column, and a
+ * row check
  * of Item that names the handle, which holds of every row.
  */
 const rosterDesc = (
@@ -1306,12 +1311,7 @@ const rosterDesc = (
 	statements: Option.match(selected, {
 		onNone: () => [],
 		onSome: (handle) => [
-			{
-				kind: "contained" as const,
-				left: { relation: "Child", fields: ["id"] as const, selection: {} },
-				right: { relation: "Item", fields: ["id"] as const, selection: { level: handle } },
-				origin: undefined
-			},
+			contained(on("Child", ["id"]), onWhere("Item", ["id"], eq(field("level"), literal(handle)))),
 			{
 				kind: "check" as const,
 				name: "Known",

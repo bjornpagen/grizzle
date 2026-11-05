@@ -1054,6 +1054,29 @@ export const probeLaws = Effect.fn("probeLaws")(function* <S>(
 })
 
 /**
+ * Runs `statements` on `session` in one SERIALIZABLE transaction with every constraint IMMEDIATE, each under EXPLAIN
+ * ANALYZE, and rolls it back: the scans and row changes the statements and the native constraint checks they fired at
+ * their ends made, by table. A foreign key's check is PostgreSQL's own, a query its RI trigger runs in this backend, so
+ * the scans it makes are counted beside the statement's.
+ */
+export const probeScans = Effect.fn("probeScans")(function* <S>(
+	session: RawSession,
+	fixture: Fixture<S>,
+	statements: ReadonlyArray<string>
+): Effect.fn.Return<Readonly<Record<string, TableScans>>, SqlError | MalformedPlan> {
+	yield* session.begin
+	return yield* Effect.gen(function* () {
+		yield* session.values("SET CONSTRAINTS ALL IMMEDIATE", [])
+		const before = yield* transactionScans(session, fixture.installed.schema)
+		for (const sql of statements) {
+			yield* explain(session, sql, [], { wal: false, serialize: { kind: "off" } })
+		}
+		const after = yield* transactionScans(session, fixture.installed.schema)
+		return scanDelta(before, after)
+	}).pipe(Effect.ensuring(Effect.orDie(session.values("ROLLBACK", []))))
+})
+
+/**
  * What the backends of one role did while an effect ran, sampled from pg_stat_activity on an observer session: how many
  * server backends the role held, how many were running a statement, and how many waited on a lock. Like the harness's
  * lock-wait sampler (bench/harness/load.ts) it is an estimate within the sampling interval, and it needs no backend

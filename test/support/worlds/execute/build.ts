@@ -11,7 +11,6 @@ import {
 	contained,
 	context,
 	key,
-	mirrors,
 	mutable,
 	on,
 	ref,
@@ -25,7 +24,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
 import { derived } from "#compiler/schema/relation.ts"
-import { alternatives } from "#compiler/schema/statements.ts"
+import { alternativesBuilder } from "#compiler/schema/statements.ts"
 import { contextDescOf, role } from "#compiler/schema/world.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
@@ -265,7 +264,10 @@ interface Space {
 	readonly closed: Readonly<Record<string, BuiltClosed>>
 }
 
-/** A side of a law: its relation, restricted by its selector's values when it fixes any, on its paired fields. */
+/**
+ * A side of a law: its relation, selected by its selector's values when it fixes any (each field equal to its value,
+ * carried as the field's domain stores it), on its paired fields.
+ */
 const sideOf = (space: Space, side: SideSpec) =>
 	Effect.gen(function* () {
 		const r = yield* found(space.relations, side.relation, "relation")
@@ -276,9 +278,13 @@ const sideOf = (space: Space, side: SideSpec) =>
 				(domain) => [field, carrierOf(domain, value)] as const
 			)
 		)
-		return where.length === 0
+		const [first, ...rest] = where
+		return first === undefined
 			? on(r, ...nonEmptyArgumentsOf(fields))
-			: on(select(r, Rec.fromEntries(where)), ...nonEmptyArgumentsOf(fields))
+			: on(
+					select(r, (row) => selectorOf(row, [first, ...rest])),
+					...nonEmptyArgumentsOf(fields)
+				)
 	})
 
 const boundOf = (bound: HostBound): bigint | ReturnType<typeof ref> =>
@@ -302,7 +308,9 @@ const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefu
 			case "key": {
 				const r = yield* found(space.relations, law.relation, "relation")
 				const fields = yield* nonEmpty(law.fields, `a key of ${law.relation}`)
-				return yield* attempt(`key of ${law.relation}`, () => key(r, fields))
+				return yield* attempt(`key of ${law.relation}`, () =>
+					key(on(r, ...nonEmptyArgumentsOf(fields)))
+				)
 			}
 			case "spanKey": {
 				const r = yield* found(space.relations, law.relation, "relation")
@@ -310,7 +318,9 @@ const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefu
 					law.spanAt === "first" ? [law.span, ...law.scalars] : [...law.scalars, law.span],
 					`a span key of ${law.relation}`
 				)
-				return yield* attempt(`span key of ${law.relation}`, () => key(r, fields))
+				return yield* attempt(`span key of ${law.relation}`, () =>
+					key(on(r, ...nonEmptyArgumentsOf(fields)))
+				)
 			}
 			case "check": {
 				const r = yield* found(space.relations, law.relation, "relation")
@@ -335,11 +345,6 @@ const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefu
 					contained(source, target)
 				)
 			}
-			case "mirrors": {
-				const left = yield* sideOf(space, law.left)
-				const right = yield* sideOf(space, law.right)
-				return yield* attempt(`mirrors of ${law.left.relation}`, () => mirrors(left, right))
-			}
 			case "alternatives": {
 				const parent = yield* found(space.relations, law.relation, "relation")
 				const roster = yield* found(space.closed, law.closed, "closed roster")
@@ -353,7 +358,7 @@ const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefu
 					Rec.fromEntries
 				)
 				return yield* attempt(`alternatives of ${law.relation}`, () =>
-					alternatives(parent, law.tag, roster, arms)
+					alternativesBuilder(parent, law.tag, roster, arms)
 				)
 			}
 			case "capacity": {
@@ -424,6 +429,26 @@ const comparedWide = (
 			return row.gt(term, literal)
 	}
 }
+
+/**
+ * A selection's predicate over the row of a relation built at run time: each selected field equal to its value,
+ * conjoined. A field the relation does not hold is a defect of the caller's spec.
+ */
+export const selectorOf = (
+	row: Row,
+	where: Arr.NonEmptyReadonlyArray<readonly [string, unknown]>
+): Predicate =>
+	row.and(
+		...argumentsOf(
+			Arr.map(where, ([field, value]) => {
+				const term = row[field]
+				if (term === undefined) {
+					throw new Error(`a selector reads ${field}, which its relation does not hold`)
+				}
+				return row.eq(term, value)
+			})
+		)
+	)
 
 /** A row check's predicate over the row's scalars: each comparison's literal typed by its field. */
 const predicateOf = (

@@ -59,7 +59,10 @@ rebase, and only refuses a failing commit; it never formats or stages a file.
   every script reads. The build verifies the tarball's SHA256, applies the pin's source patches (`scripts/pg/patches/`,
   each checksummed in pin.env and applied without fuzz), runs PostgreSQL's own regression suites, and
   builds pgvector and plpgsql_check (2.10.15) at their pinned tags. The installation goes under
-  `~/.local/opt/postgresql/<version>/`, the source under `~/.cache/grizzle/src/`.
+  `~/.local/opt/postgresql/<version>/`, the source under `~/.cache/grizzle/src/`. The build is made and tested in a
+  staging tree beside the installation, which one rename puts in its place only once it is complete, so a failed build
+  leaves the previous installation as it was. Both clusters run from the installation, so a cluster running at the
+  rename is stopped just before it and started again just after.
 - **`pnpm pg:init`** creates the cluster under `~/.local/var/grizzle/pg<version>/`:
     - a builtin C.UTF-8 cluster on port 5433, localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP, and
       `max_pred_locks_per_transaction = 2048`, room for the predicate locks of many SERIALIZABLE transactions at once;
@@ -178,7 +181,12 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
 
 - **Total records.** No optional or default parameter: absence is a variant, an `Option`, or `T | undefined` for
   "nothing found". The plugin's `no-optional-parameter` and `no-default-parameter` hold every file to it, except the
-  type layer (`packages/engine/src/types/**`) and the type tests.
+  type layer (`packages/engine/src/types/**`) and the type tests. A public input has no optional property either: a
+  caller who leaves a key out states nothing, so absence is a variant the type names (superlint
+  `no-optional-public-input`). Public is what a package's `exports` map publishes, but its `./internal/` subpaths; an
+  input is any type a caller hands it through those modules, as a parameter of an exported function or constructor,
+  of a method of what one returns, or a callback's return, read off the checker's types. The rule is pending: the gate
+  leaves it out until the tree's violations are fixed, and `superlint --pending`, in a package, runs it beside the rest.
 - **The engine is pure.** It is the Effect-free code of `oxlint.config.ts`. Its `no-restricted-imports` refuses a
   runtime load of `effect` or `@effect/*` in `packages/engine` (an `import type` passes, through `allowTypeImports`),
   any Node module there but `node:crypto`, the driver and a platform's SDK. Its `no-restricted-globals` refuses its
@@ -417,7 +425,8 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   branch of its own, judged by the model and never a failure. Before every decision with a blocked step, the driver
   waits on the server until each blocked step's deadlock check is past. Law races are generated per family
   (`test/schedules/laws/races.ts`).
-- **The law families** (`test/pg/laws/families`): each family (selected-source containment, conditional mirrors,
+- **The law families** (`test/pg/laws/families`, and the native projection families in `test/pg/laws/projections`):
+  each family (partial-projection containments and mirrors, native, judged by PostgreSQL's own constraints;
   alternatives, which draws its roster, its armed handles and shared arm relations, capacity, two capacities on one
   relation by keys of one arity, two laws sharing tables, span coverage, also into a target whose fields are named apart
   and declared in another heading order, a work queue, timekeeping, deposits) draws schemas from its whole parameter

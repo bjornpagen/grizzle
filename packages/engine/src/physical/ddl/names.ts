@@ -296,7 +296,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 }
 
 /** The column type of a scalar, with the fixed collation when the type is builtin text. */
-interface ColumnType {
+export interface ColumnType {
 	readonly type: TypeRef
 	/** The fixed collation of builtin text; undefined for every other type. */
 	readonly collation: Collation | undefined
@@ -317,6 +317,20 @@ export const columnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
 		}
 		return { type: qualifiedType(domain), collation: undefined }
 	}
+	const type = baseTypeRef(names, t)
+	return {
+		type,
+		collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
+	}
+}
+
+/**
+ * The type of a column a law adds (a constant tag, a partial term): its type's base, the fixed collation for text, and
+ * never a domain. A domain's CHECK is `(<predicate>) IS TRUE`, which refuses the null a partial term holds outside its
+ * selection, and a law column holds only values its type already admits: a field's own, which that field's column
+ * checked, or the law model's literal of the field's type.
+ */
+export const lawColumnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
 	const type = baseTypeRef(names, t)
 	return {
 		type,

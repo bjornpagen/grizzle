@@ -8,6 +8,7 @@ import {
 	int,
 	map,
 	string,
+	type Weight,
 	type Weighted,
 	weighted
 } from "#gen.ts"
@@ -292,12 +293,14 @@ export const passed = <T, From extends string>(drawn: Drawn<T, From>): unknown =
 export type Broken<R> = Readonly<{ value: unknown; refusal: R; at: string }>
 
 /**
- * A named way to break a rule of a valid artifact: every site of a live artifact where the rule can be broken, with
- * the refusal each must meet. A live artifact with no such site gives none.
+ * A named way to break a rule of a valid artifact: how often it is drawn against the other corruptions that have a
+ * site in the artifact, and every site of a live artifact where the rule can be broken, with the refusal each must
+ * meet. A live artifact with no such site gives none.
  */
 export type Corruption<T, R, Rule extends string> = Readonly<{
 	rule: Rule
 	from: "stale" | "wild"
+	weight: Weight
 	sites: (live: T) => ReadonlyArray<Broken<R>>
 }>
 
@@ -314,10 +317,11 @@ export type Corrupted<T, R, Rule extends string> =
 
 /**
  * A live artifact, or the artifact with one rule broken at one site: the live artifact one draw in six, and otherwise a
- * rule among the corruptions that have a site in it, and a site of that rule. A boundary that checks a whole artifact
- * (a validator, a decoder, a checker) must accept the live artifact and refuse each corrupted one with exactly its
- * refusal. The live case is the first choice, so a failure shrinks to the live artifact when the boundary refuses it,
- * and otherwise to the first rule and site that still fail. An artifact no corruption has a site in is drawn live.
+ * rule among the corruptions that have a site in it, each as often as its weight against theirs, and a site of that
+ * rule, each equally often. A boundary that checks a whole artifact (a validator, a decoder, a checker) must accept
+ * the live artifact and refuse each corrupted one with exactly its refusal. The live case is the first choice, so a
+ * failure shrinks to the live artifact when the boundary refuses it, and otherwise to the first rule and site that
+ * still fail. An artifact no corruption has a site in is drawn live.
  */
 export const corrupted = <T, R, Rule extends string>(
 	live: T,
@@ -331,22 +335,21 @@ export const corrupted = <T, R, Rule extends string>(
 	if (!Arr.isReadonlyArrayNonEmpty(applicable)) {
 		return constant(unbroken)
 	}
+	const rules = weighted(
+		Arr.map(applicable, ({ corruption, sites }): Weighted<Corrupted<T, R, Rule>> => [
+			corruption.weight,
+			map(element(sites), (broken) => ({
+				kind: corruption.from,
+				rule: corruption.rule,
+				at: broken.at,
+				value: broken.value,
+				refusal: broken.refusal
+			}))
+		])
+	)
 	return weighted<Corrupted<T, R, Rule>>([
 		[1, constant(unbroken)],
-		[
-			5,
-			(source) => {
-				const { corruption, sites } = source.draw(element(applicable))
-				const broken = source.draw(element(sites))
-				return {
-					kind: corruption.from,
-					rule: corruption.rule,
-					at: broken.at,
-					value: broken.value,
-					refusal: broken.refusal
-				}
-			}
-		]
+		[5, rules]
 	])
 }
 

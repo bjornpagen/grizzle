@@ -1,13 +1,13 @@
 import { firstIndex } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { derived, published } from "#compiler/core/limits.ts"
 import {
-	binary64DecimalDigits,
-	binary64Precision,
-	canonicalZero,
+	derived,
 	itemIdBytes,
-	pageHeaderBytes
-} from "#compiler/ir/carriers.ts"
+	pageHeaderBytes,
+	postgresSource,
+	published
+} from "#compiler/core/limits.ts"
+import { binary64DecimalDigits, binary64Precision, canonicalZero } from "#compiler/ir/carriers.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
 import { OpId } from "#compiler/ir/expr.ts"
 import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
@@ -42,8 +42,6 @@ import {
 	type SelfMatch,
 	selfMatch
 } from "#compiler/lower/shapes/catalog/ordinal.ts"
-
-const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_RC1"
 
 const pageLayout = "https://www.postgresql.org/docs/19/storage-page-layout.html"
 

@@ -27,6 +27,7 @@ import {
 	contained,
 	decodedQuery,
 	decodedSchema,
+	eq,
 	f,
 	field,
 	ge,
@@ -37,7 +38,7 @@ import {
 	mutable,
 	ne,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	value,
 	within
@@ -230,10 +231,10 @@ const alternativeStatements = alternatives(PayRun, "stage", Stage, {
  * source); and scalar-group capacity.
  */
 const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
-	key("Employer", ["ein"]),
-	key("Employee", ["employer", "code"]),
-	key("PayLine", ["run", "employee"]),
-	key("Posting", ["line", "account"]),
+	key(on("Employer", ["ein"])),
+	key(on("Employee", ["employer", "code"])),
+	key(on("PayLine", ["run", "employee"])),
+	key(on("Posting", ["line", "account"])),
 	mutable("PayRun"),
 	mutable("Shift"),
 	mutable("Timesheet"),
@@ -258,23 +259,32 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	contained(on("Posting", ["line"]), on("PayLine", ["id"])),
 	contained(on("Employment", ["basis"]), on("Basis", ["id"])),
 	contained(on("LevyLine", ["levy", "employeeRate"]), on("Levy", ["id", "employeeRate"])),
-	mirrors(on("Employee", ["id"]), on("TaxProfile", ["employee"])),
-	mirrors(onSelected("PayLine", ["id"], { offCycle: true }), on("OffCycleReason", ["line"])),
+	...mirrors(on("Employee", ["id"]), on("TaxProfile", ["employee"])),
+	...mirrors(
+		onWhere("PayLine", ["id"], eq(field("offCycle"), literal(true))),
+		on("OffCycleReason", ["line"])
+	),
 	...alternativeStatements,
-	contained(on("Reissue", ["replaces"]), onSelected("PayRun", ["id"], { stage: "voided" })),
-	contained(onSelected("PayRun", ["id"], { stage: "approved" }), on("Approval", ["run"])),
 	contained(
-		onSelected("Shift", ["employee", "week"], { status: "approved" }),
+		on("Reissue", ["replaces"]),
+		onWhere("PayRun", ["id"], eq(field("stage"), literal("voided")))
+	),
+	contained(
+		onWhere("PayRun", ["id"], eq(field("stage"), literal("approved"))),
+		on("Approval", ["run"])
+	),
+	contained(
+		onWhere("Shift", ["employee", "week"], eq(field("status"), literal("approved"))),
 		on("Timesheet", ["employee", "week"])
 	),
-	mirrors(on("Assignment", ["employee", "during"]), on("Employment", ["employee", "during"])),
+	...mirrors(on("Assignment", ["employee", "during"]), on("Employment", ["employee", "during"])),
 	contained(on("Leave", ["employee", "during"]), on("Employment", ["employee", "during"])),
 	contained(
 		on("Salary", ["employee", "during"]),
-		onSelected("Employment", ["employee", "during"], { basis: "salaried" })
+		onWhere("Employment", ["employee", "during"], eq(field("basis"), literal("salaried")))
 	),
 	contained(
-		onSelected("Shift", ["employee", "during"], { status: "approved" }),
+		onWhere("Shift", ["employee", "during"], eq(field("status"), literal("approved"))),
 		on("Employment", ["employee", "during"])
 	),
 	capacity(on("Employer", ["id"]), on("Approver", ["employer"]), within(1n, "*"), {
@@ -283,7 +293,7 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	capacity(on("PayRun", ["id"]), on("Reissue", ["replaces"]), within(0n, 1n), { kind: "count" }),
 	capacity(
 		on("PayLine", ["id"]),
-		onSelected("Deposit", ["line"], { remainder: true }),
+		onWhere("Deposit", ["line"], eq(field("remainder"), literal(true))),
 		within(0n, 1n),
 		{
 			kind: "count"
@@ -300,7 +310,7 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	}),
 	capacity(
 		on("Timesheet", ["employee", "week"]),
-		onSelected("Shift", ["employee", "week"], { status: "approved" }),
+		onWhere("Shift", ["employee", "week"], eq(field("status"), literal("approved"))),
 		within(0n, "ceiling"),
 		{ kind: "duration", field: "during" }
 	)
@@ -436,7 +446,7 @@ export const refusals: ReadonlyArray<Refusal> = [
 	},
 	{
 		name: "a key on a derived relation",
-		schema: withStatement(key("RunTotal", ["run"])),
+		schema: withStatement(key(on("RunTotal", ["run"]))),
 		reason: "LawOnDerived",
 		refusedBy: "ownership"
 	},

@@ -735,7 +735,6 @@ const stateOf = (
 		columns: {},
 		primaryKeys: {},
 		laws: [],
-		uniqueIndexes: {},
 		domains: {},
 		roles: {},
 		logins: {}

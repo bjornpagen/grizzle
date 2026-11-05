@@ -1,7 +1,18 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { derived, type Limit, published } from "#compiler/core/limits.ts"
+import {
+	derived,
+	int2Max,
+	int2Min,
+	int4Max,
+	int4Min,
+	int8Max,
+	int8Min,
+	type Limit,
+	postgresSource,
+	published
+} from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 
@@ -37,81 +48,6 @@ export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 
  */
 export const moneyTag = "m"
 export const vectorTag = "v"
-
-const datatypeSgml =
-	"https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/datatype.sgml"
-
-/** The least smallint. */
-export const int2Min: Limit = published({
-	value: -32768,
-	owner: "PostgreSQL 19rc1",
-	unit: "a smallint value",
-	scope: "every smallint value: a column, a parameter, a literal, an endpoint",
-	constraint: "compile-time constant",
-	source: `${datatypeSgml}#L374`,
-	quote: "<entry>-32768 to +32767</entry>",
-	verified: "2026-11-05"
-})
-
-/** The greatest smallint. */
-export const int2Max: Limit = published({
-	value: 32767,
-	owner: "PostgreSQL 19rc1",
-	unit: "a smallint value",
-	scope: "every smallint value: a column, a parameter, a literal, an endpoint",
-	constraint: "compile-time constant",
-	source: `${datatypeSgml}#L374`,
-	quote: "<entry>-32768 to +32767</entry>",
-	verified: "2026-11-05"
-})
-
-/** The least integer. */
-export const int4Min: Limit = published({
-	value: -2147483648,
-	owner: "PostgreSQL 19rc1",
-	unit: "an integer value",
-	scope: "every integer value: a column, a parameter, a literal, an endpoint, a span width",
-	constraint: "compile-time constant",
-	source: `${datatypeSgml}#L380`,
-	quote: "<entry>-2147483648 to +2147483647</entry>",
-	verified: "2026-11-05"
-})
-
-/** The greatest integer. */
-export const int4Max: Limit = published({
-	value: 2147483647,
-	owner: "PostgreSQL 19rc1",
-	unit: "an integer value",
-	scope: "every integer value: a column, a parameter, a literal, an endpoint, a span width",
-	constraint: "compile-time constant",
-	source: `${datatypeSgml}#L380`,
-	quote: "<entry>-2147483648 to +2147483647</entry>",
-	verified: "2026-11-05"
-})
-
-/** The least bigint, and money's least count of minor units. */
-export const int8Min: Limit<bigint> = published({
-	value: -9223372036854775808n,
-	owner: "PostgreSQL 19rc1",
-	unit: "a bigint value",
-	scope: "every bigint value and every money count of minor units, a row count included",
-	constraint: "compile-time constant",
-	source: `${datatypeSgml}#L386`,
-	quote: "<entry>-9223372036854775808 to +9223372036854775807</entry>",
-	verified: "2026-11-05"
-})
-
-/** The greatest bigint, and money's greatest count of minor units. */
-export const int8Max: Limit<bigint> = published({
-	value: 9223372036854775807n,
-	owner: "PostgreSQL 19rc1",
-	unit: "a bigint value",
-	scope: "every bigint value and every money count of minor units, a row count included",
-	constraint: "compile-time constant",
-	source: `${datatypeSgml}#L386`,
-	quote: "<entry>-9223372036854775808 to +9223372036854775807</entry>",
-	verified: "2026-11-05"
-})
 
 /** The decimal digits of the greatest magnitude in [min, max]: the least d with |x| < 10^d for every x of the range. */
 const rangeDigits = (min: bigint, max: bigint): number =>
@@ -201,8 +137,7 @@ export const moneyFractionDigits: Limit = published({
 	scope:
 		"the fraction digits of every money value, its input, its output and its casts to and from numeric",
 	constraint: "compile-time constant",
-	source:
-		"https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/cash.c#L210-L221",
+	source: `${postgresSource}/src/backend/utils/adt/cash.c#L210-L221`,
 	quote:
 		"frac_digits will be CHAR_MAX in some locales, notably C. [...] fpoint = lconvert->frac_digits; if (fpoint < 0 || fpoint > 10) fpoint = 2;",
 	verified: "2026-11-05"
@@ -346,8 +281,7 @@ export const binary64MinExponent: Limit = published({
  */
 const decimalDigitsOf = (p: number): number => Math.floor((p - 1) * Math.log10(2))
 
-const numericC =
-	"https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c"
+const numericC = `${postgresSource}/src/backend/utils/adt/numeric.c`
 
 /** FLT_DIG: the significant digits a real keeps cast to numeric. */
 export const binary32DecimalDigits: Limit = derived({
@@ -485,34 +419,6 @@ export const cosineNormMax: Limit = derived({
 				(2 ** (emax.value + 1) - 2 ** (emax.value - p.value)) / (1 + 2 ** -p.value) ** n.value
 			) / 2
 		)
-})
-
-const storageLayout =
-	"https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/storage.sgml"
-
-/** A page's header, PageHeaderData: the bytes every page of a table or an index begins with. */
-export const pageHeaderBytes: Limit = published({
-	value: 24,
-	owner: "PostgreSQL 19rc1",
-	unit: "bytes",
-	scope: "the header of every page",
-	constraint: "compile-time constant",
-	source: `${storageLayout}#L763`,
-	quote: "24 bytes long. Contains general information about the page",
-	verified: "2026-11-05"
-})
-
-/** One line pointer, ItemIdData: the bytes every item a page holds, a heap tuple or an index entry, takes beside it. */
-export const itemIdBytes: Limit = published({
-	value: 4,
-	owner: "PostgreSQL 19rc1",
-	unit: "bytes",
-	scope: "the line pointer of every item on a page",
-	constraint: "compile-time constant",
-	source: `${storageLayout}#L769-L770`,
-	quote:
-		"Array of item identifiers pointing to the actual items. Each entry is an (offset,length) pair. 4 bytes per item.",
-	verified: "2026-11-05"
 })
 
 /** The minor units `text` spells when it is a money amount's canonical text, else undefined. */

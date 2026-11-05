@@ -111,7 +111,7 @@ const Unions = schema("Unions", { Kind, Account, Task, Note, Memo }, [
 	contained(on(Task, "account"), on(Account, "id")),
 	contained(on(Note, "task"), on(Task, "id")),
 	contained(on(Memo, "task"), on(Task, "id")),
-	key(Memo, ["task"])
+	key(on(Memo, "task"))
 ])
 
 const openArm = query(Unions).rule((r) => {

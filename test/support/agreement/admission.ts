@@ -11,7 +11,7 @@ import { schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore, handleTerm } from "#compiler/scalar/compute/builders.ts"
-import { check } from "#compiler/schema/statements.ts"
+import { check } from "#compiler/schema/api.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import { Agree, Cell, Cents, Shade, Tone } from "#test/support/agreement/schema.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -23,9 +23,9 @@ import { compileTemplate, testArtifacts, testCompile } from "#test/support/compi
  *
  * Every run draws, for each position and each constant kind, one statement over Cell: the constant's value, and the
  * Cell column of its type it meets, are drawn from the run's stream. The oracle is the engine: the statement is built
- * through the builder's JavaScript view (queryOver, varsOver, computeCore, the statements' check) and compiled as the
- * runtime compiles it, with no types. The program states each verdict: plain where the engine admits, under a
- * `@ts-expect-error` of the diagnostic the position raises where it refuses. The type batch checks the program
+ * through the builder's JavaScript view (queryOver, varsOver, computeCore, and check over an untyped row) and
+ * compiled as the runtime compiles it, with no types. The program states each verdict: plain where the engine admits,
+ * under a `@ts-expect-error` of the diagnostic the position raises where it refuses. The type batch checks the program
  * disarmed, so a statement the types refuse and the engine admits is a diagnostic no directive names, one they admit
  * and the engine refuses is a directive whose diagnostic never comes, and either fails the batch.
  *

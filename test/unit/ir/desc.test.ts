@@ -34,8 +34,10 @@ import {
 	decodeDesc,
 	descText,
 	descToJson,
+	everyFact,
 	type FieldDesc,
-	type LiteralDesc
+	type LiteralDesc,
+	type SelectionDesc
 } from "#compiler/ir/desc.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { predicateExpr } from "#compiler/scalar/compute/term.ts"
@@ -336,8 +338,27 @@ const reach: QueryStageDesc = {
 
 const recursive: QueryDesc = versioned({ kind: "approx", input: reach, by: "distance", take: 20 })
 
+/** Task's facts of kind Automatic, the selection an alternatives arm's two containments read. */
+const automatic: SelectionDesc = {
+	conjuncts: [
+		{
+			kind: "compare",
+			op: "eq",
+			left: { kind: "field", field: "kind" },
+			right: { kind: "literal", value: "Automatic", type: undefined }
+		}
+	]
+}
+
 const statements: ReadonlyArray<StatementDesc> = [
-	{ kind: "key", relation: "Account", fields: ["name"] },
+	{
+		kind: "key",
+		side: {
+			relation: "Account",
+			terms: [{ kind: "field", field: "name" }],
+			selection: everyFact
+		}
+	},
 	{ kind: "mutable", relation: "Account" },
 	{
 		kind: "check",
@@ -352,27 +373,71 @@ const statements: ReadonlyArray<StatementDesc> = [
 	},
 	{
 		kind: "contained",
-		left: { relation: "Task", fields: ["kind"], selection: {} },
-		right: { relation: "Kind", fields: ["id"], selection: {} },
+		left: { relation: "Task", terms: [{ kind: "field", field: "id" }], selection: automatic },
+		right: {
+			relation: "AutomaticTask",
+			terms: [{ kind: "field", field: "task" }],
+			selection: everyFact
+		},
 		origin: { alternatives: "Task.kind" }
 	},
 	{
-		kind: "mirrors",
-		left: { relation: "Task", fields: ["id"], selection: { kind: "Automatic" } },
-		right: { relation: "AutomaticTask", fields: ["task"], selection: {} },
+		kind: "contained",
+		left: {
+			relation: "AutomaticTask",
+			terms: [{ kind: "field", field: "task" }],
+			selection: everyFact
+		},
+		right: { relation: "Task", terms: [{ kind: "field", field: "id" }], selection: automatic },
 		origin: { alternatives: "Task.kind" }
+	},
+	{
+		kind: "contained",
+		left: {
+			relation: "Task",
+			terms: [
+				{ kind: "field", field: "id" },
+				{ kind: "pred", field: "priority" }
+			],
+			selection: everyFact
+		},
+		right: {
+			relation: "Task",
+			terms: [
+				{ kind: "field", field: "id" },
+				{ kind: "field", field: "priority" }
+			],
+			selection: everyFact
+		},
+		origin: undefined
 	},
 	{
 		kind: "capacity",
-		target: { relation: "Resource", fields: ["id"], selection: {} },
-		from: { relation: "Claim", fields: ["resource"], selection: {} },
+		target: {
+			relation: "Resource",
+			terms: [{ kind: "field", field: "id" }],
+			selection: everyFact
+		},
+		from: {
+			relation: "Claim",
+			terms: [{ kind: "field", field: "resource" }],
+			selection: everyFact
+		},
 		weight: { kind: "duration", field: "during" },
 		within: { low: 0n, high: { ref: "budget" } }
 	},
 	{
 		kind: "capacity",
-		target: { relation: "Resource", fields: ["id"], selection: {} },
-		from: { relation: "Claim", fields: ["resource"], selection: {} },
+		target: {
+			relation: "Resource",
+			terms: [{ kind: "field", field: "id" }],
+			selection: everyFact
+		},
+		from: {
+			relation: "Claim",
+			terms: [{ kind: "field", field: "resource" }],
+			selection: everyFact
+		},
 		weight: { kind: "count" },
 		within: { low: 1n, high: "*" }
 	}
@@ -549,7 +614,11 @@ const refuses = (kind: DescKind, value: unknown) => {
 	assert.equal(fail(decodeDesc(kind, value)).reason._tag, "MalformedDescription")
 }
 
-const side = (relation: string, field: string) => ({ relation, fields: [field], selection: {} })
+const side = (relation: string, field: string) => ({
+	relation,
+	terms: [{ kind: "field", field }],
+	selection: everyFact
+})
 
 /** `innermost` under `depth` relational negations. */
 const notChain = (depth: number, innermost: unknown): unknown => {
@@ -887,8 +956,8 @@ describe("Descriptions", () => {
 		"decodes a scale, an origin and an aggregate's argument exactly where their arm states them, and refuses each at it",
 		(ctx) => {
 			type AggregateFn = "count" | "sum" | "mean" | "min" | "max"
-			/** The statements an origin is tried on: the three kinds without one, and the two an expansion holds. */
-			type OriginKind = "key" | "mutable" | "check" | "contained" | "mirrors"
+			/** The statements an origin is tried on: the three kinds without one, and the containment an expansion holds. */
+			type OriginKind = "key" | "mutable" | "check" | "contained"
 			type DecoderCase =
 				| { readonly kind: "compute"; readonly fn: ComputeFn; readonly scale: "absent" | 2 }
 				| { readonly kind: "statement"; readonly statement: OriginKind }
@@ -930,7 +999,7 @@ describe("Descriptions", () => {
 			const statementOf = (kind: OriginKind): unknown => {
 				switch (kind) {
 					case "key":
-						return { kind, relation: "R", fields: ["a"], origin }
+						return { kind, side: side("R", "a"), origin }
 					case "mutable":
 						return { kind, relation: "R", origin }
 					case "check":
@@ -947,7 +1016,6 @@ describe("Descriptions", () => {
 							origin
 						}
 					case "contained":
-					case "mirrors":
 						return { kind, left: side("R", "a"), right: side("S", "id"), origin }
 				}
 			}
@@ -958,7 +1026,7 @@ describe("Descriptions", () => {
 					scale: source.draw(element<"absent" | 2>(["absent", 2]))
 				}),
 				map(
-					element<OriginKind>(["key", "mutable", "check", "contained", "mirrors"]),
+					element<OriginKind>(["key", "mutable", "check", "contained"]),
 					(statement): DecoderCase => ({
 						kind: "statement",
 						statement
@@ -1022,7 +1090,7 @@ describe("Descriptions", () => {
 								}
 								case "statement": {
 									const decoded = decodeDesc("statement", statementOf(c.statement))
-									if (c.statement === "contained" || c.statement === "mirrors") {
+									if (c.statement === "contained") {
 										n.note("origin decoded")
 										succeeded(decoded)
 										return
@@ -1078,10 +1146,10 @@ describe("Descriptions", () => {
 	}
 	/**
 	 * Every path to a part of a value, and whether the part is a struct: a plain object that is no record keyed by
-	 * names (a selection, the fields, bindings, head or row, the facts, the programs, a bind map, a payload).
+	 * names (the fields, bindings, head or row, the facts, the programs, a bind map, a payload). A side's selection is a
+	 * struct.
 	 */
 	const records = new Set([
-		"selection",
 		"fields",
 		"bindings",
 		"head",

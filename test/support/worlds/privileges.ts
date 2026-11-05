@@ -12,13 +12,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { termHeadDomain } from "#test/support/worlds/model/host.ts"
 import { roleContexts } from "#test/support/worlds/model/session/state.ts"
-import {
-	filterReadsStored,
-	keysOf,
-	uniqueIndexOf,
-	uniquesOf,
-	writtenOf
-} from "#test/support/worlds/model/session/writes.ts"
+import { filterReadsStored, keysOf, writtenOf } from "#test/support/worlds/model/session/writes.ts"
 
 import type {
 	BaseSpec,
@@ -365,9 +359,8 @@ const serialFields = (base: BaseSpec, relation: string): ReadonlyArray<string> =
 /**
  * The functions an installation defines for its worlds and writers, which a perturbation may redefine (a law's are the
  * laws' own): for each query entry a role writes, a key probe of each key of its target (the model's keysOf order, the
- * index a WorldFunction names), a unique probe of each unique index of its target no key subsumes (uniquesOf, likewise),
- * and its filter function when its membership reads a stored relation besides its target's row (filterReadsStored); and
- * the advance function of each serial field.
+ * index a WorldFunction names), and its filter function when its membership reads a stored relation besides its
+ * target's row (filterReadsStored); and the advance function of each serial field.
  */
 export const definedWorldFunctions = (install: InstallSpec): ReadonlyArray<WorldFunction> => {
 	const base = install.base
@@ -382,12 +375,6 @@ export const definedWorldFunctions = (install: InstallSpec): ReadonlyArray<World
 								role: role.name,
 								entry: w.entry,
 								key
-							})),
-							...Arr.map(indices(uniquesOf(base, w.target).length), (unique): WorldFunction => ({
-								kind: "unique-probe",
-								role: role.name,
-								entry: w.entry,
-								unique
 							})),
 							...(filterReadsStored(w.rules)
 								? [{ kind: "filter" as const, role: role.name, entry: w.entry }]
@@ -433,9 +420,8 @@ const privilege = (
  *   in every fact of the world), and DELETE on T; and EXECUTE on the advance function of each serial field of T (a
  *   serial column draws its identity default with no sequence privilege, and the advance function is the one way past
  *   an explicit value). TRUNCATE is granted to no one;
- * - for each writable query entry, EXECUTE on its key probes, one per key of T, on its unique probes, one per unique
- *   index of T no key subsumes (uniquesOf: an at-most-one capacity's), and on its filter function when its membership
- *   reads a stored relation besides T's row; and EXECUTE on the refusal function when it writes or reads a context
+ * - for each writable query entry, EXECUTE on its key probes, one per key of T, and on its filter function when its
+ *   membership reads a stored relation besides T's row; and EXECUTE on the refusal function when it writes or reads a context
  *   (a context source refuses an unreadable claims setting through it);
  * - MAINTAIN on the materialized view of each derived relation its refresh list names;
  * - USAGE on every installation type its views' columns and its written tables' columns are typed by;
@@ -507,13 +493,6 @@ const roleFacts = (
 			...advances,
 			...Arr.map(keysOf(base, relation), (key) =>
 				fn(identifierOf(identity.keyProbe(theoryRoleOf(names, role.name), w.entry, key)))
-			),
-			...Arr.map(uniquesOf(base, relation), (u) =>
-				fn(
-					identifierOf(
-						identity.uniqueProbe(theoryRoleOf(names, role.name), w.entry, uniqueIndexOf(names, u))
-					)
-				)
 			),
 			...(filterReadsStored(w.rules)
 				? [fn(identifierOf(identity.filter(theoryRoleOf(names, role.name), w.entry)))]
@@ -739,8 +718,8 @@ const columnsIn = `SELECT c.oid, a.attnum, 'column' AS kind, n.nspname::text AS 
 
 /**
  * The installation's enums and domains: each through every column of the installation it types, and by its name when
- * it types none. A stored generated column, a tagged law's constant tag (physical/ddl/tables.ts storedTag), is no
- * column a role names or writes: no view shows it and no grant reaches it, so it names no type.
+ * it types none. A stored generated column, a law's column (physical/ddl/tables.ts lawColumn), is no column a role
+ * names or writes: no view shows it and no grant reaches it, so it names no type.
  */
 const typesIn = `WITH t AS (SELECT ty.oid, n.nspname::text AS schema, ty.typname::text AS name FROM pg_catalog.pg_type ty JOIN pg_catalog.pg_namespace n ON n.oid = ty.typnamespace WHERE ${ours("n")} AND ty.typtype IN ('e', 'd')),
 	u AS (SELECT t.oid, n.nspname::text AS schema, c.relname::text AS name, a.attname::text AS col FROM t JOIN pg_catalog.pg_attribute a ON a.atttypid = t.oid AND a.attnum > 0 AND NOT a.attisdropped JOIN pg_catalog.pg_class c ON c.oid = a.attrelid AND c.relkind IN ('r', 'p', 'v', 'm', 'f') JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE ${ours("n")}

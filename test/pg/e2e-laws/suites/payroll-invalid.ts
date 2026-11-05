@@ -15,7 +15,6 @@ import {
 	duration,
 	type Fact,
 	key,
-	mirrors,
 	on,
 	ref,
 	select,
@@ -98,12 +97,24 @@ const runStage = L.alternativesOf(
 	alternatives(P.PayRun, "stage", Stage, { paid: P.Payment, voided: P.Voiding })
 )
 const paymentArm = defined(runStage.arms["paid"], "the paid arm's law")
-const offCycleReasons = L.mirrorsOf(
-	mirrors(on(select(P.PayLine, { offCycle: true }), "id"), on(P.OffCycleReason, "line"))
+/**
+ * The off-cycle lines and their reasons: the payroll's mirrors, whose two containments are each a law, an off-cycle line
+ * having its reason and a reason's line being off-cycle.
+ */
+const offCycleLines = on(
+	select(P.PayLine, (l) => l.eq(l.offCycle, true)),
+	"id"
 )
+const reasonLines = on(P.OffCycleReason, "line")
+const offCycleHasReason = L.lawOf(contained(offCycleLines, reasonLines))
+const reasonIsOffCycle = L.lawOf(contained(reasonLines, offCycleLines))
 
 const approvedHours = capacity(on(P.Timesheet, "employee", "week"), {
-	from: on(select(P.Shift, { status: "approved" }), "employee", "week"),
+	from: on(
+		select(P.Shift, (s) => s.eq(s.status, "approved")),
+		"employee",
+		"week"
+	),
 	weight: weigh(duration("during")),
 	within: within(0n, ref("ceiling"))
 })
@@ -172,7 +183,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 						{ id: fresh(1), ein: P.Ein("12-3456789"), name: name("Other Tools LLC") }
 					])
 			),
-		law: L.lawOf(key(P.Employer, ["ein"])),
+		law: L.lawOf(key(on(P.Employer, "ein"))),
 		witnesses: [{ kind: "key", relation: "Employer", values: { ein: P.Ein("12-3456789") } }]
 	},
 	{
@@ -260,9 +271,9 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				p.w.server.roles.hr,
 				p.cs().delete(P.Assignment, [{ employee: bo, during: span(t5, t9), costCenter: "CC-0200" }])
 			),
-		law: L.mirrorsOf(
-			mirrors(on(P.Assignment, "employee", "during"), on(P.Employment, "employee", "during"))
-		).rightToLeft,
+		law: L.lawOf(
+			contained(on(P.Employment, "employee", "during"), on(P.Assignment, "employee", "during"))
+		),
 		witnesses: [unreported]
 	},
 	{
@@ -276,7 +287,11 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		law: L.lawOf(
 			contained(
 				on(P.Salary, "employee", "during"),
-				on(select(P.Employment, { basis: "salaried" }), "employee", "during")
+				on(
+					select(P.Employment, (e) => e.eq(e.basis, "salaried")),
+					"employee",
+					"during"
+				)
 			)
 		),
 		witnesses: [unreported]
@@ -306,7 +321,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 						{ id: fresh(5), employer: acme, code: "E000010", name: name("Eve") }
 					])
 			),
-		law: L.mirrorsOf(mirrors(on(P.Employee, "id"), on(P.TaxProfile, "employee"))).leftToRight,
+		law: L.lawOf(contained(on(P.Employee, "id"), on(P.TaxProfile, "employee"))),
 		witnesses: [unreported]
 	},
 	{
@@ -409,7 +424,10 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		/** The remainder bound: Deposit, selected by remainder = true, counted per PayLine. */
 		law: L.lawOf(
 			capacity(on(P.PayLine, "id"), {
-				from: on(select(P.Deposit, { remainder: true }), "line"),
+				from: on(
+					select(P.Deposit, (d) => d.eq(d.remainder, true)),
+					"line"
+				),
 				within: within(0n, 1n)
 			})
 		),
@@ -474,8 +492,8 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 						{ line: fresh(15), account: "000123456789", amount: cents(100n), remainder: true }
 					])
 			),
-		law: offCycleReasons.leftToRight,
-		witnesses: [{ kind: "key", relation: "PayLine", values: { id: fresh(15) } }]
+		law: offCycleHasReason,
+		witnesses: [unreported]
 	},
 	{
 		change: "insert an OffCycleReason for l1",
@@ -485,7 +503,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				p.w.server.roles.clerk,
 				p.cs().insert(P.OffCycleReason, [{ line: l1, reason: "not off-cycle at all" }])
 			),
-		law: offCycleReasons.rightToLeft,
+		law: reasonIsOffCycle,
 		witnesses: [unreported]
 	},
 	{
@@ -519,9 +537,15 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				p.cs().put(P.PayRun, [{ id: run1, employer: acme, period, stage: "approved" }])
 			),
 		law: L.lawOf(
-			contained(on(select(P.PayRun, { stage: "approved" }), "id"), on(P.Approval, "run"))
+			contained(
+				on(
+					select(P.PayRun, (r) => r.eq(r.stage, "approved")),
+					"id"
+				),
+				on(P.Approval, "run")
+			)
 		),
-		witnesses: [{ kind: "key", relation: "PayRun", values: { id: run1 } }]
+		witnesses: [unreported]
 	},
 	{
 		change: "as clerk, insert a run run5 in stage paid with its Payment and no Approval",
@@ -549,7 +573,13 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 					.insert(P.Reissue, [{ run: fresh(17), replaces: run1 }])
 			),
 		law: L.lawOf(
-			contained(on(P.Reissue, "replaces"), on(select(P.PayRun, { stage: "voided" }), "id"))
+			contained(
+				on(P.Reissue, "replaces"),
+				on(
+					select(P.PayRun, (r) => r.eq(r.stage, "voided")),
+					"id"
+				)
+			)
 		),
 		witnesses: [unreported]
 	},
@@ -570,7 +600,11 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 			),
 		law: L.lawOf(
 			contained(
-				on(select(P.Shift, { status: "approved" }), "employee", "during"),
+				on(
+					select(P.Shift, (s) => s.eq(s.status, "approved")),
+					"employee",
+					"during"
+				),
 				on(P.Employment, "employee", "during")
 			)
 		),
@@ -594,7 +628,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				)
 			}
 		},
-		law: L.lawOf(key(P.Posting, ["line", "account"])),
+		law: L.lawOf(key(on(P.Posting, "line", "account"))),
 		witnesses: [
 			postingKey(l1, "GrossWages"),
 			postingKey(l1, "NetPay"),
@@ -706,11 +740,15 @@ const w2Case: Case = {
 	changes: (p) => approveShifts(p, w2),
 	law: L.lawOf(
 		contained(
-			on(select(P.Shift, { status: "approved" }), "employee", "week"),
+			on(
+				select(P.Shift, (s) => s.eq(s.status, "approved")),
+				"employee",
+				"week"
+			),
 			on(P.Timesheet, "employee", "week")
 		)
 	),
-	witnesses: [{ kind: "key", relation: "Shift", values: { employee: bo, during: w2Shift } }]
+	witnesses: [unreported]
 }
 
 const ceilingCase: Case = {

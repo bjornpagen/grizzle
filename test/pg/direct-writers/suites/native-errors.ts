@@ -104,7 +104,7 @@ type NativeFeature =
 /**
  * A direct SQL writer meets PostgreSQL's native errors for the two kinds of object the generated direct-writer
  * populations do not draw. The direct-writer model (model.ts) owns keys, candidate keys, foreign keys at the statement
- * and at COMMIT, capacities' partial unique indexes, identity columns, immutability, refined text, typmod numerics,
+ * and at COMMIT, projected keys' UNIQUEs, identity columns, immutability, refined text, typmod numerics,
  * closed handles and missing fields over generated write schemas; the generated histories (test/support/history) own
  * span keys' exclusion, a capacity's row check, every residual law at COMMIT with its key-only DETAIL read strictly,
  * and law triggers set IMMEDIATE by their schema-qualified names, over the law families; isolation.test.ts owns the

@@ -114,31 +114,54 @@ export interface HostRelation {
 	readonly mutable: boolean
 }
 
-/** Values a selector admits at a field, one of which a fact of the side holds there. */
-export interface HostAmong {
-	readonly among: Arr.NonEmptyReadonlyArray<HostValue>
-}
+/**
+ * Which facts of its relation a law side reads: every one, or those its row predicate holds of, the predicate the
+ * grizzle side's select states over a fact's own fields. `pinned` is a fact's values at the fields the predicate reads
+ * that it holds of, which a fact drawn for the side takes there.
+ */
+export type HostSelection =
+	| { readonly kind: "every" }
+	| {
+			readonly kind: "where"
+			readonly holds: (fact: HostFact) => boolean
+			readonly pinned: HostFact
+	  }
 
-/** What a selector fixes at a field: one value, or one of several (`HostAmong`). */
-export type HostSelector = HostValue | HostAmong
+/** The selection of every fact. */
+export const everyFact: HostSelection = { kind: "every" }
 
-const isAmong = (s: HostSelector): s is HostAmong => typeof s === "object" && "among" in s
+/**
+ * The selection of the facts whose every listed field holds one of its values, the first value of each the one a drawn
+ * fact takes: select(R, (r) => r.and(r.in(r.f, values), ...)).
+ */
+export const fieldsIn = (
+	values: Readonly<Record<string, Arr.NonEmptyReadonlyArray<HostValue>>>
+): HostSelection => ({
+	kind: "where",
+	holds: (fact) =>
+		Arr.every(Rec.toEntries(values), ([field, admitted]) =>
+			Arr.some(admitted, (x) => sameValue(fact[field], x))
+		),
+	pinned: Rec.map(values, (admitted) => admitted[0])
+})
 
-/** The values a selector admits at a field: its one value, or an among's. */
-export const selectorValues = (s: HostSelector): Arr.NonEmptyReadonlyArray<HostValue> =>
-	isAmong(s) ? s.among : [s]
+/** The selection of the facts whose fields hold these values: select(R, (r) => r.and(r.eq(r.f, v), ...)). */
+export const fieldsEqual = (values: Readonly<Record<string, HostValue>>): HostSelection =>
+	fieldsIn(Rec.map(values, (v): Arr.NonEmptyReadonlyArray<HostValue> => [v]))
 
-/** A selector as fact values: each field's value, the first of the values an among admits. */
-export const pinned = (
-	where: Readonly<Record<string, HostSelector>>
-): Readonly<Record<string, HostValue>> => Rec.map(where, (s) => selectorValues(s)[0])
+/** Whether a selection holds of a fact. */
+export const selected = (fact: HostFact, selection: HostSelection): boolean =>
+	selection.kind === "every" || selection.holds(fact)
 
-/** A side of a law: a relation, its paired fields in pair order, and the field values a selector fixes. */
+/** The values a fact drawn for a selection takes to be selected: none for every fact. */
+export const pinned = (selection: HostSelection): HostFact =>
+	selection.kind === "every" ? {} : selection.pinned
+
+/** A side of a law: a relation, its paired fields in pair order, and the facts it reads. */
 export interface HostSide {
 	readonly relation: string
 	readonly fields: ReadonlyArray<string>
-	/** The selector: the field values a fact of the side holds; none, `everyFact`, selects every fact. */
-	readonly where: Readonly<Record<string, HostSelector>>
+	readonly selection: HostSelection
 }
 
 /** What a capacity sums per group: a count, a field's values, or the widths of a span field. */
@@ -149,22 +172,16 @@ export type HostWeight =
 
 export type HostLaw =
 	| {
+			/**
+			 * A key over a side: no two facts its selection reads agree on its fields. A primary or candidate key reads
+			 * every fact; a projected key, key(on(select(R, φ), ...)), only those φ holds of, and a put displaces no
+			 * occupant by it.
+			 */
 			readonly kind: "key"
 			readonly law: LawId
 			readonly relation: string
 			readonly fields: ReadonlyArray<string>
-	  }
-	| {
-			/**
-			 * A unique index over the facts its selector admits, which is no key of its relation: the index an at-most-one
-			 * count capacity over an unselected target is (a partial unique index on its source's fields, with the source's
-			 * selector as its predicate). A put displaces no occupant by it.
-			 */
-			readonly kind: "unique"
-			readonly law: LawId
-			readonly relation: string
-			readonly fields: ReadonlyArray<string>
-			readonly where: Readonly<Record<string, HostValue>>
+			readonly selection: HostSelection
 	  }
 	| {
 			readonly kind: "spanKey"
@@ -180,12 +197,11 @@ export type HostLaw =
 			readonly holds: (fact: HostFact) => boolean
 	  }
 	| {
+			/** A native foreign key, from the source's columns or its selected side's: its violation names no fact. */
 			readonly kind: "contained"
 			readonly law: LawId
 			readonly source: HostSide
 			readonly target: HostSide
-			/** A residual law reports the violating source fact's key; a native foreign key reports none. */
-			readonly residual: boolean
 	  }
 	| {
 			readonly kind: "covered"
@@ -225,7 +241,6 @@ export const needs = (
 ): ReadonlyArray<{ readonly from: HostSide; readonly to: HostSide }> => {
 	switch (law.kind) {
 		case "key":
-		case "unique":
 		case "spanKey":
 		case "check":
 		case "capacity":
@@ -252,19 +267,18 @@ export interface HostSchema {
 	readonly laws: ReadonlyArray<HostLaw>
 }
 
-/** Whether a law is checked at the statement that breaks it: a key, a unique index, a span key, a row check. */
+/** Whether a law is checked at the statement that breaks it: a key, a span key, a row check. */
 export const isImmediate = (law: HostLaw): boolean =>
-	law.kind === "key" || law.kind === "unique" || law.kind === "spanKey" || law.kind === "check"
+	law.kind === "key" || law.kind === "spanKey" || law.kind === "check"
 
 /** Whether a law is a residual law, enforced by a law function: every law no native constraint enforces. */
 export const isResidual = (law: HostLaw): boolean => {
 	switch (law.kind) {
 		case "key":
-		case "unique":
 		case "spanKey":
 		case "check":
-			return false
 		case "contained":
+			return false
 		case "covered":
 			return law.residual
 		case "obliged":
@@ -277,7 +291,6 @@ export const isResidual = (law: HostLaw): boolean => {
 export const lawRelations = (law: HostLaw): ReadonlyArray<string> => {
 	switch (law.kind) {
 		case "key":
-		case "unique":
 		case "spanKey":
 		case "check":
 			return [law.relation]
@@ -397,12 +410,6 @@ const weightOf = (weight: HostWeight, fact: HostFact): bigint => {
 	}
 }
 
-export const selected = (fact: HostFact, where: Readonly<Record<string, HostSelector>>): boolean =>
-	Arr.every(Rec.toEntries(where), ([k, s]) => Arr.some(selectorValues(s), (x) => fact[k] === x))
-
-/** The empty selector, which every fact holds. */
-export const everyFact: Readonly<Record<string, HostValue>> = {}
-
 /** Spans in the order of their starts. */
 const byStart: Order.Order<Span> = Order.mapInput(Order.Number, (t: Span) => t.start)
 
@@ -424,11 +431,11 @@ const coveredBy = (s: Span, spans: ReadonlyArray<Span>): boolean => {
 }
 
 /**
- * Whether two facts of a relation collide under a key-like law: equal at a key's or a unique index's fields, or equal
+ * Whether two facts of a relation collide under a key-like law: equal at a key's fields, or equal
  * at a span key's scalars with overlapping spans.
  */
 export const collide = (law: HostLaw, a: HostFact, b: HostFact): boolean => {
-	if (law.kind === "key" || law.kind === "unique") {
+	if (law.kind === "key") {
 		return projection(a, law.fields) === projection(b, law.fields)
 	}
 	if (law.kind === "spanKey") {
@@ -543,16 +550,12 @@ const residualWitness = (
 export const witnessOf = (schema: HostSchema, law: HostLaw): Witnessed => {
 	switch (law.kind) {
 		case "key":
-		case "unique":
 			return { kind: "keyed", relation: law.relation, key: law.fields }
 		case "spanKey":
 			return { kind: "keyed", relation: law.relation, key: [...law.scalars, law.span] }
 		case "check":
-			return { kind: "unnamed" }
 		case "contained":
-			return law.residual
-				? residualWitness(schema, law.source.relation, law.source.fields)
-				: { kind: "unnamed" }
+			return { kind: "unnamed" }
 		case "covered":
 			return law.residual
 				? residualWitness(schema, law.source.relation, [...law.source.fields, law.span.source])
@@ -615,16 +618,15 @@ const violationOf = (
 					violators: violatorsOf(schema, law, bad)
 				})
 	switch (law.kind) {
-		case "key":
-		case "spanKey": {
-			const facts = factsIn(state, law.relation)
+		case "key": {
+			const facts = Arr.filter(factsIn(state, law.relation), (f) => selected(f, law.selection))
 			const bad = Arr.filter(facts, (f, i) =>
 				Arr.some(facts, (g, j) => i !== j && collide(law, f, g))
 			)
 			return of(bad)
 		}
-		case "unique": {
-			const facts = Arr.filter(factsIn(state, law.relation), (f) => selected(f, law.where))
+		case "spanKey": {
+			const facts = factsIn(state, law.relation)
 			const bad = Arr.filter(facts, (f, i) =>
 				Arr.some(facts, (g, j) => i !== j && collide(law, f, g))
 			)
@@ -637,22 +639,22 @@ const violationOf = (
 		case "contained": {
 			const targets = new Set(
 				Arr.map(
-					Arr.filter(factsIn(state, law.target.relation), (f) => selected(f, law.target.where)),
+					Arr.filter(factsIn(state, law.target.relation), (f) => selected(f, law.target.selection)),
 					(f) => projection(f, law.target.fields)
 				)
 			)
 			const bad = Arr.filter(
 				factsIn(state, law.source.relation),
-				(f) => selected(f, law.source.where) && !targets.has(projection(f, law.source.fields))
+				(f) => selected(f, law.source.selection) && !targets.has(projection(f, law.source.fields))
 			)
 			return of(bad)
 		}
 		case "covered": {
 			const targets = Arr.filter(factsIn(state, law.target.relation), (f) =>
-				selected(f, law.target.where)
+				selected(f, law.target.selection)
 			)
 			const bad = Arr.filter(factsIn(state, law.source.relation), (f) => {
-				if (!selected(f, law.source.where)) {
+				if (!selected(f, law.source.selection)) {
 					return false
 				}
 				const at = projection(f, law.source.fields)
@@ -668,21 +670,22 @@ const violationOf = (
 			const dependents = new Set(
 				Arr.map(
 					Arr.filter(factsIn(state, law.dependent.relation), (f) =>
-						selected(f, law.dependent.where)
+						selected(f, law.dependent.selection)
 					),
 					(f) => projection(f, law.dependent.fields)
 				)
 			)
 			const bad = Arr.filter(
 				factsIn(state, law.anchor.relation),
-				(f) => selected(f, law.anchor.where) && !dependents.has(projection(f, law.anchor.fields))
+				(f) =>
+					selected(f, law.anchor.selection) && !dependents.has(projection(f, law.anchor.fields))
 			)
 			return of(bad)
 		}
 		case "capacity": {
 			const totals = new Map<string, bigint>()
 			for (const f of Arr.filter(factsIn(state, law.source.relation), (fact) =>
-				selected(fact, law.source.where)
+				selected(fact, law.source.selection)
 			)) {
 				const k = projection(f, law.source.fields)
 				totals.set(k, (totals.get(k) ?? 0n) + weightOf(law.weight, f))
@@ -690,7 +693,7 @@ const violationOf = (
 			const bound = (b: HostBound, f: HostFact): bigint =>
 				typeof b === "bigint" ? b : integer(f, b.ref)
 			const bad = Arr.filter(factsIn(state, law.target.relation), (f) => {
-				if (!selected(f, law.target.where)) {
+				if (!selected(f, law.target.selection)) {
 					return false
 				}
 				const n = totals.get(projection(f, law.target.fields)) ?? 0n
@@ -709,17 +712,17 @@ const violationOf = (
  * and every law it declares as a violation query over a state. The laws are those the law model lowers, each read
  * from its statement's meaning, never from the compiler's law model:
  *
- * - `key`: a primary or candidate key, immediate; two facts at one value of its fields are a violation;
- * - `unique`: a unique index, immediate; two facts its selector admits at one value of its fields are a violation;
+ * - `key`: a primary, candidate or projected key, immediate; two facts its selection reads at one value of its fields
+ *   are a violation;
  * - `spanKey`: a span key, immediate; two facts equal on its scalar fields whose spans overlap are a violation (spans
  *   are half-open, so adjacent spans do not overlap);
  * - `check`: a row check, immediate; a fact the predicate refuses is a violation, reported natively without a key;
  * - `contained`: every source fact, among those its selector admits, has a target fact, among those the target's
- *   selector admits, equal on the paired fields (contained, the child half of mirrors and of alternatives' arms);
+ *   selector admits, equal on the paired fields (contained, either half of mirrors, and alternatives' arms);
  * - `covered`: every source fact its selector admits has its span covered by the union of the spans of the target
  *   facts its selector admits that equal it on the paired scalar fields, fragments included (a span coverage law);
  * - `obliged`: every anchor fact its selector admits has a dependent fact equal on the paired fields (the reverse half
- *   of a conditional mirrors, and of alternatives for each armed handle);
+ *   of alternatives for each armed handle);
  * - `capacity`: every target fact its selector admits has a group, the source facts its selector admits that equal it
  *   on the paired fields, whose count, total weight or total span width lies within the bounds, each a literal or a
  *   field of the target fact; an empty group counts zero and weighs zero, and a source fact no target fact groups is
@@ -730,10 +733,10 @@ const violationOf = (
  * occupants at its facts' keys plus their insertion. Its outcome follows from S': a violation of an immediate law (a
  * key, a span key, a row check) is refused with that law, raised at its statement before any deferred law; otherwise a
  * violation of any other law is refused with one of the violated laws; otherwise it is accepted, or no-change when S'
- * is S. A refusal's witness names a violating fact by a key: the source fact of a selected-source containment or
- * coverage, the anchor of an obligation, the target of a capacity, each by the law's own fields when they are a key of
- * that relation and by its primary key otherwise, as the law function's DETAIL names it; a key's violation by the
- * relation's primary key; any other native violation, whose key PostgreSQL reports only in prose, carries none.
+ * is S. A refusal's witness names a violating fact by a key: the source fact of a selected-source coverage, the anchor
+ * of an obligation, the target of a capacity, each by the law's own fields when they are a key of that relation and by
+ * its primary key otherwise, as the law function's DETAIL names it; a key's violation by the relation's primary key;
+ * any other native violation, whose key PostgreSQL reports only in prose, carries none.
  *
  * Every law's violation query over `state`.
  */
@@ -795,7 +798,7 @@ export const isRenamedCoverage = (law: HostLaw): boolean =>
  * unselected (a containment admits at most one selected side).
  */
 export const isSelectedTargetCoverage = (law: HostLaw): boolean =>
-	law.kind === "covered" && Rec.keys(law.target.where).length > 0
+	law.kind === "covered" && law.target.selection.kind === "where"
 
 /**
  * Whether a law is a candidate span key: a span key beside its relation's primary key, the UNIQUE ... WITHOUT OVERLAPS

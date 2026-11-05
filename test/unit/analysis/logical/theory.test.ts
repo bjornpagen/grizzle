@@ -30,13 +30,15 @@ import {
 	check,
 	closed,
 	contained,
+	eq,
 	f,
 	field,
 	key,
+	literal,
 	mirrors,
 	ne,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	type AuthoredStatementDesc as StatementDesc,
@@ -442,7 +444,13 @@ describe("violation queries mean what their laws say", () => {
 			)
 			const checkLaw = defined(lawsOf(rt, "check")[0])
 			assert.deepEqual(checkLaw.sides, [
-				{ relation: "Report", fields: ["employee", "manager"], selection: [] }
+				{
+					relation: "Report",
+					terms: [
+						{ kind: "field", field: "employee" },
+						{ kind: "field", field: "manager" }
+					]
+				}
 			])
 			const people = [G.a1, G.a2, G.a3]
 			const manager = element<string>(["none", ...people])
@@ -495,7 +503,7 @@ describe("violation queries mean what their laws say", () => {
 				{
 					name: "K",
 					relations: [Label, Account],
-					statements: [key("Account", ["name"])],
+					statements: [key(on("Account", ["name"]))],
 					extends: undefined
 				},
 				provisionalTheory
@@ -568,7 +576,7 @@ describe("violation queries mean what their laws say", () => {
 						capacity(on("Pool", ["id"]), on("Draw", ["pool"]), within(1n, 2n), { kind: "count" }),
 						capacity(
 							on("Pool", ["id"]),
-							onSelected("Draw", ["pool"], { kept: true }),
+							onWhere("Draw", ["pool"], eq(field("kept"), literal(true))),
 							within(0n, "budget"),
 							{
 								kind: "field",
@@ -837,7 +845,7 @@ describe("law identities", () => {
 		"are deterministic, independent of declaration order and of unrelated statements",
 		(ctx) => {
 			const extra: ReadonlyArray<StatementDesc> = [
-				mirrors(on("TaskNote", ["task"]), on("Task", ["id"]))
+				contained(on("Task", ["id"]), on("TaskNote", ["task"]))
 			]
 			return searched(
 				ctx,
@@ -915,7 +923,12 @@ describe("law identities", () => {
 		}
 	)
 
-	it.effect("make equivalent declarations one law that keeps both statements", (ctx) => {
+	it.effect("make equivalent declarations one law of one statement", (ctx) => {
+		/**
+		 * Each mirrors is sugar for its two containments, so either spelling, or both, declares the same two laws, and a
+		 * containment stated twice, Work's own TaskNote(task) in Task(id) among them, is one statement.
+		 */
+		type Mirrored = ReturnType<typeof mirrors>
 		const forward = mirrors(on("TaskNote", ["task"]), on("Task", ["id"]))
 		const backward = mirrors(on("Task", ["id"]), on("TaskNote", ["task"]))
 		return searched(
@@ -923,7 +936,7 @@ describe("law identities", () => {
 			exhaust(
 				{
 					suite: "unit/analysis/logical/law-ids-equivalent",
-					generator: element<ReadonlyArray<StatementDesc>>([
+					generator: element<ReadonlyArray<Mirrored>>([
 						[forward],
 						[backward],
 						[forward, backward],
@@ -941,21 +954,26 @@ describe("law identities", () => {
 					Effect.sync(() => {
 						c.note(declared.length === 1 ? "one declaration" : "two declarations")
 						const both = theoryOf(
-							{ ...W.WorkDesc, statements: [...W.WorkDesc.statements, ...declared] },
+							{ ...W.WorkDesc, statements: [...W.WorkDesc.statements, ...Arr.flatten(declared)] },
 							provisionalTheory
 						)
-						const halves = Arr.filter(
-							both.laws,
-							(l) =>
-								l.shape === "mirrorsHalf" &&
-								l.source.kind === "mirrors" &&
-								l.source.alternatives === undefined &&
-								Arr.some(l.sides, (s) => s.relation === "TaskNote")
+						const declaredInto = (from: string, to: string) =>
+							Arr.filter(
+								both.laws,
+								(l) =>
+									l.shape === "contained" &&
+									l.source.kind === "contained" &&
+									l.source.alternatives === undefined &&
+									l.sides[0]?.relation === from &&
+									l.sides[1]?.relation === to
+							)
+						const [intoTask, ...moreIntoTask] = declaredInto("TaskNote", "Task")
+						const [intoNote, ...moreIntoNote] = declaredInto("Task", "TaskNote")
+						assert.deepEqual([moreIntoTask.length, moreIntoNote.length], [0, 0])
+						assert.deepEqual(
+							[defined(intoTask).statements.length, defined(intoNote).statements.length],
+							[1, 1]
 						)
-						assert.equal(halves.length, 2)
-						for (const half of halves) {
-							assert.equal(half.statements.length, declared.length)
-						}
 					})
 			)
 		)

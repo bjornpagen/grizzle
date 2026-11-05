@@ -1181,17 +1181,12 @@ export interface InductiveLead {
 }
 
 /**
- * What only a Db's apply shows of a world object: a key or unique probe refusing a key outside the entry it writes, and
- * the witness it shows there (features.ts applyObjects); a direct writer's call of a probe is accepted or refused as an
+ * What only a Db's apply shows of a world object: a key probe refusing a key outside the entry it writes, and the
+ * witness it shows there (features.ts applyObjects); a direct writer's call of a probe is accepted or refused as an
  * attempt.
  */
 const appliedProbe = (feature: WorldFeature): boolean =>
-	startingWith(
-		"object:key-probe:refused-outside",
-		"object:key-probe:witness-shown",
-		"object:unique-probe:refused-outside",
-		"object:unique-probe:witness-shown"
-	)(feature)
+	startingWith("object:key-probe:refused-outside", "object:key-probe:witness-shown")(feature)
 
 /**
  * What a Db's write shows: its op feature, whatever the membership of what it met, the claims it ran under and its
@@ -1402,7 +1397,7 @@ export interface ProgramSuite {
 
 /**
  * A generated installation of a documents base (installGen): of the base itself, or of the base with at most one share
- * per document (docsOneShareBase), whose capacity is a unique index a write meets hidden facts at; half the time with
+ * per document (docsOneShareBase), whose capacity's bound a write meets hidden facts at; half the time with
  * its objects and query entries named from the kernel dictionary or after PostgreSQL's types (generate/names.ts).
  */
 export const generatedDocsInstalls: Gen<InstallSpec> = dictionaryNamed((source) =>
@@ -1413,7 +1408,7 @@ export const generatedDocsInstalls: Gen<InstallSpec> = dictionaryNamed((source) 
  * The documents base's installations a suite draws: half the time its README-shaped worlds, whose roles hold every
  * shape the README names (writable query entries filled from a claim, a claim-fixed head field, a negation reading a
  * claim, refresh lists, two logins), over the base (docsInstall) or its one-share variant (docsOneShareInstall), where
- * the member's own shares meet a hidden share at the capacity's unique index, and either with an editor beside
+ * the member's own shares meet a hidden share at the capacity's bound, and either with an editor beside
  * (docsEditorInstall, docsOneShareEditorInstall), whose every fact outside an entry it writes is one it sees through a
  * relation it holds whole, or one hidden from it, under its claims or under none; and otherwise a generated one
  * (generatedDocsInstalls), which combines the shapes anew.

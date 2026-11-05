@@ -99,7 +99,7 @@ import type {
 	SnapshotTheory
 } from "#compiler/deploy/snapshot/types.ts"
 import type { ResidualLaw } from "#compiler/ir/law.ts"
-import type { InstallationManifest, PhysicalKind, PhysicalReason } from "#compiler/ir/products.ts"
+import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -210,7 +210,7 @@ interface FieldOffer<O extends RootRename | NestedRename> {
 }
 
 /** A part of a previous table: a constraint, in the table's namespace of constraints, a law trigger, in its namespace
- * of triggers, or a stored tag's column, in its columns, by the table it is on and its name in the previous snapshot. It
+ * of triggers, or a law column, in its columns, by the table it is on and its name in the previous snapshot. It
  * is the one object it was, whatever names a candidate's alternative has given the table or the part since (partFate). */
 interface PreviousPart {
 	readonly kind: "constraint" | "lawTrigger" | "column"
@@ -316,13 +316,13 @@ const dropOffers = (x: Planned, p: PreviousPart): ReadonlyArray<PlainOffer> => {
 }
 
 /** What a candidate's conversion drops first of a previous object built over the converted column (`column`), or over a
- * stored tag computed from it (`tag`), in the drop order; none for a kind it never drops. PostgreSQL refuses the
- * conversion under a foreign key, a CHECK, a law trigger's UPDATE OF and a stored tag computed from the column, and
- * converts a key with it; the tag's DROP COLUMN takes every key over the tag along, so each is dropped first by name, as
- * every foreign key referencing one is (2BP01). */
+ * law column computed from it (`lawColumn`), in the drop order; none for a kind it never drops. PostgreSQL refuses the
+ * conversion under a foreign key, a CHECK, a law trigger's UPDATE OF and a law column computed from the column, and
+ * converts a key with it; the law column's DROP COLUMN takes every key over it along, so each is dropped first by name,
+ * as every foreign key referencing one is (2BP01). */
 const clearedOf = (
 	v: Installed,
-	over: "column" | "tag"
+	over: "column" | "lawColumn"
 ): { readonly part: PreviousPart; readonly rank: number } | undefined => {
 	switch (v.kind) {
 		case "foreignKey":
@@ -333,7 +333,7 @@ const clearedOf = (
 			}
 		case "primaryKey":
 		case "unique":
-			return over === "tag"
+			return over === "lawColumn"
 				? { part: { kind: "constraint", table: v.table, name: v.name }, rank: dropOrder[v.kind] }
 				: undefined
 		case "lawTrigger":
@@ -341,9 +341,9 @@ const clearedOf = (
 				part: { kind: "lawTrigger", table: v.create.table, name: v.create.name },
 				rank: dropOrder.lawTrigger
 			}
-		case "storedTag":
+		case "lawColumn":
 			return over === "column"
-				? { part: { kind: "column", table: v.table, name: v.column }, rank: dropOrder.storedTag }
+				? { part: { kind: "column", table: v.table, name: v.column }, rank: dropOrder.lawColumn }
 				: undefined
 		case "databaseDefault":
 		case "schema":
@@ -495,9 +495,9 @@ const pairParts = <P extends Part>(
 }
 
 /** What a relation's rename does with each part of the removed relation that stands when it runs (pairParts): each
- * constraint, index, statistics object, stored tag and identity sequence brought across as a part of the added relation
- * or dropped; and the law triggers it drops, those over a column it drops, converts or retags, which PostgreSQL refuses
- * to drop or convert under them. Every other law trigger goes along with its table, and its law's drafted statements
+ * constraint, index, statistics object, law column and identity sequence brought across as a part of the added relation
+ * or dropped; and the law triggers it drops, those over a column it drops, converts or redefines, which PostgreSQL
+ * refuses to drop or convert under them. Every other law trigger goes along with its table, and its law's drafted statements
  * replace it under the new names. */
 interface Pairs {
 	readonly constraint: ReadonlyArray<Paired<PartOf<"constraint">>>
@@ -521,37 +521,37 @@ const brings = (
 
 /** What a migration does to a column of a table it keeps, or of a relation a candidate renames (ColumnFates): kept as
  * it is; converted in place, a field whose type changes, by the field's visit (`field`), by the rebuild of the enum it
- * was of, while that type stands (`rebuild`), or by the candidate's alternative (`candidate`); retagged, a stored tag
- * whose value changes, dropped and added again; or dropped, a field or stored tag the target no longer holds. */
+ * was of, while that type stands (`rebuild`), or by the candidate's alternative (`candidate`); redefined, a law column
+ * whose definition changes, dropped and added again; or dropped, a field or law column the target no longer holds. */
 type ColumnFate =
 	| { readonly kind: "kept" }
 	| { readonly kind: "converted"; readonly by: "field" | "rebuild" | "candidate" }
-	| { readonly kind: "retagged" }
+	| { readonly kind: "redefined" }
 	| { readonly kind: "dropped" }
 
 const keptColumn: ColumnFate = { kind: "kept" }
 const droppedColumn: ColumnFate = { kind: "dropped" }
-const retaggedColumn: ColumnFate = { kind: "retagged" }
+const redefinedColumn: ColumnFate = { kind: "redefined" }
 
-/** The fate of each column of a table, fields and stored tags, by name. */
+/** The fate of each column of a table, fields and law columns, by name. */
 type ColumnFates = ReadonlyMap<string, ColumnFate>
 
 /** Whether a rename carries a part of each kind built over a column of each fate across as the part it is, the one rule
  * for every rename: PostgreSQL converts a column in place with each index and statistics object over it, but a rename
  * drops every constraint over a converted column first, since a foreign key compares only once both its sides are
- * converted, and the target adds it again; and a column dropped, or retagged, takes everything over it along. An
+ * converted, and the target adds it again; and a column dropped, or redefined, takes everything over it along. An
  * identity sequence goes with its column kept, and a column converted gives its identity up first, the sequence with it
  * (inPlace); a law trigger's UPDATE OF pins its columns, so
- * PostgreSQL refuses to convert or drop one under it. A stored tag is built over no column, so it is carried by its
- * definition alone. */
+ * PostgreSQL refuses to convert or drop one under it. A law column is carried by its definition alone, whatever its
+ * generation reads. */
 const carriedOver: {
 	readonly [K in Exclude<PartKind, "column">]: { readonly [F in ColumnFate["kind"]]: boolean }
 } = {
-	constraint: { kept: true, converted: false, retagged: false, dropped: false },
-	index: { kept: true, converted: true, retagged: false, dropped: false },
-	statistics: { kept: true, converted: true, retagged: false, dropped: false },
-	sequence: { kept: true, converted: false, retagged: false, dropped: false },
-	lawTrigger: { kept: true, converted: false, retagged: false, dropped: false }
+	constraint: { kept: true, converted: false, redefined: false, dropped: false },
+	index: { kept: true, converted: true, redefined: false, dropped: false },
+	statistics: { kept: true, converted: true, redefined: false, dropped: false },
+	sequence: { kept: true, converted: false, redefined: false, dropped: false },
+	lawTrigger: { kept: true, converted: false, redefined: false, dropped: false }
 }
 
 /** Whether a rename carries a part of `kind` built over `columns` across, each column's fate read by `fate`. */
@@ -589,7 +589,7 @@ type Dropped =
  * functions they call; the foreign keys before the keys they reference; the keys and CHECKs before the indexes, a row
  * security switched off beside them; then the roles and their schemas, the statistics objects, the law triggers before
  * the law functions they call, the materialized views before what they read, the law functions, the other functions,
- * the stored tags and columns, the tables over the types they use, and the types last. Within a kind, each step keeps
+ * the law columns and columns, the tables over the types they use, and the types last. Within a kind, each step keeps
  * its own order: publish.removed the reverse install order, so a materialized view goes before the lower one it reads
  * and a table before one it references. */
 const dropOrder: { readonly [K in Dropped]: number } = {
@@ -613,7 +613,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	advanceFunction: 11,
 	isolationFunction: 11,
 	snapshotGuard: 11,
-	storedTag: 12,
+	lawColumn: 12,
 	column: 13,
 	table: 14,
 	domain: 15,
@@ -792,11 +792,6 @@ const replacing = (
 ): NonEmptyReadonlyArray<AlterTableAction> =>
 	replace ? [{ kind: "dropConstraint", name }, add] : [add]
 
-/** A capacity's partial unique index, which enforces its law: removed from a table the target keeps, it goes with the
- * law's other native objects in publish.drop. */
-const lawIndex = (o: ManifestObject): boolean =>
-	o.kind === "uniqueIndex" && o.reasons.some((r: PhysicalReason) => r.kind === "law")
-
 /** A primary key or candidate key a B-tree index implements, one with no span; none for any other constraint. */
 const btreeKeyOf = (
 	c: TableConstraint
@@ -807,7 +802,7 @@ const btreeKeyOf = (
 
 /** A table both installations hold, read once before anything is drafted: the target's object, the previous table's
  * position in the install order (publish.removed drops objects of one kind in reverse order), the previous and the
- * target declaration, and the fate of each column of the previous table, its fields' and its stored tags'
+ * target declaration, and the fate of each column of the previous table, its fields' and its law columns'
  * (ColumnFates). */
 interface KeptTable {
 	readonly object: ManifestObject
@@ -1168,7 +1163,7 @@ class Differ {
 				continue
 			}
 			const arrival = this.arrivalOf(o)
-			if (arrival.kind !== "new" && !(arrival.kind === "replaced" && arrival.how === "retagged")) {
+			if (arrival.kind !== "new" && !(arrival.kind === "replaced" && arrival.how === "redefined")) {
 				continue
 			}
 			const prior = previousObjects.find((p) => {
@@ -1264,7 +1259,7 @@ class Differ {
 	}
 
 	/** Each table both installations hold, by identity (KeptTable): the fate of each field of the previous table is its
-	 * field change's (fieldChange), dropped where the target holds it no longer; of each stored tag, kept, retagged
+	 * field change's (fieldChange), dropped where the target holds it no longer; of each law column, kept, redefined
 	 * where its value changes, or dropped. */
 	keptTablesOf(): ReadonlyMap<string, KeptTable> {
 		const previousObjects = this.input.previous.manifest.objects
@@ -1296,10 +1291,10 @@ class Differ {
 							change.kind === "converted" ? { kind: "converted", by: change.by } : keptColumn
 						]
 					})
-					const tags = previousObjects.flatMap(
+					const lawColumns = previousObjects.flatMap(
 						(p): ReadonlyArray<readonly [string, ColumnFate]> => {
 							const w = installed(p)
-							if (w.kind !== "storedTag" || nameKey(w.table) !== key) {
+							if (w.kind !== "lawColumn" || nameKey(w.table) !== key) {
 								return []
 							}
 							const now = this.next.get(p.ident)
@@ -1310,13 +1305,13 @@ class Differ {
 										? droppedColumn
 										: same(p.ddl, now.ddl)
 											? keptColumn
-											: retaggedColumn
+											: redefinedColumn
 								]
 							]
 						}
 					)
 					return [
-						[o.ident, { object: o, order, old, create, fates: new Map([...fields, ...tags]) }]
+						[o.ident, { object: o, order, old, create, fates: new Map([...fields, ...lawColumns]) }]
 					]
 				}
 			)
@@ -1528,10 +1523,10 @@ class Differ {
 		}
 	}
 
-	/** The previous objects built over a column this migration replaces (ColumnFate converted or retagged), by identity,
+	/** The previous objects built over a column this migration replaces (ColumnFate converted or redefined), by identity,
 	 * each with how: what is built over a column converted in place (objects.ts builtOver: a constraint, an index, a
-	 * statistics object, a law trigger or a stored tag computed from it), and each foreign key referencing a key over
-	 * one, which dropReplaced drops before the conversion; and what is built over a stored tag dropped and added again,
+	 * statistics object, a law trigger or a law column computed from it), and each foreign key referencing a key over
+	 * one, which dropReplaced drops before the conversion; and what is built over a law column dropped and added again,
 	 * which goes with the drop, a foreign key referencing a key over it dropped first by dropReplaced. */
 	takenByReplacement(): ReadonlyMap<string, Replacement> {
 		const out = new Map<string, Replacement>()
@@ -1544,7 +1539,7 @@ class Differ {
 			const fates = this.keptTables.get(tableIdent(table))?.fates
 			return columns.flatMap((c) => {
 				const how = fates?.get(c)?.kind
-				return how === "converted" || how === "retagged" ? [how] : []
+				return how === "converted" || how === "redefined" ? [how] : []
 			})
 		}
 		for (const o of this.prev.values()) {
@@ -1570,14 +1565,14 @@ class Differ {
 	 * first, then the keys and CHECKs, the indexes, the statistics objects and the law triggers. PostgreSQL would carry
 	 * each across the conversion under its old definition, or refuse the conversion under it (a foreign key compares
 	 * only once both its sides are converted; a trigger's UPDATE OF pins its columns), so the target's is built again as
-	 * on any relation that may hold rows. Of what a stored tag dropped and added again takes, it drops the foreign keys:
-	 * the tag's DROP COLUMN drops every constraint and index of its own table over it, but refuses one a foreign key of
-	 * another table depends on (2BP01), an arm's into an alternatives parent's key over its arm tag. */
+	 * on any relation that may hold rows. Of what a law column dropped and added again takes, it drops the foreign keys:
+	 * the law column's DROP COLUMN drops every constraint and index of its own table over it, but refuses one a foreign
+	 * key of another table depends on (2BP01), an arm's into an alternatives parent's key over its arm tag. */
 	dropReplaced(): void {
 		const drops = this.previous
 			.flatMap(({ object: o, fate }) => {
 				const v = installed(o)
-				if (fate.kind !== "replaced" || (fate.how === "retagged" && v.kind !== "foreignKey")) {
+				if (fate.kind !== "replaced" || (fate.how === "redefined" && v.kind !== "foreignKey")) {
 					return []
 				}
 				const drop = replacementDrop(v)
@@ -1706,8 +1701,8 @@ class Differ {
 			case "table":
 				this.tableObject(v)
 				return
-			case "storedTag":
-				this.storedTag(v, before)
+			case "lawColumn":
+				this.lawColumn(v, before)
 				return
 			case "primaryKey":
 			case "unique":
@@ -1961,7 +1956,7 @@ class Differ {
 	 * to its name. What a conversion would fail under, or would leave dangling, is dropped first and created again from
 	 * the target's definition once the type is back, at the end of Structure: each CHECK and partial index whose
 	 * definition names the type, each foreign key over a column of it (the other side is converted after or before it),
-	 * each stored tag of it, which cannot be converted, and the indexes over a dropped tag. A law trigger whose UPDATE OF
+	 * each law column of it, which cannot be converted, and the indexes over a dropped one. A law trigger whose UPDATE OF
 	 * or WHEN reads a column of the type, or whose WHEN names it, is dropped too, since PostgreSQL converts no column
 	 * under a trigger that reads it, and laws() creates it again. A removed handle is mapped by
 	 * the expression the reviewer writes at each column's placeholder. A domain or a materialized view over the type keeps
@@ -2028,14 +2023,14 @@ class Differ {
 			}
 			return refusal
 		}
-		/** What one installed object adds to the rebuild: a table's conversions, a stored tag of the type, or the refusal
+		/** What one installed object adds to the rebuild: a table's conversions, a law column of the type, or the refusal
 		 * of a domain or materialized view defined over the type. */
 		const visit = (p: ManifestObject): RefusedRebuild | undefined => {
 			const v = installed(p)
 			if (v.kind === "table") {
 				return convertTable(p, v.create)
 			}
-			if (v.kind === "storedTag" && typed(v.definition.type)) {
+			if (v.kind === "lawColumn" && typed(v.definition.type)) {
 				tags.push({ object: p, table: v.table, column: v.column })
 				return undefined
 			}
@@ -2054,7 +2049,7 @@ class Differ {
 				return refusal
 			}
 		}
-		/** Whether a column of a table is a stored tag of the type, or of the type at all, a field it converts. */
+		/** Whether a column of a table is a law column of the type, or of the type at all, a field it converts. */
 		const tagged = (t: ObjectName, column: string): boolean =>
 			tags.some((x) => nameKey(x.table) === nameKey(t) && x.column === column)
 		const ofType = (t: ObjectName, column: string): boolean =>
@@ -2083,10 +2078,10 @@ class Differ {
 			}
 		}
 		/** The dependents dropped before the conversion, and what the target makes of each, read part by part. A key over a
-		 * column of the type is converted with it, as a statistics object is; the stored tags themselves are dropped and
+		 * column of the type is converted with it, as a statistics object is; the law columns themselves are dropped and
 		 * added again, and a key over one, an alternatives parent's UNIQUE over its arm tag, goes with it and is added again
-		 * once the tag is back, before the foreign keys that reference it. An index the target declares over a stored tag
-		 * is created again once the tag is back, so the previous index of its name goes first.
+		 * once the column is back, before the foreign keys that reference it. An index the target declares over a law
+		 * column is created again once the column is back, so the previous index of its name goes first.
 		 * What a conversion in place takes away (Taken replaced) is dropped before it by dropReplaced, and drafted as new
 		 * by the target's visit, so the rebuild leaves it to them; and what an earlier rebuild drops, that one does. */
 		const dependentsOf = (p: ManifestObject, part: Part): ReadonlyArray<RebuiltDependent> => {
@@ -2155,8 +2150,8 @@ class Differ {
 		for (const d of dependents) {
 			claimed.add(d.object.ident)
 		}
-		/** The target's indexes over a stored tag of the type whose previous index a replacement takes away: created again
-		 * with the tag. */
+		/** The target's indexes over a law column of the type whose previous index a replacement takes away: created again
+		 * with the column. */
 		const overTags = this.input.target.manifest.objects.flatMap((o) => {
 			const index = targetIndex(o.ident)
 			return index !== undefined && overTag(index) && replacedBy.has(o.ident)
@@ -2216,7 +2211,7 @@ class Differ {
 		const drops = [
 			...ordered.map((d) => d.drop),
 			...tags.map((t): Drop => ({
-				rank: dropOrder.storedTag,
+				rank: dropOrder.lawColumn,
 				draft: statement(alter(t.table, [{ kind: "dropColumn", column: t.column }]))
 			}))
 		].toSorted(byDropOrder)
@@ -2845,7 +2840,7 @@ class Differ {
 		 * (standing), and the added one's. */
 		const fromParts = relationParts(from, this.standing, this.prev)
 		const toParts = this.partsOf(to, this.next)
-		/** The stored tags the target declares as they were are brought across; every other one is dropped, and the
+		/** The law columns the target declares as they were are brought across; every other one is dropped, and the
 		 * target's own statement adds it again, so whatever is built over it goes with its drop and is built again
 		 * (carriedOver), even when its definition is the target's (a tag whose value is a handle renamed in place,
 		 * under its tagged reference). */
@@ -2855,7 +2850,7 @@ class Differ {
 			() => true,
 			(column, as) => same(column.definition, as.definition)
 		)
-		/** The stored tags of the removed relation, an enum rebuild's dropped ones among them. */
+		/** The law columns of the removed relation, an enum rebuild's dropped ones among them. */
 		const allTags = this.partsOf(from, this.prev).column
 		/** The fields both have, each with its column before and its change (fieldChange), as a table both install
 		 * changes them. */
@@ -2866,8 +2861,8 @@ class Differ {
 				: [{ was, column: c, change: fieldChange(was, c, this.rebuiltEnums) }]
 		})
 		/** What the rename does to each column of the removed relation (ColumnFate): a field the added relation lacks
-		 * is dropped, one whose type changes converted in place by this candidate, a stored tag it does not bring across
-		 * retagged, one an enum rebuild dropped before it runs dropped, and every other column kept. */
+		 * is dropped, one whose type changes converted in place by this candidate, a law column it does not bring across
+		 * redefined, one an enum rebuild dropped before it runs dropped, and every other column kept. */
 		const fate = (column: string): ColumnFate => {
 			if (old.columns.some((c) => c.name === column)) {
 				const field = held.find((f) => f.was.name === column)
@@ -2879,7 +2874,7 @@ class Differ {
 			}
 			const tag = tags.find((p) => p.was.name === column)
 			if (tag !== undefined) {
-				return tag.kind === "dropped" ? retaggedColumn : keptColumn
+				return tag.kind === "dropped" ? redefinedColumn : keptColumn
 			}
 			return allTags.has(column)
 				? droppedColumn
@@ -2996,8 +2991,8 @@ class Differ {
 		 * after. A constraint goes before, its foreign keys first, since a field converted in place keeps no
 		 * constraint over it; one the target declares inside its CREATE TABLE, which the alternative replaces, is
 		 * added after, once its columns are there. A law trigger it drops goes before too, since PostgreSQL refuses to
-		 * convert or drop a column its UPDATE OF names. An index, a statistics object, a stored tag and an identity
-		 * sequence go after. A stored tag is the target's only under its own name, so none is renamed. */
+		 * convert or drop a column its UPDATE OF names. An index, a statistics object, a law column and an identity
+		 * sequence go after. A law column is the target's only under its own name, so none is renamed. */
 		const carried: {
 			readonly [K in PartKind]: {
 				readonly before: ReadonlyArray<SealedStep>
@@ -3312,7 +3307,7 @@ class Differ {
 	/** What a field candidate's conversion in place of its removed column `column` drops first, as a conversion in place
 	 * of a column the target keeps does (dropReplaced), in the drop order: what PostgreSQL refuses to convert the column
 	 * under, each foreign key over it or referencing a key over it, each CHECK over it, each law trigger whose UPDATE
-	 * OF names it and each stored tag computed from it, with the keys over the tag and the foreign keys referencing them,
+	 * OF names it and each law column computed from it, with the keys over it and the foreign keys referencing them,
 	 * of those that stand when the rename runs (standing): a conversion the target makes took the rest away before every
 	 * candidate. A key, an index or a statistics object over it is converted with it. A field's rename
 	 * nested in a relation's drops none: the relation's alternative brought across or dropped every part over it. */
@@ -3330,8 +3325,8 @@ class Differ {
 
 	/** What PostgreSQL refuses to convert the column `column` of `table` under, of what stands when the renames run, in
 	 * the drop order (conversionDrops): what is built over the column (objects.ts builtOver) or references a key over it,
-	 * a stored tag computed from it among them, and what is built over such a tag or references a key over it, which the
-	 * tag's drop takes along (clearedOf). */
+	 * a law column computed from it among them, and what is built over such a column or references a key over it, which
+	 * the column's drop takes along (clearedOf). */
 	clearedFor(table: ObjectName, column: string): ReadonlyArray<PreviousPart> {
 		const over = (v: Installed, columns: ReadonlyArray<string>): boolean => {
 			const built = builtOver(v, (c) => keyOrCheckDefinition(c, this.prev))
@@ -3344,17 +3339,17 @@ class Differ {
 					v.constraint.referencedColumns.some((k) => columns.includes(k.column)))
 			)
 		}
-		const tags = this.standing.flatMap((o) => {
+		const lawColumns = this.standing.flatMap((o) => {
 			const v = installed(o)
-			return v.kind === "storedTag" && over(v, [column]) ? [v.column] : []
+			return v.kind === "lawColumn" && over(v, [column]) ? [v.column] : []
 		})
 		return this.standing
 			.flatMap((o) => {
 				const v = installed(o)
 				const cleared = over(v, [column])
 					? clearedOf(v, "column")
-					: over(v, tags)
-						? clearedOf(v, "tag")
+					: over(v, lawColumns)
+						? clearedOf(v, "lawColumn")
 						: undefined
 				return cleared === undefined ? [] : [cleared]
 			})
@@ -3417,8 +3412,10 @@ class Differ {
 		return relationParts(t, objects.values(), objects)
 	}
 
-	storedTag(
-		v: Installed & { readonly kind: "storedTag" },
+	/** A column a law adds: added with its table's other objects, kept while its definition is the previous one's, and
+	 * dropped and added again when it changes. */
+	lawColumn(
+		v: Installed & { readonly kind: "lawColumn" },
 		before: ManifestObject | undefined
 	): void {
 		const { object: o, table: t, column } = v
@@ -3972,8 +3969,7 @@ class Differ {
 
 	/** An object the target no longer has and no step takes away first (Fate removed), dropped in place: in
 	 * publish.removed (draftRemovals) at its kind's rank, once nothing of the target reads it; a constraint of a table
-	 * that stays, and a capacity's partial unique index, in publish.drop, before; and what belongs to a dropped table
-	 * with no statement of its own.
+	 * that stays in publish.drop, before; and what belongs to a dropped table with no statement of its own.
 	 *
 	 * Extensions and the database's defaults outlive the schema, which another schema may share them with;
 	 * grants are replaced per role in grants().
@@ -3991,8 +3987,6 @@ class Differ {
 	 * removed reference, so no drop of a key it references waits on it: in Validate, before the key, when the
 	 * key it references is a removed one the target's replaces (replacedKey), which the removal order, every
 	 * foreign key before the keys, drafts first.
-	 *
-	 * A capacity's partial unique index enforces a law: it goes with the law's other native objects.
 	 *
 	 * laws() drops every removed law's triggers.
 	 *
@@ -4061,7 +4055,7 @@ class Differ {
 					statement({ kind: "dropFunction", name: functionNameOf(v.create), ifExists: false })
 				)
 				return
-			case "storedTag":
+			case "lawColumn":
 				if (!tableGone) {
 					drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))
 				}
@@ -4090,17 +4084,6 @@ class Differ {
 				}
 				const s = v.create
 				const name = objectName(s.table.schema, s.name)
-				if (lawIndex(o)) {
-					this.sql("publish.drop", [
-						{
-							kind: "dropIndex",
-							name,
-							concurrently: false,
-							ifExists: false
-						}
-					])
-					return
-				}
 				drop(v.kind, statement({ kind: "dropIndex", name, concurrently: false, ifExists: false }))
 				return
 			}
@@ -4765,7 +4748,7 @@ interface Conversion {
 	readonly columns: NonEmptyReadonlyArray<RebuiltColumn>
 }
 
-/** A stored tag of an enum's type, which a rebuild drops and adds again. */
+/** A law column of an enum's type, which a rebuild drops and adds again. */
 interface RebuiltTag {
 	readonly object: ManifestObject
 	readonly table: ObjectName
@@ -4779,7 +4762,7 @@ interface RebuiltDependent {
 }
 
 /** A closed relation's enum rebuild (planRebuild): the roster it takes and the one it replaces, the columns of the type it
- * converts, the stored tags of the type, and the dependents it drops first, in the order they go; or the refusal of a
+ * converts, the law columns of the type, and the dependents it drops first, in the order they go; or the refusal of a
  * rebuild under what it cannot carry. */
 type Rebuild = PlannedRebuild | RefusedRebuild
 
@@ -4790,8 +4773,8 @@ interface PlannedRebuild {
 	readonly conversions: ReadonlyArray<Conversion>
 	readonly tags: ReadonlyArray<RebuiltTag>
 	readonly dependents: ReadonlyArray<RebuiltDependent>
-	/** The target's indexes over a stored tag of the type whose previous index a replacement takes away, created again
-	 * with the tag at the end of Structure. */
+	/** The target's indexes over a law column of the type whose previous index a replacement takes away, created again
+	 * with the column at the end of Structure. */
 	readonly overTags: ReadonlyArray<{
 		readonly object: ManifestObject
 		readonly create: CreateIndex
@@ -4896,13 +4879,13 @@ const representationOf = (
 }
 
 /** How a migration replaces the physical column of a table both snapshots install (ColumnFate): a field whose type
- * changes is converted in place, which first drops what is built over it (dropReplaced); a stored tag whose value
- * changes is retagged (storedTag), which takes every constraint and index over it along. */
-type Replacement = "converted" | "retagged"
+ * changes is converted in place, which first drops what is built over it (dropReplaced); a law column whose
+ * definition changes is redefined (lawColumn), which takes every constraint and index over it along. */
+type Replacement = "converted" | "redefined"
 
-/** The strongest of `hows`: a conversion in place takes more than a stored tag dropped and added again. */
+/** The strongest of `hows`: a conversion in place takes more than a law column dropped and added again. */
 const strongestReplacement = (hows: ReadonlyArray<Replacement>): Replacement | undefined =>
-	hows.includes("converted") ? "converted" : hows.includes("retagged") ? "retagged" : undefined
+	hows.includes("converted") ? "converted" : hows.includes("redefined") ? "redefined" : undefined
 
 /** What a migration does to an identity sequence of a table both snapshots install: dropped with the identity that owns
  * it, or dropped and created again under its name, which leaves it with the default privileges. */
@@ -5144,7 +5127,7 @@ const dropTrigger = (v: { readonly create: CreateConstraintTrigger }): Action =>
 	statement(partDrop("lawTrigger", v.create.table, v.create.name))
 
 /** The drop of what a conversion in place of a column takes away, in the drop order (dropOrder): the foreign keys
- * first, then the keys and CHECKs, the indexes, the statistics objects, the law triggers and the stored tags whose
+ * first, then the keys and CHECKs, the indexes, the statistics objects, the law triggers and the law columns whose
  * generation reads the column, which PostgreSQL refuses to convert it under (0A000); none for any other kind. */
 const replacementDrop = (v: Installed): Drop | undefined => {
 	switch (v.kind) {
@@ -5171,9 +5154,9 @@ const replacementDrop = (v: Installed): Drop | undefined => {
 			}
 		case "statistics":
 			return { rank: dropOrder.statistics, draft: { kind: "dropStatistics", name: v.create.name } }
-		case "storedTag":
+		case "lawColumn":
 			return {
-				rank: dropOrder.storedTag,
+				rank: dropOrder.lawColumn,
 				draft: statement(alter(v.table, [{ kind: "dropColumn", column: v.column }]))
 			}
 		case "databaseDefault":
@@ -5470,7 +5453,7 @@ const advance = (
  *   type by the expression the reviewer writes at its placeholder; the old type dropped and the new one renamed to its
  *   name, its grants and
  *   PUBLIC revoke issued again; what names the type or reads a converted column without being converted (a CHECK, a
- *   foreign key, a partial index, a stored tag and the indexes over it) is dropped first and created again as the target
+ *   foreign key, a partial index, a law column and the indexes over it) is dropped first and created again as the target
  *   declares it once the type is back.
  * - Changing a contract predicate: the domain's one constraint replaced in place under its name, dropped and added NOT
  *   VALID (structure), then validated (validate). A text pattern's domain is named by its pattern, so changing a
@@ -5478,8 +5461,7 @@ const advance = (
  *   its cast.
  * - Adding a key to a relation that may hold rows: its unique index built concurrently (indexes), then the constraint
  *   attached USING INDEX (validate); a key with a span field is added directly in Validate, since PostgreSQL attaches
- *   only B-tree indexes. Changing a key builds the new index under a temporary name and swaps it in one statement. A
- *   capacity's partial unique index follows the same path.
+ *   only B-tree indexes. Changing a key builds the new index under a temporary name and swaps it in one statement.
  * - A key of a table both snapshots install that the migration removes or replaces under its name, over columns that,
  *   under some decision of the candidate renames, are those of a key the target declares there: PostgreSQL binds a
  *   foreign key to the first unique index over its referenced columns and refuses that index's drop under it, so the
@@ -5524,11 +5506,11 @@ const advance = (
  *   rename, and every other drafted statement the choice changes is marked with what it becomes. A field's rename
  *   renames the column and its identity sequence, converting it in place when its type changes; what is over the
  *   column is drafted under its target names either way. A relation's rename brings across, by definition, the
- *   constraints, indexes, statistics objects, stored tags and identity sequences the target declares, drops the rest
+ *   constraints, indexes, statistics objects, law columns and identity sequences the target declares, drops the rest
  *   (first the foreign keys of other relations that reference a key it drops, which the draft adds again and
  *   validates, and the law triggers over a field it drops or converts), and converts in place each field whose type
  *   changes. An enum rebuild runs before every rename, so what it drops, a dependent or a
- *   stored tag of a removed relation, is neither paired nor dropped by a rename, and the rebuild's own drop of it
+ *   law column of a removed relation, is neither paired nor dropped by a rename, and the rebuild's own drop of it
  *   stands whichever way the reviewer decides.
  * - Every drop of stored data, a relation with its rows or a field with its values, is a loss the reviewer decides
  *   (`LossDecision`): drafted commented, it runs only once the reviewer writes it in, and a candidate rename that

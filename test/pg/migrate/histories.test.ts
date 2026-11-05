@@ -1,16 +1,19 @@
 import { layer } from "@effect/vitest"
 import {
+	accepting,
 	type Command,
 	type Machine,
 	type Program,
 	program,
 	type Real,
-	runProgram
+	runProgram,
+	took
 } from "@grizzle/testing/commands"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { element, type Gen, int, map } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
+import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -463,21 +466,23 @@ const exchanged = (m: Model, p: Params["exchange a login's and a role's names"])
 	}
 }
 
-const machine: Machine<Model, Params> = {
+const machine: Machine<Model, Params, never> = {
 	initial,
 	commands: {
 		"rename a relation": {
 			applies: (m) => freeRelations(m).length > 0,
 			parameters: relationAndName,
-			next: (m, p) => {
+			weight: 1,
+			judge: accepting((m, p) => {
 				const r = nth(m.relations, p.at, "relation")
 				return replaced(m, p.at, { ...r, names: Arr.append(r.names, p.to) })
-			}
+			})
 		},
 		"swap two relations' names": {
 			applies: (m) => m.relations.length >= 2,
 			parameters: (m) => map(int(1, m.relations.length - 1), (second) => ({ first: 0, second })),
-			next: (m, p) => {
+			weight: 1,
+			judge: accepting((m, p) => {
 				const a = nth(m.relations, p.first, "relation")
 				const b = nth(m.relations, p.second, "relation")
 				return {
@@ -490,22 +495,25 @@ const machine: Machine<Model, Params> = {
 								: x
 					)
 				}
-			}
+			})
 		},
 		"rename a field": {
 			applies: (m) => renamable(m, false).length > 0,
 			parameters: (m) => fieldAndName(m, false),
-			next: (m, p) => renamedField(m, p, false)
+			weight: 1,
+			judge: accepting((m, p) => renamedField(m, p, false))
 		},
 		"rename a field and change its type": {
 			applies: (m) => renamable(m, true).length > 0,
 			parameters: (m) => fieldAndName(m, true),
-			next: (m, p) => renamedField(m, p, true)
+			weight: 1,
+			judge: accepting((m, p) => renamedField(m, p, true))
 		},
 		"remove a relation and add one of its shape": {
 			applies: (m) => freeRelations(m).length > 0,
 			parameters: relationAndName,
-			next: (m, p) => {
+			weight: 1,
+			judge: accepting((m, p) => {
 				const r = nth(m.relations, p.at, "relation")
 				const origin = `R${m.born}`
 				return {
@@ -516,7 +524,7 @@ const machine: Machine<Model, Params> = {
 					}),
 					born: m.born + 1
 				}
-			}
+			})
 		},
 		"rename a closed handle": {
 			applies: (m) => freeHandles(m).length > 0,
@@ -524,22 +532,24 @@ const machine: Machine<Model, Params> = {
 				handle: source.draw(int(0, m.tier.length - 1)),
 				to: source.draw(element(nonEmptyList(freeHandles(m), "a free handle name")))
 			}),
-			next: (m, p) => ({
+			weight: 1,
+			judge: accepting((m, p) => ({
 				...m,
 				tier: Arr.map(m.tier, (h, i) => (i === p.handle ? { ...h, name: p.to } : h))
-			})
+			}))
 		},
 		"reorder the closed handles": {
 			applies: (m) => m.tier.length >= 2,
 			parameters: (m) => map(int(1, m.tier.length - 1), (swap) => ({ swap })),
-			next: (m, p) => {
+			weight: 1,
+			judge: accepting((m, p) => {
 				const first = Arr.headNonEmpty(m.tier)
 				const other = nth(m.tier, p.swap, "handle")
 				return {
 					...m,
 					tier: Arr.map(m.tier, (h, i) => (i === 0 ? other : i === p.swap ? first : h))
 				}
-			}
+			})
 		},
 		"rename a login": {
 			applies: (m) => freeWorlds(m).length > 0,
@@ -547,7 +557,8 @@ const machine: Machine<Model, Params> = {
 				login: source.draw(int(0, m.logins.length - 1)),
 				to: source.draw(element(nonEmptyList(freeWorlds(m), "a free login name")))
 			}),
-			next: (m, p) => renamedLogin(m, p.login, p.to)
+			weight: 1,
+			judge: accepting((m, p) => renamedLogin(m, p.login, p.to))
 		},
 		"rename a login while its roles change": {
 			applies: (m) => freeWorlds(m).length >= 2,
@@ -570,7 +581,8 @@ const machine: Machine<Model, Params> = {
 				)
 				return { login, to, change }
 			},
-			next: (m, p) => changedRoles(renamedLogin(m, p.login, p.to), p.login, p.change)
+			weight: 1,
+			judge: accepting((m, p) => changedRoles(renamedLogin(m, p.login, p.to), p.login, p.change))
 		},
 		"exchange a login's and a role's names": {
 			applies: () => true,
@@ -578,7 +590,8 @@ const machine: Machine<Model, Params> = {
 				login: source.draw(int(0, m.logins.length - 1)),
 				role: source.draw(int(0, m.roles.length - 1))
 			}),
-			next: (m) => m
+			weight: 1,
+			judge: accepting((m) => m)
 		},
 		"add an entry to a role": {
 			applies: (m) => Arr.some(m.roles, (r) => entryOptions(m, r).length > 0),
@@ -600,12 +613,13 @@ const machine: Machine<Model, Params> = {
 					)
 				}
 			},
-			next: (m, p) => ({
+			weight: 1,
+			judge: accepting((m, p) => ({
 				...m,
 				roles: Arr.map(m.roles, (r, k) =>
 					k === p.role ? { ...r, entries: Arr.append(r.entries, p.entry) } : r
 				)
-			})
+			}))
 		},
 		"remove an entry from a role": {
 			applies: (m) => Arr.some(m.roles, (r) => r.entries.length > 1),
@@ -620,7 +634,8 @@ const machine: Machine<Model, Params> = {
 					entry: source.draw(int(0, nth(m.roles, role, "role").entries.length - 1))
 				}
 			},
-			next: (m, p) => ({
+			weight: 1,
+			judge: accepting((m, p) => ({
 				...m,
 				roles: Arr.map(m.roles, (r, k) =>
 					k === p.role
@@ -633,7 +648,7 @@ const machine: Machine<Model, Params> = {
 							}
 						: r
 				)
-			})
+			}))
 		},
 		"rename a context field": {
 			applies: (m) => freeClaims(m).length > 0,
@@ -641,32 +656,35 @@ const machine: Machine<Model, Params> = {
 				claim: source.draw(int(0, m.context.claims.length - 1)),
 				to: source.draw(element(nonEmptyList(freeClaims(m), "a free context field name")))
 			}),
-			next: (m, p) => ({
+			weight: 1,
+			judge: accepting((m, p) => ({
 				...m,
 				context: {
 					...m.context,
 					claims: Arr.map(m.context.claims, (c, k) => (k === p.claim ? { ...c, name: p.to } : c))
 				}
-			})
+			}))
 		},
 		"add a context field": {
 			applies: (m) => freeClaims(m).length > 0,
 			parameters: (m) =>
 				map(element(nonEmptyList(freeClaims(m), "a free context field name")), (to) => ({ to })),
-			next: (m, p) => ({
+			weight: 1,
+			judge: accepting((m, p) => ({
 				...m,
 				born: m.born + 1,
 				context: {
 					...m.context,
 					claims: Arr.append(m.context.claims, { origin: `G${m.born}`, name: p.to })
 				}
-			})
+			}))
 		},
 		"rename the context": {
 			applies: (m) => freeContexts(m).length > 0,
 			parameters: (m) =>
 				map(element(nonEmptyList(freeContexts(m), "a free context name")), (to) => ({ to })),
-			next: (m, p) => ({ ...m, context: { ...m.context, name: p.to } })
+			weight: 1,
+			judge: accepting((m, p) => ({ ...m, context: { ...m.context, name: p.to } }))
 		}
 	}
 }
@@ -1012,13 +1030,16 @@ const featureOf: { readonly [K in keyof Params]: Feature } = {
 /** The size of a history's program: one to five steps. */
 const historySize = { min: 1, max: 5 } as const
 
+/** Every command of the machine at its weight: a history's program draws from all of them. */
+const everyCommand = fullSwarm(Struct.keys(machine.commands))
+
 /**
  * The machine aimed at `aims`: where an aimed command applies, only the aimed ones do, so a program drawn from it runs
  * a pending command wherever the model allows one; elsewhere every command applies as in the machine.
  */
-const aimedAt = (aims: ReadonlySet<keyof Params>): Machine<Model, Params> => {
+const aimedAt = (aims: ReadonlySet<keyof Params>): Machine<Model, Params, never> => {
 	const anyAimed = (m: Model): boolean => Arr.some([...aims], (k) => machine.commands[k].applies(m))
-	const aimed = <K extends keyof Params>(k: K): Command<Model, Params[K]> => {
+	const aimed = <K extends keyof Params>(k: K): Command<Model, Params[K], never> => {
 		const command = machine.commands[k]
 		return { ...command, applies: (m) => command.applies(m) && (aims.has(k) || !anyAimed(m)) }
 	}
@@ -1256,13 +1277,13 @@ type StepError = Effect.Error<ReturnType<typeof step>>
 const real = (
 	h: History,
 	note: (f: Feature) => void
-): Real<Model, Params, StepError, Substrate> => {
+): Real<Model, Params, never, StepError, Substrate> => {
 	const run =
 		<K extends keyof Params>(command: K) =>
 		(_: Params[K], before: Model, after: Model) => {
 			note(featureOf[command])
 			noteHistory(before, after, note)
-			return step(h, before, after, note)
+			return Effect.as(step(h, before, after, note), took)
 		}
 	return {
 		"rename a relation": run("rename a relation"),
@@ -1276,7 +1297,7 @@ const real = (
 		"rename a login while its roles change": run("rename a login while its roles change"),
 		"exchange a login's and a role's names": (p, before) => {
 			note(featureOf["exchange a login's and a role's names"])
-			return exchange(h, before, p)
+			return Effect.as(exchange(h, before, p), took)
 		},
 		"add an entry to a role": run("add an entry to a role"),
 		"remove an entry from a role": run("remove an entry from a role"),
@@ -1341,7 +1362,7 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 				explore(
 					{
 						suite: "pg/migrate/histories",
-						draw: drawn(program(machine, historySize)),
+						draw: drawn(program(machine, historySize, everyCommand)),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -1378,7 +1399,10 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 					},
 					(drawnSteps, c) => {
 						const aims = pendingCommands(c.steering)
-						const steps = aims.size === 0 ? drawnSteps : c.draw(program(aimedAt(aims), historySize))
+						const steps =
+							aims.size === 0
+								? drawnSteps
+								: c.draw(program(aimedAt(aims), historySize, everyCommand))
 						return history(steps, (f) => c.note(f))
 					}
 				)

@@ -1,14 +1,9 @@
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
+import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import {
-	int8Digits,
-	int8Max,
-	int8Min,
-	moneyFractionDigits,
-	type MoneyValue
-} from "#compiler/ir/carriers.ts"
+import { int8Digits, moneyFractionDigits, type MoneyValue } from "#compiler/ir/carriers.ts"
 import { Decimal, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
 

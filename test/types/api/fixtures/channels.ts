@@ -1,4 +1,4 @@
-import { Effect, type Schedule, type Scope, type Types } from "effect"
+import { Array as Arr, Effect, type Schedule, type Scope, type Types } from "effect"
 import {
 	type ApplyError,
 	type ApplyOutcome,
@@ -376,7 +376,12 @@ export const lawOf = (outcome: Outcome): Law | undefined =>
 	// @ts-expect-error -- TS2339: only a rejection names a law; narrow on kind first
 	outcome.law
 /** A law is matched by its kind, which narrows to that form's fields. */
-export const keyFields = (law: Law): ReadonlyArray<string> => (law.kind === "key" ? law.fields : [])
+export const keyFields = (law: Law): ReadonlyArray<string> =>
+	law.kind === "primaryKey"
+		? law.fields
+		: law.kind === "key"
+			? Arr.map(law.side.terms, (t) => t.field)
+			: []
 /** A law is one of the stated forms: no other kind, and no opaque identity, is one. */
 // @ts-expect-error -- TS2322: "foreignKey" is no law's kind; a foreign key is a `contained`
 export const forgedLaw: Law = { kind: "foreignKey", relation: "Task", fields: ["account"] }

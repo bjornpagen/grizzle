@@ -19,8 +19,8 @@ export interface ParentRow {
  * family's statements `body` builds over that row; its refusal reports the keys when `shown` holds (`raiseViolation`).
  * The result is steps 2 and 3 for one affected key.
  *
- * The parent read that the alternatives reverse family and the conditional mirrors family share. Both families anchor on the parent row, the selected side, at the affected key, and an absent parent is no
- * obligation. Their steps 2 and 3 for one affected key are therefore one shape:
+ * The parent read of the alternatives reverse family, which anchors on the parent row, the selected side, at the
+ * affected key, where an absent parent is no obligation. Its steps 2 and 3 for one affected key are one shape:
  *
  *   FOR p IN SELECT r1.<f1> AS c1, ... FROM <parent> AS r1 WHERE r1.<k1> = <key1> AND ... LOOP
  *     <dispatch on the parent row's own fields, then one selected child probe:>
@@ -42,7 +42,7 @@ export interface ParentRow {
  * The DETAIL is the parent's key: the law's projection when it is exactly a key of the parent, otherwise the parent's
  * primary key, read from the parent row, never a payload column. */
 export const parentRead = (
-	law: FamilyLaw<"alternativesReverse" | "conditionalMirrors">,
+	law: FamilyLaw<"alternativesReverse">,
 	schema: string,
 	fields: ReadonlyArray<LawField>,
 	shown: Expr,

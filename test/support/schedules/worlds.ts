@@ -150,8 +150,6 @@ const lawJoins = (law: LawSpec): ReadonlyArray<string> => {
 		case "covered":
 		case "capacity":
 			return [law.source.relation, law.target.relation]
-		case "mirrors":
-			return [law.left.relation, law.right.relation]
 		case "alternatives":
 			return [law.relation, ...Record.values(law.arms)]
 	}

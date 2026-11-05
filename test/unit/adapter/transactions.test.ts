@@ -41,10 +41,7 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
  */
 const L = lawNamesOf(W.WorkDesc)
 const law = L.alternativesOfDesc(
-	Arr.filter(
-		W.WorkDesc.statements,
-		(s) => (s.kind === "contained" || s.kind === "mirrors") && s.origin !== undefined
-	)
+	Arr.filter(W.WorkDesc.statements, (s) => s.kind === "contained" && s.origin !== undefined)
 ).reverse
 const pk = L.primaryKeyLaw({ name: "TaskNote" })
 const fk = L.lawOfDesc(contained(on("TaskNote", ["task"]), on("Task", ["id"])))
@@ -84,8 +81,8 @@ const described = {
 	pk: { kind: "primaryKey", relation: "TaskNote", fields: ["task"] },
 	fk: {
 		kind: "contained",
-		from: { relation: "TaskNote", fields: ["task"], selection: [] },
-		to: { relation: "Task", fields: ["id"], selection: [] }
+		from: on("TaskNote", ["task"]),
+		to: on("Task", ["id"])
 	}
 } as const
 

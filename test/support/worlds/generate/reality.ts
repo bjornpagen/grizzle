@@ -1,7 +1,7 @@
 import { array, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option, pipe, Record } from "effect"
 import { type HostLaw, lawRelations, projection, violations } from "#test/pg/laws/families/model.ts"
-import { pool, pooled } from "#test/support/worlds/generate/domain.ts"
+import { pool } from "#test/support/worlds/generate/domain.ts"
 import type {
 	BaseSpec,
 	HostFact,
@@ -97,8 +97,8 @@ export const lawfulOf = (host: HostSchema, drawn: HostState): HostState => {
 
 /**
  * Fields of one relation that take their values from another relation's facts: a containment's source fields, each the
- * value of its target field; a mirrors law's right side, of its left. The target is drawn first where the references
- * allow, so a world reading one relation through another meets facts on both sides instead of the repair's leftovers.
+ * value of its target field. The target is drawn first where the references allow, so a world reading one relation
+ * through another meets facts on both sides instead of the repair's leftovers.
  */
 interface Reference {
 	readonly fields: Arr.NonEmptyReadonlyArray<string>
@@ -106,7 +106,7 @@ interface Reference {
 	readonly targetFields: Arr.NonEmptyReadonlyArray<string>
 }
 
-/** The references of a base's laws: every unselected containment, and every mirrors law right to left. */
+/** The references of a base's laws: every unselected containment. */
 const referencesOf = (base: BaseSpec): ReadonlyArray<readonly [string, Reference]> =>
 	Arr.flatMap(base.laws, (law): ReadonlyArray<readonly [string, Reference]> => {
 		switch (law.kind) {
@@ -123,13 +123,6 @@ const referencesOf = (base: BaseSpec): ReadonlyArray<readonly [string, Reference
 							]
 						]
 					: []
-			case "mirrors":
-				return [
-					[
-						law.right.relation,
-						{ fields: law.right.fields, target: law.left.relation, targetFields: law.left.fields }
-					]
-				]
 			case "key":
 			case "spanKey":
 			case "check":
@@ -204,55 +197,11 @@ const draftGen =
 		})
 
 /**
- * A mirrors law's right relation with a fact for each left fact it holds no counterpart of: the left's values at the
- * mirrored fields, every other field its pool's first value.
- */
-const covered = (base: BaseSpec, facts: Map<string, ReadonlyArray<HostFact>>): void => {
-	for (const law of base.laws) {
-		if (law.kind !== "mirrors") {
-			continue
-		}
-		const right = Option.getOrUndefined(
-			Arr.findFirst(base.relations, (r) => r.name === law.right.relation)
-		)
-		if (right === undefined) {
-			continue
-		}
-		const held = new Set(
-			Arr.map(facts.get(right.name) ?? [], (f) => projection(f, law.right.fields))
-		)
-		const added = Arr.flatMap(
-			facts.get(law.left.relation) ?? [],
-			(left): ReadonlyArray<HostFact> => {
-				const mirrored = Record.fromEntries(
-					Arr.flatMap(law.right.fields, (field, j) => {
-						const at = law.left.fields[j]
-						const value = at === undefined ? undefined : left[at]
-						return value === undefined ? [] : [[field, value] as const]
-					})
-				)
-				return held.has(projection(mirrored, law.right.fields))
-					? []
-					: [
-							{
-								...Record.fromEntries(
-									Arr.map(right.fields, (f) => [f.name, pooled(f.domain, 0)] as const)
-								),
-								...mirrored
-							}
-						]
-			}
-		)
-		facts.set(right.name, keyed(right, [...(facts.get(right.name) ?? []), ...added]))
-	}
-}
-
-/**
  * The lawful realities of a base: each ordinary relation the host schema holds draws up to a few facts from the domain
  * pools (few subjects, few organizations, small integers, uuids as distinct tokens, serials as distinct values with
  * gaps), seven times in eight taking each referenced field set from a fact of the relation it references (a
- * containment's target, a mirrors law's left side, drawn first, with a fact at least), each mirrors law's left facts
- * given their counterparts, one fact per primary key, and the whole repaired to lawful by the host law model. A
+ * containment's target, drawn first where no cycle forbids it, with a fact at least), one fact per primary key, and
+ * the whole repaired to lawful by the host law model. A
  * relation of the host schema the base does not hold as an ordinary relation (a derived one) has no stored facts.
  */
 export const realityGen = (base: BaseSpec, host: HostSchema): Gen<HostState> => {
@@ -272,7 +221,6 @@ export const realityGen = (base: BaseSpec, host: HostSchema): Gen<HostState> => 
 			)
 			facts.set(relation.name, keyed(relation, drafted))
 		}
-		covered(base, facts)
 		return lawfulOf(
 			host,
 			new Map(Arr.map(host.relations, (h) => [h.name, facts.get(h.name) ?? []] as const))

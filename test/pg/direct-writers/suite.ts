@@ -137,7 +137,7 @@ const plantedGroup = (index: number): WGroup => {
 				to: { relation: pure.name, fields: ["a"] }
 			}
 		],
-		capacities: []
+		projectedKeys: []
 	}
 }
 

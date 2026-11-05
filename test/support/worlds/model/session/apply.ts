@@ -7,7 +7,6 @@ import {
 	projection,
 	sameState,
 	sameValues,
-	selected,
 	transition,
 	valueText
 } from "#test/pg/laws/families/model.ts"
@@ -31,8 +30,6 @@ import {
 import {
 	keysOf,
 	serialHead,
-	type UniqueIndex,
-	uniquesOf,
 	type Written,
 	writtenNamed
 } from "#test/support/worlds/model/session/writes.ts"
@@ -308,17 +305,10 @@ const inEntryTerms = (w: QueryWritten, fact: HostFact, fields: ReadonlyArray<str
 		})
 	)
 
-/** The law of an at-most-one capacity's unique index, as the installation names it. */
-const uniqueLawOf = (state: ModelState, u: UniqueIndex): LawId | undefined => {
-	const ids = state.names.laws[u.law]
-	return ids?.kind === "capacity" ? ids.law : undefined
-}
-
 /**
  * The collisions of a query entry's inserted and put facts with facts of its target outside the entry, which the
- * entry's precheck finds through its key probes and unique probes (write/entry/precheck.ts): at a key, and at a unique
- * index no key subsumes (uniquesOf) between two facts its selector admits. Each is invariant-rejected on that key's or
- * index's law, its witness the keys submitted at the law's fields, in the entry's fields.
+ * entry's precheck finds through its key probes (write/entry/precheck.ts): at a key. Each is invariant-rejected on that
+ * key's law, its witness the keys submitted at the law's fields, in the entry's fields.
  */
 const collisionsOf = (
 	state: ModelState,
@@ -334,62 +324,33 @@ const collisionsOf = (
 		factsIn(state.reality, w.target),
 		(f) => !isMember(state, role, w.entry, facts, f)
 	)
-	const atKeys = Arr.flatMap(
-		keysOf(state.install.base, w.target),
-		(key): ReadonlyArray<ActionOutcome> => {
-			const law = keyLawOf(state, w.target, key)
-			if (law === undefined) {
-				return []
-			}
-			const colliding = Arr.filter(j.inside, (f) =>
-				Arr.some(occupants, (o) =>
-					law.kind === "spanKey" ? collide(law, f, o) : projection(f, key) === projection(o, key)
-				)
+	return Arr.flatMap(keysOf(state.install.base, w.target), (key): ReadonlyArray<ActionOutcome> => {
+		const law = keyLawOf(state, w.target, key)
+		if (law === undefined) {
+			return []
+		}
+		const colliding = Arr.filter(j.inside, (f) =>
+			Arr.some(occupants, (o) =>
+				law.kind === "spanKey" ? collide(law, f, o) : projection(f, key) === projection(o, key)
 			)
-			return colliding.length === 0
-				? []
-				: [
-						{
-							kind: "invariant-rejected",
-							law: law.law,
-							witness: { kind: "shown", keys: Arr.map(j.inside, (f) => inEntryTerms(w, f, key)) }
-						}
-					]
-		}
-	)
-	const atIndexes = Arr.flatMap(
-		uniquesOf(state.install.base, w.target),
-		(u): ReadonlyArray<ActionOutcome> => {
-			const law = uniqueLawOf(state, u)
-			const at = (f: HostFact): string | undefined =>
-				selected(f, u.where) ? projection(f, u.fields) : undefined
-			const held = new Set(Arr.flatMap(occupants, (o) => Arr.fromNullishOr(at(o))))
-			const colliding = Arr.some(j.inside, (f) => {
-				const k = at(f)
-				return k !== undefined && held.has(k)
-			})
-			return law === undefined || !colliding
-				? []
-				: [
-						{
-							kind: "invariant-rejected",
-							law,
-							witness: {
-								kind: "shown",
-								keys: Arr.map(j.inside, (f) => inEntryTerms(w, f, u.fields))
-							}
-						}
-					]
-		}
-	)
-	return [...atKeys, ...atIndexes]
+		)
+		return colliding.length === 0
+			? []
+			: [
+					{
+						kind: "invariant-rejected",
+						law: law.law,
+						witness: { kind: "shown", keys: Arr.map(j.inside, (f) => inEntryTerms(w, f, key)) }
+					}
+				]
+	})
 }
 
 /**
  * What a judged op's statement refuses itself: the CHECK of each law domain one of its values breaks, met as the
  * statement casts its input, before its row constraints, policies and triggers (a domain CHECK reports no key, so its
- * witness is withheld); else an inserted or put fact outside the entry, and each key or unique index at which a fact
- * outside a query entry collides with one it submits (collisionsOf).
+ * witness is withheld); else an inserted or put fact outside the entry, and each key at which a fact outside a query
+ * entry collides with one it submits (collisionsOf).
  */
 const refusalsOf = (
 	state: ModelState,

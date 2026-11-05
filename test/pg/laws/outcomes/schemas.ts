@@ -48,10 +48,15 @@ const membersPerClub = capacity(on(Club, "region", "number", "code"), {
 })
 
 export const captainCount = capacity(on(Club, "region", "number", "code"), {
-	from: on(select(Member, { captain: true }), "region", "number", "code"),
+	from: on(
+		select(Member, (m) => m.eq(m.captain, true)),
+		"region",
+		"number",
+		"code"
+	),
 	within: within(0n, 1n)
 })
-const emailKey = key(Member, ["email"])
+const emailKey = key(on(Member, "email"))
 const positiveSeatsCheck = check("PositiveSeats", Club, (x) => x.gt(x.seats, 0))
 
 /**
@@ -63,12 +68,12 @@ const positiveSeatsCheck = check("PositiveSeats", Club, (x) => x.gt(x.seats, 0))
  *
  * - `capacity(on(Club, region, number, code), { from: on(Member, ...), within: within(1n, 2n) })`: a residual capacity,
  *   lower bound one, so a club without members fails at COMMIT with the club's key in its DETAIL;
- * - `capacity(..., { from: on(select(Member, { captain: true }), ...), within: within(0n, 1n) })`: at most one captain
- *   per club over an unselected target, only a partial UNIQUE index, no function, so a second captain is
- *   a 23505 on the index, whose name maps to the law;
+ * - `capacity(..., { from: on(select(Member, (m) => m.eq(m.captain, true)), ...), within: within(0n, 1n) })`: at most
+ *   one captain per club over an unselected target, only a UNIQUE over the selected side's generated columns, no
+ *   function, so a second captain is a 23505 on it, whose name maps to the law;
  * - the containment of a member's club into Club: a foreign key, deferred or immediate as the law model's deferral rule
  *   decides;
- * - `key(Member, ["email"])`: a candidate key, a 23505 on its unique constraint;
+ * - `key(on(Member, "email"))`: a candidate key, a 23505 on its unique constraint;
  * - `check("PositiveSeats", Club, ...)`: a table CHECK, a 23514 whose DETAIL quotes the whole failing row;
  * - Seats, a contract domain over an integer, and the code's `^.{1,20}$` refinement, a text refinement domain: two
  *   domain constraints, 23514 with the domain as the data type.

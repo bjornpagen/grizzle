@@ -1,21 +1,25 @@
 import { Array as Arr } from "effect"
-import { biased, caseSeed, type Stream, type Words, wordsOf } from "#random.ts"
+import { between, biased, caseSeed, type Stream, type Words, wordsOf } from "#random.ts"
 import type { Status, Tape } from "#tape.ts"
 
 /** Whether what the system decided matches the tape being replayed: always, on a fresh tape. */
 export type Observed = "as-recorded" | "diverged"
 
 /**
- * What a generator draws its decisions from. `choose` makes one bounded decision; `draw` runs another generator on
- * the same decisions, so a struct, a tuple or a dependent value is a plain function body; `span` labels the decisions a
- * generator makes while it runs, so a tape keeps its structure (`open` and `close` do the same without allocating, for
- * a combinator's loop, and must pair); `discard` gives the case up, for a filter that found nothing it keeps;
- * `observe` records a value the system under test decided, not the test, as a decision with one possible value, and
- * says whether a replay recorded the same one there; an observation a replay lacks is new, never an overrun. A generator never sees where the values come from: a random
- * stream, a replay, an enumeration or a shrink candidate are all the same to it.
+ * What a generator draws its decisions from. `choose` makes one bounded decision about a magnitude, which a random
+ * search leans toward the ends of a wide range (`biased`); `pick` makes one bounded decision among options, which a
+ * random search draws uniformly however wide, so a choice's stated distribution is its distribution; `draw` runs
+ * another generator on the same decisions, so a struct, a tuple or a dependent value is a plain function body; `span`
+ * labels the decisions a generator makes while it runs, so a tape keeps its structure (`open` and `close` do the same
+ * without allocating, for a combinator's loop, and must pair); `discard` gives the case up, for a filter that found
+ * nothing it keeps; `observe` records a value the system under test decided, not the test, as a decision with one
+ * possible value, and says whether a replay recorded the same one there; an observation a replay lacks is new, never
+ * an overrun. A generator never sees where the values come from: a random stream, a replay, an enumeration or a shrink
+ * candidate are all the same to it.
  */
 export type Source = Readonly<{
 	choose: (lo: number, hi: number) => number
+	pick: (lo: number, hi: number) => number
 	draw: <A>(generator: (source: Source) => A) => A
 	span: <A>(label: string, generate: () => A) => A
 	open: (label: string) => void
@@ -25,18 +29,32 @@ export type Source = Readonly<{
 }>
 
 /**
- * Where a recording's values come from: `draw` answers the decision at position `at`, and `exhausted` says a replay
- * has no value for it, so the recording finishes on simplest values.
+ * How a random search spreads a decision over its range: a magnitude leans toward the ends of a wide range, where code
+ * branches, and an option is drawn uniformly, so no option is favoured by where it sits. Only a random search reads it:
+ * a replay, an enumeration and a shrink see the same decision with the same bounds.
+ */
+export type Spread = "leaning" | "uniform"
+
+/**
+ * Where a recording's values come from: `draw` answers the decision at position `at`, spread as `spread` says, and
+ * `exhausted` says a replay has no value for it, so the recording finishes on simplest values.
  */
 export type Chooser = Readonly<{
 	exhausted: (at: number) => boolean
-	draw: (lo: number, hi: number, at: number) => number
+	draw: (lo: number, hi: number, at: number, spread: Spread) => number
 }>
 
-/** Fresh decisions from a seeded word source, leaning toward the ends of a wide range. */
+/** Fresh decisions from a seeded word source: a magnitude leaning toward the ends of a wide range, an option uniform. */
 export const randomChooser = (words: Words): Chooser => ({
 	exhausted: () => false,
-	draw: (lo, hi) => biased(words, lo, hi)
+	draw: (lo, hi, _at, spread) => {
+		switch (spread) {
+			case "leaning":
+				return biased(words, lo, hi)
+			case "uniform":
+				return between(words, lo, hi)
+		}
+	}
 })
 
 /** The simplest value of every decision: what an enumeration takes past its prefix. */
@@ -54,7 +72,7 @@ export const forcedChooser = (values: Float64Array, length: number): Chooser => 
 /** The first `length` of these values, then whatever `then` chooses: a mutation's prefix, or an enumeration's branch. */
 export const prefixChooser = (values: Float64Array, length: number, then: Chooser): Chooser => ({
 	exhausted: (at) => at >= length && then.exhausted(at),
-	draw: (lo, hi, at) => (at < length ? (values[at] ?? 0) : then.draw(lo, hi, at))
+	draw: (lo, hi, at, spread) => (at < length ? (values[at] ?? 0) : then.draw(lo, hi, at, spread))
 })
 
 /** A generated value and the tape that determines it. */
@@ -122,19 +140,21 @@ export const recorder = (): Recorder => {
 		length += 1
 		return value
 	}
+	const decide = (lo: number, hi: number, spread: Spread) => {
+		if (lo === hi) {
+			return lo
+		}
+		const offered = chooser.exhausted(length) ? lo - 1 : chooser.draw(lo, hi, length, spread)
+		const fits = offered >= lo && offered <= hi
+		if (!fits && status === "complete") {
+			status = "overrun"
+		}
+		return append(fits ? offered : lo, lo, hi)
+	}
 	const source: Source = {
 		draw: (inner) => inner(source),
-		choose: (lo, hi) => {
-			if (lo === hi) {
-				return lo
-			}
-			const offered = chooser.exhausted(length) ? lo - 1 : chooser.draw(lo, hi, length)
-			const fits = offered >= lo && offered <= hi
-			if (!fits && status === "complete") {
-				status = "overrun"
-			}
-			return append(fits ? offered : lo, lo, hi)
-		},
+		choose: (lo, hi) => decide(lo, hi, "leaning"),
+		pick: (lo, hi) => decide(lo, hi, "uniform"),
 		open: (label) => {
 			const index = spanLabel.length
 			spanLabel.push(label)
@@ -163,7 +183,9 @@ export const recorder = (): Recorder => {
 			status = "discarded"
 		},
 		observe: (value) => {
-			const offered = chooser.exhausted(length) ? value : chooser.draw(value, value, length)
+			const offered = chooser.exhausted(length)
+				? value
+				: chooser.draw(value, value, length, "uniform")
 			append(value, value, value)
 			return offered === value ? "as-recorded" : "diverged"
 		}
@@ -235,8 +257,10 @@ export const sample = <A>(
 	generator: (source: Source) => A,
 	stream: Stream,
 	count: number
-): ReadonlyArray<A> =>
-	Arr.makeBy(
-		count,
-		(index) => generate(generator, randomChooser(wordsOf(caseSeed(stream, index)))).value
-	)
+): ReadonlyArray<A> => {
+	const cases: Array<A> = []
+	for (let index = 0; index < count; index += 1) {
+		cases.push(generate(generator, randomChooser(wordsOf(caseSeed(stream, index)))).value)
+	}
+	return cases
+}

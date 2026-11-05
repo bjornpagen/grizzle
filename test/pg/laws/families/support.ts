@@ -55,7 +55,6 @@ import {
 	sameValue,
 	sameValues,
 	selected,
-	selectorValues,
 	sharesWitnessRelation,
 	stateRows,
 	transition,
@@ -153,7 +152,7 @@ const partlyMet = (state: HostState, law: HostLaw, key: WitnessKey): boolean =>
 				),
 				(f) =>
 					Arr.some(defined(state.get(to.relation), `the state's ${to.relation} facts`), (t) => {
-						if (!selected(t, to.where)) {
+						if (!selected(t, to.selection)) {
 							return false
 						}
 						const equal = Arr.map(from.fields, (field, i) =>
@@ -216,10 +215,10 @@ const switchedIn = (r: Refused, law: HostLaw, host: HostSchema): boolean => {
 	return Arr.some(
 		r.after.get(law.anchor.relation) ?? [],
 		(a) =>
-			selected(a, law.anchor.where) &&
+			selected(a, law.anchor.selection) &&
 			Arr.some(
 				r.before.get(law.anchor.relation) ?? [],
-				(b) => projection(a, key) === projection(b, key) && !selected(b, law.anchor.where)
+				(b) => projection(a, key) === projection(b, key) && !selected(b, law.anchor.selection)
 			)
 	)
 }
@@ -252,7 +251,7 @@ const obliged = (law: HostLaw): boolean => law.kind === "obliged"
 
 /** Whether an obligation selects its anchors. */
 const selective = (law: HostLaw): boolean =>
-	law.kind === "obliged" && Rec.keys(law.anchor.where).length > 0
+	law.kind === "obliged" && law.anchor.selection.kind === "where"
 
 /**
  * Every shape of law a refusal may show, each where grizzle's laws have broken: a coverage across renamed fields; a
@@ -730,7 +729,7 @@ const linksOf = (host: HostSchema, relation: string): ReadonlyArray<Link> =>
 		}
 		return []
 	})
-const admits = (side: HostSide, fact: HostFact): boolean => selected(fact, side.where)
+const admits = (side: HostSide, fact: HostFact): boolean => selected(fact, side.selection)
 
 /**
  * Planted sketches: a precondition the population reaches too rarely, named and resolved as drawn ones are.
@@ -920,7 +919,7 @@ export const resolveStep = (
 				return drawn
 			}
 			const target = pickIn(targets, sketch.index, "the targets")
-			const out: Record<string, HostValue> = { ...drawn, ...pinned(link.from.where) }
+			const out: Record<string, HostValue> = { ...drawn, ...pinned(link.from.selection) }
 			for (const [i, field] of link.from.fields.entries()) {
 				const to = link.to.fields[i]
 				const x = to === undefined ? undefined : target[to]
@@ -1000,7 +999,7 @@ const drawnFact = (
  * `fact` pointed at `at` through `side`: its selector's values, and its side's fields at `at`'s values in pair order.
  */
 const pointedAt = (side: HostSide, fact: HostFact, at: ReadonlyArray<HostValue>): HostFact => {
-	const out: Record<string, HostValue> = { ...fact, ...pinned(side.where) }
+	const out: Record<string, HostValue> = { ...fact, ...pinned(side.selection) }
 	for (const [i, field] of side.fields.entries()) {
 		const x = at[i]
 		if (x === undefined) {
@@ -1039,7 +1038,7 @@ export const withSupports = (
 			throw new Error(`a group of more than ${supportBound} facts: the family's needs cycle`)
 		}
 		for (const { from, to } of required) {
-			if (from.relation !== relation || !selected(fact, from.where)) {
+			if (from.relation !== relation || !selected(fact, from.selection)) {
 				continue
 			}
 			const at = Arr.map(from.fields, (f) => {
@@ -1050,7 +1049,7 @@ export const withSupports = (
 				return x
 			})
 			const meets = (f: HostFact) =>
-				selected(f, to.where) && Arr.every(to.fields, (field, j) => sameValue(f[field], at[j]))
+				selected(f, to.selection) && Arr.every(to.fields, (field, j) => sameValue(f[field], at[j]))
 			/** One stored or written already meets the need. */
 			const met =
 				Arr.some(stored, (x) => x.relation === to.relation && meets(x.fact)) ||
@@ -1096,7 +1095,7 @@ const resolveSupported = (
 		Arr.map(sketch.values, (p, i) => (p + k * (i + 1) * fillStride) % pickSpan)
 	const fact = {
 		...drawnFact(host, domains, need.from.relation, values(0)),
-		...pinned(need.from.where)
+		...pinned(need.from.selection)
 	}
 	return insertsOf(
 		withSupports(
@@ -1127,11 +1126,11 @@ const resolveUnlink = (
 			Arr.filter(
 				facts(to.relation),
 				(t) =>
-					selected(t, to.where) &&
+					selected(t, to.selection) &&
 					Arr.some(
 						facts(from.relation),
 						(f) =>
-							selected(f, from.where) &&
+							selected(f, from.selection) &&
 							Arr.every(from.fields, (field, j) =>
 								sameValue(f[field], t[defined(to.fields[j], `the field ${field} pairs with`)])
 							)
@@ -1175,14 +1174,14 @@ const resolveNear = (
 		Arr.map(sketch.values, (p, i) => (p + k * (i + 1) * fillStride) % pickSpan)
 	const [stored, ...more] = Arr.filter(
 		defined(before.get(to.relation), `the state's ${to.relation} facts`),
-		(t) => selected(t, to.where)
+		(t) => selected(t, to.selection)
 	)
 	/** The target, and what the member writes for it: nothing for a stored one, a drawn one with its supports. */
 	const aimed = (): { readonly target: HostFact; readonly writes: ReadonlyArray<Written> } => {
 		if (stored !== undefined) {
 			return { target: pickFrom([stored, ...more], sketch.target), writes: [] }
 		}
-		const target = { ...drawnFact(host, domains, to.relation, values(1)), ...pinned(to.where) }
+		const target = { ...drawnFact(host, domains, to.relation, values(1)), ...pinned(to.selection) }
 		return {
 			target,
 			writes: withSupports(host, domains, before, [{ relation: to.relation, fact: target }], (k) =>
@@ -1247,7 +1246,7 @@ const resolveFill = (
 	const before = transition(host, state, ops)
 	const targets = Arr.filter(
 		defined(before.get(law.target.relation), `the state's ${law.target.relation} facts`),
-		(f) => selected(f, law.target.where)
+		(f) => selected(f, law.target.selection)
 	)
 	const candidate = (count: number, draw: number): ReadonlyArray<HostOp> => {
 		const values = (k: number) =>
@@ -1261,7 +1260,7 @@ const resolveFill = (
 				? pickIn(targets, sketch.target, "the capacity's targets")
 				: {
 						...drawnFact(host, domains, law.target.relation, values(maxFill)),
-						...pinned(law.target.where)
+						...pinned(law.target.selection)
 					}
 		if (targets.length === 0) {
 			written.push({ relation: law.target.relation, fact: target })
@@ -1502,18 +1501,18 @@ export const plantedRefusal = (
 			for (const law of host.laws) {
 				if (
 					law.kind !== "obliged" ||
-					Rec.keys(law.anchor.where).length === 0 ||
-					!inDomain(law.anchor.relation, pinned(law.anchor.where))
+					law.anchor.selection.kind === "every" ||
+					!inDomain(law.anchor.relation, pinned(law.anchor.selection))
 				) {
 					continue
 				}
 				for (const [i, a] of (state.get(law.anchor.relation) ?? []).entries()) {
-					if (selected(a, law.anchor.where)) {
+					if (selected(a, law.anchor.selection)) {
 						continue
 					}
 					for (const refused of rewrites(state, law.anchor.relation, i, {
 						...a,
-						...pinned(law.anchor.where)
+						...pinned(law.anchor.selection)
 					})) {
 						yield { lawful, refused }
 					}
@@ -1715,7 +1714,9 @@ const exemptAnchors = (host: HostSchema, state: HostState): boolean => {
 				!Arr.some(
 					host.laws,
 					(l) =>
-						l.kind === "obliged" && l.anchor.relation === relation && selected(fact, l.anchor.where)
+						l.kind === "obliged" &&
+						l.anchor.relation === relation &&
+						selected(fact, l.anchor.selection)
 				)
 		)
 	)
@@ -1736,13 +1737,12 @@ export const exemptReachable = (host: HostSchema, domains: Domains): boolean =>
 			(m): m is Extract<HostLaw, { readonly kind: "obliged" }> =>
 				m.kind === "obliged" && m.anchor.relation === relation
 		)
-		return Arr.some(Rec.keys(l.anchor.where), (field) =>
-			Arr.some(domains[relation]?.[field] ?? [], (value) =>
-				Arr.every(peers, (m) => {
-					const wanted = m.anchor.where[field]
-					return wanted !== undefined && !Arr.some(selectorValues(wanted), (x) => x === value)
-				})
-			)
+		const at = pinned(l.anchor.selection)
+		return Arr.some(Rec.keys(at), (field) =>
+			Arr.some(domains[relation]?.[field] ?? [], (value) => {
+				const fact = { ...at, [field]: value }
+				return Arr.every(peers, (m) => !selected(fact, m.anchor.selection))
+			})
 		)
 	})
 

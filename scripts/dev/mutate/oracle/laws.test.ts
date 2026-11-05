@@ -5,18 +5,17 @@ import { firstFailure, oracleCases } from "#scripts/dev/mutate/oracle/check.ts"
 import {
 	alternativesFamily,
 	capacityFamily,
-	conditionalMirrors,
 	depositsFamily,
 	type Family,
 	installFamily,
 	populationsOf,
 	queueFamily,
-	selectedSource,
 	sharedTablesFamily,
 	spanCoverage,
 	timekeepingFamily
 } from "#test/pg/laws/families/families.ts"
 import { familyCaseGen, runSteps } from "#test/pg/laws/families/support.ts"
+import { projectedMirrors, projectedSource } from "#test/pg/laws/projections/families.ts"
 import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -51,8 +50,8 @@ layer(Substrate.layer, { excludeTestServices: true })("mutation stage 2: law fam
 			)
 		}
 	}
-	familyTests(selectedSource)
-	familyTests(conditionalMirrors)
+	familyTests(projectedSource)
+	familyTests(projectedMirrors)
 	familyTests(alternativesFamily)
 	familyTests(capacityFamily)
 	familyTests(sharedTablesFamily)

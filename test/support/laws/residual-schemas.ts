@@ -6,11 +6,13 @@ import {
 	capacity,
 	closed,
 	contained,
+	eq,
 	f,
-	mirrors,
+	field,
+	literal,
 	mutable,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	within
@@ -43,7 +45,7 @@ export interface AlternativesSketch {
 
 /** A drawn point of each other residual family, two relations each, with each relation's mutability. */
 export type OtherSketch = {
-	readonly kind: "selectedSource" | "mirrors" | "capacity" | "coverage"
+	readonly kind: "capacity" | "coverage"
 	readonly firstMutable: boolean
 	readonly secondMutable: boolean
 }
@@ -170,8 +172,6 @@ export const residualSketchGen: Gen<ResidualSketch> = weighted<ResidualSketch>([
 	[12, alternativesGen],
 	[1, largeUnarmedGen],
 	[1, sharedMutableGen],
-	[1, otherGen("selectedSource")],
-	[1, otherGen("mirrors")],
 	[1, otherGen("capacity")],
 	[1, otherGen("coverage")],
 	[1, (s): ParentArmSketch => ({ kind: "parentArm", law: s.draw(alternativesGen) })]
@@ -237,32 +237,6 @@ const otherSchema = (o: OtherSketch): SchemaDesc => {
 			[second, o.secondMutable]
 		])
 	switch (o.kind) {
-		case "selectedSource":
-			return {
-				name: "Staffing",
-				relations: [
-					relation("Assignment", { id: f.integer, worker: f.integer, active: f.boolean }, ["id"]),
-					relation("Worker", { id: f.integer, name: f.integer }, ["id"])
-				],
-				statements: [
-					contained(onSelected("Assignment", ["worker"], { active: true }), on("Worker", ["id"])),
-					...two("Assignment", "Worker")
-				],
-				extends: undefined
-			}
-		case "mirrors":
-			return {
-				name: "Reasons",
-				relations: [
-					relation("Line", { id: f.integer, flagged: f.boolean }, ["id"]),
-					relation("Reason", { id: f.integer, line: f.integer }, ["id"])
-				],
-				statements: [
-					mirrors(onSelected("Line", ["id"], { flagged: true }), on("Reason", ["line"])),
-					...two("Line", "Reason")
-				],
-				extends: undefined
-			}
 		case "capacity":
 			return {
 				name: "Teams",
@@ -299,7 +273,7 @@ const otherSchema = (o: OtherSketch): SchemaDesc => {
 				],
 				statements: [
 					contained(
-						onSelected("Visit", ["site", "during"], { billable: true }),
+						onWhere("Visit", ["site", "during"], eq(field("billable"), literal(true))),
 						on("Shift", ["site", "during"])
 					),
 					...two("Visit", "Shift")
@@ -324,8 +298,6 @@ export const residualSchema = (sketch: ResidualSketch): SchemaDesc => {
 			return alternativesSchema(sketch, false)
 		case "parentArm":
 			return alternativesSchema(sketch.law, true)
-		case "selectedSource":
-		case "mirrors":
 		case "capacity":
 		case "coverage":
 			return otherSchema(sketch)

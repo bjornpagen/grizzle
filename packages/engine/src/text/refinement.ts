@@ -366,6 +366,26 @@ export const textInfo = (refinement: TextRefinement): TextInfo => {
 export const textLookup: TextLookup = (source, flags) =>
 	Result.map(analyzeText(source, flags, SourceLoc(`/${source}/${flags}`, [])), textInfo)
 
+/**
+ * A text lookup (`textLookup`) that analyzes each distinct pattern once over its own lifetime, so an environment that
+ * types many fields of one pattern parses it and builds its automaton once. The analysis is a pure function of the
+ * source and flags; its record lives with the environment that holds the lookup, never in this module.
+ */
+export const textLookupOnce = (): TextLookup => {
+	const analyzed = new Map<string, Map<string, Result.Result<TextInfo, CompileError>>>()
+	return (source, flags) => {
+		const own = analyzed.get(flags) ?? new Map<string, Result.Result<TextInfo, CompileError>>()
+		analyzed.set(flags, own)
+		const known = own.get(source)
+		if (known !== undefined) {
+			return known
+		}
+		const info = textLookup(source, flags)
+		own.set(source, info)
+		return info
+	}
+}
+
 /** A domain CHECK's VALUE. */
 export const domainValue: Expr = Object.freeze({ kind: "domainValue" })
 

@@ -381,8 +381,6 @@ const delta = (sketch: Admitted): ReadonlyArray<Reached<ParticipantFeature>> => 
 			}
 			break
 		}
-		case "selectedSourceContainment":
-		case "conditionalMirrors":
 		case "scalarCapacity":
 		case "selectedSourceCoverage": {
 			/**
@@ -425,8 +423,6 @@ describe("residual law participants", () => {
 				"a roster of at least 8",
 				"the parent as its own arm, refused",
 				"family alternativesReverse",
-				"family selectedSourceContainment",
-				"family conditionalMirrors",
 				"family scalarCapacity",
 				"family selectedSourceCoverage",
 				["a roster of at least 8", "an unarmed handle"],

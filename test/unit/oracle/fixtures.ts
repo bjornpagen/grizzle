@@ -20,7 +20,7 @@ export const schema: OracleSchema = {
 			],
 			primaryKey: { law: wild.lawId("task_pk"), fields: ["id"] },
 			keys: [],
-			partialKeys: [],
+			projectedKeys: [],
 			serial: []
 		},
 		{
@@ -31,7 +31,7 @@ export const schema: OracleSchema = {
 			],
 			primaryKey: { law: wild.lawId("account_pk"), fields: ["id"] },
 			keys: [{ law: wild.lawId("account_key_name"), fields: ["name"] }],
-			partialKeys: [],
+			projectedKeys: [],
 			serial: []
 		},
 		{
@@ -42,7 +42,7 @@ export const schema: OracleSchema = {
 			],
 			primaryKey: { law: wild.lawId("label_pk"), fields: ["account", "label"] },
 			keys: [],
-			partialKeys: [],
+			projectedKeys: [],
 			serial: []
 		},
 		{
@@ -54,7 +54,7 @@ export const schema: OracleSchema = {
 			primaryKey: { law: wild.lawId("ticket_pk"), fields: ["id"] },
 			keys: [{ law: wild.lawId("ticket_key_title"), fields: ["title"] }],
 			serial: ["id"],
-			partialKeys: []
+			projectedKeys: []
 		}
 	]
 }

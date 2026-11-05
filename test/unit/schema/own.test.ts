@@ -19,7 +19,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
-import type { QueryDesc, SideDesc } from "#compiler/ir/desc.ts"
+import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -27,24 +27,32 @@ import { own } from "#compiler/schema/own.ts"
 import { closed, derived, relation } from "#compiler/schema/relation.ts"
 import { schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
-	alternatives,
-	capacity,
-	check,
-	contained,
-	key,
-	mirrors,
-	mutable,
-	on,
-	select,
-	within
+	alternativesBuilder,
+	capacityBuilder,
+	checkBuilder,
+	containedBuilder,
+	keyBuilder,
+	mirrorsBuilder,
+	mutableBuilder,
+	onBuilder,
+	runtimeWithin,
+	selectBuilder
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
-import type {
-	SchemaDesc,
-	AuthoredStatementDesc as StatementDesc
+import {
+	contained,
+	eq,
+	field,
+	key,
+	literal,
+	on,
+	onWhere,
+	pred,
+	type SchemaDesc,
+	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
@@ -78,10 +86,10 @@ const Work = schema(
 	"Work",
 	{ Kind, Account, Task, AutomaticTask, ManualTask },
 	[
-		contained(on(Task, ["account"]), on(Account, ["id"])),
-		key(Account, ["name"]),
-		mutable(Account),
-		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
+		containedBuilder(onBuilder(Task, ["account"]), onBuilder(Account, ["id"])),
+		keyBuilder(onBuilder(Account, ["name"])),
+		mutableBuilder(Account),
+		alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
 	],
 	[]
 )
@@ -211,9 +219,9 @@ describe("the owned product", () => {
 		[]
 	)
 	const optional: Arr.NonEmptyReadonlyArray<Statement> = [
-		contained(on(Task, ["account"]), on(Account, ["id"])),
-		key(Account, ["name"]),
-		mutable(Account)
+		containedBuilder(onBuilder(Task, ["account"]), onBuilder(Account, ["id"])),
+		keyBuilder(onBuilder(Account, ["name"])),
+		mutableBuilder(Account)
 	]
 	type FingerprintFeature =
 		| Exclude<MeaningChange, "none">
@@ -271,7 +279,7 @@ describe("the owned product", () => {
 								["Limits", Limits]
 							]
 							const bounded = (rewrite: boolean, change: boolean) =>
-								check("Bounded", Limits, (r: LimitsRow) =>
+								checkBuilder("Bounded", Limits, (r: LimitsRow) =>
 									change
 										? r.and(limitsPredicate(r, s.predicate, rewrite), r.limit.ge(-6n))
 										: limitsPredicate(r, s.predicate, rewrite)
@@ -352,16 +360,14 @@ describe("conflicting declarations", () => {
 		| "a contract name over another base"
 		| "a contract name with another predicate"
 		| "a relation name across levels"
-		| "the alternatives head written out"
 		| "an arm's mirrors written out"
-		| "an arm written as its two containments"
+		| "an arm's containment written out"
 	const conflicts: Arr.NonEmptyReadonlyArray<Conflict> = [
 		"a contract name over another base",
 		"a contract name with another predicate",
 		"a relation name across levels",
-		"the alternatives head written out",
 		"an arm's mirrors written out",
-		"an arm written as its two containments"
+		"an arm's containment written out"
 	]
 
 	const atLeast = (n: bigint) => ({
@@ -406,9 +412,12 @@ describe("conflicting declarations", () => {
 						Effect.sync(() => {
 							c.note(`${s.conflict}: ${s.agree ? "one declaration" : "refused"}`)
 							const armRelation = s.arm === "Automatic" ? AutomaticTask : ManualTask
-							const armKey = on(armRelation, ["task"])
-							const selected = on(select(Task, { kind: s.arm }), ["id"])
-							const helper = alternatives(Task, "kind", Kind, {
+							const armKey = onBuilder(armRelation, ["task"])
+							const selected = onBuilder(
+								selectBuilder(Task, (r: Row & { readonly kind: Row["id"] }) => r.kind.eq(s.arm)),
+								["id"]
+							)
+							const helper = alternativesBuilder(Task, "kind", Kind, {
 								Automatic: AutomaticTask,
 								Manual: ManualTask
 							})
@@ -441,20 +450,22 @@ describe("conflicting declarations", () => {
 												[]
 											)
 										)
-									case "the alternatives head written out":
-										return s.agree
-											? helped(contained(on(Task, ["account"]), on(Task, ["id"])))
-											: helped(contained(on(Task, ["kind"]), on(Kind, ["id"])))
 									case "an arm's mirrors written out":
 										return s.agree
-											? helped(mirrors(on(Task, ["account"]), armKey))
-											: helped(s.swapped ? mirrors(armKey, selected) : mirrors(selected, armKey))
-									case "an arm written as its two containments":
-										return s.agree
-											? helped(
-													s.swapped ? contained(armKey, selected) : contained(selected, armKey)
+											? helped(mirrorsBuilder(onBuilder(Task, ["account"]), armKey))
+											: helped(
+													s.swapped
+														? mirrorsBuilder(armKey, selected)
+														: mirrorsBuilder(selected, armKey)
 												)
-											: helped(contained(selected, armKey), contained(armKey, selected))
+									case "an arm's containment written out":
+										return s.agree
+											? helped(containedBuilder(onBuilder(Task, ["account"]), armKey))
+											: helped(
+													s.swapped
+														? containedBuilder(armKey, selected)
+														: containedBuilder(selected, armKey)
+												)
 								}
 							})()
 							if (s.agree) {
@@ -555,9 +566,11 @@ describe("closed relations", () => {
 											{ Low: { grade: s.handle } }
 										)
 									case "a built selection":
-										return select(Rated, { grade: s.handle })
+										return selectBuilder(Rated, (r: Row & { readonly grade: Row["id"] }) =>
+											r.grade.eq(s.handle)
+										)
 									case "a built check literal":
-										return check("Graded", Rated, (r: Row & { readonly grade: Row["id"] }) =>
+										return checkBuilder("Graded", Rated, (r: Row & { readonly grade: Row["id"] }) =>
 											r.grade.eq(s.handle)
 										)
 									case "a decoded fact":
@@ -581,16 +594,10 @@ describe("closed relations", () => {
 										return decoded({
 											...valid,
 											statements: [
-												{
-													kind: "contained",
-													left: {
-														relation: "Rated",
-														fields: ["id"],
-														selection: { grade: s.handle }
-													},
-													right: { relation: "Task", fields: ["id"], selection: {} },
-													origin: undefined
-												}
+												contained(
+													onWhere("Rated", ["id"], eq(field("grade"), literal(s.handle))),
+													on("Task", ["id"])
+												)
 											]
 										})
 									case "a decoded check literal":
@@ -718,32 +725,36 @@ describe("LawOnDerived", () => {
 		| "capacity target"
 		| "capacity source"
 		| "an alternatives arm"
-	const lawKinds: Arr.NonEmptyReadonlyArray<LawOnDerivedKind> = [
+	/**
+	 * Each law in each form it is written in: a description or a builder. mirrors is a builder's alone: it is sugar, which
+	 * a description states as its two containments, the contained laws.
+	 */
+	type LawForm =
+		| { readonly kind: Exclude<LawOnDerivedKind, "mirrors">; readonly form: "description" }
+		| { readonly kind: LawOnDerivedKind; readonly form: "builder" }
+	const described: Arr.NonEmptyReadonlyArray<Exclude<LawOnDerivedKind, "mirrors">> = [
 		"key",
 		"mutable",
 		"check",
 		"contained from",
 		"contained into",
-		"mirrors",
 		"capacity target",
 		"capacity source",
 		"an alternatives arm"
 	]
-	const derivedSide: SideDesc = { relation: "TaskIds", fields: ["id"], selection: {} }
-	const baseSide: SideDesc = { relation: "Task", fields: ["id"], selection: {} }
+	const lawForms: Arr.NonEmptyReadonlyArray<LawForm> = [
+		...Arr.map(described, (kind): LawForm => ({ kind, form: "description" })),
+		...Arr.map([...described, "mirrors" as const], (kind): LawForm => ({ kind, form: "builder" }))
+	]
+	const derivedSide = on("TaskIds", ["id"])
+	const baseSide = on("Task", ["id"])
 
 	it.effect(
 		"refuses every law statement naming a derived relation, from a description or the builders",
 		(ctx) =>
 			Effect.gen(function* () {
-				const space: Gen<readonly [LawOnDerivedKind, "description" | "builder", boolean]> = (
-					source
-				) =>
-					[
-						source.draw(element(lawKinds)),
-						source.draw(element(["description" as const, "builder" as const])),
-						source.draw(boolean)
-					] as const
+				const space: Gen<readonly [LawForm, boolean]> = (source) =>
+					[source.draw(element(lawForms)), source.draw(boolean)] as const
 				yield* searched(
 					ctx,
 					exhaust(
@@ -751,21 +762,21 @@ describe("LawOnDerived", () => {
 							suite: "unit/schema/law-on-derived",
 							generator: space,
 							literal: Formatter.format,
-							limit: 36,
-							coverage: requiredInSpace<`${LawOnDerivedKind} ${"description" | "builder"}`>(
-								Arr.flatMap(lawKinds, (k) => [`${k} description` as const, `${k} builder` as const])
+							/** The space is every law form, 8 described and 9 built, with its sides either way round. */
+							limit: 34,
+							coverage: requiredInSpace<`${LawOnDerivedKind} ${LawForm["form"]}`>(
+								Arr.map(lawForms, (l) => `${l.kind} ${l.form}` as const)
 							),
 							caseHang
 						},
-						([kind, form, swapped], c) =>
+						([law, swapped], c) =>
 							Effect.sync(() => {
-								c.note(`${kind} ${form}`)
-								const [l, r] = swapped ? [baseSide, derivedSide] : [derivedSide, baseSide]
-								if (form === "description") {
+								c.note(`${law.kind} ${law.form}`)
+								if (law.form === "description") {
 									const statement = ((): StatementDesc => {
-										switch (kind) {
+										switch (law.kind) {
 											case "key":
-												return { kind: "key", relation: "TaskIds", fields: ["id"] }
+												return key(derivedSide)
 											case "mutable":
 												return { kind: "mutable", relation: "TaskIds" }
 											case "check":
@@ -781,21 +792,9 @@ describe("LawOnDerived", () => {
 													}
 												}
 											case "contained from":
-												return {
-													kind: "contained",
-													left: derivedSide,
-													right: baseSide,
-													origin: undefined
-												}
+												return contained(derivedSide, baseSide)
 											case "contained into":
-												return {
-													kind: "contained",
-													left: baseSide,
-													right: derivedSide,
-													origin: undefined
-												}
-											case "mirrors":
-												return { kind: "mirrors", left: l, right: r, origin: undefined }
+												return contained(baseSide, derivedSide)
 											case "capacity target":
 												return {
 													kind: "capacity",
@@ -814,13 +813,10 @@ describe("LawOnDerived", () => {
 												}
 											case "an alternatives arm":
 												return {
-													kind: "mirrors",
-													left: {
-														relation: "Task",
-														fields: ["id"],
-														selection: { kind: "Automatic" }
-													},
-													right: derivedSide,
+													...contained(
+														onWhere("Task", ["id"], eq(field("kind"), literal("Automatic"))),
+														derivedSide
+													),
 													origin: { alternatives: "Task.kind" }
 												}
 										}
@@ -829,50 +825,54 @@ describe("LawOnDerived", () => {
 									return
 								}
 								const [left, right] = swapped
-									? [on(Task, ["id"]), on(TaskIds, ["id"])]
-									: [on(TaskIds, ["id"]), on(Task, ["id"])]
+									? [onBuilder(Task, ["id"]), onBuilder(TaskIds, ["id"])]
+									: [onBuilder(TaskIds, ["id"]), onBuilder(Task, ["id"])]
 								const extended = (statement: Statement) =>
 									ownValue(schema.extend(Work, { TaskIds }, [statement], []))
-								switch (kind) {
+								switch (law.kind) {
 									case "check":
 										throwsRefused(
-											() => check("Positive", TaskIds, (row: Row) => row.id.eq(row.id)),
+											() => checkBuilder("Positive", TaskIds, (row: Row) => row.id.eq(row.id)),
 											"LawOnDerived"
 										)
 										return
 									case "an alternatives arm":
 										throwsRefused(
-											() => alternatives(Task, "kind", Kind, { Automatic: TaskIds }),
+											() => alternativesBuilder(Task, "kind", Kind, { Automatic: TaskIds }),
 											"LawOnDerived"
 										)
 										return
 									case "key":
-										refused(extended(key(TaskIds, ["id"])), "LawOnDerived")
+										refused(extended(keyBuilder(onBuilder(TaskIds, ["id"]))), "LawOnDerived")
 										return
 									case "mutable":
-										refused(extended(mutable(TaskIds)), "LawOnDerived")
+										refused(extended(mutableBuilder(TaskIds)), "LawOnDerived")
 										return
 									case "contained from":
 										refused(
-											extended(contained(on(TaskIds, ["id"]), on(Task, ["id"]))),
+											extended(
+												containedBuilder(onBuilder(TaskIds, ["id"]), onBuilder(Task, ["id"]))
+											),
 											"LawOnDerived"
 										)
 										return
 									case "contained into":
 										refused(
-											extended(contained(on(Task, ["id"]), on(TaskIds, ["id"]))),
+											extended(
+												containedBuilder(onBuilder(Task, ["id"]), onBuilder(TaskIds, ["id"]))
+											),
 											"LawOnDerived"
 										)
 										return
 									case "mirrors":
-										refused(extended(mirrors(left, right)), "LawOnDerived")
+										refused(extended(mirrorsBuilder(left, right)), "LawOnDerived")
 										return
 									case "capacity target":
 										refused(
 											extended(
-												capacity(on(TaskIds, ["id"]), {
-													from: on(Task, ["id"]),
-													within: within(0n, 1n)
+												capacityBuilder(onBuilder(TaskIds, ["id"]), {
+													from: onBuilder(Task, ["id"]),
+													within: runtimeWithin(0n, 1n)
 												})
 											),
 											"LawOnDerived"
@@ -881,9 +881,9 @@ describe("LawOnDerived", () => {
 									case "capacity source":
 										refused(
 											extended(
-												capacity(on(Task, ["id"]), {
-													from: on(TaskIds, ["id"]),
-													within: within(0n, "*")
+												capacityBuilder(onBuilder(Task, ["id"]), {
+													from: onBuilder(TaskIds, ["id"]),
+													within: runtimeWithin(0n, "*")
 												})
 											),
 											"LawOnDerived"
@@ -906,6 +906,8 @@ describe("scope and structure", () => {
 		| "Reports as written"
 		| "a key over an undeclared relation"
 		| "a key over an undeclared field"
+		| "pred of a field that is not natural"
+		| "a selection reading an undeclared field"
 		| "sides of two widths"
 		| "a closedId over an undeclared roster"
 		| "a key over a closed relation"
@@ -926,6 +928,8 @@ describe("scope and structure", () => {
 		"Reports as written",
 		"a key over an undeclared relation",
 		"a key over an undeclared field",
+		"pred of a field that is not natural",
+		"a selection reading an undeclared field",
 		"sides of two widths",
 		"a closedId over an undeclared roster",
 		"a key over a closed relation",
@@ -953,8 +957,8 @@ describe("scope and structure", () => {
 	const Claim = relation("Claim", { id: uuid, pool: uuid, units: rawPg.bigint }, ["id"], [])
 	const capacityOf = (target: string, weight: string, low: bigint): StatementDesc => ({
 		kind: "capacity",
-		target: { relation: "Pool", fields: ["id"], selection: {} },
-		from: { relation: "Claim", fields: ["pool"], selection: {} },
+		target: on("Pool", ["id"]),
+		from: on("Claim", ["pool"]),
 		weight: { kind: "field", field: weight },
 		within: { low, high: { ref: target } }
 	})
@@ -1012,28 +1016,27 @@ describe("scope and structure", () => {
 									case "Reports as written":
 										return ownValue(Reports)
 									case "a key over an undeclared relation":
-										return ownValue(
-											withStatements({ kind: "key", relation: s.name, fields: ["id"] })
-										)
+										return ownValue(withStatements(key(on(s.name, ["id"]))))
 									case "a key over an undeclared field":
+										return ownValue(withStatements(key(on("Task", [s.field]))))
+									case "pred of a field that is not natural":
+										return ownValue(withStatements(key(on("Task", ["id", pred("account")]))))
+									case "a selection reading an undeclared field":
 										return ownValue(
-											withStatements({ kind: "key", relation: "Task", fields: [s.field] })
+											withStatements(
+												key(onWhere("Task", ["account"], eq(field(s.field), field("id"))))
+											)
 										)
 									case "sides of two widths":
 										return ownValue(
-											withStatements({
-												kind: "contained",
-												left: { relation: "Task", fields: ["id", "account"], selection: {} },
-												right: { relation: "Account", fields: ["id"], selection: {} },
-												origin: undefined
-											})
+											withStatements(
+												contained(on("Task", ["id", "account"]), on("Account", ["id"]))
+											)
 										)
 									case "a closedId over an undeclared roster":
 										return ownValue(schema(s.name, { Task }, [], []))
 									case "a key over a closed relation":
-										return ownValue(
-											withStatements({ kind: "key", relation: "Kind", fields: ["id"] })
-										)
+										return ownValue(withStatements(key(on("Kind", ["id"]))))
 									case "a closed relation made mutable":
 										return ownValue(withStatements({ kind: "mutable", relation: "Kind" }))
 									case "a check over a closed relation":
@@ -1060,7 +1063,7 @@ describe("scope and structure", () => {
 											schema.extend(
 												Work,
 												{},
-												[check(s.name, Task, (row: Row) => row.account.ne(row.id))],
+												[checkBuilder(s.name, Task, (row: Row) => row.account.ne(row.id))],
 												[]
 											)
 										)
@@ -1080,8 +1083,8 @@ describe("scope and structure", () => {
 											statements: [
 												{
 													kind: "capacity",
-													target: { relation: "Pool", fields: ["id"], selection: {} },
-													from: { relation: "Claim", fields: ["pool"], selection: {} },
+													target: on("Pool", ["id"]),
+													from: on("Claim", ["pool"]),
 													weight: { kind: "count" },
 													within: { low: s.n + 1n, high: s.n }
 												}

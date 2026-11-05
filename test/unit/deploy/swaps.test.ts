@@ -10,7 +10,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { f, key, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -85,7 +85,11 @@ const desc = (c: SwapCase, version: Successor): SchemaDesc => {
 				version === "moved" ? [second, third] : ["id"]
 			)
 		],
-		statements: [key("Task", [first]), key("Task", [first, second]), key("Task", [third])],
+		statements: [
+			key(on("Task", [first])),
+			key(on("Task", [first, second])),
+			key(on("Task", [third]))
+		],
 		extends: undefined
 	}
 }

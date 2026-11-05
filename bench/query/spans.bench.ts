@@ -42,7 +42,7 @@ import {
 import { indexAccessOn, outline, planOf, rowsReadFrom } from "#bench/query/support/plans.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { key, relation, schema } from "#compiler/public/schema.ts"
+import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -65,7 +65,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 const Day = relation("Day", { day: pg.bigint, span: span(pg.bigint), week: pg.bigint }, ["day"])
 const Visit = relation("Visit", { id: pg.bigint, at: pg.bigint }, ["id"])
-const Spans = schema("Spans", { Day, Visit }, [key(Day, ["span"])])
+const Spans = schema("Spans", { Day, Visit }, [key(on(Day, "span"))])
 
 /**
  * The day of each instant a relation parameter names. r.pointIn takes a term as its point, and a scalar parameter is

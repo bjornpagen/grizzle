@@ -1,6 +1,5 @@
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
 import { Array as Arr, Formatter, Option } from "effect"
-import type { LawId } from "#compiler/core/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import type {
 	Expectation,
@@ -104,14 +103,6 @@ export const rowSet = (expected: TextRows): Expectation<ScheduleOutcome> =>
 	outcomeIs(
 		`row set ${printRows(expected)}`,
 		(outcome) => outcome._tag === "Ok" && sameRowSet(outcome.rows, expected)
-	)
-
-/** A residual law's refusal: the law function raises SQLSTATE 23000 with the law's identifier as its CONSTRAINT. */
-export const law = (id: LawId, code: "23000"): Expectation<ScheduleOutcome> =>
-	outcomeIs(
-		`SQLSTATE ${code} on ${id}`,
-		(outcome) =>
-			outcome._tag === "PgError" && outcome.fields.code === code && outcome.fields.constraint === id
 	)
 
 /** COMMIT answered with ROLLBACK because the transaction had already failed. */

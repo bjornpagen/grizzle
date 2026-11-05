@@ -31,9 +31,12 @@ import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import {
 	capacity,
 	contained,
+	eq,
 	f,
+	field as fieldRef,
+	literal,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	within
@@ -78,11 +81,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   sweeps for the join key, a residue no plan the engine makes avoids (serving.ts), and which drawn workloads reach
  *   about once in 200 cases.
  * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), a
- *   partial unique index (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
+ *   selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
  *   handed drawn requests on it: workload B-tree requests of every use, law probes of every row or of a flag's selected
  *   rows, and GiST span predicates on during with any of Booking's scalars. Its kept cases plant the requests a
  *   planner is tempted to serve wrongly: an equality pair beside a range over the same two columns in the other order,
- *   which one index serves; a law probe of the remainder deposits on line, the partial unique index's own selection;
+ *   which one index serves; a law probe of the remainder deposits on line, the selected side's own selection;
  *   a descending key lookup beside a law probe of a flag's rows on the same column, which the lookup's index of every
  *   row serves, so no partial index belongs beside it; and law probes of the held bookings on (room, id), on id and on
  *   room, whose partial index on (id, room) PostgreSQL sweeps for the probe on room, a residue no plan the engine makes
@@ -223,8 +226,8 @@ const workloadCase = (c: ProgramCase, note: (feature: ServingFeature | WorkloadF
 
 /**
  * Event: a plain table under its primary key. Booking: a span key, so a GiST index on (room, during) whose room column
- * btree_gist serves by equality. Line and Deposit: a foreign key on Deposit's line beside a partial unique index on it
- * (at most one remainder deposit per line), which its primary key (account, line) cannot serve. Each holds a boolean a
+ * btree_gist serves by equality. Line and Deposit: a foreign key on Deposit's line beside a unique over its remainder
+ * deposits' lines (at most one per line), which its primary key (account, line) cannot serve. Each holds a boolean a
  * law's selection reads.
  */
 const Indexed: SchemaDesc = {
@@ -257,7 +260,7 @@ const Indexed: SchemaDesc = {
 		contained(on("Deposit", ["line"]), on("Line", ["id"])),
 		capacity(
 			on("Line", ["id"]),
-			onSelected("Deposit", ["line"], { remainder: true }),
+			onWhere("Deposit", ["line"], eq(fieldRef("remainder"), literal(true))),
 			within(0n, 1n),
 			{
 				kind: "count"
@@ -491,7 +494,7 @@ const requestKept: ReadonlyArray<Kept<ReadonlyArray<Intent>, ServingFeature | Re
 		reaches: ["range probe served"]
 	},
 	{
-		note: "a law probe of the remainder deposits on line, the partial unique index's own selection",
+		note: "a law probe of the remainder deposits on line, the selected side's own selection",
 		sketch: [
 			{
 				kind: "law",

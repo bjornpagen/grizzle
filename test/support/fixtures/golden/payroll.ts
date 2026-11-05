@@ -11,7 +11,16 @@ import { Array as Arr, String as Str } from "effect"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
-import { capacity, contained, on, onSelected, within } from "#test/support/fixtures/ir/desc.ts"
+import {
+	capacity,
+	contained,
+	eq,
+	field,
+	literal,
+	on,
+	onWhere,
+	within
+} from "#test/support/fixtures/ir/desc.ts"
 import * as P from "#test/support/fixtures/ir/payroll.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 
@@ -30,7 +39,10 @@ const depositAmount = payroll.lawOfDesc(
 
 /** The law of an approved run's approval. */
 const approvedRunApproval = payroll.lawOfDesc(
-	contained(onSelected("PayRun", ["id"], { stage: "approved" }), on("Approval", ["run"]))
+	contained(
+		onWhere("PayRun", ["id"], eq(field("stage"), literal("approved"))),
+		on("Approval", ["run"])
+	)
 )
 
 export const acme = id(1, 1)
@@ -336,7 +348,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		name: "an explicit entry, and the writer advancing the sequence past it",
 		/**
 		 * Every line of the state after draftRun has its NetPay posting, so :'line' is a line of a fresh draft run,
-		 * lawful with its one remainder deposit and no posting (key(PayLine, ["run", "employee"]) allows one line per
+		 * lawful with its one remainder deposit and no posting (key(on(PayLine, "run", "employee")) allows one line per
 		 * employee per run).
 		 */
 		precondition: {

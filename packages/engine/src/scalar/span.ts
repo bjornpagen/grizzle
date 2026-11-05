@@ -1,7 +1,7 @@
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
+import { int4Max, int8Max } from "#compiler/core/limits.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { int4Max, int8Max } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { type Described, describeFieldOrThrow, spanType } from "#compiler/scalar/registry.ts"

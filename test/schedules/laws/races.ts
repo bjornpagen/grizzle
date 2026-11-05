@@ -223,7 +223,6 @@ interface Threatened {
 const threatened = (law: HostLaw): ReadonlyArray<Threatened> => {
 	switch (law.kind) {
 		case "key":
-		case "unique":
 		case "spanKey":
 		case "check":
 			return []
@@ -273,7 +272,7 @@ const supported = (
 			throw new Error(`a seed of more than ${seedBound} facts: the family's needs cycle`)
 		}
 		for (const { from, to } of Arr.flatMap(env.host.laws, needs)) {
-			if (from.relation !== relation || !selected(fact, from.where)) {
+			if (from.relation !== relation || !selected(fact, from.selection)) {
 				continue
 			}
 			const at = Arr.map(from.fields, (f) => defined(fact[f], `the seed fact's ${f}`))
@@ -281,7 +280,7 @@ const supported = (
 				all,
 				(p) =>
 					p.relation === to.relation &&
-					selected(p.fact, to.where) &&
+					selected(p.fact, to.selection) &&
 					Arr.every(to.fields, (f, j) => sameValue(p.fact[f], at[j]))
 			)
 			if (!met) {
@@ -308,7 +307,7 @@ const retired = (env: RaceModel, state: HostState, anchor: Placed): ReadonlyArra
 		Arr.some(going, (g) => g.relation === p.relation && sameKey(env, p.relation, g.fact, p.fact))
 	const orphaned = (p: Placed): boolean =>
 		Arr.some(Arr.flatMap(env.host.laws, needs), ({ from, to }) => {
-			if (from.relation !== p.relation || !selected(p.fact, from.where)) {
+			if (from.relation !== p.relation || !selected(p.fact, from.selection)) {
 				return false
 			}
 			const at = Arr.map(from.fields, (f) => defined(p.fact[f], `the stored fact's ${f}`))
@@ -316,7 +315,7 @@ const retired = (env: RaceModel, state: HostState, anchor: Placed): ReadonlyArra
 				stored,
 				(q) =>
 					q.relation === to.relation &&
-					selected(q.fact, to.where) &&
+					selected(q.fact, to.selection) &&
 					Arr.every(to.fields, (f, j) => sameValue(q.fact[f], at[j]))
 			)
 			return meeting.length > 0 && Arr.every(meeting, isGoing)
@@ -383,7 +382,7 @@ const apart = (
 ): HostFact => {
 	const fact = drawnFact(env, side.relation, values)
 	const relation = relationOf(env.host, side.relation)
-	const fixed = (field: string) => side.fields.includes(field) || field in side.where
+	const fixed = (field: string) => side.fields.includes(field) || field in pinned(side.selection)
 	const free = Arr.findFirstWithIndex(
 		relation.fields,
 		(f) => relation.key.includes(f.name) && !fixed(f.name)
@@ -428,7 +427,7 @@ const redrawn = (
 
 /** `fact` pointed at the anchor values `at`: its side's fields set to them, and its side's selector applied. */
 const pointedAt = (side: HostSide, fact: HostFact, at: ReadonlyArray<HostValue>): HostFact => {
-	const out: Record<string, HostValue> = { ...fact, ...pinned(side.where) }
+	const out: Record<string, HostValue> = { ...fact, ...pinned(side.selection) }
 	for (const [i, field] of side.fields.entries()) {
 		const x = at[i]
 		if (x === undefined) {
@@ -726,7 +725,7 @@ const seededRace = (
 		/** The anchor points at nothing: its side's selector applied to its drawn fact. */
 		const anchor: HostFact = {
 			...drawnFact(env, t.anchor.relation, strided(sketch.anchor, k)),
-			...pinned(t.anchor.where)
+			...pinned(t.anchor.selection)
 		}
 		const at = Arr.map(t.anchor.fields, (f) => defined(anchor[f], `the seeded anchor's ${f}`))
 		const source = (fact: HostFact): Placed => ({
@@ -809,7 +808,7 @@ const threatShapes = (
 		return []
 	}
 	const side = kind === "replace anchor" ? t.anchor : t.source
-	return selected(w.old, side.where) && !selected(w.next, side.where)
+	return selected(w.old, side.selection) && !selected(w.next, side.selection)
 		? ["moved out of a selection"]
 		: []
 }

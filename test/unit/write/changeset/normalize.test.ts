@@ -11,7 +11,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { key, relation, schema } from "#compiler/public/schema.ts"
+import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type {
 	EnumeratedInput,
@@ -46,8 +46,8 @@ import { compiled, cs, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * exactly what the one it came from means. */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
 const Gen = relation("Gen", { id: pg.bigserial, k: pg.integer, w: pg.integer }, ["id"])
-const pairC = key(Pair, ["c"])
-const genK = key(Gen, ["k"])
+const pairC = key(on(Pair, "c"))
+const genK = key(on(Gen, "k"))
 const Unit = relation("Unit", { id: pg.bigserial }, ["id"])
 const Small = schema("Small", { Pair, Gen, Unit }, [pairC, genK])
 
@@ -179,14 +179,14 @@ const oracleSchema: OracleSchema = {
 			primaryKey: { law: lawNamesOf(Small).primaryKeyLaw(Gen), fields: ["id"] },
 			keys: [{ law: lawIdOf(Small, genK), fields: ["k"] }],
 			serial: ["id"],
-			partialKeys: []
+			projectedKeys: []
 		} satisfies OracleRelation,
 		{
 			name: "Pair",
 			heading: Arr.map(["k", "v", "c"], (f) => ({ name: f, spec: specOf(Pair, f) })),
 			primaryKey: { law: lawNamesOf(Small).primaryKeyLaw(Pair), fields: ["k"] },
 			keys: [{ law: lawIdOf(Small, pairC), fields: ["c"] }],
-			partialKeys: [],
+			projectedKeys: [],
 			serial: []
 		} satisfies OracleRelation,
 		{
@@ -194,7 +194,7 @@ const oracleSchema: OracleSchema = {
 			heading: [{ name: "id", spec: specOf(Unit, "id") }],
 			primaryKey: { law: lawNamesOf(Small).primaryKeyLaw(Unit), fields: ["id"] },
 			keys: [],
-			partialKeys: [],
+			projectedKeys: [],
 			serial: ["id"]
 		} satisfies OracleRelation
 	]

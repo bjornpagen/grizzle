@@ -393,6 +393,7 @@ const references: Arr.NonEmptyReadonlyArray<DagCorruption> = [
 	{
 		rule: "a feedback edge names a node",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "SelfRef"), (s) =>
 				site(withNode(dag, s.id, { ...s, recursive: absentNode }), atNode(s.id), s.kind)
@@ -401,6 +402,7 @@ const references: Arr.NonEmptyReadonlyArray<DagCorruption> = [
 	{
 		rule: "a column reference names a column of its node",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofExprKind(dag, "column"), (e) =>
 				site(
@@ -419,6 +421,7 @@ const references: Arr.NonEmptyReadonlyArray<DagCorruption> = [
 	{
 		rule: "a binding names a declared variable",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "MatchRegion"), (r) =>
 				Arr.flatMap(r.occurrences, (o, i) =>
@@ -451,6 +454,7 @@ const identities: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a variable is declared by one region",
 		from: "stale",
+		weight: 1,
 		sites: (dag) => {
 			const regions = ofKind(dag, "MatchRegion")
 			return Arr.flatMap(regions, (later, i) => {
@@ -472,6 +476,7 @@ const identities: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a region declares a variable once",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "MatchRegion"), (r) => {
 				const [first] = r.vars
@@ -493,6 +498,7 @@ const identities: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a region's variables have distinct names",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "MatchRegion"), (r) => {
 				const [first] = r.vars
@@ -511,6 +517,7 @@ const identities: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an occurrence id is fresh",
 		from: "stale",
+		weight: 1,
 		sites: (dag) => {
 			const claims: Array<string> = []
 			return Arr.flatMap(nodesOf(dag), (n) => {
@@ -535,6 +542,7 @@ const identities: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a region binds its own variables only",
 		from: "stale",
+		weight: 1,
 		sites: (dag) => {
 			const regions = ofKind(dag, "MatchRegion")
 			return Arr.flatMap(regions, (r) => {
@@ -613,6 +621,7 @@ const headings: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a heading names each column once",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(nodesOf(dag), (n) => {
 				const [first] = n.heading
@@ -630,6 +639,7 @@ const headings: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a heading is the one its kind defines",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(Arr.filter(nodesOf(dag), definedHeading), (n) =>
 				site(
@@ -648,6 +658,7 @@ const headings: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a heading column has the type its kind defines",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(nodesOf(dag), (n) => {
 				if (!typedFirstColumn(dag, n)) {
@@ -671,6 +682,7 @@ const headings: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a group's keys lie in its bound tuple",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "Group"), (g) =>
 				site(
@@ -683,6 +695,7 @@ const headings: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a declared key names columns of the heading",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Base"), (b) => [
 				site(
@@ -710,6 +723,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a union of several headings has a discriminant",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(heteroUnions(dag), (u) =>
 				site(
@@ -722,6 +736,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "every arm binds the discriminant to a literal",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(heteroUnions(dag), (u) => {
 				const undiscriminated = Arr.filter(u.heading, (c) => !u.discriminant.includes(c.name))
@@ -748,6 +763,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "arms of different headings differ in their discriminant literals",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(heteroUnions(dag), (u) => {
 				const [group0, ...later] = u.groups
@@ -790,6 +806,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an arm has its group's heading",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(heteroUnions(dag), (u) => {
 				const [g0, g1, ...rest] = u.groups
@@ -814,6 +831,7 @@ const attachments: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an attachment binds a parent variable",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "Attach"), (a) =>
 				site(
@@ -826,6 +844,7 @@ const attachments: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an attachment delivers no narrower than its child's evidence",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Attach"), (a) => {
 				const child = nodeAt(dag, a.child)
@@ -864,6 +883,7 @@ const attachments: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an order belongs to a delivered array",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Attach"), (a) => {
 				const child = nodeAt(dag, a.child)
@@ -877,6 +897,7 @@ const attachments: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a delivery node lies on its root's delivered rows",
 		from: "wild",
+		weight: 1,
 		/**
 		 * A new root semi-joins the delivery node's own input with the delivery node itself, which the new root reads
 		 * as its right side: off its delivered rows. Every other rule holds (one heading, the right side's columns the
@@ -924,6 +945,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a filter's predicate is boolean",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Filter"), (f) =>
 				Arr.map(
@@ -939,6 +961,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an approximate search is sealed and scored by a double precision column",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "ApproximateNearest"), (a) => {
 				const unscored = columnWhere(
@@ -962,6 +985,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a take's bound is positive",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Take"), (t) =>
 				t.bound.kind === "literal"
@@ -978,6 +1002,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "set operation inputs have equal headings",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map([...ofKind(dag, "Intersect"), ...ofKind(dag, "Difference")], (n) => {
 				const foreign = foreignNode(
@@ -1002,6 +1027,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "join columns exist on both sides at one base type",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap([...ofKind(dag, "SemiJoin"), ...ofKind(dag, "AntiJoin")], (n) =>
 				Arr.flatMap(n.on, (pair, i) => {
@@ -1034,6 +1060,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a producer has its arity",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "Produce"), (p) => {
 				const [first] = p.args
@@ -1047,6 +1074,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a closed row has the heading's width",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Closed"), (c) => {
 				const [row, ...rows] = c.rows
@@ -1071,6 +1099,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "closed facts are distinct under native equality",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Closed"), (c) => {
 				const [row] = c.rows
@@ -1093,6 +1122,7 @@ const scope: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an expression reads its node's input only",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(nodesOf(dag), (n) => {
 				const evaluated = evaluatedOver(n)
@@ -1137,6 +1167,7 @@ const scope: ReadonlyArray<DagCorruption> = [
 		 */
 		rule: "a scope expression's column is bound on its way to every root",
 		from: "stale",
+		weight: 1,
 		sites: (dag) => {
 			const reached = reachedFromRoots(dag)
 			return Arr.flatMap(ofKind(dag, "Take"), (t) => {
@@ -1180,6 +1211,7 @@ const scope: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an aggregate reads only its bound tuple",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Group"), (g) =>
 				Arr.flatMap(g.aggs, (a, i) => {
@@ -1207,6 +1239,7 @@ const dependencies: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a node's read dependencies are the computed ones",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(nodesOf(dag), (n) =>
 				site(
@@ -1222,6 +1255,7 @@ const dependencies: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a node's parameter dependencies are the computed ones",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(nodesOf(dag), (n) =>
 				site(
@@ -1265,6 +1299,7 @@ const orders: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an order is total",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(nodesOf(dag), (n) => {
 				const broken = (
@@ -1334,6 +1369,7 @@ const orders: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a logical key names heading columns",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(nodesOf(dag), (n) =>
 				site(
@@ -1355,6 +1391,7 @@ const orders: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "logical keys are distinct",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(nodesOf(dag), (n) => {
 				const [claimed] = n.meta.logicalKeys
@@ -1382,6 +1419,7 @@ const orders: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "the empty key needs at most one row",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(
 				Arr.filter(
@@ -1407,6 +1445,7 @@ const recursion: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a recursion's self is its feedback reference",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "Recursive"), (r) =>
 				site(withNode(dag, r.id, { ...r, self: r.base }), atNode(r.id), r.kind)
@@ -1415,6 +1454,7 @@ const recursion: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a recursion's base and step have its state heading",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Recursive"), (r) => {
 				const foreign = foreignNode(
@@ -1441,6 +1481,7 @@ const recursion: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a recursion has one feedback reference",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "SelfRef"), (s) =>
 				site(
@@ -1453,6 +1494,7 @@ const recursion: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a recursion's base never reads its feedback",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "Recursive"), (r) =>
 				site(withNode(dag, r.id, { ...r, base: r.self }), atNode(r.id, "base"), r.kind)
@@ -1461,6 +1503,7 @@ const recursion: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a recursion's step reads its feedback",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "Recursive"), (r) =>
 				site(withNode(dag, r.id, { ...r, step: r.base }), atNode(r.id, "step"), r.kind)
@@ -1469,6 +1512,7 @@ const recursion: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "only the step reads the feedback",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofKind(dag, "SelfRef"), (s) => {
 				const outside: TableNode = {
@@ -1494,6 +1538,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a window function has its arity",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Window"), (w) => {
 				const [value] = w.args
@@ -1516,6 +1561,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "lead and lag take an integer offset and a default of the value's type",
 		from: "wild",
+		weight: 1,
 		sites: (dag) => {
 			const shifts = Arr.filter(ofKind(dag, "Window"), (w) => w.fn === "lag" || w.fn === "lead")
 			return Arr.flatMap(shifts, (w) => {
@@ -1554,6 +1600,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a ROWS frame belongs to an ordered window aggregate, start before end",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Window"), (w) => {
 				const aggregate = ["count", "sum", "avg", "min", "max"].includes(w.fn)
@@ -1589,6 +1636,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "only a count is filtered",
 		from: "wild",
+		weight: 1,
 		sites: (dag) => {
 			const found = booleanLiteral(dag)
 			if (Option.isNone(found)) {
@@ -1622,6 +1670,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an aggregate has its arity",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "Group"), (g) =>
 				Arr.map(g.aggs, (a, i) =>
@@ -1641,6 +1690,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an ordered-set aggregate orders by one column, with a double precision fraction per output",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofKind(dag, "OrderedSetAggregate"), (o) => {
 				const second = columnWhere(
@@ -1713,6 +1763,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a literal fits its type",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofExprKind(dag, "literal"), (e) => {
 				switch (e.value.kind) {
@@ -1756,6 +1807,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a comparison parameter is bound as its base type",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(
 				Arr.filter(ofExprKind(dag, "param"), (e) => e.role === "compare"),
@@ -1770,6 +1822,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an expression's dependencies are the computed ones",
 		from: "stale",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(exprsOf(dag), (e) =>
 				site(
@@ -1788,6 +1841,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an expression is stable when an argument is",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(
 				Arr.filter(
@@ -1805,6 +1859,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a conditional has a boolean condition and branches of its type",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofExprKind(dag, "cond"), (e) => {
 				const [, onTrue, onFalse] = e.args
@@ -1826,6 +1881,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "VALUE appears only in a contract predicate",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofExprKind(dag, "literal"), (e) =>
 				site(
@@ -1846,6 +1902,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a column reference keeps its column's type",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofExprKind(dag, "column"), (e) =>
 				site(withExpr(dag, e.id, { ...e, type: otherType(e.type) }), atExpr(e.id), "column")
@@ -1854,6 +1911,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a partial operation stands with a proof the kernel re-derives",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofExprKind(dag, "cast"), (e) =>
 				"proof" in e
@@ -1882,6 +1940,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "every precondition of a partial operation stands with a proof of its own",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.flatMap(ofExprKind(dag, "cast"), (e) => {
 				if (!("proof" in e)) {
@@ -1913,6 +1972,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a domain cast targets a refined type",
 		from: "wild",
+		weight: 1,
 		sites: (dag) =>
 			Arr.map(ofExprKind(dag, "domainCast"), (e) =>
 				site(withExpr(dag, e.id, { ...e, type: baseOf(e.type) }), atExpr(e.id), "unrefined target")
@@ -1939,6 +1999,7 @@ const shapes: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "a node or expression holds its kind's properties only",
 		from: "wild",
+		weight: 1,
 		sites: (dag) => [
 			...Arr.map(nodesOf(dag), (n) =>
 				site(withNode(dag, n.id, { ...n, ghost: 1 }), atNode(n.id), n.kind)
@@ -1951,6 +2012,7 @@ const shapes: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "no field holds null",
 		from: "wild",
+		weight: 1,
 		sites: (dag) => [
 			...Arr.flatMap(nodesOf(dag), (n) =>
 				Arr.map(fieldNames({ ...n }), (k) =>

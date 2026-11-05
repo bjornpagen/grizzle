@@ -1,9 +1,10 @@
 import { describe, it } from "@effect/vitest"
-import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
+import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
-import { count, type Enumerated, enumerated, firstBranch } from "#enumerate.ts"
+import { everyCase, everyValue, fraction, shareOf } from "#chance.fixtures.ts"
+import { count } from "#enumerate.ts"
 import { drawn, type Exploration, explore } from "#explore.ts"
-import { noCoverage, required } from "#features.ts"
+import { type Coverage, noCoverage, required } from "#features.ts"
 import {
 	array,
 	boolean,
@@ -15,17 +16,25 @@ import {
 	oneOf,
 	string,
 	subarray,
-	weighted
+	type Weight,
+	type Weighted,
+	weighted,
+	element
 } from "#gen.ts"
-import { between, floorSeed, rotatingSeed, wordsOf } from "#random.ts"
+import { between, biased, caseSeed, floorSeed, rotatingSeed, wordsOf } from "#random.ts"
 import { type Drawn, type ReplayCase, replayOf, replayTokenOf } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
-import { completeShrink, shrink } from "#shrink.ts"
+import { completeShrink } from "#shrink.ts"
 import { forcedChooser, type Generated, generate, randomChooser, sample } from "#source.ts"
 import { tokenOf, valuesFromToken } from "#tape.ts"
 import { searched } from "#vitest/searched.ts"
 
-const SEEDS = Arr.range(0, 199)
+/** Weights a weighted choice draws from: from the least to the most a weight can be, so totals pass 256. */
+const WEIGHTS: Arr.NonEmptyReadonlyArray<Weight> = [1, 2, 3, 50, 99]
+
+/** A list known to be non-empty, as its type says; a generator of at least one value draws it. */
+const nonEmpty = <A>(values: ReadonlyArray<A>): Arr.NonEmptyReadonlyArray<A> =>
+	Option.getOrThrow(Option.liftPredicate(values, Arr.isReadonlyArrayNonEmpty))
 
 /** A case drawn fresh from one seed. */
 const fresh = <A>(generator: Gen<A>, seed: number): Generated<A> =>
@@ -49,18 +58,6 @@ const composite = (source: Parameters<Gen<unknown>>[0]) => {
 	}
 }
 
-/** Every case of a bounded generator, in enumeration order. */
-const allCases = <A>(generator: Gen<A>): ReadonlyArray<A> => {
-	const cases: Array<A> = []
-	let step: Enumerated<A> = enumerated(generator, firstBranch)
-	cases.push(step.generated.value)
-	while (Option.isSome(step.next)) {
-		step = enumerated(generator, step.next.value)
-		cases.push(step.generated.value)
-	}
-	return cases
-}
-
 /**
  * A suite label, colons and all, and a case to replay in it: unsteered, or steered with nothing pending or with some
  * of twenty requirements pending, and values of either sign.
@@ -77,21 +74,16 @@ const replayTokens: Gen<readonly [string, ReplayCase]> = (source) => {
 	return [suite, { drawn: drawnUnder, values }]
 }
 
-/** The first seed whose fresh case the predicate holds for. */
-const firstFailing = <A>(generator: Gen<A>, fails: (value: A) => boolean): Generated<A> =>
-	Option.getOrThrow(
-		Arr.findFirst(
-			Arr.map(SEEDS, (seed) => fresh(generator, seed)),
-			(generated) => fails(generated.value)
-		)
-	)
-
 /** A search over the seeds a word stream starts from, every one of them a valid seed. */
-const seedSearch = (suite: string): Exploration<number, number, never> => ({
+const searchOf = <A, F extends string>(
+	suite: string,
+	generator: Gen<A>,
+	coverage: Coverage<F>
+): Exploration<A, A, F> => ({
 	suite,
-	draw: drawn(int(0, 0xffff_ffff)),
-	literal: String,
-	coverage: noCoverage,
+	draw: drawn(generator),
+	literal: Formatter.format,
+	coverage,
 	kept: [],
 	runs: 40,
 	shrink: completeShrink,
@@ -99,6 +91,9 @@ const seedSearch = (suite: string): Exploration<number, number, never> => ({
 	steerEvery: 40,
 	caseHang: Duration.seconds(30)
 })
+
+const seedSearch = (suite: string): Exploration<number, number, never> =>
+	searchOf(suite, int(0, 0xffff_ffff), noCoverage)
 
 describe("the word source", () => {
 	it.effect("draws every value of a range, and nothing outside it, from any seed", (ctx) =>
@@ -132,13 +127,21 @@ describe("the word source", () => {
 })
 
 describe("a tape", () => {
-	it("replays its case exactly from its values", () => {
-		for (const seed of SEEDS) {
-			const original = fresh(composite, seed)
-			const replay = generate(composite, forcedChooser(original.tape.values, original.tape.length))
-			deepStrictEqual(replay, original)
-		}
-	})
+	it.effect("replays its case exactly from its values", (ctx) =>
+		searched(
+			ctx,
+			explore(seedSearch("tape replay"), (seed) =>
+				Effect.sync(() => {
+					const original = fresh(composite, seed)
+					const replay = generate(
+						composite,
+						forcedChooser(original.tape.values, original.tape.length)
+					)
+					deepStrictEqual(replay, original)
+				})
+			)
+		)
+	)
 
 	it.effect("carries its values through a replay token, the empty tape's included", (ctx) =>
 		searched(
@@ -249,23 +252,75 @@ describe("a tape", () => {
 })
 
 describe("a weighted choice", () => {
-	it("draws options in proportion to their weights", () => {
-		const skewed = weighted([
-			[1, constant("rare")],
-			[3, constant("common")]
-		])
-		const rare = Arr.filter(
-			Arr.range(0, 3999),
-			(seed) => fresh(skewed, seed).value === "rare"
-		).length
-		assertTrue(rare > 850 && rare < 1150, `about a quarter of 4000 draws are rare, not ${rare}`)
-	})
+	it.effect(
+		"draws each option exactly in proportion to its weight, however large the total",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"weighted shares",
+						array(element(WEIGHTS), { min: 1, max: 5 }),
+						required<"a total past 256">(["a total past 256"], { cases: 100, sense: notesOnly })
+					),
+					(weights, c) =>
+						Effect.sync(() => {
+							const total = Arr.reduce(weights, 0, (sum, weight) => sum + weight)
+							if (total > 256) {
+								c.note("a total past 256")
+							}
+							const cases = everyCase(
+								weighted(
+									nonEmpty(
+										Arr.map(weights, (weight, at): Weighted<number> => [weight, constant(at)])
+									)
+								)
+							)
+							deepStrictEqual(
+								Arr.map(weights, (_weight, at) => shareOf(cases, (drawnAt) => drawnAt === at)),
+								Arr.map(weights, (weight) => fraction(BigInt(weight), BigInt(total)))
+							)
+						})
+				)
+			)
+	)
+})
+
+describe("the random chooser", () => {
+	it.effect(
+		"draws an option uniformly and a magnitude leaning toward the ends, from the same words",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"chooser spreads",
+						(source) => {
+							const seed = source.draw(int(0, 0xffff_ffff))
+							const lo = source.draw(int(-1000, 1000))
+							return { seed, lo, hi: lo + source.draw(int(0, 100_000)) }
+						},
+						noCoverage
+					),
+					({ seed, lo, hi }) =>
+						Effect.sync(() => {
+							deepStrictEqual(
+								[
+									randomChooser(wordsOf(seed)).draw(lo, hi, 0, "uniform"),
+									randomChooser(wordsOf(seed)).draw(lo, hi, 0, "leaning")
+								],
+								[between(wordsOf(seed), lo, hi), biased(wordsOf(seed), lo, hi)]
+							)
+						})
+				)
+			)
+	)
 })
 
 describe("enumeration", () => {
 	it("yields every case once, smallest first, the first decision outermost", () => {
 		deepStrictEqual(
-			allCases((source) => [source.draw(int(0, 2)), source.draw(int(0, 1))]),
+			everyValue((source) => [source.draw(int(0, 2)), source.draw(int(0, 1))]),
 			[
 				[0, 0],
 				[0, 1],
@@ -278,7 +333,7 @@ describe("enumeration", () => {
 	})
 
 	it("yields every length of a collection with every item", () => {
-		deepStrictEqual(allCases(array(boolean, { min: 0, max: 2 })), [
+		deepStrictEqual(everyValue(array(boolean, { min: 0, max: 2 })), [
 			[],
 			[false],
 			[true],
@@ -311,94 +366,25 @@ describe("enumeration", () => {
 	})
 })
 
-describe("shrinking", () => {
-	it.effect("shrinks a failing item to its threshold", () =>
-		Effect.gen(function* () {
-			const items = array(int(0, 1000), { min: 0, max: 10 })
-			const fails = (values: ReadonlyArray<number>) => Arr.some(values, (value) => value >= 500)
-			const shrunk = yield* shrink(
-				items,
-				firstFailing(items, fails),
-				(values) => Effect.succeed(fails(values)),
-				{
-					kind: "complete"
-				}
-			)
-			deepStrictEqual(shrunk.best.failure, [500])
-			strictEqual(shrunk.ended, "minimal")
-		})
-	)
-
-	it.effect("shrinks nested collections to the fewest decisions", () =>
-		Effect.gen(function* () {
-			const nested = array(array(int(0, 9), { min: 0, max: 4 }), { min: 0, max: 4 })
-			const fails = (lists: ReadonlyArray<ReadonlyArray<number>>) => Arr.flatten(lists).length >= 3
-			const shrunk = yield* shrink(
-				nested,
-				firstFailing(nested, fails),
-				(lists) => Effect.succeed(fails(lists)),
-				{
-					kind: "complete"
-				}
-			)
-			deepStrictEqual(shrunk.best.failure, [[0, 0, 0]])
-		})
-	)
-
-	it.effect("moves a weighted choice to its first option", () =>
-		Effect.gen(function* () {
-			const branches = weighted([
-				[1, constant("first")],
-				[1, constant("second")],
-				[1, constant("third")]
-			])
-			const failing = firstFailing(branches, (value) => value === "third")
-			const shrunk = yield* shrink(branches, failing, () => Effect.succeed(true), {
-				kind: "complete"
-			})
-			strictEqual(shrunk.best.failure, "first")
-		})
-	)
-
-	it.effect("stops when its budget is spent, and says so", () =>
-		Effect.gen(function* () {
-			const items = array(int(0, 1000), { min: 0, max: 10 })
-			const failing = firstFailing(items, (values) => values.length > 3)
-			const shrunk = yield* shrink(items, failing, () => Effect.succeed(true), {
-				kind: "bounded",
-				candidates: 0
-			})
-			deepStrictEqual(shrunk, {
-				best: { tape: failing.tape, failure: failing.value },
-				candidates: 0,
-				ended: "budget"
-			})
-		})
-	)
-
-	it.effect("shrinks the same failure to the same case every time", () =>
-		Effect.gen(function* () {
-			const items = array(int(0, 1000), { min: 0, max: 10 })
-			const fails = (values: ReadonlyArray<number>) =>
-				Arr.reduce(values, 0, (sum, value) => sum + value) > 1500
-			const failing = firstFailing(items, fails)
-			const check = (values: ReadonlyArray<number>) => Effect.succeed(fails(values))
-			const first = yield* shrink(items, failing, check, { kind: "complete" })
-			const second = yield* shrink(items, failing, check, { kind: "complete" })
-			deepStrictEqual(first.best, second.best)
-		})
-	)
-})
-
 describe("sampling", () => {
 	it.effect("draws a stream's cases from its seed alone", (ctx) =>
 		searched(
 			ctx,
-			explore(seedSearch("one sample per seed"), (seed) =>
-				Effect.sync(() => {
-					const stream = rotatingSeed(seed, floorSeed("sampling"))
-					deepStrictEqual(sample(composite, stream, 20), sample(composite, stream, 20))
-				})
+			explore(
+				searchOf(
+					"one sample per seed",
+					(source) => ({ seed: source.draw(int(0, 0xffff_ffff)), length: source.draw(int(0, 20)) }),
+					noCoverage
+				),
+				({ seed, length }) =>
+					Effect.sync(() => {
+						const stream = rotatingSeed(seed, floorSeed("sampling"))
+						const expected: Array<ReturnType<typeof composite>> = []
+						for (let index = 0; index < length; index += 1) {
+							expected.push(fresh(composite, caseSeed(stream, index)).value)
+						}
+						deepStrictEqual(sample(composite, stream, length), expected)
+					})
 			)
 		)
 	)

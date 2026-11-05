@@ -198,8 +198,8 @@ const drive = <A>(step: Step<A>): A => {
  *
  * Decoding is idempotent: every container shape returns a fresh frozen copy built only from its fields' decoded values,
  * and every check it makes reads only the decoded value, so decoding that copy again with the same shape accepts it and
- * yields an equal fresh copy, key order included. No shape recognises its own output: each decode reads the whole
- * value, and a caller holding a decoded value keeps it rather than decoding it again.
+ * yields an equal fresh copy, key order included. A shape recognises its own output only through `recognized`, which
+ * answers an object it decoded before as that object; every other decode reads the whole value.
  */
 export interface Shape<A> {
 	/** What the shape accepts, for diagnostics. */
@@ -703,6 +703,29 @@ export const interned = <P, A extends object>(
 			return one
 		}
 	})
+
+/**
+ * `shape`, answering an object it decoded before as that very object. A decoded value is a fixed point of its shape at
+ * any place: every check reads only the value, and every located node already carries its location. So a value built
+ * around parts the shape already decoded is read only in its new parts, with the refusals and the result a whole
+ * decode gives, and its decoded parts are shared rather than copied. The shape registers its own outputs alone, in a
+ * WeakMap, which holds nothing alive and is never enumerated.
+ */
+export const recognized = <A extends object>(shape: Shape<A>): Shape<A> => {
+	const outputs = new WeakMap<object, A>()
+	return plain({
+		expected: shape.expected,
+		parse: function* (value, path) {
+			const known = typeof value === "object" && value !== null ? outputs.get(value) : undefined
+			if (known !== undefined) {
+				return known
+			}
+			const out = yield* shape.parse(value, path)
+			outputs.set(out, out)
+			return out
+		}
+	})
+}
 
 /** The decoded items of an array, in order, frozen. */
 function* itemsOf<A>(

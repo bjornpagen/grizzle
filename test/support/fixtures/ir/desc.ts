@@ -3,9 +3,10 @@
  *
  * The fixtures state each worked example's schema as a SchemaDesc written out as data, the form the surface builders
  * record and ownership consumes. These helpers spell the descriptors and statements the way the
- * builders of packages/engine/src/schema emit them, so a fixture reads like its public-API form while staying plain IR: the
- * alternatives helper expands to its contained statement and one mirrors statement per arm, each carrying the origin
- * marker, and a relation used in key position stands for its primary key.
+ * builders of packages/engine/src/schema emit them, so a fixture reads like its public-API form while staying plain IR: a
+ * side's field term is its field's name and a pred term is pred(field), mirrors is its two containments, the
+ * alternatives helper expands to both containments per arm, each carrying the origin marker, and a relation used in key
+ * position stands for its primary key.
  */
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -17,7 +18,9 @@ import {
 	type BoundDesc,
 	type ChangeSetDesc as ChangeSetOf,
 	type WorkloadDesc as WorkloadOf,
+	conjunctsOf,
 	decodeDesc,
+	everyFact,
 	type ExprDesc,
 	type ExprDesc as ExprOf,
 	type FieldDesc,
@@ -35,6 +38,7 @@ import {
 	type SideDesc,
 	type SourceDesc as SourceOf,
 	type StatementDesc as StatementOf,
+	type TermDesc,
 	type VarDesc as VarOf,
 	type WeightDesc
 } from "#compiler/ir/desc.ts"
@@ -170,6 +174,19 @@ export const ne = <L>(left: ExprOf<L>, right: ExprOf<L>): ExprOf<L> => ({
 	right
 })
 
+export const eq = <L>(left: ExprOf<L>, right: ExprOf<L>): ExprOf<L> => ({
+	kind: "compare",
+	op: "eq",
+	left,
+	right
+})
+
+/** A conjunction of at least one predicate. */
+export const and = <L>(first: ExprOf<L>, ...rest: ReadonlyArray<ExprOf<L>>): ExprOf<L> => ({
+	kind: "and",
+	args: [first, ...rest]
+})
+
 export const betweenExpr = (arg: ExprDesc, low: ExprDesc, high: ExprDesc): ExprDesc => ({
 	kind: "between",
 	arg,
@@ -217,29 +234,39 @@ export const closedWith = (
 	facts
 })
 
-/** A side over every fact of the relation. */
-export const on = (relationName: string, fields: ReadonlyArray<string>): SideDesc =>
-	onSelected(relationName, fields, {})
+/** ℕ's destructor over a natural field, one level deep: the term defined where the field is above zero. */
+export const pred = (fieldName: string): TermDesc => ({ kind: "pred", field: fieldName })
 
-/** A side over the facts whose fields hold the selection's literals; a side names at least one field. */
-export const onSelected = (
+/** A side's terms as on(...) states them: a field term by its field's name, a pred term by pred(field). */
+const termsOf = (
 	relationName: string,
-	fields: ReadonlyArray<string>,
-	selection: Readonly<Record<string, LiteralDesc>>
+	terms: ReadonlyArray<string | TermDesc>
+): Arr.NonEmptyReadonlyArray<TermDesc> =>
+	nonEmptyList(
+		Arr.map(terms, (t): TermDesc => (typeof t === "string" ? { kind: "field", field: t } : t)),
+		`a side of ${relationName}`
+	)
+
+/** A side over every fact of the relation; a side names at least one term. */
+export const on = (relationName: string, terms: ReadonlyArray<string | TermDesc>): SideDesc => ({
+	relation: relationName,
+	terms: termsOf(relationName, terms),
+	selection: everyFact
+})
+
+/** A side over the facts the row predicate holds of, select(R, predicate) projected onto its terms. */
+export const onWhere = (
+	relationName: string,
+	terms: ReadonlyArray<string | TermDesc>,
+	predicate: ExprDesc
 ): SideDesc => ({
 	relation: relationName,
-	fields: nonEmptyList(fields, `a side of ${relationName}`),
-	selection
+	terms: termsOf(relationName, terms),
+	selection: { conjuncts: conjunctsOf(predicate) }
 })
 
-export const key = (
-	relationName: string,
-	fields: Arr.NonEmptyReadonlyArray<string>
-): AuthoredStatementDesc => ({
-	kind: "key",
-	relation: relationName,
-	fields
-})
+/** An additional candidate key: the side's terms are unique over the facts it selects. */
+export const key = (side: SideDesc): AuthoredStatementDesc => ({ kind: "key", side })
 
 export const mutable = (relationName: string): AuthoredStatementDesc => ({
 	kind: "mutable",
@@ -268,16 +295,14 @@ export const contained = (
 	origin: undefined
 })
 
-/** A mirrors statement declared directly: no alternatives expansion marks it. */
+/** mirrors(left, right), declared directly: its two containments, left into right and then right into left. */
 export const mirrors = (
 	left: SideDesc,
 	right: SideDesc
-): Extract<AuthoredStatementDesc, { readonly kind: "mirrors" }> => ({
-	kind: "mirrors",
-	left,
-	right,
-	origin: undefined
-})
+): readonly [
+	Extract<AuthoredStatementDesc, { readonly kind: "contained" }>,
+	Extract<AuthoredStatementDesc, { readonly kind: "contained" }>
+] => [contained(left, right), contained(right, left)]
 
 /** A capacity statement. */
 export const capacity = (
@@ -303,9 +328,10 @@ export const within = (low: bigint | string, high: bigint | string): BoundDesc =
 })
 
 /**
- * alternatives(parent, discriminator, roster, arms): contained(on(parent, discriminator), on(roster, "id")) and one
- * mirrors(on(select(parent, { discriminator: handle }), ...parentKey), on(arm, ...armKey)) per handle with an arm, in
- * roster order, every statement marked with the expansion's origin.
+ * alternatives(parent, discriminator, roster, arms): the two containments of mirrors(on(select(parent, (p) =>
+ * p.eq(p[discriminator], roster.handle(h))), ...parentKey), on(arm, ...armKey)) per handle with an arm, in roster order,
+ * every statement marked with the expansion's origin. The discriminator's containment in the roster is its closedId
+ * field's type, no statement.
  */
 export const alternatives = (
 	parent: { readonly name: string; readonly primaryKey: ReadonlyArray<string> },
@@ -316,24 +342,17 @@ export const alternatives = (
 	>
 ): ReadonlyArray<AuthoredStatementDesc> => {
 	const origin = { alternatives: FieldId(parent.name, discriminator) }
-	const head: AuthoredStatementDesc = {
-		...contained(on(parent.name, [discriminator]), on(roster.name, ["id"])),
-		origin
-	}
-	const mirrored = Arr.flatMap(roster.handles, (handle): ReadonlyArray<AuthoredStatementDesc> => {
+	return Arr.flatMap(roster.handles, (handle): ReadonlyArray<AuthoredStatementDesc> => {
 		const arm = arms[handle]
 		if (arm === undefined) {
 			return []
 		}
-		return [
-			{
-				...mirrors(
-					onSelected(parent.name, parent.primaryKey, { [discriminator]: handle }),
-					on(arm.name, arm.primaryKey)
-				),
-				origin
-			}
-		]
+		return Arr.map(
+			mirrors(
+				onWhere(parent.name, parent.primaryKey, eq(field(discriminator), literal(handle))),
+				on(arm.name, arm.primaryKey)
+			),
+			(statement): AuthoredStatementDesc => ({ ...statement, origin })
+		)
 	})
-	return [head, ...mirrored]
 }

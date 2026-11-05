@@ -29,7 +29,7 @@ const statements = (relations: number): string => {
 	const lines: Array<string> = []
 	for (let i = 0; i < relations; i++) {
 		if (i % 4 === 0) {
-			lines.push(`key(R${i}, ["label"])`)
+			lines.push(`key(on(R${i}, "label"))`)
 		}
 		if (i > 0) {
 			lines.push(`contained(on(R${i}, "parent"), on(R${i - 1}, "id"))`)

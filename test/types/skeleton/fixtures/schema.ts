@@ -63,7 +63,7 @@ export type TierFact = Expect<
 export type KindFact = Expect<Equals<Fact<typeof Kind>, { readonly id: "Automatic" | "Manual" }>>
 
 /** The primary key is required and nonempty, and names declared fields. */
-// @ts-expect-error -- TS2345 refusal: a key lists each field once
+// @ts-expect-error -- TS2345: a primary key names at least one field
 export const NoKey = relation("NoKey", { id: uuid }, [])
 // @ts-expect-error -- TS2322: the primary key names declared fields
 export const BadKey = relation("BadKey", { id: uuid }, ["nope"])
@@ -74,7 +74,7 @@ export const PartialTier = closed("PartialTier", ["Free", "Pro"]).with(
 	{ Free: { budget: Cents(1n) } }
 )
 
-/** KeysOf reads the primary key and every key() statement captured in the schema. */
+/** KeysOf reads the primary key and every key() over a whole relation that the schema captures. */
 export type TaskKeys = Expect<Equals<KeysOf<typeof Work, typeof Task>, readonly ["id"]>>
 export type AccountKeys = Expect<
 	Equals<KeysOf<typeof Work, typeof Account>, readonly ["id"] | readonly ["name"]>
@@ -111,11 +111,14 @@ export const centsRaw = contained(on(Budget, "cents"), on(Budget, "raw"))
 export const labelId = contained(on(Account, "name"), on(Account, "id"))
 // @ts-expect-error -- TS2345 refusal: the sides' field types differ
 export const kindTier = contained(on(Task, "kind"), on(Tier, "id"))
-// @ts-expect-error -- TS2345 refusal: a key lists each field once
+// @ts-expect-error -- TS2345: a side's terms are fields of its source
 export const badSide = on(Task, "nope")
-export const automatic = on(select(Task, { kind: "Automatic" }), "id")
-// @ts-expect-error -- TS2322: a selection binds values of the field's host type
-export const badSelect = select(Task, { kind: "Other" })
+export const automatic = on(
+	select(Task, (t) => t.eq(t.kind, "Automatic")),
+	"id"
+)
+// @ts-expect-error -- TS2345: a selection's predicate compares a closed id with a handle of its roster
+export const badSelect = select(Task, (t) => t.eq(t.kind, "Other"))
 
 /** Row checks see each field as a Scalar beside the Compute helpers. */
 export const Election = relation("Election", { id: uuid, limit: pg.integer, maximum: pg.integer }, [
@@ -141,7 +144,7 @@ export const badArms = alternatives(Numbered, "kind", Kind, { Automatic: Automat
 export const badDiscriminator = alternatives(Task, "account", Kind, { Automatic: AutomaticTask })
 export const WorkArms = schema("WorkArms", { Kind, Task, AutomaticTask, ManualTask }, [
 	taskArms,
-	key(AutomaticTask, ["budget", "task"])
+	key(on(AutomaticTask, "budget", "task"))
 ])
 
 /** The alternatives statement keeps its inputs, so the schema's other statements and keys stay readable. */
@@ -153,8 +156,8 @@ export type ArmKeys = Expect<
 >
 
 /** No statement names a derived relation: LawOnDerived at the type level. */
-// @ts-expect-error -- TS2739: key does not take a derived relation
-export const derivedKey = key(StudentWeekly, ["student"])
+// @ts-expect-error -- TS2345: a key's side is never over a derived relation
+export const derivedKey = key(on(StudentWeekly, "student"))
 // @ts-expect-error -- TS2739: mutable does not take a derived relation
 export const derivedMutable = mutable(StudentWeekly)
 // @ts-expect-error -- TS2345: a law side is never a derived relation

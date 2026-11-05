@@ -4,7 +4,8 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { isResidual } from "#test/pg/laws/families/model.ts"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import type { Variant } from "#test/support/worlds/invalid/kinds.ts"
-import { atMostOne } from "#test/support/worlds/model/host.ts"
+import { rowSecured } from "#test/support/worlds/model/session/catalog.ts"
+import { writtenNamed } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	BaseSpec,
 	CatalogPerturbation,
@@ -54,7 +55,7 @@ export const lawIdsOf = (state: ModelState): Arr.NonEmptyReadonlyArray<LawId> =>
 		"the installation's law identities"
 	)
 
-/** Every identity one declared law carries: its own, a mirrors law's pair, an alternatives law's head, arms and reverse. */
+/** Every identity one declared law carries: its own, or an alternatives law's arms and reverse. */
 const identitiesOf = (ids: LawIds): ReadonlyArray<LawId> => {
 	switch (ids.kind) {
 		case "key":
@@ -64,16 +65,14 @@ const identitiesOf = (ids: LawIds): ReadonlyArray<LawId> => {
 		case "covered":
 		case "capacity":
 			return [ids.law]
-		case "mirrors":
-			return [ids.leftToRight, ids.rightToLeft]
 		case "alternatives":
-			return [ids.head, ...Record.values(ids.arms), ids.reverse]
+			return [...Record.values(ids.arms), ids.reverse]
 	}
 }
 
 /**
  * Every function a direct writer may try to call: the installation's own, and a function for every law, native ones
- * included; a unique probe of each query entry where the base declares an at-most-one capacity at all.
+ * included.
  */
 export const worldFunctionsOf = (state: ModelState): Arr.NonEmptyReadonlyArray<WorldFunction> => {
 	const base = state.install.base
@@ -91,14 +90,6 @@ export const worldFunctionsOf = (state: ModelState): Arr.NonEmptyReadonlyArray<W
 				entry: q.entry,
 				key: 0
 			})),
-			...(Arr.some(base.laws, atMostOne)
-				? Arr.map(queries, (q): WorldFunction => ({
-						kind: "unique-probe",
-						role: q.role,
-						entry: q.entry,
-						unique: 0
-					}))
-				: []),
 			...Arr.flatMap(base.relations, (r) =>
 				Arr.flatMap(r.fields, (f): ReadonlyArray<WorldFunction> =>
 					f.domain.kind === "serial" ? [{ kind: "advance", relation: r.name, field: f.name }] : []
@@ -137,15 +128,18 @@ const triggersOf = (state: ModelState): Arr.NonEmptyReadonlyArray<TriggerRef> =>
 		"the installation's triggers"
 	)
 
-/** The entries that hold a row-security policy: those their role writes. */
+/**
+ * The entries that hold a row-security policy: those their role writes into a table with row security, which some
+ * role's entry narrows (session/catalog.ts rowSecured). A table no entry narrows has no policy to drop or edit.
+ */
 const policied = (
 	state: ModelState
 ): ReadonlyArray<{ readonly role: string; readonly entry: string }> =>
 	Arr.flatMap(state.install.roles, (r: RoleSpec) =>
-		Arr.map(
-			Arr.filter(r.write, (name: string) => Record.has(r.entries, name)),
-			(entry: string) => ({ role: r.name, entry })
-		)
+		Arr.flatMap(r.write, (entry: string) => {
+			const w = writtenNamed(state.install.base, r, entry)
+			return w !== undefined && rowSecured(state.install, w.target) ? [{ role: r.name, entry }] : []
+		})
 	)
 
 /** The entries installed as views: every entry but a whole entry over a closed roster, which programs inline. */

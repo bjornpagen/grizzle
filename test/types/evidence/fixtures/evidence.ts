@@ -75,7 +75,7 @@ export const TaskLabel = relation("TaskLabel", { task: uuid, account: uuid, labe
 ])
 export const Sitting = relation("Sitting", { id: uuid, student: uuid, score: pg.integer }, ["id"])
 export const Upgrade = relation("Upgrade", { account: uuid, target: closedId(Plan) }, ["account"])
-export const byName = key(Account, ["name"])
+export const byName = key(on(Account, "name"))
 export const Work = schema(
 	"Work",
 	{

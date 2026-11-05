@@ -9,10 +9,10 @@ import {
 } from "#compiler/core/decimal.ts"
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { derived, type Limit } from "#compiler/core/limits.ts"
+import { derived, int4Max, type Limit } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { int4Max, moneyFractionDigits } from "#compiler/ir/carriers.ts"
+import { moneyFractionDigits } from "#compiler/ir/carriers.ts"
 import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
 import {
 	numericMaxFractionDigits,

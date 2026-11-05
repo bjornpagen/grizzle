@@ -21,18 +21,22 @@ import {
 	type HeadOf,
 	type Infer,
 	type Page,
+	type KeysOf,
 	key,
 	login,
+	natural,
 	on,
 	type PageCursor,
 	type ParamsOf,
 	type ParamType,
 	pg,
+	pred,
 	query,
 	ref,
 	relation,
 	role,
 	schema,
+	select,
 	span,
 	str,
 	TokenError,
@@ -628,9 +632,26 @@ export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
 	contained(on(Ticket, "show"), on(Show, "id")),
 	contained(on(Run, "stage"), on(Stage, "id")),
 	contained(on(Run, "show"), on(Show, "id")),
-	key(Ticket, ["show", "holder"]),
+	key(on(Ticket, "show", "holder")),
 	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
 	capacity(on(Show, "id"), { from: on(Ticket, "show"), within: within(0n, ref("seats")) })
+])
+
+/** README: "Rules", a side's selection and its pred term: a show's waitlist. */
+/** A show's waitlist: its places in order from 0, and whether each place's holder has been called. */
+export const Place = relation(
+	"Place",
+	{ show: uuid, at: natural, holder: ClerkUser, called: pg.boolean },
+	["show", "at"]
+)
+
+/** The places whose holder has not been called yet. */
+const waiting = select(Place, (p) => p.eq(p.called, false))
+
+export const Waitlist = schema.extend(BoxOffice, { Place }, [
+	contained(on(Place, "show"), on(Show, "id")),
+	contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
+	key(on(waiting, "show", "holder"))
 ])
 
 /** README: "Queries". */
@@ -849,6 +870,18 @@ export type YesNoHost = Expect<Equals<Infer<typeof YesNo>, "yes" | "no">>
 
 /** "A contract value is made with its constructor, Cents(500n)". */
 export const price: Infer<typeof Cents> = Cents(500n)
+
+/** "natural is a count: the builtin contract natural over pg.bigint, unbranded". */
+export type PlaceAt = Expect<Equals<Fact<typeof Place>["at"], bigint>>
+
+/** "A term is a field, or pred(n) of a natural field n". */
+// @ts-expect-error -- TS2345: pred reads a natural field, and holder is text
+export const predOfText = on(Place, pred("holder"))
+
+/** "over a selected side or a pred term it holds apart only the rows its side reads, and is no key of the table". */
+export type PlaceKeys = Expect<
+	Equals<KeysOf<typeof Waitlist, typeof Place>, readonly ["show", "at"]>
+>
 
 /** "db.get(Post, { id })": a table by its key. */
 export const byKey = staff.get(Post, { id: "00000000-0000-0000-0000-000000000000" })

@@ -61,7 +61,7 @@ interface IndexedView {
 
 /**
  * A field an index or statistics object of a relation may name: its descriptor, a stored relation's declared one or a
- * derived relation's inferred one, and its type.
+ * derived relation's inferred one, and its type. A stored relation's law column is named too (`lawColumnFields`).
  */
 export interface TargetField {
 	readonly desc: InferredFieldDesc
@@ -74,11 +74,33 @@ export interface TargetField {
  * reports it (Installation.deferred); or no stored or derived relation at all. */
 type RelationTarget = BuiltTarget | { readonly kind: "deferred" } | { readonly kind: "none" }
 
-/** A relation an object can be built on: a stored relation's table or a registered view. */
+/** A relation an object can be built on: a stored relation's table or a registered view, each field an object on it
+ * may name and the installed column it is. */
 export interface BuiltTarget {
 	readonly kind: "built"
 	readonly field: (field: string) => TargetField | undefined
+	readonly column: (field: string) => string
 	readonly object: Node<"structure">
+}
+
+/**
+ * The law columns of each stored relation an index may name, by relation and identifier: each is described by the
+ * field whose values it holds (ir/law.ts LawColumn), so an index entry over it is bounded as one of that field's.
+ */
+const lawColumnFields = (
+	natives: ReadonlyArray<NamedNative>
+): ReadonlyMap<string, ReadonlyMap<string, TargetField>> => {
+	const out = new Map<string, Map<string, TargetField>>()
+	for (const n of natives) {
+		if (n.namespace !== "column") {
+			continue
+		}
+		const o = n.object
+		const own = out.get(o.relation.name) ?? new Map<string, TargetField>()
+		own.set(o.column, { desc: o.field.desc, type: o.field.type })
+		out.set(o.relation.name, own)
+	}
+	return out
 }
 
 /** An extension an object needs the operator classes or the type of: btree_gist's for the scalar components of a GiST
@@ -141,6 +163,8 @@ export class InstallBuilder {
 	readonly #tables = new Map<string, Node<"structure">>()
 	readonly #views = new Map<string, IndexedView>()
 	readonly #qualified = new Map<QualifiedKind, Map<string, Map<string, Node<DeployPhase>>>>()
+	/** The law columns of each stored relation an index may name (`lawColumnFields`). */
+	readonly #lawColumns: ReadonlyMap<string, ReadonlyMap<string, TargetField>>
 	/** The columns each table, view and materialized view the objects so far create holds, by its qualified name. */
 	readonly #columns = new Map<string, number>()
 
@@ -157,6 +181,7 @@ export class InstallBuilder {
 		this.names = input.names
 		this.settings = input.settings
 		this.natives = input.model.natives
+		this.#lawColumns = lawColumnFields(input.model.natives)
 		const installation = input.settings.installation
 		this.schemaNode = this.add(
 			{
@@ -412,18 +437,26 @@ export class InstallBuilder {
 
 	/** What the relation a request names, `relation`, has its indexes and statistics built on (RelationTarget): its
 	 * registered view, its table, or nothing. The request's relation and the fields it names are resolved here, each
-	 * absent one undefined to the request's own refusal: a stored relation's by its theory relation's field handles. */
+	 * absent one undefined to the request's own refusal: a stored relation's by its theory relation's field handles, or
+	 * a law column of it by its identifier, which is its installed column. */
 	target(relation: string): RelationTarget {
 		const view = this.#views.get(relation)
 		if (view !== undefined) {
-			return { kind: "built", field: (f) => view.fields.get(f), object: view.object }
+			return {
+				kind: "built",
+				field: (f) => view.fields.get(f),
+				column: (f) => this.names.column(relation, f),
+				object: view.object
+			}
 		}
 		const relations = this.model.theory.relations
 		const stored = Object.hasOwn(relations, relation) ? relations[relation] : undefined
 		if (stored?.kind === "relation") {
+			const lawColumns = this.#lawColumns.get(relation)
 			return {
 				kind: "built",
-				field: (f) => stored.fields.find((field) => field.name === f),
+				field: (f) => stored.fields.find((field) => field.name === f) ?? lawColumns?.get(f),
+				column: (f) => (lawColumns?.has(f) === true ? f : this.names.column(relation, f)),
 				object: this.table(relation)
 			}
 		}

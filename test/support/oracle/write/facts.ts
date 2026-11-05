@@ -27,7 +27,7 @@ export type { Fact }
  * The initial state of a write case: each relation's facts as host records, drawn from the small value pools of
  * domain.ts so that a ChangeSet meets present facts, occupied keys and equal payloads often. The facts satisfy every
  * law of the group: no two facts share a primary or candidate key under native equality, no two selected facts share a
- * capacity's fields, and every contained field tuple names a fact of its target, which the relations' declaration order
+ * projected key's fields, and every contained field tuple names a fact of its target, which the relations' declaration order
  * fills first. A row that would break a key, or whose containment has no target fact, is dropped, so any sketch
  * resolves to a lawful state.
  *
@@ -93,7 +93,7 @@ const allKeys = (relation: WRelation): ReadonlyArray<ReadonlyArray<string>> => [
 	...relation.keys
 ]
 
-/** Whether `fact` shares a primary, candidate or capacity key with one of `kept`. */
+/** Whether `fact` shares a primary, candidate or projected key with one of `kept`. */
 const collides = (
 	group: WGroup,
 	relation: WRelation,
@@ -107,14 +107,14 @@ const collides = (
 	if (sharesKey) {
 		return true
 	}
-	return Arr.some(group.capacities, (c) => {
-		if (c.source.relation !== relation.name || fact[c.source.selector] !== true) {
+	return Arr.some(group.projectedKeys, (k) => {
+		if (k.relation !== relation.name || fact[k.selector] !== true) {
 			return false
 		}
-		const id = keyOf(relation, c.source.fields, fact)
+		const id = keyOf(relation, k.fields, fact)
 		return Arr.some(
 			kept,
-			(other) => other[c.source.selector] === true && keyOf(relation, c.source.fields, other) === id
+			(other) => other[k.selector] === true && keyOf(relation, k.fields, other) === id
 		)
 	})
 }
@@ -180,15 +180,15 @@ const relabelingOf = (kind: WRelation["columns"][number]["kind"]): Relabeling | 
 			: undefined
 
 /**
- * How a copy of `relation` relabels each column: the key columns no containment or capacity of the relation reads, or
- * none when some key of it has no such column. A capacity's fields keep their values, so a copy's selected facts would
- * share them with the original's: a relation with a capacity is not copied.
+ * How a copy of `relation` relabels each column: the key columns no containment or projected key of the relation
+ * reads, or none when some key of it has no such column. A projected key's fields keep their values, so a copy's
+ * selected facts would share them with the original's: a relation with a projected key is not copied.
  */
 const relabeledColumns = (
 	group: WGroup,
 	relation: WRelation
 ): ReadonlyArray<Relabeling | undefined> | undefined => {
-	if (Arr.some(group.capacities, (c) => c.source.relation === relation.name)) {
+	if (Arr.some(group.projectedKeys, (k) => k.relation === relation.name)) {
 		return undefined
 	}
 	const fromRelation = Arr.filter(group.containments, (c) => c.from.relation === relation.name)

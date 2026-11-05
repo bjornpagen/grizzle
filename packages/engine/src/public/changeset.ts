@@ -32,7 +32,6 @@ export type {
 	Law,
 	LawBounds,
 	LawSide,
-	LawValue,
 	LawWeight,
 	Member,
 	Witness,

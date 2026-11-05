@@ -39,10 +39,10 @@ const consumerDependency = "@vercel/functions"
 const consumer = `import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Effect, Redacted } from "effect"
 import pgDriver from "pg"
-import { context, Db, DbLayer, key, login, type PgSocket, query, relation, role, schema, str, TokenError, uuid, v } from "@bjornpagen/grizzle"
+import { context, Db, DbLayer, key, login, on, type PgSocket, query, relation, role, schema, str, TokenError, uuid, v } from "@bjornpagen/grizzle"
 
 const Note = relation("Note", { id: uuid, author: uuid, text: str.regex("^.{1,200}$", "su") }, ["id"])
-export const App = schema("App", { Note }, [key(Note, ["id"])])
+export const App = schema("App", { Note }, [key(on(Note, "id"))])
 const Session = context("Session", { sub: uuid })
 export const mine = query(App).rule((r) => {
 	const { id, author, text } = v(Note, "note")

@@ -125,7 +125,7 @@ interactive transactions and no raw SQL at run time. Read [Limits](#limits) befo
 | `integer()`, `bigint({ mode: "bigint" })`, `numeric()` | `pg.integer` (`number`), `pg.bigint` (`bigint`), `pg.numeric(p, s)` (an exact `Decimal`)        |
 | `pgEnum("status", [...])`                              | `closed("Status", [...])`, with `closedId(Status)` for the column                               |
 | `.references(() => post.id)`                           | `contained(on(Comment, "post"), on(Post, "id"))`                                                |
-| `unique().on(t.show, t.holder)`                        | `key(Ticket, ["show", "holder"])`                                                               |
+| `unique().on(t.show, t.holder)`                        | `key(on(Ticket, "show", "holder"))`                                                             |
 | `` check("some_seats", sql`...`) ``                    | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`                                               |
 | `index().on(...)`                                      | nothing: `grizzle generate` derives indexes from your rules and your `workload(...)` queries    |
 | `pgPolicy(...)`, and `set_config` around each request  | `context(...)` and `role(...)`                                                                  |
@@ -455,7 +455,7 @@ CREATE TABLE "rooms"."booking" (
   CONSTRAINT "__booking_pk_tzyi2pgieq" PRIMARY KEY ("room", "during" WITHOUT OVERLAPS)
 );
 
-ALTER TABLE "rooms"."booking" ADD CONSTRAINT "__booking_fk_room_during_gd5yeuf3zf" FOREIGN KEY ("room", PERIOD "during") REFERENCES "rooms"."opening" ("room", PERIOD "hours") DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE "rooms"."booking" ADD CONSTRAINT "__booking_fk_room_during_gd5yeuf3zf" FOREIGN KEY ("room", PERIOD "during") REFERENCES "rooms"."opening" ("room", PERIOD "hours") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 ```
 
 A booking that overlaps another comes back from `db.apply` as `invariant-rejected`, naming the rule,
@@ -539,8 +539,8 @@ an outcome you match on, never a message to parse:
   kind: "invariant-rejected",
   law: {
     kind: "capacity",
-    target: { relation: "Grant", fields: ["id"], selection: [] },
-    from: { relation: "Debit", fields: ["grant"], selection: [] },
+    target: { relation: "Grant", fields: ["id"], selection: { kind: "all" } },
+    from: { relation: "Debit", fields: ["grant"], selection: { kind: "all" } },
     weight: { kind: "field", field: "amount" },
     within: { low: 0n, high: { ref: "amount" } }
   },
@@ -718,12 +718,12 @@ CREATE TABLE "invoices"."invoice" (
   "org" "invoices"."__text_mzl7g73bdv" NOT NULL,
   "state" "invoices"."invoice_state" NOT NULL,
   CONSTRAINT "__invoice_pk_6v4xjquwn3" PRIMARY KEY ("id"),
-  CONSTRAINT "__invoice_key_id_state_yoqqcdf5vz" UNIQUE ("id", "state")
+  CONSTRAINT "__invoice_key_id_state_yoqqcdf5vz" UNIQUE NULLS DISTINCT ("id", "state")
 );
 
-ALTER TABLE "invoices"."payment" ADD COLUMN "__tag_state_paid_sxgzpsarlm" "invoices"."invoice_state" GENERATED ALWAYS AS ('paid'::"invoices"."invoice_state") STORED NOT NULL;
+ALTER TABLE "invoices"."payment" ADD COLUMN "__tag_state_paid_4gzzjiwew6" "invoices"."invoice_state" GENERATED ALWAYS AS ('paid'::"invoices"."invoice_state") STORED NOT NULL;
 
-ALTER TABLE "invoices"."payment" ADD CONSTRAINT "__payment_fk_invoice_tag_state_paid_sxgzpsarlm_slqsm36or6" FOREIGN KEY ("invoice", "__tag_state_paid_sxgzpsarlm") REFERENCES "invoices"."invoice" ("id", "state") DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE "invoices"."payment" ADD CONSTRAINT "__payment_fk_invoice_tag_state_paid_4_gzzjiwew_6_rnste2cq7f" FOREIGN KEY ("invoice", "__tag_state_paid_4gzzjiwew6") REFERENCES "invoices"."invoice" ("id", "state") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 ```
 
 ### 8. A usage page: cursors, a rollup and their indexes
@@ -846,8 +846,8 @@ run `grizzle generate` again.
 | `relation(...)`                             | a table, every column NOT NULL, with its primary key                                                                          |
 | `str.regex(...)`, `contract(...)`           | a domain whose CHECK every writer meets                                                                                      |
 | `closed(...)`                               | an enum                                                                                                                      |
-| a rule: `contained`, `key`, `check`, ...    | a foreign key, unique key, no-overlap key or CHECK; for a rule PostgreSQL has no constraint for, a deferred constraint trigger per table and event the rule reads, each with its own function |
-| `role(...)`                                 | a PostgreSQL role with its own schema of views, its grants, and row-level security on the tables it writes                   |
+| a rule: `contained`, `key`, `check`, ...    | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred`; for a count or total, coverage from a selected side, or the reverse direction of `alternatives`, a deferred constraint trigger per table and event the rule reads, each with its own function |
+| `role(...)`                                 | a PostgreSQL role with its own schema of views and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for every role that writes it |
 | `login(...)`                                | a login role that can switch to its roles and holds no table privilege of its own                                            |
 | `workload(...)`                             | the indexes and statistics its queries need; its queries compiled when the app starts and prepared on each connection        |
 | `derived(...)`                              | a materialized view, with a unique index on each key it provably has                                                         |
@@ -984,8 +984,8 @@ export const Etl = role(Blog, "etl", { Post: postIds, PostViews }, { write: ["Po
 
 A `role` is what one kind of user sees, laid out as tables. Each entry is either a table of `Blog`, whole (`Status`),
 or a query over `Blog` (`Post: published`). grizzle installs each role as a PostgreSQL role that reads through one
-view per entry and writes under row-level security, so a forgotten filter in app code cannot leak a row: PostgreSQL
-applies the role to every statement. `write` lists the entries the role may write.
+view per entry and writes a query entry under row-level security, so a forgotten filter in app code cannot leak a row:
+PostgreSQL applies the role to every statement. `write` lists the entries the role may write.
 
 - `anon` reads published posts and their comments.
 - `member` reads published posts and every post of its active organization. `memberPosts` has two rules, and a query
@@ -1243,6 +1243,7 @@ becomes one PostgreSQL schema.
 | `uuid`                                             | uuid                                          | `Uuid`, its hyphenated spelling; `Uuid.parse` reads a string        |
 | `pg.smallint`, `pg.integer`                        | smallint, integer                             | `number`                                                            |
 | `pg.bigint`                                        | bigint                                        | `bigint`                                                            |
+| `natural`                                          | bigint, behind a domain that checks `>= 0`    | `bigint`                                                            |
 | `pg.numeric(p, s)`                                 | numeric(p, s)                                 | `Decimal`, exact, no display scale                                  |
 | `pg.real`, `pg["double precision"]`, `pg.float(p)` | real, double precision                        | `number`                                                            |
 | `pg.money`                                         | money                                         | `Money`                                                             |
@@ -1256,7 +1257,9 @@ becomes one PostgreSQL schema.
 
 Text always carries a pattern, with flags `"u"` (the default) or `"su"`. A `closed` enum can carry data for each name
 with `.with(fields, rows)`. A contract value is made with its constructor, `Cents(500n)`, which brands it without
-checking it: the database checks it on every write.
+checking it: the database checks it on every write. `natural` is a count: the builtin contract `natural` over
+`pg.bigint`, unbranded, and the one type a rule's `pred` reads ([Rules](#rules)). Its domain refuses a negative value,
+an outcome on the law `{ kind: "contract", contract: "natural" }`, and another contract under its name is refused.
 
 ## Rules
 
@@ -1279,7 +1282,7 @@ export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
 	contained(on(Ticket, "show"), on(Show, "id")),
 	contained(on(Run, "stage"), on(Stage, "id")),
 	contained(on(Run, "show"), on(Show, "id")),
-	key(Ticket, ["show", "holder"]),
+	key(on(Ticket, "show", "holder")),
 	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
 	capacity(on(Show, "id"), { from: on(Ticket, "show"), within: within(0n, ref("seats")) })
 ])
@@ -1293,18 +1296,56 @@ in code, with a race between the check and the write; here they hold in the data
 | Rule           | Written as                                                | Holds when                                                                       |
 | -------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Primary key    | `relation`'s third argument                               | no two rows share it                                                             |
-| Unique key     | `key(Ticket, ["show", "holder"])`                         | no two rows share these fields                                                   |
+| Unique key     | `key(on(Ticket, "show", "holder"))`                       | no two rows share these fields                                                   |
 | No-overlap key | a key with a `span` field                                 | rows that agree on the key's other fields never share a point of the span        |
-| Foreign key    | `contained(on(Ticket, "show"), on(Show, "id"))`           | every ticket's `show` is a show's `id`; `select(T, { ... })` narrows either side |
-| Both ways      | `mirrors(on(A, "x"), on(B, "y"))`                         | `contained` in both directions                                                   |
+| Foreign key    | `contained(on(Ticket, "show"), on(Show, "id"))`           | every ticket's `show` is a show's `id`                                           |
+| Both ways      | `mirrors(on(A, "x"), on(B, "y"))`                         | `contained(a, b)` and `contained(b, a)`, the two rules it stands for             |
 | Coverage       | `contained` between two `span` fields                     | the target's spans cover each source span                                        |
 | One of several | `alternatives(Task, "kind", Kind, { Automatic, Manual })` | each row has exactly one detail row, in the table its `kind` names               |
 | Row check      | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`         | the condition holds on every row                                                 |
 | Count or total | `capacity(on(Show, "id"), { from, weight?, within })`     | each target's count of rows, or exact total of a `weight` field, stays in bounds |
+| Selected side  | `on(select(Ticket, (t) => φ), "show")`, in any rule       | the rule reads only the rows where φ holds                                       |
+| Predecessor    | `on(Place, "show", pred("at"))`, in any rule              | the rule reads `at` − 1, and nothing of a row whose `at` is 0                    |
 
-Every rule holds at commit, for every writer. Where PostgreSQL has a constraint for a rule, grizzle uses it; otherwise
-it installs a deferred constraint trigger per table and event the rule reads, each with its own function. A write that
-breaks a rule comes back as an outcome that names the rule and the offending key, never as a message to parse.
+A rule is stated over sides, `on(source, ...terms)`, and pairs its sides' terms in order. A source is a table, or
+`select(T, (t) => φ)`: the rows of T where φ holds, φ written as a row check's condition, the one way a selection is
+written. A term is a field, or `pred(n)` of a `natural` field n: n − 1, defined only where n is above 0. A row outside
+a side's selection, or whose `pred` field is 0, has no tuple on that side: a key over the side doesn't hold it apart,
+a containment from the side doesn't require it, and a containment into the side doesn't find it. A key over a table's
+own fields is a candidate key of the table; over a selected side or a `pred` term it is no key of the table. A
+containment's target holds a key: a candidate key among its fields, or a key over the same selection among its terms.
+A show's waitlist, over the box office:
+
+```ts
+import { natural, pred, select } from "@bjornpagen/grizzle"
+
+/** A show's waitlist: its places in order from 0, and whether each place's holder has been called. */
+export const Place = relation(
+	"Place",
+	{ show: uuid, at: natural, holder: ClerkUser, called: pg.boolean },
+	["show", "at"]
+)
+
+/** The places whose holder has not been called yet. */
+const waiting = select(Place, (p) => p.eq(p.called, false))
+
+export const Waitlist = schema.extend(BoxOffice, { Place }, [
+	contained(on(Place, "show"), on(Show, "id")),
+	contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
+	key(on(waiting, "show", "holder"))
+])
+```
+
+Every place after the first has the place before it, so a show's places run from 0 with no gap. A holder waits at most
+once per show, and may also hold any number of places already called.
+
+Every rule holds at commit, for every writer, and all but three compile to PostgreSQL's own constraints. Each term of
+a selected side, and each `pred` term, is a STORED generated column, `CASE WHEN φ THEN t END`; a key over a side is
+`UNIQUE NULLS DISTINCT` and a containment `FOREIGN KEY … MATCH SIMPLE`, which pass a row whose columns there are null.
+The three are a count or total, coverage from a selected side, and the reverse direction of `alternatives`: for each,
+grizzle installs a deferred constraint trigger per table and event the rule reads, each with its own function, and a
+`capacity`'s or a coverage's selection is a conjunction of `field = literal`. A write that breaks a rule comes back as
+an outcome that names the rule and the offending key, never as a message to parse.
 
 ## Permissions
 
@@ -1355,7 +1396,7 @@ by the token. A role whose `write` names any other entry is refused when you bui
   drawn. A row the query could never return (a filter it fails, a claim that is absent) is the outcome
   `outside-world`.
 - A delete of a row outside the entry does nothing: for this role, that row does not exist.
-- A put or insert that collides with a row outside the entry, on a key or an at-most-one limit, is
+- A put or insert that collides with a row outside the entry, on a key over the table or over a side of it, is
   `invariant-rejected` on that rule, and the witness is the key you submitted, in the entry's fields, never the other
   row. An error PostgreSQL still raises there is a typed failure, never an outcome.
 - A column fixed directly by a claim, like `author`, holds the claim's value in every row and is never updatable: no
@@ -1747,9 +1788,9 @@ channel as a tagged class.
 - The witness is `{ kind: "key", relation, values }`, the key values of one row that breaks the rule, never another
   column; `{ kind: "withheld" }`, for a rule checked at COMMIT when your role does not hold that table whole; or
   `{ kind: "unreported" }`, for a constraint PostgreSQL raises itself (a foreign key, a row check, a contract or a
-  pattern), whose key it states only in its message. A key or an at-most-one limit that grizzle's own write statement
-  finds broken, by two rows you submitted or by a stored row inside or outside your role's view, names the key you
-  submitted, in the fields you wrote it in.
+  pattern), whose key it states only in its message. A key, over a table or over a side of one, that grizzle's own
+  write statement finds broken, by two rows you submitted or by a stored row inside or outside your role's view, names
+  the key you submitted, in the fields you wrote it in.
 - `outside-world` names the role's table a row cannot belong to.
 
 A value its contract or pattern refuses passes the encoder, which checks only the base type, and is refused by its
@@ -1761,10 +1802,11 @@ the contract's or pattern's rule, witness `unreported`.
 
 | `law.kind`              | Its fields                                                                                    |
 | ----------------------- | --------------------------------------------------------------------------------------------- |
-| `primaryKey`, `key`     | `relation`, `fields`                                                                          |
+| `primaryKey`, `key`     | `relation`, `fields`: a key over a table's own fields                                         |
+| `projectedKey`          | `side`: a key over a selected side, or one with a `pred` term                                 |
 | `check`                 | `relation`, `name`                                                                            |
-| `contained`, `mirrors`  | `from`, `to`: each a `relation`, its `fields` and its constant `selection`; a mirrors as its two halves |
-| `coverage`              | a containment or mirrors half over spans: `statement`, `from`, `to`                           |
+| `contained`             | `from`, `to`: each side a `relation`, its terms as `fields` (a field, or `pred(<field>)`), and its `selection`, `{ kind: "all" }` or `{ kind: "where", predicate }` with the predicate's canonical text; a `mirrors` is its two containments |
+| `coverage`              | a containment over spans: `from`, `to`                                                        |
 | `alternatives`          | the parent `relation` and its discriminator `field`, for every arm's reverse obligation       |
 | `alternativesArm`       | the parent `relation`, its discriminator `field`, the `arm` table and the `handles` it serves: each arm row's parent has one of them |
 | `capacity`              | `target`, `from`, `weight`, `within`                                                          |
@@ -1908,7 +1950,8 @@ yields:
 - the login is LOGIN NOINHERIT and the role NOLOGIN, neither with SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or
   BYPASSRLS, and a role's members are its login and the migration role (any other membership of the login confers
   nothing, and a membership fault refuses every role of the login);
-- row-level security is enabled, not forced, on every table the role writes through a query entry;
+- row-level security is enabled, not forced, on every table the role writes through a query entry that leaves rows
+  out;
 - the database's default isolation is SERIALIZABLE.
 
 It does not compare view definitions, policies or the owner's default privileges: `grizzle migrate` and
@@ -1990,9 +2033,9 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 | 25000               | a write below SERIALIZABLE                                                                                                                                   |
 | 22P02, 22003, 23514 | a `grizzle.claims` setting PostgreSQL cannot read, where a statement reads it (below)                                                                         |
 | 23514               | a row check; a value its contract or pattern refuses, as the statement casts it, before row-level security and the row's constraints                          |
-| 23505               | at the statement: a duplicate key, an exact repeat included, or a second row under an at-most-one count limit with no selection, which is a unique index; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
+| 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
 | 23P01               | an overlap under a no-overlap key, at the statement; or a span a concurrent transaction committed after this one's snapshot, which is retryable               |
-| 23503               | a foreign key: at COMMIT when it is deferred (one with a selection or over spans always, a plain one when its target has fields beyond the referenced ones or it lies on a cycle of foreign keys), at the statement otherwise |
+| 23503               | a foreign key, a containment between sides included: at COMMIT when it is deferred (an `alternatives` arm's or one over spans always, any other when its target has a field that is not one of the columns it references, or it lies on a cycle of foreign keys), at the statement otherwise |
 | 23000               | a rule PostgreSQL has no constraint for, at COMMIT, its constraint name the rule's                                                                           |
 | 40001, 40P01        | a serialization failure or a deadlock: run the transaction again                                                                                             |
 
@@ -2032,14 +2075,17 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
   `{"<Context>":{"<field>":"<text>"}}`, each holding exactly its context's fields as JSON strings. It never holds the
   token, and it ends with the transaction.
 - **PostgreSQL enforces every role.** A role holds no privilege on a table it does not write. It reads through views
-  in its own schema, and writes through row-level security on the tables. A query entry's view is a security-barrier
-  view; a whole-table entry hides nothing, so its view is plain, and PostgreSQL plans through it onto the table's
-  indexes. Constraint messages omit row and key detail there, and rule functions show witness keys only when the
-  identity the transaction acts as at COMMIT holds the witness table whole.
+  in its own schema. A table some role writes through a query entry that leaves rows out is under row-level security,
+  with a policy for each role that writes it: the entry's filter, or true for a role that writes every row. A table
+  every writer writes whole has no row-level security and no policy, since each policy would be true: the grants
+  alone decide its writes. A query entry's view is a security-barrier view; a whole-table entry hides nothing, so its
+  view is plain, and PostgreSQL plans through it onto the table's indexes. Constraint messages omit row and key detail
+  there, and rule functions show witness keys only when the identity the transaction acts as at COMMIT holds the
+  witness table whole.
 - **What a role can learn.** Rules hold across the whole database. A delete refused by a comment you cannot see, or a
-  limit that counts rows outside your view, tells you such rows exist; a collision at a key or an at-most-one limit
-  tells you a row exists at the key you submitted (one overlapping the span you submitted, for a no-overlap key), never
-  any of its other columns.
+  limit that counts rows outside your view, tells you such rows exist; a collision at a key tells you a row exists at
+  the key you submitted (one overlapping the span you submitted, for a no-overlap key), never any of its other
+  columns.
 - **Not offered.** A write-only role (an insert reads its rows back), a browser connecting straight to PostgreSQL
   (which cannot verify an RS256 token), and a role in two logins.
 - **The owner bypasses every role.** The migration role owns the tables and bypasses row-level security. It is for
@@ -2056,10 +2102,10 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
   is mutable) on each of the entry's columns outside every key that no claim fixes directly, and DELETE; never
   table-level SELECT, INSERT or UPDATE.
 - EXECUTE on one key probe (a function that looks a key up across the whole table) per key of such a table, and one
-  unique probe per at-most-one count limit whose collisions
-  no key or other probe finds, for each writable query entry; on the entry's filter function exactly when its filter
-  reads a table besides the written row; on the advance function of each serial column of a table it writes; and on
-  the refusal function when it writes or reads a context, which only raises, in the caller's own statement.
+  unique probe per key over a selected side or a `pred` term whose collisions no other probe finds, for each writable
+  query entry; on the entry's filter function exactly when its filter reads a table besides the written row; on the
+  advance function of each serial column of a table it writes; and on the refusal function when it writes or reads a
+  context, which only raises, in the caller's own statement.
 - MAINTAIN on the materialized view of each derived table its `refresh` names.
 - Nothing else: no TRUNCATE, no sequence, no rule function, and no other role's view or function.
 
@@ -2100,11 +2146,11 @@ workflows, whose rules are worth declaring and whose users see different slices 
   512 MiB of ASCII): each SQL statement, migration file, `snapshot.json` and fingerprint text grizzle builds.
   `generate` and `check` refuse a schema whose texts would exceed it with `ResourceBound`.
 - **PostgreSQL's own limits, refused with `ResourceBound` where grizzle emits what they bound.** A table holds at most
-  1,600 columns: a relation's fields with the tag columns its rules add, refused when its schema is compiled, and a
-  view's, a derived table's or a write's temporary table's alike. Columns a table once held and dropped count too, so
-  PostgreSQL itself refuses an added column past them. A select list holds at most 1,664 entries. One statement is at
-  most 1,073,741,822 bytes, PostgreSQL's longest protocol message, and binds at most 65,535 parameters, which a Bind
-  message counts in 16 bits. A row must also fit one 8 KB heap page once its long values are stored out of line,
+  1,600 columns: a relation's fields with the generated columns its rules add, refused when its schema is compiled,
+  and a view's, a derived table's or a write's temporary table's alike. Columns a table once held and dropped count
+  too, so PostgreSQL itself refuses an added column past them. A select list holds at most 1,664 entries. One statement
+  is at most 1,073,741,822 bytes, PostgreSQL's longest protocol message, and binds at most 65,535 parameters, which a
+  Bind message counts in 16 bits. A row must also fit one 8 KB heap page once its long values are stored out of line,
   which PostgreSQL checks when it writes the row.
 - **A page size has no upper bound**: it is any safe integer of at least 1. A cursor is at most 268,435,455
   characters, the bound of its own layout, whose lengths and counts are varints of at most four bytes; a page one of

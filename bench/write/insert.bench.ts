@@ -40,7 +40,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
-import { key, mutable, relation as defineRelation, schema } from "#compiler/public/schema.ts"
+import { key, mutable, on, relation as defineRelation, schema } from "#compiler/public/schema.ts"
 import type { Insert } from "#compiler/sql/ast.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -74,7 +74,7 @@ const Tag = defineRelation("Tag", { id: pg.bigint }, ["id"])
 const Coded = defineRelation("Coded", { id: pg.bigint, code: pg.bigint }, ["id"])
 const Anchor = defineRelation("Anchor", { id: pg.integer }, ["id"])
 const build = (name: string) =>
-	schema(name, { Item, Note, Tag, Coded, Anchor }, [mutable(Note), key(Coded, ["code"])])
+	schema(name, { Item, Note, Tag, Coded, Anchor }, [mutable(Note), key(on(Coded, "code"))])
 
 interface Options extends Readonly<Record<string, unknown>> {
 	/** Facts per timed batch. */

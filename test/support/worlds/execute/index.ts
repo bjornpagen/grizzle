@@ -105,7 +105,7 @@ import { identityFloor } from "#test/support/worlds/model/draws.ts"
 import { fieldDomain } from "#test/support/worlds/model/host.ts"
 import { startStatements } from "#test/support/worlds/model/session/direct.ts"
 import { loginVerifies, roleOf } from "#test/support/worlds/model/session/state.ts"
-import { probeOf, uniqueIndexOf, uniqueProbeOf } from "#test/support/worlds/model/session/writes.ts"
+import { probeOf } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	Action,
 	DirectStatement,
@@ -1455,24 +1455,6 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 					probe === undefined
 						? world.keyProbe(fn.entry, [], [])
 						: world.keyProbe(fn.entry, probe.key, [])
-				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
-			}
-			case "unique-probe": {
-				const role = roleOf(v.spec, fn.role)
-				if (role === undefined) {
-					return yield* missing(`role ${fn.role}`)
-				}
-				const probed = uniqueProbeOf(v.spec.base, role, fn)
-				/**
-				 * A probe the installation defines, by its index (writes.ts uniqueProbeOf); one it defines none of as a key
-				 * probe over no key, which no installation defines, so no call finds it.
-				 */
-				const owned = yield* ownedOf(v, fn.role)
-				const world = worldNames(owned, v.installation.names.installation)
-				const name =
-					probed === undefined
-						? world.keyProbe(fn.entry, [], [])
-						: world.uniqueProbe(fn.entry, uniqueIndexOf(v.names, probed.unique), [])
 				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 			}
 			case "advance": {

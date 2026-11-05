@@ -1,10 +1,11 @@
 /**
- * A law whose probe reads only the rows of a selected source is served by a partial index of that selection.
+ * A residual law whose probe reads only the rows of a selected source is served by a partial index of that selection.
  *
- * A selected-source containment probes its source for a selected fact at the affected key, a scalar capacity over a
- * selected source aggregates the selected facts of the group, and a selected-source span coverage probes the group's
- * selected facts for an uncovered span: each reads only the rows its selection chooses, so the index engine plans its
- * request as a partial index `WHERE <selection>` (physical/indexes/engine.ts), named and holding exactly those rows. One
+ * A scalar capacity over a selected source aggregates the selected facts of the group, and a selected-source span
+ * coverage probes the group's selected facts for an uncovered span: each reads only the rows its selection chooses, so
+ * the index engine plans its request as a partial index `WHERE <selection>` (physical/indexes/engine.ts), named and
+ * holding exactly those rows. A selected source's containment has no probe of its own: it is a foreign key from its
+ * STORED generated column, which PostgreSQL checks itself. One
  * planted schema per family, each its law's source filled with many unselected facts and a few selected ones, analyzed,
  * is installed through its first migration. The property, for each:
  * - the index the law's selected probe lands on is one the engine created, partial, and the catalog's predicate of it
@@ -12,7 +13,7 @@
  * - a write that makes the law probe its source, the law made immediate in a transaction of the writer, rolled back,
  *   reads that partial index and never scans the source sequentially.
  * That the laws' outcomes are unchanged is the family suites' (test/pg/laws/families), whose oracles judge every
- * generated selected source.
+ * generated selected source of these laws.
  *
  * The owner's own reads of the index are published now, so none lands in the writer's
  * window below.
@@ -34,9 +35,12 @@ import { assert, defined } from "#test/support/assert.ts"
 import {
 	capacity,
 	contained,
+	eq,
 	f,
+	field,
+	literal,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	within
@@ -48,10 +52,7 @@ import { oracleLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
-type Family =
-	| "a selected-source containment"
-	| "a capacity over a selected source"
-	| "a selected-source span coverage"
+type Family = "a capacity over a selected source" | "a selected-source span coverage"
 
 /**
  * One planted schema: its law, the relation its selected probe reads, the facts that fill it (statements over each
@@ -76,58 +77,21 @@ interface Planted {
 }
 
 /**
- * Owner(id) and Item(id, owner, live): every live item's owner exists. 5000 items over 100 owners, the 50 of owners 1 to
- * 10 live; deleting owner 50, which holds no live item, finds no anchor, so the law probes Item for a live one.
- */
-const containment = (): Planted => {
-	const law = contained(onSelected("Item", ["owner"], { live: true }), on("Owner", ["id"]))
-	const desc: SchemaDesc = {
-		name: "PartialContainment",
-		relations: [
-			relation("Owner", { id: f.integer }, ["id"]),
-			relation("Item", { id: f.integer, owner: f.integer, live: f.boolean }, ["id"])
-		],
-		statements: [law],
-		extends: undefined
-	}
-	return {
-		family: "a selected-source containment",
-		desc,
-		law: lawNamesOf(desc).lawOfDesc(law),
-		source: "Item",
-		selected: 50,
-		rows: 5000,
-		load: (t, c) => [
-			`INSERT INTO ${t("Owner")} (${c("Owner", "id")}) SELECT g FROM pg_catalog.generate_series(1, 100) AS g`,
-			`INSERT INTO ${t("Item")} (${c("Item", "id")}, ${c("Item", "owner")}, ${c("Item", "live")}) SELECT g, g % 100 + 1, g % 100 < 10 AND g <= 500 FROM pg_catalog.generate_series(1, 5000) AS g`
-		],
-		fire: (t, c) => [`DELETE FROM ${t("Owner")} WHERE ${c("Owner", "id")} = 50`]
-	}
-}
-
-/**
  * Quota(id) and Seat(id, quota, held): at most 1000 held seats per quota, and every held seat's quota exists. 5000
  * seats over 100 quotas, every 50th held; a held seat inserted for quota 7 aggregates quota 7's held seats.
  */
 const capacityOverSelected = (): Planted => {
-	const law = capacity(
-		on("Quota", ["id"]),
-		onSelected("Seat", ["quota"], { held: true }),
-		within(0n, 1000n),
-		{
-			kind: "count"
-		}
-	)
+	const heldSeats = onWhere("Seat", ["quota"], eq(field("held"), literal(true)))
+	const law = capacity(on("Quota", ["id"]), heldSeats, within(0n, 1000n), {
+		kind: "count"
+	})
 	const desc: SchemaDesc = {
 		name: "PartialCapacity",
 		relations: [
 			relation("Quota", { id: f.integer }, ["id"]),
 			relation("Seat", { id: f.integer, quota: f.integer, held: f.boolean }, ["id"])
 		],
-		statements: [
-			contained(onSelected("Seat", ["quota"], { held: true }), on("Quota", ["id"])),
-			law
-		],
+		statements: [contained(heldSeats, on("Quota", ["id"])), law],
 		extends: undefined
 	}
 	return {
@@ -154,7 +118,7 @@ const capacityOverSelected = (): Planted => {
  */
 const coverage = (): Planted => {
 	const law = contained(
-		onSelected("Booking", ["room", "slot"], { ok: true }),
+		onWhere("Booking", ["room", "slot"], eq(field("ok"), literal(true))),
 		on("Open", ["room", "during"])
 	)
 	const desc: SchemaDesc = {
@@ -191,7 +155,7 @@ const coverage = (): Planted => {
 }
 
 /** One planted schema per family. */
-const plantedGen: Gen<Planted> = element([containment(), capacityOverSelected(), coverage()])
+const plantedGen: Gen<Planted> = element([capacityOverSelected(), coverage()])
 
 layer(Substrate.layer)("partial law-probe indexes", (it) => {
 	it.effect(
@@ -206,9 +170,8 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 							suite: "laws/partial-probes",
 							generator: plantedGen,
 							literal: (p: Planted) => p.family,
-							limit: 3,
+							limit: 2,
 							coverage: requiredInSpace<Family>([
-								"a selected-source containment",
 								"a capacity over a selected source",
 								"a selected-source span coverage"
 							]),

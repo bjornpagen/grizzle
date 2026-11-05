@@ -29,7 +29,7 @@ import { Array as Arr, Effect } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
-import { key, login, relation, role, schema } from "#compiler/public/schema.ts"
+import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -57,8 +57,8 @@ const Booking = relation(
 	{ id: pg.integer, room: pg.integer, during: span(pg.integer), ref: pg.integer },
 	["id"]
 )
-const bookingSpan = key(Booking, ["room", "during"])
-const bookingRef = key(Booking, ["ref"])
+const bookingSpan = key(on(Booking, "room", "during"))
+const bookingRef = key(on(Booking, "ref"))
 const relations = { Booking }
 const statements = [bookingSpan, bookingRef]
 /**

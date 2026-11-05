@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { loginIdentity, roleIdentity } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -14,7 +14,6 @@ import {
 	parsedName
 } from "#test/support/kernel/naming.ts"
 import { type Built, buildInstall } from "#test/support/worlds/execute/build.ts"
-import { atMostOne } from "#test/support/worlds/model/host.ts"
 import { domainLawKey } from "#test/support/worlds/model/session/domains.ts"
 import type {
 	InstallSpec,
@@ -39,14 +38,6 @@ const lawIdsOf = (
 	statement: Statement
 ): Effect.Effect<LawIds> => {
 	switch (law.kind) {
-		case "mirrors": {
-			const pair = names.mirrorsOf(statement)
-			return Effect.succeed({
-				kind: "mirrors",
-				leftToRight: pair.leftToRight,
-				rightToLeft: pair.rightToLeft
-			})
-		}
 		case "alternatives": {
 			if (!isAlternatives(statement)) {
 				return Effect.die(
@@ -56,7 +47,6 @@ const lawIdsOf = (
 			const laws = names.alternativesOf(statement)
 			return Effect.succeed({
 				kind: "alternatives",
-				head: laws.head,
 				arms: laws.arms,
 				reverse: laws.reverse
 			})
@@ -161,14 +151,6 @@ export const namesOfBuilt = (
 				Arr.map(spec.base.relations, (r) => [r.name, names.primaryKeyLaw(r)] as const)
 			),
 			laws,
-			uniqueIndexes: Rec.fromEntries(
-				Arr.flatMap(spec.base.laws, (law, i): ReadonlyArray<readonly [string, ConstraintName]> => {
-					const ids = laws[i]
-					return atMostOne(law) && ids?.kind === "capacity"
-						? [[ids.law, names.constraintOf(ids.law, "PartialUnique")]]
-						: []
-				})
-			),
 			roles: Rec.fromEntries(Arr.map(spec.roles, (r) => [r.name, roleOf(r.name)] as const)),
 			logins: Rec.fromEntries(
 				Arr.map(

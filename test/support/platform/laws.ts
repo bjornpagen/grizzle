@@ -578,7 +578,13 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		side("PlanLine", "line", "subscription")
 	),
 	contains(
-		contained(on(P.Allocation, "line"), on(select(P.InvoiceLine, { source: "plan" }), "id")),
+		contained(
+			on(P.Allocation, "line"),
+			on(
+				select(P.InvoiceLine, (r) => r.eq(r.source, "plan")),
+				"id"
+			)
+		),
 		side("Allocation", "line"),
 		selected("InvoiceLine", { source: "plan" }, "id")
 	),

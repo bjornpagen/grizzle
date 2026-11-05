@@ -28,6 +28,7 @@ import type {
 import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	descText,
+	type SideDesc,
 	type SchemaDesc as SrcSchemaDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
@@ -38,6 +39,7 @@ import {
 	type NamedDetailCodec,
 	type NativeKind,
 	type NativeObject,
+	type NativeOf,
 	namedDetail,
 	spanKeyColumns
 } from "#compiler/ir/law.ts"
@@ -51,10 +53,11 @@ import {
 	vectorTypes,
 	worldNames
 } from "#compiler/physical/ddl/names.ts"
+import { indexedName } from "#compiler/physical/ddl/tables.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { AnyRelation, AnyRole, AnySchema, Statement } from "#compiler/public/schema.ts"
 import { ownRole } from "#compiler/schema/own.ts"
-import { alternativesDescOf, statementDescOf } from "#compiler/schema/statements.ts"
+import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { type CarrierName, carrierName } from "#compiler/sql/naming.ts"
@@ -172,15 +175,12 @@ export interface LawNames {
 	readonly lawOf: (statement: Statement) => LawId
 	/** The law an authored statement desc declares. */
 	readonly lawOfDesc: (statement: AuthoredStatementDesc) => LawId
-	/** The two laws a public mirrors statement declares, one per direction. */
-	readonly mirrorsOf: (statement: Statement) => MirrorsLaws
-	/** The two laws an authored mirrors statement desc declares, one per direction. */
-	readonly mirrorsOfDesc: (statement: AuthoredStatementDesc) => MirrorsLaws
 	/** The law a relation's primary key reports. */
 	readonly primaryKeyLaw: (relation: NamedRelation) => LawId
 	/**
-	 * The constraint of `relation` of `kind` over `fields` (as a set): a primary key, a key or span key, a foreign key
-	 * (a tagged one by its scalar columns), or a finite check.
+	 * The constraint of `relation` of `kind` over `fields` (as a set): a primary key, a key or span key, a foreign key,
+	 * or a finite check. A constraint over a law column is named among its columns by the column's minted identifier,
+	 * which no test spells: a test names it by its law (`constraintOf`).
 	 */
 	readonly fieldConstraint: (
 		relation: NamedRelation,
@@ -188,7 +188,7 @@ export interface LawNames {
 		fields: ReadonlyArray<string>
 	) => ConstraintName
 	/**
-	 * The one constraint, unique index, domain constraint or residual law identity of `kind` that reports `law`: one law
+	 * The one constraint, domain constraint or residual law identity of `kind` that reports `law`: one law
 	 * can be reported by several (an alternatives arm's foreign key and the generated unique key it references, a PERIOD
 	 * foreign key and its temporal unique), never by two of one kind.
 	 */
@@ -211,21 +211,13 @@ export interface LawNames {
  */
 export type ReportingKind = NativeKind | "ResidualLaw"
 
-/** The two containments a mirrors statement states: left into right, and right into left. */
-export interface MirrorsLaws {
-	readonly leftToRight: LawId
-	readonly rightToLeft: LawId
-}
-
 export interface AlternativesLaws {
-	/** contained(on(parent, discriminator), on(roster, "id")): its law (enforced by the enum or a foreign key). */
-	readonly head: LawId
 	/**
 	 * Each armed handle's arm relation's law, its foreign key into the parent: one law per arm relation, which every
 	 * handle it is the arm of names.
 	 */
 	readonly arms: Readonly<Record<string, LawId>>
-	/** The family law, the mirrors' reverse halves as one residual law, `<parent>_<discriminator>`. */
+	/** The family law, every arm's reverse containment as one residual law, `<parent>_<discriminator>`. */
 	readonly reverse: LawId
 }
 
@@ -324,8 +316,7 @@ const single = <A>(items: ReadonlyArray<A>, describe: (count: number) => string)
 const refused = (error: CompileError): Error =>
 	new Error(`the test names a schema src refuses: ${error.message}`)
 
-/** What a constraint lives on, as PostgreSQL reports it: a table constraint's or a unique index's table, or a domain
- * constraint's domain. */
+/** What a constraint lives on, as PostgreSQL reports it: a table constraint's table, or a domain constraint's domain. */
 export const constraintOwner = (c: ConstraintLaw): ConstraintOwner =>
 	c.kind === "domainConstraint"
 		? { kind: "domain", name: c.owner }
@@ -340,9 +331,51 @@ interface NamedConstraint {
 	readonly object: NativeKind
 }
 
+/** A native object that installs a foreign key. */
+type ForeignKeyObject = NativeOf<"ForeignKey" | "PeriodForeignKey">
+
+/**
+ * A foreign key as its constraint states it: the relation it lives on and its columns, the target and its columns, each
+ * column named as its index names it (physical/ddl/tables.ts indexedName), a PERIOD one's spans last; and whether
+ * PostgreSQL checks it at COMMIT, as a PERIOD one's always is.
+ */
+export interface ForeignKeyColumns {
+	readonly relation: string
+	readonly columns: ReadonlyArray<string>
+	readonly target: string
+	readonly targetColumns: ReadonlyArray<string>
+	readonly period: boolean
+	readonly deferrable: boolean
+}
+
+export const foreignKeyColumns = (o: ForeignKeyObject): ForeignKeyColumns => {
+	switch (o.kind) {
+		case "ForeignKey":
+			return {
+				relation: o.relation.name,
+				columns: Arr.map(o.columns, indexedName),
+				target: o.target.name,
+				targetColumns: Arr.map(o.targetColumns, indexedName),
+				period: false,
+				deferrable: o.deferrable
+			}
+		case "PeriodForeignKey":
+			return {
+				relation: o.relation.name,
+				columns: [...Arr.map(o.columns, indexedName), o.span.name],
+				target: o.target.name,
+				targetColumns: [...Arr.map(o.targetColumns, indexedName), o.targetSpan.name],
+				period: true,
+				deferrable: true
+			}
+	}
+}
+
 /**
  * The named constraint a native object installs, if it installs one a ConstraintKind names. A span key's columns
- * already hold its span; a temporal unique and a PERIOD foreign key name theirs beside the columns.
+ * already hold its span; a temporal unique and a PERIOD foreign key name theirs beside the columns; a native column is
+ * named as its index names it, a field by its name and a law column by its identifier (physical/ddl/tables.ts
+ * indexedName).
  */
 const constraintsOf = (
 	object: NativeObject,
@@ -363,23 +396,14 @@ const constraintsOf = (
 				fieldNames(spanKeyColumns(object))
 			)
 		case "Unique":
-		case "PartialUnique":
-			return named("key", object.relation.name, fieldNames(object.columns))
+			return named("key", object.relation.name, Arr.map(object.columns, indexedName))
 		case "TemporalUnique":
 			return named("key", object.relation.name, fieldNames([...object.columns, object.span]))
-		case "ArmUnique":
-			return named(
-				"key",
-				object.relation.name,
-				fieldNames([...object.columns, object.discriminator])
-			)
 		case "ForeignKey":
-		case "TaggedForeignKey":
-		case "ArmForeignKey":
-			return named("fk", object.relation.name, fieldNames(object.columns))
-		case "PeriodForeignKey":
-		case "TaggedPeriodForeignKey":
-			return named("fk", object.relation.name, fieldNames([...object.columns, object.span]))
+		case "PeriodForeignKey": {
+			const fk = foreignKeyColumns(object)
+			return named("fk", fk.relation, fk.columns)
+		}
 		case "FiniteCheck":
 			return named(
 				"check",
@@ -389,20 +413,19 @@ const constraintsOf = (
 		case "TableCheck":
 		case "Domain":
 		case "Enum":
-		case "StoredTag":
-		case "ArmTag":
+		case "LawColumn":
 		case "ReverseIndex":
 			return []
 	}
 }
 
 /**
- * Every named constraint of a law model's natives over a relation's fields: those installed under a constraint or unique
- * index name (a STORED tag column names a column, a domain's CHECK no field set, and an unnamed native nothing).
+ * Every named constraint of a law model's natives over a relation's fields: those installed under a constraint name (a
+ * law column names a column, a domain's CHECK no field set, and an unnamed native nothing).
  */
 const namedConstraints = (model: LawModel): ReadonlyArray<NamedConstraint> =>
 	Arr.flatMap(model.natives, (native) =>
-		native.namespace === "constraint" || native.namespace === "index"
+		native.namespace === "constraint"
 			? constraintsOf(native.object, identifierOf(native.named))
 			: []
 	)
@@ -501,91 +524,85 @@ const theLaw = (target: string, laws: ReadonlyArray<TheoryLaw>, what: string): L
 			)}`
 	).id
 
-/** The two laws of a mirrors statement, each the one law holding it whose containment is that direction. */
-const mirrorsLaws = <L>(holding: Holding, statement: StatementDesc<L>): MirrorsLaws => {
-	if (statement.kind !== "mirrors") {
-		throw new Error(
-			`the test names the mirrors laws of a ${statement.kind} statement, which is no mirrors`
-		)
-	}
-	const { target, laws } = holding(statement)
-	const half = (direction: "leftToRight" | "rightToLeft"): LawId =>
-		theLaw(
-			target,
-			Arr.filter(
-				laws,
-				(l) =>
-					l.detail.kind === "containment" &&
-					l.detail.stated.kind === "mirrors" &&
-					l.detail.stated.half === direction
-			),
-			`${direction} containment`
-		)
-	return { leftToRight: half("leftToRight"), rightToLeft: half("rightToLeft") }
+/**
+ * The arm an alternatives side selects, as the expansion states it: its selection's predicate is `discriminator =
+ * handle`, the parent's discriminator compared with the handle's literal; none for any other side.
+ */
+const armOf = (
+	side: SideDesc
+): { readonly discriminator: string; readonly handle: string } | undefined => {
+	const [p, ...more] = side.selection.conjuncts
+	return more.length === 0 &&
+		p?.kind === "compare" &&
+		p.op === "eq" &&
+		p.left.kind === "field" &&
+		p.right.kind === "literal" &&
+		typeof p.right.value === "string"
+		? { discriminator: p.left.field, handle: p.right.value }
+		: undefined
 }
 
 /**
- * The laws of an alternatives expansion, `[head, ...arms]`: the head's one law; each arm's handle, its left side's
- * selection of the head's discriminator, to the law of its arm relation holding the arm, one for every handle the
- * relation is the arm of; and the one law every arm's alternatives half belongs to.
+ * The laws of an alternatives expansion, every statement an arm's containment, in any order: each arm's handle, its
+ * parent side's selection of the discriminator, to the law of its arm relation holding the arm's containment into its
+ * parent, one for every handle the relation is the arm of; and the one law every arm's reverse containment belongs to.
  */
 const alternativesLaws = <L>(
 	holding: Holding,
 	expansion: ReadonlyArray<StatementDesc<L>>
 ): AlternativesLaws => {
-	const [head, ...arms] = expansion
-	if (head === undefined) {
-		throw new Error("the test names the laws of an alternatives expansion with no statement")
-	}
-	if (head.kind !== "contained") {
-		throw new Error(
-			`the test names an alternatives expansion headed by a ${head.kind} statement, not a contained one`
-		)
-	}
-	const headLaws = holding(head)
-	const discriminator = head.left.fields[0]
 	const armLaws: Record<string, LawId> = {}
 	const reverses = new Set<LawId>()
-	for (const arm of arms) {
-		if (arm.kind !== "mirrors") {
+	for (const statement of expansion) {
+		if (statement.kind !== "contained") {
 			throw new Error(
-				`the test names an alternatives expansion with a ${arm.kind} arm, not a mirrors one`
+				`the test names the laws of an alternatives expansion holding a ${statement.kind} statement, not an arm's containment`
 			)
 		}
-		const { target, laws } = holding(arm)
-		const handle = arm.left.selection[discriminator]
-		if (typeof handle !== "string") {
+		const { target, laws } = holding(statement)
+		const arm = armOf(statement.left) ?? armOf(statement.right)
+		if (arm === undefined) {
+			throw new Error(`the test names an alternatives arm ${target} that selects no handle`)
+		}
+		const armed = Arr.filter(laws, (l) => l.detail.kind === "alternativesArm")
+		const reversed = Arr.filter(laws, (l) => l.detail.kind === "alternatives")
+		if (armed.length === 0 && reversed.length === 0) {
 			throw new Error(
-				`the test names an alternatives arm ${target} whose ${discriminator} selects no handle`
+				`the test names an alternatives arm ${target}, which no alternatives law holds`
 			)
 		}
-		armLaws[handle] = theLaw(
-			target,
-			Arr.filter(laws, (l) => l.detail.kind === "alternativesArm"),
-			"arm relation's law"
-		)
-		reverses.add(
-			theLaw(
-				target,
-				Arr.filter(laws, (l) => l.detail.kind === "alternatives"),
-				"alternatives law"
-			)
-		)
+		if (armed.length > 0) {
+			armLaws[arm.handle] = theLaw(target, armed, "arm relation's law")
+		}
+		for (const law of reversed) {
+			reverses.add(law.id)
+		}
 	}
 	const reverse = single(
 		[...reverses],
 		(count) =>
-			`the test names the reverse law of ${headLaws.target}, whose arms name ${count} alternatives laws`
+			`the test names the reverse law of an alternatives expansion whose arms name ${count}`
 	)
-	return { head: theLaw(headLaws.target, headLaws.laws, "law"), arms: armLaws, reverse }
+	return { arms: armLaws, reverse }
 }
 
-/** The one statement a law-naming value is; an alternatives value expands to several and names none. */
+/** The one statement a law-naming value is; a mirrors or alternatives value expands to several and names none. */
 const descOf = (statement: Statement): StatementDesc => {
 	const desc = statementDescOf(statement)
 	if (desc === undefined) {
 		throw new Error(
-			"the test names a law by a value that is not one statement (an alternatives value expands to several): name one of its expanded statements"
+			"the test names a law by a value that is not one statement (a mirrors or alternatives value expands to several): name one of its expanded statements"
+		)
+	}
+	return desc
+}
+
+/** The statements a mirrors or alternatives value expands to. */
+const expansionOf = (value: unknown): { readonly statements: ReadonlyArray<StatementDesc> } => {
+	const desc = expansionDescOf(value)
+	if (desc === undefined) {
+		throw new Error(
+			"the test names the laws of a value that is no mirrors or alternatives expansion"
 		)
 	}
 	return desc
@@ -603,8 +620,7 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 			Arr.flatMap(model.natives, (n): ReadonlyArray<NativeKind> => {
 				switch (c.kind) {
 					case "constraint":
-					case "index":
-						return (n.namespace === "constraint" || n.namespace === "index") &&
+						return n.namespace === "constraint" &&
 							n.owner === c.owner &&
 							identifierOf(n.named) === c.name
 							? [n.object.kind]
@@ -661,8 +677,6 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 		model,
 		lawOf: (statement) => lawOfDesc(descOf(statement)),
 		lawOfDesc,
-		mirrorsOf: (statement) => mirrorsLaws(holding, descOf(statement)),
-		mirrorsOfDesc: (statement) => mirrorsLaws(holding, statement),
 		primaryKeyLaw: (relation) => {
 			const pks = Arr.flatMap(model.natives, (n) => {
 				if (n.namespace !== "constraint") {
@@ -715,15 +729,7 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 			return law
 		},
 		residual,
-		alternativesOf: (value) => {
-			const desc = alternativesDescOf(value)
-			if (desc === undefined) {
-				throw new Error(
-					"the test names the laws of a value the alternatives builder did not describe"
-				)
-			}
-			return alternativesLaws(holding, desc.statements)
-		},
+		alternativesOf: (value) => alternativesLaws(holding, expansionOf(value).statements),
 		alternativesOfDesc: (expansion) => alternativesLaws(holding, expansion),
 		contract: (name) => {
 			const owned = model.owned.contracts[name]

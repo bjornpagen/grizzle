@@ -5,7 +5,6 @@ import { type Identity, identifierOf, identity } from "#compiler/core/identity.t
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { decodeDesc, type LoginDesc } from "#compiler/ir/desc.ts"
-import { fieldNames } from "#compiler/ir/law.ts"
 import {
 	baseOf,
 	type ContractInfo,
@@ -22,7 +21,7 @@ import { fullRoleDesc, type OwnedLogin, ownLogin } from "#compiler/schema/own.ts
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { foreignKeyColumns, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	type ColumnType,
 	type InstallPlan,
@@ -275,13 +274,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 	const foreignKeys = new Map<string, Array<OracleForeignKey & { readonly deferrable: boolean }>>()
 	for (const n of laws.natives) {
 		const o = n.object
-		if (
-			o.kind !== "ForeignKey" &&
-			o.kind !== "TaggedForeignKey" &&
-			o.kind !== "ArmForeignKey" &&
-			o.kind !== "PeriodForeignKey" &&
-			o.kind !== "TaggedPeriodForeignKey"
-		) {
+		if (o.kind !== "ForeignKey" && o.kind !== "PeriodForeignKey") {
 			continue
 		}
 		if (!Rec.has(tables, o.relation.name) || !Rec.has(tables, o.target.name)) {
@@ -294,16 +287,15 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 			)
 		}
 		const list = foreignKeys.get(o.relation.name) ?? []
-		const period = o.kind === "PeriodForeignKey" || o.kind === "TaggedPeriodForeignKey"
+		const fk = foreignKeyColumns(o)
 		list.push({
 			name: identifierOf(n.named),
-			fields: fieldNames(period ? [...o.columns, o.span] : o.columns),
-			references: o.target.name,
-			referencedFields: fieldNames(period ? [...o.targetColumns, o.targetSpan] : o.targetColumns),
-			period,
+			fields: fk.columns,
+			references: fk.target,
+			referencedFields: fk.targetColumns,
+			period: fk.period,
 			location: at(`foreign key ${identifierOf(n.named)}`),
-			/** A tagged, arm or PERIOD foreign key is always deferred; a plain one as the law model decides. */
-			deferrable: o.kind !== "ForeignKey" || o.deferrable
+			deferrable: fk.deferrable
 		})
 		foreignKeys.set(o.relation.name, list)
 	}

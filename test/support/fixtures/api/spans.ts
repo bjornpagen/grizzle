@@ -54,5 +54,5 @@ export const ChicagoCalendar = relation(
 /** A fact that carries only an instant, bucketed into days by the calendar join. */
 const Visit = relation("Visit", { id: uuid, at: Instant }, ["id"])
 export const Calendars = schema("Calendars", { Weekday, ChicagoCalendar, Visit }, [
-	key(ChicagoCalendar, ["span"])
+	key(on(ChicagoCalendar, "span"))
 ])

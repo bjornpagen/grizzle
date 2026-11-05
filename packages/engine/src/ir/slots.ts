@@ -26,6 +26,12 @@ export const slotSpelling = (
 ): string => `${space}:${stratum}:${op}:${kind}:${relation}`
 
 /**
+ * Whether `name` is spelled in the space of a compiled write's member slots (`reservedSlots`), so may be one of them:
+ * every such slot's spelling begins with its space and the first colon.
+ */
+export const inReservedSpace = (name: string): boolean => name.startsWith("slot:")
+
+/**
  * Every name a compiled write's member slot for the enumerated members of `op` on `relation` in `stratum` can take, one
  * per serial class: which it takes is the relation's to say (its serial fields), so a Description, which holds no
  * schema, reserves them all.

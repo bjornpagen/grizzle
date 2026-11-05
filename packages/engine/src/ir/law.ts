@@ -1,8 +1,13 @@
 import type { DeclaredName, Identity } from "#compiler/core/identity.ts"
 import type { ColumnIdent, DomainName, LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
+import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawIndexRequest } from "#compiler/ir/products.ts"
 import type { DeclaredKey, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
@@ -15,7 +20,6 @@ const lawShapes = [
 	"contract",
 	"check",
 	"contained",
-	"mirrorsHalf",
 	"alternatives",
 	"alternativesArm",
 	"capacity",
@@ -125,40 +129,49 @@ export const headingColumns = (
 ): NonEmptyReadonlyArray<HeadingColumn> =>
 	mapNonEmpty(fields, (f): HeadingColumn => ({ name: f.name, type: f.type }))
 
-/** A literal selector of a law side: the side's facts whose `column` holds `value`. */
+/** A literal selector: the facts whose `column` holds `value`, as an index's rows and a containment's evidence state it. */
 export interface Selector {
 	readonly column: string
 	readonly value: TypedLiteral
 }
 
-/** A selector of a native object's or a residual law's side: the handle of the field it selects, and its literal. */
+/** A selector of a residual law's side: the handle of the field it selects, and its literal. */
 export interface FieldSelector {
 	readonly field: LawField
 	readonly value: TypedLiteral
 }
 
 /**
- * One side of a law: a relation's projection, optionally restricted by literal selectors. A check's side projects the
- * fields its predicate mentions, which may be none.
+ * One side of a law, as its dependencies read it: the relation it reads and its terms. A check's side projects the
+ * fields its predicate mentions, which may be none. Which facts a declared side reads is its resolved selection
+ * (analysis/theory/laws.ts ResolvedSide).
  */
 export interface LawSide {
 	readonly relation: string
-	readonly fields: ReadonlyArray<string>
+	readonly terms: ReadonlyArray<TermDesc>
+}
+
+/** A side a statement declares (desc.ts SideDesc), as a key's, a containment's and a capacity's are: a projection on at
+ * least one term. */
+export interface DeclaredSide extends LawSide {
+	readonly terms: NonEmptyReadonlyArray<TermDesc>
+}
+
+/**
+ * A containment's side as evidence states it, the one form a query's rewrite reads: a projection on fields, over the
+ * facts its literal selectors pick, in field name order. A containment with a term or a selection beyond these gives no
+ * evidence.
+ */
+export interface EvidenceSide {
+	readonly relation: string
+	readonly fields: NonEmptyReadonlyArray<string>
 	readonly selection: ReadonlyArray<Selector>
 }
 
 /**
- * A side a statement declares (desc.ts SideDesc), as a containment's and a capacity's are: a projection on at least
- * one field.
- */
-export interface DeclaredSide extends LawSide {
-	readonly fields: NonEmptyReadonlyArray<string>
-}
-
-/**
  * What declares a law: `statement` is the index of the declaring statement in the schema description, of the relation
- * for a primary key, or of the contract for a contract. A contained or mirrors statement, an alternatives family's
- * included, also names the alternatives expansion it came from, or undefined for one declared as itself.
+ * for a primary key, or of the contract for a contract. A contained statement, an alternatives family's included, also
+ * names the alternatives expansion it came from, or undefined for one declared as itself.
  */
 export type LawSource =
 	| {
@@ -166,7 +179,7 @@ export type LawSource =
 			readonly statement: number
 	  }
 	| {
-			readonly kind: "contained" | "mirrors"
+			readonly kind: "contained"
 			readonly statement: number
 			readonly alternatives: string | undefined
 	  }
@@ -201,6 +214,36 @@ export interface NormalizedLaw {
 }
 
 /**
+ * A column a native object reads: a field of its relation, or a law column the law model adds to it (`LawColumn`).
+ */
+export type NativeColumn =
+	| { readonly kind: "field"; readonly field: LawField }
+	| { readonly kind: "law"; readonly column: ColumnIdent }
+
+/** The fields of native columns when every one is a field, which a declared key's columns are; undefined when one is
+ * a law column. */
+export const plainFields = (
+	columns: ReadonlyArray<
+		{ readonly kind: "field"; readonly field: LawField } | { readonly kind: "law" }
+	>
+): NonEmptyReadonlyArray<LawField> | undefined => {
+	const fields = columns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
+	return isNonEmpty(fields) && fields.length === columns.length ? fields : undefined
+}
+
+/**
+ * What a law column holds, generated from its row: its term where every conjunct of its guard holds, and null
+ * elsewhere. An empty guard is a total column, never null: a constant, which a constant selection of a target places
+ * on its source, is a literal term under no guard. A selected side's term is guarded by the selection's conjuncts, and
+ * a pred term by x > 0 besides, its term x - 1 (scalar/natural.ts guardedTerm). Every expression reads the row's own
+ * fields alone.
+ */
+export interface LawColumnValue {
+	readonly guard: ReadonlyArray<ScalarExpr>
+	readonly term: ScalarExpr
+}
+
+/**
  * Native objects: laws the database enforces itself. A native body is what the object is; the object records every
  * law it discharges besides.
  */
@@ -213,15 +256,10 @@ type NativeBody =
 			readonly named: Identity<"primaryKey" | "key">
 	  }
 	| {
+			/** A UNIQUE NULLS DISTINCT: a row any of whose columns is null is outside it. */
 			readonly kind: "Unique"
 			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-	  }
-	| {
-			readonly kind: "PartialUnique"
-			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			readonly where: ReadonlyArray<FieldSelector>
+			readonly columns: NonEmptyReadonlyArray<NativeColumn>
 	  }
 	| {
 			readonly kind: "Domain"
@@ -246,60 +284,25 @@ type NativeBody =
 			readonly facts: ReadonlyArray<NonEmptyReadonlyArray<FieldValue>>
 	  }
 	| {
+			/** A FOREIGN KEY ... MATCH SIMPLE: a row any of whose columns is null references nothing. */
 			readonly kind: "ForeignKey"
 			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly columns: NonEmptyReadonlyArray<NativeColumn>
 			readonly target: LawRelation
-			readonly targetColumns: NonEmptyReadonlyArray<LawField>
+			readonly targetColumns: NonEmptyReadonlyArray<NativeColumn>
 			readonly deferrable: boolean
 	  }
 	| {
-			readonly kind: "TaggedForeignKey"
-			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			/** The child's constant STORED tag column. */
-			readonly tag: ColumnIdent
-			readonly target: LawRelation
-			readonly targetColumns: NonEmptyReadonlyArray<LawField>
-	  }
-	| {
-			readonly kind: "StoredTag"
+			/**
+			 * A column a law adds to its relation, generated STORED from the row: in no heading and no role view. `field`
+			 * is the field whose values it holds, its type the column's and an index entry over it sized as one of the
+			 * field's: a term's own field, x of pred(x), or, for a constant, the field of the target it meets.
+			 */
+			readonly kind: "LawColumn"
 			readonly relation: LawRelation
 			readonly column: ColumnIdent
-			readonly value: TypedLiteral
-			readonly selector: { readonly relation: LawRelation; readonly field: LawField }
-	  }
-	| {
-			/**
-			 * An alternatives parent's arm tag: a STORED generated column of its discriminator's type holding each fact's
-			 * arm tag (`ArmTagMove`).
-			 */
-			readonly kind: "ArmTag"
-			readonly relation: LawRelation
-			readonly column: ColumnIdent
-			readonly discriminator: LawField
-			readonly moved: NonEmptyReadonlyArray<ArmTagMove>
-	  }
-	| {
-			/**
-			 * The parent's UNIQUE over its key and its arm tag, which the arms' foreign keys reference. Its arm tag is
-			 * computed from the discriminator, so a write of the discriminator moves the fact's entry.
-			 */
-			readonly kind: "ArmUnique"
-			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			readonly tag: ColumnIdent
-			readonly discriminator: LawField
-	  }
-	| {
-			/** An arm relation's deferred foreign key: its key and constant tag into its parent's key and arm tag. */
-			readonly kind: "ArmForeignKey"
-			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			readonly tag: ColumnIdent
-			readonly target: LawRelation
-			readonly targetColumns: NonEmptyReadonlyArray<LawField>
-			readonly targetTag: ColumnIdent
+			readonly field: LawField
+			readonly value: LawColumnValue
 	  }
 	| {
 			readonly kind: "WithoutOverlaps"
@@ -310,22 +313,16 @@ type NativeBody =
 			readonly named: Identity<"primaryKey" | "key">
 	  }
 	| {
+			/**
+			 * A PERIOD foreign key from the source's scalar columns, then its span, into the target's: a selected target's
+			 * constant law column follows the source's scalar fields, matched against the target's selector field.
+			 */
 			readonly kind: "PeriodForeignKey"
 			readonly relation: LawRelation
-			readonly columns: ReadonlyArray<LawField>
+			readonly columns: ReadonlyArray<NativeColumn>
 			readonly span: SpanField
 			readonly target: LawRelation
-			readonly targetColumns: ReadonlyArray<LawField>
-			readonly targetSpan: SpanField
-	  }
-	| {
-			readonly kind: "TaggedPeriodForeignKey"
-			readonly relation: LawRelation
-			readonly columns: ReadonlyArray<LawField>
-			readonly tag: ColumnIdent
-			readonly span: SpanField
-			readonly target: LawRelation
-			readonly targetColumns: NonEmptyReadonlyArray<LawField>
+			readonly targetColumns: ReadonlyArray<NativeColumn>
 			readonly targetSpan: SpanField
 	  }
 	| {
@@ -335,9 +332,10 @@ type NativeBody =
 			readonly span: SpanField
 	  }
 	| {
+			/** The index over a foreign key's referencing columns, which its reverse probe reads. */
 			readonly kind: "ReverseIndex"
 			readonly relation: LawRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly columns: NonEmptyReadonlyArray<NativeColumn>
 	  }
 
 /**
@@ -347,26 +345,6 @@ type NativeBody =
 export type TableCheckOrigin =
 	| { readonly kind: "declared"; readonly name: string; readonly named: Identity<"check"> }
 	| { readonly kind: "generated"; readonly law: LawId }
-
-/**
- * A handle of an alternatives roster whose arm tag is another handle: an armed handle whose arm relation is armed first
- * at an earlier handle, in roster order, has that handle as its tag. Every other handle is its own tag: the first armed
- * handle of each arm relation, which is the constant tag of the relation's rows, and every unarmed handle, which no arm
- * relation's tag is, so no row of any arm references a parent of it.
- */
-export interface ArmTagMove {
-	readonly handle: string
-	readonly tag: string
-}
-
-/**
- * The tag an alternatives parent's fact is met at by its arms' foreign keys: its discriminator itself, when every arm
- * relation is the arm of one handle, so every handle is its own tag; or a STORED column computed from the discriminator
- * when some arm relation is the arm of several, every handle it moves to its relation's first (`ArmTagMove`).
- */
-export type ArmTag =
-	| { readonly kind: "discriminator" }
-	| { readonly kind: "generated"; readonly moved: NonEmptyReadonlyArray<ArmTagMove> }
 
 /** A field's value in a fact: the handle of the field, and the literal the fact holds there. */
 export interface FieldValue {
@@ -417,8 +395,6 @@ export type NativeKind = NativeObject["kind"]
 /** The admitted residual families. */
 const residualFamilies = [
 	"alternativesReverse",
-	"conditionalMirrors",
-	"selectedSourceContainment",
 	"scalarCapacity",
 	"selectedSourceCoverage"
 ] as const
@@ -432,8 +408,6 @@ export type AbsentAnchor = "noObligation" | "violation"
  */
 export const familyAbsentAnchor: Readonly<Record<ResidualFamily, AbsentAnchor>> = {
 	alternativesReverse: "noObligation",
-	conditionalMirrors: "noObligation",
-	selectedSourceContainment: "violation",
 	scalarCapacity: "noObligation",
 	selectedSourceCoverage: "violation"
 }
@@ -744,17 +718,6 @@ export interface CheckedBound {
  * `P` for every family but alternatives, whose participants `A` carry what each can leave unpaid. */
 export type FamilyDetail<P, A> =
 	| {
-			readonly family: "selectedSourceContainment"
-			readonly source: SelectedSide
-			readonly participants: P
-	  }
-	| {
-			readonly family: "conditionalMirrors"
-			readonly selection: NonEmptyReadonlyArray<FieldSelector>
-			readonly child: PairedSide
-			readonly participants: P
-	  }
-	| {
 			readonly family: "alternativesReverse"
 			readonly discriminator: LawField
 			readonly participants: A
@@ -784,8 +747,6 @@ export const withParticipants = <P, A, Q, B>(
 	switch (d.family) {
 		case "alternativesReverse":
 			return { ...d, participants: a(d.participants) }
-		case "selectedSourceContainment":
-		case "conditionalMirrors":
 		case "scalarCapacity":
 		case "selectedSourceCoverage":
 			return { ...d, participants: p(d.participants) }

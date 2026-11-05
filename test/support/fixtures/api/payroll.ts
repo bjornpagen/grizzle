@@ -201,10 +201,10 @@ export const Payroll = schema(
 		Request
 	},
 	[
-		key(Employer, ["ein"]),
-		key(Employee, ["employer", "code"]),
-		key(PayLine, ["run", "employee"]),
-		key(Posting, ["line", "account"]),
+		key(on(Employer, "ein")),
+		key(on(Employee, "employer", "code")),
+		key(on(PayLine, "run", "employee")),
+		key(on(Posting, "line", "account")),
 		mutable(PayRun),
 		mutable(Shift),
 		mutable(Timesheet),
@@ -230,28 +230,61 @@ export const Payroll = schema(
 		contained(on(Employment, "basis"), on(Basis, "id")),
 		contained(on(LevyLine, "levy", "employeeRate"), on(Levy, "id", "employeeRate")),
 		mirrors(on(Employee, "id"), on(TaxProfile, "employee")),
-		mirrors(on(select(PayLine, { offCycle: true }), "id"), on(OffCycleReason, "line")),
+		mirrors(
+			on(
+				select(PayLine, (r) => r.eq(r.offCycle, true)),
+				"id"
+			),
+			on(OffCycleReason, "line")
+		),
 		alternatives(PayRun, "stage", Stage, { paid: Payment, voided: Voiding }),
-		contained(on(Reissue, "replaces"), on(select(PayRun, { stage: "voided" }), "id")),
-		contained(on(select(PayRun, { stage: "approved" }), "id"), on(Approval, "run")),
 		contained(
-			on(select(Shift, { status: "approved" }), "employee", "week"),
+			on(Reissue, "replaces"),
+			on(
+				select(PayRun, (r) => r.eq(r.stage, "voided")),
+				"id"
+			)
+		),
+		contained(
+			on(
+				select(PayRun, (r) => r.eq(r.stage, "approved")),
+				"id"
+			),
+			on(Approval, "run")
+		),
+		contained(
+			on(
+				select(Shift, (r) => r.eq(r.status, "approved")),
+				"employee",
+				"week"
+			),
 			on(Timesheet, "employee", "week")
 		),
 		mirrors(on(Assignment, "employee", "during"), on(Employment, "employee", "during")),
 		contained(on(Leave, "employee", "during"), on(Employment, "employee", "during")),
 		contained(
 			on(Salary, "employee", "during"),
-			on(select(Employment, { basis: "salaried" }), "employee", "during")
+			on(
+				select(Employment, (r) => r.eq(r.basis, "salaried")),
+				"employee",
+				"during"
+			)
 		),
 		contained(
-			on(select(Shift, { status: "approved" }), "employee", "during"),
+			on(
+				select(Shift, (r) => r.eq(r.status, "approved")),
+				"employee",
+				"during"
+			),
 			on(Employment, "employee", "during")
 		),
 		capacity(on(Employer, "id"), { from: on(Approver, "employer"), within: within(1n, "*") }),
 		capacity(on(PayRun, "id"), { from: on(Reissue, "replaces"), within: within(0n, 1n) }),
 		capacity(on(PayLine, "id"), {
-			from: on(select(Deposit, { remainder: true }), "line"),
+			from: on(
+				select(Deposit, (r) => r.eq(r.remainder, true)),
+				"line"
+			),
 			within: within(0n, 1n)
 		}),
 		capacity(on(PayLine, "id"), { from: on(Deposit, "line"), within: within(0n, 4n) }),
@@ -266,7 +299,11 @@ export const Payroll = schema(
 			within: within(0n, ref("gross"))
 		}),
 		capacity(on(Timesheet, "employee", "week"), {
-			from: on(select(Shift, { status: "approved" }), "employee", "week"),
+			from: on(
+				select(Shift, (r) => r.eq(r.status, "approved")),
+				"employee",
+				"week"
+			),
 			weight: weigh(duration("during")),
 			within: within(0n, ref("ceiling"))
 		})

@@ -43,7 +43,7 @@ const Crm: SchemaDesc = {
 	name: "Crm",
 	relations: [Person, Purchase],
 	statements: [
-		key("Person", ["email"]),
+		key(on("Person", ["email"])),
 		contained(on("Purchase", ["person"]), on("Person", ["id"]))
 	],
 	extends: undefined

@@ -1,6 +1,6 @@
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
-import { published } from "#compiler/core/limits.ts"
+import { postgresSource, published } from "#compiler/core/limits.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
@@ -98,8 +98,7 @@ export const collapseLimit = published({
 	scope:
 		"one join problem the planner flattens, under the session default no grizzle session changes",
 	constraint: "configurable default",
-	source:
-		"https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/misc/guc_parameters.dat#L1529-L1537",
+	source: `${postgresSource}/src/backend/utils/misc/guc_parameters.dat#L1529-L1537`,
 	quote:
 		"{ name => 'join_collapse_limit', type => 'int', context => 'PGC_USERSET', [...] boot_val => '8',",
 	verified: "2026-11-05"

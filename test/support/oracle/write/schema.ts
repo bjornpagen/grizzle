@@ -4,10 +4,8 @@ import { keep, type Swarm, swarm as swarmOf, weightOf } from "@grizzle/testing/s
 import { Array as Arr, Option, String as Str } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { fieldNames } from "#compiler/ir/law.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import {
-	capacity,
 	closed,
 	contained as containment,
 	key as keyStatement,
@@ -19,13 +17,12 @@ import {
 	role,
 	type Statement,
 	schema,
-	select,
-	within
+	select
 } from "#compiler/public/schema.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { nonEmpty } from "#test/support/assert.ts"
-import { installationNamesOf } from "#test/support/kernel/naming.ts"
+import { foreignKeyColumns, installationNamesOf } from "#test/support/kernel/naming.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import type { OracleRelation, OracleSchema } from "#test/support/oracle/addwins.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
@@ -42,6 +39,7 @@ import {
 	typeKinds
 } from "#test/support/oracle/write/domain.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
+import { selectorOf } from "#test/support/worlds/execute/build.ts"
 
 interface WColumn {
 	readonly name: string
@@ -67,16 +65,13 @@ export interface WContainment {
 }
 
 /**
- * An at-most-one capacity: among the facts of `source.relation` whose boolean field `source.selector` is true, at most
- * one per value of `source.fields`, which name the primary key `target.fields` of an earlier relation.
+ * A projected key, key(on(select(R, (r) => r.eq(r[selector], true)), ...fields)): among the facts of `relation` whose
+ * boolean field `selector` is true, at most one per value of `fields`.
  */
-export interface WCapacity {
-	readonly source: {
-		readonly relation: string
-		readonly fields: ReadonlyArray<string>
-		readonly selector: string
-	}
-	readonly target: { readonly relation: string; readonly fields: ReadonlyArray<string> }
+export interface WProjectedKey {
+	readonly relation: string
+	readonly fields: ReadonlyArray<string>
+	readonly selector: string
 }
 
 export interface WGroup {
@@ -86,10 +81,10 @@ export interface WGroup {
 	 * writes (changeset.ts PlantedArm).
 	 */
 	readonly role: "drawn" | "planted"
-	/** In declaration order: a containment's or capacity's target precedes its source. */
+	/** In declaration order: a containment's target precedes its source. */
 	readonly relations: ReadonlyArray<WRelation>
 	readonly containments: ReadonlyArray<WContainment>
-	readonly capacities: ReadonlyArray<WCapacity>
+	readonly projectedKeys: ReadonlyArray<WProjectedKey>
 }
 
 /**
@@ -113,8 +108,9 @@ export interface WGroup {
  *   its group, a native foreign key. By the compiler's deferral rule it is DEFERRABLE INITIALLY DEFERRED, judged at
  *   COMMIT, when its target has a field outside the referenced key, which every candidate key's target has, and
  *   immediate, judged at every statement, when its target is a pure set;
- * - at most one at-most-one capacity: of the facts whose boolean field is true, at most one per value of some fields
- *   that name an earlier relation's primary key. It installs as a partial unique index alone, a native law.
+ * - at most one projected key: of the facts whose boolean field is true, at most one per value of some fields, of the
+ *   types of an earlier relation's primary key. It installs as a UNIQUE NULLS DISTINCT over its selected side's law
+ *   columns, null where the field is not true, a native law immediate like every key.
  *
  * Beside the drawn groups a schema may hold the planted group (plantedGroup), of fixed relations whose ChangeSet arms
  * (changeset.ts PlantedArm) reach outcomes the drawn population meets too rarely to rely on.
@@ -169,7 +165,7 @@ const schemaFeatures = [
 	"mutable",
 	"references",
 	"immediateReferences",
-	"capacities",
+	"projectedKeys",
 	"candidateReferences"
 ] as const
 type SchemaFeature = (typeof schemaFeatures)[number]
@@ -378,8 +374,8 @@ const referencing = (
 }
 
 /**
- * The group a sketch draws, each thinned feature taking a decision of the case as the resolution meets it. A capacity
- * over a key or a superset of one would be implied by that key.
+ * The group a sketch draws, each thinned feature taking a decision of the case as the resolution meets it. A projected
+ * key over a key or a superset of one would be implied by that key.
  */
 const resolveGroup =
 	(index: number, sketch: GroupSketch, swarm: Swarm<SchemaFeature>): Gen<WGroup> =>
@@ -387,7 +383,7 @@ const resolveGroup =
 		const kept = (feature: SchemaFeature): boolean => source.draw(keep(swarm, feature))
 		const relations: Array<WRelation> = []
 		const containments: Array<WContainment> = []
-		const capacities: Array<WCapacity> = []
+		const projectedKeys: Array<WProjectedKey> = []
 		for (const [i, rs] of sketch.relations.entries()) {
 			const name = `G${index}R${i}`
 			const [first, ...rest] = relations
@@ -435,7 +431,7 @@ const resolveGroup =
 					})
 				}
 			}
-			if (kept("capacities")) {
+			if (kept("projectedKeys")) {
 				const selector = Arr.findFirst(r.columns, (c) => c.kind === "bool")
 				const fields = Option.flatMap(selector, (s) =>
 					Option.fromUndefinedOr(referencing(r, target, target.primaryKey, new Set([s.name])))
@@ -445,14 +441,15 @@ const resolveGroup =
 					Option.isSome(fields) &&
 					!Arr.some([r.primaryKey, ...r.keys], (k) => Arr.every(k, (f) => fields.value.includes(f)))
 				) {
-					capacities.push({
-						source: { relation: r.name, fields: fields.value, selector: selector.value.name },
-						target: { relation: target.name, fields: [...target.primaryKey] }
+					projectedKeys.push({
+						relation: r.name,
+						fields: fields.value,
+						selector: selector.value.name
 					})
 				}
 			}
 		}
-		return { index, role: "drawn", relations, containments, capacities }
+		return { index, role: "drawn", relations, containments, projectedKeys }
 	}
 
 /**
@@ -461,8 +458,8 @@ const resolveGroup =
  * - `parent(a int4, b int4)` and `child(a int4, b int4)`, whose b references the parent's key: the parent's payload
  *   keeps it from being a pure set, so the containment is deferred, and nothing else of the group constrains either
  *   relation, so a ChangeSet that adds or removes a parent and a child fact meets no law but that containment;
- * - `capped(a int4, b int4, c bool)`, of which at most one fact whose c is true per value of b, naming the parent's
- *   key: a capacity, a partial unique index;
+ * - `flagged(a int4, b int4, c bool)`, of which at most one fact whose c is true per value of b: a projected key, a
+ *   UNIQUE over its selected side;
  * - the mutable `merged(a int4, b int4, c memo)`, whose payload b is a deletion's scope and c an unbounded text, so a
  *   put on it beside a scoped deletion is a MERGE, an enumerated one alone an ON CONFLICT DO UPDATE, and a described
  *   one reading its own keys an UPDATE ... FROM;
@@ -482,8 +479,8 @@ export interface Planted {
 	readonly parent: WRelation
 	readonly child: WRelation
 	readonly containment: WContainment
-	readonly capped: WRelation
-	readonly capacity: WCapacity
+	readonly flagged: WRelation
+	readonly projectedKey: WProjectedKey
 	readonly merged: WRelation
 	readonly wide: WRelation
 	readonly narrow: WRelation
@@ -503,7 +500,7 @@ export interface Planted {
 const plantedNames = [
 	"parent",
 	"child",
-	"capped",
+	"flagged",
 	"merged",
 	"wide",
 	"narrow",
@@ -547,7 +544,7 @@ const plantedGroup = (index: number): WGroup => {
 	})
 	const parent = relationOf("parent", "int4", [b("int4")], [], false)
 	const child = relationOf("child", "int4", [b("int4")], [], false)
-	const capped = relationOf("capped", "int4", [b("int4"), { name: "c", kind: "bool" }], [], false)
+	const flagged = relationOf("flagged", "int4", [b("int4"), { name: "c", kind: "bool" }], [], false)
 	const merged = relationOf("merged", "int4", [b("int4"), { name: "c", kind: "memo" }], [], true)
 	const keyed = relationOf("keyed", "int4", [b("int4")], [["b"]], false)
 	const pure = relationOf("pure", "int4", [], [], false)
@@ -561,7 +558,7 @@ const plantedGroup = (index: number): WGroup => {
 		relations: [
 			parent,
 			child,
-			capped,
+			flagged,
 			merged,
 			relationOf("wide", "int4", [b("text6")], [], false),
 			relationOf("narrow", "int4", [b("text")], [], false),
@@ -583,12 +580,7 @@ const plantedGroup = (index: number): WGroup => {
 			contained(member, pure, "a"),
 			contained(holding, issued, "a")
 		],
-		capacities: [
-			{
-				source: { relation: capped.name, fields: ["b"], selector: "c" },
-				target: { relation: parent.name, fields: ["a"] }
-			}
-		]
+		projectedKeys: [{ relation: flagged.name, fields: ["b"], selector: "c" }]
 	}
 }
 
@@ -603,8 +595,8 @@ export const plantedOf = (group: WGroup): Planted => {
 		parent: relationAt("parent"),
 		child: relationAt("child"),
 		containment: elementAt(group.containments, 0, "the planted group's containments"),
-		capped: relationAt("capped"),
-		capacity: elementAt(group.capacities, 0, "the planted group's capacity"),
+		flagged: relationAt("flagged"),
+		projectedKey: elementAt(group.projectedKeys, 0, "the planted group's projected key"),
 		merged: relationAt("merged"),
 		wide: relationAt("wide"),
 		narrow: relationAt("narrow"),
@@ -706,7 +698,9 @@ export const buildSchema = (w: WSchema, name: string): BuiltSchema => {
 	for (const r of all) {
 		const value = relationValue(r.name)
 		for (const k of r.keys) {
-			statements.push(keyStatement(value, nonEmpty(k, `a key of ${r.name}`)))
+			statements.push(
+				keyStatement(on(value, ...nonEmptyArgumentsOf(nonEmpty(k, `a key of ${r.name}`))))
+			)
 		}
 		if (r.mutable) {
 			statements.push(mutable(value))
@@ -727,20 +721,13 @@ export const buildSchema = (w: WSchema, name: string): BuiltSchema => {
 				)
 			)
 		}
-		for (const c of g.capacities) {
+		for (const k of g.projectedKeys) {
 			statements.push(
-				capacity(
+				keyStatement(
 					on(
-						relationValue(c.target.relation),
-						...nonEmptyArgumentsOf(nonEmpty(c.target.fields, `a capacity's target`))
-					),
-					{
-						from: on(
-							select(relationValue(c.source.relation), { [c.source.selector]: true }),
-							...nonEmptyArgumentsOf(nonEmpty(c.source.fields, `a capacity's source`))
-						),
-						within: within(0n, 1n)
-					}
+						select(relationValue(k.relation), (row) => selectorOf(row, [[k.selector, true]])),
+						...nonEmptyArgumentsOf(nonEmpty(k.fields, `a projected key of ${k.relation}`))
+					)
 				)
 			)
 		}
@@ -756,7 +743,7 @@ export const buildSchema = (w: WSchema, name: string): BuiltSchema => {
 }
 
 /**
- * The law each key, foreign key and capacity of an installed write schema reports, read from its installation,
+ * The law each key, foreign key and projected key of an installed write schema reports, read from its installation,
  * and the installed objects a statement names.
  */
 export interface WriteLawNames {
@@ -770,11 +757,11 @@ export interface WriteLawNames {
 	readonly primaryKeyConstraint: (relation: string) => ConstraintName
 	readonly keyConstraint: (relation: string, fields: ReadonlyArray<string>) => ConstraintName
 	readonly foreignKeyConstraint: (relation: string, fields: ReadonlyArray<string>) => ConstraintName
-	/** The law of an at-most-one capacity over `relation`'s `fields`, and its partial unique index. */
-	readonly capacity: (
+	/** The law of a projected key over `relation`'s `fields`, and its UNIQUE over its law columns. */
+	readonly projectedKey: (
 		relation: string,
 		fields: ReadonlyArray<string>
-	) => { readonly law: LawId; readonly index: ConstraintName }
+	) => { readonly law: LawId; readonly constraint: ConstraintName }
 	/**
 	 * The law of the text refinement domain that types a column (kernel/naming.ts textDomain), which a value outside
 	 * the domain violates.
@@ -840,21 +827,11 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 			if (n.namespace !== "constraint") {
 				continue
 			}
-			if (
-				o.kind !== "ForeignKey" &&
-				o.kind !== "TaggedForeignKey" &&
-				o.kind !== "ArmForeignKey" &&
-				o.kind !== "PeriodForeignKey" &&
-				o.kind !== "TaggedPeriodForeignKey"
-			) {
+			if (o.kind !== "ForeignKey" && o.kind !== "PeriodForeignKey") {
 				continue
 			}
-			const columns = fieldNames(
-				o.kind === "PeriodForeignKey" || o.kind === "TaggedPeriodForeignKey"
-					? [...o.columns, o.span]
-					: o.columns
-			)
-			if (o.relation.name === relation && sameColumns(columns, fields)) {
+			const fk = foreignKeyColumns(o)
+			if (fk.relation === relation && sameColumns(fk.columns, fields)) {
 				return identifierOf(n.named)
 			}
 		}
@@ -867,22 +844,25 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 		primaryKeyConstraint: (relation) => keyConstraint(relation, { primary: true }),
 		keyConstraint: (relation, fields) => keyConstraint(relation, { fields }),
 		foreignKeyConstraint,
-		capacity: (relation, fields) => {
+		/**
+		 * A relation's one projected key, as the sketch draws at most one per relation: the UNIQUE of its selected
+		 * side, over a law column per field, where a declared key's are fields.
+		 */
+		projectedKey: (relation, fields) => {
 			for (const n of laws.natives) {
 				const o = n.object
-				if (n.namespace !== "index") {
-					continue
-				}
 				if (
-					o.kind !== "PartialUnique" ||
+					n.namespace !== "constraint" ||
+					o.kind !== "Unique" ||
 					o.relation.name !== relation ||
-					!sameColumns(fieldNames(o.columns), fields)
+					o.columns.length !== fields.length ||
+					!Arr.every(o.columns, (c) => c.kind === "law")
 				) {
 					continue
 				}
-				return { law: lawOf(relation, identifierOf(n.named)), index: identifierOf(n.named) }
+				return { law: lawOf(relation, identifierOf(n.named)), constraint: identifierOf(n.named) }
 			}
-			throw new Error(`no installed partial unique index ${relation}(${Arr.join(fields, ", ")})`)
+			throw new Error(`no installed projected key ${relation}(${Arr.join(fields, ", ")})`)
 		},
 		textDomain: (relation, field) =>
 			installationNamesOf(plan.installation).textDomain({ name: relation }, field).law,
@@ -909,7 +889,7 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 
 /**
  * A group as the add-wins calculator reads it (test/support/oracle/addwins.ts): each relation's heading as carrier
- * specs, its keys and its capacities' partial keys under their laws' names, and its serial fields.
+ * specs, its keys and its projected keys under their laws' names, and its serial fields.
  */
 export const oracleSchemaOf = (group: WGroup, laws: WriteLawNames): OracleSchema => ({
 	relations: Arr.map(group.relations, (r): OracleRelation => ({
@@ -917,12 +897,12 @@ export const oracleSchemaOf = (group: WGroup, laws: WriteLawNames): OracleSchema
 		heading: Arr.map(r.columns, (c) => ({ name: c.name, spec: typeInfo[c.kind].spec })),
 		primaryKey: { law: laws.primaryKey(r.name), fields: [...r.primaryKey] },
 		keys: Arr.map(r.keys, (k) => ({ law: laws.key(r.name, k), fields: [...k] })),
-		partialKeys: Arr.map(
-			Arr.filter(group.capacities, (c) => c.source.relation === r.name),
-			(c) => ({
-				law: laws.capacity(r.name, c.source.fields).law,
-				fields: [...c.source.fields],
-				where: { field: c.source.selector, value: true }
+		projectedKeys: Arr.map(
+			Arr.filter(group.projectedKeys, (k) => k.relation === r.name),
+			(k) => ({
+				law: laws.projectedKey(r.name, k.fields).law,
+				fields: [...k.fields],
+				where: { field: k.selector, value: true }
 			})
 		),
 		serial: Arr.map(serialColumns(r), (c) => c.name)
@@ -951,9 +931,8 @@ export const printGroup = (group: WGroup): string =>
 					`  contained(${c.from.relation}(${Arr.join(c.from.fields, ", ")}), ${c.to.relation}(${Arr.join(c.to.fields, ", ")}))${isImmediate(group, c) ? " immediate" : ""}`
 			),
 			...Arr.map(
-				group.capacities,
-				(c) =>
-					`  at most one ${c.source.relation}(${Arr.join(c.source.fields, ", ")}) where ${c.source.selector} per ${c.target.relation}(${Arr.join(c.target.fields, ", ")})`
+				group.projectedKeys,
+				(k) => `  key(on(select(${k.relation}, ${k.selector}), ${Arr.join(k.fields, ", ")}))`
 			)
 		],
 		"\n"

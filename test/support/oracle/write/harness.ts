@@ -216,7 +216,7 @@ type RefusalFeature =
 	| "refused by a candidate key"
 	| "refused by an immediate foreign key"
 	| "refused by a deferred foreign key"
-	| "refused by a capacity"
+	| "refused by a projected key"
 
 /**
  * Every feature a write case notes through its Case: the shapes it drew, what the compiler and the database decided,
@@ -252,7 +252,7 @@ export type WriteOracleFeature =
 	| "deferred containment"
 	| "reference into a candidate key"
 	| "stream member"
-	| "capacity"
+	| "projected key"
 	| "generated after a collision"
 	| "flight logged"
 	| "outcome invariant-rejected"
@@ -844,10 +844,10 @@ const refusalKind = (t: WriteTarget, group: WGroup, law: LawId): Option.Option<R
 				),
 				() =>
 					Arr.some(
-						group.capacities,
-						(c) => t.laws.capacity(c.source.relation, c.source.fields).law === law
+						group.projectedKeys,
+						(k) => t.laws.projectedKey(k.relation, k.fields).law === law
 					)
-						? Option.some("refused by a capacity")
+						? Option.some("refused by a projected key")
 						: Option.none()
 			)
 	)
@@ -971,8 +971,8 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 	}
 	note(`parameters ${c.binding}`)
 	note(`through ${c.entry}`)
-	if (group.capacities.length > 0) {
-		note("capacity")
+	if (group.projectedKeys.length > 0) {
+		note("projected key")
 	}
 }
 

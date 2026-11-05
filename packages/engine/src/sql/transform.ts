@@ -763,6 +763,11 @@ class Transform {
 				const expr = this.expr(g.expr)
 				return expr === g.expr ? g : { ...g, expr }
 			}
+			case "partial": {
+				const when = this.expr(g.when)
+				const expr = this.expr(g.expr)
+				return when === g.when && expr === g.expr ? g : { ...g, when, expr }
+			}
 		}
 	}
 

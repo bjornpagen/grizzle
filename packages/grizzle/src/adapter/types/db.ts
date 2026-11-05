@@ -35,7 +35,7 @@ import type {
 } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { LevelsOf } from "#compiler/types/schema/schema.ts"
-import type { Key, KeyValues } from "#compiler/types/schema/statements.ts"
+import type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
 import type {
 	AnyRole,
 	LoginRole,
@@ -146,13 +146,10 @@ type AtLevelOf<S, X> = [ProgramSchema<X>] extends [LevelsOf<S>]
 	: Refusal<"a program over no level of the database's schema">
 
 /**
- * What a reader's get reads: a query, or a key. A relation stands for its primary key, a Key from key() for that
- * candidate key.
+ * What a reader's get reads: a query, or a key. A relation stands for its primary key, a Key from key() over a side of
+ * its whole relation's fields for that candidate key.
  */
-export type KeyTarget =
-	| AnyRelation
-	| AnyClosed
-	| Key<AnyRelation | AnyClosed, ReadonlyArray<string>>
+export type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>
 
 /** A query get reads is over a level of S and proved at most one row per parameter binding; a key always is. */
 export type AtMostOneRow<S, X> = X extends KeyTarget
@@ -171,12 +168,12 @@ export type GetArg<X> = X extends KeyTarget
 
 /**
  * What decodes the row get delivers, whose records are A: a query's rows decoder, a relation's or closed relation's
- * fact decoder, or a key's relation's.
+ * fact decoder, or a key's, its side's relation's.
  */
 export type Decoding<A> =
 	| { readonly rows: RowDecoder<A> }
 	| { readonly fact: RowDecoder<A> }
-	| { readonly relation: { readonly fact: RowDecoder<A> } }
+	| { readonly side: { readonly source: { readonly fact: RowDecoder<A> } } }
 
 /** get's target: a query or key X over S, whose decoder delivers A, matching only the contexts S's relations read. */
 export type GetTarget<S, X, A> = X &

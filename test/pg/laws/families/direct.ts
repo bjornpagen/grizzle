@@ -68,6 +68,7 @@ import {
 } from "#test/support/substrate/errors.ts"
 import type { RawSession, SubstrateWorld } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { meetingOf } from "#test/support/worlds/model/session/laws.ts"
 
 /**
  * What a direct case notes: each statement's kind, and beside it an UPDATE that moves a referred fact, a fact's
@@ -360,11 +361,11 @@ const referring = (
 		referencesOf(host, source),
 		(ref) =>
 			ref.to.relation === relation &&
-			selected(fact, ref.to.where) &&
+			selected(fact, ref.to.selection) &&
 			Arr.some(
 				factsOf(state, source),
 				(g) =>
-					selected(g, ref.from.where) &&
+					selected(g, ref.from.selection) &&
 					projection(g, ref.from.fields) === projection(fact, ref.to.fields)
 			)
 	)
@@ -388,8 +389,8 @@ const carriedReferrers = (
 				referencesOf(host, source.name),
 				(ref) =>
 					ref.to.relation === relation &&
-					selected(fact, ref.to.where) &&
-					selected(referrer, ref.from.where) &&
+					selected(fact, ref.to.selection) &&
+					selected(referrer, ref.from.selection) &&
 					projection(referrer, ref.from.fields) === projection(fact, ref.to.fields) &&
 					projection(to, ref.to.fields) !== projection(fact, ref.to.fields)
 			)
@@ -438,9 +439,9 @@ const strandedReferrers = (
 				referencesOf(host, source.name),
 				(ref) =>
 					ref.to.relation === relation &&
-					selected(fact, ref.to.where) &&
-					!selected(to, ref.to.where) &&
-					selected(referrer, ref.from.where) &&
+					selected(fact, ref.to.selection) &&
+					!selected(to, ref.to.selection) &&
+					selected(referrer, ref.from.selection) &&
 					projection(referrer, ref.from.fields) === projection(fact, ref.to.fields)
 			)
 				? []
@@ -495,12 +496,12 @@ const resolveUpdate = (
 	if (mode === "selected") {
 		const references = Arr.flatMap(host.laws, needs)
 		const unselected = Arr.flatMap(references, (ref) =>
-			Rec.keys(ref.from.where).length === 0
+			ref.from.selection.kind === "every"
 				? []
 				: Arr.map(
 						Arr.filter(
 							factsOf(state, ref.from.relation),
-							(fact) => !selected(fact, ref.from.where)
+							(fact) => !selected(fact, ref.from.selection)
 						),
 						(fact) => ({ ref, fact })
 					)
@@ -508,13 +509,13 @@ const resolveUpdate = (
 		return Option.match(pickIn(unselected, u.index), {
 			onNone: (): ReadonlyArray<Statement> => [],
 			onSome: ({ ref, fact }) => {
-				const to = { ...fact, ...pinned(ref.from.where) }
+				const to = { ...fact, ...pinned(ref.from.selection) }
 				const update: Statement = {
 					kind: "update",
 					relation: ref.from.relation,
 					from: fact,
 					to,
-					set: Rec.keys(ref.from.where)
+					set: Rec.keys(pinned(ref.from.selection))
 				}
 				const stranded = strandedReferrers(host, state, ref.from.relation, fact, to)
 				const [, ...supports] = withSupports(
@@ -558,13 +559,13 @@ const resolveUpdate = (
 										Option.toArray(
 											pickIn(
 												Arr.filter(factsOf(state, ref.to.relation), (f) =>
-													selected(f, ref.to.where)
+													selected(f, ref.to.selection)
 												),
 												u.target
 											)
 										),
 										(target): ReadonlyArray<readonly [string, HostValue]> => [
-											...Rec.toEntries(pinned(ref.from.where)),
+											...Rec.toEntries(pinned(ref.from.selection)),
 											...Arr.map(ref.from.fields, (field, i) => {
 												const toField = defined(ref.to.fields[i], `the field ${field} pairs with`)
 												return [
@@ -629,35 +630,14 @@ const resolveTransaction = (
 	return out
 }
 
-/** Whether a relation is a pure set: every field of it is its key. */
-const isPureSet = (host: HostSchema, name: string): boolean => {
-	const relation = relationOf(host, name)
-	return Arr.every(relation.fields, (f) => relation.key.includes(f.name))
-}
-
 /**
- * The SQLSTATE a law refuses with at the statement that breaks it, or none for a law checked at COMMIT: a key, a span
- * key and a row check at once, a native foreign key into a pure set at once (the installation declares it immediate),
- * every other foreign key and every residual law at COMMIT.
+ * The SQLSTATE a law refuses with at the statement that breaks it, or none for a law checked at COMMIT, as the one
+ * classifier of where a law is met says (worlds/model/session/laws.ts meetingOf): a key, a span key and a row check at
+ * once, a foreign key at once when the installation declares it immediate, and every other law at COMMIT.
  */
 const immediateSqlstate = (host: HostSchema, law: HostLaw): Option.Option<string> => {
-	switch (law.kind) {
-		case "key":
-		case "unique":
-			return Option.some("23505")
-		case "spanKey":
-			return Option.some("23P01")
-		case "check":
-			return Option.some("23514")
-		case "contained":
-			return !law.residual && isPureSet(host, law.target.relation)
-				? Option.some("23503")
-				: Option.none()
-		case "covered":
-		case "obliged":
-		case "capacity":
-			return Option.none()
-	}
+	const meeting = meetingOf(host, law)
+	return meeting.at === "statement" ? Option.some(meeting.sqlstate) : Option.none()
 }
 
 /**
@@ -950,12 +930,12 @@ const updateFeatures = (
 	const moves = Arr.some(
 		refs,
 		(ref) =>
-			selected(st.from, ref.from.where) &&
+			selected(st.from, ref.from.selection) &&
 			projection(st.from, ref.from.fields) !== projection(st.to, ref.from.fields)
 	)
 	const selects = Arr.some(
 		refs,
-		(ref) => !selected(st.from, ref.from.where) && selected(st.to, ref.from.where)
+		(ref) => !selected(st.from, ref.from.selection) && selected(st.to, ref.from.selection)
 	)
 	return [
 		rekeys(host, st) ? "statement update key" : "statement update payload",
@@ -1072,8 +1052,7 @@ const initialState = (host: HostSchema, domains: Domains, sketch: CaseSketch): H
  * - an UPDATE of an immutable relation is refused by privilege, 42501, at the statement (immutability is privilege);
  * - a statement whose state breaks an immediate law is refused at the statement under the constraint of one of the
  *   broken laws, on the table a native law's identity names, under the name it names (`<table>.<constraint>`): a key
- *   23505, a span key 23P01, a row check 23514, a foreign key into a relation that is all key 23503 (deferred
- *   otherwise);
+ *   23505, a span key 23P01, a row check 23514, a foreign key the installation declares immediate 23503 (meetingOf);
  * - otherwise COMMIT fails exactly when the final state breaks a law: a residual law with 23000 under the law's
  *   identity and a DETAIL whose key, read strictly as the host's witness rule names it (model.ts witnessOf: the
  *   relation and the key fields), names a violating fact; a native foreign key with 23503 under the constraint of one

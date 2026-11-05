@@ -14,7 +14,7 @@ import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
-import { decodeDesc, descText, type FieldDesc } from "#compiler/ir/desc.ts"
+import { candidateKeyFields, decodeDesc, descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
 
@@ -681,14 +681,18 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	for (const { value: s, location } of statements) {
 		switch (s.kind) {
 			case "key": {
-				const table = storedTable(s.relation, location, "key")
-				for (const f of s.fields) {
-					columnFor(table, f, location)
+				const table = storedTable(s.side.relation, location, "key")
+				for (const t of s.side.terms) {
+					columnFor(table, t.field, location)
 				}
-				const name = door.key(table.relation, s.fields).identifier
+				const fields = candidateKeyFields(s.side)
+				if (fields === undefined) {
+					break
+				}
+				const name = door.key(table.relation, fields).identifier
 				unwrap(schemaScope.claim(name, location))
 				unwrap(table.constraints.claim(name, location))
-				table.keys.push(keyOf(table.relation, table.columns, name, s.fields, location))
+				table.keys.push(keyOf(table.relation, table.columns, name, fields, location))
 				break
 			}
 			case "mutable":
@@ -696,7 +700,6 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				break
 			case "contained":
 			case "check":
-			case "mirrors":
 			case "capacity":
 				break
 		}
@@ -707,11 +710,13 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		location: string
 	): void => {
 		const { left, right } = s
-		if (Rec.keys(left.selection).length > 0 || Rec.keys(right.selection).length > 0) {
+		const leftFields = candidateKeyFields(left)
+		const rightFields = candidateKeyFields(right)
+		if (leftFields === undefined || rightFields === undefined) {
 			omit(
 				location,
-				"a selected containment",
-				"a selected-source or selected-target law needs its tag columns or a residual law function"
+				"a containment of a selected side or a pred term",
+				"a selected side or a pred term needs its law columns, generated per term"
 			)
 			return
 		}
@@ -726,10 +731,9 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		}
 		if (target?.value.kind === "closed") {
 			/** closedId membership is the enum itself: no table, no FK. */
-			const handle =
-				left.fields.length === 1 && right.fields.length === 1 && right.fields[0] === "id"
+			const handle = leftFields.length === 1 && rightFields.length === 1 && rightFields[0] === "id"
 			const column = handle
-				? columnFor(source, elementAt(left.fields, 0, "the containment's fields"), location)
+				? columnFor(source, elementAt(leftFields, 0, "the containment's fields"), location)
 				: undefined
 			if (column?.type.value.kind === "enum" && column.type.value.closed === right.relation) {
 				return
@@ -743,20 +747,20 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		}
 		const referenced = storedTable(right.relation, location, "contained")
 		const declaredKey = Arr.findFirst([referenced.primaryKey, ...referenced.keys], (k) =>
-			sameFields(right.fields, k.fields)
+			sameFields(rightFields, k.fields)
 		)
-		if (Option.isNone(declaredKey) || left.fields.length !== right.fields.length) {
+		if (Option.isNone(declaredKey) || leftFields.length !== rightFields.length) {
 			omit(
 				location,
-				`a containment into ${right.relation}(${Arr.join(right.fields, ", ")})`,
+				`a containment into ${right.relation}(${Arr.join(rightFields, ", ")})`,
 				"its target fields are not a declared key, so it needs a residual law"
 			)
 			return
 		}
 		/** Into a span key, the containment is the PERIOD foreign key, its span pair last. */
-		const pairs = Arr.map(left.fields, (f, i) => ({
+		const pairs = Arr.map(leftFields, (f, i) => ({
 			from: f,
-			to: elementAt(right.fields, i, "the containment's target fields")
+			to: elementAt(rightFields, i, "the containment's target fields")
 		}))
 		const targetSpan = declaredKey.value.span
 		const period = targetSpan.kind === "span"
@@ -779,8 +783,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		 * Named by its source columns in the order the constraint lists them: a PERIOD foreign key's span last.
 		 */
 		const name = door.foreignKey(
-			{ relation: left.relation, fields: Arr.map(pairs, (p) => p.from), selection: [] },
-			{ relation: right.relation, fields: Arr.map(pairs, (p) => p.to), selection: [] },
+			{ relation: left.relation, fields: Arr.map(pairs, (p) => p.from) },
+			{ relation: right.relation, fields: Arr.map(pairs, (p) => p.to) },
 			period
 		).identifier
 		unwrap(source.constraints.claim(name, location))
@@ -801,13 +805,18 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			case "check":
 				omit(location, `row check ${s.name}`, "a table CHECK needs the predicate lowering")
 				break
-			case "mirrors":
-				omit(location, "mirrors", "a mirror pair needs deferred or residual enforcement")
+			case "key":
+				if (candidateKeyFields(s.side) === undefined) {
+					omit(
+						location,
+						"a key of a selected side or a pred term",
+						"a selected side or a pred term needs its law columns, generated per term"
+					)
+				}
 				break
 			case "capacity":
-				omit(location, "capacity", "a capacity law needs a partial UNIQUE or a residual law")
+				omit(location, "capacity", "a capacity law needs a residual law")
 				break
-			case "key":
 			case "mutable":
 				break
 		}
@@ -1054,8 +1063,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  *
  * Identifiers are the installer's own, minted by the naming door (core/identity.ts), so the oracle never spells a naming
  * rule; names.ts claims them per PostgreSQL namespace, the oracle's own prediction of IdentifierCollision. What the minimal installer leaves out is
- * never dropped silently: a residual law, a selected or non-key containment, a row check, mirrors, capacity, or a
- * derived relation is refused by default and recorded in `skipped` under `unsupported: "skip"`.
+ * never dropped silently: a residual law, a containment or key of a selected side or a pred term, a non-key
+ * containment, a row check, capacity, or a derived relation is refused by default and recorded in `skipped` under `unsupported: "skip"`.
  *
  * The minimal installer installs no predicate CHECK: a text refinement's pattern (the column is plain text), a
  * contract's predicate (its domain has no CHECK), a span endpoint's contract predicate, a row check and a finite

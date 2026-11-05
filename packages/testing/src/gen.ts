@@ -75,7 +75,7 @@ export const constant =
 export const element =
 	<const A>(values: ReadonlyArray<A> & Readonly<{ 0: A }>): Gen<A> =>
 	(source) =>
-		Arr.getUnsafe(values, source.choose(0, values.length - 1))
+		Arr.getUnsafe(values, source.pick(0, values.length - 1))
 
 /** A generator's values, transformed. */
 export const map =
@@ -126,7 +126,7 @@ export const weighted = <A>(options: Arr.NonEmptyReadonlyArray<Weighted<A>>): Ge
 	const total = Arr.reduce(options, 0, (sum, [weight]) => sum + weight)
 	return (source) => {
 		source.open("weighted")
-		const value = armOf(options, source.choose(0, total - 1))(source)
+		const value = armOf(options, source.pick(0, total - 1))(source)
 		source.close()
 		return value
 	}
@@ -151,7 +151,7 @@ export const proportional =
 		}
 		const total = Arr.reduce(live, 0, (sum, [weight]) => sum + Math.floor(weight))
 		source.open("weighted")
-		let rest = source.choose(0, total - 1)
+		let rest = source.pick(0, total - 1)
 		let chosen = Arr.lastNonEmpty(live)[1]
 		for (const [weight, generator] of live) {
 			if (rest < Math.floor(weight)) {
@@ -281,7 +281,7 @@ export const alphabet =
 	<A>(letters: Arr.NonEmptyReadonlyArray<A>): Gen<Arr.NonEmptyReadonlyArray<A>> =>
 	(source) => {
 		source.open("alphabet")
-		const kept = source.choose(0, letters.length - 1)
+		const kept = source.pick(0, letters.length - 1)
 		const others: Array<A> = []
 		for (let index = 0; index < letters.length; index += 1) {
 			if (index !== kept && source.choose(0, 1) === 1) {
@@ -294,7 +294,8 @@ export const alphabet =
 
 /**
  * Between `size.min` and `size.max` of `values`, each at most once, in the order drawn: every item picks one of the
- * values not yet picked, so a draw of all of them is a permutation. It shrinks toward fewer items and toward the
+ * values not yet picked, so a draw of all of them is a permutation, and distinct values of a finite domain are drawn
+ * by construction, never by retrying. It shrinks toward fewer items and toward the
  * values' own order. `size.max` is at most the number of values.
  */
 export const shuffled =
@@ -306,13 +307,104 @@ export const shuffled =
 		const picked: Array<A> = []
 		for (let index = 0; index < length; index += 1) {
 			source.open("element")
-			const at = source.choose(0, rest.length - 1)
+			const at = source.pick(0, rest.length - 1)
 			picked.push(Arr.getUnsafe(rest, at))
 			rest = Arr.remove(rest, at)
 			source.close()
 		}
 		source.close()
 		return picked
+	}
+
+/**
+ * Between `size.min` and `size.max` whole numbers of `lo..hi` in ascending order, built from the gaps between them, so
+ * every draw is sorted by construction and no draw is filtered: the length first, then each gap, each as large as the
+ * slack the gaps before it left, where `step` is the least each value exceeds the one before (1 strictly increasing, 0
+ * repeating). Shrinking lowers the gaps toward none, toward the run that starts at `lo`.
+ */
+const ascending =
+	(lo: number, hi: number, size: Size, step: 0 | 1): Gen<ReadonlyArray<number>> =>
+	(source) => {
+		source.open("array")
+		const length = source.choose(size.min, size.max)
+		const values: Array<number> = []
+		let slack = hi - lo - step * Math.max(0, length - 1)
+		let at = lo
+		for (let index = 0; index < length; index += 1) {
+			source.open("element")
+			const gap = source.choose(0, slack)
+			at += (index === 0 ? 0 : step) + gap
+			slack -= gap
+			values.push(at)
+			source.close()
+		}
+		source.close()
+		return values
+	}
+
+/**
+ * Between `size.min` and `size.max` distinct whole numbers of `lo..hi`, strictly increasing: a sorted set drawn by its
+ * gaps, never sorted or deduplicated after the fact. `size.max` is at most the range's width, `hi - lo + 1`.
+ */
+export const increasing = (lo: number, hi: number, size: Size): Gen<ReadonlyArray<number>> =>
+	ascending(lo, hi, size, 1)
+
+/** Between `size.min` and `size.max` whole numbers of `lo..hi`, in order and repeating as they may: a sorted list. */
+export const nondecreasing = (lo: number, hi: number, size: Size): Gen<ReadonlyArray<number>> =>
+	ascending(lo, hi, size, 0)
+
+/**
+ * Between `size.min` and `size.max` of `values`, each at most once and in their own order: a subset of a chosen size,
+ * drawn as its strictly increasing positions, shrinking toward fewer values and toward the first ones. Where the
+ * order of the drawn values matters, `shuffled` draws them in any order, each at most once.
+ */
+export const subset = <A>(values: ReadonlyArray<A>, size: Size): Gen<ReadonlyArray<A>> =>
+	map(increasing(0, values.length - 1, size), (at) =>
+		Arr.map(at, (index) => Arr.getUnsafe(values, index))
+	)
+
+/**
+ * A rooted tree of between `size.min` and `size.max` nodes, numbered from the root, as the parent of every node after
+ * the first: entry `i` is the parent of node `i + 1`, a node numbered below it, so every draw is a tree, acyclic and
+ * connected by construction. A tree has its root, so `size.min` is at least 1. Shrinking moves every node toward the
+ * root, toward a star.
+ */
+export const parents =
+	(size: Size): Gen<ReadonlyArray<number>> =>
+	(source) => {
+		source.open("array")
+		const nodes = source.choose(size.min, size.max)
+		const parent: Array<number> = []
+		for (let node = 1; node < nodes; node += 1) {
+			source.open("element")
+			parent.push(source.pick(0, node - 1))
+			source.close()
+		}
+		source.close()
+		return parent
+	}
+
+/**
+ * `parts` whole numbers, none negative, that sum to `total`: how `total` items fall into `parts` places (members into
+ * owners, rows into families), each count drawn from what the counts before it left and the last taking the rest, so
+ * the sum holds by construction. Shrinking empties the first places toward the last.
+ */
+export const composition =
+	(total: number, parts: number): Gen<ReadonlyArray<number>> =>
+	(source) => {
+		source.open("composition")
+		const counts: Array<number> = []
+		let rest = total
+		for (let place = 1; place < parts; place += 1) {
+			const count = source.choose(0, rest)
+			counts.push(count)
+			rest -= count
+		}
+		if (parts > 0) {
+			counts.push(rest)
+		}
+		source.close()
+		return counts
 	}
 
 /**
@@ -363,18 +455,25 @@ export const clone =
 				taken.push(value)
 				return value
 			},
+			pick: (lo, hi) => {
+				const value = source.pick(lo, hi)
+				taken.push(value)
+				return value
+			},
 			draw: (inner) => inner(recorded)
 		}
 		const twins: Array<A> = [generator(recorded)]
 		while (twins.length < count) {
 			let at = 0
+			const next = (lo: number) => {
+				const value = taken[at] ?? lo
+				at += 1
+				return value
+			}
 			const replayed: Source = {
 				...source,
-				choose: (lo) => {
-					const value = taken[at] ?? lo
-					at += 1
-					return value
-				},
+				choose: next,
+				pick: next,
 				draw: (inner) => inner(replayed),
 				span: (_label, run) => run(),
 				open: () => undefined,

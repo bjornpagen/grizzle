@@ -31,10 +31,10 @@ interface OracleKey {
 }
 
 /**
- * A key over the facts one field selects: an at-most-one capacity's partial unique index, which holds among the facts
- * whose `where.field` equals `where.value` and says nothing of the others.
+ * A projected key, a key over the facts one field selects: it holds among the facts whose `where.field` equals
+ * `where.value` and says nothing of the others.
  */
-export interface OraclePartialKey extends OracleKey {
+export interface OracleProjectedKey extends OracleKey {
 	readonly where: { readonly field: string; readonly value: unknown }
 }
 
@@ -44,8 +44,8 @@ export interface OracleRelation {
 	readonly primaryKey: OracleKey
 	/** Additional candidate keys declared with key(R, fields), none where it declares none. */
 	readonly keys: ReadonlyArray<OracleKey>
-	/** Partial keys, immediate like the others. */
-	readonly partialKeys: ReadonlyArray<OraclePartialKey>
+	/** Projected keys, immediate like the others. */
+	readonly projectedKeys: ReadonlyArray<OracleProjectedKey>
 	/** Serial fields, each of carrier int2, int4 or int8. */
 	readonly serial: ReadonlyArray<string>
 }
@@ -159,14 +159,14 @@ const admitGenerated = (
 	return admit(relation, partialHeading, fact)
 }
 
-/** Whether a fact is among those a partial key holds over. */
-const selectedBy = (relation: OracleRelation, key: OraclePartialKey, fact: Fact): boolean =>
+/** Whether a fact is among those a projected key holds over. */
+const selectedBy = (relation: OracleRelation, key: OracleProjectedKey, fact: Fact): boolean =>
 	keyIdentity(relation, [key.where.field], fact) ===
 	keyIdentity(relation, [key.where.field], { [key.where.field]: key.where.value })
 
 /**
- * Every declared key of every relation that is not unique in `state`, in schema order, primary key first, partial keys
- * last.
+ * Every declared key of every relation that is not unique in `state`, in schema order, primary key first, projected
+ * keys last.
  */
 const keyViolations = (schema: OracleSchema, state: OracleState): ReadonlyArray<KeyViolation> =>
 	Arr.flatMap(schema.relations, (relation) => {
@@ -174,7 +174,7 @@ const keyViolations = (schema: OracleSchema, state: OracleState): ReadonlyArray<
 		const keyed: ReadonlyArray<readonly [OracleKey, ReadonlyArray<readonly [string, Fact]>]> = [
 			...Arr.map(allKeys(relation), (key) => [key, all] as const),
 			...Arr.map(
-				relation.partialKeys,
+				relation.projectedKeys,
 				(key) => [key, Arr.filter(all, ([, fact]) => selectedBy(relation, key, fact))] as const
 			)
 		]

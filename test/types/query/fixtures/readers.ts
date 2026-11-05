@@ -57,7 +57,7 @@ export const Task = relation(
 export const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: pg.bigint }, ["task"])
 export const ManualTask = relation("ManualTask", { task: uuid, operator: text }, ["task"])
 export const Numbered = relation("Numbered", { n: pg.bigint, kind: closedId(Kind) }, ["n"])
-export const byName = key(Account, ["name"])
+export const byName = key(on(Account, "name"))
 export const Work = schema("Work", { Kind, Tier, Account, Task, AutomaticTask, ManualTask }, [
 	byName,
 	contained(on(Task, "account"), on(Account, "id")),
@@ -234,8 +234,8 @@ export const titleById = query(Reports).rule((r) => {
 })
 export type TitleByIdCard = Expect<Equals<EvidenceOfQuery<typeof titleById>["card"], "atMostOne">>
 export const derivedLaws = () => [
-	// @ts-expect-error -- TS2739: key does not take a derived relation
-	key(TasksPerAccount, ["account"]),
+	// @ts-expect-error -- TS2345: a key's side is never over a derived relation
+	key(on(TasksPerAccount, "account")),
 	// @ts-expect-error -- TS2345 refusal: the sides' field types differ
 	contained(on(TasksPerAccount, "account"), on(Account, "id"))
 ]
@@ -305,7 +305,13 @@ export const accountsByTitle = () =>
 /** 7. mirrors and contained: the two sides pair fields of one identity, position by position. */
 export const sides = [
 	contained(on(Task, "account"), on(Account, "id")),
-	mirrors(on(select(Task, { kind: "Automatic" }), "id"), on(AutomaticTask, "task"))
+	mirrors(
+		on(
+			select(Task, (t) => t.eq(t.kind, "Automatic")),
+			"id"
+		),
+		on(AutomaticTask, "task")
+	)
 ] as const
 
 export const sideRefusals = () => [

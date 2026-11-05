@@ -153,8 +153,8 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  *   no base relation but T;
  * - for every unique object of T the row's statement meets (`outsideProbes`), whether a fact of T outside the entry
  *   conflicts with the row there: for each key, the primary key and each candidate key, whether such a fact holds the
- *   row's key, through the role's key probe of that key; for each object no key subsumes, such as an at-most-one
- *   capacity's unique index, whether such a fact occupies it at the row's values, through the role's unique probe of
+ *   row's key, through the role's key probe of that key; for each object no key subsumes, such as a key over a
+ *   selected side, whether such a fact occupies it at the row's values, through the role's unique probe of
  *   it. Each probe runs as the owner and answers that alone. An object reading a serial field an addition leaves to
  *   the identity default is not probed: the value is drawn at the insert.
  *

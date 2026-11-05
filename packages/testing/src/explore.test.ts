@@ -10,6 +10,7 @@ import {
 	Ref,
 	String as Str
 } from "effect"
+import { fraction, type Fraction, plus, times } from "#chance.fixtures.ts"
 import {
 	type Case,
 	type CaseDiscarded,
@@ -325,15 +326,43 @@ describe("exhaust", () => {
 /** The situations a residual test's cases note. */
 const SITUATIONS = ["a", "b", "c", "d", "e"] as const
 
+/** The situations of the Good–Turing identity's space, each noted by a case with the chance its weight gives. */
+const NOTED = ["x", "y", "z"] as const
+
+/** Every sequence of `length` situations of NOTED, each with its chance under `weights`. */
+const sequencesOf = (
+	length: number,
+	weights: ReadonlyArray<number>
+): ReadonlyArray<readonly [ReadonlyArray<number>, Fraction]> => {
+	const total = BigInt(Arr.reduce(weights, 0, (sum, weight) => sum + weight))
+	let sequences: ReadonlyArray<readonly [ReadonlyArray<number>, Fraction]> = [
+		[[], fraction(1n, 1n)]
+	]
+	for (let step = 0; step < length; step += 1) {
+		sequences = Arr.flatMap(sequences, ([sequence, chance]) =>
+			Arr.map(
+				weights,
+				(weight, situation) =>
+					[Arr.append(sequence, situation), times(chance, fraction(BigInt(weight), total))] as const
+			)
+		)
+	}
+	return sequences
+}
+
 describe("the residual", () => {
 	it.effect(
-		"counts each situation once per case that noted it, and estimates from those seen once and twice",
+		"counts each situation once per case that noted it, and those seen once and twice",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
 						suite: "the residual",
+						oracle: {
+							kind: "second-implementation",
+							name: "an independent recount of the cases that noted each situation"
+						},
 						draw: drawn(array(array(element(SITUATIONS), { min: 0, max: 3 }), { min: 0, max: 12 })),
 						literal: Formatter.format,
 						coverage: noCoverage,
@@ -354,24 +383,84 @@ describe("the residual", () => {
 								Arr.dedupe(Arr.flatten(cases)),
 								(situation) => Arr.filter(cases, (notes) => Arr.contains(notes, situation)).length
 							)
-							const singletons = Arr.filter(counts, (count) => count === 1).length
-							const doubletons = Arr.filter(counts, (count) => count === 2).length
-							const n = cases.length
-							deepStrictEqual(residualOf(tally.tally()), {
-								cases: n,
-								observed: counts.length,
-								singletons,
-								doubletons,
-								risk: n === 0 ? Option.none() : Option.some(singletons / n),
-								unseen:
-									n === 0
-										? Option.none()
-										: Option.some(
-												doubletons > 0
-													? (singletons * singletons) / (2 * doubletons)
-													: (singletons * (singletons - 1)) / 2
+							const residual = residualOf(tally.tally())
+							deepStrictEqual(
+								{
+									cases: residual.cases,
+									observed: residual.observed,
+									singletons: residual.singletons,
+									doubletons: residual.doubletons,
+									estimated: Option.isSome(residual.risk) && Option.isSome(residual.unseen)
+								},
+								{
+									cases: cases.length,
+									observed: counts.length,
+									singletons: Arr.filter(counts, (count) => count === 1).length,
+									doubletons: Arr.filter(counts, (count) => count === 2).length,
+									estimated: cases.length > 0
+								}
+							)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"reports a risk whose expectation is exactly the missing mass one case earlier, over every sequence of up to 5 cases",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "the residual's identity",
+						oracle: {
+							kind: "universal",
+							name: "Good–Turing: E[singletons(n)]/n equals E[missing mass(n − 1)], by exact enumeration"
+						},
+						generator: (source) => ({
+							n: source.draw(int(1, 5)),
+							weights: Arr.map(NOTED, () => source.draw(int(1, 3)))
+						}),
+						literal: Formatter.format,
+						limit: 200,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(1)
+					},
+					({ n, weights }) =>
+						Effect.sync(() => {
+							const total = BigInt(Arr.reduce(weights, 0, (sum, weight) => sum + weight))
+							const expectedRisk = Arr.reduce(
+								sequencesOf(n, weights),
+								fraction(0n, 1n),
+								(sum, [sequence, chance]) => {
+									const tally = tallyOf("independent")
+									for (const situation of sequence) {
+										tally.add(new Set([Arr.getUnsafe(NOTED, situation)]))
+									}
+									const risk = Option.getOrThrow(residualOf(tally.tally()).risk)
+									return plus(sum, times(chance, fraction(BigInt(Math.round(risk * n)), BigInt(n))))
+								}
+							)
+							const missingMass = Arr.reduce(
+								sequencesOf(n - 1, weights),
+								fraction(0n, 1n),
+								(sum, [sequence, chance]) =>
+									plus(
+										sum,
+										times(
+											chance,
+											fraction(
+												BigInt(
+													Arr.reduce(weights, 0, (mass, weight, situation) =>
+														Arr.contains(sequence, situation) ? mass : mass + weight
+													)
+												),
+												total
 											)
-							})
+										)
+									)
+							)
+							deepStrictEqual(expectedRisk, missingMass)
 						})
 				)
 			)

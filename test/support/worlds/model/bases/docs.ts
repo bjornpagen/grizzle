@@ -140,10 +140,9 @@ export const docsBase: BaseSpec = {
 }
 
 /**
- * The documents base with at most one share per document: its capacity on Doc's shares bounded above by one, which the
- * law model specializes to a unique index on Share's `doc` (host.ts atMostOne). A role writing its own shares through a
- * query entry meets another user's share of the document, hidden from it, at that index: its precheck's unique probe
- * refuses the write on the capacity's law, with the document the role submitted.
+ * The documents base with at most one share per document: its capacity on Doc's shares bounded above by one, a
+ * residual law. A role writing its own shares through a query entry meets another user's share of the document, hidden
+ * from it, at that bound: the capacity's law refuses the write at COMMIT, its witness withheld from the role.
  */
 const docsOneShareBase: BaseSpec = {
 	...docsBase,
@@ -299,8 +298,7 @@ export const docsInstall: InstallSpec = {
 
 /**
  * The documents base's README-shaped worlds over its one-share variant (docsOneShareBase): the member writing its own
- * shares through MyShare meets another user's share of a document, which MyShare hides, at the capacity's unique index.
- * A witness state over it offers the hidden capacity collision (fact:hidden-capacity-collision).
+ * shares through MyShare meets another user's share of a document, which MyShare hides, at the capacity's bound.
  */
 export const docsOneShareInstall: InstallSpec = { ...docsInstall, base: docsOneShareBase }
 
@@ -356,7 +354,7 @@ export const docsEditorInstall: InstallSpec = {
 
 /**
  * The editor's worlds (docsEditorInstall) over the documents base's one-share variant: the member's own shares meet a
- * hidden share at the capacity's unique index, as in docsOneShareInstall, beside the editor's entries.
+ * hidden share at the capacity's bound, as in docsOneShareInstall, beside the editor's entries.
  */
 export const docsOneShareEditorInstall: InstallSpec = {
 	...docsEditorInstall,

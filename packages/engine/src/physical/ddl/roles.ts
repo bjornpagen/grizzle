@@ -42,7 +42,8 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
-import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+import { LowerContext } from "#compiler/lower/conservative/context.ts"
+import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type { AdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { structuralRegex, type TextColumnUse } from "#compiler/physical/ddl/domains.ts"
@@ -92,12 +93,13 @@ import {
 import { printStartupOptions } from "#compiler/sql/print.ts"
 import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
-import { filterFields, filterReadsOther, renderMembership } from "#compiler/write/entry/render.ts"
+import { filterFields, renderMembership } from "#compiler/write/entry/render.ts"
 import {
 	type OutsideProbe,
 	probeIdentity,
 	probeParams,
-	relationUniques
+	relationUniques,
+	withinRow
 } from "#compiler/write/insert/unique.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
@@ -568,15 +570,19 @@ interface WorldFunction {
 	readonly spec: ObjectSpec<"publish">
 }
 
-/** What one role's writable entry installs on its table: its policy's predicate, its filter function when its
- * membership reads another relation, its key and unique probes, and its privileges on the table. */
+/**
+ * The rows of T a writable entry holds, which its policy holds the role's reads and writes of T to: "every" row, for a
+ * whole entry and for a query entry whose filter is none, which narrows nothing the role's grants do not; or a
+ * "narrowed" set, a query entry's with a filter, whose predicate over T's row is `filter`.
+ */
+type Membership = { readonly kind: "every" } | { readonly kind: "narrowed"; readonly filter: Expr }
+
+const everyRow: Membership = { kind: "every" }
+
+/** What one role's writable entry installs on its table: its membership, its filter function when its membership
+ * reads another relation, its key and unique probes, and its privileges on the table. */
 interface WritePlan {
-	/**
-	 * "whole": a whole entry, which writes the table as it is; "rows": a query entry, whose writes the table's row
-	 * security holds to the entry's membership.
-	 */
-	readonly kind: "whole" | "rows"
-	readonly filter: Expr
+	readonly membership: Membership
 	/** The functions it installs: a query entry's filter function when it has one, then its key and unique probes. */
 	readonly functions: ReadonlyArray<WorldFunction>
 	readonly grants: ReadonlyArray<SqlStatement>
@@ -624,8 +630,7 @@ const writePlan = (
 		const r = e.relation
 		const tableName = b.names.relation(r.name)
 		return {
-			kind: "whole",
-			filter: lit.bool(true),
+			membership: everyRow,
 			functions: [],
 			grants: [
 				grant(
@@ -665,8 +670,8 @@ const writePlan = (
 	 * RelationUniques.probes) an entry's precheck calls: whether T holds a fact that conflicts with the submitted values
 	 * at one of its unique objects and lies outside the entry's membership, which the policy's own predicate decides
 	 * over that row. One key probe per key of T, at the key's values (overlapping at a span field), and one unique probe
-	 * per unique object of T no key subsumes, such as an at-most-one capacity's unique index, at the values of the
-	 * fields it reads, within its predicate on both sides. Each reads T and what the membership reads as the owner. */
+	 * per unique object of T no key subsumes, such as a key over a selected side, at the values of the fields it reads,
+	 * within its guards on both sides. Each reads T and what the membership reads as the owner. */
 	const outside = not({
 		kind: "isTrue",
 		expr: unwrap(
@@ -678,13 +683,18 @@ const writePlan = (
 			})
 		)
 	})
-	/** A unique object's predicate over one side's values: its selectors, each field equal to its literal. */
+	/** The context a unique object's guards lower in: the law model's DAG, which holds them, and the installation's
+	 * names. A guard reads its row alone, so it takes no parameter. */
+	const guardCx = new LowerContext(
+		b.model.theory.dag,
+		{ names: b.names, params: [], subject: { kind: "query" } },
+		dispatchNode
+	)
+	/** A unique object's guards over one side's values (write/insert/unique.ts withinRow). */
 	const within = (u: UniqueObject, of: (field: LawField) => Expr): ReadonlyArray<Expr> =>
-		(u.kind === "index" ? u.where : []).map((s) =>
-			binary("=", of(s.field), lowerLiteral(b.names, s.value, s.field.type))
-		)
+		withinRow(guardCx, u, of)
 	/** A probe by its identity of its parameters (write/insert/unique.ts probeIdentity, probeParams), each at its base
-	 * type, true where a fact of T outside the entry meets them at its object: within its predicate on both sides, equal
+	 * type, true where a fact of T outside the entry meets them at its object: within its guards on both sides, equal
 	 * at its compared fields, overlapping at its span. */
 	const probe = (probed: OutsideProbe): WorldFunction => {
 		const named = probeIdentity(theory, e.name, probed)
@@ -764,7 +774,11 @@ const writePlan = (
 	const probeGrants: ReadonlyArray<SqlStatement> = isNonEmpty(probes)
 		? [grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(probes, (p) => p.name) })]
 		: []
-	if (!filterReadsOther(writable)) {
+	const filter = writable.filter
+	if (filter.kind === "none") {
+		return { membership: everyRow, functions: probes, grants: [...grants, ...probeGrants] }
+	}
+	if (!filter.readsOther) {
 		const membership = unwrap(
 			renderMembership(writable, {
 				schema: cx.checked,
@@ -774,8 +788,7 @@ const writePlan = (
 			})
 		)
 		return {
-			kind: "rows",
-			filter: membership,
+			membership: { kind: "narrowed", filter: membership },
 			functions: probes,
 			grants: [...grants, ...probeGrants]
 		}
@@ -824,23 +837,35 @@ const writePlan = (
 		phase: "publish"
 	}
 	return {
-		kind: "rows",
-		filter: qualifiedCall(
-			b.schema,
-			fnIdent,
-			fields.map((f) => col(tableName.name, f.column))
-		),
+		membership: {
+			kind: "narrowed",
+			filter: qualifiedCall(
+				b.schema,
+				fnIdent,
+				fields.map((f) => col(tableName.name, f.column))
+			)
+		},
 		functions: [{ name, spec }, ...probes],
 		grants: [...grants, grant(["EXECUTE"], { kind: "FUNCTION", names: [name] }), ...probeGrants]
 	}
 }
 
-/** What one role installs beyond its objects: whether it can name the vector type, the tables it writes through a
- * query entry, each with its policy, and its schema and views, which PUBLIC holds nothing on. */
+/** A role's writable entry as the row security of the table T it writes reads it: T, the role and its object, the
+ * entry's name in its role, and the entry's membership. */
+interface Writer {
+	readonly relation: string
+	readonly role: Identity<"role">
+	readonly roleObject: Node<"publish">
+	readonly entry: string
+	readonly membership: Membership
+}
+
+/** What one role installs beyond its objects: whether it can name the vector type, its writable entries, whose
+ * policies wait for every role's (`addRowSecurity`), and its schema and views, which PUBLIC holds nothing on. */
 interface RoleOutcome {
 	readonly installed: InstalledRole
 	readonly vector: boolean
-	readonly secured: ReadonlyArray<{ readonly relation: string; readonly policy: Node<"publish"> }>
+	readonly writers: ReadonlyArray<Writer>
 	readonly views: ReadonlyArray<ObjectName>
 }
 
@@ -850,10 +875,10 @@ const usedNodes = (use: TypeUse): ReadonlyArray<Node<"setup">> =>
 		t.node === undefined ? [] : [t.node]
 	)
 
-/** One role's theory role, schema, views, policies, filter functions, key and unique probes and grants. A closed whole
- * entry has no view: its facts are read as literals, typed by its enum and its payloads' domains, which the role uses.
- * The filter function a policy calls, then the probes, each come after every relation, type and function their
- * statements read. */
+/** One role's theory role, schema, views, filter functions, key and unique probes and grants, and its writable entries,
+ * whose policies `addRowSecurity` adds. A closed whole entry has no view: its facts are read as literals, typed by its
+ * enum and its payloads' domains, which the role uses. The filter function a policy calls, then the probes, each come
+ * after every relation, type and function their statements read. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
@@ -932,52 +957,30 @@ const addRole = (
 		after.push(view)
 	}
 
-	const secured: Array<{ readonly relation: string; readonly policy: Node<"publish"> }> = []
+	const writers: Array<Writer> = []
 	for (const w of roleWrites(checked)) {
 		const plan = writePlan(b, cx, role, named, w)
 		const relation = w.relation.name
-		const tableName = b.names.relation(relation)
-		const written = b.table(relation)
 		useColumns(b, w.relation.fields, use)
 		appendAll(grants, plan.grants)
 		appendAll(after, [
-			written,
+			b.table(relation),
 			...serialFields(w.relation).flatMap((f) => {
 				const fn = advance.get(relation)?.get(f)
 				return fn === undefined ? [] : [fn]
 			})
 		])
-		const policyNamed = identity.policy(named, relation)
-		const policyName = b.name(policyNamed)
-		const policyDdl: SqlStatement = {
-			kind: "createPolicy",
-			name: policyName,
-			table: tableName,
-			role: theory,
-			filter: plan.filter
-		}
 		const functions = plan.functions.map((fn) =>
 			b.add(fn.spec, [b.schemaNode, ...readsOf(b, fn.spec.ddl)])
 		)
-		const policy = b.add(
-			{
-				kind: "policy",
-				ident: {
-					kind: "policy",
-					schema: b.settings.installation,
-					relation: b.names.relationNamed(relation),
-					name: policyNamed
-				},
-				ddl: [policyDdl],
-				reasons: [enforcement(`the writable entry ${role.name}.${w.write.name}`)],
-				phase: "publish"
-			},
-			[written, roleObject, ...readsOf(b, [policyDdl])]
-		)
 		appendAll(after, functions)
-		if (plan.kind === "rows") {
-			secured.push({ relation, policy })
-		}
+		writers.push({
+			relation,
+			role: named,
+			roleObject,
+			entry: `${role.name}.${w.write.name}`,
+			membership: plan.membership
+		})
 	}
 	const refuses = role.writes.size > 0 || Object.keys(role.contexts).length > 0
 	if (refuses) {
@@ -1029,7 +1032,7 @@ const addRole = (
 	return {
 		installed: { name: role.name, role: theory, schema },
 		vector: use.vector,
-		secured,
+		writers,
 		views
 	}
 }
@@ -1042,7 +1045,7 @@ const addLogin = (
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
-	readonly secured: RoleOutcome["secured"]
+	readonly writers: RoleOutcome["writers"]
 	readonly views: ReadonlyArray<ObjectName>
 } => {
 	const named = loginIdentity(b.settings.installation, login.name, login.loc)
@@ -1087,8 +1090,78 @@ const addLogin = (
 	return {
 		installed: { name: login.name, role, roles: outcomes.map((o) => o.installed) },
 		vector: outcomes.some((o) => o.vector),
-		secured: outcomes.flatMap((o) => o.secured),
+		writers: outcomes.flatMap((o) => o.writers),
 		views: outcomes.flatMap((o) => o.views)
+	}
+}
+
+/** A writer's policy predicate: TRUE for a writer that holds every row of T, and a narrowed one's membership. */
+const predicateOf = (membership: Membership): Expr => {
+	switch (membership.kind) {
+		case "every":
+			return lit.bool(true)
+		case "narrowed":
+			return membership.filter
+	}
+}
+
+/** A writer's policy on the table it writes, named for its role and the table: `FOR ALL TO <role> USING (m) WITH CHECK
+ * (m)`, m its predicate, after the table, the role and the filter function the predicate calls. */
+const addPolicy = (b: InstallBuilder, w: Writer): Node<"publish"> => {
+	const named = identity.policy(w.role, w.relation)
+	const ddl: SqlStatement = {
+		kind: "createPolicy",
+		name: b.name(named),
+		table: b.names.relation(w.relation),
+		role: identifierOf(w.role),
+		filter: predicateOf(w.membership)
+	}
+	return b.add(
+		{
+			kind: "policy",
+			ident: {
+				kind: "policy",
+				schema: b.settings.installation,
+				relation: b.names.relationNamed(w.relation),
+				name: named
+			},
+			ddl: [ddl],
+			reasons: [enforcement(`the writable entry ${w.entry}`)],
+			phase: "publish"
+		},
+		[b.table(w.relation), w.roleObject, ...readsOf(b, [ddl])]
+	)
+}
+
+/** Row security on each table some writer narrows, after every writer's policy on it, and on no other table. Under row
+ * security a role with no policy on a table reads and writes none of its rows, so every writer of such a table holds
+ * its policy, TRUE for one that holds every row. A table no writer narrows has neither row security nor a policy: each
+ * policy would be TRUE, which admits exactly what the role's grants admit, so the grants alone decide its writes. */
+const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void => {
+	const byTable = [...Map.groupBy(writers, (w) => w.relation)].toSorted(([x], [y]) =>
+		compareText(x, y)
+	)
+	for (const [relation, on] of byTable) {
+		if (on.every((w) => w.membership.kind === "every")) {
+			continue
+		}
+		const policies = on.map((w) => addPolicy(b, w))
+		b.add(
+			{
+				kind: "rowSecurity",
+				ident: b.qualified("rowSecurity", b.names.relationNamed(relation)),
+				ddl: [
+					{
+						kind: "alterTable",
+						table: b.names.relation(relation),
+						actions: [{ kind: "enableRowSecurity" }]
+					}
+				],
+				reasons: [enforcement(`the writes of ${relation} through filtered query entries`)],
+				phase: "publish"
+			},
+			[b.table(relation), ...policies]
+		)
 	}
 }
 
@@ -1125,10 +1198,11 @@ const addLogin = (
  *   table (or its materialized view) and hides nothing, so it is a plain view, which PostgreSQL flattens into the
  *   reader's query, pushing its quals to the table's indexes and keeping SSI's read locks to the rows read. A closed
  *   whole entry has no view: every query reads a closed relation's facts as typed literals;
- * - per writable entry, one policy on the table T it writes, named for the role and T, `FOR ALL TO <role> USING (m) WITH
- *   CHECK (m)`, where m is the entry's membership (`renderMembership`): TRUE for a whole entry, and for a
- *   query entry `fixed ∧ w` over T's row, an existence test of that one row, lowered in the transaction context as a
- *   view's definition is, which reads each other relation by its index at the values the row fixes. A membership that
+ * - per writable entry on a table T under row security (below), one policy on T, named for the role and T, `FOR ALL TO
+ *   <role> USING (m) WITH CHECK (m)`, where m is the entry's membership (`renderMembership`): TRUE for a whole entry
+ *   and for a query entry whose filter is none, and for any other query entry `fixed ∧ w` over T's row, an existence
+ *   test of that one row, lowered in the transaction context as a view's definition is, which reads each other
+ *   relation by its index at the values the row fixes. A membership that
  *   reads another relation is a function's,
  *   `<schema>.<filter>(<T's fields it reads>) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER`, owned by
  *   the owner, which reads reality, never the role's policies, and which the policy and each write's precheck call. One
@@ -1158,8 +1232,10 @@ const addLogin = (
  *   a plan as the plan starts, a branch never taken included. TRUNCATE is granted to no one, and no role holds a
  *   privilege on a base table it does not write.
  *
- * Row security is enabled on every table some role writes through a query entry, once its policies stand, `ALTER TABLE ... ENABLE ROW LEVEL
- * SECURITY`; its owner, the migration identity, bypasses it, and FORCE is never used.
+ * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
+ * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE
+ * is never used. A table every writer of which holds every row has no row security and no policy: each policy would be
+ * TRUE, and the grants already decide every write (`addRowSecurity`).
  *
  * For the schema as a whole: REVOKE ALL ... FROM PUBLIC on the base schema and every role's schema, every table and
  * view, every identity sequence, every enum and every domain, so PUBLIC holds nothing on any schema object; and
@@ -1179,14 +1255,12 @@ export const addWorlds = (
 	const searchDefaults: Array<SqlStatement> = []
 	const worlds: Array<InstalledLogin> = []
 	const views: Array<ObjectName> = []
-	const secured = new Map<string, Array<Node<"publish">>>()
+	const writers: Array<Writer> = []
 	for (const login of logins) {
 		const added = addLogin(b, cx, login, advance)
 		worlds.push(added.installed)
 		appendAll(views, added.views)
-		for (const s of added.secured) {
-			secured.set(s.relation, [...(secured.get(s.relation) ?? []), s.policy])
-		}
+		appendAll(writers, added.writers)
 		const settings = (list: ReadonlyArray<RoleSetting>): ReadonlyArray<SqlStatement> =>
 			list.map((setting) => ({
 				kind: "alterRole",
@@ -1198,19 +1272,7 @@ export const addWorlds = (
 			appendAll(searchDefaults, settings(searchPolicySettings))
 		}
 	}
-	for (const [relation, policies] of [...secured].toSorted(([x], [y]) => compareText(x, y))) {
-		const tableName = b.names.relation(relation)
-		b.add(
-			{
-				kind: "rowSecurity",
-				ident: b.qualified("rowSecurity", b.names.relationNamed(relation)),
-				ddl: [{ kind: "alterTable", table: tableName, actions: [{ kind: "enableRowSecurity" }] }],
-				reasons: [enforcement(`the writes of ${relation} through query entries`)],
-				phase: "publish"
-			},
-			[b.table(relation), ...policies]
-		)
-	}
+	addRowSecurity(b, writers)
 	if (searchDefaults.length > 0) {
 		appendAll(roleDefaults, [vectorLibraryLoad(b.names.vectorSchema), ...searchDefaults])
 	}

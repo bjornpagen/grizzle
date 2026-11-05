@@ -300,7 +300,10 @@ export const projectCatalog = (catalog: Catalog): ProjectedCatalog => {
 	}
 }
 
-/** A column's generation as grizzle declares it: GENERATED ALWAYS AS IDENTITY, or GENERATED ALWAYS AS (expr) STORED. */
+/**
+ * A column's generation as grizzle declares it: GENERATED ALWAYS AS IDENTITY, or GENERATED ALWAYS AS (expr) STORED, a
+ * partial projection's expr its CASE.
+ */
 const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 	if (g === undefined) {
 		return { kind: "given" }
@@ -309,6 +312,7 @@ const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 		case "identity":
 			return { kind: "identity", always: true, sequence: `${g.sequence.schema}.${g.sequence.name}` }
 		case "stored":
+		case "partial":
 			return { kind: "computed", stored: true }
 	}
 }
@@ -582,7 +586,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				columns: Arr.map(t.columns, (c) => ({
 					name: c.name,
 					type: projectType(c.type),
-					notNull: true,
+					notNull: c.generated?.kind !== "partial",
 					collation: collationOf(c.type, c.collation),
 					generation: expectedGeneration(c.generated)
 				})),

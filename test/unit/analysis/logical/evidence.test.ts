@@ -340,8 +340,16 @@ const contexted = (c: QueryCase, s: ContextSketch): Contexted => {
 		c: { ...c, facts },
 		execution,
 		containments: Arr.map(placed, ({ k, context }) => ({
-			from: { relation: k.from.relation, fields: k.from.fields, selection: [] },
-			to: { relation: k.to.relation, fields: k.to.fields, selection: [] },
+			from: {
+				relation: k.from.relation,
+				fields: nonEmptyList(k.from.fields, "a containment's fields"),
+				selection: []
+			},
+			to: {
+				relation: k.to.relation,
+				fields: nonEmptyList(k.to.fields, "a containment's referenced fields"),
+				selection: []
+			},
 			coverage: false,
 			statement: "contained",
 			context

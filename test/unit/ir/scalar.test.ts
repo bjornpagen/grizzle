@@ -143,6 +143,7 @@ const breaks = (
 ): Corruption<ScalarType, string, ScalarRule> => ({
 	rule,
 	from,
+	weight: 1,
 	sites: (t) =>
 		applies(t)
 			? Arr.map(broken(t), (value, i) => ({

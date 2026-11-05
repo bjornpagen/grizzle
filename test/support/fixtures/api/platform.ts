@@ -196,11 +196,11 @@ export const Allocation = relation(
 	["line", "during"]
 )
 
-export const rateInForce = candidateKey(RateCard, ["model", "kind", "during"])
-export const invoicePeriods = candidateKey(Invoice, ["org", "period"])
-export const dayOfSpan = candidateKey(Day, ["during"])
-export const monthOfSpan = candidateKey(Month, ["during"])
-export const grantValidity = candidateKey(CreditGrant, ["id", "valid"])
+export const rateInForce = candidateKey(on(RateCard, "model", "kind", "during"))
+export const invoicePeriods = candidateKey(on(Invoice, "org", "period"))
+export const dayOfSpan = candidateKey(on(Day, "during"))
+export const monthOfSpan = candidateKey(on(Month, "during"))
+export const grantValidity = candidateKey(on(CreditGrant, "id", "valid"))
 
 /** Usage only inside its key's active spans: no usage before a key exists or after it is revoked. */
 export const usageWhileActive = contained(
@@ -273,11 +273,17 @@ export const invoiceExact = capacity(on(Invoice, "id"), {
 })
 
 /** A plan line's allocations sum to its amount exactly. */
-export const allocationExact = capacity(on(select(InvoiceLine, { source: "plan" }), "id"), {
-	from: on(Allocation, "line"),
-	weight: weigh("amount"),
-	within: within(ref("amount"), ref("amount"))
-})
+export const allocationExact = capacity(
+	on(
+		select(InvoiceLine, (r) => r.eq(r.source, "plan")),
+		"id"
+	),
+	{
+		from: on(Allocation, "line"),
+		weight: weigh("amount"),
+		within: within(ref("amount"), ref("amount"))
+	}
+)
 
 /** Refunds never exceed what the invoice charged, even with concurrent refund requests. */
 export const refundWithinInvoice = capacity(on(Invoice, "id"), {
@@ -289,7 +295,10 @@ export const refundWithinInvoice = capacity(on(Invoice, "id"), {
 /** Only a paid invoice is refunded. */
 export const refundOnlyPaid = contained(
 	on(Refund, "invoice"),
-	on(select(Invoice, { state: "paid" }), "id")
+	on(
+		select(Invoice, (r) => r.eq(r.state, "paid")),
+		"id"
+	)
 )
 export const keyRevocation = alternatives(ApiKey, "state", KeyState, { revoked: Revocation })
 export const invoiceSettlement = alternatives(Invoice, "state", InvoiceState, {
@@ -388,7 +397,13 @@ const platformOf = (name: string) =>
 			contained(on(Segment, "subscription"), on(Subscription, "id")),
 			contained(on(Refund, "invoice"), on(Invoice, "id")),
 			contained(on(Allocation, "line", "subscription"), on(PlanLine, "line", "subscription")),
-			contained(on(Allocation, "line"), on(select(InvoiceLine, { source: "plan" }), "id")),
+			contained(
+				on(Allocation, "line"),
+				on(
+					select(InvoiceLine, (r) => r.eq(r.source, "plan")),
+					"id"
+				)
+			),
 			allocationCovered,
 			chargeExact,
 			creditedExact,

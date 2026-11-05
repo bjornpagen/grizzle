@@ -12,10 +12,13 @@ import { assert, contains, defined } from "#test/support/assert.ts"
 import {
 	capacity,
 	contained,
+	eq,
 	f,
+	field,
+	literal,
 	mutable,
 	on,
-	onSelected,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	within
@@ -32,8 +35,8 @@ const containment = "containment"
 type StoredRow = readonly [number, number, number, boolean]
 
 const poolWeights = capacity(
-	onSelected("Pool", ["id"], { open: true }),
-	onSelected("Item", ["pool"], { live: true }),
+	onWhere("Pool", ["id"], eq(field("open"), literal(true))),
+	onWhere("Item", ["pool"], eq(field("live"), literal(true))),
 	within("low", "high"),
 	{ kind: "field", field: "weight" }
 )

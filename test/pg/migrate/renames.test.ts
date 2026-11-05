@@ -760,8 +760,14 @@ const shopOf = (name: string, shape: Shape) => {
 	})
 	/** At most three notes per account: a residual capacity over the containment of Note into Account. */
 	const notes = capacity(on(Account, "id"), { from: on(Note, "account"), within: within(0n, 3n) })
-	/** A billable item's account exists: a selected source, which no foreign key can enforce. */
-	const billed = contained(on(select(Item, { billable: true }), "account"), on(Account, "id"))
+	/** A billable item's account exists: a selected source, the foreign key from its STORED generated column. */
+	const billed = contained(
+		on(
+			select(Item, (i) => i.eq(i.billable, true)),
+			"account"
+		),
+		on(Account, "id")
+	)
 	const value = schema(
 		name,
 		{ Account, Note, Comment, Kind, Task, AutomaticTask, ManualTask, Rank, Item },
@@ -778,8 +784,7 @@ const shopOf = (name: string, shape: Shape) => {
 	return {
 		value,
 		alternatives: laws.constraintOf(laws.alternativesOf(arms).reverse, "ResidualLaw"),
-		capacity: laws.constraintOf(laws.lawOf(notes), "ResidualLaw"),
-		selected: laws.constraintOf(laws.lawOf(billed), "ResidualLaw")
+		capacity: laws.constraintOf(laws.lawOf(notes), "ResidualLaw")
 	}
 }
 
@@ -1618,12 +1623,15 @@ const renames = explore(
 							shopOf(ws.name, shape).capacity,
 							"23000"
 						)
-						/** A billable item of no account is refused; an unbilled one is not the law's. */
+						/**
+						 * A billable item of no account is refused at its statement, the foreign key into a relation that is
+						 * all key immediate; an unbilled one is not the law's.
+						 */
 						const item = (n2: number, billable: boolean) =>
 							ws.sql(
 								`INSERT INTO ${tbl(g, "Item")} (${col(g, "Item", "id")}, ${col(g, "Item", "rank")}, ${col(g, "Item", n("amount"))}, ${col(g, "Item", "account")}, ${col(g, "Item", "billable")}) VALUES ('${id(n2)}', 'Low', 1, '${id(99)}', ${billable})`
 							)
-						yield* expectConstraint(item(33, true), shopOf(ws.name, shape).selected, "23000")
+						yield* expectSqlstate(item(33, true), "23503")
 						yield* item(34, false)
 						yield* ws.sql(
 							`DELETE FROM ${tbl(g, "Item")} WHERE ${col(g, "Item", "id")} = '${id(34)}'`

@@ -50,7 +50,6 @@ const lawInputs = invalidFeatures([
 	"fact:law-broken",
 	"fact:outside-world",
 	"fact:hidden-key-collision",
-	"fact:hidden-capacity-collision",
 	"fact:hidden-reference",
 	"fact:deleted-reference",
 	"fact:duplicate-in-input",

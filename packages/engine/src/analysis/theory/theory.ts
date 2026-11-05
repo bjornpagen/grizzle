@@ -5,10 +5,13 @@ import {
 	type AlternativesFamily,
 	type ContractUse,
 	type FamilyMember,
+	fixedSelection,
 	type KeptLaw,
 	type LawIdentity,
 	Normalizer,
 	type PrimaryKeyKept,
+	type ResolvedSide,
+	selectorsOf,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
@@ -30,13 +33,13 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { BoundValueDesc, FieldDesc } from "#compiler/ir/desc.ts"
+import { type BoundValueDesc, type FieldDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { EvidenceContext } from "#compiler/ir/evidence.ts"
-import { identityValueOf } from "#compiler/ir/expr.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
+	type EvidenceSide,
 	fieldNames,
 	type LawField,
-	type LawSide,
 	type RelationInfo,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
@@ -55,7 +58,7 @@ import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { contractInfoOf, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { Owned } from "#compiler/schema/own.ts"
-import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
+import { textLookupOnce } from "#compiler/text/refinement.ts"
 
 export interface TheoryOptions {
 	/**
@@ -87,19 +90,58 @@ interface CheckEvidence {
 
 /**
  * A containment as evidence: every `from` projection, selection applied, has a matching `to` fact. A span coverage law
- * is marked: it proves coverage, not scalar existence.
+ * is marked: it proves coverage, not scalar existence. Only a containment between sides of fields selected by literal
+ * conjunctions gives evidence.
  */
 interface ContainmentEvidence {
 	readonly law: LawId
-	readonly from: LawSide
-	readonly to: LawSide
+	readonly from: EvidenceSide
+	readonly to: EvidenceSide
 	readonly coverage: boolean
 	/**
-	 * The statement that declares it: a `contained` (an alternatives head included), or a `mirrors` half, an
-	 * alternatives arm's either direction included. attach reads only declared containments.
+	 * What states it: a `contained` statement (an alternatives head included), or an alternatives family, an arm's
+	 * either direction. attach reads only declared containments.
 	 */
-	readonly statement: "contained" | "mirrors"
+	readonly statement: "contained" | "alternatives"
 	readonly context: EvidenceContext
+}
+
+/**
+ * The two sides of a containment as evidence states them (`EvidenceSide`): each side's fields, and the selectors of its
+ * fixed conjuncts, or none when a side has a pred term. A source's selection is read whole, every conjunct fixed, or
+ * the containment gives no evidence, since a source read with fewer conjuncts would claim more of its facts than the
+ * law does. A target's fixed conjuncts are read and its others dropped: a target with fewer conjuncts holds more facts,
+ * so the evidence claims less than the law and is sound.
+ */
+const evidenceSides = (
+	from: ResolvedSide,
+	to: ResolvedSide
+): { readonly from: EvidenceSide; readonly to: EvidenceSide } | undefined => {
+	const fromFields = fieldTermsOf(from.terms)
+	const toFields = fieldTermsOf(to.terms)
+	const fromSelection = fixedSelection(from.selection)
+	if (fromFields === undefined || toFields === undefined || fromSelection === undefined) {
+		return undefined
+	}
+	const side = (
+		s: ResolvedSide,
+		fields: NonEmptyReadonlyArray<{ readonly field: string }>,
+		selectors: ReadonlyArray<{ readonly column: string; readonly value: TypedLiteral }>
+	): EvidenceSide => ({
+		relation: s.relation,
+		fields: mapNonEmpty(fields, (f) => f.field),
+		selection: selectors.map((x) => ({ column: x.column, value: x.value }))
+	})
+	return {
+		from: side(from, fromFields, selectorsOf(fromSelection)),
+		to: side(
+			to,
+			toFields,
+			selectorsOf({
+				conjuncts: to.selection.conjuncts.flatMap((c) => (c.kind === "fixed" ? [c] : []))
+			})
+		)
+	}
 }
 
 interface TheoryEvidence {
@@ -116,7 +158,8 @@ interface TheoryEvidence {
  * - field-compatibility classes over the admitted containment pairings (classes.ts), refusing a pairing of fields of
  *   different identity;
  * - the normalized laws, each with its source identity and its violation query as a Forbid node in one DAG
- *   (laws.ts): mirrors as its two containments, an alternatives expansion recognized as one family;
+ *   (laws.ts): a key, a containment and a capacity over partial projections, an alternatives expansion recognized as
+ *   one family;
  * - the relation dependency graph: each relation and the relations its laws read;
  * - the evidence each law gives queries, with its validity context: keys and row checks are
  *   validated immediate storage facts; a containment into a closed roster that its source field is already typed by is
@@ -149,23 +192,26 @@ export interface Theory extends CheckedTheory {
 	readonly evidence: TheoryEvidence
 }
 
-const sidePart = (side: LawSide): Part => [
+/** A side as a law's identity states it: its relation, its terms, and its conjuncts by their canonical texts. */
+const sidePart = (side: ResolvedSide): Part => [
 	side.relation,
-	side.fields,
-	side.selection.map((s) => [s.column, identityValueOf(s.value).part])
+	side.terms.map((t) => [t.kind, t.field]),
+	side.selection.conjuncts.map((c) => c.text)
 ]
 
-const sideStem = (side: LawSide): ReadonlyArray<string> => [
+/** A side as a law's stem spells it: its relation, then the fields each conjunct reads. */
+const sideStem = (side: ResolvedSide): ReadonlyArray<string> => [
 	side.relation,
-	...side.selection.flatMap((s) => [s.column, identityValueOf(s.value).stem])
+	...side.selection.conjuncts.flatMap((c) => c.reads.map((f) => f.name))
 ]
 
-const sideDisplay = (side: LawSide): string =>
-	`${side.relation}(${side.fields.join(", ")})${
-		side.selection.length === 0
-			? ""
-			: ` where ${side.selection.map((s) => `${s.column} = ${identityValueOf(s.value).display}`).join(", ")}`
+/** A side as a law's display spells it: its relation and terms, then each conjunct by its canonical text. */
+const sideDisplay = (side: ResolvedSide): string => {
+	const conjuncts = side.selection.conjuncts
+	return `${side.relation}(${side.terms.map(termText).join(", ")})${
+		conjuncts.length === 0 ? "" : ` where ${conjuncts.map((c) => c.text).join(" and ")}`
 	}`
+}
 
 const boundPart = (bound: BoundValueDesc | "*"): Part =>
 	bound === "*"
@@ -186,10 +232,9 @@ const contractStatement = (contract: string): LawStatement => ({
 
 /**
  * What a law is, independent of where its statement sits among the others, as the naming door states it: a key by its
- * relation and fields, a check by its relation and name, a contract by its name, a containment by its sides (selections
- * included) and, for a mirrors half, its direction, a family by its origin marker, a capacity by its sides, weight and
- * bounds, each led by the law's shape. Adding or removing an unrelated statement never changes it. A mirrors half is
- * marked as one, not as which: mirrors(a, b) and mirrors(b, a) state one law, whose halves the sides tell apart. A
+ * relation and fields, a key over a projected side by that side, a check by its relation and name, a contract by its
+ * name, a containment by its sides (terms and selections included), a family by its origin marker, a capacity by its
+ * sides, weight and bounds, each led by the law's shape. Adding or removing an unrelated statement never changes it. A
  * count, a statement that weighs nothing, weighs nothing in it.
  */
 const lawStatement = (law: LawIdentity): LawStatement => {
@@ -211,14 +256,18 @@ const lawStatement = (law: LawIdentity): LawStatement => {
 			}
 		case "contract":
 			return contractStatement(d.contract)
-		case "containment": {
-			const mirrors = d.stated.kind === "mirrors"
+		case "projectedKey":
 			return {
-				parts: [law.shape, sidePart(d.from), sidePart(d.to), mirrors ? "mirrors" : "contained"],
-				stem: [...sideStem(d.from), "in", d.to.relation],
-				display: `${sideDisplay(d.from)} ${law.shape === "coverage" ? "covered by" : "in"} ${sideDisplay(d.to)}${mirrors ? ", a mirrors half" : ""}`
+				parts: [law.shape, sidePart(d.side)],
+				stem: [...sideStem(d.side), "key", ...d.side.terms.map(termText)],
+				display: `key ${sideDisplay(d.side)}`
 			}
-		}
+		case "containment":
+			return {
+				parts: [law.shape, sidePart(d.from), sidePart(d.to), "contained"],
+				stem: [...sideStem(d.from), "in", d.to.relation],
+				display: `${sideDisplay(d.from)} ${law.shape === "coverage" ? "covered by" : "in"} ${sideDisplay(d.to)}`
+			}
 		case "alternatives": {
 			const { relation, field } = fieldIdSpellingParts(d.family)
 			return {
@@ -315,11 +364,13 @@ export const typingEnv = (
 	}
 	const fieldType = (desc: FieldDesc, loc: SourceLoc): Result.Result<ScalarType, CompileError> =>
 		scalarTypeOf(desc, schemaEnv(loc), loc)
+	/** Each text pattern's analysis, read once for every field and contract of the pattern. */
+	const texts = textLookupOnce()
 	/** The registry's environment of the owned schema, its refusals at `loc`. */
 	const schemaEnv = (loc: SourceLoc): ScalarEnv => ({
 		kind: "schema",
 		roster: (name) => rosters.get(name),
-		text: (source, flags) => Result.map(analyzeText(source, flags, loc), textInfo),
+		text: texts,
 		contractPredicate: (predicate, base, contract, facts) =>
 			contractPredicateTable(predicate, base, contract, facts, { loc, fieldType, regexMember })
 	})
@@ -381,7 +432,7 @@ class Builder {
 			  }
 		> = []
 		for (const [index, s] of this.owned.statements.entries()) {
-			const id = s.kind === "contained" || s.kind === "mirrors" ? s.origin?.alternatives : undefined
+			const id = s.kind === "contained" ? s.origin?.alternatives : undefined
 			if (id === undefined) {
 				order.push({ kind: "statement", member: { s, index } })
 				continue
@@ -422,7 +473,6 @@ class Builder {
 		const families: ReadonlyArray<AlternativesFamily<LawId>> = normalizer.families.map((f) =>
 			Object.freeze({
 				id: f.id,
-				containment: identifierOf(f.containment.named),
 				reverse: identifierOf(f.reverse.named),
 				arms: mapNonEmpty(f.arms, (a) => ({
 					relation: a.relation,
@@ -512,7 +562,7 @@ class Builder {
 			switch (detail.kind) {
 				case "containment":
 					for (const p of detail.pairs) {
-						pair(detail.from.relation, p.fromColumn, detail.to.relation, p.toColumn, loc)
+						pair(detail.from.relation, p.from.column, detail.to.relation, p.to.column, loc)
 					}
 					break
 				case "capacity":
@@ -526,6 +576,7 @@ class Builder {
 					}
 					break
 				case "key":
+				case "projectedKey":
 				case "check":
 				case "contract":
 				case "alternatives":
@@ -570,7 +621,7 @@ class Builder {
 			if (
 				law.detail.kind === "containment" &&
 				law.detail.pairing.kind === "span" &&
-				law.detail.from.fields.length > 1
+				law.detail.from.terms.length > 1
 			) {
 				caps.add("extension:btree_gist")
 			}
@@ -610,14 +661,17 @@ class Builder {
 			} else if (d.kind === "check") {
 				checks.push({ relation: d.relation, name: d.name, law: law.id, context: "immediate" })
 			} else if (d.kind === "containment") {
-				containments.push({
-					law: law.id,
-					from: d.from,
-					to: d.to,
-					coverage: d.pairing.kind === "span",
-					statement: d.stated.kind,
-					context: this.#containmentContext(law, d)
-				})
+				const sides = evidenceSides(d.from, d.to)
+				if (sides !== undefined) {
+					containments.push({
+						law: law.id,
+						from: sides.from,
+						to: sides.to,
+						coverage: d.pairing.kind === "span",
+						statement: "contained",
+						context: this.#containmentContext(law, d)
+					})
+				}
 			} else if (d.kind === "alternativesArm") {
 				const [only, ...more] = d.handles
 				containments.push({
@@ -636,7 +690,7 @@ class Builder {
 								: []
 					},
 					coverage: false,
-					statement: "mirrors",
+					statement: "alternatives",
 					context: this.options.containmentContext(law)
 				})
 			}
@@ -664,7 +718,7 @@ class Builder {
 						selection: []
 					},
 					coverage: false,
-					statement: "mirrors",
+					statement: "alternatives",
 					context: this.options.containmentContext(law)
 				})
 			}
@@ -685,9 +739,11 @@ class Builder {
 		if (
 			d.to.rel.kind === "closed" &&
 			more.length === 0 &&
-			only.to === "id" &&
-			d.to.selection.length === 0 &&
-			rosterOf(baseOf(only.fromColumn.type))?.closed === d.to.relation
+			only.from.kind === "field" &&
+			only.to.kind === "field" &&
+			only.to.field === "id" &&
+			d.to.selection.conjuncts.length === 0 &&
+			rosterOf(baseOf(only.from.column.type))?.closed === d.to.relation
 		) {
 			return "descriptor"
 		}

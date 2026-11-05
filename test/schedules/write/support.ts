@@ -66,8 +66,8 @@ export const Ref = relation("Ref", { id: pg.integer, item: pg.integer }, ["id"])
 export const Zed = relation("Zed", { id: pg.integer }, ["id"])
 
 /** Code's and Ticket's candidate keys, and Ref's foreign key into Item: the laws a race names by these declarations. */
-export const codeKey = key(Code, ["code"])
-export const ticketLabel = key(Ticket, ["label"])
+export const codeKey = key(on(Code, "code"))
+export const ticketLabel = key(on(Ticket, "label"))
 export const refItem = contained(on(Ref, "item"), on(Item, "id"))
 
 const relations = { Item, Note, Code, Ticket, Room, Ref, Zed } as const

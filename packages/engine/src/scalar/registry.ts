@@ -336,20 +336,33 @@ interface TextDescriptor extends Built, Columned<unknown> {
 }
 
 /**
- * The str.regex descriptors text/field.ts made, each with its pattern, its column and the text analysis its pattern is
- * read by (describeField), only once their builder registered them. A WeakMap holds nothing alive and is never
- * enumerated, so it is no cache.
+ * The str.regex descriptors text/field.ts made, each with what describeField answers for it: its Description, its
+ * ScalarType, its pattern analyzed once, when its builder registered it, and its column, or the refusal of its
+ * pattern. A WeakMap holds nothing alive and is never enumerated.
  */
-const ownedText = new WeakMap<
-	object,
-	{ readonly descriptor: TextDescriptor; readonly text: TextLookup }
->()
+const ownedText = new WeakMap<object, Result.Result<Described, CompileError>>()
 
 /**
- * Registers `value`, a frozen str.regex descriptor its builder made, with the analysis of its pattern, and returns it.
+ * Registers `value`, a frozen str.regex descriptor its builder made, with its pattern analyzed by `text`, and returns
+ * it. A text type's analysis reads its pattern alone, so the descriptor is described once whatever position it is
+ * passed in.
  */
 export const registerTextDescriptor = <T extends TextDescriptor>(value: T, text: TextLookup): T => {
-	ownedText.set(value, { descriptor: value, text })
+	const { source, flags } = value.pattern
+	const env: ScalarEnv = { kind: "builder", roster: noRosters, text }
+	ownedText.set(
+		value,
+		Result.flatMap(
+			decodeDesc("field", { kind: "text", source, flags }),
+			(desc): Result.Result<Described, CompileError> =>
+				Result.map(scalarTypeOf(desc, env, SourceLoc(`/${source}/${flags}`, [])), (scalar) => ({
+					sql: "text",
+					desc,
+					scalar,
+					column: value.column
+				}))
+		)
+	)
 	return value
 }
 
@@ -384,18 +397,7 @@ export const describeField = (
 	/** A str.regex descriptor: its regex is its Description; str.regex owns the rest of its metadata. */
 	const regex = ownedText.get(value)
 	if (regex !== undefined) {
-		const { source, flags } = regex.descriptor.pattern
-		const env: ScalarEnv = { kind: "builder", roster: noRosters, text: regex.text }
-		return Result.flatMap(
-			decodeDesc("field", { kind: "text", source, flags }),
-			(desc): Result.Result<Described, CompileError> =>
-				Result.map(scalarTypeOf(desc, env, loc), (scalar) => ({
-					sql: "text",
-					desc,
-					scalar,
-					column: regex.descriptor.column
-				}))
-		)
+		return regex
 	}
 	/**
 	 * Testing for the brand reads the caller's value, which can run its code (`in` runs a proxy's `has` trap) and throw:

@@ -1,16 +1,13 @@
-import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import type { ConstraintName } from "#compiler/core/ids.ts"
-import { atMostOne, classifyEntry, writableSupplier } from "#test/support/worlds/model/host.ts"
+import { Array as Arr, Option, Record as Rec } from "effect"
+import { classifyEntry, writableSupplier } from "#test/support/worlds/model/host.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,
 	Fill,
 	HeadField,
-	InstalledNames,
 	InstallSpec,
 	RoleSpec,
 	Rule,
-	HostValue,
 	WorldFunction
 } from "#test/support/worlds/model/types.ts"
 
@@ -175,77 +172,6 @@ export const keysOf = (
 	]
 }
 
-/** An at-most-one count capacity's unique index: the capacity's place among the base's laws, its source's fields and selector. */
-export interface UniqueIndex {
-	readonly law: number
-	readonly fields: Arr.NonEmptyReadonlyArray<string>
-	readonly where: Readonly<Record<string, HostValue>>
-}
-
-/** Whether every field of `inner` is among `outer`'s. */
-const among = (inner: ReadonlyArray<string>, outer: ReadonlyArray<string>): boolean =>
-	Arr.every(inner, (f) => outer.includes(f))
-
-/**
- * The unique indexes of a relation that a query entry's precheck probes beside its keys, as grizzle orders them
- * (write/insert/unique.ts beyondKeys): the index of each at-most-one count capacity counting the relation's facts
- * (host.ts atMostOne), those without a selector before those with one, fewer fields first, each kept unless a key (its
- * every field among the index's) or an index without a selector kept before it (likewise) finds every collision it does.
- */
-export const uniquesOf = (base: BaseSpec, relation: string): ReadonlyArray<UniqueIndex> => {
-	const keys = keysOf(base, relation)
-	const indexes = Arr.flatMap(base.laws, (l, law): ReadonlyArray<UniqueIndex> =>
-		l.kind === "capacity" && atMostOne(l) && l.source.relation === relation
-			? [{ law, fields: l.source.fields, where: l.source.where }]
-			: []
-	)
-	const selects = (u: UniqueIndex): boolean => Rec.keys(u.where).length > 0
-	const ordered = Arr.sort(
-		indexes,
-		Order.combine(
-			Order.mapInput(Order.Boolean, selects),
-			Order.mapInput(Order.Number, (u: UniqueIndex) => u.fields.length)
-		)
-	)
-	const kept: Array<UniqueIndex> = []
-	for (const u of ordered) {
-		if (
-			!Arr.some(keys, (k) => among(k, u.fields)) &&
-			!Arr.some(kept, (c) => !selects(c) && among(c.fields, u.fields))
-		) {
-			kept.push(u)
-		}
-	}
-	return kept
-}
-
-/**
- * The fields a unique index reads, a unique probe's parameters in order (physical/ddl/roles.ts): the fields it compares,
- * then each field its selector reads, in the relation's heading order (laws/model/plan.ts orderedSelection), each once.
- */
-export const uniqueReads = (
-	base: BaseSpec,
-	relation: string,
-	u: UniqueIndex
-): ReadonlyArray<string> => {
-	const heading = Arr.map(relationSpecOf(base, relation)?.fields ?? [], (f) => f.name)
-	const selector = Arr.filter(heading, (f) => Rec.has(u.where, f))
-	return [...new Set([...u.fields, ...selector])]
-}
-
-/** The installed name of a unique index, by its capacity's law (InstalledNames.uniqueIndexes). */
-export const uniqueIndexOf = (names: InstalledNames, u: UniqueIndex): ConstraintName => {
-	const ids = names.laws[u.law]
-	const index =
-		ids?.kind === "capacity" && Rec.has(names.uniqueIndexes, ids.law)
-			? names.uniqueIndexes[ids.law]
-			: undefined
-	if (index === undefined) {
-		throw new Error(`the installation names no unique index of law ${u.law}`)
-	}
-	return index
-}
-
 /** A key probe the installation defines: the relation it scans, and the key it tests there. */
 interface Probe {
 	readonly target: string
@@ -263,29 +189,6 @@ export const probeOf = (base: BaseSpec, role: RoleSpec, fn: KeyProbe): Probe | u
 	const w = writtenNamed(base, role, fn.entry)
 	const key = w?.kind === "query" ? keysOf(base, w.target)[fn.key] : undefined
 	return w === undefined || key === undefined ? undefined : { target: w.target, key }
-}
-
-type UniqueProbe = Extract<WorldFunction, { readonly kind: "unique-probe" }>
-
-/** A unique probe the installation defines: the relation it scans, and the unique index it tests there. */
-export interface UniqueProbed {
-	readonly target: string
-	readonly unique: UniqueIndex
-}
-
-/**
- * A role's unique probe as the installation defines it (privileges.ts definedWorldFunctions): over the target of the
- * role's written query entry, testing the unique index at the probe's index in uniquesOf order. Undefined where the
- * installation defines no such probe: the entry is no written query entry, or its target has no unique index there.
- */
-export const uniqueProbeOf = (
-	base: BaseSpec,
-	role: RoleSpec,
-	fn: UniqueProbe
-): UniqueProbed | undefined => {
-	const w = writtenNamed(base, role, fn.entry)
-	const unique = w?.kind === "query" ? uniquesOf(base, w.target)[fn.unique] : undefined
-	return w === undefined || unique === undefined ? undefined : { target: w.target, unique }
 }
 
 /** The target fields a written relation's claims fix: a query entry's claim-fixed head fields (HeadField). */

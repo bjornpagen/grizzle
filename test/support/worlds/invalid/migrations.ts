@@ -7,8 +7,7 @@ import { sameDomain } from "#test/support/worlds/generate/domain.ts"
 import { installGen, plantedInstallGen } from "#test/support/worlds/generate/install.ts"
 import { lawIdsOf } from "#test/support/worlds/invalid/catalog.ts"
 import type { Strata } from "#test/support/worlds/invalid/kinds.ts"
-import { atMostOne, classifyEntry, hostSchemaOf } from "#test/support/worlds/model/host.ts"
-import { nativeLaw } from "#test/support/worlds/model/session/migrate.ts"
+import { classifyEntry, hostSchemaOf, nativeLaw } from "#test/support/worlds/model/host.ts"
 import { draftedFrom, samePlain } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,
@@ -53,12 +52,9 @@ const standInsOf = (law: LawSpec, standIn: LawId): LawIds => {
 		case "covered":
 		case "capacity":
 			return { kind: law.kind, law: standIn }
-		case "mirrors":
-			return { kind: "mirrors", leftToRight: standIn, rightToLeft: standIn }
 		case "alternatives":
 			return {
 				kind: "alternatives",
-				head: standIn,
 				arms: Record.fromEntries(
 					Arr.map(Record.keys(law.arms), (handle) => [handle, standIn] as const)
 				),
@@ -78,8 +74,6 @@ const relationsOf = (law: LawSpec): ReadonlyArray<string> => {
 		case "contained":
 		case "covered":
 			return [law.source.relation, law.target.relation]
-		case "mirrors":
-			return [law.left.relation, law.right.relation]
 		case "capacity":
 			return [law.source.relation, law.target.relation]
 	}
@@ -87,9 +81,9 @@ const relationsOf = (law: LawSpec): ReadonlyArray<string> => {
 
 /**
  * Whether a law would take an identity a law of the base already holds: grizzle names a containment's foreign key by
- * its source relation and fields, a key's constraint by its relation and fields, an at-most-one capacity's unique index
- * by its source's relation, fields and selector, and a check by its name, and refuses two laws of one identity when it
- * compiles the installation (IdentifierCollision).
+ * its source relation and fields, a key's constraint by its relation and fields, and a check by its name, and refuses
+ * two laws of one identity when it compiles the installation (IdentifierCollision); any other law is taken by an equal
+ * one.
  */
 export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
 	switch (law.kind) {
@@ -114,21 +108,7 @@ export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
 		case "check":
 			return Arr.some(base.laws, (old) => old.kind === "check" && old.name === law.name)
 		case "capacity":
-			return (
-				Arr.some(base.laws, (old) => samePlain(old, law)) ||
-				(atMostOne(law) &&
-					Arr.some(
-						base.laws,
-						(old) =>
-							old.kind === "capacity" &&
-							atMostOne(old) &&
-							old.source.relation === law.source.relation &&
-							samePlain(old.source.fields, law.source.fields) &&
-							samePlain(old.source.where, law.source.where)
-					))
-			)
 		case "spanKey":
-		case "mirrors":
 		case "alternatives":
 			return Arr.some(base.laws, (old) => samePlain(old, law))
 	}
@@ -139,7 +119,7 @@ export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
  * holding an integer field below each value a fact holds there, which that fact fails, and at most the largest, which
  * every fact meets; a containment of one relation's field in another's single-field key; and at most one fact of a
  * relation per fact of another, a count capacity of at most one from a field, no key alone, into another relation's
- * single-field key, which is a unique index on that field (host.ts atMostOne).
+ * single-field key, a residual law.
  */
 const newLaws = (state: ModelState): ReadonlyArray<LawSpec> => {
 	const base = state.install.base

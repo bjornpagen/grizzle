@@ -67,7 +67,7 @@ export const Shop = schema(
 		mutable(Counter),
 		mutable(Task),
 		mutable(Hand),
-		key(Code, ["code"]),
+		key(on(Code, "code")),
 		contained(on(Line, "stock"), on(Stock, "id")),
 		contained(on(Task, "worker"), on(Worker, "id")),
 		capacity(on(Worker, "id"), { from: on(Task, "worker"), within: within(0n, 1n) }),

@@ -16,7 +16,7 @@ type CaseWhen = Extract<PlStatement, { readonly kind: "case" }>["whens"][number]
 
 /** The alternatives reverse family. `alternatives(Parent, "kind", Roster, { Handle: Arm, ... })` lowers to native
  * objects and one residual law: the parent's STORED arm tag, each fact's kind mapped to the first handle of its arm
- * relation, and its UNIQUE (key, arm tag); each arm relation's constant STORED tag, its first handle, and its deferred
+ * relation, and its UNIQUE (key, arm tag); each arm relation's constant law column, its first handle, and its deferred
  * composite foreign key into that unique, which reject orphan and wrong-arm payloads, a relation armed at several
  * handles taking the payloads of each; and the family's reverse law, every parent has the payload of its selected arm.
  * Only that reverse obligation is checked here; no function repeats the child-to-parent checks the arm foreign keys

@@ -158,7 +158,7 @@ export const witnessesShowTheirOwn: StepCheck = (checked) => {
 /**
  * Whether a direct statement reaches for what its session does not hold: taking on any identity but a role of its own
  * login (SET SESSION AUTHORIZATION needs a superuser, so every one does), reading or preparing a view of a role
- * another login holds, or calling the filter, key probe or unique probe of a role it does not act as.
+ * another login holds, or calling the filter or key probe of a role it does not act as.
  */
 const reachesPast = (state: ModelState, session: number, statement: DirectStatement): boolean => {
 	const held = sessionAt(state, session)
@@ -178,9 +178,7 @@ const reachesPast = (state: ModelState, session: number, statement: DirectStatem
 			return statement.read.kind === "view" && !ownLogin(statement.read.role)
 		case "call":
 			return (
-				(statement.fn.kind === "filter" ||
-					statement.fn.kind === "key-probe" ||
-					statement.fn.kind === "unique-probe") &&
+				(statement.fn.kind === "filter" || statement.fn.kind === "key-probe") &&
 				!(held.current.kind === "role" && held.current.role === statement.fn.role)
 			)
 		case "reset-role":

@@ -51,7 +51,7 @@ import {
 	writeCursor
 } from "#compiler/codec/cursor/layout.ts"
 import { CursorError, type CursorFault } from "#compiler/core/errors.ts"
-import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
+import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"

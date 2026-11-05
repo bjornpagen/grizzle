@@ -491,7 +491,8 @@ describe("the delivered type of an attachment", () => {
 	 * the leave by the union of the employee's spans, which usually holds no span equal to it, so never a bare child; a
 	 * containment over several fields proves one per parent only where both fields come from one source fact; a child
 	 * another reader shares keeps its own evidence, and the attachment is no narrower; and the fixtures' attachments,
-	 * bare by a declared containment and never by a mirrors, which states none.
+	 * bare by a declared containment, a mirrors' two included: mirrors is sugar for them, so the employee's tax profile
+	 * is one by Employee(id) ⊆ TaxProfile(employee) under the profile's key.
 	 */
 	type Planted =
 		| "a span coverage"
@@ -606,7 +607,7 @@ describe("the delivered type of an attachment", () => {
 										attachments(analyze(P.payrollQueries.employeeCard().dag, logicalEnv(payroll))),
 										[
 											["manager", "option"],
-											["profile", "option"]
+											["profile", "one"]
 										]
 									)
 							}
@@ -669,8 +670,8 @@ const coverage = (): BuiltQuery => {
 }
 
 /**
- * contained(onSelected(Shift, [employee, week], { status: approved }), on(Timesheet, [employee, week])): approved
- * shifts' employee and week read from one scan or two, with the timesheet attached by both.
+ * contained(on(select(Shift, (s) => s.eq(s.status, "approved")), "employee", "week"), on(Timesheet, "employee",
+ * "week")): approved shifts' employee and week read from one scan or two, with the timesheet attached by both.
  */
 const shifts = (scans: 1 | 2): BuiltQuery => {
 	const q = new Ir(P.payrollModel())

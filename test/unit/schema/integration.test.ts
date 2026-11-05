@@ -10,11 +10,11 @@ import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
-import { closed, type RowScalars, relation } from "#compiler/public/schema.ts"
+import { closed, key, on, type RowScalars, relation } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schema, schemaDescOf } from "#compiler/schema/schema.ts"
-import { check, key } from "#compiler/schema/statements.ts"
+import { checkBuilder } from "#compiler/schema/statements.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -91,19 +91,21 @@ describe("row checks over the field registry and Compute", () => {
 							c.note(composed)
 							const statement =
 								composed === "arithmetic"
-									? check("headroom", Account, (r: Row) => Compute.ge(Compute.add(r.bal, n), n))
+									? checkBuilder("headroom", Account, (r: Row) =>
+											Compute.ge(Compute.add(r.bal, n), n)
+										)
 									: composed === "a cast"
-										? check("scaled", Account, (r: Row) =>
+										? checkBuilder("scaled", Account, (r: Row) =>
 												Compute.ge(Compute.numeric(r.bal), `${n}.5`)
 											)
-										: check("short", Account, (r: Row) =>
+										: checkBuilder("short", Account, (r: Row) =>
 												Compute.and(Compute.charLength(r.slug).le(bound), r.kind.ne(handle))
 											)
 							succeeded(
 								own(
 									defined(
 										schemaDescOf(
-											schema("bank", { Account, Kind }, [statement, key(Account, ["slug"])], [])
+											schema("bank", { Account, Kind }, [statement, key(on(Account, "slug"))], [])
 										)
 									)
 								)
@@ -149,17 +151,17 @@ describe("row checks over the field registry and Compute", () => {
 							const build = (): unknown => {
 								switch (refused) {
 									case "a number for a bigint":
-										return check("bad", Account, (r: LooseRow) =>
+										return checkBuilder("bad", Account, (r: LooseRow) =>
 											Compute.ge(Compute.add(r.bal, n), 0n)
 										)
 									case "a handle off the roster":
-										return check("bad", Account, (r: LooseRow) => r.kind.eq("c"))
+										return checkBuilder("bad", Account, (r: LooseRow) => r.kind.eq("c"))
 									case "two contracts meeting": {
 										/** A contract's name is one literal by its type: the other identity is written here. */
 										const Pair = relation("Pair", { a: Cents, b: contract("Other", pg.bigint) }, [
 											"a"
 										])
-										return check("mixed", Pair, (r: SamePairRow) =>
+										return checkBuilder("mixed", Pair, (r: SamePairRow) =>
 											Compute.ge(Compute.add(r.a, r.b), 0n)
 										)
 									}

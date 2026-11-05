@@ -1,6 +1,6 @@
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, key, relation, schema } from "#compiler/public/schema.ts"
+import { closed, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
 /**
@@ -54,7 +54,7 @@ export const Cell = relation(
 )
 
 export const Agree = schema("Agree", { Tone, Shade, Item, Tag, Note, Cell }, [
-	key(Item, ["owner", "n"])
+	key(on(Item, "owner", "n"))
 ])
 
 export const Tones = query(Agree)

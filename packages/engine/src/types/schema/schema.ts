@@ -6,12 +6,14 @@ import type { AnyClosed, AnyRelation, NameOf } from "#compiler/types/schema/rela
 import type {
 	Alternatives,
 	AlternativesBase,
+	CandidateKey,
 	Capacity,
 	Check,
 	Containment,
 	ExpansionOf,
 	Key,
 	Mirrors,
+	MirrorsBase,
 	Mutable,
 	RelationOfKey,
 	Side,
@@ -59,13 +61,13 @@ export type DerivedAt<L> = L extends unknown
 	: never
 
 /**
- * The relations a statement names: the relation of a key, a mutable or a check; the source of each law side (a
- * selection's relation); and an alternatives law's parent, roster and arms.
+ * The relations a statement names: the relation of a mutable or a check; the source of each law side (a selection's
+ * relation), a key's included; and an alternatives law's parent, roster and arms.
  */
 type SideNames<X> = X extends Side<infer Src> ? SideRelation<Src> : never
 export type NamedBy<St> =
-	St extends Key<infer R, ReadonlyArray<string>>
-		? R
+	St extends Key<infer S>
+		? SideNames<S>
 		: St extends Mutable<infer R>
 			? R
 			: St extends Check<string, infer R>
@@ -192,8 +194,11 @@ export type KeysOf<S, R> = R extends { readonly kind: "context" }
 							: never)
 			| Lookup<KeyIndexOf<S>, NameOf<R>>
 
-/** The key statements of S. */
-type KeyStatementOf<S> = Extract<StatementOf<S>, Key<unknown, ReadonlyArray<string>>>
+/**
+ * The key statements of S that are candidate keys: over a side of a whole relation, every term a field. A key over a
+ * selection or a pred term constrains only the facts its side reads, so it is no key of the relation.
+ */
+type KeyStatementOf<S> = Extract<StatementOf<S>, CandidateKey<AnyRelation>>
 
 /**
  * The candidate keys of every relation of S, keyed by its own domain, the names S's key statements declare. It is
@@ -202,10 +207,10 @@ type KeyStatementOf<S> = Extract<StatementOf<S>, Key<unknown, ReadonlyArray<stri
  * schema, so the name identifies the relation.
  */
 type KeyIndexOf<S> = {
-	readonly [N in NameOf<KeyStatementOf<S>["relation"]>]: Extract<
+	readonly [N in NameOf<KeyStatementOf<S>["side"]["source"]>]: Extract<
 		KeyStatementOf<S>,
-		{ readonly relation: { readonly name: N } }
-	>["fields"]
+		{ readonly side: { readonly source: { readonly name: N } } }
+	>["side"]["terms"]
 }
 
 /** The proved keys a query's evidence carries. */
@@ -216,7 +221,19 @@ type DefinitionKeysOf<Q> =
 			: never
 		: never
 
-/** The laws of S: its statements, each alternatives law read as the statements it expands to. */
+/** A law read without its sugar: a mirrors as the two containments it is, any other law as itself. */
+type Desugared<L> = L extends MirrorsBase
+	? L extends Mirrors<infer A, infer B>
+		? Containment<A, B> | Containment<B, A>
+		: never
+	: L
+
+/**
+ * The laws of S: its statements, each alternatives law read as the statements it expands to, and each mirrors, its
+ * own or an alternatives arm's, as its two containments.
+ */
 export type LawsOf<S> =
-	StatementOf<S> extends infer St ? (St extends AlternativesBase ? ExpansionOf<St> : St) : never
+	StatementOf<S> extends infer St
+		? Desugared<St extends AlternativesBase ? ExpansionOf<St> : St>
+		: never
 export type ContainmentsOf<S> = Extract<LawsOf<S>, Containment<unknown, unknown>>

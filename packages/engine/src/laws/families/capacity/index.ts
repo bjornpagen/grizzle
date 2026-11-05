@@ -80,7 +80,7 @@ const groupVariable: FamilyVariable = "g"
  * key: its projection when that is a key of T, otherwise, for a strict superkey, its primary key,
  * read from the target row.
  *
- * The 1..1 existence variant replaces step 4 by one existence probe through the same index, and its refusal:
+ * The existence variant replaces step 4 by one existence probe through the same index, and its refusal:
  *
  *     PERFORM 1 FROM <S> AS r1 WHERE r1.<sk1> = t.c1 AND ... AND <the source selector over r1> LIMIT 1;
  *     IF NOT FOUND THEN RAISE ... END IF;

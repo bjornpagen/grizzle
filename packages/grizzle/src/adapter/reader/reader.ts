@@ -231,10 +231,11 @@ const context = "snapshot"
 
 /**
  * The decoder of a get target's rows: a query's rows decoder, or the keyed relation's fact decoder. The target is
- * known to be a query, a built relation or closed relation, or a Key over one (key.ts), so it carries its decoder.
+ * known to be a query, a built relation or closed relation, or a Key over a side of one (key.ts), so it carries its
+ * decoder.
  */
 const decoderOf = <A>(target: Decoding<A>): RowDecoder<A> =>
-	"rows" in target ? target.rows : "fact" in target ? target.fact : target.relation.fact
+	"rows" in target ? target.rows : "fact" in target ? target.fact : target.side.source.fact
 
 /**
  * A typed reader: QueryReader<S>'s operations as properties, each a function a caller may take off the reader, and the

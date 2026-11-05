@@ -456,7 +456,7 @@ export const physicalKinds = [
 	"enum",
 	"domain",
 	"table",
-	"storedTag",
+	"lawColumn",
 	"primaryKey",
 	"unique",
 	"check",

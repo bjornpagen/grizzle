@@ -289,7 +289,8 @@ class Call {
 
 	/**
 	 * An operand opposite a term of `anchor`: a term, a parameter among them, or, where `literals` admits one, a literal
-	 * of anchor's base.
+	 * of anchor's base. A literal takes the type of the term it meets, so its placeholder is a value of `anchor`, and no
+	 * operand is typed on its own: a conditional, least and greatest are their first operand's type.
 	 */
 	operand(
 		value: unknown,
@@ -314,7 +315,7 @@ class Call {
 			value: this.literal(value, anchor),
 			type: undefined
 		}
-		return { real: literal, ph: literal }
+		return { real: literal, ph: this.placeholder(anchor) }
 	}
 
 	field(value: unknown, what: string): DescribedField {

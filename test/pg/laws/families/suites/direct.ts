@@ -126,7 +126,7 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 						: (["refused by privilege"] satisfies ReadonlyArray<Reached<DirectFeature>>)),
 					"refused at a statement by a key",
 					...(Arr.some(laws, isResidual) ? (["refused at COMMIT by a residual law"] as const) : []),
-					...(Arr.some(laws, (l) => (l.kind === "contained" || l.kind === "covered") && !l.residual)
+					...(Arr.some(laws, (l) => l.kind === "contained" || (l.kind === "covered" && !l.residual))
 						? (["refused at COMMIT by a foreign key"] as const)
 						: []),
 					"committed",

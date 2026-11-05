@@ -1,6 +1,5 @@
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { namedatalen } from "#compiler/core/identity.ts"
-import { derived, type Limit } from "#compiler/core/limits.ts"
+import { derived, type Limit, namedatalen } from "#compiler/core/limits.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -25,7 +24,7 @@ import type {
 	DerivedDraft,
 	OrdinaryRelationDesc
 } from "#compiler/schema/relation.ts"
-import type { AlternativesDesc, SelectionDesc } from "#compiler/schema/statements.ts"
+import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
@@ -33,6 +32,7 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
 	AlternativesBase,
 	AnySide,
+	MirrorsBase,
 	Selection,
 	Statement
 } from "#compiler/types/schema/statements.ts"
@@ -59,10 +59,10 @@ import type { AnyContext, AnyLogin, AnyRole, AnyWorld } from "#compiler/types/sc
  *   made in scalar/compute/term.ts's registry, and termExpr and predicateExpr read that, never the members. Row checks
  *   (terms.ts) build and read terms this way, so a Compute expression over a row's fields composes with the row's own
  *   comparisons.
- * - Owned schema values. Every value this package builds (relations, closed and derived relations, statements, sides,
- *   selections, schemas, contexts, world relations, roles and logins) is frozen, carries its Description under a
- *   non-enumerable `desc`, and is registered here, so ownership trusts exactly the values the builders made and a
- *   JavaScript look-alike is decoded strictly.
+ * - Owned schema values. Every value this package builds (relations, closed and derived relations, statements, the
+ *   expansions of mirrors and alternatives, sides, selections, schemas, contexts, world relations, roles and logins)
+ *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
+ *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
  */
 export const isPlainRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
 	if (typeof value !== "object" || value === null || isList(value)) {
@@ -202,19 +202,23 @@ export const querySchemaOf = (value: unknown): object | undefined =>
 
 /**
  * Each kind of owned value: the value a builder returns, at the widest of its public type, and the Description it
- * carries. An alternatives law is owned as its own kind, never as a statement.
+ * carries. A mirrors and an alternatives law are sugar, owned as an expansion, the statements they state, never as a
+ * statement.
  */
 interface OwnedKinds {
 	readonly relation: { readonly value: AnyRelation; readonly desc: OrdinaryRelationDesc }
 	readonly closed: { readonly value: AnyClosed; readonly desc: ClosedRelationDesc }
 	readonly derived: { readonly value: AnyDerived; readonly desc: DerivedDraft }
 	readonly statement: {
-		readonly value: Exclude<Statement, AlternativesBase>
+		readonly value: Exclude<Statement, AlternativesBase | MirrorsBase>
 		readonly desc: StatementDesc
 	}
-	readonly alternatives: { readonly value: AlternativesBase; readonly desc: AlternativesDesc }
+	readonly expansion: {
+		readonly value: AlternativesBase | MirrorsBase
+		readonly desc: ExpansionDesc
+	}
 	readonly side: { readonly value: AnySide; readonly desc: SideDesc }
-	readonly selection: { readonly value: Selection<unknown, unknown>; readonly desc: SelectionDesc }
+	readonly selection: { readonly value: Selection<unknown>; readonly desc: SelectedDesc }
 	readonly schema: { readonly value: AnySchema; readonly desc: SchemaDesc }
 	readonly context: { readonly value: AnyContext; readonly desc: ContextDesc }
 	readonly world: { readonly value: AnyWorld; readonly desc: WorldDraft }
@@ -229,7 +233,7 @@ const ownedKinds: ReadonlyArray<OwnedKind> = [
 	"closed",
 	"derived",
 	"statement",
-	"alternatives",
+	"expansion",
 	"side",
 	"selection",
 	"schema",
@@ -253,7 +257,7 @@ const owned: { readonly [K in OwnedKind]: WeakMap<object, OwnedEntry<K>> } = {
 	closed: new WeakMap(),
 	derived: new WeakMap(),
 	statement: new WeakMap(),
-	alternatives: new WeakMap(),
+	expansion: new WeakMap(),
 	side: new WeakMap(),
 	selection: new WeakMap(),
 	schema: new WeakMap(),

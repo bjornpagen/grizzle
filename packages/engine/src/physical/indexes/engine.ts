@@ -40,7 +40,7 @@ import {
 import { baseOf, fewValued, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { BuiltTarget, InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import { type KeyIndex, rowsPredicate } from "#compiler/physical/ddl/tables.ts"
+import { indexedName, type KeyIndex, rowsPredicate } from "#compiler/physical/ddl/tables.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	btreeEntry,
@@ -111,17 +111,25 @@ const requestLabel = (r: IndexRequest): string => {
 const reasonOf = (r: IndexRequest): PhysicalReason =>
 	r.role === "lawMaintenance" ? { kind: "law", law: r.justification.law } : { kind: "access" }
 
-/** The reverse lookup of every containment the law model lowered to a referencing-side index:
- * one request per law the index serves. */
+/**
+ * The reverse lookup of every containment the law model lowered to a referencing-side index: one request per law the
+ * index serves, over its referencing columns, a field by its name and a law column by its identifier (`indexedName`).
+ * The law model leaves a constant law column out of them: one value in every row narrows no lookup.
+ */
 export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> =>
 	b.natives.flatMap(({ object: n }) => {
 		if (n.kind !== "ReverseIndex") {
 			return []
 		}
-		const spans = n.columns.some(isSpanField)
+		const columns = n.columns
+		const spans = columns.some((c) => c.kind === "field" && isSpanField(c.field))
 		return n.lawIds.map((law: LawId): IndexRequest => ({
 			relation: n.relation.name,
-			keys: n.columns.map((f) => ({ expr: f.name, dir: "asc" as const, opclass: defaultOpclass })),
+			keys: columns.map((c) => ({
+				expr: indexedName(c),
+				dir: "asc" as const,
+				opclass: defaultOpclass
+			})),
 			/** A PERIOD reference's reverse probe tests overlap on the span, which a GiST index serves with its scalar
 			 * prefix through btree_gist. */
 			method: spans ? "gist" : "btree",
@@ -677,11 +685,11 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * are deduplicated against the key indexes and against each other, merging provenance. Containments imply useful
  * indexes.
  *
- * Requests come from two sources. Law maintenance is generated here from the law model: a reverse
- * foreign-key lookup for every containment PostgreSQL does not index on the referencing side (the ReverseIndex
- * natives), and each residual law's probes (ResidualLaw.indexes); workload access paths arrive from the workload compiler
- * through an installer extension's contribution (`workloadExtension`). A law-maintenance request is always
- * served, because a per-key check without one is a table scan.
+ * Requests come from two sources. Law maintenance is generated here from the law model: a reverse foreign-key lookup
+ * for every containment PostgreSQL does not index on the referencing side (the ReverseIndex natives, over fields and
+ * law columns alike), and each residual law's probes (ResidualLaw.indexes); workload access paths arrive from the
+ * workload compiler through an installer extension's contribution (`workloadExtension`). A law-maintenance request is
+ * always served, because a per-key check without one is a table scan.
  *
  * Coverage, one rule (`keysServe` and `serves`), over where a request's columns may sit in a serving index and the access
  * methods of the indexes that may hold them so (Placements), read once from its access method, role and use:
@@ -728,19 +736,19 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  *   handles or booleans, none a span) is served by an index its bound columns lead, in any order. Extraction states a
  *   span predicate with every column its fixed values and join partners bind, so a request on `during` alone is one
  *   where nothing binds a scalar beside it;
- * - an equality lookup, or a range whose prefix fixes them, is also served by a unique index (a key's, or a capacity's
- *   partial unique index for its own selection) all of whose keys the request fixes by equality: the index finds at
- *   most one row, on which PostgreSQL rechecks the request's other columns, so a law's probe on `(id, tenant)` is
- *   served by the primary key on `id`; an order is not, since PostgreSQL still sorts by the columns after a key;
+ * - an equality lookup, or a range whose prefix fixes them, is also served by a key's unique index all of whose keys
+ *   the request fixes by equality: the index finds at most one row, on which PostgreSQL rechecks the request's other
+ *   columns, so a law's probe on `(id, tenant)` is served by the primary key on `id`; an order is not, since PostgreSQL
+ *   still sorts by the columns after a key;
  * - an approximate vector retrieval is served by an HNSW index on its column under its class;
  * - operator classes must agree; every collatable key is pg_catalog.pg_c_utf8 by construction, so collation
  *   never differs;
- * - rows: a request reads every row of its relation, or, a law's probe of a selected source (a selected-source
- *   containment's or coverage's source probe, a capacity's group aggregate over a selected source), only the rows
- *   its selection chooses (`IndexRows`). An index of every row serves either. A partial index, which
- *   holds only the rows of its selection (a capacity's partial unique index, or one the engine created for a selected
- *   probe), serves exactly the requests of that selection: a full-table request would miss the rows it leaves out,
- *   and so would a probe of another selection, which PostgreSQL could not prove implies its predicate.
+ * - rows: a request reads every row of its relation, or, a law's probe of a selected source (a coverage's source probe,
+ *   a capacity's group aggregate over a selected source), only the rows its selection chooses (`IndexRows`). An index
+ *   of every row serves either; a key's holds every row, the ones null in a column of it too (NULLS DISTINCT). A
+ *   partial index, which holds only the rows of its selection (one the engine created for a selected probe), serves
+ *   exactly the requests of that selection: a full-table request would miss the rows it leaves out, and so would a
+ *   probe of another selection, which PostgreSQL could not prove implies its predicate.
  *
  * Each request's placements in a serving index (`placementsOf`) are the one statement of the rules on columns and methods:
  * its own, which an index created for it takes, and the others an index may hold instead, each with the access methods
@@ -765,8 +773,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * index of every row that another request needs rather than adding one beside it (a partial index never serves a
  * full-table request, whatever keys either names); a probe of another selection never does. An unserved selected probe
  * whose draft no full-table request widens becomes a partial index `WHERE <selection>` holding only the selected rows
- * (`rowsPredicate`, which spells a capacity's partial unique index too), a predicate the probe's own WHERE implies, since
- * the law's function spells the selection with the same literals. So an equality lookup on `{account, created}` planned
+ * (`rowsPredicate`), a predicate the probe's own WHERE implies, since the law's function spells the selection with the
+ * same literals. So an equality lookup on `{account, created}` planned
  * before a range on `created` then `account` creates `(created, account)`, which serves both, a wider equality lookup
  * takes the order a narrower range or order over its columns fixes, an equality lookup on scalars becomes a GiST index
  * when a GiST request over its columns refines it, and a GiST index leads with a column of many values a later GiST
@@ -783,9 +791,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * columns, the canonical directions and each key's operator class, which serving requires equal, its access method and
  * its rows; the name marks a method other than the B-tree, the descending keys, the classes beyond the default and a
  * partial index's selection, each part of its identity at the naming door (identity.accessIndex). Uniqueness is
- * never traded: a request never turns into or replaces a unique constraint, and enforcement objects (keys, a
- * capacity's partial unique index) stay separate from access-path indexes. The index's key entry must fit its access
- * method, like a key's.
+ * never traded: a request never turns into or replaces a unique constraint, and enforcement objects (keys) stay
+ * separate from access-path indexes. The index's key entry must fit its access method, like a key's.
  *
  * A derived relation's materialized view takes indexes like a table: the derived relation
  * extension registers the view's fields and inherited key indexes with the builder (`addIndexedView`),
@@ -808,18 +815,17 @@ export const planIndexes = (
 				relation: view.relation,
 				method: "btree",
 				columns: u.columns,
-				rows: allRows,
 				unique: true
 			}))
 		)
-		/** Each key index's keys ascending under the default class. */
+		/** Each key index's keys ascending under the default class, over every row. */
 		const candidates: Array<Candidate> = [...keyIndexes, ...viewKeys].map((k) => ({
 			index: {
 				index: { kind: "installed", name: k.name },
 				relation: k.relation,
 				method: k.method,
 				keys: k.columns.map((field): IndexKey => ({ field, dir: "asc", opclass: defaultOpclass })),
-				rows: k.rows,
+				rows: allRows,
 				unique: true,
 				object: k.object,
 				requests: []
@@ -1029,7 +1035,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 		table: b.names.relation(request.relation),
 		method,
 		keys: mapNonEmpty(keys, (k) => ({
-			...columnKey(b.names.column(request.relation, k.field)),
+			...columnKey(o.column(k.field)),
 			opclass:
 				k.opclass.kind === "default"
 					? undefined

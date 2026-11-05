@@ -93,7 +93,6 @@ const writesRequired: Situations<WorldFeature> = [
 				"object:policy:",
 				"object:filter-function:",
 				"object:key-probe:",
-				"object:unique-probe:",
 				"object:membership:"
 			)(f)
 	),
@@ -107,7 +106,6 @@ const writesRequired: Situations<WorldFeature> = [
 	...invalidFeatures([
 		"fact:outside-world",
 		"fact:hidden-key-collision",
-		"fact:hidden-capacity-collision",
 		"fact:domain-refused",
 		...ofKinds("role:"),
 		...ofKinds("claims:"),

@@ -196,7 +196,11 @@ export default defineConfig(
 					"packages/testing/src",
 					"packages/devtools/src"
 				],
-				writers: ["packages/engine/src/sql/print.ts", "packages/engine/src/sql/lexer.ts"]
+				writers: [
+					"packages/engine/src/sql/print.ts",
+					"packages/engine/src/sql/lexer.ts",
+					"packages/engine/src/sql/constants.ts"
+				]
 			},
 			"no-dynamic-imports": {
 				allowed: [{ file: "packages/grizzle/src/cli/main.ts", specifier: "grizzle:config" }]

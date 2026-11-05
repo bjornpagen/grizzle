@@ -1,43 +1,21 @@
 import type { KeyFault } from "#compiler/core/causes.ts"
-import { derived, type Limit, published } from "#compiler/core/limits.ts"
+import {
+	alignUp,
+	blockSize,
+	derived,
+	itemIdBytes,
+	type Limit,
+	maxAlign,
+	pageHeaderBytes,
+	postgresSource,
+	published,
+	typlens
+} from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { itemIdBytes, pageHeaderBytes } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
 import { analyzeText, refinementBounds } from "#compiler/text/refinement.ts"
-
-const pgSource = "https://github.com/postgres/postgres/blob/REL_19_RC1"
-
-/** The pinned build's block size, BLCKSZ: the page every index entry must fit a share of. */
-const blockSize: Limit = published({
-	value: 8192,
-	owner: "PostgreSQL 19rc1",
-	unit: "bytes",
-	scope:
-		"one page of a B-tree or GiST index of the pinned build, which scripts/pg/build.sh configures by default",
-	constraint: "configurable default",
-	source: `${pgSource}/meson_options.txt#L5-L8`,
-	quote:
-		"option('blocksize', type: 'combo', choices: ['1', '2', '4', '8', '16', '32'], value: '8', description: 'Relation block size, in kilobytes')",
-	verified: "2026-11-05"
-})
-
-/**
- * The greatest alignment PostgreSQL rounds a tuple and its parts to, MAXIMUM_ALIGNOF: 8 on every platform it builds
- * on, the alignment of int64 and double. An entry measured at the greatest alignment is at least its size at any.
- */
-const maxAlign: Limit = published({
-	value: 8,
-	owner: "PostgreSQL 19rc1",
-	unit: "bytes",
-	scope: "the alignment of an index tuple, its header and its attributes",
-	constraint: "compile-time constant",
-	source: `${pgSource}/meson.build#L1877-L1878`,
-	quote:
-		"we intentionally do not consider any types wider than 64 bits, as allowing MAXIMUM_ALIGNOF to exceed 8 would be too much of a penalty for disk and memory space",
-	verified: "2026-11-05"
-})
 
 /** A tuple identifier, ItemPointerData. */
 const itemPointerBytes: Limit = published({
@@ -46,7 +24,7 @@ const itemPointerBytes: Limit = published({
 	unit: "bytes",
 	scope: "the heap tuple identifier an index tuple and a B-tree pivot carry",
 	constraint: "compile-time constant",
-	source: `${pgSource}/src/include/storage/itemptr.h#L30-L31`,
+	source: `${postgresSource}/src/include/storage/itemptr.h#L30-L31`,
 	quote: "The struct is designed to be six bytes long (it contains three int16 fields)",
 	verified: "2026-11-05"
 })
@@ -58,7 +36,7 @@ const indexTupleHeader: Limit = published({
 	unit: "bytes",
 	scope: "the header of every B-tree and GiST index tuple",
 	constraint: "compile-time constant",
-	source: `${pgSource}/src/include/access/itup.h#L35-L51`,
+	source: `${postgresSource}/src/include/access/itup.h#L35-L51`,
 	quote:
 		"typedef struct IndexTupleData { ItemPointerData t_tid; unsigned short t_info; } IndexTupleData;",
 	verified: "2026-11-05"
@@ -71,7 +49,7 @@ const btreeOpaqueBytes: Limit = published({
 	unit: "bytes",
 	scope: "the special space of every B-tree page",
 	constraint: "compile-time constant",
-	source: `${pgSource}/src/include/access/nbtree.h#L63-L70`,
+	source: `${postgresSource}/src/include/access/nbtree.h#L63-L70`,
 	quote:
 		"typedef struct BTPageOpaqueData { BlockNumber btpo_prev; BlockNumber btpo_next; uint32 btpo_level; uint16 btpo_flags; BTCycleId btpo_cycleid; } BTPageOpaqueData;",
 	verified: "2026-11-05"
@@ -84,39 +62,11 @@ const gistOpaqueBytes: Limit = published({
 	unit: "bytes",
 	scope: "the special space of every GiST page",
 	constraint: "compile-time constant",
-	source: `${pgSource}/src/include/access/gist.h#L80-L86`,
+	source: `${postgresSource}/src/include/access/gist.h#L80-L86`,
 	quote:
 		"typedef struct GISTPageOpaqueData { PageGistNSN nsn; BlockNumber rightlink; uint16 flags; uint16 gist_page_id; } GISTPageOpaqueData;",
 	verified: "2026-11-05"
 })
-
-const pgTypeDat = `${pgSource}/src/include/catalog/pg_type.dat` as const
-
-/** A fixed-size type's typlen, as pg_type.dat's entry for it at `line` states it: the bytes one datum occupies. */
-const typlen = (type: string, value: number, line: number, quote: string): Limit =>
-	published({
-		value,
-		owner: "PostgreSQL 19rc1",
-		unit: "bytes",
-		scope: `one ${type} datum, in a heap tuple and in an index entry`,
-		constraint: "compile-time constant",
-		source: `${pgTypeDat}#L${line}`,
-		quote,
-		verified: "2026-11-05"
-	})
-
-/** The typlen of each fixed-size type a field, a range's endpoint or a varlena's part is. */
-const typlens = {
-	int2: typlen("smallint", 2, 62, "typname => 'int2', typlen => '2', typbyval => 't'"),
-	int4: typlen("integer", 4, 74, "typname => 'int4', typlen => '4', typbyval => 't'"),
-	int8: typlen("bigint", 8, 57, "typname => 'int8', typlen => '8', typbyval => 't'"),
-	float4: typlen("real", 4, 220, "typname => 'float4', typlen => '4', typbyval => 't'"),
-	float8: typlen("double precision", 8, 225, "typname => 'float8', typlen => '8', typbyval => 't'"),
-	money: typlen("money", 8, 239, "typname => 'money', typlen => '8', typbyval => 't'"),
-	bool: typlen("boolean", 1, 36, "typname => 'bool', typlen => '1', typbyval => 't'"),
-	oid: typlen("oid", 4, 89, "typname => 'oid', typlen => '4', typbyval => 't'"),
-	uuid: typlen("uuid", 16, 409, "typname => 'uuid', typlen => '16', typbyval => 'f'")
-} as const
 
 /** An enum's datum: its label's OID, the internal size DefineEnum creates every enum type with. */
 const enumBytes: Limit = derived({
@@ -124,7 +74,7 @@ const enumBytes: Limit = derived({
 	unit: "bytes",
 	scope: "one enum datum, a closed relation's handle",
 	from: [typlens.oid],
-	derivation: `the typlen of oid: DefineEnum creates the type with "sizeof(Oid), /* internal size */" (${pgSource}/src/backend/commands/typecmds.c#L1237)`,
+	derivation: `the typlen of oid: DefineEnum creates the type with "sizeof(Oid), /* internal size */" (${postgresSource}/src/backend/commands/typecmds.c#L1237)`,
 	compute: ([oid]) => oid.value
 })
 
@@ -139,7 +89,7 @@ const varlenaHeaderBytes: Limit = published({
 	scope:
 		"the header of one variable-length datum, uncompressed and in line: a numeric, a text, a range, a vector",
 	constraint: "compile-time constant",
-	source: `${pgSource}/src/include/c.h#L787`,
+	source: `${postgresSource}/src/include/c.h#L787`,
 	quote: "#define VARHDRSZ\t\t((int32) sizeof(int32))",
 	verified: "2026-11-05"
 })
@@ -153,7 +103,7 @@ const rangeHeaderBytes: Limit = derived({
 	unit: "bytes",
 	scope: "the header of one range datum",
 	from: [varlenaHeaderBytes, typlens.oid],
-	derivation: `sizeof(RangeType), "typedef struct { int32 vl_len_; Oid rangetypid; /* Following the OID are zero to two bound values, then a flags byte */ } RangeType;" (${pgSource}/src/include/utils/rangetypes.h#L25-L30), which range_serialize counts first: VARHDRSZ and an oid`,
+	derivation: `sizeof(RangeType), "typedef struct { int32 vl_len_; Oid rangetypid; /* Following the OID are zero to two bound values, then a flags byte */ } RangeType;" (${postgresSource}/src/include/utils/rangetypes.h#L25-L30), which range_serialize counts first: VARHDRSZ and an oid`,
 	compute: ([header, oid]) => header.value + oid.value
 })
 
@@ -164,7 +114,7 @@ const rangeFlagBytes: Limit = published({
 	unit: "bytes",
 	scope: "the flags of one range datum",
 	constraint: "compile-time constant",
-	source: `${pgSource}/src/backend/utils/adt/rangetypes.c#L2049-L2050`,
+	source: `${postgresSource}/src/backend/utils/adt/rangetypes.c#L2049-L2050`,
 	quote: "/* Add space for flag byte */ msize += sizeof(char);",
 	verified: "2026-11-05"
 })
@@ -175,7 +125,7 @@ const numericHeaderBytes: Limit = derived({
 	unit: "bytes",
 	scope: "the long header of one numeric datum, the longest it takes",
 	from: [varlenaHeaderBytes, typlens.int2],
-	derivation: `"#define NUMERIC_HDRSZ\t(VARHDRSZ + sizeof(uint16) + sizeof(int16))" (${pgSource}/src/backend/utils/adt/numeric.c#L178): VARHDRSZ and two 16-bit fields, each a smallint's width`,
+	derivation: `"#define NUMERIC_HDRSZ\t(VARHDRSZ + sizeof(uint16) + sizeof(int16))" (${postgresSource}/src/backend/utils/adt/numeric.c#L178): VARHDRSZ and two 16-bit fields, each a smallint's width`,
 	compute: ([header, int16]) => header.value + int16.value * 2
 })
 
@@ -185,7 +135,7 @@ const numericDigitBytes: Limit = derived({
 	unit: "bytes",
 	scope: "one NBASE digit of a numeric datum",
 	from: [typlens.int2],
-	derivation: `"typedef int16 NumericDigit;" (${pgSource}/src/backend/utils/adt/numeric.c#L103), a smallint's width`,
+	derivation: `"typedef int16 NumericDigit;" (${postgresSource}/src/backend/utils/adt/numeric.c#L103), a smallint's width`,
 	compute: ([int16]) => int16.value
 })
 
@@ -201,7 +151,6 @@ const vectorHeaderBytes: Limit = derived({
 	compute: ([header, int16]) => header.value + int16.value * 2
 })
 
-const alignUp = (n: number, a: number): number => Math.ceil(n / a) * a
 const alignDown = (n: number, a: number): number => Math.floor(n / a) * a
 
 /** The most bytes one B-tree entry takes: BTMaxItemSize, a third of a page, its pivot's heap tuple identifier left. */
@@ -210,7 +159,7 @@ export const btreeMaxItemSize: Limit = derived({
 	unit: "bytes",
 	scope: "one B-tree index entry, a key's index's among them",
 	from: [blockSize, maxAlign, pageHeaderBytes, itemIdBytes, btreeOpaqueBytes, itemPointerBytes],
-	derivation: `nbtree.h's BTMaxItemSize: MAXALIGN_DOWN((BLCKSZ - MAXALIGN(SizeOfPageHeaderData + 3*sizeof(ItemIdData)) - MAXALIGN(sizeof(BTPageOpaqueData))) / 3) - MAXALIGN(sizeof(ItemPointerData)) (${pgSource}/src/include/access/nbtree.h#L165-L169), three entries to a page`,
+	derivation: `nbtree.h's BTMaxItemSize: MAXALIGN_DOWN((BLCKSZ - MAXALIGN(SizeOfPageHeaderData + 3*sizeof(ItemIdData)) - MAXALIGN(sizeof(BTPageOpaqueData))) / 3) - MAXALIGN(sizeof(ItemPointerData)) (${postgresSource}/src/include/access/nbtree.h#L165-L169), three entries to a page`,
 	compute: ([block, align, header, itemId, opaque, pointer]) =>
 		alignDown(
 			(block.value -
@@ -227,7 +176,7 @@ export const gistMaxItemSize: Limit = derived({
 	unit: "bytes",
 	scope: "one GiST index entry, a span key's among them",
 	from: [blockSize, maxAlign, pageHeaderBytes, gistOpaqueBytes, itemIdBytes],
-	derivation: `gist_private.h's GiSTPageSize, BLCKSZ - SizeOfPageHeaderData - MAXALIGN(sizeof(GISTPageOpaqueData)) (${pgSource}/src/include/access/gist_private.h#L474-L475), less the entry's one ItemIdData, as gistfitpage counts it`,
+	derivation: `gist_private.h's GiSTPageSize, BLCKSZ - SizeOfPageHeaderData - MAXALIGN(sizeof(GISTPageOpaqueData)) (${postgresSource}/src/include/access/gist_private.h#L474-L475), less the entry's one ItemIdData, as gistfitpage counts it`,
 	compute: ([block, align, header, opaque, itemId]) =>
 		block.value - header.value - alignUp(opaque.value, align.value) - itemId.value
 })
@@ -239,7 +188,7 @@ export const indexMaxKeys: Limit = published({
 	unit: "columns",
 	scope: "one index: a key's, a span key's GiST constraint, an access path's",
 	constraint: "compile-time constant",
-	source: `${pgSource}/src/include/pg_config_manual.h#L79`,
+	source: `${postgresSource}/src/include/pg_config_manual.h#L79`,
 	quote: "#define INDEX_MAX_KEYS\t\t32",
 	verified: "2026-11-05"
 })

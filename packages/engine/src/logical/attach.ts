@@ -7,7 +7,7 @@ import {
 	type TemplateContext
 } from "#compiler/ir/evidence.ts"
 import { nativeEqualityKey, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import type { LawSide } from "#compiler/ir/law.ts"
+import type { EvidenceSide } from "#compiler/ir/law.ts"
 import {
 	edgesOf,
 	type KindOver,
@@ -30,10 +30,10 @@ import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 /** A containment as the attachment rule reads it (theory/theory.ts ContainmentEvidence). */
 export interface ContainmentFact {
-	readonly from: LawSide
-	readonly to: LawSide
+	readonly from: EvidenceSide
+	readonly to: EvidenceSide
 	readonly coverage: boolean
-	readonly statement: "contained" | "mirrors"
+	readonly statement: "contained" | "alternatives"
 	readonly context: EvidenceContext
 }
 
@@ -214,7 +214,7 @@ const mappedExactly = (
  * A second pair onto the same source column constrains the child by another parent column too: the child is
  * empty unless both parent columns agree, which no containment proves.
  *
- * Only a declared `contained` types a bare child: a mirrors half, an alternatives arm among them, proves the
+ * Only a declared `contained` types a bare child, each of a mirrors' two among them: an alternatives arm proves the
  * same existence, but the API states bare delivery from containments alone, and the delivered shape is the one
  * the public type promises.
  *
@@ -468,8 +468,8 @@ const rowsNode = (node: RelNode): RelNode => (node.kind === "Attach" ? rowsNode(
  *     key's relation with no further predicate, its correlated columns are exactly a declared key of it, and the
  *     parent's correlated columns were read from one fact of the containment's source relation, the fields in order,
  *     satisfying the source's selection; the containment must be valid in the reading context, so a
- *     deferred law is used only under committed-snapshot evidence. A mirrors, an alternatives arm among
- *     them, proves the same existence, but the public type states bare delivery from containments alone, and the
+ *     deferred law is used only under committed-snapshot evidence. An alternatives arm proves the same
+ *     existence, but the public type states bare delivery from containments alone, and the
  *     delivered shape is the one the type promises: its arms are Some or None by the handle,
  *     an Option here;
  *   - a reflexive self-match: the child is an aggregate over one scan of the relation the parent's fact was read from,

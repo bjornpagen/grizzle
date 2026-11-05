@@ -28,6 +28,7 @@ import { type Candidate, candidatesOf } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import {
 	decodeDesc,
+	everyFact,
 	type FieldDesc,
 	type LiteralDesc,
 	type LoginDesc,
@@ -859,7 +860,12 @@ const worldsOf = (
 	return [login.value]
 }
 
-const on = (relation: string): SideDesc => ({ relation, fields: ["code"], selection: {} })
+/** A side over every fact of `relation`, by its code. */
+const on = (relation: string): SideDesc => ({
+	relation,
+	terms: [{ kind: "field", field: "code" }],
+	selection: everyFact
+})
 
 /** The coded pair's relations and statements at a version: none when the path does not draw it. */
 const codedOf = (
