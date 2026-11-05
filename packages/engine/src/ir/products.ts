@@ -83,10 +83,6 @@ export type RelationParamEncoder = (
 	{ readonly arrays: ArrayTexts; readonly count: number },
 	EncodingFailure | LiteralBound
 >
-/** RelationEncoder: a relation parameter's host value to its arrays, refusing a value that is no iterable of facts. */
-export type RelationEncoder = (
-	value: unknown
-) => Result.Result<ArrayTexts, EncodingFailure | LiteralBound>
 
 /**
  * The compiler's products.
@@ -187,7 +183,8 @@ export type ParamSlot =
 			readonly kind: "relation"
 			readonly param: ParamId
 			readonly part: number
-			readonly encode: RelationEncoder
+			/** Over the parameter's input, normalized once per execution: every statement encodes one set. */
+			readonly encode: MemberEncoder
 	  }
 	| {
 			readonly kind: "member"

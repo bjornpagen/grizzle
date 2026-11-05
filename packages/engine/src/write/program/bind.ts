@@ -1,5 +1,10 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import { arrayTexts, parameterNormalizer, positionalColumns } from "#compiler/codec/recordset.ts"
+import {
+	arrayTexts,
+	type NormalizedRelation,
+	parameterNormalizer,
+	positionalColumns
+} from "#compiler/codec/recordset.ts"
 import { paramEncoder } from "#compiler/codec/scalar.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
@@ -186,6 +191,9 @@ export const bindWrite = (
 	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
 	 * statement whose take its rows bound (`sentForm`). */
 	const counted: Array<{ readonly param: ParamId; readonly count: number }> = []
+	/** Each relation parameter's input, normalized once for the application: the one set its count and every statement
+	 * that binds it read. */
+	const relationInputs = new Map<ParamId, NormalizedRelation>()
 	const paramValue = (name: string): unknown => inputs.params[name]
 	for (const decl of program.params) {
 		const value = paramValue(decl.name)
@@ -204,6 +212,7 @@ export const bindWrite = (
 				return Result.err(normal.error)
 			}
 			counted.push({ param: decl.id, count: normal.value.count })
+			relationInputs.set(decl.id, normal.value)
 			continue
 		}
 		const text = paramEncoder(decl.type, decl.name, frontend.codes)(value)
@@ -239,7 +248,12 @@ export const bindWrite = (
 				const written =
 					known === undefined
 						? slot.kind === "relation"
-							? slot.encode(inputs.params[slot.param])
+							? slot.encode(
+									defined(
+										relationInputs.get(slot.param),
+										`the normalized input of relation parameter ${slot.param}`
+									)
+								)
 							: slot.encode(factsOf(slot.slot))
 						: Result.ok(known)
 				if (!written.ok) {

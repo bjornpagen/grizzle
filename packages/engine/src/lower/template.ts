@@ -1,23 +1,11 @@
-import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import {
-	arraysEncoder,
-	normalArrays,
-	positionalColumns,
-	type RelationSpec
-} from "#compiler/codec/recordset.ts"
+import { normalArrays, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { paramEncoder, resultTextCasts } from "#compiler/codec/scalar.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type {
-	MemberEncoder,
-	ParamSlot,
-	RelationEncoder,
-	StatementSpec,
-	WriteSlot
-} from "#compiler/ir/products.ts"
+import type { MemberEncoder, ParamSlot, StatementSpec, WriteSlot } from "#compiler/ir/products.ts"
 
 import {
 	type ArrayPart,
@@ -127,16 +115,6 @@ const freshSupply = (statement: ConservativeStatement<ConservativeParamSlot>): N
 const outerCore = (body: SelectBody) => (body.kind === "core" ? body : undefined)
 
 /**
- * Checks of a host value an encoder reads, each narrowing by the check it performs. An object with an
- * iterator method key is iterated by the encoder, exactly as the runtime iteration protocol reads it.
- */
-const isIterableObject = (value: unknown): value is Iterable<unknown> =>
-	typeof value === "object" &&
-	value !== null &&
-	Symbol.iterator in value &&
-	typeof value[Symbol.iterator] === "function"
-
-/**
  * The statement's AST with every output column cast to its result text. The lowering built the statement: its
  * outermost body is a SELECT core whose targets are named, and a deduplicating statement orders by its output columns.
  */
@@ -224,7 +202,7 @@ const memberEncoders = new WeakMap<
 >()
 const relationEncoders = new WeakMap<
 	Codebook,
-	WeakMap<ReadonlyArray<RelationColumn>, RelationEncoder>
+	WeakMap<ReadonlyArray<RelationColumn>, MemberEncoder>
 >()
 
 /** The entry of `cache` for `codes` and `columns`, built by `make` the first time it is asked for. */
@@ -259,24 +237,19 @@ const memberEncoder = (
 	)
 
 /**
- * The deduplicating arrays encoder of a relation parameter's placeholders over `columns`, its refusals naming
- * `label`: a relation parameter is a set of facts, deduplicated.
+ * The arrays encoder of a relation parameter's placeholders over `columns`, its refusals naming `label`: the
+ * parameter's input is normalized once per execution, a set of facts deduplicated and refined there, so every statement
+ * that binds it writes the rows of that one set in its own column order (codec/recordset.ts normalRows), as a member
+ * slot's placeholders do.
  */
 const relationEncoder = (
 	label: string,
 	columns: ReadonlyArray<RelationColumn>,
 	codes: Codebook
-): RelationEncoder =>
-	cachedEncoder(relationEncoders, codes, columns, () => {
-		const arrays = arraysEncoder(placeholderSpec(label, columns, codes))
-		const encode: RelationEncoder = (value) => {
-			if (!isIterableObject(value)) {
-				return Result.err(encodeFailure("factShape", slotPlace(label)))
-			}
-			return Result.map(arrays(value), (encoded) => encoded.arrays)
-		}
-		return encode
-	})
+): MemberEncoder =>
+	cachedEncoder(relationEncoders, codes, columns, () =>
+		normalArrays(placeholderSpec(label, columns, codes))
+	)
 
 /** The position of a placeholder's array among its input's arrays: its column's, or the count's, the only one. */
 const partIndex = (part: ArrayPart): number => (part.kind === "column" ? part.index : 0)

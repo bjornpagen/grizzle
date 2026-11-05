@@ -331,8 +331,8 @@ const keyText = (values: ReadonlyArray<CarrierValue>): string =>
 /**
  * The closed reads the host evaluates a generation expression's C.at and C.row by, over the closed relations `closed`
  * holds, by name: C.at's cell is the field's value at the row whose key is its arguments, none where no row is; C.row's
- * set is the last key field's value of every row whose key begins with its arguments. Each relation is indexed by key
- * on its first read.
+ * set is a fresh Set of the last key field's value of every row whose key begins with its arguments. Each relation is
+ * indexed by key on its first read.
  */
 export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves["closed"] => {
 	const cells = new Map<string, ReadonlyMap<string, ReadonlyArray<TypedLiteral>>>()
@@ -674,7 +674,8 @@ const layoutOf = (
 const nameOf = (column: NativeColumn): string =>
 	column.kind === "field" ? column.field.name : column.column
 
-/** One step of a monoid's combine on host values, at the after's carrier; undefined when the result leaves it. */
+/** One step of a monoid's combine on host values, at the after's carrier, a set's a fresh Set; undefined when the result
+ * leaves it. */
 export const combineHost = (
 	fold: FamilyFold,
 	plane: 0 | 1,
