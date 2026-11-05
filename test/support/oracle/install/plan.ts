@@ -1209,8 +1209,9 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  *
  * Identifiers are the installer's own, minted by the naming door (core/identity.ts), so the oracle never spells a naming
  * rule; names.ts claims them per PostgreSQL namespace, the oracle's own prediction of IdentifierCollision. What the minimal installer leaves out is
- * never dropped silently: a residual law, a containment or key of a selected side or a pred term, a non-key
- * containment, a row check, capacity, or a derived relation is refused by default and recorded in `skipped` under `unsupported: "skip"`.
+ * never dropped silently: a containment or key of a selected side or a pred term, a non-key containment, a row check,
+ * a family, tree, fold or alternatives law, or a derived relation is refused by default and recorded in `skipped`
+ * under `unsupported: "skip"`.
  *
  * The minimal installer installs no predicate CHECK: a text refinement's pattern (the column is plain text), a
  * contract's predicate (its domain has no CHECK), a span endpoint's contract predicate, a row check and a finite

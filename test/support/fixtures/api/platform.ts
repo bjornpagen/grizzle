@@ -1514,7 +1514,7 @@ const capsGiven = {
 	workspace: WorkspaceLimit.fields.workspace,
 	month: WorkspaceLimit.fields.month,
 	cap: WorkspaceLimit.fields.cap
-}
+} as const
 
 /**
  * A workspace's caps replaced by the months given: each given month's cap set, and every other month of the workspace's

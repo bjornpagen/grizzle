@@ -18,7 +18,8 @@
  * statement trigger fires whether or not any row is touched, so the DELETE that matches nothing and the MERGE whose
  * condition matches nothing are refused too; a TRUNCATE cascades, so no foreign key's check comes before its trigger.
  * The space is exhausted: both writers, every statement kind, every level below SERIALIZABLE, and a mutable and an
- * immutable relation, the immutable one drawn per run among the platform's tables.
+ * immutable relation, each drawn per run among the platform's tables of its mutability (the fixture's mutable
+ * statements say which are mutable).
  */
 
 import { layer } from "@effect/vitest"
@@ -31,6 +32,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { columnOf, fieldsOf, racesAt, tableOf } from "#test/schedules/platform/support.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { loadOrder } from "#test/support/platform/generate.ts"
@@ -64,26 +66,31 @@ const levels: Arr.NonEmptyReadonlyArray<BelowSerializable> = [
 	"repeatable read"
 ]
 
-/**
- * The platform's mutable relations (the fixture's mutable statements: a workspace's caps, and the grants and invoices
- * whose counted families change after they are inserted), the one a run writes, and an immutable one drawn per run.
- */
-const mutableRelations: ReadonlyArray<RelationName> = ["WorkspaceLimit", "CreditGrant", "Invoice"]
-const mutableRelation: RelationName = "WorkspaceLimit"
+/** The platform's mutable relations, read off the fixture's mutable statements, and its immutable ones. */
+const mutables = nonEmpty(
+	Arr.flatMap(P.Platform.statements, (s): ReadonlyArray<RelationName> =>
+		s.kind === "mutable" ? [s.relation.name] : []
+	),
+	"the platform's mutable relations"
+)
 const immutables = nonEmpty(
-	Arr.filter(loadOrder, (r) => !mutableRelations.includes(r)),
+	Arr.filter(loadOrder, (r) => !mutables.includes(r)),
 	"the platform's immutable relations"
 )
 
-/** The immutable relation a run writes: one of the platform's immutable tables, drawn from the run's own stream. */
-const immutableOf = (seed: number): RelationName =>
+/** The relation of each mutability a run writes: one of the platform's tables, drawn from the run's own stream. */
+const relationOf = (
+	seed: number,
+	of: Arr.NonEmptyReadonlyArray<RelationName>,
+	mutability: Mutability
+): RelationName =>
 	defined(
 		sample(
-			element(immutables),
-			rotatingSeed(seed, floorSeed("platform/planted immutable relation")),
+			element(of),
+			rotatingSeed(seed, floorSeed(`platform/planted ${mutability} relation`)),
 			1
 		)[0],
-		"an immutable relation drawn for the run"
+		`a ${mutability} relation drawn for the run`
 	)
 
 type Mutability = "mutable" | "immutable"
@@ -202,7 +209,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				Effect.gen(function* () {
 					const s = yield* Substrate
 					const run = yield* Run
-					const immutableRelation = immutableOf(run.seed)
+					const mutableRelation = relationOf(run.seed, mutables, "mutable")
+					const immutableRelation = relationOf(run.seed, immutables, "immutable")
 					const rig = yield* openRig("Platform", racesAt)
 					const names = namesOf(rig.installed)
 					const actors = yield* openActors(s, {

@@ -304,7 +304,8 @@ export const retireWrite = (at: bigint): Write =>
 	})
 
 /**
- * The workspace's cap for the month changed in place: the fixture's setCap, a put; a direct writer replaces the limit.
+ * The workspace's cap for the month changed in place: the fixture's setCap, a put; a direct writer puts the limit too,
+ * its cap in place, its month's charges kept.
  */
 export const capWrite = (from: bigint, to: bigint): Write => ({
 	kind: from === to ? "cap put again" : "cap put",
@@ -313,10 +314,7 @@ export const capWrite = (from: bigint, to: bigint): Write => ({
 		(db) => Effect.map(db.apply(P.setCap([limitOf(to)]), {}), answerOf),
 		[putOp("WorkspaceLimit", [limitOf(to)])]
 	),
-	direct: statementsOf([
-		deleteOp("WorkspaceLimit", [limitOf(from)]),
-		insertOp("WorkspaceLimit", [limitOf(to)])
-	])
+	direct: statementsOf([putOp("WorkspaceLimit", [limitOf(to)])])
 })
 
 const sameKey = (row: Row, cap: Addition<typeof P.WorkspaceLimit>): boolean =>
@@ -325,8 +323,9 @@ const sameKey = (row: Row, cap: Addition<typeof P.WorkspaceLimit>): boolean =>
 
 /**
  * The workspace's caps replaced by `caps`: the fixture's setCaps, one MERGE putting each given month's cap and
- * removing every other month of the workspace's caps it reads. A direct writer replaces the caps it read before the
- * race, `read`, by the given ones.
+ * removing every other month of the workspace's caps it reads. A direct writer removes the months it read before the
+ * race, `read`, that `caps` does not give, and puts the given ones: a month's limit owns its charges, so it is changed
+ * in place, never removed and inserted again.
  */
 export const capsMergeWrite = (
 	kind: string,
@@ -352,13 +351,20 @@ export const capsMergeWrite = (
 			}
 		]
 	),
-	direct: statementsOf([deleteOp("WorkspaceLimit", read), insertOp("WorkspaceLimit", caps)])
+	direct: statementsOf([
+		deleteOp(
+			"WorkspaceLimit",
+			Arr.filter(read, (r) => !Arr.some(caps, (cap) => sameKey(r, cap)))
+		),
+		putOp("WorkspaceLimit", caps)
+	])
 })
 
-/** A grant replaced by another payload at its key: a put of the grant; a direct writer replaces it. */
+/**
+ * A grant given another payload at its key: a put of the grant, by grizzle or a direct writer, its debits kept.
+ */
 export const grantWrite = (
 	kind: string,
-	from: Addition<typeof P.CreditGrant>,
 	to: Addition<typeof P.CreditGrant>,
 	label: string
 ): Write => ({
@@ -369,7 +375,7 @@ export const grantWrite = (
 			Effect.map(db.apply(ChangeSet.empty(P.Platform).put(P.CreditGrant, [to]), {}), answerOf),
 		[putOp("CreditGrant", [to])]
 	),
-	direct: statementsOf([deleteOp("CreditGrant", [from]), insertOp("CreditGrant", [to])])
+	direct: statementsOf([putOp("CreditGrant", [to])])
 })
 
 type InvoiceState = "open" | "paid" | "void" | "disputed"
@@ -428,7 +434,8 @@ const invoiceIn = (s: State, state: InvoiceState): Option.Option<Row> =>
  * An invoice settlement: a workload program whose members read the invoice's state (payInvoice, disputeInvoice,
  * voidInvoice; its put and its arm's insertion read one sub-query), applied with its parameters, and on the host the
  * invoice moved from `from` to `to` with its arm when the state holds it in `from`, and nothing otherwise. A direct
- * writer replaces the invoice it read before the race, in `from`, with its payment where it gives way.
+ * writer settles the invoice it read before the race, in `from`: it puts the invoice in `to`, its lines and refunds
+ * kept, removes its payment where it gives way, and inserts the arm.
  */
 const settlementWrite = (
 	kind: "pay" | "dispute" | "void",
@@ -460,9 +467,8 @@ const settlementWrite = (
 			]
 		}),
 		direct: statementsOf([
-			deleteOp("Invoice", [invoiceOf(amount, from)]),
 			deleteOp("Payment", payments),
-			insertOp("Invoice", [invoiceOf(amount, to)]),
+			putOp("Invoice", [invoiceOf(amount, to)]),
 			arm
 		])
 	}

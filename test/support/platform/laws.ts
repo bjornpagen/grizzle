@@ -28,11 +28,13 @@
  * A write is its operations: facts deleted, inserted, and put at their keys. grizzle applies them as sets: the state
  * after is (S \ D \ the facts at the put keys) ∪ I ∪ P. A write that leaves the state as it was is no-change, one whose
  * state after breaks laws is refused by one of them, and any other is accepted. A direct SQL writer's statements run in
- * order, its deletions and then its insertions: keys, a family's owner axis (a foreign key no family defers) and a row
- * check over a fact's own fields are checked at each statement, so an insertion at a key a fact already holds or that
- * two of its own facts share, a member inserted before its owner, an owner deleted from under its members, and a fact
- * its own check refuses are refused there by that law; every other law is checked on the state the transaction leaves,
- * at COMMIT or at SET CONSTRAINTS ALL IMMEDIATE.
+ * order, its deletions and then its puts and insertions, a put replacing the fact at its key. Some laws are checked at
+ * each statement on a relation they name (a law's checkedAt): keys and row checks at their relation's, a family's owner
+ * axis (a foreign key no family defers) at its member's and its owner's, and a sum check at its member's, which writes
+ * the owner's end. So an insertion at a key a fact already holds or that two of its own facts share, a fact its own
+ * check refuses, a member inserted before its owner, an owner deleted from under its members and a member past its
+ * owner's bound are refused there by that law; every other law is checked on the state the transaction leaves, at
+ * COMMIT or at SET CONSTRAINTS ALL IMMEDIATE.
  */
 import { Array as Arr, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -142,8 +144,12 @@ export interface HostLaw {
 	readonly family: LawFamily
 	/** The relations whose facts it reads. */
 	readonly relations: ReadonlyArray<RelationName>
-	/** Checked at each statement (a key, a family's owner axis, a row check), or on the state a transaction leaves. */
-	readonly immediate: boolean
+	/**
+	 * The relations a direct statement on which checks the law there (a key's, a row check's, a family's member and
+	 * owner, a sum check's member, whose statement rewrites the owner's end); none for a law checked on the state a
+	 * transaction leaves.
+	 */
+	readonly checkedAt: ReadonlyArray<RelationName>
 	readonly id: (names: LawNames) => LawId
 	readonly broken: (s: State) => boolean
 }
@@ -315,7 +321,7 @@ const primaryKeyLaw = (relation: RelationName): HostLaw => {
 		name: `${relation}'s primary key`,
 		family: key.kind,
 		relations: [relation],
-		immediate: true,
+		checkedAt: [relation],
 		id: (names) => names.primaryKeyLaw({ name: relation }),
 		broken: (s) =>
 			key.kind === "key"
@@ -334,7 +340,7 @@ const spanKey = (
 	name,
 	family: "span key",
 	relations: [relation],
-	immediate: true,
+	checkedAt: [relation],
 	id: (names) => names.lawOf(statement),
 	broken: (s) => spanKeyBroken(rowsIn(s, relation), scalars, spanField)
 })
@@ -343,7 +349,7 @@ const containment = (name: string, statement: Statement, source: Side, target: S
 	name,
 	family: "containment",
 	relations: [source.relation, target.relation],
-	immediate: false,
+	checkedAt: [],
 	id: (names) => names.lawOf(statement),
 	broken: (s) => containBroken(s, source, target)
 })
@@ -361,23 +367,29 @@ const coverage = (name: string, statement: Statement, source: Side, target: Side
 	name,
 	family: "coverage",
 	relations: [source.relation, target.relation],
-	immediate: false,
+	checkedAt: [],
 	id: (names) => names.lawOf(statement),
 	broken: (s) => coverBroken(s, source, target)
 })
 
 /**
  * A counted family's law: every member's group is its owner's key. grizzle draws every slot, count and copy from the
- * members' rows, so of the rest of the family's law only the owner axis is the rows' to break; it is no deferred foreign
- * key, so a direct writer meets it at each statement.
+ * members' rows, so of the family's law only the owner axis is the rows' to break; no family defers it, so a direct
+ * writer meets it at each statement on the member or the owner: a member inserted before its owner, an owner deleted
+ * from under its members.
  */
 const family = (name: string, statement: Statement, f: Counted): HostLaw => ({
 	name,
 	family: "family",
 	relations: [f.member, f.owner],
-	immediate: true,
+	checkedAt: [f.member, f.owner],
 	id: (names) => names.lawOf(statement),
-	broken: (s) => containBroken(s, side(f.member, ...f.group), side(f.owner, ...f.key))
+	broken: (s) =>
+		containBroken(
+			s,
+			{ relation: f.member, fields: f.group, where: {} },
+			{ relation: f.owner, fields: f.key, where: {} }
+		)
 })
 
 /**
@@ -388,14 +400,16 @@ const sumFold = (name: string, statement: Statement, f: Counted): HostLaw => ({
 	name,
 	family: "fold",
 	relations: [f.member, f.owner],
-	immediate: false,
+	checkedAt: [],
 	id: (names) => names.lawOf(statement),
 	broken: () => false
 })
 
 /**
  * A row check over an owner that reads its family's sum of `value`: every owner fact holds `holds` of itself and that
- * sum. The sum is accumulated for the state the write leaves, so the check is judged there.
+ * sum. PostgreSQL checks it where the owner's end is written: at a member's statement, which appends to a stored owner
+ * and rewrites its end, or at the insertion of an owner the transaction inserts with its members, its end their sum
+ * already. Either way it is judged on the host after the members' statement, and at commit.
  */
 const sumCheck = (
 	name: string,
@@ -407,7 +421,7 @@ const sumCheck = (
 	name,
 	family: "check",
 	relations: [f.owner, f.member],
-	immediate: false,
+	checkedAt: [f.member],
 	id: (names) => names.lawOf(statement),
 	broken: (s) => {
 		const sums = sumsOf(s, f, value)
@@ -425,7 +439,7 @@ const rowCheck = (
 	name,
 	family: "check",
 	relations: [relation],
-	immediate: true,
+	checkedAt: [relation],
 	id: (names) => names.lawOf(statement),
 	broken: (s) => Arr.some(rowsIn(s, relation), (row) => !holds(row))
 })
@@ -452,7 +466,7 @@ const alternativesLaws = (
 		name: `${name}: a ${arm} only of a ${handle} ${parent}`,
 		family: "arm",
 		relations: [arm, parent],
-		immediate: false,
+		checkedAt: [],
 		id: (names) => defined(names.alternativesOf(value).arms[handle], `the ${handle} arm's law`),
 		broken: (s) =>
 			containBroken(s, side(arm, key), selected(parent, { [discriminator]: handle }, "id"))
@@ -461,7 +475,7 @@ const alternativesLaws = (
 		name: `${name}: every ${handle} ${parent} has its ${arm}`,
 		family: "reverse",
 		relations: [parent, arm],
-		immediate: false,
+		checkedAt: [],
 		id: (names) =>
 			defined(names.alternativesOf(value).reverse[handle], `the ${handle} reverse law`),
 		broken: (s) =>
@@ -866,19 +880,41 @@ export const decideSet = (s: State, ops: ReadonlyArray<PlatformOp>): Decision =>
 	return broken.length === 0 ? { kind: "accepted", after } : { kind: "refused", laws: broken }
 }
 
-/** A direct writer's statement: facts of one relation deleted exactly, or inserted. */
+/**
+ * A direct writer's statement: facts of one relation deleted exactly, inserted, or put at their keys. A put is how a
+ * direct writer replaces an owner: its written fields change in place, its families untouched.
+ */
 export interface DirectStatement {
-	readonly kind: "delete" | "insert"
+	readonly kind: "delete" | "insert" | "put"
 	readonly relation: RelationName
 	readonly facts: ReadonlyArray<Row>
+}
+
+/** A relation's rows after one direct statement: the facts deleted exactly, appended, or put at their keys. */
+const statementRows = (
+	rows: ReadonlyArray<Row>,
+	statement: DirectStatement
+): ReadonlyArray<Row> => {
+	switch (statement.kind) {
+		case "delete": {
+			const gone = keySet(statement.facts)
+			return Arr.filter(rows, (row) => !gone.has(rowKey(row)))
+		}
+		case "insert":
+			return [...rows, ...statement.facts]
+		case "put": {
+			const key = keyFieldsOf(statement.relation)
+			const at = new Set(Arr.map(statement.facts, (f) => tupleKey(f, key)))
+			return [...Arr.filter(rows, (row) => !at.has(tupleKey(row, key))), ...statement.facts]
+		}
+	}
 }
 
 /**
  * What a direct writer's statements decide on a state, in order: a direct transaction commits or is refused, so a
  * commit that changes nothing is accepted too. The state is a bag: an inserted fact equal to a stored one is a second
- * fact at its key. The laws checked at each statement are judged after every statement that writes a relation they
- * read: an insertion meets a key, a row check and the owner axis of the families it is a member of, a deletion the
- * owner axis of the families it owns.
+ * fact at its key. After each statement the laws it checks (checkedAt) are judged on the state it leaves, and after the
+ * last every law is.
  */
 export const decideStatements = (
 	s: State,
@@ -886,20 +922,11 @@ export const decideStatements = (
 ): Decision => {
 	let at = s
 	for (const statement of statements) {
-		const rows = rowsIn(at, statement.relation)
-		const gone = keySet(statement.kind === "delete" ? statement.facts : [])
-		at = withRows(
-			at,
-			statement.relation,
-			statement.kind === "delete"
-				? Arr.filter(rows, (row) => !gone.has(rowKey(row)))
-				: [...rows, ...statement.facts]
-		)
-		const immediate = Arr.filter(
+		at = withRows(at, statement.relation, statementRows(rowsIn(at, statement.relation), statement))
+		const broken = Arr.filter(
 			platformLaws,
-			(law) => law.immediate && law.relations.includes(statement.relation)
+			(law) => law.checkedAt.includes(statement.relation) && law.broken(at)
 		)
-		const broken = Arr.filter(immediate, (law) => law.broken(at))
 		if (broken.length > 0) {
 			return { kind: "refused", laws: broken }
 		}

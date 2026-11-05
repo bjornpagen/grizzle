@@ -29,6 +29,9 @@ import {
 import type { DbOf } from "#adapter/types/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { codecOf, codeOf } from "#compiler/ir/codes.ts"
+import type { Family } from "#compiler/ir/family.ts"
+import type { NativeColumn } from "#compiler/ir/law.ts"
 import { login, role } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
@@ -58,7 +61,8 @@ import {
 	rowsIn,
 	type State,
 	spanValue,
-	stateOf
+	stateOf,
+	valueKey
 } from "#test/support/platform/laws.ts"
 import type { SpanV } from "#test/support/platform/model.ts"
 import {
@@ -152,44 +156,70 @@ export const racesAt = (name: string) => {
 type RacesWorlds = ReturnType<typeof racesAt>
 export type RacesDb = DbOf<RacesWorlds["app"], unknown>
 
-/** Every stored relation's fields, in declaration order: the columns a load writes and a read-back reads. */
-const fieldNames = (relation: { readonly fields: object }): ReadonlyArray<string> =>
-	Rec.keys(relation.fields)
+/** The platform's stored relations, by name. */
+const platformRelations = {
+	Month: P.Month,
+	Day: P.Day,
+	Org: P.Org,
+	ParentOrg: P.ParentOrg,
+	Workspace: P.Workspace,
+	WorkspaceLimit: P.WorkspaceLimit,
+	ApiKey: P.ApiKey,
+	Revocation: P.Revocation,
+	ApiKeyActive: P.ApiKeyActive,
+	Provider: P.Provider,
+	Model: P.Model,
+	Route: P.Route,
+	ProviderPrice: P.ProviderPrice,
+	RateCard: P.RateCard,
+	RateTier: P.RateTier,
+	CreditGrant: P.CreditGrant,
+	Subscription: P.Subscription,
+	Segment: P.Segment,
+	UsageEvent: P.UsageEvent,
+	EventCharge: P.EventCharge,
+	UsageCharge: P.UsageCharge,
+	ProviderCost: P.ProviderCost,
+	CreditDebit: P.CreditDebit,
+	Invoice: P.Invoice,
+	InvoiceLine: P.InvoiceLine,
+	UsageLine: P.UsageLine,
+	PlanLine: P.PlanLine,
+	Allocation: P.Allocation,
+	Payment: P.Payment,
+	Voiding: P.Voiding,
+	Dispute: P.Dispute,
+	Refund: P.Refund
+} as const satisfies Readonly<
+	Record<
+		RelationName,
+		{
+			readonly fields: Readonly<Record<string, object>>
+			readonly primaryKey: ReadonlyArray<string>
+		}
+	>
+>
 
-export const fieldsOf: Readonly<Record<RelationName, ReadonlyArray<string>>> = {
-	Month: fieldNames(P.Month),
-	Day: fieldNames(P.Day),
-	Org: fieldNames(P.Org),
-	ParentOrg: fieldNames(P.ParentOrg),
-	Workspace: fieldNames(P.Workspace),
-	WorkspaceLimit: fieldNames(P.WorkspaceLimit),
-	ApiKey: fieldNames(P.ApiKey),
-	Revocation: fieldNames(P.Revocation),
-	ApiKeyActive: fieldNames(P.ApiKeyActive),
-	Provider: fieldNames(P.Provider),
-	Model: fieldNames(P.Model),
-	Route: fieldNames(P.Route),
-	ProviderPrice: fieldNames(P.ProviderPrice),
-	RateCard: fieldNames(P.RateCard),
-	RateTier: fieldNames(P.RateTier),
-	CreditGrant: fieldNames(P.CreditGrant),
-	Subscription: fieldNames(P.Subscription),
-	Segment: fieldNames(P.Segment),
-	UsageEvent: fieldNames(P.UsageEvent),
-	EventCharge: fieldNames(P.EventCharge),
-	UsageCharge: fieldNames(P.UsageCharge),
-	ProviderCost: fieldNames(P.ProviderCost),
-	CreditDebit: fieldNames(P.CreditDebit),
-	Invoice: fieldNames(P.Invoice),
-	InvoiceLine: fieldNames(P.InvoiceLine),
-	UsageLine: fieldNames(P.UsageLine),
-	PlanLine: fieldNames(P.PlanLine),
-	Allocation: fieldNames(P.Allocation),
-	Payment: fieldNames(P.Payment),
-	Voiding: fieldNames(P.Voiding),
-	Dispute: fieldNames(P.Dispute),
-	Refund: fieldNames(P.Refund)
-}
+/**
+ * A relation's fields its caller writes, in declaration order: every field but those grizzle draws or accumulates for
+ * a counted family, which carry a writing of their own. They are a fact's fields, the columns a direct writer states
+ * for its facts beside the drawn ones, and those a read-back compares with the model.
+ */
+const writtenFields = (relation: {
+	readonly fields: Readonly<Record<string, object>>
+}): ReadonlyArray<string> =>
+	Arr.flatMap(Rec.toEntries(relation.fields), ([name, field]) => ("writing" in field ? [] : [name]))
+
+export const fieldsOf: Readonly<Record<RelationName, ReadonlyArray<string>>> = Rec.map(
+	platformRelations,
+	writtenFields
+)
+
+/** Each stored relation's primary key: the conflict target of a direct writer's put. */
+const primaryKeyOf: Readonly<Record<RelationName, ReadonlyArray<string>>> = Rec.map(
+	platformRelations,
+	(r) => r.primaryKey
+)
 
 /** What a grizzle call answered, as the oracle reads it. */
 export type Answer =
@@ -254,8 +284,8 @@ export interface Write {
 	readonly label: string
 	readonly grizzle: GrizzleWrite
 	/**
-	 * Deletions first, then insertions in load order; a fact changed at its key is its deletion and the insertion at
-	 * it.
+	 * Deletions first, then puts and insertions in load order. A fact changed at its key is its put: an owner keeps its
+	 * families, so a direct writer never deletes and re-inserts it.
 	 */
 	readonly direct: ReadonlyArray<DirectStatement>
 }
@@ -263,20 +293,17 @@ export interface Write {
 /** A relation's place in the load order. */
 const loadRank = (relation: RelationName): number => loadOrder.indexOf(relation)
 
-/** The direct statements of operations that only delete and insert, deletions first and insertions in load order. */
+/** The direct statements of operations: deletions first, then puts and insertions in load order. */
 export const statementsOf = (ops: ReadonlyArray<PlatformOp>): ReadonlyArray<DirectStatement> => {
-	const of = (kind: "delete" | "insert") =>
+	const of = (kinds: ReadonlyArray<PlatformOp["kind"]>) =>
 		Arr.map(
 			Arr.sort(
-				Arr.filter(ops, (o) => o.kind === kind && o.facts.length > 0),
+				Arr.filter(ops, (o) => kinds.includes(o.kind) && o.facts.length > 0),
 				Order.mapInput(Order.Number, (o: PlatformOp) => loadRank(o.relation))
 			),
-			(o): DirectStatement => ({ kind, relation: o.relation, facts: o.facts })
+			(o): DirectStatement => ({ kind: o.kind, relation: o.relation, facts: o.facts })
 		)
-	if (Arr.some(ops, (o) => o.kind === "put")) {
-		throw new Error("a direct writer replaces a fact; it has no put")
-	}
-	return [...of("delete"), ...of("insert")]
+	return [...of(["delete"]), ...of(["put", "insert"])]
 }
 
 /**
@@ -572,8 +599,24 @@ const valueText = (v: unknown): string => {
 	return `[${s.start},${s.end})`
 }
 
-/** A literal of unknown type, which PostgreSQL resolves to the column's type. */
-const literal = (v: unknown): string => `'${pipe(valueText(v), Str.replaceAll("'", "''"))}'`
+/**
+ * A host value of a relation's field as its column spells it: a closed id as its handle's code under the
+ * installation's codebook, the smallint the column stores under its roster's domain; any other value as valueText
+ * spells it.
+ */
+const fieldText = (names: Names, relation: RelationName, field: string, v: unknown): string => {
+	const type = Option.map(
+		Arr.findFirst(names.model.theory.relations[relation]?.fields ?? [], (f) => f.name === field),
+		(f) => f.type
+	)
+	return Option.isSome(type) && type.value.carrier === "code" && typeof v === "string"
+		? String(codeOf(codecOf(names.installation.names.codes, type.value.roster), v))
+		: valueText(v)
+}
+
+/** A field's literal of unknown type, which PostgreSQL resolves to the column's type. */
+const literal = (names: Names, relation: RelationName, field: string, v: unknown): string =>
+	`'${pipe(fieldText(names, relation, field, v), Str.replaceAll("'", "''"))}'`
 
 export const tableOf = (names: Names, relation: RelationName): string =>
 	`${quoteIdent(names.schema)}.${quoteIdent(names.tableIdent({ name: relation }))}`
@@ -581,63 +624,371 @@ export const tableOf = (names: Names, relation: RelationName): string =>
 export const columnOf = (names: Names, relation: RelationName, field: string): string =>
 	quoteIdent(names.columnIdent({ name: relation }, field))
 
-const insertSql = (names: Names, relation: RelationName, facts: ReadonlyArray<Row>): string => {
-	const fields = fieldsOf[relation]
-	return `INSERT INTO ${tableOf(names, relation)} (${Arr.join(
-		Arr.map(fields, (f) => columnOf(names, relation, f)),
-		", "
-	)}) VALUES ${Arr.join(
-		Arr.map(
-			facts,
-			(fact) =>
-				`(${Arr.join(
-					Arr.map(fields, (f) => literal(fact[f])),
-					", "
-				)})`
-		),
-		", "
-	)}`
+/** A stored relation by its name in the installation's law model. */
+const relationNamed = (name: string): RelationName => {
+	const found = Arr.findFirst(loadOrder, (r) => r === name)
+	if (Option.isNone(found)) {
+		throw new Error(`the platform stores no relation ${name}`)
+	}
+	return found.value
 }
 
-const deleteSql = (names: Names, relation: RelationName, facts: ReadonlyArray<Row>): string =>
-	`DELETE FROM ${tableOf(names, relation)} WHERE ${Arr.join(
-		Arr.map(
+/**
+ * A counted family as a direct writer fills it, read off the installation's law model: its member and owner, each
+ * group field of the member with the owner's key field it names, the member's slot ‹i› and copy ‹n›, the owner's
+ * count, and each sum plane's step field, the member's before and after, the owner's end and the identity. Every
+ * column is quoted.
+ */
+interface DirectFamily {
+	readonly label: string
+	readonly member: RelationName
+	readonly owner: RelationName
+	readonly group: ReadonlyArray<{ readonly member: string; readonly owner: string }>
+	readonly index: string
+	readonly copy: string
+	readonly count: string
+	readonly planes: ReadonlyArray<{
+		readonly step: string
+		readonly before: string
+		readonly after: string
+		readonly end: string
+		readonly identity: bigint
+	}>
+}
+
+const directFamilies = (names: Names): ReadonlyArray<DirectFamily> =>
+	Arr.map(names.model.families, (f: Family): DirectFamily => {
+		const label = `fin(${f.id.owner}, ${f.id.count})`
+		const member = relationNamed(f.member.name)
+		const owner = relationNamed(f.owner.name)
+		const field = (relation: RelationName, name: string): string =>
+			quoteIdent(names.columnIdent({ name: relation }, name))
+		const lawColumn = (c: NativeColumn, what: string): string => {
+			if (c.kind !== "law") {
+				throw new Error(
+					`${label}'s ${what} is a field: a direct writer fills a counted family's law columns`
+				)
+			}
+			return quoteIdent(c.column)
+		}
+		return {
+			label,
+			member,
+			owner,
+			group: Arr.map(f.group, (g) => ({ member: g.member.name, owner: g.owner.name })),
+			index: lawColumn(f.index, "index"),
+			copy: quoteIdent(f.copy),
+			count: field(owner, f.count.name),
+			planes: Arr.flatMap(f.folds, (fold) => {
+				const step = fold.step
+				if (fold.monoid !== "sum" || step.kind !== "value" || fold.where.length > 0) {
+					throw new Error(
+						`${label} has a ${fold.monoid} fold: a direct writer fills sum folds over every member`
+					)
+				}
+				return Arr.map(fold.planes, (plane) => {
+					if (plane.identity.kind !== "int") {
+						throw new Error(`${label}'s sum starts at a ${plane.identity.kind}, not an integer`)
+					}
+					return {
+						step: step.field.name,
+						before: lawColumn(plane.before, "before"),
+						after: lawColumn(plane.after, "after"),
+						end: field(owner, plane.end.name),
+						identity: plane.identity.value
+					}
+				})
+			})
+		}
+	})
+
+/** An integer a family draws, as SQL. */
+const drawnText = (n: bigint): string => `${n}::bigint`
+
+/** An integer field of a fact: the step value a sum folds. */
+const stepOf = (row: Row, field: string): bigint => {
+	const v = row[field]
+	if (typeof v === "bigint") {
+		return v
+	}
+	if (typeof v === "number" && Number.isSafeInteger(v)) {
+		return BigInt(v)
+	}
+	throw new Error(`${field} is no integer: ${String(v)}`)
+}
+
+/**
+ * A direct transaction's statements as the SQL its writer runs, one statement each. A direct writer writes what
+ * grizzle's filler writes for its facts (rows-first.md §2): an owner it inserts states its count and its ends, and a
+ * member its slot ‹i›, its owner's count ‹n› and each sum's before and after. Where the transaction inserts the owner
+ * too, the group's members are the transaction's own, slotted in their keys' order; where the owner is stored, the
+ * member's statement appends to it, advancing the owner's count and ends in place (its checks judge them there) and
+ * slotting the members after the stored ones by what that update returns, so concurrent appenders serialize on the
+ * owner's row. An owner that is not stored leaves the update nothing to return, and the members then name a count no
+ * owner holds, which its owner axis refuses. An owner put takes its written fields in place and keeps its families. A
+ * member is never deleted or put: that edits its family, which only the planner does.
+ */
+export const directSql = (
+	names: Names,
+	statements: ReadonlyArray<DirectStatement>
+): ReadonlyArray<string> => {
+	const families = directFamilies(names)
+	const keyText = (row: Row, fields: ReadonlyArray<string>): string =>
+		Arr.join(
+			Arr.map(fields, (f) => valueKey(row[f])),
+			"|"
+		)
+	const groupOf = (f: DirectFamily, member: Row): string =>
+		keyText(
+			member,
+			Arr.map(f.group, (g) => g.member)
+		)
+	const ownerKeyOf = (f: DirectFamily, owner: Row): string =>
+		keyText(
+			owner,
+			Arr.map(f.group, (g) => g.owner)
+		)
+	const inserted = (relation: RelationName): ReadonlyArray<Row> =>
+		Arr.flatMap(statements, (s) => (s.kind === "insert" && s.relation === relation ? s.facts : []))
+	/** Each family's members the transaction inserts into an owner it inserts, by group, in member-key order. */
+	const own = new Map(
+		Arr.map(families, (f): readonly [DirectFamily, ReadonlyMap<string, ReadonlyArray<Row>>] => {
+			const owners = new Set(Arr.map(inserted(f.owner), (o) => ownerKeyOf(f, o)))
+			const groups = new Map<string, Array<Row>>()
+			for (const m of inserted(f.member)) {
+				const g = groupOf(f, m)
+				if (!owners.has(g)) {
+					continue
+				}
+				const members = groups.get(g) ?? []
+				groups.set(g, members)
+				members.push(m)
+			}
+			const byKey = Order.mapInput(Order.String, (m: Row) => keyText(m, primaryKeyOf[f.member]))
+			return [f, new Map(Arr.map([...groups], ([g, ms]) => [g, Arr.sort(ms, byKey)]))]
+		})
+	)
+	const ownGroup = (f: DirectFamily, g: string): ReadonlyArray<Row> | undefined =>
+		own.get(f)?.get(g)
+	const table = (relation: RelationName): string => tableOf(names, relation)
+	const column = (relation: RelationName, field: string): string => columnOf(names, relation, field)
+	const sumOf = (rows: ReadonlyArray<Row>, field: string): bigint =>
+		Arr.reduce(rows, 0n, (sum, r) => sum + stepOf(r, field))
+	const ownedBy = (relation: RelationName): ReadonlyArray<DirectFamily> =>
+		Arr.filter(families, (f) => f.owner === relation)
+	/** An owner's drawn columns: its count and its ends, per family it owns. */
+	const ownerColumns = (relation: RelationName): ReadonlyArray<string> =>
+		Arr.flatMap(ownedBy(relation), (f) => [f.count, ...Arr.map(f.planes, (p) => p.end)])
+	/**
+	 * An owner's count and ends as an insert states them: over the transaction's own members of it, or, `fresh`, over
+	 * none, as a put that inserts it starts its families empty.
+	 */
+	const ownerValues = (relation: RelationName, row: Row, fresh: boolean): ReadonlyArray<string> =>
+		Arr.flatMap(ownedBy(relation), (f) => {
+			const members = fresh ? [] : (ownGroup(f, ownerKeyOf(f, row)) ?? [])
+			return [
+				drawnText(BigInt(members.length)),
+				...Arr.map(f.planes, (p) => drawnText(p.identity + sumOf(members, p.step)))
+			]
+		})
+	const memberFamilies = (relation: RelationName): ReadonlyArray<DirectFamily> =>
+		Arr.filter(families, (f) => f.member === relation)
+	const memberColumns = (relation: RelationName) =>
+		Arr.flatMap(memberFamilies(relation), (f) => [
+			f.index,
+			f.copy,
+			...Arr.flatMap(f.planes, (p) => [p.before, p.after])
+		])
+	const insertSql = (relation: RelationName, facts: ReadonlyArray<Row>): string => {
+		/** One update per stored owner the statement appends to, by family and group. */
+		const appends: Array<{
+			readonly f: DirectFamily
+			readonly group: string
+			readonly alias: string
+		}> = []
+		const appendTo = (f: DirectFamily, group: string): string => {
+			const found = Arr.findFirst(appends, (a) => a.f === f && a.group === group)
+			if (Option.isSome(found)) {
+				return found.value.alias
+			}
+			const alias = quoteIdent(`append_${appends.length}`)
+			appends.push({ f, group, alias })
+			return alias
+		}
+		const appended = (f: DirectFamily, group: string): ReadonlyArray<Row> =>
+			Arr.filter(facts, (m) => groupOf(f, m) === group)
+		const memberValues = (row: Row): ReadonlyArray<string> =>
+			Arr.flatMap(memberFamilies(relation), (f) => {
+				const group = groupOf(f, row)
+				const mine = ownGroup(f, group)
+				const members = mine ?? appended(f, group)
+				const slot = members.indexOf(row)
+				const k = BigInt(members.length)
+				const before = (p: DirectFamily["planes"][number]) => sumOf(members.slice(0, slot), p.step)
+				if (mine !== undefined) {
+					return [
+						drawnText(BigInt(slot)),
+						drawnText(k),
+						...Arr.flatMap(f.planes, (p) => [
+							drawnText(p.identity + before(p)),
+							drawnText(p.identity + before(p) + stepOf(row, p.step))
+						])
+					]
+				}
+				const alias = appendTo(f, group)
+				const count = `COALESCE((SELECT n FROM ${alias}), ${drawnText(k)})`
+				return [
+					`${count} - ${drawnText(k - BigInt(slot))}`,
+					count,
+					...Arr.flatMap(f.planes, (p, plane) => {
+						const total = sumOf(members, p.step)
+						const end = `COALESCE((SELECT e${plane} FROM ${alias}), ${drawnText(p.identity + total)})`
+						const at = total - before(p)
+						return [`${end} - ${drawnText(at)}`, `${end} - ${drawnText(at - stepOf(row, p.step))}`]
+					})
+				]
+			})
+		const rows = Arr.map(
 			facts,
 			(fact) =>
 				`(${Arr.join(
-					Arr.map(
-						fieldsOf[relation],
-						(f) => `${columnOf(names, relation, f)} = ${literal(fact[f])}`
-					),
-					" AND "
+					[
+						...Arr.map(fieldsOf[relation], (f) => literal(names, relation, f, fact[f])),
+						...ownerValues(relation, fact, false),
+						...memberValues(fact)
+					],
+					", "
 				)})`
-		),
-		" OR "
-	)}`
+		)
+		const columns = [
+			...Arr.map(fieldsOf[relation], (f) => column(relation, f)),
+			...ownerColumns(relation),
+			...memberColumns(relation)
+		]
+		const insert = `INSERT INTO ${table(relation)} (${Arr.join(columns, ", ")}) VALUES ${Arr.join(rows, ", ")}`
+		if (!Arr.isArrayNonEmpty(appends)) {
+			return insert
+		}
+		const updates = Arr.map(appends, ({ f, group, alias }) => {
+			const members = appended(f, group)
+			const representative = defined(members[0], `a member appended to ${f.label}`)
+			const where = Arr.join(
+				Arr.map(
+					f.group,
+					(g) =>
+						`${column(f.owner, g.owner)} = ${literal(names, f.owner, g.owner, representative[g.member])}`
+				),
+				" AND "
+			)
+			const sets = [
+				`${f.count} = ${f.count} + ${drawnText(BigInt(members.length))}`,
+				...Arr.map(f.planes, (p) => `${p.end} = ${p.end} + ${drawnText(sumOf(members, p.step))}`)
+			]
+			const returning = [
+				`${f.count} AS n`,
+				...Arr.map(f.planes, (p, plane) => `${p.end} AS e${plane}`)
+			]
+			return `${alias} AS (UPDATE ${table(f.owner)} SET ${Arr.join(sets, ", ")} WHERE ${where} RETURNING ${Arr.join(returning, ", ")})`
+		})
+		return `WITH ${Arr.join(updates, ", ")} ${insert}`
+	}
+	const unedited = (s: DirectStatement): void => {
+		if (Arr.isReadonlyArrayNonEmpty(memberFamilies(s.relation))) {
+			throw new Error(
+				`a direct ${s.kind} of ${s.relation}, a member of ${Arr.join(
+					Arr.map(memberFamilies(s.relation), (f) => f.label),
+					" and "
+				)}: that edits its family, which only the planner does`
+			)
+		}
+	}
+	const deleteSql = (relation: RelationName, facts: ReadonlyArray<Row>): string =>
+		`DELETE FROM ${table(relation)} WHERE ${Arr.join(
+			Arr.map(
+				facts,
+				(fact) =>
+					`(${Arr.join(
+						Arr.map(
+							fieldsOf[relation],
+							(f) => `${column(relation, f)} = ${literal(names, relation, f, fact[f])}`
+						),
+						" AND "
+					)})`
+			),
+			" OR "
+		)}`
+	/** A put: the written fields at each key in place, a fact the key holds none of inserted with empty families. */
+	const putSql = (relation: RelationName, facts: ReadonlyArray<Row>): string => {
+		const key = primaryKeyOf[relation]
+		const payload = Arr.filter(fieldsOf[relation], (f) => !key.includes(f))
+		const columns = [
+			...Arr.map(fieldsOf[relation], (f) => column(relation, f)),
+			...ownerColumns(relation)
+		]
+		const rows = Arr.map(
+			facts,
+			(fact) =>
+				`(${Arr.join(
+					[
+						...Arr.map(fieldsOf[relation], (f) => literal(names, relation, f, fact[f])),
+						...ownerValues(relation, fact, true)
+					],
+					", "
+				)})`
+		)
+		const conflict = Arr.isArrayNonEmpty(payload)
+			? `DO UPDATE SET ${Arr.join(
+					Arr.map(payload, (f) => `${column(relation, f)} = EXCLUDED.${column(relation, f)}`),
+					", "
+				)}`
+			: "DO NOTHING"
+		return `INSERT INTO ${table(relation)} (${Arr.join(columns, ", ")}) VALUES ${Arr.join(rows, ", ")} ON CONFLICT (${Arr.join(
+			Arr.map(key, (f) => column(relation, f)),
+			", "
+		)}) ${conflict}`
+	}
+	return Arr.map(statements, (s) => {
+		switch (s.kind) {
+			case "insert":
+				return insertSql(s.relation, s.facts)
+			case "delete":
+				unedited(s)
+				return deleteSql(s.relation, s.facts)
+			case "put":
+				unedited(s)
+				return putSql(s.relation, s.facts)
+		}
+	})
+}
 
-const statementSql = (names: Names, s: DirectStatement): string =>
-	s.kind === "insert"
-		? insertSql(names, s.relation, s.facts)
-		: deleteSql(names, s.relation, s.facts)
-
-/** Empties every table and loads the facts, as the owner, in one transaction. */
+/** Empties every table and loads the facts, as the owner, in one transaction, as a direct writer writes them. */
 const loadSql = (names: Names, facts: State): ReadonlyArray<string> => [
 	`TRUNCATE ${Arr.join(
 		Arr.map(loadOrder, (r) => tableOf(names, r)),
 		", "
 	)}`,
-	...Arr.flatMap(loadOrder, (r) => {
-		const rows = rowsIn(facts, r)
-		return rows.length === 0 ? [] : [insertSql(names, r, rows)]
-	})
+	...directSql(
+		names,
+		Arr.flatMap(loadOrder, (r): ReadonlyArray<DirectStatement> => {
+			const rows = rowsIn(facts, r)
+			return rows.length === 0 ? [] : [{ kind: "insert", relation: r, facts: rows }]
+		})
+	)
 ]
 
-/** A relation's rows as text tuples, the fields in declaration order: the form a read-back and the model compare in. */
-const textRows = (relation: RelationName, rows: ReadonlyArray<Row>): ReadonlyArray<string> =>
+/**
+ * A relation's rows as text tuples, the written fields in declaration order, a closed id as its code: the form a
+ * read-back and the model compare in.
+ */
+const textRows = (
+	names: Names,
+	relation: RelationName,
+	rows: ReadonlyArray<Row>
+): ReadonlyArray<string> =>
 	Arr.sort(
 		Arr.map(rows, (row) =>
 			Arr.join(
-				Arr.map(fieldsOf[relation], (f) => valueText(row[f])),
+				Arr.map(fieldsOf[relation], (f) => fieldText(names, relation, f, row[f])),
 				"|"
 			)
 		),
@@ -676,7 +1027,7 @@ const committedDifference = (
 				),
 				Order.String
 			)
-			const want = textRows(relation, rowsIn(model, relation))
+			const want = textRows(i.names, relation, rowsIn(model, relation))
 			const missing = Arr.filter(want, (x) => !got.includes(x))
 			const extra = Arr.filter(got, (x) => !want.includes(x))
 			if (missing.length > 0 || extra.length > 0 || got.length !== want.length) {
@@ -853,8 +1204,8 @@ const txnsOf = (
 			kind: "direct",
 			session: p.session,
 			steps: [
-				...Arr.map(p.write.direct, (s) =>
-					interleaveStep(statementSql(i.names, s), footprintOf([s.relation]))
+				...Arr.map(Arr.zip(p.write.direct, directSql(i.names, p.write.direct)), ([s, text]) =>
+					interleaveStep(text, footprintOf([s.relation]))
 				),
 				...(p.checked === "before COMMIT"
 					? [interleaveStep("SET CONSTRAINTS ALL IMMEDIATE", footprint)]

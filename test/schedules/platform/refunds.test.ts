@@ -8,7 +8,7 @@
  * (refundWithinInvoice), only a paid invoice is refunded (refundOnlyPaid), and a paid, void or disputed invoice has
  * exactly its payment, voiding or dispute (invoiceSettlement); the harness's oracle explains every outcome by those
  * laws and the programs' reads in some serial order. A direct writer settles the invoice as it read it before the race:
- * it replaces the invoice and its payment where it gives way.
+ * it puts the invoice in its new state, its lines and refunds kept, and removes its payment where it gives way.
  *
  * The swarm adds refunds made before the race, the dispute, the voiding, and an open invoice whose payment races its
  * refunds.

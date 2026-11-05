@@ -12,8 +12,8 @@
  * either what the model settles at its place or over-debits a grant and is refused.
  *
  * The swarm adds a second grant expiring later, requests whose windows cross the first grant's expiry, credit spent
- * before the race, the first grant expiring mid-race (a grizzle put shortening its validity, or a direct writer's
- * DELETE and INSERT of the grant), and a request submitted twice.
+ * before the race, the first grant expiring mid-race (a put shortening its validity, by grizzle or a direct writer's
+ * INSERT ... ON CONFLICT DO UPDATE, its debits kept), and a request submitted twice.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
@@ -194,14 +194,7 @@ const resolveCredits =
 		}
 		const writes = [
 			...(expiry
-				? [
-						W.grantWrite(
-							"expiry",
-							first,
-							shortened,
-							`the first grant ends at ${shortened.valid.end}`
-						)
-					]
+				? [W.grantWrite("expiry", shortened, `the first grant ends at ${shortened.valid.end}`)]
 				: []),
 			...Arr.map(requests, (q, i) =>
 				W.usageWrite(
