@@ -23,7 +23,7 @@ import { check, findingText, type SchemaCheck } from "#cli/check.ts"
 import { type ConfigFile, resolveConfig } from "#cli/config.ts"
 import { migrationConnection } from "#cli/connection.ts"
 import type { CliError } from "#cli/errors.ts"
-import { generate, type SchemaGenerateReport } from "#cli/generate.ts"
+import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
 import { drift, migrate } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
 import { cliStageFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
@@ -323,7 +323,7 @@ const program = Effect.fn("program")(function* (
 		)
 	}
 	const now = yield* DateTime.now
-	const reports = yield* generate(config, {
+	const reports = yield* generateMigrations(config, {
 		mode: command.mode,
 		schema: command.schema,
 		declared: command.declared,

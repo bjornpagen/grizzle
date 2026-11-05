@@ -105,8 +105,6 @@ const planFacts = (plan: PlanNode) => ({
 	read: rowsRead(plan)
 })
 
-const depthOf = (rows: ReadonlyArray<TreeRow>, id: number): number => ancestorsOf(rows, id).length
-
 layer(Substrate.layer)(
 	"family and tree reads through grizzle's installed indexes on PostgreSQL 19rc1",
 	(it) => {
@@ -144,6 +142,17 @@ layer(Substrate.layer)(
 								Option.contains(familyConstraintOf(family, c), "key")
 							)
 						).name
+						/** The deepest row, its depth read once per row from its parent's, loadTree's pre-order putting every parent first. */
+						const depths = new Map<number, number>()
+						for (const r of rows) {
+							depths.set(r.id, r.parent === r.id ? 0 : (depths.get(r.parent) ?? 0) + 1)
+						}
+						const deepest = defined(
+							Arr.sort(
+								rows,
+								Order.mapInput(Order.flip(Order.Number), (r: TreeRow) => depths.get(r.id) ?? 0)
+							)[0]
+						)
 						const subjectOf = (subject: Subject): TreeRow => {
 							switch (subject) {
 								case "a quarter of the tree":
@@ -155,12 +164,7 @@ layer(Substrate.layer)(
 								case "a leaf":
 									return Option.getOrThrow(Arr.findFirst(rows, (r) => r.children === 0))
 								case "the deepest row":
-									return defined(
-										Arr.sort(
-											rows,
-											Order.mapInput(Order.flip(Order.Number), (r: TreeRow) => depthOf(rows, r.id))
-										)[0]
-									)
+									return deepest
 							}
 						}
 						const t = (role: string) => trees.column("Node", role)

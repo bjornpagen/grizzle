@@ -417,7 +417,7 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 })
 
 /** @internal */
-export const generate = Effect.fn("generate")(function* (
+export const generateMigrations = Effect.fn("generate")(function* (
 	config: ResolvedConfig,
 	options: GenerateOptions
 ): Effect.fn.Return<

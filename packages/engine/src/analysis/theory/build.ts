@@ -194,19 +194,6 @@ export class ViolationBuilder {
 		return this.typed(typed.value.literal, type)
 	}
 
-	/** The selector fixing `field` of `r` to `value` typed at its type; a value that is not one is MalformedDescription. */
-	selector(r: TheoryRelation, field: LawField, value: LiteralDesc): ScanSelector {
-		const typed = irLiteral(value, field.type)
-		if (!typed.ok) {
-			return refuse(
-				"MalformedDescription",
-				this.loc,
-				`a selection on ${r.name}.${field.name}: ${typed.error}`
-			)
-		}
-		return { col: field, value: typed.value.literal }
-	}
-
 	/** A literal already typed at `type`. */
 	typed(literal: TypedLiteral, type: ScalarType): ScalarExpr {
 		return this.expr({ kind: "literal", value: literal, args: [], type, nonNull: "literal" })

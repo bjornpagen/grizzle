@@ -5,7 +5,16 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { counted, fin, fold, Monoid, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	counted,
+	fin,
+	fold,
+	Monoid,
+	mutable,
+	on,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
@@ -67,7 +76,7 @@ const compiledFor = (schemaValue: unknown, name: string) => {
 			compileWrite(checking(schemaValue), descOf(value), {
 				names,
 				reads: names,
-				claims: { kind: "facts", present: [] },
+				claims: { kind: "facts", present: new Set<string>() },
 				world: { kind: "reality" },
 				laws: artifacts.laws,
 				derived: artifacts.derived
@@ -88,15 +97,27 @@ describe("an owner of counted families, rows first", () => {
 			const value = ChangeSet.empty(S1).put(O, [{ id: uuidOf(1), cap: 2n }])
 			const program = s1(value)
 			const all = texts(program)
-			console.log(all.join("\n-----\n"))
 			const updates = Arr.filter(all, (t) => Str.includes('UPDATE "')(t))
-			assert.ok(updates.length > 0, "the put updates the owner in place")
+			assert.equal(updates.length, 1, "the put updates the owner in place, once")
 			for (const t of updates) {
+				assert.ok(Str.includes('SET "cap" =')(t), "the update sets the field its facts carry")
 				assert.ok(!Str.includes('"n" =')(t), "the update sets no count")
 				assert.ok(!Str.includes('"total" =')(t), "the update sets no end")
 			}
+			const inserts = Arr.filter(all, (t) => Str.includes('INSERT INTO "')(t))
+			assert.equal(inserts.length, 1, "the put inserts the facts no row holds")
+			for (const t of inserts) {
+				assert.ok(
+					Str.includes('("id", "cap", "n", "total")')(t),
+					"the insert writes the count and the end"
+				)
+				assert.ok(
+					Str.includes("0::bigint, 0::bigint")(t),
+					"a fresh owner's count is 0 and its end its start"
+				)
+			}
 			assert.ok(
-				Arr.every(all, (t) => !Str.includes('DELETE FROM "')(t) || !Str.includes('"o"')(t)),
+				Arr.every(all, (t) => !Str.includes("DELETE FROM")(t)),
 				"the put deletes no owner"
 			)
 			const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
@@ -127,19 +148,21 @@ describe("an owner of counted families, rows first", () => {
 		})
 	)
 
-	it.effect("inserts a counted member that owns a counted family as a member, its family empty", () =>
-		Effect.gen(function* () {
-			const value = ChangeSet.empty(Chain)
-				.insert(A, [{ id: uuidOf(1) }])
-				.insert(B, [{ a: uuidOf(1), id: uuidOf(2) }])
-				.insert(C, [{ b: uuidOf(2), id: uuidOf(3) }])
-			const program = chain(value)
-			const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-			const bound = succeeded(
-				bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-			)
-			assertVariant(bound, "kind", "bound", "a chain of counted families binds")
-		})
+	it.effect(
+		"inserts a counted member that owns a counted family as a member, its family empty",
+		() =>
+			Effect.gen(function* () {
+				const value = ChangeSet.empty(Chain)
+					.insert(A, [{ id: uuidOf(1) }])
+					.insert(B, [{ a: uuidOf(1), id: uuidOf(2) }])
+					.insert(C, [{ b: uuidOf(2), id: uuidOf(3) }])
+				const program = chain(value)
+				const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+				const bound = succeeded(
+					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+				)
+				assertVariant(bound, "kind", "bound", "a chain of counted families binds")
+			})
 	)
 
 	it.effect("puts every owner of a chain of counted families in place", () =>

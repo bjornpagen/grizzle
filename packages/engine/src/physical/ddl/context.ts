@@ -599,16 +599,6 @@ export class InstallBuilder {
 			a.relation < b.relation ? -1 : a.relation > b.relation ? 1 : 0
 		)
 	}
-
-	/** The theory roles holding `relation` whole, in role name order: the roles a law function reports the witness keys
-	 * of a violation of that relation to (`raiseViolation`). */
-	wholeHolders(relation: string): ReadonlyArray<string> {
-		return this.settings.logins
-			.flatMap((l) => l.roles)
-			.filter((r) => r.relations[relation]?.kind === "whole")
-			.toSorted((x, y) => compareText(x.name, y.name))
-			.map((r) => worldNames(r, this.settings.installation).role)
-	}
 }
 
 /** Why each extension is installed. */

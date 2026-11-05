@@ -14,12 +14,8 @@ import {
 	type RootObservation
 } from "#compiler/analysis/physical/analyze.ts"
 
-import {
-	type Consumer,
-	classifyEdges,
-	consumerOutput
-} from "#compiler/analysis/physical/consumers.ts"
-import type { Realization } from "#compiler/analysis/physical/props.ts"
+import { classifyEdges, consumerOutput } from "#compiler/analysis/physical/consumers.ts"
+import { keyedBy, type Realization } from "#compiler/analysis/physical/props.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -29,11 +25,7 @@ import type { Certificate, ElisionRule, MultiplicityRule } from "#compiler/ir/ce
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { contextAdmits, type EvidenceCatalog, type TemplateContext } from "#compiler/ir/evidence.ts"
 import { deliveredInput, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
-import {
-	elisionKinds,
-	isPinnedDistinct,
-	placementTarget
-} from "#compiler/lower/optimize/dedup/policy.ts"
+import { elisionKinds, placementTarget } from "#compiler/lower/optimize/dedup/policy.ts"
 import { problem, type VerificationProblem } from "#test/support/oracle/verify/problems.ts"
 
 /**
@@ -87,9 +79,6 @@ interface VerificationEnv {
 
 const nodeLabel = (node: RelNode): string => `${node.kind} ${node.id}`
 
-const consumerLabel = (consumer: Consumer): string =>
-	consumer.kind === "node" ? nodeLabel(consumer.node) : "the program's result"
-
 /** The nodes of the DAG under verification by label: a plan's records and a certificate's names read through them. */
 type Labelled = ReadonlyMap<NodeId, RelNode>
 
@@ -121,6 +110,13 @@ const coverage = (
 	return out
 }
 
+/**
+ * Whether a node keeps its exact set form whatever the evidence, as the README states it: recursion its recursive
+ * UNION, which removes states repeated within and across iterations, and INTERSECT and EXCEPT theirs, with no ALL form.
+ */
+const keepsSetForm = (node: RelNode): boolean =>
+	node.kind === "Recursive" || node.kind === "Intersect" || node.kind === "Difference"
+
 const setForms = (
 	a: PhysicalAnalysis,
 	plan: PlanUnderVerification
@@ -129,7 +125,7 @@ const setForms = (
 	for (const node of a.order) {
 		const id = node.id
 		const r = plan.realization[id]
-		if (isPinnedDistinct(node) && r !== "distinct") {
+		if (keepsSetForm(node) && r !== "distinct") {
 			out.push(
 				problem(
 					"pinnedSetForm",
@@ -162,18 +158,98 @@ const setForms = (
 	return out
 }
 
-const obligations = (a: PhysicalAnalysis): ReadonlyArray<VerificationProblem> =>
-	Arr.flatMap(a.obligations, (o): ReadonlyArray<VerificationProblem> => {
-		if (o.discharged) {
-			return []
-		}
-		return [
-			problem(
-				"unprovedMultiplicity",
-				`${consumerLabel(o.edge.consumer)} reading ${nodeLabel(o.edge.input)}`,
-				`a proof or a placed duplicate elimination for the repeats it observes on (${Arr.join(o.heading, ", ")}), because ${o.edge.why}`
-			)
+/** An input whose repeats its consumer observes, and why, as the verifier's own consumer table states it. */
+interface Observing {
+	readonly consumer: string
+	readonly input: RelNode
+	readonly why: string
+}
+
+/**
+ * The verifier's own consumer table, stated from the README's meaning of each node and shared with nothing the engine
+ * classifies, so a consumer the engine misclassifies still meets its obligation here. A bound (a take, an approximate
+ * nearest search), a fold (a group with aggregates, an ordered-set aggregate, a window), an attachment's delivered child
+ * and the program's public result observe their input's repeats; every other consumer passes them on, where the
+ * analysis's uniqueness of the consumer carries them, or ignores them (an emptiness test, a grouping without
+ * aggregates, a set operator, recursion's UNION, a law's violation query). The pinned set forms are judged by setForms.
+ */
+const observingEdges = (
+	dag: RelDag,
+	order: ReadonlyArray<RelNode>,
+	roots: RootObservation
+): ReadonlyArray<Observing> => [
+	...Arr.flatMap(order, (node): ReadonlyArray<Observing> => {
+		const by = (input: RelNode, why: string): ReadonlyArray<Observing> => [
+			{ consumer: nodeLabel(node), input, why }
 		]
+		switch (node.kind) {
+			case "Take":
+				return by(node.input, "a bound selects among rows")
+			case "ApproximateNearest":
+				return by(node.source, "a candidate bound selects among rows")
+			case "Group":
+				return node.aggs.length > 0 ? by(node.input, "an aggregate folds every row") : []
+			case "OrderedSetAggregate":
+				return by(node.input, "an ordered-set aggregate reads every row")
+			case "Window":
+				return by(node.input, "a window function numbers or folds every row")
+			case "Attach":
+				return by(node.child, "a delivered attachment is a set per parent")
+			case "Base":
+			case "Closed":
+			case "Context":
+			case "InputSet":
+			case "Delta":
+			case "SelfRef":
+			case "MatchRegion":
+			case "Filter":
+			case "ProjectSet":
+			case "OrderedResult":
+			case "Produce":
+			case "SemiJoin":
+			case "AntiJoin":
+			case "Union":
+			case "Intersect":
+			case "Difference":
+			case "Recursive":
+			case "Forbid":
+				return []
+		}
+	}),
+	...Arr.flatMap(dag.roots, (root): ReadonlyArray<Observing> =>
+		roots === "result" && root.kind !== "Forbid"
+			? [
+					{
+						consumer: "the program's result",
+						input: root,
+						why: "the program's result is a public set"
+					}
+				]
+			: []
+	)
+]
+
+/**
+ * Every observing edge of the verifier's own table (observingEdges) whose input's physical keys, under the plan's
+ * realization, do not identify a row by the input's whole heading: a consumer that would see repeats nothing proves
+ * away.
+ */
+const obligations = (
+	dag: RelDag,
+	a: PhysicalAnalysis,
+	roots: RootObservation
+): ReadonlyArray<VerificationProblem> =>
+	Arr.flatMap(observingEdges(dag, a.order, roots), (o): ReadonlyArray<VerificationProblem> => {
+		const props = a.of(o.input).props
+		return keyedBy(props, props.columns) !== undefined
+			? []
+			: [
+					problem(
+						"unprovedMultiplicity",
+						`${o.consumer} reading ${nodeLabel(o.input)}`,
+						`a proof or a placed duplicate elimination for the repeats it observes on (${Arr.join(props.columns, ", ")}), because ${o.why}`
+					)
+				]
 	})
 
 /** The certificate the recomputed analysis proves for the rewrite a certificate names, or a reason it cannot. */
@@ -319,7 +395,7 @@ const certificates = (
 		const props = a.of(node).props
 		if (
 			r === "distinct" &&
-			!isPinnedDistinct(node) &&
+			!keepsSetForm(node) &&
 			node.kind !== "Union" &&
 			!has(multiplicityRules.placement, (c) => c.inputs, id)
 		) {
@@ -379,9 +455,10 @@ interface MultiplicityVerification {
  *   `distinct`: it has no fragment of its own, so no emission could carry that DISTINCT (rel.ts deliveredInput);
  * - a union realized as UNION ALL has a plain form a physical key proves unique: unique arms pairwise disjoint on their
  *   final coerced headings;
- * - every observing edge is discharged by the input's physical keys: COUNT, SUM, a bound, a page, a window, an
- *   attachment or the public result never sees an input whose repeats nothing proves away (a fold reads its input on
- *   the input's whole heading, of which its bound tuple is a key);
+ * - every observing edge of the verifier's own consumer table (observingEdges), not the engine's, is discharged by the
+ *   input's physical keys: COUNT, SUM, a bound, a page, a window, an attachment or the public result never sees an
+ *   input whose repeats nothing proves away (a fold reads its input on the input's whole heading, of which its bound
+ *   tuple is a key);
  * - every certificate is the one the recomputed analysis proves for the rewrite it names, equal in every field, in an
  *   evidence context the execution context admits, and every rewrite the realization performs has its certificate.
  *   A placement's is rebuilt for the placement the plan performs, from the DAG and what its consumer needs.
@@ -415,7 +492,7 @@ export const verifyMultiplicity = (
 			...context,
 			...covered,
 			...setForms(a, plan),
-			...obligations(a),
+			...obligations(dag, a, env.roots),
 			...certificates(dag, labelled, a, plan, env)
 		]
 	})

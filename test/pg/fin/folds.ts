@@ -405,7 +405,8 @@ const setOf = (size: number): Carrier => ({
 		Arr.reduce(Str.split(t, ""), 0n, (mask, ch, c) =>
 			ch === "1" ? mask | (1n << BigInt(c)) : mask
 		),
-	junk: (v) => v ^ 1n,
+	/** Code 4, `e`, toggled: no handle of K, so a junk twos plane meets the fold's natives, not K's check. */
+	junk: (v) => v ^ 16n,
 	toHost: (v) => new Set(Arr.filter(TAG_HANDLES, (_, c) => ((v >> BigInt(c)) & 1n) === 1n)),
 	fromHost: (h) =>
 		Arr.reduce(TAG_HANDLES, 0n, (mask, handle, c) =>

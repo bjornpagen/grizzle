@@ -252,7 +252,7 @@ const moneyInput = (count: bigint, forgery: MoneyForgery): unknown => {
 				[canonicalTag]: () => ({ tag: "m", payload: `${count}` })
 			})
 		case "an exact amount past int64":
-			return Money.exact(2n ** 63n + count)
+			return Money.exact(2n ** 63n + (count < 0n ? -count : count))
 	}
 }
 

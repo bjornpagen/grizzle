@@ -187,7 +187,7 @@ const straight: Carrier = {
 }
 
 /** The backend messages a gate counts: every one, or those of one type (its message code, such as "Z"). */
-export type Counted = { readonly kind: "any" } | { readonly kind: "type"; readonly type: string }
+type Counted = { readonly kind: "any" } | { readonly kind: "type"; readonly type: string }
 
 /** The gate on the server's bytes to one session (see the header). */
 export interface Gate {

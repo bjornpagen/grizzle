@@ -82,7 +82,7 @@ export const Shop = schema("Shop", shopRelations, shopLaws)
  * The Shop with Crew mutable: a Hand's delete then shrinks a stored Crew's family, which the Shop's immutable Crew keeps
  * fixed from its insert.
  */
-export const MutableCrewShop = schema("Shop", shopRelations, [...shopLaws, mutable(Crew)])
+const MutableCrewShop = schema("Shop", shopRelations, [...shopLaws, mutable(Crew)])
 
 export const shopChangeSet = (): ChangeSetValue => ChangeSet.empty(Shop)
 export const mutableCrewChangeSet = (): ChangeSetValue => ChangeSet.empty(MutableCrewShop)
