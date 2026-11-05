@@ -156,7 +156,7 @@ type Watched = Readonly<{ hangsAt: number; graceMillis: number; report: () => st
  * flight, since it cannot tell which one holds the thread. A process whose tests run off its main thread, in a worker,
  * has none: its watch does nothing, and only the guard's timer stops a case.
  */
-export type Watchdog = Readonly<{
+type Watchdog = Readonly<{
 	watch: (watched: Watched) => () => void
 	blocked: () => string
 }>

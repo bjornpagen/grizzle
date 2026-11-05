@@ -52,17 +52,36 @@ export const multiset =
 				)
 	}
 
-/** The same distinct items, in any order and however often each appears, each compared by `item`. */
+/** The first item of `values` that a later item repeats, by `item`, if one does. */
+const repeatOf = <A>(item: Equivalence<A>, values: ReadonlyArray<A>): Option.Option<A> =>
+	Arr.findFirst(values, (value, at) =>
+		Arr.some(Arr.drop(values, at + 1), (later) => Option.isNone(item(value, later)))
+	)
+
+/**
+ * The same items, in any order, each compared by `item`, where neither side holds an item twice: a set's answer that
+ * repeats an item is not the set its contract names, so a repeat on either side is a difference, which names the
+ * repeated item, and never folds away. A comparison that must ignore repeats says so in its own name.
+ */
 export const set =
 	<A>(item: Equivalence<A>): Equivalence<ReadonlyArray<A>> =>
 	(left, right) => {
-		const distinct = (values: ReadonlyArray<A>) =>
-			Arr.reduce(values, Arr.empty<A>(), (kept, value) =>
-				Arr.some(kept, (other) => Option.isNone(item(value, other)))
-					? kept
-					: Arr.append(kept, value)
-			)
-		return multiset(item)(distinct(left), distinct(right))
+		const repeated = Arr.findFirst(
+			[
+				["left", left],
+				["right", right]
+			] as const,
+			([, values]) => Option.isSome(repeatOf(item, values))
+		)
+		return Option.match(repeated, {
+			onNone: () => multiset(item)(left, right),
+			onSome: ([side, values]) =>
+				Option.map(
+					repeatOf(item, values),
+					(value) =>
+						`${side} holds ${Formatter.format(value)} more than once, and a set holds an item once`
+				)
+		})
 	}
 
 /**
