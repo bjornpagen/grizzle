@@ -219,7 +219,33 @@ const writeListKinds = (install: InstallSpec, role: RoleSpec): ReadonlyArray<Inv
 	]
 }
 
-/** The invalid kinds of a migration from a state: how it lands, the installation it lands, and a new law the data breaks. */
+/**
+ * The roster kinds of a migration from a state: a roster of the installation it lands that leaves out a handle some
+ * stored fact holds, or that declares two handles it keeps in the other order.
+ */
+const rosterKinds = (state: ModelState, to: InstallSpec): ReadonlyArray<InvalidKind> => {
+	const changed = Arr.flatMap(to.base.closed, (c) => {
+		const was = Arr.findFirst(state.install.base.closed, (b) => b.name === c.name)
+		return Option.isSome(was) ? [{ name: c.name, was: was.value.members, now: c.members }] : []
+	})
+	const removedHeld = Arr.some(changed, (c) =>
+		Arr.some(c.was, (m) => !c.now.includes(m) && holds(state, c.name, m))
+	)
+	const reordered = Arr.some(changed, (c) => {
+		const kept = Arr.filter(c.was, (m) => c.now.includes(m))
+		const declared = Arr.filter(c.now, (m) => c.was.includes(m))
+		return Arr.some(kept, (m, i) => declared[i] !== m)
+	})
+	return [
+		...(removedHeld ? (["migration:roster-removal-held"] as const) : []),
+		...(reordered ? (["migration:roster-reorder"] as const) : [])
+	]
+}
+
+/**
+ * The invalid kinds of a migration from a state: how it lands, the installation it lands, its rosters' changes, and a
+ * new law the data breaks.
+ */
 export const migrationKinds = (
 	state: ModelState,
 	to: InstallSpec,
@@ -233,6 +259,7 @@ export const migrationKinds = (
 					: ("migration:hand-edited" as const)
 			]),
 	...installKinds(to),
+	...rosterKinds(state, to),
 	...(Arr.some(
 		to.base.laws,
 		(law) => !state.install.base.laws.includes(law) && violatedBy(state, law)

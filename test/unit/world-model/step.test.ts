@@ -45,17 +45,22 @@ import type {
  * - Every branch of every step keeps every invariant `invariantsOf` judges: the laws hold on reality, no pooled
  *   connection keeps a role or claims, no session holds another login's role, and a whole entry shows exactly reality.
  * - Every outcome agrees with itself as the real system shows it, each draw an integer no fact of the state holds,
- *   and the state the branch then takes holds each draw the outcome showed as that integer; rows agree as sets:
- *   reordered and repeated rows agree, and rows missing a fact do not.
+ *   and the state the branch then takes holds each draw the outcome showed as that integer; rows and read-backs agree
+ *   as keyed sets: reordered rows agree, and rows missing a fact, or repeating one, do not, nor does a read-back
+ *   repeating a row of its rows or its delta.
  * - The walks reach every action kind, so each kind's branches are judged.
  *
  * The installation's names are the compiler's, read once: the model's semantics, not the compiler, is under test.
  */
-type StepFeature = `step:${ActionKind}` | "rows compared as sets"
+type StepFeature =
+	| `step:${ActionKind}`
+	| "rows compared as keyed sets"
+	| "read-backs compared as keyed sets"
 
 const stepFeatures: Arr.NonEmptyReadonlyArray<StepFeature> = [
 	...Arr.map(actionKinds, (k): StepFeature => `step:${k}`),
-	"rows compared as sets"
+	"rows compared as keyed sets",
+	"read-backs compared as keyed sets"
 ]
 
 /** The longest walk a case takes. */
@@ -127,26 +132,68 @@ const outcomeFacts = (o: ActionOutcome): ReadonlyArray<HostFact> => {
 const drawsIn = (facts: ReadonlyArray<HostFact>): ReadonlyArray<number> =>
 	Arr.flatMap(facts, (f) => Arr.flatMap(Rec.values(f), (v) => (isDrawn(v) ? [v.draw] : [])))
 
+/** Facts with their first fact repeated after them: what a delivery that repeats a row shows. */
+const repeatingFirst = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> =>
+	facts.concat(facts.slice(0, 1))
+
 /**
- * Rows as sets, as the real system shows them (shownOf): the branch agrees with its rows reordered and repeated, and
- * not with a row gone.
+ * Rows as keyed sets, as the real system shows them (shownOf): the branch agrees with its rows reordered, and not with a
+ * row repeated or a row gone.
  */
-const checkRowsAsSets = (
+const checkRowsAsKeyedSets = (
 	b: Branch,
 	shown: Extract<ActionOutcome, { readonly kind: "rows" }>
 ): void => {
-	const shuffled: ActionOutcome = {
-		kind: "rows",
-		rows: Arr.reverse([...shown.rows]).concat(shown.rows.slice(0, 1))
-	}
-	assert.ok(observedNext(b, shuffled) !== undefined, "rows reordered and repeated agree")
+	assert.ok(
+		observedNext(b, { kind: "rows", rows: Arr.reverse([...shown.rows]) }) !== undefined,
+		"rows reordered agree"
+	)
 	const [gone, ...kept] = shown.rows
-	if (gone !== undefined && !Arr.some(kept, (r) => sameValues(r, gone))) {
+	if (gone === undefined) {
+		return
+	}
+	assert.ok(
+		observedNext(b, { kind: "rows", rows: repeatingFirst(Arr.reverse([...shown.rows])) }) ===
+			undefined,
+		"rows repeating a row do not agree"
+	)
+	if (!Arr.some(kept, (r) => sameValues(r, gone))) {
 		assert.ok(
 			observedNext(b, { kind: "rows", rows: kept }) === undefined,
 			"rows missing a fact do not agree"
 		)
 	}
+}
+
+/**
+ * Read-backs as keyed sets, as the real system shows them (shownOf): the branch agrees with no read-back that repeats a
+ * row of its rows, of its inserted delta or of its deleted delta. Whether any was checked.
+ */
+const checkReadBacksAsKeyedSets = (
+	b: Branch,
+	shown: Extract<ActionOutcome, { readonly kind: "applied" }>
+): boolean => {
+	const sites = Arr.flatMap(shown.reads, (r, i) =>
+		Arr.map(
+			[
+				...(r.rows.length > 0 ? [{ ...r, rows: repeatingFirst(r.rows) }] : []),
+				...(r.delta.inserted.length > 0
+					? [{ ...r, delta: { ...r.delta, inserted: repeatingFirst(r.delta.inserted) } }]
+					: []),
+				...(r.delta.deleted.length > 0
+					? [{ ...r, delta: { ...r.delta, deleted: repeatingFirst(r.delta.deleted) } }]
+					: [])
+			],
+			(repeated) => Arr.map(shown.reads, (other, j) => (j === i ? repeated : other))
+		)
+	)
+	for (const reads of sites) {
+		assert.ok(
+			observedNext(b, { ...shown, reads }) === undefined,
+			"a read-back repeating a row does not agree"
+		)
+	}
+	return sites.length > 0
 }
 
 /** A walk's start: a reality of the docs base, and the swarm weights its actions are drawn under. */
@@ -202,8 +249,11 @@ describe("the worlds model's step", () => {
 									`${b.observation.kind}: the state taken holds every draw it showed as its value`
 								)
 								if (b.observation.kind === "rows" && shown.kind === "rows") {
-									c.note("rows compared as sets")
-									checkRowsAsSets(b, shown)
+									c.note("rows compared as keyed sets")
+									checkRowsAsKeyedSets(b, shown)
+								}
+								if (shown.kind === "applied" && checkReadBacksAsKeyedSets(b, shown)) {
+									c.note("read-backs compared as keyed sets")
 								}
 							}
 							state = c.draw(element(branches)).next

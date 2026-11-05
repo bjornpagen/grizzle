@@ -764,13 +764,23 @@ interface Continued {
 }
 
 /**
- * Every drop of stored data from `previous` to `owned`, declared as a reviewer declares it (`--drop`): each stored
- * relation or roster the snapshot holds that the next version lacks, each field of a relation both hold that the next
- * version's lacks, and each live handle of a roster both hold that the next version no longer declares. The worlds
- * declare no rename: a relation or handle that goes is dropped, and one that comes is new.
+ * Every drop of stored state from `previous` to `owned` and its `logins`, declared as a reviewer declares it
+ * (`--drop`): each login the snapshot holds that the next version does not, each stored relation or roster the snapshot
+ * holds that the next version lacks, each field of a relation both hold that the next version's lacks, and each live
+ * handle of a roster both hold that the next version no longer declares. The worlds declare no rename: a login, relation
+ * or handle that goes is dropped, and one that comes is new.
  */
-const dropsOf = (previous: DeploySnapshot, owned: Owned): Declarations => {
+const dropsOf = (
+	previous: DeploySnapshot,
+	owned: Owned,
+	logins: ReadonlyArray<string>
+): Declarations => {
 	const drops: Array<Named> = []
+	for (const login of Rec.keys(previous.logins)) {
+		if (!logins.includes(login)) {
+			drops.push({ kind: "login", login: parsedName(login) })
+		}
+	}
 	for (const [name, r] of Rec.toEntries(previous.theory.relations)) {
 		const now = owned.relations[name]
 		const relation = parsedName(name)
@@ -835,7 +845,6 @@ export const draftNext = (
 				refusal: reorderRefusal(drafted.error)
 			})
 		}
-		const drops = dropsOf(previous.snapshot, owned)
 		const plan = yield* Effect.orDie(
 			fromEngine(
 				planRealInstall(desc, {
@@ -846,6 +855,11 @@ export const draftNext = (
 					codes: drafted.value
 				})
 			)
+		)
+		const drops = dropsOf(
+			previous.snapshot,
+			owned,
+			Arr.map(plan.installation.worlds, (l) => l.name)
 		)
 		const g = yield* Effect.orDie(
 			fromEngine(
