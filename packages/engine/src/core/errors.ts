@@ -74,8 +74,6 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
 /**
  * The bound a ResourceBound crossed, with the facts it states:
  * - `rewriteSteps`: the steps of the rewrite pass `rewrite`, its limit and the step that crossed it;
- * - `nesting`: a container nested deeper than `limit`;
- * - `carriers`: more than `limit` carriers of one heading's column types in one program;
  * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past PostgreSQL's regex compile space;
  * - `stringLength`: a text grizzle builds as one string, `needed` UTF-16 code units long, past V8's longest string,
  *   `limit` (core/policy.ts maxStringLength);
@@ -96,8 +94,6 @@ export type CompileBound =
 			readonly limit: number
 			readonly needed: number
 	  }
-	| { readonly kind: "nesting"; readonly limit: number }
-	| { readonly kind: "carriers"; readonly limit: number }
 	| {
 			readonly kind: "regexCompileSpace"
 			readonly pattern: string
@@ -119,10 +115,6 @@ const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
 		case "rewriteSteps":
 			return `${bound.rewrite} rewrite steps <= ${bound.limit} (needed ${bound.needed})`
-		case "nesting":
-			return `nesting depth at most ${bound.limit}`
-		case "carriers":
-			return `at most ${bound.limit} carriers of one heading's column types in one program`
 		case "regexCompileSpace":
 			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past grizzle's measure of PostgreSQL's regex compile space (REG_MAX_COMPILE_SPACE), beyond which PostgreSQL refuses a pattern as "regular expression is too complex"; write a smaller pattern, or bound the text's length with Compute.charLength in a contract predicate`
 		case "stringLength":

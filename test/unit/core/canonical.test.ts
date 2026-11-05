@@ -43,7 +43,6 @@ import {
 	everyProperty,
 	fromJson,
 	type Json,
-	maxNestingDepth,
 	noRevivers,
 	omitSourceLocs,
 	type Revivers,
@@ -541,6 +540,35 @@ const placed = (
 	return root
 }
 
+type Direction = "encode" | "toJson" | "fromJson" | "decode"
+const directions: Arr.NonEmptyReadonlyArray<Direction> = ["encode", "toJson", "fromJson", "decode"]
+type Container = "array" | "object"
+
+/**
+ * The canonical text of the leaf 1 inside `depth` containers, written out directly: JSON.stringify recurses, so it
+ * cannot print a nesting deep enough to exhaust the stack.
+ */
+const nestedText = (depth: number, container: Container): string =>
+	container === "array"
+		? `${Str.repeat(depth)("[")}1${Str.repeat(depth)("]")}`
+		: `${Str.repeat(depth)('{"a":')}1${Str.repeat(depth)("}")}`
+
+/** `length` containers, each holding the next, the last holding the one `back` below the root: the root. */
+const cycle = (length: number, back: number, container: Container): unknown => {
+	if (container === "array") {
+		const items = Arr.map(indices(length), (): Array<unknown> => [])
+		for (const [i, item] of items.entries()) {
+			item.push(items[i + 1] ?? items[back])
+		}
+		return items[0]
+	}
+	const members = Arr.map(indices(length), (): Record<string, unknown> => ({}))
+	for (const [i, member] of members.entries()) {
+		member["a"] = members[i + 1] ?? members[back]
+	}
+	return members[0]
+}
+
 describe("a value outside the model", () => {
 	it.effect(
 		"is refused at its path, in the direction it arises, and never thrown: the caller's value as MalformedDescription, canonical text read back as MalformedArtifact",
@@ -597,11 +625,9 @@ describe("a value outside the model", () => {
 	)
 
 	it.effect(
-		"is refused past maxNestingDepth containers as ResourceBound, in every direction, and accepted at it",
+		"is read and written nested to any depth in every direction, the call stack no deeper for it, and the same text comes back",
 		(ctx) =>
 			Effect.gen(function* () {
-				type Direction = "encode" | "toJson" | "fromJson" | "decode"
-				type Container = "array" | "object"
 				/** The leaf 1 inside `depth` containers. */
 				const nest = (depth: number, container: Container): unknown => {
 					let v: unknown = 1
@@ -610,28 +636,28 @@ describe("a value outside the model", () => {
 					}
 					return v
 				}
-				/**
-				 * The same nesting as canonical text, written out directly: JSON.stringify recurses, so it cannot print a nesting
-				 * deep enough to exhaust the stack.
-				 */
-				const nestedText = (depth: number, container: Container): string =>
-					container === "array"
-						? `${Str.repeat(depth)("[")}1${Str.repeat(depth)("]")}`
-						: `${Str.repeat(depth)('{"a":')}1${Str.repeat(depth)("}")}`
-				const run = (
+				/** The canonical text of each direction's answer, read back by the serializer, which keeps its stack on the heap too. */
+				const textOf = (
 					direction: Direction,
 					depth: number,
 					container: Container
-				): Result.Result<unknown, CompileError> => {
+				): Result.Result<string, CompileError> => {
 					switch (direction) {
 						case "encode":
 							return encode(nest(depth, container), everyProperty)
 						case "toJson":
-							return toJson(nest(depth, container), everyProperty)
+							return Result.flatMap(
+								toJson(nest(depth, container), everyProperty),
+								writeCanonicalJson
+							)
 						case "fromJson":
-							return fromJson(nest(depth, container), noRevivers)
+							return Result.flatMap(fromJson(nest(depth, container), noRevivers), (v) =>
+								encode(v, everyProperty)
+							)
 						case "decode":
-							return decode(nestedText(depth, container), noRevivers)
+							return Result.flatMap(decode(nestedText(depth, container), noRevivers), (v) =>
+								encode(v, everyProperty)
+							)
 					}
 				}
 				yield* searched(
@@ -639,12 +665,12 @@ describe("a value outside the model", () => {
 					exhaust(
 						{
 							suite: "unit/core/canonical-nesting",
-							/** The bound, one past it, and a nesting that would exhaust the stack, each container and direction. */
+							/** No container, one, and a nesting a recursion would overflow the small stack at, each container and direction. */
 							generator: (source) =>
 								[
-									source.draw(element([maxNestingDepth, maxNestingDepth + 1, 100_000])),
+									source.draw(element([0, 1, 100_000])),
 									source.draw(element<Container>(["array", "object"])),
-									source.draw(element<Direction>(["encode", "toJson", "fromJson", "decode"]))
+									source.draw(element<Direction>(directions))
 								] as const,
 							literal: Formatter.format,
 							limit: 24,
@@ -653,16 +679,67 @@ describe("a value outside the model", () => {
 						},
 						([depth, container, direction]) =>
 							Effect.sync(() => {
-								const result = run(direction, depth, container)
-								if (depth <= maxNestingDepth) {
-									succeeded(result)
-								} else {
-									refused(result, "ResourceBound")
-								}
+								assert.equal(
+									succeeded(textOf(direction, depth, container)),
+									nestedText(depth, container)
+								)
 							})
 					)
 				)
 			})
+	)
+
+	it.effect(
+		"is refused as a cycle where it meets itself when it holds itself, however long the cycle, never as a depth",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/core/canonical-cycle",
+						/** A cycle through one container, two, and one a recursion would overflow the small stack on, back to its first or last. */
+						generator: (source) => {
+							const length = source.draw(element([1, 2, 100_000]))
+							return [
+								length,
+								source.draw(element([0, length - 1])),
+								source.draw(element<Container>(["array", "object"])),
+								source.draw(element(["encode", "toJson", "fromJson"] as const))
+							] as const
+						},
+						literal: Formatter.format,
+						limit: 36,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(2)
+					},
+					([length, back, container, direction]) =>
+						Effect.sync(() => {
+							const root = cycle(length, back, container)
+							/** Where the walk meets the container it is already inside: one segment per container on the way. */
+							const where = Arr.map(indices(length), () => (container === "array" ? 0 : "a"))
+							switch (direction) {
+								case "encode":
+									assert.deepEqual(
+										refusalLoc(refused(encode(root, everyProperty), "MalformedDescription")).path,
+										where
+									)
+									return
+								case "toJson":
+									assert.deepEqual(
+										refusalLoc(refused(toJson(root, everyProperty), "MalformedDescription")).path,
+										where
+									)
+									return
+								case "fromJson": {
+									const malformed = artifactRefusal(
+										refused(fromJson(root, noRevivers), "MalformedArtifact")
+									)
+									assert.deepEqual([malformed.artifact, malformed.at], ["canonical", where])
+								}
+							}
+						})
+				)
+			)
 	)
 })
 

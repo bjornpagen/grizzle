@@ -29,12 +29,7 @@ import {
 	String as Str
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import {
-	type Canonicalizable,
-	canonicalTag,
-	type Json,
-	maxNestingDepth
-} from "#compiler/core/canonical.ts"
+import { type Canonicalizable, canonicalTag, type Json } from "#compiler/core/canonical.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
@@ -1357,95 +1352,92 @@ describe("Descriptions", () => {
 	})
 
 	/**
-	 * An in-memory description deeper than the nesting bound is ResourceBound and a cyclic one MalformedDescription,
-	 * exactly as their text forms are, and neither overflows the stack; a value shared between siblings or levels is no
-	 * cycle. The chains of r.not lie around the bound, the deepest container at depth d.
+	 * An in-memory description of any depth decodes, as its text form does, and never overflows the stack; a cyclic one
+	 * is MalformedDescription, and a value shared between siblings or levels is no cycle. The chains of r.not run from
+	 * none to one a recursion would overflow the stack on.
 	 */
 	type Nesting =
 		| { readonly kind: "a chain"; readonly depth: number }
 		| { readonly kind: "a cycle"; readonly length: number; readonly back: number }
 		| { readonly kind: "an array cycle" }
 		| { readonly kind: "shared"; readonly depth: number }
-	it.effect("refuses an in-memory expression nested past the bound, and a cyclic one", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/ir/desc-nesting",
-					literal: Formatter.format,
-					generator: oneOf<Nesting>([
-						map(int(maxNestingDepth - 3, maxNestingDepth + 2), (depth): Nesting => ({
-							kind: "a chain",
-							depth
-						})),
-						(source) => {
-							const length = source.draw(int(1, 4))
-							return { kind: "a cycle", length, back: source.draw(int(0, length - 1)) }
-						},
-						constant<Nesting>({ kind: "an array cycle" }),
-						map(int(0, 3), (depth): Nesting => ({ kind: "shared", depth }))
-					]),
-					limit: 100,
-					coverage: requiredInSpace<Nesting["kind"] | "past the bound" | "within the bound">([
-						"a chain",
-						"a cycle",
-						"an array cycle",
-						"shared",
-						"past the bound",
-						"within the bound"
-					]),
-					caseHang: Duration.minutes(2)
-				},
-				(n, c) =>
-					Effect.sync(() => {
-						c.note(n.kind)
-						switch (n.kind) {
-							case "a chain": {
-								/** The var at the bottom of `depth` r.not lies inside `depth` containers. */
-								const decoded = decodeDesc("expr", notChain(n.depth, { kind: "var", var: "v" }))
-								if (n.depth < maxNestingDepth) {
-									c.note("within the bound")
-									succeeded(decoded)
-								} else {
-									c.note("past the bound")
-									assert.equal(fail(decoded).reason._tag, "ResourceBound")
+	it.effect(
+		"decodes an in-memory expression nested to any depth, and refuses a cyclic one",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/ir/desc-nesting",
+						literal: Formatter.format,
+						generator: oneOf<Nesting>([
+							map(element([0, 1, 2, 100_000]), (depth): Nesting => ({
+								kind: "a chain",
+								depth
+							})),
+							(source) => {
+								const length = source.draw(int(1, 4))
+								return { kind: "a cycle", length, back: source.draw(int(0, length - 1)) }
+							},
+							constant<Nesting>({ kind: "an array cycle" }),
+							map(int(0, 3), (depth): Nesting => ({ kind: "shared", depth }))
+						]),
+						limit: 100,
+						coverage: requiredInSpace<Nesting["kind"]>([
+							"a chain",
+							"a cycle",
+							"an array cycle",
+							"shared"
+						]),
+						caseHang: Duration.minutes(2)
+					},
+					(n, c) =>
+						Effect.sync(() => {
+							c.note(n.kind)
+							switch (n.kind) {
+								case "a chain": {
+									/** The var at the bottom of `depth` r.not lies inside `depth` containers. */
+									const chain = notChain(n.depth, { kind: "var", var: "v" })
+									succeeded(decodeDesc("expr", chain))
+									return
 								}
-								return
-							}
-							case "a cycle": {
-								/** A chain of `length` r.not whose last argument is the one `back` levels below the root. */
-								const nodes = Array.from(
-									{ length: n.length },
-									(): { kind: "not"; arg: unknown } => ({
-										kind: "not",
-										arg: undefined
-									})
-								)
-								for (const [i, node] of nodes.entries()) {
-									node.arg = i + 1 < nodes.length ? nodes[i + 1] : nodes[n.back]
+								case "a cycle": {
+									/** A chain of `length` r.not whose last argument is the one `back` levels below the root. */
+									const nodes = Array.from(
+										{ length: n.length },
+										(): { kind: "not"; arg: unknown } => ({
+											kind: "not",
+											arg: undefined
+										})
+									)
+									for (const [i, node] of nodes.entries()) {
+										node.arg = i + 1 < nodes.length ? nodes[i + 1] : nodes[n.back]
+									}
+									assert.equal(
+										fail(decodeDesc("expr", nodes[0])).reason._tag,
+										"MalformedDescription"
+									)
+									return
 								}
-								assert.equal(fail(decodeDesc("expr", nodes[0])).reason._tag, "MalformedDescription")
-								return
+								case "an array cycle": {
+									const loop: Array<unknown> = []
+									loop.push({ kind: "var", var: "v" }, { kind: "and", args: loop })
+									assert.equal(
+										fail(decodeDesc("expr", { kind: "and", args: loop })).reason._tag,
+										"MalformedDescription"
+									)
+									return
+								}
+								case "shared": {
+									const shared: ExprDesc = { kind: "var", var: "v" }
+									succeeded(
+										decodeDesc("expr", { kind: "and", args: [notChain(n.depth, shared), shared] })
+									)
+								}
 							}
-							case "an array cycle": {
-								const loop: Array<unknown> = []
-								loop.push({ kind: "var", var: "v" }, { kind: "and", args: loop })
-								assert.equal(
-									fail(decodeDesc("expr", { kind: "and", args: loop })).reason._tag,
-									"MalformedDescription"
-								)
-								return
-							}
-							case "shared": {
-								const shared: ExprDesc = { kind: "var", var: "v" }
-								succeeded(
-									decodeDesc("expr", { kind: "and", args: [notChain(n.depth, shared), shared] })
-								)
-							}
-						}
-					})
+						})
+				)
 			)
-		)
 	)
 
 	/**

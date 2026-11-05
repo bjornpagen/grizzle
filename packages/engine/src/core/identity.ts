@@ -48,6 +48,19 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
 /** The bytes a hashed name's stem may take between its leading `__` and its `_` and digest: 63 less the 13 those take. */
 const stemBudget = 50
 const digestChars = 10
+
+/**
+ * The longest identifier PostgreSQL keeps, in bytes: a longer one is truncated, so two names that differ past it are
+ * one name.
+ *
+ * @limitKind published
+ * @owner PostgreSQL
+ * @unit bytes
+ * @scope one identifier: an object's, a column's, a role's or a temporary table's name
+ * @constraint compile-time constant
+ * @source https://www.postgresql.org/docs/19/sql-syntax-lexical.html "By default, NAMEDATALEN is 64 so the maximum identifier length is 63 bytes."
+ * @verified 2026-11-04
+ */
 export const maxIdentifierBytes = 63
 
 /** One part of an identity: a text, a list of parts, or a nested identity. */

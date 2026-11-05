@@ -304,6 +304,13 @@ export default defineConfig(
 				rules: active({ "devtools/no-try": "off" })
 			},
 			{
+				files: ["packages/engine/src/ir/shape.ts"],
+				rules: active({
+					/** Every shape's decode is a generator, so its driver runs them all alike on a stack on the heap: a leaf's waits on no part and answers at once, without a yield. */
+					"eslint/require-yield": "off"
+				})
+			},
+			{
 				files: ["packages/engine/src/core/trusted.ts"],
 				rules: active({
 					/** trustedJson's T is the type its caller names for trusted JSON text: the door's whole purpose. */

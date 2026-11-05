@@ -1,10 +1,10 @@
-import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
-import { resourceBound } from "#compiler/core/errors.ts"
-import { digest } from "#compiler/core/fingerprint.ts"
+import { canonicalFormat, encode, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { resourceBound, unsupported } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { tableMaxColumns } from "#compiler/core/policy.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
@@ -22,7 +22,12 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { col, core, cUtf8Collation, select, simpleSelect, target } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import { type CarrierName, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
+import {
+	carrierDigestHex,
+	type CarrierName,
+	carrierName,
+	emptyNameMap
+} from "#compiler/sql/naming.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 import {
 	type AnalyzeResult,
@@ -49,16 +54,17 @@ export interface CarrierColumn extends HeadingColumn {
  * post-change state. A carrier is a temporary relation, so it lives in pg_temp and is never
  * schema-qualified, it drops at COMMIT, and every column is NOT NULL:
  *
- *   CREATE TEMPORARY TABLE "__carrier_<n>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL, "c3" "work"."kind" NOT NULL)
+ *   CREATE TEMPORARY TABLE "__carrier_<d>_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL, "c3" "work"."kind" NOT NULL)
  *     ON COMMIT DROP
- *   INSERT INTO "__carrier_<n>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
+ *   INSERT INTO "__carrier_<d>_<k>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
  *
- * Carriers are named `__carrier_<n>` and their columns c1 to cn. The number n names the carrier's column types: its
- * high bits are a digest of its heading's types, and its low bits the carrier's ordinal among the program's carriers of
- * those types (carrierNumber). A session parses each named statement text once and PostgreSQL refuses a cached plan whose
- * result type changed (0A000), so a statement text must mean one result type wherever it is sent: two programs that
- * read or write "__carrier_<n>" by equal text read carriers of equal column types. A count per program would let one
- * text address carriers of different types, which a session meets as a stale statement on a correct write. A column is
+ * Carriers are named `__carrier_<d>_<k>` and their columns c1 to cn. The name is a pair: d, a digest of its heading's
+ * column types (typesDigest), and k, the carrier's ordinal among the program's carriers of those types, so a program
+ * holds as many carriers of one column-type class as it makes. A session parses each named statement text once and
+ * PostgreSQL refuses a cached plan whose result type changed (0A000), so a statement text must mean one result type
+ * wherever it is sent: two programs that read or write "__carrier_<d>_<k>" by equal text read carriers of equal column
+ * types. A count per program alone would let one text address carriers of different types, which a session meets as a
+ * stale statement on a correct write. A column is
  * typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, an
  * enum, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
  * so a statement reading the carrier sees the types a stored column of the relation has. A deletion's
@@ -67,8 +73,9 @@ export interface CarrierColumn extends HeadingColumn {
  *
  * A carrier is filled only by INSERT ... SELECT: from a described member, from a stored relation (the conservative
  * realization's state snapshot), or from the difference of two such relations (a delta by state comparison). A carrier
- * of no column, which PostgreSQL holds, is the unit relation's: filled by `INSERT INTO "__carrier_<n>" SELECT FROM ...`,
- * one row of no column per row its source reads, and read through the unit marker. */
+ * of no column, which PostgreSQL holds, is the unit relation's: filled by
+ * `INSERT INTO "__carrier_<d>_<k>" SELECT FROM ...`, one row of no column per row its source reads, and read through
+ * the unit marker. */
 export interface Carrier extends CarrierDecl {
 	readonly heading: ReadonlyArray<CarrierColumn>
 }
@@ -88,52 +95,61 @@ export type CarrierRow =
 export const carrierRow = (carrier: Carrier): CarrierRow =>
 	isNonEmpty(carrier.heading) ? { kind: "columns", columns: carrier.heading } : { kind: "unit" }
 
-/** How many carriers of one heading's column types one program may hold: a carrier number's low bits. */
-const ordinalSpan = 0x1_0000
-
-/** How many leading hex digits of the types' digest a carrier number keeps: 36 bits, so the number, those bits times
- * ordinalSpan plus the ordinal, stays an exact integer below 2^53. */
-const typesDigestHex = 9
-
-/** The digest of a heading's column types, as a carrier number's high bits. Only the types count: a carrier's columns
- * are named c1 to cn whatever its fields are called, so two headings of equal types give a statement equal result
- * types. */
-const typesDigest = (heading: Heading): number => {
-	const d = digest(
-		"carrier column types",
+/** The canonical text of a heading's column types, what a carrier's digest stands for. Only the types count: a carrier's
+ * columns are named c1 to cn whatever its fields are called, so two headings of equal types give a statement equal
+ * result types. */
+const typesText = (heading: Heading): string => {
+	const text = encode(
 		heading.map((c) => c.type),
 		everyProperty
 	)
-	if (!d.ok) {
-		throw new Refusal(d.error)
+	if (!text.ok) {
+		throw new Refusal(text.error)
 	}
-	return Number.parseInt(d.value.slice(0, typesDigestHex), 16)
+	return text.value
 }
 
-/** The number of the `ordinal`-th carrier of the column types whose digest is `types`, ordinal from 1. */
-const carrierNumber = (types: number, ordinal: number): number => types * ordinalSpan + ordinal
+/** The digest a carrier's name holds for the column types whose canonical text is `types`: the leading
+ * carrierDigestHex hex digits of SHA-256 over them, domain-separated as every fingerprint is (core/fingerprint.ts). */
+export const typesDigest = (types: string): string =>
+	sha256Hex(`${canonicalFormat}\ncarrier column types\n${types}`).slice(0, carrierDigestHex)
 
-/** The carriers of one program, each numbered by its column types and its ordinal among the program's carriers of those
- * types (see `Carrier`). */
+/** The column types one digest stands for in a program, and how many carriers of them the program holds. */
+interface TypesClass {
+	readonly types: string
+	readonly count: number
+}
+
+/** The carriers of one program, each named by its column types' digest and its ordinal among the program's carriers of
+ * those types (see `Carrier`). A digest stands for one column-type class in the program: two classes that `digest`
+ * gives one digest are refused, so no name is shared between different column types. */
 export class CarrierSupply {
-	readonly #ordinals = new Map<number, number>()
+	readonly #digest: (types: string) => string
+	readonly #classes = new Map<string, TypesClass>()
 	readonly #all: Array<Carrier> = []
+
+	/** A supply naming carriers by `digest`: typesDigest, or a test's stand-in. */
+	constructor(digest: (types: string) => string) {
+		this.#digest = digest
+	}
 
 	/** A carrier of `heading`, of any width. */
 	next(heading: Heading): Carrier {
-		const types = typesDigest(heading)
-		const ordinal = (this.#ordinals.get(types) ?? 0) + 1
-		if (ordinal >= ordinalSpan) {
+		const types = typesText(heading)
+		const digest = this.#digest(types)
+		const known = this.#classes.get(digest)
+		if (known !== undefined && known.types !== types) {
 			throw new Refusal(
-				resourceBound(SourceLoc("write lowering", ["carriers"]), {
-					kind: "carriers",
-					limit: ordinalSpan - 1
-				})
+				unsupported(
+					SourceLoc("write lowering", ["carriers"]),
+					`carriers of distinct column types under distinct digests; two of this program's share the digest ${digest}`
+				)
 			)
 		}
-		this.#ordinals.set(types, ordinal)
+		const ordinal = (known?.count ?? 0) + 1
+		this.#classes.set(digest, { types, count: ordinal })
 		const carrier: Carrier = Object.freeze({
-			name: carrierName(carrierNumber(types, ordinal)),
+			name: carrierName(digest, ordinal),
 			heading: Object.freeze(
 				heading.map((c, i): CarrierColumn =>
 					Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
@@ -209,7 +225,7 @@ export const buildCreateCarrier = (
 		skipWhenEmpty: undefined
 	}))
 
-/** ANALYZE pg_temp.__carrier_<n>, ... of carriers the program created and filled, so each later statement that joins
+/** ANALYZE pg_temp.__carrier_<d>_<k>, ... of carriers the program created and filled, so each later statement that joins
  * one against a stored relation plans with its exact row count instead of PostgreSQL's ten-page guess for a relation
  * never analyzed (placement in). A carrier is the session's own,
  * so the lock it takes is uncontended, and the statement reads no stored relation. */

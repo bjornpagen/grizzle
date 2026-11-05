@@ -1,5 +1,6 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -60,27 +61,80 @@ export const isDecimal = (text: string): boolean => {
 	return true
 }
 
+/** What every carrier's name starts with. */
+const carrierPrefix = "__carrier_"
+
+/** What parts a carrier's types digest from its ordinal. */
+const carrierSeparator = "_"
+
 /**
- * __carrier_<n>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE TEMPORARY TABLE and
- * ANALYZE take. Only carrierName spells one. The number names the carrier's column types and its place among the
- * program's carriers of those types (write/carriers), so equal statement text addresses carriers of equal
- * column types in every program.
+ * The decimal digits of the longest ordinal a carrier's name holds.
+ *
+ * @limitKind derived
+ * @owner grizzle
+ * @unit decimal digits
+ * @scope the ordinal of one carrier's name
+ * @derivation Number.MAX_SAFE_INTEGER's decimal length: an ordinal counts the carriers of one column-type class that one program holds, each an object the program keeps, so the count stays a safe integer, which this many decimal digits write.
+ */
+const ordinalDigits = String(Number.MAX_SAFE_INTEGER).length
+
+/**
+ * The hex digits of a carrier's types digest: the leading digits of SHA-256 over its column types' canonical text.
+ *
+ * @limitKind derived
+ * @owner grizzle
+ * @unit hex digits
+ * @scope the types digest of one carrier's name
+ * @derivation maxIdentifierBytes less carrierPrefix, carrierSeparator and ordinalDigits: 63 - 10 - 1 - 16 = 36 hex digits, 144 bits, the widest digest a name with the longest ordinal still fits in PostgreSQL's identifier, which would truncate a longer one. Collision arithmetic: n distinct column-type lists in one process share a digest with probability at most n(n - 1) / 2 / 2^144, below 2^-81 for n = 2^32; two programs that share one meet only PostgreSQL's refusal of a cached plan whose result type changed (StaleStatement), and one program that holds both is refused at compile time (write/carriers CarrierSupply).
+ */
+export const carrierDigestHex =
+	maxIdentifierBytes - carrierPrefix.length - carrierSeparator.length - ordinalDigits
+
+/**
+ * __carrier_<digest>_<ordinal>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE
+ * TEMPORARY TABLE and ANALYZE take. Only carrierName spells one. The digest names the carrier's column types and the
+ * ordinal its place among the program's carriers of those types (write/carriers), so equal statement text addresses
+ * carriers of equal column types in every program, and no count of carriers runs out of names.
  */
 export type CarrierName = string & { readonly [carrierNameBrand]: true }
 declare const carrierNameBrand: unique symbol
 const CarrierName = nominal<string, CarrierName>()
 
-/** The carrier numbered n, n from 1. */
-export const carrierName = (n: number): CarrierName => CarrierName(`__carrier_${n}`)
+/**
+ * The `ordinal`-th carrier, from 1, of the column types whose digest is `digest` (carrierDigestHex lowercase hex
+ * digits, write/carriers typesDigest).
+ */
+export const carrierName = (digest: string, ordinal: number): CarrierName =>
+	CarrierName(`${carrierPrefix}${digest}${carrierSeparator}${ordinal}`)
 
-/** Whether a value read from outside the process spells a carrier, n from 1 with no leading zero. */
+const isLowerHex = (text: string): boolean => {
+	for (const ch of text) {
+		if (!((ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f"))) {
+			return false
+		}
+	}
+	return true
+}
+
+/**
+ * Whether a value read from outside the process spells a carrier: a types digest of carrierDigestHex lowercase hex
+ * digits, then an ordinal from 1 with no leading zero, a safe integer.
+ */
 export const isCarrierName = (u: unknown): u is CarrierName => {
-	const prefix = "__carrier_"
-	if (typeof u !== "string" || !u.startsWith(prefix)) {
+	if (typeof u !== "string" || !u.startsWith(carrierPrefix)) {
 		return false
 	}
-	const n = u.slice(prefix.length)
-	return isDecimal(n) && n !== "0"
+	const digest = u.slice(carrierPrefix.length, carrierPrefix.length + carrierDigestHex)
+	const rest = u.slice(carrierPrefix.length + carrierDigestHex)
+	if (
+		digest.length !== carrierDigestHex ||
+		!isLowerHex(digest) ||
+		!rest.startsWith(carrierSeparator)
+	) {
+		return false
+	}
+	const ordinal = rest.slice(carrierSeparator.length)
+	return isDecimal(ordinal) && ordinal !== "0" && Number.isSafeInteger(Number(ordinal))
 }
 
 /**

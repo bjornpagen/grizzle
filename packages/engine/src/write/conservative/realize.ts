@@ -18,7 +18,8 @@ import {
 	buildFillCarrier,
 	type Carrier,
 	CarrierSupply,
-	relationCarrier
+	relationCarrier,
+	typesDigest
 } from "#compiler/write/carriers/carriers.ts"
 import { buildDisplacingDelete, buildExactDelete } from "#compiler/write/delete/exact.ts"
 import { buildEntryCheck, type EntryCheck, outsideProbes } from "#compiler/write/entry/precheck.ts"
@@ -109,7 +110,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		dispatch: dispatchNode,
 		share: options.share
 	})
-	const supply = new CarrierSupply()
+	const supply = new CarrierSupply(typesDigest)
 	const steps: Array<ConservativeStep> = []
 	const carry = (
 		carrier: Carrier,

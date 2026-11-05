@@ -89,7 +89,7 @@ How to upgrade:
   `"pg_catalog"."uuid"`, `"pg_catalog"."jsonb"`, `"pg_catalog"."money"`, the ranges, `"pg_catalog"."record"`); a
   builtin function as `"pg_catalog"."<name>"(...)`, `count(*)` as `"pg_catalog"."count"(*)`; a function's return type as
   `RETURNS "pg_catalog"."trigger"` / `"pg_catalog"."void"` / `boolean`; a relation in a regclass value as
-  `'"<schema>"."<name>"'::"pg_catalog"."regclass"`; a write program's carrier as `"pg_temp"."__carrier_<n>"`.
+  `'"<schema>"."<name>"'::"pg_catalog"."regclass"`; a write program's carrier as `"pg_temp"."__carrier_<d>_<k>"`.
   Before: `"id" uuid NOT NULL`, `count(*)`, `'shop.seq'::regclass`. After: `"id" "pg_catalog"."uuid" NOT NULL`,
   `"pg_catalog"."count"(*)`, `'"shop"."seq"'::"pg_catalog"."regclass"`. A relation may now be named `Text`, `Uuid`,
   `Money`, `Void` or `Trigger`, and a database, role or session search_path that lists grizzle's schemas first changes
@@ -168,6 +168,25 @@ How to upgrade:
   was nested `left`/`right` pairs; a join is one `{ kind: "joins", first, steps: [{ kind: "on" | "cross", source,
   on? }] }` where it was nested `join`/`crossJoin` pairs; and every fingerprint changes. A pre-cutover snapshot is
   refused. The printed SQL of these statements does not change.
+
+#### A value nests to any depth, and a write program holds any number of carriers of one column-type class
+
+- **A description, an IR value or a canonical text nests to any depth.** The canonical serializer (`encode`, `toJson`,
+  `fromJson`, `decode`) and every description and IR decoder kept the containers they were inside on the call stack,
+  and refused a value inside more than 512 of them with `ResourceBound` (`{ kind: "nesting", limit: 512 }`). Each now
+  keeps them on a stack on the heap, so a value 100,000 containers deep decodes on a sixth of Node's stack, and the
+  bound is gone. A value that holds itself is refused as cyclic wherever it meets itself, `MalformedDescription` (`an
+  acyclic value`) at that path; `fromJson` refuses a cyclic in-memory value the same way, as `MalformedArtifact`,
+  where it used to stop at the depth bound.
+  - Fix: a program that switches over `CompileBound["kind"]` exhaustively drops the case `"nesting"`.
+- **A write program holds any number of carriers.** A carrier was named `__carrier_<n>`, n a 36-bit digest of its
+  column types times 65,536 plus its ordinal, so a program with more than 65,535 carriers of one column-type class was
+  refused with `ResourceBound` (`{ kind: "carriers", limit: 65535 }`). A carrier is now named `__carrier_<d>_<k>`:
+  d, the first 36 hex digits (144 bits) of SHA-256 over its column types, and k, its ordinal among the program's
+  carriers of those types, which no count runs out of. Two column-type classes of one program whose digests agree are
+  refused with `UnsupportedOperation` rather than given one name.
+  - Fix: a program that switches over `CompileBound["kind"]` exhaustively drops the case `"carriers"`; a log filter or
+    a query of `pg_stat_activity` that matched `__carrier_<n>` matches `__carrier_<d>_<k>`.
 
 #### A residual law is one deferred trigger and one function per table and event, each checking only what its event can break (#5)
 
