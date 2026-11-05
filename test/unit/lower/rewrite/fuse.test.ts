@@ -166,7 +166,7 @@ describe("the complete bound tuple survives fusion", () => {
 							)
 							contains(rulesOf(ran.certificates), "R01.fusion")
 							const g = nodesByLabel(ran.query.dag).get(group.id)
-							assert.deepEqual(g?.kind === "Group" ? g.bound : [], columns)
+							assert.deepEqual(g?.kind === "Group" ? g.bound.columns : [], columns)
 						})
 				)
 			)

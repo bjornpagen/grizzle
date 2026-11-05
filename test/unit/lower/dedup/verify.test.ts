@@ -532,8 +532,6 @@ type PlanBreak =
 	| "a placement certificate for a DISTINCT the plan does not place"
 	| "a realization dropped"
 	| "a realization of no node"
-	| "a fold form dropped"
-	| "a fold form of no fold"
 	| "verified for another context"
 	| "a set form relaxed"
 	| "a DISTINCT on a node that only delivers"
@@ -655,8 +653,6 @@ const planBreakNames: Arr.NonEmptyReadonlyArray<PlanBreak> = [
 	"a placement certificate for a DISTINCT the plan does not place",
 	"a realization dropped",
 	"a realization of no node",
-	"a fold form dropped",
-	"a fold form of no fold",
 	"verified for another context",
 	"a set form relaxed",
 	"a DISTINCT on a node that only delivers"

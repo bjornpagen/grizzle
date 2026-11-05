@@ -1,5 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
 	isNonEmpty,
@@ -60,6 +61,7 @@ import { type FieldColumns, fieldColumns, flatMapNonEmpty } from "#compiler/writ
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import {
 	inputGuarantees,
+	inputHeading,
 	keyUniqueBy,
 	type RelationInput,
 	readInput,
@@ -236,7 +238,14 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	const payload = spec.inPlace.payload
 	const guarantees = inputGuarantees(input)
 	const all = keyFirst(relation)
-	const written = writtenFields(relation)
+	/** The written fields its input carries: a put's facts carry the caller's and serial fields, never an owner's drawn
+	 * count or accumulated end, which its families keep (rows-first.md §3). */
+	const heading = inputHeading(input)
+	const carried = writtenFields(relation).filter((f) => heading.some((c) => c.name === f.name))
+	if (!isNonEmpty(carried)) {
+		throw defect(`a put of ${relation.name} whose input carries none of its key`)
+	}
+	const written = carried
 	const pk = relation.primaryFields
 	const scan = supply.relation(internal("input scan"))
 	const r1 = supply.relation(internal("input"))

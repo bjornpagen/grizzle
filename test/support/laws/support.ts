@@ -74,8 +74,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { loginLayerIn } from "#test/support/worlds.ts"
 
 /**
- * What a family case notes: each step's op kinds and its outcome, what a refusal notes (refusalFeatures), and the
- * schema it ran on and each of its traits (boxes.ts).
+ * What a family case notes: each step's op kinds and its outcome, what a refusal notes (refusalFeatures), the schema it
+ * ran on and each of its traits (boxes.ts), and a member that states one fact twice or two facts at one key, which the
+ * add-wins model takes as one fact and as the key's refusal (model.ts relationAfter).
  */
 export type FamilyFeature =
 	| "accepted"
@@ -85,6 +86,22 @@ export type FamilyFeature =
 	| `op ${OpKind}`
 	| `schema ${string}`
 	| `trait ${string}`
+	| "a fact stated twice in one member"
+	| "two facts at one key in one member"
+
+/** What one member's facts state more than once: a whole fact, or a primary key with another fact at it. */
+const memberRepeats = (host: HostSchema, op: HostOp): ReadonlyArray<FamilyFeature> => {
+	const relation = relationOf(host, op.relation)
+	const heading = Arr.map(relation.fields, (x) => x.name)
+	const distinct = new Map(Arr.map(op.facts, (f) => [projection(f, heading), f] as const))
+	const keys = new Set(Arr.map([...distinct.values()], (f) => projection(f, relation.key)))
+	return [
+		...(distinct.size < op.facts.length ? (["a fact stated twice in one member"] as const) : []),
+		...(relation.key.length > 0 && keys.size < distinct.size
+			? (["two facts at one key in one member"] as const)
+			: [])
+	]
+}
 
 /**
  * What a refusal notes: the kind of law that refused it and the law itself, whether the fact a witness names was
@@ -1658,6 +1675,9 @@ export const runSteps = (
 			const ops = resolveStep(session.host, domains, state, step)
 			for (const o of ops) {
 				note(`op ${o.kind}`)
+				for (const f of memberRepeats(session.host, o)) {
+					note(f)
+				}
 			}
 			const expected = expect(session.host, state, ops)
 			const outcome = yield* Effect.orDie(session.apply(ops))

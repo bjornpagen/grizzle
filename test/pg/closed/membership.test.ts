@@ -25,7 +25,7 @@ import {
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
-	codebookFor,
+	codebookOfStates,
 	holesOf,
 	historiesGen,
 	liveOf,
@@ -338,7 +338,7 @@ layer(Substrate.layer, { excludeTestServices: true })("R07 over closed constants
 							const s = yield* Substrate
 							const name = yield* s.schema({ create: false, label: "membership" })
 							const installation = identity.schema(parsedSchemaName(name))
-							const codes = codebookFor([...c.rosters, itemIdsOf(c)])
+							const codes = codebookOfStates([...c.rosters, itemIdsOf(c)])
 							const built = schemaOf(name, c)
 							const owned = succeeded(ownedInput(built.base))
 							const compiled = succeeded(

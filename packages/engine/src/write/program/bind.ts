@@ -23,8 +23,10 @@ import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
 import {
 	decodeRead,
+	type EditedTarget,
 	type Fact,
 	type FillContext,
+	foldRecounts,
 	ownersOf,
 	planEdits,
 	readKeys,
@@ -420,6 +422,7 @@ export const bindWrite = (
 			}
 			const all: Array<RelationPlanAt> = [...relations.value]
 			const counts: Array<Phase<"count">> = []
+			const planned: Array<EditedTarget> = []
 			for (const bound of edits.filter((e) => e.program.edit.stratum === stratum)) {
 				const { target } = bound.program
 				const stored = new Map<string, StoredFamily>()
@@ -440,12 +443,16 @@ export const bindWrite = (
 				if (!edited.ok) {
 					return edited
 				}
-				const rowsPlan = planRelation(edited.value.rows, inputs.transport)
+				planned.push({ target, edited: edited.value })
+			}
+			for (const [i, edited] of foldRecounts(ctx, planned).entries()) {
+				const { target } = defined(planned[i], "a planned edit")
+				const rowsPlan = planRelation(edited.rows, inputs.transport)
 				if (!rowsPlan.ok) {
 					return Result.err(rowBound(target.relation.name, rowsPlan.error))
 				}
 				all.push({ depth: depthOf(target.relation.name), plan: rowsPlan.value })
-				for (const owner of edited.value.owners) {
+				for (const owner of edited.owners) {
 					const phase = planOwners(owner, inputs.transport)
 					if (!phase.ok) {
 						return Result.err(rowBound(target.relation.name, phase.error))

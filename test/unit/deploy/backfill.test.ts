@@ -8,7 +8,13 @@
  * - **Ordered:** the drawn index by the member key the same, its folds the same; under a primary key that holds the
  *   index, by the key the stored rows had.
  * - **Tree:** each row's slot by its key among its siblings, its count, its parent's count and start, and its
- *   pre-order interval, by the one recursive step: the closure of the parent relation.
+ *   pre-order interval, by the one recursive step: the closure of the parent relation; a fold over each row's siblings
+ *   in slot order, the root alone at slot 0 in the one state NP's fold suite admits it.
+ * - **Copies:** each copy an axis carries is its target's value: an owner's, a predecessor's (the base at the first
+ *   slot), a last member's (the base for an empty family), a tree's parent row's (the root its own), a copy of a copy
+ *   after the copy it reads.
+ * - **A field whose kind changes:** one its caller wrote that the target draws is drawn anew over the caller's values;
+ *   one the target leaves to its caller keeps its drawn values, its family's law columns and natives gone.
  *
  * - **The judge:** the catalog model of PostgreSQL (test/support/migrate/interpret.ts) runs the drafted migration
  *   statement by statement over the stored rows, its windows, groups and recursion as the SQL standard defines them,
@@ -552,7 +558,8 @@ const orderedCase = (key: LineKey): FoldCase => {
 /**
  * A tree of Node over its parent, one per doc, as NP's fold suite holds it (test/pg/fin/fold.test.ts FoldedTree):
  * folded by count over each node's children, its accumulators named; with each node's parent's kind copied along the
- * owner axis, and that copy copied again one level down, a copy of a copy.
+ * owner axis, and that copy copied again one level down, a copy of a copy; each node's previous sibling's kind along
+ * the predecessor axis, and its last child's along the last, each -1 where its axis names no row.
  */
 const treeMigration: Migration = (() => {
 	const name = "Forest"
@@ -569,6 +576,8 @@ const treeMigration: Migration = (() => {
 			kind: pg.int4,
 			parentKind: accumulated(pg.int4, 0),
 			grandKind: accumulated(pg.int4, 0),
+			prevKind: accumulated(pg.int4, -1),
+			lastKind: accumulated(pg.int4, -1),
 			before: accumulated(natural, 0n),
 			after: accumulated(natural, 0n),
 			total: accumulated(natural, 0n)
@@ -591,7 +600,9 @@ const treeMigration: Migration = (() => {
 			t,
 			fold(t, Monoid.count, on(Node_, "parent", "before", "after"), on(Node_, "id", "total")),
 			contained(on(members, "parent", "parentKind"), on(Node_, "id", "kind")),
-			contained(on(members, "parent", "grandKind"), on(Node_, "id", "parentKind"))
+			contained(on(members, "parent", "grandKind"), on(Node_, "id", "parentKind")),
+			contained(on(members, "parent", pred("at"), "prevKind"), on(members, "parent", "at", "kind")),
+			contained(on(Node_, "id", pred("children"), "lastKind"), on(members, "parent", "at", "kind"))
 		])
 	)
 })()
@@ -654,6 +665,23 @@ const treeExpected = (stored: ReadonlyArray<StoredNode>): ReadonlyArray<string> 
 	const byId = (id: number): StoredNode =>
 		defined(Option.getOrUndefined(Arr.findFirst(stored, (n) => n.id === id)))
 	const parentKind = (id: number): number => byId(byId(id).parent).kind
+	/** A node's children in key order: its slot order. */
+	const childrenOf = (id: number): ReadonlyArray<StoredNode> =>
+		Arr.sort(
+			Arr.filter(stored, (n) => n.parent === id && n.id !== id),
+			Order.mapInput(Order.Number, (n: StoredNode) => n.id)
+		)
+	const prevKind = (id: number): number => {
+		const n = byId(id)
+		const siblings = n.parent === n.id ? [] : childrenOf(n.parent)
+		const at = Arr.findFirstIndex(siblings, (x) => x.id === id)
+		return Option.match(at, {
+			onNone: () => -1,
+			onSome: (i) => (i === 0 ? -1 : Arr.getUnsafe(siblings, i - 1).kind)
+		})
+	}
+	const lastKind = (id: number): number =>
+		Option.match(Arr.last(childrenOf(id)), { onNone: () => -1, onSome: (c) => c.kind })
 	const roots = Arr.sort(
 		Arr.filter(stored, (n) => n.parent === n.id),
 		Order.mapInput(Order.Number, (n: StoredNode) => n.doc)
@@ -670,6 +698,8 @@ const treeExpected = (stored: ReadonlyArray<StoredNode>): ReadonlyArray<string> 
 				r.parentStart,
 				parentKind(r.id),
 				parentKind(byId(r.id).parent),
+				prevKind(r.id),
+				lastKind(r.id),
 				r.at,
 				r.at + 1,
 				r.children
@@ -697,6 +727,8 @@ const treeObserved = (state: State): ReadonlyArray<string> => {
 			cell(shape.parentStart),
 			cell(field("parentKind")),
 			cell(field("grandKind")),
+			cell(field("prevKind")),
+			cell(field("lastKind")),
 			cell(field("before")),
 			cell(field("after")),
 			cell(field("total"))
@@ -957,6 +989,8 @@ describe("backfilling a family added to populated relations", () => {
 								"end",
 								"parentKind",
 								"grandKind",
+								"prevKind",
+								"lastKind",
 								"before",
 								"after",
 								"total"
@@ -1104,13 +1138,14 @@ describe("backfilling a family added to populated relations", () => {
 							family.members.start.column,
 							family.members.end.column,
 							family.members.parentStart,
-							...Arr.map(["parentKind", "grandKind", "before", "after", "total"], (f) =>
-								fieldColumn(second, "Node", f)
+							...Arr.map(
+								["parentKind", "grandKind", "prevKind", "lastKind", "before", "after", "total"],
+								(f) => fieldColumn(second, "Node", f)
 							)
 						],
 						Order.String
 					),
-					4
+					6
 				)
 			})
 	)

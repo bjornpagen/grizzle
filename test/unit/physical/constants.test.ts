@@ -51,7 +51,7 @@ import { fullRoleDesc, type Owned, ownLogin } from "#compiler/schema/own.ts"
 import type { Expr, FunctionName, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
-	codebookFor,
+	codebookOfStates,
 	codecFor,
 	historiesGen,
 	holesOf,
@@ -538,7 +538,7 @@ const withHole = (
 		...w,
 		rosters: Arr.map(w.rosters, (h, at) => (at === 0 ? { ...h, state: holed } : h))
 	}
-	return { codes: codebookFor([holed, ...rest]), schema: schemaOf(world) }
+	return { codes: codebookOfStates([holed, ...rest]), schema: schemaOf(world) }
 }
 
 describe("roster and closed constants", () => {
@@ -564,7 +564,7 @@ describe("roster and closed constants", () => {
 						Effect.sync(() => {
 							noteWorld(w, c)
 							const owned = owning(schemaOf(w))
-							const codes = codebookFor(states(w))
+							const codes = codebookOfStates(states(w))
 							const i = installationOf(owned, codes)
 							const schema = i.names.schema
 							const constants = constantsOf(i)

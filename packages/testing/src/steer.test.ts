@@ -107,7 +107,7 @@ const noteOpened = (drawnValues: ReadonlyArray<number>, c: Case<"opened">) =>
 /** Five magic values matched, the situation only a steered search reaches, with a steered budget of `cases`. */
 const fiveMatched = (cases: number) => required<Matched>(["5 matched"], { cases, sense: notesOnly })
 
-/** Orders witnesses' values lexicographically, so two runs' witnesses compare as multisets. */
+/** Orders witnesses' values lexicographically, so two runs' witnesses compare whatever order each run found them in. */
 const byValues = Arr.makeOrder(Order.Number)
 
 describe("a steered search", () => {

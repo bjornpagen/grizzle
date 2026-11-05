@@ -25,7 +25,7 @@ import {
 	assertColumnsBeforeConstraints,
 	assertWellFormed,
 	columnText,
-	compiled,
+	compiledModel,
 	modelOf,
 	nativesOf
 } from "#test/unit/laws/model/natives.ts"
@@ -134,7 +134,7 @@ const text = (
 ): string => columnText(model, relation, c)
 
 const checkShape = (s: Shape): void => {
-	const result = compiled(schemaOf(s))
+	const result = compiledModel(schemaOf(s))
 	if (!s.keyed) {
 		const reason = refused(result, "UnsupportedLawFamily").reason
 		assert.equal(

@@ -83,10 +83,7 @@ const Store = relation(
 const Item = relation("Item", { id: uuid, store: uuid, region: word, qty: pg.bigint }, ["id"])
 const Open = relation("Open", { store: uuid }, ["store"])
 const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawnField(natural) }, ["id"])
-const Slot = relation("Slot", { shelf: uuid, at: drawnField(natural), what: word }, [
-	"shelf",
-	"at"
-])
+const Slot = relation("Slot", { shelf: uuid, at: drawnField(natural), what: word }, ["shelf", "at"])
 const Ticket = relation("Ticket", { no: pg.bigserial, note: word }, ["no"])
 const items = counted(on(Item, "store"), fin(Store, "items"))
 const slots = ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots"))
@@ -345,7 +342,9 @@ const narrows = (w: string): boolean => w !== "none" && w !== "whole" && w !== "
 /** The refusal the rule expects, the role and family it names: a member writer that does not write the owner whole,
  * whose member filter reads neither its group nor a copy, or whose owner entry is narrowed by any filter but the
  * members' translated one (only NorthStores with NorthItems agree). */
-const expectedRefusals = (w: World): ReadonlyArray<{ readonly role: RoleName; readonly family: string }> =>
+const expectedRefusals = (
+	w: World
+): ReadonlyArray<{ readonly role: RoleName; readonly family: string }> =>
 	Arr.flatMap(roleNames, (r) =>
 		Arr.flatMap(owners, (o) => {
 			const ws = w.writes[r]
@@ -432,10 +431,15 @@ const security = (
 	i: Installation
 ): {
 	readonly secured: ReadonlySet<string>
-	readonly policies: ReadonlyArray<{ readonly table: string; readonly role: string; readonly filter: Expr }>
+	readonly policies: ReadonlyArray<{
+		readonly table: string
+		readonly role: string
+		readonly filter: Expr
+	}>
 } => {
 	const secured = new Set<string>()
-	const policies: Array<{ readonly table: string; readonly role: string; readonly filter: Expr }> = []
+	const policies: Array<{ readonly table: string; readonly role: string; readonly filter: Expr }> =
+		[]
 	for (const s of i.statements) {
 		if (s.kind === "createPolicy") {
 			policies.push({ table: s.table.name, role: s.role, filter: s.filter })
@@ -498,54 +502,51 @@ const evaluate = (filter: Expr, table: string, row: HostRow): string => {
 			const l = literalOf(x)
 			return l === "bool:true" ? true : l === "bool:false" ? false : undefined
 		}
-		switch (e.kind) {
-			case "cast": {
-				const inner = fold(e.expr)
-				return literalOf(inner) === undefined ? { ...e, expr: inner } : inner
-			}
-			case "binary": {
-				const left = fold(e.left)
-				const right = fold(e.right)
-				const l = literalOf(left)
-				const r = literalOf(right)
-				if ((e.op === "=" || e.op === "<>") && l !== undefined && r !== undefined) {
-					return bool(e.op === "=" ? l === r : l !== r)
-				}
-				return { ...e, left, right }
-			}
-			case "isTrue": {
-				const inner = fold(e.expr)
-				const t = truth(inner)
-				return t === undefined ? { ...e, expr: inner } : bool(t)
-			}
-			case "not": {
-				const inner = fold(e.expr)
-				const t = truth(inner)
-				return t === undefined ? { ...e, expr: inner } : bool(!t)
-			}
-			case "and":
-			case "or": {
-				const args = Arr.map(e.args, fold)
-				const truths = Arr.map(args, truth)
-				const absorbing = e.kind === "and" ? false : true
-				if (Arr.some(truths, (t) => t === absorbing)) {
-					return bool(absorbing)
-				}
-				if (Arr.every(truths, (t) => t !== undefined)) {
-					return bool(!absorbing)
-				}
-				return { ...e, args: defined(isNonEmpty(args) ? args : undefined) }
-			}
-			default:
-				return e
+		if (e.kind === "cast") {
+			const inner = fold(e.expr)
+			return literalOf(inner) === undefined ? { ...e, expr: inner } : inner
 		}
+		if (e.kind === "binary") {
+			const left = fold(e.left)
+			const right = fold(e.right)
+			const l = literalOf(left)
+			const r = literalOf(right)
+			if ((e.op === "=" || e.op === "<>") && l !== undefined && r !== undefined) {
+				return bool(e.op === "=" ? l === r : l !== r)
+			}
+			return { ...e, left, right }
+		}
+		if (e.kind === "isTrue" || e.kind === "not") {
+			const inner = fold(e.expr)
+			const t = truth(inner)
+			if (t === undefined) {
+				return { ...e, expr: inner }
+			}
+			return bool(e.kind === "isTrue" ? t : !t)
+		}
+		if (e.kind === "and" || e.kind === "or") {
+			const args = Arr.map(e.args, fold)
+			const truths = Arr.map(args, truth)
+			const absorbing = e.kind !== "and"
+			if (Arr.some(truths, (t) => t === absorbing)) {
+				return bool(absorbing)
+			}
+			if (Arr.every(truths, (t) => t !== undefined)) {
+				return bool(!absorbing)
+			}
+			return { ...e, args: defined(isNonEmpty(args) ? args : undefined) }
+		}
+		return e
 	}
 	return printExpr(fold(substituted))
 }
 
 /** The owner rows each family's owner is drawn over, and the member row each owns: equal at the group and every copy,
  * every other field fixed. */
-const ownerRows = (i: Installation, o: Owner): ReadonlyArray<{ readonly owner: HostRow; readonly member: HostRow }> => {
+const ownerRows = (
+	i: Installation,
+	o: Owner
+): ReadonlyArray<{ readonly owner: HostRow; readonly member: HostRow }> => {
 	const oc = (f: string) => i.names.column(o, f)
 	const mc = (f: string) => i.names.column(memberOf[o], f)
 	return Arr.flatMap([U1, U2], (id) =>
@@ -615,7 +616,11 @@ const noteWorld = (w: World, c: Case<GrantsFeature>): void => {
 			if (member === "none" || own === "whole") {
 				continue
 			}
-			c.note(w.mutability[o] ? "a member writer of a mutable owner" : "a member writer of an immutable owner")
+			c.note(
+				w.mutability[o]
+					? "a member writer of a mutable owner"
+					: "a member writer of an immutable owner"
+			)
 			if (member === "other") {
 				c.note("an untranslatable member filter refused")
 			} else if (narrows(own)) {
@@ -686,7 +691,6 @@ describe("a member writer's hold on its family's owner", () => {
 							for (const r of roleNames) {
 								const ws = w.writes[r]
 								const theory = roleIn(i, r)
-								/* Exact grants on each owner. */
 								for (const o of owners) {
 									const table = i.names.relation(o).name
 									const all = columnsOf(i, o)
@@ -707,7 +711,13 @@ describe("a member writer's hold on its family's owner", () => {
 												: []
 										)
 										const expected = new Set([
-											...held(ci.statements, roleIn(ci, r), ci.names.relation(o).name, p, columnsOf(ci, o)),
+											...held(
+												ci.statements,
+												roleIn(ci, r),
+												ci.names.relation(o).name,
+												p,
+												columnsOf(ci, o)
+											),
 											...rule
 										])
 										assert.deepEqual(
@@ -717,7 +727,6 @@ describe("a member writer's hold on its family's owner", () => {
 										)
 									}
 								}
-								/* The advance closure: INSERT on a serial's table exactly when EXECUTE on its advance. */
 								for (const [t, f] of [
 									["Store", "seq"],
 									["Ticket", "no"]
@@ -744,7 +753,6 @@ describe("a member writer's hold on its family's owner", () => {
 									)
 								}
 							}
-							/* Row security and the owner rows a member writer reaches. */
 							const { secured, policies } = security(i)
 							const policyOf = (table: string, role: string): Expr | undefined => {
 								const on = Arr.filter(policies, (p) => p.table === table && p.role === role)

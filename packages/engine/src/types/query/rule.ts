@@ -104,10 +104,11 @@ type Reads<Os extends ReadonlyArray<unknown>> = ComputedOrigin<OperandOrigin<Os[
 
 /**
  * An aggregate in a head folds the facts its rule matches, each read once by a key (the engine's FoldInput): every
- * match binds, by a variable, a parent variable or a constant, every field of one key of its source, a context's one
- * fact by the empty key and a relation parameter, an imported query or an interior stage by its whole heading, a set
- * keyed by its heading. A match that binds no key whole would fold a projection of its facts, and is refused; distinct
- * values are folded by matching a query of them as the source.
+ * match binds, by a variable, a parent variable or a constant, every field of one key of its source. A delta of an
+ * ordinary relation is keyed by the relation's keys, a context's one fact by the empty key, and a relation parameter,
+ * an imported query, an interior stage and a delta of a world relation by their whole heading, each a set keyed by its
+ * heading. A match that binds no key whole would fold a projection of its facts, and is refused; distinct values are
+ * folded by matching a query of them as the source.
  */
 type FoldKeyed<S, Os, X> =
 	X extends Aggregate<unknown>
@@ -128,9 +129,17 @@ type MatchKeyed<S, M> =
 			? true
 			: R extends AnyRelation | AnyClosed | AnyDerived | AnyWorld
 				? BindsAKey<KeysOf<S, R>, keyof B>
-				: [keyof HeadingOf<R>] extends [keyof B]
-					? true
-					: false
+				: "deltaOf" extends keyof R
+					? R extends { readonly deltaOf?: Invariant<infer D> }
+						? D extends AnyWorld
+							? [keyof HeadingOf<R>] extends [keyof B]
+								? true
+								: false
+							: BindsAKey<KeysOf<S, D>, keyof B>
+						: false
+					: [keyof HeadingOf<R>] extends [keyof B]
+						? true
+						: false
 		: false
 
 /** Whether one of the keys, each a tuple of fields, has every field among the bound ones. */

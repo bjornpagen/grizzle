@@ -52,6 +52,7 @@ import {
 	familyKey,
 	fieldKey,
 	type HostEvaluator,
+	literalHost,
 	readsOf
 } from "#compiler/write/family/fold.ts"
 import { isSequence } from "#compiler/write/family/nesting.ts"
@@ -575,6 +576,24 @@ const typeOfKey = (relation: LawRelation, family: Family, key: ColumnKey): LawFi
 	return type
 }
 
+/**
+ * The host value a new row holds a field at when nothing fills it (rows-first.md §1): a drawn field, which beside a
+ * member's own family values is its own counted family's count, at 0, and an accumulated one, its own family's end, at
+ * its start, so a member that owns a family is inserted with that family empty; none for any other field.
+ */
+const startHost = (ctx: FillContext, field: LawField): unknown => {
+	switch (field.writing.kind) {
+		case "drawn":
+			return 0n
+		case "accumulated":
+			return literalHost(specOf(ctx, field.type), field.writing.start)
+		case "caller":
+		case "serial":
+		case "generated":
+			return undefined
+	}
+}
+
 /** What one stratum's edits of a member relation write: its rows, and each family's changed owners. */
 export interface Edited {
 	readonly rows: RelationWrite
@@ -739,6 +758,12 @@ export const planEdits = (
 			}
 		}
 		if (!storedRows.has(text)) {
+			for (const c of target.layout.columns) {
+				const start = c.column.kind === "field" ? startHost(ctx, c.column.field) : undefined
+				if (start !== undefined && !merged.has(c.key)) {
+					merged.set(c.key, start)
+				}
+			}
 			inserts.set(text, rowOf(text, merged))
 		} else if (list.some((p) => p.change === "replace")) {
 			deletes.set(text, keyOfText(text))
@@ -751,4 +776,76 @@ export const planEdits = (
 		rows: { relation: relation.name, deletes, trees: new Map(), updates, inserts },
 		owners
 	})
+}
+
+/** One member relation's edits in a stratum, planned (`planEdits`), with the target they were planned for. */
+export interface EditedTarget {
+	readonly target: EditTarget
+	readonly edited: Edited
+}
+
+/**
+ * A stratum's planned edits with every count of an owner the same stratum inserts as an edited member carried by that
+ * owner's own inserted row instead of a count statement: a relation that is both a counted member and an owner is
+ * inserted with its families empty (`startHost`), and its members appended in the same stratum count it. The count
+ * statements run before the inserts (order.ts Plan), so a count of an owner not yet inserted would update no row; the
+ * row carries its count and its ends from the start, which its members' copies then reference.
+ */
+export const foldRecounts = (
+	ctx: FillContext,
+	planned: ReadonlyArray<EditedTarget>
+): ReadonlyArray<Edited> => {
+	/** Each edited relation's inserted rows, by key text, which a recount of its own families may replace. */
+	const insertedRows = new Map(
+		planned.map((p) => [p.target.relation.name, new Map(p.edited.rows.inserts)] as const)
+	)
+	const layoutOf = new Map(planned.map((p) => [p.target.relation.name, p.target.layout] as const))
+	const owners = planned.map((p) =>
+		p.edited.owners.flatMap((write): ReadonlyArray<OwnerWrite> => {
+			const family = defined(
+				p.target.families.find((f) => familyKey(f.family.id) === familyKey(write.family)),
+				"a family of the edited relation"
+			).family
+			const rows = insertedRows.get(family.owner.name)
+			const layout = layoutOf.get(family.owner.name)
+			if (rows === undefined || layout === undefined) {
+				return [write]
+			}
+			const kept = new Map<string, Recount>()
+			for (const [text, recount] of write.recounts) {
+				/** The owner's key texts in its layout's key order, which its group pairs with in the family's order. */
+				const key = mapNonEmpty(layout.key, (c) => {
+					const at = family.group.findIndex((g) => fieldKey(g.owner.name) === c.key)
+					return defined(recount.owner[at], `the owner's key field ${c.key} in its group`)
+				})
+				const at = textsKey(key)
+				const row = rows.get(at)
+				if (row === undefined) {
+					kept.set(text, recount)
+					continue
+				}
+				const set = new Map<ColumnKey, string>([
+					[fieldKey(family.count.name), textOf(ctx, family.count.type, BigInt(recount.count))],
+					...endColumns(family).map((f, i): readonly [ColumnKey, string] => [
+						fieldKey(f.name),
+						defined(recount.ends[i], `the end ${f.name} of a recount`)
+					])
+				])
+				rows.set(at, {
+					key: row.key,
+					columns: layout.columns.map(
+						(c, i) => set.get(c.key) ?? defined(row.columns[i], "a row's column")
+					)
+				})
+			}
+			return kept.size > 0 ? [{ family: write.family, recounts: kept }] : []
+		})
+	)
+	return planned.map((p, i) => ({
+		rows: {
+			...p.edited.rows,
+			inserts: defined(insertedRows.get(p.target.relation.name), "an edited relation's inserts")
+		},
+		owners: defined(owners[i], "an edited relation's owners")
+	}))
 }

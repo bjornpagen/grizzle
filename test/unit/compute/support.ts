@@ -177,7 +177,7 @@ export const testPg = {
  * A term's expression as a Description states it: a variable `v` made spelled by its field, a parent variable by its
  * column and an interior stage by its id.
  */
-export const spelled = (expr: OpenExpr): ExprDesc =>
+export const spelledExpr = (expr: OpenExpr): ExprDesc =>
 	spellExpr(expr, {
 		var: (ref) => ref.field,
 		parent: (ref) => ref.column,
@@ -200,7 +200,7 @@ export const testDeclaringContract = (
 			kind: "contract",
 			name,
 			base: base.desc,
-			predicate: built === undefined ? undefined : spelled(built),
+			predicate: built === undefined ? undefined : spelledExpr(built),
 			facts
 		},
 		base.sql
@@ -220,7 +220,7 @@ export const testSpan = (endpoint: TestField): TestField =>
 /** The build the variables `v` makes belong to, which runs as long as the tests do. */
 const testBuild: BuilderScope = { active: true }
 
-/** A rule variable of an operand's type, which `spelled` names `name`. */
+/** A rule variable of an operand's type, which `spelledExpr` names `name`. */
 export const v = (name: string, of: TestOperand): ScalarTerm =>
 	scalarTerm(
 		{

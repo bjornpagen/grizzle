@@ -1,4 +1,4 @@
-import { type Equivalence, multiset, ordered } from "@grizzle/testing/oracle"
+import { type Equivalence, ordered, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -32,12 +32,7 @@ import {
 	type ReferenceInput,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
-import {
-	distinctRows,
-	equal,
-	ReferenceUnsupported,
-	type Row
-} from "#test/support/oracle/reference/values.ts"
+import { equal, ReferenceUnsupported, type Row } from "#test/support/oracle/reference/values.ts"
 import { ledgerSchema, type Q, type RelationSpec } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
@@ -118,7 +113,8 @@ const rowEquivalence =
 
 /**
  * One statement against another: the same label, the same heading names in order, and the same set of rows under the
- * reference's native equality per column (reference/values.ts equal), each side deduplicated by distinctRows.
+ * reference's native equality per column (reference/values.ts equal), neither side holding a row twice: the reference
+ * delivers each statement as a set, so a repeat on either side is a difference, never folded away.
  */
 const statementEquivalence: Equivalence<ExpectedStatement> = (left, right) => {
 	if (left.label !== right.label) {
@@ -129,10 +125,7 @@ const statementEquivalence: Equivalence<ExpectedStatement> = (left, right) => {
 			`${left.label}: the heading (${headingNames(left)}) is not (${headingNames(right)})`
 		)
 	}
-	const difference = multiset(rowEquivalence(left.heading))(
-		distinctRows(left.rows, left.heading, `the left statement ${left.label}`),
-		distinctRows(right.rows, right.heading, `the right statement ${right.label}`)
-	)
+	const difference = set(rowEquivalence(left.heading))(left.rows, right.rows)
 	return Option.map(difference, (found) => `${left.label}: ${found}`)
 }
 

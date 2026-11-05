@@ -42,7 +42,7 @@ import {
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
-import { rowType, type WriteContext, writtenFields } from "#compiler/write/insert/statement.ts"
+import { rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
 
 /** The unique objects of a relation an insert meets: its arbiter, the primary key; every object
  * besides it, in law order, probed or not, on which a 23505 or 23P01 aborts the apply; the objects an insert of
@@ -335,9 +335,10 @@ export const buildProbe = (
 	spec: ProbeSpec
 ): ProbeSql | undefined => {
 	const { relation, requested, checks, input, inputs } = spec
-	/** The fields a requested fact holds, as `inputs` holds them, and those that tell two apart (`Requested`). */
+	/** The fields a requested fact holds, as `inputs` holds them, and those that tell two apart (`Requested`): a complete
+	 * fact's are every field its input carries, which `inputs` pairs. */
 	const fields: ReadonlyArray<LawField> =
-		requested.kind === "complete" ? writtenFields(relation) : requested.fields
+		requested.kind === "complete" ? inputs.pairs.map((p) => p.field) : requested.fields
 	const apart: ReadonlyArray<LawField> =
 		requested.kind === "complete" ? relation.primaryFields : requested.fields
 	if (!isNonEmpty(checks) || !isNonEmpty(fields)) {

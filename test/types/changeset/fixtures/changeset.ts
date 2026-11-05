@@ -247,3 +247,26 @@ export const outsideScope = (db: Reader) =>
 export const missingParams = (db: Writer) =>
 	// @ts-expect-error -- TS2345: the switch needs task and operator
 	db.apply(switchDescribed, {})
+
+/**
+ * A fold over a delta reads each fact of the delta once, by its relation's key: bound by Task's key `id` it is accepted,
+ * and with the key unbound it would fold a projection of the delta, refused at the aggregate.
+ */
+export const removedCount = ChangeSet.empty(Work).read("removed", (delta) =>
+	query(Work).rule((r) => {
+		const { id } = v(delta.removed(Task), "removedTask")
+		return r.match(delta.removed(Task), { id }).find({ tasks: r.count() })
+	})
+)
+
+export const removedPerAccount = (): unknown =>
+	ChangeSet.empty(Work).read("removed", (delta) =>
+		query(Work).rule((r) => {
+			const { account } = v(delta.removed(Task), "removedTask")
+			return r.match(delta.removed(Task), { account }).find({
+				account,
+				// @ts-expect-error -- TS2322 refusal: a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values
+				tasks: r.count()
+			})
+		})
+	)

@@ -73,7 +73,7 @@ export interface CodeColumn<C extends string> {
  *   to the count. The `members` cells of lowest rank are its members, so they are scattered over the whole constant,
  *   and a member's payload code is its rank modulo the size of its payload space.
  */
-export interface ClosedRelation<C extends string> {
+export interface HandClosed<C extends string> {
 	readonly name: string
 	readonly key: Arr.NonEmptyReadonlyArray<CodeColumn<C>>
 	readonly payload: ReadonlyArray<number>
@@ -82,21 +82,21 @@ export interface ClosedRelation<C extends string> {
 }
 
 /** A relation's coordinates, as the cells encoder reads them. */
-const layoutOf = (relation: ClosedRelation<string>): Layout => ({
+const layoutOf = (relation: HandClosed<string>): Layout => ({
 	key: Arr.map(relation.key, (k) => k.codes),
 	payload: relation.payload
 })
 
 /** The cells of a relation's constant: the points of its key's space. */
-export const cellCount = (relation: ClosedRelation<string>): number =>
+export const cellCount = (relation: HandClosed<string>): number =>
 	Number(spaceSize(layoutOf(relation).key))
 
 /** The bits of one of a relation's cells, as the cells encoder sizes it. */
-export const widthOf = (relation: ClosedRelation<string>): number =>
+export const widthOf = (relation: HandClosed<string>): number =>
 	cellWidth(spaceSize(relation.payload))
 
 /** The bits of a relation's constant. */
-export const constantBits = (relation: ClosedRelation<string>): number =>
+export const constantBits = (relation: HandClosed<string>): number =>
 	cellCount(relation) * widthOf(relation)
 
 /**
@@ -114,7 +114,7 @@ const digitOf = (sizes: ReadonlyArray<number>, size: number, i: number, index: n
 
 /** The key codes at a cell of a relation's constant: one past the end, the first lies outside its code space. */
 export const digitsAt = (
-	relation: ClosedRelation<string>,
+	relation: HandClosed<string>,
 	index: number
 ): Arr.NonEmptyReadonlyArray<number> => {
 	const sizes = layoutOf(relation).key
@@ -131,7 +131,7 @@ interface Member {
 const byRank: Order.Order<Member> = Order.mapInput(Order.Number, (m: Member) => m.rank)
 
 /** Every member of a relation, in rank order: the one place its membership is decided. */
-export const membersOf = (relation: ClosedRelation<string>): ReadonlyArray<Member> => {
+export const membersOf = (relation: HandClosed<string>): ReadonlyArray<Member> => {
 	const cells = cellCount(relation)
 	const codes = Number(spaceSize(relation.payload))
 	const members: Array<Member> = []
@@ -150,7 +150,7 @@ export const membersOf = (relation: ClosedRelation<string>): ReadonlyArray<Membe
  * cells, so the key holds, and the text is far below the longest string V8 builds.
  */
 export const hostBits = (
-	relation: ClosedRelation<string>
+	relation: HandClosed<string>
 ): EngineResult.Result<string, KeyCollision | CompileBound> =>
 	EngineResult.flatMap(
 		constantOf(
@@ -194,7 +194,7 @@ const arrayOf = (type: TypeRef): TypeRef => {
  */
 export const membersTableSql = (
 	table: ObjectName,
-	relation: ClosedRelation<string>
+	relation: HandClosed<string>
 ): readonly [create: string, fill: Statement] => {
 	const members = membersOf(relation)
 	const columns = Arr.appendAll(
@@ -236,12 +236,12 @@ export const membersTableSql = (
 
 /** A cell's index over the codes `digit` reads, row-major in key order (sql/constants.ts mixedRadix). */
 const indexOver = (
-	relation: ClosedRelation<string>,
+	relation: HandClosed<string>,
 	digit: (key: CodeColumn<string>) => Expr
 ): Expr => mixedRadix(Arr.map(relation.key, (k) => ({ digit: digit(k), radix: k.codes })))
 
 /** A cell's index from the codes of a row's key columns, inside a table's DDL. */
-const rowIndex = (relation: ClosedRelation<string>): Expr =>
+const rowIndex = (relation: HandClosed<string>): Expr =>
 	indexOver(relation, (k) => tableCol(k.column))
 
 /** A row's code column under `alias`, as a statement over the members table reads it. */
@@ -251,22 +251,22 @@ export const codeAt = (alias: string, column: string): string => printExpr(col(a
  * The law that the cell at `index` is present in the constant `constant`: a set's one-bit cell equal to '1'::bit(1), or
  * a function's cell above 0 (sql/constants.ts inSet, keyIn).
  */
-const present = (constant: ObjectName, relation: ClosedRelation<string>, index: Expr): Expr =>
+const present = (constant: ObjectName, relation: HandClosed<string>, index: Expr): Expr =>
 	relation.payload.length === 0 ? inSet(constant, index) : keyIn(constant, index, widthOf(relation))
 
 /** The law over a row's codes, a closed law as a table CHECK reads it (U3): its cell is present in the constant. */
-export const rowLaw = (constant: ObjectName, relation: ClosedRelation<string>): Expr =>
+export const rowLaw = (constant: ObjectName, relation: HandClosed<string>): Expr =>
 	present(constant, relation, rowIndex(relation))
 
 /** A derived column's expression: the payload code at the row's cell, NULL where it is absent (sql/constants.ts applied). */
-export const derivedExpr = (constant: ObjectName, relation: ClosedRelation<string>): Expr =>
+export const derivedExpr = (constant: ObjectName, relation: HandClosed<string>): Expr =>
 	applied(constant, rowIndex(relation), widthOf(relation))
 
 /**
  * The migration's pack of a relation's constant into the IMMUTABLE function `constant` (sql/constants.ts pack): its
  * members as VALUES rows, joined to the cells' index space. A row's names are its key codes' texts.
  */
-export const packSql = (constant: ObjectName, relation: ClosedRelation<string>): string =>
+export const packSql = (constant: ObjectName, relation: HandClosed<string>): string =>
 	printStatement(
 		pack(
 			constant,
@@ -355,7 +355,7 @@ export const addColumnSql = (table: ObjectName, name: string, type: TypeRef): st
 export const foreignKeySql = (
 	table: ObjectName,
 	name: string,
-	relation: ClosedRelation<string>,
+	relation: HandClosed<string>,
 	target: ObjectName
 ): string => {
 	const columns = Arr.map(relation.key, (k) => ({ column: k.column, period: false }))

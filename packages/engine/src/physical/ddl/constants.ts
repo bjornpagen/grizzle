@@ -22,7 +22,7 @@ import {
 	constantOf,
 	type Layout,
 	rowMajorIndex,
-	type Side,
+	type CellSide,
 	type Split,
 	type Tuple
 } from "#compiler/ir/cells.ts"
@@ -729,7 +729,7 @@ export const closedMembership = (
 	column: (c: NativeColumn) => Expr,
 	lower: (predicate: ScalarExpr) => Expr
 ): { readonly predicate: Expr; readonly constants: ReadonlyArray<Node<"setup">> } => {
-	const side: Side<TypedLiteral> = check.side
+	const side: CellSide<TypedLiteral> = check.side
 	const closed = check.target
 	const plan = plannedRelation(
 		b.names.codes,

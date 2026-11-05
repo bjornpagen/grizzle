@@ -107,8 +107,8 @@ export type WeekIsEpochDay = Expect<
 
 /** A derived relation is matchable in a rule over its extension, never over its base. */
 export const weeklyPasses = query(Reports).rule((r) => {
-	const { student, passes } = v(StudentWeekly, "studentWeekly")
-	return r.match(StudentWeekly, { student, passes }).find({ student, total: r.sum(passes) })
+	const { student, week, passes } = v(StudentWeekly, "studentWeekly")
+	return r.match(StudentWeekly, { student, week, passes }).find({ student, total: r.sum(passes) })
 })
 export type WeeklyPassesTotal = Expect<Equals<HeadOf<typeof weeklyPasses>["total"], Decimal>>
 export const readsOwnLevel = query(Edu).rule((r) => {

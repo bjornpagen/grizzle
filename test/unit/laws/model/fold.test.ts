@@ -31,7 +31,7 @@ import {
 	accepts,
 	assertWellFormed,
 	checksOf,
-	compiled,
+	compiledModel,
 	drawnColumn,
 	foldLaws,
 	foreignKeyShapes,
@@ -369,7 +369,7 @@ const refusedFold = (s: Shape): boolean => s.monoid === "sum" && s.carrier === "
 
 const checkShape = (s: Shape): void => {
 	if (refusedFold(s)) {
-		refused(compiled(schemaOf(s)), "MalformedDescription")
+		refused(compiledModel(schemaOf(s)), "MalformedDescription")
 		return
 	}
 	const model = modelOf(schemaOf(s))

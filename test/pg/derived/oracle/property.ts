@@ -1,5 +1,5 @@
 import type { Case } from "@grizzle/testing/explore"
-import { multiset } from "@grizzle/testing/oracle"
+import { set } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Option, Record } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import {
@@ -56,7 +56,7 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  *   order it named them in and however often; a view not populated before the call took a plain
  *   REFRESH MATERIALIZED VIEW and every other one CONCURRENTLY;
  * - every named view equals its definition evaluated by the conservative lowering on one snapshot after the commit,
- *   as raw text multisets, so a duplicate row would show; a level-n view is compared with its
+ *   as raw text sets that fail on a repeated row, so a duplicate row shows; a level-n view is compared with its
  *   definition over the lower views as they are stored, which the same call refreshed when it named them;
  * - a view the call did not name keeps every tuple: separate calls are separate transactions;
  * - every row the call wrote, across all the views it named, carries one xmin: one call publishes in one commit;
@@ -327,7 +327,7 @@ export const derivedCase = (
 			const secondRead = yield* readEvery
 			const second = new Map(secondRead)
 			for (const name of order) {
-				const difference = multiset(identicalValue)(readOf(second, name), readOf(first, name))
+				const difference = set(identicalValue)(readOf(second, name), readOf(first, name))
 				if (Option.isSome(difference)) {
 					return assert.fail(
 						`the second reading: ${name}, refreshed over its facts with one value respelled under the complement plan, reads otherwise: ${difference.value}`

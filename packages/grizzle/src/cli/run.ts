@@ -49,7 +49,10 @@ const noChanges = "no changes"
  * A marker a drafted folder leaves to resolve, as generate prints it: its file and line, its kind, and that kind's fix,
  * so a confirm is never told to fill a placeholder.
  */
-export const markerLine = (folder: string, marker: SchemaGenerateReport["markers"][number]): string =>
+export const markerLine = (
+	folder: string,
+	marker: SchemaGenerateReport["markers"][number]
+): string =>
 	`${folder}/${marker.file}:${marker.line}: ${marker.kind}: ${refusalText[marker.kind].fix}`
 
 /**

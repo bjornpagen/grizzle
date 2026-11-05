@@ -39,7 +39,7 @@ import {
 	tallyOf
 } from "#features.ts"
 import { array, boolean, constant, element, filter, type Gen, int } from "#gen.ts"
-import { agree, by, equivalence, exact, multiset, ordered } from "#oracle.ts"
+import { agree, by, equivalence, exact, ordered, set } from "#oracle.ts"
 import { floorSeed } from "#random.ts"
 import type { Replay, ReplayCase } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
@@ -603,10 +603,10 @@ describe("agree", () => {
 		Effect.gen(function* () {
 			yield* agree(
 				[
-					["model", [1, 2, 2]],
-					["system", [2, 1, 2]]
+					["model", [1, 2, 3]],
+					["system", [3, 1, 2]]
 				],
-				multiset(exact)
+				set(exact)
 			)
 			yield* agree(
 				[

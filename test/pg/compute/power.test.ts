@@ -42,7 +42,7 @@ import {
 	testPg,
 	plainRender,
 	renderSql,
-	spelled,
+	spelledExpr,
 	v
 } from "#test/unit/compute/support.ts"
 
@@ -290,7 +290,7 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 				const db = yield* session(ownerSession())
 				const s = yield* schema(freshSchema)
 				yield* installEvaluator(db, s)
-				const expr: ExprDesc = spelled(
+				const expr: ExprDesc = spelledExpr(
 					Compute.power(v("a", testPg.computedNumeric), v("b", testPg.computedNumeric)).expr
 				)
 				return yield* explore(
@@ -428,7 +428,7 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 												)
 									const lowered = lowerWith(
 										"query",
-										spelled(term.expr),
+										spelledExpr(term.expr),
 										{ x: { kind: "column", type: testPg.computedNumeric.scalar } },
 										false,
 										baseParams

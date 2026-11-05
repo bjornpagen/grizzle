@@ -38,7 +38,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { compiled } from "#test/unit/laws/model/natives.ts"
+import { compiledModel } from "#test/unit/laws/model/natives.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -281,7 +281,7 @@ const fillOf = (s: Shape): Compiled | undefined => {
 		return compiledFills.get(key)
 	}
 	const desc = schemaOf(s)
-	const model = compiled(desc)
+	const model = compiledModel(desc)
 	if (!model.ok) {
 		compiledFills.set(key, undefined)
 		return undefined

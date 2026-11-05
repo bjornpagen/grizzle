@@ -44,6 +44,7 @@ import {
 	type WriteStatement,
 	writeContext
 } from "#compiler/write/insert/statement.ts"
+import { buildUpdateFrom, type PutStatement } from "#compiler/write/put/statement.ts"
 import { deltaSourceIn } from "#compiler/write/readback/lower.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
 import { buildSequenceAdvances, explicitSerials } from "#compiler/write/serial/advance.ts"
@@ -64,9 +65,9 @@ type ConservativeStep =
 	  }
 	| {
 			readonly kind: "action"
-			readonly statement: WriteStatement<
-				InsertResult | DeleteResult | SpanClassifyResult | SequenceAdvanceResult
-			>
+			readonly statement:
+				| WriteStatement<InsertResult | DeleteResult | SpanClassifyResult | SequenceAdvanceResult>
+				| PutStatement
 			readonly relation: WrittenRelation
 			readonly stratum: number
 			readonly action: number
@@ -102,6 +103,9 @@ interface ConservativeWriteOptions {
 
 const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): ConservativeWrite => {
 	const { ir } = frontend
+	/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row (rows-first.md §3). */
+	const ownsFamily = (relation: string): boolean =>
+		frontend.laws.families.some((f) => f.owner.name === relation)
 	const w: WriteContext = writeContext(ir.dag, {
 		names: options.names,
 		reads: options.reads,
@@ -188,9 +192,9 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		for (const [i, { action, input }] of placed.entries()) {
 			const relation = action.info.relation
 			const statement = (
-				built: WriteStatement<
-					InsertResult | DeleteResult | SpanClassifyResult | SequenceAdvanceResult
-				>
+				built:
+					| WriteStatement<InsertResult | DeleteResult | SpanClassifyResult | SequenceAdvanceResult>
+					| PutStatement
 			) =>
 				steps.push(
 					Object.freeze({ kind: "action", statement: built, relation, stratum: s, action: i })
@@ -238,8 +242,14 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					break
 				case "put": {
 					const payload = payloadOf(relation)
+					/** An owner's put updates the fields its facts carry in place and inserts the rest, its families left
+					 * as they are (put/choose.ts ownerPut); any other put displaces its occupants first. */
 					if (payload.kind === "keyed") {
-						statement(buildDisplacingDelete(w, { relation, input, payload: payload.fields }))
+						statement(
+							ownsFamily(relation.name)
+								? buildUpdateFrom(w, { relation, input, inPlace: { payload: payload.fields } })
+								: buildDisplacingDelete(w, { relation, input, payload: payload.fields })
+						)
 					}
 					add(completeClass, "put")
 					break

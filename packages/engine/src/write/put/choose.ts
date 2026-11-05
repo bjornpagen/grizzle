@@ -124,7 +124,14 @@ const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
  * each put's choice beside it. These rules are where a put's target is decided, once. None of these targets is
  * exposed.
  *
- * A put lowers to the DELETE-then-insert pair (deleteThenInsert) when:
+ * A put of a mutable relation that owns a family is ownerPut (rows-first.md §3): an UPDATE ... FROM of the fields its
+ * facts carry (`payloadOf`), none for an owner whose facts carry nothing outside its key, then the insert protocol's
+ * put half for every fact no row holds, its counts at 0 and its ends at their starts (insert/statement.ts startOf).
+ * Its families are left as they are, so it is never the pair, whose deletion of a stored owner would trip every
+ * member's owner axis, whatever its key's kind, a WITHOUT OVERLAPS key included. The front end refuses a put of an
+ * immutable owner.
+ *
+ * Any other put lowers to the DELETE-then-insert pair (deleteThenInsert) when:
  *
  * - it writes a role's query entry: its relation is under row security for the role, the
  *   displacing deletion removes only the occupants inside the entry, and an occupant outside it, which the role cannot

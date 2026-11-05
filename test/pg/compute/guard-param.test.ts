@@ -17,7 +17,7 @@ import {
 	param,
 	plainRender,
 	renderSql,
-	spelled,
+	spelledExpr,
 	testPg,
 	v
 } from "#test/unit/compute/support.ts"
@@ -40,7 +40,7 @@ const divisor = 4n
 const guardedSql = (): string => {
 	const lowered = lowerWith(
 		"query",
-		spelled(
+		spelledExpr(
 			Compute.when(
 				Compute.nonzero(param("d", testPg.bigint)),
 				(d: ScalarTerm) => Compute.div(v("x", testPg.bigint), d),

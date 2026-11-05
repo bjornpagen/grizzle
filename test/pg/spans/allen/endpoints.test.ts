@@ -2,7 +2,7 @@ import { layer } from "@effect/vitest"
 import { drawn, exhaust } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
-import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -306,7 +306,7 @@ const predSql = (p: Pred): string => {
 
 const printPred = (p: Pred): string => pipe(predSql(p), Str.replaceAll('"', ""))
 
-const sameRowSet = multiset(ordered(exact))
+const sameRowSet = set(ordered(exact))
 
 /** The host value of a span of the carrier: JavaScript integers for int4range, bigints for int8range. */
 const spanHost = (carrier: RangeType, s: HalfOpen) =>

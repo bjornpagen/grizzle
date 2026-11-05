@@ -93,15 +93,13 @@ const writes: ReadonlyArray<Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<
 	)
 ]
 
-const cases: ReadonlyArray<RepeatCase> = [
-	...Arr.flatMap(["grizzle", "direct"] as const, (writer) =>
-		Arr.flatMap(["keyed", "unkeyed"] as const, (schema) =>
-			Arr.flatMap([[], [facts[0]]], (stored) =>
-				Arr.map(writes, (members): RepeatCase => ({ writer, schema, stored, members }))
-			)
+const cases: ReadonlyArray<RepeatCase> = Arr.flatMap(["grizzle", "direct"] as const, (writer) =>
+	Arr.flatMap(["keyed", "unkeyed"] as const, (schema) =>
+		Arr.flatMap([[], [facts[0]]], (stored) =>
+			Arr.map(writes, (members): RepeatCase => ({ writer, schema, stored, members }))
 		)
 	)
-]
+)
 
 const caseGen: Gen<RepeatCase> = element(nonEmpty(cases, "the repeat cases"))
 
@@ -124,8 +122,13 @@ const naive = (c: RepeatCase): Naive => {
 		return { kind: "accepted", state: Arr.sort(Arr.map(met, factText), Order.String) }
 	}
 	const after = [...new Set([...storedTexts, ...Arr.map(written, factText)])]
-	const ids = Arr.map(after, (t) => t.split("/")[0])
-	if (new Set(ids).size < ids.length) {
+	const keys = new Set(
+		Arr.map(
+			Arr.filter([...c.stored, ...written], (f) => after.includes(factText(f))),
+			(f) => valueText(f["id"] ?? "")
+		)
+	)
+	if (keys.size < after.length) {
 		return { kind: "refused" }
 	}
 	return {

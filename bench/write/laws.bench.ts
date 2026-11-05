@@ -19,7 +19,7 @@ import { setText } from "#test/support/closed/bit-text.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	addColumnSql,
-	type ClosedRelation,
+	type HandClosed,
 	type CodeColumn,
 	cellCount,
 	checkConstraint,
@@ -107,7 +107,7 @@ type CodeName = "version" | "parent" | "child"
 type Row = { readonly [K in CodeName]: number }
 
 /** The closed relations the placements read, over the code columns. */
-type Relation = ClosedRelation<CodeName>
+type Relation = HandClosed<CodeName>
 
 const version: CodeColumn<CodeName> = { column: "version", codes: 2 }
 const parent: CodeColumn<CodeName> = { column: "parent", codes: 363 }

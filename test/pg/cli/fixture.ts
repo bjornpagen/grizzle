@@ -164,9 +164,9 @@ export const ledger = (name: string) => {
 	])
 	/** Each customer's payment count and total: a stored query, keyed by customer. */
 	const spend = query(base).rule((r) => {
-		const { customer, cents } = v(Payment, "payment")
+		const { id, customer, cents } = v(Payment, "payment")
 		return r
-			.match(Payment, { customer, cents })
+			.match(Payment, { id, customer, cents })
 			.find({ customer, payments: r.count(), cents: r.sum(cents) })
 	})
 	const CustomerSpend = derived("CustomerSpend", spend)

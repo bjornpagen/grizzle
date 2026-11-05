@@ -69,9 +69,9 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 	const Totals = derived(
 		"Totals",
 		query(base).rule((r) => {
-			const { account, kind, weight } = v(Task, "task")
+			const { id, account, kind, weight } = v(Task, "task")
 			return r
-				.match(Task, { account, kind, weight })
+				.match(Task, { id, account, kind, weight })
 				.find({ account, kind, tasks: r.count(), total: r.sum(weight) })
 		})
 	)

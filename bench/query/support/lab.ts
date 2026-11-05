@@ -486,15 +486,21 @@ export const pointsPerCohort = query(Lab).rule((r) => {
 })
 
 /**
- * R08's counterexample: the sitting's key is not bound, so equal (cohort, student, points) bindings contribute once.
+ * R08's counterexample: the sum of each cohort's distinct (student, points) values, so equal values of one student
+ * contribute once. A fold reads each fact it matches once, by its key, so the distinct values are a stage of their own,
+ * a set keyed by its heading, matched whole.
  */
 export const distinctPointsPerCohort = query(Lab).rule((r) => {
-	const { id: student, cohort } = v(Student, "student")
-	const { points } = v(Sitting, "sitting")
-	return r
-		.match(Student, { id: student, cohort })
-		.match(Sitting, { student, points })
-		.find({ cohort, points: r.sum(points) })
+	const values = r.interior((inner) => {
+		const { id: student, cohort } = v(Student, "student")
+		const { points } = v(Sitting, "sitting")
+		return inner
+			.match(Student, { id: student, cohort })
+			.match(Sitting, { student, points })
+			.find({ cohort, student, points })
+	})
+	const { cohort, student, points } = v(values, "value")
+	return r.match(values, { cohort, student, points }).find({ cohort, points: r.sum(points) })
 })
 
 /**

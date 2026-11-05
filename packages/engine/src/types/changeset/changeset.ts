@@ -406,10 +406,13 @@ export interface Delta<S> {
 
 /**
  * A delta of R: a source of R's facts whose heading is R's own, so its variables are minted over R's fields. It names no
- * relation, so its variables carry no origin.
+ * relation, so its variables carry no origin; it holds R's facts, so it is keyed by R's keys, which a fold over it reads
+ * (`deltaOf`, a phantom no value carries).
  */
 export interface DeltaSource<R extends Headed<Carriers>>
-	extends Source<Fact<R>>, Headed<R["heading"]> {}
+	extends Source<Fact<R>>, Headed<R["heading"]> {
+	readonly deltaOf?: Invariant<R>
+}
 
 /** The writes and the read-backs of a ChangeSet: Reads is its reads decoder's records. */
 export type WritesOf<C> = C extends Phantom<{ readonly writes: infer W }> ? W : never

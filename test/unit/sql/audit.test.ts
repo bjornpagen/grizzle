@@ -675,8 +675,7 @@ describe("a printed statement broken at one token", () => {
 			Arr.map(textBreaks, (b): TextBreakFeature => `text break ${b.name}`),
 			[
 				["text rule null", "leading CREATE TABLE"],
-				["text rule untypedLiteral", "leading CREATE OR"],
-				["text rule untypedLiteral", "leading ALTER TYPE"]
+				["text rule untypedLiteral", "leading CREATE OR"]
 			] as const
 		)
 		return searched(

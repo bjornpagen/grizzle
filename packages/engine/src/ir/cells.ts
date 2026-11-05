@@ -330,7 +330,7 @@ export interface Heading {
 }
 
 /** A side as a closed relation of its own: its key's fields, its payload's fields, and its rows split between them. */
-export interface Side<V> {
+export interface CellSide<V> {
 	readonly key: NonEmptyReadonlyArray<string>
 	readonly payload: ReadonlyArray<string>
 	readonly rows: ReadonlyArray<Split<V>>
@@ -346,7 +346,7 @@ export const sideOf = <V>(
 	heading: Heading,
 	terms: NonEmptyReadonlyArray<string>,
 	rows: ReadonlyArray<ReadonlyArray<V>>
-): Side<V> => {
+): CellSide<V> => {
 	const smallest = heading.keys.reduce<NonEmptyReadonlyArray<string> | undefined>(
 		(best, declared) =>
 			declared.every((field) => terms.includes(field)) &&

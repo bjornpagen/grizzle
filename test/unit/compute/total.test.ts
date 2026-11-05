@@ -23,7 +23,7 @@ import {
 	lowerWith,
 	testPg,
 	scalarOfDesc,
-	spelled,
+	spelledExpr,
 	type TestField,
 	v
 } from "#test/unit/compute/support.ts"
@@ -37,7 +37,7 @@ const options = {
 /** The predicate table of a predicate over the domain's VALUE of `base`, built as a contract's callback builds it. */
 const table = (base: TestField, build: (x: ScalarTerm) => { readonly expr: OpenExpr }) =>
 	contractPredicateTable(
-		spelled(build(scalarTerm({ kind: "value" }, base.scalar, base)).expr),
+		spelledExpr(build(scalarTerm({ kind: "value" }, base.scalar, base)).expr),
 		base.scalar,
 		"Test",
 		[],
@@ -310,7 +310,7 @@ describe("the ContractLiteral check", () => {
 								succeeded(
 									lowerWith(
 										"query",
-										spelled(Compute.add(v("c", Cents), n).expr),
+										spelledExpr(Compute.add(v("c", Cents), n).expr),
 										vars,
 										false,
 										baseParams

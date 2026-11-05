@@ -39,7 +39,7 @@ import {
 } from "#compiler/ir/law.ts"
 import { monoids } from "#compiler/ir/monoid.ts"
 
-import { type Side, sideOf } from "#compiler/ir/cells.ts"
+import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
@@ -187,7 +187,7 @@ export type NativePlan =
 			readonly kind: "ClosedCheck"
 			readonly relation: RelationInfo
 			readonly target: ClosedTheoryRelation
-			readonly side: Side<TypedLiteral>
+			readonly side: CellSide<TypedLiteral>
 			readonly pairs: NonEmptyReadonlyArray<{
 				readonly source: PlannedColumn
 				readonly target: LawField

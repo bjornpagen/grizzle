@@ -162,10 +162,7 @@ const setForms = (
 	return out
 }
 
-const obligations = (
-	a: PhysicalAnalysis,
-	plan: PlanUnderVerification
-): ReadonlyArray<VerificationProblem> =>
+const obligations = (a: PhysicalAnalysis): ReadonlyArray<VerificationProblem> =>
 	Arr.flatMap(a.obligations, (o): ReadonlyArray<VerificationProblem> => {
 		if (o.discharged) {
 			return []
@@ -418,7 +415,7 @@ export const verifyMultiplicity = (
 			...context,
 			...covered,
 			...setForms(a, plan),
-			...obligations(a, plan),
+			...obligations(a),
 			...certificates(dag, labelled, a, plan, env)
 		]
 	})

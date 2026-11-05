@@ -38,7 +38,7 @@ import { textLookup } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	codeAt,
-	codebookFor,
+	codebookOfStates,
 	historyGen,
 	liveOf,
 	literalFeature,
@@ -69,7 +69,7 @@ const typeOver = (state: RosterState, desc: FieldDesc): ScalarType =>
 
 /** The names a lowering of the roster's literals reads: the installation's codes, which are the model's. */
 const namesOf = (state: RosterState): PhysicalNames =>
-	productionNames("codes", { kind: "declared" }, localVectorSchema, codebookFor([state]))
+	productionNames("codes", { kind: "declared" }, localVectorSchema, codebookOfStates([state]))
 
 /** The code a lowered handle literal states: an integer literal typed smallint, the type of a closed id's code. */
 const loweredCode = (e: Expr, handle: string): number => {

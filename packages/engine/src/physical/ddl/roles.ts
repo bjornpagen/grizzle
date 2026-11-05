@@ -1028,9 +1028,7 @@ const ownerHolds = (
 	written: ReadonlyArray<WrittenEntry>
 ): ReadonlyArray<OwnerHold> => {
 	const writes = new Set(written.map((w) => w.relation.name))
-	const whole = new Set(
-		written.flatMap((w) => (w.write.kind === "whole" ? [w.relation.name] : []))
-	)
+	const whole = new Set(written.flatMap((w) => (w.write.kind === "whole" ? [w.relation.name] : [])))
 	const byOwner = new Map<string, NonEmptyReadonlyArray<Family>>()
 	for (const f of b.model.families) {
 		if (writes.has(f.member.name) && !whole.has(f.owner.name)) {
@@ -1041,7 +1039,11 @@ const ownerHolds = (
 	return [...byOwner].map(([name, families]): OwnerHold => {
 		const owner = (
 			b.model.relations.get(name) ??
-			refuse("MalformedDescription", role.loc, `a family owned by an ordinary relation, not ${name}`)
+			refuse(
+				"MalformedDescription",
+				role.loc,
+				`a family owned by an ordinary relation, not ${name}`
+			)
 		).relation
 		const selected = new Set(
 			families.flatMap((f) => [
@@ -1123,7 +1125,8 @@ const familyMembership = (ms: NonEmptyReadonlyArray<Membership>): Membership => 
 	if (narrowed.length === 1) {
 		return narrowed[0]
 	}
-	const over = (row: (field: LawField) => Expr): Expr => or(mapNonEmpty(narrowed, (m) => m.over(row)))
+	const over = (row: (field: LawField) => Expr): Expr =>
+		or(mapNonEmpty(narrowed, (m) => m.over(row)))
 	return {
 		kind: "narrowed",
 		filter: or(mapNonEmpty(narrowed, (m) => m.filter)),

@@ -79,8 +79,9 @@ export const compile = (desc: DeploySubject, over: CompileOver): Installation =>
 const previousCodes = (previous: Previous): Codebook =>
 	previous.kind === "snapshot" ? codebookOf(previous.snapshot) : emptyCodebook
 
-/** No rename and no drop declared: a draft that only adds, or whose drops a test means to see refused. */
-export const noDeclarations: Declarations = { renames: [], drops: [] }
+/** No rename and no drop declared, as the command line states it: a draft that only adds, or whose drops a test means to
+ * see refused. */
+export { noDeclarations } from "#cli/renames.ts"
 
 /**
  * The codes `grizzle generate` drafts for `desc` from `previous` (cli/generate.ts draftInput): each roster's codes

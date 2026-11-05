@@ -32,7 +32,7 @@ import {
 	testPg,
 	plainRender,
 	renderSql,
-	spelled,
+	spelledExpr,
 	type TestField,
 	v
 } from "#test/unit/compute/support.ts"
@@ -298,8 +298,8 @@ const contractSearch = (f: Fixture) =>
 		 * delivers a value and the literal adopts the contract; it refuses one exactly where compilation refuses the cast
 		 * for the reason PostgreSQL's SQLSTATE names and the literal is no value of the contract.
 		 */
-		const cast = spelled(Compute.cast(v("x", f.base), f.field).expr)
-		const operand = spelled(v("x", f.base).expr)
+		const cast = spelledExpr(Compute.cast(v("x", f.base), f.field).expr)
+		const operand = spelledExpr(v("x", f.base).expr)
 		const target = `"${s}"."${Str.toLowerCase(f.name)}"`
 		return yield* explore(
 			{

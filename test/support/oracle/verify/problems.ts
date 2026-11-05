@@ -6,7 +6,6 @@
 const verificationRules = [
 	"context",
 	"realizationCoverage",
-	"foldCoverage",
 	"pinnedSetForm",
 	"unprovedUnionAll",
 	"unrealizableDistinct",

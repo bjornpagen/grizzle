@@ -1,4 +1,4 @@
-import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -108,7 +108,7 @@ export const rawRows = (
 export const repeats = (rows: ReadonlyArray<RawRow>): number => rows.length - rowSet(rows).length
 
 /** Two results as sets of rows, each row compared cell by cell. */
-const sameRowSet = multiset(ordered(exact))
+const sameRowSet = set(ordered(exact))
 
 /** A comparison of a result with the expected set: undefined when equal as sets with no repeated row. */
 export const sameSet = (

@@ -28,7 +28,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { runMutant } from "#test/pg/oracle/mutants/support.ts"
-import { assert, assertVariant } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	type Comparison,

@@ -355,7 +355,7 @@ text match. A type batch's population judges its requirements on `floorPopulatio
 | Steering by a suite's notes or by V8 block coverage | `@grizzle/testing/sense` |
 | Choosing features and options with a floor for every choice; Live, Stale and Wild values at a public boundary | `@grizzle/testing/swarm`, `lsw` |
 | A wait that observes a fact | `@grizzle/testing/fact` |
-| N implementations agreeing modulo a declared equivalence (exact, order, multiset, set, a projection) | `@grizzle/testing/oracle` |
+| N implementations agreeing modulo a declared equivalence (exact, order, a set that fails on a repeated item, a projection) | `@grizzle/testing/oracle` |
 | grizzle's delivered values compared exactly: a Decimal by `equals`, its one form | `test/support/equivalence.ts` |
 | Picks over 0..0xffff, a choice's floor among options | `test/support/pick.ts` |
 | Identifier and literal dictionaries, admitted by the production validators | `test/support/kernel/dict.ts` |

@@ -2,8 +2,8 @@ import { Array as Arr, Effect, Equal, Formatter, Option, Schema } from "effect"
 
 /**
  * How two answers may differ and still agree: a difference in words, or none. A test asserts exactly what its contract
- * promises and nothing stronger, so an answer whose order the contract leaves open is compared as a set or a multiset,
- * never as a list whose order happens to be stable today.
+ * promises and nothing stronger, so an answer whose order the contract leaves open is compared as a set, never as a
+ * list whose order happens to be stable today. No answer is a multiset: a repeated item is always a difference.
  */
 export type Equivalence<O> = (left: O, right: O) => Option.Option<string>
 
@@ -29,29 +29,6 @@ export const ordered =
 		return Option.none()
 	}
 
-/** The same items as many times each, in any order, each compared by `item`. */
-export const multiset =
-	<A>(item: Equivalence<A>): Equivalence<ReadonlyArray<A>> =>
-	(left, right) => {
-		const unmatched: Array<A> = Arr.copy(right)
-		const extra: Array<A> = []
-		for (const value of left) {
-			const found = Arr.findFirstIndex(unmatched, (candidate) =>
-				Option.isNone(item(value, candidate))
-			)
-			if (Option.isSome(found)) {
-				unmatched.splice(found.value, 1)
-			} else {
-				extra.push(value)
-			}
-		}
-		return Arr.isReadonlyArrayEmpty(extra) && Arr.isReadonlyArrayEmpty(unmatched)
-			? Option.none()
-			: Option.some(
-					`only left: ${Formatter.format(extra)}; only right: ${Formatter.format(unmatched)}`
-				)
-	}
-
 /** The first item of `values` that a later item repeats, by `item`, if one does. */
 const repeatOf = <A>(item: Equivalence<A>, values: ReadonlyArray<A>): Option.Option<A> =>
 	Arr.findFirst(values, (value, at) =>
@@ -59,9 +36,9 @@ const repeatOf = <A>(item: Equivalence<A>, values: ReadonlyArray<A>): Option.Opt
 	)
 
 /**
- * The same items, in any order, each compared by `item`, where neither side holds an item twice: a set's answer that
- * repeats an item is not the set its contract names, so a repeat on either side is a difference, which names the
- * repeated item, and never folds away. A comparison that must ignore repeats says so in its own name.
+ * The same items, in any order, each compared by `item`, where neither side holds an item twice: an answer that repeats
+ * an item is not the set its contract names, so a repeat on either side is a difference, which names the repeated item,
+ * and never folds away. It is the one unordered comparison: no answer is a multiset.
  */
 export const set =
 	<A>(item: Equivalence<A>): Equivalence<ReadonlyArray<A>> =>
@@ -74,7 +51,21 @@ export const set =
 			([, values]) => Option.isSome(repeatOf(item, values))
 		)
 		return Option.match(repeated, {
-			onNone: () => multiset(item)(left, right),
+			onNone: () => {
+				const onlyLeft = Arr.filter(
+					left,
+					(value) => !Arr.some(right, (other) => Option.isNone(item(value, other)))
+				)
+				const onlyRight = Arr.filter(
+					right,
+					(value) => !Arr.some(left, (other) => Option.isNone(item(other, value)))
+				)
+				return Arr.isReadonlyArrayEmpty(onlyLeft) && Arr.isReadonlyArrayEmpty(onlyRight)
+					? Option.none()
+					: Option.some(
+							`only left: ${Formatter.format(onlyLeft)}; only right: ${Formatter.format(onlyRight)}`
+						)
+			},
 			onSome: ([side, values]) =>
 				Option.map(
 					repeatOf(item, values),

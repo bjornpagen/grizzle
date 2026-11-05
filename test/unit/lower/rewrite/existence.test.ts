@@ -210,7 +210,7 @@ describe("an existence-only match becomes a semi-join", () => {
 							)
 							for (const g of group) {
 								const after = nodesByLabel(ran.query.dag).get(g.id)
-								assert.deepEqual(after?.kind === "Group" ? after.bound : [], [
+								assert.deepEqual(after?.kind === "Group" ? after.bound.columns : [], [
 									"id",
 									"acct",
 									"amount"

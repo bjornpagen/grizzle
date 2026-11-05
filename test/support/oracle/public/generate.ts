@@ -2435,7 +2435,7 @@ const keyedMatch = <P>(scope: ReadScope, m: Match<P>): Match<P> => {
 	if (Arr.some(keys, (k) => Arr.every(k, (f) => bound.has(f.name)))) {
 		return m
 	}
-	const added = Arr.flatMap(keys[0], (field): ReadonlyArray<Binding<P>> =>
+	const added = Arr.flatMap(keys[0], (field: ProgramField): ReadonlyArray<Binding<P>> =>
 		bound.has(field.name) ? [] : [{ field, operand: { kind: "var", var: scope.mint(field) } }]
 	)
 	return { source: m.source, bindings: [m.bindings[0], ...m.bindings.slice(1), ...added] }
@@ -3428,8 +3428,12 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	const names = new Names(kinds)
 	const roster = resolveRoster(names, sketch.roster)
 	const fieldNames = new Names(kinds)
+	/** A closed-id field is named as every one is (Names.drawClosedId), so its decoded column fits an identifier. */
 	const fieldOf = (kind: FieldKind, slot: PlantedName): ProgramField => ({
-		name: fieldNames.draw(pick(slot), "field"),
+		name:
+			kind === "handle"
+				? fieldNames.drawClosedId(pick(slot), "field")
+				: fieldNames.draw(pick(slot), "field"),
 		kind,
 		type: typeOf(kind, roster)
 	})

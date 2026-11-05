@@ -36,7 +36,7 @@ import {
 	lowerWith,
 	plainRender,
 	renderSql,
-	spelled,
+	spelledExpr,
 	type TestField,
 	testPg,
 	v
@@ -496,7 +496,7 @@ const makeCase = (
 	bindings: Readonly<Record<string, LeafBinding>>,
 	predicate: boolean
 ): Built => {
-	const lowered = lowerWith("query", spelled(expr), bindings, predicate, baseParams)
+	const lowered = lowerWith("query", spelledExpr(expr), bindings, predicate, baseParams)
 	if (!lowered.ok) {
 		return { kind: "refused", label, precondition: refusalOf(label, lowered.error) }
 	}

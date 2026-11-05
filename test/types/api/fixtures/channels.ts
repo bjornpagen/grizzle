@@ -348,7 +348,10 @@ export type OutsideWorldShape = Expect<
 	>
 >
 
-/** The witness names the key, or says why it can't: withheld from the role, or unreported by PostgreSQL. */
+/**
+ * The witness names the key, or says why it can't: PostgreSQL reported the violation itself. No law function remains
+ * to withhold one from a role.
+ */
 export type WitnessShape = Expect<
 	Equals<
 		Witness,
@@ -357,7 +360,6 @@ export type WitnessShape = Expect<
 				readonly relation: string
 				readonly values: Readonly<Record<string, KeyHost>>
 		  }
-		| { readonly kind: "withheld" }
 		| { readonly kind: "unreported" }
 	>
 >

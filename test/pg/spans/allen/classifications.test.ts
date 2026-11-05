@@ -2,7 +2,7 @@ import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace, type Situations } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
-import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -142,18 +142,18 @@ const fixedMasks: Arr.NonEmptyReadonlyArray<number> = nonEmpty(
 /** What an explored mask reaches: each basic relation it includes. */
 type MaskFeature = `includes ${AllenRelation}`
 
-const sameRowSet = multiset(ordered(exact))
+const sameRowSet = set(ordered(exact))
 
 /**
  * How one mask's pair query departs from the brute-force classifier over the stored spans of one range type, in both
- * artifacts: a repeated row in the optimized answer, or another set of pairs.
+ * artifacts: a repeated row in either answer, or another set of pairs.
  */
 const checkMask = (installed: InstalledSpans, reader: RawSession, type: RangeType, mask: number) =>
 	Effect.gen(function* () {
 		const spans = universe(type)
 		/**
-		 * In rowsAs's order, so the multiset matches each answer row at the head of the expected ones: in the universe's
-		 * order every match scans thousands of pairs.
+		 * In rowsAs's order, so the set comparison matches each answer row at the head of the expected ones: in the
+		 * universe's order every match scans thousands of pairs.
 		 */
 		const expected = Arr.sort(
 			Arr.flatMap(spans, (a: HalfOpen) =>
@@ -172,8 +172,8 @@ const checkMask = (installed: InstalledSpans, reader: RawSession, type: RangeTyp
 			}
 			const [rows] = yield* runArtifact(reader, template, artifact, {})
 			const got = rowsAs(spec, rows ?? [], ["s", "theirs"])
-			if (artifact === "optimized" && got.repeats > 0) {
-				failures.push(`${type} ${mask} optimized: ${got.repeats} repeated rows`)
+			if (got.repeats > 0) {
+				failures.push(`${type} ${mask} ${artifact}: ${got.repeats} repeated rows`)
 			}
 			const difference = sameRowSet(got.rows, expected)
 			if (Option.isSome(difference)) {

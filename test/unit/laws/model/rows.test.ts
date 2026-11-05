@@ -12,7 +12,7 @@ import { rowBytes, rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { assert, refused } from "#test/support/assert.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { compiled, modelOf } from "#test/unit/laws/model/natives.ts"
+import { compiledModel, modelOf } from "#test/unit/laws/model/natives.ts"
 
 /**
  * A relation's rows must fit one heap tuple (MaxHeapTupleSize): its fields and law columns are refused exactly when a
@@ -141,6 +141,6 @@ describe("a relation's rows fit one heap tuple", () => {
 			extends: undefined
 		})
 		modelOf(schemaWith(fits))
-		refused(compiled(schemaWith(fits + 1)), "UnsupportedLawFamily")
+		refused(compiledModel(schemaWith(fits + 1)), "UnsupportedLawFamily")
 	})
 })

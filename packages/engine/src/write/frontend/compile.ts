@@ -859,6 +859,27 @@ const compile = (
 					`a delete of ${relation.name}, a member of the family ${fixed.id.owner}.${fixed.id.count} of the immutable ${fixed.owner.name}: an immutable owner's family is fixed when its owner is inserted; declare mutable(${fixed.owner.name}) to change it`
 				)
 			}
+			/** An insert appends to its owners' families, which only an owner the same stratum inserts may take when the
+			 * owner is immutable; with no insert of the owner in the stratum, every append is to a stored owner. */
+			if (
+				fixed !== undefined &&
+				member.op === "insert" &&
+				!stratum.members.some((m) => m.relation === fixed.owner.name && m.op === "insert")
+			) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`an insert into ${relation.name}, a member of the family ${fixed.id.owner}.${fixed.id.count} of the immutable ${fixed.owner.name}, which this stratum inserts none of: an immutable owner's family is fixed when its owner is inserted; declare mutable(${fixed.owner.name}) to change it`
+				)
+			}
+			const owned = families.find((f) => f.owner.name === relation.name)
+			if (owned !== undefined && member.op === "put" && !writtenOf(relation.name, loc).mutable) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`a put of ${relation.name}, the immutable owner of the family ${owned.id.owner}.${owned.id.count}: an owner's put updates the fields its facts carry in place and leaves its families as they are, which an immutable relation refuses; declare mutable(${relation.name}) to put it`
+				)
+			}
 			const edited = managed(relation.name) && tree === undefined
 			if (edited && (entry.kind !== "whole" || member.member.kind === "query")) {
 				refuse(

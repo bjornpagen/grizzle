@@ -46,7 +46,7 @@ import type { Roster } from "#compiler/ir/scalar.ts"
 /** How a handle is spelled: a plain word, or a spelling an array literal, an identifier or a byte bound must keep. */
 const SPELLINGS = ["plain", "awkward"] as const
 
-export type Spelling = (typeof SPELLINGS)[number]
+export type RosterSpelling = (typeof SPELLINGS)[number]
 
 /** Plain handles, none a prefix of another's code or position. */
 const PLAIN = [
@@ -82,7 +82,7 @@ const AWKWARD = [
 	`${Str.repeat(31)("é")}x`
 ] as const
 
-const POOLS: Readonly<Record<Spelling, ReadonlyArray<string>>> = { plain: PLAIN, awkward: AWKWARD }
+const POOLS: Readonly<Record<RosterSpelling, ReadonlyArray<string>>> = { plain: PLAIN, awkward: AWKWARD }
 
 /** Roster names, each a declared name the naming door admits. */
 const ROSTER_NAMES = ["Kind", "Tier", "Tone", "Phase", "Stage", "Mood"] as const
@@ -113,7 +113,7 @@ export type ModelSlot =
 export interface RosterState {
 	readonly closed: DeclaredName
 	readonly slots: NonEmptyReadonlyArray<ModelSlot>
-	readonly spellings: Swarm<Spelling>
+	readonly spellings: Swarm<RosterSpelling>
 }
 
 /** A roster's declaration: its handles in declared order, which a valid one keeps in their codes' order (D1). */
@@ -177,7 +177,7 @@ export const codecFor = (state: RosterState): RosterCodec =>
 	rosterCodec(state.closed, codesOf(state))
 
 /** The codebook of several rosters' codes, by roster name. */
-export const codebookFor = (states: ReadonlyArray<RosterState>): Codebook => ({
+export const codebookOfStates = (states: ReadonlyArray<RosterState>): Codebook => ({
 	rosters: new Map(Arr.map(states, (state) => [state.closed, codecFor(state)] as const))
 })
 
@@ -196,7 +196,7 @@ const removedOf = (state: RosterState): ReadonlyArray<string> => {
 }
 
 /** The names of `spelling` that the slots have never held. */
-const unheldOf = (slots: ReadonlyArray<ModelSlot>, spelling: Spelling): ReadonlyArray<string> => {
+const unheldOf = (slots: ReadonlyArray<ModelSlot>, spelling: RosterSpelling): ReadonlyArray<string> => {
 	const held = heldNames(slots)
 	return Arr.filter(POOLS[spelling], (name) => !held.has(name))
 }
@@ -213,7 +213,7 @@ const oneOf = (names: ReadonlyArray<string>, what: string): Gen<string> => {
  * A name the slots have never held, in a spelling the case's swarm turns on, or in the other when that one is spent.
  */
 const freshName =
-	(slots: ReadonlyArray<ModelSlot>, spellings: Swarm<Spelling>): Gen<string> =>
+	(slots: ReadonlyArray<ModelSlot>, spellings: Swarm<RosterSpelling>): Gen<string> =>
 	(source) => {
 		const spelling = source.draw(swarmChoice(spellings, SPELLINGS))
 		const preferred = unheldOf(slots, spelling)

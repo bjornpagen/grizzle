@@ -106,10 +106,17 @@ const itemsById = query(Plans).rule((r) => {
 	return r.match(wanted, { id }).match(Item, { id, amount }).find({ id, amount })
 })
 
-/** The sum per account over the bound (account, amount), and over the bound (id, account, amount). */
+/**
+ * The sum per account of its distinct amounts, a stage of the distinct (account, amount) values matched whole, and the
+ * sum over every posting, bound by its key (id, account, amount).
+ */
 const sumsOfAmounts = query(Plans).rule((r) => {
-	const { account, amount } = v(Posting, "posting")
-	return r.match(Posting, { account, amount }).find({ account, total: r.sum(amount) })
+	const amounts = r.interior((inner) => {
+		const { account, amount } = v(Posting, "posting")
+		return inner.match(Posting, { account, amount }).find({ account, amount })
+	})
+	const { account, amount } = v(amounts, "amounts")
+	return r.match(amounts, { account, amount }).find({ account, total: r.sum(amount) })
 })
 
 const sumsOfPostings = query(Plans).rule((r) => {
@@ -437,7 +444,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 	)
 
 	it.effect(
-		"the aggregate over a base key folds in one step, and the one over (account, amount) deduplicates first",
+		"the aggregate over a base key folds in one step, and the one over distinct (account, amount) values deduplicates first",
 		() =>
 			Effect.gen(function* () {
 				const { schema } = yield* fixture

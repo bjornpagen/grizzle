@@ -266,7 +266,11 @@ export const rolesByIssue = () =>
 export const rolesTaken = rolesOrdered.take(2)
 export type RolesTakenHead = Expect<Equals<HeadOf<typeof rolesTaken>, RoleRow>>
 
-/** Bound variables define contribution identity; both sums are numeric over bigint. */
+/**
+ * A fold reads each fact it matches once, by a key: byFact binds the posting's id; byAmount folds the distinct
+ * (account, amount) values, a stage matched whole; both sums are numeric over bigint. A fold whose match binds no key
+ * of its source would read a projection, and is refused at the aggregate, every aggregate alike.
+ */
 export const Posting = relation("Posting", { id: uuid, account: uuid, amount: pg.bigint }, ["id"])
 export const Ledger = schema("Ledger", { Posting }, [])
 export const byFact = query(Ledger).rule((r) => {
@@ -275,8 +279,23 @@ export const byFact = query(Ledger).rule((r) => {
 })
 
 export const byAmount = query(Ledger).rule((r) => {
+	const amounts = r.interior((inner) => {
+		const { account, amount } = v(Posting, "posting")
+		return inner.match(Posting, { account, amount }).find({ account, amount })
+	})
+	const { account, amount } = v(amounts, "amounts")
+	return r.match(amounts, { account, amount }).find({ account, total: r.sum(amount) })
+})
+
+export const overProjection = query(Ledger).rule((r) => {
 	const { account, amount } = v(Posting, "posting")
-	return r.match(Posting, { account, amount }).find({ account, total: r.sum(amount) })
+	return r.match(Posting, { account, amount }).find({
+		account,
+		// @ts-expect-error -- TS2322 refusal: a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values
+		total: r.sum(amount),
+		// @ts-expect-error -- TS2322 refusal: a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values
+		least: r.min(amount)
+	})
 })
 
 export type ByFactHead = Expect<

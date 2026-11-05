@@ -79,9 +79,9 @@ export default defineConfig({
    generate with the same CompileError.
 2. Run `grizzle generate grizzle.config.ts`, declaring what became of every name the schema no longer holds: a
    `--rename <old>=<new>` for each rename and a `--drop <old>` for each drop ([Renames and drops](#renames-and-drops)).
-   It prints one line per written file, then each marker to resolve as `<file>:<line>: placeholder: <what to do>`,
-   then each loss to decide as `<file>: data loss: <what it loses>: <what to do>`, then `next: resolve the markers,
-   then run grizzle check`. With no change it writes nothing and prints `no changes`. A name the previous snapshot
+   It prints one line per written file, then each marker to resolve as `<file>:<line>: <kind>: <what to do>`, its
+   kind `placeholder` or `confirm`, then each loss to decide as `<file>: data loss: <what it loses>: <what to do>`,
+   then `next: resolve the markers, then run grizzle check`. With no change it writes nothing and prints `no changes`. A name the previous snapshot
    holds that the schema no longer does and no declaration names refuses the draft before anything is written:
    `<name> is dropped but not declared: declare it with --drop <name>, or --rename it`.
 3. Read every drafted SQL file, and resolve each marker:
@@ -284,6 +284,7 @@ every check, and refuses before connecting.
 | the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
 | a roster declares a handle before one that holds a lower code in snapshot.json | append new handles; a roster's order is its codes' order |
 | unresolved placeholder | write the value or the UPDATE, then delete the marker line |
+| unconfirmed group | keep every statement below the marker as drafted, then delete the two marker lines |
 | unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented | to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder |
 | snapshot.json does not decode as a snapshot, or is the snapshot of another schema | restore it from git |
 | meta.json does not decode as a migration's meta.json, or names another schema | restore it from git |

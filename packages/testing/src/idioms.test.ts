@@ -48,7 +48,7 @@ import {
 	WildTouched,
 	wildOf
 } from "#lsw.ts"
-import { agree, exact, multiset } from "#oracle.ts"
+import { agree, exact, set } from "#oracle.ts"
 import { matching, PatternRefused } from "#pattern.ts"
 import { wordsOf } from "#random.ts"
 import { notesOnly } from "#sense.ts"
@@ -744,7 +744,7 @@ describe("constructive collections", () => {
 									["increasing", everyValue(increasing(lo, hi, strict))],
 									["model", ascendingModel(lo, hi, strict, 1)]
 								],
-								multiset(exact)
+								set(exact)
 							)
 							yield* agree(
 								[
@@ -754,7 +754,7 @@ describe("constructive collections", () => {
 										width === 0 ? (size.min === 0 ? [[]] : []) : ascendingModel(lo, hi, size, 0)
 									]
 								],
-								multiset(exact)
+								set(exact)
 							)
 							const values = Arr.map(Arr.range(lo, Math.max(lo, hi)), (value) => `v${value}`).slice(
 								0,
@@ -770,7 +770,7 @@ describe("constructive collections", () => {
 										)
 									]
 								],
-								multiset(exact)
+								set(exact)
 							)
 						})
 				)
@@ -803,7 +803,7 @@ describe("constructive collections", () => {
 								["parents", trees],
 								["model", treesModel(nodes)]
 							],
-							multiset(exact)
+							set(exact)
 						)
 					})
 			)
@@ -838,7 +838,7 @@ describe("constructive collections", () => {
 								["composition", everyValue(composition(total, parts))],
 								["model", compositionsModel(total, parts)]
 							],
-							multiset(exact)
+							set(exact)
 						)
 				)
 			)

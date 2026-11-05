@@ -13,7 +13,7 @@ import { describe, flakyTest, it, layer } from "@effect/vitest"
 import { assertEquals, assertExitSuccess, assertFalse, assertInclude, assertMatch, assertNone, assertSome, assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { expect, test } from "vitest"
 import assert from "node:assert"
-import { agree, exact, multiset, set } from "@grizzle/testing/oracle"
+import { agree, exact, set } from "@grizzle/testing/oracle"
 import { exhaust } from "@grizzle/testing/explore"
 import { element } from "@grizzle/testing/gen"
 `
@@ -37,7 +37,7 @@ const invalid = (body: string, messageId: string, count: number): RuleTester.Inv
 
 tester.run("no-ordered-unordered", plugin.rules["no-ordered-unordered"], {
 	valid: [
-		valid('agree([["set", [...new Set(ids)]], ["list", ids]], multiset(exact))'),
+		valid('agree([["set", [...new Set(ids)]], ["list", ids]], set(exact))'),
 		valid('agree([["keys", Object.keys(record)], ["expected", ["a", "b"]]], set(exact))'),
 		valid("deepStrictEqual(Arr.sort([...new Set(ids)], Order.Number), [1, 2, 3])"),
 		valid("const items = [1, 2]\ndeepStrictEqual([...items], [1, 2])"),

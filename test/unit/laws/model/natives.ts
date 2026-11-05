@@ -22,11 +22,11 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
  */
 
 /** A schema description's law model, or the refusal the owner or the law model gives it. */
-export const compiled = (desc: SchemaDesc): EngineResult.Result<LawModel, CompileError> =>
+export const compiledModel = (desc: SchemaDesc): EngineResult.Result<LawModel, CompileError> =>
 	EngineResult.flatMap(own(decodedSchema(desc)), compileLaws)
 
 /** A schema description's law model, which must compile. */
-export const modelOf = (desc: SchemaDesc): LawModel => succeeded(compiled(desc))
+export const modelOf = (desc: SchemaDesc): LawModel => succeeded(compiledModel(desc))
 
 /** Every native object of the model, once each. */
 export const nativesOf = (model: LawModel): ReadonlyArray<NativeObject> =>

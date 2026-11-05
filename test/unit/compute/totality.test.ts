@@ -21,7 +21,7 @@ import {
 	type LeafBinding,
 	lowerWith,
 	param,
-	spelled,
+	spelledExpr,
 	type TestField,
 	testDeclaringContract,
 	testPg,
@@ -328,7 +328,7 @@ describe("totality", () => {
 							).expr
 							const lowered = lowerWith(
 								"query",
-								spelled(expr),
+								spelledExpr(expr),
 								{ a: literalOf(entry.field, a), b: literalOf(entry.field, b) },
 								false,
 								baseParams
@@ -409,12 +409,12 @@ describe("totality", () => {
 							const operand = (name: string) =>
 								subject === "parameters" ? param(name, form.field) : v(name, form.field)
 							const term = form.build(operand("a"), operand("b")).expr
-							const lowered = lowerWith("query", spelled(term), columns, false, baseParams)
+							const lowered = lowerWith("query", spelledExpr(term), columns, false, baseParams)
 							assert.ok(lowered.ok, `${form.name} compiles over ${subject}`)
 							const literal = (x: LiteralDesc) =>
 								lowerWith(
 									"query",
-									spelled(v("a", form.field).expr),
+									spelledExpr(v("a", form.field).expr),
 									{ a: literalOf(form.field, x) },
 									false,
 									baseParams

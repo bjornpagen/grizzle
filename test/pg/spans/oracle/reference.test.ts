@@ -2,7 +2,7 @@ import { describe, it, layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
-import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -316,7 +316,7 @@ const tableMaskPredicate: MaskPredicate = (mask, left, right) =>
 		printExpr(col(right.table, right.column))
 	)
 
-const sameRowSet = multiset(ordered(exact))
+const sameRowSet = set(ordered(exact))
 
 const sameRows = (
 	label: string,

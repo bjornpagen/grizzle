@@ -7,7 +7,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import type { Side } from "#compiler/ir/cells.ts"
+import type { CellSide } from "#compiler/ir/cells.ts"
 import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DeclaredKey, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
@@ -400,7 +400,7 @@ type NativeBody =
 			readonly kind: "ClosedCheck"
 			readonly relation: TableRelation
 			readonly target: ClosedTheoryRelation
-			readonly side: Side<TypedLiteral>
+			readonly side: CellSide<TypedLiteral>
 			readonly pairs: NonEmptyReadonlyArray<{
 				readonly source: NativeColumn
 				readonly target: LawField
