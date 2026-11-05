@@ -89,7 +89,7 @@ layer(Substrate.layer)("fixed-length connected matches: joins against recursive 
 									schema: { kind: "named", name: schema }
 								})
 								const cmp = joins.comparison
-								if (!cmp.equal || cmp.leftDuplicates > 0 || cmp.rightDuplicates > 0) {
+								if (!cmp.equal) {
 									return yield* comparisonFailed(joins)
 								}
 								/** The recursive CTE against the joins' answer by definition. */

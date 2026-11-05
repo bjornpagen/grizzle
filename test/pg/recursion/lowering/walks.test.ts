@@ -261,7 +261,6 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 								schema: { kind: "named", name: name }
 							})
 							assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-							assert.equal(outcome.comparison.leftDuplicates, 0, printOutcome(outcome))
 							k.note(`agreed: ${c.label}`)
 						})
 				)
@@ -446,7 +445,6 @@ layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => 
 									schema: { kind: "named", name: name }
 								})
 								assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-								assert.equal(outcome.comparison.leftDuplicates, 0, printOutcome(outcome))
 								const against = yield* runLabelledOracle(c.oracle, optimized, conservative, {
 									...defaultRunOptions,
 									schema: { kind: "named", name: name }

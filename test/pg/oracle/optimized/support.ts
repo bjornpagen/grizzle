@@ -695,10 +695,7 @@ export interface DifferentialOutcome {
 
 /** Whether every optimized run equals the conservative run, repeats no row, and keeps every delivery order. */
 export const agrees = (o: DifferentialOutcome): boolean =>
-	Arr.every(
-		o.optimized,
-		(r) => r.comparison.equal && r.comparison.rightDuplicates === 0 && r.order.length === 0
-	)
+	Arr.every(o.optimized, (r) => r.comparison.equal && r.order.length === 0)
 
 /** Whether the conservative run repeats no row: the baseline is a set at every statement. */
 export const baselineIsSet = (o: DifferentialOutcome): boolean =>
@@ -980,7 +977,7 @@ export const printDifferential = (o: DifferentialOutcome): string => {
 	const lines: Array<string> = []
 	lines.push(printQueryCase(o.case))
 	for (const r of o.optimized) {
-		if (r.comparison.equal && r.comparison.rightDuplicates === 0 && r.order.length === 0) {
+		if (r.comparison.equal && r.order.length === 0) {
 			continue
 		}
 		lines.push(printComparison(r.comparison, "conservative", formLabel(r.form)))

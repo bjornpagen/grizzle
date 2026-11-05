@@ -8,6 +8,7 @@ import type {
 	ResolvedRule
 } from "#compiler/check/params.ts"
 import type { Arm, RecArm } from "#compiler/check/recursion/scan.ts"
+import type { StateType } from "#compiler/check/recursion/state.ts"
 import { entries } from "#compiler/check/scan.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -15,7 +16,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { RelNode, TerminationCert } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { baseOf, contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 
 /** The range of the integer carrier a counter may live in; undefined for every other carrier. */
 const rangeOf = (t: ScalarType): readonly [bigint, bigint] | undefined => {
@@ -324,11 +325,11 @@ const guards = (
 
 class Analysis {
 	readonly def: ResolvedRecursive
-	readonly row: ReadonlyMap<string, ScalarType>
+	readonly row: ReadonlyMap<string, StateType>
 	readonly cx: CheckServices
 	readonly #forms = new Map<string, Array<Form>>()
 
-	constructor(def: ResolvedRecursive, row: ReadonlyMap<string, ScalarType>, cx: CheckServices) {
+	constructor(def: ResolvedRecursive, row: ReadonlyMap<string, StateType>, cx: CheckServices) {
 		this.def = def
 		this.row = row
 		this.cx = cx
@@ -556,20 +557,23 @@ const greatest = (first: bigint, rest: ReadonlyArray<bigint>): bigint =>
 /** The values a boolean column holds, which no NULL joins (ir/scalar.ts: no type is nullable). */
 const booleanValues = [false, true] as const
 
+/** A state type's base, through its contracts: no contract is over a set (ContractBase), so no base is one either. */
+const stateBase = (type: StateType): StateType => {
+	const contract = contractOf(type)
+	return contract === undefined ? type : stateBase(contract.base)
+}
+
 /**
- * The values a column of `type` can hold when its domain is finite: a boolean's two, a closed id's live handles, and a
- * set's every subset of its roster's live handles, since a set holds no code a hole has (the codec writes only live
- * codes, and union, intersection and difference of such sets hold none); undefined for an unbounded domain.
+ * The values a state column of `type` can hold when its domain is finite: a boolean's two and a closed id's live
+ * handles; undefined for an unbounded domain. No state column is a set (StateType).
  */
-const domainSize = (type: ScalarType): bigint | undefined => {
-	const base = baseOf(type)
+const domainSize = (type: StateType): bigint | undefined => {
+	const base = stateBase(type)
 	switch (base.carrier) {
 		case "bool":
 			return BigInt(booleanValues.length)
 		case "code":
 			return BigInt(base.roster.handles.length)
-		case "bits":
-			return 2n ** BigInt(base.roster.handles.length)
 		case "int2":
 		case "int4":
 		case "int8":
@@ -588,8 +592,8 @@ const domainSize = (type: ScalarType): bigint | undefined => {
 	}
 }
 
-/** A column's value count, capped at its domain's size for a boolean, closed-id or set column. */
-const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
+/** A column's value count, capped at its domain's size for a boolean or closed-id column. */
+const cappedByDomain = (type: StateType, count: bigint): bigint => {
 	const domain = domainSize(type)
 	return domain !== undefined && domain < count ? domain : count
 }
@@ -629,7 +633,7 @@ const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
  * values each can take, as far as the description fixes it: a bounded counter counts every integer between its least
  * and its greatest value (a seed it cannot read is the carrier's extreme; an arm copying the counter's component
  * unchanged adds no value), a column of literals counts them, data counts once, a computed column the product of the
- * columns it reads, a copy what it copies, and a boolean, closed-id or set column at most its domain. Data counts once because a
+ * columns it reads, a copy what it copies, and a boolean or closed-id column at most its domain. Data counts once because a
  * carrier's size is data that admission does not read: the estimate is the number of states per combination of carrier
  * values, the growth a recursion's computed state adds to its data. The estimate is recorded, never refused: finite
  * state is a termination argument, not a resource bound. The states a recursion reaches are its data's, and its
@@ -650,7 +654,7 @@ const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
  */
 export const terminationVerdict = (input: {
 	readonly def: ResolvedRecursive
-	readonly row: ReadonlyMap<string, ScalarType>
+	readonly row: ReadonlyMap<string, StateType>
 	readonly base: ReadonlyArray<Arm>
 	readonly rec: ReadonlyArray<RecArm>
 	readonly cx: CheckServices

@@ -31,6 +31,8 @@ export interface IdentifiedFact {
 	readonly fact: { readonly [field: string]: unknown }
 }
 
+declare const normalFactsBrand: unique symbol
+
 /**
  * Facts in normal form over one heading: frozen admitted facts, distinct by fact identity and in identity order, with
  * the heading they were normalized against (the canonical text of its name-ordered fields and carrier specs). A
@@ -38,6 +40,9 @@ export interface IdentifiedFact {
  * relation parameter's once per execution and then written in each statement's column order: normalizing them again
  * under the same heading would admit every value again, find no repeat and keep the order, so a holder of normal facts
  * takes them to their text rows (codec/recordset.ts normalRows) and never normalizes them again.
+ *
+ * Branded: codec/recordset.ts mints it from facts keyed by their identities, a Map, so the facts are a set by
+ * construction and their order is the mint's, and no other value stands where normal facts are taken.
  */
 export interface NormalFacts {
 	readonly heading: string
@@ -45,6 +50,7 @@ export interface NormalFacts {
 	readonly facts: ReadonlyArray<{ readonly [field: string]: unknown }>
 	/** The same facts each with its identity. */
 	readonly entries: ReadonlyArray<IdentifiedFact>
+	readonly [normalFactsBrand]: true
 }
 
 /**

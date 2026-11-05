@@ -117,13 +117,6 @@ const placeOf = (spec: BuiltSpec, field: string | undefined): EncodingPlace => {
 	return slotPlace(field === undefined ? slot.name : `${slot.name}.${field}`)
 }
 
-interface Entry {
-	readonly identity: string
-	readonly fact: { readonly [field: string]: unknown }
-	/** The fact's text forms in column order: the elements its arrays carry for it. */
-	readonly row: ReadonlyArray<string>
-}
-
 /** A fact's row: each column's text of the fact's value, in column order, written by a native loop. */
 const rowOf = (
 	columns: ReadonlyArray<BuiltColumn>,
@@ -140,20 +133,39 @@ const rowOf = (
 const headingText = (plan: HeadingPlan): string =>
 	canonicalTextOf(plan.fields.map((f) => [f.name, specContent(f.spec)]))
 
-/** The normal facts of `entries`, frozen, under `heading`. */
-const normalFacts = (entries: ReadonlyArray<IdentifiedFact>, heading: string): NormalFacts =>
-	Object.freeze({
-		heading,
-		facts: Object.freeze(entries.map((e) => e.fact)),
-		entries: Object.freeze([...entries])
-	})
+type Fact = { readonly [field: string]: unknown }
+
+/** The brand's one claim, which only normalFacts makes. */
+const mintNormal = nominal<Pick<NormalFacts, "heading" | "facts" | "entries">, NormalFacts>()
 
 /**
- * A list of admitted facts as normal facts over a heading: each `fact` was admitted by factIdentity over that heading,
- * `identity` is its fact identity, and the entries are distinct by identity and in identity order. The caller vouches
- * for the order and distinctness; the facts must be frozen.
+ * The one mint of normal facts: the facts of `byIdentity` under `heading`, keyed by their fact identities, which a Map
+ * holds once each, so the facts are distinct by construction, put in code point order of their identities here, and
+ * frozen.
  */
-export type NormalForm = (entries: ReadonlyArray<IdentifiedFact>) => NormalFacts
+const normalFacts = (
+	byIdentity: ReadonlyMap<string, { readonly fact: Fact }>,
+	heading: string
+): NormalFacts => {
+	const entries = Array.from(byIdentity, ([identity, { fact }]): IdentifiedFact =>
+		Object.freeze({ identity, fact })
+	)
+	entries.sort((a, b) => compareCodePoints(a.identity, b.identity))
+	return mintNormal(
+		Object.freeze({
+			heading,
+			facts: Object.freeze(entries.map((e) => e.fact)),
+			entries: Object.freeze(entries)
+		})
+	)
+}
+
+/**
+ * Admitted facts as normal facts over a heading, keyed by their fact identities: each fact was admitted by
+ * factIdentity over that heading, its key is its identity, and it is frozen. The Map holds each identity once, so the
+ * facts are a set by construction, and the normal form puts them in identity order itself.
+ */
+export type NormalForm = (byIdentity: ReadonlyMap<string, { readonly fact: Fact }>) => NormalFacts
 
 /**
  * Relation-valued inputs: the array encoder and the Stream collector.
@@ -183,7 +195,7 @@ export type NormalForm = (entries: ReadonlyArray<IdentifiedFact>) => NormalFacts
  */
 export const normalForm = (spec: RelationSpec): NormalForm => {
 	const heading = headingText(buildSpec(spec).plan)
-	return (entries) => normalFacts(entries, heading)
+	return (byIdentity) => normalFacts(byIdentity, heading)
 }
 
 /**
@@ -198,7 +210,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	const { columns } = s
 	const ownHeading = headingText(s.plan)
 	const normalize: RelationNormalizer = (facts) => {
-		const byIdentity = new Map<string, Entry>()
+		const byIdentity = new Map<string, { readonly fact: Fact }>()
 		for (const fact of facts) {
 			if (fact === null || fact === undefined) {
 				return Result.err(encodeFailure("nullValue", placeOf(s, undefined)))
@@ -219,18 +231,15 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 			}
 			const { identity, fact: value } = admitted.value
 			if (!byIdentity.has(identity)) {
-				byIdentity.set(identity, { identity, fact: value, row: rowOf(columns, value) })
+				byIdentity.set(identity, { fact: value })
 			}
 		}
-		const entries = [...byIdentity.values()]
-		entries.sort((a, b) => compareCodePoints(a.identity, b.identity))
-		const rows = entries.map((e) => e.row)
-		const identified = entries.map(({ identity, fact }) => Object.freeze({ identity, fact }))
+		const normal = normalFacts(byIdentity, ownHeading)
 		return Result.ok(
 			Object.freeze({
-				...normalFacts(identified, ownHeading),
-				rows: Object.freeze(rows),
-				count: entries.length
+				...normal,
+				rows: Object.freeze(normal.facts.map((fact) => rowOf(columns, fact))),
+				count: normal.facts.length
 			})
 		)
 	}

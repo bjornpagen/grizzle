@@ -266,11 +266,6 @@ layer(Substrate.layer)(
 										schema: { kind: "named", name: schema }
 									})
 									assert.equal(withReference.comparison.equal, true, printOutcome(withReference))
-									assert.equal(
-										withReference.comparison.leftDuplicates,
-										0,
-										printOutcome(withReference)
-									)
 									const withConservative = yield* runLabelledOracle(c, optimized, conservative, {
 										...defaultRunOptions,
 										schema: { kind: "named", name: schema }
@@ -278,11 +273,6 @@ layer(Substrate.layer)(
 									assert.equal(
 										withConservative.comparison.equal,
 										true,
-										printOutcome(withConservative)
-									)
-									assert.equal(
-										withConservative.comparison.leftDuplicates,
-										0,
 										printOutcome(withConservative)
 									)
 									assert.notDeepEqual(

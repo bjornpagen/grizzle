@@ -32,7 +32,13 @@ import { Array as Arr, Effect, Option, Order } from "effect"
 import { runMutant } from "#test/pg/oracle/mutants/support.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { type Comparison, rowMultiset, type Run, rawRowKey } from "#test/support/oracle/compare.ts"
+import {
+	type Comparison,
+	rawRowKey,
+	repeatsOn,
+	rowMultiset,
+	type Run
+} from "#test/support/oracle/compare.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
 import {
@@ -121,8 +127,8 @@ const judgedOf = (verdict: KillVerdict): Judged => {
 
 /** Duplicate answers: the same distinct rows in every statement, the mutant repeating some. */
 const expectDuplicates = (j: Judged, c: Comparison): void => {
-	assert.ok(c.rightDuplicates > 0, "the mutant repeats a row")
-	assert.equal(c.leftDuplicates, 0, "the left run repeats no row")
+	assert.ok(repeatsOn(c, "right") > 0, "the mutant repeats a row")
+	assert.equal(repeatsOn(c, "left"), 0, "the left run repeats no row")
 	for (const s of j.left.statements) {
 		assert.deepEqual(
 			distinctKeys(j.right, s.label),
@@ -137,7 +143,7 @@ const expectDuplicates = (j: Judged, c: Comparison): void => {
  * changes, and a differing count only upward.
  */
 const expectOvercount = (j: Judged, c: Comparison): void => {
-	assert.equal(c.rightDuplicates + c.leftDuplicates, 0, "no repeated row")
+	assert.deepEqual(c.repeated, [], "no repeated row")
 	const group = j.case.query.dag.roots[0]
 	assert.equal(group.kind, "Group")
 	assertVariant(group, "kind", "Group")
@@ -205,7 +211,7 @@ const expectOvercount = (j: Judged, c: Comparison): void => {
 
 /** An incorrect second-value witness: no repeated row, and only left tuples the mutant's semi-join lost. */
 const expectLostWitness = (j: Judged, c: Comparison): void => {
-	assert.equal(c.rightDuplicates + c.leftDuplicates, 0, "no repeated row")
+	assert.deepEqual(c.repeated, [], "no repeated row")
 	assert.equal(j.case.query.dag.roots[0].kind, "SemiJoin")
 	assert.deepEqual(
 		Arr.map(c.diffs, (d) => d.label),

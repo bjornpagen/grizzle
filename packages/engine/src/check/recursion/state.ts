@@ -45,8 +45,8 @@ import { compatible, isInteger } from "#compiler/scalar/compute/types.ts"
  * representation.
  *
  * Every state column needs the hashing capability, because PostgreSQL deduplicates a recursive UNION only by hashing
- * and refuses an unhashable column with 0A000: a money or vector column is UnsupportedOperation (unhashableState) at
- * admission.
+ * and refuses an unhashable column with 0A000: a money, vector or set column is UnsupportedOperation (unhashableState)
+ * at admission.
  *
  * The declared row in canonical code-unit order, each column at its declared type.
  */
@@ -54,24 +54,30 @@ export const declaredRow = (
 	def: ResolvedRecursive,
 	at: SourceLoc,
 	cx: CheckServices
-): ReadonlyMap<string, ScalarType> => {
-	const row = new Map<string, ScalarType>()
+): ReadonlyMap<string, StateType> => {
+	const row = new Map<string, StateType>()
 	for (const [name, desc] of entries(def.row)) {
 		const loc = childLoc(childLoc(at, "row"), name)
-		const type = cx.fieldType(desc, loc)
-		requireHashing(def.name, name, type, loc)
-		row.set(name, type)
+		row.set(name, requireHashing(def.name, name, cx.fieldType(desc, loc), loc))
 	}
 	return row
 }
 
+/**
+ * A state column's type: one that hashes, so never a set. PostgreSQL has no hash operator class for a bit string, so a
+ * set's capabilities hold no hashing, and the type states it for what reads a state column after admission (the
+ * seen-state estimate, termination.ts).
+ */
+export type StateType = Exclude<ScalarType, { readonly carrier: "bits" }>
+
+/** A column's type as a state column's, or the unhashableState refusal of a column whose type does not hash. */
 export const requireHashing = (
 	recursion: string,
 	column: string,
 	type: ScalarType,
 	loc: SourceLoc
-): void => {
-	if (!type.caps.includes("hashing")) {
+): StateType => {
+	if (type.carrier === "bits" || !type.caps.includes("hashing")) {
 		failRecursion(loc, {
 			kind: "unhashableState",
 			recursion,
@@ -79,6 +85,7 @@ export const requireHashing = (
 			type: typeLabel(type)
 		})
 	}
+	return type
 }
 
 /**

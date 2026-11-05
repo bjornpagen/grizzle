@@ -154,7 +154,6 @@ const agree = (
 							}
 						)
 						assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-						assert.equal(outcome.comparison.rightDuplicates, 0, label)
 						assert.deepEqual(appliedRules(side.last()), Arr.sort([...rules], Order.String), label)
 						if (Arr.some(outcome.right.run.statements, (st) => st.rows.length > 0)) {
 							c.note("delivers rows")
@@ -175,7 +174,6 @@ const agreeOn = (label: string, desc: QueryDesc, rules: ReadonlyArray<Certificat
 			schema: { kind: "named", name: schema }
 		})
 		assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-		assert.equal(outcome.comparison.rightDuplicates, 0, label)
 		assert.deepEqual(appliedRules(side.last()), Arr.sort([...rules], Order.String), label)
 		return outcome
 	})

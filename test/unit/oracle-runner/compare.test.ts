@@ -1,7 +1,8 @@
 /**
- * Canonical cell multiset comparison (test/support/oracle/compare.ts): row multisets against a count-by-key oracle, and
- * runs whose cells spell values in any of their output spellings (1.0 and 1.00, -0 and 0) against a count of the values
- * those cells spell, which reads no spelling: two runs agree exactly when they hold one multiset of values.
+ * Canonical cell keyed-set comparison (test/support/oracle/compare.ts): row multisets against a count-by-key oracle,
+ * and runs whose cells spell values in any of their output spellings (1.0 and 1.00, -0 and 0) against a count of the
+ * values those cells spell, which reads no spelling: two runs agree exactly when each holds every value once and they
+ * hold one set of values, so a run that repeats a value agrees with nothing, a run repeating it alike included.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -116,7 +117,11 @@ interface RunPair {
 	readonly right: ReadonlyArray<Row>
 }
 
-type CanonicalFeature = "agree across spellings" | "a value told apart" | "a count told apart"
+type CanonicalFeature =
+	| "agree across spellings"
+	| "a value told apart"
+	| "a count told apart"
+	| "a repeat told apart"
 
 const cellGen: Gen<Cell> = (source) => ({ cls: source.draw(int(0, 4)), sp: source.draw(int(0, 2)) })
 const rowGen: Gen<Row> = (source) => [source.draw(cellGen), source.draw(cellGen)]
@@ -189,7 +194,12 @@ describe("canonical cell multisets", () => {
 						draw: drawn(pairGen),
 						literal: Formatter.format,
 						coverage: required<CanonicalFeature>(
-							["agree across spellings", "a value told apart", "a count told apart"],
+							[
+								"agree across spellings",
+								"a value told apart",
+								"a count told apart",
+								"a repeat told apart"
+							],
 							{ cases: 400, sense: notesOnly }
 						),
 						kept: [],
@@ -207,10 +217,15 @@ describe("canonical cell multisets", () => {
 								)
 							const a = count(left)
 							const b = count(right)
-							const same = a.size === b.size && Arr.every([...a], ([k, n]) => b.get(k) === n)
-							assert.equal(compareRuns(runOf("left", left), runOf("right", right)).equal, same)
-							if (same) {
+							const sameCounts = a.size === b.size && Arr.every([...a], ([k, n]) => b.get(k) === n)
+							const sets = a.size === left.length && b.size === right.length
+							const compared = compareRuns(runOf("left", left), runOf("right", right))
+							assert.equal(compared.equal, sameCounts && sets)
+							assert.equal(compared.repeated.length > 0, !sets)
+							if (sameCounts && sets) {
 								c.note("agree across spellings")
+							} else if (sameCounts) {
+								c.note("a repeat told apart")
 							} else if (left.length === right.length) {
 								c.note("a value told apart")
 							} else {

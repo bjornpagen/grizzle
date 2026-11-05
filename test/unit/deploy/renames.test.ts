@@ -33,7 +33,7 @@ import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { closed, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { closed, f, field, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
@@ -657,7 +657,112 @@ const judge = (box: Box, note: (feature: Feature) => void): void => {
 	}
 }
 
+/** A field the target no longer declares: one its caller writes, or one PostgreSQL generates from its row; and whether
+ * its drop is declared. */
+interface Gone {
+	readonly writing: "caller" | "generated"
+	readonly declared: boolean
+}
+
+type GoneFeature =
+	| "a caller's field refused"
+	| "a caller's field dropped"
+	| "a generated field dropped"
+
+/** The relation P with the field x of `gone`'s writing beside the caller's n, or without x. */
+const goneDesc = (gone: Gone, held: boolean): SchemaDesc => ({
+	name: "Renames",
+	relations: [
+		relation(
+			"P",
+			held
+				? {
+						id: f.uuid,
+						n: f.integer,
+						x: gone.writing === "caller" ? f.integer : f.generated(f.integer, field("n"))
+					}
+				: { id: f.uuid, n: f.integer },
+			["id"]
+		)
+	],
+	statements: [],
+	extends: undefined
+})
+
 describe("declared renames and drops", () => {
+	it.effect(
+		"drop a field grizzle draws again with no declaration, and refuse a caller's field's undeclared drop",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/deploy/renames-drawn-again",
+						generator: (source): Gone => ({
+							writing: source.draw(element(["caller", "generated"] as const)),
+							declared: source.draw(boolean)
+						}),
+						literal: Formatter.format,
+						limit: 4,
+						box: "a caller's field and a generated one dropped, each declared or not",
+						oracle: {
+							kind: "specification",
+							name: "a generated, drawn or accumulated field holds no caller data, so its drop needs no declaration"
+						},
+						coverage: requiredInSpace<GoneFeature>([
+							"a caller's field refused",
+							"a caller's field dropped",
+							"a generated field dropped"
+						]),
+						caseHang
+					},
+					(gone, c) =>
+						Effect.sync(() => {
+							const x: Named = { kind: "field", relation: parsedName("P"), field: parsedName("x") }
+							const previous = draft(
+								emptySnapshot({ schemaName: "Renames", schema: "renames" }),
+								{ desc: goneDesc(gone, true), logins: [] },
+								{ renames: [], drops: [] },
+								new Map()
+							)
+							if (Result.isFailure(previous)) {
+								return assert.fail(`the starting draft: ${previous.failure.message}`)
+							}
+							const drafted = draft(
+								previous.success.snapshot,
+								{ desc: goneDesc(gone, false), logins: [] },
+								{ renames: [], drops: gone.declared ? [x] : [] },
+								new Map()
+							)
+							if (gone.writing === "caller" && !gone.declared) {
+								const reason = Result.isFailure(drafted) ? drafted.failure.reason : undefined
+								assert.ok(
+									reason?._tag === "UndeclaredDrop",
+									"a caller's field dropped undeclared is refused"
+								)
+								if (reason?._tag === "UndeclaredDrop") {
+									assert.deepEqual(reason.dropped, x)
+								}
+								c.note("a caller's field refused")
+								return
+							}
+							if (Result.isFailure(drafted)) {
+								return assert.fail(`the draft drafts: ${drafted.failure.message}`)
+							}
+							const p = drafted.success.snapshot.theory.relations["P"]
+							assert.deepEqual(
+								p?.kind === "relation" ? Arr.map(p.fields, (y) => y.name) : [],
+								["id", "n"],
+								"the field is dropped"
+							)
+							c.note(
+								gone.writing === "caller" ? "a caller's field dropped" : "a generated field dropped"
+							)
+						})
+				)
+			)
+	)
+
 	it.effect(
 		"draft exactly the model's identities for every pair of renames, drops and additions over three names, refusing every drop no declaration names",
 		(ctx) =>

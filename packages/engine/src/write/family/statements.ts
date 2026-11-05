@@ -466,7 +466,7 @@ export const rowStatement = (
 					kind: "insert",
 					with: undefined,
 					table: w.names.relation(relation.name),
-					alias: undefined,
+					alias: target,
 					overriding: undefined,
 					onConflict: undefined,
 					columns: all.map((c) => installed(w, relation.name, c.column)),
@@ -481,14 +481,7 @@ export const rowStatement = (
 						)
 					},
 					returning: returned.map((f) =>
-						targetAs(
-							{
-								kind: "column",
-								table: undefined,
-								column: w.names.column(relation.name, f.field.name)
-							},
-							f.column
-						)
+						targetAs(stored({ kind: "field", field: f.field }), f.column)
 					)
 				},
 				returned

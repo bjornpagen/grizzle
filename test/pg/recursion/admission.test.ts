@@ -407,7 +407,6 @@ layer(Substrate.layer)("admitted recursions on PostgreSQL 19", (it) => {
 									schema: { kind: "named", name: name }
 								})
 								assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-								assert.equal(outcome.comparison.leftDuplicates, 0, printOutcome(outcome))
 								assert.ok(
 									Arr.some(outcome.left.run.statements, (st) => st.rows.length > 0),
 									printOutcome(outcome)

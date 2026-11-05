@@ -8,7 +8,7 @@ import type { NodeOver, RelNode, ValueRefs } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeProgram, conservativeInput } from "#compiler/lower/conservative/types.ts"
 import type { Select, SelectBody, SelectCore } from "#compiler/sql/ast.ts"
-import { canonicalRows, rowMultiset, rawRowKey } from "#test/support/oracle/compare.ts"
+import { canonicalRows, rawRowKey, repeatsOn, rowMultiset } from "#test/support/oracle/compare.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import {
@@ -87,7 +87,7 @@ export const recursiveEquivalence = <C extends RecursiveCase>(
 					...defaultRunOptions,
 					schema: { kind: "named", name: schema }
 				})
-				if (!outcome.comparison.equal || outcome.comparison.leftDuplicates > 0) {
+				if (!outcome.comparison.equal) {
 					return yield* comparisonFailed(outcome)
 				}
 				if (deliveredRows(outcome)) {
@@ -285,8 +285,8 @@ export const told = (o: OracleOutcome): boolean => !o.comparison.equal
 export const repeatsStates = (o: OracleOutcome): boolean => {
 	if (
 		o.comparison.structural.length > 0 ||
-		o.comparison.leftDuplicates > 0 ||
-		o.comparison.rightDuplicates === 0
+		repeatsOn(o.comparison, "left") > 0 ||
+		repeatsOn(o.comparison, "right") === 0
 	) {
 		return false
 	}
@@ -306,11 +306,7 @@ export const repeatsStates = (o: OracleOutcome): boolean => {
  * merged), and no repeated row on either side, rows compared as values (compare.ts canonicalRows).
  */
 export const undercounts = (o: OracleOutcome, countColumn: string): boolean => {
-	if (
-		o.comparison.structural.length > 0 ||
-		o.comparison.leftDuplicates > 0 ||
-		o.comparison.rightDuplicates > 0
-	) {
+	if (o.comparison.structural.length > 0 || o.comparison.repeated.length > 0) {
 		return false
 	}
 	return Arr.every(o.left.run.statements, (st, i) => {

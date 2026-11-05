@@ -113,13 +113,13 @@ For data-only work: `grizzle generate grizzle.config.ts --custom --name <name>`,
 commit and `migrate`.
 
 Commands: `grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...`,
-`grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle check <config>`,
-`grizzle migrate <config>`, `grizzle drift <config>`, `grizzle names <config>`. Flags come anywhere after the command, as `--flag value` or `--flag=value`. A name is
-lowercase words joined by `_` or `-`, at most 240 characters, so that the folder `<timestamp>_<name>` fits one file
-name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its change (`init`,
-`add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only when the config
-lists several schemas; there it is required with `--custom`, `--rename` or `--drop`. Exit codes: 0 ok, 1 refused, 2 usage error,
-130 interrupted.
+`grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle check <config>`, `grizzle migrate
+<config>`, `grizzle drift <config>`, `grizzle names <config>`. Flags come anywhere after the command, as `--flag value`
+or `--flag=value`. A name is lowercase words joined by `_` or `-`, at most 240 characters, so that the folder
+`<timestamp>_<name>` fits one file name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its
+change (`init`, `add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only
+when the config lists several schemas; there it is required with `--custom`, `--rename` or `--drop`. Exit codes: 0 ok, 1
+refused, 2 usage error, 130 interrupted.
 
 ## Reading a draft
 
@@ -137,27 +137,26 @@ breaking change may briefly break older application instances that are still run
   roster's names constant is its handles as `name[]` in code order, `""` at a hole; a set's `live` function is
   derived from it. The domains are a roster's smallint domain over its names constant, a set's `bit(n)` domain over
   `live`, and the contract and text domains, one per distinct definition.
-- **structure**: tables, columns, constraints (`NOT VALID` on a table that may hold rows), materialized views. Each
-  term of a selected side, and each `pred` term, is a STORED generated column, `CASE WHEN φ THEN t END`
-  (`__<field>_…`, `__pred_<field>_…`), and a rule's key over them is `UNIQUE NULLS DISTINCT` and its foreign key
-  `MATCH SIMPLE`; a selected target's constant is a generated column too, `__tag_<field>_<value>_…`. A family's
-  hidden columns, which grizzle fills on every write, are each their own `ADD COLUMN` (`__index_<count>_…`,
-  `__copy_<count>_…`, `__before_<count>_<plane>_…`, `__after_<count>_<plane>_…`, `__predecessor_<count>_…`), and each
-  CHECK over them its own `ADD CONSTRAINT`. A roster whose names changed has its domain's CHECK dropped and added
-  `NOT VALID` against the new names constant, validated in Validate; a set over a roster that grew is converted to
-  the new size's domain by its cast, the new handles absent. A table CHECK or generated field over a changed closed
-  relation is replaced the same way, or takes its new expression (`SET EXPRESSION`). A field
-  whose type changes is converted in place, `ALTER COLUMN ... TYPE ... USING` with a placeholder for the conversion,
-  or by its cast, with no placeholder, when the new type holds the old one's values (a pattern changed, a contract
-  added, removed or swapped for another over the same base), after the constraints, indexes and statistics over it are
-  dropped; they are built again as on any table with rows, but a key over it, which is added again right after the
-  conversion in the same transaction, so it holds throughout. A contract's changed predicate replaces its domain's one
-  CHECK in place, `NOT VALID`, validated in Validate. A changed pattern is another pattern's domain, so each field it
-  types is converted to it by its cast, which refuses a stored value the new pattern doesn't admit (23514). Every
-  world object an existing role relies on (a view, a policy, a filter function, a key or unique probe) that changes, or
-  that reads anything the migration changes or drops (a relation, a column, a type, a materialized view, a function),
-  is dropped at the start of this transaction and created again, with its grants, at its end, so no committed state
-  lacks it.
+- **structure**: tables, columns, constraints (`NOT VALID` on a table that may hold rows), materialized views. Each term
+  of a selected side, and each `pred` term, is a STORED generated column, `CASE WHEN φ THEN t END` (`__<field>_…`,
+  `__pred_<field>_…`), and a rule's key over them is `UNIQUE NULLS DISTINCT` and its foreign key `MATCH SIMPLE`; a
+  selected target's constant is a generated column too, `__tag_<field>_<value>_…`. A family's hidden columns, which
+  grizzle fills on every write, are each their own `ADD COLUMN` (`__index_<count>_…`, `__copy_<count>_…`,
+  `__before_<count>_<plane>_…`, `__after_<count>_<plane>_…`, `__predecessor_<count>_…`), and each CHECK over them its
+  own `ADD CONSTRAINT`. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the
+  new names constant, validated in Validate; a set over a roster that grew is converted to the new size's domain by its
+  cast, the new handles absent. A table CHECK or generated field over a changed closed relation is replaced the same
+  way, or takes its new expression (`SET EXPRESSION`). A field whose type changes is converted in place, `ALTER COLUMN
+  ... TYPE ... USING` with a placeholder for the conversion, or by its cast, with no placeholder, when the new type
+  holds the old one's values (a pattern changed, a contract added, removed or swapped for another over the same base),
+  after the constraints, indexes and statistics over it are dropped; they are built again as on any table with rows, but
+  a key over it, which is added again right after the conversion in the same transaction, so it holds throughout. A
+  contract's changed predicate replaces its domain's one CHECK in place, `NOT VALID`, validated in Validate. A changed
+  pattern is another pattern's domain, so each field it types is converted to it by its cast, which refuses a stored
+  value the new pattern doesn't admit (23514). Every world object an existing role relies on (a view, a policy, a filter
+  function, a key or unique probe) that changes, or that reads anything the migration changes or drops (a relation, a
+  column, a type, a materialized view, a function), is dropped at the start of this transaction and created again, with
+  its grants, at its end, so no committed state lacks it.
 - **indexes**: `CREATE INDEX CONCURRENTLY` on tables that may hold rows, in a no-transaction file, so writes keep
   flowing. A table this migration creates gets an ordinary build. The extended statistics a workload program earns are
   created here too, on a table or a materialized view, each followed by an `ANALYZE` of a relation that may hold rows.
@@ -244,8 +243,9 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   `check` says: snapshot.json does not decode as a snapshot, or is the snapshot of another schema; restore it from
   git. It lists each installed statement compact on a line of its own, so a review of its diff reads each changed
   statement as one changed line.
-- `meta.json`: it records the folder's place in the chain, and in `decisions` the candidates, confirmed groups and data
-  losses its files mark, which `check` reads every reviewed file against. `check` says: meta.json does not decode as a
+- `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, and every
+  drafted statement of every file in its place, its confirmed groups and data losses among them, which `check` reads
+  every reviewed file against. `check` says: meta.json does not decode as a
   migration's meta.json, or names another schema; restore it from git, or broken chain: this migration does not start
   where the previous one ends; regenerate; never hand-edit meta.json.
 - An applied migration: the database ran exactly that text, and the ledger holds its digest. `migrate` says
@@ -253,18 +253,18 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
 - Transaction control (`BEGIN`, `COMMIT`, `ROLLBACK`, `END`, `ABORT`, `PREPARE TRANSACTION`): grizzle runs each file
   as one transaction and records it inside that transaction. `check` says: a migration file runs as one transaction,
   or each statement alone with -- grizzle: no-transaction, and never controls the transaction itself.
-- The writer-excluding `LOCK` or the violation check in a Validate file: without them a direct writer can store a row
-  that breaks the law while it is being installed, and the law is then never proven.
+- The violation check of a rule over closed relations alone, at the start of Setup: without it the migration installs
+  closed rows that break the rule, and no later statement checks them again.
 - `CONCURRENTLY` turned into a plain build: a plain build blocks every write to the table while it runs.
 
 ## Custom migrations
 
-Use one for data work the schema doesn't describe: purges, cutovers, enum rebuilds, a backfill before a contract base
-changes. `grizzle generate <config> --custom --name <name>` writes a folder with only `meta.json`, whose source and
-target are
-the current snapshot. Add `01-<words>.sql`, `02-<words>.sql` and so on; each is a transaction unless its first line is
-`-- grizzle: no-transaction`. The catalog must still end at the snapshot. `grizzle migrate` runs every migration file
-at SERIALIZABLE, so a reviewer's data step or a custom migration writes like any direct writer.
+Use one for data work the schema doesn't describe: purges, cutovers, rows that hold a handle you are about to drop, a
+backfill before a contract base changes. `grizzle generate <config> --custom --name <name>` writes a folder with only
+`meta.json`, whose source and target are the current snapshot. Add `01-<words>.sql`, `02-<words>.sql` and so on; each is
+a transaction unless its first line is `-- grizzle: no-transaction`. The catalog must still end at the snapshot.
+`grizzle migrate` runs every migration file at SERIALIZABLE, so a reviewer's data step or a custom migration writes like
+any direct writer.
 
 ## Refusals
 
@@ -450,7 +450,10 @@ The command line's own refusals, by stage:
   of a schema, a contract a context names beside a relation, roster or contract of the schema), a name may not start
   with `_`, a conversion (a login's or role's with its schema's) must fit 63 bytes, and a schema's must not start with
   `pg_`. Everything else is `__<readable part>_<digest>` and carries a COMMENT saying what it is: `grizzle names`
-  prints that mapping from the committed snapshot. Write direct SQL against those names. An outcome's `law` is the law
-  as the schema states it, such as `{ kind: "key", relation: "User", fields: ["email"] }`: match on it directly.
+  prints that mapping from the committed snapshot. Write direct SQL against those names. An outcome's `laws` are the
+  laws as the schema states them, never empty, such as `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`:
+  match on them directly. A direct writer of a family's member fills its hidden columns as grizzle does (its index,
+  its copy of the owner's count, each fold's running values) and the owner's count and ends; PostgreSQL refuses every
+  value that breaks the family.
 - This file ships in the package as `skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again
   after upgrading grizzle.

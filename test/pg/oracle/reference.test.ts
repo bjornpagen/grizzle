@@ -37,7 +37,7 @@ import {
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, containsEqual, containsText } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import type { StructuralDifference } from "#test/support/oracle/compare.ts"
+import { repeatsOn, type StructuralDifference } from "#test/support/oracle/compare.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
 import {
 	canonicallySpelled,
@@ -226,8 +226,8 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					result.report
 				)
 				assert.deepEqual(outcome.comparison.structural, [])
-				assert.ok(outcome.comparison.leftDuplicates > 0)
-				assert.equal(outcome.comparison.rightDuplicates, 0)
+				assert.ok(repeatsOn(outcome.comparison, "left") > 0)
+				assert.equal(repeatsOn(outcome.comparison, "right"), 0)
 			})
 	)
 

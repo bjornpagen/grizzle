@@ -232,16 +232,12 @@ const programAgrees = (o: ProgramOutcome): boolean =>
 	Arr.every(
 		o.conservative.statements,
 		(s) => new Set(Arr.map(s.rows, (r) => canonicalTextOf(r))).size === s.rows.length
-	) &&
-	Arr.every(
-		o.optimized,
-		(r) => r.comparison.equal && r.comparison.rightDuplicates === 0 && r.order.length === 0
-	)
+	) && Arr.every(o.optimized, (r) => r.comparison.equal && r.order.length === 0)
 
 const printProgramOutcome = (o: ProgramOutcome, program: PayrollProgram): string => {
 	const lines = [`program ${o.name} with ${Formatter.format(o.params)}`]
 	for (const r of o.optimized) {
-		if (r.comparison.equal && r.comparison.rightDuplicates === 0 && r.order.length === 0) {
+		if (r.comparison.equal && r.order.length === 0) {
 			continue
 		}
 		lines.push(printComparison(r.comparison, "conservative", r.form))

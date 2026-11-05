@@ -171,7 +171,7 @@ const agreeOn = (population: Population) =>
 						...defaultRunOptions,
 						schema: { kind: "named", name: schema }
 					})
-					if (!outcome.comparison.equal || outcome.comparison.leftDuplicates > 0) {
+					if (!outcome.comparison.equal) {
 						return yield* comparisonFailed(outcome)
 					}
 					if (Arr.some(outcome.left.run.statements, (st) => st.rows.length > 0)) {
@@ -334,7 +334,7 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 									schema: { kind: "named", name: schema }
 								})
 								const cmp = both.comparison
-								if (!cmp.equal || cmp.leftDuplicates > 0 || cmp.rightDuplicates > 0) {
+								if (!cmp.equal) {
 									return yield* comparisonFailed(both)
 								}
 								if (both.right.kind === "reference") {

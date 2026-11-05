@@ -107,7 +107,7 @@ const agreeOn = (ctx: TestContext, gen: Gen<QueryCase>, suite: string) =>
 							schema: { kind: "named", name: schema }
 						} as const
 						const outcome = yield* runOracle(c, conservative, reference, options)
-						if (!outcome.comparison.equal || outcome.comparison.leftDuplicates > 0) {
+						if (!outcome.comparison.equal) {
 							return yield* new PropertyFailed({ report: printOutcome(outcome) })
 						}
 						if (outcome.right.kind === "reference") {

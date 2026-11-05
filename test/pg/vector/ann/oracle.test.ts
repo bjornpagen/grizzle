@@ -128,7 +128,7 @@ const agree = Effect.gen(function* () {
 					...defaultRunOptions,
 					schema: { kind: "named", name: schema }
 				})
-				if (!outcome.comparison.equal || outcome.comparison.leftDuplicates !== 0) {
+				if (!outcome.comparison.equal) {
 					return yield* comparisonFailed(outcome)
 				}
 				if (Arr.some(outcome.left.run.statements, (st) => st.rows.length > 0)) {
